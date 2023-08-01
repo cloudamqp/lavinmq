@@ -4,9 +4,11 @@ module LavinMQ
   class StreamQueue < Queue
     class StreamQueueMessageStore < MessageStore
       getter new_messages = Channel(Bool).new
-      property max_length : Int64? = nil
-      property max_length_bytes : Int64? = nil
+      property max_length : Int64?
+      property max_length_bytes : Int64?
+      property max_age : Time::Span | Time::MonthSpan | Nil
       @last_offset : Int64
+      @segments_last_ts = Hash(UInt32, Int64).new(0i64) # used for max-age
 
       def initialize(@data_dir : String, @replicator : Replication::Server?)
         super
@@ -117,6 +119,7 @@ module LavinMQ
         sp = write_to_disk(msg)
         @bytesize += sp.bytesize
         @size += 1
+        @segments_last_ts[sp.segment] = msg.timestamp
         @new_messages.try_send? true
         sp
       end
@@ -128,24 +131,31 @@ module LavinMQ
 
       def drop_overflow
         if max_length = @max_length
-          drop_segments_until do
-            max_length >= @size
+          drop_segments_while do
+            @size > max_length
           end
         end
         if max_bytes = @max_length_bytes
-          drop_segments_until do
-            max_bytes >= @bytesize
+          drop_segments_while do
+            @bytesize > max_bytes
+          end
+        end
+        if max_age = @max_age
+          min_ts = RoughTime.utc - max_age
+          drop_segments_while do |seg_id|
+            last_ts = @segments_last_ts[seg_id]
+            Time.unix_ms(last_ts) < min_ts
           end
         end
       end
 
-      private def drop_segments_until(& : MFile -> Bool)
+      private def drop_segments_while(& : UInt32 -> Bool)
         @segments.reject! do |seg_id, mfile|
-          next if mfile == @wfile
-          break if yield mfile
+          break unless yield seg_id
           count = @segment_msg_count.delete(seg_id) || raise KeyError.new
+          @segments_last_ts.delete(seg_id)
           @size -= count
-          @bytesize -= mfile.size
+          @bytesize -= mfile.size - 4
           mfile.delete.close
           @replicator.try &.delete_file(mfile.path)
           true

@@ -79,6 +79,19 @@ describe LavinMQ::StreamQueue do
         count.should be < 20
       end
     end
+
+    it "segments should be removed if max-age set" do
+      with_channel do |ch|
+        args = {"x-queue-type": "stream", "x-max-age": "1s"}
+        q = ch.queue("stream-max-age", args: AMQP::Client::Arguments.new(args))
+        data = Bytes.new(LavinMQ::Config.instance.segment_size)
+        2.times { q.publish_confirm data }
+        sleep 1
+        q.publish_confirm data
+        count = ch.queue_declare(q.name, passive: true)[:message_count]
+        count.should eq 1
+      end
+    end
   end
 
   it "doesn't support basic_get" do

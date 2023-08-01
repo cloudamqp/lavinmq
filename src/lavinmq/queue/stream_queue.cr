@@ -8,6 +8,17 @@ module LavinMQ
 
     def apply_policy(policy : Policy?, operator_policy : OperatorPolicy?)
       super
+      if max_age_value = Policy.merge_definitions(policy, operator_policy)["max-age"]?
+        if max_age_policy = parse_max_age(max_age_value.as_s?)
+          if current_max = stream_queue_msg_store.max_age
+            if current_max > max_age_policy
+              stream_queue_msg_store.max_age = max_age_policy
+            end
+          else
+            stream_queue_msg_store.max_age = max_age_policy
+          end
+        end
+      end
       stream_queue_msg_store.max_length = @max_length
       stream_queue_msg_store.max_length_bytes = @max_length_bytes
       stream_queue_msg_store.drop_overflow
@@ -108,9 +119,32 @@ module LavinMQ
       if @single_active_consumer_queue
         raise LavinMQ::Error::PreconditionFailed.new("x-single-active-consumer not allowed for stream queues")
       end
+      stream_queue_msg_store.max_age = parse_max_age(@arguments["x-max-age"]?)
       stream_queue_msg_store.max_length = @max_length
       stream_queue_msg_store.max_length_bytes = @max_length_bytes
       stream_queue_msg_store.drop_overflow
+    end
+
+    private def parse_max_age(value) : Time::Span | Time::MonthSpan | Nil
+      return if value.nil?
+      if str = value.as?(String)
+        if match = str.match(/\A(\d+)([YMDhms])\z/)
+          int = match[1].to_i64
+          case match[2]
+          when "s" then Time::Span.new(seconds: int)
+          when "m" then Time::Span.new(minutes: int)
+          when "h" then Time::Span.new(hours: int)
+          when "D" then Time::Span.new(days: int)
+          when "M" then Time::MonthSpan.new(int)
+          when "Y" then Time::MonthSpan.new(int * 12)
+          raise LavinMQ::Error::PreconditionFailed.new("max-age invalid")
+          end
+        else
+          raise LavinMQ::Error::PreconditionFailed.new("max-age invalid")
+        end
+      else
+        raise LavinMQ::Error::PreconditionFailed.new("max-age must be a string")
+      end
     end
   end
 end
