@@ -481,6 +481,7 @@ module LavinMQ
 
         found = false
         if frame.multiple
+          found = true if frame.delivery_tag.zero?
           delete_multiple_unacked(frame.delivery_tag) do |unack|
             found = true
             do_ack(unack)
