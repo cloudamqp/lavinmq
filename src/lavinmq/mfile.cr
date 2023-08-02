@@ -303,6 +303,18 @@ class MFile < IO
     @path = new_path
   end
 
+  def read_at(offset : Int, slice : Bytes)
+    total = slice.size
+    until slice.empty?
+      cnt = LibC.pread(@fd, slice, slice.size, offset)
+      raise File::Error.from_errno("pread", file: @path) if cnt < 0
+      break if cnt.zero?
+      slice += cnt
+      offset += cnt
+    end
+    total - slice.size
+  end
+
   PAGESIZE = LibC.sysconf(LibC::SC_PAGESIZE).to_u32
 
   private def page_align(n : Int) : Int

@@ -94,15 +94,6 @@ module LavinMQ
           end
         end
 
-        get "/api/queues/:vhost/:name/size-details" do |context, params|
-          with_vhost(context, params) do |vhost|
-            refuse_unless_management(context, user(context), vhost)
-            JSON.build(context.response) do |json|
-              queue(context, params, vhost).size_details_to_json(json)
-            end
-          end
-        end
-
         delete "/api/queues/:vhost/:name" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)

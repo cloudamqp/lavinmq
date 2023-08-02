@@ -482,6 +482,14 @@ describe LavinMQ::Server do
     end
   end
 
+  it "acking tag 0 with multiple=true should not close the channel" do
+    with_channel do |ch|
+      ch.basic_ack(0, multiple: true)
+      sleep 0.01
+      ch.basic_ack(0, multiple: true)
+    end
+  end
+
   it "can bind exchanges to exchanges" do
     with_channel do |ch|
       x1 = ch.exchange("x1", "direct")
