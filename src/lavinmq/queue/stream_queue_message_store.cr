@@ -162,7 +162,8 @@ module LavinMQ
         end
       end
 
-      private def update_stat_per_msg(seg, ts)
+      private def update_stat_per_msg(seg, ts, bytesize)
+        super
         @segment_last_ts[seg] = last_ts
       end
 

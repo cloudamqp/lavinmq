@@ -319,8 +319,6 @@ module LavinMQ
             bytesize = BytesMessage.skip(mfile)
             count += 1
             next if deleted?(seg, pos)
-            @bytesize += bytesize
-            @size += 1
             update_stats_per_msg(seg, ts)
           rescue ex : IO::EOFError
             break
@@ -333,8 +331,9 @@ module LavinMQ
         end
       end
 
-      # override in subclasses
-      private def update_stats_per_msg(seg, ts)
+      private def update_stats_per_msg(seg, ts, bytesize)
+        @bytesize += bytesize
+        @size += 1
       end
 
       private def delete_unused_segments : Nil
