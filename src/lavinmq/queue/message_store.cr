@@ -319,7 +319,7 @@ module LavinMQ
             bytesize = BytesMessage.skip(mfile)
             count += 1
             next if deleted?(seg, pos)
-            update_stats_per_msg(seg, ts)
+            update_stats_per_msg(seg, ts, bytesize)
           rescue ex : IO::EOFError
             break
           rescue ex : OverflowError | AMQ::Protocol::Error::FrameDecode
