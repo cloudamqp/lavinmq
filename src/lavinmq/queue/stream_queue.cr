@@ -137,10 +137,10 @@ module LavinMQ
           when "D" then Time::Span.new(days: int)
           when "M" then Time::MonthSpan.new(int)
           when "Y" then Time::MonthSpan.new(int * 12)
-          raise LavinMQ::Error::PreconditionFailed.new("max-age invalid")
+          else          raise LavinMQ::Error::PreconditionFailed.new("max-age unit unit")
           end
         else
-          raise LavinMQ::Error::PreconditionFailed.new("max-age invalid")
+          raise LavinMQ::Error::PreconditionFailed.new("max-age format invalid")
         end
       else
         raise LavinMQ::Error::PreconditionFailed.new("max-age must be a string")
