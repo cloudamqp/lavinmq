@@ -482,12 +482,16 @@ module LavinMQ
     end
 
     private def has_expired?(msg : BytesMessage, requeue = false) : Bool
-      return false if msg.ttl.try(&.zero?) && !requeue && !@consumers.empty?
+      return false if zero_ttl?(msg) && !requeue && !@consumers.empty?
       if expire_at = expire_at(msg)
         expire_at <= RoughTime.unix_ms
       else
         false
       end
+    end
+
+    private def zero_ttl?(msg) : Bool
+      @message_ttl.try &.zero? || msg.ttl.try &.zero? || false
     end
 
     private def expire_at(msg : BytesMessage) : Int64?
