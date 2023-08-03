@@ -60,6 +60,7 @@ module LavinMQ
         {@last_offset + 1, @segments.last_key, @segments.last_value.size.to_u32}
       end
 
+      # ameba:disable Metrics/CyclomaticComplexity
       private def find_offset_in_segments(offset : Int | Time) : Tuple(Int64, UInt32, UInt32)
         segment = @segments.first_key
         pos = 4u32
@@ -88,6 +89,7 @@ module LavinMQ
         {msg_offset, segment, pos}
       end
 
+      # ameba:disable Metrics/CyclomaticComplexity
       def shift?(consumer : Client::Channel::StreamConsumer) : Envelope?
         raise ClosedError.new if @closed
 
