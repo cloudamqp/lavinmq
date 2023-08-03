@@ -14,7 +14,7 @@ describe LavinMQ::StreamQueue do
         q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": 2})) do |msg|
           msgs.send msg
         end
-        msg = msgs.receive(5.seconds)
+        msg = msgs.receive
         msg.properties.headers.should eq LavinMQ::AMQP::Table.new({"x-stream-offset": 2})
       end
     end
@@ -30,7 +30,7 @@ describe LavinMQ::StreamQueue do
           msg.ack
         end
         10.times do
-          msgs.receive(5.seconds)
+          msgs.receive
         end
       end
     end
@@ -49,7 +49,7 @@ describe LavinMQ::StreamQueue do
           end
         end
         20.times do
-          msgs.receive(5.seconds)
+          msgs.receive
         end
       end
     end
@@ -65,9 +65,9 @@ describe LavinMQ::StreamQueue do
           msg.ack
           msgs.send(msg)
         end
-        msgs.receive(5.seconds).body_io.to_s.should eq "1"
+        msgs.receive.body_io.to_s.should eq "1"
         q.publish "2"
-        msgs.receive(5.seconds).body_io.to_s.should eq "2"
+        msgs.receive.body_io.to_s.should eq "2"
       end
     end
   end
@@ -138,10 +138,10 @@ describe LavinMQ::StreamQueue do
       q.subscribe(no_ack: false) do |msg|
         msgs.send msg
       end
-      msg1 = msgs.receive(5.seconds)
+      msg1 = msgs.receive
       msg1.body_io.to_s.should eq "foobar"
       msg1.reject(requeue: true)
-      msg2 = msgs.receive(5.seconds)
+      msg2 = msgs.receive
       msg2.body_io.to_s.should eq "foobar"
     end
   end

@@ -63,13 +63,4 @@ class Channel(T)
   ensure
     @lock.unlock
   end
-
-  def receive(timeout : Time::Span) : T
-    select
-    when msg = receive
-      msg
-    when timeout(timeout)
-      raise "Channel timeout"
-    end
-  end
 end
