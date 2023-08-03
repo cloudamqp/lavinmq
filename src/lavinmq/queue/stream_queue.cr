@@ -24,13 +24,7 @@ module LavinMQ
       stream_queue_msg_store.drop_overflow
     end
 
-    def new_messages : Channel(Bool)
-      stream_queue_msg_store.new_messages
-    end
-
-    def find_offset(offset) : Tuple(UInt32, UInt32)
-      stream_queue_msg_store.find_offset(offset)
-    end
+    delegate last_offset, new_messages, find_offset, to: @msg_store.as(StreamQueueMessageStore)
 
     private def message_expire_loop
       # StreamQueues doesn't handle message expiration

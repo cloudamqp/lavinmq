@@ -5,15 +5,15 @@ module LavinMQ
   class Client
     class Channel
       class StreamConsumer < LavinMQ::Client::Channel::Consumer
-        property? end_of_queue = false
-        property segment = 1_u32
-        property pos = 4_u32
+        property offset : Int64
+        property segment : UInt32
+        property pos : UInt32
         getter requeued = Deque(SegmentPosition).new
 
         def initialize(@channel : Client::Channel, @queue : StreamQueue, frame : AMQP::Frame::Basic::Consume)
           validate_preconditions(frame)
           offset = frame.arguments["x-stream-offset"]?
-          @segment, @pos = stream_queue.find_offset(offset)
+          @offset, @segment, @pos = stream_queue.find_offset(offset)
           super
         end
 
@@ -63,7 +63,7 @@ module LavinMQ
         end
 
         private def wait_for_queue_ready
-          if end_of_queue? && @requeued.empty?
+          if @offset > stream_queue.last_offset && @requeued.empty?
             @log.debug { "Waiting for queue not to be empty" }
             select
             when stream_queue.new_messages.receive
