@@ -14,7 +14,7 @@ describe LavinMQ::StreamQueue do
         q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": 2})) do |msg|
           msgs.send msg
         end
-        msg = msgs.receive
+        msg = msgs.receive(5.seconds)
         msg.properties.headers.should eq LavinMQ::AMQP::Table.new({"x-stream-offset": 2})
       end
     end
@@ -30,7 +30,7 @@ describe LavinMQ::StreamQueue do
           msg.ack
         end
         10.times do
-          msgs.receive
+          msgs.receive(5.seconds)
         end
       end
     end
@@ -49,7 +49,7 @@ describe LavinMQ::StreamQueue do
           end
         end
         20.times do
-          msgs.receive
+          msgs.receive(5.seconds)
         end
       end
     end
@@ -65,35 +65,31 @@ describe LavinMQ::StreamQueue do
           msg.ack
           msgs.send(msg)
         end
-        msgs.receive.body_io.to_s.should eq "1"
+        msgs.receive(5.seconds).body_io.to_s.should eq "1"
         q.publish "2"
-        msgs.receive.body_io.to_s.should eq "2"
+        msgs.receive(5.seconds).body_io.to_s.should eq "2"
       end
     end
   end
 
   describe "Expiration" do
     it "segments should be removed if max-length set" do
-      q_name = "pub_and_consume_4"
       with_channel do |ch|
         args = {"x-queue-type": "stream", "x-max-length": 1}
-        q = ch.queue(q_name, args: AMQP::Client::Arguments.new(args))
-        data = Bytes.new(1_000_000)
-        10.times { q.publish_confirm data }
-        count = ch.queue_declare(q_name, passive: true)[:message_count]
-        count.should be < 10
+        q = ch.queue("stream-max-length", args: AMQP::Client::Arguments.new(args))
+        data = Bytes.new(LavinMQ::Config.instance.segment_size)
+        3.times { q.publish_confirm data }
+        q.message_count.should eq 1
       end
     end
 
     it "segments should be removed if max-length-bytes set" do
-      q_name = "pub_and_consume_4"
       with_channel do |ch|
         args = {"x-queue-type": "stream", "x-max-length-bytes": 100_000}
-        q = ch.queue(q_name, args: AMQP::Client::Arguments.new(args))
+        q = ch.queue("stream-max-length-bytes", args: AMQP::Client::Arguments.new(args))
         data = Bytes.new(100_000)
         20.times { q.publish_confirm data }
-        count = ch.queue_declare(q_name, passive: true)[:message_count]
-        count.should be < 20
+        q.message_count.should be < 20
       end
     end
 
@@ -105,8 +101,7 @@ describe LavinMQ::StreamQueue do
         2.times { q.publish_confirm data }
         sleep 1.1
         q.publish_confirm data
-        count = ch.queue_declare(q.name, passive: true)[:message_count]
-        count.should eq 1
+        q.message_count.should eq 1
       end
     end
 
@@ -119,19 +114,17 @@ describe LavinMQ::StreamQueue do
         2.times { q.publish_confirm data }
         sleep 1.1
         q.publish_confirm data
-        count = ch.queue_declare(q.name, passive: true)[:message_count]
-        count.should eq 1
+        q.message_count.should eq 1
       end
     end
   end
 
   it "doesn't support basic_get" do
-    q_name = "stream_basic_get"
     with_channel do |ch|
-      q = ch.queue(q_name, args: stream_queue_args)
+      q = ch.queue("stream_basic_get", args: stream_queue_args)
       q.publish_confirm "foobar"
       expect_raises(AMQP::Client::Channel::ClosedException, /NOT_IMPLEMENTED.*basic_get/) do
-        ch.basic_get(q_name, no_ack: false)
+        ch.basic_get(q.name, no_ack: false)
       end
     end
   end
@@ -145,10 +138,10 @@ describe LavinMQ::StreamQueue do
       q.subscribe(no_ack: false) do |msg|
         msgs.send msg
       end
-      msg1 = msgs.receive
+      msg1 = msgs.receive(5.seconds)
       msg1.body_io.to_s.should eq "foobar"
       msg1.reject(requeue: true)
-      msg2 = msgs.receive
+      msg2 = msgs.receive(5.seconds)
       msg2.body_io.to_s.should eq "foobar"
     end
   end
