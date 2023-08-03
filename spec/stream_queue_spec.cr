@@ -106,10 +106,10 @@ describe LavinMQ::StreamQueue do
     end
 
     it "removes segments on publish if max-age policy is set" do
-      Server.vhosts["/"].add_policy("max", ".*", "queues", {"max-age" => JSON::Any.new("1s")}, 0i8)
+      Server.vhosts["/"].add_policy("max", "stream-max-age-policy", "queues", {"max-age" => JSON::Any.new("1s")}, 0i8)
       with_channel do |ch|
         args = {"x-queue-type": "stream", "x-max-age": "1M"}
-        q = ch.queue("stream-max-age", args: AMQP::Client::Arguments.new(args))
+        q = ch.queue("stream-max-age-policy", args: AMQP::Client::Arguments.new(args))
         data = Bytes.new(LavinMQ::Config.instance.segment_size)
         2.times { q.publish_confirm data }
         sleep 1.1
