@@ -148,12 +148,12 @@ module LavinMQ
       def drop_overflow
         if max_length = @max_length
           drop_segments_while do
-            @size > max_length
+            @size >= max_length
           end
         end
         if max_bytes = @max_length_bytes
           drop_segments_while do
-            @bytesize > max_bytes
+            @bytesize >= max_bytes
           end
         end
         if max_age = @max_age
