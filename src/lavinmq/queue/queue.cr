@@ -491,7 +491,7 @@ module LavinMQ
     end
 
     private def zero_ttl?(msg) : Bool
-      @message_ttl.try &.zero? || msg.ttl.try &.zero? || false
+      msg.ttl == 0 || @message_ttl == 0
     end
 
     private def expire_at(msg : BytesMessage) : Int64?
