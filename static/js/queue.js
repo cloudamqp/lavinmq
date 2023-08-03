@@ -13,7 +13,6 @@ const urlEncodedQueue = encodeURIComponent(queue)
 const urlEncodedVhost = encodeURIComponent(vhost)
 const pauseQueueForm = document.querySelector('#pauseQueue')
 const resumeQueueForm = document.querySelector('#resumeQueue')
-const messageSnapshotForm = document.querySelector('#messageSnapshot')
 document.title = queue + ' | LavinMQ'
 let consumerListLength = 20
 
