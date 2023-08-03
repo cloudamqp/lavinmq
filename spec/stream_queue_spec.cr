@@ -85,11 +85,11 @@ describe LavinMQ::StreamQueue do
 
     it "segments should be removed if max-length-bytes set" do
       with_channel do |ch|
-        args = {"x-queue-type": "stream", "x-max-length-bytes": 100_000}
+        args = {"x-queue-type": "stream", "x-max-length-bytes": 1}
         q = ch.queue("stream-max-length-bytes", args: AMQP::Client::Arguments.new(args))
-        data = Bytes.new(100_000)
-        20.times { q.publish_confirm data }
-        q.message_count.should be < 20
+        data = Bytes.new(LavinMQ::Config.instance.segment_size)
+        3.times { q.publish_confirm data }
+        q.message_count.should eq 1
       end
     end
 
