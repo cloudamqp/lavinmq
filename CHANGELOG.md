@@ -7,11 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.7] - 2023-08-05
+
+### Fixed
+
+- Acked messages reappeared after server reboot, ack files were accidently truncated
+- Deliver msgs to consumer even if queue ttl is 0
+- Allow multiple formats (array, string etc) of tags in definitions.json
+- Acking delivery tag 0 (with multiple=true) when channel as no unacked messages will not result in an error
+
 ### Added
+
+- Signal USR2 will unmap all mmap:ed files (in addition to force a memory garbace collection)
+- Building packages for enterprise linux 9 (EL9, redhat 9, centos stream 9, rocky linux 9 etc)
 
 ### Changed
 
-### Fixed
+- Removed "Message size snapshot", UI and API, which has been non functioning for a long time
+- Crystal 1.9.2
 
 ## [1.1.6] - 2023-07-20
 
