@@ -193,10 +193,7 @@ module LavinMQ
             @unacked += 1
             notify_has_capacity(false) if @unacked == @prefetch_count
           end
-          persistent = msg.properties.delivery_mode == 2_u8
-          # @log.debug { "Getting delivery tag" }
-          delivery_tag = @channel.next_delivery_tag(@queue, sp, persistent, @no_ack, self)
-          # @log.debug { "Sending BasicDeliver" }
+          delivery_tag = @channel.next_delivery_tag(@queue, sp, @no_ack, self)
           deliver = AMQP::Frame::Basic::Deliver.new(@channel.id, @tag,
             delivery_tag,
             redelivered,

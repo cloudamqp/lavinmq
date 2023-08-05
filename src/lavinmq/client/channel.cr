@@ -48,7 +48,6 @@ module LavinMQ
         tag : UInt64,
         queue : Queue,
         sp : SegmentPosition,
-        persistent : Bool,
         consumer : Consumer?
 
       def details_tuple
@@ -380,10 +379,7 @@ module LavinMQ
             @get_count += 1
             @client.vhost.event_tick(EventType::ClientGet)
             ok = q.basic_get(frame.no_ack) do |env|
-              persistent = env.message.properties.delivery_mode == 2_u8
-              delivery_tag = next_delivery_tag(q, env.segment_position,
-                persistent, frame.no_ack,
-                nil)
+              delivery_tag = next_delivery_tag(q, env.segment_position, frame.no_ack, nil)
               get_ok = AMQP::Frame::Basic::GetOk.new(frame.channel, delivery_tag,
                 env.redelivered, env.message.exchange_name,
                 env.message.routing_key, q.message_count)
@@ -653,10 +649,10 @@ module LavinMQ
         @log.debug { "Closed" }
       end
 
-      def next_delivery_tag(queue : Queue, sp, persistent, no_ack, consumer) : UInt64
+      protected def next_delivery_tag(queue : Queue, sp, no_ack, consumer) : UInt64
         @unack_lock.synchronize do
           tag = @delivery_tag &+= 1
-          @unacked.push Unack.new(tag, queue, sp, persistent, consumer) unless no_ack
+          @unacked.push Unack.new(tag, queue, sp, consumer) unless no_ack
           tag
         end
       end
