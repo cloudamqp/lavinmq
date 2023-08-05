@@ -234,13 +234,7 @@ module LavinMQ
       @tx_publishes = Array(TxMessage).new
 
       private def publish_and_return(msg)
-        if user_id = msg.properties.user_id
-          if user_id != @client.user.name && !@client.user.can_impersonate?
-            text = "Message's user_id property '#{user_id}' doesn't match actual user '#{@client.user.name}'"
-            @log.error { text }
-            raise Error::PreconditionFailed.new(text)
-          end
-        end
+        validate_user_id(msg.properties.user_id)
         if @tx
           @tx_publishes.push TxMessage.new(msg, @next_publish_mandatory, @next_publish_immediate)
           return
@@ -255,6 +249,15 @@ module LavinMQ
         end
       rescue Queue::RejectOverFlow
         # nack but then do nothing
+      end
+
+      private def validate_user_id(user_id)
+        current_user = @client.user
+        if user_id && user_id != current_user.name && !current_user.can_impersonate?
+          text = "Message's user_id property '#{user_id}' doesn't match actual user '#{current_user.name}'"
+          @log.error { text }
+          raise Error::PreconditionFailed.new(text)
+        end
       end
 
       private def confirm(&)
