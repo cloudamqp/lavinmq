@@ -17,13 +17,13 @@ osx_task:
     image: ghcr.io/cirruslabs/macos-ventura-base:latest
   brew_cache:
     folder: ~/Library/Caches/Homebrew
-  install_script:
-    - brew update
-    - brew install crystal pcre2
+    fingerprint_key: crystal@1.9.2
+    populate_script:
+      - brew update
+      - brew install crystal
   spec_script: make test nocolor=1
-  env:
-    PKG_CONFIG_PATH: /usr/local/opt/openssl@1.1/lib/pkgconfig
   build_script: make -j2 DOCS=
+  cleanup_script: brew cleanup
   artifacts:
     path: bin/*
 
