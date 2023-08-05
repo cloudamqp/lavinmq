@@ -108,25 +108,23 @@ module LavinMQ
                 visited = Set(Exchange).new, found_queues = Set(Queue).new) : Bool
       ex = @exchanges[msg.exchange_name]? || return false
       ex.publish_in_count += 1
-      properties = msg.properties
-      headers = properties.headers
+      headers = msg.properties.headers
       find_all_queues(ex, msg.routing_key, headers, visited, found_queues)
-      headers.try(&.delete("BCC"))
-      # @log.debug { "publish queues#found=#{found_queues.size}" }
+      headers.delete("BCC") if headers
       if found_queues.empty?
         ex.unroutable_count += 1
         return false
       end
       return false if immediate && !found_queues.any? &.immediate_delivery?
-      ok = 0
+      ok = false
       found_queues.each do |q|
         if q.publish(msg)
           ex.publish_out_count += 1
-          ok += 1
+          ok = true
           msg.body_io.seek(-msg.bodysize.to_i64, IO::Seek::Current) # rewind
         end
       end
-      ok > 0
+      ok
     ensure
       visited.clear
       found_queues.clear
