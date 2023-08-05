@@ -629,6 +629,28 @@ describe LavinMQ::Server do
     end
   end
 
+  it "it does remeber acked msgs between restarts" do
+    with_channel do |ch|
+      ch.confirm_select
+      q = ch.queue("q")
+      1000.times do |i|
+        q.publish("a")
+      end
+      ch.wait_for_confirm 1000
+      q.message_count.should eq 1000
+      q.subscribe(no_ack: false, tag: "c", block: true) do |msg|
+        msg.ack
+        q.unsubscribe("c") if msg.delivery_tag == 1000
+      end
+      q.message_count.should eq 0
+    end
+    Server.restart
+    with_channel do |ch|
+      q = ch.queue("q")
+      q.message_count.should eq 0
+    end
+  end
+
   it "supports max-length" do
     definitions = {"max-length" => JSON::Any.new(1_i64)}
     Server.vhosts["/"].add_policy("ml", "^.*$", "queues", definitions, 10_i8)
