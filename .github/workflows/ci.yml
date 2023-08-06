@@ -98,7 +98,7 @@ jobs:
     name: Spec OS X
     runs-on: macos-latest
     steps:
-      - name: Cache Gradle packages
+      - name: Cache Homebrew packages
         uses: actions/cache@v3
         with:
           path: ~/Library/Caches/Homebrew
@@ -108,8 +108,14 @@ jobs:
         run: |
           brew untap homebrew/core
           brew untap homebrew/cask
+          brew untap azure/bicep
+          brew untap homebrew/bundle
+          brew untap homebrew/services
+          brew untap aws/tap
           brew update
           brew install crystal
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: 0
 
       - name: Print Crystal version
         run: crystal -v
