@@ -102,17 +102,13 @@ jobs:
         uses: actions/cache@v3
         with:
           path: ~/Library/Caches/Homebrew
-          key: brew-crystal-1.9.2
+          key: brew-crystal-1.9.2a
 
       - name: Install crystal
         run: |
           brew untap homebrew/core
           brew untap homebrew/cask
-          brew untap azure/bicep
-          brew untap homebrew/bundle
-          brew untap homebrew/services
-          brew untap aws/tap
-          brew update
+          brew unlink openssl@1.1
           brew install crystal
         env:
           HOMEBREW_NO_AUTO_UPDATE: 0
