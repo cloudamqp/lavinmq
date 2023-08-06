@@ -98,9 +98,18 @@ jobs:
     name: Spec OS X
     runs-on: macos-latest
     steps:
-      - run: |
+      - name: Cache Gradle packages
+        uses: actions/cache@v3
+        with:
+          path: ~/Library/Caches/Homebrew
+          key: brew-crystal-1.9.2
+
+      - name: Install crystal
+        run: |
+          brew untap homebrew/core
+          brew untap homebrew/cask
           brew update
-          brew install crystal pcre2
+          brew install crystal
 
       - name: Print Crystal version
         run: crystal -v
