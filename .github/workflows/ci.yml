@@ -96,7 +96,7 @@ jobs:
 
   spec_osx:
     name: Spec OS X
-    runs-on: macos-latest
+    runs-on: macos-13
     steps:
       - name: Cache Homebrew packages
         uses: actions/cache@v3
@@ -107,12 +107,7 @@ jobs:
           key: brew-crystal-1.9.2b
 
       - name: Install crystal
-        run: |
-          brew untap homebrew/core
-          brew untap homebrew/cask
-          brew update
-          brew unlink openssl@1.1
-          brew install crystal
+        run: brew install crystal
         env:
           HOMEBREW_NO_AUTO_UPDATE: 0
 
