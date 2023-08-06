@@ -96,17 +96,16 @@ jobs:
 
   spec_osx:
     name: Spec OS X
-    runs-on: macos-latest
+    runs-on: macos-13
     steps:
-      - run: |
-          brew update
-          brew install crystal pcre2
+      - name: Install Crystal
+        run: brew install crystal
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: 0
 
-      - name: Print Crystal version
-        run: crystal -v
+      - run: crystal --version
 
-      - name: Checkout
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v3
 
       - name: Spec
         run: make test
