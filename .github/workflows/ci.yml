@@ -98,24 +98,14 @@ jobs:
     name: Spec OS X
     runs-on: macos-13
     steps:
-      - name: Cache Homebrew packages
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/Library/Caches/Homebrew
-            /usr/local/Cellar
-          key: brew-crystal-1.9.2b
-
-      - name: Install crystal
+      - name: Install Crystal
         run: brew install crystal
         env:
           HOMEBREW_NO_AUTO_UPDATE: 0
 
-      - name: Print Crystal version
-        run: crystal -v
+      - run: crystal --version
 
-      - name: Checkout
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v3
 
       - name: Spec
         run: make test
