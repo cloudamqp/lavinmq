@@ -101,13 +101,16 @@ jobs:
       - name: Cache Homebrew packages
         uses: actions/cache@v3
         with:
-          path: ~/Library/Caches/Homebrew
-          key: brew-crystal-1.9.2a
+          path: |
+            ~/Library/Caches/Homebrew
+            /usr/local/Cellar
+          key: brew-crystal-1.9.2b
 
       - name: Install crystal
         run: |
           brew untap homebrew/core
           brew untap homebrew/cask
+          brew update
           brew unlink openssl@1.1
           brew install crystal
         env:
