@@ -95,6 +95,11 @@
             <a class="arg-tooltip" data-tag="delivery-limit" data-value="0">Delivery limit
               <span class="tooltiptext">The number of times a message can be redelivered before dropped or
                 dead-lettered</span>
+            </a> |
+            <a class="arg-tooltip" data-tag="max-age" data-value="1M">Max age
+              <span class="tooltiptext">Stream queue segments will be deleted when all messages in the segmented is older than this.
+                Valid units are Y(ear), M(onth), D(ays), h(ours), m(inutes), s(seconds).
+                Segments are only deleted when new messages are published to the stream queue.</span>
             </a>
           </div>
         </label>

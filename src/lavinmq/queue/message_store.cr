@@ -18,7 +18,7 @@ module LavinMQ
       Log = ::Log.for("MessageStore")
       @segments = Hash(UInt32, MFile).new
       @deleted = Hash(UInt32, Array(UInt32)).new
-      @segment_msg_count = Hash(UInt32, UInt32).new
+      @segment_msg_count = Hash(UInt32, UInt32).new(0u32)
       @requeued = Deque(SegmentPosition).new
       @closed = false
       getter bytesize = 0u64
@@ -93,7 +93,7 @@ module LavinMQ
         end
       end
 
-      def shift? : Envelope? # ameba:disable Metrics/CyclomaticComplexity
+      def shift?(consumer = nil) : Envelope? # ameba:disable Metrics/CyclomaticComplexity
         raise ClosedError.new if @closed
         if sp = @requeued.shift?
           segment = @segments[sp.segment]
@@ -243,7 +243,6 @@ module LavinMQ
         @replicator.try &.append path, Schema::VERSION
         @wfile_id = next_id
         @wfile = @segments[next_id] = wfile
-        @segment_msg_count[next_id] = 0u32
         wfile
       end
 
@@ -315,21 +314,13 @@ module LavinMQ
           count = 0u32
           loop do
             pos = mfile.pos
-            raise IO::EOFError.new if pos + BytesMessage::MIN_BYTESIZE >= mfile.size # EOF or a message can't fit, truncate
-            ts = IO::ByteFormat::SystemEndian.decode(Int64, mfile.to_slice + pos)
+            ts = IO::ByteFormat::SystemEndian.decode(Int64, mfile.to_slice(pos, 8))
             break mfile.resize(pos) if ts.zero? # This means that the rest of the file is zero, so resize it
-
             bytesize = BytesMessage.skip(mfile)
             count += 1
-            unless deleted?(seg, pos)
-              @bytesize += bytesize
-              @size += 1
-            end
+            next if deleted?(seg, pos)
+            update_stats_per_msg(seg, ts, bytesize)
           rescue ex : IO::EOFError
-            if mfile.pos < mfile.size
-              Log.warn { "Truncating #{mfile.path} from #{mfile.size} to #{mfile.pos}" }
-              mfile.truncate(mfile.pos)
-            end
             break
           rescue ex : OverflowError | AMQ::Protocol::Error::FrameDecode
             raise Error.new(mfile, cause: ex)
@@ -338,6 +329,11 @@ module LavinMQ
           mfile.unmap # will be mmap on demand
           @segment_msg_count[seg] = count
         end
+      end
+
+      private def update_stats_per_msg(seg, ts, bytesize)
+        @bytesize += bytesize
+        @size += 1
       end
 
       private def delete_unused_segments : Nil

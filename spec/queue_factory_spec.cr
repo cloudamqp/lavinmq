@@ -38,5 +38,13 @@ describe LavinMQ::QueueFactory do
       q = LavinMQ::QueueFactory.make(Server.vhosts["/"], frame)
       q.is_a?(LavinMQ::DurablePriorityQueue).should be_true
     end
+
+    it "should create a stream queue" do
+      queue_args = AMQ::Protocol::Table.new({"x-queue-type" => "stream"})
+      frame = AMQ::Protocol::Frame::Method::Queue::Declare.new(0, 0, "test", false, true, false,
+        false, false, queue_args)
+      q = LavinMQ::QueueFactory.make(Server.vhosts["/"], frame)
+      q.should be_a LavinMQ::StreamQueue
+    end
   end
 end

@@ -226,7 +226,6 @@ module LavinMQ
           @vhost.upstreams.try &.link(v.as_s, self)
         when "federation-upstream-set"
           @vhost.upstreams.try &.link_set(v.as_s, self)
-        else nil
         end
       end
       @policy = policy
@@ -665,8 +664,8 @@ module LavinMQ
     end
 
     # If nil is returned it means that the delivery limit is reached
-    def consume_get(no_ack, & : Envelope -> Nil) : Bool
-      get(no_ack) do |env|
+    def consume_get(consumer, & : Envelope -> Nil) : Bool
+      get(consumer.no_ack?) do |env|
         yield env
         env.redelivered ? (@redeliver_count += 1) : (@deliver_count += 1)
       end

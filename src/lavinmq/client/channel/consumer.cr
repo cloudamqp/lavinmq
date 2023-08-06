@@ -7,7 +7,6 @@ module LavinMQ
     class Channel
       class Consumer
         include SortableJSON
-
         getter tag : String
         getter priority : Int32
         getter? exclusive : Bool
@@ -19,8 +18,11 @@ module LavinMQ
         @log : Log
         @flow : Bool
 
-        def initialize(@channel : Client::Channel, @tag : String,
-                       @queue : Queue, @no_ack : Bool, @exclusive : Bool, @priority : Int32)
+        def initialize(@channel : Client::Channel, @queue : Queue, frame : AMQP::Frame::Basic::Consume)
+          @tag = frame.consumer_tag
+          @no_ack = frame.no_ack
+          @exclusive = frame.exclusive
+          @priority = consumer_priority(frame) # Must be before ConsumeOk, can close channel
           @prefetch_count = @channel.prefetch_count
           @flow = @channel.flow?
           @log = @channel.log.for "consumer=#{@tag}"
@@ -67,7 +69,7 @@ module LavinMQ
             {% unless flag?(:release) %}
               @log.debug { "Getting a new message" }
             {% end %}
-            queue.consume_get(no_ack) do |env|
+            queue.consume_get(self) do |env|
               deliver(env.message, env.segment_position, env.redelivered)
             end
             Fiber.yield if (i &+= 1) % 32768 == 0
@@ -205,7 +207,7 @@ module LavinMQ
           notify_has_capacity(true) if was_full
         end
 
-        def reject(sp)
+        def reject(sp, requeue = false)
           was_full = @unacked == @prefetch_count
           @unacked -= 1
           notify_has_capacity(true) if was_full
@@ -215,6 +217,17 @@ module LavinMQ
           @channel.send AMQP::Frame::Basic::Cancel.new(@channel.id, @tag, no_wait: true)
           @channel.consumers.delete self
           close
+        end
+
+        private def consumer_priority(frame) : Int32
+          case prio = frame.arguments["x-priority"]
+          when Int then prio.to_i32
+          else          raise Error::PreconditionFailed.new("x-priority must be an integer")
+          end
+        rescue KeyError
+          0
+        rescue OverflowError
+          raise Error::PreconditionFailed.new("x-priority out of bounds, must fit a 32-bit integer")
         end
 
         def details_tuple

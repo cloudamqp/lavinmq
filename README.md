@@ -194,6 +194,7 @@ For questions or suggestions:
 - We are on [Slack](https://join.slack.com/t/lavinmq/shared_invite/zt-1v28sxova-wOyhOvDEKYVQMQpLePNUrg).
 - You can also use the [lavinmq tag](https://stackoverflow.com/questions/tagged/lavinmq) on Stackoverflow
 - If you use LavinMQ via [CloudAMQP](https://www.cloudamqp.com) then reach out to [support@cloudamqp.com]
+
 ## Features
 
 - AMQP 0-9-1 compatible
@@ -220,11 +221,12 @@ For questions or suggestions:
 - Delayed exchanges
 - AMQP WebSocket
 - Single active consumer
+- Replication
+- Stream queues
 
 Currently missing but planned features
 
-- Stream queues
-- Clustering
+- Automatic leader election in clusters
 
 ### Known differences to other AMQP servers
 
@@ -269,6 +271,14 @@ or start LavinMQ with:
 ```sh
 lavinmq --data-dir /var/lib/lavinmq-follower --follow tcp://leader.example.com:5679
 ```
+
+## Stream queues
+
+Stream queues are like append-only logs and can be consumed multiple times. Each consumer can start to read from anywhere in the queue (using the `x-stream-offset` consumer argument) over and over again.  Stream queues are different from normal queues in that messages are not deleted (see #retention) when a consumer acknowledge them.
+
+### Retention
+
+Messages are only deleted when `max-length`, `max-length-bytes` or `max-age` are applied, either as queue arguments or as policies. The limits are checked only when new messages are published to the queue, and only act on whole segments (which by default are 8MiB), so the limits aren't necessarily exact. So even if a `max-age` limit is set, but no messages are published to the queue, messages might still be available in the stream queue that is way older that the limit specified.
 
 ## Contributors
 

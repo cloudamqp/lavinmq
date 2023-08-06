@@ -99,6 +99,9 @@ class LavinMQCtl
       @parser.on("--dead-letter-routing-key", "Which routing key to use when dead lettering") do |v|
         @args["x-dead-letter-routing-key"] = JSON::Any.new(v)
       end
+      @parser.on("--stream-queue", "Create a Stream Queue") do
+        @args["x-queue-type"] = JSON::Any.new("stream")
+      end
     end
     @parser.on("create_exchange", "Create exchange") do
       @cmd = "create_exchange"

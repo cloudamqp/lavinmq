@@ -1,4 +1,5 @@
 require "./channel/consumer"
+require "./channel/stream_consumer"
 require "../queue"
 require "../exchange"
 require "../amqp"
@@ -353,31 +354,20 @@ module LavinMQ
             @client.send_access_refused(frame, "Queue '#{frame.queue}' in vhost '#{@client.vhost.name}' in exclusive use")
             return
           end
-          priority = consumer_priority(frame) # Must be before ConsumeOk, can close channel
+          c = if q.is_a? StreamQueue
+                StreamConsumer.new(self, q, frame)
+              else
+                Consumer.new(self, q, frame)
+              end
+          @consumers.push(c)
+          q.add_consumer(c)
           unless frame.no_wait
             send AMQP::Frame::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag)
           end
-          c = Consumer.new(self, frame.consumer_tag, q, frame.no_ack, frame.exclusive, priority)
-          @consumers.push(c)
-          q.add_consumer(c)
         else
           @client.send_not_found(frame, "Queue '#{frame.queue}' not declared")
         end
         Fiber.yield # Notify :add_consumer observers
-      end
-
-      private def consumer_priority(frame) : Int32
-        priority = 0
-        if frame.arguments.has_key? "x-priority"
-          prio_arg = frame.arguments["x-priority"]
-          prio_int = prio_arg.as?(Int) || raise Error::PreconditionFailed.new("x-priority must be an integer")
-          begin
-            priority = prio_int.to_i
-          rescue OverflowError
-            raise Error::PreconditionFailed.new("x-priority out of bounds, must fit a 32-bit integer")
-          end
-        end
-        priority
       end
 
       def basic_get(frame)
@@ -386,6 +376,8 @@ module LavinMQ
             @client.send_resource_locked(frame, "Exclusive queue")
           elsif q.has_exclusive_consumer?
             @client.send_access_refused(frame, "Queue '#{frame.queue}' in vhost '#{@client.vhost.name}' in exclusive use")
+          elsif q.is_a? StreamQueue
+            @client.send_not_implemented(frame, "Stream queues does not support basic_get")
           else
             @get_count += 1
             @client.vhost.event_tick(EventType::ClientGet)
@@ -576,7 +568,7 @@ module LavinMQ
 
       private def do_reject(requeue, unack)
         if c = unack.consumer
-          c.reject(unack.sp)
+          c.reject(unack.sp, requeue)
         end
         unack.queue.reject(unack.sp, requeue)
         @reject_count += 1
@@ -607,7 +599,7 @@ module LavinMQ
             @unacked.each do |unack|
               next if delivery_tag_is_in_tx?(unack.tag)
               if consumer = unack.consumer
-                consumer.reject(unack.sp)
+                consumer.reject(unack.sp, requeue: true)
               end
               unack.queue.reject(unack.sp, requeue: true)
             end
