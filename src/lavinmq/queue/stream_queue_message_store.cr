@@ -141,8 +141,9 @@ module LavinMQ
       end
 
       private def open_new_segment(next_msg_size = 0) : MFile
-        drop_overflow
-        super
+        super.tap do
+          drop_overflow
+        end
       end
 
       def drop_overflow
@@ -167,7 +168,9 @@ module LavinMQ
 
       private def drop_segments_while(& : UInt32 -> Bool)
         @segments.reject! do |seg_id, mfile|
-          break unless yield seg_id
+          should_drop = yield seg_id
+          break unless should_drop
+          next if mfile == @wfile # never delete the last active segment
           count = @segment_msg_count.delete(seg_id) || raise KeyError.new
           @segment_last_ts.delete(seg_id)
           @size -= count
