@@ -16,6 +16,7 @@ describe LavinMQ::StreamQueue do
         end
         msg = msgs.receive
         msg.properties.headers.should eq LavinMQ::AMQP::Table.new({"x-stream-offset": 2})
+        msg.body_io.to_s.should eq "m1"
       end
     end
 
@@ -156,6 +157,16 @@ describe LavinMQ::StreamQueue do
       msg1.reject(requeue: true)
       msg2 = msgs.receive
       msg2.body_io.to_s.should eq "foobar"
+    end
+  end
+
+  it "can start consume from last segment even is queue is empty" do
+    with_channel do |ch|
+      q = ch.queue("empty-stream", args: stream_queue_args)
+      ch.prefetch 1
+      q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": "last"})) do |msg|
+        msg.ack
+      end
     end
   end
 end

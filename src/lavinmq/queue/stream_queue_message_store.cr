@@ -50,6 +50,7 @@ module LavinMQ
       end
 
       private def offset_at(seg, pos) : Tuple(Int64, UInt32, UInt32)
+        return {@last_offset, seg, pos} if @size.zero?
         mfile = @segments[seg]
         msg = BytesMessage.from_bytes(mfile.to_slice + pos)
         offset = offset_from_headers(msg.properties.headers)
