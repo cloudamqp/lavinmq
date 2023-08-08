@@ -184,12 +184,12 @@ module LavinMQ
 
       def purge(max_count : Int = UInt32::MAX) : UInt32
         raise ClosedError.new if @closed
+        start_size = @size
         count = 0u32
         drop_segments_while do |seg_id|
-          seg_msg_count = @segment_msg_count[seg_id]
-          max_count >= (count += seg_msg_count)
+          max_count >= (count += @segment_msg_count[seg_id])
         end
-        count
+        start_size - @size
       end
 
       private def update_stat_per_msg(seg, ts, bytesize)

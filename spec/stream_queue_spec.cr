@@ -175,7 +175,7 @@ describe LavinMQ::StreamQueue do
       q = ch.queue("purge-stream", args: stream_queue_args)
       data = Bytes.new(LavinMQ::Config.instance.segment_size)
       3.times { q.publish_confirm data }
-      q.purge[:message_count].should eq 3
+      q.purge[:message_count].should eq 2 # never deletes the last segment
     end
   end
 end
