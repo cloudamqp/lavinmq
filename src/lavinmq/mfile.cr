@@ -174,7 +174,7 @@ class MFile < IO
     raise RuntimeError.from_errno("msync") if code < 0
   end
 
-  private def mremap(new_len, addr = @buffer, old_len = @capacity) : Pointer(UInt8)
+  private def mremap(addr, old_len, new_len) : Pointer(UInt8)
     {% if flag?(:linux) %}
       ptr = LibC.mremap(addr, old_len, new_len, LibC::MREMAP_MAYMOVE)
       raise IO::Error.from_errno("mremap") if ptr == LibC::MAP_FAILED
@@ -269,33 +269,22 @@ class MFile < IO
     DontNeed
   end
 
-  def truncate(new_size : Int) : Nil
-    return if new_size == @capacity
-    code = LibC.ftruncate(@fd, new_size.to_i64)
+  def truncate(capacity : Int) : Nil
+    return if capacity == @capacity
+    capacity = capacity.to_i64
+    code = LibC.ftruncate(@fd, capacity)
     raise File::Error.from_errno("Error truncating file", file: @path) if code < 0
     old_capacity = @capacity
-    @capacity = @size = new_size.to_i64
-    @pos = new_size.to_i64 if @pos > new_size
-
-    offset = page_align(new_size.to_i64)
-    length = old_capacity - offset
-    munmap(buffer + offset, length) if length > 0
+    @capacity = capacity
+    @size = capacity if @size > capacity
+    @pos = capacity if @pos > capacity
+    @buffer = mremap(@buffer, old_capacity, capacity) unless @buffer.null?
   end
 
   def resize(new_size : Int) : Nil
     raise ArgumentError.new("Can't expand file larger than capacity, use truncate") if new_size > @capacity
     @size = new_size.to_i64
     @pos = new_size.to_i64 if @pos > new_size
-  end
-
-  private def expand(new_size) : Pointer(UInt8)
-    raise ArgumentError.new("new size smaller or equal than current") if new_size <= @capacity
-    new_size = new_size.to_i64
-    code = LibC.ftruncate(@fd, new_size)
-    raise File::Error.from_errno("Error truncating file", file: @path) if code < 0
-    @buffer = mremap(new_size, buffer, @capacity).tap do
-      @capacity = new_size
-    end
   end
 
   def rename(new_path)
