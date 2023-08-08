@@ -169,4 +169,13 @@ describe LavinMQ::StreamQueue do
       end
     end
   end
+
+  it "can be purged" do
+    with_channel do |ch|
+      q = ch.queue("purge-stream", args: stream_queue_args)
+      data = Bytes.new(LavinMQ::Config.instance.segment_size)
+      3.times { q.publish_confirm data }
+      q.purge[:message_count].should eq 3
+    end
+  end
 end
