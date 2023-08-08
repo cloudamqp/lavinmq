@@ -160,9 +160,19 @@ module LavinMQ
     end
 
     private def dump_debug_info
-      STDOUT.puts System.resource_usage
-      STDOUT.puts GC.prof_stats
-      STDOUT.puts "Fibers:"
+      puts "GC"
+      ps = GC.prof_stats
+      puts "  heap size: #{ps.heap_size.humanize_bytes}"
+      puts "  free bytes: #{ps.free_bytes.humanize_bytes}"
+      puts "  unmapped bytes: #{ps.unmapped_bytes.humanize_bytes}"
+      puts "  allocated since last GC: #{ps.bytes_since_gc.humanize_bytes}"
+      puts "  allocated before last GC: #{ps.bytes_before_gc.humanize_bytes}"
+      puts "  non garbage collectable bytes: #{ps.non_gc_bytes.humanize_bytes}"
+      puts "  garbage collection cycle number: #{ps.gc_no}"
+      puts "  marker threads: #{ps.markers_m1}"
+      puts "  reclaimed bytes during last GC: #{ps.bytes_reclaimed_since_gc.humanize_bytes}"
+      puts "  reclaimed bytes before last GC: #{ps.reclaimed_bytes_before_gc.humanize_bytes}"
+      puts "Fibers:"
       Fiber.list { |f| puts f.inspect }
       LavinMQ::Reporter.report(@amqp_server)
       STDOUT.flush
