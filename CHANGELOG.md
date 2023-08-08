@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2023-08-08
+
+### Added
+
+- Stream queues, queues that can be consumed multiple times, messages (segments) are only deleted by a retention policy
+
+### Fixed
+
+- Queue message segments where opened with the wrong permissions to be able to be truncated if needed
+
 ## [1.1.7] - 2023-08-05
 
 ### Fixed
