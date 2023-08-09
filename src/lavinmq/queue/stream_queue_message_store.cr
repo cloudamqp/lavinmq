@@ -90,18 +90,11 @@ module LavinMQ
         {msg_offset, segment, pos}
       end
 
-      # ameba:disable Metrics/CyclomaticComplexity
       def shift?(consumer : Client::Channel::StreamConsumer) : Envelope?
         raise ClosedError.new if @closed
 
-        if sp = consumer.requeued.shift?
-          segment = @segments[sp.segment]
-          begin
-            msg = BytesMessage.from_bytes(segment.to_slice + sp.position)
-            return Envelope.new(sp, msg, redelivered: true)
-          rescue ex
-            raise Error.new(segment, cause: ex)
-          end
+        if env = shift_requeued(consumer.requeued)
+          return env
         end
 
         return if consumer.offset > @last_offset
@@ -119,6 +112,19 @@ module LavinMQ
           Envelope.new(sp, msg, redelivered: false)
         rescue ex
           raise Error.new(rfile, cause: ex)
+        end
+      end
+
+      private def shift_requeued(requeued) : Envelope?
+        while sp = requeued.shift?
+          if segment = @segments[sp.segment]? # segment might have expired since requeued
+            begin
+              msg = BytesMessage.from_bytes(segment.to_slice + sp.position)
+              return Envelope.new(sp, msg, redelivered: true)
+            rescue ex
+              raise Error.new(segment, cause: ex)
+            end
+          end
         end
       end
 
