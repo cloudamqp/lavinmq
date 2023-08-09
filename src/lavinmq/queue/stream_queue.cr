@@ -6,6 +6,13 @@ module LavinMQ
   class StreamQueue < Queue
     @durable = true
 
+    def initialize(@vhost : VHost, @name : String,
+                   @exclusive = false, @auto_delete = false,
+                   @arguments = Hash(String, AMQP::Field).new)
+      super
+      spawn unmap_unused_segments_loop, name: "StreamQueue#unmap_unused_segments_loop"
+    end
+
     def apply_policy(policy : Policy?, operator_policy : OperatorPolicy?)
       super
       if max_age_value = Policy.merge_definitions(policy, operator_policy)["max-age"]?
@@ -138,6 +145,25 @@ module LavinMQ
         end
       else
         raise LavinMQ::Error::PreconditionFailed.new("max-age must be a string")
+      end
+    end
+
+    private def unmap_unused_segments_loop
+      until closed?
+        sleep 60
+        unmap_unused_segments
+      end
+    end
+
+    private def unmap_unused_segments
+      used_segments = Set(UInt32).new
+      @consumers_lock.synchronize do
+        @consumers.each do |consumer|
+          used_segments << consumer.as(Client::Channel::StreamConsumer).segment
+        end
+      end
+      @msg_store_lock.synchronize do
+        stream_queue_msg_store.unmap_segments(except: used_segments)
       end
     end
   end

@@ -16,6 +16,14 @@ module LavinMQ
         drop_overflow
       end
 
+      def unmap_segments(except : Enumerable(UInt32))
+        @segments.each do |seg_id, mfile|
+          next if mfile == @wfile
+          next if except.includes? seg_id
+          mfile.unmap
+        end
+      end
+
       private def get_last_offset : Int64
         return 0i64 if @size.zero?
         bytesize = 0_u32
@@ -61,7 +69,6 @@ module LavinMQ
         {@last_offset + 1, @segments.last_key, @segments.last_value.size.to_u32}
       end
 
-      # ameba:disable Metrics/CyclomaticComplexity
       private def find_offset_in_segments(offset : Int | Time) : Tuple(Int64, UInt32, UInt32)
         segment = @segments.first_key
         pos = 4u32
@@ -69,7 +76,6 @@ module LavinMQ
         loop do
           rfile = @segments[segment]?
           if rfile.nil? || pos == rfile.size
-            rfile.unmap if rfile && rfile != @wfile
             if segment = @segments.each_key.find { |sid| sid > segment }
               rfile = @segments[segment]
               pos = 4_u32
@@ -101,7 +107,6 @@ module LavinMQ
         rfile = @segments[consumer.segment]? || next_segment(consumer) || return
         if consumer.pos == rfile.size # EOF
           return if rfile == @wfile
-          rfile.unmap
           rfile = next_segment(consumer) || return
         end
         begin
