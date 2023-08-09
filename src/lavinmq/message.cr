@@ -17,10 +17,6 @@ module LavinMQ
         @properties.bytesize + sizeof(UInt64) + @bodysize
     end
 
-    def persistent?
-      @properties.delivery_mode == 2_u8
-    end
-
     def ttl
       @properties.expiration.try(&.to_i64?)
     end
@@ -91,10 +87,6 @@ module LavinMQ
         @properties.bytesize + sizeof(UInt64) + @bodysize
     end
 
-    def persistent?
-      @properties.delivery_mode == 2_u8
-    end
-
     def dlx : String?
       @properties.headers.try(&.fetch("x-dead-letter-exchange", nil).as?(String))
     end
@@ -128,10 +120,6 @@ module LavinMQ
 
     def initialize(@segment_position : SegmentPosition, @message : BytesMessage,
                    @redelivered = false)
-    end
-
-    def persistent?
-      @message.persistent?
     end
   end
 end
