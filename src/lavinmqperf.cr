@@ -470,7 +470,6 @@ class ConnectionCount < Perf
         c.write BasicConsumeFrame.new(ch.id, 0_u16, "", "", false, true, false, true, AMQP::Client::Arguments.new)
       end
     end
-    print '.'
     @done.send i
   end
 
@@ -478,18 +477,17 @@ class ConnectionCount < Perf
     super
     count = 0
     loop do
-      start = Time.monotonic
-      @connections.times do |i|
-        spawn connect(i)
-        @done.receive
-        if (i + 1) % 100 == 0
-          print i + 1
-          stop = Time.monotonic
-          puts " #{(stop - start).total_milliseconds.round}ms"
-          start = stop
+      @connections.times.each_slice(100) do |slice|
+        start = Time.monotonic
+        slice.each do |i|
+          spawn connect(i)
         end
-      rescue ex : AMQP::Client::Error
-        puts nil, ex.message
+        slice.each do |i|
+          @done.receive
+          print '.'
+        end
+        stop = Time.monotonic
+        puts " #{(stop - start).total_milliseconds.round}ms"
       end
       puts
       print "#{count += @connections} connections "
