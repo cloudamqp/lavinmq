@@ -125,10 +125,12 @@ document.querySelector('#declare').addEventListener('submit', function (evt) {
     arguments: Dom.parseJSON(data.get('arguments'))
   }
   HTTP.request('PUT', url, { body })
-    .then(() => {
+    .then((response) => {
       queuesTable.reload()
       evt.target.reset()
-      Dom.toast('Queue ' + queue + ' created')
+      if (!(typeof response === 'undefined')) {
+        Dom.toast('Queue ' + queue + ' created')
+      }
     })
 })
 queuesTable.on('updated', _ => {
