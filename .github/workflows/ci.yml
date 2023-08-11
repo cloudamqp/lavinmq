@@ -12,19 +12,19 @@ on:
       - 'build/build_docs_in_ci'
       - 'openapi/**'
   push:
-    #    branches:
-    #      - main
-    #    paths:
-    #      - Makefile
-    #      - 'src/**'
-    #      - 'spec/**'
-    #      - 'playwright.config.js'
-    #      - 'shard.*'
-    #      - 'static/**'
-    #      - 'views/**'
-    #      - '.github/workflows/ci.yml'
-    #      - 'build/build_docs_in_ci'
-    #      - 'openapi/**'
+    branches:
+      - main
+    paths:
+      - Makefile
+      - 'src/**'
+      - 'spec/**'
+      - 'playwright.config.js'
+      - 'shard.*'
+      - 'static/**'
+      - 'views/**'
+      - '.github/workflows/ci.yml'
+      - 'build/build_docs_in_ci'
+      - 'openapi/**'
 
 jobs:
   format:
