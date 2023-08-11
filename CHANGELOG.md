@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - A bug in amq-protocol caused lost headers when dead-lettering [amq-protocol/#12](https://github.com/cloudamqp/amq-protocol.cr/pull/12)
 
+### Changed
+
+- Logging refactored to be more like Crystal's native [Log](https://crystal-lang.org/api/Log.html) implementation, enabling configuration of different log levels for different sources.
+
 ## [1.2.2] - 2023-08-22
 
 ### Added
