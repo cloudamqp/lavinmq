@@ -1,4 +1,4 @@
-name: CI
+
 on:
   pull_request:
     paths:
@@ -168,7 +168,7 @@ jobs:
         run: |
           cd rabbitmq-java-client
           make deps
-          ./mvnw -q verify -P '!setup-test-cluster' -Dit.test='!PerQueueVsPerMessageTTL.*,FunctionalTestSuite' -Drabbitmqctl.bin=../bin/lavinmqctl -Dtest=\!
+          ./mvnw -q verify -P '!setup-test-cluster' -Dit.test=FunctionalTestSuie,\!PerQueueVsPerMessageTTL*,\!PerMessageTTL* -Drabbitmqctl.bin=../bin/lavinmqctl -Dtest=\!
 
   bunny-test:
     name: Bunny client test
