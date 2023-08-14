@@ -168,7 +168,7 @@ jobs:
         run: |
           cd rabbitmq-java-client
           make deps
-          ./mvnw -q verify -P '!setup-test-cluster' -Dit.test=FunctionalTestSuite,\!PerQueueVsPerMessageTTL,\!PerMessageTTL -Drabbitmqctl.bin=../bin/lavinmqctl -Dtest=\!
+          ./mvnw -q verify -P '!setup-test-cluster' -Dit.test=FunctionalTestSuite,\!PerQueueVsPerMessageTTL.\*,\!PerMessageTTL.\* -Drabbitmqctl.bin=../bin/lavinmqctl -Dtest=\!
 
   bunny-test:
     name: Bunny client test
