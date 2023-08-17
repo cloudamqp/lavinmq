@@ -128,7 +128,7 @@ document.querySelector('#declare').addEventListener('submit', function (evt) {
     .then((response) => {
       queuesTable.reload()
       evt.target.reset()
-      if (!(typeof response === 'undefined')) {
+      if ((typeof response !== 'undefined')) {
         Dom.toast('Queue ' + queue + ' created')
       }
     })
