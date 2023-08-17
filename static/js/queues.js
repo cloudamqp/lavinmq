@@ -126,11 +126,10 @@ document.querySelector('#declare').addEventListener('submit', function (evt) {
   }
   HTTP.request('PUT', url, { body })
     .then((response) => {
+      if (response?.is_error) { return }
       queuesTable.reload()
       evt.target.reset()
-      if ((typeof response !== 'undefined')) {
-        Dom.toast('Queue ' + queue + ' created')
-      }
+      Dom.toast('Queue ' + queue + ' created')
     })
 })
 queuesTable.on('updated', _ => {
