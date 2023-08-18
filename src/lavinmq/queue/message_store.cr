@@ -235,6 +235,7 @@ module LavinMQ
         next_id = @wfile_id + 1
         path = File.join(@data_dir, "msgs.#{next_id.to_s.rjust(10, '0')}")
         capacity = Math.max(Config.instance.segment_size, next_msg_size + 4)
+        delete_unused_segments
         wfile = MFile.new(path, capacity)
         wfile.write_bytes Schema::VERSION
         wfile.pos = 4
@@ -340,7 +341,7 @@ module LavinMQ
         @segments.reject! do |seg, mfile|
           next if seg == current_seg # don't the delete the segment still being written to
 
-          if @segment_msg_count[seg] == @deleted[seg]?.try(&.size)
+          if @segment_msg_count[seg] == @deleted[seg]?.try(&.size) || @segment_msg_count[seg] == @acks[seg].size // sizeof(UInt32)
             Log.info { "Deleting unused segment #{seg}" }
             @segment_msg_count.delete seg
             @deleted.delete seg
