@@ -138,7 +138,7 @@ module LavinMQ
 
       def push(msg) : SegmentPosition
         raise ClosedError.new if @closed
-        msg = add_offset_header(msg, @last_offset += 1)
+        msg.properties.headers = add_offset_header(msg.properties.headers, @last_offset += 1)
         sp = write_to_disk(msg)
         @bytesize += sp.bytesize
         @size += 1
@@ -207,13 +207,13 @@ module LavinMQ
         raise "Only full segments should be deleted"
       end
 
-      private def add_offset_header(msg, offset : Int64)
-        if headers = msg.properties.headers
+      private def add_offset_header(headers, offset : Int64) : AMQP::Table
+        if headers
           headers["x-stream-offset"] = offset
+          headers
         else
-          msg.properties.headers = ::AMQ::Protocol::Table.new({"x-stream-offset": offset})
+          AMQP::Table.new({"x-stream-offset": offset})
         end
-        msg
       end
 
       private def offset_from_headers(headers) : Int64
