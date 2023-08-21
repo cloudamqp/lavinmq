@@ -15,7 +15,7 @@ class Perf
 
   def initialize
     @parser = OptionParser.new
-    @banner = "Usage: #{PROGRAM_NAME} [throughput | bind-churn | queue-churn | connection-churn | connection-count] [arguments]"
+    @banner = "Usage: #{PROGRAM_NAME} [throughput | bind-churn | queue-churn | connection-churn | connection-count | load-simulation] [arguments]"
     @parser.banner = @banner
     @parser.on("-h", "--help", "Show this help") { puts @parser; exit 1 }
     @parser.on("-v", "--version", "Show version") { puts LavinMQ::VERSION; exit 0 }
@@ -516,6 +516,250 @@ class ConnectionCount < Perf
   end
 end
 
+class LoadSimulator < Perf
+  @connections = 1
+  @channels = 1
+  @consumers = 1
+  @publishers = 1
+  @queues = 1
+  @size = 16
+  @rate = 1
+  @queue_prefix = "load_simulator"
+  @routing_key = "load_simulator"
+  @random_localhost = false
+  @done = Channel(Int32).new(100)
+
+  @verify = false
+  @ack = 0
+  @confirm = 0
+  @persistent = true
+  @prefetch = 0_u32
+  @timeout = Time::Span.zero
+  @durable = true
+  @exchange = ""
+
+  @queue_args = AMQP::Client::Arguments.new
+  @consumer_args = AMQP::Client::Arguments.new
+  @properties = AMQ::Protocol::Properties.new
+
+  @pub_in_transaction = 0
+  @ack_in_transaction = 0
+
+  @random_bodies = false
+
+  def initialize
+    super
+    @parser.on("-q queues", "--queues=number", "Number of queues (default 1)") do |v|
+      @queues = v.to_i
+    end
+    @parser.on("-c connections", "--connections=number", "Number of connections per queue (default 1)") do |v|
+      @connections = v.to_i
+    end
+    @parser.on("-x publishers", "--publishers=number", "Number of publishers per queue (default 1)") do |v|
+      @publishers = v.to_i
+    end
+    @parser.on("-y consumers", "--consumers=number", "Number of consumers per queue (default 1)") do |v|
+      @consumers = v.to_i
+    end
+    @parser.on("-s msgsize", "--size=bytes", "Size of each message (default 16 bytes)") do |v|
+      @size = v.to_i
+    end
+    @parser.on("-u queue-prefix", "--queue-prefix=name", "Queue prefix name (default load_simulator)") do |v|
+      @queue_prefix = v
+      @routing_key = v
+    end
+    @parser.on("-r rate", "--rate=number", "Rate (default 1)") do |v|
+      @rate = v.to_i
+    end
+    @parser.on("-p", "--persistent", "Persistent messages (default false)") do
+      @persistent = true
+    end
+    @parser.on("-z seconds", "--time=seconds", "Only run for X seconds") do |v|
+      @timeout = Time::Span.new(seconds: v.to_i)
+    end
+    @parser.on("--queue-args=JSON", "Queue arguments as a JSON string") do |v|
+      @queue_args = AMQP::Client::Arguments.new(JSON.parse(v).as_h)
+    end
+    @parser.on("--consumer-args=JSON", "Consumer arguments as a JSON string") do |v|
+      @consumer_args = AMQP::Client::Arguments.new(JSON.parse(v).as_h)
+    end
+    @parser.on("--properties=JSON", "Properties added to published messages") do |v|
+      @properties = AMQ::Protocol::Properties.from_json(JSON.parse(v))
+    end
+  end
+
+  @pubs = 0_u64
+  @consumes = 0_u64
+  @pmessages = 0
+  @cmessages = 0
+  @stopped = false
+
+  def run
+    super
+    puts "Running load simulation"
+    print "Queues: #{@queues}. "
+    print "Consumers per queue: #{@consumers}. "
+    print "Publishers per queue: #{@publishers}. "
+    print "Publish rate per queue: #{@rate}. "
+    print "Message size #{@size} bytes\n"
+
+    done = Channel(Nil).new
+    total_consumers = @consumers * @channels * @queues
+    total_publishers = @publishers * @channels * @queues
+    k = 0
+
+    if @timeout != Time::Span.zero
+      spawn do
+        sleep @timeout
+        @stopped = true
+      end
+    end
+
+    @queues.times do
+      queue_name = "#{@queue_prefix}_#{k}"
+      @routing_key = queue_name
+      spawn do
+        @consumers.times do
+          spawn consume(done, queue_name)
+        end
+        @publishers.times do
+          spawn pub(done, queue_name)
+        end
+      end
+      k += 1
+    end
+
+    Fiber.yield # wait for all clients to connect
+    start = Time.monotonic
+    Signal::INT.trap do
+      abort "Aborting" if @stopped
+      @stopped = true
+      summary(start, done)
+      exit 0
+    end
+
+    spawn do
+      (total_publishers + total_consumers).times { done.receive }
+      @stopped = true
+    end
+
+    loop do
+      break if @stopped
+      pubs_last = @pubs
+      consumes_last = @consumes
+      sleep 1
+      print "Publish rate: "
+      print @pubs - pubs_last
+      print " msgs/s Consume rate: "
+      print @consumes - consumes_last
+      print " msgs/s. "
+      print "Expected rate: #{@rate * total_publishers} msgs/s. "
+      print "Using #{rss.humanize_bytes} memory.\n"
+    end
+    summary(start, done)
+  end
+
+  # Copied methods
+
+  private def consume(done, queue_name)
+    data = Bytes.new(@size) { |i| ((i % 27 + 64)).to_u8 }
+    AMQP::Client.start(@uri) do |a|
+      ch = a.channel
+      q = begin
+        ch.queue queue_name, durable: @durable, auto_delete: true, args: @queue_args
+      rescue
+        ch = a.channel
+        ch.queue(queue_name, passive: true)
+      end
+      ch.tx_select if @ack_in_transaction > 0
+      ch.prefetch @prefetch unless @prefetch.zero?
+      q.bind(@exchange, @routing_key) unless @exchange.empty?
+      Fiber.yield
+      consumes_this_second = 0
+      start = Time.monotonic
+      q.subscribe(tag: "c", no_ack: @ack.zero?, block: true, args: @consumer_args) do |m|
+        @consumes += 1
+        raise "Invalid data: #{m.body_io.to_slice}" if @verify && m.body_io.to_slice != data
+        m.ack(multiple: true) if @ack > 0 && @consumes % @ack == 0
+        ch.tx_commit if @ack_in_transaction > 0 && (@consumes % @ack_in_transaction) == 0
+        if @stopped || @consumes == @cmessages
+          ch.close
+        end
+        Fiber.yield if @consumes % 128*1024 == 0
+      end
+    end
+  ensure
+    done.send nil
+  end
+
+  private def summary(start : Time::Span, done)
+    stop = Time.monotonic
+    elapsed = (stop - start).total_seconds
+    avg_pub = (@pubs / elapsed).round(1)
+    avg_consume = (@consumes / elapsed).round(1)
+    print "\nSummary:\n"
+    print "Average publish rate: "
+    print avg_pub
+    print " msgs/s\n"
+    print "Average consume rate: "
+    print avg_consume
+    print " msgs/s\n"
+
+    print "\nPer queue: \n"
+    print "Average publish rate: "
+    print avg_pub / @queues
+    print " msgs/s\n"
+    print "Average consume rate: "
+    print avg_consume / @queues
+    print " msgs/s\n"
+  end
+
+  private def pub(done, queue_name)
+    data = Bytes.new(@size) { |i| ((i % 27 + 64)).to_u8 }
+    props = @properties
+    props.delivery_mode = 2u8 if @persistent
+    AMQP::Client.start(@uri) do |a|
+      ch = a.channel
+      ch.tx_select if @pub_in_transaction > 0
+      ch.confirm_select if @confirm > 0
+      Fiber.yield
+      start = Time.monotonic
+      pubs_this_second = 0
+      until @stopped
+        Random::DEFAULT.random_bytes(data) if @random_bodies
+        msgid = ch.basic_publish(data, @exchange, queue_name, props: props)
+        ch.wait_for_confirm(msgid) if @confirm > 0 && (msgid % @confirm) == 0
+        ch.tx_commit if @pub_in_transaction > 0 && (@pubs % @pub_in_transaction) == 0
+        @pubs += 1
+        break if @pubs == @pmessages
+        unless @rate.zero?
+          pubs_this_second += 1
+          if pubs_this_second >= @rate
+            until_next_second = (start + 1.seconds) - Time.monotonic
+            if until_next_second > Time::Span.zero
+              sleep until_next_second
+            end
+            start = Time.monotonic
+            pubs_this_second = 0
+          end
+        end
+      end
+    end
+  ensure
+    done.send nil
+  end
+
+  private def rss
+    File.read("/proc/self/statm").split[1].to_i64 * 4096
+  rescue File::NotFoundError
+    if ps_rss = `ps -o rss= -p $PPID`.to_i64?
+      ps_rss * 1024
+    else
+      0
+    end
+  end
+end
+
 {% unless flag?(:release) %}
   STDERR.puts "WARNING: #{PROGRAM_NAME} not built in release mode"
 {% end %}
@@ -529,6 +773,7 @@ when "connection-churn" then ConnectionChurn.new.run
 when "channel-churn"    then ChannelChurn.new.run
 when "consumer-churn"   then ConsumerChurn.new.run
 when "connection-count" then ConnectionCount.new.run
+when "load-simulation"  then LoadSimulator.new.run
 when /^.+$/             then Perf.new.run([mode.not_nil!])
 else                         abort Perf.new.banner
 end
