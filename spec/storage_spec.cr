@@ -106,7 +106,7 @@ describe LavinMQ::DurableQueue do
         q.subscribe(no_ack: false, &.ack)
       end
       queue = Server.vhosts["/"].queues[q_name].as(LavinMQ::DurableQueue)
-      queue.@msg_store.@segments.size.should be <= 2 
+      queue.@msg_store.@segments.size.should be <= 2
     end
   end
 end
