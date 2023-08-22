@@ -29,6 +29,131 @@ class Perf
   def run(args = ARGV)
     @parser.parse(args)
   end
+
+  private def rss
+    File.read("/proc/self/statm").split[1].to_i64 * 4096
+  rescue File::NotFoundError
+    if ps_rss = `ps -o rss= -p $PPID`.to_i64?
+      ps_rss * 1024
+    else
+      0
+    end
+  end
+
+  private def pub(done, routing_key)
+    data = Bytes.new(@size) { |i| ((i % 27 + 64)).to_u8 }
+    props = @properties
+    props.delivery_mode = 2u8 if @persistent
+    AMQP::Client.start(@uri) do |a|
+      ch = a.channel
+      ch.tx_select if @pub_in_transaction > 0
+      ch.confirm_select if @confirm > 0
+      Fiber.yield
+      start = Time.monotonic
+      pubs_this_second = 0
+      until @stopped
+        Random::DEFAULT.random_bytes(data) if @random_bodies
+        msgid = ch.basic_publish(data, @exchange, routing_key, props: props)
+        ch.wait_for_confirm(msgid) if @confirm > 0 && (msgid % @confirm) == 0
+        ch.tx_commit if @pub_in_transaction > 0 && (@pubs % @pub_in_transaction) == 0
+        @pubs += 1
+        break if @pubs == @pmessages
+        unless @rate.zero?
+          pubs_this_second += 1
+          if pubs_this_second >= @rate
+            until_next_second = (start + 1.seconds) - Time.monotonic
+            if until_next_second > Time::Span.zero
+              sleep until_next_second
+            end
+            start = Time.monotonic
+            pubs_this_second = 0
+          end
+        end
+      end
+    end
+  ensure
+    done.send nil
+  end
+
+  private def consume(done, queue_name)
+    data = Bytes.new(@size) { |i| ((i % 27 + 64)).to_u8 }
+    AMQP::Client.start(@uri) do |a|
+      ch = a.channel
+      q = begin
+        ch.queue queue_name, durable: !queue_name.empty?, auto_delete: queue_name.empty?, args: @queue_args
+      rescue
+        ch = a.channel
+        ch.queue(queue_name, passive: true)
+      end
+      ch.tx_select if @ack_in_transaction > 0
+      ch.prefetch @prefetch unless @prefetch.zero?
+      q.bind(@exchange, @routing_key) unless @exchange.empty?
+      Fiber.yield
+      consumes_this_second = 0
+      start = Time.monotonic
+      q.subscribe(tag: "c", no_ack: @ack.zero?, block: true, args: @consumer_args) do |m|
+        @consumes += 1
+        raise "Invalid data: #{m.body_io.to_slice}" if @verify && m.body_io.to_slice != data
+        m.ack(multiple: true) if @ack > 0 && @consumes % @ack == 0
+        ch.tx_commit if @ack_in_transaction > 0 && (@consumes % @ack_in_transaction) == 0
+        if @stopped || @consumes == @cmessages
+          ch.close
+        end
+        if @consume_rate.zero?
+          Fiber.yield if @consumes % 128*1024 == 0
+        else
+          consumes_this_second += 1
+          if consumes_this_second >= @consume_rate
+            until_next_second = (start + 1.seconds) - Time.monotonic
+            if until_next_second > Time::Span.zero
+              sleep until_next_second
+            end
+            start = Time.monotonic
+            consumes_this_second = 0
+          end
+        end
+      end
+    end
+  ensure
+    done.send nil
+  end
+
+  private def poll_consume(done, queue_name)
+    AMQP::Client.start(@uri) do |a|
+      ch = a.channel
+      q = begin
+        ch.queue queue_name
+      rescue
+        ch = a.channel
+        ch.queue(queue_name, passive: true)
+      end
+      ch.prefetch @prefetch unless @prefetch.zero?
+      q.bind(@exchange, @routing_key) unless @exchange.empty?
+      Fiber.yield
+      consumes_this_second = 0
+      start = Time.monotonic
+      loop do
+        if msg = q.get(no_ack: @ack.zero?)
+          @consumes += 1
+          msg.ack(multiple: true) if @ack > 0 && @consumes % @ack == 0
+          break if @stopped || @consumes == @cmessages
+        end
+        unless @consume_rate.zero?
+          consumes_this_second += 1
+          if consumes_this_second >= @consume_rate
+            until_next_second = (start + 1.seconds) - Time.monotonic
+            if until_next_second > Time::Span.zero
+              sleep until_next_second
+            end
+            start = Time.monotonic
+            consumes_this_second = 0
+          end
+        end
+      end
+    end
+  ensure
+    done.send nil
+  end
 end
 
 class Throughput < Perf
@@ -148,14 +273,14 @@ class Throughput < Perf
     done = Channel(Nil).new
     @consumers.times do
       if @poll
-        spawn poll_consume(done)
+        spawn poll_consume(done, @queue)
       else
-        spawn consume(done)
+        spawn consume(done, @queue)
       end
     end
 
     @publishers.times do
-      spawn pub(done)
+      spawn pub(done, @routing_key)
     end
 
     if @timeout != Time::Span.zero
@@ -219,121 +344,6 @@ class Throughput < Perf
       print avg_consume
       print " msgs/s\n"
     end
-  end
-
-  private def pub(done)
-    data = Bytes.new(@size) { |i| ((i % 27 + 64)).to_u8 }
-    props = @properties
-    props.delivery_mode = 2u8 if @persistent
-    AMQP::Client.start(@uri) do |a|
-      ch = a.channel
-      ch.tx_select if @pub_in_transaction > 0
-      ch.confirm_select if @confirm > 0
-      Fiber.yield
-      start = Time.monotonic
-      pubs_this_second = 0
-      until @stopped
-        Random::DEFAULT.random_bytes(data) if @random_bodies
-        msgid = ch.basic_publish(data, @exchange, @routing_key, props: props)
-        ch.wait_for_confirm(msgid) if @confirm > 0 && (msgid % @confirm) == 0
-        ch.tx_commit if @pub_in_transaction > 0 && (@pubs % @pub_in_transaction) == 0
-        @pubs += 1
-        break if @pubs == @pmessages
-        unless @rate.zero?
-          pubs_this_second += 1
-          if pubs_this_second >= @rate
-            until_next_second = (start + 1.seconds) - Time.monotonic
-            if until_next_second > Time::Span.zero
-              sleep until_next_second
-            end
-            start = Time.monotonic
-            pubs_this_second = 0
-          end
-        end
-      end
-    end
-  ensure
-    done.send nil
-  end
-
-  private def consume(done)
-    data = Bytes.new(@size) { |i| ((i % 27 + 64)).to_u8 }
-    AMQP::Client.start(@uri) do |a|
-      ch = a.channel
-      q = begin
-        ch.queue @queue, durable: !@queue.empty?, auto_delete: @queue.empty?, args: @queue_args
-      rescue
-        ch = a.channel
-        ch.queue(@queue, passive: true)
-      end
-      ch.tx_select if @ack_in_transaction > 0
-      ch.prefetch @prefetch unless @prefetch.zero?
-      q.bind(@exchange, @routing_key) unless @exchange.empty?
-      Fiber.yield
-      consumes_this_second = 0
-      start = Time.monotonic
-      q.subscribe(tag: "c", no_ack: @ack.zero?, block: true, args: @consumer_args) do |m|
-        @consumes += 1
-        raise "Invalid data: #{m.body_io.to_slice}" if @verify && m.body_io.to_slice != data
-        m.ack(multiple: true) if @ack > 0 && @consumes % @ack == 0
-        ch.tx_commit if @ack_in_transaction > 0 && (@consumes % @ack_in_transaction) == 0
-        if @stopped || @consumes == @cmessages
-          ch.close
-        end
-        if @consume_rate.zero?
-          Fiber.yield if @consumes % 128*1024 == 0
-        else
-          consumes_this_second += 1
-          if consumes_this_second >= @consume_rate
-            until_next_second = (start + 1.seconds) - Time.monotonic
-            if until_next_second > Time::Span.zero
-              sleep until_next_second
-            end
-            start = Time.monotonic
-            consumes_this_second = 0
-          end
-        end
-      end
-    end
-  ensure
-    done.send nil
-  end
-
-  private def poll_consume(done)
-    AMQP::Client.start(@uri) do |a|
-      ch = a.channel
-      q = begin
-        ch.queue @queue
-      rescue
-        ch = a.channel
-        ch.queue(@queue, passive: true)
-      end
-      ch.prefetch @prefetch unless @prefetch.zero?
-      q.bind(@exchange, @routing_key) unless @exchange.empty?
-      Fiber.yield
-      consumes_this_second = 0
-      start = Time.monotonic
-      loop do
-        if msg = q.get(no_ack: @ack.zero?)
-          @consumes += 1
-          msg.ack(multiple: true) if @ack > 0 && @consumes % @ack == 0
-          break if @stopped || @consumes == @cmessages
-        end
-        unless @consume_rate.zero?
-          consumes_this_second += 1
-          if consumes_this_second >= @consume_rate
-            until_next_second = (start + 1.seconds) - Time.monotonic
-            if until_next_second > Time::Span.zero
-              sleep until_next_second
-            end
-            start = Time.monotonic
-            consumes_this_second = 0
-          end
-        end
-      end
-    end
-  ensure
-    done.send nil
   end
 end
 
@@ -504,16 +514,6 @@ class ConnectionCount < Perf
     client.host = "127.0.#{Random.rand(UInt8)}.#{Random.rand(UInt8)}" if @random_localhost
     client
   end
-
-  private def rss
-    File.read("/proc/self/statm").split[1].to_i64 * 4096
-  rescue File::NotFoundError
-    if ps_rss = `ps -o rss= -p $PPID`.to_i64?
-      ps_rss * 1024
-    else
-      0
-    end
-  end
 end
 
 class QueueCount < Perf
@@ -586,16 +586,6 @@ class QueueCount < Perf
     client.host = "127.0.#{Random.rand(UInt8)}.#{Random.rand(UInt8)}" if @random_localhost
     client
   end
-
-  private def rss
-    File.read("/proc/self/statm").split[1].to_i64 * 4096
-  rescue File::NotFoundError
-    if ps_rss = `ps -o rss= -p $PPID`.to_i64?
-      ps_rss * 1024
-    else
-      0
-    end
-  end
 end
 
 class LoadSimulator < Perf
@@ -619,6 +609,7 @@ class LoadSimulator < Perf
   @timeout = Time::Span.zero
   @durable = true
   @exchange = ""
+  @consume_rate = 0
 
   @queue_args = AMQP::Client::Arguments.new
   @consumer_args = AMQP::Client::Arguments.new
@@ -741,39 +732,6 @@ class LoadSimulator < Perf
     summary(start, done)
   end
 
-  # Copied methods
-
-  private def consume(done, queue_name)
-    data = Bytes.new(@size) { |i| ((i % 27 + 64)).to_u8 }
-    AMQP::Client.start(@uri) do |a|
-      ch = a.channel
-      q = begin
-        ch.queue queue_name, durable: @durable, auto_delete: true, args: @queue_args
-      rescue
-        ch = a.channel
-        ch.queue(queue_name, passive: true)
-      end
-      ch.tx_select if @ack_in_transaction > 0
-      ch.prefetch @prefetch unless @prefetch.zero?
-      q.bind(@exchange, @routing_key) unless @exchange.empty?
-      Fiber.yield
-      consumes_this_second = 0
-      start = Time.monotonic
-      q.subscribe(tag: "c", no_ack: @ack.zero?, block: true, args: @consumer_args) do |m|
-        @consumes += 1
-        raise "Invalid data: #{m.body_io.to_slice}" if @verify && m.body_io.to_slice != data
-        m.ack(multiple: true) if @ack > 0 && @consumes % @ack == 0
-        ch.tx_commit if @ack_in_transaction > 0 && (@consumes % @ack_in_transaction) == 0
-        if @stopped || @consumes == @cmessages
-          ch.close
-        end
-        Fiber.yield if @consumes % 128*1024 == 0
-      end
-    end
-  ensure
-    done.send nil
-  end
-
   private def summary(start : Time::Span, done)
     stop = Time.monotonic
     elapsed = (stop - start).total_seconds
@@ -794,51 +752,6 @@ class LoadSimulator < Perf
     print "Average consume rate: "
     print avg_consume / @queues
     print " msgs/s\n"
-  end
-
-  private def pub(done, queue_name)
-    data = Bytes.new(@size) { |i| ((i % 27 + 64)).to_u8 }
-    props = @properties
-    props.delivery_mode = 2u8 if @persistent
-    AMQP::Client.start(@uri) do |a|
-      ch = a.channel
-      ch.tx_select if @pub_in_transaction > 0
-      ch.confirm_select if @confirm > 0
-      Fiber.yield
-      start = Time.monotonic
-      pubs_this_second = 0
-      until @stopped
-        Random::DEFAULT.random_bytes(data) if @random_bodies
-        msgid = ch.basic_publish(data, @exchange, queue_name, props: props)
-        ch.wait_for_confirm(msgid) if @confirm > 0 && (msgid % @confirm) == 0
-        ch.tx_commit if @pub_in_transaction > 0 && (@pubs % @pub_in_transaction) == 0
-        @pubs += 1
-        break if @pubs == @pmessages
-        unless @rate.zero?
-          pubs_this_second += 1
-          if pubs_this_second >= @rate
-            until_next_second = (start + 1.seconds) - Time.monotonic
-            if until_next_second > Time::Span.zero
-              sleep until_next_second
-            end
-            start = Time.monotonic
-            pubs_this_second = 0
-          end
-        end
-      end
-    end
-  ensure
-    done.send nil
-  end
-
-  private def rss
-    File.read("/proc/self/statm").split[1].to_i64 * 4096
-  rescue File::NotFoundError
-    if ps_rss = `ps -o rss= -p $PPID`.to_i64?
-      ps_rss * 1024
-    else
-      0
-    end
   end
 end
 
