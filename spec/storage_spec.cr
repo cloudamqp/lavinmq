@@ -94,6 +94,21 @@ describe LavinMQ::DurableQueue do
     queue = Server.vhosts["/"].queues["corruption_test"].as(LavinMQ::DurableQueue)
     queue.message_count.should eq 2
   end
+
+  # Delete unused segments bug
+  # https://github.com/cloudamqp/lavinmq/pull/565
+  it "should remove unused segments after being consumed" do
+    with_channel do |ch|
+      q_name = "segment_delete_test"
+      q = ch.queue(q_name, durable: true)
+      10.times do # Publish and consume large messages that ensures new segments are created
+        q.publish_confirm Random::DEFAULT.random_bytes(LavinMQ::Config.instance.segment_size)
+        q.subscribe(no_ack: false, &.ack)
+      end
+      queue = Server.vhosts["/"].queues[q_name].as(LavinMQ::DurableQueue)
+      queue.@msg_store.@segments.size.should be <= 2
+    end
+  end
 end
 
 describe LavinMQ::VHost do
