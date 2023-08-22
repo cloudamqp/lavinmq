@@ -516,6 +516,88 @@ class ConnectionCount < Perf
   end
 end
 
+class QueueCount < Perf
+  alias BasicConsumeFrame = AMQP::Client::Frame::Basic::Consume
+  @queues = 100
+  @queue_args = AMQP::Client::Arguments.new
+  @queue_name = "queue-count"
+  @random_localhost = false
+  @done = Channel(Int32).new(100)
+  @durable = false
+
+  def initialize
+    super
+    @parser.on("-x count", "--count=number", "Number of queues (default 100)") do |v|
+      @queues = v.to_i
+    end
+    @parser.on("-u queue", "--queue=name", "Queue name (default #{@queue_name})") do |v|
+      @queue_name = v
+    end
+    @parser.on("--queue-args=JSON", "Queue arguments as a JSON string") do |v|
+      @queue_args = AMQP::Client::Arguments.new(JSON.parse(v).as_h)
+    end
+    @parser.on("-l", "--localhost", "Connect to random localhost 127.0.0.0/16 address") do
+      @random_localhost = true
+    end
+    @parser.on("-k IDLE:COUNT:INTERVAL", "--keepalive=IDLE:COUNT:INTERVAL", "TCP keepalive values") do |v|
+      @uri.query_params["tcp_keepalive"] = v
+    end
+    puts "FD limit: #{System.maximize_fd_limit}"
+  end
+
+  def run
+    super
+    count = 0
+    c = client.connect
+    ch = c.channel
+
+    Signal::INT.trap do
+      puts "Abort. Deleting queues..."
+      count.times do |i|
+        ch.queue_delete "#{@queue_name}-#{i}"
+        print "."
+      end
+      puts " Queues deleted. Exiting..."
+      abort "Aborting" if @stopped
+      @stopped = true
+      exit 0
+    end
+
+    loop do
+      start = Time.monotonic
+      @queues.times do
+        ch.queue "#{@queue_name}-#{count}", durable: @durable, auto_delete: true, args: @queue_args
+        # c.write BasicConsumeFrame.new(ch.id, 0_u16, "", "", false, true, false, true, AMQP::Client::Arguments.new)
+        count += 1
+        print '.'
+      end
+      stop = Time.monotonic
+      puts " #{(stop - start).total_milliseconds.round}ms"
+      puts
+      print "#{count} queues "
+      puts "Using #{rss.humanize_bytes} memory."
+      puts "Press enter to do add #{@queues} queues or ctrl-c to abort"
+      gets
+    end
+  end
+
+  private def client : AMQP::Client
+    client = @client ||= AMQP::Client.new(@uri)
+    client.host = "127.0.#{Random.rand(UInt8)}.#{Random.rand(UInt8)}" if @random_localhost
+    client
+  end
+
+  private def rss
+    File.read("/proc/self/statm").split[1].to_i64 * 4096
+  rescue File::NotFoundError
+    if ps_rss = `ps -o rss= -p $PPID`.to_i64?
+      ps_rss * 1024
+    else
+      0
+    end
+  end
+end
+
 class LoadSimulator < Perf
   @connections = 1
   @channels = 1
@@ -773,6 +855,7 @@ when "connection-churn" then ConnectionChurn.new.run
 when "channel-churn"    then ChannelChurn.new.run
 when "consumer-churn"   then ConsumerChurn.new.run
 when "connection-count" then ConnectionCount.new.run
+when "queue-count"      then QueueCount.new.run
 when "load-simulation"  then LoadSimulator.new.run
 when /^.+$/             then Perf.new.run([mode.not_nil!])
 else                         abort Perf.new.banner
