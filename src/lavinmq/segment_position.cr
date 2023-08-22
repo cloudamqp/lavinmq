@@ -15,7 +15,16 @@ module LavinMQ
     end
 
     def self.make(segment : UInt32, position : UInt32, msg)
-      self.new(segment, position, msg.bytesize.to_u32, !!msg.dlx, msg.properties.priority || 0u8, msg.delay || 0u32)
+      prio = msg.properties.priority || 0u8
+      has_dlx = false
+      delay = 0u32
+      msg.properties.headers.try &.each do |key, value|
+        case key
+        when "x-dead-letter-exchange" then has_dlx = true
+        when "x-delay"                then delay = value.as?(Int).try(&.to_u32) || 0u32 rescue 0u32
+        end
+      end
+      self.new(segment, position, msg.bytesize.to_u32, has_dlx, prio, delay)
     end
 
     def <=>(other : self)

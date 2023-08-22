@@ -176,6 +176,13 @@ module LavinMQ
       @acl_config_cache[cache_key]
     end
 
+    def remove_queue_from_acl_caches(vhost, name)
+      cache_key = {vhost, name}
+      @acl_config_cache.delete(cache_key)
+      @acl_read_cache.delete(cache_key)
+      @acl_write_cache.delete(cache_key)
+    end
+
     def can_impersonate?
       @tags.includes? Tag::Impersonator
     end

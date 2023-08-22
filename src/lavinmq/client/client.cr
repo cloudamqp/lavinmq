@@ -505,7 +505,7 @@ module LavinMQ
     end
 
     def send_internal_error(message)
-      close_connection(nil, 541_u16, "INTERNAL_ERROR - #{message}")
+      close_connection(nil, 541_u16, "INTERNAL_ERROR - Unexpected error, please report")
     end
 
     def send_frame_error(message = nil)

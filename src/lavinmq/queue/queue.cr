@@ -370,6 +370,9 @@ module LavinMQ
       @vhost.delete_queue(@name)
       @log.info { "(messages=#{message_count}) Deleted" }
       notify_observers(:delete)
+      @vhost.users.each do |_, user|
+        user.remove_queue_from_acl_caches(@vhost.name, @name)
+      end
       true
     end
 
@@ -569,35 +572,29 @@ module LavinMQ
       false
     end
 
-    private def handle_dlx_header(meta, reason)
-      props = meta.properties
-      headers = props.headers ||= AMQP::Table.new
-
-      headers.delete("x-delay")
-      headers.delete("x-dead-letter-exchange")
-      headers.delete("x-dead-letter-routing-key")
+    private def handle_dlx_header(msg, reason) : AMQP::Properties
+      h = msg.properties.headers || AMQP::Table.new
+      h.reject! { |k, _| k.in?("x-delay", "x-dead-letter-exchange", "x-dead-letter-routing-key") }
 
       # there's a performance advantage to do `has_key?` over `||=`
-      headers["x-first-death-reason"] = reason.to_s unless headers.has_key? "x-first-death-reason"
-      headers["x-first-death-queue"] = @name unless headers.has_key? "x-first-death-queue"
-      headers["x-first-death-exchange"] = meta.exchange_name unless headers.has_key? "x-first-death-exchange"
+      h["x-first-death-reason"] = reason.to_s unless h.has_key? "x-first-death-reason"
+      h["x-first-death-queue"] = @name unless h.has_key? "x-first-death-queue"
+      h["x-first-death-exchange"] = msg.exchange_name unless h.has_key? "x-first-death-exchange"
 
-      routing_keys = [meta.routing_key.as(AMQP::Field)]
-      if cc = headers.delete("CC")
+      routing_keys = [msg.routing_key.as(AMQP::Field)]
+      if cc = h.delete("CC")
         # should route to all the CC RKs but then delete them,
         # so we (ab)use the BCC header for that
-        headers["BCC"] = cc
+        h["BCC"] = cc
         routing_keys.concat cc.as(Array(AMQP::Field))
       end
 
-      handle_xdeath_header(headers, meta, routing_keys, reason)
-
-      props.expiration = nil
-      props
+      msg.properties.headers = handle_xdeath_header(h, msg.exchange_name, routing_keys, reason, msg.properties.expiration)
+      msg.properties.expiration = nil
+      msg.properties
     end
 
-    private def handle_xdeath_header(headers, meta, routing_keys, reason)
-      props = meta.properties
+    private def handle_xdeath_header(headers, exchange_name, routing_keys, reason, expiration) : AMQP::Table
       xdeaths = headers["x-death"]?.as?(Array(AMQP::Field)) || Array(AMQP::Field).new(1)
 
       found_at = -1
@@ -605,38 +602,39 @@ module LavinMQ
         xd = xd.as(AMQP::Table)
         next if xd["queue"]? != @name
         next if xd["reason"]? != reason.to_s
-        next if xd["exchange"]? != meta.exchange_name
-
+        next if xd["exchange"]? != exchange_name
         count = xd["count"].as?(Int) || 0
-        xd["count"] = count + 1
-        xd["time"] = RoughTime.utc
-        xd["routing_keys"] = routing_keys
-        xd["original-expiration"] = props.expiration if props.expiration
+        xd.merge!({
+          count:          count + 1,
+          time:           RoughTime.utc,
+          "routing-keys": routing_keys,
+        })
+        xd["original-expiration"] = expiration if expiration
         found_at = idx
         break
       end
 
       case found_at
-      when -1
-        # not found so inserting new x-death
-        xd = AMQP::Table.new
-        xd["queue"] = @name
-        xd["reason"] = reason.to_s
-        xd["exchange"] = meta.exchange_name
-        xd["count"] = 1
-        xd["time"] = RoughTime.utc
-        xd["routing-keys"] = routing_keys
-        xd["original-expiration"] = props.expiration if props.expiration
-        xdeaths.unshift xd
+      when -1 # not found so inserting new x-death
+        death = AMQP::Table.new({
+          "queue":        @name,
+          "reason":       reason.to_s,
+          "exchange":     exchange_name,
+          "count":        1,
+          "time":         RoughTime.utc,
+          "routing-keys": routing_keys,
+        })
+        death["original-expiration"] = expiration if expiration
+        xdeaths.unshift death
       when 0
         # do nothing, updated xd is in the front
       else
         # move updated xd to the front
         xd = xdeaths.delete_at(found_at)
-        xdeaths.unshift xd.as(AMQP::Table)
+        xdeaths.unshift xd
       end
       headers["x-death"] = xdeaths
-      nil
+      headers
     end
 
     private def dead_letter_msg(msg : BytesMessage, props, dlx, dlrk)

@@ -54,7 +54,7 @@ module LavinMQ
       "product":      "LavinMQ",
       "platform":     "Crystal #{Crystal::VERSION}",
       "version":      LavinMQ::VERSION,
-      "capabilities": AMQP::Table.new({
+      "capabilities": {
         "publisher_confirms":           true,
         "exchange_exchange_bindings":   true,
         "basic.nack":                   true,
@@ -64,7 +64,7 @@ module LavinMQ
         "authentication_failure_close": true,
         "per_consumer_qos":             true,
         "direct_reply_to":              true,
-      }),
+      },
     })
 
     def self.start(socket)

@@ -42,6 +42,19 @@ module UpstreamSpecHelpers
 end
 
 describe LavinMQ::Federation::Upstream do
+  it "should use federated queue's name if @queue is empty" do
+    vhost_downstream = Server.vhosts.create("/")
+    vhost_upstream = Server.vhosts.create("upstream")
+    upstream = LavinMQ::Federation::Upstream.new(vhost_downstream, "qf test upstream", "#{AMQP_BASE_URL}/upstream", nil, "")
+
+    with_channel do |ch|
+      ch.queue("federated_q")
+      link = upstream.link(vhost_downstream.queues["federated_q"])
+      wait_for { link.state.running? }
+      vhost_upstream.queues.has_key?("federated_q").should be_true
+    end
+  end
+
   it "should federate queue" do
     vhost = Server.vhosts["/"]
     upstream = LavinMQ::Federation::Upstream.new(vhost, "qf test upstream", AMQP_BASE_URL, nil, "federation_q1")
