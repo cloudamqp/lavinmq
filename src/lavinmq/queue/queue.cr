@@ -370,6 +370,9 @@ module LavinMQ
       @vhost.delete_queue(@name)
       @log.info { "(messages=#{message_count}) Deleted" }
       notify_observers(:delete)
+      @vhost.users.each do |_, user|
+        user.remove_queue_from_acl_caches(@vhost.name, @name)
+      end
       true
     end
 
