@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.2] - 2023-08-22
+
+### Added
+
+- Make it possible to declare temp queues in lavinmqperf connection-count
+
+### Fixed
+
+- Delete fully ACK'd segments when opening new segments [#565](https://github.com/cloudamqp/lavinmq/pull/565)
+- Don't send internal error messages to clients
+- Remove queues from ACL cache on deletion
+- Use federated queue's name if queue name is empty [#562](https://github.com/cloudamqp/lavinmq/pull/562)
+
+### Changed
+
+- Refactoring
+- Use amq-protocol v1.1.8, refactor header handling
+- Optimize SegmentPosition creation
+
 ## [1.2.1] - 2023-08-09
 
 ### Fixed
