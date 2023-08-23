@@ -73,7 +73,7 @@ module LavinMQ
           tags = Tag.parse_list(body["tags"]?.try(&.as_s).to_s).uniq
           hashing_algorithm = body["hashing_algorithm"]?.try &.as_s? || "SHA256"
           unless @amqp_server.flow?
-            precondition_failed(context, "Disk space almost full, can not create new user")
+            precondition_failed(context, "Server low on disk space, can not create new user")
           end
           if u = @amqp_server.users[name]?
             if password_hash
