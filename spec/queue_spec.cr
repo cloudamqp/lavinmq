@@ -321,7 +321,7 @@ describe LavinMQ::Queue do
       Server.flow(false)
       with_channel do |ch|
         expect_raises(AMQP::Client::Channel::ClosedException, "PRECONDITION_FAILED") do
-          q = ch.queue("test_queue_flow", durable: true)
+          ch.queue("test_queue_flow", durable: true)
         end
       end
     ensure
