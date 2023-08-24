@@ -40,6 +40,9 @@ describe "Flow" do
     wait_for { Server.disk_free > 0 }
     LavinMQ::Config.instance.free_disk_min = Server.disk_free + 1_000_000_000
     should_eventually(be_false) { Server.flow? }
+  ensure
+    LavinMQ::Config.instance.free_disk_min = 0
+    Server.flow(true)
   end
 
   it "should resume flow when disk is no longer full" do
@@ -49,5 +52,8 @@ describe "Flow" do
     should_eventually(be_false) { Server.flow? }
     LavinMQ::Config.instance.free_disk_min = 0
     should_eventually(be_true) { Server.flow? }
+  ensure
+    LavinMQ::Config.instance.free_disk_min = 0
+    Server.flow(true)
   end
 end

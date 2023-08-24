@@ -324,6 +324,8 @@ describe LavinMQ::Queue do
           q = ch.queue("test_queue_flow", durable: true)
         end
       end
+    ensure
+      Server.flow(true)
     end
   end
 end

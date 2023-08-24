@@ -167,6 +167,8 @@ describe LavinMQ::HTTP::UsersController do
       response.status_code.should eq 412
       body = JSON.parse(response.body)
       body["reason"].as_s.should eq("Server low on disk space, can not create new user")
+    ensure
+      Server.flow(true)
     end
   end
 
