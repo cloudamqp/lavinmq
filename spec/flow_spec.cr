@@ -39,7 +39,7 @@ describe "Flow" do
     stats_interval = LavinMQ::Config.instance.stats_interval
     LavinMQ::Config.instance.stats_interval = 100
     wait_for { Server.disk_total > 0 }
-    LavinMQ::Config.instance.free_disk_min = Server.disk_total
+    LavinMQ::Config.instance.free_disk_min = Int64::MAX
     should_eventually(be_false) { Server.flow? }
   ensure
     LavinMQ::Config.instance.free_disk_min = 0
@@ -51,7 +51,7 @@ describe "Flow" do
     stats_interval = LavinMQ::Config.instance.stats_interval
     LavinMQ::Config.instance.stats_interval = 100
     wait_for { Server.disk_total > 0 }
-    LavinMQ::Config.instance.free_disk_min = Server.disk_total
+    LavinMQ::Config.instance.free_disk_min = Int64::MAX
     should_eventually(be_false) { Server.flow? }
     LavinMQ::Config.instance.free_disk_min = 0
     should_eventually(be_true) { Server.flow? }
