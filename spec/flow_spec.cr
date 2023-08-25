@@ -36,7 +36,6 @@ describe "Flow" do
   end
 
   it "should stop flow when disk is almost full" do
-    wait_for { Server.disk_total > 0 }
     LavinMQ::Config.instance.free_disk_min = Int64::MAX
     Server.is_disk_full?.should be_true
   ensure
@@ -45,7 +44,6 @@ describe "Flow" do
   end
 
   it "should resume flow when disk is no longer full" do
-    wait_for { Server.disk_total > 0 }
     LavinMQ::Config.instance.free_disk_min = Int64::MAX
     Server.is_disk_full?.should be_true
 
