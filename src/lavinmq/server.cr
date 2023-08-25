@@ -385,7 +385,7 @@ module LavinMQ
     getter stats_system_collection_duration_seconds = Time::Span.new
 
     private def control_flow!
-      if is_disk_full?
+      if disk_full?
         if flow?
           @log.info { "Low disk space: #{@disk_free.humanize}B, stopping flow" }
           flow(false)
@@ -393,16 +393,16 @@ module LavinMQ
       elsif !flow?
         @log.info { "Not low on disk space, starting flow" }
         flow(true)
-      elsif is_disk_usage_over_warning_level?
+      elsif disk_usage_over_warning_level?
         @log.info { "Low on disk space: #{@disk_free.humanize}B" }
       end
     end
 
-    def is_disk_full?
+    def disk_full?
       @disk_free < 3_i64 * Config.instance.segment_size || @disk_free < Config.instance.free_disk_min
     end
 
-    def is_disk_usage_over_warning_level?
+    def disk_usage_over_warning_level?
       @disk_free < 6_i64 * Config.instance.segment_size || @disk_free < Config.instance.free_disk_warn
     end
 
