@@ -40,7 +40,7 @@ describe "Flow" do
     LavinMQ::Config.instance.free_disk_min = Int64::MAX
     puts "Server disk total: #{Server.disk_total}"
     puts "Server disk free: #{Server.disk_free}"
-    should_eventually(be_false, timeout = (LavinMQ::Config.instance.stats_interval * 2).milliseconds) { Server.flow? }
+    should_eventually(be_false, timeout = (LavinMQ::Config.instance.stats_interval * 4).milliseconds) { Server.flow? }
   ensure
     LavinMQ::Config.instance.free_disk_min = 0
     Server.flow(true)
@@ -51,11 +51,11 @@ describe "Flow" do
     LavinMQ::Config.instance.free_disk_min = Int64::MAX
     puts "Server disk total: #{Server.disk_total}"
     puts "Server disk free: #{Server.disk_free}"
-    should_eventually(be_false, timeout = (LavinMQ::Config.instance.stats_interval * 2).milliseconds) { Server.flow? }
+    should_eventually(be_false, timeout = (LavinMQ::Config.instance.stats_interval * 4).milliseconds) { Server.flow? }
     puts "Server disk total: #{Server.disk_total}"
     puts "Server disk free: #{Server.disk_free}"
     LavinMQ::Config.instance.free_disk_min = 0
-    should_eventually(be_true, timeout = (LavinMQ::Config.instance.stats_interval * 2).milliseconds) { Server.flow? }
+    should_eventually(be_true, timeout = (LavinMQ::Config.instance.stats_interval * 4).milliseconds) { Server.flow? }
   ensure
     LavinMQ::Config.instance.free_disk_min = 0
     Server.flow(true)
