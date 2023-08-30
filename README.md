@@ -43,6 +43,8 @@ echo "deb [signed-by=/usr/share/keyrings/lavinmq.gpg] https://packagecloud.io/cl
 sudo apt-get update
 sudo apt-get install lavinmq
 ```
+If you need to install a specific version of LavinMQ, do so using the following command: 
+`sudo apt install lavinmq=<version>`. This works for both upgrades and downgrades. 
 
 ### Fedora
 
