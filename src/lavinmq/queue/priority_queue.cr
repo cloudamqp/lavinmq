@@ -3,7 +3,7 @@ require "./durable_queue"
 module LavinMQ
   class PriorityQueue < Queue
     private def init_msg_store(data_dir)
-      replicator = @durable ? @vhost.@replicator : nil
+      replicator = durable? ? @vhost.@replicator : nil
       PriorityMessageStore.new(data_dir, replicator)
     end
 
@@ -51,6 +51,8 @@ module LavinMQ
   end
 
   class DurablePriorityQueue < PriorityQueue
-    @durable = true
+    def durable?
+      true
+    end
   end
 end

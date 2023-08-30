@@ -6,7 +6,7 @@ module LavinMQ
     @internal = true
 
     private def init_msg_store(data_dir)
-      replicator = @durable ? @vhost.@replicator : nil
+      replicator = durable? ? @vhost.@replicator : nil
       DelayedMessageStore.new(data_dir, replicator)
     end
 
@@ -96,6 +96,8 @@ module LavinMQ
   end
 
   class DurableDelayedExchangeQueue < DelayedExchangeQueue
-    @durable = true
+    def durable?
+      true
+    end
   end
 end

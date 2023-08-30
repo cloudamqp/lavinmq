@@ -15,7 +15,8 @@ module LavinMQ
     include SortableJSON
     include Observable
 
-    getter name, durable, auto_delete, internal, arguments, queue_bindings, exchange_bindings, vhost, type, alternate_exchange
+    getter name, arguments, queue_bindings, exchange_bindings, vhost, type, alternate_exchange
+    getter? durable, internal, auto_delete
     getter policy : Policy?
     getter operator_policy : OperatorPolicy?
     getter? delayed = false
@@ -126,7 +127,7 @@ module LavinMQ
         "x-dead-letter-exchange" => @name,
         "auto-delete"            => @auto_delete,
       }
-      @delayed_queue = if durable
+      @delayed_queue = if durable?
                          DurableDelayedExchangeQueue.new(@vhost, q_name, false, false, arguments)
                        else
                          DelayedExchangeQueue.new(@vhost, q_name, false, false, arguments)

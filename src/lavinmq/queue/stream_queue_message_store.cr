@@ -1,7 +1,7 @@
 require "./stream_queue"
 
 module LavinMQ
-  class StreamQueue < Queue
+  class StreamQueue < DurableQueue
     class StreamQueueMessageStore < MessageStore
       getter new_messages = Channel(Bool).new
       property max_length : Int64?

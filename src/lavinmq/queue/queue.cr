@@ -28,7 +28,6 @@ module LavinMQ
     include Stats
     include SortableJSON
 
-    @durable = false
     @log : Log
     @message_ttl : Int64?
     @max_length : Int64?
@@ -120,7 +119,8 @@ module LavinMQ
       {"ack", "deliver", "confirm", "get", "get_no_ack", "publish", "redeliver", "reject", "return_unroutable"},
       {"message_count", "unacked_count"})
 
-    getter name, durable, exclusive, auto_delete, arguments, vhost, consumers, last_get_time
+    getter name, arguments, vhost, consumers, last_get_time
+    getter? auto_delete, exclusive
     getter policy : Policy?
     getter operator_policy : OperatorPolicy?
     getter? closed = false
@@ -148,7 +148,7 @@ module LavinMQ
 
     # own method so that it can be overriden in other queue implementations
     private def init_msg_store(data_dir)
-      replicator = @durable ? @vhost.@replicator : nil
+      replicator = durable? ? @vhost.@replicator : nil
       MessageStore.new(data_dir, replicator)
     end
 
@@ -156,7 +156,7 @@ module LavinMQ
       data_dir = File.join(@vhost.data_dir, Digest::SHA1.hexdigest @name)
       if Dir.exists? data_dir
         # delete left over files from transient queues
-        unless @durable
+        unless durable?
           FileUtils.rm_r data_dir
           Dir.mkdir_p data_dir
         end
@@ -352,7 +352,7 @@ module LavinMQ
         @msg_store.close
       end
       # TODO: When closing due to ReadError, queue is deleted if exclusive
-      delete if !@durable || @exclusive
+      delete if !durable? || @exclusive
       Fiber.yield
       notify_observers(:close)
       @log.debug { "Closed" }
@@ -379,14 +379,14 @@ module LavinMQ
     def details_tuple
       {
         name:                        @name,
-        durable:                     @durable,
+        durable:                     durable?,
         exclusive:                   @exclusive,
         auto_delete:                 @auto_delete,
         arguments:                   @arguments,
         consumers:                   @consumers.size,
         vhost:                       @vhost.name,
         messages:                    @msg_store.size + @unacked_count,
-        messages_persistent:         @durable ? @msg_store.size + @unacked_count : 0,
+        messages_persistent:         durable? ? @msg_store.size + @unacked_count : 0,
         ready:                       @msg_store.size,
         ready_bytes:                 @msg_store.bytesize,
         ready_avg_bytes:             @msg_store.avg_bytesize,
@@ -862,14 +862,14 @@ module LavinMQ
     end
 
     def match?(frame)
-      @durable == frame.durable &&
+      durable? == frame.durable &&
         @exclusive == frame.exclusive &&
         @auto_delete == frame.auto_delete &&
         @arguments == frame.arguments.to_h
     end
 
     def match?(durable, exclusive, auto_delete, arguments)
-      @durable == durable &&
+      durable? == durable &&
         @exclusive == exclusive &&
         @auto_delete == auto_delete &&
         @arguments == arguments.to_h
@@ -908,6 +908,10 @@ module LavinMQ
       @log.error(exception: ex) { "Queue closed due to error" }
       close
       raise ex
+    end
+
+    def durable?
+      false
     end
 
     class Error < Exception; end
