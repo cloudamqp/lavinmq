@@ -187,9 +187,9 @@ module LavinMQ
 
       def delete
         close
+        @segments.each_value { |f| @replicator.try &.delete_file(f.path); f.delete }
+        @acks.each_value { |f| @replicator.try &.delete_file(f.path); f.delete }
         FileUtils.rm_rf @data_dir
-        @segments.each_value { |f| @replicator.try &.delete_file(f.path) }
-        @acks.each_value { |f| @replicator.try &.delete_file(f.path) }
       end
 
       def empty?
