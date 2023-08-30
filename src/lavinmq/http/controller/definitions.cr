@@ -277,12 +277,12 @@ module LavinMQ
           json.array do
             vhosts.each_value do |v|
               v.queues.each_value do |q|
-                next if q.exclusive
+                next if q.exclusive?
                 {
                   "name":        q.name,
                   "vhost":       q.vhost.name,
-                  "durable":     q.durable,
-                  "auto_delete": q.auto_delete,
+                  "durable":     q.durable?,
+                  "auto_delete": q.auto_delete?,
                   "arguments":   q.arguments,
                 }.to_json(json)
               end
@@ -293,14 +293,14 @@ module LavinMQ
         private def export_exchanges(json)
           json.array do
             vhosts.each_value do |v|
-              v.exchanges.each_value.reject(&.internal).each do |e|
+              v.exchanges.each_value.reject(&.internal?).each do |e|
                 {
                   "name":        e.name,
                   "vhost":       e.vhost.name,
                   "type":        e.type,
-                  "durable":     e.durable,
-                  "auto_delete": e.auto_delete,
-                  "internal":    e.internal,
+                  "durable":     e.durable?,
+                  "auto_delete": e.auto_delete?,
+                  "internal":    e.internal?,
                   "arguments":   e.arguments,
                 }.to_json(json)
               end

@@ -104,7 +104,7 @@ module LavinMQ
         end
         raise Error::UnexpectedFrame.new(frame) if @next_publish_exchange_name
         if ex = @client.vhost.exchanges[frame.exchange]?
-          if !ex.internal
+          if !ex.internal?
             @next_publish_exchange_name = frame.exchange
             @next_publish_routing_key = frame.routing_key
             @next_publish_mandatory = frame.mandatory

@@ -592,7 +592,7 @@ module LavinMQ
       else
         size = q.message_count
         @vhost.apply(frame)
-        @exclusive_queues.delete(q) if q.exclusive
+        @exclusive_queues.delete(q) if q.exclusive?
         send AMQP::Frame::Queue::DeleteOk.new(frame.channel, size) unless frame.no_wait
       end
     end
@@ -603,7 +603,7 @@ module LavinMQ
     end
 
     def queue_exclusive_to_other_client?(q)
-      q.exclusive && !@exclusive_queues.includes?(q)
+      q.exclusive? && !@exclusive_queues.includes?(q)
     end
 
     private def declare_queue(frame)
@@ -643,7 +643,7 @@ module LavinMQ
             q.message_count, q.consumer_count)
         end
         @last_queue_name = frame.queue_name
-      elsif frame.exclusive && !q.exclusive
+      elsif frame.exclusive && !q.exclusive?
         send_resource_locked(frame, "Not an exclusive queue")
       else
         send_precondition_failed(frame, "Existing queue '#{q.name}' declared with other arguments")
@@ -651,7 +651,7 @@ module LavinMQ
     end
 
     private def invalid_exclusive_redclare?(frame, q)
-      q.exclusive && !frame.passive && !frame.exclusive
+      q.exclusive? && !frame.passive && !frame.exclusive
     end
 
     @last_queue_name : String?

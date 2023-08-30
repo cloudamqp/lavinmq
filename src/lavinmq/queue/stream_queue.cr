@@ -3,9 +3,7 @@ require "../client/channel/stream_consumer"
 require "./stream_queue_message_store"
 
 module LavinMQ
-  class StreamQueue < Queue
-    @durable = true
-
+  class StreamQueue < DurableQueue
     def initialize(@vhost : VHost, @name : String,
                    @exclusive = false, @auto_delete = false,
                    @arguments = Hash(String, AMQP::Field).new)

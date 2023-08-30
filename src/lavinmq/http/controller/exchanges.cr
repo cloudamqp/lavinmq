@@ -65,7 +65,7 @@ module LavinMQ
               unless e.match?(type, durable, auto_delete, internal, tbl)
                 bad_request(context, "Existing exchange declared with other arguments arg")
               end
-              if e.internal
+              if e.internal?
                 bad_request(context, "Not allowed to publish to internal exchange")
               end
               context.response.status_code = 204
@@ -92,7 +92,7 @@ module LavinMQ
             if context.request.query_params["if-unused"]? == "true"
               bad_request(context, "Exchange #{e.name} in vhost #{e.vhost.name} in use") if e.in_use?
             end
-            if e.internal
+            if e.internal?
               bad_request(context, "Not allowed to delete internal queue")
             end
             @amqp_server.vhosts[vhost].delete_exchange(e.name)
@@ -125,7 +125,7 @@ module LavinMQ
             unless user.can_write?(e.vhost.name, e.name)
               access_refused(context, "User doesn't have permissions to write exchange '#{e.name}'")
             end
-            if e.internal
+            if e.internal?
               bad_request(context, "Not allowed to publish to internal exchange")
             end
             body = parse_body(context)

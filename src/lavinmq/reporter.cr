@@ -16,7 +16,7 @@ module LavinMQ
         puts_size_capacity vh.@exchanges, 4
         puts_size_capacity vh.@queues, 4
         vh.queues.each do |_, q|
-          puts "    #{q.name} #{q.durable ? "durable" : ""} args=#{q.arguments}"
+          puts "    #{q.name} #{q.durable? ? "durable" : ""} args=#{q.arguments}"
           puts_size_capacity q.@consumers, 6
           puts_size_capacity q.@deliveries, 6
           puts_size_capacity q.@msg_store.@segments, 6

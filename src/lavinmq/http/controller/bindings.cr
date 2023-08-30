@@ -133,7 +133,7 @@ module LavinMQ
               access_refused(context, "User doesn't have write permissions to exchange '#{destination.name}'")
             elsif source.name.empty? || destination.name.empty?
               access_refused(context, "Not allowed to bind to the default exchange")
-            elsif destination.internal
+            elsif destination.internal?
               bad_request(context, "Not allowed to bind to an internal exchange")
             end
             body = parse_body(context)
@@ -173,7 +173,7 @@ module LavinMQ
               access_refused(context, "User doesn't have write permissions to queue '#{destination.name}'")
             elsif source.name.empty? || destination.name.empty?
               access_refused(context, "Not allowed to unbind from the default exchange")
-            elsif destination.internal
+            elsif destination.internal?
               bad_request(context, "Not allowed to unbind from an internal exchange")
             end
             props = URI.decode_www_form(params["props"])
