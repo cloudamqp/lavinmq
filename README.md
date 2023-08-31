@@ -73,7 +73,7 @@ for an example.
 
 ## Docker
 
-Docker images are published to [Docker Hub](https://hub.docker.com/repository/docker/cloudamqp/lavinmq).
+Docker images are published to [Docker Hub](https://hub.docker.com/r/cloudamqp/lavinmq).
 Fetch and run the latest version with:
 
 `docker run --rm -it -P -v /var/lib/lavinmq:/tmp/amqp cloudamqp/lavinmq`
