@@ -13,6 +13,16 @@ module LavinMQ
       super
     end
 
+    def has_binding?(destination : Queue, routing_key : String, headers : Hash(String, AMQP::Field)?)
+      args = headers ? @arguments.merge(headers) : @arguments
+      @queue_bindings[{routing_key, args}]? == destination
+    end
+
+    def has_binding?(destination : Exchange, routing_key : String, headers : Hash(String, AMQP::Field)?)
+      args = headers ? @arguments.merge(headers) : @arguments
+      @exchange_bindings[{routing_key, args}]? == destination
+    end
+
     def bind(destination : Queue, routing_key, headers)
       validate!(headers)
       args = headers ? @arguments.merge(headers) : @arguments

@@ -300,11 +300,13 @@ module LavinMQ
         when AMQP::Frame::Exchange::Bind
           src = @exchanges[f.source]? || return false
           dst = @exchanges[f.destination]? || return false
+          return false if src.has_binding?(dst, f.routing_key, f.arguments.to_h)
           src.bind(dst, f.routing_key, f.arguments.to_h)
           store_definition(f) if !loading && src.durable? && dst.durable?
         when AMQP::Frame::Exchange::Unbind
           src = @exchanges[f.source]? || return false
           dst = @exchanges[f.destination]? || return false
+          return false if !src.has_binding?(dst, f.routing_key, f.arguments.to_h)
           src.unbind(dst, f.routing_key, f.arguments.to_h)
           store_definition(f) if !loading && src.durable? && dst.durable?
         when AMQP::Frame::Queue::Declare
@@ -329,11 +331,13 @@ module LavinMQ
         when AMQP::Frame::Queue::Bind
           x = @exchanges[f.exchange_name]? || return false
           q = @queues[f.queue_name]? || return false
+          return false if x.has_binding?(q, f.routing_key, f.arguments.to_h)
           x.bind(q, f.routing_key, f.arguments.to_h)
           store_definition(f) if !loading && x.durable? && q.durable? && !q.exclusive?
         when AMQP::Frame::Queue::Unbind
           x = @exchanges[f.exchange_name]? || return false
           q = @queues[f.queue_name]? || return false
+          return false if !x.has_binding?(q, f.routing_key, f.arguments.to_h)
           x.unbind(q, f.routing_key, f.arguments.to_h)
           store_definition(f) if !loading && x.durable? && q.durable? && !q.exclusive?
         else raise "Cannot apply frame #{f.class} in vhost #{@name}"
