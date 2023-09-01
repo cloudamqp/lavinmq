@@ -25,11 +25,11 @@ module LavinMQ
     end
 
     def has_binding?(destination : Queue, routing_key : String, headers : Hash(String, AMQP::Field)?)
-      @queue_bindings[{routing_key, headers}]? == destination
+      @queue_bindings[{routing_key, headers}]?.try &.includes?(destination)
     end
 
     def has_binding?(destination : Exchange, routing_key : String, headers : Hash(String, AMQP::Field)?)
-      @exchange_bindings[{routing_key, headers}]? == destination
+      @exchange_bindings[{routing_key, headers}]?.try &.includes?(destination)
     end
 
     def bind(destination : Destination, routing_key : String, headers : Hash(String, AMQP::Field)?)
