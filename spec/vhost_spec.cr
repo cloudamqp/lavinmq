@@ -44,6 +44,29 @@ describe LavinMQ::VHost do
     Server.vhosts["test"].exchanges["e"].queue_bindings[{"q", nil}].size.should eq 1
   end
 
+  it "should not write bind frame to definition file for existing binding" do
+    Server.vhosts.create("test")
+    v = Server.vhosts["test"].not_nil!
+    v.declare_exchange("e", "direct", true, false)
+    v.declare_queue("q", true, false)
+    Server.vhosts["test"].bind_queue("q", "e", "q")
+    pos = v.@definitions_file.pos
+    Server.vhosts["test"].bind_queue("q", "e", "q")
+    v.@definitions_file.pos.should eq pos
+  end
+
+  it "should not write unbind frame to definition file for non-existing binding" do
+    Server.vhosts.create("test")
+    v = Server.vhosts["test"].not_nil!
+    v.declare_exchange("e", "direct", true, false)
+    v.declare_queue("q", true, false)
+    Server.vhosts["test"].bind_queue("q", "e", "q")
+    Server.vhosts["test"].unbind_queue("q", "e", "q")
+    pos = v.@definitions_file.pos
+    Server.vhosts["test"].unbind_queue("q", "e", "q")
+    v.@definitions_file.pos.should eq pos
+  end
+
   describe "auto add permissions" do
     it "should add permission to the user creating the vhost" do
       username = "test-user"
