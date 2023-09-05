@@ -67,6 +67,22 @@ describe LavinMQ::VHost do
     v.@definitions_file.pos.should eq pos
   end
 
+  it "should compact definitions during runtime" do
+    Server.vhosts.create("test")
+    v = Server.vhosts["test"].not_nil!
+    (LavinMQ::VHost::DEFINITIONS_DIRT_COMPACT_THREASHOLD - 1).times do
+      v.declare_queue("q", true, false)
+      v.delete_queue("q")
+    end
+    v.@definitions_dirt_counter.should eq(LavinMQ::VHost::DEFINITIONS_DIRT_COMPACT_THREASHOLD - 1)
+    definitions_file_pos_before = v.@definitions_file.pos
+    v.declare_queue("q", true, false)
+    v.delete_queue("q")
+    wait_for(timeout: 1.second) { v.@definitions_dirt_counter.zero? }
+    v.@definitions_file.pos.should be < definitions_file_pos_before
+    v.@definitions_dirt_counter.should eq 0
+  end
+
   describe "auto add permissions" do
     it "should add permission to the user creating the vhost" do
       username = "test-user"

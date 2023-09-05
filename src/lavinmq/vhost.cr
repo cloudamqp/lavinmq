@@ -19,6 +19,8 @@ module LavinMQ
     include SortableJSON
     include Stats
 
+    DEFINITIONS_DIRT_COMPACT_THREASHOLD = 10_000
+
     rate_stats({"channel_closed", "channel_created", "connection_closed", "connection_created",
                 "queue_declared", "queue_deleted", "ack", "deliver", "get", "publish", "confirm",
                 "redeliver", "reject", "consumer_added", "consumer_removed"})
@@ -40,6 +42,7 @@ module LavinMQ
     @definitions_file : File
     @definitions_lock = Mutex.new(:reentrant)
     @definitions_file_path : String
+    @definitions_dirt_counter = 0
 
     def initialize(@name : String, @server_data_dir : String, @users : UserStore, @replicator : Replication::Server)
       @log = Log.for "vhost[name=#{@name}]"
@@ -293,7 +296,7 @@ module LavinMQ
               end
             end
             x.delete
-            store_definition(f) if !loading && x.durable?
+            store_definition(f, dirty: true) if !loading && x.durable?
           else
             return false
           end
@@ -306,7 +309,7 @@ module LavinMQ
           src = @exchanges[f.source]? || return false
           dst = @exchanges[f.destination]? || return false
           return false unless src.unbind(dst, f.routing_key, f.arguments.to_h)
-          store_definition(f) if !loading && src.durable? && dst.durable?
+          store_definition(f, dirty: true) if !loading && src.durable? && dst.durable?
         when AMQP::Frame::Queue::Declare
           return false if @queues.has_key? f.queue_name
           q = @queues[f.queue_name] = QueueFactory.make(self, f)
@@ -320,7 +323,7 @@ module LavinMQ
                 ex.unbind(q, *binding_args) if destinations.includes?(q)
               end
             end
-            store_definition(f) if !loading && q.durable? && !q.exclusive?
+            store_definition(f, dirty: true) if !loading && q.durable? && !q.exclusive?
             event_tick(EventType::QueueDeleted) unless loading
             q.delete
           else
@@ -335,7 +338,7 @@ module LavinMQ
           x = @exchanges[f.exchange_name]? || return false
           q = @queues[f.queue_name]? || return false
           return false unless x.unbind(q, f.routing_key, f.arguments.to_h)
-          store_definition(f) if !loading && x.durable? && q.durable? && !q.exclusive?
+          store_definition(f, dirty: true) if !loading && x.durable? && q.durable? && !q.exclusive?
         else raise "Cannot apply frame #{f.class} in vhost #{@name}"
         end
         true
@@ -611,15 +614,24 @@ module LavinMQ
         @replicator.replace_file @definitions_file_path
         @definitions_file.close
         @definitions_file = io
+        @definitions_dirt_counter = 0
       end
     end
 
-    private def store_definition(frame)
+    private def store_definition(frame, dirty = false)
       @log.debug { "Storing definition: #{frame.inspect}" }
       bytes = frame.to_slice
       @definitions_file.write bytes
       @replicator.append @definitions_file_path, bytes
       @definitions_file.fsync
+      if dirty
+        @definitions_dirt_counter += 1
+        # By doing equality comparision we'll only start one fiber
+        # without having to keep track if it's started or not
+        if @definitions_dirt_counter == DEFINITIONS_DIRT_COMPACT_THREASHOLD
+          spawn(name: "VHost #{name} definitions compact") { compact! }
+        end
+      end
     end
 
     private def make_exchange(vhost, name, type, durable, auto_delete, internal, arguments)
