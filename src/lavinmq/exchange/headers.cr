@@ -13,40 +13,34 @@ module LavinMQ
       super
     end
 
-    def has_binding?(destination : Queue, routing_key : String, headers : Hash(String, AMQP::Field)?)
-      args = headers ? @arguments.merge(headers) : @arguments
-      @queue_bindings[{routing_key, args}]?.try &.includes?(destination)
-    end
-
-    def has_binding?(destination : Exchange, routing_key : String, headers : Hash(String, AMQP::Field)?)
-      args = headers ? @arguments.merge(headers) : @arguments
-      @exchange_bindings[{routing_key, args}]?.try &.includes?(destination)
-    end
-
     def bind(destination : Queue, routing_key, headers)
       validate!(headers)
       args = headers ? @arguments.merge(headers) : @arguments
-      @queue_bindings[{routing_key, args}] << destination
+      ret = @queue_bindings[{routing_key, args}].add? destination
       after_bind(destination, routing_key, headers)
+      ret
     end
 
     def bind(destination : Exchange, routing_key, headers)
       validate!(headers)
       args = headers ? @arguments.merge(headers) : @arguments
-      @exchange_bindings[{routing_key, args}] << destination
+      ret = @exchange_bindings[{routing_key, args}].add? destination
       after_bind(destination, routing_key, headers)
+      ret
     end
 
     def unbind(destination : Queue, routing_key, headers)
       args = headers ? @arguments.merge(headers) : @arguments
-      @queue_bindings[{routing_key, args}].delete destination
+      ret = @queue_bindings[{routing_key, args}].delete destination
       after_unbind(destination, routing_key, headers)
+      ret
     end
 
     def unbind(destination : Exchange, routing_key, headers)
       args = headers ? @arguments.merge(headers) : @arguments
-      @exchange_bindings[{routing_key, args}].delete destination
+      ret = @exchange_bindings[{routing_key, args}].delete destination
       after_unbind(destination, routing_key, headers)
+      ret
     end
 
     def do_queue_matches(routing_key, headers = nil, & : Queue ->)

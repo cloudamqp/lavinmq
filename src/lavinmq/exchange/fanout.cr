@@ -7,23 +7,27 @@ module LavinMQ
     end
 
     def bind(destination : Queue, routing_key, headers = nil)
-      @queue_bindings[{routing_key, nil}] << destination
+      ret = @queue_bindings[{routing_key, nil}].add? destination
       after_bind(destination, routing_key, headers)
+      ret
     end
 
     def bind(destination : Exchange, routing_key, headers = nil)
-      @exchange_bindings[{routing_key, nil}] << destination
+      ret = @exchange_bindings[{routing_key, nil}].add? destination
       after_bind(destination, routing_key, headers)
+      ret
     end
 
     def unbind(destination : Queue, routing_key, headers = nil)
-      @queue_bindings[{routing_key, nil}].delete destination
+      ret = @queue_bindings[{routing_key, nil}].delete destination
       after_unbind(destination, routing_key, headers)
+      ret
     end
 
     def unbind(destination : Exchange, routing_key, headers = nil)
-      @exchange_bindings[{routing_key, nil}].delete destination
+      ret = @exchange_bindings[{routing_key, nil}].delete destination
       after_unbind(destination, routing_key, headers)
+      ret
     end
 
     def do_queue_matches(routing_key, headers = nil, & : Queue -> _)

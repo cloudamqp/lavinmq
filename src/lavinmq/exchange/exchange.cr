@@ -161,16 +161,6 @@ module LavinMQ
       notify_observers(:delete)
     end
 
-    # Must be overloaded by exchange types that uses the second field in BindingKey
-    def has_binding?(destination : Queue, routing_key : String, headers : Hash(String, AMQP::Field)?)
-      @queue_bindings[{routing_key, nil}]?.try &.includes?(destination)
-    end
-
-    # Must be overloaded by exchange types that uses the second field in BindingKey
-    def has_binding?(destination : Exchange, routing_key : String, headers : Hash(String, AMQP::Field)?)
-      @exchange_bindings[{routing_key, nil}]?.try &.includes?(destination)
-    end
-
     abstract def type : String
     abstract def bind(destination : Queue, routing_key : String, headers : Hash(String, AMQP::Field)?)
     abstract def unbind(destination : Queue, routing_key : String, headers : Hash(String, AMQP::Field)?)
