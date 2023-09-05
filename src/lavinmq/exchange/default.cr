@@ -6,11 +6,11 @@ module LavinMQ
       "direct"
     end
 
-    def bind(destination, routing_key, headers = nil) : Bool
+    def bind(destination, routing_key, headers = nil)
       raise "Access refused"
     end
 
-    def unbind(destination, routing_key, headers = nil) : Bool
+    def unbind(destination, routing_key, headers = nil)
       raise "Access refused"
     end
 
