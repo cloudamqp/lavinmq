@@ -125,7 +125,8 @@ document.querySelector('#declare').addEventListener('submit', function (evt) {
     arguments: Dom.parseJSON(data.get('arguments'))
   }
   HTTP.request('PUT', url, { body })
-    .then(() => {
+    .then((response) => {
+      if (response?.is_error) { return }
       queuesTable.reload()
       evt.target.reset()
       Dom.toast('Queue ' + queue + ' created')

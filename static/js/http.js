@@ -15,9 +15,9 @@ function request (method, path, options = {}) {
   return window.fetch(path, opts)
     .then(response => {
       if (!response.ok) {
-        const error = { status: response.status, reason: response.statusText }
+        const error = { status: response.status, reason: response.statusText, is_error: true }
         return response.json()
-          .then(json => { error.reason = json.reason })
+          .then(json => { error.reason = json.reason; return error })
           .finally(() => { standardErrorHandler(error) })
       } else { return response.json().catch(() => null) }
     })
