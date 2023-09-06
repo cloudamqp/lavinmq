@@ -35,8 +35,5 @@ jobs:
         run: |
           curl -X POST https://api.github.com/repos/84codes/lavinmq-website/dispatches \
           -H 'Accept: application/vnd.github.everest-preview+json' \
-          -u ${{ secrets.LAVINMQ_WEBSITE_KEY }} \
+          -u ${{ secrets.REPO_ACCESS_84C }} \
           --data '{"event_type": "new_release", "client_payload": { "version": "'"${{ github.ref_name }}"'" }}'
-
-
-# LAVINMQ_WEBSITE_KEY needs to be created and added to secrets
