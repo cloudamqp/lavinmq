@@ -280,9 +280,7 @@ describe LavinMQ::Server do
       x = ch.exchange("", "direct", passive: true)
       x.publish_confirm "dead letter", "exp", props: AMQP::Client::Properties.new(expiration: "0", headers: hdrs)
       msg = wait_for { dlq.get(no_ack: true) }
-      headers = msg.properties.headers
-      headers.should_not be_nil
-      headers = headers.not_nil!
+      headers = msg.properties.headers.should_not be_nil
       headers.has_key?("custom1").should be_true
       headers.has_key?("custom2").should be_true
       headers["custom1"].should eq "v1"
