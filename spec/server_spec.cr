@@ -267,6 +267,27 @@ describe LavinMQ::Server do
     end
   end
 
+  it "dead-letter preserves headers" do
+    with_channel do |ch|
+      dlq = ch.queue
+      ch.queue("exp")
+
+      hdrs = AMQP::Client::Arguments.new
+      hdrs["custom1"] = "v1"
+      hdrs["custom2"] = "v2"
+      hdrs["x-dead-letter-exchange"] = ""
+      hdrs["x-dead-letter-routing-key"] = dlq.name
+      x = ch.exchange("", "direct", passive: true)
+      x.publish_confirm "dead letter", "exp", props: AMQP::Client::Properties.new(expiration: "0", headers: hdrs)
+      msg = wait_for { dlq.get(no_ack: true) }
+      headers = msg.properties.headers.should_not be_nil
+      headers.has_key?("custom1").should be_true
+      headers.has_key?("custom2").should be_true
+      headers["custom1"].should eq "v1"
+      headers["custom2"].should eq "v2"
+    end
+  end
+
   it "can publish to queues with max-length 0 if there's consumers" do
     with_channel do |ch|
       args = AMQP::Client::Arguments.new

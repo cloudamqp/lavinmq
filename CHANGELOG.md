@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- A bug in amq-protocol caused lost headers when dead-lettering [amq-protocol/#12](https://github.com/cloudamqp/amq-protocol.cr/pull/12)
+
 ## [1.2.2] - 2023-08-22
 
 ### Added
