@@ -109,7 +109,7 @@ class MFile < IO
     return if @closed
     @closed = true
     begin
-      munmap
+      unmap
 
       return if @readonly || @deleted || !truncate_to_size
       code = LibC.ftruncate(@fd, @size)
@@ -117,6 +117,7 @@ class MFile < IO
     ensure
       code = LibC.close(@fd)
       raise File::Error.from_errno("Error closing file", file: @path) if code < 0
+      @fd = -1
     end
   end
 
@@ -147,7 +148,7 @@ class MFile < IO
   # Won't mmap the file if it's unmapped already
   def copy_to(output : IO, size = @size) : Int64
     if unmapped? # don't remap unmapped files
-      io = IO::FileDescriptor.new(@fd, blocking: false, close_on_finalize: false)
+      io = IO::FileDescriptor.new(@fd, blocking: true, close_on_finalize: false)
       io.rewind
       IO.copy(io, output, size) == size || raise IO::EOFError.new
     else
@@ -186,7 +187,8 @@ class MFile < IO
   end
 
   def finalize
-    close(truncate_to_size: false)
+    LibC.close(@fd) if @fd > -1
+    LibC.munmap(@buffer, @capacity) unless @buffer.null?
   end
 
   def write(slice : Bytes) : Nil
