@@ -137,7 +137,7 @@ module LavinMQ
       @last_get_time = RoughTime.monotonic
       @log = Log.for "queue[vhost=#{@vhost.name} name=#{@name}]"
       @data_dir = make_data_dir
-      File.write(File.join(@data_dir, ".queue"), @name)
+      File.open(File.join(@data_dir, ".queue"), "w") { |f| f.sync = true; f.print @name }
       @state = QueueState::Paused if File.exists?(File.join(@data_dir, ".paused"))
       @msg_store = init_msg_store(@data_dir)
       @empty_change = @msg_store.empty_change
