@@ -68,19 +68,15 @@ describe LavinMQ::VHost do
   end
 
   it "should compact definitions during runtime" do
-    Server.vhosts.create("test")
-    v = Server.vhosts["test"].not_nil!
-    (LavinMQ::VHost::DEFINITIONS_DIRT_COMPACT_THREASHOLD - 1).times do
+    v = Server.vhosts.create("test")
+    (LavinMQ::Config.instance.max_deleted_definitions - 1).times do
       v.declare_queue("q", true, false)
       v.delete_queue("q")
     end
-    v.@definitions_dirt_counter.should eq(LavinMQ::VHost::DEFINITIONS_DIRT_COMPACT_THREASHOLD - 1)
-    definitions_file_pos_before = v.@definitions_file.pos
+    file_size = v.@definitions_file.size
     v.declare_queue("q", true, false)
     v.delete_queue("q")
-    wait_for(timeout: 1.second) { v.@definitions_dirt_counter.zero? }
-    v.@definitions_file.pos.should be < definitions_file_pos_before
-    v.@definitions_dirt_counter.should eq 0
+    v.@definitions_file.size.should be < file_size
   end
 
   describe "auto add permissions" do

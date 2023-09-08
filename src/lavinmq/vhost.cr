@@ -19,8 +19,6 @@ module LavinMQ
     include SortableJSON
     include Stats
 
-    DEFINITIONS_DIRT_COMPACT_THREASHOLD = 10_000
-
     rate_stats({"channel_closed", "channel_created", "connection_closed", "connection_created",
                 "queue_declared", "queue_deleted", "ack", "deliver", "get", "publish", "confirm",
                 "redeliver", "reject", "consumer_added", "consumer_removed"})
@@ -42,7 +40,7 @@ module LavinMQ
     @definitions_file : File
     @definitions_lock = Mutex.new(:reentrant)
     @definitions_file_path : String
-    @definitions_dirt_counter = 0
+    @definitions_deletes = 0
 
     def initialize(@name : String, @server_data_dir : String, @users : UserStore, @replicator : Replication::Server)
       @log = Log.for "vhost[name=#{@name}]"
@@ -614,7 +612,6 @@ module LavinMQ
         @replicator.replace_file @definitions_file_path
         @definitions_file.close
         @definitions_file = io
-        @definitions_dirt_counter = 0
       end
     end
 
@@ -625,11 +622,9 @@ module LavinMQ
       @replicator.append @definitions_file_path, bytes
       @definitions_file.fsync
       if dirty
-        @definitions_dirt_counter += 1
-        # By doing equality comparision we'll only start one fiber
-        # without having to keep track if it's started or not
-        if @definitions_dirt_counter == DEFINITIONS_DIRT_COMPACT_THREASHOLD
-          spawn(name: "VHost #{name} definitions compact") { compact! }
+        if (@definitions_deletes += 1) >= Config.instance.max_deleted_definitions
+          compact!
+          @definitions_deletes = 0
         end
       end
     end
