@@ -208,6 +208,14 @@ module LavinMQ
         (@bytesize / @size).to_u32
       end
 
+      def unmap_segments(except : Enumerable(UInt32) = StaticArray(UInt32, 0).new(0u32))
+        @segments.each do |seg_id, mfile|
+          next if mfile == @wfile
+          next if except.includes? seg_id
+          mfile.unmap
+        end
+      end
+
       private def select_next_read_segment : MFile?
         # Expect @segments to be ordered
         if id = @segments.each_key.find { |sid| sid > @rfile_id }

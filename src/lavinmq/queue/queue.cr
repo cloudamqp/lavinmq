@@ -831,8 +831,14 @@ module LavinMQ
         end
       end
       if @consumers.empty?
-        notify_consumers_empty(true)
-        delete if @auto_delete
+        if @auto_delete
+          delete
+        else
+          notify_consumers_empty(true)
+          @msg_store_lock.synchronize do
+            @msg_store.unmap_segments
+          end
+        end
       end
     end
 
