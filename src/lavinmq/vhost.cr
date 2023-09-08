@@ -40,6 +40,7 @@ module LavinMQ
     @definitions_file : File
     @definitions_lock = Mutex.new(:reentrant)
     @definitions_file_path : String
+    @definitions_deletes = 0
 
     def initialize(@name : String, @server_data_dir : String, @users : UserStore, @replicator : Replication::Server)
       @log = Log.for "vhost[name=#{@name}]"
@@ -293,7 +294,7 @@ module LavinMQ
               end
             end
             x.delete
-            store_definition(f) if !loading && x.durable?
+            store_definition(f, dirty: true) if !loading && x.durable?
           else
             return false
           end
@@ -306,7 +307,7 @@ module LavinMQ
           src = @exchanges[f.source]? || return false
           dst = @exchanges[f.destination]? || return false
           return false unless src.unbind(dst, f.routing_key, f.arguments.to_h)
-          store_definition(f) if !loading && src.durable? && dst.durable?
+          store_definition(f, dirty: true) if !loading && src.durable? && dst.durable?
         when AMQP::Frame::Queue::Declare
           return false if @queues.has_key? f.queue_name
           q = @queues[f.queue_name] = QueueFactory.make(self, f)
@@ -320,7 +321,7 @@ module LavinMQ
                 ex.unbind(q, *binding_args) if destinations.includes?(q)
               end
             end
-            store_definition(f) if !loading && q.durable? && !q.exclusive?
+            store_definition(f, dirty: true) if !loading && q.durable? && !q.exclusive?
             event_tick(EventType::QueueDeleted) unless loading
             q.delete
           else
@@ -335,7 +336,7 @@ module LavinMQ
           x = @exchanges[f.exchange_name]? || return false
           q = @queues[f.queue_name]? || return false
           return false unless x.unbind(q, f.routing_key, f.arguments.to_h)
-          store_definition(f) if !loading && x.durable? && q.durable? && !q.exclusive?
+          store_definition(f, dirty: true) if !loading && x.durable? && q.durable? && !q.exclusive?
         else raise "Cannot apply frame #{f.class} in vhost #{@name}"
         end
         true
@@ -614,12 +615,18 @@ module LavinMQ
       end
     end
 
-    private def store_definition(frame)
+    private def store_definition(frame, dirty = false)
       @log.debug { "Storing definition: #{frame.inspect}" }
       bytes = frame.to_slice
       @definitions_file.write bytes
       @replicator.append @definitions_file_path, bytes
       @definitions_file.fsync
+      if dirty
+        if (@definitions_deletes += 1) >= Config.instance.max_deleted_definitions
+          compact!
+          @definitions_deletes = 0
+        end
+      end
     end
 
     private def make_exchange(vhost, name, type, durable, auto_delete, internal, arguments)

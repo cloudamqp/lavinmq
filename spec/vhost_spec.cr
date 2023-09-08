@@ -67,6 +67,18 @@ describe LavinMQ::VHost do
     v.@definitions_file.pos.should eq pos
   end
 
+  it "should compact definitions during runtime" do
+    v = Server.vhosts.create("test")
+    (LavinMQ::Config.instance.max_deleted_definitions - 1).times do
+      v.declare_queue("q", true, false)
+      v.delete_queue("q")
+    end
+    file_size = v.@definitions_file.size
+    v.declare_queue("q", true, false)
+    v.delete_queue("q")
+    v.@definitions_file.size.should be < file_size
+  end
+
   describe "auto add permissions" do
     it "should add permission to the user creating the vhost" do
       username = "test-user"
