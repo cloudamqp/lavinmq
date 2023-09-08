@@ -16,14 +16,6 @@ module LavinMQ
         drop_overflow
       end
 
-      def unmap_segments(except : Enumerable(UInt32))
-        @segments.each do |seg_id, mfile|
-          next if mfile == @wfile
-          next if except.includes? seg_id
-          mfile.unmap
-        end
-      end
-
       private def get_last_offset : Int64
         return 0i64 if @size.zero?
         bytesize = 0_u32
