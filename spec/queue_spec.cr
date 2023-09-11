@@ -315,4 +315,17 @@ describe LavinMQ::Queue do
       Dir.exists?(data_dir).should be_false
     end
   end
+
+  describe "Flow" do
+    it "should stop queues from being declared when disk is full" do
+      Server.flow(false)
+      with_channel do |ch|
+        expect_raises(AMQP::Client::Channel::ClosedException, "PRECONDITION_FAILED") do
+          ch.queue("test_queue_flow", durable: true)
+        end
+      end
+    ensure
+      Server.flow(true)
+    end
+  end
 end

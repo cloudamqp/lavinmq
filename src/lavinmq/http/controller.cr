@@ -164,6 +164,10 @@ module LavinMQ
         halt(context, 403, {error: "forbidden", reason: message})
       end
 
+      private def precondition_failed(context, message = "Precondition failed")
+        halt(context, 412, {error: "Precondition failed", reason: message})
+      end
+
       private def halt(context, status_code, body = nil)
         context.response.status_code = status_code
         body.try &.to_json(context.response)

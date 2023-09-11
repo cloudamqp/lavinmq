@@ -157,6 +157,19 @@ describe LavinMQ::HTTP::UsersController do
       body = JSON.parse(response.body)
       body["reason"].as_s.should eq("Malformed JSON.")
     end
+
+    it "should not create user if disk is full" do
+      Server.flow(false)
+      body = %({
+        "password": "test"
+      })
+      response = put("/api/users/alan", body: body)
+      response.status_code.should eq 412
+      body = JSON.parse(response.body)
+      body["reason"].as_s.should eq("Server low on disk space, can not create new user")
+    ensure
+      Server.flow(true)
+    end
   end
 
   describe "GET /api/users/user/permissions" do
