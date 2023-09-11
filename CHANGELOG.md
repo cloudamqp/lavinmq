@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - A bug in amq-protocol caused lost headers when dead-lettering [amq-protocol/#12](https://github.com/cloudamqp/amq-protocol.cr/pull/12)
+- Block creation of queues and users when disk is close to full to prevent disk from becoming full [#567](https://github.com/cloudamqp/lavinmq/pull/567)
 
 ## [1.2.2] - 2023-08-22
 
