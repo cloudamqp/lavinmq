@@ -85,7 +85,7 @@ module LavinMQ
         case config
         when "data_dir"                then @data_dir = v
         when "data_dir_lock"           then @data_dir_lock = true?(v)
-        when "log_level"               then @log_level = Log::Severity.parse(v)
+        when "log_level"               then @log_level = ::Log::Severity.parse(v)
         when "log_file"                then @log_file = v
         when "stats_interval"          then @stats_interval = v.to_i32
         when "stats_log_size"          then @stats_log_size = v.to_i32
