@@ -10,6 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - A bug in amq-protocol caused lost headers when dead-lettering [amq-protocol/#12](https://github.com/cloudamqp/amq-protocol.cr/pull/12)
+- Block creation of queues and users when disk is close to full to prevent disk from becoming full [#567](https://github.com/cloudamqp/lavinmq/pull/567)
+- Compacting definitions during runtime to avoid the definitions file to grow endlessly when churning bindings/queues (#571)
+- Only store bind/unbind defintions if not already added, decreases definitions file growth 
+- Unmap segments in stream queues regularly
+- Unmap segments when all consumers from a queue has disconnected
 
 ### Changed
 

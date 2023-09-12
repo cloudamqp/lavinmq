@@ -660,6 +660,9 @@ module LavinMQ
     @last_queue_name : String?
 
     private def declare_new_queue(frame)
+      unless @vhost.flow?
+        send_precondition_failed(frame, "Server low on disk space, can not create queue")
+      end
       if frame.queue_name.empty?
         frame.queue_name = Queue.generate_name
       end
