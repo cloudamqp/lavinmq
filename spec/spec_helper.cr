@@ -30,10 +30,6 @@ LavinMQ::Config.instance.tap do |cfg|
   cfg.segment_size = 512 * 1024
 end
 
-# have to be required after config
-require "../src/lavinmq/server"
-require "../src/lavinmq/http/http_server"
-
 def with_channel(**args, &)
   name = nil
   if formatter = Spec.formatters[0].as?(Spec::VerboseFormatter)
