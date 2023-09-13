@@ -38,6 +38,9 @@ module LavinMQ
           end
         end
       end
+      puts "Replicator"
+      puts_size_capacity s.@replicator.@followers, 4
+      puts_size_capacity s.@replicator.@files, 4
     end
 
     macro puts_size_capacity(obj, indent = 0)
