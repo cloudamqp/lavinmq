@@ -3,7 +3,7 @@ require "./spec_helper"
 describe LavinMQ::Logging::EntityLog do
   describe "#extend" do
     describe "with no arguments" do
-      it "should return a new instance with same log and equal metadata" do
+      it "should return a new instance with same log and same metadata" do
         log = ::Log.for "spec"
         initial = LavinMQ::Logging::EntityLog.new log, meta: "data"
 
@@ -11,13 +11,12 @@ describe LavinMQ::Logging::EntityLog do
 
         copy.log.should be initial.log
         # Same values, not same instance:
-        copy.metadata.should_not be initial.metadata
-        copy.metadata.should eq initial.metadata
+        copy.metadata.should be initial.metadata
       end
     end
 
     describe "with only log argument" do
-      it "should return a new instance with given logger and equal metadata" do
+      it "should return a new instance with given logger and same metadata" do
         log = ::Log.for "spec"
         initial = LavinMQ::Logging::EntityLog.new log, meta: "data"
 
@@ -26,13 +25,12 @@ describe LavinMQ::Logging::EntityLog do
 
         copy.log.should be other_log
         # Same values, not same instance:
-        copy.metadata.should_not be initial.metadata
-        copy.metadata.should eq initial.metadata
+        copy.metadata.should be initial.metadata
       end
     end
 
     describe "with only metadata argument" do
-      it "should return a new instance with same logger and metadata appended to existing" do
+      it "should return a new instance with same logger and new extended metadata" do
         log = ::Log.for "spec"
         initial = LavinMQ::Logging::EntityLog.new log, meta: "data"
 
