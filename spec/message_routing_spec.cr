@@ -225,6 +225,19 @@ describe LavinMQ::HeadersExchange do
       msg_hdrs["user"] = "hest"
       x.matches("", msg_hdrs).size.should eq 0
     end
+
+    it "should match nestled amq-protocol tables" do
+      x = LavinMQ::HeadersExchange.new(vhost, "h", false, false, true)
+      q10 = LavinMQ::Queue.new(vhost, "q10")
+      bind_hdrs = LavinMQ::AMQP::Table.new({
+        "x-match" => "any",
+        "tbl"     => LavinMQ::AMQP::Table.new({"foo": "bar"}),
+      })
+      x.bind(q10, "", bind_hdrs.to_h) # to_h because that's what's done in VHost
+      msg_hdrs = bind_hdrs.clone
+      msg_hdrs.delete("x-match")
+      x.matches("", msg_hdrs).size.should eq 1
+    end
   end
 
   it "should handle multiple bindings" do
