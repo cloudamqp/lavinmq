@@ -127,10 +127,10 @@ module LavinMQ
       return unless @delayed
       q_name = "amq.delayed.#{@name}"
       raise "Exchange name too long" if q_name.bytesize > MAX_NAME_LENGTH
-      arguments = Hash(String, AMQP::Field){
+      arguments = AMQP::Table.new({
         "x-dead-letter-exchange" => @name,
         "auto-delete"            => @auto_delete,
-      }
+      })
       @delayed_queue = if durable?
                          DurableDelayedExchangeQueue.new(@vhost, q_name, false, false, arguments)
                        else

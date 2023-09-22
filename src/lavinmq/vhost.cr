@@ -588,7 +588,7 @@ module LavinMQ
         end
         @queues.each_value.select(&.durable?).each do |q|
           f = AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, q.name, false, q.durable?, q.exclusive?,
-            q.auto_delete?, false, AMQP::Table.new(q.arguments))
+            q.auto_delete?, false, q.arguments)
           io.write_bytes f
         end
         @exchanges.each_value.select(&.durable?).each do |e|
