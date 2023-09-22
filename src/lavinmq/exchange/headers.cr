@@ -8,14 +8,14 @@ module LavinMQ
 
     def initialize(@vhost : VHost, @name : String, @durable = false,
                    @auto_delete = false, @internal = false,
-                   @arguments = Hash(String, AMQP::Field).new)
+                   @arguments = AMQP::Table.new)
       validate!(@arguments)
       super
     end
 
     def bind(destination : Queue, routing_key, headers)
       validate!(headers)
-      args = headers ? @arguments.merge(headers) : @arguments
+      args = headers ? @arguments.clone.merge!(headers) : @arguments
       ret = @queue_bindings[{routing_key, args}].add? destination
       after_bind(destination, routing_key, headers)
       ret
@@ -23,21 +23,21 @@ module LavinMQ
 
     def bind(destination : Exchange, routing_key, headers)
       validate!(headers)
-      args = headers ? @arguments.merge(headers) : @arguments
+      args = headers ? @arguments.clone.merge!(headers) : @arguments
       ret = @exchange_bindings[{routing_key, args}].add? destination
       after_bind(destination, routing_key, headers)
       ret
     end
 
     def unbind(destination : Queue, routing_key, headers)
-      args = headers ? @arguments.merge(headers) : @arguments
+      args = headers ? @arguments.clone.merge!(headers) : @arguments
       ret = @queue_bindings[{routing_key, args}].delete destination
       after_unbind(destination, routing_key, headers)
       ret
     end
 
     def unbind(destination : Exchange, routing_key, headers)
-      args = headers ? @arguments.merge(headers) : @arguments
+      args = headers ? @arguments.clone.merge!(headers) : @arguments
       ret = @exchange_bindings[{routing_key, args}].delete destination
       after_unbind(destination, routing_key, headers)
       ret

@@ -24,7 +24,7 @@ module LavinMQ
       end
     end
 
-    def bind(destination : Destination, routing_key : String, headers : Hash(String, AMQP::Field)?)
+    def bind(destination : Destination, routing_key : String, headers : AMQP::Table?)
       w = weight(routing_key)
       @hasher.add(destination.name, w, destination)
       ret = case destination
@@ -37,7 +37,7 @@ module LavinMQ
       ret
     end
 
-    def unbind(destination : Destination, routing_key : String, headers : Hash(String, AMQP::Field)?)
+    def unbind(destination : Destination, routing_key : String, headers : AMQP::Table?)
       w = weight(routing_key)
       ret = case destination
             when Queue

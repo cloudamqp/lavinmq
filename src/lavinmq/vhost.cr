@@ -283,7 +283,7 @@ module LavinMQ
         when AMQP::Frame::Exchange::Declare
           return false if @exchanges.has_key? f.exchange_name
           e = @exchanges[f.exchange_name] =
-            make_exchange(self, f.exchange_name, f.exchange_type, f.durable, f.auto_delete, f.internal, f.arguments.to_h)
+            make_exchange(self, f.exchange_name, f.exchange_type, f.durable, f.auto_delete, f.internal, f.arguments)
           apply_policies([e] of Exchange) unless loading
           store_definition(f) if !loading && f.durable
         when AMQP::Frame::Exchange::Delete
@@ -301,12 +301,12 @@ module LavinMQ
         when AMQP::Frame::Exchange::Bind
           src = @exchanges[f.source]? || return false
           dst = @exchanges[f.destination]? || return false
-          return false unless src.bind(dst, f.routing_key, f.arguments.to_h)
+          return false unless src.bind(dst, f.routing_key, f.arguments)
           store_definition(f) if !loading && src.durable? && dst.durable?
         when AMQP::Frame::Exchange::Unbind
           src = @exchanges[f.source]? || return false
           dst = @exchanges[f.destination]? || return false
-          return false unless src.unbind(dst, f.routing_key, f.arguments.to_h)
+          return false unless src.unbind(dst, f.routing_key, f.arguments)
           store_definition(f, dirty: true) if !loading && src.durable? && dst.durable?
         when AMQP::Frame::Queue::Declare
           return false if @queues.has_key? f.queue_name
@@ -330,12 +330,12 @@ module LavinMQ
         when AMQP::Frame::Queue::Bind
           x = @exchanges[f.exchange_name]? || return false
           q = @queues[f.queue_name]? || return false
-          return false unless x.bind(q, f.routing_key, f.arguments.to_h)
+          return false unless x.bind(q, f.routing_key, f.arguments)
           store_definition(f) if !loading && x.durable? && q.durable? && !q.exclusive?
         when AMQP::Frame::Queue::Unbind
           x = @exchanges[f.exchange_name]? || return false
           q = @queues[f.queue_name]? || return false
-          return false unless x.unbind(q, f.routing_key, f.arguments.to_h)
+          return false unless x.unbind(q, f.routing_key, f.arguments)
           store_definition(f, dirty: true) if !loading && x.durable? && q.durable? && !q.exclusive?
         else raise "Cannot apply frame #{f.class} in vhost #{@name}"
         end
@@ -583,7 +583,7 @@ module LavinMQ
         @exchanges.each_value.select(&.durable?).each do |e|
           f = AMQP::Frame::Exchange::Declare.new(0_u16, 0_u16, e.name, e.type,
             false, e.durable?, e.auto_delete?, e.internal?,
-            false, AMQP::Table.new(e.arguments))
+            false, e.arguments)
           io.write_bytes f
         end
         @queues.each_value.select(&.durable?).each do |q|
@@ -592,17 +592,17 @@ module LavinMQ
           io.write_bytes f
         end
         @exchanges.each_value.select(&.durable?).each do |e|
-          e.queue_bindings.each do |bt, queues|
-            args = AMQP::Table.new(bt[1]) || AMQP::Table.new
+          e.queue_bindings.each do |(routing_key, arguments), queues|
+            args = arguments || AMQP::Table.new
             queues.each do |q|
-              f = AMQP::Frame::Queue::Bind.new(0_u16, 0_u16, q.name, e.name, bt[0], false, args)
+              f = AMQP::Frame::Queue::Bind.new(0_u16, 0_u16, q.name, e.name, routing_key, false, args)
               io.write_bytes f
             end
           end
-          e.exchange_bindings.each do |bt, exchanges|
-            args = AMQP::Table.new(bt[1]) || AMQP::Table.new
+          e.exchange_bindings.each do |(routing_key, arguments), exchanges|
+            args = arguments || AMQP::Table.new
             exchanges.each do |ex|
-              f = AMQP::Frame::Exchange::Bind.new(0_u16, 0_u16, ex.name, e.name, bt[0], false, args)
+              f = AMQP::Frame::Exchange::Bind.new(0_u16, 0_u16, ex.name, e.name, routing_key, false, args)
               io.write_bytes f
             end
           end

@@ -218,7 +218,7 @@ describe LavinMQ::VHost do
     it "arguments should have priority for non numeric arguments" do
       vhost.exchanges["no-ae"] = LavinMQ::DirectExchange.new(vhost, "no-ae")
       vhost.exchanges["x-with-ae"] = LavinMQ::DirectExchange.new(vhost, "x-with-ae",
-        arguments: {"x-alternate-exchange" => "ae2".as(AMQ::Protocol::Field)})
+        arguments: AMQ::Protocol::Table.new({"x-alternate-exchange": "ae2"}))
       vhost.add_policy("test", ".*", "all", definitions, 100_i8)
       sleep 0.01
       vhost.exchanges["no-ae"].@alternate_exchange.should eq "dead-letters"

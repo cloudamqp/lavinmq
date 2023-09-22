@@ -17,7 +17,7 @@ describe LavinMQ::DirectExchange do
     vhost = Server.vhosts.create("x")
     q1 = LavinMQ::Queue.new(vhost, "q1")
     x = LavinMQ::DirectExchange.new(vhost, "")
-    x.bind(q1, "q1", Hash(String, LavinMQ::AMQP::Field).new)
+    x.bind(q1, "q1", LavinMQ::AMQP::Table.new)
     x.matches("q1").should eq(Set{q1})
   end
 
@@ -174,16 +174,16 @@ describe LavinMQ::HeadersExchange do
     x = LavinMQ::HeadersExchange.new(vhost, "h", false, false, true)
   end
 
-  hdrs_all = {
+  hdrs_all = LavinMQ::AMQP::Table.new({
     "x-match" => "all",
     "org"     => "84codes",
     "user"    => "test",
-  } of String => LavinMQ::AMQP::Field
-  hdrs_any = {
+  })
+  hdrs_any = LavinMQ::AMQP::Table.new({
     "x-match" => "any",
     "org"     => "84codes",
     "user"    => "test",
-  } of String => LavinMQ::AMQP::Field
+  })
 
   describe "match all" do
     it "should match if same args" do
@@ -233,7 +233,7 @@ describe LavinMQ::HeadersExchange do
         "x-match" => "any",
         "tbl"     => LavinMQ::AMQP::Table.new({"foo": "bar"}),
       })
-      x.bind(q10, "", bind_hdrs.to_h) # to_h because that's what's done in VHost
+      x.bind(q10, "", bind_hdrs) # to_h because that's what's done in VHost
       msg_hdrs = bind_hdrs.clone
       msg_hdrs.delete("x-match")
       x.matches("", msg_hdrs).size.should eq 1
@@ -243,10 +243,8 @@ describe LavinMQ::HeadersExchange do
   it "should handle multiple bindings" do
     q10 = LavinMQ::Queue.new(vhost, "q10")
     x = LavinMQ::HeadersExchange.new(vhost, "h", false, false, true)
-    hdrs1 = {"x-match" => "any", "org" => "84codes",
-             "user" => "test"} of String => LavinMQ::AMQP::Field
-    hdrs2 = {"x-match" => "all", "org" => "google",
-             "user" => "test"} of String => LavinMQ::AMQP::Field
+    hdrs1 = LavinMQ::AMQP::Table.new({"x-match" => "any", "org" => "84codes", "user" => "test"})
+    hdrs2 = LavinMQ::AMQP::Table.new({"x-match" => "all", "org" => "google", "user" => "test"})
 
     x.bind(q10, "", hdrs1)
     x.bind(q10, "", hdrs2)
@@ -262,12 +260,13 @@ describe LavinMQ::HeadersExchange do
     hsh = {"k" => "v"} of String => LavinMQ::AMQP::Field
     arrf = [1] of LavinMQ::AMQP::Field
     arru = [1_u8] of LavinMQ::AMQP::Field
-    hdrs = {"Nil" => nil, "Bool" => true, "UInt8" => 1_u8, "UInt16" => 1_u16, "UInt32" => 1_u32,
-            "Int16" => 1_u16, "Int32" => 1_i32, "Int64" => 1_i64, "Float32" => 1_f32,
-            "Float64" => 1_f64, "String" => "String", "Array(Field)" => arrf,
-            "Array(UInt8)" => arru, "Time" => Time.utc, "Hash(String, Field)" => hsh,
-            "x-match" => "all",
-    } of String => LavinMQ::AMQP::Field
+    hdrs = LavinMQ::AMQP::Table.new({
+      "Nil" => nil, "Bool" => true, "UInt8" => 1_u8, "UInt16" => 1_u16, "UInt32" => 1_u32,
+      "Int16" => 1_u16, "Int32" => 1_i32, "Int64" => 1_i64, "Float32" => 1_f32,
+      "Float64" => 1_f64, "String" => "String", "Array(Field)" => arrf,
+      "Array(UInt8)" => arru, "Time" => Time.utc, "Hash(String, Field)" => hsh,
+      "x-match" => "all",
+    })
     x.bind(q11, "", hdrs)
     x.matches("", hdrs).should eq Set{q11}
   end
@@ -275,8 +274,9 @@ describe LavinMQ::HeadersExchange do
   it "should handle unbind" do
     q12 = LavinMQ::Queue.new(vhost, "q12")
     x = LavinMQ::HeadersExchange.new(vhost, "h", false, false, true)
-    hdrs1 = {"x-match" => "any", "org" => "84codes",
-             "user" => "test"} of String => LavinMQ::AMQP::Field
+    hdrs1 = LavinMQ::AMQP::Table.new({
+      "x-match" => "any", "org" => "84codes", "user" => "test",
+    })
     x.bind(q12, "", hdrs1)
     x.unbind(q12, "", hdrs1)
     x.matches("", hdrs1).size.should eq 0
