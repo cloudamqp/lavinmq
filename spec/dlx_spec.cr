@@ -17,11 +17,11 @@ describe "Dead lettering" do
         {"x-message-ttl" => 1, "x-dead-letter-exchange" => "", "x-dead-letter-routing-key" => q_name}
       ))
       q = ch.queue(q_name)
-      
+
       x = ch.default_exchange
       x.publish_confirm("ttl", q_delayed_2.name)
       msg = wait_for { q.get }
-      
+
       x_death = msg.properties.headers.not_nil!["x-death"].as(Array(AMQ::Protocol::Field))
       x_death.inspect
       x_death.size.should eq 2
