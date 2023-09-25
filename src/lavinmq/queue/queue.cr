@@ -574,7 +574,7 @@ module LavinMQ
 
     private def handle_dlx_header(msg, reason) : AMQP::Properties
       h = msg.properties.headers || AMQP::Table.new
-      h.reject! { |k, _| k.in?("x-delay", "x-dead-letter-exchange", "x-dead-letter-routing-key") }
+      h.reject! { |k, _| k.in?("x-dead-letter-exchange", "x-dead-letter-routing-key") }
 
       # there's a performance advantage to do `has_key?` over `||=`
       h["x-first-death-reason"] = reason.to_s unless h.has_key? "x-first-death-reason"
