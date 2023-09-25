@@ -23,7 +23,7 @@ describe "Dead lettering" do
       msg = wait_for { q.get }
 
       x_death = msg.properties.headers.not_nil!["x-death"].as(Array(AMQ::Protocol::Field))
-      x_death.inspect
+      x_death.inspect.should be_a(String) # checks that message and headers can be read
       x_death.size.should eq 2
       x_death[0].as(AMQ::Protocol::Table)["queue"].should eq q_delayed.name
       x_death[1].as(AMQ::Protocol::Table)["queue"].should eq q_delayed_2.name
