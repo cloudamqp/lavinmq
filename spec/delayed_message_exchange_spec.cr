@@ -82,4 +82,28 @@ describe "Delayed Message Exchange" do
       queue.message_count.should eq 1
     end
   end
+
+  it "should not set dead letter headers" do
+    with_channel do |ch|
+      x = ch.exchange(x_name, "topic", args: x_args)
+      q = ch.queue(q_name)
+      q.bind(x.name, "#")
+
+      hdrs = AMQP::Client::Arguments.new({
+        "x-delay"                   => 100,
+        "x-dead-letter-exchange"    => "amq.fanout",
+        "x-dead-letter-routing-key" => "dead-lettered",
+      })
+      x.publish "delay", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
+
+      wait_for { q.message_count >= 1 }
+      msg = q.get(no_ack: true).should_not be_nil
+      headers = msg.properties.headers.should_not be_nil
+      header_keys = headers.to_h.keys
+      header_keys.should_not contain "x-first-death-reason"
+      header_keys.should_not contain "x-first-death-queue"
+      header_keys.should_not contain "x-first-death-exchange"
+      header_keys.should_not contain "x-death"
+    end
+  end
 end
