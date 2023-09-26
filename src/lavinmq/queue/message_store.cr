@@ -177,10 +177,12 @@ module LavinMQ
       def purge(max_count : Int = UInt32::MAX) : UInt32
         raise ClosedError.new if @closed
         count = 0u32
+        yield_interval = {1, Config.instance.queue_purge_yield_interval}.max
         while count < max_count && (env = shift?)
           delete(env.segment_position)
           count += 1
           break if count >= max_count
+          Fiber.yield if (count % yield_interval).zero?
         end
         count
       end

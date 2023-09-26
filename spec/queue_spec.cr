@@ -328,4 +328,42 @@ describe LavinMQ::Queue do
       Server.flow(true)
     end
   end
+
+  describe "MessageStore" do
+    it "should yield fiber while purging" do
+      tmpdir = File.tempname "lavin", ".spec"
+      Dir.mkdir_p tmpdir
+      store = LavinMQ::Queue::MessageStore.new(tmpdir, nil)
+
+      10.times do
+        store.push(LavinMQ::Message.new(0i64, "a", "b", AMQ::Protocol::Properties.new, 0u64, IO::Memory.new(0)))
+      end
+
+      LavinMQ::Config.instance.queue_purge_yield_interval = 2
+
+      yields = 0
+      done = Channel(Nil).new
+      spawn(name: "yield counter", same_thread: true) do
+        loop do
+          select
+          when timeout(0.seconds)
+            yields += 1
+          when done.receive
+            break
+          end
+        end
+      end
+
+      spawn(name: "purger", same_thread: true) do
+        store.purge
+        2.times { done.send nil }
+      end
+
+      done.receive
+
+      yields.should eq 5
+    ensure
+      store.try &.delete
+    end
+  end
 end
