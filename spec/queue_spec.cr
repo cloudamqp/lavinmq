@@ -335,11 +335,9 @@ describe LavinMQ::Queue do
       Dir.mkdir_p tmpdir
       store = LavinMQ::Queue::MessageStore.new(tmpdir, nil)
 
-      10.times do
+      (LavinMQ::Queue::MessageStore::PURGE_YIELD_INTERVAL * 2 + 1).times do
         store.push(LavinMQ::Message.new(0i64, "a", "b", AMQ::Protocol::Properties.new, 0u64, IO::Memory.new(0)))
       end
-
-      LavinMQ::Config.instance.queue_purge_yield_interval = 2
 
       yields = 0
       done = Channel(Nil).new
@@ -361,7 +359,7 @@ describe LavinMQ::Queue do
 
       done.receive
 
-      yields.should eq 5
+      yields.should eq 2
     ensure
       store.try &.delete
     end

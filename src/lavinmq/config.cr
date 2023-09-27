@@ -47,8 +47,7 @@ module LavinMQ
     property replication_follow : URI? = nil
     property replication_bind : String? = nil
     property replication_port = 5679
-    property max_deleted_definitions = 8192    # number of deleted queues, unbinds etc that compacts the definitions file
-    property queue_purge_yield_interval = 1024 # When purging queues, yield every n:th message
+    property max_deleted_definitions = 8192 # number of deleted queues, unbinds etc that compacts the definitions file
     @@instance : Config = self.new
 
     def self.instance : LavinMQ::Config
@@ -82,29 +81,28 @@ module LavinMQ
     private def parse_main(settings)
       settings.each do |config, v|
         case config
-        when "data_dir"                   then @data_dir = v
-        when "data_dir_lock"              then @data_dir_lock = true?(v)
-        when "log_level"                  then @log_level = Log::Severity.parse(v)
-        when "log_file"                   then @log_file = v
-        when "stats_interval"             then @stats_interval = v.to_i32
-        when "stats_log_size"             then @stats_log_size = v.to_i32
-        when "segment_size"               then @segment_size = v.to_i32
-        when "set_timestamp"              then @set_timestamp = true?(v)
-        when "socket_buffer_size"         then @socket_buffer_size = v.to_i32
-        when "tcp_nodelay"                then @tcp_nodelay = true?(v)
-        when "tcp_keepalive"              then @tcp_keepalive = tcp_keepalive?(v)
-        when "tcp_recv_buffer_size"       then @tcp_recv_buffer_size = v.to_i32?
-        when "tcp_send_buffer_size"       then @tcp_send_buffer_size = v.to_i32?
-        when "tls_cert"                   then @tls_cert_path = v
-        when "tls_key"                    then @tls_key_path = v
-        when "tls_ciphers"                then @tls_ciphers = v
-        when "tls_min_version"            then @tls_min_version = v
-        when "guest_only_loopback"        then @guest_only_loopback = true?(v)
-        when "log_exchange"               then @log_exchange = true?(v)
-        when "free_disk_min"              then @free_disk_min = v.to_i64
-        when "free_disk_warn"             then @free_disk_warn = v.to_i64
-        when "max_deleted_definitions"    then @max_deleted_definitions = v.to_i
-        when "queue_purge_yield_interval" then @queue_purge_yield_interval = v.to_i
+        when "data_dir"                then @data_dir = v
+        when "data_dir_lock"           then @data_dir_lock = true?(v)
+        when "log_level"               then @log_level = Log::Severity.parse(v)
+        when "log_file"                then @log_file = v
+        when "stats_interval"          then @stats_interval = v.to_i32
+        when "stats_log_size"          then @stats_log_size = v.to_i32
+        when "segment_size"            then @segment_size = v.to_i32
+        when "set_timestamp"           then @set_timestamp = true?(v)
+        when "socket_buffer_size"      then @socket_buffer_size = v.to_i32
+        when "tcp_nodelay"             then @tcp_nodelay = true?(v)
+        when "tcp_keepalive"           then @tcp_keepalive = tcp_keepalive?(v)
+        when "tcp_recv_buffer_size"    then @tcp_recv_buffer_size = v.to_i32?
+        when "tcp_send_buffer_size"    then @tcp_send_buffer_size = v.to_i32?
+        when "tls_cert"                then @tls_cert_path = v
+        when "tls_key"                 then @tls_key_path = v
+        when "tls_ciphers"             then @tls_ciphers = v
+        when "tls_min_version"         then @tls_min_version = v
+        when "guest_only_loopback"     then @guest_only_loopback = true?(v)
+        when "log_exchange"            then @log_exchange = true?(v)
+        when "free_disk_min"           then @free_disk_min = v.to_i64
+        when "free_disk_warn"          then @free_disk_warn = v.to_i64
+        when "max_deleted_definitions" then @max_deleted_definitions = v.to_i
         else
           STDERR.puts "WARNING: Unrecognized configuration 'main/#{config}'"
         end

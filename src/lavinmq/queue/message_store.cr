@@ -15,7 +15,8 @@ module LavinMQ
     # Messages are refered to as SegmentPositions
     # Deleted messages are written to acks.#{segment}
     class MessageStore
-      Log = ::Log.for("MessageStore")
+      PURGE_YIELD_INTERVAL = 16_384
+      Log                  = ::Log.for("MessageStore")
       @segments = Hash(UInt32, MFile).new
       @deleted = Hash(UInt32, Array(UInt32)).new
       @segment_msg_count = Hash(UInt32, UInt32).new(0u32)
@@ -177,12 +178,11 @@ module LavinMQ
       def purge(max_count : Int = UInt32::MAX) : UInt32
         raise ClosedError.new if @closed
         count = 0u32
-        yield_interval = {1, Config.instance.queue_purge_yield_interval}.max
         while count < max_count && (env = shift?)
           delete(env.segment_position)
           count += 1
           break if count >= max_count
-          Fiber.yield if (count % yield_interval).zero?
+          Fiber.yield if (count % PURGE_YIELD_INTERVAL).zero?
         end
         count
       end
