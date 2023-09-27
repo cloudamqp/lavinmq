@@ -96,8 +96,9 @@ describe "Delayed Message Exchange" do
       })
       x.publish "delay", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
 
-      wait_for { q.message_count >= 1 }
-      msg = q.get(no_ack: true).should_not be_nil
+      msgs = Channel(DeliverMessage).new
+      q.subscribe { |msg| msgs.send msg }
+      msg = msgs.receive
       headers = msg.properties.headers.should_not be_nil
       header_keys = headers.to_h.keys
       header_keys.should_not contain "x-first-death-reason"
