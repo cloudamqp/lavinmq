@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- A bug in delay exchange made it expire messages to the exchange in x-dead-letter-exchange if present. It also ruined any dead-lettering headers in the message.
+- A bug in delay exchanges caused messages to be routed to x-dead-letter-exchange instead of bound queues. It also ruined any dead lettering headers.
 
 ## [1.2.4] - 2023-09-26
 
