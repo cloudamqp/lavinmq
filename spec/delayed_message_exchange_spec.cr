@@ -96,7 +96,7 @@ describe "Delayed Message Exchange" do
       })
       x.publish "delay", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
 
-      msgs = Channel(DeliverMessage).new
+      msgs = Channel(AMQP::Client::DeliverMessage).new
       q.subscribe { |msg| msgs.send msg }
       msg = msgs.receive
       headers = msg.properties.headers.should_not be_nil
