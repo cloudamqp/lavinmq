@@ -361,7 +361,7 @@ describe LavinMQ::Queue do
 
       yields.should eq 2
     ensure
-      store.try &.delete
+      FileUtils.rm_rf tmpdir if tmpdir
     end
   end
 end
