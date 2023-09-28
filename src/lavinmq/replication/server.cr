@@ -19,7 +19,7 @@ module LavinMQ
     # The follower sends back/acknowledges how many bytes it has received
     class Server
       Log = ::Log.for("replication")
-
+      getter wait_for_followers = Channel(Nil).new
       @lock = Mutex.new(:unchecked)
       @followers = Array(Follower).new
       @password : String
@@ -98,6 +98,19 @@ module LavinMQ
         end
       end
 
+      def wait_for_max_lag
+        until @followers.size >= Config.instance.min_followers
+          select
+          when @wait_for_followers.receive
+          when timeout(1.seconds)
+          end
+        end
+        @followers.each_with_index do |f, i|
+          break if i > Config.instance.min_followers
+          f.wait_for_max_lag
+        end
+      end
+
       private def password : String
         path = File.join(Config.instance.data_dir, ".replication_secret")
         begin
@@ -173,8 +186,7 @@ module LavinMQ
 
       class Follower
         Log = ::Log.for(self)
-
-        getter ack = Channel(Nil).new
+        getter ack = Channel(Int64).new
         @acked_bytes = 0_i64
         @sent_bytes = 0_i64
         @actions = Channel(Action).new(4096)
@@ -209,21 +221,41 @@ module LavinMQ
 
         def read_acks(socket = @socket) : Nil
           spawn action_loop, name: "Follower#action_loop"
+          @server.wait_for_followers.try_send nil
           loop do
             len = socket.read_bytes(Int64, IO::ByteFormat::LittleEndian)
             @acked_bytes += len
-            @ack.try_send nil
+            if max_lag = Config.instance.max_lag
+              if lag < max_lag
+                while @ack.try_send lag
+                end
+              end
+            end
           end
         rescue IO::Error
         end
 
+        def wait_for_max_lag
+          if max_lag = Config.instance.max_lag
+            current_lag = lag
+            until current_lag < max_lag
+              select
+              when timeout(1.seconds)
+              when current_lag = @ack.receive
+              end
+              break if @server.followers.includes?(self) == false
+            end
+          end
+        end
+
         private def action_loop(socket = @lz4)
           while action = @actions.receive?
-            @sent_bytes += action.send(socket)
+            sent_bytes = action.send(socket)
             while action2 = @actions.try_receive?
-              @sent_bytes += action2.send(socket)
+              sent_bytes += action2.send(socket)
             end
             socket.flush
+            @sent_bytes += sent_bytes
           end
         rescue IO::Error
         ensure

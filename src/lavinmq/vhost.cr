@@ -24,7 +24,7 @@ module LavinMQ
                 "redeliver", "reject", "consumer_added", "consumer_removed"})
 
     getter name, exchanges, queues, data_dir, operator_policies, policies, parameters, shovels,
-      direct_reply_consumers, connections, dir, users
+      direct_reply_consumers, connections, dir, users, replicator
     property? flow = true
     getter? closed = false
     property max_connections : Int32?
@@ -125,6 +125,9 @@ module LavinMQ
       headers = msg.properties.headers
       find_all_queues(ex, msg.routing_key, headers, visited, found_queues)
       headers.delete("BCC") if headers
+
+      @replicator.wait_for_max_lag
+
       if found_queues.empty?
         ex.unroutable_count += 1
         return false
