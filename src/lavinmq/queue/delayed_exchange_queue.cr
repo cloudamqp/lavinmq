@@ -35,6 +35,20 @@ module LavinMQ
       end
     end
 
+    # Overload to not ruin DLX header
+    private def expire_msg(env : Envelope, reason : Symbol)
+      sp = env.segment_position
+      msg = env.message
+      @log.debug { "Expiring #{sp} now due to #{reason}" }
+      if headers = msg.properties.headers
+        headers.delete("x-delay")
+        msg.properties.headers = headers
+      end
+      @vhost.publish Message.new(msg.timestamp, msg.exchange_name, msg.routing_key,
+        msg.properties, msg.bodysize, IO::Memory.new(msg.body))
+      delete_message sp
+    end
+
     class DelayedMessageStore < MessageStore
       def initialize(@data_dir : String, @replicator : Replication::Server?)
         super
