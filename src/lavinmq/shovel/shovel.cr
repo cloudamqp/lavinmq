@@ -41,7 +41,8 @@ module LavinMQ
 
       def initialize(@name : String, @uri : URI, @queue : String?, @exchange : String? = nil,
                      @exchange_key : String? = nil,
-                     @delete_after = DEFAULT_DELETE_AFTER, @prefetch = DEFAULT_PREFETCH, @ack_mode = DEFAULT_ACK_MODE,
+                     @delete_after = DEFAULT_DELETE_AFTER, @prefetch = DEFAULT_PREFETCH,
+                     @ack_mode = DEFAULT_ACK_MODE, @consumer_args = {} of String => JSON::Any || nil,
                      direct_user : User? = nil)
         @tag = "Shovel[#{@name}]"
         cfg = Config.instance
@@ -59,6 +60,10 @@ module LavinMQ
         @uri.query = params.to_s
         if @queue.nil? && @exchange.nil?
           raise ArgumentError.new("Shovel source requires a queue or an exchange")
+        end
+        @args = AMQ::Protocol::Table.new()
+        @consumer_args.try &.each do |k, v|
+          @args[k] = v
         end
       end
 
@@ -122,6 +127,7 @@ module LavinMQ
           no_ack: @ack_mode.no_ack?,
           exclusive: true,
           block: true,
+          args: @args,
           tag: @tag) do |msg|
           blk.call(msg)
 
@@ -154,7 +160,8 @@ module LavinMQ
 
       def initialize(@name : String, @uri : URI, @queue : String?, @exchange : String? = nil,
                      @exchange_key : String? = nil,
-                     @delete_after = DEFAULT_DELETE_AFTER, @prefetch = DEFAULT_PREFETCH, @ack_mode = DEFAULT_ACK_MODE,
+                     @delete_after = DEFAULT_DELETE_AFTER, @prefetch = DEFAULT_PREFETCH,
+                     @ack_mode = DEFAULT_ACK_MODE, @consumer_args = {} of String => String,
                      direct_user : User? = nil)
         cfg = Config.instance
         @uri.host ||= "#{cfg.amqp_bind}:#{cfg.amqp_port}"
@@ -175,6 +182,10 @@ module LavinMQ
         end
         if @exchange.nil?
           raise ArgumentError.new("Shovel destination requires an exchange")
+        end
+        @args = AMQ::Protocol::Table.new()
+        @consumer_args.try &.each do |k, v|
+          @args[k] = v
         end
       end
 
