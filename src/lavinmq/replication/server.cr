@@ -227,8 +227,7 @@ module LavinMQ
             @acked_bytes += len
             if max_lag = Config.instance.max_lag
               if lag < max_lag
-                while @ack.try_send lag
-                end
+                @ack.try_send lag
               end
             end
           end
