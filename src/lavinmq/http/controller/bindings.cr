@@ -63,7 +63,7 @@ module LavinMQ
               bad_request(context, "Field 'routing_key' is required")
             end
             ok = e.vhost.bind_queue(q.name, e.name, routing_key, arguments)
-            props = BindingDetails.hash_key({routing_key, arguments.to_h})
+            props = BindingDetails.hash_key({routing_key, arguments})
             context.response.headers["Location"] = q.name + "/" + props
             context.response.status_code = 201
             Log.debug do
@@ -101,8 +101,8 @@ module LavinMQ
             found = false
             e.queue_bindings.each do |k, destinations|
               next unless destinations.includes?(q) && BindingDetails.hash_key(k) == props
-              arguments = k[1] || Hash(String, AMQP::Field).new
-              @amqp_server.vhosts[vhost].unbind_queue(q.name, e.name, k[0], AMQP::Table.new arguments)
+              arguments = k[1] || AMQP::Table.new
+              @amqp_server.vhosts[vhost].unbind_queue(q.name, e.name, k[0], arguments)
               found = true
               Log.debug { "exchange '#{e.name}' unbound from queue '#{q.name}' with key '#{k}'" }
               break
@@ -144,7 +144,7 @@ module LavinMQ
               bad_request(context, "Field 'routing_key' is required")
             end
             source.vhost.bind_exchange(destination.name, source.name, routing_key, arguments)
-            props = BindingDetails.hash_key({routing_key, arguments.to_h})
+            props = BindingDetails.hash_key({routing_key, arguments})
             context.response.headers["Location"] = context.request.path + "/" + props
             context.response.status_code = 201
           end
@@ -180,7 +180,7 @@ module LavinMQ
             found = false
             source.exchange_bindings.each do |k, destinations|
               next unless destinations.includes?(destination) && BindingDetails.hash_key(k) == props
-              arguments = AMQP::Table.new(k[1] || Hash(String, AMQP::Field).new)
+              arguments = k[1] || AMQP::Table.new
               @amqp_server.vhosts[vhost].unbind_exchange(destination.name, source.name, k[0], arguments)
               found = true
               break

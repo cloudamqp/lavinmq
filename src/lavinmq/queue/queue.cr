@@ -133,7 +133,7 @@ module LavinMQ
 
     def initialize(@vhost : VHost, @name : String,
                    @exclusive = false, @auto_delete = false,
-                   @arguments = Hash(String, AMQP::Field).new)
+                   @arguments = AMQP::Table.new)
       @last_get_time = RoughTime.monotonic
       @log = Log.for "queue[vhost=#{@vhost.name} name=#{@name}]"
       @data_dir = make_data_dir
@@ -871,14 +871,14 @@ module LavinMQ
       durable? == frame.durable &&
         @exclusive == frame.exclusive &&
         @auto_delete == frame.auto_delete &&
-        @arguments == frame.arguments.to_h
+        @arguments == frame.arguments
     end
 
     def match?(durable, exclusive, auto_delete, arguments)
       durable? == durable &&
         @exclusive == exclusive &&
         @auto_delete == auto_delete &&
-        @arguments == arguments.to_h
+        @arguments == arguments
     end
 
     def in_use?

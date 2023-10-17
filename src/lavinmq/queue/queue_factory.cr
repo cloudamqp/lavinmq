@@ -17,26 +17,26 @@ module LavinMQ
 
     private def self.make_durable(vhost, frame)
       if prio_queue? frame
-        DurablePriorityQueue.new(vhost, frame.queue_name, frame.exclusive, frame.auto_delete, frame.arguments.to_h)
+        DurablePriorityQueue.new(vhost, frame.queue_name, frame.exclusive, frame.auto_delete, frame.arguments)
       elsif stream_queue? frame
         if frame.exclusive
           raise Error::PreconditionFailed.new("A stream queue cannot be exclusive")
         elsif frame.auto_delete
           raise Error::PreconditionFailed.new("A stream queue cannot be auto-delete")
         end
-        StreamQueue.new(vhost, frame.queue_name, frame.exclusive, frame.auto_delete, frame.arguments.to_h)
+        StreamQueue.new(vhost, frame.queue_name, frame.exclusive, frame.auto_delete, frame.arguments)
       else
-        DurableQueue.new(vhost, frame.queue_name, frame.exclusive, frame.auto_delete, frame.arguments.to_h)
+        DurableQueue.new(vhost, frame.queue_name, frame.exclusive, frame.auto_delete, frame.arguments)
       end
     end
 
     private def self.make_queue(vhost, frame)
       if prio_queue? frame
-        PriorityQueue.new(vhost, frame.queue_name, frame.exclusive, frame.auto_delete, frame.arguments.to_h)
+        PriorityQueue.new(vhost, frame.queue_name, frame.exclusive, frame.auto_delete, frame.arguments)
       elsif stream_queue? frame
         raise Error::PreconditionFailed.new("A stream queue cannot be non-durable")
       else
-        Queue.new(vhost, frame.queue_name, frame.exclusive, frame.auto_delete, frame.arguments.to_h)
+        Queue.new(vhost, frame.queue_name, frame.exclusive, frame.auto_delete, frame.arguments)
       end
     end
 

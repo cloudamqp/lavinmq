@@ -6,7 +6,7 @@ require "../observable"
 require "../queue"
 
 module LavinMQ
-  alias BindingKey = Tuple(String, Hash(String, AMQP::Field)?)
+  alias BindingKey = Tuple(String, AMQP::Table?)
   alias Destination = Queue | Exchange
 
   abstract class Exchange
@@ -30,7 +30,7 @@ module LavinMQ
 
     def initialize(@vhost : VHost, @name : String, @durable = false,
                    @auto_delete = false, @internal = false,
-                   @arguments = Hash(String, AMQP::Field).new)
+                   @arguments = AMQP::Table.new)
       @queue_bindings = Hash(BindingKey, Set(Queue)).new do |h, k|
         h[k] = Set(Queue).new
       end
@@ -91,12 +91,16 @@ module LavinMQ
 
     def match?(type, durable, auto_delete, internal, arguments)
       delayed = type == "x-delayed-message"
-      frame_args = arguments.to_h.dup.reject("x-delayed-type").merge({"x-delayed-exchange" => true})
+      frame_args = arguments
+      if delayed
+        frame_args = frame_args.clone.merge!({"x-delayed-exchange": true})
+        frame_args.delete("x-delayed-type")
+      end
       self.type == (delayed ? arguments["x-delayed-type"] : type) &&
         @durable == durable &&
         @auto_delete == auto_delete &&
         @internal == internal &&
-        @arguments == (delayed ? frame_args : arguments.to_h)
+        @arguments == frame_args
     end
 
     def in_use?
@@ -123,10 +127,10 @@ module LavinMQ
       return unless @delayed
       q_name = "amq.delayed.#{@name}"
       raise "Exchange name too long" if q_name.bytesize > MAX_NAME_LENGTH
-      arguments = Hash(String, AMQP::Field){
+      arguments = AMQP::Table.new({
         "x-dead-letter-exchange" => @name,
         "auto-delete"            => @auto_delete,
-      }
+      })
       @delayed_queue = if durable?
                          DurableDelayedExchangeQueue.new(@vhost, q_name, false, false, arguments)
                        else
@@ -137,7 +141,7 @@ module LavinMQ
 
     REPUBLISH_HEADERS = {"x-head", "x-tail", "x-from"}
 
-    protected def after_bind(destination : Destination, routing_key : String, headers : Hash(String, AMQP::Field)?)
+    protected def after_bind(destination : Destination, routing_key : String, headers : AMQP::Table?)
       notify_observers(:bind, binding_details({routing_key, headers}, destination))
       true
     end
@@ -162,10 +166,10 @@ module LavinMQ
     end
 
     abstract def type : String
-    abstract def bind(destination : Queue, routing_key : String, headers : Hash(String, AMQP::Field)?)
-    abstract def unbind(destination : Queue, routing_key : String, headers : Hash(String, AMQP::Field)?)
-    abstract def bind(destination : Exchange, routing_key : String, headers : Hash(String, AMQP::Field)?)
-    abstract def unbind(destination : Exchange, routing_key : String, headers : Hash(String, AMQP::Field)?)
+    abstract def bind(destination : Queue, routing_key : String, headers : AMQP::Table?)
+    abstract def unbind(destination : Queue, routing_key : String, headers : AMQP::Table?)
+    abstract def bind(destination : Exchange, routing_key : String, headers : AMQP::Table?)
+    abstract def unbind(destination : Exchange, routing_key : String, headers : AMQP::Table?)
     abstract def do_queue_matches(routing_key : String, headers : AMQP::Table?, & : Queue -> _)
     abstract def do_exchange_matches(routing_key : String, headers : AMQP::Table?, & : Exchange -> _)
 

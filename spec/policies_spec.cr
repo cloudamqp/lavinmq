@@ -218,7 +218,7 @@ describe LavinMQ::VHost do
     it "arguments should have priority for non numeric arguments" do
       vhost.exchanges["no-ae"] = LavinMQ::DirectExchange.new(vhost, "no-ae")
       vhost.exchanges["x-with-ae"] = LavinMQ::DirectExchange.new(vhost, "x-with-ae",
-        arguments: {"x-alternate-exchange" => "ae2".as(AMQ::Protocol::Field)})
+        arguments: AMQ::Protocol::Table.new({"x-alternate-exchange": "ae2"}))
       vhost.add_policy("test", ".*", "all", definitions, 100_i8)
       sleep 0.01
       vhost.exchanges["no-ae"].@alternate_exchange.should eq "dead-letters"
@@ -230,8 +230,8 @@ describe LavinMQ::VHost do
     end
 
     it "should use the lowest value" do
-      vhost.queues["test1"] = LavinMQ::Queue.new(vhost, "test1", arguments: {"x-max-length" => 1_i64.as(AMQ::Protocol::Field)})
-      vhost.queues["test2"] = LavinMQ::Queue.new(vhost, "test2", arguments: {"x-max-length" => 11_i64.as(AMQ::Protocol::Field)})
+      vhost.queues["test1"] = LavinMQ::Queue.new(vhost, "test1", arguments: LavinMQ::AMQP::Table.new({"x-max-length" => 1_i64}))
+      vhost.queues["test2"] = LavinMQ::Queue.new(vhost, "test2", arguments: LavinMQ::AMQP::Table.new({"x-max-length" => 11_i64}))
       vhost.add_policy("test", ".*", "all", definitions, 100_i8)
       sleep 0.01
       vhost.queues["test1"].@max_length.should eq 1

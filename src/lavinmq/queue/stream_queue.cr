@@ -6,7 +6,7 @@ module LavinMQ
   class StreamQueue < DurableQueue
     def initialize(@vhost : VHost, @name : String,
                    @exclusive = false, @auto_delete = false,
-                   @arguments = Hash(String, AMQP::Field).new)
+                   @arguments = AMQP::Table.new)
       super
       spawn unmap_unused_segments_loop, name: "StreamQueue#unmap_unused_segments_loop"
     end

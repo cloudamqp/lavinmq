@@ -265,13 +265,13 @@ module LavinMQ
           when :bind
             with_consumer_q do |q|
               b = data_as_binding_details(data)
-              args = ::AMQP::Client::Arguments.new(b.arguments)
+              args = b.arguments || ::AMQP::Client::Arguments.new
               q.bind(@upstream_exchange, b.routing_key, args: args)
             end
           when :unbind
             with_consumer_q do |q|
               b = data_as_binding_details(data)
-              args = ::AMQP::Client::Arguments.new(b.arguments)
+              args = b.arguments || ::AMQP::Client::Arguments.new
               q.unbind(@upstream_exchange, b.routing_key, args: args)
             end
           else raise "Unexpected event '#{event}'"
@@ -317,10 +317,9 @@ module LavinMQ
         end
 
         private def setup(upstream_client)
-          args = ::AMQP::Client::Arguments.new(@federated_ex.arguments)
           ch, _ = try_passive(upstream_client) do |uch, passive|
             uch.exchange(@upstream_exchange, type: @federated_ex.type,
-              args: args, passive: passive)
+              args: @federated_ex.arguments, passive: passive)
           end
           args2 = ::AMQP::Client::Arguments.new({
             "x-downstream-name"  => System.hostname,
@@ -331,7 +330,7 @@ module LavinMQ
             uch.exchange(@upstream_q, type: "x-federation-upstream",
               args: args2, passive: passive)
           end
-          q_args = Hash(String, AMQP::Field){"x-internal-purpose" => "federation"}
+          q_args = ::AMQP::Client::Arguments.new({"x-internal-purpose" => "federation"})
           if expires = @upstream.expires
             q_args["x-expires"] = expires
           end
@@ -339,11 +338,11 @@ module LavinMQ
             q_args["x-message-ttl"] = msg_ttl
           end
           ch, q = try_passive(upstream_client, ch) do |uch, passive|
-            uch.queue(@upstream_q, args: ::AMQP::Client::Arguments.new(q_args), passive: passive)
+            uch.queue(@upstream_q, args: q_args, passive: passive)
           end
           @federated_ex.register_observer(self)
           @federated_ex.bindings_details.each do |binding|
-            args = ::AMQP::Client::Arguments.new(binding.arguments)
+            args = binding.arguments || ::AMQP::Client::Arguments.new
             q.bind(@upstream_exchange, binding.routing_key, args: args)
           end
           {ch, q}
