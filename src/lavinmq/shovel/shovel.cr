@@ -61,7 +61,7 @@ module LavinMQ
         if @queue.nil? && @exchange.nil?
           raise ArgumentError.new("Shovel source requires a queue or an exchange")
         end
-        @args = AMQ::Protocol::Table.new()
+        @args = AMQ::Protocol::Table.new
         @consumer_args.try &.each do |k, v|
           @args[k] = v
         end
@@ -183,7 +183,7 @@ module LavinMQ
         if @exchange.nil?
           raise ArgumentError.new("Shovel destination requires an exchange")
         end
-        @args = AMQ::Protocol::Table.new()
+        @args = AMQ::Protocol::Table.new
         @consumer_args.try &.each do |k, v|
           @args[k] = v
         end
