@@ -21,15 +21,11 @@ module LavinMQ
 
         post "/api/definitions/upload" do |context, _params|
           refuse_unless_administrator(context, user(context))
-          if context.request.headers["Content-Type"] == "application/json"
-            body = parse_body(context)
-            GlobalDefinitions.new(@amqp_server).import(body)
-          else
-            ::HTTP::FormData.parse(context.request) do |part|
-              if part.name == "file"
-                body = JSON.parse(part.body)
-                GlobalDefinitions.new(@amqp_server).import(body)
-              end
+
+          ::HTTP::FormData.parse(context.request) do |part|
+            if part.name == "file"
+              body = JSON.parse(part.body)
+              GlobalDefinitions.new(@amqp_server).import(body)
             end
           end
           redirect_back(context) if context.request.headers["Referer"]?
