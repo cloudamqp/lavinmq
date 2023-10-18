@@ -21,7 +21,6 @@ module LavinMQ
 
         post "/api/definitions/upload" do |context, _params|
           refuse_unless_administrator(context, user(context))
-
           ::HTTP::FormData.parse(context.request) do |part|
             if part.name == "file"
               body = JSON.parse(part.body)
