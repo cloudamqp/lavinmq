@@ -45,7 +45,11 @@ describe LavinMQ::Replication::Client do
       q = ch.queue("repli")
       q.publish_confirm "hello world"
     end
-    sleep 0.1
+    {% if flag?(:freebsd) %}
+      sleep 1
+    {% else %}
+      sleep 0.1
+    {% end %}
     repli.close
     done.receive
 

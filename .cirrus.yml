@@ -1,7 +1,7 @@
 freebsd_task:
   skip: "!changesInclude('.cirrus.yml', 'shard.lock', 'src/**', 'spec/**')"
   freebsd_instance:
-    image_family: freebsd-14-0-snap
+    image_family: freebsd-13-2
     memory: 4G
   pkg_cache:
     folder: /var/cache/pkg
