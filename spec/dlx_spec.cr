@@ -31,7 +31,7 @@ describe "Dead lettering" do
     end
   end
 
-  it "should update timestamp" do
+  it "should update message timestamp on publish" do
     v = Server.vhosts.create("test")
     q_args = AMQ::Protocol::Table.new({
       "x-message-ttl"             => 200,
