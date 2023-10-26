@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Purging a queue with a lot of messages blocked LavinMQ from other operations.
 - Message timestamps not being updated when dead lettered breaking TTL.
 
+### Changed
+
+- Definitions uploads can now be JSON body [#580](https://github.com/cloudamqp/lavinmq/pull/580)
+
 ## [1.2.4] - 2023-09-26
 
 ### Fixed
