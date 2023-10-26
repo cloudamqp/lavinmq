@@ -360,10 +360,6 @@ module LavinMQ
         Log.info &.emit("Terminated", name: @name, vhost: @vhost.name)
       end
 
-      def delete
-        terminate
-      end
-
       def terminated?
         @state.terminated?
       end

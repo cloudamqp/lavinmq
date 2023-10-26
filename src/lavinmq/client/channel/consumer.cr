@@ -160,10 +160,6 @@ module LavinMQ
           end
         end
 
-        def name
-          @tag
-        end
-
         # blocks until the consumer can accept more messages
         private def wait_for_capacity : Nil
           if @prefetch_count > 0

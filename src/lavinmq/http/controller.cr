@@ -227,13 +227,6 @@ module LavinMQ
         end
       end
 
-      private def refuse_unless_monitoring(context, user)
-        unless user.tags.any? { |t| t.administrator? || t.monitoring? }
-          Log.warn { "user=#{user.name} does not have monitoring access" }
-          access_refused(context)
-        end
-      end
-
       private def refuse_unless_administrator(context, user : User)
         unless user.tags.any? &.administrator?
           Log.warn { "user=#{user.name} does not have administrator access" }

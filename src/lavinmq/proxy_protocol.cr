@@ -47,12 +47,6 @@ module LavinMQ
       ensure
         io.read_timeout = nil
       end
-
-      def self.encode(header, io)
-        ipv = header.src.family.inet6? ? 6 : 4
-        io.print "PROXY TCP#{ipv} #{header.src.address} #{header.dst.address} #{header.src.port} #{header.dst.port}\r\n"
-        io.flush
-      end
     end
 
     module V2
