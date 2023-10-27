@@ -343,6 +343,57 @@ describe LavinMQ::Shovel do
       end
       shovel.state.should eq "Running"
     end
+
+    it "should shovel stream queues" do
+      q1_name = "stream_q1"
+      q2_name = "stream_q2"
+      consumer_args = {"x-stream-offset" => JSON::Any.new("first")}
+      source = LavinMQ::Shovel::AMQPSource.new(
+        "spec",
+        URI.parse(AMQP_BASE_URL),
+        q1_name,
+        delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
+        direct_user: Server.users.direct_user,
+        consumer_args: consumer_args
+      )
+      dest = LavinMQ::Shovel::AMQPDestination.new(
+        "spec",
+        URI.parse(AMQP_BASE_URL),
+        q2_name,
+        delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
+        direct_user: Server.users.direct_user,
+        consumer_args: consumer_args
+      )
+
+      shovel = LavinMQ::Shovel::Runner.new(source, dest, "ql_shovel", vhost)
+      with_channel do |ch|
+        x = ch.exchange("", "direct", passive: true)
+        ch.prefetch 1
+        args = AMQP::Client::Arguments.new({"x-queue-type" => "stream"})
+        q1 = ch.queue(q1_name, args: args)
+        q2 = ch.queue(q2_name, args: args)
+
+        10.times do
+          x.publish_confirm "shovel me", q1_name
+        end
+        shovel.run
+
+        q1_msg_count = 0
+        q2_msg_count = 0
+        q1.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": "first"})) do |msg|
+          msg.ack
+          q1_msg_count += 1
+        end
+        q2.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": "first"})) do |msg|
+          msg.ack
+          q2_msg_count += 1
+        end
+
+        should_eventually(be_true) { q1_msg_count == 10 }
+        should_eventually(be_true) { q2_msg_count == 10 }
+        Server.vhosts["/"].shovels.empty?.should be_true
+      end
+    end
   end
 
   describe "HTTP" do
