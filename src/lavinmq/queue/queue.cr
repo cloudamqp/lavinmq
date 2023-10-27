@@ -639,7 +639,7 @@ module LavinMQ
 
     private def dead_letter_msg(msg : BytesMessage, props, dlx, dlrk)
       @log.debug { "Dead lettering ex=#{dlx} rk=#{dlrk} body_size=#{msg.bodysize} props=#{props}" }
-      @vhost.publish Message.new(msg.timestamp, dlx.to_s, dlrk.to_s,
+      @vhost.publish Message.new(RoughTime.unix_ms, dlx.to_s, dlrk.to_s,
         props, msg.bodysize, IO::Memory.new(msg.body))
     end
 

@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A bug in delay exchanges caused messages to be routed to x-dead-letter-exchange instead of bound queues. It also ruined any dead lettering headers.
 - A bug that prevented headers exchange to match on table in message headers.
 - Purging a queue with a lot of messages blocked LavinMQ from other operations.
+- Message timestamps not being updated when dead lettered breaking TTL.
 
 ## [1.2.4] - 2023-09-26
 
