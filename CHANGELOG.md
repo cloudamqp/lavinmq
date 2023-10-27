@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Consumer arguments support for shovels [#578](https://github.com/cloudamqp/lavinmq/pull/578)
+
 ### Fixed
 
 - A bug in delay exchanges caused messages to be routed to x-dead-letter-exchange instead of bound queues. It also ruined any dead lettering headers.
