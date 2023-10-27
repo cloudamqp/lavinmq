@@ -122,10 +122,11 @@ module LavinMQ
         raise "Not started" unless started?
         q = @q.not_nil!
         ch = @ch.not_nil!
+        exclusive = !@args["x-stream-offset"]? # consumers for streams can not be exclusive
         return if @delete_after.queue_length? && q[:message_count].zero?
         ch.basic_consume(q[:queue_name],
           no_ack: @ack_mode.no_ack?,
-          exclusive: true,
+          exclusive: exclusive,
           block: true,
           args: @args,
           tag: @tag) do |msg|
