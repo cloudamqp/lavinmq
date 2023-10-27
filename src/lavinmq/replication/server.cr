@@ -50,7 +50,7 @@ module LavinMQ
       end
 
       def append(path : String, obj)
-        Log.debug { "appending #{obj} to #{path}" }
+        # Log.debug { "appending #{obj} to #{path}" }
         each_follower &.append(path, obj)
       end
 

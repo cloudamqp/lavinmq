@@ -26,7 +26,11 @@ module LavinMQ
           @prefetch_count = @channel.prefetch_count
           @flow = @channel.flow?
           @log = @channel.log.for "consumer=#{@tag}"
-          spawn deliver_loop, name: "Consumer deliver loop", same_thread: true
+          {% if flag?(:vhost_threads) %}
+            @queue.vhost.worker_thread.spawn("Consumer deliver loop") { deliver_loop }
+          {% else %}
+            spawn deliver_loop, name: "Consumer deliver loop", same_thread: true
+          {% end %}
         end
 
         def close

@@ -59,7 +59,11 @@ module LavinMQ
       @log = Log.for "client[vhost=#{@vhost.name} address=#{@remote_address}#{connection_name}]"
       @vhost.add_connection(self)
       @log.info { "Connection established for user=#{@user.name}" }
-      spawn read_loop, name: "Client#read_loop #{@remote_address}"
+      {% if flag?(:vhost_threads) %}
+        vhost.worker_thread.spawn("Client#read_loop #{@remote_address}") { read_loop }
+      {% else %}
+        spawn read_loop, "Client#read_loop #{@remote_address}"
+      {% end %}
     end
 
     # socket's file descriptor

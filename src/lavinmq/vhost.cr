@@ -14,6 +14,10 @@ require "./schema"
 require "./event_type"
 require "./stats"
 
+{% if flag?(:vhost_threads) %}
+  require "./worker_thread"
+{% end %}
+
 module LavinMQ
   class VHost
     include SortableJSON
@@ -42,6 +46,10 @@ module LavinMQ
     @definitions_file_path : String
     @definitions_deletes = 0
 
+    {% if flag?(:vhost_threads) %}
+      @worker_thread : WorkerThread? = nil
+    {% end %}
+
     def initialize(@name : String, @server_data_dir : String, @users : UserStore, @replicator : Replication::Server)
       @log = Log.for "vhost[name=#{@name}]"
       @dir = Digest::SHA1.hexdigest(@name)
@@ -57,7 +65,24 @@ module LavinMQ
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator, @log)
       @shovels = ShovelStore.new(self)
       @upstreams = Federation::UpstreamStore.new(self)
+
+      {% if flag?(:vhost_threads) %}
+        thread_started = Atomic(Int8).new(0)
+        @worker_thread ||= WorkerThread.new do
+          scheduler = Thread.current.scheduler
+          thread_started.set(1)
+          scheduler.run_loop
+        end
+        while thread_started.get.zero?
+          Fiber.yield
+        end
+      {% end %}
+
       load!
+    end
+
+    def worker_thread
+      @worker_thread.not_nil!
     end
 
     def max_connections=(value : Int32) : Nil
@@ -359,7 +384,11 @@ module LavinMQ
       op = OperatorPolicy.new(name, @name, Regex.new(pattern),
         Policy::Target.parse(apply_to), definition, priority)
       @operator_policies.create(op)
-      spawn apply_policies, name: "ApplyPolicies (after add) OperatingPolicy #{@name}"
+      {% if flag?(:vhost_threads) %}
+        worker_thread.spawn("ApplyPolicies (after add) OperatingPolicy #{@name}") { apply_policies }
+      {% else %}
+        spawn apply_policies, name: "ApplyPolicies (after add) OperatingPolicy #{@name}"
+      {% end %}
       @log.info { "OperatorPolicy=#{name} Created" }
       op
     end
@@ -369,20 +398,32 @@ module LavinMQ
       p = Policy.new(name, @name, Regex.new(pattern), Policy::Target.parse(apply_to),
         definition, priority)
       @policies.create(p)
-      spawn apply_policies, name: "ApplyPolicies (after add) #{@name}"
+      {% if flag?(:vhost_threads) %}
+        worker_thread.spawn("ApplyPolicies (after add) #{@name}") { apply_policies }
+      {% else %}
+        spawn apply_policies, name: "ApplyPolicies (after add) #{@name}"
+      {% end %}
       @log.info { "Policy=#{name} Created" }
       p
     end
 
     def delete_operator_policy(name)
       @operator_policies.delete(name)
-      spawn apply_policies, name: "ApplyPolicies (after delete) #{@name}"
+      {% if flag?(:vhost_threads) %}
+        worker_thread.spawn("ApplyPolicies (after delete) #{@name}") { apply_policies }
+      {% else %}
+        spawn apply_policies, name: "ApplyPolicies (after delete) #{@name}"
+      {% end %}
       @log.info { "OperatorPolicy=#{name} Deleted" }
     end
 
     def delete_policy(name)
       @policies.delete(name)
-      spawn apply_policies, name: "ApplyPolicies (after delete) #{@name}"
+      {% if flag?(:vhost_threads) %}
+        worker_thread.spawn("ApplyPolicies (after delete) #{@name}") { apply_policies }
+      {% else %}
+        spawn apply_policies, name: "ApplyPolicies (after delete) #{@name}"
+      {% end %}
       @log.info { "Policy=#{name} Deleted" }
     end
 
@@ -404,7 +445,11 @@ module LavinMQ
       @log.debug { "Add parameter #{p.name}" }
       @parameters.create(p)
       apply_parameters(p)
-      spawn apply_policies, name: "ApplyPolicies (add parameter) #{@name}"
+      {% if flag?(:vhost_threads) %}
+        worker_thread.spawn("ApplyPolicies (add parameter) #{@name}") { apply_policies }
+      {% else %}
+        spawn apply_policies, name: "ApplyPolicies (add parameter) #{@name}"
+      {% end %}
     end
 
     def delete_parameter(component_name, parameter_name)
@@ -447,6 +492,7 @@ module LavinMQ
       Fiber.yield # yield so that Client read_loops can shutdown
       @queues.each_value &.close
       Fiber.yield
+      @worker_thread.try &.stop
       compact!
       @definitions_file.close
     end
@@ -491,12 +537,21 @@ module LavinMQ
 
     private def load!
       load_definitions!
-      spawn(name: "Load parameters") do
-        sleep 0.01
-        next if @closed
-        apply_parameters
-        apply_policies
-      end
+      {% if flag?(:vhost_threads) %}
+        worker_thread.spawn("Load parameters") do
+          sleep 0.01
+          next if @closed
+          apply_parameters
+          apply_policies
+        end
+      {% else %}
+        spawn(name: "Load parameters") do
+          sleep 0.01
+          next if @closed
+          apply_parameters
+          apply_policies
+        end
+      {% end %}
       Fiber.yield
     end
 
