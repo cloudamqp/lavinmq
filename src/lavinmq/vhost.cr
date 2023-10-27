@@ -81,9 +81,11 @@ module LavinMQ
       load!
     end
 
-    def worker_thread
-      @worker_thread.not_nil!
-    end
+    {% if flag?(:vhost_threads) %}
+      def worker_thread : WorkerThread
+        @worker_thread.not_nil!
+      end
+    {% end %}
 
     def max_connections=(value : Int32) : Nil
       value = nil if value < 0
@@ -492,7 +494,9 @@ module LavinMQ
       Fiber.yield # yield so that Client read_loops can shutdown
       @queues.each_value &.close
       Fiber.yield
-      @worker_thread.try &.stop
+      {% if flag?(:vhost_threads) %}
+        @worker_thread.try &.stop
+      {% end %}
       compact!
       @definitions_file.close
     end

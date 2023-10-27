@@ -62,7 +62,7 @@ module LavinMQ
       {% if flag?(:vhost_threads) %}
         vhost.worker_thread.spawn("Client#read_loop #{@remote_address}") { read_loop }
       {% else %}
-        spawn read_loop, "Client#read_loop #{@remote_address}"
+        spawn read_loop, name: "Client#read_loop #{@remote_address}"
       {% end %}
     end
 
