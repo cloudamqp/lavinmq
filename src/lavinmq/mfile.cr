@@ -114,6 +114,15 @@ class MFile < IO
     msync(buffer, @size, LibC::MS_ASYNC)
   end
 
+  def msync
+    msync(buffer, @size, LibC::MS_SYNC)
+  end
+
+  def fsync : Nil
+    ret = LibC.fsync(@fd)
+    raise IO::Error.from_errno("Error syncing file") if ret != 0
+  end
+
   # unload the memory mapping, will be remapped on demand
   def unmap : Nil
     munmap
@@ -211,6 +220,10 @@ class MFile < IO
     bytes_count
   end
 
+  def to_unsafe
+    buffer
+  end
+
   def to_slice
     raise IO::Error.new("MFile closed") if @closed
     Bytes.new(buffer, @size, read_only: true)
@@ -241,6 +254,4 @@ class MFile < IO
     @size = new_size.to_i64
     @pos = new_size.to_i64 if @pos > new_size
   end
-
-  PAGESIZE = LibC.sysconf(LibC::SC_PAGESIZE).to_u32
 end
