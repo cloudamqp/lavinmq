@@ -23,6 +23,7 @@ module LavinMQ
         delete_after,
         prefetch,
         ack_mode,
+        config["src-consumer-args"]?.try &.as_h?,
         direct_user: @vhost.users.direct_user)
       dest = destination(name, config, ack_mode, delete_after, prefetch)
       shovel = Shovel::Runner.new(src, dest, name, @vhost, reconnect_delay)

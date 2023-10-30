@@ -41,7 +41,8 @@ module LavinMQ
 
       def initialize(@name : String, @uri : URI, @queue : String?, @exchange : String? = nil,
                      @exchange_key : String? = nil,
-                     @delete_after = DEFAULT_DELETE_AFTER, @prefetch = DEFAULT_PREFETCH, @ack_mode = DEFAULT_ACK_MODE,
+                     @delete_after = DEFAULT_DELETE_AFTER, @prefetch = DEFAULT_PREFETCH,
+                     @ack_mode = DEFAULT_ACK_MODE, consumer_args : Hash(String, JSON::Any)? = nil,
                      direct_user : User? = nil)
         @tag = "Shovel[#{@name}]"
         cfg = Config.instance
@@ -59,6 +60,10 @@ module LavinMQ
         @uri.query = params.to_s
         if @queue.nil? && @exchange.nil?
           raise ArgumentError.new("Shovel source requires a queue or an exchange")
+        end
+        @args = AMQ::Protocol::Table.new
+        consumer_args.try &.each do |k, v|
+          @args[k] = v.as_s?
         end
       end
 
@@ -117,11 +122,13 @@ module LavinMQ
         raise "Not started" unless started?
         q = @q.not_nil!
         ch = @ch.not_nil!
+        exclusive = !@args["x-stream-offset"]? # consumers for streams can not be exclusive
         return if @delete_after.queue_length? && q[:message_count].zero?
         ch.basic_consume(q[:queue_name],
           no_ack: @ack_mode.no_ack?,
-          exclusive: true,
+          exclusive: exclusive,
           block: true,
+          args: @args,
           tag: @tag) do |msg|
           blk.call(msg)
 
@@ -154,7 +161,8 @@ module LavinMQ
 
       def initialize(@name : String, @uri : URI, @queue : String?, @exchange : String? = nil,
                      @exchange_key : String? = nil,
-                     @delete_after = DEFAULT_DELETE_AFTER, @prefetch = DEFAULT_PREFETCH, @ack_mode = DEFAULT_ACK_MODE,
+                     @delete_after = DEFAULT_DELETE_AFTER, @prefetch = DEFAULT_PREFETCH,
+                     @ack_mode = DEFAULT_ACK_MODE, consumer_args : Hash(String, JSON::Any)? = nil,
                      direct_user : User? = nil)
         cfg = Config.instance
         @uri.host ||= "#{cfg.amqp_bind}:#{cfg.amqp_port}"
@@ -175,6 +183,10 @@ module LavinMQ
         end
         if @exchange.nil?
           raise ArgumentError.new("Shovel destination requires an exchange")
+        end
+        @args = AMQ::Protocol::Table.new
+        consumer_args.try &.each do |k, v|
+          @args[k] = v.as_s?
         end
       end
 
