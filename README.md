@@ -76,7 +76,7 @@ for an example.
 Docker images are published to [Docker Hub](https://hub.docker.com/r/cloudamqp/lavinmq).
 Fetch and run the latest version with:
 
-`docker run --rm -it -P -v /var/lib/lavinmq:/tmp/amqp cloudamqp/lavinmq`
+    docker run --rm -it -p 5672:5672 -p 15672:15672 -v /var/lib/lavinmq:/tmp/amqp cloudamqp/lavinmq
 
 You are then able to visit the management UI at [http://localhost:15672](http://localhost:15672) and
 start publishing/consuming messages to `amqp://guest:guest@localhost`.
