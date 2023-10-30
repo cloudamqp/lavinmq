@@ -540,6 +540,15 @@ describe LavinMQ::HTTP::Server do
       Server.vhosts["uploaded_vhost"]?.should_not be_nil
       Server.vhosts["uploaded_vhost"].should be_a(LavinMQ::VHost)
     end
+
+    it "imports definitions from json body" do
+      body = {vhosts: [{name: "uploaded_vhost"}]}.to_json
+      headers = {"Content-Type" => "application/json"}
+      response = post("/api/definitions/upload", headers: headers, body: body)
+      response.status_code.should eq 200
+      Server.vhosts["uploaded_vhost"]?.should_not be_nil
+      Server.vhosts["uploaded_vhost"].should be_a(LavinMQ::VHost)
+    end
   end
 
   it "should update existing user on import" do
