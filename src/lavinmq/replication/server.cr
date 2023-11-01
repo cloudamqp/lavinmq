@@ -51,11 +51,13 @@ module LavinMQ
 
       def append(path : String, obj)
         Log.debug { "appending #{obj} to #{path}" }
+        wait_for_max_lag
         each_follower &.append(path, obj)
       end
 
       def delete_file(path : String)
         @files.delete(path)
+        wait_for_max_lag
         each_follower &.delete(path)
       end
 

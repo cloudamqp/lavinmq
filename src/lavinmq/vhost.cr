@@ -126,8 +126,6 @@ module LavinMQ
       find_all_queues(ex, msg.routing_key, headers, visited, found_queues)
       headers.delete("BCC") if headers
 
-      @replicator.wait_for_max_lag
-
       if found_queues.empty?
         ex.unroutable_count += 1
         return false
