@@ -43,11 +43,6 @@ class MFile < IO
   end
 
   # Opens an existing file in readonly mode
-  def self.open(path) : self
-    self.new(path)
-  end
-
-  # Opens an existing file in readonly mode
   def self.open(path, & : self -> _)
     mfile = self.new(path)
     begin
@@ -73,12 +68,6 @@ class MFile < IO
     code = LibC.fstat(@fd, out stat)
     raise File::Error.from_errno("Unable to get info", file: @path) if code < 0
     stat.st_size.to_i64
-  end
-
-  def disk_usage : Int64
-    code = LibC.fstat(@fd, out stat)
-    raise File::Error.from_errno("Unable to get info", file: @path) if code < 0
-    stat.st_blocks.to_i64 * 512
   end
 
   private def mmap(length = @capacity) : Pointer(UInt8)
@@ -175,17 +164,6 @@ class MFile < IO
     raise RuntimeError.from_errno("msync") if code < 0
   end
 
-  private def mremap(addr, old_len, new_len) : Pointer(UInt8)
-    {% if flag?(:linux) %}
-      ptr = LibC.mremap(addr, old_len, new_len, LibC::MREMAP_MAYMOVE)
-      raise IO::Error.from_errno("mremap") if ptr == LibC::MAP_FAILED
-      ptr.as(UInt8*)
-    {% else %}
-      munmap(addr, old_len)
-      mmap(addr, new_len)
-    {% end %}
-  end
-
   def finalize
     LibC.close(@fd) if @fd > -1
     LibC.munmap(@buffer, @capacity) unless @buffer.null?
@@ -271,46 +249,9 @@ class MFile < IO
     DontNeed
   end
 
-  def truncate(capacity : Int) : Nil
-    return if capacity == @capacity
-    capacity = capacity.to_i64
-    code = LibC.ftruncate(@fd, capacity)
-    raise File::Error.from_errno("Error truncating file", file: @path) if code < 0
-    old_capacity = @capacity
-    @capacity = capacity
-    @size = capacity if @size > capacity
-    @pos = capacity if @pos > capacity
-    @buffer = mremap(@buffer, old_capacity, capacity) unless @buffer.null?
-  end
-
   def resize(new_size : Int) : Nil
     raise ArgumentError.new("Can't expand file larger than capacity, use truncate") if new_size > @capacity
     @size = new_size.to_i64
     @pos = new_size.to_i64 if @pos > new_size
-  end
-
-  def rename(new_path)
-    File.rename @path, new_path
-    @path = new_path
-  end
-
-  def read_at(offset : Int, slice : Bytes)
-    total = slice.size
-    until slice.empty?
-      cnt = LibC.pread(@fd, slice, slice.size, offset)
-      raise File::Error.from_errno("pread", file: @path) if cnt < 0
-      break if cnt.zero?
-      slice += cnt
-      offset += cnt
-    end
-    total - slice.size
-  end
-
-  PAGESIZE = LibC.sysconf(LibC::SC_PAGESIZE).to_u32
-
-  private def page_align(n : Int) : Int
-    n += PAGESIZE - 1
-    n -= n & PAGESIZE - 1
-    n
   end
 end

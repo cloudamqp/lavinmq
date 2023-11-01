@@ -62,22 +62,6 @@ module LavinMQ
       spawn read_loop, name: "Client#read_loop #{@remote_address}"
     end
 
-    # socket's file descriptor
-    def fd
-      case @socket
-      when OpenSSL::SSL::Socket
-        @socket.as(OpenSSL::SSL::Socket).@bio.io.as(IO::FileDescriptor).fd
-      when TCPSocket
-        @socket.as(TCPSocket).fd
-      when UNIXSocket
-        @socket.as(UNIXSocket).fd
-      when WebSocketIO
-        @socket.as(WebSocketIO).fd
-      else
-        raise "Unexpected socket #{@socket.class}"
-      end
-    end
-
     # Returns client provided connection name if set, else server generated name
     def client_name
       @client_properties["connection_name"]?.try(&.as(String)) || @name

@@ -10,10 +10,6 @@ module LavinMQ
     PolicyMaker
     Impersonator
 
-    def to_json(json : JSON::Builder)
-      to_s.downcase.to_json(json)
-    end
-
     def self.parse_list(list : String) : Array(Tag)
       list.split(",").compact_map { |t| Tag.parse?(t.strip) }
     end
@@ -210,17 +206,6 @@ module LavinMQ
 
     private def perm_match?(perm, name)
       perm != /^$/ && perm != // && perm.matches? name
-    end
-
-    private def hash_algorithm(hash)
-      case hash
-      when /^\$2a\$/ then "Bcrypt"
-      when /^\$1\$/  then "MD5"
-      when /^\$5\$/  then "SHA256"
-      when /^\$6\$/  then "SHA512"
-      when /^$/      then ""
-      else                raise UnknownHashAlgoritm.new
-      end
     end
 
     class UnknownHashAlgoritm < Exception; end

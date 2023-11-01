@@ -55,11 +55,5 @@ module LavinMQ
     def read_timeout=(timeout)
       @r.read_timeout = timeout
     end
-
-    def fd
-      io = @ws.@ws.@io
-      return io.fd if io.responds_to?(:fd)
-      0
-    end
   end
 end

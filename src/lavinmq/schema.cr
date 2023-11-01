@@ -292,12 +292,6 @@ module LavinMQ
       file.flush
       version
     end
-
-    def self.verify_or_prefix(file, type) : Int32
-      verify(file, type)
-    rescue IO::EOFError
-      prefix(file, type)
-    end
   end
 
   class OutdatedSchemaVersion < Exception

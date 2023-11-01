@@ -435,20 +435,8 @@ module LavinMQ
         notify_has_capacity(count)
       end
 
-      def unacked_for_queue(queue) : Iterator(SegmentPosition)
-        @unacked.each.select(&.queue.==(queue)).map(&.sp)
-      end
-
       def unacked_count
         @unacked.size
-      end
-
-      def each_unacked(& : Unack -> Nil)
-        @unack_lock.synchronize do
-          @unacked.each do |unack|
-            yield unack
-          end
-        end
       end
 
       record TxAck, delivery_tag : UInt64, multiple : Bool, negative : Bool, requeue : Bool

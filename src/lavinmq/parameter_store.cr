@@ -12,11 +12,6 @@ module LavinMQ
 
     forward_missing_to @parameters
 
-    def create(data : JSON::Any, save = true)
-      p = T.from_json(data)
-      create(p, save)
-    end
-
     def create(parameter : T, save = true)
       @parameters[parameter.name] = parameter
       save! if save
@@ -48,10 +43,6 @@ module LavinMQ
       @parameters.each do |kv|
         yield kv
       end
-    end
-
-    def close
-      save!
     end
 
     def to_json(json : JSON::Builder)

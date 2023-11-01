@@ -45,11 +45,6 @@ module LavinMQ
         @http = ::HTTP::Server.new(handlers)
       end
 
-      def bind(socket)
-        addr = @http.bind(socket)
-        Log.info { "Bound to #{addr}" }
-      end
-
       def bind_tcp(address, port)
         addr = @http.bind_tcp address, port
         Log.info { "Bound to #{addr}" }
@@ -81,10 +76,6 @@ module LavinMQ
       def close
         @http.try &.close
         File.delete?(INTERNAL_UNIX_SOCKET)
-      end
-
-      def closed?
-        @http.closed?
       end
 
       class NotFoundError < Exception; end

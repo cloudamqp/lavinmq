@@ -54,15 +54,6 @@ module LavinMQ
       body = bytes[pos, sz]
       BytesMessage.new(ts, ex, rk, pr, sz, body)
     end
-
-    def to_io(io : IO, format = IO::ByteFormat::SystemEndian)
-      io.write_bytes @timestamp, format
-      io.write_bytes AMQ::Protocol::ShortString.new(@exchange_name), format
-      io.write_bytes AMQ::Protocol::ShortString.new(@routing_key), format
-      io.write_bytes @properties, format
-      io.write_bytes @bodysize, format
-      io.write @body
-    end
   end
 
   # Messages from publishers, read from socket and then written to mmap files
@@ -85,16 +76,6 @@ module LavinMQ
     def bytesize
       sizeof(Int64) + 1 + @exchange_name.bytesize + 1 + @routing_key.bytesize +
         @properties.bytesize + sizeof(UInt64) + @bodysize
-    end
-
-    def dlx : String?
-      @properties.headers.try(&.fetch("x-dead-letter-exchange", nil).as?(String))
-    end
-
-    def delay : UInt32?
-      @properties.headers.try(&.fetch("x-delay", nil)).as?(Int).try(&.to_u32)
-    rescue OverflowError
-      nil
     end
 
     def to_io(io : IO, format = IO::ByteFormat::SystemEndian)

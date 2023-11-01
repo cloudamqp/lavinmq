@@ -41,12 +41,6 @@ module LavinMQ
       end
     end
 
-    def each(&)
-      @shovels.each_value do |v|
-        yield v
-      end
-    end
-
     private def destination(name, config, ack_mode, delete_after, prefetch)
       uri = URI.parse(config["dest-uri"].as_s)
       case uri.scheme

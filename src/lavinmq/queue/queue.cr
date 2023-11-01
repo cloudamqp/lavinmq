@@ -294,10 +294,6 @@ module LavinMQ
       @msg_store.empty?
     end
 
-    def any? : Bool
-      !empty?
-    end
-
     def consumer_count
       @consumers.size.to_u32
     end
