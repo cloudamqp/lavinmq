@@ -109,6 +109,7 @@ module LavinMQ
     end
 
     def update_password(password, hash_algorithm = "sha256")
+      return if @password.try &.verify(password)
       @password = User.hash_password(password, hash_algorithm)
     end
 

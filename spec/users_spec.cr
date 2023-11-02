@@ -1,5 +1,23 @@
 require "./spec_helper"
 
+describe LavinMQ::User do
+  describe "#update_password" do
+    it "should not update password hash when given same password as current" do
+      u = LavinMQ::User.create("username", "password", "sha256", [] of LavinMQ::Tag)
+      password_hash_before = u.password
+      u.update_password("password")
+      u.password.should eq password_hash_before
+    end
+
+    it "should update password hash when given other password than current" do
+      u = LavinMQ::User.create("username", "password", "sha256", [] of LavinMQ::Tag)
+      password_hash_before = u.password
+      u.update_password("other")
+      u.password.should_not eq password_hash_before
+    end
+  end
+end
+
 describe LavinMQ::Server do
   it "rejects invalid password" do
     expect_raises(AMQP::Client::Connection::ClosedException) do
