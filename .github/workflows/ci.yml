@@ -32,7 +32,7 @@ jobs:
     continue-on-error: true
     container: 84codes/crystal:latest-ubuntu-20.04
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - run: crystal tool format --check
 
   lint:
@@ -41,9 +41,9 @@ jobs:
     continue-on-error: true
     container: 84codes/crystal:latest-ubuntu-20.04
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Checkout ameba
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           repository: crystal-ameba/ameba
           path: ameba
@@ -57,7 +57,7 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: actions/setup-node@v3
         with:
           node-version: latest
@@ -72,7 +72,7 @@ jobs:
     continue-on-error: true
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Lint and build HTTP API documentation
         run: make docs
@@ -89,7 +89,7 @@ jobs:
         run: apt-get update && apt-get install -y liblz4-dev
 
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Spec
         run: make test
@@ -105,7 +105,7 @@ jobs:
 
       - run: crystal --version
 
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Spec
         run: make test
@@ -120,7 +120,7 @@ jobs:
         run: apt-get update && apt-get install -y liblz4-dev
 
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Build lavinmq
         run: make -j bin/lavinmq bin/lavinmqctl DOCS= CRYSTAL_FLAGS=-Dbake_static
@@ -157,7 +157,7 @@ jobs:
           bin/lavinmq --data-dir=/tmp/amqp --bind=:: &
 
       - name: Clone java client
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           repository: cloudamqp/rabbitmq-java-client
           ref: lavinmq-compatible-tests
@@ -182,7 +182,7 @@ jobs:
           sudo apt-get install -y libevent-dev liblz4-1
 
       - name: Checkout LavinMQ for bunny_definitions.json
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - uses: actions/download-artifact@v3
         with:
@@ -200,7 +200,7 @@ jobs:
           bin/lavinmqctl import_definitions .github/bunny_definitions.json
 
       - name: Clone Bunny
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           repository: ruby-amqp/bunny
           path: bunny
@@ -239,7 +239,7 @@ jobs:
           bin/lavinmq --data-dir /tmp/amqp &
 
       - name: Clone HTTP API client
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           repository: cloudamqp/rabbitmq_http_api_client
           token: ${{ secrets.PRIVATE_REPO_ACCESS }}
@@ -280,7 +280,7 @@ jobs:
           go-version: 1.15.2
 
       - name: Clone http client
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           repository: cloudamqp/rabbit-hole
           token: ${{ secrets.PRIVATE_REPO_ACCESS }}
@@ -299,7 +299,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - uses: actions/download-artifact@v3
         with:
