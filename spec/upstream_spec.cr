@@ -278,7 +278,7 @@ describe LavinMQ::Federation::Upstream do
     end
   end
 
-  describe "@queue nil" do
+  describe "when @queue is nil" do
     describe "#link(Queue)" do
       it "should create link that consumes upstream queue with same name as downstream queue" do
         vhost = Server.vhosts["/"]
