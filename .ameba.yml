@@ -27,6 +27,9 @@ Lint/NotNil:
   Enabled: true
   Severity: Warning
 
+Lint/DocumentationAdmonition:
+  Enabled: false
+
 # Problems found: 2
 # Run `ameba --only Metrics/CyclomaticComplexity` for details
 Metrics/CyclomaticComplexity:
