@@ -277,4 +277,22 @@ describe LavinMQ::Federation::Upstream do
       upstream_q.bindings.size.should eq 0
     end
   end
+
+  describe "@queue nil" do
+    describe "#link(Queue)" do
+      it "should create link that consumes upstream queue with same name as downstream queue" do
+        vhost = Server.vhosts["/"]
+
+        vhost.declare_queue("q1", true, false)
+        vhost.declare_queue("q2", true, false)
+
+        upstream = LavinMQ::Federation::Upstream.new(vhost, "test", "amqp://", nil, nil)
+        link1 = upstream.link(vhost.queues["q1"])
+        link2 = upstream.link(vhost.queues["q2"])
+
+        link1.@upstream_q.should eq "q1"
+        link2.@upstream_q.should eq "q2"
+      end
+    end
+  end
 end
