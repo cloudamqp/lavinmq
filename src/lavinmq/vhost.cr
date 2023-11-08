@@ -68,11 +68,13 @@ module LavinMQ
 
       {% if flag?(:vhost_threads) %}
         thread_started = Atomic(Int8).new(0)
-        @worker_thread ||= WorkerThread.new do
+        worker_thread = (@worker_thread ||= WorkerThread.new do
+          Fiber.current.name = "vhost #{@name}"
           scheduler = Thread.current.scheduler
           thread_started.set(1)
           scheduler.run_loop
-        end
+        end)
+
         while thread_started.get.zero?
           Fiber.yield
         end
@@ -496,6 +498,7 @@ module LavinMQ
       Fiber.yield
       {% if flag?(:vhost_threads) %}
         @worker_thread.try &.stop
+        @worker_thread = nil
       {% end %}
       compact!
       @definitions_file.close
