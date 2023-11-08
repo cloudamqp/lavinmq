@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Don't update user's password hash if given password is the same as current [#586](https://github.com/cloudamqp/lavinmq/pull/586)
+
 ## [1.2.5] - 2023-11-06
 
 ### Added
