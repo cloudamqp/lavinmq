@@ -80,7 +80,7 @@ module LavinMQ
         end
         upstream_q = @queue
         if upstream_q.nil? || upstream_q.empty?
-          upstream_q = @queue = federated_q.name
+          upstream_q = federated_q.name
         end
         link = QueueLink.new(self, federated_q, upstream_q)
         @q_links[federated_q.name] = link
