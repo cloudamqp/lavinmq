@@ -188,7 +188,7 @@ module LavinMQ
 
       class Follower
         Log = ::Log.for(self)
-        getter ack = Channel(Int64).new
+        @ack = Channel(Int64).new
         @acked_bytes = 0_i64
         @sent_bytes = 0_i64
         @actions = Channel(Action).new(4096)
