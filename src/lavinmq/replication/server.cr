@@ -240,11 +240,7 @@ module LavinMQ
           if max_lag = Config.instance.max_lag
             current_lag = lag
             until current_lag < max_lag
-              select
-              when timeout(1.seconds)
-              when current_lag = @ack.receive
-              end
-              break if @server.followers.includes?(self) == false
+              break unless current_lag = @ack.receive?
             end
           end
         end
@@ -419,6 +415,7 @@ module LavinMQ
         def close
           Log.info { "Disconnected" }
           @actions.close
+          @ack.close
           @lz4.close
           @socket.close
         rescue IO::Error
