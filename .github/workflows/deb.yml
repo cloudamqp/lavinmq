@@ -68,7 +68,7 @@ jobs:
       - uses: actions/upload-artifact@v3
         name: Upload artifact
         with:
-          name: deb-packages
+          name: deb-packages-${{ matrix.os }}
           path: builds
 
       - name: Upload to Packagecloud
