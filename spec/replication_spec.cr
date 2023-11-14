@@ -65,3 +65,64 @@ describe LavinMQ::Replication::Client do
     end
   end
 end
+
+describe LavinMQ::Replication::Server do
+  data_dir = "/tmp/lavinmq-follower"
+
+  before_each do
+    FileUtils.rm_rf data_dir
+    Dir.mkdir_p data_dir
+    File.write File.join(data_dir, ".replication_secret"), Server.@replicator.@password, 0o400
+    Server.vhosts["/"].declare_queue("repli", true, false)
+    LavinMQ::Config.instance.min_followers = 1
+  end
+
+  after_each do
+    FileUtils.rm_rf data_dir
+    LavinMQ::Config.instance.min_followers = 0
+  end
+
+  it "+min_followers" do
+    done = Channel(Nil).new
+    client : AMQP::Client::Connection? = nil
+    spawn do
+      with_channel do |ch, conn|
+        client = conn
+        q = ch.queue("repli")
+        q.publish_confirm "hello world"
+        done.send nil
+      end
+    end
+    select
+    when done.receive
+      fail "should not receive message"
+    when timeout(0.1.seconds)
+      pp "timeout"
+      client.try &.close(no_wait: true)
+      Server.close
+    end
+
+    # q = Server.vhosts["/"].queues["repli"].as(LavinMQ::Queue)
+    # q.basic_get(true) { }.should be_false
+
+    # repli = LavinMQ::Replication::Client.new(data_dir)
+    # spawn do
+    #   repli.follow("127.0.0.1", LavinMQ::Config.instance.replication_port)
+    # end
+    # with_channel do |ch|
+    #   ch.basic_publish "hello world", "", "repli"
+    # end
+    # q = Server.vhosts["/"].queues["repli"].as(LavinMQ::Queue)
+    # q.basic_get(true) { }.should be_true
+
+    # repli.close
+  end
+
+  it "-min_followers" do
+  end
+
+  it "+max_lag" do
+  end
+  it "-max_lag" do
+  end
+end

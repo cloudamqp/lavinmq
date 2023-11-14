@@ -24,9 +24,9 @@ module LavinMQ
       @followers = Array(Follower).new
       @password : String
       @files = Hash(String, MFile?).new
+      @closing = false
 
-      def initialize
-        @password = password
+      def initialize(@password = password)
         @tcp = TCPServer.new
         @tcp.sync = false
         @tcp.reuse_address = true
@@ -101,13 +101,18 @@ module LavinMQ
       end
 
       def wait_for_max_lag
-        until @followers.size >= Config.instance.min_followers
-          break unless @followers_changed.receive?
+        # was_closing = @closing
+        until @closing || @followers.size >= Config.instance.min_followers
+          @followers_changed.receive
         end
+        # unless (!was_closing && @closing) || @followers.size >= Config.instance.min_followers
+        #   raise Exception.new("Not enough followers")
+        # end
         @followers.each_with_index do |f, i|
           break if i > Config.instance.min_followers
           f.wait_for_max_lag
         end
+        rescue Channel::ClosedError
       end
 
       private def password : String
@@ -147,12 +152,14 @@ module LavinMQ
           follower.full_sync
           @followers << follower
         end
+        followers_changed.try_send nil
         begin
           follower.read_acks
         ensure
           @lock.synchronize do
             @followers.delete(follower)
           end
+          followers_changed.try_send nil
         end
       rescue ex : AuthenticationError
         Log.warn { "Follower negotiation error" }
@@ -165,12 +172,20 @@ module LavinMQ
       end
 
       def close
+        Log.debug { "closing" }
         @tcp.close
         @lock.synchronize do
           @followers.each &.close
           @followers.clear
         end
+        @followers_changed.close
+        Log.debug { "closed" }
         Fiber.yield # required for follower/listener fibers to actually finish
+      end
+
+      def closing
+        @closing = true
+        @followers_changed.send nil
       end
 
       private def each_follower(& : Follower -> Nil) : Nil
@@ -220,7 +235,6 @@ module LavinMQ
 
         def read_acks(socket = @socket) : Nil
           spawn action_loop, name: "Follower#action_loop"
-          @server.followers_changed.try_send nil
           loop do
             len = socket.read_bytes(Int64, IO::ByteFormat::LittleEndian)
             @acked_bytes += len
@@ -413,7 +427,6 @@ module LavinMQ
           Log.info { "Disconnected" }
           @actions.close
           @ack.close
-          @server.followers_changed.try_send nil
           @lz4.close
           @socket.close
         rescue IO::Error

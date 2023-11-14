@@ -457,8 +457,11 @@ module LavinMQ
         sleep 0.1
       end
       # then force close the remaining (close tcp socket)
+      @log.debug {"force closing connection"} unless connections.empty?
+
       @connections.each &.force_close
       Fiber.yield # yield so that Client read_loops can shutdown
+      @log.debug { "Closing queues" }
       @queues.each_value &.close
       Fiber.yield
       compact!
@@ -639,7 +642,7 @@ module LavinMQ
         end
         io.fsync
         File.rename io.path, @definitions_file_path
-        @replicator.replace_file @definitions_file_path
+        # @replicator.replace_file @definitions_file_path
         @definitions_file.close
         @definitions_file = io
       end
