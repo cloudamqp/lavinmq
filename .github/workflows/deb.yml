@@ -37,7 +37,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, ubuntu-20.04, debian-11]
+        os: [ubuntu-22.04, ubuntu-20.04, debian-12, debian-11]
     runs-on: ubuntu-latest
     permissions:
       contents: read
