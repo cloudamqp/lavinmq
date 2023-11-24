@@ -4,6 +4,7 @@ describe LavinMQ::VHost do
   definitions = {
     "max-length"         => JSON::Any.new(10_i64),
     "alternate-exchange" => JSON::Any.new("dead-letters"),
+    "unsupported"        => JSON::Any.new("unsupported"),
   }
   vhost = Server.vhosts.create("add_policy")
 
@@ -211,6 +212,22 @@ describe LavinMQ::VHost do
         end
         ch.queue_declare(q.name, passive: true)[:message_count].should eq 2
       end
+    end
+
+    it "effective_policy_definition should not include unsupported policies" do
+      supported_policies = {"max-length", "max-length-bytes",
+                            "message-ttl", "expires", "overflow",
+                            "dead-letter-exchange", "dead-letter-routing-key",
+                            "federation-upstream", "federation-upstream-set",
+                            "delivery-limit", "max-age", "alternate-exchange",
+                            "delayed-message"}
+      vhost.queues["test"] = LavinMQ::Queue.new(vhost, "test")
+      vhost.add_policy("test", "^.*$", "all", definitions, -10_i8)
+      sleep 0.01
+      vhost.queues["test"].details_tuple[:effective_policy_definition].as(Hash(String, JSON::Any)).each do |k, v|
+        supported_policies.includes?(k).should be_true
+      end
+      vhost.delete_policy("test")
     end
   end
 
