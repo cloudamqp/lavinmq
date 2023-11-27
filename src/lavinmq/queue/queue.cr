@@ -600,11 +600,9 @@ module LavinMQ
         next if xd["reason"]? != reason.to_s
         next if xd["exchange"]? != exchange_name
         count = xd["count"].as?(Int) || 0
-        xd.merge!({
-          count:          count + 1,
-          time:           RoughTime.utc,
-          "routing-keys": routing_keys,
-        })
+        xd["count"] = count + 1
+        xd["time"] = RoughTime.utc
+        xd["routing-keys"] = routing_keys
         xd["original-expiration"] = expiration if expiration
         found_at = idx
         break
