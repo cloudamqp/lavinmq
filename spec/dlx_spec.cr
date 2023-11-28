@@ -58,4 +58,37 @@ describe "Dead lettering" do
 
     msg.timestamp.should be > ts
   end
+
+  it "should update count in x-death" do
+    with_channel do |ch|
+      q_name = "q_dlx"
+      q = ch.queue(q_name, args: AMQP::Client::Arguments.new(
+        {"x-dead-letter-exchange" => "", "x-dead-letter-routing-key" => q_name}
+      ))
+
+      done = Channel(AMQP::Client::DeliverMessage).new
+      i = 0
+      q.subscribe(no_ack: false) do |env|
+        if i == 10
+          env.ack
+          done.send env
+        else
+          env.reject
+        end
+        i += 1
+      end
+      ch.default_exchange.publish_confirm("msg", q.name)
+
+      msg = done.receive
+      headers = msg.properties.headers.should_not be_nil
+      x_death = headers["x-death"].as?(Array(AMQ::Protocol::Field)).should_not be_nil
+      x_death_q_dlx_rejected = x_death.find do |xd|
+        xd = xd.as(AMQ::Protocol::Table)
+        xd["queue"] == q_name &&
+          xd["reason"] == "rejected"
+      end
+      x_death_q_dlx_rejected = x_death_q_dlx_rejected.as?(AMQ::Protocol::Table).should_not be_nil
+      x_death_q_dlx_rejected["count"].should eq 10
+    end
+  end
 end
