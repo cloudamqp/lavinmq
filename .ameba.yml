@@ -27,7 +27,7 @@ Lint/NotNil:
   Enabled: true
   Severity: Warning
 
-Lint/DocumentationAdmonition:
+Documentation/DocumentationAdmonition:
   Enabled: false
 
 # Problems found: 2
