@@ -32,6 +32,8 @@ Documentation/DocumentationAdmonition:
 
 Naming/BlockParameterName:
   AllowedNames: [_, e, i, j, k, v, x, y, ex, io, ws, op, tx, id, ip, k1, k2, v1, v2, ch, q]
+  Excluded:
+  - spec
 
 # Problems found: 2
 # Run `ameba --only Metrics/CyclomaticComplexity` for details
