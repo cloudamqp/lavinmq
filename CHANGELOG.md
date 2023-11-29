@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Don't update user's password hash if given password is the same as current [#586](https://github.com/cloudamqp/lavinmq/pull/586)
 - Remove old segments in the background for stream queues [#608](https://github.com/cloudamqp/lavinmq/pull/608)
+- A bug prevented `count` from being updated correctly in `x-death` headers [#601](https://github.com/cloudamqp/lavinmq/pull/601)
 
 ## [1.2.5] - 2023-11-06
 
