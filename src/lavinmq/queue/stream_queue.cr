@@ -161,9 +161,9 @@ module LavinMQ
         end
       end
       @msg_store_lock.synchronize do
+        stream_queue_msg_store.drop_overflow
         stream_queue_msg_store.unmap_segments(except: used_segments)
       end
-      stream_queue_msg_store.drop_overflow
     end
   end
 end
