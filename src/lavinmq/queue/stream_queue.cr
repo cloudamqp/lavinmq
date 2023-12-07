@@ -8,7 +8,7 @@ module LavinMQ
                    @exclusive = false, @auto_delete = false,
                    @arguments = AMQP::Table.new)
       super
-      spawn unmap_unused_segments_loop, name: "StreamQueue#unmap_unused_segments_loop"
+      spawn unmap_and_remove_segments_loop, name: "StreamQueue#unmap_and_remove_segments_loop"
     end
 
     def apply_policy(policy : Policy?, operator_policy : OperatorPolicy?)
@@ -146,14 +146,14 @@ module LavinMQ
       end
     end
 
-    private def unmap_unused_segments_loop
+    private def unmap_and_remove_segments_loop
       until closed?
         sleep 60
-        unmap_unused_segments
+        unmap_and_remove_segments
       end
     end
 
-    private def unmap_unused_segments
+    private def unmap_and_remove_segments
       used_segments = Set(UInt32).new
       @consumers_lock.synchronize do
         @consumers.each do |consumer|
@@ -163,6 +163,7 @@ module LavinMQ
       @msg_store_lock.synchronize do
         stream_queue_msg_store.unmap_segments(except: used_segments)
       end
+      stream_queue_msg_store.drop_overflow
     end
   end
 end
