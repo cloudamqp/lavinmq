@@ -45,9 +45,11 @@ module LavinMQ
 
     def add_permission(user, vhost, config, read, write)
       perm = {config: config, read: read, write: write}
+      if @users[user].permissions[vhost]? && @users[user].permissions[vhost] == perm
+        return perm
+      end
       @users[user].permissions[vhost] = perm
       @users[user].invalidate_acl_caches
-      Log.info { "Updated permissions for user=#{user} on vhost=#{vhost}" }
       save!
       perm
     end
