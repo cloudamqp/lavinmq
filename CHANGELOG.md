@@ -7,10 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.5] - 2023-12-12
+
 ### Fixed
 
 - Don't update user's password hash if given password is the same as current [#586](https://github.com/cloudamqp/lavinmq/pull/586)
 - Remove old segments in the background for stream queues [#608](https://github.com/cloudamqp/lavinmq/pull/608)
+
+### Changed
+
+- New amq-protocol.cr version 1.1.12
+- Add package build for Debian 12 (bookworm) [#597](https://github.com/cloudamqp/lavinmq/pull/597)
+- Do not update permissions if they are the same [#609](https://github.com/cloudamqp/lavinmq/pull/609)
+- Do not update password hash if given current password [#586](https://github.com/cloudamqp/lavinmq/pull/586)
+
+### Added
+
+- Add playwright for frontend specs [#560](https://github.com/cloudamqp/lavinmq/pull/560)
 
 ## [1.2.5] - 2023-11-06
 
