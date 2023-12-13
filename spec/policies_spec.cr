@@ -224,7 +224,7 @@ describe LavinMQ::VHost do
       vhost.queues["test"] = LavinMQ::Queue.new(vhost, "test")
       vhost.add_policy("test", "^.*$", "all", definitions, -10_i8)
       sleep 0.01
-      vhost.queues["test"].details_tuple[:effective_policy_definition].as(Hash(String, JSON::Any)).each do |k, v|
+      vhost.queues["test"].details_tuple[:effective_policy_definition].as(Hash(String, JSON::Any)).each_key do |k|
         supported_policies.includes?(k).should be_true
       end
       vhost.delete_policy("test")
