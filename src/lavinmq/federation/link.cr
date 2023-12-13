@@ -17,6 +17,7 @@ module LavinMQ
         @last_unacked : UInt64?
         @upstream_connection : ::AMQP::Client::Connection?
         @downstream_connection : ::AMQP::Client::Connection?
+        @connection_intformation : ::AMQP::Client::ConnectionInformation?
 
         def initialize(@upstream : Upstream, @log : Log)
           user = @upstream.vhost.users.direct_user
@@ -28,6 +29,8 @@ module LavinMQ
           uri = @upstream.uri
           ui = uri.userinfo
           @scrubbed_uri = ui.nil? ? uri.to_s : uri.to_s.sub("#{ui}@", "")
+          @connection_information = ::AMQP::Client::ConnectionInformation.new(
+            product: "LavinMQ", platform: "Crystal", product_version: LavinMQ::VERSION, platform_version: Crystal::VERSION)
         end
 
         def details_tuple
@@ -209,9 +212,9 @@ module LavinMQ
           @downstream_connection.try &.close
           upstream_uri = named_uri(@upstream.uri)
           local_uri = named_uri(@local_uri)
-          ::AMQP::Client.start(upstream_uri) do |c|
+          ::AMQP::Client.start(upstream_uri, @connection_information) do |c|
             @upstream_connection = c
-            ::AMQP::Client.start(local_uri) do |p|
+            ::AMQP::Client.start(local_uri, @connection_information) do |p|
               @downstream_connection = p
               cch, q = setup_queue(c)
               cch.prefetch(count: @upstream.prefetch)
@@ -303,7 +306,7 @@ module LavinMQ
           params = upstream_uri.query_params
           params["name"] ||= "Federation link cleanup: #{@upstream.name}/#{name}"
           upstream_uri.query = params.to_s
-          ::AMQP::Client.start(upstream_uri) do |c|
+          ::AMQP::Client.start(upstream_uri, @connection_information) do |c|
             ch = c.channel
             ch.queue_delete(@upstream_q)
           end
@@ -353,9 +356,9 @@ module LavinMQ
           @downstream_connection.try &.close
           upstream_uri = named_uri(@upstream.uri)
           local_uri = named_uri(@local_uri)
-          ::AMQP::Client.start(upstream_uri) do |c|
+          ::AMQP::Client.start(upstream_uri, @connection_information) do |c|
             @upstream_connection = c
-            ::AMQP::Client.start(local_uri) do |p|
+            ::AMQP::Client.start(local_uri, @connection_information) do |p|
               @downstream_connection = p
               cch, @consumer_q = setup(c)
               cch.prefetch(count: @upstream.prefetch)

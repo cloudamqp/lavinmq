@@ -10,7 +10,7 @@ module LavinMQ
     property log_file : String? = nil
     property log_level : Log::Severity = DEFAULT_LOG_LEVEL
     property amqp_bind = "127.0.0.1"
-    property amqp_port = 5672
+    property amqp_port = 5673
     property amqps_port = -1
     property unix_path = ""
     property unix_proxy_protocol = 1_u8 # PROXY protocol version on unix domain socket connections
@@ -20,7 +20,7 @@ module LavinMQ
     property tls_ciphers = ""
     property tls_min_version = ""
     property http_bind = "127.0.0.1"
-    property http_port = 15672
+    property http_port = 15673
     property https_port = -1
     property http_unix_path = ""
     property http_systemd_socket_name = "lavinmq-http.socket"

@@ -31,9 +31,20 @@ function updateConnection (all) {
       const cp = item.client_properties
       document.getElementById('cp-name').textContent = cp.connection_name
       document.getElementById('cp-capabilities').textContent = DOM.jsonToText(cp.capabilities)
-      document.getElementById('cp-product').textContent = cp.product
-      document.getElementById('cp-platform').textContent = cp.platform
-      document.getElementById('cp-version').textContent = cp.version
+      if (cp.product_version) {
+        document.getElementById('cp-product').appendChild(document.createElement('span')).textContent = cp.product
+        document.getElementById('cp-product').appendChild(document.createElement('br'))
+        document.getElementById('cp-product').appendChild(document.createElement('small')).textContent = 'Verison: ' + cp.product_version
+      } else {
+        document.getElementById('cp-product').textContent = cp.product
+      }
+      if (cp.platform_version) {
+        document.getElementById('cp-platform').appendChild(document.createElement('span')).textContent = cp.platform
+        document.getElementById('cp-platform').appendChild(document.createElement('br'))
+        document.getElementById('cp-platform').appendChild(document.createElement('small')).textContent = 'Verison: ' + cp.platform_version
+      } else {
+        document.getElementById('cp-platform').textContent = cp.platform
+      }
       const infoEl = document.getElementById('cp-information')
       if (cp.information && cp.information.startsWith('http')) {
         const infoLink = document.createElement('a')
