@@ -312,9 +312,13 @@ module LavinMQ
     end
 
     private def open_channel(frame)
-      @channels[frame.channel] = Client::Channel.new(self, frame.channel)
-      @vhost.event_tick(EventType::ChannelCreated)
-      send AMQP::Frame::Channel::OpenOk.new(frame.channel)
+      if @channels.has_key? frame.channel
+        close_connection(frame, 504_u16, "CHANNEL_ERROR - second 'channel.open' seen")
+      else
+        @channels[frame.channel] = Client::Channel.new(self, frame.channel)
+        @vhost.event_tick(EventType::ChannelCreated)
+        send AMQP::Frame::Channel::OpenOk.new(frame.channel)
+      end
     end
 
     # ameba:disable Metrics/CyclomaticComplexity
