@@ -221,7 +221,7 @@ class Throughput < Perf
     end
   end
 
-  private def pub(done)
+  private def pub(done) # ameba:disable Metrics/CyclomaticComplexity
     data = Bytes.new(@size) { |i| ((i % 27 + 64)).to_u8 }
     props = @properties
     props.delivery_mode = 2u8 if @persistent
@@ -256,7 +256,7 @@ class Throughput < Perf
     done.send nil
   end
 
-  private def consume(done)
+  private def consume(done) # ameba:disable Metrics/CyclomaticComplexity
     data = Bytes.new(@size) { |i| ((i % 27 + 64)).to_u8 }
     AMQP::Client.start(@uri) do |a|
       ch = a.channel
