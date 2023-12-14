@@ -254,4 +254,12 @@ class MFile < IO
     @size = new_size.to_i64
     @pos = new_size.to_i64 if @pos > new_size
   end
+
+  # Read from a specific position in the file
+  # but without mapping the whole file, it uses `pread`
+  def read_at(pos, bytes)
+    cnt = LibC.pread(@fd, bytes, bytes.bytesize, pos)
+    raise IO::Error.from_errno("pread") if cnt == -1
+    cnt
+  end
 end

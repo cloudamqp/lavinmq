@@ -278,8 +278,18 @@ module LavinMQ
       index:      4,
     }
 
-    def self.verify(file, type) : Int32
+    def self.verify(file : File, type) : Int32
       version = file.read_bytes Int32
+      if version != VERSIONS[type]
+        raise OutdatedSchemaVersion.new version, file.path
+      end
+      version
+    end
+
+    def self.verify(file : MFile, type) : Int32
+      buf = uninitialized UInt8[4]
+      file.read_at(0, buf.to_slice)
+      version = IO::ByteFormat::SystemEndian.decode(Int32, buf.to_slice)
       if version != VERSIONS[type]
         raise OutdatedSchemaVersion.new version, file.path
       end
