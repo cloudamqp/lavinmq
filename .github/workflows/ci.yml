@@ -47,11 +47,11 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: crystal-ameba/ameba
-          path: ameba
+          path: ../ameba
       - name: Build ameba
-        run: make -C ameba
+        run: make -C ../ameba
       - name: Run ameba
-        run: ameba/bin/ameba
+        run: ../ameba/bin/ameba
 
   js-lint:
     name: Lint javascript
