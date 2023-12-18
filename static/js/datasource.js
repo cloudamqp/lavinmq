@@ -75,8 +75,9 @@ class DataSource {
         } catch (e) {
           console.error(`Failed to load cached query state: ${e}`, cachedState)
         }
+      } else {
+        this._setStateFromHash()
       }
-      this._setStateFromHash()
       window.addEventListener('hashchange', evt => {
         this._setStateFromHash()
         this.reload({ updateState: false })
