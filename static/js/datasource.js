@@ -75,9 +75,8 @@ class DataSource {
         } catch (e) {
           console.error(`Failed to load cached query state: ${e}`, cachedState)
         }
-      } else {
-        this._setStateFromHash()
       }
+      this._setStateFromHash()
       window.addEventListener('hashchange', evt => {
         this._setStateFromHash()
         this.reload({ updateState: false })
@@ -86,8 +85,10 @@ class DataSource {
   }
 
   _setStateFromHash () {
-    const urlParams = Object.fromEntries(new URLSearchParams(window.location.hash.substring(1)).entries())
-    this._setState(urlParams)
+    if (window.location.hash.length > 0) {
+      const urlParams = Object.fromEntries(new URLSearchParams(window.location.hash.substring(1)).entries())
+      this._setState(urlParams)
+    }
   }
 
   _setState (properties = {}) {
