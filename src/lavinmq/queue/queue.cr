@@ -53,6 +53,8 @@ module LavinMQ
     getter? paused = false
     getter paused_change = Channel(Bool).new
 
+    getter consumer_timeout : UInt64? = Config.instance.consumer_timeout
+
     @consumers_empty_change = Channel(Bool).new
 
     private def queue_expire_loop
@@ -226,6 +228,10 @@ module LavinMQ
           @vhost.upstreams.try &.link(v.as_s, self)
         when "federation-upstream-set"
           @vhost.upstreams.try &.link_set(v.as_s, self)
+        when "consumer-timeout"
+          unless @consumer_timeout.try &.< v.as_i64
+            @consumer_timeout = v.as_i64.to_u64
+          end
         end
       end
       @policy = policy
@@ -260,6 +266,8 @@ module LavinMQ
       validate_positive("x-delivery-limit", @delivery_limit)
       @reject_on_overflow = parse_header("x-overflow", String) == "reject-publish"
       @single_active_consumer_queue = parse_header("x-single-active-consumer", Bool) == true
+      @consumer_timeout = parse_header("x-consumer-timeout", Int).try &.to_u64
+      validate_positive("x-consumer-timeout", @consumer_timeout)
     end
 
     private macro parse_header(header, type)
