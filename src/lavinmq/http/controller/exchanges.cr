@@ -93,7 +93,7 @@ module LavinMQ
               bad_request(context, "Exchange #{e.name} in vhost #{e.vhost.name} in use") if e.in_use?
             end
             if e.internal?
-              bad_request(context, "Not allowed to delete internal queue")
+              bad_request(context, "Not allowed to delete internal exchange")
             end
             @amqp_server.vhosts[vhost].delete_exchange(e.name)
             context.response.status_code = 204
