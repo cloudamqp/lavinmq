@@ -334,6 +334,19 @@ module LavinMQ
             end
           end
         end
+
+        private def export_users(json)
+          json.array do
+            @amqp_server.users.each_value.reject(&.hidden?).each do |u|
+              {
+                "hashing_algorithm": u.user_details["hashing_algorithm"],
+                "name":              u.name,
+                "password_hash":     u.user_details["password_hash"],
+                "tags":              u.tags,
+              }.to_json(json)
+            end
+          end
+        end
       end
 
       class VHostDefinitions < Definitions
@@ -387,7 +400,7 @@ module LavinMQ
           JSON.build(response) do |json|
             json.object do
               json.field("lavinmq_version", LavinMQ::VERSION)
-              json.field("users", @amqp_server.users.values.reject(&.hidden?))
+              json.field("users") { export_users(json) }
               json.field("vhosts", @amqp_server.vhosts)
               json.field("permissions") { export_permissions(json) }
               json.field("queues") { export_queues(json) }
