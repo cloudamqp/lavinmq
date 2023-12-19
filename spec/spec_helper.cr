@@ -23,6 +23,7 @@ LavinMQ::Config.instance.tap do |cfg|
   cfg.amqps_port = AMQPS_PORT
   cfg.http_port = HTTP_PORT
   cfg.segment_size = 512 * 1024
+  cfg.consumer_timeout_loop_interval = 1
 end
 
 # have to be required after config

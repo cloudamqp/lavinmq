@@ -49,6 +49,7 @@ module LavinMQ
     property replication_port = 5679
     property max_deleted_definitions = 8192 # number of deleted queues, unbinds etc that compacts the definitions file
     property consumer_timeout : UInt64? = nil
+    property consumer_timeout_loop_interval = 60 # seconds
     @@instance : Config = self.new
 
     def self.instance : LavinMQ::Config
