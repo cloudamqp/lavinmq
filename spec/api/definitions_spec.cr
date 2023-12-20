@@ -214,7 +214,9 @@ describe LavinMQ::HTTP::Server do
       body = JSON.parse(response.body)
       body["users"].as_a.empty?.should be_false
       keys = ["name", "password_hash", "hashing_algorithm"]
+      bad_keys = ["permissions"]
       body["users"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+      body["users"].as_a.each { |v| bad_keys.each { |k| v.as_h.keys.should_not contain(k) } }
     end
 
     it "exports vhosts" do
