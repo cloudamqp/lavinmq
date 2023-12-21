@@ -348,6 +348,7 @@ module LavinMQ
 
       private def delete_unused_segments : Nil
         current_seg = @segments.last_key
+        count = 0
         @segments.reject! do |seg, mfile|
           next if seg == current_seg # don't the delete the segment still being written to
 
@@ -361,6 +362,9 @@ module LavinMQ
             end
             mfile.delete.close
             @replicator.try &.delete_file(mfile.path)
+
+            count += 1
+            Fiber.yield if (count % 5).zero?
             true
           end
         end
