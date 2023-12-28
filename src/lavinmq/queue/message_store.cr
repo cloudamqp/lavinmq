@@ -266,7 +266,7 @@ module LavinMQ
 
       private def load_deleted_from_disk
         count = 0
-        ack_files = Dir.entries(@data_dir).reject { |f| f.starts_with?("msgs")}.size
+        ack_files = Dir.entries(@data_dir).reject { |f| f.starts_with?("msgs") }.size
         Dir.each_child(@data_dir) do |child|
           next unless child.starts_with? "acks."
           seg = child[5, 10].to_u32
