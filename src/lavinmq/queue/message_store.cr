@@ -366,7 +366,6 @@ module LavinMQ
             end
             mfile.delete.close
             @replicator.try &.delete_file(mfile.path)
-
             true
           end
         end
