@@ -266,6 +266,7 @@ module LavinMQ
 
       private def load_deleted_from_disk
         count = 0
+        ack_files = Dir.entries(@data_dir).reject { |f| f.starts_with?("msgs")}.size
         Dir.each_child(@data_dir) do |child|
           next unless child.starts_with? "acks."
           seg = child[5, 10].to_u32
@@ -283,7 +284,7 @@ module LavinMQ
             end
             @replicator.try &.register_file(file)
           end
-          log_progress_and_yield("Loading acks...") if (count += 1) % 100 == 0
+          log_progress_and_yield("Loading acks (#{count}/#{ack_files})") if (count += 1) % 100 == 0
           @deleted[seg] = acked.sort! unless acked.empty?
         end
       end
@@ -340,7 +341,7 @@ module LavinMQ
           end
           mfile.pos = 4
           mfile.unmap # will be mmap on demand
-          log_progress_and_yield("Loading stats...") if (counter += 1) % 100 == 0
+          log_progress_and_yield("Loading stats (#{counter}/#{@segments.size})") if (counter += 1) % 100 == 0
           @segment_msg_count[seg] = count
         end
       end
