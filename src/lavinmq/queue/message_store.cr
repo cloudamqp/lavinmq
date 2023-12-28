@@ -265,6 +265,7 @@ module LavinMQ
       end
 
       private def load_deleted_from_disk
+        count = 0
         Dir.each_child(@data_dir) do |child|
           next unless child.starts_with? "acks."
           seg = child[5, 10].to_u32
@@ -282,11 +283,13 @@ module LavinMQ
             end
             @replicator.try &.register_file(file)
           end
+          log_progress_and_yield("Loading acks...") if (count += 1) % 100 == 0
           @deleted[seg] = acked.sort! unless acked.empty?
         end
       end
 
       private def load_segments_from_disk : Nil
+        log_progress_and_yield("Loading msg files")
         ids = Array(UInt32).new
         Dir.each_child(@data_dir) do |f|
           if f.starts_with? "msgs."
@@ -320,6 +323,7 @@ module LavinMQ
 
       # Populate bytesize, size and segment_msg_count
       private def load_stats_from_segments : Nil
+        counter = 0
         @segments.each do |seg, mfile|
           count = 0u32
           loop do
@@ -337,6 +341,7 @@ module LavinMQ
           end
           mfile.pos = 4
           mfile.unmap # will be mmap on demand
+          log_progress_and_yield("Loading stats...") if (counter += 1) % 100 == 0
           @segment_msg_count[seg] = count
         end
       end
@@ -348,12 +353,11 @@ module LavinMQ
 
       private def delete_unused_segments : Nil
         current_seg = @segments.last_key
-        count = 0
         @segments.reject! do |seg, mfile|
           next if seg == current_seg # don't the delete the segment still being written to
 
           if @segment_msg_count[seg] == @acks[seg].size // sizeof(UInt32)
-            Log.info { "Deleting unused segment #{seg}" }
+            log_progress_and_yield("Deleting unused segment #{seg}")
             @segment_msg_count.delete seg
             @deleted.delete seg
             if ack = @acks.delete(seg)
@@ -363,8 +367,6 @@ module LavinMQ
             mfile.delete.close
             @replicator.try &.delete_file(mfile.path)
 
-            count += 1
-            Fiber.yield if (count % 5).zero?
             true
           end
         end
@@ -381,6 +383,11 @@ module LavinMQ
       private def notify_empty(is_empty)
         while @empty_change.try_send? is_empty
         end
+      end
+
+      private def log_progress_and_yield(message)
+        Log.info { message }
+        Fiber.yield
       end
 
       class ClosedError < ::Channel::ClosedError; end
