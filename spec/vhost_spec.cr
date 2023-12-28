@@ -26,6 +26,21 @@ describe LavinMQ::VHost do
     Server.vhosts["test"].exchanges["e"].should_not be_nil
   end
 
+  it "should be able to persist durable delayed exchanges when type = x-delayed-message" do
+    # This spec is to verify a fix where a server couldn't start again after a crash if
+    # an delayed exchange had been declared by specifiying the type as "x-delayed-message".
+    Server.vhosts.create("test")
+    v = Server.vhosts["test"].not_nil!
+    arguments = AMQ::Protocol::Table.new({"x-delayed-type": "direct"})
+    v.declare_exchange("e", "x-delayed-message", true, false, arguments: arguments)
+
+    # Start a new server with the same data dir as `Server` without stopping
+    # `Server` first, because stopping would compact definitions and therefore "rewrite"
+    # the definitions file. This is to simulate a start after a "crash".
+    # If this succeeds we assume it worked...?
+    LavinMQ::Server.new(DATA_DIR)
+  end
+
   it "should be able to persist durable queues" do
     Server.vhosts.create("test")
     v = Server.vhosts["test"].not_nil!
