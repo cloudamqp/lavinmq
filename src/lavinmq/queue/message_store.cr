@@ -289,7 +289,6 @@ module LavinMQ
       end
 
       private def load_segments_from_disk : Nil
-        log_progress_and_yield("Loading msg files")
         ids = Array(UInt32).new
         Dir.each_child(@data_dir) do |f|
           if f.starts_with? "msgs."
