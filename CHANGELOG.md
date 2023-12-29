@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- A bug causing faulty definition frames for delayed exchanges, preventing LavinMQ from starting [#620](https://github.com/cloudamqp/lavinmq/pull/620)
+
 ## [1.2.7] - 2023-12-12
 
 - Version 1.2.6 may not include the bumped version of lavinmq, so instead use version 1.2.7
