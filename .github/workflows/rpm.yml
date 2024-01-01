@@ -77,7 +77,7 @@ jobs:
             MAKEFLAGS=-j1
           outputs: RPMS
 
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         name: Upload artifact
         with:
           name: rpm-packages
