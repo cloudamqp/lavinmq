@@ -64,6 +64,7 @@ module LavinMQ
     private def check_consumer_timeouts_loop
       loop do
         sleep Config.instance.consumer_timeout_loop_interval
+        return if @closed
         @connections.each do |c|
           c.channels.each_value do |ch|
             ch.check_consumer_timeout
