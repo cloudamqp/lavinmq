@@ -89,18 +89,17 @@ module LavinMQ
         end
 
         private def federate(msg, downstream_ch, upstream_ch, exchange, routing_key)
-          msgid = downstream_ch.basic_publish(msg.body_io, exchange, routing_key, props: msg.properties)
-          @log.debug { "Federating msgid=#{msgid} routing_key=#{routing_key}" }
+          @log.debug { "Federating routing_key=#{routing_key}" }
           case @upstream.ack_mode
-          when AckMode::OnConfirm
-            downstream_ch.on_confirm(msgid) do
+          in AckMode::OnConfirm
+            downstream_ch.basic_publish(msg.body_io, exchange, routing_key, props: msg.properties) do
               ack(msg.delivery_tag, upstream_ch)
             end
-          when AckMode::OnPublish
+          in AckMode::OnPublish
+            downstream_ch.basic_publish(msg.body_io, exchange, routing_key, props: msg.properties)
             ack(msg.delivery_tag, upstream_ch)
-          else
-            # no ack
-            return
+          in AckMode::NoAck
+            downstream_ch.basic_publish(msg.body_io, exchange, routing_key, props: msg.properties)
           end
         end
 

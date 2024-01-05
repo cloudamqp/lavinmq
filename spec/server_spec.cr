@@ -640,7 +640,7 @@ describe LavinMQ::Server do
         props = AMQP::Client::Properties.new(delivery_mode: delivery_mode)
         q.publish(i.to_s, props: props)
       end
-      ch.wait_for_confirm(1000)
+      ch.wait_for_confirms
     end
     Server.restart
     with_channel do |ch|
@@ -657,7 +657,7 @@ describe LavinMQ::Server do
       1000.times do |i|
         q.publish("a")
       end
-      ch.wait_for_confirm 1000
+      ch.wait_for_confirms
       q.message_count.should eq 1000
       q.subscribe(no_ack: false, tag: "c", block: true) do |msg|
         msg.ack

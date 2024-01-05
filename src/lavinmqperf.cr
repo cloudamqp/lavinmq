@@ -42,7 +42,7 @@ class Throughput < Perf
   @ack = 0
   @rate = 0
   @consume_rate = 0
-  @confirm = 0
+  @max_unconfirm = 0
   @persistent = false
   @prefetch = 0_u32
   @quiet = false
@@ -76,7 +76,7 @@ class Throughput < Perf
       @ack = v.to_i
     end
     @parser.on("-c max-unconfirmed", "--confirm max-unconfirmed", "Confirm publishes every X messages") do |v|
-      @confirm = v.to_i
+      @max_unconfirm = v.to_i
     end
     @parser.on("-t msgs-in-transaction", "--transaction max-uncommited-messages", "Publish messages in transactions") do |v|
       @pub_in_transaction = v.to_i
@@ -225,17 +225,24 @@ class Throughput < Perf
     data = Bytes.new(@size) { |i| ((i % 27 + 64)).to_u8 }
     props = @properties
     props.delivery_mode = 2u8 if @persistent
+    unconfirmed = ::Channel(Nil).new(@max_unconfirm)
     AMQP::Client.start(@uri) do |a|
       ch = a.channel
       ch.tx_select if @pub_in_transaction > 0
-      ch.confirm_select if @confirm > 0
+      ch.confirm_select if @max_unconfirm > 0
       Fiber.yield
       start = Time.monotonic
       pubs_this_second = 0
       until @stopped
         Random::DEFAULT.random_bytes(data) if @random_bodies
-        msgid = ch.basic_publish(data, @exchange, @routing_key, props: props)
-        ch.wait_for_confirm(msgid) if @confirm > 0 && (msgid % @confirm) == 0
+        if @max_unconfirm > 0
+          unconfirmed.send nil
+          ch.basic_publish(data, @exchange, @routing_key, props: props) do
+            unconfirmed.receive
+          end
+        else
+          ch.basic_publish(data, @exchange, @routing_key, props: props)
+        end
         ch.tx_commit if @pub_in_transaction > 0 && (@pubs % @pub_in_transaction) == 0
         @pubs += 1
         break if @pubs == @pmessages

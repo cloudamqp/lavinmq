@@ -102,10 +102,10 @@ module LavinMQ
 
           # We batch ack for faster shovel
           batch_full = delivery_tag % (@prefetch / 2).ceil.to_i == 0
-          if batch_full || at_end?(delivery_tag) || close
+          if close || batch_full || at_end?(delivery_tag)
             @last_unacked = nil
             ch.basic_ack(delivery_tag, multiple: true)
-            if close || (at_end?(delivery_tag) && @delete_after.queue_length?)
+            if close || (@delete_after.queue_length? && at_end?(delivery_tag))
               ch.basic_cancel(@tag)
             end
           else
@@ -136,8 +136,8 @@ module LavinMQ
             ack(msg.delivery_tag)
           end
 
-          if @ack_mode.no_ack? && at_end?(msg.delivery_tag) && @delete_after.queue_length?
-            ch.not_nil!.basic_cancel(@tag)
+          if @ack_mode.no_ack? && @delete_after.queue_length? && at_end?(msg.delivery_tag)
+            ch.basic_cancel(@tag)
           end
         rescue e : FailedDeliveryError
           msg.reject
@@ -218,16 +218,18 @@ module LavinMQ
       def push(msg, source)
         raise "Not started" unless started?
         ch = @ch.not_nil!
-        ch.confirm_select if @ack_mode.on_confirm?
-        msgid = ch.basic_publish(
-          msg.body_io,
-          @exchange || msg.exchange,
-          @exchange_key || msg.routing_key,
-          props: msg.properties)
-        if @ack_mode.on_confirm?
-          ch.on_confirm(msgid) do
+        ex = @exchange || msg.exchange
+        rk = @exchange_key || msg.routing_key
+        case @ack_mode
+        in AckMode::OnConfirm
+          ch.basic_publish(msg.body_io, ex, rk, props: msg.properties) do
             source.ack(msg.delivery_tag)
           end
+        in AckMode::OnPublish
+          ch.basic_publish(msg.body_io, ex, rk, props: msg.properties)
+          source.ack(msg.delivery_tag)
+        in AckMode::NoAck
+          ch.basic_publish(msg.body_io, ex, rk, props: msg.properties)
         end
       end
     end
@@ -275,9 +277,11 @@ module LavinMQ
                  "/"
                end
         response = c.post(path, headers: headers, body: msg.body_io)
-        if @ack_mode.on_confirm?
+        case @ack_mode
+        in AckMode::OnConfirm, AckMode::OnPublish
           raise FailedDeliveryError.new unless response.success?
           source.ack(msg.delivery_tag)
+        in AckMode::NoAck
         end
       end
     end
