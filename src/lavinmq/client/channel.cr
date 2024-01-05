@@ -48,7 +48,8 @@ module LavinMQ
         tag : UInt64,
         queue : Queue,
         sp : SegmentPosition,
-        consumer : Consumer?
+        consumer : Consumer?,
+        delivered_at : Time::Span
 
       def details_tuple
         {
@@ -643,8 +644,26 @@ module LavinMQ
       protected def next_delivery_tag(queue : Queue, sp, no_ack, consumer) : UInt64
         @unack_lock.synchronize do
           tag = @delivery_tag &+= 1
-          @unacked.push Unack.new(tag, queue, sp, consumer) unless no_ack
+          @unacked.push Unack.new(tag, queue, sp, consumer, RoughTime.monotonic) unless no_ack
           tag
+        end
+      end
+
+      # Iterate over all unacked messages and see if any has been unacked longer than the queue's consumer timeout
+      def check_consumer_timeout
+        @unack_lock.synchronize do
+          queues = Set(Queue).new # only check first delivered message per queue
+          @unacked.each do |unack|
+            if queues.add? unack.queue
+              if timeout = unack.queue.consumer_timeout
+                unacked_ms = RoughTime.monotonic - unack.delivered_at
+                if unacked_ms > timeout.milliseconds
+                  send AMQP::Frame::Channel::Close.new(@id, 406_u16, "PRECONDITION_FAILED - consumer timeout", 60_u16, 20_u16)
+                  break
+                end
+              end
+            end
+          end
         end
       end
 

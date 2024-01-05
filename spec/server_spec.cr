@@ -1106,4 +1106,14 @@ describe LavinMQ::Server do
       end
     end
   end
+
+  it "supports consumer timeouts" do
+    with_channel do |ch|
+      q = ch.queue("", exclusive: true, args: AMQP::Client::Arguments.new({"x-consumer-timeout": 100}))
+      q.publish_confirm("a")
+      expect_raises(AMQP::Client::Channel::ClosedException, /PRECONDITION/) do
+        q.subscribe(no_ack: false, tag: "c", block: true) { }
+      end
+    end
+  end
 end

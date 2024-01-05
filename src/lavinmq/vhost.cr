@@ -58,6 +58,19 @@ module LavinMQ
       @shovels = ShovelStore.new(self)
       @upstreams = Federation::UpstreamStore.new(self)
       load!
+      spawn check_consumer_timeouts_loop
+    end
+
+    private def check_consumer_timeouts_loop
+      loop do
+        sleep Config.instance.consumer_timeout_loop_interval
+        return if @closed
+        @connections.each do |c|
+          c.channels.each_value do |ch|
+            ch.check_consumer_timeout
+          end
+        end
+      end
     end
 
     def max_connections=(value : Int32) : Nil

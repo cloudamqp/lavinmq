@@ -48,6 +48,8 @@ module LavinMQ
     property replication_bind : String? = nil
     property replication_port = 5679
     property max_deleted_definitions = 8192 # number of deleted queues, unbinds etc that compacts the definitions file
+    property consumer_timeout : UInt64? = nil
+    property consumer_timeout_loop_interval = 60 # seconds
     @@instance : Config = self.new
 
     def self.instance : LavinMQ::Config
@@ -103,6 +105,7 @@ module LavinMQ
         when "free_disk_min"           then @free_disk_min = v.to_i64
         when "free_disk_warn"          then @free_disk_warn = v.to_i64
         when "max_deleted_definitions" then @max_deleted_definitions = v.to_i
+        when "consumer_timeout"        then @consumer_timeout = v.to_u64
         else
           STDERR.puts "WARNING: Unrecognized configuration 'main/#{config}'"
         end
