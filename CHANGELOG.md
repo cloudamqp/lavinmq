@@ -10,6 +10,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - A bug causing faulty definition frames for delayed exchanges, preventing LavinMQ from starting [#620](https://github.com/cloudamqp/lavinmq/pull/620)
+- Better table views for Queues, where the name isn't cut of
+- Persist table sorting between page loads
+- Don't include permissions in users array in definitions json export, as that was incompatible with other brokers
+- Don't mmap a segment file to just verify the schema version (uses pread instead)
+
+### Changed
+
+- Build binaries and container images using Crystal 1.11.0
+- Don't allow clients open an already open channel
+
+### Added
+
+- Support for Consumer timeouts, default none.
 
 ## [1.2.7] - 2023-12-12
 
