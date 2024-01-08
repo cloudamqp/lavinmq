@@ -89,7 +89,7 @@ const queuesTable = Table.renderTable('table', tableOptions, function (tr, item,
     checkbox.setAttribute('data-vhost', encodeURIComponent(item.vhost))
     checkbox.setAttribute('data-name', encodeURIComponent(item.name))
     checkbox.addEventListener('change', rowCheckboxChanged)
-    Table.renderCell(tr, 0, checkbox)
+    Table.renderCell(tr, 0, checkbox, 'checkbox')
     Table.renderCell(tr, 1, item.vhost)
     Table.renderCell(tr, 2, queueLink)
     Table.renderCell(tr, 3, features, 'center')
