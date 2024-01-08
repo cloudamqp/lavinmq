@@ -53,7 +53,6 @@ module LavinMQ
         private def deliver_loop
           wait_for_single_active_consumer
           queue = @queue
-          no_ack = @no_ack
           i = 0
           loop do
             wait_for_capacity
