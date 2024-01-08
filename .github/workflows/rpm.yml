@@ -36,7 +36,7 @@ jobs:
     name: Build RPM
     strategy:
       matrix:
-        os: ['fedora-37', 'fedora-38', 'el-9']
+        os: ['fedora-39', 'fedora-38', 'el-9']
     runs-on: ubuntu-latest
     # Set permissions if you're using OIDC token authentication
     permissions:
