@@ -1,5 +1,5 @@
 # Base layer
-FROM 84codes/crystal:1.9.2-ubuntu-22.04 AS base
+FROM 84codes/crystal:1.11.0-ubuntu-22.04 AS base
 RUN apt-get update && apt-get install liblz4-dev
 WORKDIR /tmp
 COPY shard.yml shard.lock .
