@@ -112,8 +112,8 @@ function renderTable (id, options = {}, renderRow) {
     container.addEventListener('keyup', e => {
       if (!e.target.classList.contains('filter-table')) return true
       if (e.key === 'Enter') {
-        dataSource.reset()
         dataSource.searchTerm = e.target.value
+        dataSource.page = 1
         reload()
       }
     })
