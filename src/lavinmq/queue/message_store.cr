@@ -284,7 +284,7 @@ module LavinMQ
             end
             @replicator.try &.register_file(file)
           end
-          log_progress_and_yield("Loading acks (#{count}/#{ack_files})") if (count += 1) % 100 == 0
+          log_progress_and_yield("Loading acks (#{count}/#{ack_files})") if (count += 1) % 128 == 0
           @deleted[seg] = acked.sort! unless acked.empty?
         end
       end
