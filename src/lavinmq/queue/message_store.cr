@@ -265,8 +265,12 @@ module LavinMQ
       end
 
       private def load_deleted_from_disk
-        count = 0
-        ack_files = Dir.each(@data_dir).count { |f| f.starts_with?("acks.") }
+        count = 0u32
+        ack_files = 0u32
+        Dir.each(@data_dir) do |f|
+          ack_files += 1 if f.starts_with? "acks."
+        end
+
         Dir.each_child(@data_dir) do |child|
           next unless child.starts_with? "acks."
           seg = child[5, 10].to_u32
@@ -284,7 +288,7 @@ module LavinMQ
             end
             @replicator.try &.register_file(file)
           end
-          log_progress_and_yield("Loading acks (#{count}/#{ack_files})") if (count += 1) % 128 == 0
+          Log.info { "Loading acks (#{count}/#{ack_files})" } if (count += 1) % 128 == 0
           @deleted[seg] = acked.sort! unless acked.empty?
         end
       end
@@ -341,7 +345,7 @@ module LavinMQ
           end
           mfile.pos = 4
           mfile.unmap # will be mmap on demand
-          log_progress_and_yield("Loading stats (#{counter}/#{@segments.size})") if (counter += 1) % 100 == 0
+          Log.info { "Loading stats (#{counter}/#{@segments.size})" } if (counter += 1) % 128 == 0
           @segment_msg_count[seg] = count
         end
       end
@@ -357,7 +361,7 @@ module LavinMQ
           next if seg == current_seg # don't the delete the segment still being written to
 
           if @segment_msg_count[seg] == @acks[seg].size // sizeof(UInt32)
-            log_progress_and_yield("Deleting unused segment #{seg}")
+            Log.info { "Deleting unused segment #{seg}" }
             @segment_msg_count.delete seg
             @deleted.delete seg
             if ack = @acks.delete(seg)
@@ -382,11 +386,6 @@ module LavinMQ
       private def notify_empty(is_empty)
         while @empty_change.try_send? is_empty
         end
-      end
-
-      private def log_progress_and_yield(message)
-        Log.info { message }
-        Fiber.yield
       end
 
       class ClosedError < ::Channel::ClosedError; end

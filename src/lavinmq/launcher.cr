@@ -82,7 +82,7 @@ module LavinMQ
       log_file = (path = @config.log_file) ? File.open(path, "a") : STDOUT
       broadcast_backend = ::Log::BroadcastBackend.new
       backend = if ENV.has_key?("JOURNAL_STREAM")
-                  ::Log::IOBackend.new(io: log_file, formatter: JournalLogFormat)
+                  ::Log::IOBackend.new(io: log_file, formatter: JournalLogFormat, dispatcher: ::Log::DirectDispatcher)
                 else
                   ::Log::IOBackend.new(io: log_file, formatter: StdoutLogFormat)
                 end
