@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Build binaries and container images using Crystal 1.11.0
 - Don't allow clients open an already open channel
+- Use DirectDispatcher for logging and add more logging to startup procedure [#619](https://github.com/cloudamqp/lavinmq/pull/619)
 
 ### Added
 
