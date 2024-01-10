@@ -1,15 +1,16 @@
+# NOTICE: This lockfile contains some overrides from shard.override.yml
 version: 2.0
 shards:
   ameba:
     git: https://github.com/crystal-ameba/ameba.git
-    version: 1.6.0
+    version: 1.6.1
 
   amq-protocol:
     git: https://github.com/cloudamqp/amq-protocol.cr.git
     version: 1.1.12
 
-  amqp-client:
-    git: https://github.com/cloudamqp/amqp-client.cr.git
+  amqp-client: # Overridden
+    path: ../amqp-client.cr
     version: 1.2.1
 
   lz4:
