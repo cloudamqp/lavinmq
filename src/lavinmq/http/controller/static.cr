@@ -40,7 +40,7 @@ module LavinMQ
                     begin
                       context.response.write(bytes)
                     rescue ex : IndexError
-                      raise IO::Error.new(ex.message)
+                      raise IO::Error.new(cause: ex)
                     end
                   end
                 else # client doesn't want deflated bodies
@@ -57,7 +57,7 @@ module LavinMQ
                   begin
                     context.response.write(bytes)
                   rescue ex : IndexError
-                    raise IO::Error.new(ex.message)
+                    raise IO::Error.new(cause: ex)
                   end
                 end
               end
