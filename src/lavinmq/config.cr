@@ -20,7 +20,7 @@ module LavinMQ
     property tls_ciphers = ""
     property tls_min_version = ""
     property http_bind = "127.0.0.1"
-    property http_port = 15673
+    property http_port = 15672
     property https_port = -1
     property http_unix_path = ""
     property http_systemd_socket_name = "lavinmq-http.socket"
