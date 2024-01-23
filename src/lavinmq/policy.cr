@@ -93,7 +93,7 @@ module LavinMQ
     def initialize(@name : String, @vhost : String, @pattern : Regex, @apply_to : Target,
                    @definition : Hash(String, JSON::Any), @priority : Int8)
       super
-      raise "Forbidded operator policy" unless (@definition.keys - ALLOWED_ARGUMENTS).empty?
+      raise "Forbidden operator policy" unless (@definition.keys - ALLOWED_ARGUMENTS).empty?
     end
   end
 end
