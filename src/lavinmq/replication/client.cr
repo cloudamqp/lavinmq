@@ -62,6 +62,7 @@ module LavinMQ
       end
 
       def sync(host, port, notify_in_sync = false)
+        SystemD.notify_ready
         @socket.connect(host, port)
         Log.info { "Connected" }
         authenticate
@@ -69,7 +70,6 @@ module LavinMQ
         set_socket_opts
         sync_files(notify_in_sync)
         Log.info { "Synchronised" }
-        SystemD.notify_ready
       end
 
       private def set_socket_opts(socket = @socket)
