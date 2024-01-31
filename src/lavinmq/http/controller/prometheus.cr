@@ -57,7 +57,7 @@ module LavinMQ
         vhosts = vhosts(u)
         selected = context.request.query_params.fetch_all("vhost")
         vhosts = vhosts.select { |vhost| selected.includes? vhost.name } unless selected.empty?
-        vhosts
+        vhosts.to_a
       end
 
       private def register_routes
