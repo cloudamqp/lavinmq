@@ -258,7 +258,7 @@ document.querySelector('#moveMessages').addEventListener('submit', function (evt
   const password = Auth.getPassword()
   const uri = 'amqp://' + encodeURIComponent(username) + ':' + encodeURIComponent(password) + '@localhost/' + urlEncodedVhost
   const dest = document.querySelector('[name=shovel-destination]').value.trim()
-  const name = ('Move ' + queue + ' to ' + dest).substring(0,240) // max length of shovel name is 255
+  const name = ('Move ' + queue + ' to ' + dest).substring(0, 240) // max length of shovel name is 255
   const url = 'api/parameters/shovel/' + urlEncodedVhost + '/' + encodeURIComponent(name)
   const body = {
     name,
