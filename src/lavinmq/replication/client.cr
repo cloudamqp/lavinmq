@@ -44,6 +44,7 @@ module LavinMQ
       end
 
       def follow(host, port)
+        SystemD.notify_ready
         loop do
           sync(host, port, notify_in_sync: true)
           Log.info { "Streaming changes" }
