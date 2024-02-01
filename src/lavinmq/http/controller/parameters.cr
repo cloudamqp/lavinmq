@@ -73,6 +73,9 @@ module LavinMQ
             unless value
               bad_request(context, "Field 'value' is required")
             end
+            if name.size > 255
+              bad_request(context, "#{component} name too long, can't exceed 255 characters")
+            end
             p = Parameter.new(component, name, value)
             is_update = @amqp_server.vhosts[vhost].parameters[{component, name}]?
             @amqp_server.vhosts[vhost].add_parameter(p)

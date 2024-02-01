@@ -71,6 +71,8 @@ module LavinMQ
               context.response.status_code = 204
             elsif name.starts_with? "amq."
               bad_request(context, "Not allowed to use the amq. prefix")
+            elsif name.size > 255
+              bad_request(context, "Exchange name too long, can't exceed 255 characters")
             else
               @amqp_server.vhosts[vhost]
                 .declare_exchange(name, type.not_nil!, durable, auto_delete, internal, tbl)
