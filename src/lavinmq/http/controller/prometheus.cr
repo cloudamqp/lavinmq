@@ -109,9 +109,11 @@ module LavinMQ
         end
         writer = PrometheusWriter.new(io, "telemetry")
         writer.write({name:  "scrape_duration_seconds",
+                      type: "counter",
                       value: elapsed.total_seconds,
                       help:  "Duration for metrics collection in seconds"})
         writer.write({name:  "scrape_mem",
+                      type: "gauge",
                       value: mem,
                       help:  "Memory used for metrics collections in bytes"})
       end
@@ -119,6 +121,7 @@ module LavinMQ
       private def overview_broker_metrics(vhosts, writer)
         stats = vhost_stats(vhosts)
         writer.write({name:   "identity_info",
+                      type:   "gauge",
                       value:  1,
                       help:   "System information",
                       labels: {
@@ -159,9 +162,11 @@ module LavinMQ
                       type:  "gauge",
                       help:  "Open TCP sockets"})
         writer.write({name:  "process_resident_memory_bytes",
+                      type:   "gauge",
                       value: @amqp_server.rss,
                       help:  "Memory used in bytes"})
         writer.write({name:  "disk_space_available_bytes",
+                      type:   "gauge",
                       value: @amqp_server.disk_free,
                       help:  "Disk space available in bytes"})
         writer.write({name:  "process_max_fds",
@@ -221,6 +226,7 @@ module LavinMQ
 
       private def custom_metrics(vhosts, writer)
         writer.write({name: "uptime", value: @amqp_server.uptime.to_i,
+                      type: "counter",
                       help: "Server uptime in seconds"})
         writer.write({name:  "cpu_system_time_total",
                       value: @amqp_server.sys_time,
@@ -230,7 +236,9 @@ module LavinMQ
                       value: @amqp_server.user_time,
                       type:  "counter",
                       help:  "Total CPU user time"})
-        writer.write({name: "rss_bytes", value: @amqp_server.rss,
+        writer.write({name: "rss_bytes",
+                      type: "gauge",
+                      value: @amqp_server.rss,
                       help: "Memory RSS in bytes"})
         writer.write({name:  "stats_collection_duration_seconds_total",
                       value: @amqp_server.stats_collection_duration_seconds_total.to_f,
