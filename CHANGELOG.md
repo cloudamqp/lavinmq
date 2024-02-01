@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- LavinMQ now calls Systemd.notify_ready when started as follower [#626](https://github.com/cloudamqp/lavinmq/pull/626)
+
 ## [1.2.8] - 2024-01-10
 
 ### Fixed
