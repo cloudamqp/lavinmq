@@ -129,6 +129,7 @@ document.querySelector('#declare').addEventListener('submit', function (evt) {
       if (response?.is_error) { return }
       queuesTable.reload()
       evt.target.reset()
+      evt.target.querySelector('select[name="vhost"]').value = vhost // Keep selected vhost selected
       Dom.toast('Queue ' + queue + ' created')
     })
 })
