@@ -100,7 +100,7 @@ jobs:
     runs-on: macos-13
     steps:
       - name: Install Crystal
-        run: brew install crystal
+        run: brew install crystal@1.11.1
         env:
           HOMEBREW_NO_AUTO_UPDATE: 1
           HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: 1
