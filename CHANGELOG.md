@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Truncate long shovel names [#627](https://github.com/cloudamqp/lavinmq/pull/627)
+
 ## [1.2.9] - 2024-02-05
 
 ### Fixed
