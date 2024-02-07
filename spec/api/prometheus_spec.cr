@@ -19,7 +19,7 @@ describe LavinMQ::HTTP::ConsumersController do
         case metric[:key]
         when "lavinmq_queues_declared_total"
           metric[:value].should eq 2
-        when  "lavinmq_queues"
+        when "lavinmq_queues"
           metric[:value].should eq 1
         end
       end
