@@ -109,11 +109,11 @@ module LavinMQ
         end
         writer = PrometheusWriter.new(io, "telemetry")
         writer.write({name:  "scrape_duration_seconds",
-                      type: "counter",
+                      type:  "counter",
                       value: elapsed.total_seconds,
                       help:  "Duration for metrics collection in seconds"})
         writer.write({name:  "scrape_mem",
-                      type: "gauge",
+                      type:  "gauge",
                       value: mem,
                       help:  "Memory used for metrics collections in bytes"})
       end
@@ -162,11 +162,11 @@ module LavinMQ
                       type:  "gauge",
                       help:  "Open TCP sockets"})
         writer.write({name:  "process_resident_memory_bytes",
-                      type:   "gauge",
+                      type:  "gauge",
                       value: @amqp_server.rss,
                       help:  "Memory used in bytes"})
         writer.write({name:  "disk_space_available_bytes",
-                      type:   "gauge",
+                      type:  "gauge",
                       value: @amqp_server.disk_free,
                       help:  "Disk space available in bytes"})
         writer.write({name:  "process_max_fds",
@@ -236,10 +236,10 @@ module LavinMQ
                       value: @amqp_server.user_time,
                       type:  "counter",
                       help:  "Total CPU user time"})
-        writer.write({name: "rss_bytes",
-                      type: "gauge",
+        writer.write({name:  "rss_bytes",
+                      type:  "gauge",
                       value: @amqp_server.rss,
-                      help: "Memory RSS in bytes"})
+                      help:  "Memory RSS in bytes"})
         writer.write({name:  "stats_collection_duration_seconds_total",
                       value: @amqp_server.stats_collection_duration_seconds_total.to_f,
                       type:  "gauge",

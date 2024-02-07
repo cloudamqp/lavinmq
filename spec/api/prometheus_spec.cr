@@ -8,6 +8,23 @@ describe LavinMQ::HTTP::ConsumersController do
       response.body.lines.any?(&.starts_with? "telemetry_scrape_duration_seconds").should be_true
     end
 
+    it "should perform sanity check on sampled metrics" do
+      vhost = Server.vhosts.create("pmths")
+      vhost.declare_queue("test1", true, false)
+      vhost.delete_queue("test1")
+      vhost.declare_queue("test2", true, false)
+      raw = get("/metrics").body
+      parsed_metrics = parse_prometheus(raw)
+      parsed_metrics.each do |metric|
+        case metric[:key]
+        when "lavinmq_queues_declared_total"
+          metric[:value].should eq 2
+        when  "lavinmq_queues"
+          metric[:value].should eq 1
+        end
+      end
+    end
+
     it "should support specifying prefix" do
       prefix = "testing"
       response = get("/metrics?prefix=#{prefix}")
@@ -38,6 +55,18 @@ describe LavinMQ::HTTP::ConsumersController do
       response.status_code.should eq 200
       lines = response.body.lines
       lines.any?(&.starts_with? "lavinmq_detailed_connections_opened_total").should be_false
+    end
+
+    it "should perform sanity check on sampled metrics" do
+      vhost = Server.vhosts.create("pmths")
+      conn1 = AMQP::Client.new.connect
+      conn2 = AMQP::Client.new.connect
+      conn1.close(no_wait: true)
+      raw = get("/metrics/detailed?family=connection_churn_metrics").body
+      parsed_metrics = parse_prometheus(raw)
+      parsed_metrics.find! { |metric| metric[:key] == "lavinmq_detailed_connections_opened_total" }[:value].should eq 2
+      parsed_metrics.find! { |metric| metric[:key] == "lavinmq_detailed_connections_closed_total" }[:value].should eq 1
+      conn2.close(no_wait: true)
     end
   end
 end
