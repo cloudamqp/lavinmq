@@ -398,20 +398,19 @@ describe LavinMQ::Shovel do
     it "should move messages between queues with long names" do
       long_prefix = "a" * 250
       source = LavinMQ::Shovel::AMQPSource.new(
-        "spec",
+        "#{long_prefix}q1",
         URI.parse(AMQP_BASE_URL),
         "#{long_prefix}q1",
         delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
         direct_user: Server.users.direct_user
       )
       dest = LavinMQ::Shovel::AMQPDestination.new(
-        "spec",
+        "#{long_prefix}q2",
         URI.parse(AMQP_BASE_URL),
         "#{long_prefix}q2",
         delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
         direct_user: Server.users.direct_user
       )
-      shovel_name = "Move #{long_prefix}q1 to #{long_prefix}q2"
       shovel = LavinMQ::Shovel::Runner.new(source, dest, "ql_shovel", vhost)
       with_channel do |ch|
         q1, q2 = ShovelSpecHelpers.setup_qs ch, long_prefix
