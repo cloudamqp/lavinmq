@@ -422,7 +422,6 @@ describe LavinMQ::Shovel do
         Server.vhosts["/"].shovels.empty?.should be_true
       end
     end
-
   end
 
   describe "HTTP" do
