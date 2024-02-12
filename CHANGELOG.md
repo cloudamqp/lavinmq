@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Don't use shovel name as consumer tag [#634](https://github.com/cloudamqp/lavinmq/pull/634)
 - Keep the same vhost selected when creating queues [#629](https://github.com/cloudamqp/lavinmq/pull/629)
+- Make sure name of Queues, Exchanges & Vhosts is not longer than 255 characters [#631](https://github.com/cloudamqp/lavinmq/pull/631)
 
 ## [1.2.9] - 2024-02-05
 

@@ -34,6 +34,9 @@ module LavinMQ
           refuse_unless_administrator(context, u)
           name = URI.decode_www_form(params["name"])
           is_update = @amqp_server.vhosts[name]?
+          if name.bytesize > UInt8::MAX
+            bad_request(context, "Vhost name too long, can't exceed 255 characters")
+          end
           @amqp_server.vhosts.create(name, u)
           context.response.status_code = is_update ? 204 : 201
           context
