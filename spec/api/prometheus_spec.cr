@@ -58,7 +58,7 @@ describe LavinMQ::HTTP::ConsumersController do
     end
 
     it "should perform sanity check on sampled metrics" do
-      vhost = Server.vhosts.create("pmths")
+      Server.vhosts.create("pmths")
       conn1 = AMQP::Client.new.connect
       conn2 = AMQP::Client.new.connect
       conn1.close(no_wait: true)
