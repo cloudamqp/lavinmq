@@ -394,6 +394,34 @@ describe LavinMQ::Shovel do
         Server.vhosts["/"].shovels.empty?.should be_true
       end
     end
+
+    it "should move messages between queues with long names" do
+      long_prefix = "a" * 250
+      source = LavinMQ::Shovel::AMQPSource.new(
+        "#{long_prefix}q1",
+        URI.parse(AMQP_BASE_URL),
+        "#{long_prefix}q1",
+        delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
+        direct_user: Server.users.direct_user
+      )
+      dest = LavinMQ::Shovel::AMQPDestination.new(
+        "#{long_prefix}q2",
+        URI.parse(AMQP_BASE_URL),
+        "#{long_prefix}q2",
+        delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
+        direct_user: Server.users.direct_user
+      )
+      shovel = LavinMQ::Shovel::Runner.new(source, dest, "ql_shovel", vhost)
+      with_channel do |ch|
+        q1, q2 = ShovelSpecHelpers.setup_qs ch, long_prefix
+        q1.publish_confirm "shovel me 1", "#{long_prefix}q1"
+        q1.publish_confirm "shovel me 2", "#{long_prefix}q1"
+        shovel.run
+        q2.get(no_ack: true).try(&.body_io.to_s).should eq "shovel me 1"
+        q2.get(no_ack: true).try(&.body_io.to_s).should eq "shovel me 2"
+        Server.vhosts["/"].shovels.empty?.should be_true
+      end
+    end
   end
 
   describe "HTTP" do
