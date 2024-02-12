@@ -44,7 +44,7 @@ module LavinMQ
                      @delete_after = DEFAULT_DELETE_AFTER, @prefetch = DEFAULT_PREFETCH,
                      @ack_mode = DEFAULT_ACK_MODE, consumer_args : Hash(String, JSON::Any)? = nil,
                      direct_user : User? = nil)
-        @tag = "Shovel-#{Random::Secure.urlsafe_base64(24)}"
+        @tag = "Shovel"
         cfg = Config.instance
         @uri.host ||= "#{cfg.amqp_bind}:#{cfg.amqp_port}"
         unless @uri.user
