@@ -53,6 +53,14 @@ module LavinMQ
       end
     end
 
+    def find(name)
+      pp "find #{name}"
+      @parameters.each_value do |v|
+        pp v.parameter_name
+        return v if v.parameter_name == name
+      end
+    end
+
     private def save!
       @log.debug { "Saving #{@file_name}" }
       path = File.join(@data_dir, @file_name)

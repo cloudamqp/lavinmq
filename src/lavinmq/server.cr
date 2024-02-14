@@ -17,7 +17,7 @@ require "./stats"
 
 module LavinMQ
   class Server
-    getter vhosts, users, data_dir, parameters
+    getter vhosts, users, data_dir, parameters, cluster_name
     getter? closed, flow
     include ParameterTarget
 
@@ -25,6 +25,7 @@ module LavinMQ
     @closed = false
     @flow = true
     @listeners = Hash(Socket::Server, Symbol).new # Socket => protocol
+    @cluster_name : String?
 
     def initialize(@data_dir : String)
       @log = Log.for "amqpserver"
@@ -34,6 +35,7 @@ module LavinMQ
       @users = UserStore.new(@data_dir, @replicator)
       @vhosts = VHostStore.new(@data_dir, @users, @replicator)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator, @log)
+      set_default_parameters
       apply_parameter
       spawn stats_loop, name: "Server#stats_loop"
     end
@@ -57,6 +59,7 @@ module LavinMQ
       @users = UserStore.new(@data_dir, @replicator)
       @vhosts = VHostStore.new(@data_dir, @users, @replicator)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator, @log)
+      set_default_parameters
       apply_parameter
       @closed = false
       Fiber.yield
@@ -178,6 +181,17 @@ module LavinMQ
       @replicator.close
     end
 
+    def set_default_parameters
+      ensure_parameters("cluster_name", System.hostname)
+      ensure_parameters("internal_cluster_id", "0")
+    end
+
+    def ensure_parameters(name : String, value : String)
+      unless @parameters.find(name)
+        @parameters.create Parameter.new(nil, name, JSON::Any.new(value))
+      end
+    end
+
     def add_parameter(parameter : Parameter)
       @parameters.create parameter
       apply_parameter(parameter)
@@ -210,7 +224,11 @@ module LavinMQ
 
     private def apply_parameter(parameter : Parameter? = nil)
       @parameters.apply(parameter) do |p|
-        @log.warn { "No action when applying parameter #{p.parameter_name}" }
+        if p.parameter_name == "cluster_name"
+          @cluster_name = p.value.as_s
+        else
+          @log.warn { "No action when applying parameter #{p.parameter_name}" }
+        end
       end
     end
 
