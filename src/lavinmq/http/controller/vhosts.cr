@@ -40,7 +40,7 @@ module LavinMQ
           if name.bytesize > UInt8::MAX
             bad_request(context, "Vhost name too long, can't exceed 255 characters")
           end
-          @amqp_server.vhosts.create(name, u)
+          @amqp_server.vhosts.create(name, tags, description, u)
           context.response.status_code = is_update ? 204 : 201
           context
         end
