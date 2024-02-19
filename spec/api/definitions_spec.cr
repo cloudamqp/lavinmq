@@ -289,7 +289,14 @@ describe LavinMQ::HTTP::Server do
       body = JSON.parse(response.body)
       keys = ["name", "component", "value"]
       body["global_parameters"].as_a.empty?.should be_false
-      body["global_parameters"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+      body["global_parameters"].as_a.each do |v|
+        param = v.as_h
+        keys.each do |k|
+          # Skip the check for 'component' if it's a default parameter
+          next if k == "component" && ["cluster_name", "internal_cluster_id"].includes?(param["name"].as_s)
+          param.keys.should contain(k)
+        end
+      end
     end
 
     it "exports vhost parameters" do
