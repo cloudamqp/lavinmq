@@ -221,7 +221,16 @@ module LavinMQ
               state(State::Running)
               unless @federated_q.immediate_delivery?
                 @log.debug { "Waiting for consumers" }
-                @consumer_available.receive?
+                loop do
+                  select
+                  when @consumer_available.receive
+                    break
+                  else
+                    return if @upstream_connection.try &.closed?
+                    sleep 0.1.seconds
+                    Fiber.yield
+                  end
+                end
               end
               q_name = q[:queue_name]
               cch.basic_consume(q_name, no_ack: no_ack, tag: @upstream.consumer_tag, block: true) do |msg|
