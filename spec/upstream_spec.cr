@@ -16,19 +16,18 @@ module UpstreamSpecHelpers
     wait_for { links.all?(&.state.terminated?) }
   end
 
-  def self.setup_ex_federation(upstream_name)
+  def self.setup_federation(upstream_name, exchange = nil, queue = nil)
     upstream_vhost = Server.vhosts.create("upstream")
     downstream_vhost = Server.vhosts.create("downstream")
     upstream = LavinMQ::Federation::Upstream.new(downstream_vhost, upstream_name,
-      "#{AMQP_BASE_URL}/upstream", "upstream_ex")
+      "#{AMQP_BASE_URL}/upstream", exchange, queue)
     downstream_vhost.upstreams.not_nil!.add(upstream)
     {upstream, upstream_vhost, downstream_vhost}
   end
 
-  def self.start_link(upstream)
+  def self.start_link(upstream, pattern = "downstream_ex", applies_to = "exchanges")
     definitions = {"federation-upstream" => JSON::Any.new(upstream.name)} of String => JSON::Any
-    upstream.vhost.add_policy("FE", "downstream_ex", "exchanges",
-      definitions, 12_i8)
+    upstream.vhost.add_policy("FE", pattern, applies_to, definitions, 12_i8)
   end
 
   def self.cleanup_ex_federation
@@ -143,7 +142,7 @@ describe LavinMQ::Federation::Upstream do
       end
       wait_for { msgs.size == 2 }
       msgs.size.should eq 2
-      vhost.queues["federation_q1"].message_count.should eq 0
+      wait_for { vhost.queues["federation_q1"].message_count == 0 }
     end
   end
 
@@ -182,7 +181,7 @@ describe LavinMQ::Federation::Upstream do
   end
 
   it "should federate exchange even with no downstream consumer" do
-    upstream, upstream_vhost, downstream_vhost = UpstreamSpecHelpers.setup_ex_federation("ef test upstream wo downstream")
+    upstream, upstream_vhost, downstream_vhost = UpstreamSpecHelpers.setup_federation("ef test upstream wo downstream", "upstream_ex")
     UpstreamSpecHelpers.start_link(upstream)
     Server.users.add_permission("guest", "upstream", /.*/, /.*/, /.*/)
     Server.users.add_permission("guest", "downstream", /.*/, /.*/, /.*/)
@@ -208,7 +207,7 @@ describe LavinMQ::Federation::Upstream do
   end
 
   it "should continue after upstream restart" do
-    upstream, upstream_vhost, downstream_vhost = UpstreamSpecHelpers.setup_ex_federation("ef test upstream restart")
+    upstream, upstream_vhost, downstream_vhost = UpstreamSpecHelpers.setup_federation("ef test upstream restart", "upstream_ex")
     UpstreamSpecHelpers.start_link(upstream)
     Server.users.add_permission("guest", "upstream", /.*/, /.*/, /.*/)
     Server.users.add_permission("guest", "downstream", /.*/, /.*/, /.*/)
@@ -243,10 +242,54 @@ describe LavinMQ::Federation::Upstream do
       end
     end
     upstream_vhost.queues.each_value.all?(&.empty?).should be_true
+    UpstreamSpecHelpers.cleanup_ex_federation
+  end
+
+  it "should reconnect queue link after upstream restart" do
+    upstream, upstream_vhost, downstream_vhost = UpstreamSpecHelpers.setup_federation("ef test upstream restart", nil, "upstream_q")
+    UpstreamSpecHelpers.start_link(upstream, "downstream_q", "queues")
+    Server.users.add_permission("guest", "upstream", /.*/, /.*/, /.*/)
+    Server.users.add_permission("guest", "downstream", /.*/, /.*/, /.*/)
+
+    with_channel(vhost: "upstream") do |upstream_ch|
+      with_channel(vhost: "downstream") do |downstream_ch|
+        upstream_ex = upstream_ch.exchange("upstream_ex", "topic")
+        downstream_ch.exchange("downstream_ex", "topic")
+
+        upstream_q = upstream_ch.queue("upstream_q")
+        downstream_q = downstream_ch.queue("downstream_q")
+        wait_for { downstream_vhost.queues["downstream_q"].policy.try(&.name) == "FE" }
+
+        # Assert setup is correct
+        wait_for { upstream.links.first?.try &.state.running? }
+        msgs = Channel(String).new
+
+
+        upstream_vhost.connections.each do |conn|
+          next unless conn.client_name.starts_with?("Federation link")
+          conn.close
+        end
+
+        # wait for upstream_connection to be reconnected
+        wait_for { upstream.links.first?.try { |l| l.@upstream_connection.try &.closed? == false } }
+        wait_for { upstream.links.first?.try(&.state.running?) }
+
+        # publish to upstream & subscribe to downstream
+        upstream_q.publish "msg1"
+        upstream_q.publish "msg2"
+        downstream_q.subscribe do |msg|
+          msgs.send msg.body_io.to_s
+        end
+        msgs.receive.should eq "msg1"
+        msgs.receive.should eq "msg2"
+      end
+    end
+    upstream_vhost.queues.each_value.all?(&.empty?).should be_true
+    UpstreamSpecHelpers.cleanup_ex_federation
   end
 
   it "should reflect all bindings to upstream q" do
-    upstream, upstream_vhost, _ = UpstreamSpecHelpers.setup_ex_federation("ef test bindings")
+    upstream, upstream_vhost, _ = UpstreamSpecHelpers.setup_federation("ef test bindings", "upstream_ex")
     Server.users.add_permission("guest", "upstream", /.*/, /.*/, /.*/)
     Server.users.add_permission("guest", "downstream", /.*/, /.*/, /.*/)
 
