@@ -223,7 +223,7 @@ module LavinMQ
                 @log.debug { "Waiting for consumers" }
                 loop do
                   select
-                  when @consumer_available.receive
+                  when @consumer_available.receive?
                     break
                   else
                     return if @upstream_connection.try &.closed?
