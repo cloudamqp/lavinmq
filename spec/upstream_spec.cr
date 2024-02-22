@@ -264,7 +264,6 @@ describe LavinMQ::Federation::Upstream do
         wait_for { upstream.links.first?.try &.state.running? }
         msgs = Channel(String).new
 
-
         upstream_vhost.connections.each do |conn|
           next unless conn.client_name.starts_with?("Federation link")
           conn.close
