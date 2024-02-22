@@ -227,7 +227,7 @@ module LavinMQ
                     break
                   else
                     return if @upstream_connection.try &.closed?
-                    sleep 0.1.seconds
+                    sleep 0.1
                     Fiber.yield
                   end
                 end
