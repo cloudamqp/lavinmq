@@ -155,6 +155,12 @@ describe LavinMQ::Federation::Upstream do
         msgs.size.should eq 2
         wait_for { vhost.queues["federation_q1"].message_count == 0 }
       end
+<<<<<<< HEAD
+=======
+      wait_for { msgs.size == 2 }
+      msgs.size.should eq 2
+      wait_for { vhost.queues["federation_q1"].message_count == 0 }
+>>>>>>> ef40ee10 (add spec for reconnecting queue links)
     end
   end
 
@@ -197,6 +203,7 @@ describe LavinMQ::Federation::Upstream do
   end
 
   it "should federate exchange even with no downstream consumer" do
+<<<<<<< HEAD
     with_amqp_server do |s|
       upstream, upstream_vhost, downstream_vhost = UpstreamSpecHelpers.setup_federation(s, "ef test upstream wo downstream", "upstream_ex")
       UpstreamSpecHelpers.start_link(upstream)
@@ -219,12 +226,35 @@ describe LavinMQ::Federation::Upstream do
           wait_for { msgs.size == 1 }
           msgs.first.not_nil!.body_io.to_s.should eq("federate me")
         end
+=======
+    upstream, upstream_vhost, downstream_vhost = UpstreamSpecHelpers.setup_federation("ef test upstream wo downstream", "upstream_ex")
+    UpstreamSpecHelpers.start_link(upstream)
+    Server.users.add_permission("guest", "upstream", /.*/, /.*/, /.*/)
+    Server.users.add_permission("guest", "downstream", /.*/, /.*/, /.*/)
+    with_channel(vhost: "upstream") do |upstream_ch|
+      with_channel(vhost: "downstream") do |downstream_ch|
+        upstream_ex = upstream_ch.exchange("upstream_ex", "topic")
+        downstream_ch.exchange("downstream_ex", "topic")
+        wait_for { downstream_vhost.exchanges["downstream_ex"].policy.try(&.name) == "FE" }
+        # Assert setup is correct
+        wait_for { upstream.links.first?.try &.state.running? }
+        downstream_q = downstream_ch.queue("downstream_q")
+        downstream_q.bind("downstream_ex", "#")
+        upstream_ex.publish_confirm "federate me", "rk"
+        wait_for { downstream_q.get }
+        msgs = [] of AMQP::Client::DeliverMessage
+        downstream_q.subscribe { |msg| msgs << msg }
+        upstream_ex.publish_confirm "federate me", "rk"
+        wait_for { msgs.size == 1 }
+        msgs.first.not_nil!.body_io.to_s.should eq("federate me")
+>>>>>>> ef40ee10 (add spec for reconnecting queue links)
       end
       upstream_vhost.queues.each_value.all?(&.empty?).should be_true
     end
   end
 
   it "should continue after upstream restart" do
+<<<<<<< HEAD
     with_amqp_server do |s|
       upstream, upstream_vhost, downstream_vhost = UpstreamSpecHelpers.setup_federation(s, "ef test upstream restart", "upstream_ex")
       UpstreamSpecHelpers.start_link(upstream)
@@ -326,6 +356,19 @@ describe LavinMQ::Federation::Upstream do
       with_channel(s, vhost: ds_vhost.name) do |downstream_ch|
         downstream_q = downstream_ch.queue(ds_queue_name)
         wait_for { ds_vhost.queues[ds_queue_name].policy.try(&.name) == "FE" }
+=======
+    upstream, upstream_vhost, downstream_vhost = UpstreamSpecHelpers.setup_federation("ef test upstream restart", "upstream_ex")
+    UpstreamSpecHelpers.start_link(upstream)
+    Server.users.add_permission("guest", "upstream", /.*/, /.*/, /.*/)
+    Server.users.add_permission("guest", "downstream", /.*/, /.*/, /.*/)
+
+    with_channel(vhost: "upstream") do |upstream_ch|
+      with_channel(vhost: "downstream") do |downstream_ch|
+        upstream_ex = upstream_ch.exchange("upstream_ex", "topic")
+        downstream_ch.exchange("downstream_ex", "topic")
+        wait_for { downstream_vhost.exchanges["downstream_ex"].policy.try(&.name) == "FE" }
+        # Assert setup is correct
+>>>>>>> ef40ee10 (add spec for reconnecting queue links)
         wait_for { upstream.links.first?.try &.state.running? }
 
         msgs = Channel(String).new
@@ -353,6 +396,7 @@ describe LavinMQ::Federation::Upstream do
         msgs.receive.should eq "msg2"
       end
     end
+<<<<<<< HEAD
   end
 
   it "should stop transfering messages if downstream consumer disconnects" do
@@ -371,6 +415,67 @@ describe LavinMQ::Federation::Upstream do
         message_count.times do |i|
           upstream_q.publish "msg#{i}"
         end
+=======
+    upstream_vhost.queues.each_value.all?(&.empty?).should be_true
+    UpstreamSpecHelpers.cleanup_ex_federation
+  end
+
+  it "should reconnect queue link after upstream restart" do
+    upstream, upstream_vhost, downstream_vhost = UpstreamSpecHelpers.setup_federation("ef test upstream restart", nil, "upstream_q")
+    UpstreamSpecHelpers.start_link(upstream, "downstream_q", "queues")
+    Server.users.add_permission("guest", "upstream", /.*/, /.*/, /.*/)
+    Server.users.add_permission("guest", "downstream", /.*/, /.*/, /.*/)
+
+    with_channel(vhost: "upstream") do |upstream_ch|
+      with_channel(vhost: "downstream") do |downstream_ch|
+        upstream_ex = upstream_ch.exchange("upstream_ex", "topic")
+        downstream_ch.exchange("downstream_ex", "topic")
+
+        upstream_q = upstream_ch.queue("upstream_q")
+        downstream_q = downstream_ch.queue("downstream_q")
+        wait_for { downstream_vhost.queues["downstream_q"].policy.try(&.name) == "FE" }
+
+        # Assert setup is correct
+        wait_for { upstream.links.first?.try &.state.running? }
+        msgs = Channel(String).new
+
+
+        upstream_vhost.connections.each do |conn|
+          next unless conn.client_name.starts_with?("Federation link")
+          conn.close
+        end
+
+        # wait for upstream_connection to be reconnected
+        wait_for { upstream.links.first?.try { |l| l.@upstream_connection.try &.closed? == false } }
+        wait_for { upstream.links.first?.try(&.state.running?) }
+
+        # publish to upstream & subscribe to downstream
+        upstream_q.publish "msg1"
+        upstream_q.publish "msg2"
+        downstream_q.subscribe do |msg|
+          msgs.send msg.body_io.to_s
+        end
+        msgs.receive.should eq "msg1"
+        msgs.receive.should eq "msg2"
+      end
+    end
+    upstream_vhost.queues.each_value.all?(&.empty?).should be_true
+    UpstreamSpecHelpers.cleanup_ex_federation
+  end
+
+  it "should reflect all bindings to upstream q" do
+    upstream, upstream_vhost, _ = UpstreamSpecHelpers.setup_federation("ef test bindings", "upstream_ex")
+    Server.users.add_permission("guest", "upstream", /.*/, /.*/, /.*/)
+    Server.users.add_permission("guest", "downstream", /.*/, /.*/, /.*/)
+
+    with_channel(vhost: "downstream") do |downstream_ch|
+      downstream_ch.exchange("downstream_ex", "topic")
+      queues = [] of AMQP::Client::Queue
+      10.times do |i|
+        downstream_q = downstream_ch.queue("")
+        downstream_q.bind("downstream_ex", "before.link.#{i}")
+        queues << downstream_q
+>>>>>>> ef40ee10 (add spec for reconnecting queue links)
       end
 
       # consume 1 message from downstream queue
