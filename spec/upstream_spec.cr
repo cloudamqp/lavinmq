@@ -249,17 +249,18 @@ describe LavinMQ::Federation::Upstream do
 
   it "should not transfer messages unless downstream has consumer" do
     upstream, upstream_vhost, downstream_vhost = UpstreamSpecHelpers.setup_federation("ef test upstream restart", nil, "upstream_q")
-    UpstreamSpecHelpers.start_link(upstream, "downstream_q", "queues")
-    Server.users.add_permission("guest", "upstream", /.*/, /.*/, /.*/)
-    Server.users.add_permission("guest", "downstream", /.*/, /.*/, /.*/)
+    downstream_queue_name = "#{downstream_vhost.name}_q"
+    upstream_queue_name = "#{upstream_vhost.name}_q"
+    UpstreamSpecHelpers.start_link(upstream, downstream_queue_name, "queues")
+    Server.users.add_permission("guest", upstream_vhost.name, /.*/, /.*/, /.*/)
+    Server.users.add_permission("guest", downstream_vhost.name, /.*/, /.*/, /.*/)
 
-    with_channel(vhost: "upstream") do |upstream_ch|
-      upstream_q = upstream_ch.queue("upstream_q")
-      with_channel(vhost: "downstream") do |downstream_ch|
+    with_channel(vhost: upstream_vhost.name) do |upstream_ch|
+      upstream_q = upstream_ch.queue(upstream_queue_name)
+      with_channel(vhost: downstream_vhost.name) do |downstream_ch|
         msgs = Channel(String).new
-        downstream_ch.exchange("downstream_ex", "topic")
-        downstream_q = downstream_ch.queue("downstream_q")
-        wait_for { downstream_vhost.queues["downstream_q"].policy.try(&.name) == "FE" }
+        downstream_q = downstream_ch.queue(downstream_queue_name)
+        wait_for { downstream_vhost.queues[downstream_queue_name].policy.try(&.name) == "FE" }
 
         # Assert setup is correct
         wait_for { upstream.links.first?.try &.state.running? }
@@ -272,8 +273,8 @@ describe LavinMQ::Federation::Upstream do
         msgs.receive.should eq "msg1"
 
         downstream_ch.close
-        queue_down = Server.vhosts["downstream"].queues["downstream_q"]
-        queue_up = Server.vhosts["upstream"].queues["upstream_q"]
+        queue_down = Server.vhosts[downstream_vhost.name].queues[downstream_queue_name]
+        queue_up = Server.vhosts[upstream_vhost.name].queues[upstream_queue_name]
         wait_for { queue_down.consumers.empty? }
 
         upstream_q.publish "msg2"
@@ -283,9 +284,9 @@ describe LavinMQ::Federation::Upstream do
       end
 
       # resume consuming on downstream, both upstream and downstream should be empty
-      with_channel(vhost: "downstream") do |downstream_ch2|
+      with_channel(vhost: downstream_vhost.name) do |downstream_ch2|
         msgs = Channel(String).new
-        downstream_q2 = downstream_ch2.queue("downstream_q")
+        downstream_q2 = downstream_ch2.queue(downstream_queue_name)
         downstream_q2.subscribe do |msg|
           msgs.send msg.body_io.to_s
         end
