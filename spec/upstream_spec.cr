@@ -32,12 +32,10 @@ module UpstreamSpecHelpers
   end
 
   def self.cleanup_vhost(vhost_name)
-    begin
-      v = Server.vhosts[vhost_name]
-      Server.vhosts.delete(vhost_name)
-      wait_for { !(Dir.exists?(v.data_dir)) }
-    rescue KeyError
-    end
+    v = Server.vhosts[vhost_name]
+    Server.vhosts.delete(vhost_name)
+    wait_for { !(Dir.exists?(v.data_dir)) }
+  rescue KeyError
   end
 
   def self.cleanup_vhosts
