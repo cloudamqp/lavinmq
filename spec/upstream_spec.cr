@@ -17,6 +17,7 @@ module UpstreamSpecHelpers
   end
 
   def self.setup_federation(upstream_name, exchange = nil, queue = nil)
+    self.cleanup_vhosts
     upstream_vhost = Server.vhosts.create("upstream")
     downstream_vhost = Server.vhosts.create("downstream")
     upstream = LavinMQ::Federation::Upstream.new(downstream_vhost, upstream_name,
@@ -31,12 +32,15 @@ module UpstreamSpecHelpers
   end
 
   def self.cleanup_vhost(vhost_name)
-    v = Server.vhosts[vhost_name]
-    Server.vhosts.delete(vhost_name)
-    wait_for { !(Dir.exists?(v.data_dir)) }
+    begin
+      v = Server.vhosts[vhost_name]
+      Server.vhosts.delete(vhost_name)
+      wait_for { !(Dir.exists?(v.data_dir)) }
+    rescue KeyError
+    end
   end
 
-  def self.cleanup_ex_federation
+  def self.cleanup_vhosts
     cleanup_vhost("upstream")
     cleanup_vhost("downstream")
   end
@@ -244,7 +248,7 @@ describe LavinMQ::Federation::Upstream do
       end
     end
     upstream_vhost.queues.each_value.all?(&.empty?).should be_true
-    UpstreamSpecHelpers.cleanup_ex_federation
+    UpstreamSpecHelpers.cleanup_vhosts
   end
 
   it "should not transfer messages unless downstream has consumer" do
@@ -264,23 +268,23 @@ describe LavinMQ::Federation::Upstream do
 
         # Assert setup is correct
         wait_for { upstream.links.first?.try &.state.running? }
+        queue_up = Server.vhosts[upstream_vhost.name].queues[upstream_queue_name]
+        queue_down = Server.vhosts[downstream_vhost.name].queues[downstream_queue_name]
 
-        # publish a msg to upstream_q
         upstream_q.publish "msg1"
+        wait_for { queue_up.message_count == 1 }
+
         downstream_q.subscribe do |msg|
           msgs.send msg.body_io.to_s
         end
         msgs.receive.should eq "msg1"
 
         downstream_ch.close
-        queue_down = Server.vhosts[downstream_vhost.name].queues[downstream_queue_name]
-        queue_up = Server.vhosts[upstream_vhost.name].queues[upstream_queue_name]
         wait_for { queue_down.consumers.empty? }
 
         upstream_q.publish "msg2"
-
         wait_for { queue_up.message_count == 1 }
-        queue_down.message_count.should eq 0
+        wait_for { queue_down.message_count == 0 }
       end
 
       # resume consuming on downstream, both upstream and downstream should be empty
@@ -293,7 +297,7 @@ describe LavinMQ::Federation::Upstream do
         msgs.receive.should eq "msg2"
       end
     end
-    UpstreamSpecHelpers.cleanup_ex_federation
+    UpstreamSpecHelpers.cleanup_vhosts
   end
 
   it "should reflect all bindings to upstream q" do
