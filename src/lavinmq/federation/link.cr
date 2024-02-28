@@ -237,7 +237,7 @@ module LavinMQ
                 if @federated_q.@consumers.empty?
                   pch.basic_reject(msg.delivery_tag, true)
                   pch.close("No consumer on downstream queue")
-                  @consumer_available.receive?
+                  next
                 end
                 federate(msg, pch, cch.not_nil!, EXCHANGE, @federated_q.name)
               end
