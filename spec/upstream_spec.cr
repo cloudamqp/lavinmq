@@ -271,18 +271,17 @@ describe LavinMQ::Federation::Upstream do
         end
         msgs.receive.should eq "msg1"
 
-        sleep 1.seconds
         downstream_ch.close
+        queue_down = Server.vhosts["downstream"].queues["downstream_q"]
+        queue_up = Server.vhosts["upstream"].queues["upstream_q"]
+        wait_for { queue_down.consumers.empty? }
 
-        sleep 1.seconds
         upstream_q.publish "msg2"
 
-        sleep 1.seconds
-        upstream_vhost.queues.each_value.all?(&.empty?).should be_false
-        downstream_vhost.queues.each_value.all?(&.empty?).should be_true
+        wait_for { queue_up.message_count == 1 }
+        queue_down.message_count.should eq 0
       end
 
-      sleep 1.seconds
       # resume consuming on downstream, both upstream and downstream should be empty
       with_channel(vhost: "downstream") do |downstream_ch2|
         msgs = Channel(String).new
