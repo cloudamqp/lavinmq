@@ -234,7 +234,7 @@ module LavinMQ
                 })
                 headers["x-received-from"] = received_from
                 msg.properties.headers = headers
-                unless @federated_q.@consumers.any?
+                if @federated_q.@consumers.empty?
                   pch.basic_reject(msg.delivery_tag, true)
                   pch.close("No consumer on downstream queue")
                   @consumer_available.receive?
