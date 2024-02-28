@@ -284,7 +284,7 @@ describe LavinMQ::Federation::Upstream do
 
       sleep 1.seconds
       # resume consuming on downstream, both upstream and downstream should be empty
-      with_channel(vhost:"downstream") do |downstream_ch2|
+      with_channel(vhost: "downstream") do |downstream_ch2|
         msgs = Channel(String).new
         downstream_q2 = downstream_ch2.queue("downstream_q")
         downstream_q2.subscribe do |msg|
