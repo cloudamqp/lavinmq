@@ -76,7 +76,6 @@ describe LavinMQ::Exchange do
 
   describe "delayed message exchange declaration" do
     dmx_args = AMQP::Client::Arguments.new({"x-delayed-type" => "topic", "test" => "hello"})
-    dmx_args2 = AMQP::Client::Arguments.new({"x-delayed-type" => "topic", "test" => "hello2"})
     illegal_dmx_args = AMQP::Client::Arguments.new({"test" => "hello"})
 
     it "should declare delayed message exchange" do
@@ -87,7 +86,7 @@ describe LavinMQ::Exchange do
 
     it "should raise and not declare delayed message exchange if missing x-delayed-type argument" do
       with_channel do |ch|
-        expect_raises(AMQP::Client::Channel::ClosedException) do
+        expect_raises(AMQP::Client::Channel::ClosedException, "PRECONDITION_FAILED") do
           ch.exchange("test2", "x-delayed-message", args: illegal_dmx_args)
         end
         Server.vhosts["/"].exchanges["test2"]?.should be_nil
@@ -104,8 +103,8 @@ describe LavinMQ::Exchange do
     it "should raise exception when redeclaring exchange with mismatched arguments" do
       with_channel do |ch|
         ch.exchange("test4", "x-delayed-message", args: dmx_args)
-        expect_raises(AMQP::Client::Channel::ClosedException) do
-          ch.exchange("test4", "x-delayed-message", args: dmx_args2)
+        expect_raises(AMQP::Client::Channel::ClosedException, "PRECONDITION_FAILED") do
+          ch.exchange("test4", "x-delayed-message", args: illegal_dmx_args)
         end
       end
     end
