@@ -96,7 +96,7 @@ module LavinMQ
         frame_args = frame_args.clone.merge!({"x-delayed-exchange": true})
         frame_args.delete("x-delayed-type")
       end
-      self.type == (delayed ? arguments["x-delayed-type"] : type) &&
+      self.type == (delayed ? arguments["x-delayed-type"]? : type) &&
         @durable == durable &&
         @auto_delete == auto_delete &&
         @internal == internal &&
