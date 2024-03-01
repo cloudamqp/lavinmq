@@ -77,7 +77,7 @@ describe LavinMQ::Exchange do
   describe "delayed message exchange declaration" do
     dmx_args = AMQP::Client::Arguments.new({"x-delayed-type" => "topic", "test" => "hello"})
     dmx_args2 = AMQP::Client::Arguments.new({"x-delayed-type" => "topic", "test" => "hello2"})
-    illegal_dmx_args = AMQP::Client::Arguments.new({ "test" => "hello" })
+    illegal_dmx_args = AMQP::Client::Arguments.new({"test" => "hello"})
 
     it "should declare delayed message exchange" do
       with_channel do |ch|
