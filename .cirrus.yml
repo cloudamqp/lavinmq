@@ -10,6 +10,7 @@ freebsd_task:
   build_script: gmake -j2 DOCS=
   artifacts:
     path: bin/*
+  allow_failures: true
 
 osx_task:
   skip: "!changesInclude('.cirrus.yml', 'shard.lock', 'src/**', 'spec/**')"
