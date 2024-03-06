@@ -15,5 +15,8 @@ module LavinMQ
 
     class ExchangeTypeError < Error
     end
+
+    class InvalidDefinitions < Error
+    end
   end
 end

@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Keep the same vhost selected when creating queues [#629](https://github.com/cloudamqp/lavinmq/pull/629)
 - Make sure name of Queues, Exchanges & Vhosts is not longer than 255 characters [#631](https://github.com/cloudamqp/lavinmq/pull/631)
 
+### Added
+
+- Improved logging during definitions loading [#621](https://github.com/cloudamqp/lavinmq/pull/621)
+
 ## [1.2.9] - 2024-02-05
 
 ### Fixed
