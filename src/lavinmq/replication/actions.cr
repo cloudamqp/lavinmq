@@ -12,10 +12,18 @@ module LavinMQ
       def initialize(@path : String)
       end
 
+      abstract def bytesize : Int32
       abstract def send(socket : IO) : Int64
 
+      protected def filename_bytesize : Int32
+        @path.bytesize.to_i32
+      end
+
+      def filename
+        @filename ||= @path[Config.instance.data_dir.bytesize + 1..]
+      end
+
       private def send_filename(socket : IO)
-        filename = @path[Config.instance.data_dir.bytesize + 1..]
         socket.write_bytes filename.bytesize.to_i32, IO::ByteFormat::LittleEndian
         socket.write filename.to_slice
       end
@@ -23,6 +31,16 @@ module LavinMQ
 
     struct AddAction < Action
       def initialize(@path : String, @mfile : MFile? = nil)
+      end
+
+      def bytesize : Int32
+        if mfile = @mfile
+          sizeof(Int32) + filename.bytesize +
+            sizeof(Int64) + mfile.size.to_i64
+        else
+          sizeof(Int32) + filename.bytesize +
+            sizeof(Int64) + File.size(@path).to_i64
+        end
       end
 
       def send(socket) : Int64
@@ -48,6 +66,19 @@ module LavinMQ
       def initialize(@path : String, @obj : Bytes | FileRange | UInt32 | Int32)
       end
 
+      def bytesize : Int32
+        datasize = case obj = @obj
+                   in Bytes
+                     obj.bytesize.to_i64
+                   in FileRange
+                     obj.len.to_i64
+                   in UInt32, Int32
+                     4i64
+                   end
+        sizeof(Int32) + filename.bytesize +
+          sizeof(Int64) + datasize
+      end
+
       def send(socket) : Int64
         send_filename(socket)
         len : Int64
@@ -71,6 +102,13 @@ module LavinMQ
     end
 
     struct DeleteAction < Action
+      def bytesize : Int32
+        # Maybe it would be ok to not include delete action in lag, because
+        # the follower should have all info necessary to GC the file during
+        # startup?
+        sizeof(Int32) + filename.bytesize + sizeof(Int64)
+      end
+
       def send(socket) : Int64
         Log.debug { "Delete #{@path}" }
         send_filename(socket)

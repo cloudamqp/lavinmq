@@ -130,15 +130,21 @@ module LavinMQ
       end
 
       def add(path, mfile : MFile? = nil)
-        @actions.send AddAction.new(path, mfile)
+        action = AddAction.new(path, mfile)
+        @sent_bytes += action.bytesize
+        @actions.send action
       end
 
       def append(path, obj)
-        @actions.send AppendAction.new(path, obj)
+        action = AppendAction.new(path, obj)
+        @sent_bytes += action.bytesize
+        @actions.send action
       end
 
       def delete(path)
-        @actions.send DeleteAction.new(path)
+        action = DeleteAction.new(path)
+        @sent_bytes += action.bytesize
+        @actions.send action
       end
 
       def close(synced_close : Channel({Follower, Bool})? = nil)
