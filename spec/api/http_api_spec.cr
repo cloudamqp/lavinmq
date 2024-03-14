@@ -3,7 +3,7 @@ require "../spec_helper"
 describe LavinMQ::HTTP::Server do
   describe "GET /api/overview" do
     it "should refuse access if no basic auth header" do
-      response = ::HTTP::Client.get("#{BASE_URL}/api/overview")
+      response = ::HTTP::Client.get("#{SpecHelper.http_base_url}/api/overview")
       response.status_code.should eq 401
     end
 

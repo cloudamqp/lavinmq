@@ -9,14 +9,11 @@ Log.setup_from_env
 
 Spec.override_default_formatter(Spec::VerboseFormatter.new)
 
-HTTP_PORT = ENV.fetch("HTTP_PORT", "8080").to_i
-BASE_URL  = "http://localhost:#{HTTP_PORT}"
-DATA_DIR  = "/tmp/lavinmq-spec"
+DATA_DIR = "/tmp/lavinmq-spec"
 
 Dir.mkdir_p DATA_DIR
 LavinMQ::Config.instance.tap do |cfg|
   cfg.data_dir = DATA_DIR
-  cfg.http_port = HTTP_PORT
   cfg.segment_size = 512 * 1024
   cfg.consumer_timeout_loop_interval = 1
 end
@@ -28,6 +25,14 @@ module SpecHelper
 
   def self.amqps_base_url
     "amqps://localhost:#{LavinMQ::Config.instance.amqps_port}"
+  end
+
+  def self.http_base_url
+    "http://localhost:#{LavinMQ::Config.instance.http_port}"
+  end
+
+  def self.ws_base_url
+    "ws://localhost:#{LavinMQ::Config.instance.http_port}"
   end
 end
 
@@ -107,7 +112,8 @@ end
 
 def start_http_server
   h = LavinMQ::HTTP::Server.new(Server)
-  h.bind_tcp(LavinMQ::Config.instance.http_bind, LavinMQ::Config.instance.http_port)
+  addr = h.bind_tcp(LavinMQ::Config.instance.http_bind, 0)
+  LavinMQ::Config.instance.http_port = addr.port
   spawn { h.listen }
   Fiber.yield
   h
@@ -125,19 +131,19 @@ def create_ttl_and_dl_queues(channel, queue_ttl = 1)
 end
 
 def get(path, headers = nil)
-  HTTP::Client.get("#{BASE_URL}#{path}", headers: test_headers(headers))
+  HTTP::Client.get("#{SpecHelper.http_base_url}#{path}", headers: test_headers(headers))
 end
 
 def post(path, headers = nil, body = nil)
-  HTTP::Client.post("#{BASE_URL}#{path}", headers: test_headers(headers), body: body)
+  HTTP::Client.post("#{SpecHelper.http_base_url}#{path}", headers: test_headers(headers), body: body)
 end
 
 def put(path, headers = nil, body = nil)
-  HTTP::Client.put("#{BASE_URL}#{path}", headers: test_headers(headers), body: body)
+  HTTP::Client.put("#{SpecHelper.http_base_url}#{path}", headers: test_headers(headers), body: body)
 end
 
 def delete(path, headers = nil, body = nil)
-  HTTP::Client.delete("#{BASE_URL}#{path}", headers: test_headers(headers), body: body)
+  HTTP::Client.delete("#{SpecHelper.http_base_url}#{path}", headers: test_headers(headers), body: body)
 end
 
 # If we can connect to the port, it's busy by another listener
@@ -150,14 +156,6 @@ def port_busy?(port)
     false
   ensure
     sock.close
-  end
-end
-
-{HTTP_PORT}.each do |port|
-  if port_busy?(port)
-    puts "TCP port #{port} collision!"
-    puts "Make sure no other process is listening to port #{port}"
-    Spec.abort!
   end
 end
 
