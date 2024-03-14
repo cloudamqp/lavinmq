@@ -126,8 +126,7 @@ module LavinMQ
       listen(s)
     end
 
-    def listen_tls(bind, port, context)
-      s = TCPServer.new(bind, port)
+    def listen_tls(s : TCPServer, context)
       @listeners[s] = :amqps
       @log.info { "Listening on #{s.local_address} (TLS)" }
       loop do # do not try to use while
@@ -153,6 +152,10 @@ module LavinMQ
       abort "Unrecoverable error in TLS listener: #{ex.inspect_with_backtrace}"
     ensure
       @listeners.delete(s)
+    end
+
+    def listen_tls(bind, port, context)
+      listen_tls(TCPServer.new(bind, port), context)
     end
 
     def listen_unix(path : String)

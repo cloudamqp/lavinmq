@@ -238,13 +238,13 @@ describe LavinMQ::Shovel do
     it "should shovel over amqps" do
       source = LavinMQ::Shovel::AMQPSource.new(
         "spec",
-        URI.parse("#{AMQPS_BASE_URL}?verify=none"),
+        URI.parse("#{SpecHelper.amqps_base_url}?verify=none"),
         "ssl_q1",
         direct_user: Server.users.direct_user
       )
       dest = LavinMQ::Shovel::AMQPDestination.new(
         "spec",
-        URI.parse("#{AMQPS_BASE_URL}?verify=none"),
+        URI.parse("#{SpecHelper.amqps_base_url}?verify=none"),
         "ssl_q2",
         direct_user: Server.users.direct_user
       )
