@@ -1,15 +1,23 @@
 require "../spec_helper"
+require "lz4"
 
 module FollowerSpec
-  #  class FakeSocket < TCPSocket
-  #  end
+  def self.sha1(str : String)
+    sha1 = Digest::SHA1.new
+    hash = Bytes.new(sha1.digest_size)
+    sha1.update str.to_slice
+    sha1.final hash
+    sha1.reset
+    hash
+  end
 
   class FakeFileIndex
     include LavinMQ::Replication::FileIndex
 
     DEFAULT_FILES_WITH_HASH = {
-      "file1" => "hash1".to_slice,
-      "file2" => "hash2".to_slice,
+      "#{LavinMQ::Config.instance.data_dir}/file1" => FollowerSpec.sha1("hash1"),
+      "#{LavinMQ::Config.instance.data_dir}/file2" => FollowerSpec.sha1("hash2"),
+      "#{LavinMQ::Config.instance.data_dir}/file3" => FollowerSpec.sha1("hash3"),
     } of String => Bytes
 
     alias FileType = MFile | File
@@ -108,6 +116,43 @@ module FollowerSpec
         response = client_socket.read_bytes UInt8, IO::ByteFormat::LittleEndian
         response.should eq 0u8
       end
+    end
+  end
+
+  describe "#full_sync" do
+    it "should send file list" do
+      follower_socket, client_socket = FakeSocket.pair
+      client_lz4 = Compress::LZ4::Reader.new(client_socket)
+      file_index = FakeFileIndex.new
+      follower = LavinMQ::Replication::Follower.new(follower_socket, file_index)
+
+      spawn { follower.full_sync }
+
+      file_list = Hash(String, Bytes).new
+      done = Channel(Nil).new
+      spawn do
+        loop do
+          len = client_lz4.read_bytes Int32, IO::ByteFormat::LittleEndian
+          break if len == 0
+          hash = Bytes.new(20)
+          path = client_lz4.read_string len
+          client_lz4.read_fully hash
+          file_list[path] = hash
+        end
+        done.send nil
+      end
+
+      select
+      when done.receive
+      when timeout(1.second)
+        fail "timeout reading file list"
+      end
+
+      file_list = file_list.transform_keys do |k|
+        "#{LavinMQ::Config.instance.data_dir}/#{k}"
+      end
+
+      file_list.should eq file_index.@files_with_hash
     end
   end
 end
