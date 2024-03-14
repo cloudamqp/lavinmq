@@ -6,7 +6,7 @@ require "crypto/subtle"
 require "lz4"
 
 module LavinMQ
-  class Replication
+  module Replication
     # When a follower connects:
     # It sends a static header (wrong header disconnects the client)
     # It sends its password (servers closes the connection if the password is wrong)
