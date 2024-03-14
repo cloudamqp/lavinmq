@@ -8,6 +8,12 @@ module LavinMQ
 
     class Error < Exception; end
 
+    class InvalidStartHeaderError < Error
+      def initialize(bytes)
+        super("Invalid start header: #{bytes}")
+      end
+    end
+
     class AuthenticationError < Error
       def initialize
         super("Authentication error")

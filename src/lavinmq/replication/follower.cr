@@ -69,7 +69,7 @@ module LavinMQ
         @socket.read_fully(slice)
         if slice != Start
           @socket.write(Start)
-          raise IO::Error.new("Invalid start header: #{slice}")
+          raise InvalidStartHeaderError.new(slice)
         end
       end
 

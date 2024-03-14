@@ -151,6 +151,8 @@ module LavinMQ
         end
       rescue ex : AuthenticationError
         Log.warn { "Follower negotiation error" }
+      rescue ex : InvalidStartHeaderError
+        Log.warn { ex.message }
       rescue ex : IO::EOFError
         Log.info { "Follower disconnected" }
       rescue ex : IO::Error
