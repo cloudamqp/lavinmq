@@ -2,14 +2,6 @@ require "./actions"
 
 module LavinMQ
   module Replication
-    class Error < Exception; end
-
-    class AuthenticationError < Error
-      def initialize
-        super("Authentication error")
-      end
-    end
-
     class Follower
       Log = ::Log.for(self)
 
