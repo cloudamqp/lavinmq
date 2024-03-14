@@ -59,8 +59,8 @@ describe LavinMQ::HTTP::ConsumersController do
 
     it "should perform sanity check on sampled metrics" do
       Server.vhosts.create("pmths")
-      conn1 = AMQP::Client.new.connect
-      conn2 = AMQP::Client.new.connect
+      conn1 = AMQP::Client.new(SpecHelper.amqp_base_url).connect
+      conn2 = AMQP::Client.new(SpecHelper.amqp_base_url).connect
       conn1.close(no_wait: true)
       raw = get("/metrics/detailed?family=connection_churn_metrics").body
       parsed_metrics = parse_prometheus(raw)

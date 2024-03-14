@@ -9,9 +9,7 @@ Log.setup_from_env
 
 Spec.override_default_formatter(Spec::VerboseFormatter.new)
 
-AMQP_PORT      = ENV.fetch("AMQP_PORT", "5672").to_i
 AMQPS_PORT     = ENV.fetch("AMQPS_PORT", "5671").to_i
-AMQP_BASE_URL  = "amqp://localhost:#{AMQP_PORT}"
 AMQPS_BASE_URL = "amqps://localhost:#{AMQPS_PORT}"
 HTTP_PORT      = ENV.fetch("HTTP_PORT", "8080").to_i
 BASE_URL       = "http://localhost:#{HTTP_PORT}"
@@ -20,11 +18,16 @@ DATA_DIR       = "/tmp/lavinmq-spec"
 Dir.mkdir_p DATA_DIR
 LavinMQ::Config.instance.tap do |cfg|
   cfg.data_dir = DATA_DIR
-  cfg.amqp_port = AMQP_PORT
   cfg.amqps_port = AMQPS_PORT
   cfg.http_port = HTTP_PORT
   cfg.segment_size = 512 * 1024
   cfg.consumer_timeout_loop_interval = 1
+end
+
+module SpecHelper
+  def self.amqp_base_url
+    "amqp://localhost:#{LavinMQ::Config.instance.amqp_port}"
+  end
 end
 
 # have to be required after config
@@ -88,7 +91,9 @@ end
 
 def start_amqp_server
   s = LavinMQ::Server.new(DATA_DIR)
-  spawn { s.listen(LavinMQ::Config.instance.amqp_bind, LavinMQ::Config.instance.amqp_port) }
+  tcp_server = TCPServer.new(LavinMQ::Config.instance.amqp_bind, 0)
+  LavinMQ::Config.instance.amqp_port = tcp_server.local_address.port
+  spawn { s.listen(tcp_server) }
   spawn { s.listen_replication("127.0.0.1", LavinMQ::Config.instance.replication_port) }
   ctx = OpenSSL::SSL::Context::Server.new
   ctx.certificate_chain = "spec/resources/server_certificate.pem"
@@ -145,7 +150,7 @@ def port_busy?(port)
   end
 end
 
-{AMQP_PORT, AMQPS_PORT, HTTP_PORT}.each do |port|
+{AMQPS_PORT, HTTP_PORT}.each do |port|
   if port_busy?(port)
     puts "TCP port #{port} collision!"
     puts "Make sure no other process is listening to port #{port}"
