@@ -1,10 +1,4 @@
-require "./spec_helper"
-
-describe LavinMQ::Replication::Server do
-end
-
-describe LavinMQ::Replication::Server::Follower do
-end
+require "../spec_helper"
 
 def with_datadir_tempfile(&)
   relative_path = Path.new "data.spec"
@@ -44,14 +38,14 @@ def read_and_verify_data(io, expected_data)
   end
 end
 
-describe LavinMQ::Replication::Server::Follower::Action do
+describe LavinMQ::Replication::Action do
   describe "AddAction" do
     describe "without @mfile" do
       describe "#send" do
         it "writes filename and data to IO" do
           with_datadir_tempfile do |relative, absolute|
             File.write absolute, "foo"
-            action = LavinMQ::Replication::Server::Follower::AddAction.new absolute
+            action = LavinMQ::Replication::AddAction.new absolute
             io = IO::Memory.new
             action.send io
             io.rewind
@@ -68,7 +62,7 @@ describe LavinMQ::Replication::Server::Follower::Action do
         it "writes filename and data to IO" do
           with_datadir_tempfile do |relative, absolute|
             File.write absolute, "foo"
-            action = LavinMQ::Replication::Server::Follower::AddAction.new absolute, MFile.new(absolute)
+            action = LavinMQ::Replication::AddAction.new absolute, MFile.new(absolute)
             io = IO::Memory.new
             action.send io
             io.rewind
@@ -86,7 +80,7 @@ describe LavinMQ::Replication::Server::Follower::Action do
       describe "#send" do
         it "writes filename and data to IO" do
           with_datadir_tempfile do |relative, absolute|
-            action = LavinMQ::Replication::Server::Follower::AppendAction.new absolute, 123i32
+            action = LavinMQ::Replication::AppendAction.new absolute, 123i32
             io = IO::Memory.new
             action.send io
             io.rewind
@@ -102,7 +96,7 @@ describe LavinMQ::Replication::Server::Follower::Action do
       describe "#send" do
         it "writes filename and data to IO" do
           with_datadir_tempfile do |relative, absolute|
-            action = LavinMQ::Replication::Server::Follower::AppendAction.new absolute, 123u32
+            action = LavinMQ::Replication::AppendAction.new absolute, 123u32
             io = IO::Memory.new
             action.send io
             io.rewind
@@ -118,7 +112,7 @@ describe LavinMQ::Replication::Server::Follower::Action do
       describe "#send" do
         it "writes filename and data to IO" do
           with_datadir_tempfile do |relative, absolute|
-            action = LavinMQ::Replication::Server::Follower::AppendAction.new absolute, "foo".to_slice
+            action = LavinMQ::Replication::AppendAction.new absolute, "foo".to_slice
             io = IO::Memory.new
             action.send io
             io.rewind
@@ -135,8 +129,8 @@ describe LavinMQ::Replication::Server::Follower::Action do
         it "writes filename and data to IO" do
           with_datadir_tempfile do |relative, absolute|
             File.write absolute, "baz foo bar"
-            range = LavinMQ::Replication::Server::Follower::FileRange.new(MFile.new(absolute), 4, 3)
-            action = LavinMQ::Replication::Server::Follower::AppendAction.new absolute, range
+            range = LavinMQ::Replication::FileRange.new(MFile.new(absolute), 4, 3)
+            action = LavinMQ::Replication::AppendAction.new absolute, range
 
             io = IO::Memory.new
             action.send io
