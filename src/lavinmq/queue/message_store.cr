@@ -234,8 +234,7 @@ module LavinMQ
         wfile_id = @wfile_id
         sp = SegmentPosition.make(wfile_id, wfile.size.to_u32, msg)
         wfile.write_bytes msg
-        fr = Replication::FileRange.new(wfile, sp.position.to_i32, (wfile.size - sp.position).to_i32)
-        @replicator.try &.append(wfile.path, fr)
+        @replicator.try &.append(wfile.path, wfile, sp.position.to_i32, (wfile.size - sp.position).to_i32)
         @segment_msg_count[wfile_id] += 1
         sp
       end

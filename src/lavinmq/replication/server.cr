@@ -50,6 +50,10 @@ module LavinMQ
         each_follower &.add(path)
       end
 
+      def append(path : String, file : MFile, position : Int32, length : Int32)
+        append path, FileRange.new(file, position, length)
+      end
+
       def append(path : String, obj)
         Log.debug { "appending #{obj} to #{path}" }
         each_follower &.append(path, obj)

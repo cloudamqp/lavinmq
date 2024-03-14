@@ -1,3 +1,4 @@
+require "../replication"
 require "./actions"
 
 module LavinMQ
