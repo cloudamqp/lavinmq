@@ -1,4 +1,5 @@
 require "../replication"
+require "./file_index"
 require "./follower"
 require "../config"
 require "../message"
@@ -19,6 +20,7 @@ module LavinMQ
     # It also sends which files should be deleted or has been rewritten (such as json files)
     # The follower sends back/acknowledges how many bytes it has received
     class Server
+      include FileIndex
       Log = ::Log.for("replication")
 
       @lock = Mutex.new(:unchecked)

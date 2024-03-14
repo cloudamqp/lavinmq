@@ -1,5 +1,6 @@
 require "../replication"
 require "./actions"
+require "./file_index"
 
 module LavinMQ
   module Replication
@@ -11,7 +12,7 @@ module LavinMQ
       @sent_bytes = 0_i64
       @actions = Channel(Action).new(4096)
 
-      def initialize(@socket : TCPSocket, @server : Server)
+      def initialize(@socket : TCPSocket, @file_index : FileIndex)
         Log.context.set(address: @socket.remote_address.to_s)
         @socket.write_timeout = 5
         @socket.read_timeout = 5
@@ -86,7 +87,7 @@ module LavinMQ
       end
 
       private def send_file_list(socket = @lz4)
-        @server.files_with_hash do |path, hash|
+        @file_index.files_with_hash do |path, hash|
           path = path[Config.instance.data_dir.bytesize + 1..]
           socket.write_bytes path.bytesize.to_i32, IO::ByteFormat::LittleEndian
           socket.write path.to_slice
@@ -109,7 +110,7 @@ module LavinMQ
 
       private def send_requested_file(filename)
         Log.info { "#{filename} requested" }
-        @server.with_file(filename) do |f|
+        @file_index.with_file(filename) do |f|
           case f
           when MFile
             size = f.size.to_i64
