@@ -142,6 +142,7 @@ class MFile < IO
   # Copies the file to another IO
   # Won't mmap the file if it's unmapped already
   def copy_to(output : IO, size = @size) : Int64
+    raise ClosedError.new if @closed
     if unmapped? # don't remap unmapped files
       io = IO::FileDescriptor.new(@fd, blocking: true, close_on_finalize: false)
       io.rewind
