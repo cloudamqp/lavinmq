@@ -7,7 +7,6 @@ module LavinMQ
     class Follower
       Log = ::Log.for(self)
 
-      getter ack = Channel(Nil).new
       @acked_bytes = 0_i64
       @sent_bytes = 0_i64
       @actions = Channel(Action).new(4096)
@@ -45,7 +44,6 @@ module LavinMQ
         loop do
           len = socket.read_bytes(Int64, IO::ByteFormat::LittleEndian)
           @acked_bytes += len
-          @ack.try_send nil
         end
       rescue IO::Error
       end
