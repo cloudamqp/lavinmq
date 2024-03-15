@@ -49,23 +49,12 @@ module FollowerSpec
       super(Family::INET, Type::STREAM, Protocol::TCP, false)
     end
 
-    def read(buffer : Bytes)
-      @io.read(buffer)
-    end
-
-    def write(buffer : Bytes)
-      @io.write(buffer)
-    end
+    delegate read, write, to: @io
+    delegate close, closed?, to: @io
 
     def remote_address
       Address.parse("tcp://127.0.0.1:1234")
     end
-
-    {% for method in ["read_timeout", "keepalive",
-                      "tcp_keepalive_idle", "tcp_keepalive_interval",
-                      "tcp_keepalive_count"] %}
-    def {{method.id}}=(value) end
-    {% end %}
   end
 
   describe LavinMQ::Replication::Follower do
