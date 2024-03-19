@@ -155,9 +155,9 @@ describe LavinMQ::HTTP::Server do
           "component": "shovel",
           "vhost": "/",
           "value": {
-            "src-uri": "#{AMQP_BASE_URL}",
+            "src-uri": "#{SpecHelper.amqp_base_url}",
             "src-queue": "shovel_will_declare_q1",
-            "dest-uri": "#{AMQP_BASE_URL}",
+            "dest-uri": "#{SpecHelper.amqp_base_url}",
             "dest-queue": "shovel_will_declare_q1"
           }
         }
