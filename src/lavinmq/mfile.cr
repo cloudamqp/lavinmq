@@ -18,6 +18,12 @@ end
 # not `size` large, only on graceful close is the file truncated to its `size`.
 # The file does not expand further than initial `capacity`, unless manually expanded.
 class MFile < IO
+  class ClosedError < IO::Error
+    def initialize
+      super("MFile closed")
+    end
+  end
+
   getter pos : Int64 = 0i64
   getter? closed : Bool = false
   getter size : Int64 = 0i64
@@ -136,6 +142,7 @@ class MFile < IO
   # Copies the file to another IO
   # Won't mmap the file if it's unmapped already
   def copy_to(output : IO, size = @size) : Int64
+    raise ClosedError.new if @closed
     if unmapped? # don't remap unmapped files
       io = IO::FileDescriptor.new(@fd, blocking: true, close_on_finalize: false)
       io.rewind
@@ -170,7 +177,7 @@ class MFile < IO
   end
 
   def write(slice : Bytes) : Nil
-    raise IO::Error.new("MFile closed") if @closed
+    raise ClosedError.new if @closed
     size = @size
     new_size = size + slice.size
     raise IO::EOFError.new if new_size > @capacity
@@ -179,7 +186,7 @@ class MFile < IO
   end
 
   def read(slice : Bytes)
-    raise IO::Error.new("MFile closed") if @closed
+    raise ClosedError.new if @closed
     pos = @pos
     new_pos = pos + slice.size
     raise IO::EOFError.new if new_pos > @size
@@ -225,12 +232,12 @@ class MFile < IO
   end
 
   def to_slice
-    raise IO::Error.new("MFile closed") if @closed
+    raise ClosedError.new if @closed
     Bytes.new(buffer, @size, read_only: true)
   end
 
   def to_slice(pos, size)
-    raise IO::Error.new("MFile closed") if @closed
+    raise ClosedError.new if @closed
     raise IO::EOFError.new if pos + size > @size
     Bytes.new(buffer + pos, size, read_only: true)
   end
