@@ -34,6 +34,7 @@ module LavinMQ
     @running = true
     @last_recv_frame = RoughTime.monotonic
     @last_sent_frame = RoughTime.monotonic
+    @closeok_timer = RoughTime.monotonic
     rate_stats({"send_oct", "recv_oct"})
     DEFAULT_EX = "amq.default"
 
@@ -57,6 +58,9 @@ module LavinMQ
                           " name=#{name}"
                         end
       @log = Log.for "client[vhost=#{@vhost.name} address=#{@remote_address}#{connection_name}]"
+      @connected_at = RoughTime.unix_ms
+      @channels = Hash(UInt16, Client::Channel).new
+      @exclusive_queues = Array(Queue).new
       @vhost.add_connection(self)
       @log.info { "Connection established for user=#{@user.name}" }
       spawn read_loop, name: "Client#read_loop #{@remote_address}"
@@ -124,6 +128,10 @@ module LavinMQ
           if @running
             process_frame(frame)
           else
+            if (RoughTime.monotonic - @closeok_timer) > 5.seconds
+              cleanup
+              close_socket
+            end
             case frame
             when AMQP::Frame::Body
               @log.debug { "Skipping body, waiting for CloseOk" }
@@ -420,7 +428,11 @@ module LavinMQ
     def close(reason = nil)
       reason ||= "Connection closed"
       @log.info { "Closing, #{reason}" }
+      if (socket = @socket).responds_to?(:read_timeout=)
+        socket.read_timeout = 5
+      end
       send AMQP::Frame::Connection::Close.new(320_u16, "CONNECTION_FORCED - #{reason}", 0_u16, 0_u16)
+      @closeok_timer = RoughTime.monotonic
       @running = false
     end
 
