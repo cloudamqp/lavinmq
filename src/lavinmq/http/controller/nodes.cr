@@ -45,7 +45,7 @@ module LavinMQ
         {
           uptime:       @amqp_server.uptime.total_milliseconds.to_i64,
           running:      true,
-          name:         System.hostname,
+          name:         @amqp_server.cluster_name,
           applications: APPLICATIONS,
         }
       end
