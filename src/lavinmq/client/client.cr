@@ -533,7 +533,7 @@ module LavinMQ
           send AMQP::Frame::Exchange::DeclareOk.new(frame.channel)
         end
       else
-        send_precondition_failed(frame, "Existing exchange '#{frame.exchange_name}' declared with other arguments")
+        @log.warn { "Existing exchange '#{frame.exchange_name}' declared with other arguments" }
       end
     end
 
