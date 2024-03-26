@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.9] - 2024-02-05
+
 ### Fixed
 
 - Don't use shovel name as consumer tag [#634](https://github.com/cloudamqp/lavinmq/pull/634)
