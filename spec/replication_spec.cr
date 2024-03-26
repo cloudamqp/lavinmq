@@ -82,7 +82,20 @@ describe LavinMQ::Replication::Server do
     LavinMQ::Config.instance.min_followers = 0
   end
 
-  it "+min_followers" do
+  it "should publish when min_followers is fulfilled" do
+    q = Server.vhosts["/"].queues["repli"].as(LavinMQ::Queue)
+    repli = LavinMQ::Replication::Client.new(data_dir)
+    spawn do
+      repli.follow("127.0.0.1", LavinMQ::Config.instance.replication_port)
+    end
+    with_channel do |ch|
+      ch.basic_publish "hello world", "", "repli"
+    end
+    q.basic_get(true) { }.should be_true
+    repli.close
+  end
+
+  it "should not publish when min_followers is not fulfilled" do
     done = Channel(Nil).new
     client : AMQP::Client::Connection? = nil
     spawn do
@@ -95,34 +108,10 @@ describe LavinMQ::Replication::Server do
     end
     select
     when done.receive
-      fail "should not receive message"
+      fail "Should not receive message"
     when timeout(0.1.seconds)
-      pp "timeout"
       client.try &.close(no_wait: true)
       Server.close
     end
-
-    # q = Server.vhosts["/"].queues["repli"].as(LavinMQ::Queue)
-    # q.basic_get(true) { }.should be_false
-
-    # repli = LavinMQ::Replication::Client.new(data_dir)
-    # spawn do
-    #   repli.follow("127.0.0.1", LavinMQ::Config.instance.replication_port)
-    # end
-    # with_channel do |ch|
-    #   ch.basic_publish "hello world", "", "repli"
-    # end
-    # q = Server.vhosts["/"].queues["repli"].as(LavinMQ::Queue)
-    # q.basic_get(true) { }.should be_true
-
-    # repli.close
-  end
-
-  it "-min_followers" do
-  end
-
-  it "+max_lag" do
-  end
-  it "-max_lag" do
   end
 end
