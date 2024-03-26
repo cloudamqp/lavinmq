@@ -50,6 +50,8 @@ module LavinMQ
     property max_deleted_definitions = 8192 # number of deleted queues, unbinds etc that compacts the definitions file
     property consumer_timeout : UInt64? = nil
     property consumer_timeout_loop_interval = 60 # seconds
+    property min_followers : Int64 = 0
+    property max_lag : Int64? = nil
     @@instance : Config = self.new
 
     def self.instance : LavinMQ::Config
@@ -141,6 +143,8 @@ module LavinMQ
         when "systemd_socket_name" then @amqp_systemd_socket_name = v
         when "unix_proxy_protocol" then @unix_proxy_protocol = true?(v) ? 1u8 : v.to_u8? || 0u8
         when "tcp_proxy_protocol"  then @tcp_proxy_protocol = true?(v) ? 1u8 : v.to_u8? || 0u8
+        when "min_followers"       then @min_followers = v.to_i64
+        when "max_lag"             then @max_lag = v.to_i64
         else
           STDERR.puts "WARNING: Unrecognized configuration 'amqp/#{config}'"
         end

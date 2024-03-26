@@ -171,10 +171,12 @@ module LavinMQ
 
     def close
       @closed = true
+      @replicator.closing
       @log.debug { "Closing listeners" }
       @listeners.each_key &.close
       @log.debug { "Closing vhosts" }
       @vhosts.close
+      @log.debug { "Closing replicator" }
       @replicator.close
     end
 

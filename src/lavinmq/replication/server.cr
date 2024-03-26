@@ -19,14 +19,14 @@ module LavinMQ
     # The follower sends back/acknowledges how many bytes it has received
     class Server
       Log = ::Log.for("replication")
-
+      getter followers_changed = Channel(Nil).new
       @lock = Mutex.new(:unchecked)
       @followers = Array(Follower).new
       @password : String
       @files = Hash(String, MFile?).new
+      @closing = false
 
-      def initialize
-        @password = password
+      def initialize(@password = password)
         @tcp = TCPServer.new
         @tcp.sync = false
         @tcp.reuse_address = true
@@ -51,11 +51,13 @@ module LavinMQ
 
       def append(path : String, obj)
         Log.debug { "appending #{obj} to #{path}" }
+        wait_for_max_lag
         each_follower &.append(path, obj)
       end
 
       def delete_file(path : String)
         @files.delete(path)
+        wait_for_max_lag
         each_follower &.delete(path)
       end
 
@@ -98,6 +100,21 @@ module LavinMQ
         end
       end
 
+      def wait_for_max_lag
+        # was_closing = @closing
+        until @closing || @followers.size >= Config.instance.min_followers
+          @followers_changed.receive
+        end
+        # unless (!was_closing && @closing) || @followers.size >= Config.instance.min_followers
+        #   raise Exception.new("Not enough followers")
+        # end
+        @followers.each_with_index do |f, i|
+          break if i > Config.instance.min_followers
+          f.wait_for_max_lag
+        end
+        rescue Channel::ClosedError
+      end
+
       private def password : String
         path = File.join(Config.instance.data_dir, ".replication_secret")
         begin
@@ -135,12 +152,14 @@ module LavinMQ
           follower.full_sync
           @followers << follower
         end
+        followers_changed.try_send nil
         begin
           follower.read_acks
         ensure
           @lock.synchronize do
             @followers.delete(follower)
           end
+          followers_changed.try_send nil
         end
       rescue ex : AuthenticationError
         Log.warn { "Follower negotiation error" }
@@ -153,12 +172,20 @@ module LavinMQ
       end
 
       def close
+        Log.debug { "closing" }
         @tcp.close
         @lock.synchronize do
           @followers.each &.close
           @followers.clear
         end
+        @followers_changed.close
+        Log.debug { "closed" }
         Fiber.yield # required for follower/listener fibers to actually finish
+      end
+
+      def closing
+        @closing = true
+        @followers_changed.send nil
       end
 
       private def each_follower(& : Follower -> Nil) : Nil
@@ -173,8 +200,7 @@ module LavinMQ
 
       class Follower
         Log = ::Log.for(self)
-
-        getter ack = Channel(Nil).new
+        @ack = Channel(Int64).new
         @acked_bytes = 0_i64
         @sent_bytes = 0_i64
         @actions = Channel(Action).new(4096)
@@ -212,18 +238,32 @@ module LavinMQ
           loop do
             len = socket.read_bytes(Int64, IO::ByteFormat::LittleEndian)
             @acked_bytes += len
-            @ack.try_send nil
+            if max_lag = Config.instance.max_lag
+              if lag < max_lag
+                @ack.try_send lag
+              end
+            end
           end
         rescue IO::Error
         end
 
+        def wait_for_max_lag
+          if max_lag = Config.instance.max_lag
+            current_lag = lag
+            until current_lag < max_lag
+              break unless current_lag = @ack.receive?
+            end
+          end
+        end
+
         private def action_loop(socket = @lz4)
           while action = @actions.receive?
-            @sent_bytes += action.send(socket)
+            sent_bytes = action.send(socket)
             while action2 = @actions.try_receive?
-              @sent_bytes += action2.send(socket)
+              sent_bytes += action2.send(socket)
             end
             socket.flush
+            @sent_bytes += sent_bytes
           end
         rescue IO::Error
         ensure
@@ -386,6 +426,7 @@ module LavinMQ
         def close
           Log.info { "Disconnected" }
           @actions.close
+          @ack.close
           @lz4.close
           @socket.close
         rescue IO::Error

@@ -30,6 +30,7 @@ function render (data) {
   document.querySelector('#version').textContent = data[0].applications[0].version
   for (const node of data) {
     updateDetails(node)
+    updateFollowerSettings(node)
     updateStats(node)
   }
 }
@@ -70,6 +71,11 @@ const updateDetails = (nodeStats) => {
     diskUsage = 'N/A'
   }
   document.getElementById('tr-disk').textContent = diskUsage
+}
+
+const updateFollowerSettings = (nodeStats) => {
+  document.getElementById('tr-max-lag').textContent = nodeStats.max_lag || 'No max_lag value specified'
+  document.getElementById('tr-min-followers').textContent = nodeStats.min_followers
 }
 
 const stats = [
