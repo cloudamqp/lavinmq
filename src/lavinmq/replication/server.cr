@@ -1,4 +1,6 @@
 require "../replication"
+require "./file_index"
+require "./follower"
 require "../config"
 require "../message"
 require "../mfile"
@@ -6,7 +8,7 @@ require "crypto/subtle"
 require "lz4"
 
 module LavinMQ
-  class Replication
+  module Replication
     # When a follower connects:
     # It sends a static header (wrong header disconnects the client)
     # It sends its password (servers closes the connection if the password is wrong)
@@ -18,6 +20,7 @@ module LavinMQ
     # It also sends which files should be deleted or has been rewritten (such as json files)
     # The follower sends back/acknowledges how many bytes it has received
     class Server
+      include FileIndex
       Log = ::Log.for("replication")
 
       @lock = Mutex.new(:unchecked)
@@ -47,6 +50,10 @@ module LavinMQ
       def replace_file(path : String) # only non mfiles are ever replaced
         @files[path] = nil
         each_follower &.add(path)
+      end
+
+      def append(path : String, file : MFile, position : Int32, length : Int32)
+        append path, FileRange.new(file, position, length)
       end
 
       def append(path : String, obj)
@@ -144,6 +151,8 @@ module LavinMQ
         end
       rescue ex : AuthenticationError
         Log.warn { "Follower negotiation error" }
+      rescue ex : InvalidStartHeaderError
+        Log.warn { ex.message }
       rescue ex : IO::EOFError
         Log.info { "Follower disconnected" }
       rescue ex : IO::Error
@@ -168,251 +177,6 @@ module LavinMQ
           rescue Channel::ClosedError
             Fiber.yield # Allow other fiber to run to remove the follower from array
           end
-        end
-      end
-
-      class Follower
-        Log = ::Log.for(self)
-
-        getter ack = Channel(Nil).new
-        @acked_bytes = 0_i64
-        @sent_bytes = 0_i64
-        @actions = Channel(Action).new(4096)
-
-        def initialize(@socket : TCPSocket, @server : Server)
-          Log.context.set(address: @socket.remote_address.to_s)
-          @socket.write_timeout = 5
-          @socket.read_timeout = 5
-          @socket.buffer_size = 64 * 1024
-          @lz4 = Compress::LZ4::Writer.new(@socket, Compress::LZ4::CompressOptions.new(auto_flush: false, block_mode_linked: true))
-        end
-
-        def negotiate!(password) : Nil
-          validate_header!
-          authenticate!(password)
-          @socket.read_timeout = nil
-          if keepalive = Config.instance.tcp_keepalive
-            @socket.keepalive = true
-            @socket.tcp_keepalive_idle = keepalive[0]
-            @socket.tcp_keepalive_interval = keepalive[1]
-            @socket.tcp_keepalive_count = keepalive[2]
-          end
-          Log.info { "Accepted" }
-        end
-
-        def full_sync : Nil
-          Log.info { "Calculating hashes" }
-          send_file_list
-          Log.info { "File list sent" }
-          send_requested_files
-        end
-
-        def read_acks(socket = @socket) : Nil
-          spawn action_loop, name: "Follower#action_loop"
-          loop do
-            len = socket.read_bytes(Int64, IO::ByteFormat::LittleEndian)
-            @acked_bytes += len
-            @ack.try_send nil
-          end
-        rescue IO::Error
-        end
-
-        private def action_loop(socket = @lz4)
-          while action = @actions.receive?
-            @sent_bytes += action.send(socket)
-            while action2 = @actions.try_receive?
-              @sent_bytes += action2.send(socket)
-            end
-            socket.flush
-          end
-        rescue IO::Error
-        ensure
-          close
-        end
-
-        private def validate_header! : Nil
-          buf = uninitialized UInt8[8]
-          slice = buf.to_slice
-          @socket.read_fully(slice)
-          if slice != Start
-            @socket.write(Start)
-            raise IO::Error.new("Invalid start header: #{slice}")
-          end
-        end
-
-        private def authenticate!(password) : Nil
-          len = @socket.read_bytes UInt8, IO::ByteFormat::LittleEndian
-          client_password = @socket.read_string(len)
-          if Crypto::Subtle.constant_time_compare(password, client_password)
-            @socket.write_byte 0u8
-          else
-            @socket.write_byte 1u8
-            raise AuthenticationError.new
-          end
-        ensure
-          @socket.flush
-        end
-
-        private def send_file_list(socket = @lz4)
-          @server.files_with_hash do |path, hash|
-            path = path[Config.instance.data_dir.bytesize + 1..]
-            socket.write_bytes path.bytesize.to_i32, IO::ByteFormat::LittleEndian
-            socket.write path.to_slice
-            socket.write hash
-          end
-          socket.write_bytes 0i32
-          socket.flush
-        end
-
-        private def send_requested_files(socket = @socket)
-          loop do
-            filename_len = socket.read_bytes Int32, IO::ByteFormat::LittleEndian
-            break if filename_len.zero?
-
-            filename = socket.read_string(filename_len)
-            send_requested_file(filename)
-            @lz4.flush
-          end
-        end
-
-        private def send_requested_file(filename)
-          Log.info { "#{filename} requested" }
-          @server.with_file(filename) do |f|
-            case f
-            when MFile
-              size = f.size.to_i64
-              @lz4.write_bytes size, IO::ByteFormat::LittleEndian
-              f.copy_to(@lz4, size)
-            when File
-              size = f.size.to_i64
-              @lz4.write_bytes size, IO::ByteFormat::LittleEndian
-              IO.copy(f, @lz4, size) == size || raise IO::EOFError.new
-            when nil
-              @lz4.write_bytes 0i64
-            else raise "unexpected file type #{f.class}"
-            end
-          end
-        end
-
-        def add(path, mfile : MFile? = nil)
-          @actions.send AddAction.new(path, mfile)
-        end
-
-        def append(path, obj)
-          @actions.send AppendAction.new(path, obj)
-        end
-
-        def delete(path)
-          @actions.send DeleteAction.new(path)
-        end
-
-        record FileRange, mfile : MFile, pos : Int32, len : Int32 do
-          def to_slice : Bytes
-            mfile.to_slice(pos, len)
-          end
-        end
-
-        abstract struct Action
-          def initialize(@path : String)
-          end
-
-          abstract def send(socket : IO) : Int64
-
-          private def send_filename(socket : IO)
-            filename = @path[Config.instance.data_dir.bytesize + 1..]
-            socket.write_bytes filename.bytesize.to_i32, IO::ByteFormat::LittleEndian
-            socket.write filename.to_slice
-          end
-        end
-
-        struct AddAction < Action
-          def initialize(@path : String, @mfile : MFile? = nil)
-          end
-
-          def send(socket) : Int64
-            Log.debug { "Add #{@path}" }
-            send_filename(socket)
-            if mfile = @mfile
-              size = mfile.size.to_i64
-              socket.write_bytes size, IO::ByteFormat::LittleEndian
-              mfile.copy_to(socket, size)
-              size
-            else
-              File.open(@path) do |f|
-                size = f.size.to_i64
-                socket.write_bytes size, IO::ByteFormat::LittleEndian
-                IO.copy(f, socket, size) == size || raise IO::EOFError.new
-                size
-              end
-            end
-          end
-        end
-
-        struct AppendAction < Action
-          def initialize(@path : String, @obj : Bytes | FileRange | UInt32 | Int32)
-          end
-
-          def send(socket) : Int64
-            send_filename(socket)
-            len : Int64
-            case obj = @obj
-            in Bytes
-              len = obj.bytesize.to_i64
-              socket.write_bytes -len.to_i64, IO::ByteFormat::LittleEndian
-              socket.write obj
-            in FileRange
-              len = obj.len.to_i64
-              socket.write_bytes -len.to_i64, IO::ByteFormat::LittleEndian
-              socket.write obj.to_slice
-            in UInt32, Int32
-              len = 4i64
-              socket.write_bytes -len.to_i64, IO::ByteFormat::LittleEndian
-              socket.write_bytes obj, IO::ByteFormat::LittleEndian
-            end
-            Log.debug { "Append #{len} bytes to #{@path}" }
-            len
-          end
-        end
-
-        struct DeleteAction < Action
-          def send(socket) : Int64
-            Log.debug { "Delete #{@path}" }
-            send_filename(socket)
-            socket.write_bytes 0i64
-            0i64
-          end
-        end
-
-        def close
-          Log.info { "Disconnected" }
-          @actions.close
-          @lz4.close
-          @socket.close
-        rescue IO::Error
-          # ignore connection errors while closing
-        end
-
-        def to_json(json : JSON::Builder)
-          {
-            remote_address:     @socket.remote_address.to_s,
-            sent_bytes:         @sent_bytes,
-            acked_bytes:        @acked_bytes,
-            compression_ratio:  @lz4.compression_ratio,
-            uncompressed_bytes: @lz4.uncompressed_bytes,
-            compressed_bytes:   @lz4.compressed_bytes,
-          }.to_json(json)
-        end
-
-        def lag : Int64
-          @sent_bytes - @acked_bytes
-        end
-      end
-
-      class Error < Exception; end
-
-      class AuthenticationError < Error
-        def initialize
-          super("Authentication error")
         end
       end
     end

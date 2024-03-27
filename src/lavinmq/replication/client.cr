@@ -3,7 +3,7 @@ require "../data_dir_lock"
 require "lz4"
 
 module LavinMQ
-  class Replication
+  module Replication
     class Client
       Log = ::Log.for("replication")
       @password : String
