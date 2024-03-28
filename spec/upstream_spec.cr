@@ -339,7 +339,7 @@ describe LavinMQ::Federation::Upstream do
       end
       wait_for { messages_consumed == 1 }
       wait_for { Server.vhosts[ds_vhost.name].queues[ds_queue_name].message_count == 0 }
-      wait_for { Server.vhosts[us_vhost.name].queues[us_queue_name].message_count == message_count}
+      wait_for { Server.vhosts[us_vhost.name].queues[us_queue_name].message_count == message_count }
     end
 
     # make sure consumer is disconnected
