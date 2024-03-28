@@ -332,7 +332,7 @@ describe LavinMQ::Federation::Upstream do
       wait_for { upstream.links.first?.try &.state.running? }
 
       messages_consumed = 0
-      downstream_q.subscribe(tag: "c") do |msg|
+      downstream_q.subscribe(tag: "c") do |_msg|
         messages_consumed += 1
         message_count -= 1
         downstream_q.unsubscribe("c")
@@ -349,7 +349,7 @@ describe LavinMQ::Federation::Upstream do
     with_channel(vhost: ds_vhost.name) do |downstream_ch|
       downstream_q = downstream_ch.queue(ds_queue_name)
       messages_consumed = 0
-      downstream_q.subscribe(tag: "c2") do |msg|
+      downstream_q.subscribe(tag: "c2") do |_msg|
         messages_consumed += 1
       end
       wait_for { Server.vhosts[us_vhost.name].queues[us_queue_name].message_count == 0 }
