@@ -209,6 +209,10 @@ module LavinMQ
           @downstream_connection.try &.close
           upstream_uri = named_uri(@upstream.uri)
           local_uri = named_uri(@local_uri)
+          params = upstream_uri.query_params
+          params["product"] = "LavinMQ"
+          params["product_version"] = LavinMQ::VERSION.to_s
+          upstream_uri.query = params.to_s
           ::AMQP::Client.start(upstream_uri) do |c|
             @upstream_connection = c
             ::AMQP::Client.start(local_uri) do |p|
@@ -302,6 +306,8 @@ module LavinMQ
           upstream_uri = @upstream.uri.dup
           params = upstream_uri.query_params
           params["name"] ||= "Federation link cleanup: #{@upstream.name}/#{name}"
+          params["product"] = "LavinMQ"
+          params["product_version"] = LavinMQ::VERSION.to_s
           upstream_uri.query = params.to_s
           ::AMQP::Client.start(upstream_uri) do |c|
             ch = c.channel
@@ -353,6 +359,10 @@ module LavinMQ
           @downstream_connection.try &.close
           upstream_uri = named_uri(@upstream.uri)
           local_uri = named_uri(@local_uri)
+          params = upstream_uri.query_params
+          params["product"] = "LavinMQ"
+          params["product_version"] = LavinMQ::VERSION.to_s
+          upstream_uri.query = params.to_s
           ::AMQP::Client.start(upstream_uri) do |c|
             @upstream_connection = c
             ::AMQP::Client.start(local_uri) do |p|
