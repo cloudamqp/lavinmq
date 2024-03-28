@@ -257,12 +257,11 @@ module LavinMQ
                       type:  "gauge",
                       help:  "Amount of follower nodes connected"})
         @amqp_server.@replicator.followers.each_with_index do |f, i|
-        writer.write({name:  "follower_#{i}_lag",
-                      value: f.lag,
-                      type:  "gauge",
-                      help:  "Lag for follower #{i}"})
-  end
-
+          writer.write({name:  "follower_#{i}_lag",
+                        value: f.lag,
+                        type:  "gauge",
+                        help:  "Lag for follower #{i}"})
+        end
       end
 
       SERVER_METRICS = {:connection_created, :connection_closed, :channel_created, :channel_closed,
