@@ -88,19 +88,19 @@ module LavinMQ
           @log.info { "Terminated" }
         end
 
-        private def federate(msg, downstream_ch, upstream_ch, exchange, routing_key)
-          @log.debug { "Federating routing_key=#{routing_key}" }
-          case @upstream.ack_mode
-          in AckMode::OnConfirm
-            downstream_ch.basic_publish(msg.body_io, exchange, routing_key, props: msg.properties) do
-              ack(msg.delivery_tag, upstream_ch)
-            end
-          in AckMode::OnPublish
-            downstream_ch.basic_publish(msg.body_io, exchange, routing_key, props: msg.properties)
-            ack(msg.delivery_tag, upstream_ch)
-          in AckMode::NoAck
-            downstream_ch.basic_publish(msg.body_io, exchange, routing_key, props: msg.properties)
+        private def federate(msg, upstream_ch, exchange, routing_key, immediate = false)
+          status = @upstream.vhost.publish(
+            Message.new(
+              RoughTime.unix_ms, exchange, routing_key, msg.properties,
+              msg.body_io.bytesize.to_u64, msg.body_io,
+            ), immediate)
+
+          if status
+            ack(msg.delivery_tag, upstream_ch) if @upstream.ack_mode != AckMode::NoAck
+          else
+            reject(msg.delivery_tag, upstream_ch)
           end
+          status
         end
 
         private def ack(delivery_tag, upstream_ch, close = false)
@@ -108,6 +108,14 @@ module LavinMQ
           if ch = upstream_ch
             raise "Channel closed when acking" if ch.closed?
             ch.basic_ack(delivery_tag)
+          end
+        end
+
+        private def reject(delivery_tag, upstream_ch, close = false)
+          return unless delivery_tag
+          if ch = upstream_ch
+            raise "Channel closed when rejecting" if ch.closed?
+            ch.basic_reject(delivery_tag, true)
           end
         end
 
@@ -239,8 +247,14 @@ module LavinMQ
               })
               headers["x-received-from"] = received_from
               msg.properties.headers = headers
-              federate(msg, pch, cch.not_nil!, EXCHANGE, @federated_q.name)
+
+              # investigate use of consumers_empty_change?
+              unless federate(msg, cch.not_nil!, EXCHANGE, @federated_q.name, true)
+                raise NoDownstreamConsumerError.new("Federate failed, no downstream consumer available")
+              end
             end
+          rescue ex : NoDownstreamConsumerError
+            @log.warn { "No downstream consumer active, stopping federation" }
           end
         end
       end
@@ -368,13 +382,16 @@ module LavinMQ
               })
               headers["x-received-from"] = received_from
               msg.properties.headers = headers
-              federate(msg, pch, cch.not_nil!, @federated_ex.name, msg.routing_key)
+              federate(msg, cch.not_nil!, @federated_ex.name, msg.routing_key)
             end
           ensure
             @consumer_q = nil
           end
         end
       end
+    end
+
+    class NoDownstreamConsumerError < Exception
     end
   end
 end
