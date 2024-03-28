@@ -137,7 +137,7 @@ module LavinMQ
         @actions.send DeleteAction.new(path)
       end
 
-      def close(synced_close : Channel(Nil)? = nil)
+      def close(synced_close : Channel(Bool)? = nil)
         Log.info { "Disconnected" }
         if synced_close
           wait_for_sync
@@ -148,7 +148,7 @@ module LavinMQ
       rescue IO::Error
         # ignore connection errors while closing
       ensure
-        synced_close.try &.send nil
+        synced_close.try &.send lag.zero?
       end
 
       def to_json(json : JSON::Builder)
@@ -169,7 +169,7 @@ module LavinMQ
       private def wait_for_sync
         in_sync = Channel(Nil).new
         spawn do
-          until lag.zero?
+          until lag.zero? || @socket.closed?
             Fiber.yield
           end
           in_sync.send nil

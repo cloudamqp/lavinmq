@@ -161,9 +161,9 @@ module FollowerSpec
       file_index = FakeFileIndex.new
       follower = LavinMQ::Replication::Follower.new(follower_socket, file_index)
       client_lz4 = Compress::LZ4::Reader.new(client_socket)
+
       spawn { follower.read_acks }
       data_size = 0i64
-
       FollowerSpec.with_datadir_tempfile("file1") do |rel_path, abs_path|
         File.write abs_path, "foo"
         follower.add(abs_path)
@@ -172,17 +172,47 @@ module FollowerSpec
         data_size = client_lz4.read_bytes(Int64, IO::ByteFormat::LittleEndian)
         client_lz4.skip data_size
       end
-
-      let_sync = Channel(Nil).new
+      let_sync = Channel(Bool).new
       spawn { follower.close(let_sync) }
       spawn { client_socket.write_bytes data_size, IO::ByteFormat::LittleEndian }
+
       select
-      when let_sync.receive
+      when in_sync = let_sync.receive
+        in_sync.should eq true
       when timeout(1.second)
         fail "timeout close"
       end
+    ensure
+      follower_socket.try &.close
+      client_socket.try &.close
+    end
 
-      follower.lag.should eq 0
+    it "should close even when sync fails" do
+      follower_socket, client_socket = FakeSocket.pair
+      file_index = FakeFileIndex.new
+      follower = LavinMQ::Replication::Follower.new(follower_socket, file_index)
+      client_lz4 = Compress::LZ4::Reader.new(client_socket)
+
+      spawn { follower.read_acks }
+      data_size = 0i64
+      FollowerSpec.with_datadir_tempfile("file1") do |rel_path, abs_path|
+        File.write abs_path, "foo"
+        follower.add(abs_path)
+        filename_size = client_lz4.read_bytes(Int32, IO::ByteFormat::LittleEndian)
+        client_lz4.skip filename_size
+        data_size = client_lz4.read_bytes(Int64, IO::ByteFormat::LittleEndian)
+        client_lz4.skip data_size
+      end
+      let_sync = Channel(Bool).new
+      spawn { follower.close(let_sync) }
+      spawn { follower_socket.close }
+
+      select
+      when in_sync = let_sync.receive
+        in_sync.should eq false
+      when timeout(1.second)
+        fail "timeout close"
+      end
     ensure
       follower_socket.try &.close
       client_socket.try &.close

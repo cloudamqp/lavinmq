@@ -164,11 +164,11 @@ module LavinMQ
       def close
         @tcp.close
         @lock.synchronize do
-          ch = Channel(Nil).new
+          done = Channel(Bool).new
           @followers.each do |f|
-            spawn { f.close(ch) }
+            spawn { f.close(done) }
           end
-          @followers.size.times { ch.receive }
+          @followers.size.times { done.receive }
           @followers.clear
         end
         Fiber.yield # required for follower/listener fibers to actually finish
