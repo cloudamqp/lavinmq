@@ -16,12 +16,15 @@ module UpstreamSpecHelpers
     wait_for { links.all?(&.state.terminated?) }
   end
 
-  def self.setup_federation(upstream_name, exchange = nil, queue = nil)
+  def self.setup_federation(upstream_name, exchange = nil, queue = nil, prefetch = 1000_u16)
     self.cleanup_vhosts
     upstream_vhost = Server.vhosts.create("upstream")
     downstream_vhost = Server.vhosts.create("downstream")
-    upstream = LavinMQ::Federation::Upstream.new(downstream_vhost, upstream_name,
-      "#{SpecHelper.amqp_base_url}/upstream", exchange, queue)
+    upstream = LavinMQ::Federation::Upstream.new(
+      downstream_vhost, upstream_name,
+      "#{SpecHelper.amqp_base_url}/upstream", exchange, queue,
+      LavinMQ::Federation::AckMode::OnConfirm, nil, 1_i64, nil, prefetch
+    )
     downstream_vhost.upstreams.not_nil!.add(upstream)
     {upstream, upstream_vhost, downstream_vhost}
   end
@@ -250,51 +253,110 @@ describe LavinMQ::Federation::Upstream do
   end
 
   it "should not transfer messages unless downstream has consumer" do
-    upstream, upstream_vhost, downstream_vhost = UpstreamSpecHelpers.setup_federation("ef test upstream restart", nil, "upstream_q")
-    downstream_queue_name = "#{downstream_vhost.name}_q"
-    upstream_queue_name = "#{upstream_vhost.name}_q"
+    downstream_queue_name = Random::Secure.hex(10)
+    upstream_queue_name = Random::Secure.hex(10)
+    upstream, upstream_vhost, downstream_vhost = UpstreamSpecHelpers.setup_federation(Random::Secure.hex(10), nil, upstream_queue_name)
+
     UpstreamSpecHelpers.start_link(upstream, downstream_queue_name, "queues")
     Server.users.add_permission("guest", upstream_vhost.name, /.*/, /.*/, /.*/)
     Server.users.add_permission("guest", downstream_vhost.name, /.*/, /.*/, /.*/)
 
     with_channel(vhost: upstream_vhost.name) do |upstream_ch|
       upstream_q = upstream_ch.queue(upstream_queue_name)
-      with_channel(vhost: downstream_vhost.name) do |downstream_ch|
-        msgs = Channel(String).new
-        downstream_q = downstream_ch.queue(downstream_queue_name)
-        wait_for { downstream_vhost.queues[downstream_queue_name].policy.try(&.name) == "FE" }
+      upstream_q.publish "msg1"
+      wait_for { Server.vhosts[upstream_vhost.name].queues[upstream_queue_name].message_count == 1 }
+    end
 
-        # Assert setup is correct
-        wait_for { upstream.links.first?.try &.state.running? }
-        queue_up = Server.vhosts[upstream_vhost.name].queues[upstream_queue_name]
-        queue_down = Server.vhosts[downstream_vhost.name].queues[downstream_queue_name]
+    with_channel(vhost: downstream_vhost.name) do |downstream_ch|
+      msgs = Channel(String).new
+      downstream_q = downstream_ch.queue(downstream_queue_name)
+      wait_for { downstream_vhost.queues[downstream_queue_name].policy.try(&.name) == "FE" }
 
-        upstream_q.publish "msg1"
-        wait_for { queue_up.message_count == 1 }
+      # Assert setup is correct
+      wait_for { upstream.links.first?.try &.state.running? }
 
-        downstream_q.subscribe do |msg|
-          msgs.send msg.body_io.to_s
-        end
-        msgs.receive.should eq "msg1"
-
-        downstream_ch.close
-        wait_for { queue_down.consumers.empty? }
-
-        upstream_q.publish "msg2"
-        wait_for { queue_up.message_count == 1 }
-        wait_for { queue_down.message_count == 0 }
+      downstream_q.subscribe do |msg|
+        msgs.send msg.body_io.to_s
       end
+      msgs.receive.should eq "msg1"
+      wait_for { Server.vhosts[downstream_vhost.name].queues[downstream_queue_name].message_count == 0 }
+    end
 
-      # resume consuming on downstream, both upstream and downstream should be empty
-      with_channel(vhost: downstream_vhost.name) do |downstream_ch2|
-        msgs = Channel(String).new
-        downstream_q2 = downstream_ch2.queue(downstream_queue_name)
-        downstream_q2.subscribe do |msg|
-          msgs.send msg.body_io.to_s
-        end
-        msgs.receive.should eq "msg2"
+    queue_up = Server.vhosts[upstream_vhost.name].queues[upstream_queue_name]
+    queue_down = Server.vhosts[downstream_vhost.name].queues[downstream_queue_name]
+    wait_for { queue_down.consumers.empty? }
+
+    with_channel(vhost: upstream_vhost.name) do |upstream_ch|
+      upstream_q = upstream_ch.queue(upstream_queue_name)
+      upstream_q.publish "msg2"
+      wait_for { queue_up.message_count == 1 }
+      wait_for { queue_down.message_count == 0 }
+    end
+
+    # resume consuming on downstream, both upstream and downstream should be empty
+    with_channel(vhost: downstream_vhost.name) do |downstream_ch3|
+      msgs = Channel(String).new
+      downstream_q2 = downstream_ch3.queue(downstream_queue_name)
+      downstream_q2.subscribe do |msg|
+        msgs.send msg.body_io.to_s
+      end
+      msgs.receive.should eq "msg2"
+    end
+  ensure
+    UpstreamSpecHelpers.cleanup_vhosts
+  end
+
+  it "should not continue transfer messages if downstream consumer disconnects" do
+    ds_queue_name = Random::Secure.hex(10)
+    us_queue_name = Random::Secure.hex(10)
+    upstream, us_vhost, ds_vhost = UpstreamSpecHelpers.setup_federation(Random::Secure.hex(10), nil, us_queue_name, 1_u16)
+    UpstreamSpecHelpers.start_link(upstream, ds_queue_name, "queues")
+    Server.users.add_permission("guest", us_vhost.name, /.*/, /.*/, /.*/)
+    Server.users.add_permission("guest", ds_vhost.name, /.*/, /.*/, /.*/)
+    message_count = 2
+
+    # publish 2 messages to upstream queue
+    with_channel(vhost: us_vhost.name) do |upstream_ch|
+      upstream_q = upstream_ch.queue(us_queue_name)
+      message_count.times do |i|
+        upstream_q.publish "msg#{i}"
       end
     end
+
+    # consume 1 message from downstream queue
+    with_channel(vhost: ds_vhost.name) do |downstream_ch|
+      downstream_q = downstream_ch.queue(ds_queue_name)
+
+      # make sure FE policy is set and link is running
+      wait_for { ds_vhost.queues[ds_queue_name].policy.try(&.name) == "FE" }
+      wait_for { upstream.links.first?.try &.state.running? }
+
+      messages_consumed = 0
+      downstream_q.subscribe(tag: "c") do |msg|
+        messages_consumed += 1
+        message_count -= 1
+        downstream_q.unsubscribe("c")
+      end
+      wait_for { messages_consumed == 1 }
+      wait_for { Server.vhosts[ds_vhost.name].queues[ds_queue_name].message_count == 0 }
+      wait_for { Server.vhosts[us_vhost.name].queues[us_queue_name].message_count == message_count}
+    end
+
+    # make sure consumer is disconnected
+    wait_for { Server.vhosts[ds_vhost.name].queues[ds_queue_name].consumers.empty? }
+
+    # resume consuming on downstream, should get 1 message
+    with_channel(vhost: ds_vhost.name) do |downstream_ch|
+      downstream_q = downstream_ch.queue(ds_queue_name)
+      messages_consumed = 0
+      downstream_q.subscribe(tag: "c2") do |msg|
+        messages_consumed += 1
+      end
+      wait_for { Server.vhosts[us_vhost.name].queues[us_queue_name].message_count == 0 }
+      wait_for { Server.vhosts[ds_vhost.name].queues[ds_queue_name].message_count == 0 }
+      wait_for { messages_consumed == 1 }
+    end
+  ensure
     UpstreamSpecHelpers.cleanup_vhosts
   end
 
