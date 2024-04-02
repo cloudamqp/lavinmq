@@ -89,11 +89,14 @@ module LavinMQ
         end
 
         private def federate(msg, upstream_ch, exchange, routing_key, immediate = false)
+          @log.debug { "Federating routing_key=#{routing_key}" }
           status = @upstream.vhost.publish(
             Message.new(
               RoughTime.unix_ms, exchange, routing_key, msg.properties,
               msg.body_io.bytesize.to_u64, msg.body_io,
-            ), immediate)
+            ),
+            immediate
+          )
 
           if status
             ack(msg.delivery_tag, upstream_ch) if @upstream.ack_mode != AckMode::NoAck
