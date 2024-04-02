@@ -252,6 +252,16 @@ module LavinMQ
                       value: @amqp_server.stats_system_collection_duration_seconds.to_f,
                       type:  "gauge",
                       help:  "Time it takes to collect system metrics"})
+        writer.write({name:  "total_connected_followers",
+                      value: @amqp_server.@replicator.followers.size,
+                      type:  "gauge",
+                      help:  "Amount of follower nodes connected"})
+        @amqp_server.@replicator.followers.each_with_index do |f, i|
+          writer.write({name:  "follower_lag_#{i}",
+                        value: f.lag,
+                        type:  "gauge",
+                        help:  "Lag for follower on address: #{f.@socket.remote_address}"})
+        end
       end
 
       SERVER_METRICS = {:connection_created, :connection_closed, :channel_created, :channel_closed,
