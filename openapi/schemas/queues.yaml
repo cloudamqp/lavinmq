@@ -221,7 +221,7 @@ GetQueueMessagesRequestBody:
     count:
       type: integer
       default: 1
-    ack_mode:
+    ackmode:
       type: string
       default: get
     encoding:
