@@ -5,7 +5,11 @@ on:
   pull_request_target:
     types: [opened,closed,synchronize]
 
-# explicitly configure permissions, in case your GITHUB_TOKEN workflow permissions are set to read-only in repository settings
+# https://docs.github.com/en/actions/using-jobs/assigning-permissions-to-jobs
+# https://github.com/contributor-assistant/github-action needs permissions to
+# - re-run workflows
+# - comment in pull requests
+# - update commit statuses 
 permissions:
   actions: write
   pull-requests: write
