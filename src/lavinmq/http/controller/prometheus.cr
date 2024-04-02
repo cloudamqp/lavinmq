@@ -256,8 +256,8 @@ module LavinMQ
                       value: @amqp_server.@replicator.followers.size,
                       type:  "gauge",
                       help:  "Amount of follower nodes connected"})
-        @amqp_server.@replicator.followers.each do |f|
-          writer.write({name:  "follower_lag_#{f.@socket.remote_address}",
+        @amqp_server.@replicator.followers.each_with_index do |f, i|
+          writer.write({name:  "replication_lag_follower_#{i}",
                         value: f.lag,
                         type:  "gauge",
                         help:  "Lag for follower on address: #{f.@socket.remote_address}"})
