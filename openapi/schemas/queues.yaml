@@ -224,6 +224,9 @@ GetQueueMessagesRequestBody:
     ackmode:
       type: string
       default: get
+      enum:
+      - get
+      - reject_requeue_true
     encoding:
       type: string
       default: auto
