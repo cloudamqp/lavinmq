@@ -46,10 +46,14 @@ module LavinMQ
       def read_acks(socket = @socket) : Nil
         spawn action_loop, name: "Follower#action_loop"
         loop do
-          len = socket.read_bytes(Int64, IO::ByteFormat::LittleEndian)
-          @acked_bytes += len
+          read_ack(socket)
         end
       rescue IO::Error
+      end
+
+      def read_ack(socket = @socket) : Nil
+        len = socket.read_bytes(Int64, IO::ByteFormat::LittleEndian)
+        @acked_bytes += len
       end
 
       private def action_loop(socket = @lz4)
