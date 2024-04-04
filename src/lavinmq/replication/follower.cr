@@ -133,19 +133,19 @@ module LavinMQ
         end
       end
 
-      def add(path, mfile : MFile? = nil) : Int32
+      def add(path, mfile : MFile? = nil) : Int64
         send_action AddAction.new(path, mfile)
       end
 
-      def append(path, obj) : Int32
+      def append(path, obj) : Int64
         send_action AppendAction.new(path, obj)
       end
 
-      def delete(path) : Int32
+      def delete(path) : Int64
         send_action DeleteAction.new(path)
       end
 
-      private def send_action(action : Action) : Int32
+      private def send_action(action : Action) : Int64
         action_size = action.bytesize
         @sent_bytes += action_size
         @actions.send action
