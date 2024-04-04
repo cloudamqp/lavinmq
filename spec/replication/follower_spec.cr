@@ -163,6 +163,7 @@ module FollowerSpec
       client_lz4 = Compress::LZ4::Reader.new(client_socket)
 
       spawn { follower.read_acks }
+
       data_size = 0i64
       FollowerSpec.with_datadir_tempfile("file1") do |_rel_path, abs_path|
         File.write abs_path, "foo"
@@ -218,6 +219,30 @@ module FollowerSpec
     ensure
       follower_socket.try &.close
       client_socket.try &.close
+    end
+  end
+
+  describe "#lag" do
+    it "should count bytes added to action queue" do
+      follower_socket, _client_socket = FakeSocket.pair
+      file_index = FakeFileIndex.new
+      follower = LavinMQ::Replication::Follower.new(follower_socket, file_index)
+      filename = "#{LavinMQ::Config.instance.data_dir}/file1"
+      size = follower.append filename, Bytes.new(10)
+      follower.lag.should eq size
+    end
+
+    it "should subtract acked bytes from lag" do
+      follower_socket, client_socket = FakeSocket.pair
+      file_index = FakeFileIndex.new
+      follower = LavinMQ::Replication::Follower.new(follower_socket, file_index)
+      filename = "#{LavinMQ::Config.instance.data_dir}/file1"
+      size = follower.append filename, Bytes.new(10)
+      size2 = follower.append filename, Bytes.new(20)
+      # send ack for first message
+      client_socket.write_bytes size.to_i64, IO::ByteFormat::LittleEndian
+      follower.read_ack
+      follower.lag.should eq size2
     end
   end
 end

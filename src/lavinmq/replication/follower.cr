@@ -1,4 +1,3 @@
-require "../replication"
 require "./actions"
 require "./file_index"
 
