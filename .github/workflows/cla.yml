@@ -9,7 +9,7 @@ on:
 # https://github.com/contributor-assistant/github-action needs permissions to
 # - re-run workflows
 # - comment in pull requests
-# - update commit statuses 
+# - update commit statuses
 permissions:
   actions: write
   pull-requests: write
@@ -18,7 +18,10 @@ permissions:
 jobs:
   CLAAssistant:
     runs-on: ubuntu-latest
-    if: ${{ github.event.pull_request.author_association != 'MEMBER' && github.event.pull_request.author_association != 'OWNER' }}
+    if: |
+      (github.event.pull_request.author_association != 'MEMBER') &&
+      (github.event.pull_request.author_association != 'COLLABORATOR') &&
+      (github.event.pull_request.author_association != 'OWNER')
     steps:
       - name: "CLA Assistant"
         if: (github.event.comment.body == 'recheck' || github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA') || github.event_name == 'pull_request_target'
