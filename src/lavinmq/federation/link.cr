@@ -139,7 +139,7 @@ module LavinMQ
         private abstract def start_link
         private abstract def unregister_observer
 
-        protected def start_link_common
+        private def start_link_common(&)
           return if @state.terminated?
           @upstream_connection.try &.close
           @downstream_connection.try &.close
