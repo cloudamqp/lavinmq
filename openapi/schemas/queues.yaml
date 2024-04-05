@@ -221,9 +221,12 @@ GetQueueMessagesRequestBody:
     count:
       type: integer
       default: 1
-    ack_mode:
+    ackmode:
       type: string
       default: get
+      enum:
+      - get
+      - reject_requeue_true
     encoding:
       type: string
       default: auto
