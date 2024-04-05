@@ -5,7 +5,7 @@ require "./file_index"
 module LavinMQ
   module Replication
     class Follower
-      Log = ::Log.for(self)
+      Log = ::Log.for("replication.follower")
 
       @acked_bytes = 0_i64
       @sent_bytes = 0_i64
