@@ -4,7 +4,7 @@
 # ![LavinMQ](static/img/logo-lavinmq.svg)
 
 A message queue server that implements the AMQP 0-9-1 protocol.
-Written in [Crystal](https://crystal-lang.org/).
+Written in [Crystal](https://crystal-lang.org/). 🏂
 
 Aims to be very fast, has low RAM requirements, handles very long queues,
 many connections, and requires minimal configuration.
