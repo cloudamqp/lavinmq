@@ -2,6 +2,16 @@ require "../spec_helper"
 require "lz4"
 
 module FollowerSpec
+  def self.with_datadir_tempfile(filename, &)
+    relative_path = Path.new filename
+    absolute_path = Path.new(LavinMQ::Config.instance.data_dir).join relative_path
+    yield relative_path.to_s, absolute_path.to_s
+  ensure
+    if absolute_path && File.exists? absolute_path
+      FileUtils.rm absolute_path
+    end
+  end
+
   def self.sha1(str : String)
     sha1 = Digest::SHA1.new
     hash = Bytes.new(sha1.digest_size)
@@ -142,6 +152,72 @@ module FollowerSpec
       end
 
       file_list.should eq file_index.@files_with_hash
+    end
+  end
+
+  describe "#close" do
+    it "should let followers sync" do
+      follower_socket, client_socket = FakeSocket.pair
+      file_index = FakeFileIndex.new
+      follower = LavinMQ::Replication::Follower.new(follower_socket, file_index)
+      client_lz4 = Compress::LZ4::Reader.new(client_socket)
+
+      spawn { follower.read_acks }
+      data_size = 0i64
+      FollowerSpec.with_datadir_tempfile("file1") do |_rel_path, abs_path|
+        File.write abs_path, "foo"
+        follower.add(abs_path)
+        filename_size = client_lz4.read_bytes(Int32, IO::ByteFormat::LittleEndian)
+        client_lz4.skip filename_size
+        data_size = client_lz4.read_bytes(Int64, IO::ByteFormat::LittleEndian)
+        client_lz4.skip data_size
+      end
+      let_sync = Channel({LavinMQ::Replication::Follower, Bool}).new
+      spawn { follower.close(let_sync) }
+      spawn { client_socket.write_bytes data_size, IO::ByteFormat::LittleEndian }
+
+      select
+      when res = let_sync.receive
+        follower, in_sync = res
+        in_sync.should eq true
+      when timeout(1.second)
+        fail "timeout close"
+      end
+    ensure
+      follower_socket.try &.close
+      client_socket.try &.close
+    end
+
+    it "should close even when sync fails" do
+      follower_socket, client_socket = FakeSocket.pair
+      file_index = FakeFileIndex.new
+      follower = LavinMQ::Replication::Follower.new(follower_socket, file_index)
+      client_lz4 = Compress::LZ4::Reader.new(client_socket)
+
+      spawn { follower.read_acks }
+      data_size = 0i64
+      FollowerSpec.with_datadir_tempfile("file1") do |_rel_path, abs_path|
+        File.write abs_path, "foo"
+        follower.add(abs_path)
+        filename_size = client_lz4.read_bytes(Int32, IO::ByteFormat::LittleEndian)
+        client_lz4.skip filename_size
+        data_size = client_lz4.read_bytes(Int64, IO::ByteFormat::LittleEndian)
+        client_lz4.skip data_size
+      end
+      let_sync = Channel({LavinMQ::Replication::Follower, Bool}).new
+      spawn { follower.close(let_sync) }
+      spawn { follower_socket.close }
+
+      select
+      when res = let_sync.receive
+        follower, in_sync = res
+        in_sync.should eq false
+      when timeout(1.second)
+        fail "timeout close"
+      end
+    ensure
+      follower_socket.try &.close
+      client_socket.try &.close
     end
   end
 end
