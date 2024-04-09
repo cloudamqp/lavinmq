@@ -139,6 +139,24 @@ module LavinMQ
         private abstract def start_link
         private abstract def unregister_observer
 
+        private def start_link_common(&)
+          return if @state.terminated?
+          @upstream_connection.try &.close
+          @downstream_connection.try &.close
+          upstream_uri = named_uri(@upstream.uri)
+          params = upstream_uri.query_params
+          params["product"] = "LavinMQ"
+          params["product_version"] = LavinMQ::VERSION.to_s
+          upstream_uri.query = params.to_s
+          ::AMQP::Client.start(upstream_uri) do |c|
+            @upstream_connection = c
+            ::AMQP::Client.start(named_uri(@local_uri)) do |p|
+              @downstream_connection = p
+              yield c, p
+            end
+          end
+        end
+
         enum State
           Starting
           Running
@@ -204,38 +222,29 @@ module LavinMQ
         end
 
         private def start_link
-          return if @state.terminated?
-          @upstream_connection.try &.close
-          @downstream_connection.try &.close
-          upstream_uri = named_uri(@upstream.uri)
-          local_uri = named_uri(@local_uri)
-          ::AMQP::Client.start(upstream_uri) do |c|
-            @upstream_connection = c
-            ::AMQP::Client.start(local_uri) do |p|
-              @downstream_connection = p
-              cch, q = setup_queue(c)
-              cch.prefetch(count: @upstream.prefetch)
-              pch = p.channel
-              pch.confirm_select if @upstream.ack_mode.on_confirm?
-              no_ack = @upstream.ack_mode.no_ack?
-              state(State::Running)
-              unless @federated_q.immediate_delivery?
-                @log.debug { "Waiting for consumers" }
-                @consumer_available.receive?
-              end
-              q_name = q[:queue_name]
-              cch.basic_consume(q_name, no_ack: no_ack, tag: @upstream.consumer_tag, block: true) do |msg|
-                @last_changed = RoughTime.unix_ms
-                headers, received_from = received_from_header(msg)
-                received_from << ::AMQP::Client::Arguments.new({
-                  "uri"         => @scrubbed_uri,
-                  "queue"       => q_name,
-                  "redelivered" => msg.redelivered,
-                })
-                headers["x-received-from"] = received_from
-                msg.properties.headers = headers
-                federate(msg, pch, cch.not_nil!, EXCHANGE, @federated_q.name)
-              end
+          start_link_common do |c, p|
+            cch, q = setup_queue(c)
+            cch.prefetch(count: @upstream.prefetch)
+            pch = p.channel
+            pch.confirm_select if @upstream.ack_mode.on_confirm?
+            no_ack = @upstream.ack_mode.no_ack?
+            state(State::Running)
+            unless @federated_q.immediate_delivery?
+              @log.debug { "Waiting for consumers" }
+              @consumer_available.receive?
+            end
+            q_name = q[:queue_name]
+            cch.basic_consume(q_name, no_ack: no_ack, tag: @upstream.consumer_tag, block: true) do |msg|
+              @last_changed = RoughTime.unix_ms
+              headers, received_from = received_from_header(msg)
+              received_from << ::AMQP::Client::Arguments.new({
+                "uri"         => @scrubbed_uri,
+                "queue"       => q_name,
+                "redelivered" => msg.redelivered,
+              })
+              headers["x-received-from"] = received_from
+              msg.properties.headers = headers
+              federate(msg, pch, cch.not_nil!, EXCHANGE, @federated_q.name)
             end
           end
         end
@@ -302,6 +311,8 @@ module LavinMQ
           upstream_uri = @upstream.uri.dup
           params = upstream_uri.query_params
           params["name"] ||= "Federation link cleanup: #{@upstream.name}/#{name}"
+          params["product"] = "LavinMQ"
+          params["product_version"] = LavinMQ::VERSION.to_s
           upstream_uri.query = params.to_s
           ::AMQP::Client.start(upstream_uri) do |c|
             ch = c.channel
@@ -348,37 +359,27 @@ module LavinMQ
         end
 
         private def start_link
-          return if @state.terminated?
-          @upstream_connection.try &.close
-          @downstream_connection.try &.close
-          upstream_uri = named_uri(@upstream.uri)
-          local_uri = named_uri(@local_uri)
-          ::AMQP::Client.start(upstream_uri) do |c|
-            @upstream_connection = c
-            ::AMQP::Client.start(local_uri) do |p|
-              @downstream_connection = p
-              cch, @consumer_q = setup(c)
-              cch.prefetch(count: @upstream.prefetch)
-              pch = p.channel
-              pch.confirm_select if @upstream.ack_mode.on_confirm?
-              no_ack = @upstream.ack_mode.no_ack?
-              state(State::Running)
-
-              cch.basic_consume(@upstream_q, no_ack: no_ack, tag: @upstream.consumer_tag, block: true) do |msg|
-                @last_changed = RoughTime.unix_ms
-                headers, received_from = received_from_header(msg)
-                received_from << ::AMQP::Client::Arguments.new({
-                  "uri"         => @scrubbed_uri,
-                  "exchange"    => @upstream_exchange,
-                  "redelivered" => msg.redelivered,
-                })
-                headers["x-received-from"] = received_from
-                msg.properties.headers = headers
-                federate(msg, pch, cch.not_nil!, @federated_ex.name, msg.routing_key)
-              end
-            ensure
-              @consumer_q = nil
+          start_link_common do |c, p|
+            cch, @consumer_q = setup(c)
+            cch.prefetch(count: @upstream.prefetch)
+            pch = p.channel
+            pch.confirm_select if @upstream.ack_mode.on_confirm?
+            no_ack = @upstream.ack_mode.no_ack?
+            state(State::Running)
+            cch.basic_consume(@upstream_q, no_ack: no_ack, tag: @upstream.consumer_tag, block: true) do |msg|
+              @last_changed = RoughTime.unix_ms
+              headers, received_from = received_from_header(msg)
+              received_from << ::AMQP::Client::Arguments.new({
+                "uri"         => @scrubbed_uri,
+                "exchange"    => @upstream_exchange,
+                "redelivered" => msg.redelivered,
+              })
+              headers["x-received-from"] = received_from
+              msg.properties.headers = headers
+              federate(msg, pch, cch.not_nil!, @federated_ex.name, msg.routing_key)
             end
+          ensure
+            @consumer_q = nil
           end
         end
       end
