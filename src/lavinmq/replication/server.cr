@@ -22,7 +22,6 @@ module LavinMQ
     class Server
       include FileIndex
       Log = ::Log.for("replication")
-
       @lock = Mutex.new(:unchecked)
       @followers = Array(Follower).new
       @password : String
@@ -164,7 +163,14 @@ module LavinMQ
       def close
         @tcp.close
         @lock.synchronize do
-          @followers.each &.close
+          done = Channel({Follower, Bool}).new
+          @followers.each do |f|
+            spawn { f.close(done) }
+          end
+          @followers.size.times do
+            follower, synced = done.receive
+            Log.info { "Follower #{follower.name} stopped, in sync: #{synced}" }
+          end
           @followers.clear
         end
         Fiber.yield # required for follower/listener fibers to actually finish
