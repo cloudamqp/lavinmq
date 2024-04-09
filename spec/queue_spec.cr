@@ -343,6 +343,38 @@ describe LavinMQ::Queue do
       store.@segments.size.should be <= 2
     end
 
+    it "should not create ack files when cleaning up segments" do
+      # This spec verifies a bugfix
+      segment_size = LavinMQ::Config.instance.segment_size
+      LavinMQ::Config.instance.segment_size = 30
+      data_dir = File.tempname("lavin", ".spec")
+      Dir.mkdir_p data_dir
+      store = LavinMQ::Queue::MessageStore.new(data_dir, nil)
+      2.times do
+        msg = LavinMQ::Message.new(
+          Time.utc.to_unix_ms,
+          "amq.topic",
+          "rk",
+          AMQ::Protocol::Properties.new,
+          3,
+          IO::Memory.new("foo")
+        )
+        store.push msg
+      end
+      store.close
+
+      # recreate store to let it read the segments and cleanup
+      LavinMQ::Queue::MessageStore.new(data_dir, nil)
+      Dir.glob(File.join(data_dir, "acks.*")).size.should eq 0
+    ensure
+      if dir = data_dir
+        FileUtils.rm_rf dir
+      end
+      if size = segment_size
+        LavinMQ::Config.instance.segment_size = size
+      end
+    end
+
     it "should yield fiber while purging" do
       tmpdir = File.tempname "lavin", ".spec"
       Dir.mkdir_p tmpdir
