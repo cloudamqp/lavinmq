@@ -144,14 +144,13 @@ module LavinMQ
           @upstream_connection.try &.close
           @downstream_connection.try &.close
           upstream_uri = named_uri(@upstream.uri)
-          local_uri = named_uri(@local_uri)
           params = upstream_uri.query_params
           params["product"] = "LavinMQ"
           params["product_version"] = LavinMQ::VERSION.to_s
           upstream_uri.query = params.to_s
           ::AMQP::Client.start(upstream_uri) do |c|
             @upstream_connection = c
-            ::AMQP::Client.start(local_uri) do |p|
+            ::AMQP::Client.start(named_uri(@local_uri)) do |p|
               @downstream_connection = p
               yield c, p
             end
