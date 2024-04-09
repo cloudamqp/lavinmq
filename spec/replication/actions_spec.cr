@@ -56,12 +56,12 @@ describe LavinMQ::Replication::Action do
         end
       end
 
-      describe "#bytesize" do
+      describe "#lag_size" do
         it "should count filename and filesize" do
           with_datadir_tempfile("data") do |_relative, absolute|
             File.write absolute, "foo"
             action = LavinMQ::Replication::AddAction.new absolute
-            action.bytesize.should eq(sizeof(Int32) + "data".bytesize + sizeof(Int64) + "foo".bytesize)
+            action.lag_size.should eq(sizeof(Int32) + "data".bytesize + sizeof(Int64) + "foo".bytesize)
           end
         end
       end
@@ -82,12 +82,12 @@ describe LavinMQ::Replication::Action do
           end
         end
       end
-      describe "#bytesize" do
+      describe "#lag_size" do
         it "should count filename and filesize" do
           with_datadir_tempfile("data") do |_relative, absolute|
             File.write absolute, "foo"
             action = LavinMQ::Replication::AddAction.new absolute
-            action.bytesize.should eq(sizeof(Int32) + "data".bytesize + sizeof(Int64) + "foo".bytesize)
+            action.lag_size.should eq(sizeof(Int32) + "data".bytesize + sizeof(Int64) + "foo".bytesize)
           end
         end
       end
@@ -109,11 +109,11 @@ describe LavinMQ::Replication::Action do
           end
         end
       end
-      describe "#bytesize" do
+      describe "#lag_size" do
         it "should count filename and size of Int32" do
           with_datadir_tempfile("data") do |_relative, absolute|
             action = LavinMQ::Replication::AppendAction.new absolute, 123i32
-            action.bytesize.should eq(sizeof(Int32) + "data".bytesize + sizeof(Int64) + sizeof(Int32))
+            action.lag_size.should eq(sizeof(Int32) + "data".bytesize + sizeof(Int64) + sizeof(Int32))
           end
         end
       end
@@ -133,11 +133,11 @@ describe LavinMQ::Replication::Action do
           end
         end
       end
-      describe "#bytesize" do
+      describe "#lag_size" do
         it "should count filename and size of UInt32" do
           with_datadir_tempfile("data") do |_relative, absolute|
             action = LavinMQ::Replication::AppendAction.new absolute, 123u32
-            action.bytesize.should eq(sizeof(Int32) + "data".bytesize + sizeof(Int64) + sizeof(UInt32))
+            action.lag_size.should eq(sizeof(Int32) + "data".bytesize + sizeof(Int64) + sizeof(UInt32))
           end
         end
       end
@@ -157,11 +157,11 @@ describe LavinMQ::Replication::Action do
           end
         end
       end
-      describe "#bytesize" do
+      describe "#lag_size" do
         it "should count filename and size of Bytes" do
           with_datadir_tempfile("data") do |_relative, absolute|
             action = LavinMQ::Replication::AppendAction.new absolute, "foo".to_slice
-            action.bytesize.should eq(sizeof(Int32) + "data".bytesize + sizeof(Int64) + "foo".to_slice.bytesize)
+            action.lag_size.should eq(sizeof(Int32) + "data".bytesize + sizeof(Int64) + "foo".to_slice.bytesize)
           end
         end
       end
@@ -184,13 +184,13 @@ describe LavinMQ::Replication::Action do
           end
         end
       end
-      describe "#bytesize" do
+      describe "#lag_size" do
         it "should count filename and size of FileRange" do
           with_datadir_tempfile("data") do |_relative, absolute|
             File.write absolute, "foo bar baz"
             range = LavinMQ::Replication::FileRange.new(MFile.new(absolute), 4, 3)
             action = LavinMQ::Replication::AppendAction.new absolute, range
-            action.bytesize.should eq(sizeof(Int32) + "data".bytesize + sizeof(Int64) + range.len)
+            action.lag_size.should eq(sizeof(Int32) + "data".bytesize + sizeof(Int64) + range.len)
           end
         end
       end

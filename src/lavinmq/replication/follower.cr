@@ -145,10 +145,10 @@ module LavinMQ
       end
 
       private def send_action(action : Action) : Int64
-        action_size = action.bytesize
-        @sent_bytes += action_size
+        lag_size = action.lag_size
+        @sent_bytes += lag_size
         @actions.send action
-        action_size
+        lag_size
       end
 
       def close(synced_close : Channel({Follower, Bool})? = nil)

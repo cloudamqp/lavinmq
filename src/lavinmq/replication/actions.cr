@@ -12,7 +12,7 @@ module LavinMQ
       def initialize(@path : String)
       end
 
-      abstract def bytesize : Int64
+      abstract def lag_size : Int64
       abstract def send(socket : IO) : Int64
 
       protected def filename_bytesize : Int32
@@ -33,7 +33,7 @@ module LavinMQ
       def initialize(@path : String, @mfile : MFile? = nil)
       end
 
-      def bytesize : Int64
+      def lag_size : Int64
         if mfile = @mfile
           0i64 + sizeof(Int32) + filename.bytesize +
             sizeof(Int64) + mfile.size.to_i64
@@ -66,7 +66,7 @@ module LavinMQ
       def initialize(@path : String, @obj : Bytes | FileRange | UInt32 | Int32)
       end
 
-      def bytesize : Int64
+      def lag_size : Int64
         datasize = case obj = @obj
                    in Bytes
                      obj.bytesize.to_i64
@@ -102,7 +102,7 @@ module LavinMQ
     end
 
     struct DeleteAction < Action
-      def bytesize : Int64
+      def lag_size : Int64
         # Maybe it would be ok to not include delete action in lag, because
         # the follower should have all info necessary to GC the file during
         # startup?
