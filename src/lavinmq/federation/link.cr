@@ -221,15 +221,10 @@ module LavinMQ
               state(State::Running)
               unless @federated_q.immediate_delivery?
                 @log.debug { "Waiting for consumers" }
-                loop do
-                  select
-                  when @consumer_available.receive?
-                    break
-                  else
-                    return if @upstream_connection.try &.closed?
-                    sleep 0.1
-                    Fiber.yield
-                  end
+                select
+                when @consumer_available.receive?
+                when timeout(1.second)
+                  return if @upstream_connection.try &.closed?
                 end
               end
               q_name = q[:queue_name]
