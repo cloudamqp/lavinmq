@@ -10,9 +10,13 @@ module LavinMQ
       @acked_bytes = 0_i64
       @sent_bytes = 0_i64
       @actions = Channel(Action).new(4096)
+      getter name
+      getter? closed
 
       def initialize(@socket : TCPSocket, @file_index : FileIndex)
         Log.context.set(address: @socket.remote_address.to_s)
+        @name = @socket.remote_address.to_s
+        @closed = false
         @socket.write_timeout = 5
         @socket.read_timeout = 5
         @socket.buffer_size = 64 * 1024
@@ -137,13 +141,18 @@ module LavinMQ
         @actions.send DeleteAction.new(path)
       end
 
-      def close
+      def close(synced_close : Channel({Follower, Bool})? = nil)
+        return if closed?
+        @closed = true
         Log.info { "Disconnected" }
+        wait_for_sync if synced_close
         @actions.close
         @lz4.close
         @socket.close
       rescue IO::Error
         # ignore connection errors while closing
+      ensure
+        synced_close.try &.send({self, lag.zero?})
       end
 
       def to_json(json : JSON::Builder)
@@ -159,6 +168,17 @@ module LavinMQ
 
       def lag : Int64
         @sent_bytes - @acked_bytes
+      end
+
+      private def wait_for_sync
+        in_sync = Channel(Nil).new
+        spawn do
+          until lag.zero? || @socket.closed?
+            Fiber.yield
+          end
+          in_sync.send nil
+        end
+        in_sync.receive
       end
     end
   end
