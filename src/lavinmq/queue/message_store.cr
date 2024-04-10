@@ -26,7 +26,7 @@ module LavinMQ
       getter size = 0u32
       getter empty_change = Channel(Bool).new
 
-      def initialize(@data_dir : String, @replicator : Replication::Server?)
+      def initialize(@data_dir : String, @replicator : Replication::Replicator?)
         @acks = Hash(UInt32, MFile).new { |acks, seg| acks[seg] = open_ack_file(seg) }
         load_segments_from_disk
         load_deleted_from_disk
