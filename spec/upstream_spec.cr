@@ -252,7 +252,7 @@ describe LavinMQ::Federation::Upstream do
     UpstreamSpecHelpers.cleanup_vhosts
   end
 
-  it "should not transfer messages unless downstream has consumer" do
+  it "should only transfer messages when downstream has consumer" do
     ds_queue_name = Random::Secure.hex(10)
     us_queue_name = Random::Secure.hex(10)
     upstream, us_vhost, ds_vhost = UpstreamSpecHelpers.setup_federation(Random::Secure.hex(10), nil, us_queue_name)
@@ -301,7 +301,7 @@ describe LavinMQ::Federation::Upstream do
     UpstreamSpecHelpers.cleanup_vhosts
   end
 
-  it "should not continue transfer messages if downstream consumer disconnects" do
+  it "should stop transfering messages if downstream consumer disconnects" do
     ds_queue_name = Random::Secure.hex(10)
     us_queue_name = Random::Secure.hex(10)
     upstream, us_vhost, ds_vhost = UpstreamSpecHelpers.setup_federation(Random::Secure.hex(10), nil, us_queue_name, 1_u16)
@@ -329,12 +329,11 @@ describe LavinMQ::Federation::Upstream do
       messages_consumed = 0
       downstream_q.subscribe(tag: "c") do |_msg|
         messages_consumed += 1
-        message_count -= 1
         downstream_q.unsubscribe("c")
       end
       wait_for { messages_consumed == 1 }
       wait_for { Server.vhosts[ds_vhost.name].queues[ds_queue_name].message_count == 0 }
-      wait_for { Server.vhosts[us_vhost.name].queues[us_queue_name].message_count == message_count }
+      wait_for { Server.vhosts[us_vhost.name].queues[us_queue_name].message_count == 1 }
     end
 
     # make sure consumer is disconnected
