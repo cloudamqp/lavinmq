@@ -301,6 +301,6 @@ Messages are only deleted when `max-length`, `max-length-bytes` or `max-age` are
 
 The software is licensed under the [Apache License 2.0](LICENSE).
 
-Copyright 2018-2023 84codes AB
+Copyright 2018-2024 84codes AB
 
 LavinMQ is a trademark of 84codes AB
