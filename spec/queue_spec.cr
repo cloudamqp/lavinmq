@@ -344,9 +344,9 @@ describe LavinMQ::Queue do
     end
 
     it "should not create ack files when cleaning up segments" do
+      # This spec verifies a bugfix where one ack file per segment was created
       data_dir = File.join(LavinMQ::Config.instance.data_dir, "msgstore")
       Dir.mkdir_p data_dir
-      # This spec verifies a bugfix where one ack file per segment was created
       body = IO::Memory.new(Random::DEFAULT.random_bytes(LavinMQ::Config.instance.segment_size), writeable: false)
       msg = LavinMQ::Message.new(0i64, "amq.topic", "rk", AMQ::Protocol::Properties.new, body.size.to_u64, body)
 
