@@ -242,7 +242,6 @@ module LavinMQ
               headers["x-received-from"] = received_from
               msg.properties.headers = headers
 
-              # investigate use of consumers_empty_change?
               unless federate(msg, upstream_channel.not_nil!, EXCHANGE, @federated_q.name, true)
                 raise NoDownstreamConsumerError.new("Federate failed, no downstream consumer available")
               end
