@@ -104,7 +104,7 @@ module LavinMQ
           status
         end
 
-        private def ack(delivery_tag, upstream_ch, close = false)
+        private def ack(delivery_tag, upstream_ch)
           return unless delivery_tag
           if ch = upstream_ch
             raise "Channel closed when acking" if ch.closed?
@@ -112,7 +112,7 @@ module LavinMQ
           end
         end
 
-        private def reject(delivery_tag, upstream_ch, close = false)
+        private def reject(delivery_tag, upstream_ch)
           return unless delivery_tag
           if ch = upstream_ch
             raise "Channel closed when rejecting" if ch.closed?
