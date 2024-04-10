@@ -17,7 +17,6 @@ module LavinMQ
         @scrubbed_uri : String
         @last_unacked : UInt64?
         @upstream_connection : ::AMQP::Client::Connection?
-        @downstream_connection : ::AMQP::Client::Connection?
 
         def initialize(@upstream : Upstream, @log : Log)
           user = @upstream.vhost.users.direct_user
@@ -62,7 +61,6 @@ module LavinMQ
           return if @state.terminated?
           state(State::Terminating)
           @upstream_connection.try &.close
-          @downstream_connection.try &.close
         end
 
         private def run_loop
@@ -151,7 +149,6 @@ module LavinMQ
         private def start_link_common(&)
           return if @state.terminated?
           @upstream_connection.try &.close
-          @downstream_connection.try &.close
           upstream_uri = named_uri(@upstream.uri)
           params = upstream_uri.query_params
           params["product"] = "LavinMQ"
@@ -159,10 +156,7 @@ module LavinMQ
           upstream_uri.query = params.to_s
           ::AMQP::Client.start(upstream_uri) do |c|
             @upstream_connection = c
-            ::AMQP::Client.start(named_uri(@local_uri)) do |p|
-              @downstream_connection = p
-              yield c, p
-            end
+            yield c
           end
         end
 
@@ -228,11 +222,9 @@ module LavinMQ
         end
 
         private def start_link
-          start_link_common do |c, p|
-            cch, q = setup_queue(c)
-            cch.prefetch(count: @upstream.prefetch)
-            pch = p.channel
-            pch.confirm_select if @upstream.ack_mode.on_confirm?
+          start_link_common do |upstream_connection|
+            upstream_channel, q = setup_queue(upstream_connection)
+            upstream_channel.prefetch(count: @upstream.prefetch)
             no_ack = @upstream.ack_mode.no_ack?
             state(State::Running)
             unless @federated_q.immediate_delivery?
@@ -240,7 +232,7 @@ module LavinMQ
               @consumer_available.receive?
             end
             q_name = q[:queue_name]
-            cch.basic_consume(q_name, no_ack: no_ack, tag: @upstream.consumer_tag, block: true) do |msg|
+            upstream_channel.basic_consume(q_name, no_ack: no_ack, tag: @upstream.consumer_tag, block: true) do |msg|
               @last_changed = RoughTime.unix_ms
               headers, received_from = received_from_header(msg)
               received_from << ::AMQP::Client::Arguments.new({
@@ -252,7 +244,7 @@ module LavinMQ
               msg.properties.headers = headers
 
               # investigate use of consumers_empty_change?
-              unless federate(msg, cch.not_nil!, EXCHANGE, @federated_q.name, true)
+              unless federate(msg, upstream_channel.not_nil!, EXCHANGE, @federated_q.name, true)
                 raise NoDownstreamConsumerError.new("Federate failed, no downstream consumer available")
               end
             end
@@ -368,14 +360,12 @@ module LavinMQ
         end
 
         private def start_link
-          start_link_common do |c, p|
-            cch, @consumer_q = setup(c)
-            cch.prefetch(count: @upstream.prefetch)
-            pch = p.channel
-            pch.confirm_select if @upstream.ack_mode.on_confirm?
+          start_link_common do |upstream_connection|
+            upstream_channel, @consumer_q = setup(upstream_connection)
+            upstream_channel.prefetch(count: @upstream.prefetch)
             no_ack = @upstream.ack_mode.no_ack?
             state(State::Running)
-            cch.basic_consume(@upstream_q, no_ack: no_ack, tag: @upstream.consumer_tag, block: true) do |msg|
+            upstream_channel.basic_consume(@upstream_q, no_ack: no_ack, tag: @upstream.consumer_tag, block: true) do |msg|
               @last_changed = RoughTime.unix_ms
               headers, received_from = received_from_header(msg)
               received_from << ::AMQP::Client::Arguments.new({
@@ -385,7 +375,7 @@ module LavinMQ
               })
               headers["x-received-from"] = received_from
               msg.properties.headers = headers
-              federate(msg, cch.not_nil!, @federated_ex.name, msg.routing_key)
+              federate(msg, upstream_channel.not_nil!, @federated_ex.name, msg.routing_key)
             end
           ensure
             @consumer_q = nil
