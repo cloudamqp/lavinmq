@@ -18,6 +18,8 @@ permissions:
 jobs:
   CLAAssistant:
     runs-on: ubuntu-latest
+    # organization membership needs to be public for this check to work
+    # https://github.com/orgs/community/discussions/18690
     if: |
       (github.event.pull_request.author_association != 'MEMBER') &&
       (github.event.pull_request.author_association != 'COLLABORATOR') &&
