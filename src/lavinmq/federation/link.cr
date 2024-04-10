@@ -146,7 +146,7 @@ module LavinMQ
         abstract def name : String
         private abstract def start_link
 
-        private def start_link_common(&)
+        private def setup_connection(&)
           return if @state.terminated?
           @upstream_connection.try &.close
           upstream_uri = named_uri(@upstream.uri)
@@ -154,9 +154,8 @@ module LavinMQ
           params["product"] = "LavinMQ"
           params["product_version"] = LavinMQ::VERSION.to_s
           upstream_uri.query = params.to_s
-          ::AMQP::Client.start(upstream_uri) do |c|
-            @upstream_connection = c
-            yield c
+          ::AMQP::Client.start(upstream_uri) do |upstream_connection|
+            yield @upstream_connection = upstream_connection
           end
         end
 
@@ -222,7 +221,7 @@ module LavinMQ
         end
 
         private def start_link
-          start_link_common do |upstream_connection|
+          setup_connection do |upstream_connection|
             upstream_channel, q = setup_queue(upstream_connection)
             upstream_channel.prefetch(count: @upstream.prefetch)
             no_ack = @upstream.ack_mode.no_ack?
@@ -360,7 +359,7 @@ module LavinMQ
         end
 
         private def start_link
-          start_link_common do |upstream_connection|
+          setup_connection do |upstream_connection|
             upstream_channel, @consumer_q = setup(upstream_connection)
             upstream_channel.prefetch(count: @upstream.prefetch)
             no_ack = @upstream.ack_mode.no_ack?
