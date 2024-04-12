@@ -42,9 +42,15 @@ require "../src/lavinmq/http/http_server"
 
 def with_channel(**args, &)
   name = nil
-  if formatter = Spec.formatters[0].as?(Spec::VerboseFormatter)
-    name = formatter.@last_description
-  end
+  {% if Spec::CLI.resolve? %}
+    if formatter = Spec.cli.formatters[0].as?(Spec::VerboseFormatter)
+      name = formatter.@last_description
+    end
+  {% else %}
+    if formatter = Spec.formatters[0].as?(Spec::VerboseFormatter)
+      name = formatter.@last_description
+    end
+  {% end %}
   args = {port: LavinMQ::Config.instance.amqp_port, name: name}.merge(args)
   conn = AMQP::Client.new(**args).connect
   ch = conn.channel
