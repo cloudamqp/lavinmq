@@ -20,7 +20,7 @@ module LavinMQ
       # PROXY TCP6 ffff:f...f:ffff ffff:f...f:ffff 65535 65535\r\n
       # PROXY UNKNOWN\r\n
       def self.parse(io)
-        io.read_timeout = 15
+        io.read_timeout = 15.seconds
         header = io.gets('\n', 107) || raise IO::EOFError.new
 
         src_addr = "127.0.0.1"

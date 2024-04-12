@@ -17,8 +17,8 @@ module LavinMQ
         Log.context.set(address: @socket.remote_address.to_s)
         @name = @socket.remote_address.to_s
         @closed = false
-        @socket.write_timeout = 5
-        @socket.read_timeout = 5
+        @socket.write_timeout = 5.seconds
+        @socket.read_timeout = 5.seconds
         @socket.buffer_size = 64 * 1024
         @lz4 = Compress::LZ4::Writer.new(@socket, Compress::LZ4::CompressOptions.new(auto_flush: false, block_mode_linked: true))
       end
