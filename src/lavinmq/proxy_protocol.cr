@@ -53,7 +53,7 @@ module LavinMQ
       SIGNATURE = StaticArray[13u8, 10u8, 13u8, 10u8, 0u8, 13u8, 10u8, 81u8, 85u8, 73u8, 84u8, 10u8]
 
       def self.parse(io)
-        io.read_timeout = 15
+        io.read_timeout = 15.seconds
         buffer = uninitialized UInt8[16]
         io.read(buffer.to_slice)
         signature = buffer.to_slice[0, 12]
