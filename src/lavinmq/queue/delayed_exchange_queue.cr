@@ -50,7 +50,7 @@ module LavinMQ
     end
 
     class DelayedMessageStore < MessageStore
-      def initialize(@data_dir : String, @replicator : Replication::Server?)
+      def initialize(@data_dir : String, @replicator : Replication::Replicator?)
         super
         order_messages
       end
