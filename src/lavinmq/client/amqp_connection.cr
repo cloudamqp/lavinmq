@@ -8,7 +8,7 @@ module LavinMQ
     def self.start(socket, connection_info, vhosts, users) : Client?
       remote_address = connection_info.src
       Log.context.set(address: remote_address.to_s)
-      socket.read_timeout = 15
+      socket.read_timeout = 15.seconds
       if confirm_header(socket)
         if start_ok = start(socket)
           if user = authenticate(socket, remote_address, users, start_ok)
@@ -31,7 +31,7 @@ module LavinMQ
 
     private def self.heartbeat_timeout(tune_ok)
       if tune_ok.heartbeat > 0
-        tune_ok.heartbeat / 2
+        (tune_ok.heartbeat / 2).seconds
       end
     end
 

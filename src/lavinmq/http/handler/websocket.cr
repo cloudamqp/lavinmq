@@ -52,7 +52,12 @@ module LavinMQ
       @ws.close
     end
 
-    def read_timeout=(timeout)
+    # TODO: remove when amqp-client is updated
+    def read_timeout=(timeout : Number)
+      self.read_timeout = timeout.seconds
+    end
+
+    def read_timeout=(timeout : Time::Span?)
       @r.read_timeout = timeout
     end
   end
