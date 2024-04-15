@@ -5,7 +5,7 @@ module LavinMQ
   class ParameterStore(T)
     include Enumerable({ParameterId?, T})
 
-    def initialize(@data_dir : String, @file_name : String, @replicator : Replication::Server, @log : Log)
+    def initialize(@data_dir : String, @file_name : String, @replicator : Replication::Replicator, @log : Log)
       @parameters = Hash(ParameterId?, T).new
       load!
     end

@@ -1,5 +1,6 @@
 require "../replication"
 require "./file_index"
+require "./replicator"
 require "./follower"
 require "../config"
 require "../message"
@@ -21,6 +22,7 @@ module LavinMQ
     # The follower sends back/acknowledges how many bytes it has received
     class Server
       include FileIndex
+      include Replicator
       Log = ::Log.for("replication")
       @lock = Mutex.new(:unchecked)
       @followers = Array(Follower).new
