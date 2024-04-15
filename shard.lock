@@ -10,7 +10,7 @@ shards:
 
   amqp-client:
     git: https://github.com/cloudamqp/amqp-client.cr.git
-    version: 1.2.2
+    version: 1.2.3
 
   lz4:
     git: https://github.com/84codes/lz4.cr.git
