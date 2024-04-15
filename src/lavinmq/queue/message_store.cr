@@ -359,7 +359,7 @@ module LavinMQ
         @segments.reject! do |seg, mfile|
           next if seg == current_seg # don't the delete the segment still being written to
 
-          if @segment_msg_count[seg] == @acks[seg].size // sizeof(UInt32)
+          if (acks = @acks[seg]?) && @segment_msg_count[seg] == (acks.size // sizeof(UInt32))
             Log.info { "Deleting unused segment #{seg}" }
             @segment_msg_count.delete seg
             @deleted.delete seg
