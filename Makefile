@@ -78,7 +78,7 @@ lint: lib
 
 .PHONY: test
 test: lib
-	crystal spec --order random $(if $(nocolor),--no-color)
+	crystal spec --order random $(if $(nocolor),--no-color) --verbose
 
 .PHONY: format
 format:

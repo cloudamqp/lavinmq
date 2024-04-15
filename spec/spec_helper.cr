@@ -7,8 +7,6 @@ require "string_scanner"
 
 Log.setup_from_env
 
-Spec.override_default_formatter(Spec::VerboseFormatter.new)
-
 DATA_DIR = "/tmp/lavinmq-spec"
 
 Dir.mkdir_p DATA_DIR
@@ -40,11 +38,8 @@ end
 require "../src/lavinmq/server"
 require "../src/lavinmq/http/http_server"
 
-def with_channel(**args, &)
-  name = nil
-  if formatter = Spec.formatters[0].as?(Spec::VerboseFormatter)
-    name = formatter.@last_description
-  end
+def with_channel(file = __FILE__, line = __LINE__, **args, &)
+  name = "lavinmq-spec-#{file}:#{line}"
   args = {port: LavinMQ::Config.instance.amqp_port, name: name}.merge(args)
   conn = AMQP::Client.new(**args).connect
   ch = conn.channel

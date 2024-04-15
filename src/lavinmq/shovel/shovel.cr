@@ -242,8 +242,8 @@ module LavinMQ
 
       def start
         client = ::HTTP::Client.new @uri
-        client.connect_timeout = 10
-        client.read_timeout = 30
+        client.connect_timeout = 10.seconds
+        client.read_timeout = 30.seconds
         client.basic_auth(@uri.user, @uri.password || "") if @uri.user
         @client = client
       end
