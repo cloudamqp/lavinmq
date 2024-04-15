@@ -7,12 +7,6 @@ require "string_scanner"
 
 Log.setup_from_env
 
-{% if Spec::CLI.resolve? %}
-  Spec.cli.override_default_formatter(Spec::VerboseFormatter.new)
-{% else %}
-  Spec.override_default_formatter(Spec::VerboseFormatter.new)
-{% end %}
-
 DATA_DIR = "/tmp/lavinmq-spec"
 
 Dir.mkdir_p DATA_DIR
