@@ -13,7 +13,8 @@ module LavinMQ
         def initialize(@channel : Client::Channel, @queue : StreamQueue, frame : AMQP::Frame::Basic::Consume)
           validate_preconditions(frame)
           offset = frame.arguments["x-stream-offset"]?
-          @offset, @segment, @pos = stream_queue.find_offset(offset)
+          @tag = frame.consumer_tag
+          @offset, @segment, @pos = stream_queue.find_offset(offset, @tag)
           super
         end
 
@@ -80,6 +81,11 @@ module LavinMQ
 
         private def stream_queue : StreamQueue
           @queue.as(StreamQueue)
+        end
+
+        def ack(sp)
+          stream_queue.save_offset_by_consumer_tag(@tag, @offset) # TODO only if no x-stream-offset?
+          super
         end
 
         def reject(sp, requeue : Bool)
