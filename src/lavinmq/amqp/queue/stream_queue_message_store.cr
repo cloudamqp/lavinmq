@@ -1,4 +1,5 @@
 require "./stream_queue"
+require "../stream_consumer"
 
 module LavinMQ::AMQP
   class StreamQueue < DurableQueue
@@ -11,11 +12,18 @@ module LavinMQ::AMQP
       @segment_last_ts = Hash(UInt32, Int64).new(0i64) # used for max-age
       @offset_index = Hash(UInt32, Int64).new          # segment_id => offset of first msg
       @timestamp_index = Hash(UInt32, Int64).new       # segment_id => ts of first msg
+      @consumer_offsets_hash : Hash(String, Int64)     # used for consumer offsets
+      @consumer_offsets : MFile
+      @consumer_offset_path : String
 
       def initialize(*args, **kwargs)
         super
+
         @last_offset = get_last_offset
         build_segment_indexes
+        @consumer_offset_path = File.join(@queue_data_dir, "consumer_offsets")
+        @consumer_offsets = MFile.new(@consumer_offset_path, 5000) # TODO: size?
+        @consumer_offsets_hash = consumer_offsets_hash
         drop_overflow
       end
 
@@ -35,13 +43,17 @@ module LavinMQ::AMQP
       # Used once when a consumer is started
       # Populates `segment` and `position` by iterating through segments
       # until `offset` is found
-      def find_offset(offset) : Tuple(Int64, UInt32, UInt32)
+      def find_offset(offset, tag = nil) : Tuple(Int64, UInt32, UInt32)
         raise ClosedError.new if @closed
         case offset
-        when "first", nil then offset_at(@segments.first_key, 4u32)
+        when "first" then offset_at(@segments.first_key, 4u32)
         when "last"       then offset_at(@segments.last_key, 4u32)
         when "next"       then last_offset_seg_pos
         when Time         then find_offset_in_segments(offset)
+        when nil
+          consumer_last_offset = last_offset_by_consumer_tag(tag) || 0
+          find_offset_in_segments(consumer_last_offset)
+          # offset_at(@segments.first_key, 4u32) # TODO does this need to be handled?
         when Int
           if offset > @last_offset
             last_offset_seg_pos
@@ -108,7 +120,72 @@ module LavinMQ::AMQP
         seg
       end
 
-      def shift?(consumer : AMQP::StreamConsumer) : Envelope?
+      def last_offset_by_consumer_tag(consumer_tag)
+        begin
+          if @consumer_offsets_hash[consumer_tag]
+            pos = @consumer_offsets_hash[consumer_tag]
+            tx = @consumer_offsets.to_slice(pos, 8)
+            return IO::ByteFormat::SystemEndian.decode(Int64, tx)
+          end
+        rescue KeyError
+        end
+      end
+
+      private def consumer_offsets_hash
+        hash = Hash(String, Int64).new
+        slice = @consumer_offsets.to_slice
+        more_to_read = true
+        i = 0_i64
+        ctag_start = 0
+        while more_to_read && slice.size > 0
+          if slice[i] == 32
+            ctag = String.new(slice[ctag_start..i-1])
+            pos = i+1
+            hash[ctag] = pos
+            ctag_start = pos + 8
+          end
+          more_to_read = false if (i += 1) == slice.size-1
+        end
+        hash
+      end
+
+      def save_offset_by_consumer_tag(consumer_tag, new_offset)
+        pos = 0_i64
+        begin
+          if pos = @consumer_offsets_hash[consumer_tag]
+            buf = uninitialized UInt8[8]
+            IO::ByteFormat::LittleEndian.encode(new_offset.as(Int64), buf.to_slice)
+            @consumer_offsets.write_at(pos, buf.to_slice)
+          end
+        rescue KeyError
+          write_new_ctag_to_file(consumer_tag, new_offset)
+        end
+      end
+
+      def write_new_ctag_to_file(consumer_tag, new_offset)
+        # pos = @consumer_offsets.size + slice.size
+        # @consumer_offsets.write(slice + buf.to_slice)
+        # TODO this should work?
+        # instead of having to manually find the position
+        highest_pos = 0_i64
+        @consumer_offsets_hash.each do |key, value|
+          if value > highest_pos
+            highest_pos = value
+          end
+        end
+        pos = highest_pos
+        pos += 8 unless pos == 0
+        slice = "#{consumer_tag} ".to_slice
+        @consumer_offsets.write_at(pos, slice)
+        pos += slice.size
+        buf = uninitialized UInt8[8]
+        IO::ByteFormat::LittleEndian.encode(new_offset.as(Int64), buf.to_slice)
+        @consumer_offsets.write_at(pos, buf.to_slice)
+        @consumer_offsets_hash[consumer_tag] = pos
+        pos
+      end
+
+      def shift?(consumer : StreamConsumer) : Envelope?
         raise ClosedError.new if @closed
 
         if env = shift_requeued(consumer.requeued)
