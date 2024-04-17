@@ -12,18 +12,16 @@ module LavinMQ::AMQP
       @segment_last_ts = Hash(UInt32, Int64).new(0i64) # used for max-age
       @offset_index = Hash(UInt32, Int64).new          # segment_id => offset of first msg
       @timestamp_index = Hash(UInt32, Int64).new       # segment_id => ts of first msg
-      @consumer_offsets_hash : Hash(String, Int64)     # used for consumer offsets
-      @consumer_offsets : MFile
       @consumer_offset_path : String
+      @consumer_offset_positions : Hash(String, Int64)?    # used for consumer offsets
+      @consumer_offsets : MFile?
 
       def initialize(*args, **kwargs)
         super
-
         @last_offset = get_last_offset
         build_segment_indexes
         @consumer_offset_path = File.join(@queue_data_dir, "consumer_offsets")
         @consumer_offsets = MFile.new(@consumer_offset_path, 5000) # TODO: size?
-        @consumer_offsets_hash = consumer_offsets_hash
         drop_overflow
       end
 
@@ -122,40 +120,48 @@ module LavinMQ::AMQP
 
       def last_offset_by_consumer_tag(consumer_tag)
         begin
-          if @consumer_offsets_hash[consumer_tag]
-            pos = @consumer_offsets_hash[consumer_tag]
-            tx = @consumer_offsets.to_slice(pos, 8)
+          if consumer_offset_positions[consumer_tag]
+            pos = consumer_offset_positions[consumer_tag]
+            tx = consumer_offsets.to_slice(pos, 8)
             return IO::ByteFormat::SystemEndian.decode(Int64, tx)
           end
         rescue KeyError
         end
       end
 
-      private def consumer_offsets_hash
-        hash = Hash(String, Int64).new
-        slice = @consumer_offsets.to_slice
+      def consumer_offsets : MFile
+        return @consumer_offsets.not_nil! if @consumer_offsets
+        path = File.join(@queue_data_dir, "consumer_offsets")
+        @consumer_offsets = MFile.new(path, 5000) # TODO: size?
+      end
+
+      private def consumer_offset_positions
+        return @consumer_offset_positions.not_nil! if @consumer_offset_positions
+        positions = Hash(String, Int64).new
+        slice = consumer_offsets.to_slice
         more_to_read = true
         i = 0_i64
         ctag_start = 0
-        while more_to_read && slice.size > 0
-          if slice[i] == 32
+
+        slice.each_with_index do |byte, i|
+          if byte == 32 # if space
             ctag = String.new(slice[ctag_start..i - 1])
             pos = i + 1
-            hash[ctag] = pos
+            positions[ctag] = pos
             ctag_start = pos + 8
           end
-          more_to_read = false if (i += 1) == slice.size - 1
         end
-        hash
+        consumer_offsets.resize(ctag_start) # resize mfile to remove any empty bytes
+        @consumer_offset_positions = positions
       end
 
       def save_offset_by_consumer_tag(consumer_tag, new_offset)
         pos = 0_i64
         begin
-          if pos = @consumer_offsets_hash[consumer_tag]
+          if pos = consumer_offset_positions[consumer_tag]
             buf = uninitialized UInt8[8]
             IO::ByteFormat::LittleEndian.encode(new_offset.as(Int64), buf.to_slice)
-            @consumer_offsets.write_at(pos, buf.to_slice)
+            consumer_offsets.write_at(pos, buf.to_slice)
           end
         rescue KeyError
           write_new_ctag_to_file(consumer_tag, new_offset)
@@ -163,26 +169,12 @@ module LavinMQ::AMQP
       end
 
       def write_new_ctag_to_file(consumer_tag, new_offset)
-        # pos = @consumer_offsets.size + slice.size
-        # @consumer_offsets.write(slice + buf.to_slice)
-        # TODO this should work?
-        # instead of having to manually find the position
-        highest_pos = 0_i64
-        @consumer_offsets_hash.each do |key, value|
-          if value > highest_pos
-            highest_pos = value
-          end
-        end
-        pos = highest_pos
-        pos += 8 unless pos == 0
         slice = "#{consumer_tag} ".to_slice
-        @consumer_offsets.write_at(pos, slice)
-        pos += slice.size
         buf = uninitialized UInt8[8]
         IO::ByteFormat::LittleEndian.encode(new_offset.as(Int64), buf.to_slice)
-        @consumer_offsets.write_at(pos, buf.to_slice)
-        @consumer_offsets_hash[consumer_tag] = pos
-        pos
+        pos = consumer_offsets.size + slice.size
+        consumer_offsets.write(slice + buf.to_slice)
+        consumer_offset_positions[consumer_tag] = pos
       end
 
       def shift?(consumer : StreamConsumer) : Envelope?
