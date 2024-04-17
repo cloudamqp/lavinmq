@@ -9,7 +9,7 @@ module LavinMQ
       property max_age : Time::Span | Time::MonthSpan | Nil
       getter last_offset : Int64
       @segment_last_ts = Hash(UInt32, Int64).new(0i64) # used for max-age
-      @consumer_offsets_hash : Hash(String, Int64) # used for consumer offsets
+      @consumer_offsets_hash : Hash(String, Int64)     # used for consumer offsets
       @consumer_offsets : MFile
       @consumer_offset_path : String
 
@@ -43,9 +43,9 @@ module LavinMQ
         raise ClosedError.new if @closed
         case offset
         when "first" then offset_at(@segments.first_key, 4u32)
-        when "last"       then offset_at(@segments.last_key, 4u32)
-        when "next"       then last_offset_seg_pos
-        when Time         then find_offset_in_segments(offset)
+        when "last"  then offset_at(@segments.last_key, 4u32)
+        when "next"  then last_offset_seg_pos
+        when Time    then find_offset_in_segments(offset)
         when nil
           consumer_last_offset = last_offset_by_consumer_tag(tag) || 0
           find_offset_in_segments(consumer_last_offset)
@@ -118,12 +118,12 @@ module LavinMQ
         ctag_start = 0
         while more_to_read && slice.size > 0
           if slice[i] == 32
-            ctag = String.new(slice[ctag_start..i-1])
-            pos = i+1
+            ctag = String.new(slice[ctag_start..i - 1])
+            pos = i + 1
             hash[ctag] = pos
             ctag_start = pos + 8
           end
-          more_to_read = false if (i += 1) == slice.size-1
+          more_to_read = false if (i += 1) == slice.size - 1
         end
         hash
       end

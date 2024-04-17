@@ -188,7 +188,6 @@ class MFile < IO
     slice.copy_to(buffer + pos, slice.size)
   end
 
-
   def read(slice : Bytes)
     pos = @pos
     new_pos = pos + slice.size
