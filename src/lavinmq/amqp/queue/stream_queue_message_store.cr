@@ -119,14 +119,12 @@ module LavinMQ::AMQP
       end
 
       def last_offset_by_consumer_tag(consumer_tag)
-        begin
-          if consumer_offset_positions[consumer_tag]
-            pos = consumer_offset_positions[consumer_tag]
-            tx = consumer_offsets.to_slice(pos, 8)
-            return IO::ByteFormat::SystemEndian.decode(Int64, tx)
-          end
-        rescue KeyError
+        if consumer_offset_positions[consumer_tag]
+          pos = consumer_offset_positions[consumer_tag]
+          tx = consumer_offsets.to_slice(pos, 8)
+          return IO::ByteFormat::SystemEndian.decode(Int64, tx)
         end
+      rescue KeyError
       end
 
       def consumer_offsets : MFile
