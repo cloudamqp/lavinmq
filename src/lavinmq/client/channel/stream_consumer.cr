@@ -9,6 +9,7 @@ module LavinMQ
         property segment : UInt32
         property pos : UInt32
         getter requeued = Deque(SegmentPosition).new
+        @track_offset = false
 
         def initialize(@channel : Client::Channel, @queue : StreamQueue, frame : AMQP::Frame::Basic::Consume)
           validate_preconditions(frame)
@@ -35,7 +36,10 @@ module LavinMQ
             raise Error::PreconditionFailed.new("x-priority not supported on stream queues")
           end
           case frame.arguments["x-stream-offset"]?
-          when Nil, Int, Time, "first", "next", "last"
+          when Nil
+            @track_offset = true
+          when Int, Time, "first", "next", "last"
+            @track_offset = false
           else raise Error::PreconditionFailed.new("x-stream-offset must be an integer, a timestamp, 'first', 'next' or 'last'")
           end
         end
@@ -84,7 +88,7 @@ module LavinMQ
         end
 
         def ack(sp)
-          stream_queue.save_offset_by_consumer_tag(@tag, @offset) # TODO only if no x-stream-offset?
+          stream_queue.save_offset_by_consumer_tag(@tag, @offset) if @track_offset
           super
         end
 

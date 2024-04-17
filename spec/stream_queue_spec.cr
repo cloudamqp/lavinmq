@@ -1,7 +1,31 @@
 require "./spec_helper"
 require "./../src/lavinmq/amqp/queue"
 
-describe LavinMQ::AMQP::StreamQueue do
+module StreamQueueSpecHelpers
+  def self.publish(queue_name, nr_of_messages)
+    args = {"x-queue-type": "stream"}
+    with_channel do |ch|
+      q = ch.queue(queue_name, args: AMQP::Client::Arguments.new(args))
+      nr_of_messages.times { |i| q.publish "m#{i}" }
+    end
+  end
+
+  def self.consume_one(queue_name, c_tag, c_args = AMQP::Client::Arguments.new())
+    args = {"x-queue-type": "stream"}
+    with_channel do |ch|
+      ch.prefetch 1
+      q = ch.queue(queue_name, args: AMQP::Client::Arguments.new(args))
+      msgs = Channel(AMQP::Client::DeliverMessage).new
+      q.subscribe(no_ack: false, tag: c_tag, args: c_args) do |msg|
+        msgs.send msg
+        msg.ack
+      end
+      msgs.receive
+    end
+  end
+end
+
+describe LavinMQ::StreamQueue do
   stream_queue_args = LavinMQ::AMQP::Table.new({"x-queue-type": "stream"})
 
   describe "Consume" do
@@ -329,68 +353,34 @@ describe LavinMQ::AMQP::StreamQueue do
         end
       end
   describe "Automatic consumer offset tracking" do
-    args = {"x-queue-type": "stream"}
-
     it "resumes from last offset on reconnect" do
       queue_name = Random::Secure.hex
-      consumer_tag = "ctag-1"
-      offset = 10
+      consumer_tag = Random::Secure.hex
+      offset = 3
 
-      # publish 10 messages
-      with_channel do |ch|
-        q = ch.queue(queue_name, args: AMQP::Client::Arguments.new(args))
-        10.times { |i| q.publish "m#{i}" }
-      end
+      StreamQueueSpecHelpers.publish(queue_name, offset+1)
 
-      # get 10 messages, offset should be tracked and saved
-      with_channel do |ch|
-        ch.prefetch 1
-        q = ch.queue(queue_name, args: AMQP::Client::Arguments.new(args))
-        msgs = Channel(AMQP::Client::DeliverMessage).new
-        q.subscribe(no_ack: false, tag: consumer_tag) do |msg|
-          msgs.send msg
-          msg.ack
-        end
-        offset.times do
-          msgs.receive
-        end
-      end
-      sleep 1.second
+      offset.times { StreamQueueSpecHelpers.consume_one(queue_name, consumer_tag) }
+      sleep 0.1
 
       # consume again, should start from last offset automatically
-      msg_offset = 0
-      with_channel do |ch|
-        ch.prefetch 1
-        q = ch.queue(queue_name, args: AMQP::Client::Arguments.new(args))
-        msgs = Channel(AMQP::Client::DeliverMessage).new
-        q.publish "m10"
-        q.subscribe(no_ack: false, tag: consumer_tag) do |msg|
-          msgs.send msg
-        end
-        msg = msgs.receive
-        msg.body_io.to_s.should eq "m10"
-        msg_offset = msg.properties.headers.not_nil!["x-stream-offset"].as(Int64)
-      end
-      msg_offset.should eq 11
+      msg = StreamQueueSpecHelpers.consume_one(queue_name, consumer_tag)
+      msg.properties.headers.not_nil!["x-stream-offset"].as(Int64).should eq offset+1
     end
 
-    it "reads offset file on init" do
+    it "reads offsets from file on init" do
       queue_name = Random::Secure.hex
       vhost = Server.vhosts["/"]
       offsets = [84_i64, Random.rand(Int64), Random.rand(Int64), Random.rand(Int64)]
       tag_prefix = "ctag-"
-      with_channel do |ch|
-        ch.prefetch 1
-        q = ch.queue(queue_name, args: AMQP::Client::Arguments.new(args))
-        q.publish "a"
-      end
+      StreamQueueSpecHelpers.publish(queue_name, 1)
+
       data_dir = File.join(vhost.data_dir, Digest::SHA1.hexdigest queue_name)
       msg_store = LavinMQ::StreamQueue::StreamQueueMessageStore.new(data_dir, nil)
       offsets.each_with_index do |offset, i|
         msg_store.save_offset_by_consumer_tag(tag_prefix + i.to_s, offset)
       end
       msg_store.close
-
       sleep 0.1
 
       msg_store = LavinMQ::StreamQueue::StreamQueueMessageStore.new(data_dir, nil)
@@ -398,6 +388,38 @@ describe LavinMQ::AMQP::StreamQueue do
         msg_store.last_offset_by_consumer_tag(tag_prefix + i.to_s).should eq offset
       end
       msg_store.close
+    end
+
+    it "does not track offset if x-stream-offset is set" do
+      queue_name = Random::Secure.hex
+      consumer_tag = Random::Secure.hex
+      c_args = AMQP::Client::Arguments.new({"x-stream-offset": 0})
+
+      StreamQueueSpecHelpers.publish(queue_name, 2)
+      msg = StreamQueueSpecHelpers.consume_one(queue_name, consumer_tag, c_args)
+      msg.properties.headers.not_nil!["x-stream-offset"].as(Int64).should eq 1
+      sleep 0.1
+
+      # should consume the same message again since tracking was not saved from last consume
+      msg_2 = StreamQueueSpecHelpers.consume_one(queue_name, consumer_tag)
+      msg_2.properties.headers.not_nil!["x-stream-offset"].as(Int64).should eq 1
+    end
+
+    it "should not use saved offset if x-stream-offset is set" do
+      queue_name = Random::Secure.hex
+      consumer_tag = Random::Secure.hex
+      c_args = AMQP::Client::Arguments.new({"x-stream-offset": 0})
+
+      StreamQueueSpecHelpers.publish(queue_name, 2)
+
+      # get message without x-stream-offset, tracks offset
+      msg = StreamQueueSpecHelpers.consume_one(queue_name, consumer_tag)
+      msg.properties.headers.not_nil!["x-stream-offset"].as(Int64).should eq 1
+      sleep 0.1
+
+      # consume with x-stream-offset set, should consume the same message again
+      msg_2 = StreamQueueSpecHelpers.consume_one(queue_name, consumer_tag, c_args)
+      msg_2.properties.headers.not_nil!["x-stream-offset"].as(Int64).should eq 1
     end
   end
 end
