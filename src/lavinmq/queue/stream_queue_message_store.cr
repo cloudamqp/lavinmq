@@ -8,8 +8,8 @@ module LavinMQ
       property max_length_bytes : Int64?
       property max_age : Time::Span | Time::MonthSpan | Nil
       getter last_offset : Int64
-      @segment_last_ts = Hash(UInt32, Int64).new(0i64) # used for max-age
-      @consumer_offset_positions : Hash(String, Int64)?    # used for consumer offsets
+      @segment_last_ts = Hash(UInt32, Int64).new(0i64)  # used for max-age
+      @consumer_offset_positions : Hash(String, Int64)? # used for consumer offsets
       @consumer_offsets : MFile?
 
       def initialize(@queue_data_dir : String, @replicator : Clustering::Replicator?)
