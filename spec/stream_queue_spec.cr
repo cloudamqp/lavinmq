@@ -390,6 +390,28 @@ describe LavinMQ::StreamQueue do
       msg_store.close
     end
 
+    it "only saves one entry per consumer tag" do
+      queue_name = Random::Secure.hex
+      vhost = Server.vhosts["/"]
+      offsets = [84_i64, Random.rand(Int64), Random.rand(Int64), Random.rand(Int64)]
+      consumer_tag = "ctag-1"
+      StreamQueueSpecHelpers.publish(queue_name, 1)
+
+      data_dir = File.join(vhost.data_dir, Digest::SHA1.hexdigest queue_name)
+      msg_store = LavinMQ::StreamQueue::StreamQueueMessageStore.new(data_dir, nil)
+      offsets.each do |offset|
+        msg_store.save_offset_by_consumer_tag(consumer_tag, offset)
+      end
+      msg_store.close
+      sleep 0.1
+
+      msg_store = LavinMQ::StreamQueue::StreamQueueMessageStore.new(data_dir, nil)
+      msg_store.last_offset_by_consumer_tag(consumer_tag).should eq offsets.last
+      msg_store.consumer_offsets.size.should eq 15
+
+      msg_store.close
+    end
+
     it "does not track offset if x-stream-offset is set" do
       queue_name = Random::Secure.hex
       consumer_tag = Random::Secure.hex
