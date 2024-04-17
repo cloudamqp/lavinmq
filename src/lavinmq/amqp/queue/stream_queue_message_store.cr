@@ -13,7 +13,7 @@ module LavinMQ::AMQP
       @offset_index = Hash(UInt32, Int64).new          # segment_id => offset of first msg
       @timestamp_index = Hash(UInt32, Int64).new       # segment_id => ts of first msg
       @consumer_offset_path : String
-      @consumer_offset_positions : Hash(String, Int64)?    # used for consumer offsets
+      @consumer_offset_positions : Hash(String, Int64)? # used for consumer offsets
       @consumer_offsets : MFile?
 
       def initialize(*args, **kwargs)
