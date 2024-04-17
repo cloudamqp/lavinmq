@@ -10,7 +10,7 @@ module StreamQueueSpecHelpers
     end
   end
 
-  def self.consume_one(queue_name, c_tag, c_args = AMQP::Client::Arguments.new())
+  def self.consume_one(queue_name, c_tag, c_args = AMQP::Client::Arguments.new)
     args = {"x-queue-type": "stream"}
     with_channel do |ch|
       ch.prefetch 1
@@ -358,14 +358,14 @@ describe LavinMQ::StreamQueue do
       consumer_tag = Random::Secure.hex
       offset = 3
 
-      StreamQueueSpecHelpers.publish(queue_name, offset+1)
+      StreamQueueSpecHelpers.publish(queue_name, offset + 1)
 
       offset.times { StreamQueueSpecHelpers.consume_one(queue_name, consumer_tag) }
       sleep 0.1
 
       # consume again, should start from last offset automatically
       msg = StreamQueueSpecHelpers.consume_one(queue_name, consumer_tag)
-      msg.properties.headers.not_nil!["x-stream-offset"].as(Int64).should eq offset+1
+      msg.properties.headers.not_nil!["x-stream-offset"].as(Int64).should eq offset + 1
     end
 
     it "reads offsets from file on init" do

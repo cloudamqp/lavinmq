@@ -211,7 +211,6 @@ class MFile < IO
     slice.copy_to(buffer + pos, slice.size)
   end
 
-
   def read(slice : Bytes)
     pos = @pos
     len = Math.min(slice.size, @size - pos)
