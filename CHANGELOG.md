@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Empty ack files created for all segments [#658](https://github.com/cloudamqp/lavinmq/pull/658)
 - UI: Set proper width (colspan) for pagination cell  [#662](https://github.com/cloudamqp/lavinmq/pull/662)
+- Provide better information about connections LavinMQ initiates [#613](https://github.com/cloudamqp/lavinmq/pull/613)
+
+### Changed
+- LavinMQ now waits for any followers to be in sync before shutting down [#645](https://github.com/cloudamqp/lavinmq/pull/645)
+- UI: Creating queues and exchanges in the UI now defaults to durable [#656](https://github.com/cloudamqp/lavinmq/pull/656)
+
+### Added
+- Replication lag is now exported in metrics [#646](https://github.com/cloudamqp/lavinmq/pull/646)
 
 ## [1.2.10] - 2024-03-25
 
