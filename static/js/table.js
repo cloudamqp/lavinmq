@@ -21,6 +21,7 @@ function renderTable (id, options = {}, renderRow) {
   if (options.pagination) {
     const paginationCell = table.createTFoot().insertRow().insertCell()
     const paginationContainer = document.createElement('div')
+    paginationCell.colSpan = table.tHead.rows[0].children.length
     paginationCell.appendChild(paginationContainer)
     paginationContainer.classList.add('pagination')
     Pagination.create(paginationContainer, dataSource)
