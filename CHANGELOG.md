@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Empty ack files created for all segments [#658](https://github.com/cloudamqp/lavinmq/pull/658)
+- UI: Set proper width (colspan) for pagination cell  [#662](https://github.com/cloudamqp/lavinmq/pull/662)
 
 ## [1.2.10] - 2024-03-25
 
