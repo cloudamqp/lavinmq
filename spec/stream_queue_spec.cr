@@ -443,5 +443,27 @@ describe LavinMQ::StreamQueue do
       msg_2 = StreamQueueSpecHelpers.consume_one(queue_name, consumer_tag, c_args)
       msg_2.properties.headers.not_nil!["x-stream-offset"].as(Int64).should eq 1
     end
+
+    it "removes offset" do
+      queue_name = Random::Secure.hex
+      vhost = Server.vhosts["/"]
+      offsets = [84_i64, 10_i64]
+      tag_prefix = "ctag-"
+      StreamQueueSpecHelpers.publish(queue_name, 1)
+
+      data_dir = File.join(vhost.data_dir, Digest::SHA1.hexdigest queue_name)
+      msg_store = LavinMQ::StreamQueue::StreamQueueMessageStore.new(data_dir, nil)
+      offsets.each_with_index do |offset, i|
+        msg_store.save_offset_by_consumer_tag(tag_prefix + i.to_s, offset)
+      end
+      sleep 0.1
+      msg_store.remove_consumer_tag_from_file(tag_prefix + 1.to_s)
+      msg_store.close
+      sleep 0.1
+
+      msg_store = LavinMQ::StreamQueue::StreamQueueMessageStore.new(data_dir, nil)
+      msg_store.last_offset_by_consumer_tag(tag_prefix + 1.to_s).should eq nil
+      msg_store.close
+    end
   end
 end
