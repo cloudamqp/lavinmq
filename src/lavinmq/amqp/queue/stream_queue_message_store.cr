@@ -146,10 +146,10 @@ module LavinMQ::AMQP
         pos = 0
 
         loop do
-          ctag_length = IO::ByteFormat::LittleEndian.decode(UInt8, slice[pos, pos+1])
+          ctag_length = IO::ByteFormat::LittleEndian.decode(UInt8, slice[pos, pos + 1])
           break if ctag_length == 0
           pos += 1
-          ctag = String.new(slice[pos..pos+ctag_length-1])
+          ctag = String.new(slice[pos..pos + ctag_length - 1])
           pos += ctag_length
           positions[ctag] = pos
           pos += 8
@@ -203,7 +203,6 @@ module LavinMQ::AMQP
         offsets_to_save.each do |ctag, offset|
           write_new_ctag_to_file(ctag, offset)
         end
-
       end
 
       def shift?(consumer : Client::Channel::StreamConsumer) : Envelope?
