@@ -104,7 +104,7 @@ module LavinMQ
       end
 
       def consumer_offsets : MFile
-        return @consumer_offsets.not_nil! if @consumer_offsets
+        return @consumer_offsets.not_nil! if @consumer_offsets && !@consumer_offsets.not_nil!.closed?
         path = File.join(@data_dir, "consumer_offsets")
         @consumer_offsets = MFile.new(path, 5000) # TODO: size?
       end
@@ -149,6 +149,24 @@ module LavinMQ
         pos = consumer_offsets.size + slice.size
         consumer_offsets.write(slice + buf.to_slice)
         consumer_offset_positions[consumer_tag] = pos
+      end
+
+      def remove_consumer_tag_from_file(consumer_tag)
+        @consumer_offset_positions = consumer_offset_positions.reject! { |k, v| k == consumer_tag }
+
+        offsets_to_save = Hash(String, Int64).new
+        consumer_offset_positions.each do |ctag, pos|
+          offset = last_offset_by_consumer_tag(ctag)
+          next unless offset
+          offsets_to_save[ctag] = offset
+        end
+
+        consumer_offsets.close
+        consumer_offsets.delete
+        offsets_to_save.each do |ctag, offset|
+          write_new_ctag_to_file(ctag, offset)
+        end
+
       end
 
       def shift?(consumer : Client::Channel::StreamConsumer) : Envelope?
