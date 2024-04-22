@@ -142,19 +142,20 @@ module LavinMQ::AMQP
         return @consumer_offset_positions.not_nil! if @consumer_offset_positions
         positions = Hash(String, Int64).new
         slice = consumer_offsets.to_slice
-        more_to_read = true
-        i = 0_i64
-        ctag_start = 0
+        return positions if slice.size.zero?
+        pos = 0
 
-        slice.each_with_index do |byte, i|
-          if byte == 32 # if space
-            ctag = String.new(slice[ctag_start..i - 1])
-            pos = i + 1
-            positions[ctag] = pos
-            ctag_start = pos + 8
-          end
+        loop do
+          ctag_length = IO::ByteFormat::LittleEndian.decode(UInt8, slice[pos, pos+1])
+          break if ctag_length == 0
+          pos += 1
+          ctag = String.new(slice[pos..pos+ctag_length-1])
+          pos += ctag_length
+          positions[ctag] = pos
+          pos += 8
+          break if pos >= slice.size
         end
-        consumer_offsets.resize(ctag_start) # resize mfile to remove any empty bytes
+        consumer_offsets.resize(pos) # resize mfile to remove any empty bytes
         @consumer_offset_positions = positions
       end
 
@@ -171,12 +172,19 @@ module LavinMQ::AMQP
         end
       end
 
+      # should we write a null byte after each offset?
       def write_new_ctag_to_file(consumer_tag, new_offset)
-        slice = "#{consumer_tag} ".to_slice
-        buf = uninitialized UInt8[8]
-        IO::ByteFormat::LittleEndian.encode(new_offset.as(Int64), buf.to_slice)
-        pos = consumer_offsets.size + slice.size
-        consumer_offsets.write(slice + buf.to_slice)
+        slice = consumer_tag.to_slice
+        consumer_tag_length = slice.size.to_u8
+        pos = consumer_offsets.size + slice.size + 1
+
+        length_buffer = uninitialized UInt8[1]
+        IO::ByteFormat::LittleEndian.encode(consumer_tag_length, length_buffer.to_slice)
+
+        offset_buffer = uninitialized UInt8[8]
+        IO::ByteFormat::LittleEndian.encode(new_offset.as(Int64), offset_buffer.to_slice)
+
+        consumer_offsets.write(length_buffer.to_slice + slice + offset_buffer.to_slice)
         consumer_offset_positions[consumer_tag] = pos
       end
 
