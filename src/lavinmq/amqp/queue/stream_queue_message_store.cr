@@ -128,8 +128,13 @@ module LavinMQ::AMQP
       end
 
       def consumer_offsets : MFile
+<<<<<<< HEAD
         return @consumer_offsets.not_nil! if @consumer_offsets
         path = File.join(@queue_data_dir, "consumer_offsets")
+=======
+        return @consumer_offsets.not_nil! if @consumer_offsets && !@consumer_offsets.not_nil!.closed?
+        path = File.join(@data_dir, "consumer_offsets")
+>>>>>>> 92280a2b (add function to remove consumer tags from file)
         @consumer_offsets = MFile.new(path, 5000) # TODO: size?
       end
 
@@ -175,7 +180,25 @@ module LavinMQ::AMQP
         consumer_offset_positions[consumer_tag] = pos
       end
 
-      def shift?(consumer : StreamConsumer) : Envelope?
+      def remove_consumer_tag_from_file(consumer_tag)
+        @consumer_offset_positions = consumer_offset_positions.reject! { |k, v| k == consumer_tag }
+
+        offsets_to_save = Hash(String, Int64).new
+        consumer_offset_positions.each do |ctag, pos|
+          offset = last_offset_by_consumer_tag(ctag)
+          next unless offset
+          offsets_to_save[ctag] = offset
+        end
+
+        consumer_offsets.close
+        consumer_offsets.delete
+        offsets_to_save.each do |ctag, offset|
+          write_new_ctag_to_file(ctag, offset)
+        end
+
+      end
+
+      def shift?(consumer : Client::Channel::StreamConsumer) : Envelope?
         raise ClosedError.new if @closed
 
         if env = shift_requeued(consumer.requeued)
