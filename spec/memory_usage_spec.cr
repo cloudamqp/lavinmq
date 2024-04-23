@@ -19,7 +19,7 @@ describe LavinMQ::Server do
 
   pending "doesn't use much memory per queue" do
     count = 1500
-    conn = AMQP::Client.new(host: "::1", port: 55672).connect
+    conn = ::AMQP::Client.new(host: "::1", port: 55672).connect
     ch = conn.channel
     fiber_count1 = Fiber.count
     vsize1 = `ps -o vsize= -p $PPID`.to_i64

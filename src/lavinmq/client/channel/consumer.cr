@@ -3,7 +3,7 @@ require "../../sortable_json"
 require "../../error"
 
 module LavinMQ
-  class Client
+  abstract class Client
     class Channel
       class Consumer
         include SortableJSON

@@ -2,7 +2,7 @@ require "./consumer"
 require "../../segment_position"
 
 module LavinMQ
-  class Client
+  abstract class Client
     class Channel
       class StreamConsumer < LavinMQ::Client::Channel::Consumer
         property offset : Int64

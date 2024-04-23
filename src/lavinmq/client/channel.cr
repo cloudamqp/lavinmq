@@ -6,9 +6,10 @@ require "../amqp"
 require "../stats"
 require "../sortable_json"
 require "../error"
+require "./amqp/client"
 
 module LavinMQ
-  class Client
+  abstract class Client
     class Channel
       include Stats
       include SortableJSON
@@ -39,7 +40,7 @@ module LavinMQ
 
       rate_stats({"ack", "get", "publish", "deliver", "redeliver", "reject", "confirm", "return_unroutable"})
 
-      def initialize(@client : Client, @id : UInt16)
+      def initialize(@client : AMQP::Client, @id : UInt16)
         @log = Log.for "channel[client=#{@client.remote_address} id=#{@id}]"
         @name = "#{@client.channel_name_prefix}[#{@id}]"
       end
