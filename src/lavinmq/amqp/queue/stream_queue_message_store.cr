@@ -22,6 +22,7 @@ module LavinMQ::AMQP
         build_segment_indexes
         @consumer_offset_path = File.join(@queue_data_dir, "consumer_offsets")
         @consumer_offsets = MFile.new(@consumer_offset_path, 5000) # TODO: size?
+        @consumer_offset_positions = consumer_offset_positions
         drop_overflow
       end
 
@@ -119,14 +120,14 @@ module LavinMQ::AMQP
       end
 
       def last_offset_by_consumer_tag(consumer_tag)
-        if consumer_offset_positions[consumer_tag]
-          pos = consumer_offset_positions[consumer_tag]
-          tx = consumer_offsets.to_slice(pos, 8)
+        if pos = @consumer_offset_positions[consumer_tag]
+          tx = @consumer_offsets.to_slice(pos, 8)
           return IO::ByteFormat::SystemEndian.decode(Int64, tx)
         end
       rescue KeyError
       end
 
+<<<<<<< HEAD
       def consumer_offsets : MFile
 <<<<<<< HEAD
         return @consumer_offsets.not_nil! if @consumer_offsets
@@ -138,10 +139,11 @@ module LavinMQ::AMQP
         @consumer_offsets = MFile.new(path, 5000) # TODO: size?
       end
 
+=======
+>>>>>>> 7127e6ea (remove methods, use instance variables directly. add cleanup function)
       private def consumer_offset_positions
-        return @consumer_offset_positions.not_nil! if @consumer_offset_positions
         positions = Hash(String, Int64).new
-        slice = consumer_offsets.to_slice
+        slice = @consumer_offsets.to_slice
         return positions if slice.size.zero?
         pos = 0
 
@@ -155,17 +157,17 @@ module LavinMQ::AMQP
           pos += 8
           break if pos >= slice.size
         end
-        consumer_offsets.resize(pos) # resize mfile to remove any empty bytes
-        @consumer_offset_positions = positions
+        @consumer_offsets.resize(pos) # resize mfile to remove any empty bytes
+        positions
       end
 
       def save_offset_by_consumer_tag(consumer_tag, new_offset)
         pos = 0_i64
         begin
-          if pos = consumer_offset_positions[consumer_tag]
+          if pos = @consumer_offset_positions[consumer_tag]
             buf = uninitialized UInt8[8]
             IO::ByteFormat::LittleEndian.encode(new_offset.as(Int64), buf.to_slice)
-            consumer_offsets.write_at(pos, buf.to_slice)
+            @consumer_offsets.write_at(pos, buf.to_slice)
           end
         rescue KeyError
           write_new_ctag_to_file(consumer_tag, new_offset)
@@ -176,7 +178,7 @@ module LavinMQ::AMQP
       def write_new_ctag_to_file(consumer_tag, new_offset)
         slice = consumer_tag.to_slice
         consumer_tag_length = slice.size.to_u8
-        pos = consumer_offsets.size + slice.size + 1
+        pos = @consumer_offsets.size + slice.size + 1
 
         length_buffer = uninitialized UInt8[1]
         IO::ByteFormat::LittleEndian.encode(consumer_tag_length, length_buffer.to_slice)
@@ -184,25 +186,48 @@ module LavinMQ::AMQP
         offset_buffer = uninitialized UInt8[8]
         IO::ByteFormat::LittleEndian.encode(new_offset.as(Int64), offset_buffer.to_slice)
 
-        consumer_offsets.write(length_buffer.to_slice + slice + offset_buffer.to_slice)
-        consumer_offset_positions[consumer_tag] = pos
+        @consumer_offsets.write(length_buffer.to_slice + slice + offset_buffer.to_slice)
+        @consumer_offset_positions[consumer_tag] = pos
+      end
+
+      def cleanup_consumer_offsets
+        offsets_to_save = Hash(String, Int64).new
+        lowest_offset_in_stream, _seg, _pos = offset_at(@segments.first_key, 4u32) # handle
+        @consumer_offset_positions.each do |ctag, pos|
+          offset = last_offset_by_consumer_tag(ctag).not_nil!
+          next if offset < lowest_offset_in_stream
+          # Other scenarios to remove?
+          offsets_to_save[ctag] = offset
+        end
+
+        delete_and_reopen_offsets_file
+        @consumer_offset_positions = Hash(String, Int64).new
+        offsets_to_save.each do |ctag, offset|
+          write_new_ctag_to_file(ctag, offset)
+        end
       end
 
       def remove_consumer_tag_from_file(consumer_tag)
-        @consumer_offset_positions = consumer_offset_positions.reject! { |k, _v| k == consumer_tag }
+        @consumer_offset_positions = @consumer_offset_positions.reject! { |k, _v| k == consumer_tag }
 
         offsets_to_save = Hash(String, Int64).new
-        consumer_offset_positions.each do |ctag, _p|
+        @consumer_offset_positions.each do |ctag, _p|
           offset = last_offset_by_consumer_tag(ctag)
           next unless offset
           offsets_to_save[ctag] = offset
         end
 
-        consumer_offsets.close
-        consumer_offsets.delete
+        delete_and_reopen_offsets_file
         offsets_to_save.each do |ctag, offset|
           write_new_ctag_to_file(ctag, offset)
         end
+      end
+
+      def delete_and_reopen_offsets_file
+        @consumer_offsets.close
+        @consumer_offsets.delete
+        path = File.join(@data_dir, "consumer_offsets")
+        @consumer_offsets = MFile.new(path, 5000) # TODO: size?
       end
 
       def shift?(consumer : Client::Channel::StreamConsumer) : Envelope?
