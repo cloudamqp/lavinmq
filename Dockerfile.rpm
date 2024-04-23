@@ -10,7 +10,7 @@ RUN sed -i -E "s/^(Version:).*/\1 $version/" /root/rpmbuild/SPECS/lavinmq.spec
 RUN rpmlint /root/rpmbuild/SPECS/lavinmq.spec
 WORKDIR /usr/src/lavinmq
 COPY Makefile README.md LICENSE NOTICE CHANGELOG.md shard.yml shard.lock ./
-COPY extras/lavinmq.service extras/config.ini extras/
+COPY extras/lavinmq.service extras/lavinmq.ini extras/
 COPY openapi/ openapi/
 COPY static/ static/
 COPY views/ views/

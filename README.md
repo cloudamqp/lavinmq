@@ -68,7 +68,7 @@ Run LavinMQ with:
 `lavinmq -D /var/lib/lavinmq`
 
 More configuration options can be viewed with `-h`,
-and you can specify a configuration file too, see [extras/config.ini](extras/config.ini)
+and you can specify a configuration file too, see [extras/lavinmq.ini](extras/lavinmq.ini)
 for an example.
 
 ## Docker
