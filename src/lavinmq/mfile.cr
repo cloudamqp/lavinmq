@@ -206,8 +206,8 @@ class MFile < IO
   def write_at(pos : Int64, slice : Bytes) : Nil
     raise ClosedError.new if @closed
     end_pos = pos + slice.size
-    @size = end_pos if end_pos > @size
     raise IO::EOFError.new if end_pos > @capacity
+    @size = end_pos if end_pos > @size
     slice.copy_to(buffer + pos, slice.size)
   end
 
