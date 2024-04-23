@@ -167,9 +167,9 @@ module LavinMQ::AMQP
             buf = uninitialized UInt8[8]
             IO::ByteFormat::LittleEndian.encode(new_offset.as(Int64), buf.to_slice)
             @consumer_offsets.write_at(pos, buf.to_slice)
+          else
+            write_new_ctag_to_file(consumer_tag, new_offset)
           end
-        rescue KeyError
-          write_new_ctag_to_file(consumer_tag, new_offset)
         end
       end
 
