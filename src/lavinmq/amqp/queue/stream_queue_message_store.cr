@@ -173,7 +173,6 @@ module LavinMQ::AMQP
         end
       end
 
-      # should we write a null byte after each offset?
       def write_new_ctag_to_file(consumer_tag, new_offset)
         slice = consumer_tag.to_slice
         consumer_tag_length = slice.size.to_u8
