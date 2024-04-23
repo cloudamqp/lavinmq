@@ -126,20 +126,12 @@ module LavinMQ::AMQP
         end
       end
 
-<<<<<<< HEAD
       def consumer_offsets : MFile
-<<<<<<< HEAD
-        return @consumer_offsets.not_nil! if @consumer_offsets
-        path = File.join(@queue_data_dir, "consumer_offsets")
-=======
         return @consumer_offsets.not_nil! if @consumer_offsets && !@consumer_offsets.not_nil!.closed?
         path = File.join(@data_dir, "consumer_offsets")
->>>>>>> 92280a2b (add function to remove consumer tags from file)
         @consumer_offsets = MFile.new(path, 5000) # TODO: size?
       end
 
-=======
->>>>>>> 7127e6ea (remove methods, use instance variables directly. add cleanup function)
       private def consumer_offset_positions
         positions = Hash(String, Int64).new
         slice = @consumer_offsets.to_slice
