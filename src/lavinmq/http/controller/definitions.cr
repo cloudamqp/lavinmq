@@ -299,14 +299,19 @@ module LavinMQ
           json.array do
             vhosts.each_value do |v|
               v.exchanges.each_value.reject(&.internal?).each do |e|
+                delayed = e.arguments["x-delayed-exchange"]?
+                if delayed
+                  type = "x-delayed-exchange"
+                  arguments = { "x-delayed-type" => e.type }
+                end
                 {
                   "name":        e.name,
                   "vhost":       e.vhost.name,
-                  "type":        e.type,
+                  "type":        delayed ? type : e.type,
                   "durable":     e.durable?,
                   "auto_delete": e.auto_delete?,
                   "internal":    e.internal?,
-                  "arguments":   e.arguments,
+                  "arguments":   delayed ? arguments : e.arguments,
                 }.to_json(json)
               end
             end
