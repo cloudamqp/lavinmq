@@ -94,10 +94,10 @@ UNITDIR := /lib/systemd/system
 SHAREDSTATEDIR := /var/lib
 
 .PHONY: install
-install: $(BINS) $(MANPAGES) extras/config.ini extras/lavinmq.service README.md CHANGELOG.md NOTICE
+install: $(BINS) $(MANPAGES) extras/lavinmq.ini extras/lavinmq.service README.md CHANGELOG.md NOTICE
 	install -D -m 0755 -t $(DESTDIR)$(BINDIR) $(BINS)
 	install -D -m 0644 -t $(DESTDIR)$(MANDIR)/man1 $(MANPAGES)
-	install -D -m 0644 extras/config.ini $(DESTDIR)$(SYSCONFDIR)/lavinmq/lavinmq.ini
+	install -D -m 0644 extras/lavinmq.ini $(DESTDIR)$(SYSCONFDIR)/lavinmq/lavinmq.ini
 	install -D -m 0644 extras/lavinmq.service $(DESTDIR)$(UNITDIR)/lavinmq.service
 	install -D -m 0644 -t $(DESTDIR)$(DOCDIR)/lavinmq README.md NOTICE
 	install -D -m 0644 CHANGELOG.md $(DESTDIR)$(DOCDIR)/lavinmq/changelog
