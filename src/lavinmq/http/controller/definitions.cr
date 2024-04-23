@@ -302,7 +302,7 @@ module LavinMQ
                 delayed = e.arguments["x-delayed-exchange"]?
                 if delayed
                   type = "x-delayed-exchange"
-                  arguments = { "x-delayed-type" => e.type }
+                  arguments = {"x-delayed-type" => e.type}
                 end
                 {
                   "name":        e.name,
