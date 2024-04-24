@@ -11,12 +11,14 @@ module LavinMQ
       @segment_last_ts = Hash(UInt32, Int64).new(0i64)     # used for max-age
       @consumer_offset_positions = Hash(String, Int64).new # used for consumer offsets
       @consumer_offsets : MFile
+      @consumer_offset_path : String
+      @consumer_offset_capacity = 32_768
 
       def initialize(@queue_data_dir : String, @replicator : Clustering::Replicator?)
         super
         @last_offset = get_last_offset
-        path = File.join(@data_dir, "consumer_offsets")
-        @consumer_offsets = MFile.new(path, 5000) # TODO: size?
+        @consumer_offset_path  = File.join(@data_dir, "consumer_offsets")
+        @consumer_offsets = MFile.new(@consumer_offset_path, @consumer_offset_capacity)
         @consumer_offset_positions = consumer_offset_positions
         drop_overflow
       end
@@ -188,8 +190,7 @@ module LavinMQ
       def delete_and_reopen_offsets_file
         @consumer_offsets.close
         @consumer_offsets.delete
-        path = File.join(@data_dir, "consumer_offsets")
-        @consumer_offsets = MFile.new(path, 5000) # TODO: size?
+        @consumer_offsets = MFile.new(@consumer_offset_path, @consumer_offset_capacity)
       end
 
       def shift?(consumer : Client::Channel::StreamConsumer) : Envelope?
