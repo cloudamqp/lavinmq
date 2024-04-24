@@ -53,7 +53,6 @@ module LavinMQ::AMQP
         when nil
           consumer_last_offset = last_offset_by_consumer_tag(tag) || 0
           find_offset_in_segments(consumer_last_offset)
-          # offset_at(@segments.first_key, 4u32) # TODO does this need to be handled?
         when Int
           if offset > @last_offset
             last_offset_seg_pos
