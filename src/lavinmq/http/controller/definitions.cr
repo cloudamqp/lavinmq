@@ -309,7 +309,7 @@ module LavinMQ
                 {
                   "name":        e.name,
                   "vhost":       e.vhost.name,
-                  "type":        delayed ? type : e.type,
+                  "type":        delayed ? "x-delayed-exchange" : e.type,
                   "durable":     e.durable?,
                   "auto_delete": e.auto_delete?,
                   "internal":    e.internal?,
