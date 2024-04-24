@@ -169,11 +169,10 @@ module LavinMQ::AMQP
 
       def cleanup_consumer_offsets
         offsets_to_save = Hash(String, Int64).new
-        lowest_offset_in_stream, _seg, _pos = offset_at(@segments.first_key, 4u32) # handle
-        @consumer_offset_positions.each do |ctag, pos|
-          offset = last_offset_by_consumer_tag(ctag).not_nil!
-          next if offset < lowest_offset_in_stream
-          # Other scenarios to remove?
+        lowest_offset_in_stream, _seg, _pos = offset_at(@segments.first_key, 4u32)
+        @consumer_offset_positions.each do |ctag, _pos|
+          offset = last_offset_by_consumer_tag(ctag)
+          next if !offset || offset < lowest_offset_in_stream
           offsets_to_save[ctag] = offset
         end
 
