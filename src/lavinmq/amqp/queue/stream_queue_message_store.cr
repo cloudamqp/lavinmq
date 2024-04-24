@@ -13,15 +13,16 @@ module LavinMQ::AMQP
       @offset_index = Hash(UInt32, Int64).new          # segment_id => offset of first msg
       @timestamp_index = Hash(UInt32, Int64).new       # segment_id => ts of first msg
       @consumer_offset_path : String
-      @consumer_offset_positions : Hash(String, Int64)? # used for consumer offsets
       @consumer_offsets : MFile?
+      @consumer_offset_positions = Hash(String, Int64).new # used for consumer offsets
+      @consumer_offset_capacity = 32_768
 
       def initialize(*args, **kwargs)
         super
         @last_offset = get_last_offset
         build_segment_indexes
         @consumer_offset_path = File.join(@queue_data_dir, "consumer_offsets")
-        @consumer_offsets = MFile.new(@consumer_offset_path, 5000) # TODO: size?
+        @consumer_offsets = MFile.new(@consumer_offset_path, @consumer_offset_capacity)
         @consumer_offset_positions = consumer_offset_positions
         drop_overflow
       end
@@ -216,8 +217,7 @@ module LavinMQ::AMQP
       def delete_and_reopen_offsets_file
         @consumer_offsets.close
         @consumer_offsets.delete
-        path = File.join(@data_dir, "consumer_offsets")
-        @consumer_offsets = MFile.new(path, 5000) # TODO: size?
+        @consumer_offsets = MFile.new(@consumer_offset_path, @consumer_offset_capacity)
       end
 
       def shift?(consumer : Client::Channel::StreamConsumer) : Envelope?
