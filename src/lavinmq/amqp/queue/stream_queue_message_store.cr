@@ -139,15 +139,15 @@ module LavinMQ::AMQP
         rescue IO::EOFError
           break
         end
-        @consumer_offsets.resize(@consumer_offsets.pos) # resize mfile to remove any empty bytes
+        @consumer_offsets.pos = 0 if @consumer_offsets.pos == 1
+        @consumer_offsets.resize(@consumer_offsets.pos)
         positions
       end
 
       def update_consumer_offset(consumer_tag : String, new_offset : Int64)
         begin
           if pos = @consumer_offset_positions[consumer_tag]?
-            @consumer_offsets.pos = pos
-            @consumer_offsets.write_bytes new_offset
+            IO::ByteFormat::SystemEndian.encode(new_offset, @consumer_offsets.to_slice(pos, 8, false))
           else
             store_consumer_offset(consumer_tag, new_offset)
           end
