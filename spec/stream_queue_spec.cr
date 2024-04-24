@@ -254,7 +254,7 @@ describe LavinMQ::StreamQueue do
       data_dir = File.join(vhost.data_dir, Digest::SHA1.hexdigest queue_name)
       msg_store = LavinMQ::StreamQueue::StreamQueueMessageStore.new(data_dir, nil)
       offsets.each_with_index do |offset, i|
-        msg_store.save_offset_by_consumer_tag(tag_prefix + i.to_s, offset)
+        msg_store.update_consumer_offset(tag_prefix + i.to_s, offset)
       end
       msg_store.close
       sleep 0.1
@@ -276,7 +276,7 @@ describe LavinMQ::StreamQueue do
       data_dir = File.join(vhost.data_dir, Digest::SHA1.hexdigest queue_name)
       msg_store = LavinMQ::StreamQueue::StreamQueueMessageStore.new(data_dir, nil)
       offsets.each do |offset|
-        msg_store.save_offset_by_consumer_tag(consumer_tag, offset)
+        msg_store.update_consumer_offset(consumer_tag, offset)
       end
       msg_store.close
       sleep 0.1
@@ -330,7 +330,7 @@ describe LavinMQ::StreamQueue do
       data_dir = File.join(vhost.data_dir, Digest::SHA1.hexdigest queue_name)
       msg_store = LavinMQ::StreamQueue::StreamQueueMessageStore.new(data_dir, nil)
       offsets.each_with_index do |offset, i|
-        msg_store.save_offset_by_consumer_tag(tag_prefix + i.to_s, offset)
+        msg_store.update_consumer_offset(tag_prefix + i.to_s, offset)
       end
       sleep 0.1
       msg_store.remove_consumer_tag_from_file(tag_prefix + 1.to_s)
@@ -353,7 +353,7 @@ describe LavinMQ::StreamQueue do
       data_dir = File.join(vhost.data_dir, Digest::SHA1.hexdigest queue_name)
       msg_store = LavinMQ::StreamQueue::StreamQueueMessageStore.new(data_dir, nil)
       offsets.each_with_index do |offset, i|
-        msg_store.save_offset_by_consumer_tag(tag_prefix + i.to_s, offset)
+        msg_store.update_consumer_offset(tag_prefix + i.to_s, offset)
       end
       sleep 0.1
       msg_store.cleanup_consumer_offsets
