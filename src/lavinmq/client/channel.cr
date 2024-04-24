@@ -16,23 +16,20 @@ module LavinMQ
       include SortableJSON
 
       rate_stats({"ack", "get", "publish", "deliver", "redeliver", "reject", "confirm", "return_unroutable"})
-      Utils.alias_merged_tuple(
-        ChannelDetails,
-        NamedTuple(
-          number: UInt16,
-          name: String,
-          vhost: String,
-          user: String,
-          consumer_count: Int32,
-          prefetch_count: UInt16,
-          global_prefetch_count: UInt16,
-          confirm: Bool,
-          transactional: Bool,
-          messages_unacknowledged: Int32,
-          connection_details: ConnectionDetails,
-          state: String,
-          message_stats: StatsDetails)
-      )
+      alias ChannelDetails = NamedTuple(
+        number: UInt16,
+        name: String,
+        vhost: String,
+        user: String,
+        consumer_count: Int32,
+        prefetch_count: UInt16,
+        global_prefetch_count: UInt16,
+        confirm: Bool,
+        transactional: Bool,
+        messages_unacknowledged: Int32,
+        connection_details: ConnectionDetails,
+        state: String,
+        message_stats: StatsDetails)
 
       record Unack,
         tag : UInt64,
