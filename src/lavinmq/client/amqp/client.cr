@@ -30,8 +30,8 @@ module LavinMQ
       @running = true
       @last_recv_frame = RoughTime.monotonic
       @last_sent_frame = RoughTime.monotonic
-      rate_stats({"send_oct", "recv_oct"})
       DEFAULT_EX = "amq.default"
+      rate_stats({"send_oct", "recv_oct"})
 
       def initialize(@socket : IO,
                      @connection_info : ConnectionInfo,
@@ -67,7 +67,7 @@ module LavinMQ
         @remote_address.to_s
       end
 
-      def details_tuple
+      def details_tuple : ClientDetails
         {
           channels:          @channels.size,
           connected_at:      @connected_at,

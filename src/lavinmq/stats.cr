@@ -2,6 +2,18 @@ require "./config"
 
 module LavinMQ
   module Stats
+    macro alias_stats_tuple(name, stats_keys, log_keys = %w())
+      alias {{name}} = NamedTuple(
+        {% for name in stats_keys %}
+          {{name.id}}: UInt64,
+          {{name.id}}_details: {
+            rate: Float64,
+            log: Deque(Float64)
+          },
+        {% end %}
+      )
+    end
+
     macro rate_stats(stats_keys, log_keys = %w())
       {% for name in stats_keys %}
         @{{name.id}}_count = 0_u64
