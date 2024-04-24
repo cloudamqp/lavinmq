@@ -23,7 +23,7 @@ module LavinMQ::AMQP
         build_segment_indexes
         @consumer_offset_path = File.join(@queue_data_dir, "consumer_offsets")
         @consumer_offsets = MFile.new(@consumer_offset_path, @consumer_offset_capacity)
-        @consumer_offset_positions = consumer_offset_positions
+        @consumer_offset_positions = restore_consumer_offset_positions
         drop_overflow
       end
 
@@ -126,29 +126,20 @@ module LavinMQ::AMQP
         end
       end
 
-      def consumer_offsets : MFile
-        return @consumer_offsets.not_nil! if @consumer_offsets && !@consumer_offsets.not_nil!.closed?
-        path = File.join(@data_dir, "consumer_offsets")
-        @consumer_offsets = MFile.new(path, 5000) # TODO: size?
-      end
-
-      private def consumer_offset_positions
+      private def restore_consumer_offset_positions
         positions = Hash(String, Int64).new
-        slice = @consumer_offsets.to_slice
-        return positions if slice.size.zero?
-        pos = 0
+        return positions if @consumer_offsets.size.zero?
 
         loop do
-          ctag_length = IO::ByteFormat::LittleEndian.decode(UInt8, slice[pos, pos + 1])
-          break if ctag_length == 0
-          pos += 1
-          ctag = String.new(slice[pos..pos + ctag_length - 1])
-          pos += ctag_length
-          positions[ctag] = pos
-          pos += 8
-          break if pos >= slice.size
+          ctag_length = @consumer_offsets.read_byte
+          break if !ctag_length || ctag_length.zero?
+          ctag = @consumer_offsets.read_string(ctag_length)
+          positions[ctag] = @consumer_offsets.pos
+          @consumer_offsets.skip(8)
+        rescue IO::EOFError
+          break
         end
-        @consumer_offsets.resize(pos) # resize mfile to remove any empty bytes
+        @consumer_offsets.resize(@consumer_offsets.pos) # resize mfile to remove any empty bytes
         positions
       end
 
