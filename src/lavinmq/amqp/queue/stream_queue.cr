@@ -79,8 +79,8 @@ module LavinMQ::AMQP
       end
     end
 
-    def save_offset_by_consumer_tag(consumer_tag : String, offset : Int64) : Nil
-      stream_queue_msg_store.save_offset_by_consumer_tag(consumer_tag, offset)
+    def update_consumer_offset(consumer_tag : String, offset : Int64) : Nil
+      stream_queue_msg_store.update_consumer_offset(consumer_tag, offset)
     end
 
     # yield the next message in the ready queue

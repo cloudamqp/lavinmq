@@ -143,7 +143,7 @@ module LavinMQ::AMQP
         positions
       end
 
-      def save_offset_by_consumer_tag(consumer_tag, new_offset)
+      def update_consumer_offset(consumer_tag : String, new_offset : Int64)
         begin
           if pos = @consumer_offset_positions[consumer_tag]?
             buf = uninitialized UInt8[8]
