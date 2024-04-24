@@ -3,12 +3,12 @@ require "socket"
 require "../client"
 require "../../error"
 require "../../vhost"
+require "./channel"
 
 module LavinMQ
   module AMQP
     class Client < LavinMQ::Client
       include SortableJSON
-      include Stats
 
       getter vhost : VHost
       getter channels : Hash(UInt16, Client::Channel)
@@ -31,7 +31,6 @@ module LavinMQ
       @last_recv_frame = RoughTime.monotonic
       @last_sent_frame = RoughTime.monotonic
       DEFAULT_EX = "amq.default"
-      rate_stats({"send_oct", "recv_oct"})
 
       def initialize(@socket : IO,
                      @connection_info : ConnectionInfo,
@@ -311,7 +310,7 @@ module LavinMQ
         if @channels.has_key? frame.channel
           close_connection(frame, 504_u16, "CHANNEL_ERROR - second 'channel.open' seen")
         else
-          @channels[frame.channel] = Client::Channel.new(self, frame.channel)
+          @channels[frame.channel] = AMQP::Channel.new(self, frame.channel)
           @vhost.event_tick(EventType::ChannelCreated)
           send AMQP::Frame::Channel::OpenOk.new(frame.channel)
         end

@@ -19,43 +19,42 @@ module LavinMQ
     peer_port: Int32,
     name: String)
 
-  # alias ClientStatsDetails = NamedTuple(...)
-  Stats.alias_stats_tuple(ClientStatsDetails, {"send_oct", "recv_oct"})
-
-  # alias ClientDetails = NamedTuple(...)
-  Utils.alias_merged_tuple(
-    ClientDetails,
-    NamedTuple(
-      channels: Int32,
-      connected_at: Int64,
-      type: String,
-      channel_max: UInt16,
-      frame_max: UInt32,
-      timeout: UInt16,
-      client_properties: AMQP::Table,
-      vhost: String,
-      user: String,
-      protocol: String,
-      auth_mechanism: String,
-      host: String,
-      port: Int32,
-      peer_host: String,
-      peer_port: Int32,
-      name: String,
-      pid: String,
-      ssl: Bool,
-      tls_version: String?,
-      cipher: String?,
-      state: String,
-    ),
-    # Merge in ClientStatsDetails
-    ClientStatsDetails
-  )
-
   abstract class Client
     include SortableJSON
+    include Stats
 
-    abstract def stats_details
+    rate_stats({"send_oct", "recv_oct"})
+
+    # alias ClientDetails = NamedTuple(...)
+    Utils.alias_merged_tuple(
+      ClientDetails,
+      NamedTuple(
+        channels: Int32,
+        connected_at: Int64,
+        type: String,
+        channel_max: UInt16,
+        frame_max: UInt32,
+        timeout: UInt16,
+        client_properties: AMQP::Table,
+        vhost: String,
+        user: String,
+        protocol: String,
+        auth_mechanism: String,
+        host: String,
+        port: Int32,
+        peer_host: String,
+        peer_port: Int32,
+        name: String,
+        pid: String,
+        ssl: Bool,
+        tls_version: String?,
+        cipher: String?,
+        state: String,
+      ),
+      # Merge in ClientStatsDetails
+      Client::StatsDetails
+    )
+
     abstract def vhost : VHost
     abstract def channels : Hash(UInt16, Client::Channel)
     abstract def log : Log

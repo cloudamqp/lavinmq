@@ -2,8 +2,8 @@ require "./config"
 
 module LavinMQ
   module Stats
-    macro alias_stats_tuple(name, stats_keys, log_keys = %w())
-      alias {{name}} = NamedTuple(
+    macro rate_stats(stats_keys, log_keys = %w())
+      alias StatsDetails = NamedTuple(
         {% for name in stats_keys %}
           {{name.id}}: UInt64,
           {{name.id}}_details: {
@@ -12,9 +12,14 @@ module LavinMQ
           },
         {% end %}
       )
-    end
-
-    macro rate_stats(stats_keys, log_keys = %w())
+      alias CurrentStatsDetails = NamedTuple(
+        {% for name in stats_keys %}
+          {{name.id}}: UInt64,
+          {{name.id}}_details: {
+            rate: Float64,
+          },
+        {% end %}
+      )
       {% for name in stats_keys %}
         @{{name.id}}_count = 0_u64
         @{{name.id}}_count_prev = 0_u64
@@ -27,7 +32,7 @@ module LavinMQ
         getter {{name.id}}_log
       {% end %}
 
-      def stats_details
+      def stats_details : StatsDetails
         {
           {% for name in stats_keys %}
             {{name.id}}: @{{name.id}}_count,
@@ -40,7 +45,7 @@ module LavinMQ
       end
 
       # Like stats_details but without log
-      def current_stats_details
+      def current_stats_details : CurrentStatsDetails
         {
           {% for name in stats_keys %}
             {{name.id}}: @{{name.id}}_count,
