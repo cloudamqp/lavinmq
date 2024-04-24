@@ -3,7 +3,7 @@ require "../../segment_position"
 
 module LavinMQ
   abstract class Client
-    class Channel
+    abstract class Channel
       class StreamConsumer < LavinMQ::Client::Channel::Consumer
         property offset : Int64
         property segment : UInt32

@@ -4,7 +4,7 @@ require "../../error"
 
 module LavinMQ
   abstract class Client
-    class Channel
+    abstract class Channel
       class Consumer
         include SortableJSON
         getter tag : String
