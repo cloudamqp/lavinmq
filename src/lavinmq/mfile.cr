@@ -259,9 +259,9 @@ class MFile < IO
     Bytes.new(buffer, @size, read_only: true)
   end
 
-  def to_slice(pos, size)
+  def to_slice(pos, size, read_only = true)
     raise IO::EOFError.new if pos + size > @size
-    Bytes.new(buffer + pos, size, read_only: true)
+    Bytes.new(buffer + pos, size, read_only: read_only)
   end
 
   def advise(advice : Advice, addr = buffer, offset = 0, length = @capacity) : Nil
