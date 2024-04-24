@@ -17,7 +17,7 @@ module LavinMQ
       def initialize(@queue_data_dir : String, @replicator : Clustering::Replicator?)
         super
         @last_offset = get_last_offset
-        @consumer_offset_path  = File.join(@data_dir, "consumer_offsets")
+        @consumer_offset_path = File.join(@data_dir, "consumer_offsets")
         @consumer_offsets = MFile.new(@consumer_offset_path, @consumer_offset_capacity)
         @consumer_offset_positions = restore_consumer_offset_positions
         drop_overflow
