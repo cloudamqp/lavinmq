@@ -146,9 +146,8 @@ module LavinMQ::AMQP
       def update_consumer_offset(consumer_tag : String, new_offset : Int64)
         begin
           if pos = @consumer_offset_positions[consumer_tag]?
-            buf = uninitialized UInt8[8]
-            IO::ByteFormat::LittleEndian.encode(new_offset.as(Int64), buf.to_slice)
-            @consumer_offsets.write_at(pos, buf.to_slice)
+            @consumer_offsets.pos = pos
+            @consumer_offsets.write_bytes new_offset
           else
             store_consumer_offset(consumer_tag, new_offset)
           end
