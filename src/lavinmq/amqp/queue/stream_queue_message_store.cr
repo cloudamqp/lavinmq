@@ -150,12 +150,12 @@ module LavinMQ::AMQP
             IO::ByteFormat::LittleEndian.encode(new_offset.as(Int64), buf.to_slice)
             @consumer_offsets.write_at(pos, buf.to_slice)
           else
-            write_new_ctag_to_file(consumer_tag, new_offset)
+            store_consumer_offset(consumer_tag, new_offset)
           end
         end
       end
 
-      def write_new_ctag_to_file(consumer_tag, new_offset)
+      def store_consumer_offset(consumer_tag, new_offset)
         slice = consumer_tag.to_slice
         consumer_tag_length = slice.size.to_u8
         pos = @consumer_offsets.size + slice.size + 1
@@ -183,7 +183,7 @@ module LavinMQ::AMQP
         delete_and_reopen_offsets_file
         @consumer_offset_positions = Hash(String, Int64).new
         offsets_to_save.each do |ctag, offset|
-          write_new_ctag_to_file(ctag, offset)
+          store_consumer_offset(ctag, offset)
         end
       end
 
@@ -199,7 +199,7 @@ module LavinMQ::AMQP
 
         delete_and_reopen_offsets_file
         offsets_to_save.each do |ctag, offset|
-          write_new_ctag_to_file(ctag, offset)
+          store_consumer_offset(ctag, offset)
         end
       end
 
