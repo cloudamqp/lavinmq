@@ -98,14 +98,14 @@ module LavinMQ
         {msg_offset, segment, pos}
       end
 
-      def last_offset_by_consumer_tag(consumer_tag)
+      def last_offset_by_consumer_tag(consumer_tag : String)
         if pos = @consumer_offset_positions[consumer_tag]?
           tx = @consumer_offsets.to_slice(pos, 8)
           return IO::ByteFormat::SystemEndian.decode(Int64, tx)
         end
       end
 
-      private def restore_consumer_offset_positions
+      private def restore_consumer_offset_positions : Hash(String, Int64)
         positions = Hash(String, Int64).new
         return positions if @consumer_offsets.size.zero?
 
@@ -133,7 +133,7 @@ module LavinMQ
         end
       end
 
-      def store_consumer_offset(consumer_tag, new_offset)
+      def store_consumer_offset(consumer_tag : String, new_offset : Int64)
         slice = consumer_tag.to_slice
         consumer_tag_length = slice.size.to_u8
         pos = @consumer_offsets.size + slice.size + 1
@@ -165,7 +165,7 @@ module LavinMQ
         end
       end
 
-      def remove_consumer_tag_from_file(consumer_tag)
+      def remove_consumer_tag_from_file(consumer_tag : String)
         @consumer_offset_positions = @consumer_offset_positions.reject! { |k, _v| k == consumer_tag }
 
         offsets_to_save = Hash(String, Int64).new
