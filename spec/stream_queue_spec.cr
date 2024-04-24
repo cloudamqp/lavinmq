@@ -407,7 +407,7 @@ describe LavinMQ::StreamQueue do
 
       msg_store = LavinMQ::StreamQueue::StreamQueueMessageStore.new(data_dir, nil)
       msg_store.last_offset_by_consumer_tag(consumer_tag).should eq offsets.last
-      msg_store.@consumer_offsets.size.should eq 15
+      msg_store.@consumer_offsets.size.should eq 16
 
       msg_store.close
     end
