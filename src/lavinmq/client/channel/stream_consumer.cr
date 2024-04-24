@@ -88,7 +88,7 @@ module LavinMQ
         end
 
         def ack(sp)
-          stream_queue.save_offset_by_consumer_tag(@tag, @offset) if @track_offset
+          stream_queue.update_consumer_offset(@tag, @offset) if @track_offset
           super
         end
 
