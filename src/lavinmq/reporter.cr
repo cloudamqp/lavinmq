@@ -28,13 +28,13 @@ module LavinMQ
         puts_size_capacity vh.@connections
         vh.connections.each do |c|
           puts "  #{c.name}"
-          puts_size_capacity c.@channels, 4
+          puts_size_capacity c.channels, 4
           c.channels.each_value do |ch|
             puts "    #{ch.id} global_prefetch=#{ch.global_prefetch_count} prefetch=#{ch.prefetch_count}"
-            puts_size_capacity ch.@unacked, 6
-            puts_size_capacity ch.@consumers, 6
-            puts_size_capacity ch.@visited, 6
-            puts_size_capacity ch.@found_queues, 6
+            #            puts_size_capacity ch.@unacked, 6
+            puts_size_capacity ch.consumers, 6
+            #            puts_size_capacity ch.@visited, 6
+            #            puts_size_capacity ch.@found_queues, 6
           end
         end
       end

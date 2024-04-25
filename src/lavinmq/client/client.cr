@@ -1,16 +1,10 @@
 require "openssl"
 require "socket"
-require "../vhost"
-require "../message"
 require "./channel"
+require "../vhost"
 require "../user"
 require "../stats"
 require "../sortable_json"
-require "../rough_time"
-require "../error"
-require "./amqp_connection"
-require "../config"
-require "../http/handler/websocket"
 require "../utils"
 
 module LavinMQ
@@ -51,7 +45,7 @@ module LavinMQ
         cipher: String?,
         state: String,
       ),
-      # Merge in ClientStatsDetails
+      # Merge in StatsDetails
       Client::StatsDetails
     )
 

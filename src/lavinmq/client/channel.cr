@@ -1,13 +1,9 @@
 require "./channel/consumer"
-require "./channel/stream_consumer"
+require "./client"
 require "../queue"
-require "../exchange"
-require "../amqp"
 require "../stats"
 require "../sortable_json"
 require "../error"
-require "../utils"
-require "./amqp/client"
 
 module LavinMQ
   abstract class Client
@@ -41,9 +37,7 @@ module LavinMQ
       abstract def id : UInt16
       abstract def name : String
       abstract def running? : Bool
-      abstract def running=(value : Bool)
       abstract def flow? : Bool
-      abstract def flow(active : Bool)
       abstract def log : Log
       abstract def consumers : Array(Consumer)
       abstract def prefetch_count : UInt16

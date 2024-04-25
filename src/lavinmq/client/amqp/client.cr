@@ -1,9 +1,8 @@
 require "openssl"
 require "socket"
+require "./channel"
 require "../client"
 require "../../error"
-require "../../vhost"
-require "./channel"
 
 module LavinMQ
   module AMQP

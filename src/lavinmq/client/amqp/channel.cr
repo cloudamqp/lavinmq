@@ -1,13 +1,12 @@
-require "../client"
-require "../channel/consumer"
-require "../channel/stream_consumer"
+require "./client"
+require "./consumer"
+require "./stream_consumer"
 require "../../error"
 require "../../queue"
 require "../../exchange"
 require "../../amqp"
 require "../../stats"
 require "../../sortable_json"
-require "../../error"
 
 module LavinMQ
   module AMQP
@@ -356,9 +355,9 @@ module LavinMQ
             return
           end
           c = if q.is_a? StreamQueue
-                StreamConsumer.new(self, q, frame)
+                AMQP::StreamConsumer.new(self, q, frame)
               else
-                Consumer.new(self, q, frame)
+                AMQP::Consumer.new(self, q, frame)
               end
           @consumers.push(c)
           q.add_consumer(c)
