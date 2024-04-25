@@ -6,12 +6,14 @@ require "../amqp"
 require "../stats"
 require "../sortable_json"
 require "../error"
+require "../reporter"
 
 module LavinMQ
   class Client
     class Channel
       include Stats
       include SortableJSON
+      include Reportable
 
       getter id, name
       property? running = true
@@ -38,6 +40,9 @@ module LavinMQ
       @next_msg_body_tmp = IO::Memory.new
 
       rate_stats({"ack", "get", "publish", "deliver", "redeliver", "reject", "confirm", "return_unroutable"})
+      reportables @unacked, @consumers, @visited, @found_queues do |r|
+        r.report_raw "global_prefetch=#{global_prefetch_count} prefetch=#{prefetch_count}"
+      end
 
       def initialize(@client : Client, @id : UInt16)
         @log = Log.for "channel[client=#{@client.remote_address} id=#{@id}]"

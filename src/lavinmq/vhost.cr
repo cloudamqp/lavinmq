@@ -13,15 +13,19 @@ require "./queue"
 require "./schema"
 require "./event_type"
 require "./stats"
+require "./reporter"
 
 module LavinMQ
   class VHost
     include SortableJSON
     include Stats
+    include Reportable
 
     rate_stats({"channel_closed", "channel_created", "connection_closed", "connection_created",
                 "queue_declared", "queue_deleted", "ack", "deliver", "get", "publish", "confirm",
                 "redeliver", "reject", "consumer_added", "consumer_removed"})
+
+    reportables exchanges, queues, connections
 
     getter name, exchanges, queues, data_dir, operator_policies, policies, parameters, shovels,
       direct_reply_consumers, connections, dir, users
