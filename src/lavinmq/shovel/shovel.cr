@@ -310,13 +310,13 @@ module LavinMQ
         loop do
           break if terminated?
           @state = State::Starting
-          unless @source.started?
-            if @source.last_unacked
-              Log.error { "Restarted with unacked messages, message duplication possible" }
-            end
-            @source.start
+
+          if @source.last_unacked
+            Log.error { "Restarted with unacked messages, message duplication possible" }
           end
-          @destination.start unless @destination.started?
+          @source.start
+          @destination.start
+
           break if terminated?
           Log.info { "started" }
           @state = State::Running
