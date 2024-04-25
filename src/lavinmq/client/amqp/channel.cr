@@ -12,6 +12,11 @@ module LavinMQ
   module AMQP
     class Channel < LavinMQ::Client::Channel
       include SortableJSON
+      include Reportable
+
+      reportables @unacked, @consumers, @visited, @found_queues do |r|
+        r.report_raw "global_prefetch=#{global_prefetch_count} prefetch=#{prefetch_count}"
+      end
 
       getter id : UInt16
       getter name : String

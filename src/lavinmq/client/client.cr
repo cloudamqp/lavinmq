@@ -6,6 +6,7 @@ require "../user"
 require "../stats"
 require "../sortable_json"
 require "../utils"
+require "../reporter"
 
 module LavinMQ
   alias ConnectionDetails = NamedTuple(
@@ -16,8 +17,10 @@ module LavinMQ
   abstract class Client
     include SortableJSON
     include Stats
+    include Reportable
 
     rate_stats({"send_oct", "recv_oct"})
+    reportables channels
 
     # alias ClientDetails = NamedTuple(...)
     Utils.alias_merged_tuple(

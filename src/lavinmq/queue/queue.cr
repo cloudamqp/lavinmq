@@ -7,6 +7,7 @@ require "../sortable_json"
 require "../client/channel/consumer"
 require "../message"
 require "../error"
+require "../reporter"
 require "./message_store"
 
 module LavinMQ
@@ -27,6 +28,9 @@ module LavinMQ
     include Observable
     include Stats
     include SortableJSON
+    include Reportable
+
+    reportables @consumers, @deliveries, @msg_store
 
     @log : Log
     @message_ttl : Int64?

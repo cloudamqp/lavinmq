@@ -15,12 +15,16 @@ require "./connection_info"
 require "./proxy_protocol"
 require "./client/client"
 require "./stats"
+require "./reporter"
 
 module LavinMQ
   class Server
     getter vhosts, users, data_dir, parameters
     getter? closed, flow
     include ParameterTarget
+    include Reportable
+
+    reportables users, vhosts
 
     @start = Time.monotonic
     @closed = false

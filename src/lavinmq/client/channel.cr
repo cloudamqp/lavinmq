@@ -4,12 +4,14 @@ require "../queue"
 require "../stats"
 require "../sortable_json"
 require "../error"
+require "../reporter"
 
 module LavinMQ
   abstract class Client
     abstract class Channel
       include Stats
       include SortableJSON
+      include Reportable
 
       rate_stats({"ack", "get", "publish", "deliver", "redeliver", "reject", "confirm", "return_unroutable"})
       alias ChannelDetails = NamedTuple(
