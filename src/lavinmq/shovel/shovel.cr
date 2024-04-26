@@ -318,7 +318,6 @@ module LavinMQ
         loop do
           break if terminated?
           @state = State::Starting
-
           unless @source.started?
             if @source.last_unacked
               Log.error { "Restarted with unacked messages, message duplication possible" }
