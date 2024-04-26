@@ -7,24 +7,14 @@ require "../sortable_json"
 require "../client/channel/consumer"
 require "../message"
 require "../error"
+require "./state"
+require "./event"
 require "./message_store"
 
 module LavinMQ
-  enum QueueState
-    Running
-    Paused
-    Flow
-    Closed
-    Deleted
-
-    def to_s
-      super.downcase
-    end
-  end
-
   class Queue
     include PolicyTarget
-    include Observable
+    include Observable(QueueEvent)
     include Stats
     include SortableJSON
 
@@ -358,7 +348,7 @@ module LavinMQ
       # TODO: When closing due to ReadError, queue is deleted if exclusive
       delete if !durable? || @exclusive
       Fiber.yield
-      notify_observers(:close)
+      notify_observers(QueueEvent::Closed)
       @log.debug { "Closed" }
       true
     end
@@ -373,7 +363,7 @@ module LavinMQ
       end
       @vhost.delete_queue(@name)
       @log.info { "(messages=#{message_count}) Deleted" }
-      notify_observers(:delete)
+      notify_observers(QueueEvent::Deleted)
       @vhost.users.each do |_, user|
         user.remove_queue_from_acl_caches(@vhost.name, @name)
       end
@@ -808,7 +798,7 @@ module LavinMQ
       @has_priority_consumers = true unless consumer.priority.zero?
       @log.debug { "Adding consumer (now #{@consumers.size})" }
       @vhost.event_tick(EventType::ConsumerAdded)
-      notify_observers(:add_consumer, consumer)
+      notify_observers(QueueEvent::ConsumerAdded, consumer)
     end
 
     getter? has_priority_consumers = false
@@ -831,7 +821,7 @@ module LavinMQ
             end
           end
           @vhost.event_tick(EventType::ConsumerRemoved)
-          notify_observers(:rm_consumer, consumer)
+          notify_observers(QueueEvent::ConsumerRemoved, consumer)
         end
       end
       if @consumers.empty?
