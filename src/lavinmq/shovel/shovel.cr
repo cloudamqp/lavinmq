@@ -71,25 +71,16 @@ module LavinMQ
         if c = @conn
           c.close
         end
-        @conn = conn = ::AMQP::Client.new(@uri).connect
-        @ch = ch = conn.channel
-        ch.prefetch @prefetch
-        q_name = @queue || ""
-        @q = q = begin
-          ch.queue_declare(q_name, passive: true)
-        rescue ::AMQP::Client::Channel::ClosedException
-          @ch = ch = conn.channel
-          ch.queue_declare(q_name, passive: false)
-        end
-        if @exchange || @exchange_key
-          ch.queue_bind(q[:queue_name], @exchange || "", @exchange_key || "")
-        end
+        @conn = ::AMQP::Client.new(@uri).connect
+        open_channel
       end
 
       def stop
         # If we have any outstanding messages when closing, ack them first.
         @last_unacked.try { |delivery_tag| ack(delivery_tag, close: true) }
         @conn.try &.close(no_wait: false)
+        @q = nil
+        @ch = nil
       end
 
       private def at_end?(delivery_tag)
@@ -115,7 +106,24 @@ module LavinMQ
       end
 
       def started? : Bool
-        !@q.nil?
+        !@q.nil? && !@conn.try &.closed?
+      end
+
+      private def open_channel
+        @ch.try &.close
+        conn = @conn.not_nil!
+        @ch = ch = conn.channel
+        ch.prefetch @prefetch
+        q_name = @queue || ""
+        @q = q = begin
+          ch.queue_declare(q_name, passive: true)
+        rescue ::AMQP::Client::Channel::ClosedException
+          @ch = ch = conn.channel
+          ch.queue_declare(q_name, passive: false)
+        end
+        if @exchange || @exchange_key
+          ch.queue_bind(q[:queue_name], @exchange || "", @exchange_key || "")
+        end
       end
 
       def each(&blk : ::AMQP::Client::DeliverMessage -> Nil)
@@ -132,15 +140,14 @@ module LavinMQ
           tag: @tag) do |msg|
           blk.call(msg)
 
-          if @ack_mode.on_publish?
-            ack(msg.delivery_tag)
-          end
-
           if @ack_mode.no_ack? && @delete_after.queue_length? && at_end?(msg.delivery_tag)
             ch.basic_cancel(@tag)
           end
         rescue e : FailedDeliveryError
           msg.reject
+        rescue e
+          stop
+          raise e
         end
       end
     end
@@ -209,10 +216,11 @@ module LavinMQ
 
       def stop
         @conn.try &.close
+        @ch = nil
       end
 
       def started? : Bool
-        !@ch.nil?
+        !@ch.nil? && !@conn.try &.closed?
       end
 
       def push(msg, source)
@@ -317,6 +325,7 @@ module LavinMQ
             @source.start
           end
           @destination.start unless @destination.started?
+
           break if terminated?
           Log.info { "started" }
           @state = State::Running
