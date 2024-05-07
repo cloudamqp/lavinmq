@@ -125,6 +125,7 @@ module LavinMQ
       headers = msg.properties.headers
       find_all_queues(ex, msg.routing_key, headers, visited, found_queues)
       headers.delete("BCC") if headers
+
       if found_queues.empty?
         ex.unroutable_count += 1
         return false
@@ -456,8 +457,11 @@ module LavinMQ
         sleep 0.1
       end
       # then force close the remaining (close tcp socket)
+      @log.debug { "force closing connection" } unless connections.empty?
+
       @connections.each &.force_close
       Fiber.yield # yield so that Client read_loops can shutdown
+      @log.debug { "Closing queues" }
       @queues.each_value &.close
       Fiber.yield
       compact!

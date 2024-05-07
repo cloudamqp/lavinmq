@@ -24,13 +24,15 @@ module LavinMQ
       include FileIndex
       include Replicator
       Log = ::Log.for("replication")
+      getter followers_changed = Channel(Nil).new
+      getter? closing
       @lock = Mutex.new(:unchecked)
       @followers = Array(Follower).new
       @password : String
       @files = Hash(String, MFile?).new
+      @closing = false
 
-      def initialize
-        @password = password
+      def initialize(@password = password)
         @tcp = TCPServer.new
         @tcp.sync = false
         @tcp.reuse_address = true
@@ -59,11 +61,13 @@ module LavinMQ
 
       def append(path : String, obj)
         Log.debug { "appending #{obj} to #{path}" }
+        wait_for_max_lag unless closing?
         each_follower &.append(path, obj)
       end
 
       def delete_file(path : String)
         @files.delete(path)
+        wait_for_max_lag unless closing?
         each_follower &.delete(path)
       end
 
@@ -106,6 +110,22 @@ module LavinMQ
         end
       end
 
+      def wait_for_max_lag
+        # was_closing = @closing
+        until @closing || @followers.size >= Config.instance.min_followers
+          @followers_changed.receive
+        end
+        # unless (!was_closing && @closing) || @followers.size >= Config.instance.min_followers
+        #   raise Exception.new("Not enough followers")
+        # end
+        # use waitgroup instead l8er
+        @followers.each_with_index do |f, i|
+          break if i > Config.instance.min_followers
+          f.wait_for_max_lag
+        end
+      rescue Channel::ClosedError
+      end
+
       private def password : String
         path = File.join(Config.instance.data_dir, ".replication_secret")
         begin
@@ -143,12 +163,14 @@ module LavinMQ
           follower.full_sync
           @followers << follower
         end
+        followers_changed.try_send nil
         begin
           follower.read_acks
         ensure
           @lock.synchronize do
             @followers.delete(follower)
           end
+          followers_changed.try_send nil
         end
       rescue ex : AuthenticationError
         Log.warn { "Follower negotiation error" }
@@ -163,6 +185,7 @@ module LavinMQ
       end
 
       def close
+        Log.debug { "closing" }
         @tcp.close
         @lock.synchronize do
           done = Channel({Follower, Bool}).new
@@ -175,7 +198,14 @@ module LavinMQ
           end
           @followers.clear
         end
+        @followers_changed.close
+        Log.debug { "closed" }
         Fiber.yield # required for follower/listener fibers to actually finish
+      end
+
+      def closing
+        @closing = true
+        @followers_changed.try_send? nil
       end
 
       private def each_follower(& : Follower -> Nil) : Nil

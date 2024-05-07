@@ -10,13 +10,13 @@ module LavinMQ
       @data_dir_lock : DataDirLock?
       @closed = false
 
-      def initialize(@data_dir : String)
+      def initialize(@data_dir : String, pwd : String? = nil)
         System.maximize_fd_limit
         @socket = TCPSocket.new
         @socket.sync = true
         @socket.read_buffering = false
         @lz4 = Compress::LZ4::Reader.new(@socket)
-        @password = password
+        @password = pwd || password
         @files = Hash(String, File).new do |h, k|
           path = File.join(@data_dir, k)
           Dir.mkdir_p File.dirname(path)

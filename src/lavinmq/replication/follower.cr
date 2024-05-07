@@ -5,7 +5,7 @@ module LavinMQ
   module Replication
     class Follower
       Log = ::Log.for(self)
-
+      @ack = Channel(Int64).new
       @acked_bytes = 0_i64
       @sent_bytes = 0_i64
       @actions = Channel(Action).new(4096)
@@ -46,6 +46,11 @@ module LavinMQ
         spawn action_loop, name: "Follower#action_loop"
         loop do
           read_ack(socket)
+          if max_lag = Config.instance.max_lag
+            if lag < max_lag
+              @ack.try_send lag
+            end
+          end
         end
       rescue IO::Error
       end
@@ -55,13 +60,23 @@ module LavinMQ
         @acked_bytes += len
       end
 
+      def wait_for_max_lag
+        if max_lag = Config.instance.max_lag
+          current_lag = lag
+          until current_lag < max_lag
+            break unless current_lag = @ack.receive?
+          end
+        end
+      end
+
       private def action_loop(socket = @lz4)
         while action = @actions.receive?
-          action.send(socket)
+          sent_bytes = action.send(socket)
           while action2 = @actions.try_receive?
-            action2.send(socket)
+            sent_bytes += action2.send(socket)
           end
           socket.flush
+          @sent_bytes += sent_bytes
         end
       rescue IO::Error
       ensure
@@ -157,6 +172,7 @@ module LavinMQ
         Log.info { "Disconnected" }
         wait_for_sync if synced_close
         @actions.close
+        @ack.close
         @lz4.close
         @socket.close
       rescue IO::Error

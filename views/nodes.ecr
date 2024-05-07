@@ -74,7 +74,7 @@
         <h3>Queue churn</h3>
         <div class="chart-container" id="queueChurnChart"></div>
       </section>
-      <section class="card">
+      <section class="card cols-10">
         <h3>
           Followers
           <small id="followers-count"></small>
@@ -94,6 +94,18 @@
           </table>
         </div>
       </section>
+      <section class="card cols-2">
+        <h3>Follower Settings</h3>
+        <table class="details-table">
+          <tr>
+            <th>Minimum amount of followers</th>
+            <td id="tr-min-followers"></td>
+          </tr>
+          <tr>
+            <th>Maximum amount of lag</th>
+            <td id="tr-max-lag"></td>
+          </tr>
+        </table>
     </main>
     <% render "footer" %>
   </body>

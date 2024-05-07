@@ -43,7 +43,7 @@ def with_channel(file = __FILE__, line = __LINE__, **args, &)
   args = {port: LavinMQ::Config.instance.amqp_port, name: name}.merge(args)
   conn = AMQP::Client.new(**args).connect
   ch = conn.channel
-  yield ch
+  yield ch, conn
 ensure
   conn.try &.close(no_wait: false)
 end
