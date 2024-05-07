@@ -199,13 +199,12 @@ module LavinMQ
           return if @state.terminated? || @state.terminating?
           @log.debug { "event=#{event} data=#{data}" }
           case event
-          when .deleted?, .closed?
+          in .deleted?, .closed?
             @upstream.stop_link(@federated_q)
-          when .consumer_added?
+          in .consumer_added?
             consumer_available
-          when .consumer_removed?
+          in .consumer_removed?
             nil
-          else raise "Unexpected event '#{event}'"
           end
         rescue e
           @log.error { "Could not process event=#{event} data=#{data} error=#{e.inspect_with_backtrace}" }
@@ -265,21 +264,20 @@ module LavinMQ
           return if @state.terminated? || @state.terminating?
           @log.debug { "event=#{event} data=#{data}" }
           case event
-          when .deleted?
+          in .deleted?
             @upstream.stop_link(@federated_ex)
-          when .bind?
+          in .bind?
             with_consumer_q do |q|
               b = data_as_binding_details(data)
               args = b.arguments || ::AMQP::Client::Arguments.new
               q.bind(@upstream_exchange, b.routing_key, args: args)
             end
-          when .unbind?
+          in .unbind?
             with_consumer_q do |q|
               b = data_as_binding_details(data)
               args = b.arguments || ::AMQP::Client::Arguments.new
               q.unbind(@upstream_exchange, b.routing_key, args: args)
             end
-          else raise "Unexpected event '#{event}'"
           end
         rescue e
           @log.error { "Could not process event=#{event} data=#{data} error=#{e.inspect_with_backtrace}" }
