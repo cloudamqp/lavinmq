@@ -28,6 +28,8 @@ dependencies:
     github: cloudamqp/amqp-client.cr
   amq-protocol:
     github: cloudamqp/amq-protocol.cr
+  execution_context:
+    github: ysbaddaden/execution_context
   systemd:
     github: 84codes/systemd.cr
   lz4:
