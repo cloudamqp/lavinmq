@@ -110,10 +110,10 @@ describe LavinMQ::DurableQueue do
 
         # fill up one segment
         message_size = 41
-        while mfile.size < (524288 - message_size*2) #(LavinMQ::Config.instance.segment_size - 8)
+        while mfile.size < (LavinMQ::Config.instance.segment_size - message_size*2)
           q.publish_confirm "a"
         end
-        remaining_size = 524288 - mfile.size - 42
+        remaining_size = LavinMQ::Config.instance.segment_size - mfile.size - 42
         q.publish_confirm "a" * remaining_size
 
         # publish one more message to create a new segment
