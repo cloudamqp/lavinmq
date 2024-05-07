@@ -28,6 +28,8 @@ dependencies:
     github: cloudamqp/amqp-client.cr
   amq-protocol:
     github: cloudamqp/amq-protocol.cr
+  execution_context:
+    github: ysbaddaden/execution_context
   router:
     github: tbrand/router.cr
   systemd:
