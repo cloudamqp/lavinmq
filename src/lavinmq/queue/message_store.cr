@@ -136,7 +136,7 @@ module LavinMQ
             return if @size.zero?
             raise IO::EOFError.new("EOF but @size=#{@size}")
           else
-            raise ex
+            raise Error.new(@rfile, cause: ex)
           end
         rescue ex
           raise Error.new(@rfile, cause: ex)
