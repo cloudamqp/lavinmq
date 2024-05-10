@@ -1,4 +1,3 @@
-require "../replication"
 require "./actions"
 require "./file_index"
 
@@ -46,17 +45,21 @@ module LavinMQ
       def read_acks(socket = @socket) : Nil
         spawn action_loop, name: "Follower#action_loop"
         loop do
-          len = socket.read_bytes(Int64, IO::ByteFormat::LittleEndian)
-          @acked_bytes += len
+          read_ack(socket)
         end
       rescue IO::Error
       end
 
+      def read_ack(socket = @socket) : Nil
+        len = socket.read_bytes(Int64, IO::ByteFormat::LittleEndian)
+        @acked_bytes += len
+      end
+
       private def action_loop(socket = @lz4)
         while action = @actions.receive?
-          @sent_bytes += action.send(socket)
+          action.send(socket)
           while action2 = @actions.try_receive?
-            @sent_bytes += action2.send(socket)
+            action2.send(socket)
           end
           socket.flush
         end
@@ -129,16 +132,23 @@ module LavinMQ
         end
       end
 
-      def add(path, mfile : MFile? = nil)
-        @actions.send AddAction.new(path, mfile)
+      def add(path, mfile : MFile? = nil) : Int64
+        send_action AddAction.new(path, mfile)
       end
 
-      def append(path, obj)
-        @actions.send AppendAction.new(path, obj)
+      def append(path, obj) : Int64
+        send_action AppendAction.new(path, obj)
       end
 
-      def delete(path)
-        @actions.send DeleteAction.new(path)
+      def delete(path) : Int64
+        send_action DeleteAction.new(path)
+      end
+
+      private def send_action(action : Action) : Int64
+        lag_size = action.lag_size
+        @sent_bytes += lag_size
+        @actions.send action
+        lag_size
       end
 
       def close(synced_close : Channel({Follower, Bool})? = nil)
