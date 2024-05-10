@@ -164,18 +164,20 @@ module FollowerSpec
 
       spawn { follower.read_acks }
 
-      data_size = 0i64
+      ack_size = 0i64
       FollowerSpec.with_datadir_tempfile("file1") do |_rel_path, abs_path|
         File.write abs_path, "foo"
         follower.add(abs_path)
         filename_size = client_lz4.read_bytes(Int32, IO::ByteFormat::LittleEndian)
+        ack_size += filename_size + sizeof(Int32)
         client_lz4.skip filename_size
         data_size = client_lz4.read_bytes(Int64, IO::ByteFormat::LittleEndian)
         client_lz4.skip data_size
+        ack_size += data_size + sizeof(Int64)
       end
       let_sync = Channel({LavinMQ::Replication::Follower, Bool}).new
       spawn { follower.close(let_sync) }
-      spawn { client_socket.write_bytes data_size, IO::ByteFormat::LittleEndian }
+      spawn { client_socket.write_bytes ack_size, IO::ByteFormat::LittleEndian }
 
       select
       when res = let_sync.receive
