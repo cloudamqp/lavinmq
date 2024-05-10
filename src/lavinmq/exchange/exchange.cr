@@ -3,6 +3,7 @@ require "../stats"
 require "../amqp"
 require "../sortable_json"
 require "../observable"
+require "./event"
 require "../queue"
 
 module LavinMQ
@@ -13,7 +14,7 @@ module LavinMQ
     include PolicyTarget
     include Stats
     include SortableJSON
-    include Observable
+    include Observable(ExchangeEvent)
 
     getter name, arguments, queue_bindings, exchange_bindings, vhost, type, alternate_exchange
     getter? durable, internal, auto_delete
@@ -142,7 +143,7 @@ module LavinMQ
     REPUBLISH_HEADERS = {"x-head", "x-tail", "x-from"}
 
     protected def after_bind(destination : Destination, routing_key : String, headers : AMQP::Table?)
-      notify_observers(:bind, binding_details({routing_key, headers}, destination))
+      notify_observers(ExchangeEvent::Bind, binding_details({routing_key, headers}, destination))
       true
     end
 
@@ -154,7 +155,7 @@ module LavinMQ
          @exchange_bindings.each_value.all? &.empty?
         delete
       end
-      notify_observers(:unbind, binding_details({routing_key, headers}, destination))
+      notify_observers(ExchangeEvent::Unbind, binding_details({routing_key, headers}, destination))
     end
 
     protected def delete
@@ -162,7 +163,7 @@ module LavinMQ
       @deleted = true
       @delayed_queue.try &.delete
       @vhost.delete_exchange(@name)
-      notify_observers(:delete)
+      notify_observers(ExchangeEvent::Deleted)
     end
 
     abstract def type : String
