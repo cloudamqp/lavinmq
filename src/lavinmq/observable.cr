@@ -1,19 +1,24 @@
-module Observable
-  @observers = Set(Observer).new
-
-  def register_observer(observer : Observer)
-    @observers.add(observer)
+module LavinMQ
+  module Observer(EventT)
+    abstract def on(event : EventT, data : Object?)
   end
 
-  def unregister_observer(observer : Observer)
-    @observers.delete(observer)
-  end
+  module Observable(EventT)
+    macro included
+      {% observers_ivar = ("@__" + EventT.name.stringify.downcase.gsub(/[^a-z_]+/, "_") + "_observers").id %}
+      {{observers_ivar}} = Set(LavinMQ::Observer({{EventT}})).new
 
-  def notify_observers(event : Symbol, data : Object? = nil)
-    @observers.each &.on(event, data)
-  end
-end
+      def register_observer(observer : LavinMQ::Observer({{EventT}}))
+        {{observers_ivar}}.add(observer)
+      end
 
-module Observer
-  abstract def on(event : Symbol, data : Object?)
+      def unregister_observer(observer : LavinMQ::Observer({{EventT}}))
+        {{observers_ivar}}.delete(observer)
+      end
+
+      def notify_observers(event : {{EventT}}, data : Object? = nil)
+        {{observers_ivar}}.each &.on(event, data)
+      end
+    end
+  end
 end

@@ -1,12 +1,13 @@
 require "../observable"
 require "amqp-client"
 require "../sortable_json"
+require "../queue/event"
+require "../exchange/event"
 
 module LavinMQ
   module Federation
     class Upstream
       abstract class Link
-        include Observer
         include SortableJSON
         getter last_changed, error, state
 
@@ -59,7 +60,6 @@ module LavinMQ
         # Does not trigger reconnect, but a graceful close
         def terminate
           return if @state.terminated?
-          unregister_observer
           state(State::Terminating)
           @upstream_connection.try &.close
           @downstream_connection.try &.close
@@ -135,9 +135,7 @@ module LavinMQ
         end
 
         abstract def name : String
-        abstract def on(event : Symbol, data : Object)
         private abstract def start_link
-        private abstract def unregister_observer
 
         private def start_link_common(&)
           return if @state.terminated?
@@ -168,6 +166,7 @@ module LavinMQ
       end
 
       class QueueLink < Link
+        include Observer(QueueEvent)
         @consumer_available = Channel(Nil).new(1)
         EXCHANGE = ""
 
@@ -184,6 +183,7 @@ module LavinMQ
         end
 
         def terminate
+          @federated_q.unregister_observer(self)
           super
           @consumer_available.close
         end
@@ -195,24 +195,19 @@ module LavinMQ
           end
         end
 
-        def on(event, data)
+        def on(event : QueueEvent, data)
           return if @state.terminated? || @state.terminating?
           @log.debug { "event=#{event} data=#{data}" }
           case event
-          when :delete, :close
+          in .deleted?, .closed?
             @upstream.stop_link(@federated_q)
-          when :add_consumer
+          in .consumer_added?
             consumer_available
-          when :rm_consumer
+          in .consumer_removed?
             nil
-          else raise "Unexpected event '#{event}'"
           end
         rescue e
           @log.error { "Could not process event=#{event} data=#{data} error=#{e.inspect_with_backtrace}" }
-        end
-
-        private def unregister_observer
-          @federated_q.unregister_observer(self)
         end
 
         private def setup_queue(upstream_client)
@@ -255,6 +250,7 @@ module LavinMQ
       end
 
       class ExchangeLink < Link
+        include Observer(ExchangeEvent)
         @consumer_q : ::AMQP::Client::Queue?
 
         def initialize(@upstream : Upstream, @federated_ex : Exchange, @upstream_q : String,
@@ -268,25 +264,24 @@ module LavinMQ
           @federated_ex.name
         end
 
-        def on(event, data)
+        def on(event : ExchangeEvent, data)
           return if @state.terminated? || @state.terminating?
           @log.debug { "event=#{event} data=#{data}" }
           case event
-          when :delete
+          in .deleted?
             @upstream.stop_link(@federated_ex)
-          when :bind
+          in .bind?
             with_consumer_q do |q|
               b = data_as_binding_details(data)
               args = b.arguments || ::AMQP::Client::Arguments.new
               q.bind(@upstream_exchange, b.routing_key, args: args)
             end
-          when :unbind
+          in .unbind?
             with_consumer_q do |q|
               b = data_as_binding_details(data)
               args = b.arguments || ::AMQP::Client::Arguments.new
               q.unbind(@upstream_exchange, b.routing_key, args: args)
             end
-          else raise "Unexpected event '#{event}'"
           end
         rescue e
           @log.error { "Could not process event=#{event} data=#{data} error=#{e.inspect_with_backtrace}" }
@@ -308,6 +303,7 @@ module LavinMQ
 
         def terminate
           super
+          @federated_ex.unregister_observer(self)
           cleanup
         end
 
@@ -324,10 +320,6 @@ module LavinMQ
           end
         rescue e
           @log.warn(exception: e) { "cleanup interrupted " }
-        end
-
-        private def unregister_observer
-          @federated_ex.unregister_observer(self)
         end
 
         private def setup(upstream_client)
