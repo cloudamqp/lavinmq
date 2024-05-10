@@ -195,7 +195,7 @@ module LavinMQ
             f.truncate
             IO.copy(socket, f, len) == len || raise IO::EOFError.new
           end
-          ack_value : Int64 = sizeof(Int32) + filename_len + sizeof(Int64) + len.abs
+          ack_value : Int64 = len.abs + sizeof(Int64) + filename_len + sizeof(Int32)
           @socket.write_bytes ack_value, IO::ByteFormat::LittleEndian # ack
           @socket.flush
         end
