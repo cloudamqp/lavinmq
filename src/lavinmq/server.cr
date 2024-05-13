@@ -257,7 +257,7 @@ module LavinMQ
       end
     end
 
-    def system_metrics(statm)
+    def update_system_metrics(statm)
       interval = Config.instance.stats_interval.milliseconds.to_i
       log_size = Config.instance.stats_log_size
       rusage = System.resource_usage
@@ -315,7 +315,7 @@ module LavinMQ
             update_stats_rates
           end
           @stats_system_collection_duration_seconds = Time.measure do
-            system_metrics(statm)
+            update_system_metrics(statm)
           end
         end
 
