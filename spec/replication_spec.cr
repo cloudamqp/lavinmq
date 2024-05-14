@@ -5,12 +5,14 @@ describe LavinMQ::Replication::Client do
   data_dir = "/tmp/lavinmq-follower"
 
   before_each do
+    puts "client bfe"
     FileUtils.rm_rf data_dir
     Dir.mkdir_p data_dir
     File.write File.join(data_dir, ".replication_secret"), Server.@replicator.@password, 0o400
   end
 
   after_each do
+    puts "client ae"
     FileUtils.rm_rf data_dir
   end
 
@@ -70,18 +72,17 @@ describe LavinMQ::Replication::Server do
   data_dir = "/tmp/lavinmq-follower"
 
   before_each do
+    puts "before_each"
     FileUtils.rm_rf data_dir
     Dir.mkdir_p data_dir
     File.write File.join(data_dir, ".replication_secret"), Server.@replicator.@password, 0o400
     Server.vhosts["/"].declare_queue("repli", true, false)
-    LavinMQ::Config.instance.min_followers = 1
   end
 
   after_each do
+    puts "after_each"
     FileUtils.rm_rf data_dir
-    LavinMQ::Config.instance.min_followers = 0
   end
-
 
   it "should shut down gracefully" do
     repli = LavinMQ::Replication::Client.new(data_dir)
@@ -92,56 +93,116 @@ describe LavinMQ::Replication::Server do
     end
 
     # repli.closing
-
   end
 
-  it "should publish when min_followers is fulfilled" do
-    q = Server.vhosts["/"].queues["repli"].as(LavinMQ::Queue)
-    repli = LavinMQ::Replication::Client.new(data_dir)
-    spawn do
-      repli.follow("127.0.0.1", LavinMQ::Config.instance.replication_port)
+  describe "min_followers" do
+    before_each do
+      LavinMQ::Config.instance.min_followers = 1
     end
-    with_channel do |ch|
-      ch.basic_publish "hello world", "", "repli"
-    end
-    q.basic_get(true) { }.should be_true
-    repli.close
-  end
 
-  it "should not publish when min_followers is not fulfilled" do
-    done = Channel(Nil).new
-    client : AMQP::Client::Connection? = nil
-    spawn do
-      with_channel do |ch, conn|
-        client = conn
-        q = ch.queue("repli")
-        q.publish_confirm "hello world"
-        done.send nil
+    after_each do
+      LavinMQ::Config.instance.min_followers = 0
+    end
+    it "should publish when min_followers is fulfilled" do
+      q = Server.vhosts["/"].queues["repli"].as(LavinMQ::Queue)
+      repli = LavinMQ::Replication::Client.new(data_dir)
+      spawn do
+        repli.follow("127.0.0.1", LavinMQ::Config.instance.replication_port)
+      end
+      with_channel do |ch|
+        ch.basic_publish "hello world", "", "repli"
+      end
+      q.basic_get(true) { }.should be_true
+      repli.close
+    end
+
+    it "should not publish when min_followers is not fulfilled" do
+      done = Channel(Nil).new
+      client : AMQP::Client::Connection? = nil
+      spawn do
+        with_channel do |ch, conn|
+          client = conn
+          q = ch.queue("repli")
+          q.publish_confirm "hello world"
+          done.send nil
+        end
+      end
+      select
+      when done.receive
+        fail "Should not receive message"
+      when timeout(0.1.seconds)
+        client.try &.close(no_wait: true)
+        Server.close
       end
     end
-    select
-    when done.receive
-      fail "Should not receive message"
-    when timeout(0.1.seconds)
-      client.try &.close(no_wait: true)
-      Server.close
-    end
   end
 
-  # it "should publish when max_lag is not reached" do
-  #   LavinMQ::Config.instance.max_lag = 10000
-  #   q = Server.vhosts["/"].queues["repli"].as(LavinMQ::Queue)
-  #   repli = LavinMQ::Replication::Client.new(data_dir)
-  #   spawn do
-  #     repli.follow("127.0.0.1", LavinMQ::Config.instance.replication_port)
-  #   end
-  #   with_channel do |ch|
-  #     ch.basic_publish "hello world", "", "repli"
-  #   end
-  #   q.basic_get(true) { }.should be_true
-  #   repli.close
-  # end
+  describe "max_lag" do
+    before_each do
+      LavinMQ::Config.instance.max_lag = 1
+    end
 
-  # it "should not publish when max_lag is reached" do
-  # end
+    after_each do
+      LavinMQ::Config.instance.max_lag = nil
+    end
+    # it "should publish when max_lag is not reached" do
+    #   LavinMQ::Config.instance.max_lag = 10000
+    #   q = Server.vhosts["/"].queues["repli"].as(LavinMQ::Queue)
+    #   repli = LavinMQ::Replication::Client.new(data_dir)
+    #   spawn do
+    #     repli.follow("127.0.0.1", LavinMQ::Config.instance.replication_port)
+    #   end
+    #   with_channel do |ch|
+    #     ch.basic_publish "hello world", "", "repli"
+    #   end
+    #   q.basic_get(true) { }.should be_true
+    #   repli.close
+    # end
+
+    it "should not publish when max_lag is reached" do
+      pp "config: #{LavinMQ::Config.instance.max_lag}"
+      Server.vhosts["/"].declare_queue("test123", true, false)
+      repli = LavinMQ::Replication::Client.new(data_dir)
+      done = Channel(Nil).new
+      spawn(name: "repli_sync") do
+        repli.sync("127.0.0.1", LavinMQ::Config.instance.replication_port)
+        done.send nil
+      end
+      done.receive
+
+      client : AMQP::Client::Connection? = nil
+      spawn(name: "with_channel") do
+        pp 0
+        with_channel do |ch, conn|
+          pp "-1"
+          client = conn
+          pp "-2"
+          pp 1
+          ch.basic_publish_confirm "hello world", "", "test123"
+          Fiber.list { |f| puts f.inspect }
+          pp 2
+
+          ch.basic_publish_confirm "hello world2", "", "test123"
+          pp 3
+          # done.send nil
+        rescue e
+        end
+
+      end
+      sleep 1.seconds
+      client.try &.close(no_wait: true)
+      Server.vhosts["/"].queues["test123"].message_count.should eq 1
+
+
+    #   select
+    #   when done.receive
+    #     fail "should not receive mssage"
+    #   when timeout(1.seconds)
+    #     pp "7"
+    #     Server.vhosts["/"].queues["test123"].message_count.should eq 1
+    #   end
+    # ensure
+    #   client.try &.close(no_wait: true)
+    end
+  end
 end

@@ -77,7 +77,6 @@ module LavinMQ
           run_queue:          0,
           sockets_used:       @amqp_server.vhosts.sum { |_, v| v.connections.size },
           followers:          @amqp_server.followers,
-          min_followers:      LavinMQ::Config.instance.min_followers,
           max_lag:            LavinMQ::Config.instance.max_lag,
         }
       end

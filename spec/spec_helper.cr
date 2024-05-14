@@ -160,8 +160,14 @@ start_http_server
 Spec.after_each do
   Server.stop
   FileUtils.rm_rf("/tmp/lavinmq-spec")
+end
+
+Spec.before_each do
+  Server.stop
+  FileUtils.rm_rf("/tmp/lavinmq-spec")
   Server.restart
 end
+
 
 class Invalid < Exception
   def initialize

@@ -61,13 +61,19 @@ module LavinMQ
 
       def append(path : String, obj)
         Log.debug { "appending #{obj} to #{path}" }
-        wait_for_max_lag unless closing?
+        unless closing?
+          wait_for_min_followers
+          wait_for_max_lag
+        end
         each_follower &.append(path, obj)
       end
 
       def delete_file(path : String)
         @files.delete(path)
-        wait_for_max_lag unless closing?
+        unless closing?
+          wait_for_min_followers
+          wait_for_max_lag
+        end
         each_follower &.delete(path)
       end
 
@@ -110,17 +116,16 @@ module LavinMQ
         end
       end
 
-      def wait_for_max_lag
-        # was_closing = @closing
-        until @closing || @followers.size >= Config.instance.min_followers
+      def wait_for_min_followers
+        return unless min_followers = Config.instance.min_followers
+        until closing? || @followers.size >= min_followers
           @followers_changed.receive
         end
-        # unless (!was_closing && @closing) || @followers.size >= Config.instance.min_followers
-        #   raise Exception.new("Not enough followers")
-        # end
-        # use waitgroup instead l8er
-        @followers.each_with_index do |f, i|
-          break if i > Config.instance.min_followers
+      end
+
+      def wait_for_max_lag
+        return unless max_lag = Config.instance.max_lag
+        each_follower do |f|
           f.wait_for_max_lag
         end
       rescue Channel::ClosedError
