@@ -5,14 +5,12 @@ describe LavinMQ::Replication::Client do
   data_dir = "/tmp/lavinmq-follower"
 
   before_each do
-    puts "client bfe"
     FileUtils.rm_rf data_dir
     Dir.mkdir_p data_dir
     File.write File.join(data_dir, ".replication_secret"), Server.@replicator.@password, 0o400
   end
 
   after_each do
-    puts "client ae"
     FileUtils.rm_rf data_dir
   end
 
@@ -72,7 +70,6 @@ describe LavinMQ::Replication::Server do
   data_dir = "/tmp/lavinmq-follower"
 
   before_each do
-    puts "before_each"
     FileUtils.rm_rf data_dir
     Dir.mkdir_p data_dir
     File.write File.join(data_dir, ".replication_secret"), Server.@replicator.@password, 0o400
@@ -80,7 +77,6 @@ describe LavinMQ::Replication::Server do
   end
 
   after_each do
-    puts "after_each"
     FileUtils.rm_rf data_dir
   end
 
@@ -160,7 +156,6 @@ describe LavinMQ::Replication::Server do
     # end
 
     it "should not publish when max_lag is reached" do
-      pp "config: #{LavinMQ::Config.instance.max_lag}"
       Server.vhosts["/"].declare_queue("test123", true, false)
       repli = LavinMQ::Replication::Client.new(data_dir)
       done = Channel(Nil).new
@@ -172,37 +167,24 @@ describe LavinMQ::Replication::Server do
 
       client : AMQP::Client::Connection? = nil
       spawn(name: "with_channel") do
-        pp 0
         with_channel do |ch, conn|
-          pp "-1"
           client = conn
-          pp "-2"
-          pp 1
           ch.basic_publish_confirm "hello world", "", "test123"
-          Fiber.list { |f| puts f.inspect }
-          pp 2
-
           ch.basic_publish_confirm "hello world2", "", "test123"
-          pp 3
-          # done.send nil
+          done.send nil
         rescue e
         end
-
       end
-      sleep 1.seconds
+
+      select
+      when done.receive
+        fail "should not receive mssage"
+      when timeout(1.seconds)
+        Server.vhosts["/"].queues["test123"].message_count.should eq 1
+      end
+    ensure
       client.try &.close(no_wait: true)
-      Server.vhosts["/"].queues["test123"].message_count.should eq 1
-
-
-    #   select
-    #   when done.receive
-    #     fail "should not receive mssage"
-    #   when timeout(1.seconds)
-    #     pp "7"
-    #     Server.vhosts["/"].queues["test123"].message_count.should eq 1
-    #   end
-    # ensure
-    #   client.try &.close(no_wait: true)
+      repli.try &.close
     end
   end
 end
