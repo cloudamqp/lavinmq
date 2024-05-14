@@ -211,6 +211,7 @@ module LavinMQ
       end
 
       private def finish_publish(body_io)
+        @client.quickack
         @publish_count += 1
         @client.vhost.event_tick(EventType::ClientPublish)
         props = @next_msg_props.not_nil!

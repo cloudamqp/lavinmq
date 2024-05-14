@@ -341,22 +341,30 @@ module LavinMQ
         with_channel frame, &.confirm_select(frame)
       when AMQP::Frame::Exchange::Declare
         declare_exchange(frame)
+        quickack if frame.no_wait
       when AMQP::Frame::Exchange::Delete
         delete_exchange(frame)
+        quickack if frame.no_wait
       when AMQP::Frame::Exchange::Bind
         bind_exchange(frame)
+        quickack if frame.no_wait
       when AMQP::Frame::Exchange::Unbind
         unbind_exchange(frame)
+        quickack if frame.no_wait
       when AMQP::Frame::Queue::Declare
         declare_queue(frame)
+        quickack if frame.no_wait
       when AMQP::Frame::Queue::Bind
         bind_queue(frame)
+        quickack if frame.no_wait
       when AMQP::Frame::Queue::Unbind
         unbind_queue(frame)
       when AMQP::Frame::Queue::Delete
         delete_queue(frame)
+        quickack if frame.no_wait
       when AMQP::Frame::Queue::Purge
         purge_queue(frame)
+        quickack if frame.no_wait
       when AMQP::Frame::Basic::Publish
         start_publish(frame)
       when AMQP::Frame::Header
@@ -365,16 +373,21 @@ module LavinMQ
         with_channel frame, &.add_content(frame)
       when AMQP::Frame::Basic::Consume
         consume(frame)
+        quickack if frame.no_wait
       when AMQP::Frame::Basic::Get
         basic_get(frame)
       when AMQP::Frame::Basic::Ack
         with_channel frame, &.basic_ack(frame)
+        quickack
       when AMQP::Frame::Basic::Reject
         with_channel frame, &.basic_reject(frame)
+        quickack
       when AMQP::Frame::Basic::Nack
         with_channel frame, &.basic_nack(frame)
+        quickack
       when AMQP::Frame::Basic::Cancel
         with_channel frame, &.cancel_consumer(frame)
+        quickack if frame.no_wait
       when AMQP::Frame::Basic::Qos
         with_channel frame, &.basic_qos(frame)
       when AMQP::Frame::Basic::Recover
@@ -398,6 +411,13 @@ module LavinMQ
     rescue ex : Error::UnexpectedFrame
       @log.error { ex.inspect }
       close_channel(ex.frame, 505_u16, "UNEXPECTED_FRAME - #{ex.frame.class.name}")
+    end
+
+    protected def quickack
+      case s = @socket
+      when TCPSocket
+        s.tcp_quickack = true
+      end
     end
 
     private def cleanup
