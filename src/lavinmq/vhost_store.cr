@@ -61,8 +61,8 @@ module LavinMQ
         File.open(path) do |f|
           JSON.parse(f).as_a.each do |vhost|
             name = vhost["name"].as_s
-            tags = vhost["tags"].as_s
-            description = vhost["description"].as_s
+            tags = vhost["tags"]?.try &.as_s || ""
+            description = vhost["description"]?.try &.as_s || ""
             @vhosts[name] = VHost.new(name, tags, description, @data_dir, @users, @replicator)
             @users.add_permission(UserStore::DIRECT_USER, name, /.*/, /.*/, /.*/)
           end
