@@ -1116,4 +1116,29 @@ describe LavinMQ::Server do
       end
     end
   end
+
+  it "restarts fast even with many large messages" do
+    data = Bytes.new 128 * 1024**2
+    with_channel do |ch|
+      q = ch.queue("large-messages")
+      10.times do |i|
+        q.publish_confirm(data)
+      end
+    end
+    restart_time = Time.measure do
+      Server.restart
+    end
+    restart_time.should be < 1.seconds
+    with_channel do |ch|
+      ch.prefetch 1
+      q = ch.queue("large-messages")
+      done = Channel(Nil).new
+      q.subscribe(no_ack: false) do |msg|
+        msg.body_io.bytesize.should eq 128 * 1024**2
+        msg.ack
+        done.send nil
+      end
+      10.times { done.receive }
+    end
+  end
 end
