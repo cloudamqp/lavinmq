@@ -133,7 +133,7 @@ module LavinMQ
 
       def store_consumer_offset(consumer_tag : String, new_offset : Int64)
         slice = consumer_tag.to_slice
-        consumer_tag_length = slice.size.to_u8
+        consumer_tag_length = slice.bytesize.to_u8
         pos = @consumer_offsets.size + slice.size + 1
 
         length_buffer = uninitialized UInt8[1]
