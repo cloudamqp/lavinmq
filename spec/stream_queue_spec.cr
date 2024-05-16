@@ -27,7 +27,8 @@ module StreamQueueSpecHelpers
   def self.offset_from_headers(headers)
     if headers
       headers["x-stream-offset"].as(Int64)
-    else fail("No headers found")
+    else
+      fail("No headers found")
     end
   end
 end
