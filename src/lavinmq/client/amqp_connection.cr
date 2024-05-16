@@ -120,7 +120,7 @@ module LavinMQ
     end
 
     def self.tune(socket)
-      frame_max = socket.is_a?(WebSocketIO) ? 4096 : Config.instance.frame_max
+      frame_max = socket.is_a?(WebSocketIO) ? 4096_u32 : Config.instance.frame_max
       socket.write_bytes AMQP::Frame::Connection::Tune.new(
         channel_max: Config.instance.channel_max,
         frame_max: frame_max,
