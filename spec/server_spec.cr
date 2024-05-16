@@ -1131,7 +1131,7 @@ describe LavinMQ::Server do
       end
       restart_memory.should be < 1 * 1024**2
     end
-    restart_time.should be < 1.seconds
+    restart_time.should be < 3.seconds # Some CI environments are slow
     with_channel do |ch|
       ch.prefetch 1
       q = ch.queue("large-messages")
