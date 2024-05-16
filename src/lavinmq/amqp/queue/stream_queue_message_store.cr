@@ -161,9 +161,9 @@ module LavinMQ::AMQP
         offsets_to_save = Hash(String, Int64).new
         lowest_offset_in_stream, _seg, _pos = offset_at(@segments.first_key, 4u32)
         @consumer_offset_positions.each do |ctag, _pos|
-          offset = last_offset_by_consumer_tag(ctag)
-          next if !offset || offset < lowest_offset_in_stream
-          offsets_to_save[ctag] = offset
+          if offset = last_offset_by_consumer_tag(ctag)
+            offsets_to_save[ctag] = offset if offset > lowest_offset_in_stream
+          end
         end
 
         delete_and_reopen_offsets_file
