@@ -131,9 +131,8 @@ module LavinMQ::AMQP
         return positions if @consumer_offsets.size.zero?
 
         loop do
-          ctag_length = @consumer_offsets.read_byte
-          break if !ctag_length || ctag_length.zero?
-          ctag = @consumer_offsets.read_string(ctag_length)
+          ctag = AMQ::Protocol::ShortString.from_io(@consumer_offsets)
+          break if ctag.empty?
           positions[ctag] = @consumer_offsets.pos
           @consumer_offsets.skip(8)
         rescue IO::EOFError
@@ -153,18 +152,9 @@ module LavinMQ::AMQP
       end
 
       def store_consumer_offset(consumer_tag : String, new_offset : Int64)
-        slice = consumer_tag.to_slice
-        consumer_tag_length = slice.bytesize.to_u8
-        pos = @consumer_offsets.size + slice.size + 1
-
-        length_buffer = uninitialized UInt8[1]
-        IO::ByteFormat::LittleEndian.encode(consumer_tag_length, length_buffer.to_slice)
-
-        offset_buffer = uninitialized UInt8[8]
-        IO::ByteFormat::LittleEndian.encode(new_offset.as(Int64), offset_buffer.to_slice)
-
-        @consumer_offsets.write(length_buffer.to_slice + slice + offset_buffer.to_slice)
-        @consumer_offset_positions[consumer_tag] = pos
+        @consumer_offsets.write_bytes AMQ::Protocol::ShortString.new(consumer_tag)
+        @consumer_offset_positions[consumer_tag] = @consumer_offsets.size
+        @consumer_offsets.write_bytes new_offset
       end
 
       def cleanup_consumer_offsets
