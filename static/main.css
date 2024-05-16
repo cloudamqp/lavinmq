@@ -1011,6 +1011,20 @@ fieldset.inline {
   z-index: 1;
   white-space: normal;
 }
+.arg-tooltip .tooltiptext.tooltiptext-long {
+  width: 500px;
+}
+
+#q-state {
+  display: table-cell;
+}
+
+#recover-queue {
+  padding: 0 10px;
+  margin-left:10px;
+  font-size: 10pt;
+  line-height: 16pt;
+}
 
 .prop-tooltip .prop-tooltiptext {
   margin-left: -65px;
@@ -1099,4 +1113,8 @@ pre.arguments > div {
 
 #livelog table th {
   text-align: left;
+}
+
+#q-closed-reason-row {
+  display: none;
 }
