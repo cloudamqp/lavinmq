@@ -166,10 +166,11 @@ module LavinMQ::AMQP
           end
         end
 
-        delete_and_reopen_offsets_file
         @consumer_offset_positions = Hash(String, Int64).new
-        offsets_to_save.each do |ctag, offset|
-          store_consumer_offset(ctag, offset)
+        replace_offsets_file do
+          offsets_to_save.each do |ctag, offset|
+            store_consumer_offset(ctag, offset)
+          end
         end
       end
 
@@ -183,16 +184,19 @@ module LavinMQ::AMQP
           offsets_to_save[ctag] = offset
         end
 
-        delete_and_reopen_offsets_file
-        offsets_to_save.each do |ctag, offset|
-          store_consumer_offset(ctag, offset)
+        replace_offsets_file do
+          offsets_to_save.each do |ctag, offset|
+            store_consumer_offset(ctag, offset)
+          end
         end
       end
 
-      def delete_and_reopen_offsets_file
-        @consumer_offsets.close
-        @consumer_offsets.delete
-        @consumer_offsets = MFile.new(@consumer_offset_path, @consumer_offset_capacity)
+      def replace_offsets_file(&)
+        old_consumer_offsets = @consumer_offsets
+        @consumer_offsets = MFile.new("#{@consumer_offset_path}.tmp", @consumer_offset_capacity)
+        yield # fill the new file with correct data in this block
+        File.rename "#{@consumer_offset_path}.tmp", @consumer_offset_path
+        old_consumer_offsets.close
       end
 
       def shift?(consumer : Client::Channel::StreamConsumer) : Envelope?
