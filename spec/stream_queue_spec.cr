@@ -23,6 +23,13 @@ module StreamQueueSpecHelpers
       msgs.receive
     end
   end
+
+  def self.offset_from_headers(headers)
+    if headers
+      headers["x-stream-offset"].as(Int64)
+    else fail("No headers found")
+    end
+  end
 end
 
 describe LavinMQ::StreamQueue do
@@ -365,7 +372,7 @@ describe LavinMQ::StreamQueue do
 
       # consume again, should start from last offset automatically
       msg = StreamQueueSpecHelpers.consume_one(queue_name, consumer_tag)
-      msg.properties.headers.not_nil!["x-stream-offset"].as(Int64).should eq offset + 1
+      StreamQueueSpecHelpers.offset_from_headers(msg.properties.headers).should eq offset + 1
     end
 
     it "reads offsets from file on init" do
@@ -419,12 +426,12 @@ describe LavinMQ::StreamQueue do
 
       StreamQueueSpecHelpers.publish(queue_name, 2)
       msg = StreamQueueSpecHelpers.consume_one(queue_name, consumer_tag, c_args)
-      msg.properties.headers.not_nil!["x-stream-offset"].as(Int64).should eq 1
+      StreamQueueSpecHelpers.offset_from_headers(msg.properties.headers).should eq 1
       sleep 0.1
 
       # should consume the same message again since tracking was not saved from last consume
       msg_2 = StreamQueueSpecHelpers.consume_one(queue_name, consumer_tag)
-      msg_2.properties.headers.not_nil!["x-stream-offset"].as(Int64).should eq 1
+      StreamQueueSpecHelpers.offset_from_headers(msg_2.properties.headers).should eq 1
     end
 
     it "should not use saved offset if x-stream-offset is set" do
@@ -436,12 +443,12 @@ describe LavinMQ::StreamQueue do
 
       # get message without x-stream-offset, tracks offset
       msg = StreamQueueSpecHelpers.consume_one(queue_name, consumer_tag)
-      msg.properties.headers.not_nil!["x-stream-offset"].as(Int64).should eq 1
+      StreamQueueSpecHelpers.offset_from_headers(msg.properties.headers).should eq 1
       sleep 0.1
 
       # consume with x-stream-offset set, should consume the same message again
       msg_2 = StreamQueueSpecHelpers.consume_one(queue_name, consumer_tag, c_args)
-      msg_2.properties.headers.not_nil!["x-stream-offset"].as(Int64).should eq 1
+      StreamQueueSpecHelpers.offset_from_headers(msg_2.properties.headers).should eq 1
     end
 
     it "removes offset" do
