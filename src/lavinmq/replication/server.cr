@@ -169,14 +169,7 @@ module LavinMQ
           @followers << follower
         end
         followers_changed.try_send nil
-        begin
-          follower.read_acks
-        ensure
-          @lock.synchronize do
-            @followers.delete(follower)
-          end
-          followers_changed.try_send nil
-        end
+        follower.read_acks
       rescue ex : AuthenticationError
         Log.warn { "Follower negotiation error" }
       rescue ex : InvalidStartHeaderError
@@ -187,6 +180,10 @@ module LavinMQ
         Log.warn(exception: ex) { "Follower connection error" } unless socket.closed?
       ensure
         follower.try &.close
+        @lock.synchronize do
+          @followers.delete(follower)
+        end
+        followers_changed.try_send nil
       end
 
       def close

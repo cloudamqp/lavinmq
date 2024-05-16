@@ -87,8 +87,6 @@ describe LavinMQ::Replication::Server do
         repli.follow("127.0.0.1", LavinMQ::Config.instance.replication_port)
       end
     end
-
-    # repli.closing
   end
 
   describe "min_followers" do
@@ -128,7 +126,14 @@ describe LavinMQ::Replication::Server do
         fail "Should not receive message"
       when timeout(0.1.seconds)
         client.try &.close(no_wait: true)
-        Server.close
+        # Ugly hack to free us
+        # repli = LavinMQ::Replication::Client.new(data_dir)
+        # done = Channel(Nil).new
+        # spawn do
+        #   repli.follow("127.0.0.1", LavinMQ::Config.instance.replication_port)
+        #   done.send nil
+        # end
+        # done.receive
       end
     end
   end
@@ -141,26 +146,27 @@ describe LavinMQ::Replication::Server do
     after_each do
       LavinMQ::Config.instance.max_lag = nil
     end
-    # it "should publish when max_lag is not reached" do
-    #   LavinMQ::Config.instance.max_lag = 10000
-    #   q = Server.vhosts["/"].queues["repli"].as(LavinMQ::Queue)
-    #   repli = LavinMQ::Replication::Client.new(data_dir)
-    #   spawn do
-    #     repli.follow("127.0.0.1", LavinMQ::Config.instance.replication_port)
-    #   end
-    #   with_channel do |ch|
-    #     ch.basic_publish "hello world", "", "repli"
-    #   end
-    #   q.basic_get(true) { }.should be_true
-    #   repli.close
-    # end
+
+    it "should publish when max_lag is not reached" do
+      LavinMQ::Config.instance.max_lag = 10000
+      q = Server.vhosts["/"].queues["repli"].as(LavinMQ::Queue)
+      repli = LavinMQ::Replication::Client.new(data_dir)
+      spawn do
+        repli.follow("127.0.0.1", LavinMQ::Config.instance.replication_port)
+      end
+      with_channel do |ch|
+        ch.basic_publish "hello world", "", "repli"
+      end
+      q.basic_get(true) { }.should be_true
+      repli.close
+    end
 
     it "should not publish when max_lag is reached" do
       Server.vhosts["/"].declare_queue("test123", true, false)
       repli = LavinMQ::Replication::Client.new(data_dir)
       done = Channel(Nil).new
       spawn(name: "repli_sync") do
-        repli.sync("127.0.0.1", LavinMQ::Config.instance.replication_port)
+        repli.sync("127.0.0.1", LavinMQ::Config.instance.replication_port, true)
         done.send nil
       end
       done.receive

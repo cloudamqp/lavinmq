@@ -53,6 +53,7 @@ module LavinMQ
     def restart
       stop
       Dir.mkdir_p @data_dir
+      # @replicator = Replication::Server.new
       Schema.migrate(@data_dir, @replicator)
       @users = UserStore.new(@data_dir, @replicator)
       @vhosts = VHostStore.new(@data_dir, @users, @replicator)
