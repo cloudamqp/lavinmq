@@ -102,7 +102,7 @@ def start_amqp_server
   tcp_server = TCPServer.new(LavinMQ::Config.instance.amqp_bind, 0)
   LavinMQ::Config.instance.amqp_port = tcp_server.local_address.port
   spawn { s.listen(tcp_server) }
-  spawn { s.listen_replication("127.0.0.1", LavinMQ::Config.instance.replication_port) }
+  spawn { s.listen_clustering("127.0.0.1", LavinMQ::Config.instance.clustering_port) }
   ctx = OpenSSL::SSL::Context::Server.new
   ctx.certificate_chain = "spec/resources/server_certificate.pem"
   ctx.private_key = "spec/resources/server_key.pem"

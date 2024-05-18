@@ -28,7 +28,7 @@ def read_and_verify_data(io, expected_data)
   end
 end
 
-describe LavinMQ::Replication::Action do
+describe LavinMQ::Clustering::Action do
   describe "AddAction" do
     describe "without @mfile" do
       describe "#send" do
@@ -36,7 +36,7 @@ describe LavinMQ::Replication::Action do
           with_datadir do |data_dir|
             filename = "file1"
             File.write File.join(data_dir, filename), "foo"
-            action = LavinMQ::Replication::AddAction.new data_dir, filename
+            action = LavinMQ::Clustering::AddAction.new data_dir, filename
             io = IO::Memory.new
             action.send io
             io.rewind
@@ -52,7 +52,7 @@ describe LavinMQ::Replication::Action do
           with_datadir do |data_dir|
             filename = "file1"
             File.write File.join(data_dir, filename), "foo"
-            action = LavinMQ::Replication::AddAction.new data_dir, filename
+            action = LavinMQ::Clustering::AddAction.new data_dir, filename
             action.lag_size.should eq(sizeof(Int32) + filename.bytesize + sizeof(Int64) + "foo".bytesize)
           end
         end
@@ -66,7 +66,7 @@ describe LavinMQ::Replication::Action do
             filename = "file1"
             absolute = File.join data_dir, filename
             File.write absolute, "foo"
-            action = LavinMQ::Replication::AddAction.new data_dir, filename, MFile.new(absolute)
+            action = LavinMQ::Clustering::AddAction.new data_dir, filename, MFile.new(absolute)
             io = IO::Memory.new
             action.send io
             io.rewind
@@ -81,7 +81,7 @@ describe LavinMQ::Replication::Action do
           with_datadir do |data_dir|
             filename = "file1"
             File.write File.join(data_dir, filename), "foo"
-            action = LavinMQ::Replication::AddAction.new data_dir, filename
+            action = LavinMQ::Clustering::AddAction.new data_dir, filename
             action.lag_size.should eq(sizeof(Int32) + filename.bytesize + sizeof(Int64) + "foo".bytesize)
           end
         end
@@ -95,7 +95,7 @@ describe LavinMQ::Replication::Action do
         it "writes filename and data to IO" do
           filename = "file1"
           data_dir = "/not/used"
-          action = LavinMQ::Replication::AppendAction.new data_dir, filename, 123i32
+          action = LavinMQ::Clustering::AppendAction.new data_dir, filename, 123i32
           io = IO::Memory.new
           action.send io
           io.rewind
@@ -108,7 +108,7 @@ describe LavinMQ::Replication::Action do
         it "should count filename and size of Int32" do
           filename = "file1"
           data_dir = "/not/used"
-          action = LavinMQ::Replication::AppendAction.new data_dir, filename, 123i32
+          action = LavinMQ::Clustering::AppendAction.new data_dir, filename, 123i32
           action.lag_size.should eq(sizeof(Int32) + filename.bytesize + sizeof(Int64) + sizeof(Int32))
         end
       end
@@ -119,7 +119,7 @@ describe LavinMQ::Replication::Action do
         it "writes filename and data to IO" do
           filename = "file1"
           data_dir = "/not/used"
-          action = LavinMQ::Replication::AppendAction.new data_dir, filename, 123u32
+          action = LavinMQ::Clustering::AppendAction.new data_dir, filename, 123u32
           io = IO::Memory.new
           action.send io
           io.rewind
@@ -132,7 +132,7 @@ describe LavinMQ::Replication::Action do
         it "should count filename and size of UInt32" do
           data_dir = "/not/used"
           filename = "file1"
-          action = LavinMQ::Replication::AppendAction.new data_dir, filename, 123u32
+          action = LavinMQ::Clustering::AppendAction.new data_dir, filename, 123u32
           action.lag_size.should eq(sizeof(Int32) + filename.bytesize + sizeof(Int64) + sizeof(UInt32))
         end
       end
@@ -145,7 +145,7 @@ describe LavinMQ::Replication::Action do
           filename = "bar"
           data_dir = "/not/used"
 
-          action = LavinMQ::Replication::AppendAction.new data_dir, filename, data.to_slice
+          action = LavinMQ::Clustering::AppendAction.new data_dir, filename, data.to_slice
           io = IO::Memory.new
           action.send io
           io.rewind
@@ -158,7 +158,7 @@ describe LavinMQ::Replication::Action do
         it "should count filename and size of Bytes" do
           filename = "file1"
           data_dir = "/not/used"
-          action = LavinMQ::Replication::AppendAction.new data_dir, filename, "foo".to_slice
+          action = LavinMQ::Clustering::AppendAction.new data_dir, filename, "foo".to_slice
           action.lag_size.should eq(sizeof(Int32) + filename.bytesize + sizeof(Int64) + "foo".to_slice.bytesize)
         end
       end
@@ -171,8 +171,8 @@ describe LavinMQ::Replication::Action do
             filename = "file1"
             absolute = File.join data_dir, filename
             File.write absolute, "baz foo bar"
-            range = LavinMQ::Replication::FileRange.new(MFile.new(absolute), 4, 3)
-            action = LavinMQ::Replication::AppendAction.new data_dir, filename, range
+            range = LavinMQ::Clustering::FileRange.new(MFile.new(absolute), 4, 3)
+            action = LavinMQ::Clustering::AppendAction.new data_dir, filename, range
 
             io = IO::Memory.new
             action.send io
@@ -189,8 +189,8 @@ describe LavinMQ::Replication::Action do
             filename = "file1"
             absolute = File.join data_dir, filename
             File.write absolute, "foo bar baz"
-            range = LavinMQ::Replication::FileRange.new(MFile.new(absolute), 4, 3)
-            action = LavinMQ::Replication::AppendAction.new data_dir, filename, range
+            range = LavinMQ::Clustering::FileRange.new(MFile.new(absolute), 4, 3)
+            action = LavinMQ::Clustering::AppendAction.new data_dir, filename, range
             action.lag_size.should eq(sizeof(Int32) + filename.bytesize + sizeof(Int64) + range.len)
           end
         end

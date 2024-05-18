@@ -1,7 +1,7 @@
 require "../mfile"
 
 module LavinMQ
-  module Replication
+  module Clustering
     record FileRange, mfile : MFile, pos : Int32, len : Int32 do
       def to_slice : Bytes
         mfile.to_slice(pos, len)

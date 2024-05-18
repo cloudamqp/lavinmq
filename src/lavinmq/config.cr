@@ -44,9 +44,14 @@ module LavinMQ
     property? log_exchange : Bool = false
     property free_disk_min : Int64 = 0  # bytes
     property free_disk_warn : Int64 = 0 # bytes
-    property replication_follow : URI? = nil
-    property replication_bind : String? = nil
-    property replication_port = 5679
+    property? clustering = false
+    property clustering_etcd_prefix = "lavinmq"
+    property clustering_etcd_endpoints = "localhost:2379"
+    property clustering_advertised_uri : String? = nil
+    property clustering_bind = "127.0.0.1"
+    property clustering_port = 5679
+    property clustering_max_lag = 8192      # number of clustering actions
+    property clustering_min_isr = 0         # number of In Sync Replicas required at all time
     property max_deleted_definitions = 8192 # number of deleted queues, unbinds etc that compacts the definitions file
     property consumer_timeout : UInt64? = nil
     property consumer_timeout_loop_interval = 60 # seconds
@@ -68,7 +73,7 @@ module LavinMQ
         when "main"         then parse_main(settings)
         when "amqp"         then parse_amqp(settings)
         when "mgmt", "http" then parse_mgmt(settings)
-        when "replication"  then parse_replication(settings)
+        when "clustering"   then parse_clustering(settings)
         else
           raise "Unrecognized config section: #{section}"
         end
@@ -112,14 +117,19 @@ module LavinMQ
       end
     end
 
-    private def parse_replication(settings)
+    private def parse_clustering(settings)
       settings.each do |config, v|
         case config
-        when "follow" then @replication_follow = URI.parse(v)
-        when "bind"   then @replication_bind = v
-        when "port"   then @replication_port = v.to_i32
+        when "enabled"        then @clustering = true?(v)
+        when "etcd_prefix"    then @clustering_etcd_prefix = v
+        when "etcd_endpoints" then @clustering_etcd_endpoints = v
+        when "advertised_uri" then @clustering_advertised_uri = v
+        when "bind"           then @clustering_bind = v
+        when "port"           then @clustering_port = v.to_i32
+        when "max_lag"        then @clustering_max_lag = v.to_i32
+        when "min_isr"        then @clustering_min_isr = v.to_i32
         else
-          STDERR.puts "WARNING: Unrecognized configuration 'replication/#{config}'"
+          STDERR.puts "WARNING: Unrecognized configuration 'clustering/#{config}'"
         end
       end
     end

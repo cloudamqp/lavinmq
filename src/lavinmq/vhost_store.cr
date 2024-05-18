@@ -7,7 +7,7 @@ module LavinMQ
     include Enumerable({String, VHost})
     Log = ::Log.for "vhoststore"
 
-    def initialize(@data_dir : String, @users : UserStore, @replicator : Replication::Replicator)
+    def initialize(@data_dir : String, @users : UserStore, @replicator : Clustering::Replicator)
       @vhosts = Hash(String, VHost).new
       load!
     end
