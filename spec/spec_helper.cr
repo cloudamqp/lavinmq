@@ -168,7 +168,6 @@ Spec.before_each do
   Server.restart
 end
 
-
 class Invalid < Exception
   def initialize
     super("invalid input")
