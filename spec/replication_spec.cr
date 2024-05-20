@@ -125,15 +125,16 @@ describe LavinMQ::Replication::Server do
       when done.receive
         fail "Should not receive message"
       when timeout(0.1.seconds)
+        #ugly hack to release replicator from waiting for lag
+        repli = LavinMQ::Replication::Client.new(data_dir)
+        done = Channel(Nil).new
+        spawn do
+          repli.follow("127.0.0.1", LavinMQ::Config.instance.replication_port)
+          done.send nil
+        end
+        done.receive
         client.try &.close(no_wait: true)
-        # Ugly hack to free us
-        # repli = LavinMQ::Replication::Client.new(data_dir)
-        # done = Channel(Nil).new
-        # spawn do
-        #   repli.follow("127.0.0.1", LavinMQ::Config.instance.replication_port)
-        #   done.send nil
-        # end
-        # done.receive
+        repli.try &.close
       end
     end
   end
