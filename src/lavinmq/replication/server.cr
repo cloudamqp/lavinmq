@@ -124,7 +124,7 @@ module LavinMQ
       end
 
       def wait_for_max_lag
-        return unless max_lag = Config.instance.max_lag
+        return unless Config.instance.max_lag
         each_follower do |f|
           f.wait_for_max_lag
         end
