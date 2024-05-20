@@ -71,12 +71,11 @@ module LavinMQ
 
       private def action_loop(socket = @lz4)
         while action = @actions.receive?
-          sent_bytes = action.send(socket)
+          action.send(socket)
           while action2 = @actions.try_receive?
-            sent_bytes += action2.send(socket)
+            action2.send(socket)
           end
           socket.flush
-          @sent_bytes += sent_bytes
         end
       rescue IO::Error
       ensure
