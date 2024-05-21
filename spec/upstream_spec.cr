@@ -16,28 +16,34 @@ module UpstreamSpecHelpers
     wait_for { links.all?(&.state.terminated?) }
   end
 
-  def self.setup_ex_federation(upstream_name)
+  def self.setup_federation(upstream_name, exchange = nil, queue = nil, prefetch = 1000_u16)
+    self.cleanup_vhosts
     upstream_vhost = Server.vhosts.create("upstream")
     downstream_vhost = Server.vhosts.create("downstream")
-    upstream = LavinMQ::Federation::Upstream.new(downstream_vhost, upstream_name,
-      "#{SpecHelper.amqp_base_url}/upstream", "upstream_ex")
+    upstream = LavinMQ::Federation::Upstream.new(
+      downstream_vhost, upstream_name,
+      "#{SpecHelper.amqp_base_url}/upstream", exchange, queue,
+      LavinMQ::Federation::AckMode::OnConfirm, nil, 1_i64, nil, prefetch
+    )
     downstream_vhost.upstreams.not_nil!.add(upstream)
     {upstream, upstream_vhost, downstream_vhost}
   end
 
-  def self.start_link(upstream)
+  def self.start_link(upstream, pattern = "downstream_ex", applies_to = "exchanges")
     definitions = {"federation-upstream" => JSON::Any.new(upstream.name)} of String => JSON::Any
-    upstream.vhost.add_policy("FE", "downstream_ex", "exchanges",
-      definitions, 12_i8)
+    upstream.vhost.add_policy("FE", pattern, applies_to, definitions, 12_i8)
   end
 
-  def self.cleanup_ex_federation
-    v1 = Server.vhosts["downstream"]
-    v2 = Server.vhosts["upstream"]
-    Server.vhosts.delete("downstream")
-    Server.vhosts.delete("upstream")
+  def self.cleanup_vhost(vhost_name)
+    v = Server.vhosts[vhost_name]
+    Server.vhosts.delete(vhost_name)
+    wait_for { !(Dir.exists?(v.data_dir)) }
+  rescue KeyError
+  end
 
-    wait_for { !(Dir.exists?(v1.data_dir) || Dir.exists?(v2.data_dir)) }
+  def self.cleanup_vhosts
+    cleanup_vhost("upstream")
+    cleanup_vhost("downstream")
   end
 end
 
@@ -143,7 +149,7 @@ describe LavinMQ::Federation::Upstream do
       end
       wait_for { msgs.size == 2 }
       msgs.size.should eq 2
-      vhost.queues["federation_q1"].message_count.should eq 0
+      wait_for { vhost.queues["federation_q1"].message_count == 0 }
     end
   end
 
@@ -182,7 +188,7 @@ describe LavinMQ::Federation::Upstream do
   end
 
   it "should federate exchange even with no downstream consumer" do
-    upstream, upstream_vhost, downstream_vhost = UpstreamSpecHelpers.setup_ex_federation("ef test upstream wo downstream")
+    upstream, upstream_vhost, downstream_vhost = UpstreamSpecHelpers.setup_federation("ef test upstream wo downstream", "upstream_ex")
     UpstreamSpecHelpers.start_link(upstream)
     Server.users.add_permission("guest", "upstream", /.*/, /.*/, /.*/)
     Server.users.add_permission("guest", "downstream", /.*/, /.*/, /.*/)
@@ -208,7 +214,7 @@ describe LavinMQ::Federation::Upstream do
   end
 
   it "should continue after upstream restart" do
-    upstream, upstream_vhost, downstream_vhost = UpstreamSpecHelpers.setup_ex_federation("ef test upstream restart")
+    upstream, upstream_vhost, downstream_vhost = UpstreamSpecHelpers.setup_federation("ef test upstream restart", "upstream_ex")
     UpstreamSpecHelpers.start_link(upstream)
     Server.users.add_permission("guest", "upstream", /.*/, /.*/, /.*/)
     Server.users.add_permission("guest", "downstream", /.*/, /.*/, /.*/)
@@ -243,10 +249,112 @@ describe LavinMQ::Federation::Upstream do
       end
     end
     upstream_vhost.queues.each_value.all?(&.empty?).should be_true
+    UpstreamSpecHelpers.cleanup_vhosts
+  end
+
+  it "should only transfer messages when downstream has consumer" do
+    ds_queue_name = Random::Secure.hex(10)
+    us_queue_name = Random::Secure.hex(10)
+    upstream, us_vhost, ds_vhost = UpstreamSpecHelpers.setup_federation(Random::Secure.hex(10), nil, us_queue_name)
+
+    UpstreamSpecHelpers.start_link(upstream, ds_queue_name, "queues")
+    Server.users.add_permission("guest", us_vhost.name, /.*/, /.*/, /.*/)
+    Server.users.add_permission("guest", ds_vhost.name, /.*/, /.*/, /.*/)
+
+    # publish 1 message
+    with_channel(vhost: us_vhost.name) do |upstream_ch|
+      upstream_q = upstream_ch.queue(us_queue_name)
+      upstream_q.publish "msg1"
+    end
+
+    # consume 1 message
+    with_channel(vhost: ds_vhost.name) do |downstream_ch|
+      downstream_q = downstream_ch.queue(ds_queue_name)
+      wait_for { ds_vhost.queues[ds_queue_name].policy.try(&.name) == "FE" }
+      wait_for { upstream.links.first?.try &.state.running? }
+
+      msgs = Channel(String).new
+      downstream_q.subscribe do |msg|
+        msgs.send msg.body_io.to_s
+      end
+      msgs.receive.should eq "msg1"
+      wait_for { Server.vhosts[ds_vhost.name].queues[ds_queue_name].message_count == 0 }
+    end
+
+    wait_for { Server.vhosts[ds_vhost.name].queues[ds_queue_name].consumers.empty? }
+
+    # publish another message
+    with_channel(vhost: us_vhost.name) do |upstream_ch|
+      upstream_q = upstream_ch.queue(us_queue_name)
+      upstream_q.publish "msg2"
+    end
+
+    # resume consuming on downstream, should get 1 message
+    with_channel(vhost: ds_vhost.name) do |downstream_ch|
+      msgs = Channel(String).new
+      downstream_ch.queue(ds_queue_name).subscribe do |msg|
+        msgs.send msg.body_io.to_s
+      end
+      msgs.receive.should eq "msg2"
+    end
+  ensure
+    UpstreamSpecHelpers.cleanup_vhosts
+  end
+
+  it "should stop transfering messages if downstream consumer disconnects" do
+    ds_queue_name = Random::Secure.hex(10)
+    us_queue_name = Random::Secure.hex(10)
+    upstream, us_vhost, ds_vhost = UpstreamSpecHelpers.setup_federation(Random::Secure.hex(10), nil, us_queue_name, 1_u16)
+    UpstreamSpecHelpers.start_link(upstream, ds_queue_name, "queues")
+    Server.users.add_permission("guest", us_vhost.name, /.*/, /.*/, /.*/)
+    Server.users.add_permission("guest", ds_vhost.name, /.*/, /.*/, /.*/)
+    message_count = 2
+
+    # publish 2 messages to upstream queue
+    with_channel(vhost: us_vhost.name) do |upstream_ch|
+      upstream_q = upstream_ch.queue(us_queue_name)
+      message_count.times do |i|
+        upstream_q.publish "msg#{i}"
+      end
+    end
+
+    # consume 1 message from downstream queue
+    with_channel(vhost: ds_vhost.name) do |downstream_ch|
+      downstream_q = downstream_ch.queue(ds_queue_name)
+
+      # make sure FE policy is set and link is running
+      wait_for { ds_vhost.queues[ds_queue_name].policy.try(&.name) == "FE" }
+      wait_for { upstream.links.first?.try &.state.running? }
+
+      messages_consumed = 0
+      downstream_q.subscribe(tag: "c") do |_msg|
+        messages_consumed += 1
+        downstream_q.unsubscribe("c")
+      end
+      wait_for { messages_consumed == 1 }
+      wait_for { Server.vhosts[ds_vhost.name].queues[ds_queue_name].message_count == 0 }
+      wait_for { Server.vhosts[us_vhost.name].queues[us_queue_name].message_count == 1 }
+    end
+
+    # make sure consumer is disconnected
+    wait_for { Server.vhosts[ds_vhost.name].queues[ds_queue_name].consumers.empty? }
+
+    # resume consuming on downstream, should get 1 message
+    with_channel(vhost: ds_vhost.name) do |downstream_ch|
+      messages_consumed = 0
+      downstream_ch.queue(ds_queue_name).subscribe(tag: "c2") do |_msg|
+        messages_consumed += 1
+      end
+      wait_for { Server.vhosts[us_vhost.name].queues[us_queue_name].message_count == 0 }
+      wait_for { Server.vhosts[ds_vhost.name].queues[ds_queue_name].message_count == 0 }
+      wait_for { messages_consumed == 1 }
+    end
+  ensure
+    UpstreamSpecHelpers.cleanup_vhosts
   end
 
   it "should reflect all bindings to upstream q" do
-    upstream, upstream_vhost, _ = UpstreamSpecHelpers.setup_ex_federation("ef test bindings")
+    upstream, upstream_vhost, _ = UpstreamSpecHelpers.setup_federation("ef test bindings", "upstream_ex")
     Server.users.add_permission("guest", "upstream", /.*/, /.*/, /.*/)
     Server.users.add_permission("guest", "downstream", /.*/, /.*/, /.*/)
 
