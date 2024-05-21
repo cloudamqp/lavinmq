@@ -47,6 +47,17 @@ module LavinMQ
       ensure
         io.read_timeout = nil
       end
+
+      def self.write(io : IO, src : Socket::IPAddress, dst : Socket::IPAddress)
+        case src.family
+        when .inet?
+          io.print "PROXY TCP4 #{src.address} #{dst.address} #{src.port} #{dst.port}\r\n"
+        when .inet6?
+          io.print "PROXY TCP6 #{src.address} #{dst.address} #{src.port} #{dst.port}\r\n"
+        else
+          io.print "PROXY UNKNOWN\r\n"
+        end
+      end
     end
 
     module V2
