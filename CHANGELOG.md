@@ -9,9 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Follower lag is now based on bytes written to action queue instead of socket [#652](https://github.com/cloudamqp/lavinmq/pull/652)
+- Change how delayed exchanges are exported with definitions [#663](https://github.com/cloudamqp/lavinmq/pull/663)
+- Force 4096 bytes frame_max for WebSocket connections [#681](https://github.com/cloudamqp/lavinmq/pull/681)
 
 ### Fixed
 - Federated queues now only transfers messages if there is a consumer on the downstream queue [#637](https://github.com/cloudamqp/lavinmq/pull/637)
+- Handle proxied WebSocket connections [#680](https://github.com/cloudamqp/lavinmq/pull/680)
 
 ## [1.2.11] - 2024-04-26
 
