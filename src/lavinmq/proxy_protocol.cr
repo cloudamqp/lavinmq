@@ -14,7 +14,7 @@ module LavinMQ
 
     class UnsupportedTLVType < Error; end
 
-    module V1
+    struct V1
       # Examples:
       # PROXY TCP4 255.255.255.255 255.255.255.255 65535 65535\r\n
       # PROXY TCP6 ffff:f...f:ffff ffff:f...f:ffff 65535 65535\r\n
@@ -48,27 +48,61 @@ module LavinMQ
         io.read_timeout = nil
       end
 
-      def self.write(io : IO, src : Socket::IPAddress, dst : Socket::IPAddress)
-        case src.family
+      def initialize(@src : Socket::IPAddress, @dst : Socket::IPAddress)
+      end
+
+      def to_io(io : IO, format = nil)
+        case @src.family
         when .inet?
-          io.print "PROXY TCP4 #{src.address} #{dst.address} #{src.port} #{dst.port}\r\n"
+          io.print "PROXY TCP4 #{@src.address} #{@dst.address} #{@src.port} #{@dst.port}\r\n"
         when .inet6?
-          io.print "PROXY TCP6 #{src.address} #{dst.address} #{src.port} #{dst.port}\r\n"
+          io.print "PROXY TCP6 #{@src.address} #{@dst.address} #{@src.port} #{@dst.port}\r\n"
         else
           io.print "PROXY UNKNOWN\r\n"
         end
       end
     end
 
-    module V2
-      SIGNATURE = StaticArray[13u8, 10u8, 13u8, 10u8, 0u8, 13u8, 10u8, 81u8, 85u8, 73u8, 84u8, 10u8]
+    struct V2
+      def initialize(@src : Socket::IPAddress, @dst : Socket::IPAddress)
+      end
+
+      def to_io(io : IO, format = IO::ByteFormat::NetworkEndian)
+        io.write(Signature.to_slice)
+        io.write_byte 33u8 # PROXY
+        case @src.family
+        when Socket::Family::INET
+          io.write_byte Family::TCPv4.value
+          length = 4 + 4 + 2 + 2
+          io.write_bytes length.to_u16, IO::ByteFormat::NetworkEndian
+          {@src, @dst}.each do |addr|
+            s_addr = addr.@addr.as(LibC::InAddr).s_addr
+            io.write_byte (s_addr & 0xFF).to_u8
+            io.write_byte (s_addr >> 8 & 0xFF).to_u8
+            io.write_byte (s_addr >> 16 & 0xFF).to_u8
+            io.write_byte (s_addr >> 24).to_u8
+          end
+          io.write_bytes @src.port.to_u16, format
+          io.write_bytes @dst.port.to_u16, format
+        when Socket::Family::INET6
+          raise NotImplementedError.new("IPv6")
+
+          io.write_byte Family::TCPv6.value
+        when Socket::Family::UNIX
+          raise NotImplementedError.new("Unix")
+
+          io.write_byte Family::UNIXStream.value
+        else raise "unsupported address family: #{@src.family}"
+        end
+        io.flush
+      end
 
       def self.parse(io)
         io.read_timeout = 15.seconds
         buffer = uninitialized UInt8[16]
         io.read(buffer.to_slice)
         signature = buffer.to_slice[0, 12]
-        unless signature == SIGNATURE.to_slice
+        unless signature == Signature.to_slice
           raise InvalidSignature.new(signature.to_s)
         end
         ver_cmd = buffer[12]
@@ -173,13 +207,15 @@ module LavinMQ
         end
       end
 
-      enum SSLCLIENT : UInt8
+      private Signature = StaticArray[13u8, 10u8, 13u8, 10u8, 0u8, 13u8, 10u8, 81u8, 85u8, 73u8, 84u8, 10u8]
+
+      private enum SSLCLIENT : UInt8
         SSL       = 0x01
         CERT_CONN = 0x02
         CERT_SESS = 0x04
       end
 
-      enum TLVType : UInt8
+      private enum TLVType : UInt8
         ALPN      = 0x01
         AUTHORITY = 0x02
         CRC32C    = 0x03
@@ -189,7 +225,7 @@ module LavinMQ
         NETNS     = 0x30
       end
 
-      enum SSLSubType : UInt8
+      private enum SSLSubType : UInt8
         VERSION = 0x21
         CN      = 0x22
         CIPHER  = 0x23
@@ -197,7 +233,7 @@ module LavinMQ
         KEY_ALG = 0x25
       end
 
-      enum Family : UInt8
+      private enum Family : UInt8
         UNSPEC       =  0
         TCPv4        = 17
         UDPv4        = 18
