@@ -321,6 +321,14 @@ module LavinMQ
           end
           file.pos = 4
           @segments[seg] = file
+        rescue EmptyFile
+          Log.warn { "Empty file at #{path}, setting schema version to #{Schema::VERSION}" }
+          file = file.not_nil!
+          file.resize(0)
+          file.write_bytes Schema::VERSION
+          @replicator.not_nil!.try &.append path.not_nil!, Schema::VERSION
+          file.pos = 4
+          @segments[seg] = file
         end
       end
 
