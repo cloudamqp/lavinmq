@@ -20,6 +20,22 @@ describe "ProxyProtocol" do
         LavinMQ::ProxyProtocol::V1.parse(r)
       end
     end
+
+    it "can write a header for TCP4 addresses" do
+      io = IO::Memory.new
+      src = Socket::IPAddress.new("1.1.1.1", 80)
+      dst = Socket::IPAddress.new("2.2.2.2", 8080)
+      io.write_bytes LavinMQ::ProxyProtocol::V1.new(src, dst)
+      io.to_s.should eq "PROXY TCP4 1.1.1.1 2.2.2.2 80 8080\r\n"
+    end
+
+    it "can write a header for TCPv6 addresses" do
+      io = IO::Memory.new
+      src = Socket::IPAddress.new("::1", 80)
+      dst = Socket::IPAddress.new("::2", 8080)
+      io.write_bytes LavinMQ::ProxyProtocol::V1.new(src, dst)
+      io.to_s.should eq "PROXY TCP6 ::1 ::2 80 8080\r\n"
+    end
   end
 
   describe "v2" do
@@ -56,6 +72,19 @@ describe "ProxyProtocol" do
       expect_raises(LavinMQ::ProxyProtocol::InvalidSignature) do
         LavinMQ::ProxyProtocol::V2.parse(r)
       end
+    end
+
+    it "can write header for TCPv4 addresses" do
+      io = IO::Memory.new
+      src = Socket::IPAddress.new("127.0.0.1", 37424)
+      dst = Socket::IPAddress.new("127.0.0.1", 5671)
+      io.write_bytes LavinMQ::ProxyProtocol::V2.new(src, dst), IO::ByteFormat::NetworkEndian
+      io.to_slice.should eq UInt8.static_array(
+        0x0d, 0x0a, 0x0d, 0x0a, 0x00, 0x0d, 0x0a, 0x51,
+        0x55, 0x49, 0x54, 0x0a, 0x21, 0x11, 0x00, 0x0c,
+        0x7f, 0x00, 0x00, 0x01, 0x7f, 0x00, 0x00, 0x01,
+        0x92, 0x30, 0x16, 0x27
+      ).to_slice
     end
   end
 end
