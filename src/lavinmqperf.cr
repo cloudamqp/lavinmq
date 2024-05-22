@@ -1,6 +1,3 @@
-# {% if flag?(:preview_mt) %}
-#  require "execution_context"
-# {% end %}
 require "./lavinmq/version"
 require "./stdlib/resource"
 require "option_parser"
