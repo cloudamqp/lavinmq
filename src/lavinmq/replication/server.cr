@@ -59,7 +59,6 @@ module LavinMQ
       end
 
       def append(path : String, obj)
-        return if @followers.empty?
         Log.debug { "appending #{obj} to #{path}" }
         each_follower &.append(path, obj)
       end
