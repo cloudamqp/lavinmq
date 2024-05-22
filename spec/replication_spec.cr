@@ -65,16 +65,4 @@ describe LavinMQ::Replication::Client do
       server.close
     end
   end
-
-  #it "replication should be nil when no follower" do
-  #  done = Channel(Nil).new
-  #  
-  #  with_channel do |ch|
-  #    q = ch.queue("repli")
-  #    q.publish_confirm "hello world"
-  #  end
-#
-#    followers = Server.
-#    
-#  end
 end
