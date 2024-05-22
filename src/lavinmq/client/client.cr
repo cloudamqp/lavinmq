@@ -59,7 +59,7 @@ module LavinMQ
       @log = Log.for "client[vhost=#{@vhost.name} address=#{@remote_address}#{connection_name}]"
       @vhost.add_connection(self)
       @log.info { "Connection established for user=#{@user.name}" }
-      spawn read_loop, name: "Client#read_loop #{@remote_address}"
+      @vhost.execution_context.spawn(name: "Client#read_loop #{@remote_address}") { read_loop }
     end
 
     # Returns client provided connection name if set, else server generated name

@@ -134,8 +134,14 @@ module LavinMQ
       @msg_store = init_msg_store(@data_dir)
       @empty_change = @msg_store.empty_change
       handle_arguments
-      spawn queue_expire_loop, name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}" if @expires
-      spawn message_expire_loop, name: "Queue#message_expire_loop #{@vhost.name}/#{@name}"
+      if @expires
+        @vhost.execution_context.spawn(name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}") do
+          queue_expire_loop
+        end
+      end
+      @vhost.execution_context.spawn(name: "Queue#message_expire_loop #{@vhost.name}/#{@name}") do
+        message_expire_loop
+      end
     end
 
     # own method so that it can be overriden in other queue implementations
@@ -203,7 +209,9 @@ module LavinMQ
           unless @expires.try &.< v.as_i64
             @expires = v.as_i64
             @last_get_time = RoughTime.monotonic
-            spawn queue_expire_loop, name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}"
+            @vhost.execution_context.spawn(name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}") do
+              queue_expire_loop
+            end
             @queue_expiration_ttl_change.try_send? nil
           end
         when "overflow"
