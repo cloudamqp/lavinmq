@@ -41,6 +41,7 @@ describe LavinMQ::Replication::Client do
       repli.follow("127.0.0.1", LavinMQ::Config.instance.replication_port)
       done.send nil
     end
+    wait_for { Server.followers.size == 1 }
     with_channel do |ch|
       q = ch.queue("repli")
       q.publish_confirm "hello world"
@@ -64,4 +65,16 @@ describe LavinMQ::Replication::Client do
       server.close
     end
   end
+
+  #it "replication should be nil when no follower" do
+  #  done = Channel(Nil).new
+  #  
+  #  with_channel do |ch|
+  #    q = ch.queue("repli")
+  #    q.publish_confirm "hello world"
+  #  end
+#
+#    followers = Server.
+#    
+#  end
 end
