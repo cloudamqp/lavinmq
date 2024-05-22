@@ -1,3 +1,4 @@
+require "execution_context"
 require "json"
 require "../stdlib/*"
 require "./logger"
@@ -40,9 +41,11 @@ module LavinMQ
     @definitions_lock = Mutex.new(:reentrant)
     @definitions_file_path : String
     @definitions_deletes = 0
+    getter execution_context
     Log = ::Log.for("vhost")
 
     def initialize(@name : String, @server_data_dir : String, @users : UserStore, @replicator : Clustering::Replicator, @description = "", @tags = Array(String).new(0))
+      @execution_context = ExecutionContext::SingleThreaded.new("vhost:#{@name}")
       @log = Logger.new(Log, vhost: @name)
       @dir = Digest::SHA1.hexdigest(@name)
       @data_dir = File.join(@server_data_dir, @dir)
@@ -58,7 +61,7 @@ module LavinMQ
       @shovels = ShovelStore.new(self)
       @upstreams = Federation::UpstreamStore.new(self)
       load!
-      spawn check_consumer_timeouts_loop, name: "Consumer timeouts loop"
+      @execution_context.spawn(name: "consumer timeouts loop") { check_consumer_timeouts_loop }
     end
 
     private def check_consumer_timeouts_loop
@@ -376,7 +379,7 @@ module LavinMQ
       op = OperatorPolicy.new(name, @name, Regex.new(pattern),
         Policy::Target.parse(apply_to), definition, priority)
       @operator_policies.create(op)
-      spawn apply_policies, name: "ApplyPolicies (after add) OperatingPolicy #{@name}"
+      @execution_context.spawn(name: "ApplyPolicies (after add) OperatingPolicy #{@name}") { apply_policies }
       @log.info { "OperatorPolicy=#{name} Created" }
       op
     end
@@ -386,20 +389,20 @@ module LavinMQ
       p = Policy.new(name, @name, Regex.new(pattern), Policy::Target.parse(apply_to),
         definition, priority)
       @policies.create(p)
-      spawn apply_policies, name: "ApplyPolicies (after add) #{@name}"
+      @execution_context.spawn(name: "ApplyPolicies (after add) #{@name}") { apply_policies }
       @log.info { "Policy=#{name} Created" }
       p
     end
 
     def delete_operator_policy(name)
       @operator_policies.delete(name)
-      spawn apply_policies, name: "ApplyPolicies (after delete) #{@name}"
+      @execution_context.spawn(name: "ApplyPolicies (after delete) OperatorPolicy #{@name}") { apply_policies }
       @log.info { "OperatorPolicy=#{name} Deleted" }
     end
 
     def delete_policy(name)
       @policies.delete(name)
-      spawn apply_policies, name: "ApplyPolicies (after delete) #{@name}"
+      @execution_context.spawn(name: "ApplyPolicies (after delete) #{@name}") { apply_policies }
       @log.info { "Policy=#{name} Deleted" }
     end
 
@@ -421,7 +424,7 @@ module LavinMQ
       @log.debug { "Add parameter #{p.name}" }
       @parameters.create(p)
       apply_parameters(p)
-      spawn apply_policies, name: "ApplyPolicies (add parameter) #{@name}"
+      @execution_context.spawn(name: "ApplyPolicies (add parameter) #{@name}") { apply_policies }
     end
 
     def delete_parameter(component_name, parameter_name)
@@ -507,7 +510,7 @@ module LavinMQ
 
     private def load!
       load_definitions!
-      spawn(name: "Load parameters") do
+      @execution_context.spawn(name: "Load parameters") do
         sleep 0.01
         next if @closed
         apply_parameters

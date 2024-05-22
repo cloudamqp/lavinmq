@@ -1,6 +1,5 @@
-{% if flag?(:preview_mt) %}
-  require "execution_context"
-{% end %}
+{% raise "use -Dpreview_mt" unless flag?(:preview_mt) %}
+require "execution_context"
 require "./lavinmq/version"
 require "./stdlib/*"
 require "./lavinmq/config"
