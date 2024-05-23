@@ -1,3 +1,4 @@
+# NOTICE: This lockfile contains some overrides from shard.override.yml
 version: 2.0
 shards:
   ameba:
@@ -12,14 +13,13 @@ shards:
     git: https://github.com/cloudamqp/amqp-client.cr.git
     version: 1.2.8
 
-  execution_context:
+execution_context:
     git: https://github.com/ysbaddaden/execution_context.git
-    version: 0.1.0+git.commit.433f40e20b0c15f703be2885337b37a1c351037f
+    version: 0.1.0+git.commit.7fb9d0e8185a552dab8db3f68ab5ab79948f6e2b
 
   lz4:
     git: https://github.com/84codes/lz4.cr.git
     version: 1.0.0+git.commit.96d714f7593c66ca7425872fd26c7b1286806d3d
-
   systemd:
     git: https://github.com/84codes/systemd.cr.git
     version: 2.0.0

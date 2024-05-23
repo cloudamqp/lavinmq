@@ -45,7 +45,7 @@ module LavinMQ
     getter execution_context
 
     def initialize(@name : String, @server_data_dir : String, @users : UserStore, @replicator : Clustering::Replicator, @description = "", @tags = Array(String).new(0))
-      @execution_context = ExecutionContext::SingleThreaded.new("vhost:#{@name}")
+      @execution_context = ExecutionContext::MultiThreaded.new("vhost:#{@name}", 2)
       @log = Logger.new(Log, vhost: @name)
       @dir = Digest::SHA1.hexdigest(@name)
       @data_dir = File.join(@server_data_dir, @dir)

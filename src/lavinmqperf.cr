@@ -1,3 +1,6 @@
+{% raise "use -Dpreview_mt" unless flag?(:preview_mt) %}
+{% raise "use -Dmt" unless flag?(:mt) %}
+require "execution_context"
 require "./lavinmq/version"
 require "./stdlib/resource"
 require "option_parser"
