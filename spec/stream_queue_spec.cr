@@ -497,5 +497,28 @@ describe LavinMQ::StreamQueue do
       msg_store.last_offset_by_consumer_tag(tag_prefix + 0.to_s).should eq offsets[0]
       msg_store.close
     end
+
+    it "does not track offset if c-tag is auto-generated" do
+      queue_name = Random::Secure.hex
+      StreamQueueSpecHelpers.publish(queue_name, 1)
+      args = {"x-queue-type": "stream"}
+      c_tag = ""
+      with_channel do |ch|
+        ch.prefetch 1
+        q = ch.queue(queue_name, args: AMQP::Client::Arguments.new(args))
+        msgs = Channel(AMQP::Client::DeliverMessage).new
+        c_tag = q.subscribe(no_ack: false) do |msg|
+          msgs.send msg
+          msg.ack
+        end
+        msg = msgs.receive
+      end
+
+      sleep 0.1
+      vhost = Server.vhosts["/"]
+      data_dir = File.join(vhost.data_dir, Digest::SHA1.hexdigest queue_name)
+      msg_store = LavinMQ::StreamQueue::StreamQueueMessageStore.new(data_dir, nil)
+      msg_store.last_offset_by_consumer_tag(c_tag).should eq nil
+    end
   end
 end
