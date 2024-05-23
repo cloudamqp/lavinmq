@@ -174,23 +174,6 @@ module LavinMQ::AMQP
         end
       end
 
-      def remove_consumer_tag_from_file(consumer_tag : String)
-        @consumer_offset_positions = @consumer_offset_positions.reject! { |k, _v| k == consumer_tag }
-
-        offsets_to_save = Hash(String, Int64).new
-        @consumer_offset_positions.each do |ctag, _p|
-          offset = last_offset_by_consumer_tag(ctag)
-          next unless offset
-          offsets_to_save[ctag] = offset
-        end
-
-        replace_offsets_file do
-          offsets_to_save.each do |ctag, offset|
-            store_consumer_offset(ctag, offset)
-          end
-        end
-      end
-
       def replace_offsets_file(&)
         old_consumer_offsets = @consumer_offsets
         @consumer_offsets = MFile.new("#{@consumer_offset_path}.tmp", @consumer_offset_capacity)
