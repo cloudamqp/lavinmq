@@ -173,7 +173,10 @@ module LavinMQ
       puts "  reclaimed bytes during last GC: #{ps.bytes_reclaimed_since_gc.humanize_bytes}"
       puts "  reclaimed bytes before last GC: #{ps.reclaimed_bytes_before_gc.humanize_bytes}"
       puts "Fibers:"
-      Fiber.list { |f| puts "name=#{f.name}\tcontext=#{f.execution_context.try &.name}" }
+      Fiber.list do |f|
+        puts "name=#{f.name}\tcontext=#{f.execution_context.try &.name}"
+      end
+      PerfTools::FiberTrace.log_fibers(STDOUT)
       # LavinMQ::Reporter.report(@amqp_server)
       STDOUT.flush
     end
