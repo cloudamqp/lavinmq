@@ -12,9 +12,9 @@ module LavinMQ
         @track_offset = false
 
         def initialize(@channel : Client::Channel, @queue : StreamQueue, frame : AMQP::Frame::Basic::Consume)
+          @tag = frame.consumer_tag
           validate_preconditions(frame)
           offset = frame.arguments["x-stream-offset"]?
-          @tag = frame.consumer_tag
           @offset, @segment, @pos = stream_queue.find_offset(offset, @tag)
           super
         end
@@ -37,7 +37,7 @@ module LavinMQ
           end
           case frame.arguments["x-stream-offset"]?
           when Nil
-            @track_offset = true
+            @track_offset = true unless @tag.starts_with?("amq.ctag-")
           when Int, Time, "first", "next", "last"
             @track_offset = false
           else raise Error::PreconditionFailed.new("x-stream-offset must be an integer, a timestamp, 'first', 'next' or 'last'")
