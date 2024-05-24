@@ -54,6 +54,7 @@ module LavinMQ
       end
 
       def append(path : String, file : MFile, position : Int32, length : Int32)
+        return if @followers.empty?
         append path, FileRange.new(file, position, length)
       end
 
