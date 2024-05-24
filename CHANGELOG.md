@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+## [1.2.12] - 2024-05-24
+
 ### Changed
 - Follower lag is now based on bytes written to action queue instead of socket [#652](https://github.com/cloudamqp/lavinmq/pull/652)
 - Change how delayed exchanges are exported with definitions [#663](https://github.com/cloudamqp/lavinmq/pull/663)
