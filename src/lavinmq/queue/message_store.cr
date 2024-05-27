@@ -320,10 +320,18 @@ module LavinMQ
             begin
               SchemaVersion.verify(file, :message)
             rescue EmptyFile
-              Log.warn { "Empty file at #{path}, setting schema version to #{Schema::VERSION}" }
-              file.resize(0)
-              file.write_bytes Schema::VERSION
-              @replicator.try &.append path, file, 0, sizeof(Int32)
+              # delete empty file, it will be recreated if it's needed
+              Log.warn { "Empty file at #{path}, deleting it" }
+              file.delete.close
+              @replicator.try &.delete_file(path)
+              if idx == 0
+                file = MFile.new(path, Config.instance.segment_size)
+                file.write_bytes Schema::VERSION
+                @replicator.try &.append path, Schema::VERSION
+              else
+                @segments.delete seg
+                next
+              end
             end
           end
           file.pos = 4
