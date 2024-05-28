@@ -353,7 +353,6 @@ describe LavinMQ::StreamQueue do
 
     it "runs cleanup when removing segment" do
       consumer_tag = "ctag-1"
-      offset = -1
       vhost = Server.vhosts["/"]
       queue_name = Random::Secure.hex
       args = {"x-queue-type": "stream", "x-max-length": 2}
@@ -404,7 +403,7 @@ describe LavinMQ::StreamQueue do
           msgs.send msg
           msg.ack
         end
-        msg = msgs.receive
+        msgs.receive
       end
 
       sleep 0.1
