@@ -1,5 +1,4 @@
 {% raise "use -Dpreview_mt" unless flag?(:preview_mt) %}
-require "perf_tools/fiber_trace"
 require "execution_context"
 require "./lavinmq/version"
 require "./stdlib/*"
