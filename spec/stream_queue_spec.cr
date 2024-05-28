@@ -513,7 +513,6 @@ describe LavinMQ::StreamQueue do
       sleep 0.1
       msg_store = LavinMQ::StreamQueue::StreamQueueMessageStore.new(data_dir, nil)
       msg_store.last_offset_by_consumer_tag(consumer_tag).should eq nil
-
     end
 
     it "does not track offset if c-tag is auto-generated" do
