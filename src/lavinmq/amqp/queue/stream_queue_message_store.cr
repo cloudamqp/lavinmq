@@ -158,11 +158,13 @@ module LavinMQ::AMQP
       end
 
       def cleanup_consumer_offsets
+        return if @consumer_offsets.size.zero?
+
         offsets_to_save = Hash(String, Int64).new
         lowest_offset_in_stream, _seg, _pos = offset_at(@segments.first_key, 4u32)
         @consumer_offset_positions.each do |ctag, _pos|
           if offset = last_offset_by_consumer_tag(ctag)
-            offsets_to_save[ctag] = offset if offset > lowest_offset_in_stream
+            offsets_to_save[ctag] = offset if offset >= lowest_offset_in_stream
           end
         end
 
@@ -265,6 +267,7 @@ module LavinMQ::AMQP
             Time.unix_ms(last_ts) < min_ts
           end
         end
+        cleanup_consumer_offsets
       end
 
       private def drop_segments_while(& : UInt32 -> Bool)

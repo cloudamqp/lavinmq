@@ -379,7 +379,7 @@ describe LavinMQ::StreamQueue do
     it "reads offsets from file on init" do
       queue_name = Random::Secure.hex
       vhost = Server.vhosts["/"]
-      offsets = [84_i64, Random.rand(Int64), Random.rand(Int64), Random.rand(Int64)]
+      offsets = [84_i64, 24_i64, 1_i64, 100_i64, 42_i64]
       tag_prefix = "ctag-"
       StreamQueueSpecHelpers.publish(queue_name, 1)
 
@@ -401,7 +401,7 @@ describe LavinMQ::StreamQueue do
     it "only saves one entry per consumer tag" do
       queue_name = Random::Secure.hex
       vhost = Server.vhosts["/"]
-      offsets = [84_i64, Random.rand(Int64), Random.rand(Int64), Random.rand(Int64)]
+      offsets = [84_i64, 24_i64, 1_i64, 100_i64, 42_i64]
       consumer_tag = "ctag-1"
       StreamQueueSpecHelpers.publish(queue_name, 1)
 
@@ -415,7 +415,7 @@ describe LavinMQ::StreamQueue do
 
       msg_store = LavinMQ::StreamQueue::StreamQueueMessageStore.new(data_dir, nil)
       msg_store.last_offset_by_consumer_tag(consumer_tag).should eq offsets.last
-      msg_store.@consumer_offsets.size.should eq 16
+      msg_store.@consumer_offsets.size.should eq 15
 
       msg_store.close
     end
@@ -473,6 +473,47 @@ describe LavinMQ::StreamQueue do
       msg_store.last_offset_by_consumer_tag(tag_prefix + 1.to_s).should eq nil
       msg_store.last_offset_by_consumer_tag(tag_prefix + 0.to_s).should eq offsets[0]
       msg_store.close
+    end
+
+    it "runs cleanup when removing segment" do
+      consumer_tag = "ctag-1"
+      offset = -1
+      vhost = Server.vhosts["/"]
+      queue_name = Random::Secure.hex
+      args = {"x-queue-type": "stream", "x-max-length": 2}
+      body_size = 256 * 1024
+      data = Bytes.new(body_size)
+      data_dir = File.join(vhost.data_dir, Digest::SHA1.hexdigest queue_name)
+
+      with_channel do |ch|
+        q = ch.queue(queue_name, args: AMQP::Client::Arguments.new(args))
+        q.publish_confirm data
+      end
+      sleep 0.1
+
+      with_channel do |ch|
+        ch.prefetch 1
+        q = ch.queue(queue_name, args: AMQP::Client::Arguments.new(args))
+        msgs = Channel(AMQP::Client::DeliverMessage).new
+        q.subscribe(no_ack: false, tag: consumer_tag) do |msg|
+          msgs.send msg
+          msg.ack
+        end
+        msgs.receive
+      end
+
+      sleep 0.1
+      msg_store = LavinMQ::StreamQueue::StreamQueueMessageStore.new(data_dir, nil)
+      msg_store.last_offset_by_consumer_tag(consumer_tag).should eq 2
+
+      with_channel do |ch|
+        q = ch.queue(queue_name, args: AMQP::Client::Arguments.new(args))
+        4.times { q.publish_confirm data }
+      end
+      sleep 0.1
+      msg_store = LavinMQ::StreamQueue::StreamQueueMessageStore.new(data_dir, nil)
+      msg_store.last_offset_by_consumer_tag(consumer_tag).should eq nil
+
     end
 
     it "does not track offset if c-tag is auto-generated" do
