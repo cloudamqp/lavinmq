@@ -176,7 +176,6 @@ module LavinMQ
       Fiber.list do |f|
         puts "name=#{f.name}\tcontext=#{f.execution_context.try &.name}"
       end
-      PerfTools::FiberTrace.log_fibers(STDOUT)
       # LavinMQ::Reporter.report(@amqp_server)
       STDOUT.flush
     end
