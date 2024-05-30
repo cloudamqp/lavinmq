@@ -479,16 +479,14 @@ describe LavinMQ::StreamQueue do
       consumer_tag = "ctag-1"
       vhost = Server.vhosts["/"]
       queue_name = Random::Secure.hex
-      args = {"x-queue-type": "stream", "x-max-length": 2}
-      body_size = 256 * 1024
-      data = Bytes.new(body_size)
+      args = {"x-queue-type": "stream", "x-max-length": 1}
+      msg_body = Bytes.new(LavinMQ::Config.instance.segment_size)
       data_dir = File.join(vhost.data_dir, Digest::SHA1.hexdigest queue_name)
 
       with_channel do |ch|
         q = ch.queue(queue_name, args: AMQP::Client::Arguments.new(args))
-        q.publish_confirm data
+        q.publish_confirm msg_body
       end
-      sleep 0.1
 
       with_channel do |ch|
         ch.prefetch 1
@@ -501,15 +499,14 @@ describe LavinMQ::StreamQueue do
         msgs.receive
       end
 
-      sleep 0.1
       msg_store = LavinMQ::StreamQueue::StreamQueueMessageStore.new(data_dir, nil)
       msg_store.last_offset_by_consumer_tag(consumer_tag).should eq 2
 
       with_channel do |ch|
         q = ch.queue(queue_name, args: AMQP::Client::Arguments.new(args))
-        4.times { q.publish_confirm data }
+        2.times { q.publish_confirm msg_body }
       end
-      sleep 0.1
+
       msg_store = LavinMQ::StreamQueue::StreamQueueMessageStore.new(data_dir, nil)
       msg_store.last_offset_by_consumer_tag(consumer_tag).should eq nil
     end
