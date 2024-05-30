@@ -63,12 +63,15 @@ module LavinMQ::AMQP
         end
       end
 
-      private def offset_at(seg, pos) : Tuple(Int64, UInt32, UInt32)
+      private def offset_at(seg, pos, retried = false) : Tuple(Int64, UInt32, UInt32)
         return {@last_offset, seg, pos} if @size.zero?
         mfile = @segments[seg]
         msg = BytesMessage.from_bytes(mfile.to_slice + pos)
         offset = offset_from_headers(msg.properties.headers)
         {offset, seg, pos}
+      rescue ex : IndexError # first segment can be empty if message size >= segment size
+        return offset_at(seg + 1, pos, true) unless retried
+        raise ex
       end
 
       private def last_offset_seg_pos
