@@ -60,6 +60,7 @@ module LavinMQ
       @vhost.add_connection(self)
       @log.info { "Connection established for user=#{@user.name}" }
       @vhost.execution_context.spawn(name: "Client#read_loop #{@remote_address}") { read_loop }
+      @vhost.execution_context.spawn(name: "Client#write_loop #{@remote_address}") { write_loop }
     end
 
     # Returns client provided connection name if set, else server generated name
@@ -95,6 +96,45 @@ module LavinMQ
         cipher:            @connection_info.ssl_cipher,
         state:             state,
       }.merge(stats_details)
+    end
+
+    @write_queue = ::Channel(AMQP::Frame).new(128)
+
+    private def write_loop
+      socket = @socket
+      queue = @write_queue
+      if socket.is_a? WebSocketIO
+        while frame = queue.receive?
+          write_frame(socket, frame)
+          @send_oct_count += 8_u64 + frame.bytesize
+          socket.flush
+          @last_sent_frame = RoughTime.monotonic
+        end
+      else
+        while frame = queue.receive?
+          write_frame(socket, frame)
+          send_oct_count = 8_u64 + frame.bytesize
+          while frame2 = queue.try_receive?
+            write_frame(socket, frame2)
+            send_oct_count += 8_u64 + frame2.bytesize
+          end
+          # We assume we drain the queue often enough
+          # to only update these instance variables here
+          @send_oct_count += send_oct_count
+          @last_sent_frame = RoughTime.monotonic
+          socket.flush
+        end
+      end
+    rescue IO::Error | ::Channel::ClosedError
+    ensure
+      close
+    end
+
+    macro write_frame(socket, frame)
+      {% unless flag?(:release) %}
+        @log.trace { "Send #{{{frame}}.inspect}" }
+      {% end %}
+      {{socket}}.write_bytes {{frame}}, ::IO::ByteFormat::NetworkEndian
     end
 
     private def read_loop
@@ -186,13 +226,14 @@ module LavinMQ
       {% unless flag?(:release) %}
         @log.trace { "Send #{frame.inspect}" }
       {% end %}
-      @write_lock.synchronize do
-        s = @socket
-        s.write_bytes frame, IO::ByteFormat::NetworkEndian
-        s.flush
-      end
-      @last_sent_frame = RoughTime.monotonic
-      @send_oct_count += 8_u64 + frame.bytesize
+      # @write_lock.synchronize do
+      @write_queue.send frame
+      #        s = @socket
+      #        s.write_bytes frame, IO::ByteFormat::NetworkEndian
+      #        s.flush
+      # end
+      # @last_sent_frame = RoughTime.monotonic
+      # @send_oct_count += 8_u64 + frame.bytesize
       if frame.is_a?(AMQP::Frame::Connection::CloseOk)
         return false
       end
@@ -223,42 +264,44 @@ module LavinMQ
 
     def deliver(frame, msg)
       return false if closed?
-      @write_lock.synchronize do
-        socket = @socket
-        websocket = socket.is_a? WebSocketIO
+      # @write_lock.synchronize do
+      # socket = @socket
+      #   websocket = socket.is_a? WebSocketIO
+      {% unless flag?(:release) %}
+        @log.trace { "Send #{frame.inspect}" }
+      {% end %}
+      #   socket.write_bytes frame, ::IO::ByteFormat::NetworkEndian
+      #   socket.flush if websocket
+      # @send_oct_count += 8_u64 + frame.bytesize
+      @write_queue.send frame
+      header = AMQP::Frame::Header.new(frame.channel, 60_u16, 0_u16, msg.bodysize, msg.properties)
+      {% unless flag?(:release) %}
+        @log.trace { "Send #{header.inspect}" }
+      {% end %}
+      @write_queue.send header
+      # socket.write_bytes header, ::IO::ByteFormat::NetworkEndian
+      # socket.flush if websocket
+      # @send_oct_count += 8_u64 + header.bytesize
+      pos = 0
+      while pos < msg.bodysize
+        length = Math.min(msg.bodysize - pos, @max_frame_size - 8).to_u32
         {% unless flag?(:release) %}
-          @log.trace { "Send #{frame.inspect}" }
+          @log.trace { "Send BodyFrame (pos #{pos}, length #{length})" }
         {% end %}
-        socket.write_bytes frame, ::IO::ByteFormat::NetworkEndian
-        socket.flush if websocket
-        @send_oct_count += 8_u64 + frame.bytesize
-        header = AMQP::Frame::Header.new(frame.channel, 60_u16, 0_u16, msg.bodysize, msg.properties)
-        {% unless flag?(:release) %}
-          @log.trace { "Send #{header.inspect}" }
-        {% end %}
-        socket.write_bytes header, ::IO::ByteFormat::NetworkEndian
-        socket.flush if websocket
-        @send_oct_count += 8_u64 + header.bytesize
-        pos = 0
-        while pos < msg.bodysize
-          length = Math.min(msg.bodysize - pos, @max_frame_size - 8).to_u32
-          {% unless flag?(:release) %}
-            @log.trace { "Send BodyFrame (pos #{pos}, length #{length})" }
-          {% end %}
-          body = case msg
-                 in BytesMessage
-                   AMQP::Frame::BytesBody.new(frame.channel, length, msg.body[pos, length])
-                 in Message
-                   AMQP::Frame::Body.new(frame.channel, length, msg.body_io)
-                 end
-          socket.write_bytes body, ::IO::ByteFormat::NetworkEndian
-          socket.flush if websocket
-          @send_oct_count += 8_u64 + body.bytesize
-          pos += length
-        end
-        socket.flush unless websocket # Websockets need to send one frame per WS frame
-        @last_sent_frame = RoughTime.monotonic
+        body = case msg
+               in BytesMessage
+                 AMQP::Frame::BytesBody.new(frame.channel, length, msg.body[pos, length])
+               in Message
+                 AMQP::Frame::Body.new(frame.channel, length, msg.body_io)
+               end
+        #          socket.write_bytes body, ::IO::ByteFormat::NetworkEndian
+        #          socket.flush if websocket
+        #          @send_oct_count += 8_u64 + body.bytesize
+        @write_queue.send body
+        pos += length
       end
+      # socket.flush unless websocket # Websockets need to send one frame per WS frame
+      # end
       true
     rescue ex : IO::Error | OpenSSL::SSL::Error
       @log.debug { "Lost connection, while sending (#{ex.inspect})" }
