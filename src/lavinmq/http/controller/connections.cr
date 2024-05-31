@@ -50,27 +50,25 @@ module LavinMQ
         end
 
         get "/api/connections/username/:username" do |context, params|
-          name = URI.decode_www_form(params["username"])
-          user = user(context)
-          connections = @amqp_server.connections.select do |c|
-            c.user.name == name
-          end
+          connections = get_connections_by_username(context, params)
           page(context, connections.each)
         end
 
         delete "/api/connections/username/:username" do |context, params|
-          name = URI.decode_www_form(params["username"])
-          user = user(context)
-          connections = @amqp_server.connections.select { |c| c.user.name == name }
+          connections = get_connections_by_username(context, params)
           reason = context.request.headers["X-Reason"]? || "Closed via management plugin"
           connections.each do |c|
             c.close(reason)
           end
           context.response.status_code = 204
-          pp context.response
           context
         end
+      end
 
+      private def get_connections_by_username(context, params)
+        username = URI.decode_www_form(params["username"])
+        user = user(context)
+        connections(user).select { |c| c.user.name == username }
       end
 
       private def with_connection(context, params, &)
