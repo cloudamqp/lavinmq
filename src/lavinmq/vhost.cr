@@ -43,7 +43,7 @@ module LavinMQ
     @definitions_deletes = 0
 
     def initialize(@name : String, @tags : String, @description : String,
-      @server_data_dir : String, @users : UserStore, @replicator : Replication::Replicator)
+                   @server_data_dir : String, @users : UserStore, @replicator : Replication::Replicator)
       @log = Log.for "vhost[name=#{@name}]"
       @dir = Digest::SHA1.hexdigest(@name)
       @data_dir = File.join(@server_data_dir, @dir)
