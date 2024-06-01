@@ -100,13 +100,16 @@ class MFile < IO
   # The file will be truncated to the current position unless readonly or deleted
   def close(truncate_to_size = true)
     # unmap occurs on finalize
-    return if @fd < 0 || @readonly || @deleted || !truncate_to_size
-    code = LibC.ftruncate(@fd, @size)
-    raise File::Error.from_errno("Error truncating file", file: @path) if code < 0
+    if truncate_to_size && !@readonly && !@deleted && @fd > 0
+      code = LibC.ftruncate(@fd, @size)
+      raise File::Error.from_errno("Error truncating file", file: @path) if code < 0
+    end
   ensure
-    code = LibC.close(@fd)
-    raise File::Error.from_errno("Error closing file", file: @path) if code < 0
-    @fd = -1
+    unless @fd == -1
+      code = LibC.close(@fd)
+      raise File::Error.from_errno("Error closing file", file: @path) if code < 0
+      @fd = -1
+    end
   end
 
   def flush
