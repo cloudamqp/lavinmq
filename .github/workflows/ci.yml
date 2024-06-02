@@ -31,7 +31,7 @@ jobs:
     name: Format check
     runs-on: ubuntu-latest
     continue-on-error: true
-    container: 84codes/crystal:latest-ubuntu-20.04
+    container: 84codes/crystal:latest-ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - run: crystal tool format --check
@@ -40,7 +40,7 @@ jobs:
     name: Lint check
     runs-on: ubuntu-latest
     continue-on-error: true
-    container: 84codes/crystal:latest-ubuntu-20.04
+    container: 84codes/crystal:latest-ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - name: Checkout ameba
@@ -81,7 +81,7 @@ jobs:
   spec:
     name: Spec
     runs-on: ubuntu-latest
-    container: 84codes/crystal:latest-ubuntu-20.04
+    container: 84codes/crystal:latest-ubuntu-24.04
     steps:
       - name: Print Crystal version
         run: crystal -v
@@ -115,7 +115,7 @@ jobs:
   compile:
     name: Compile LavinMQ
     runs-on: ubuntu-latest
-    container: 84codes/crystal:latest-ubuntu-20.04
+    container: 84codes/crystal:latest-ubuntu-24.04
 
     steps:
       - name: Install dependencies
@@ -192,7 +192,7 @@ jobs:
 
   java-client-test:
     name: RabbitMQ java client test
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     needs: compile
     continue-on-error: true
 
@@ -200,7 +200,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y make libevent-2.1-7 openjdk-13-jre-headless liblz4-1
+          sudo apt-get install -y make libevent-2.1-7 openjdk-21-jre-headless liblz4-1
 
       - uses: actions/download-artifact@v4
         with:
@@ -228,7 +228,7 @@ jobs:
 
   bunny-test:
     name: Bunny client test
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     needs: compile
 
     steps:
@@ -279,7 +279,7 @@ jobs:
 
   ruby-http-api-test:
     name: RabbitMQ HTTP API Ruby client test
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     needs: compile
     continue-on-error: true
 
@@ -315,7 +315,7 @@ jobs:
 
   go-http-api-test:
     name: RabbitMQ HTTP API Go client test
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     needs: compile
     continue-on-error: true
 
@@ -349,7 +349,7 @@ jobs:
 
   release-mode-test:
     name: Test in release mode
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     needs: compile
     continue-on-error: true
 
