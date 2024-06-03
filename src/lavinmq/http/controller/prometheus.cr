@@ -34,7 +34,7 @@ module LavinMQ
       end
 
       def write(m : Metric)
-        return unless m[:value]?
+        return if m[:value].nil?
         io = @io
         name = "#{@prefix}_#{m[:name]}"
         if t = m[:type]?
@@ -64,7 +64,7 @@ module LavinMQ
         get "/metrics" do |context, _|
           context.response.content_type = "text/plain"
           prefix = context.request.query_params["prefix"]? || "lavinmq"
-          bad_request(context, "prefix to long") if prefix.size > 20
+          bad_request(context, "Prefix too long (max 20 characters)") if prefix.bytesize > 20
           vhosts = target_vhosts(context)
           report(context.response) do
             writer = PrometheusWriter.new(context.response, prefix)
@@ -78,7 +78,7 @@ module LavinMQ
         get "/metrics/detailed" do |context, _|
           context.response.content_type = "text/plain"
           prefix = context.request.query_params["prefix"]? || "lavinmq"
-          bad_request(context, "prefix to long") if prefix.size > 20
+          bad_request(context, "Prefix too long (max 20 characters)") if prefix.bytesize > 20
           families = context.request.query_params.fetch_all("family")
           vhosts = target_vhosts(context)
           report(context.response) do

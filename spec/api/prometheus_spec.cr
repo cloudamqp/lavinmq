@@ -40,7 +40,7 @@ describe LavinMQ::HTTP::ConsumersController do
       prefix = "abcdefghijklmnopqrstuvwxyz"
       response = get("/metrics?prefix=#{prefix}")
       response.status_code.should eq 400
-      response.body.should eq "{\"error\":\"bad_request\",\"reason\":\"prefix to long\"}"
+      response.body.should match /Prefix too long/
     end
   end
 
