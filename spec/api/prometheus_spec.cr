@@ -29,11 +29,10 @@ describe LavinMQ::HTTP::ConsumersController do
       prefix = "testing"
       response = get("/metrics?prefix=#{prefix}")
       lines = response.body.lines
+      lines.count(&.starts_with? "telemetry").should eq 2
       metric_lines = lines.reject(&.starts_with? "#")
       prefix_lines = lines.select(&.starts_with? prefix)
-      telemetry_lines = lines.select(&.starts_with? "telemetry")
       prefix_lines.size.should eq metric_lines.size - 2
-      telemetry_lines.size.should eq 2
     end
 
     it "should not support a prefix longer than 20" do
