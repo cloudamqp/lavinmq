@@ -102,10 +102,12 @@ module LavinMQ
         end
       end
 
-      private def report(io, &blk)
+      private def report(io, &)
         mem = 0
         elapsed = Time.measure do
-          mem = Benchmark.memory(&blk)
+          mem = Benchmark.memory do
+            yield
+          end
         end
         writer = PrometheusWriter.new(io, "telemetry")
         writer.write({name:  "scrape_duration_seconds",
