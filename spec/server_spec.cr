@@ -973,7 +973,7 @@ describe LavinMQ::Server do
       end
       q.publish "1"
       ch.@connection.@io.as(TCPSocket).close
-      Fiber.yield
+      sleep 0.05
       count.should eq 0
 
       Fiber.yield
