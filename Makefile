@@ -66,7 +66,14 @@ deps: js lib
 .PHONY: lint
 lint: lib
 	lib/ameba/bin/ameba src/
-	standard static/js
+
+.PHONY: lint-js
+lint-js:
+	npx standard static/js
+
+.PHONY: lint-openapi
+lint-openapi:
+	npx --package=@stoplight/spectral-cli spectral --ruleset openapi/.spectral.json lint static/docs/openapi.yaml
 
 .PHONY: test
 test: lib
