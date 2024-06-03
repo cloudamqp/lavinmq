@@ -235,7 +235,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libevent-dev liblz4-1
+          sudo apt-get install -y libevent-2.1-7 liblz4-1
 
       - name: Checkout LavinMQ for bunny_definitions.json
         uses: actions/checkout@v4
@@ -284,6 +284,11 @@ jobs:
     continue-on-error: true
 
     steps:
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libevent-2.1-7 liblz4-1
+
       - uses: actions/download-artifact@v4
         with:
           name: bin
@@ -320,6 +325,11 @@ jobs:
     continue-on-error: true
 
     steps:
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libevent-2.1-7 liblz4-1
+
       - uses: actions/download-artifact@v4
         with:
           name: bin
@@ -354,6 +364,11 @@ jobs:
     continue-on-error: true
 
     steps:
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libevent-2.1-7 liblz4-1
+
       - name: Checkout
         uses: actions/checkout@v4
 
