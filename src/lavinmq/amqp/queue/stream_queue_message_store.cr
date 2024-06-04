@@ -43,8 +43,13 @@ module LavinMQ::AMQP
       # Used once when a consumer is started
       # Populates `segment` and `position` by iterating through segments
       # until `offset` is found
-      def find_offset(offset, tag = nil) : Tuple(Int64, UInt32, UInt32)
+      def find_offset(offset, tag = nil, track_offset = false) : Tuple(Int64, UInt32, UInt32)
         raise ClosedError.new if @closed
+        if track_offset
+          consumer_last_offset = last_offset_by_consumer_tag(tag)
+          return find_offset_in_segments(consumer_last_offset) if consumer_last_offset
+        end
+
         case offset
         when "first" then offset_at(@segments.first_key, 4u32)
         when "last"  then offset_at(@segments.last_key, 4u32)
