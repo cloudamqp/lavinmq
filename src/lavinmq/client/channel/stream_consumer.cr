@@ -15,7 +15,7 @@ module LavinMQ
           @tag = frame.consumer_tag
           validate_preconditions(frame)
           offset = frame.arguments["x-stream-offset"]?
-          @offset, @segment, @pos = stream_queue.find_offset(offset, @tag)
+          @offset, @segment, @pos = stream_queue.find_offset(offset, @tag, @track_offset)
           super
         end
 
@@ -39,7 +39,7 @@ module LavinMQ
           when Nil
             @track_offset = true unless @tag.starts_with?("amq.ctag-")
           when Int, Time, "first", "next", "last"
-            @track_offset = false
+            @track_offset = true if frame.arguments["x-stream-use-automatic-offset"]?
           else raise Error::PreconditionFailed.new("x-stream-offset must be an integer, a timestamp, 'first', 'next' or 'last'")
           end
         end
