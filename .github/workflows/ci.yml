@@ -343,7 +343,7 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.15.2
+          go-version: 1.22.3
 
       - name: Clone http client
         uses: actions/checkout@v4
