@@ -452,6 +452,23 @@ describe LavinMQ::StreamQueue do
       StreamQueueSpecHelpers.offset_from_headers(msg_2.properties.headers).should eq 1
     end
 
+    it "should use saved offset if x-stream-offset & x-stream-use-automatic-offset is set" do
+      queue_name = Random::Secure.hex
+      consumer_tag = Random::Secure.hex
+      c_args = AMQP::Client::Arguments.new({"x-stream-offset": 0, "x-stream-use-automatic-offset": true})
+
+      StreamQueueSpecHelpers.publish(queue_name, 2)
+
+      # get message without x-stream-offset, tracks offset
+      msg = StreamQueueSpecHelpers.consume_one(queue_name, consumer_tag, c_args)
+      StreamQueueSpecHelpers.offset_from_headers(msg.properties.headers).should eq 1
+      sleep 0.1
+
+      # consume with x-stream-offset set, should consume the same message again
+      msg_2 = StreamQueueSpecHelpers.consume_one(queue_name, consumer_tag, c_args)
+      StreamQueueSpecHelpers.offset_from_headers(msg_2.properties.headers).should eq 2
+    end
+
     it "cleanup_consumer_offsets removes outdated offset" do
       queue_name = Random::Secure.hex
       vhost = Server.vhosts["/"]
