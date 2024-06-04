@@ -119,6 +119,7 @@ describe LavinMQ::HTTP::ConnectionsController do
       with_channel(user: "arnold", password: "pw") do
         response = delete("/api/connections/username/arnold", headers: hdrs)
         response.status_code.should eq 204
+        sleep 0.1
         response = get("/api/connections/username/arnold", headers: hdrs)
         body = JSON.parse(response.body)
         body.as_a.empty?.should be_true
