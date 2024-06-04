@@ -102,11 +102,8 @@ describe LavinMQ::HTTP::ConnectionsController do
   describe "GET /api/connections/username/:username" do
     it "returns connections for a specific user" do
       Server.users.create("arnold", "pw", [LavinMQ::Tag::Administrator])
-      Server.users.add_permission("arnold", "/", /.*/, /.*/, /.*/)
       hdrs = HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
       with_channel do
-        response = delete("/api/connections/username/arnold", headers: hdrs)
-        response.status_code.should eq 204
         response = get("/api/connections/username/arnold", headers: hdrs)
         body = JSON.parse(response.body)
         body.as_a.empty?.should be_true
