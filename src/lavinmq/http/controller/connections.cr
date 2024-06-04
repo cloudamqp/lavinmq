@@ -48,6 +48,27 @@ module LavinMQ
             page(context, connection.channels.each_value)
           end
         end
+
+        get "/api/connections/username/:username" do |context, params|
+          connections = get_connections_by_username(context, params["username"])
+          page(context, connections.each)
+        end
+
+        delete "/api/connections/username/:username" do |context, params|
+          connections = get_connections_by_username(context, params["username"])
+          reason = context.request.headers["X-Reason"]? || "Closed via management plugin"
+          connections.each do |c|
+            c.close(reason)
+          end
+          context.response.status_code = 204
+          context
+        end
+      end
+
+      private def get_connections_by_username(context, username)
+        username = URI.decode_www_form(username)
+        user = user(context)
+        connections(user).select { |c| c.user.name == username }
       end
 
       private def with_connection(context, params, &)
