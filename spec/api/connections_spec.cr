@@ -22,7 +22,7 @@ describe LavinMQ::HTTP::ConnectionsController do
       end
     end
 
-    it "should only show all connections for monitoring" do
+    it "should show all connections for monitoring" do
       Server.users.create("arnold", "pw", [LavinMQ::Tag::Monitoring])
       hdrs = HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
       with_channel do
@@ -35,7 +35,7 @@ describe LavinMQ::HTTP::ConnectionsController do
   end
 
   describe "GET /api/vhosts/vhost/connections" do
-    it "should return network connections" do
+    it "should return network connections for vhost" do
       with_channel do
         response = get("/api/vhosts/%2f/connections")
         response.status_code.should eq 200
@@ -95,6 +95,34 @@ describe LavinMQ::HTTP::ConnectionsController do
         response.status_code.should eq 200
         body = JSON.parse(response.body)
         body.as_a.size.should eq 1
+      end
+    end
+  end
+
+  describe "GET /api/connections/username/:username" do
+    it "returns connections for a specific user" do
+      Server.users.create("arnold", "pw", [LavinMQ::Tag::Administrator])
+      hdrs = HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
+      with_channel do
+        response = get("/api/connections/username/arnold", headers: hdrs)
+        body = JSON.parse(response.body)
+        body.as_a.empty?.should be_true
+      end
+    end
+  end
+
+  describe "DELETE /api/connections/username/:username" do
+    it "deletes connections for a specific user" do
+      Server.users.create("arnold", "pw", [LavinMQ::Tag::Administrator])
+      Server.users.add_permission("arnold", "/", /.*/, /.*/, /.*/)
+      hdrs = HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
+      with_channel(user: "arnold", password: "pw") do
+        response = delete("/api/connections/username/arnold", headers: hdrs)
+        response.status_code.should eq 204
+        sleep 0.1
+        response = get("/api/connections/username/arnold", headers: hdrs)
+        body = JSON.parse(response.body)
+        body.as_a.empty?.should be_true
       end
     end
   end
