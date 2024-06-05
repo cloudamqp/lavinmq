@@ -99,7 +99,8 @@ Route = Struct.new(:route, :verb, :src_file) do
   end
 end
 
-openapi_spec = YAML.load(File.read(File.join(__dir__, "openapi.yaml")))
+docs_path = File.join("..", "static", "docs")
+openapi_spec = YAML.load(File.read(File.join(__dir__, docs_path, "openapi.yaml")))
 src_code_dir = File.expand_path(File.join(__dir__, ".."))
 http_code_dir = File.join(src_code_dir, "src/lavinmq/http")
 files = Dir.glob(File.join(http_code_dir, "**/*.cr"))
@@ -154,7 +155,7 @@ tag_names_from_src.each do |tag_name|
   }
 
   if WRITE
-    File.write(File.join(__dir__, Helper.schemas_path(tag_name)), YAML.dump(openapi_schemas))
+    File.write(File.join(__dir__, docs_path, Helper.schemas_path(tag_name)), YAML.dump(openapi_schemas))
   end
 
   schemas[tag_name] = { "$ref" => "./schemas/#{tag_name}.yaml#/#{tag_name}" }
@@ -171,7 +172,7 @@ files_with_api_routes.each do |src_file, api_routes|
   end
 
   if WRITE
-    File.write(File.join(__dir__, Helper.paths_path(src_file)), YAML.dump(openapi_routes))
+    File.write(File.join(__dir__, docs_path, Helper.paths_path(src_file)), YAML.dump(openapi_routes))
   end
 end
 
@@ -181,5 +182,5 @@ openapi_spec["components"]["schemas"] = schemas
 puts YAML.dump(openapi_spec) if DEBUG
 
 if WRITE
-  File.write(File.join(__dir__, "openapi.yaml"), YAML.dump(openapi_spec))
+  File.write(File.join(__dir__, docs_path, "openapi.yaml"), YAML.dump(openapi_spec))
 end

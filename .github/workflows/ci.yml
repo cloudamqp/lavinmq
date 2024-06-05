@@ -53,7 +53,7 @@ jobs:
       - name: Run ameba
         run: ameba/bin/ameba src spec
 
-  js-lint:
+  lint-js:
     name: Lint javascript
     runs-on: ubuntu-latest
     continue-on-error: true
@@ -62,21 +62,20 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: latest
-      - name: Setup node
-        run: npm install -g standard
       - name: Run standard
-        run: standard static/js
+        run: make lint-js
 
-  api-lint:
-    name: Lint and build HTTP API documentation
+  lint-openapi:
+    name: Lint OpenAPI
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Lint and build HTTP API documentation
-        run: make docs
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: latest
+      - name: Run spectral
+        run: make lint-openapi
 
   spec:
     name: Spec
