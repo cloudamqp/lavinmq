@@ -1,6 +1,6 @@
 BINS := bin/lavinmq bin/lavinmqctl bin/lavinmqperf
 SOURCES := $(shell find src/lavinmq src/stdlib -name '*.cr' 2> /dev/null)
-JS := static/js/lib/chunks/helpers.segment.js static/js/lib/chart.js static/js/lib/amqp-websocket-client.mjs static/js/lib/amqp-websocket-client.mjs.map static/js/lib/luxon.js static/js/lib/chartjs-adapter-luxon.esm.js
+JS := static/js/lib/chunks/helpers.segment.js static/js/lib/chart.js static/js/lib/amqp-websocket-client.mjs static/js/lib/amqp-websocket-client.mjs.map static/js/lib/luxon.js static/js/lib/chartjs-adapter-luxon.esm.js static/js/lib/elements-8.2.0.js static/js/lib/elements-8.2.0.css
 CRYSTAL_FLAGS := --release
 override CRYSTAL_FLAGS += --error-on-warnings --link-flags=-pie
 
@@ -42,6 +42,12 @@ static/js/lib/luxon.js: | static/js/lib
 static/js/lib/chartjs-adapter-luxon.esm.js: | static/js/lib
 	curl --retry 5 -sLo $@ https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.esm.js
 	sed -i'' -e "s|\(import { _adapters } from\).*|\1 './chart.js'|; s|\(import { DateTime } from\).*|\1 './luxon.js'|" $@
+
+static/js/lib/elements-8.2.0.js: | static/js/lib
+	curl --retry 5 -sLo $@ https://unpkg.com/@stoplight/elements@8.2.0/web-components.min.js
+
+static/js/lib/elements-8.2.0.css: | static/js/lib
+	curl --retry 5 -sLo $@ https://unpkg.com/@stoplight/elements@8.2.0/styles.min.css
 
 man1/lavinmq.1: bin/lavinmq | man1
 	help2man -Nn "fast and advanced message queue server" $< -o $@
