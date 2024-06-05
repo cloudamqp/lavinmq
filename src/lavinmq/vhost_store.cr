@@ -20,7 +20,7 @@ module LavinMQ
       end
     end
 
-    def create(name : String, tags : String = "", description : String = "", user : User = @users.default_user, save : Bool = true)
+    def create(name : String, tags : Array(String) = [] of String, description : String = "", user : User = @users.default_user, save : Bool = true)
       if v = @vhosts[name]?
         return v
       end
@@ -61,7 +61,7 @@ module LavinMQ
         File.open(path) do |f|
           JSON.parse(f).as_a.each do |vhost|
             name = vhost["name"].as_s
-            tags = vhost["tags"]?.try &.as_s || ""
+            tags = vhost["tags"]?.try(&.as_a.map(&.to_s)) || [] of String
             description = vhost["description"]?.try &.as_s || ""
             @vhosts[name] = VHost.new(name, tags, description, @data_dir, @users, @replicator)
             @users.add_permission(UserStore::DIRECT_USER, name, /.*/, /.*/, /.*/)
