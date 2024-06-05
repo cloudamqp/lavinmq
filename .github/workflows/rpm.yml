@@ -36,7 +36,7 @@ jobs:
     name: Build RPM
     strategy:
       matrix:
-        os: ['fedora-39', 'fedora-38', 'el-9']
+        os: ['fedora-39', 'fedora-40', 'el-9']
     runs-on: ubuntu-latest
     # Set permissions if you're using OIDC token authentication
     permissions:
@@ -72,7 +72,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           pull: true
           build-args: |
-            build_image=84codes/crystal:1.11.2-${{ matrix.os }}
+            build_image=84codes/crystal:1.12.2-${{ matrix.os }}
             version=${{ env.version }}
             MAKEFLAGS=-j1
           outputs: RPMS
