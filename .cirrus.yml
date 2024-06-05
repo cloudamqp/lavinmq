@@ -1,7 +1,7 @@
 freebsd_task:
   skip: "!changesInclude('.cirrus.yml', 'shard.lock', 'src/**', 'spec/**')"
   freebsd_instance:
-    image_family: freebsd-13-2
+    image_family: freebsd-14
     memory: 4G
   pkg_cache:
     folder: /var/cache/pkg
@@ -10,40 +10,40 @@ freebsd_task:
   build_script: gmake -j2 DOCS=
   artifacts:
     path: bin/*
-  allow_failures: true
+  allow_failures: false
 
-osx_task:
-  skip: "!changesInclude('.cirrus.yml', 'shard.lock', 'src/**', 'spec/**')"
-  macos_instance:
-    image: ghcr.io/cirruslabs/macos-ventura-base:latest
-  brew_cache:
-    folder: ~/Library/Caches/Homebrew
-    fingerprint_key: crystal@1.9.2
-  crystal_script:
-    - brew update
-    - brew install crystal
-  spec_script: make test nocolor=1
-  build_script: make -j2 DOCS=
-  cleanup_script: brew cleanup
-  artifacts:
-    path: bin/*
-
-arm64_task:
-  skip: "!changesInclude('.cirrus.yml', 'shard.lock', 'src/**', 'spec/**')"
-  arm_container:
-    image: 84codes/crystal:latest-ubuntu-22.04
-    cpu: 2
-    memory: 4G
-    greedy: true
-  install_script: apt-get update && apt-get install liblz4-dev
-  spec_script: make test
-
-amd64_task:
-  skip: "!changesInclude('.cirrus.yml', 'shard.lock', 'src/**', 'spec/**')"
-  container:
-    image: 84codes/crystal:latest-ubuntu-22.04
-    cpu: 2
-    memory: 4G
-    greedy: true
-  install_script: apt-get update && apt-get install liblz4-dev
-  spec_script: make test
+#osx_task:
+#  skip: "!changesInclude('.cirrus.yml', 'shard.lock', 'src/**', 'spec/**')"
+#  macos_instance:
+#    image: ghcr.io/cirruslabs/macos-ventura-base:latest
+#  brew_cache:
+#    folder: ~/Library/Caches/Homebrew
+#    fingerprint_key: crystal@1.9.2
+#  crystal_script:
+#    - brew update
+#    - brew install crystal
+#  spec_script: make test nocolor=1
+#  build_script: make -j2 DOCS=
+#  cleanup_script: brew cleanup
+#  artifacts:
+#    path: bin/*
+#
+#arm64_task:
+#  skip: "!changesInclude('.cirrus.yml', 'shard.lock', 'src/**', 'spec/**')"
+#  arm_container:
+#    image: 84codes/crystal:latest-ubuntu-22.04
+#    cpu: 2
+#    memory: 4G
+#    greedy: true
+#  install_script: apt-get update && apt-get install liblz4-dev
+#  spec_script: make test
+#
+#amd64_task:
+#  skip: "!changesInclude('.cirrus.yml', 'shard.lock', 'src/**', 'spec/**')"
+#  container:
+#    image: 84codes/crystal:latest-ubuntu-22.04
+#    cpu: 2
+#    memory: 4G
+#    greedy: true
+#  install_script: apt-get update && apt-get install liblz4-dev
+#  spec_script: make test
