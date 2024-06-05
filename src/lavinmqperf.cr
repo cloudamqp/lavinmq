@@ -148,14 +148,14 @@ class Throughput < Perf
     done = Channel(Nil).new
     @consumers.times do
       if @poll
-        spawn poll_consume(done)
+        spawn { reconnect_on_disconnect(done) { poll_consume } }
       else
-        spawn consume(done)
+        spawn { reconnect_on_disconnect(done) { consume } }
       end
     end
 
     @publishers.times do
-      spawn pub(done)
+      spawn { reconnect_on_disconnect(done) { pub } }
     end
 
     if @timeout != Time::Span.zero
@@ -221,7 +221,7 @@ class Throughput < Perf
     end
   end
 
-  private def pub(done) # ameba:disable Metrics/CyclomaticComplexity
+  private def pub # ameba:disable Metrics/CyclomaticComplexity
     data = Bytes.new(@size) { |i| ((i % 27 + 64)).to_u8 }
     props = @properties
     props.delivery_mode = 2u8 if @persistent
@@ -259,11 +259,9 @@ class Throughput < Perf
         end
       end
     end
-  ensure
-    done.send nil
   end
 
-  private def consume(done) # ameba:disable Metrics/CyclomaticComplexity
+  private def consume # ameba:disable Metrics/CyclomaticComplexity
     data = Bytes.new(@size) { |i| ((i % 27 + 64)).to_u8 }
     AMQP::Client.start(@uri) do |a|
       ch = a.channel
@@ -302,11 +300,9 @@ class Throughput < Perf
         end
       end
     end
-  ensure
-    done.send nil
   end
 
-  private def poll_consume(done)
+  private def poll_consume
     AMQP::Client.start(@uri) do |a|
       ch = a.channel
       q = begin
@@ -338,6 +334,15 @@ class Throughput < Perf
           end
         end
       end
+    end
+  end
+
+  private def reconnect_on_disconnect(done, &)
+    loop do
+      break yield
+    rescue ex : AMQP::Client::Error | IO::Error
+      puts ex.message
+      sleep 1
     end
   ensure
     done.send nil
