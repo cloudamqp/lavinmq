@@ -115,7 +115,7 @@ module LavinMQ
         end
         writer = PrometheusWriter.new(io, "telemetry")
         writer.write({name:  "scrape_duration_seconds",
-                      type:  "counter",
+                      type:  "gauge",
                       value: elapsed.total_seconds,
                       help:  "Duration for metrics collection in seconds"})
         writer.write({name:  "scrape_mem",
@@ -236,11 +236,11 @@ module LavinMQ
                       help: "Server uptime in seconds"})
         writer.write({name:  "cpu_system_time_total",
                       value: @amqp_server.sys_time,
-                      type:  "counter",
+                      type:  "gauge",
                       help:  "Total CPU system time"})
         writer.write({name:  "cpu_user_time_total",
                       value: @amqp_server.user_time,
-                      type:  "counter",
+                      type:  "gauge",
                       help:  "Total CPU user time"})
         writer.write({name:  "rss_bytes",
                       type:  "gauge",
