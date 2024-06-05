@@ -1,3 +1,4 @@
+# NOTICE: This lockfile contains some overrides from shard.override.yml
 version: 2.0
 shards:
   ameba:
@@ -14,7 +15,7 @@ shards:
 
   execution_context:
     git: https://github.com/ysbaddaden/execution_context.git
-    version: 0.1.0+git.commit.433f40e20b0c15f703be2885337b37a1c351037f
+    version: 0.1.0+git.commit.2b35128cde4e57beb09f1f0fb994ca0f6ece927c
 
   lz4:
     git: https://github.com/84codes/lz4.cr.git
