@@ -167,6 +167,7 @@ module LavinMQ
 
     class DestinationWrapper < Destination
       @current_dest : Destination?
+
       def initialize(@destinations : Array(Destination))
       end
 
