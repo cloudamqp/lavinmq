@@ -3,7 +3,7 @@ Standards-Version: 4.6.0
 Homepage: https://github.com/cloudamqp/lavinmq
 Section: net
 Priority: optional
-Build-Depends: debhelper (>= 12), crystal (>= 1.8.0), nodejs (>= 12), curl
+Build-Depends: debhelper (>= 12), crystal (>= 1.8.0), curl
 Maintainer: CloudAMQP <contact@cloudamqp.com>
 
 Package: lavinmq

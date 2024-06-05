@@ -2,7 +2,6 @@
 /lib/
 /bin/
 /node_modules/
-/static/docs/
 /static/js/lib/
 /tmp/
 *.log

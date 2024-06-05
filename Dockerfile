@@ -21,20 +21,10 @@ COPY .ameba.yml .
 RUN bin/ameba
 RUN crystal tool format --check
 
-# Build docs in npm container
-FROM node:lts AS docbuilder
-WORKDIR /tmp
-RUN npm install redoc-cli @stoplight/spectral-cli
-COPY Makefile shard.yml .
-COPY openapi openapi
-RUN make docs
-
 # Build
 FROM base AS builder
 COPY Makefile .
 RUN make js lib
-COPY --from=docbuilder /tmp/openapi/openapi.yaml /tmp/openapi/.spectral.json openapi/
-COPY --from=docbuilder /tmp/static/docs/index.html static/docs/index.html
 ARG MAKEFLAGS=-j2
 RUN make all bin/lavinmq-debug
 
