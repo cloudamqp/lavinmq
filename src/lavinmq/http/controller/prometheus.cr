@@ -9,6 +9,7 @@ module LavinMQ
       alias MetricLabels = Hash(String, String) |
                            NamedTuple(name: String) |
                            NamedTuple(channel: String) |
+                           NamedTuple(id: Int32) |
                            NamedTuple(queue: String, vhost: String)
       alias Metric = NamedTuple(name: String, value: MetricValue) |
                      NamedTuple(name: String, value: MetricValue, labels: MetricLabels) |
@@ -259,14 +260,15 @@ module LavinMQ
                       type:  "gauge",
                       help:  "Time it takes to collect system metrics"})
         writer.write({name:  "total_connected_followers",
-                      value: @amqp_server.@replicator.followers.size,
+                      value: @amqp_server.followers.size,
                       type:  "gauge",
                       help:  "Amount of follower nodes connected"})
-        @amqp_server.@replicator.followers.each_with_index do |f, i|
-          writer.write({name:  "follower_lag_#{i}",
-                        value: f.lag,
-                        type:  "gauge",
-                        help:  "Lag for follower on address: #{f.@socket.remote_address}"})
+        @amqp_server.followers.each_with_index do |f, i|
+          writer.write({name:   "follower_lag",
+                        labels: {id: i},
+                        value:  f.lag,
+                        type:   "gauge",
+                        help:   "Bytes that hasn't been synchronized with the follower yet"})
         end
       end
 
