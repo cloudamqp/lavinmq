@@ -1,4 +1,5 @@
 require "../spec_helper"
+require "string_scanner"
 
 describe LavinMQ::HTTP::ConsumersController do
   describe "GET /metrics" do
@@ -14,7 +15,7 @@ describe LavinMQ::HTTP::ConsumersController do
       vhost.delete_queue("test1")
       vhost.declare_queue("test2", true, false)
       raw = get("/metrics").body
-      parsed_metrics = parse_prometheus(raw)
+      parsed_metrics = PrometheusSpecHelper.parse_prometheus(raw)
       parsed_metrics.each do |metric|
         case metric[:key]
         when "lavinmq_queues_declared_total"
@@ -62,10 +63,67 @@ describe LavinMQ::HTTP::ConsumersController do
       conn2 = AMQP::Client.new(SpecHelper.amqp_base_url).connect
       conn1.close(no_wait: true)
       raw = get("/metrics/detailed?family=connection_churn_metrics").body
-      parsed_metrics = parse_prometheus(raw)
+      parsed_metrics = PrometheusSpecHelper.parse_prometheus(raw)
       parsed_metrics.find! { |metric| metric[:key] == "lavinmq_detailed_connections_opened_total" }[:value].should eq 2
       parsed_metrics.find! { |metric| metric[:key] == "lavinmq_detailed_connections_closed_total" }[:value].should eq 1
       conn2.close(no_wait: true)
     end
+  end
+end
+
+class PrometheusSpecHelper
+  class Invalid < Exception
+    def initialize
+      super("invalid input")
+    end
+  end
+
+  KEY_RE        = /[\w:]+/
+  VALUE_RE      = /-?\d+\.?\d*E?-?\d*|NaN/
+  ATTR_KEY_RE   = /[ \w-]+/
+  ATTR_VALUE_RE = %r{\s*"([\\"'\sa-zA-Z0-9\-_/.+]*)"\s*}
+
+  def self.parse_prometheus(raw)
+    s = StringScanner.new(raw)
+    res = [] of NamedTuple(key: String, attrs: Hash(String, String), value: Float64)
+    until s.eos?
+      if s.peek(1) == "#"
+        s.scan(/.*\n/)
+        next
+      end
+      key = s.scan KEY_RE
+      raise Invalid.new unless key
+      attrs = parse_attrs(s)
+      value = s.scan VALUE_RE
+      raise Invalid.new unless value
+      value = value.to_f
+      s.scan(/\n/)
+      res.push({key: key, attrs: attrs, value: value})
+    end
+    res
+  end
+
+  private def self.parse_attrs(s)
+    attrs = Hash(String, String).new
+    if s.scan(/\s|{/) == "{"
+      loop do
+        if s.peek(1) == "}"
+          s.scan(/}/)
+          break
+        end
+        key = s.scan ATTR_KEY_RE
+        raise Invalid.new unless key
+        key = key.strip
+        s.scan(/=/)
+        s.scan ATTR_VALUE_RE
+
+        value = s[1]
+        raise Invalid.new unless value
+        attrs[key] = value
+        break if s.scan(/,|}/) == "}"
+      end
+      s.scan(/\s/)
+    end
+    attrs
   end
 end
