@@ -2,14 +2,6 @@ require "../spec_helper"
 require "lz4"
 
 module FollowerSpec
-  def self.with_datadir(&)
-    data_dir = File.tempname("lavinmq", "spec")
-    Dir.mkdir_p data_dir
-    yield data_dir
-  ensure
-    FileUtils.rm_rf data_dir if data_dir
-  end
-
   def self.sha1(str : String)
     sha1 = Digest::SHA1.new
     hash = Bytes.new(sha1.digest_size)
@@ -69,7 +61,7 @@ module FollowerSpec
   describe LavinMQ::Replication::Follower do
     describe "#negotiate!" do
       it "should raise InvalidStartHeaderError on invalid start header" do
-        FollowerSpec.with_datadir do |data_dir|
+        with_datadir do |data_dir|
           follower_socket, client_socket = FakeSocket.pair
           file_index = FakeFileIndex.new(data_dir)
           follower = LavinMQ::Replication::Follower.new(follower_socket, data_dir, file_index)
@@ -84,7 +76,7 @@ module FollowerSpec
       end
 
       it "should raise AuthenticationError and send 1 on wrong password" do
-        FollowerSpec.with_datadir do |data_dir|
+        with_datadir do |data_dir|
           follower_socket, client_socket = FakeSocket.pair
           file_index = FakeFileIndex.new(data_dir)
           follower = LavinMQ::Replication::Follower.new(follower_socket, "/tmp", file_index)
@@ -104,7 +96,7 @@ module FollowerSpec
       end
 
       it "should send 0 on succesful negotiation" do
-        FollowerSpec.with_datadir do |data_dir|
+        with_datadir do |data_dir|
           follower_socket, client_socket = FakeSocket.pair
           file_index = FakeFileIndex.new(data_dir)
           follower = LavinMQ::Replication::Follower.new(follower_socket, data_dir, file_index)
@@ -125,7 +117,7 @@ module FollowerSpec
 
   describe "#full_sync" do
     it "should send file list" do
-      FollowerSpec.with_datadir do |data_dir|
+      with_datadir do |data_dir|
         follower_socket, client_socket = FakeSocket.pair
         client_lz4 = Compress::LZ4::Reader.new(client_socket)
         file_index = FakeFileIndex.new(data_dir)
@@ -164,7 +156,7 @@ module FollowerSpec
 
   describe "#close" do
     it "should let followers sync" do
-      FollowerSpec.with_datadir do |data_dir|
+      with_datadir do |data_dir|
         follower_socket, client_socket = FakeSocket.pair
         file_index = FakeFileIndex.new(data_dir)
         follower = LavinMQ::Replication::Follower.new(follower_socket, data_dir, file_index)
@@ -202,7 +194,7 @@ module FollowerSpec
     end
 
     it "should close even when sync fails" do
-      FollowerSpec.with_datadir do |data_dir|
+      with_datadir do |data_dir|
         follower_socket, client_socket = FakeSocket.pair
         file_index = FakeFileIndex.new(data_dir)
         follower = LavinMQ::Replication::Follower.new(follower_socket, data_dir, file_index)
@@ -243,7 +235,7 @@ module FollowerSpec
 
   describe "#lag" do
     it "should count bytes added to action queue" do
-      FollowerSpec.with_datadir do |data_dir|
+      with_datadir do |data_dir|
         follower_socket, _client_socket = FakeSocket.pair
         file_index = FakeFileIndex.new(data_dir)
         follower = LavinMQ::Replication::Follower.new(follower_socket, data_dir, file_index)
@@ -254,7 +246,7 @@ module FollowerSpec
     end
 
     it "should subtract acked bytes from lag" do
-      FollowerSpec.with_datadir do |data_dir|
+      with_datadir do |data_dir|
         follower_socket, client_socket = FakeSocket.pair
         file_index = FakeFileIndex.new(data_dir)
         follower = LavinMQ::Replication::Follower.new(follower_socket, data_dir, file_index)
