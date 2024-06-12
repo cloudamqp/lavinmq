@@ -12,7 +12,7 @@ module LavinMQ
       getter name
       getter? closed
 
-      def initialize(@socket : TCPSocket, @file_index : FileIndex)
+      def initialize(@socket : TCPSocket, @data_dir : String, @file_index : FileIndex)
         Log.context.set(address: @socket.remote_address.to_s)
         @name = @socket.remote_address.to_s
         @closed = false
@@ -93,7 +93,7 @@ module LavinMQ
 
       private def send_file_list(socket = @lz4)
         @file_index.files_with_hash do |path, hash|
-          path = path[Config.instance.data_dir.bytesize + 1..]
+          path = path[@data_dir.bytesize + 1..]
           socket.write_bytes path.bytesize.to_i32, IO::ByteFormat::LittleEndian
           socket.write path.to_slice
           socket.write hash
@@ -133,15 +133,18 @@ module LavinMQ
       end
 
       def add(path, mfile : MFile? = nil) : Int64
-        send_action AddAction.new(path, mfile)
+        path = path[(@data_dir.size + 1)..] if Path[path].absolute?
+        send_action AddAction.new(@data_dir, path, mfile)
       end
 
       def append(path, obj) : Int64
-        send_action AppendAction.new(path, obj)
+        path = path[(@data_dir.size + 1)..] if Path[path].absolute?
+        send_action AppendAction.new(@data_dir, path, obj)
       end
 
       def delete(path) : Int64
-        send_action DeleteAction.new(path)
+        path = path[(@data_dir.size + 1)..] if Path[path].absolute?
+        send_action DeleteAction.new(@data_dir, path)
       end
 
       private def send_action(action : Action) : Int64
