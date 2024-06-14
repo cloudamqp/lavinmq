@@ -1,22 +1,19 @@
-require "../replication"
+require "../clustering"
+require "../clustering/proxy"
 require "../data_dir_lock"
 require "lz4"
 
 module LavinMQ
-  module Replication
+  module Clustering
     class Client
-      Log = ::Log.for("replication")
-      @password : String
-      @data_dir_lock : DataDirLock?
+      Log = ::Log.for("clustering.client")
+      @data_dir_lock : DataDirLock
       @closed = false
+      @amqp_proxy : Proxy?
+      @http_proxy : Proxy?
 
-      def initialize(@data_dir : String)
+      def initialize(@data_dir : String, @id : Int32, @password : String, proxy = true)
         System.maximize_fd_limit
-        @socket = TCPSocket.new
-        @socket.sync = true
-        @socket.read_buffering = false
-        @lz4 = Compress::LZ4::Reader.new(@socket)
-        @password = password
         @files = Hash(String, File).new do |h, k|
           path = File.join(@data_dir, k)
           Dir.mkdir_p File.dirname(path)
@@ -25,16 +22,15 @@ module LavinMQ
         Dir.mkdir_p @data_dir
         @data_dir_lock = DataDirLock.new(@data_dir).tap &.acquire
         @backup_dir = File.join(@data_dir, "backups", Time.utc.to_rfc3339)
+
+        if proxy
+          @amqp_proxy = Proxy.new(Config.instance.amqp_bind, Config.instance.amqp_port)
+          @http_proxy = Proxy.new(Config.instance.http_bind, Config.instance.http_port)
+        end
       end
 
-      private def password : String
-        path = File.join(@data_dir, ".replication_secret")
-        if File.info(path).permissions.value != 0o400
-          raise ArgumentError.new("File permissions of #{path} has to be 0400")
-        end
-        File.read(path).chomp
-      rescue File::NotFoundError
-        raise ArgumentError.new("#{path} is missing")
+      def follow(uri : String)
+        follow(URI.parse(uri))
       end
 
       def follow(uri : URI)
@@ -43,36 +39,44 @@ module LavinMQ
         follow(host, port)
       end
 
-      def follow(host, port)
+      def follow(host : String, port : Int32)
         SystemD.notify_ready
+        if amqp_proxy = @amqp_proxy
+          spawn amqp_proxy.forward_to(host, Config.instance.amqp_port, true), name: "AMQP proxy"
+        end
+        if http_proxy = @http_proxy
+          spawn http_proxy.forward_to(host, Config.instance.http_port), name: "HTTP proxy"
+        end
         loop do
-          sync(host, port, notify_in_sync: true)
+          socket = TCPSocket.new(host, port)
+          socket.sync = true
+          socket.read_buffering = false
+          lz4 = Compress::LZ4::Reader.new(socket)
+          sync(socket, lz4)
           Log.info { "Streaming changes" }
-          stream_changes
+          stream_changes(socket, lz4)
         rescue ex : IO::Error
-          @lz4.close
-          @socket.close
+          lz4.try &.close
+          socket.try &.close
           break if @closed
-          Log.info { "Disconnected from server (#{ex}), retrying..." }
-          sleep 5
-          @socket = TCPSocket.new
-          @socket.sync = true
-          @socket.read_buffering = false
-          @lz4 = Compress::LZ4::Reader.new(@socket)
+          Log.info { "Disconnected from server #{host}:#{port} (#{ex}), retrying..." }
+          sleep 1
+          break if @closed
         end
       end
 
-      def sync(host, port, notify_in_sync = false)
-        @socket.connect(host, port)
+      def sync(socket, lz4)
         Log.info { "Connected" }
-        authenticate
+        authenticate(socket)
         Log.info { "Authenticated" }
-        set_socket_opts
-        sync_files(notify_in_sync)
-        Log.info { "Synchronised" }
+        set_socket_opts(socket)
+        sync_files(socket, lz4)
+        Log.info { "Bulk synchronised" }
+        sync_files(socket, lz4)
+        Log.info { "Fully synchronised" }
       end
 
-      private def set_socket_opts(socket = @socket)
+      private def set_socket_opts(socket)
         if keepalive = Config.instance.tcp_keepalive
           socket.keepalive = true
           socket.tcp_keepalive_idle = keepalive[0]
@@ -81,7 +85,7 @@ module LavinMQ
         end
       end
 
-      private def sync_files(notify_in_sync = false, socket = @lz4)
+      private def sync_files(socket, lz4)
         Log.info { "Waiting for list of files" }
         sha1 = Digest::SHA1.new
         remote_hash = Bytes.new(sha1.digest_size)
@@ -89,11 +93,11 @@ module LavinMQ
         files_to_delete = ls_r(@data_dir)
         missing_files = Array(String).new
         loop do
-          filename_len = socket.read_bytes Int32, IO::ByteFormat::LittleEndian
+          filename_len = lz4.read_bytes Int32, IO::ByteFormat::LittleEndian
           break if filename_len.zero?
 
-          filename = socket.read_string(filename_len)
-          socket.read_fully(remote_hash)
+          filename = lz4.read_string(filename_len)
+          lz4.read_fully(remote_hash)
           path = File.join(@data_dir, filename)
           files_to_delete.delete(path)
           if File.exists? path
@@ -114,15 +118,9 @@ module LavinMQ
           Log.info { "File not on leader: #{path}" }
           move_to_backup path
         end
-        spawn do
-          missing_files.each do |filename|
-            request_file(filename)
-          end
-          @socket.write_bytes 0i32 if notify_in_sync
-          @socket.flush
-        end
+        spawn(request_missing_files(missing_files, socket), name: "Request missing files")
         missing_files.each do |filename|
-          file_from_socket(filename)
+          file_from_socket(filename, lz4)
         end
       end
 
@@ -147,42 +145,47 @@ module LavinMQ
             next if child.in?("backups")
             ls_r(path, &blk)
           else
-            next if child.in?(".lock", ".replication_secret")
+            next if child.in?(".lock", ".clustering_id")
             yield path
           end
         end
       end
 
-      private def request_file(filename)
-        Log.info { "Requesting #{filename}" }
-        @socket.write_bytes filename.bytesize, IO::ByteFormat::LittleEndian
-        @socket.write filename.to_slice
+      private def request_missing_files(missing_files, socket)
+        missing_files.each do |filename|
+          Log.info { "Requesting #{filename}" }
+          socket.write_bytes filename.bytesize, IO::ByteFormat::LittleEndian
+          socket.write filename.to_slice
+        end
+        socket.write_bytes 0i32
       end
 
-      private def file_from_socket(filename)
+      private def file_from_socket(filename, lz4)
         path = File.join(@data_dir, filename)
         Dir.mkdir_p File.dirname(path)
-        length = @lz4.read_bytes Int64, IO::ByteFormat::LittleEndian
+        length = lz4.read_bytes Int64, IO::ByteFormat::LittleEndian
         File.open(path, "w") do |f|
-          IO.copy(@lz4, f, length) == length || raise IO::EOFError.new
+          IO.copy(lz4, f, length) == length || raise IO::EOFError.new
         end
         Log.info { "Received #{filename}, #{length} bytes" }
       end
 
-      private def stream_changes(socket = @lz4)
+      private def stream_changes(socket, lz4)
+        acks = Channel(Int64).new(Config.instance.clustering_max_lag)
+        spawn send_ack_loop(acks, socket), name: "Send ack loop"
         loop do
-          filename_len = socket.read_bytes Int32, IO::ByteFormat::LittleEndian
+          filename_len = lz4.read_bytes Int32, IO::ByteFormat::LittleEndian
           next if filename_len.zero?
-          filename = socket.read_string(filename_len)
+          filename = lz4.read_string(filename_len)
 
-          len = socket.read_bytes Int64, IO::ByteFormat::LittleEndian
+          len = lz4.read_bytes Int64, IO::ByteFormat::LittleEndian
           case len
           when .negative? # append bytes to file
             Log.debug { "Appending #{len.abs} bytes to #{filename}" }
             f = @files[filename]
-            IO.copy(socket, f, len.abs) == len.abs || raise IO::EOFError.new
+            IO.copy(lz4, f, len.abs) == len.abs || raise IO::EOFError.new("Full append not received")
           when .zero? # file is deleted
-            Log.info { "Deleting #{filename}" }
+            Log.debug { "Deleting #{filename}" }
             if f = @files.delete(filename)
               f.delete
               f.close
@@ -190,22 +193,35 @@ module LavinMQ
               File.delete? File.join(@data_dir, filename)
             end
           when .positive? # full file is coming
-            Log.info { "Getting full file #{filename} (#{len} bytes)" }
+            Log.debug { "Getting full file #{filename} (#{len} bytes)" }
             f = @files[filename]
             f.truncate
-            IO.copy(socket, f, len) == len || raise IO::EOFError.new
+            IO.copy(lz4, f, len) == len || raise IO::EOFError.new("Full file not received")
           end
-          ack_value : Int64 = len.abs + sizeof(Int64) + filename_len + sizeof(Int32)
-          @socket.write_bytes ack_value, IO::ByteFormat::LittleEndian # ack
-          @socket.flush
+          ack_bytes = len.abs + sizeof(Int64) + filename_len + sizeof(Int32)
+          acks.send(ack_bytes)
         end
+      ensure
+        acks.try &.close
       end
 
-      private def authenticate(socket = @socket)
+      # Concatenate as many acks as possible to generate few TCP packets
+      private def send_ack_loop(acks, socket)
+        while ack_bytes = acks.receive?
+          while ack_bytes2 = acks.try_receive?
+            ack_bytes += ack_bytes2
+          end
+          socket.write_bytes ack_bytes, IO::ByteFormat::LittleEndian # ack
+        end
+      rescue Channel::ClosedError
+      rescue IO::Error
+        socket.close rescue nil
+      end
+
+      private def authenticate(socket)
         socket.write Start
         socket.write_bytes @password.bytesize.to_u8, IO::ByteFormat::LittleEndian
         socket.write @password.to_slice
-        socket.flush
         case socket.read_byte
         when 0 # ok
         when 1   then raise AuthenticationError.new
@@ -213,13 +229,15 @@ module LavinMQ
         else
           raise Error.new("Unknown response from authentication")
         end
+        socket.write_bytes @id, IO::ByteFormat::LittleEndian
       end
 
       def close
         @closed = true
-        @lz4.close
-        @socket.close
+        @amqp_proxy.try &.close
+        @http_proxy.try &.close
         @files.each_value &.close
+        @data_dir_lock.release
       end
 
       class Error < Exception; end

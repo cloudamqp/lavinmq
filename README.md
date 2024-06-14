@@ -239,39 +239,29 @@ There are a few edge-cases that are handled a bit differently in LavinMQ compare
 - TTL of queues and messages are correct to the 0.1 second, not to the millisecond
 - Newlines are not removed from Queue or Exchange names, they are forbidden
 
-## Replication
+## Clustering
 
-LavinMQ supports replication between a leader server and one or more followers. All changes on the leader is replicated to followers.
+LavinMQ can be fully clustered with multiple other LavinMQ nodes. One node is always the leader and the others stream all changes in real-time. Failover happens instantly when the leader is unavailable.
 
-### Replication configuration
+[etcd](https://etcd.io/) is used for leader election and maintaining the In-Sync-Replica (ISR) set. LavinMQ then uses a custom replication protocol between the nodes. When a follower disconnects it will fall out of the ISR set, and will then not be eligible to be a new leader.
 
-A shared secret is used to allow nodes in a cluster to communicate, make sure that the `.replication_secret` file is the same in all data directores of all nodes.
+### Clustering configuration
 
-Then enable the replication listener on the leader:
+Enable clustering with the following config:
 
 ```ini
-[replication]
-bind = 0.0.0.0
+[clustering]
+enabled = true
+bind = ::
 port = 5679
+advertised_uri = tcp://my-ip:5679
+etcd_endpoints = localhost:2379
 ```
 
 or start LavinMQ with:
 
 ```sh
-lavinmq --data-dir /var/lib/lavinmq --replication-bind 0.0.0.0 --replication-port 5679
-```
-
-Configure the follower(s) to connect to the leader:
-
-```ini
-[replication]
-follow = tcp://hostname:port
-```
-
-or start LavinMQ with:
-
-```sh
-lavinmq --data-dir /var/lib/lavinmq-follower --follow tcp://leader.example.com:5679
+lavinmq --data-dir /var/lib/lavinmq --clustering --clustering-bind :: --clustering-advertised-uri=tcp://my-ip:5679
 ```
 
 ## Stream queues

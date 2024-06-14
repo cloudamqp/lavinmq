@@ -42,7 +42,7 @@ module LavinMQ
     @definitions_file_path : String
     @definitions_deletes = 0
 
-    def initialize(@name : String, @server_data_dir : String, @users : UserStore, @replicator : Replication::Replicator)
+    def initialize(@name : String, @server_data_dir : String, @users : UserStore, @replicator : Clustering::Replicator)
       @log = Log.for "vhost[name=#{@name}]"
       @dir = Digest::SHA1.hexdigest(@name)
       @data_dir = File.join(@server_data_dir, @dir)
@@ -460,7 +460,6 @@ module LavinMQ
       Fiber.yield # yield so that Client read_loops can shutdown
       @queues.each_value &.close
       Fiber.yield
-      compact!
       @definitions_file.close
     end
 

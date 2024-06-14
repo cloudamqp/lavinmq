@@ -263,9 +263,9 @@ module LavinMQ
                       value: @amqp_server.followers.size,
                       type:  "gauge",
                       help:  "Amount of follower nodes connected"})
-        @amqp_server.followers.each_with_index do |f, i|
+        @amqp_server.followers.each do |f|
           writer.write({name:   "follower_lag",
-                        labels: {id: i},
+                        labels: {id: f.id},
                         value:  f.lag,
                         type:   "gauge",
                         help:   "Bytes that hasn't been synchronized with the follower yet"})

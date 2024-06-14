@@ -34,11 +34,7 @@ module LavinMQ
     # Read from the lock file to detect lost lock
     # See "Lost locks" in `man 2 fcntl`
     def poll
-      loop do
-        GC.collect
-        sleep 30
-        @lock.read_at(0, 1, &.read_byte) || raise IO::EOFError.new
-      end
+      @lock.read_at(0, 1, &.read_byte) || raise IO::EOFError.new
     rescue ex : IO::Error | ArgumentError
       abort "ERROR: Lost data directory lock! #{ex.inspect}"
     end

@@ -25,11 +25,11 @@ module LavinMQ
     @closed = false
     @flow = true
     @listeners = Hash(Socket::Server, Symbol).new # Socket => protocol
+    @replicator : Clustering::Replicator
 
-    def initialize(@data_dir : String)
+    def initialize(@data_dir : String, @replicator = Clustering::NoopServer.new)
       @log = Log.for "amqpserver"
       Dir.mkdir_p @data_dir
-      @replicator = Replication::Server.new(@data_dir)
       Schema.migrate(@data_dir, @replicator)
       @users = UserStore.new(@data_dir, @replicator)
       @vhosts = VHostStore.new(@data_dir, @users, @replicator)
@@ -80,7 +80,14 @@ module LavinMQ
             case Config.instance.tcp_proxy_protocol
             when 1 then ProxyProtocol::V1.parse(client)
             when 2 then ProxyProtocol::V2.parse(client)
-            else        ConnectionInfo.new(remote_address, client.local_address)
+            else
+              if client.peek[0, 5] == "PROXY".to_slice &&
+                 followers.any? { |f| f.remote_address.address == remote_address.address }
+                # Expect PROXY protocol header if remote address is a follower
+                ProxyProtocol::V1.parse(client)
+              else
+                ConnectionInfo.new(remote_address, client.local_address)
+              end
             end
           handle_connection(client, conn_info)
         rescue ex
@@ -165,8 +172,8 @@ module LavinMQ
       listen(s)
     end
 
-    def listen_replication(bind, port)
-      @replicator.bind(bind, port).listen
+    def listen_clustering(bind, port)
+      @replicator.listen(bind, port)
     end
 
     def close
