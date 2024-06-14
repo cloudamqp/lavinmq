@@ -58,7 +58,7 @@ module LavinMQ
       @shovels = ShovelStore.new(self)
       @upstreams = Federation::UpstreamStore.new(self)
       load!
-      spawn check_consumer_timeouts_loop
+      spawn check_consumer_timeouts_loop, name: "Consumer timeouts loop"
     end
 
     private def check_consumer_timeouts_loop
