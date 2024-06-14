@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Bugfix: internal definition of delayed exchanges changed after definitions export [#699](https://github.com/cloudamqp/lavinmq/pull/699)
+
 ## [1.2.13] - 2024-06-14
 
 ### Fixed
