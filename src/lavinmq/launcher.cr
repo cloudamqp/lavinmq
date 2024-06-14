@@ -14,10 +14,11 @@ module LavinMQ
     @tls_context : OpenSSL::SSL::Context::Server?
     @first_shutdown_attempt = true
     @data_dir_lock : DataDirLock?
+    @closed = false
+    @lease : Channel(Nil)?
 
-    def initialize(@config : LavinMQ::Config)
+    def initialize(@config : Config, replicator = Clustering::NoopServer.new, @lease = nil)
       reload_logger
-
       print_environment_info
       print_max_map_count
       fd_limit = System.maximize_fd_limit
@@ -30,7 +31,7 @@ module LavinMQ
       if @config.data_dir_lock?
         @data_dir_lock = DataDirLock.new(@config.data_dir).tap &.acquire
       end
-      @amqp_server = LavinMQ::Server.new(@config.data_dir)
+      @amqp_server = LavinMQ::Server.new(@config.data_dir, replicator)
       @http_server = LavinMQ::HTTP::Server.new(@amqp_server)
       @tls_context = create_tls_context if @config.tls_configured?
       reload_tls_context
@@ -41,12 +42,24 @@ module LavinMQ
     def run
       listen
       SystemD.notify_ready
-      if lock = @data_dir_lock
-        lock.poll
-      else
-        loop do
-          GC.collect
+      loop do
+        if lease = @lease
+          select
+          when lease.receive?
+            if @first_shutdown_attempt
+              Log.error { "Leadership lost" }
+              shutdown_server
+            end
+            Fiber.yield
+            break
+          when timeout(30.seconds)
+            @data_dir_lock.try &.poll
+            GC.collect
+          end
+        else
           sleep 30
+          @data_dir_lock.try &.poll
+          GC.collect
         end
       end
     end
@@ -133,8 +146,8 @@ module LavinMQ
         end
       end
 
-      if replication_bind = @config.replication_bind
-        spawn @amqp_server.listen_replication(replication_bind, @config.replication_port), name: "Replication listener"
+      if clustering_bind = @config.clustering_bind
+        spawn @amqp_server.listen_clustering(clustering_bind, @config.clustering_port), name: "Clustering listener"
       end
 
       unless @config.unix_path.empty?
@@ -214,6 +227,8 @@ module LavinMQ
         @http_server.close
         @amqp_server.close
         @data_dir_lock.try &.release
+        @lease.try &.close
+        Fiber.yield
         Log.info { "Fibers: " }
         Fiber.list { |f| Log.info { f.inspect } }
         exit 0

@@ -11,7 +11,7 @@ module LavinMQ
       DIRECT_USER == name
     end
 
-    def initialize(@data_dir : String, @replicator : Replication::Replicator)
+    def initialize(@data_dir : String, @replicator : Clustering::Replicator)
       @users = Hash(String, User).new
       load!
     end

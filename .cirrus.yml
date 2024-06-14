@@ -5,7 +5,7 @@ freebsd_task:
     memory: 4G
   pkg_cache:
     folder: /var/cache/pkg
-  install_script: pkg install -y crystal shards security/openssl curl gmake
+  install_script: pkg install -y crystal shards security/openssl curl gmake coreos-etcd34
   spec_script: gmake test nocolor=1
   build_script: gmake -j2 DOCS=
   artifacts:
@@ -21,7 +21,7 @@ freebsd_task:
 #    fingerprint_key: crystal@1.12.2
 #  crystal_script:
 #    - brew update
-#    - brew install crystal
+#    - brew install crystal etcd
 #  spec_script: make test nocolor=1
 #  build_script: make -j2 DOCS=
 #  cleanup_script: brew cleanup
@@ -35,7 +35,7 @@ freebsd_task:
 #    cpu: 2
 #    memory: 4G
 #    greedy: true
-#  install_script: apt-get update && apt-get install liblz4-dev
+#  install_script: apt-get update && apt-get install liblz4-dev etcd-server
 #  spec_script: make test
 #
 #amd64_task:
@@ -45,5 +45,5 @@ freebsd_task:
 #    cpu: 2
 #    memory: 4G
 #    greedy: true
-#  install_script: apt-get update && apt-get install liblz4-dev
+#  install_script: apt-get update && apt-get install liblz4-dev etcd-server
 #  spec_script: make test

@@ -2,7 +2,7 @@ require "../mfile"
 require "../segment_position"
 require "log"
 require "file_utils"
-require "../replication/server"
+require "../clustering/server"
 
 module LavinMQ
   class Queue
@@ -26,7 +26,7 @@ module LavinMQ
       getter size = 0u32
       getter empty_change = Channel(Bool).new
 
-      def initialize(@queue_data_dir : String, @replicator : Replication::Replicator?)
+      def initialize(@queue_data_dir : String, @replicator : Clustering::Replicator?)
         @acks = Hash(UInt32, MFile).new { |acks, seg| acks[seg] = open_ack_file(seg) }
         load_segments_from_disk
         load_deleted_from_disk

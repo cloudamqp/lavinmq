@@ -56,14 +56,29 @@ module LavinMQ
         parser.on("--guest-only-loopback=BOOL", "Limit guest user to only connect from loopback address") do |v|
           config.guest_only_loopback = {"true", "yes", "y", "1"}.includes? v.to_s
         end
-        parser.on("-F LEADER-URI", "--follow=LEADER-URI", "Follow/replicate a leader node") do |v|
-          config.replication_follow = URI.parse(v)
+        parser.on("--clustering", "Enable clustering") do
+          config.clustering = true
         end
-        parser.on("--replication-port=PORT", "Listen for replication followers on this port (default: 5679)") do |v|
-          config.replication_port = v.to_i
+        parser.on("--clustering-advertised-uri=URI", "Advertised URI for the clustering server") do |v|
+          config.clustering_advertised_uri = v
         end
-        parser.on("--replication-bind=BIND", "Listen for replication followers on this address (default: none)") do |v|
-          config.replication_bind = v
+        parser.on("--clustering-etcd-prefix=KEY", "Key prefix used in etcd (default: lavinmq)") do |v|
+          config.clustering_etcd_prefix = v
+        end
+        parser.on("--clustering-port=PORT", "Listen for clustering followers on this port (default: 5679)") do |v|
+          config.clustering_port = v.to_i
+        end
+        parser.on("--clustering-bind=BIND", "Listen for clustering followers on this address (default: localhost)") do |v|
+          config.clustering_bind = v
+        end
+        parser.on("--clustering-max-lag=ACTIONS", "Max unsynced replicated messages") do |v|
+          config.clustering_max_lag = v.to_i
+        end
+        parser.on("--clustering-min-isr=COUNT", "Required in-sync-replicas") do |v|
+          config.clustering_min_isr = v.to_i
+        end
+        parser.on("--clustering-etcd-endpoints=URIs", "Comma separeted host/port pairs (default: 127.0.0.1:2379)") do |v|
+          config.clustering_etcd_endpoints = v
         end
         parser.invalid_option { |arg| abort "Invalid argument: #{arg}" }
       end

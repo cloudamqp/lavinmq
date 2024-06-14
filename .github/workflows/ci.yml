@@ -86,7 +86,7 @@ jobs:
         run: crystal -v
 
       - name: Install dependencies
-        run: apt-get update && apt-get install -y liblz4-dev
+        run: apt-get update && apt-get install -y liblz4-dev etcd-server
 
       - name: Checkout
         uses: actions/checkout@v4
@@ -98,8 +98,10 @@ jobs:
     name: Spec OS X
     runs-on: macos-14
     steps:
-      - name: Install Crystal
-        run: brew install crystal
+      - name: Install dependencies
+        run: |
+          brew install crystal etcd
+          echo "/opt/homebrew/opt/etcd/bin" >> $GITHUB_PATH
         env:
           HOMEBREW_NO_AUTO_UPDATE: 1
           HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: 1

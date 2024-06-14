@@ -10,7 +10,7 @@ module LavinMQ
       getter last_offset : Int64
       @segment_last_ts = Hash(UInt32, Int64).new(0i64) # used for max-age
 
-      def initialize(@queue_data_dir : String, @replicator : Replication::Replicator?)
+      def initialize(@queue_data_dir : String, @replicator : Clustering::Replicator?)
         super
         @last_offset = get_last_offset
         drop_overflow
@@ -175,9 +175,9 @@ module LavinMQ
           should_drop = yield seg_id
           break unless should_drop
           next if mfile == @wfile # never delete the last active segment
-          count = @segment_msg_count.delete(seg_id) || raise KeyError.new
+          msg_count = @segment_msg_count.delete(seg_id)
+          @size -= msg_count if msg_count
           @segment_last_ts.delete(seg_id)
-          @size -= count
           @bytesize -= mfile.size - 4
           mfile.delete.close
           @replicator.try &.delete_file(mfile.path)

@@ -1,0 +1,70 @@
+require "../launcher"
+require "../etcd"
+require "./client"
+
+class LavinMQ::Clustering::Controller
+  Log = ::Log.for("clustering.controller")
+
+  @id : Int32
+
+  def initialize(@config = Config.instance)
+    @etcd = Etcd.new(@config.clustering_etcd_endpoints)
+    @id = clustering_id
+    @advertised_uri = @config.clustering_advertised_uri ||
+                      "tcp://#{System.hostname}:#{@config.clustering_port}"
+  end
+
+  def run
+    spawn(follow_leader, name: "Follower monitor")
+    wait_to_be_insync
+    lease = @etcd.elect("#{@config.clustering_etcd_prefix}/leader", @advertised_uri) # blocks until becoming leader
+    replicator = Clustering::Server.new(@config, @etcd)
+    Launcher.new(@config, replicator, lease).run
+  end
+
+  # Each node in a cluster has an unique id, for tracking ISR
+  private def clustering_id : Int32
+    id_file_path = File.join(@config.data_dir, ".clustering_id")
+    begin
+      id = File.read(id_file_path).to_i(36)
+    rescue File::NotFoundError
+      id = rand(Int32::MAX)
+      Dir.mkdir_p @config.data_dir
+      File.write(id_file_path, id.to_s(36))
+    end
+    Log.info { "ID: #{id.to_s(36)}" }
+    id
+  end
+
+  # Replicate from the leader
+  # Listens for leader change events
+  private def follow_leader
+    repli_client = nil
+    @etcd.elect_listen("#{@config.clustering_etcd_prefix}/leader") do |uri|
+      repli_client.try &.close
+      if uri == @advertised_uri # if this instance has become leader
+        repli_client = nil
+        Log.debug { "Is leader, don't replicate from self" }
+        next
+      end
+      Log.info { "Leader: #{uri}" }
+
+      key = "#{@config.clustering_etcd_prefix}/clustering_secret"
+      secret = @etcd.get(key).not_nil!("Clustering secret is missing in etcd")
+      repli_client = r = Clustering::Client.new(@config.data_dir, @id, secret)
+      spawn r.follow(uri), name: "Clustering client #{uri}"
+    end
+  end
+
+  def wait_to_be_insync
+    if isr = @etcd.get("#{@config.clustering_etcd_prefix}/isr")
+      unless isr.split(",").map(&.to_i(36)).includes?(@id)
+        Log.info { "Not in sync, waiting for a leader" }
+        @etcd.watch("#{@config.clustering_etcd_prefix}/isr") do |value|
+          break if value.try &.split(",").map(&.to_i(36)).includes?(@id)
+        end
+        Log.info { "In sync with leader" }
+      end
+    end
+  end
+end

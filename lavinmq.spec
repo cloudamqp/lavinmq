@@ -6,6 +6,7 @@ Release: 1%{?dist}
 License: ASL 2.0
 BuildRequires: systemd-rpm-macros crystal curl help2man
 Requires(pre): shadow-utils
+Suggests: etcd
 URL: https://github.com/cloudamqp/lavinmq
 Source: lavinmq.tar.gz
 
