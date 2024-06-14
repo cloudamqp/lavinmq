@@ -38,6 +38,14 @@ end
 require "../src/lavinmq/server"
 require "../src/lavinmq/http/http_server"
 
+def with_datadir(&)
+  data_dir = File.tempname("lavinmq", "spec")
+  Dir.mkdir_p data_dir
+  yield data_dir
+ensure
+  FileUtils.rm_rf data_dir if data_dir
+end
+
 def with_channel(file = __FILE__, line = __LINE__, **args, &)
   name = "lavinmq-spec-#{file}:#{line}"
   args = {port: LavinMQ::Config.instance.amqp_port, name: name}.merge(args)

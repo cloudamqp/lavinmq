@@ -9,19 +9,13 @@ module LavinMQ
     end
 
     abstract struct Action
-      def initialize(@path : String)
+      def initialize(@data_dir : String, @filename : String)
       end
 
       abstract def lag_size : Int64
       abstract def send(socket : IO) : Int64
 
-      protected def filename_bytesize : Int32
-        @path.bytesize.to_i32
-      end
-
-      def filename
-        @filename ||= @path[Config.instance.data_dir.bytesize + 1..]
-      end
+      getter filename
 
       private def send_filename(socket : IO)
         socket.write_bytes filename.bytesize.to_i32, IO::ByteFormat::LittleEndian
@@ -30,7 +24,7 @@ module LavinMQ
     end
 
     struct AddAction < Action
-      def initialize(@path : String, @mfile : MFile? = nil)
+      def initialize(@data_dir : String, @filename : String, @mfile : MFile? = nil)
       end
 
       def lag_size : Int64
@@ -39,12 +33,12 @@ module LavinMQ
             sizeof(Int64) + mfile.size.to_i64
         else
           0i64 + sizeof(Int32) + filename.bytesize +
-            sizeof(Int64) + File.size(@path).to_i64
+            sizeof(Int64) + File.size(File.join(@data_dir, filename)).to_i64
         end
       end
 
       def send(socket) : Int64
-        Log.debug { "Add #{@path}" }
+        Log.debug { "Add #{@filename}" }
         send_filename(socket)
         if mfile = @mfile
           size = mfile.size.to_i64
@@ -52,7 +46,7 @@ module LavinMQ
           mfile.copy_to(socket, size)
           size
         else
-          File.open(@path) do |f|
+          File.open(File.join(@data_dir, @filename)) do |f|
             size = f.size.to_i64
             socket.write_bytes size, IO::ByteFormat::LittleEndian
             IO.copy(f, socket, size) == size || raise IO::EOFError.new
@@ -63,7 +57,7 @@ module LavinMQ
     end
 
     struct AppendAction < Action
-      def initialize(@path : String, @obj : Bytes | FileRange | UInt32 | Int32)
+      def initialize(@data_dir : String, @filename : String, @obj : Bytes | FileRange | UInt32 | Int32)
       end
 
       def lag_size : Int64
@@ -96,7 +90,7 @@ module LavinMQ
           socket.write_bytes -len.to_i64, IO::ByteFormat::LittleEndian
           socket.write_bytes obj, IO::ByteFormat::LittleEndian
         end
-        Log.debug { "Append #{len} bytes to #{@path}" }
+        Log.debug { "Append #{len} bytes to #{@filename}" }
         len
       end
     end
@@ -110,7 +104,7 @@ module LavinMQ
       end
 
       def send(socket) : Int64
-        Log.debug { "Delete #{@path}" }
+        Log.debug { "Delete #{@filename}" }
         send_filename(socket)
         socket.write_bytes 0i64
         0i64
