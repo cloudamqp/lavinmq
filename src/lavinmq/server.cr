@@ -29,7 +29,7 @@ module LavinMQ
     def initialize(@data_dir : String)
       @log = Log.for "amqpserver"
       Dir.mkdir_p @data_dir
-      @replicator = Replication::Server.new
+      @replicator = Replication::Server.new(@data_dir)
       Schema.migrate(@data_dir, @replicator)
       @users = UserStore.new(@data_dir, @replicator)
       @vhosts = VHostStore.new(@data_dir, @users, @replicator)

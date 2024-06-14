@@ -29,7 +29,7 @@ module LavinMQ
       @password : String
       @files = Hash(String, MFile?).new
 
-      def initialize
+      def initialize(@data_dir : String = Config.instance.data_dir)
         @password = password
         @tcp = TCPServer.new
         @tcp.sync = false
@@ -85,7 +85,7 @@ module LavinMQ
       end
 
       def with_file(filename, & : MFile | File | Nil -> Nil) : Nil
-        path = File.join(Config.instance.data_dir, filename)
+        path = File.join(@data_dir, filename)
         if @files.has_key? path
           if mfile = @files[path]
             yield mfile
@@ -107,7 +107,7 @@ module LavinMQ
       end
 
       private def password : String
-        path = File.join(Config.instance.data_dir, ".replication_secret")
+        path = File.join(@data_dir, ".replication_secret")
         begin
           info = File.info(path)
           raise "File permissions of #{path} has to be 0400" if info.permissions.value != 0o400
@@ -137,7 +137,7 @@ module LavinMQ
       end
 
       def handle_socket(socket)
-        follower = Follower.new(socket, self)
+        follower = Follower.new(socket, @data_dir, self)
         follower.negotiate!(@password)
         @lock.synchronize do
           follower.full_sync
