@@ -586,4 +586,12 @@ describe LavinMQ::HTTP::Server do
     ok = u.not_nil!.password.not_nil!.verify "test"
     {u.name, ok}.should eq({name, true})
   end
+
+  it "shouldn't ruin internal state of delayed exchange (issue #698)" do
+    vhost = Server.vhosts["/"]
+    args = {"x-delayed-message", false, false, false, LavinMQ::AMQP::Table.new({"x-delayed-type": "direct"})}
+    vhost.declare_exchange "test", *args
+    get("/api/definitions")
+    vhost.exchanges["test"].match?(*args).should be_true
+  end
 end
