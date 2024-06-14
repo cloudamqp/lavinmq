@@ -264,7 +264,7 @@ module LavinMQ
 
       private def confirm(&)
         if @confirm
-          msgid = @confirm_total += 1
+          msgid = @confirm_total &+= 1
           begin
             yield
             confirm_ack(msgid)
