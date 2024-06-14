@@ -7,9 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.14] - 2024-06-15
+
 ### Fixed
 
-- Bugfix: internal definition of delayed exchanges changed after definitions export [#699](https://github.com/cloudamqp/lavinmq/pull/699)
+- Exporting definitions broke delayed exchanges [#699](https://github.com/cloudamqp/lavinmq/pull/699)
+- lavinmqctl: escape symbols in parameters (eg. can now create vhosts with / in the name) [#699](https://github.com/cloudamqp/lavinmq/pull/696)
 
 ## [1.2.13] - 2024-06-14
 
