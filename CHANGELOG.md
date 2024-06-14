@@ -12,8 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Some prometheus metrics typing was mixed up, counter where it should be gauge
-- Unmap memory mapped files on finalize, could cause segfaults in replication when files already deleted tired to be replicated
-- Bug fix where followers who was synchronizing could miss some updates
+- Unmap memory mapped files on finalize, could cause segfaults in replication when files already deleted tried to be replicated
+- Bug fix where followers who were synchronizing could miss some updates
 
 ### Changed
 
