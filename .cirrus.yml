@@ -18,7 +18,7 @@ freebsd_task:
 #    image: ghcr.io/cirruslabs/macos-ventura-base:latest
 #  brew_cache:
 #    folder: ~/Library/Caches/Homebrew
-#    fingerprint_key: crystal@1.9.2
+#    fingerprint_key: crystal@1.12.2
 #  crystal_script:
 #    - brew update
 #    - brew install crystal
@@ -31,7 +31,7 @@ freebsd_task:
 #arm64_task:
 #  skip: "!changesInclude('.cirrus.yml', 'shard.lock', 'src/**', 'spec/**')"
 #  arm_container:
-#    image: 84codes/crystal:latest-ubuntu-22.04
+#    image: 84codes/crystal:latest-ubuntu-24.04
 #    cpu: 2
 #    memory: 4G
 #    greedy: true
@@ -41,7 +41,7 @@ freebsd_task:
 #amd64_task:
 #  skip: "!changesInclude('.cirrus.yml', 'shard.lock', 'src/**', 'spec/**')"
 #  container:
-#    image: 84codes/crystal:latest-ubuntu-22.04
+#    image: 84codes/crystal:latest-ubuntu-24.04
 #    cpu: 2
 #    memory: 4G
 #    greedy: true
