@@ -162,7 +162,7 @@ jobs:
       - name: Install LavinMQ dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y make libevent-2.1-7
+          sudo apt-get install -y make libevent-2.1-7 liblz4-1
 
       - name: Download lavinmq
         uses: actions/download-artifact@v4
@@ -196,7 +196,7 @@ jobs:
     continue-on-error: true
 
     steps:
-      - name: Install dependencies
+      - name: Install LavinMQ dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y make libevent-2.1-7 openjdk-21-jre-headless liblz4-1
@@ -231,7 +231,7 @@ jobs:
     needs: compile
 
     steps:
-      - name: Install dependencies
+      - name: Install LavinMQ dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y libevent-2.1-7 liblz4-1
