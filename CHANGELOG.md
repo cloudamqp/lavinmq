@@ -8,7 +8,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+
 - Bugfix: internal definition of delayed exchanges changed after definitions export [#699](https://github.com/cloudamqp/lavinmq/pull/699)
+
+## [1.2.13] - 2024-06-14
+
+### Fixed
+
+- Some prometheus metrics typing was mixed up, counter where it should be gauge
+- Unmap memory mapped files on finalize, could cause segfaults in replication when files already deleted tried to be replicated
+- Bug fix where followers who were synchronizing could miss some updates
+
+### Changed
+
+- Auto reconnect `lavinmqperf throughput` on disconnect
+- Render HTTP API docs using Stoplight Elements
+
+### Added
+
+- HTTP API: /api/connections/:user, lists connections by a specific user
 
 ## [1.2.12] - 2024-05-24
 
