@@ -64,7 +64,7 @@ describe LavinMQ::Queue do
       Server.vhosts.create("/")
       v = Server.vhosts["/"].not_nil!
       v.declare_queue("q", true, false)
-      data_dir = Server.vhosts["/"].queues["q"].@msg_store.@data_dir
+      data_dir = Server.vhosts["/"].queues["q"].@msg_store.@queue_data_dir
       Server.vhosts["/"].queues["q"].pause!
       File.exists?(File.join(data_dir, ".paused")).should be_true
       Server.restart
@@ -280,7 +280,7 @@ describe LavinMQ::Queue do
     with_channel do |ch|
       ch.queue "transient", durable: false
     end
-    data_dir = Server.vhosts["/"].queues["transient"].@msg_store.@data_dir
+    data_dir = Server.vhosts["/"].queues["transient"].@msg_store.@queue_data_dir
     Server.stop
     Dir.exists?(data_dir).should be_false
   end
@@ -290,7 +290,7 @@ describe LavinMQ::Queue do
     with_channel do |ch|
       q = ch.queue "transient", durable: false
       q.publish_confirm "foobar"
-      data_dir = Server.vhosts["/"].queues["transient"].@msg_store.@data_dir
+      data_dir = Server.vhosts["/"].queues["transient"].@msg_store.@queue_data_dir
       FileUtils.cp_r data_dir, "#{data_dir}.copy"
     end
     Server.stop
@@ -307,7 +307,7 @@ describe LavinMQ::Queue do
   it "should delete queue with auto_delete when the last consumer disconnects" do
     with_channel do |ch|
       q = ch.queue("q", auto_delete: true)
-      data_dir = Server.vhosts["/"].queues["q"].@msg_store.@data_dir
+      data_dir = Server.vhosts["/"].queues["q"].@msg_store.@queue_data_dir
       sub = q.subscribe(no_ack: true) { |_| }
       Dir.exists?(data_dir).should be_true
       q.unsubscribe(sub)
