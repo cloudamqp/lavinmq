@@ -9,6 +9,7 @@ require "../message"
 require "../error"
 require "./state"
 require "./event"
+require "../reporter"
 require "./message_store"
 
 module LavinMQ
@@ -17,6 +18,9 @@ module LavinMQ
     include Observable(QueueEvent)
     include Stats
     include SortableJSON
+    include Reportable
+
+    reportables @consumers, @deliveries, @msg_store
 
     @log : Log
     @message_ttl : Int64?

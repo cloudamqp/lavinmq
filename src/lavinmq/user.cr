@@ -1,6 +1,7 @@
 require "json"
 require "./password"
 require "./sortable_json"
+require "./reporter"
 
 module LavinMQ
   enum Tag
@@ -17,9 +18,16 @@ module LavinMQ
 
   class User
     include SortableJSON
+    include Reportable
     getter name, password, permissions
     property tags, plain_text_password
     alias Permissions = NamedTuple(config: Regex, read: Regex, write: Regex)
+
+    @acl_read_cache = Hash({String, String}, Bool).new
+    @acl_config_cache = Hash({String, String}, Bool).new
+    @acl_write_cache = Hash({String, String}, Bool).new
+
+    reportables tags, permissions, @acl_read_cache, @acl_write_cache, @acl_config_cache
 
     @name : String
     @permissions = Hash(String, Permissions).new
@@ -140,8 +148,6 @@ module LavinMQ
       }
     end
 
-    @acl_write_cache = Hash({String, String}, Bool).new
-
     def can_write?(vhost, name)
       cache_key = {vhost, name}
       unless @acl_write_cache.has_key? cache_key
@@ -151,8 +157,6 @@ module LavinMQ
       @acl_write_cache[cache_key]
     end
 
-    @acl_read_cache = Hash({String, String}, Bool).new
-
     def can_read?(vhost, name)
       cache_key = {vhost, name}
       unless @acl_read_cache.has_key? cache_key
@@ -161,8 +165,6 @@ module LavinMQ
       end
       @acl_read_cache[cache_key]
     end
-
-    @acl_config_cache = Hash({String, String}, Bool).new
 
     def can_config?(vhost, name)
       cache_key = {vhost, name}

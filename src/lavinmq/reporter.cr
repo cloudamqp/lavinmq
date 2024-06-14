@@ -1,55 +1,95 @@
 module LavinMQ
-  class Reporter
-    def self.report(s)
-      puts_size_capacity s.@users
-      s.users.each do |name, user|
-        puts "User #{name}"
-        puts_size_capacity user.@tags, 4
-        puts_size_capacity user.@permissions, 4
-        puts_size_capacity user.@acl_read_cache, 4
-        puts_size_capacity user.@acl_write_cache, 4
-        puts_size_capacity user.@acl_config_cache, 4
-      end
-      puts_size_capacity s.@vhosts
-      s.vhosts.each do |name, vh|
-        puts "VHost #{name}"
-        puts_size_capacity vh.@exchanges, 4
-        puts_size_capacity vh.@queues, 4
-        vh.queues.each do |_, q|
-          puts "    #{q.name} #{q.durable? ? "durable" : ""} args=#{q.arguments}"
-          puts_size_capacity q.@consumers, 6
-          puts_size_capacity q.@deliveries, 6
-          puts_size_capacity q.@msg_store.@segments, 6
-          puts_size_capacity q.@msg_store.@acks, 6
-          puts_size_capacity q.@msg_store.@deleted, 6
-          puts_size_capacity q.@msg_store.@segment_msg_count, 6
-          puts_size_capacity q.@msg_store.@requeued, 6
-        end
-        puts_size_capacity vh.@connections
-        vh.connections.each do |c|
-          puts "  #{c.name}"
-          puts_size_capacity c.@channels, 4
-          c.channels.each_value do |ch|
-            puts "    #{ch.id} global_prefetch=#{ch.global_prefetch_count} prefetch=#{ch.prefetch_count}"
-            puts_size_capacity ch.@unacked, 6
-            puts_size_capacity ch.@consumers, 6
-            puts_size_capacity ch.@visited, 6
-            puts_size_capacity ch.@found_queues, 6
+  module Reportable
+    abstract def __report(reporter : Reporter)
+
+    # Used to generate the __report method for Reportable. Items are a list
+    # of instance variables (must be prefiex with @) and getters (no prefix)
+    # that will be reported.
+    # If the variable/getter is a collection all items will also be reported if
+    # possible.
+    macro reportables(*items, &block)
+      def __report(reporter : Reporter)
+        # If a block is given, we include that body first, i.e
+        # the block is run before items is reported
+        {% if block %}
+          begin
+            # If the block is defined with a paratmeter, assign reporter to
+            # that name
+            {% if block.args.size > 0 %}
+              {{ block.args.first }} = reporter
+            {% end %}
+            {{ block.body }}
           end
-        end
+        {% end %}
+        {% for item in items %}
+          reporter.report_capacity {{item.stringify}}, {{item.id}}
+          reporter.report {{item.id}}
+        {% end %}
+      end
+
+      def __report_type_name
+        {{@type.name.split("::").last.titleize}}
+      end
+    end
+  end
+
+  class Reporter
+    def initialize(@io : IO = STDOUT)
+      @level = -1
+    end
+
+    def report(reportables : Enumerable(Tuple(String, Reportable)))
+      reportables.each do |name, reportable|
+        report(reportable, header: "#{reportable.__report_type_name} #{name}")
       end
     end
 
-    macro puts_size_capacity(obj, indent = 0)
-      {{ indent }}.times do
-        STDOUT << ' '
+    def report(reportables : Enumerable(Tuple(UInt16, Reportable)))
+      reportables.each do |id, reportable|
+        report(reportable, header: "#{reportable.__report_type_name} #{id}")
       end
-      STDOUT << "{{ obj.name }}"
-      STDOUT << " size="
-      STDOUT << {{obj}}.size
-      STDOUT << " capacity="
-      STDOUT << {{obj}}.capacity
-      STDOUT << '\n'
+    end
+
+    def report(reportables : Enumerable(Reportable))
+      reportables.each &->self.report(Reportable)
+    end
+
+    def report(reportable : Reportable, header : String? = nil)
+      @level += 1
+      if header
+        report_raw(header)
+        @level += 1
+      end
+      reportable.__report(self)
+      if header
+        @level -= 1
+      end
+      @level -= 1
+    end
+
+    def report(_any)
+      # nop
+    end
+
+    def report_raw(value : String)
+      @io << indent << value << '\n'
+    end
+
+    def report_capacity(name, obj)
+      @io << indent << name << "\tsize=" << obj.size
+      if obj.responds_to?(:capacity)
+        @io << "\tcapacity=" << obj.capacity
+      end
+      @io << '\n'
+    end
+
+    macro indent
+      " "*(@level*2)
+    end
+
+    def self.report(s)
+      r = self.new
+      r.report(s)
     end
   end
 end

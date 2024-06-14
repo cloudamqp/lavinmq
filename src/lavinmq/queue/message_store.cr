@@ -3,6 +3,7 @@ require "../segment_position"
 require "log"
 require "file_utils"
 require "../replication/server"
+require "../reporter"
 
 module LavinMQ
   class Queue
@@ -15,6 +16,9 @@ module LavinMQ
     # Messages are refered to as SegmentPositions
     # Deleted messages are written to acks.#{segment}
     class MessageStore
+      include Reportable
+
+      reportables @segments, @acks, @deleted, @segment_msg_count, @requeued
       PURGE_YIELD_INTERVAL = 16_384
       Log                  = ::Log.for("MessageStore")
       @segments = Hash(UInt32, MFile).new

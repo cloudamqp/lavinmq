@@ -11,11 +11,13 @@ require "../error"
 require "./amqp_connection"
 require "../config"
 require "../http/handler/websocket"
+require "../reporter"
 
 module LavinMQ
   class Client
     include Stats
     include SortableJSON
+    include Reportable
 
     getter vhost, channels, log, name
     getter user
@@ -36,6 +38,7 @@ module LavinMQ
     @last_sent_frame = RoughTime.monotonic
     rate_stats({"send_oct", "recv_oct"})
     DEFAULT_EX = "amq.default"
+    reportables channels
 
     def initialize(@socket : IO,
                    @connection_info : ConnectionInfo,
