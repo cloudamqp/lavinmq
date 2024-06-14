@@ -86,12 +86,8 @@ module LavinMQ
           io.write_bytes @dst.port.to_u16, format
         when Socket::Family::INET6
           raise NotImplementedError.new("IPv6")
-
-          io.write_byte Family::TCPv6.value
         when Socket::Family::UNIX
           raise NotImplementedError.new("Unix")
-
-          io.write_byte Family::UNIXStream.value
         else raise "unsupported address family: #{@src.family}"
         end
         io.flush
