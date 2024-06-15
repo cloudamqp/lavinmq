@@ -19,7 +19,7 @@ describe LavinMQ::Etcd do
     cluster.run do
       etcd = LavinMQ::Etcd.new(cluster.endpoints)
       w = Channel(String?).new
-      spawn do
+      spawn(name: "etcd watch spec") do
         etcd.watch("foo") do |val|
           w.send val
         end
@@ -39,7 +39,7 @@ describe LavinMQ::Etcd do
       etcd = LavinMQ::Etcd.new(cluster.endpoints)
       leader = Channel(String).new
       key = "foo/#{rand}"
-      spawn do
+      spawn(name: "etcd elect leader spec") do
         etcd.elect_listen(key) do |value|
           leader.send value
         end

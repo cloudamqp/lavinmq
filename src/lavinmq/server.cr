@@ -299,21 +299,24 @@ module LavinMQ
 
       @mem_limit = cgroup_memory_max || System.physical_memory.to_i64
 
-      return if closed? # Data dir can be removed already
-      fs_stats = Filesystem.info(@data_dir)
-      until @disk_free_log.size < log_size
-        @disk_free_log.shift
-      end
-      disk_free = fs_stats.available.to_i64
-      @disk_free_log.push disk_free
-      @disk_free = disk_free
+      begin
+        fs_stats = Filesystem.info(@data_dir)
+        until @disk_free_log.size < log_size
+          @disk_free_log.shift
+        end
+        disk_free = fs_stats.available.to_i64
+        @disk_free_log.push disk_free
+        @disk_free = disk_free
 
-      until @disk_total_log.size < log_size
-        @disk_total_log.shift
+        until @disk_total_log.size < log_size
+          @disk_total_log.shift
+        end
+        disk_total = fs_stats.total.to_i64
+        @disk_total_log.push disk_total
+        @disk_total = disk_total
+      rescue File::NotFoundError
+        # Ignore when server is closed and deleted already
       end
-      disk_total = fs_stats.total.to_i64
-      @disk_total_log.push disk_total
-      @disk_total = disk_total
     end
 
     private def stats_loop
