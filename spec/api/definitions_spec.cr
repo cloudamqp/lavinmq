@@ -3,7 +3,8 @@ require "../spec_helper"
 describe LavinMQ::HTTP::Server do
   describe "POST /api/definitions" do
     it "imports users" do
-      body = %({
+      with_http_server do |http, s|
+        body = %({
         "users":[{
           "name":"sha256",
           "password_hash":"nEeL9j6VAMtdsehezoLxjI655S4vkTWs1/EJcsjVY7o",
@@ -25,67 +26,67 @@ describe LavinMQ::HTTP::Server do
           "hashing_algorithm":"rabbit_password_hashing_md5","tags":""
         }]
       })
-      response = post("/api/definitions", body: body)
-      response.status_code.should eq 200
-      Server.users.select("sha256", "sha512", "bcrypt", "md5").each do |_, u|
-        u.should be_a(LavinMQ::User)
-        ok = u.not_nil!.password.not_nil!.verify "hej"
-        {u.name, ok}.should(eq({u.name, true}))
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should eq 200
+        s.users.select("sha256", "sha512", "bcrypt", "md5").each do |_, u|
+          u.should be_a(LavinMQ::User)
+          ok = u.not_nil!.password.not_nil!.verify "hej"
+          {u.name, ok}.should(eq({u.name, true}))
+        end
       end
     end
 
     it "imports vhosts" do
-      Server.vhosts.delete("def")
-      body = %({ "vhosts":[{ "name":"def" }] })
-      response = post("/api/definitions", body: body)
-      response.status_code.should eq 200
-      vhost = Server.vhosts["def"]?
-      vhost.should be_a(LavinMQ::VHost)
+      with_http_server do |http, s|
+        s.vhosts.delete("def")
+        body = %({ "vhosts":[{ "name":"def" }] })
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should eq 200
+        vhost = s.vhosts["def"]?
+        vhost.should be_a(LavinMQ::VHost)
+      end
     end
 
     # https://github.com/cloudamqp/lavinmq/issues/276
     context "if default user has been replaced" do
-      before_each do
-        Server.users.delete("guest")
-        Server.users.create("other_name", "guest", [LavinMQ::Tag::Administrator], save: false) # Will be the new default_user
-      end
-
-      after_each do
-        Server.users.delete("other_name", save: false)
-        Server.vhosts.delete("new")
-        Server.users.create("guest", "guest", [LavinMQ::Tag::Administrator])
-        Server.vhosts.each_key { |name| Server.users.add_permission("guest", name, /.*/, /.*/, /.*/) }
-      end
-
       it "imports with new default user" do
-        headers = HTTP::Headers{"Content-Type"  => "application/json",
-                                "Authorization" => "Basic b3RoZXJfbmFtZTpndWVzdA=="} # other_name:guest
-        body = %({ "vhosts":[{ "name":"new" }] })
-        response = post("/api/definitions", body: body, headers: headers)
-        response.status_code.should eq 200
-        Server.vhosts["new"]?.should be_a(LavinMQ::VHost)
+        with_http_server do |http, s|
+          s.users.delete("guest")
+          s.users.create("other_name", "guest", [LavinMQ::Tag::Administrator], save: false) # Will be the new default_user
+          headers = HTTP::Headers{"Content-Type"  => "application/json",
+                                  "Authorization" => "Basic b3RoZXJfbmFtZTpndWVzdA=="} # other_name:guest
+          body = %({ "vhosts":[{ "name":"new" }] })
+          response = http.post("/api/definitions", body: body, headers: headers)
+          response.status_code.should eq 200
+          s.vhosts["new"]?.should be_a(LavinMQ::VHost)
+        end
       end
     end
 
     it "imports queues" do
-      body = %({ "queues": [{ "name": "import_q1", "vhost": "/", "durable": true, "auto_delete": false, "arguments": {} }] })
-      response = post("/api/definitions", body: body)
-      response.status_code.should eq 200
-      Server.vhosts["/"].queues.has_key?("import_q1").should be_true
+      with_http_server do |http, s|
+        body = %({ "queues": [{ "name": "import_q1", "vhost": "/", "durable": true, "auto_delete": false, "arguments": {} }] })
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should eq 200
+        s.vhosts["/"].queues.has_key?("import_q1").should be_true
+      end
     end
 
     it "imports exchanges" do
-      body = %({ "exchanges": [{ "name": "import_x1", "type": "direct", "vhost": "/", "durable": true, "internal": false, "auto_delete": false, "arguments": {} }] })
-      response = post("/api/definitions", body: body)
-      response.status_code.should eq 200
-      Server.vhosts["/"].exchanges.has_key?("import_x1").should be_true
+      with_http_server do |http, s|
+        body = %({ "exchanges": [{ "name": "import_x1", "type": "direct", "vhost": "/", "durable": true, "internal": false, "auto_delete": false, "arguments": {} }] })
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should eq 200
+        s.vhosts["/"].exchanges.has_key?("import_x1").should be_true
+      end
     end
 
     it "imports bindings" do
-      Server.vhosts["/"].declare_exchange("import_x1", "topic", false, true)
-      Server.vhosts["/"].declare_exchange("import_x2", "fanout", false, true)
-      Server.vhosts["/"].declare_queue("import_q1", false, true)
-      body = %({ "bindings": [
+      with_http_server do |http, s|
+        s.vhosts["/"].declare_exchange("import_x1", "topic", false, true)
+        s.vhosts["/"].declare_exchange("import_x2", "fanout", false, true)
+        s.vhosts["/"].declare_queue("import_q1", false, true)
+        body = %({ "bindings": [
         {
           "source": "import_x1",
           "vhost": "/",
@@ -103,20 +104,22 @@ describe LavinMQ::HTTP::Server do
           "arguments": {}
         }
       ]})
-      response = post("/api/definitions", body: body)
-      response.status_code.should eq 200
-      matches = [] of String
-      ex = Server.vhosts["/"].exchanges["import_x1"]
-      ex.do_exchange_matches("r.k2", nil) { |e| matches << e.name }
-      matches.includes?("import_x2").should be_true
-      matches.clear
-      ex.do_queue_matches("rk", nil) { |e| matches << e.name }
-      matches.includes?("import_q1").should be_true
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should eq 200
+        matches = [] of String
+        ex = s.vhosts["/"].exchanges["import_x1"]
+        ex.do_exchange_matches("r.k2", nil) { |e| matches << e.name }
+        matches.includes?("import_x2").should be_true
+        matches.clear
+        ex.do_queue_matches("rk", nil) { |e| matches << e.name }
+        matches.includes?("import_q1").should be_true
+      end
     end
 
     it "imports permissions" do
-      Server.users.create("u1", "")
-      body = %({ "permissions": [
+      with_http_server do |http, s|
+        s.users.create("u1", "")
+        body = %({ "permissions": [
         {
           "user": "u1",
           "vhost": "/",
@@ -125,13 +128,15 @@ describe LavinMQ::HTTP::Server do
           "read": "r"
         }
       ]})
-      response = post("/api/definitions", body: body)
-      response.status_code.should eq 200
-      Server.users["u1"].permissions["/"][:write].should eq(/w/)
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should eq 200
+        s.users["u1"].permissions["/"][:write].should eq(/w/)
+      end
     end
 
     it "imports policies" do
-      body = %({ "policies": [
+      with_http_server do |http, s|
+        body = %({ "policies": [
         {
           "name": "import_p1",
           "vhost": "/",
@@ -143,267 +148,311 @@ describe LavinMQ::HTTP::Server do
           }
         }
       ]})
-      response = post("/api/definitions", body: body)
-      response.status_code.should eq 200
-      Server.vhosts["/"].policies.has_key?("import_p1").should be_true
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should eq 200
+        s.vhosts["/"].policies.has_key?("import_p1").should be_true
+      end
     end
 
     it "imports parameters" do
-      body = %({ "parameters": [
-        {
-          "name": "import_shovel_param",
-          "component": "shovel",
-          "vhost": "/",
-          "value": {
-            "src-uri": "#{SpecHelper.amqp_base_url}",
-            "src-queue": "shovel_will_declare_q1",
-            "dest-uri": "#{SpecHelper.amqp_base_url}",
-            "dest-queue": "shovel_will_declare_q1"
+      with_http_server do |http, s|
+        body = %({ "parameters": [
+          {
+            "name": "import_shovel_param",
+            "component": "shovel",
+            "vhost": "/",
+            "value": {
+              "src-uri": "#{s.amqp_url}",
+              "src-queue": "shovel_will_declare_q1",
+              "dest-uri": "#{s.amqp_url}",
+              "dest-queue": "shovel_will_declare_q1"
+            }
           }
-        }
-      ]})
-      response = post("/api/definitions", body: body)
-      response.status_code.should eq 200
-      # Because we run shovels in a new Fiber we have to make sure the shovel is not started
-      # after this spec has finished
-      sleep 0.1 # Start the shovel
-      wait_for do
-        shovels = Server.vhosts["/"].shovels.not_nil!
-        shovels.each_value.all? &.running?
+        ]})
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should eq 200
+        # Because we run shovels in a new Fiber we have to make sure the shovel is not started
+        # after this spec has finished
+        sleep 0.1 # Start the shovel
+        wait_for do
+          shovels = s.vhosts["/"].shovels.not_nil!
+          shovels.each_value.all? &.running?
+        end
+        s.vhosts["/"].parameters.any? { |_, p| p.parameter_name == "import_shovel_param" }
+          .should be_true
       end
-      Server.vhosts["/"].parameters.any? { |_, p| p.parameter_name == "import_shovel_param" }
-        .should be_true
     end
 
     it "imports global parameters" do
-      body = %({ "global_parameters": [
+      with_http_server do |http, s|
+        body = %({ "global_parameters": [
         {
           "name": "global_p1",
           "value": {}
         }
       ]})
-      response = post("/api/definitions", body: body)
-      response.status_code.should eq 200
-      Server.parameters.any? { |_, p| p.parameter_name == "global_p1" }.should be_true
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should eq 200
+        s.parameters.any? { |_, p| p.parameter_name == "global_p1" }.should be_true
+      end
     end
 
     it "should handle request with empty body" do
-      response = post("/api/definitions", body: "")
-      response.status_code.should eq 200
+      with_http_server do |http, _|
+        response = http.post("/api/definitions", body: "")
+        response.status_code.should eq 200
+      end
     end
 
     it "should handle unexpected input" do
-      response = post("/api/definitions", body: "\"{}\"")
-      response.status_code.should eq 400
-      body = JSON.parse(response.body)
-      body["reason"].as_s.should eq("Input needs to be a JSON object.")
+      with_http_server do |http, _|
+        response = http.post("/api/definitions", body: "\"{}\"")
+        response.status_code.should eq 400
+        body = JSON.parse(response.body)
+        body["reason"].as_s.should eq("Input needs to be a JSON object.")
+      end
     end
 
     it "should handle invalid JSON" do
-      response = post("/api/definitions", body: "a")
-      response.status_code.should eq 400
-      body = JSON.parse(response.body)
-      body["reason"].as_s.should eq("Malformed JSON.")
+      with_http_server do |http, _|
+        response = http.post("/api/definitions", body: "a")
+        response.status_code.should eq 400
+        body = JSON.parse(response.body)
+        body["reason"].as_s.should eq("Malformed JSON.")
+      end
     end
   end
-
   describe "GET /api/definitions" do
     it "exports users" do
-      response = get("/api/definitions")
-      response.status_code.should eq 200
-      body = JSON.parse(response.body)
-      body["users"].as_a.empty?.should be_false
-      keys = ["name", "password_hash", "hashing_algorithm"]
-      bad_keys = ["permissions"]
-      body["users"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
-      body["users"].as_a.each { |v| bad_keys.each { |k| v.as_h.keys.should_not contain(k) } }
+      with_http_server do |http, _|
+        response = http.get("/api/definitions")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        body["users"].as_a.empty?.should be_false
+        keys = ["name", "password_hash", "hashing_algorithm"]
+        bad_keys = ["permissions"]
+        body["users"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+        body["users"].as_a.each { |v| bad_keys.each { |k| v.as_h.keys.should_not contain(k) } }
+      end
     end
 
     it "exports vhosts" do
-      response = get("/api/definitions")
-      response.status_code.should eq 200
-      body = JSON.parse(response.body)
-      body["vhosts"].as_a.empty?.should be_false
-      keys = ["name"]
-      body["vhosts"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+      with_http_server do |http, _|
+        response = http.get("/api/definitions")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        body["vhosts"].as_a.empty?.should be_false
+        keys = ["name"]
+        body["vhosts"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+      end
     end
 
     it "exports queues" do
-      Server.vhosts["/"].declare_queue("export_q1", false, false)
-      response = get("/api/definitions")
-      response.status_code.should eq 200
-      body = JSON.parse(response.body)
-      body["queues"].as_a.empty?.should be_false
-      keys = ["name", "vhost", "auto_delete", "durable", "arguments"]
-      body["queues"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+      with_http_server do |http, s|
+        s.vhosts["/"].declare_queue("export_q1", false, false)
+        response = http.get("/api/definitions")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        body["queues"].as_a.empty?.should be_false
+        keys = ["name", "vhost", "auto_delete", "durable", "arguments"]
+        body["queues"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+      end
     end
 
     it "exports exchanges" do
-      Server.vhosts["/"].declare_exchange("export_e1", "topic", false, false)
-      response = get("/api/definitions")
-      response.status_code.should eq 200
-      body = JSON.parse(response.body)
-      keys = ["name", "vhost", "auto_delete", "durable", "arguments", "type", "internal"]
-      body["exchanges"].as_a.empty?.should be_false
-      body["exchanges"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+      with_http_server do |http, s|
+        s.vhosts["/"].declare_exchange("export_e1", "topic", false, false)
+        response = http.get("/api/definitions")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        keys = ["name", "vhost", "auto_delete", "durable", "arguments", "type", "internal"]
+        body["exchanges"].as_a.empty?.should be_false
+        body["exchanges"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+      end
     end
 
     it "exports bindings" do
-      Server.vhosts["/"].declare_exchange("export_x1", "direct", false, true)
-      Server.vhosts["/"].declare_queue("export_q1", false, true)
-      Server.vhosts["/"].bind_queue("export_q1", "export_x1", "", AMQ::Protocol::Table.new)
-      response = get("/api/definitions")
-      response.status_code.should eq 200
-      body = JSON.parse(response.body)
-      keys = ["source", "vhost", "destination", "destination_type", "routing_key", "arguments"]
-      body["bindings"].as_a.empty?.should be_false
-      body["bindings"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+      with_http_server do |http, s|
+        s.vhosts["/"].declare_exchange("export_x1", "direct", false, true)
+        s.vhosts["/"].declare_queue("export_q1", false, true)
+        s.vhosts["/"].bind_queue("export_q1", "export_x1", "", AMQ::Protocol::Table.new)
+        response = http.get("/api/definitions")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        keys = ["source", "vhost", "destination", "destination_type", "routing_key", "arguments"]
+        body["bindings"].as_a.empty?.should be_false
+        body["bindings"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+      end
     end
 
     it "exports permissions" do
-      response = get("/api/definitions")
-      response.status_code.should eq 200
-      body = JSON.parse(response.body)
-      keys = ["user", "vhost", "configure", "read", "write"]
-      body["permissions"].as_a.empty?.should be_false
-      body["permissions"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+      with_http_server do |http, _|
+        response = http.get("/api/definitions")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        keys = ["user", "vhost", "configure", "read", "write"]
+        body["permissions"].as_a.empty?.should be_false
+        body["permissions"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+      end
     end
 
     it "exports policies" do
-      d = {"x-max-lenght" => JSON::Any.new(10_i64)}
-      Server.vhosts["/"].add_policy("export_p1", "^.*", "queues", d, -1_i8)
-      response = get("/api/definitions")
-      response.status_code.should eq 200
-      body = JSON.parse(response.body)
-      keys = ["name", "vhost", "pattern", "apply-to", "definition", "priority"]
-      body["policies"].as_a.empty?.should be_false
-      body["policies"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+      with_http_server do |http, s|
+        d = {"x-max-lenght" => JSON::Any.new(10_i64)}
+        s.vhosts["/"].add_policy("export_p1", "^.*", "queues", d, -1_i8)
+        response = http.get("/api/definitions")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        keys = ["name", "vhost", "pattern", "apply-to", "definition", "priority"]
+        body["policies"].as_a.empty?.should be_false
+        body["policies"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+      end
     end
 
     it "exports global parameters" do
-      d = JSON::Any.new({"dummy" => JSON::Any.new(10_i64)})
-      p = LavinMQ::Parameter.new("c1", "p11", d)
-      Server.add_parameter(p)
-      response = get("/api/definitions")
-      response.status_code.should eq 200
-      body = JSON.parse(response.body)
-      keys = ["name", "component", "value"]
-      body["global_parameters"].as_a.empty?.should be_false
-      body["global_parameters"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+      with_http_server do |http, s|
+        d = JSON::Any.new({"dummy" => JSON::Any.new(10_i64)})
+        p = LavinMQ::Parameter.new("c1", "p11", d)
+        s.add_parameter(p)
+        response = http.get("/api/definitions")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        keys = ["name", "component", "value"]
+        body["global_parameters"].as_a.empty?.should be_false
+        body["global_parameters"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+      end
     end
 
     it "exports vhost parameters" do
-      d = JSON::Any.new({"dummy" => JSON::Any.new(10_i64)})
-      p = LavinMQ::Parameter.new("c1", "p11", d)
-      Server.vhosts["/"].add_parameter(p)
-      response = get("/api/definitions")
-      response.status_code.should eq 200
-      body = JSON.parse(response.body)
-      keys = ["name", "component", "value"]
-      body["parameters"].as_a.empty?.should be_false
-      body["parameters"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+      with_http_server do |http, s|
+        d = JSON::Any.new({"dummy" => JSON::Any.new(10_i64)})
+        p = LavinMQ::Parameter.new("c1", "p11", d)
+        s.vhosts["/"].add_parameter(p)
+        response = http.get("/api/definitions")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        keys = ["name", "component", "value"]
+        body["parameters"].as_a.empty?.should be_false
+        body["parameters"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+      end
     end
   end
-
   describe "GET /api/definitions/vhost" do
     it "exports queues" do
-      Server.vhosts["/"].declare_queue("export_q2", false, false)
-      response = get("/api/definitions/%2f")
-      response.status_code.should eq 200
-      body = JSON.parse(response.body)
-      body["queues"].as_a.empty?.should be_false
-      keys = ["name", "vhost", "auto_delete", "durable", "arguments"]
-      body["queues"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+      with_http_server do |http, s|
+        s.vhosts["/"].declare_queue("export_q2", false, false)
+        response = http.get("/api/definitions/%2f")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        body["queues"].as_a.empty?.should be_false
+        keys = ["name", "vhost", "auto_delete", "durable", "arguments"]
+        body["queues"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+      end
     end
 
     it "does not export exclusive queues" do
-      # Declare exclusive queue with amqp client
-      with_channel do |ch|
-        ch.queue("", exclusive: true)
-        response = get("/api/definitions/%2f")
-        response.status_code.should eq 200
-        body = JSON.parse(response.body)
-        body["queues"].as_a.empty?.should be_true
+      with_http_server do |http, s|
+        # Declare exclusive queue with amqp client
+        with_channel(s) do |ch|
+          ch.queue("", exclusive: true)
+          response = http.get("/api/definitions/%2f")
+          response.status_code.should eq 200
+          body = JSON.parse(response.body)
+          body["queues"].as_a.empty?.should be_true
+        end
       end
     end
 
     it "exports exchanges" do
-      Server.vhosts["/"].declare_exchange("export_e2", "topic", false, false)
-      response = get("/api/definitions/%2f")
-      response.status_code.should eq 200
-      body = JSON.parse(response.body)
-      keys = ["name", "vhost", "auto_delete", "durable", "arguments", "type", "internal"]
-      body["exchanges"].as_a.empty?.should be_false
-      body["exchanges"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+      with_http_server do |http, s|
+        s.vhosts["/"].declare_exchange("export_e2", "topic", false, false)
+        response = http.get("/api/definitions/%2f")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        keys = ["name", "vhost", "auto_delete", "durable", "arguments", "type", "internal"]
+        body["exchanges"].as_a.empty?.should be_false
+        body["exchanges"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+      end
     end
 
     it "exports bindings" do
-      Server.vhosts["/"].declare_exchange("export_x1", "direct", false, true)
-      Server.vhosts["/"].declare_queue("export_q1", false, true)
-      Server.vhosts["/"].bind_queue("export_q1", "export_x1", "", AMQ::Protocol::Table.new)
-      response = get("/api/definitions/%2f")
-      response.status_code.should eq 200
-      body = JSON.parse(response.body)
-      keys = ["source", "vhost", "destination", "destination_type", "routing_key", "arguments"]
-      body["bindings"].as_a.empty?.should be_false
-      body["bindings"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+      with_http_server do |http, s|
+        s.vhosts["/"].declare_exchange("export_x1", "direct", false, true)
+        s.vhosts["/"].declare_queue("export_q1", false, true)
+        s.vhosts["/"].bind_queue("export_q1", "export_x1", "", AMQ::Protocol::Table.new)
+        response = http.get("/api/definitions/%2f")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        keys = ["source", "vhost", "destination", "destination_type", "routing_key", "arguments"]
+        body["bindings"].as_a.empty?.should be_false
+        body["bindings"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+      end
     end
 
     it "exports policies" do
-      d = {"x-max-lenght" => JSON::Any.new(10_i64)}
-      Server.vhosts["/"].add_policy("export_p2", "^.*", "queues", d, -1_i8)
-      response = get("/api/definitions/%2f")
-      response.status_code.should eq 200
-      body = JSON.parse(response.body)
-      keys = ["name", "vhost", "pattern", "apply-to", "definition", "priority"]
-      body["policies"].as_a.empty?.should be_false
-      body["policies"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+      with_http_server do |http, s|
+        d = {"x-max-lenght" => JSON::Any.new(10_i64)}
+        s.vhosts["/"].add_policy("export_p2", "^.*", "queues", d, -1_i8)
+        response = http.get("/api/definitions/%2f")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        keys = ["name", "vhost", "pattern", "apply-to", "definition", "priority"]
+        body["policies"].as_a.empty?.should be_false
+        body["policies"].as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
+      end
     end
-
     describe "user tags and vhost access" do
       it "export vhost definitions as management user" do
-        Server.users.delete("guest")
-        Server.users.create("other_name", "guest", [LavinMQ::Tag::Management], save: false) # Will be the new default_user
-        Server.vhosts.create("new")
-        Server.users.add_permission("other_name", "new", /.*/, /.*/, /.*/)
-        headers = HTTP::Headers{"Authorization" => "Basic b3RoZXJfbmFtZTpndWVzdA=="}
-        response = get("/api/definitions/new", headers: headers)
-        response.status_code.should eq 200
+        with_http_server do |http, s|
+          s.users.delete("guest")
+          s.users.create("other_name", "guest", [LavinMQ::Tag::Management], save: false) # Will be the new default_user
+          s.vhosts.create("new")
+          s.users.add_permission("other_name", "new", /.*/, /.*/, /.*/)
+          headers = HTTP::Headers{"Authorization" => "Basic b3RoZXJfbmFtZTpndWVzdA=="}
+          response = http.get("/api/definitions/new", headers: headers)
+          response.status_code.should eq 200
+        end
       end
 
       it "should refuse vhost access" do
-        Server.users.delete("guest")
-        Server.users.create("other_name", "guest", [LavinMQ::Tag::Management], save: false) # Will be the new default_user
-        Server.vhosts.create("new")
-        headers = HTTP::Headers{"Authorization" => "Basic b3RoZXJfbmFtZTpndWVzdA=="}
-        response = get("/api/definitions/new", headers: headers)
-        response.status_code.should eq 403
-        body = JSON.parse(response.body)
-        body["reason"].should eq "Access refused"
+        with_http_server do |http, s|
+          s.users.delete("guest")
+          s.users.create("other_name", "guest", [LavinMQ::Tag::Management], save: false) # Will be the new default_user
+          s.vhosts.create("new")
+          headers = HTTP::Headers{"Authorization" => "Basic b3RoZXJfbmFtZTpndWVzdA=="}
+          response = http.get("/api/definitions/new", headers: headers)
+          response.status_code.should eq 403
+          body = JSON.parse(response.body)
+          body["reason"].should eq "Access refused"
+        end
       end
     end
   end
-
   describe "POST /api/definitions/vhost" do
     it "imports queues" do
-      body = %({ "queues": [{ "name": "import_q1", "vhost": "/", "durable": true, "auto_delete": false, "arguments": {} }] })
-      response = post("/api/definitions/%2f", body: body)
-      response.status_code.should eq 200
-      Server.vhosts["/"].queues.has_key?("import_q1").should be_true
+      with_http_server do |http, s|
+        body = %({ "queues": [{ "name": "import_q1", "vhost": "/", "durable": true, "auto_delete": false, "arguments": {} }] })
+        response = http.post("/api/definitions/%2f", body: body)
+        response.status_code.should eq 200
+        s.vhosts["/"].queues.has_key?("import_q1").should be_true
+      end
     end
 
     it "imports exchanges" do
-      body = %({ "exchanges": [{ "name": "import_x1", "type": "direct", "vhost": "/", "durable": true, "internal": false, "auto_delete": false, "arguments": {} }] })
-      response = post("/api/definitions/%2f", body: body)
-      response.status_code.should eq 200
-      Server.vhosts["/"].exchanges.has_key?("import_x1").should be_true
+      with_http_server do |http, s|
+        body = %({ "exchanges": [{ "name": "import_x1", "type": "direct", "vhost": "/", "durable": true, "internal": false, "auto_delete": false, "arguments": {} }] })
+        response = http.post("/api/definitions/%2f", body: body)
+        response.status_code.should eq 200
+        s.vhosts["/"].exchanges.has_key?("import_x1").should be_true
+      end
     end
 
     it "imports bindings" do
-      Server.vhosts["/"].declare_exchange("import_x1", "direct", false, true)
-      Server.vhosts["/"].declare_exchange("import_x2", "fanout", false, true)
-      Server.vhosts["/"].declare_queue("import_q1", false, true)
-      body = %({ "bindings": [
+      with_http_server do |http, s|
+        s.vhosts["/"].declare_exchange("import_x1", "direct", false, true)
+        s.vhosts["/"].declare_exchange("import_x2", "fanout", false, true)
+        s.vhosts["/"].declare_queue("import_q1", false, true)
+        body = %({ "bindings": [
         {
           "source": "import_x1",
           "vhost": "/",
@@ -421,19 +470,21 @@ describe LavinMQ::HTTP::Server do
           "arguments": {}
         }
       ]})
-      response = post("/api/definitions/%2f", body: body)
-      response.status_code.should eq 200
-      matches = [] of String
-      ex = Server.vhosts["/"].exchanges["import_x1"]
-      ex.do_exchange_matches("r.k2", nil) { |e| matches << e.name }
-      matches.includes?("import_x2").should be_true
-      matches.clear
-      ex.do_queue_matches("rk", nil) { |e| matches << e.name }
-      matches.includes?("import_q1").should be_true
+        response = http.post("/api/definitions/%2f", body: body)
+        response.status_code.should eq 200
+        matches = [] of String
+        ex = s.vhosts["/"].exchanges["import_x1"]
+        ex.do_exchange_matches("r.k2", nil) { |e| matches << e.name }
+        matches.includes?("import_x2").should be_true
+        matches.clear
+        ex.do_queue_matches("rk", nil) { |e| matches << e.name }
+        matches.includes?("import_q1").should be_true
+      end
     end
 
     it "imports policies" do
-      body = %({ "policies": [
+      with_http_server do |http, s|
+        body = %({ "policies": [
         {
           "name": "import_p1",
           "vhost": "/",
@@ -445,117 +496,135 @@ describe LavinMQ::HTTP::Server do
           }
         }
       ]})
-      response = post("/api/definitions/%2f", body: body)
-      response.status_code.should eq 200
-      Server.vhosts["/"].policies.has_key?("import_p1").should be_true
+        response = http.post("/api/definitions/%2f", body: body)
+        response.status_code.should eq 200
+        s.vhosts["/"].policies.has_key?("import_p1").should be_true
+      end
     end
 
     it "should handle request with empty body" do
-      response = post("/api/definitions/%2f", body: "")
-      response.status_code.should eq 200
+      with_http_server do |http, _|
+        response = http.post("/api/definitions/%2f", body: "")
+        response.status_code.should eq 200
+      end
     end
 
     it "should handle unexpected input" do
-      response = post("/api/definitions/%2f", body: "\"{}\"")
-      response.status_code.should eq 400
-      body = JSON.parse(response.body)
-      body["reason"].as_s.should eq("Input needs to be a JSON object.")
+      with_http_server do |http, _|
+        response = http.post("/api/definitions/%2f", body: "\"{}\"")
+        response.status_code.should eq 400
+        body = JSON.parse(response.body)
+        body["reason"].as_s.should eq("Input needs to be a JSON object.")
+      end
     end
 
     it "should handle invalid JSON" do
-      response = post("/api/definitions/%2f", body: "a")
-      response.status_code.should eq 400
-      body = JSON.parse(response.body)
-      body["reason"].as_s.should eq("Malformed JSON.")
+      with_http_server do |http, _|
+        response = http.post("/api/definitions/%2f", body: "a")
+        response.status_code.should eq 400
+        body = JSON.parse(response.body)
+        body["reason"].as_s.should eq("Malformed JSON.")
+      end
     end
-
     describe "user tags and vhost access" do
       it "import vhost definitions as policymaker user" do
-        Server.users.delete("guest")
-        Server.users.create("other_name", "guest", [LavinMQ::Tag::PolicyMaker], save: false) # Will be the new default_user
-        Server.vhosts.create("new")
-        Server.users.add_permission("other_name", "new", /.*/, /.*/, /.*/)
-        headers = HTTP::Headers{"Authorization" => "Basic b3RoZXJfbmFtZTpndWVzdA=="}
-        body = %({ "queues": [{ "name": "import_q1", "vhost": "new", "durable": true, "auto_delete": false, "arguments": {} }] })
-        response = post("/api/definitions/new", headers: headers, body: body)
-        response.status_code.should eq 200
-        Server.vhosts["new"].queues.has_key?("import_q1").should be_true
+        with_http_server do |http, s|
+          s.users.delete("guest")
+          s.users.create("other_name", "guest", [LavinMQ::Tag::PolicyMaker], save: false) # Will be the new default_user
+          s.vhosts.create("new")
+          s.users.add_permission("other_name", "new", /.*/, /.*/, /.*/)
+          headers = HTTP::Headers{"Authorization" => "Basic b3RoZXJfbmFtZTpndWVzdA=="}
+          body = %({ "queues": [{ "name": "import_q1", "vhost": "new", "durable": true, "auto_delete": false, "arguments": {} }] })
+          response = http.post("/api/definitions/new", headers: headers, body: body)
+          response.status_code.should eq 200
+          s.vhosts["new"].queues.has_key?("import_q1").should be_true
+        end
       end
 
       it "should refuse vhost access" do
-        Server.users.delete("guest")
-        Server.users.create("other_name", "guest", [LavinMQ::Tag::Management], save: false) # Will be the new default_user
-        Server.vhosts.create("new")
-        headers = HTTP::Headers{"Authorization" => "Basic b3RoZXJfbmFtZTpndWVzdA=="}
-        body = %({ "queues": [{ "name": "import_q1", "vhost": "new", "durable": true, "auto_delete": false, "arguments": {} }] })
-        response = post("/api/definitions/new", headers: headers, body: body)
-        response.status_code.should eq 403
-        body = JSON.parse(response.body)
-        body["reason"].should eq "Access refused"
+        with_http_server do |http, s|
+          s.users.delete("guest")
+          s.users.create("other_name", "guest", [LavinMQ::Tag::Management], save: false) # Will be the new default_user
+          s.vhosts.create("new")
+          headers = HTTP::Headers{"Authorization" => "Basic b3RoZXJfbmFtZTpndWVzdA=="}
+          body = %({ "queues": [{ "name": "import_q1", "vhost": "new", "durable": true, "auto_delete": false, "arguments": {} }] })
+          response = http.post("/api/definitions/new", headers: headers, body: body)
+          response.status_code.should eq 403
+          body = JSON.parse(response.body)
+          body["reason"].should eq "Access refused"
+        end
       end
 
       it "should refuse user tag access" do
-        Server.users.delete("guest")
-        Server.users.create("other_name", "guest", [LavinMQ::Tag::Management], save: false) # Will be the new default_user
-        Server.vhosts.create("new")
-        Server.users.add_permission("other_name", "new", /.*/, /.*/, /.*/)
-        headers = HTTP::Headers{"Authorization" => "Basic b3RoZXJfbmFtZTpndWVzdA=="}
-        body = %({ "queues": [{ "name": "import_q1", "vhost": "new", "durable": true, "auto_delete": false, "arguments": {} }] })
-        response = post("/api/definitions/new", headers: headers, body: body)
-        response.status_code.should eq 403
-        body = JSON.parse(response.body)
-        body["reason"].should eq "Access refused"
+        with_http_server do |http, s|
+          s.users.delete("guest")
+          s.users.create("other_name", "guest", [LavinMQ::Tag::Management], save: false) # Will be the new default_user
+          s.vhosts.create("new")
+          s.users.add_permission("other_name", "new", /.*/, /.*/, /.*/)
+          headers = HTTP::Headers{"Authorization" => "Basic b3RoZXJfbmFtZTpndWVzdA=="}
+          body = %({ "queues": [{ "name": "import_q1", "vhost": "new", "durable": true, "auto_delete": false, "arguments": {} }] })
+          response = http.post("/api/definitions/new", headers: headers, body: body)
+          response.status_code.should eq 403
+          body = JSON.parse(response.body)
+          body["reason"].should eq "Access refused"
+        end
       end
     end
   end
-
   describe "POST /api/definitions/upload" do
     it "imports definitions from uploaded file (no Referer)" do
-      file_content = %({ "vhosts":[{ "name":"uploaded_vhost" }] }) # sanity check
-      io = IO::Memory.new
-      builder = HTTP::FormData::Builder.new(io)
-      builder.file("file", IO::Memory.new(file_content))
-      builder.finish
+      with_http_server do |http, s|
+        file_content = %({ "vhosts":[{ "name":"uploaded_vhost" }] }) # sanity check
+        io = IO::Memory.new
+        builder = HTTP::FormData::Builder.new(io)
+        builder.file("file", IO::Memory.new(file_content))
+        builder.finish
 
-      headers = {"Content-Type" => builder.content_type}
-      body = io.to_s
+        headers = {"Content-Type" => builder.content_type}
+        body = io.to_s
 
-      response = post("/api/definitions/upload", headers: headers, body: body)
-      response.status_code.should eq 200
-      Server.vhosts["uploaded_vhost"]?.should_not be_nil
-      Server.vhosts["uploaded_vhost"].should be_a(LavinMQ::VHost)
+        response = http.post("/api/definitions/upload", headers: headers, body: body)
+        response.status_code.should eq 200
+        s.vhosts["uploaded_vhost"]?.should_not be_nil
+        s.vhosts["uploaded_vhost"].should be_a(LavinMQ::VHost)
+      end
     end
 
     it "imports definitions from uploaded file" do
-      file_content = %({ "vhosts":[{ "name":"uploaded_vhost" }] }) # sanity check
-      io = IO::Memory.new
-      builder = HTTP::FormData::Builder.new(io)
-      builder.file("file", IO::Memory.new(file_content))
-      builder.finish
+      with_http_server do |http, s|
+        file_content = %({ "vhosts":[{ "name":"uploaded_vhost" }] }) # sanity check
+        io = IO::Memory.new
+        builder = HTTP::FormData::Builder.new(io)
+        builder.file("file", IO::Memory.new(file_content))
+        builder.finish
 
-      headers = {"Content-Type" => builder.content_type, "Referer" => "/foo"}
-      body = io.to_s
+        headers = {"Content-Type" => builder.content_type, "Referer" => "/foo"}
+        body = io.to_s
 
-      response = post("/api/definitions/upload", headers: headers, body: body)
-      response.status_code.should eq 302
-      response.headers["Location"].should eq "/foo"
-      Server.vhosts["uploaded_vhost"]?.should_not be_nil
-      Server.vhosts["uploaded_vhost"].should be_a(LavinMQ::VHost)
+        response = http.post("/api/definitions/upload", headers: headers, body: body)
+        response.status_code.should eq 302
+        response.headers["Location"].should eq "/foo"
+        s.vhosts["uploaded_vhost"]?.should_not be_nil
+        s.vhosts["uploaded_vhost"].should be_a(LavinMQ::VHost)
+      end
     end
 
     it "imports definitions from json body" do
-      body = {vhosts: [{name: "uploaded_vhost"}]}.to_json
-      headers = {"Content-Type" => "application/json"}
-      response = post("/api/definitions/upload", headers: headers, body: body)
-      response.status_code.should eq 200
-      Server.vhosts["uploaded_vhost"]?.should_not be_nil
-      Server.vhosts["uploaded_vhost"].should be_a(LavinMQ::VHost)
+      with_http_server do |http, s|
+        body = {vhosts: [{name: "uploaded_vhost"}]}.to_json
+        headers = {"Content-Type" => "application/json"}
+        response = http.post("/api/definitions/upload", headers: headers, body: body)
+        response.status_code.should eq 200
+        s.vhosts["uploaded_vhost"]?.should_not be_nil
+        s.vhosts["uploaded_vhost"].should be_a(LavinMQ::VHost)
+      end
     end
   end
 
   it "should update existing user on import" do
-    name = "bcryptuser"
-    body = %({
+    with_http_server do |http, s|
+      name = "bcryptuser"
+      body = %({
       "users":[{
         "name":"#{name}",
         "password_hash":"$2a$04$g5IMwYwvgDLACYdAQxCpCulKuK/Ym2I56Tz6T9Wi9DGdKQG.DE8Gi",
@@ -563,35 +632,38 @@ describe LavinMQ::HTTP::Server do
       }]
     })
 
-    response = post("/api/definitions", body: body)
-    response.status_code.should eq 200
+      response = http.post("/api/definitions", body: body)
+      response.status_code.should eq 200
 
-    u = Server.users[name]
-    u.should be_a(LavinMQ::User)
-    ok = u.not_nil!.password.not_nil!.verify "hej"
-    {u.name, ok}.should eq({name, true})
+      u = s.users[name]
+      u.should be_a(LavinMQ::User)
+      ok = u.not_nil!.password.not_nil!.verify "hej"
+      {u.name, ok}.should eq({name, true})
 
-    update_body = %({
+      update_body = %({
       "users":[{
         "name":"#{name}",
         "password_hash":"$2a$04$PuoK2zgHy/NHRU3CRUCidOKaSTwFkv97Sm.zTspKZRWJkn6l37YOe",
         "hashing_algorithm":"Bcrypt","tags":""
       }]
     })
-    response = post("/api/definitions", body: update_body)
-    response.status_code.should eq 200
+      response = http.post("/api/definitions", body: update_body)
+      response.status_code.should eq 200
 
-    u = Server.users[name]
-    u.should be_a(LavinMQ::User)
-    ok = u.not_nil!.password.not_nil!.verify "test"
-    {u.name, ok}.should eq({name, true})
+      u = s.users[name]
+      u.should be_a(LavinMQ::User)
+      ok = u.not_nil!.password.not_nil!.verify "test"
+      {u.name, ok}.should eq({name, true})
+    end
   end
 
   it "shouldn't ruin internal state of delayed exchange (issue #698)" do
-    vhost = Server.vhosts["/"]
-    args = {"x-delayed-message", false, false, false, LavinMQ::AMQP::Table.new({"x-delayed-type": "direct"})}
-    vhost.declare_exchange "test", *args
-    get("/api/definitions")
-    vhost.exchanges["test"].match?(*args).should be_true
+    with_http_server do |http, s|
+      vhost = s.vhosts["/"]
+      args = {"x-delayed-message", false, false, false, LavinMQ::AMQP::Table.new({"x-delayed-type": "direct"})}
+      vhost.declare_exchange "test", *args
+      http.get("/api/definitions")
+      vhost.exchanges["test"].match?(*args).should be_true
+    end
   end
 end
