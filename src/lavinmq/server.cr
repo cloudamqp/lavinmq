@@ -42,6 +42,11 @@ module LavinMQ
       @replicator.followers
     end
 
+    def amqp_url
+      addr = @listeners.each_key.select(TCPServer).first.local_address
+      "amqp://#{addr}"
+    end
+
     def stop
       return if @closed
       @closed = true
