@@ -45,8 +45,6 @@ module LavinMQ
                      @ack_mode = DEFAULT_ACK_MODE, consumer_args : Hash(String, JSON::Any)? = nil,
                      direct_user : User? = nil)
         @tag = "Shovel"
-        cfg = Config.instance
-        @uri.host ||= "#{cfg.amqp_bind}:#{cfg.amqp_port}"
         unless @uri.user
           if direct_user
             @uri.user = direct_user.name

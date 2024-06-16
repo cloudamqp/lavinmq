@@ -34,7 +34,7 @@ module LavinMQ
       end
 
       def follow(uri : URI)
-        host = uri.host.not_nil!("Host missing in follow URI")
+        host = uri.hostname.not_nil!("Host missing in follow URI")
         port = uri.port || 5679
         follow(host, port)
       end
