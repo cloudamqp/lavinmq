@@ -8,7 +8,7 @@ module LavinMQ
 
     forward_missing_to @shovels
 
-    def parse_uris(src_uri) : Array(URI)
+    def parse_uris(src_uri : JSON::Any) : Array(URI)
       uris = src_uri.as_s? ? [src_uri.as_s] : src_uri.as_a.map(&.as_s)
       uris.map do |uri|
         URI.parse(uri)
@@ -64,7 +64,7 @@ module LavinMQ
             direct_user: @vhost.users.direct_user)
         end
       end
-      Shovel::DestinationWrapper.new(destinations)
+      Shovel::MultiDestinationHandler.new(destinations)
     end
   end
 end

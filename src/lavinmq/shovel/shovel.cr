@@ -165,7 +165,7 @@ module LavinMQ
       abstract def started? : Bool
     end
 
-    class DestinationWrapper < Destination
+    class MultiDestinationHandler < Destination
       @current_dest : Destination?
 
       def initialize(@destinations : Array(Destination))
