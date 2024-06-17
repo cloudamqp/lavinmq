@@ -356,6 +356,7 @@ jobs:
       - name: Run specs
         run: |
           cd rabbit-hole
+          bash bin/ci/before_build.sh
           go test -v ./...
 
   release-mode-test:
