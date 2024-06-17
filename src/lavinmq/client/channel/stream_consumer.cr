@@ -39,7 +39,7 @@ module LavinMQ
           when Nil
             @track_offset = true unless @tag.starts_with?("amq.ctag-")
           when Int, Time, "first", "next", "last"
-            @track_offset = true if frame.arguments["x-stream-use-automatic-offset"]?
+            @track_offset = true if frame.arguments["x-stream-automatic-offset-tracking"]?
           else raise Error::PreconditionFailed.new("x-stream-offset must be an integer, a timestamp, 'first', 'next' or 'last'")
           end
         end

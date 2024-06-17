@@ -452,10 +452,10 @@ describe LavinMQ::StreamQueue do
       StreamQueueSpecHelpers.offset_from_headers(msg_2.properties.headers).should eq 1
     end
 
-    it "should use saved offset if x-stream-offset & x-stream-use-automatic-offset is set" do
+    it "should use saved offset if x-stream-offset & x-stream-automatic-offset-tracking is set" do
       queue_name = Random::Secure.hex
       consumer_tag = Random::Secure.hex
-      c_args = AMQP::Client::Arguments.new({"x-stream-offset": 0, "x-stream-use-automatic-offset": true})
+      c_args = AMQP::Client::Arguments.new({"x-stream-offset": 0, "x-stream-automatic-offset-tracking": true})
 
       StreamQueueSpecHelpers.publish(queue_name, 2)
 
