@@ -3,6 +3,8 @@ require "json"
 
 module LavinMQ
   class Etcd
+    Log = ::Log.for(self)
+
     def initialize(endpoints = "127.0.0.1:2379")
       @endpoints = endpoints.split(',')
     end
@@ -247,6 +249,9 @@ module LavinMQ
         Log.info { "Updated endpoints to: #{endpoints}" }
         @endpoints = endpoints
       end
+    rescue ex : KeyError
+      Log.warn { "Could not update endpoints, response was: #{json}" }
+      raise ex
     end
 
     class Error < Exception; end
