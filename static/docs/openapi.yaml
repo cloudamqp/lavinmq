@@ -148,6 +148,8 @@ paths:
     "$ref": "./paths/connections.yaml#/~1connections~1{name}"
   "/connections/{name}/channels":
     "$ref": "./paths/connections.yaml#/~1connections~1{name}~1channels"
+  "/api/connections/username/{username}":
+    "$ref": "./paths/connections.yaml#/~1connections~1username~1{username}"
   "/consumers":
     "$ref": "./paths/consumers.yaml#/~1consumers"
   "/consumers/{vhost}":
