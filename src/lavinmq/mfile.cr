@@ -203,14 +203,6 @@ class MFile < IO
     @size = new_size
   end
 
-  def write_at(pos : Int64, slice : Bytes) : Nil
-    raise ClosedError.new if @closed
-    end_pos = pos + slice.size
-    raise IO::EOFError.new if end_pos > @capacity
-    @size = end_pos if end_pos > @size
-    slice.copy_to(buffer + pos, slice.size)
-  end
-
   def read(slice : Bytes)
     pos = @pos
     len = Math.min(slice.size, @size - pos)
