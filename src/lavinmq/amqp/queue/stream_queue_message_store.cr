@@ -189,7 +189,7 @@ module LavinMQ::AMQP
         @consumer_offsets = MFile.new("#{@consumer_offset_path}.tmp", @consumer_offset_capacity)
         yield # fill the new file with correct data in this block
         File.rename "#{@consumer_offset_path}.tmp", @consumer_offset_path
-        old_consumer_offsets.close
+        old_consumer_offsets.close(truncate_to_size: false)
       end
 
       def shift?(consumer : Client::Channel::StreamConsumer) : Envelope?
