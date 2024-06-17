@@ -550,5 +550,30 @@ describe LavinMQ::StreamQueue do
       msg_store = LavinMQ::StreamQueue::StreamQueueMessageStore.new(data_dir, nil)
       msg_store.last_offset_by_consumer_tag(c_tag).should eq nil
     end
+
+    it "expands consumer offset file when needed" do
+      queue_name = Random::Secure.hex
+      vhost = Server.vhosts["/"]
+      consumer_tag_prefix = "ctag-"
+      StreamQueueSpecHelpers.publish(queue_name, 1)
+
+      data_dir = File.join(vhost.data_dir, Digest::SHA1.hexdigest queue_name)
+      msg_store = LavinMQ::StreamQueue::StreamQueueMessageStore.new(data_dir, nil)
+      2000.times do |i|
+        next if i == 0
+        msg_store.update_consumer_offset("#{consumer_tag_prefix}#{i}", i)
+      end
+      msg_store.close
+
+      msg_store = LavinMQ::StreamQueue::StreamQueueMessageStore.new(data_dir, nil)
+      msg_store.@consumer_offsets.size.should eq 34_875
+
+      2000.times do |i|
+        next if i == 0
+        msg_store.last_offset_by_consumer_tag("#{consumer_tag_prefix}#{i}").should eq i
+      end
+
+      msg_store.close
+    end
   end
 end
