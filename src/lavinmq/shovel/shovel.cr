@@ -39,23 +39,28 @@ module LavinMQ
 
       getter delete_after, last_unacked
 
-      def initialize(@name : String, @uri : URI, @queue : String?, @exchange : String? = nil,
+      def initialize(@name : String, @uris : Array(URI), @queue : String?, @exchange : String? = nil,
                      @exchange_key : String? = nil,
                      @delete_after = DEFAULT_DELETE_AFTER, @prefetch = DEFAULT_PREFETCH,
                      @ack_mode = DEFAULT_ACK_MODE, consumer_args : Hash(String, JSON::Any)? = nil,
                      direct_user : User? = nil)
         @tag = "Shovel"
-        unless @uri.user
-          if direct_user
-            @uri.user = direct_user.name
-            @uri.password = direct_user.plain_text_password
-          else
-            raise ArgumentError.new("direct_user required")
+        cfg = Config.instance
+        raise ArgumentError.new("At least one source uri is required") if @uris.empty?
+        @uris.each do |uri|
+          uri.host ||= "#{cfg.amqp_bind}:#{cfg.amqp_port}"
+          unless uri.user
+            if direct_user
+              uri.user = direct_user.name
+              uri.password = direct_user.plain_text_password
+            else
+              raise ArgumentError.new("direct_user required")
+            end
           end
+          params = uri.query_params
+          params["name"] ||= "Shovel #{@name} source"
+          uri.query = params.to_s
         end
-        params = @uri.query_params
-        params["name"] ||= "Shovel #{@name} source"
-        @uri.query = params.to_s
         if @queue.nil? && @exchange.nil?
           raise ArgumentError.new("Shovel source requires a queue or an exchange")
         end
@@ -69,7 +74,7 @@ module LavinMQ
         if c = @conn
           c.close
         end
-        @conn = ::AMQP::Client.new(@uri).connect
+        @conn = ::AMQP::Client.new(@uris.sample).connect
         open_channel
       end
 
@@ -158,6 +163,36 @@ module LavinMQ
       abstract def push(msg, source)
 
       abstract def started? : Bool
+    end
+
+    class MultiDestinationHandler < Destination
+      @current_dest : Destination?
+
+      def initialize(@destinations : Array(Destination))
+      end
+
+      def start
+        next_dest = @destinations.sample
+        return unless next_dest
+        next_dest.start
+        @current_dest = next_dest
+      end
+
+      def stop
+        @current_dest.try &.stop
+        @current_dest = nil
+      end
+
+      def push(msg, source)
+        @current_dest.try &.push(msg, source)
+      end
+
+      def started? : Bool
+        if dest = @current_dest
+          return dest.started?
+        end
+        false
+      end
     end
 
     class AMQPDestination < Destination
@@ -335,7 +370,7 @@ module LavinMQ
           @vhost.delete_parameter("shovel", @name) if @source.delete_after.queue_length?
           break
         rescue ex : ::AMQP::Client::Connection::ClosedException | ::AMQP::Client::Channel::ClosedException | Socket::ConnectError
-          return if terminated?
+          break if terminated?
           @state = State::Error
           # Shoveled queue was deleted
           if ex.message.to_s.starts_with?("404")
