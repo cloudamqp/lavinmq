@@ -1,7 +1,7 @@
 require "./spec_helper"
-require "../src/lavinmq/server_cli"
+require "../src/lavinmq/config"
 
-describe "LavinMQ::ServerCLI" do
+describe LavinMQ::Config do
   it "should remember the config file path" do
     config_file = File.tempfile do |file|
       file.print <<-CONFIG
@@ -14,8 +14,7 @@ describe "LavinMQ::ServerCLI" do
     end
     config = LavinMQ::Config.instance
     config.config_file = config_file.path
-    LavinMQ::ServerCLI.new(config).parse
-
-    config.config_file.should eq(config_file.path)
+    config.parse
+    config.config_file.should eq config_file.path
   end
 end

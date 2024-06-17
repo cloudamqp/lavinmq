@@ -1,10 +1,9 @@
 require "./lavinmq/version"
 require "./stdlib/*"
 require "./lavinmq/config"
-require "./lavinmq/server_cli"
 
 config = LavinMQ::Config.instance
-LavinMQ::ServerCLI.new(config).parse
+config.parse # both ARGV and config file
 
 {% unless flag?(:gc_none) %}
   if config.raise_gc_warn?
