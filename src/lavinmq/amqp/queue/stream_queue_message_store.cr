@@ -160,9 +160,21 @@ module LavinMQ::AMQP
       end
 
       def store_consumer_offset(consumer_tag : String, new_offset : Int64)
+        expand_consumer_offset_file if consumer_offset_file_full?(consumer_tag)
         @consumer_offsets.write_bytes AMQ::Protocol::ShortString.new(consumer_tag)
         @consumer_offset_positions[consumer_tag] = @consumer_offsets.size
         @consumer_offsets.write_bytes new_offset
+      end
+
+      def consumer_offset_file_full?(consumer_tag)
+        (@consumer_offsets.size + consumer_tag.bytesize + 8) >= @consumer_offsets.capacity
+      end
+
+      def expand_consumer_offset_file
+        pos = @consumer_offsets.size
+        @consumer_offset_capacity += 32_768
+        @consumer_offsets = MFile.new(@consumer_offset_path, @consumer_offset_capacity)
+        @consumer_offsets.resize(pos)
       end
 
       def cleanup_consumer_offsets
