@@ -136,7 +136,7 @@ describe LavinMQ::HTTP::ConnectionsController do
         s.users.create("arnold", "pw", [LavinMQ::Tag::Administrator])
         s.users.add_permission("arnold", "/", /.*/, /.*/, /.*/)
         hdrs = HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
-        with_channel(user: "arnold", password: "pw") do
+        with_channel(s, user: "arnold", password: "pw") do
           response = http.delete("/api/connections/username/arnold", headers: hdrs)
           response.status_code.should eq 204
           sleep 0.1

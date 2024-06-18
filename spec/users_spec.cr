@@ -20,14 +20,18 @@ end
 
 describe LavinMQ::Server do
   it "rejects invalid password" do
-    expect_raises(AMQP::Client::Connection::ClosedException) do
-      with_channel(user: "guest", password: "invalid") { }
+    with_amqp_server do |s|
+      expect_raises(AMQP::Client::Connection::ClosedException) do
+        with_channel(s, user: "guest", password: "invalid") { }
+      end
     end
   end
 
   it "rejects invalid user" do
-    expect_raises(AMQP::Client::Connection::ClosedException) do
-      with_channel(user: "invalid", password: "guest") { }
+    with_amqp_server do |s|
+      expect_raises(AMQP::Client::Connection::ClosedException) do
+        with_channel(s, user: "invalid", password: "guest") { }
+      end
     end
   end
 
