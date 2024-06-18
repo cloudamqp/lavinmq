@@ -25,6 +25,7 @@ module LavinMQ
       getter bytesize = 0u64
       getter size = 0u32
       getter empty_change = Channel(Bool).new
+      getter closed
 
       def initialize(@queue_data_dir : String, @replicator : Clustering::Replicator?)
         @acks = Hash(UInt32, MFile).new { |acks, seg| acks[seg] = open_ack_file(seg) }
@@ -337,6 +338,9 @@ module LavinMQ
                 @segments.delete seg
                 next
               end
+            rescue ex
+              Log.error { "Invalid schema version in #{path}, error queue" }
+              @closed = true
             end
           end
           file.pos = 4
@@ -360,7 +364,8 @@ module LavinMQ
           rescue ex : IO::EOFError
             break
           rescue ex : OverflowError | AMQ::Protocol::Error::FrameDecode
-            raise Error.new(mfile, cause: ex)
+            Log.error { " error queue" }
+            @closed = true
           end
           mfile.pos = 4
           mfile.unmap # will be mmap on demand

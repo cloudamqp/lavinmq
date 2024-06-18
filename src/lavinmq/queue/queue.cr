@@ -133,6 +133,8 @@ module LavinMQ
       File.open(File.join(@data_dir, ".queue"), "w") { |f| f.sync = true; f.print @name }
       @state = QueueState::Paused if File.exists?(File.join(@data_dir, ".paused"))
       @msg_store = init_msg_store(@data_dir)
+      #todo: introduce error state, but first need to understand what difference is between closed, paused and error
+      @state = QueueState::Closed if @msg_store.closed
       @empty_change = @msg_store.empty_change
       handle_arguments
       spawn queue_expire_loop, name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}" if @expires
@@ -408,7 +410,9 @@ module LavinMQ
     class Closed < Exception; end
 
     def publish(msg : Message) : Bool
+      pp "state: #{@state}"
       return false if @state.closed?
+      pp "gets here"
       reject_on_overflow(msg)
       @msg_store_lock.synchronize do
         @msg_store.push(msg)
