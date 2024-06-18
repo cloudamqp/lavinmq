@@ -385,3 +385,15 @@ jobs:
 
       - name: Test the static HTTP controller
         run: ./extras/static_requests.sh
+
+  freebsd-test:
+    name: Spec FreeBSD
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Spec
+        uses: vmactions/freebsd-vm@v1
+        with:
+          usesh: true
+          prepare: pkg install -y crystal shards security/openssl curl gmake coreos-etcd34
+          run: gmake test
