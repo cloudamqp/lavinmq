@@ -164,7 +164,12 @@ module LavinMQ
             bytesize = tcp.read_line.to_i(16)
             if bytesize > 0
               chunk = tcp.read_string(bytesize + 2)
-              yield JSON.parse(chunk)
+              begin
+                yield JSON.parse(chunk)
+              rescue ex
+                STDERR.puts "Uncaught excpetion in fiber #{Fiber.current.name}"
+                abort ex.inspect_with_backtrace
+              end
             else
               tcp.skip(2) # \r\n follows each chunk
               response_finished = true

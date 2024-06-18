@@ -33,11 +33,12 @@ module LavinMQ
       @files = Hash(String, MFile?).new
       @dirty_isr = true
       @id : Int32
+      @config : Config
 
-      def initialize(@config : Config, @etcd : Etcd)
+      def initialize(config : Config, @etcd : Etcd, @id = File.read(File.join(config.data_dir, ".clustering_id")).to_i(36))
+        @config = config
         @data_dir = @config.data_dir
         @password = password
-        @id = File.read(File.join(@data_dir, ".clustering_id")).to_i(36)
       end
 
       def clear
@@ -123,13 +124,11 @@ module LavinMQ
 
       @listeners = Array(TCPServer).new(1)
 
-      def listen(host, port)
-        tcp = TCPServer.new(host, port)
-        tcp.sync = false
-        tcp.listen
-        Log.info { "Listening on #{tcp.local_address}" }
-        @listeners << tcp
-        while socket = tcp.accept?
+      def listen(server : TCPServer)
+        server.listen
+        Log.info { "Listening on #{server.local_address}" }
+        @listeners << server
+        while socket = server.accept?
           spawn handle_socket(socket), name: "Clustering follower"
         end
       end
@@ -239,7 +238,7 @@ module LavinMQ
       def close
       end
 
-      def listen(host, port)
+      def listen(server : TCPServer)
       end
 
       def clear

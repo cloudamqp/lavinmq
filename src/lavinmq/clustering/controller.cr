@@ -19,7 +19,12 @@ class LavinMQ::Clustering::Controller
     wait_to_be_insync
     lease = @etcd.elect("#{@config.clustering_etcd_prefix}/leader", @advertised_uri) # blocks until becoming leader
     replicator = Clustering::Server.new(@config, @etcd)
-    Launcher.new(@config, replicator, lease).run
+    @launcher = l = Launcher.new(@config, replicator, lease)
+    l.run
+  end
+
+  def stop
+    @launcher.try &.stop
   end
 
   # Each node in a cluster has an unique id, for tracking ISR
@@ -51,7 +56,7 @@ class LavinMQ::Clustering::Controller
 
       key = "#{@config.clustering_etcd_prefix}/clustering_secret"
       secret = @etcd.get(key).not_nil!("Clustering secret is missing in etcd")
-      repli_client = r = Clustering::Client.new(@config.data_dir, @id, secret)
+      repli_client = r = Clustering::Client.new(@config, @id, secret)
       spawn r.follow(uri), name: "Clustering client #{uri}"
     end
   end

@@ -11,7 +11,7 @@ module LavinMQ
       abstract def delete_file(path : String)
       abstract def followers : Array(Follower)
       abstract def close
-      abstract def listen(host : String, port : Int32)
+      abstract def listen(server : TCPServer)
       abstract def clear
       abstract def password : String
     end

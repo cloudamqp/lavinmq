@@ -44,11 +44,7 @@ module LavinMQ
         if lease = @lease
           select
           when lease.receive?
-            if @first_shutdown_attempt
-              Log.error { "Leadership lost" }
-              shutdown_server
-            end
-            Fiber.yield
+            Log.warn { "Lost leadership lease" }
             break
           when timeout(30.seconds)
             @data_dir_lock.try &.poll
@@ -60,6 +56,16 @@ module LavinMQ
           GC.collect
         end
       end
+      stop
+    end
+
+    def stop
+      Log.warn { "Stopping" }
+      SystemD.notify_stopping
+      @http_server.close rescue nil
+      @amqp_server.close rescue nil
+      @data_dir_lock.try &.release
+      @lease.try &.close
     end
 
     private def print_environment_info
@@ -197,12 +203,7 @@ module LavinMQ
     private def shutdown_server
       if @first_shutdown_attempt
         @first_shutdown_attempt = false
-        SystemD.notify_stopping
-        Log.info { "Shutting down gracefully..." }
-        @http_server.close
-        @amqp_server.close
-        @data_dir_lock.try &.release
-        @lease.try &.close
+        stop
         Fiber.yield
         Log.info { "Fibers: " }
         Fiber.list { |f| Log.info { f.inspect } }
