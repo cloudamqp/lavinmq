@@ -20,7 +20,7 @@ module LavinMQ
       end
     end
 
-    def create(name : String, tags : Array(String) = [] of String, description : String = "", user : User = @users.default_user, save : Bool = true)
+    def create(name : String, user : User = @users.default_user, description = "", tags = Array(String).new(0), save : Bool = true)
       if v = @vhosts[name]?
         return v
       end
