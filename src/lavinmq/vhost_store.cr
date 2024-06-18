@@ -24,7 +24,7 @@ module LavinMQ
       if v = @vhosts[name]?
         return v
       end
-      vhost = VHost.new(name, tags, description, @data_dir, @users, @replicator)
+      vhost = VHost.new(name, @data_dir, @users, @replicator, description, tags)
       Log.info { "Created vhost #{name}" }
       @users.add_permission(user.name, name, /.*/, /.*/, /.*/)
       @users.add_permission(UserStore::DIRECT_USER, name, /.*/, /.*/, /.*/)
@@ -63,7 +63,7 @@ module LavinMQ
             name = vhost["name"].as_s
             tags = vhost["tags"]?.try(&.as_a.map(&.to_s)) || [] of String
             description = vhost["description"]?.try &.as_s || ""
-            @vhosts[name] = VHost.new(name, tags, description, @data_dir, @users, @replicator)
+            @vhosts[name] = VHost.new(name, @data_dir, @users, @replicator, description, tags)
             @users.add_permission(UserStore::DIRECT_USER, name, /.*/, /.*/, /.*/)
           end
           @replicator.register_file(f)
