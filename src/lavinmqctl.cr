@@ -320,7 +320,7 @@ class LavinMQCtl
     tags = ARGV.join(",")
     abort @banner unless username && tags
     resp = http.put "/api/users/#{username}", @headers, {tags: tags}.to_json
-    handle_response(resp, 204)
+    handle_response(resp, 201, 204)
   end
 
   private def change_password
@@ -460,7 +460,7 @@ class LavinMQCtl
     name = ARGV.shift?
     abort @banner unless name
     resp = http.put "/api/vhosts/#{URI.encode_www_form(name)}", @headers
-    handle_response(resp, 204)
+    handle_response(resp, 201, 204)
   end
 
   private def delete_vhost
@@ -643,7 +643,7 @@ class LavinMQCtl
       "write":     write,
     }
     resp = http.put url, @headers, body.to_json
-    handle_response(resp, 204)
+    handle_response(resp, 201, 204)
   end
 
   private def definitions
