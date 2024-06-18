@@ -358,6 +358,8 @@ jobs:
           cd rabbit-hole
           bash bin/ci/before_build.sh
           go test -v ./...
+        env:
+          RABBITHOLE_LAVINMQCTL: ../bin/lavinmqctl
 
   release-mode-test:
     name: Test in release mode
