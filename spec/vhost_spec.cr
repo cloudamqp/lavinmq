@@ -99,7 +99,7 @@ describe LavinMQ::VHost do
       username = "test-user"
       user = Server.users.create(username, "password", [LavinMQ::Tag::Administrator])
       vhost = "test-vhost"
-      Server.vhosts.create(vhost, [""], "", user)
+      Server.vhosts.create(vhost, user)
       p = user.permissions[vhost]
       p[:config].should eq /.*/
       p[:read].should eq /.*/
