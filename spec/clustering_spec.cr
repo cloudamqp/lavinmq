@@ -1,58 +1,47 @@
 require "./spec_helper"
 require "../src/lavinmq/clustering/client"
+require "../src/lavinmq/clustering/controller"
 
 describe LavinMQ::Clustering::Client do
-  data_dir = "/tmp/lavinmq-follower"
+  follower_data_dir = "/tmp/lavinmq-follower"
 
-  before_each do
-    FileUtils.rm_rf data_dir
-    Dir.mkdir_p data_dir
+  around_each do |spec|
+    FileUtils.rm_rf follower_data_dir
+    p = Process.new("etcd", {
+      "--data-dir=/tmp/clustering-spec.etcd",
+      "--logger=zap",
+      "--log-level=error",
+    }, output: STDOUT, error: STDERR)
+    sleep 0.1
+    spec.run
+    p.terminate(graceful: false)
+    FileUtils.rm_rf "/tmp/clustering-spec.etcd"
+    FileUtils.rm_rf follower_data_dir
   end
 
-  after_each do
-    FileUtils.rm_rf data_dir
-  end
-
-  pending "can synchronize" do
-    with_channel do |ch|
-      q = ch.queue("repli")
-      q.publish_confirm "hello world"
-    end
-    repli = LavinMQ::Clustering::Client.new(data_dir, 1, Server.@replicator.password, proxy: false)
-    repli.sync("127.1", LavinMQ::Config.instance.clustering_port)
-    repli.close
-
-    server = LavinMQ::Server.new(data_dir)
-    begin
-      q = server.vhosts["/"].queues["repli"].as(LavinMQ::DurableQueue)
-      q.basic_get(true) do |env|
-        String.new(env.message.body).to_s.should eq "hello world"
-      end.should be_true
-    ensure
-      server.close
-    end
-  end
-
-  pending "can stream changes" do
-    repli = LavinMQ::Clustering::Client.new(data_dir, 1, Server.@replicator.password, proxy: false)
+  it "can stream changes" do
+    LavinMQ::Config.instance.clustering_min_isr = 1
+    replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Etcd.new, 0)
+    tcp_server = TCPServer.new("localhost", 0)
+    spawn(replicator.listen(tcp_server), name: "repli server spec")
+    config = LavinMQ::Config.new.tap &.data_dir = follower_data_dir
+    repli = LavinMQ::Clustering::Client.new(config, 1, replicator.password, proxy: false)
     done = Channel(Nil).new
-    spawn do
-      repli.follow("127.0.0.1", LavinMQ::Config.instance.clustering_port)
+    spawn(name: "follow spec") do
+      repli.follow("localhost", tcp_server.local_address.port)
       done.send nil
     end
-    with_channel do |ch|
-      q = ch.queue("repli")
-      q.publish_confirm "hello world"
-    end
-    {% if flag?(:freebsd) %}
-      sleep 1
-    {% else %}
-      sleep 0.1
-    {% end %}
-    repli.close
-    done.receive
 
-    server = LavinMQ::Server.new(data_dir)
+    with_amqp_server(replicator: replicator) do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("repli")
+        q.publish_confirm "hello world"
+      end
+      repli.close
+      done.receive
+    end
+
+    server = LavinMQ::Server.new(follower_data_dir)
     begin
       q = server.vhosts["/"].queues["repli"].as(LavinMQ::DurableQueue)
       q.message_count.should eq 1
@@ -61,6 +50,57 @@ describe LavinMQ::Clustering::Client do
       end.should be_true
     ensure
       server.close
+    end
+  end
+
+  it "will failover" do
+    config1 = LavinMQ::Config.new
+    config1.data_dir = "/tmp/failover1"
+    config1.clustering_advertised_uri = "tcp://localhost:5681"
+    config1.clustering_port = 5681
+    config1.amqp_port = 5671
+    config1.http_port = 15671
+    controller1 = LavinMQ::Clustering::Controller.new(config1)
+
+    config2 = LavinMQ::Config.new
+    config2.data_dir = "/tmp/failover2"
+    config2.clustering_advertised_uri = "tcp://localhost:5682"
+    config2.clustering_port = 5682
+    config2.amqp_port = 5672
+    config2.http_port = 15672
+    controller2 = LavinMQ::Clustering::Controller.new(config2)
+
+    listen = Channel(String).new
+    spawn(name: "etcd elect leader spec") do
+      etcd = LavinMQ::Etcd.new
+      etcd.elect_listen("lavinmq/leader") do |value|
+        listen.send value
+      end
+    rescue LavinMQ::Etcd::Error
+      # expect this when etcd nodes are terminated
+    end
+    Fiber.yield
+    spawn(name: "failover1") do
+      controller1.run
+    end
+    Fiber.yield
+    spawn(name: "failover2") do
+      controller2.run
+    end
+    sleep 0.1
+    leader = listen.receive
+    case leader
+    when /1$/
+      controller1.stop
+      listen.receive.should match /2$/
+      sleep 0.1
+      controller2.stop
+    when /2$/
+      controller2.stop
+      listen.receive.should match /1$/
+      sleep 0.1
+      controller1.stop
+    else fail("no leader elected")
     end
   end
 end

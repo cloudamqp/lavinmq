@@ -178,7 +178,11 @@ module LavinMQ
     end
 
     def listen_clustering(bind, port)
-      @replicator.listen(bind, port)
+      @replicator.listen(TCPServer.new(bind, port))
+    end
+
+    def listen_clustering(server : TCPServer)
+      @replicator.listen(server)
     end
 
     def close

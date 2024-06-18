@@ -74,9 +74,9 @@ def test_headers(headers = nil)
   req_hdrs
 end
 
-def with_amqp_server(tls = false, & : LavinMQ::Server -> Nil)
+def with_amqp_server(tls = false, replicator = LavinMQ::Clustering::NoopServer.new, & : LavinMQ::Server -> Nil)
   tcp_server = TCPServer.new("localhost", 0)
-  s = LavinMQ::Server.new(DATA_DIR)
+  s = LavinMQ::Server.new(DATA_DIR, replicator)
   begin
     if tls
       ctx = OpenSSL::SSL::Context::Server.new

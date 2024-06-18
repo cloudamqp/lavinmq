@@ -11,9 +11,11 @@ module LavinMQ
       @closed = false
       @amqp_proxy : Proxy?
       @http_proxy : Proxy?
+      @socket : TCPSocket?
 
-      def initialize(@data_dir : String, @id : Int32, @password : String, proxy = true)
+      def initialize(@config : Config, @id : Int32, @password : String, proxy = true)
         System.maximize_fd_limit
+        @data_dir = config.data_dir
         @files = Hash(String, File).new do |h, k|
           path = File.join(@data_dir, k)
           Dir.mkdir_p File.dirname(path)
@@ -24,8 +26,8 @@ module LavinMQ
         @backup_dir = File.join(@data_dir, "backups", Time.utc.to_rfc3339)
 
         if proxy
-          @amqp_proxy = Proxy.new(Config.instance.amqp_bind, Config.instance.amqp_port)
-          @http_proxy = Proxy.new(Config.instance.http_bind, Config.instance.http_port)
+          @amqp_proxy = Proxy.new(@config.amqp_bind, @config.amqp_port)
+          @http_proxy = Proxy.new(@config.http_bind, @config.http_port)
         end
       end
 
@@ -42,13 +44,13 @@ module LavinMQ
       def follow(host : String, port : Int32)
         SystemD.notify_ready
         if amqp_proxy = @amqp_proxy
-          spawn amqp_proxy.forward_to(host, Config.instance.amqp_port, true), name: "AMQP proxy"
+          spawn amqp_proxy.forward_to(host, @config.amqp_port, true), name: "AMQP proxy"
         end
         if http_proxy = @http_proxy
-          spawn http_proxy.forward_to(host, Config.instance.http_port), name: "HTTP proxy"
+          spawn http_proxy.forward_to(host, @config.http_port), name: "HTTP proxy"
         end
         loop do
-          socket = TCPSocket.new(host, port)
+          @socket = socket = TCPSocket.new(host, port)
           socket.sync = true
           socket.read_buffering = false
           lz4 = Compress::LZ4::Reader.new(socket)
@@ -61,11 +63,10 @@ module LavinMQ
           break if @closed
           Log.info { "Disconnected from server #{host}:#{port} (#{ex}), retrying..." }
           sleep 1
-          break if @closed
         end
       end
 
-      def sync(socket, lz4)
+      private def sync(socket, lz4)
         Log.info { "Connected" }
         authenticate(socket)
         Log.info { "Authenticated" }
@@ -77,7 +78,7 @@ module LavinMQ
       end
 
       private def set_socket_opts(socket)
-        if keepalive = Config.instance.tcp_keepalive
+        if keepalive = @config.tcp_keepalive
           socket.keepalive = true
           socket.tcp_keepalive_idle = keepalive[0]
           socket.tcp_keepalive_interval = keepalive[1]
@@ -171,7 +172,7 @@ module LavinMQ
       end
 
       private def stream_changes(socket, lz4)
-        acks = Channel(Int64).new(Config.instance.clustering_max_lag)
+        acks = Channel(Int64).new(@config.clustering_max_lag)
         spawn send_ack_loop(acks, socket), name: "Send ack loop"
         loop do
           filename_len = lz4.read_bytes Int32, IO::ByteFormat::LittleEndian
@@ -239,6 +240,7 @@ module LavinMQ
         @http_proxy.try &.close
         @files.each_value &.close
         @data_dir_lock.release
+        @socket.try &.close
       end
 
       class Error < Exception; end
