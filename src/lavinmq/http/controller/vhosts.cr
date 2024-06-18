@@ -34,7 +34,7 @@ module LavinMQ
           refuse_unless_administrator(context, u)
           name = URI.decode_www_form(params["name"])
           body = parse_body(context)
-          tags = body["tags"]?.to_s.split(",") || [] of String
+          tags = body["tags"]?.to_s.split(',').map(&.strip).reject(&.empty?)
           description = body["description"]?.try(&.to_s) || ""
           is_update = @amqp_server.vhosts[name]?
           if name.bytesize > UInt8::MAX
