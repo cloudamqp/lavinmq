@@ -42,7 +42,7 @@ module LavinMQ
     @definitions_file_path : String
     @definitions_deletes = 0
 
-    def initialize(@name : String, @server_data_dir : String, @users : UserStore, @replicator : Replication::Replicator, @description = "", @tags = Array(String).new(0))
+    def initialize(@name : String, @server_data_dir : String, @users : UserStore, @replicator : Clustering::Replicator, @description = "", @tags = Array(String).new(0))
       @log = Log.for "vhost[name=#{@name}]"
       @dir = Digest::SHA1.hexdigest(@name)
       @data_dir = File.join(@server_data_dir, @dir)
@@ -58,7 +58,7 @@ module LavinMQ
       @shovels = ShovelStore.new(self)
       @upstreams = Federation::UpstreamStore.new(self)
       load!
-      spawn check_consumer_timeouts_loop
+      spawn check_consumer_timeouts_loop, name: "Consumer timeouts loop"
     end
 
     private def check_consumer_timeouts_loop
@@ -462,7 +462,6 @@ module LavinMQ
       Fiber.yield # yield so that Client read_loops can shutdown
       @queues.each_value &.close
       Fiber.yield
-      compact!
       @definitions_file.close
     end
 

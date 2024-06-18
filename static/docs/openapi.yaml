@@ -1,16 +1,15 @@
 ---
 openapi: 3.0.3
 info:
-  version:
-    "$ref": "../shard.yml#/version"
-  title: LavinMQ Management HTTP API
+  version: v1.2.12
+  title: LavinMQ HTTP API
   description: HTTP API to programmatically manage all aspects of LavinMQ.
   contact:
     name: LavinMQ Team
     url: https://www.lavinmq.com/
     email: contact@lavinmq.com
 servers:
-- url: http://localhost:15672/api
+- url: /api
 components:
   schemas:
     ErrorResponse:
@@ -149,6 +148,8 @@ paths:
     "$ref": "./paths/connections.yaml#/~1connections~1{name}"
   "/connections/{name}/channels":
     "$ref": "./paths/connections.yaml#/~1connections~1{name}~1channels"
+  "/api/connections/username/{username}":
+    "$ref": "./paths/connections.yaml#/~1connections~1username~1{username}"
   "/consumers":
     "$ref": "./paths/consumers.yaml#/~1consumers"
   "/consumers/{vhost}":

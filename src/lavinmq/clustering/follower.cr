@@ -1,31 +1,35 @@
 require "./actions"
 require "./file_index"
+require "../config"
+require "socket"
 
 module LavinMQ
-  module Replication
+  module Clustering
     class Follower
-      Log = ::Log.for(self)
+      Log = ::Log.for("clustering.follower")
 
       @acked_bytes = 0_i64
       @sent_bytes = 0_i64
-      @actions = Channel(Action).new(4096)
-      getter name
-      getter? closed
+      @actions = Channel(Action).new(Config.instance.clustering_max_lag)
+      getter id = -1
+      getter remote_address
 
-      def initialize(@socket : TCPSocket, @file_index : FileIndex)
+      def initialize(@socket : TCPSocket, @data_dir : String, @file_index : FileIndex)
         Log.context.set(address: @socket.remote_address.to_s)
-        @name = @socket.remote_address.to_s
-        @closed = false
         @socket.write_timeout = 5.seconds
         @socket.read_timeout = 5.seconds
-        @socket.buffer_size = 64 * 1024
+        @remote_address = @socket.remote_address
         @lz4 = Compress::LZ4::Writer.new(@socket, Compress::LZ4::CompressOptions.new(auto_flush: false, block_mode_linked: true))
       end
 
       def negotiate!(password) : Nil
         validate_header!
         authenticate!(password)
+        @id = @socket.read_bytes Int32, IO::ByteFormat::LittleEndian
         @socket.read_timeout = nil
+        @socket.tcp_nodelay = true
+        @socket.read_buffering = false
+        @socket.sync = true # Use buffering in lz4
         if keepalive = Config.instance.tcp_keepalive
           @socket.keepalive = true
           @socket.tcp_keepalive_idle = keepalive[0]
@@ -42,30 +46,31 @@ module LavinMQ
         send_requested_files
       end
 
-      def read_acks(socket = @socket) : Nil
-        spawn action_loop, name: "Follower#action_loop"
-        loop do
-          read_ack(socket)
-        end
-      rescue IO::Error
-      end
-
-      def read_ack(socket = @socket) : Nil
-        len = socket.read_bytes(Int64, IO::ByteFormat::LittleEndian)
-        @acked_bytes += len
-      end
-
-      private def action_loop(socket = @lz4)
+      def action_loop(socket = @lz4)
         while action = @actions.receive?
           action.send(socket)
+          sent_bytes = action.lag_size.to_i64
           while action2 = @actions.try_receive?
             action2.send(socket)
+            sent_bytes += action2.lag_size
           end
           socket.flush
+          sync(sent_bytes)
         end
-      rescue IO::Error
       ensure
         close
+      end
+
+      private def sync(bytes, socket = @socket) : Nil
+        until bytes.zero?
+          bytes -= read_ack(socket)
+        end
+      end
+
+      private def read_ack(socket = @socket) : Int64
+        len = socket.read_bytes(Int64, IO::ByteFormat::LittleEndian)
+        @acked_bytes += len
+        len
       end
 
       private def validate_header! : Nil
@@ -93,7 +98,7 @@ module LavinMQ
 
       private def send_file_list(socket = @lz4)
         @file_index.files_with_hash do |path, hash|
-          path = path[Config.instance.data_dir.bytesize + 1..]
+          path = path[@data_dir.bytesize + 1..]
           socket.write_bytes path.bytesize.to_i32, IO::ByteFormat::LittleEndian
           socket.write path.to_slice
           socket.write hash
@@ -133,15 +138,18 @@ module LavinMQ
       end
 
       def add(path, mfile : MFile? = nil) : Int64
-        send_action AddAction.new(path, mfile)
+        path = path[(@data_dir.size + 1)..] if Path[path].absolute?
+        send_action AddAction.new(@data_dir, path, mfile)
       end
 
       def append(path, obj) : Int64
-        send_action AppendAction.new(path, obj)
+        path = path[(@data_dir.size + 1)..] if Path[path].absolute?
+        send_action AppendAction.new(@data_dir, path, obj)
       end
 
       def delete(path) : Int64
-        send_action DeleteAction.new(path)
+        path = path[(@data_dir.size + 1)..] if Path[path].absolute?
+        send_action DeleteAction.new(@data_dir, path)
       end
 
       private def send_action(action : Action) : Int64
@@ -151,23 +159,17 @@ module LavinMQ
         lag_size
       end
 
-      def close(synced_close : Channel({Follower, Bool})? = nil)
-        return if closed?
-        @closed = true
-        Log.info { "Disconnected" }
-        wait_for_sync if synced_close
+      def close
         @actions.close
         @lz4.close
         @socket.close
       rescue IO::Error
         # ignore connection errors while closing
-      ensure
-        synced_close.try &.send({self, lag.zero?})
       end
 
       def to_json(json : JSON::Builder)
         {
-          remote_address:     @socket.remote_address.to_s,
+          remote_address:     @remote_address.to_s,
           sent_bytes:         @sent_bytes,
           acked_bytes:        @acked_bytes,
           compression_ratio:  @lz4.compression_ratio,
@@ -178,17 +180,6 @@ module LavinMQ
 
       def lag : Int64
         @sent_bytes - @acked_bytes
-      end
-
-      private def wait_for_sync
-        in_sync = Channel(Nil).new
-        spawn do
-          until lag.zero? || @socket.closed?
-            Fiber.yield
-          end
-          in_sync.send nil
-        end
-        in_sync.receive
       end
     end
   end

@@ -31,7 +31,7 @@ jobs:
     name: Format check
     runs-on: ubuntu-latest
     continue-on-error: true
-    container: 84codes/crystal:latest-ubuntu-20.04
+    container: 84codes/crystal:latest-ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - run: crystal tool format --check
@@ -40,7 +40,7 @@ jobs:
     name: Lint check
     runs-on: ubuntu-latest
     continue-on-error: true
-    container: 84codes/crystal:latest-ubuntu-20.04
+    container: 84codes/crystal:latest-ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - name: Checkout ameba
@@ -53,7 +53,7 @@ jobs:
       - name: Run ameba
         run: ameba/bin/ameba src spec
 
-  js-lint:
+  lint-js:
     name: Lint javascript
     runs-on: ubuntu-latest
     continue-on-error: true
@@ -62,32 +62,31 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: latest
-      - name: Setup node
-        run: npm install -g standard
       - name: Run standard
-        run: standard static/js
+        run: make lint-js
 
-  api-lint:
-    name: Lint and build HTTP API documentation
+  lint-openapi:
+    name: Lint OpenAPI
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Lint and build HTTP API documentation
-        run: make docs
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: latest
+      - name: Run spectral
+        run: make lint-openapi
 
   spec:
     name: Spec
     runs-on: ubuntu-latest
-    container: 84codes/crystal:latest-ubuntu-20.04
+    container: 84codes/crystal:latest-ubuntu-24.04
     steps:
       - name: Print Crystal version
         run: crystal -v
 
       - name: Install dependencies
-        run: apt-get update && apt-get install -y liblz4-dev
+        run: apt-get update && apt-get install -y liblz4-dev etcd-server
 
       - name: Checkout
         uses: actions/checkout@v4
@@ -99,8 +98,10 @@ jobs:
     name: Spec OS X
     runs-on: macos-14
     steps:
-      - name: Install Crystal
-        run: brew install crystal
+      - name: Install dependencies
+        run: |
+          brew install crystal etcd
+          echo "/opt/homebrew/opt/etcd/bin" >> $GITHUB_PATH
         env:
           HOMEBREW_NO_AUTO_UPDATE: 1
           HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: 1
@@ -115,7 +116,7 @@ jobs:
   compile:
     name: Compile LavinMQ
     runs-on: ubuntu-latest
-    container: 84codes/crystal:latest-ubuntu-20.04
+    container: 84codes/crystal:latest-ubuntu-24.04
 
     steps:
       - name: Install dependencies
@@ -163,7 +164,7 @@ jobs:
       - name: Install LavinMQ dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y make libevent-2.1-7
+          sudo apt-get install -y make libevent-2.1-7 liblz4-1
 
       - name: Download lavinmq
         uses: actions/download-artifact@v4
@@ -192,15 +193,15 @@ jobs:
 
   java-client-test:
     name: RabbitMQ java client test
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     needs: compile
     continue-on-error: true
 
     steps:
-      - name: Install dependencies
+      - name: Install LavinMQ dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y make libevent-2.1-7 openjdk-13-jre-headless liblz4-1
+          sudo apt-get install -y make libevent-2.1-7 openjdk-21-jre-headless liblz4-1
 
       - uses: actions/download-artifact@v4
         with:
@@ -228,14 +229,14 @@ jobs:
 
   bunny-test:
     name: Bunny client test
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     needs: compile
 
     steps:
-      - name: Install dependencies
+      - name: Install LavinMQ dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libevent-dev liblz4-1
+          sudo apt-get install -y libevent-2.1-7 liblz4-1
 
       - name: Checkout LavinMQ for bunny_definitions.json
         uses: actions/checkout@v4
@@ -279,11 +280,16 @@ jobs:
 
   ruby-http-api-test:
     name: RabbitMQ HTTP API Ruby client test
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     needs: compile
     continue-on-error: true
 
     steps:
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libevent-2.1-7 liblz4-1
+
       - uses: actions/download-artifact@v4
         with:
           name: bin
@@ -315,11 +321,16 @@ jobs:
 
   go-http-api-test:
     name: RabbitMQ HTTP API Go client test
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     needs: compile
     continue-on-error: true
 
     steps:
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libevent-2.1-7 liblz4-1
+
       - uses: actions/download-artifact@v4
         with:
           name: bin
@@ -327,13 +338,13 @@ jobs:
 
       - name: Run LavinMQ in background
         run: |
-          chmod +x bin/lavinmq
+          chmod +x bin/*
           bin/lavinmq --data-dir /tmp/amqp &
 
       - name: Install Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.15.2
+          go-version: 1.22.3
 
       - name: Clone http client
         uses: actions/checkout@v4
@@ -345,15 +356,23 @@ jobs:
       - name: Run specs
         run: |
           cd rabbit-hole
+          bash bin/ci/before_build.sh
           go test -v ./...
+        env:
+          RABBITHOLE_LAVINMQCTL: ../bin/lavinmqctl
 
   release-mode-test:
     name: Test in release mode
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     needs: compile
     continue-on-error: true
 
     steps:
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libevent-2.1-7 liblz4-1
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -369,3 +388,15 @@ jobs:
 
       - name: Test the static HTTP controller
         run: ./extras/static_requests.sh
+
+  freebsd-test:
+    name: Spec FreeBSD
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Spec
+        uses: vmactions/freebsd-vm@v1
+        with:
+          usesh: true
+          prepare: pkg install -y crystal shards security/openssl curl gmake coreos-etcd34
+          run: gmake test

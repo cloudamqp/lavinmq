@@ -320,7 +320,7 @@ class LavinMQCtl
     tags = ARGV.join(",")
     abort @banner unless username && tags
     resp = http.put "/api/users/#{username}", @headers, {tags: tags}.to_json
-    handle_response(resp, 204)
+    handle_response(resp, 201, 204)
   end
 
   private def change_password
@@ -352,7 +352,7 @@ class LavinMQCtl
     vhost = @options["vhost"]? || "/"
     queue = ARGV.shift?
     abort @banner unless queue
-    resp = http.delete "/api/queues/#{URI.encode_www_form(vhost)}/#{queue}/contents", @headers
+    resp = http.delete "/api/queues/#{URI.encode_www_form(vhost)}/#{URI.encode_www_form(queue)}/contents", @headers
     handle_response(resp, 204)
   end
 
@@ -360,7 +360,7 @@ class LavinMQCtl
     vhost = @options["vhost"]? || "/"
     queue = ARGV.shift?
     abort @banner unless queue
-    resp = http.put "/api/queues/#{URI.encode_www_form(vhost)}/#{queue}/pause", @headers
+    resp = http.put "/api/queues/#{URI.encode_www_form(vhost)}/#{URI.encode_www_form(queue)}/pause", @headers
     handle_response(resp, 204)
   end
 
@@ -368,7 +368,7 @@ class LavinMQCtl
     vhost = @options["vhost"]? || "/"
     queue = ARGV.shift?
     abort @banner unless queue
-    resp = http.put "/api/queues/#{URI.encode_www_form(vhost)}/#{queue}/resume", @headers
+    resp = http.put "/api/queues/#{URI.encode_www_form(vhost)}/#{URI.encode_www_form(queue)}/resume", @headers
     handle_response(resp, 204)
   end
 
@@ -459,14 +459,14 @@ class LavinMQCtl
   private def add_vhost
     name = ARGV.shift?
     abort @banner unless name
-    resp = http.put "/api/vhosts/#{name}", @headers
-    handle_response(resp, 204)
+    resp = http.put "/api/vhosts/#{URI.encode_www_form(name)}", @headers
+    handle_response(resp, 201, 204)
   end
 
   private def delete_vhost
     name = ARGV.shift?
     abort @banner unless name
-    resp = http.delete "/api/vhosts/#{name}", @headers
+    resp = http.delete "/api/vhosts/#{URI.encode_www_form(name)}", @headers
     handle_response(resp, 204)
   end
 
@@ -482,7 +482,7 @@ class LavinMQCtl
              }
            end
     body ||= {} of String => String
-    resp = http.post "/api/vhosts/#{name}/purge_and_close_consumers", @headers, body.to_json
+    resp = http.post "/api/vhosts/#{URI.encode_www_form(name)}/purge_and_close_consumers", @headers, body.to_json
     handle_response(resp, 204)
   end
 
@@ -490,7 +490,7 @@ class LavinMQCtl
     vhost = @options["vhost"]? || "/"
     name = ARGV.shift?
     abort @banner unless name
-    resp = http.delete "/api/policies/#{URI.encode_www_form(vhost)}/#{name}", @headers
+    resp = http.delete "/api/policies/#{URI.encode_www_form(vhost)}/#{URI.encode_www_form(name)}", @headers
     handle_response(resp, 204)
   end
 
@@ -522,7 +522,7 @@ class LavinMQCtl
       "apply-to": @options["apply-to"]? || "all",
       "priority": @options["priority"]?.try &.to_i? || 0,
     }
-    resp = http.put "/api/policies/#{URI.encode_www_form(vhost)}/#{name}", @headers, body.to_json
+    resp = http.put "/api/policies/#{URI.encode_www_form(vhost)}/#{URI.encode_www_form(name)}", @headers, body.to_json
     handle_response(resp, 201, 204)
   end
 
@@ -530,7 +530,7 @@ class LavinMQCtl
     name = ARGV.shift?
     vhost = @options["vhost"]? || "/"
     abort @banner unless name
-    url = "/api/queues/#{URI.encode_www_form(vhost)}/#{name}"
+    url = "/api/queues/#{URI.encode_www_form(vhost)}/#{URI.encode_www_form(name)}"
     body = {
       "auto_delete": @options.has_key?("auto_delete"),
       "durable":     @options.has_key?("durable"),
@@ -544,7 +544,7 @@ class LavinMQCtl
     name = ARGV.shift?
     vhost = @options["vhost"]? || "/"
     abort @banner unless name
-    url = "/api/queues/#{URI.encode_www_form(vhost)}/#{name}"
+    url = "/api/queues/#{URI.encode_www_form(vhost)}/#{URI.encode_www_form(name)}"
     resp = http.delete url
     handle_response(resp, 204)
   end
@@ -571,7 +571,7 @@ class LavinMQCtl
     name = ARGV.shift?
     vhost = @options["vhost"]? || "/"
     abort @banner unless name && etype
-    url = "/api/exchanges/#{URI.encode_www_form(vhost)}/#{name}"
+    url = "/api/exchanges/#{URI.encode_www_form(vhost)}/#{URI.encode_www_form(name)}"
     body = {
       "type":        etype,
       "auto_delete": @options.has_key?("auto_delete"),
@@ -588,7 +588,7 @@ class LavinMQCtl
     name = ARGV.shift?
     vhost = @options["vhost"]? || "/"
     abort @banner unless name
-    url = "/api/exchanges/#{URI.encode_www_form(vhost)}/#{name}"
+    url = "/api/exchanges/#{URI.encode_www_form(vhost)}/#{URI.encode_www_form(name)}"
     resp = http.delete url
     handle_response(resp, 204)
   end
@@ -643,7 +643,7 @@ class LavinMQCtl
       "write":     write,
     }
     resp = http.put url, @headers, body.to_json
-    handle_response(resp, 204)
+    handle_response(resp, 201, 204)
   end
 
   private def definitions

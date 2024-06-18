@@ -25,7 +25,6 @@ class MFile < IO
   end
 
   getter pos : Int64 = 0i64
-  getter? closed : Bool = false
   getter size : Int64 = 0i64
   getter capacity : Int64 = 0i64
   getter path : String
@@ -98,18 +97,15 @@ class MFile < IO
     self
   end
 
-  # Unmapping the file
   # The file will be truncated to the current position unless readonly or deleted
   def close(truncate_to_size = true)
-    return if @closed
-    @closed = true
-    begin
-      unmap
-
-      return if @readonly || @deleted || !truncate_to_size
+    # unmap occurs on finalize
+    if truncate_to_size && !@readonly && !@deleted && @fd > 0
       code = LibC.ftruncate(@fd, @size)
       raise File::Error.from_errno("Error truncating file", file: @path) if code < 0
-    ensure
+    end
+  ensure
+    unless @fd == -1
       code = LibC.close(@fd)
       raise File::Error.from_errno("Error closing file", file: @path) if code < 0
       @fd = -1
@@ -142,8 +138,8 @@ class MFile < IO
   # Copies the file to another IO
   # Won't mmap the file if it's unmapped already
   def copy_to(output : IO, size = @size) : Int64
-    raise ClosedError.new if @closed
     if unmapped? # don't remap unmapped files
+      raise ClosedError.new if @fd < 0
       io = IO::FileDescriptor.new(@fd, blocking: true, close_on_finalize: false)
       io.rewind
       IO.copy(io, output, size) == size || raise IO::EOFError.new
@@ -177,7 +173,6 @@ class MFile < IO
   end
 
   def write(slice : Bytes) : Nil
-    raise ClosedError.new if @closed
     size = @size
     new_size = size + slice.size
     raise IO::EOFError.new if new_size > @capacity
@@ -186,7 +181,6 @@ class MFile < IO
   end
 
   def read(slice : Bytes)
-    raise ClosedError.new if @closed
     pos = @pos
     new_pos = pos + slice.size
     raise IO::EOFError.new if new_pos > @size
@@ -232,12 +226,10 @@ class MFile < IO
   end
 
   def to_slice
-    raise ClosedError.new if @closed
     Bytes.new(buffer, @size, read_only: true)
   end
 
   def to_slice(pos, size)
-    raise ClosedError.new if @closed
     raise IO::EOFError.new if pos + size > @size
     Bytes.new(buffer + pos, size, read_only: true)
   end

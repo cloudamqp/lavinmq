@@ -25,11 +25,11 @@ module LavinMQ
     @closed = false
     @flow = true
     @listeners = Hash(Socket::Server, Symbol).new # Socket => protocol
+    @replicator : Clustering::Replicator
 
-    def initialize(@data_dir : String)
+    def initialize(@data_dir : String, @replicator = Clustering::NoopServer.new)
       @log = Log.for "amqpserver"
       Dir.mkdir_p @data_dir
-      @replicator = Replication::Server.new
       Schema.migrate(@data_dir, @replicator)
       @users = UserStore.new(@data_dir, @replicator)
       @vhosts = VHostStore.new(@data_dir, @users, @replicator)
@@ -40,6 +40,11 @@ module LavinMQ
 
     def followers
       @replicator.followers
+    end
+
+    def amqp_url
+      addr = @listeners.each_key.select(TCPServer).first.local_address
+      "amqp://#{addr}"
     end
 
     def stop
@@ -80,7 +85,14 @@ module LavinMQ
             case Config.instance.tcp_proxy_protocol
             when 1 then ProxyProtocol::V1.parse(client)
             when 2 then ProxyProtocol::V2.parse(client)
-            else        ConnectionInfo.new(remote_address, client.local_address)
+            else
+              if client.peek[0, 5] == "PROXY".to_slice &&
+                 followers.any? { |f| f.remote_address.address == remote_address.address }
+                # Expect PROXY protocol header if remote address is a follower
+                ProxyProtocol::V1.parse(client)
+              else
+                ConnectionInfo.new(remote_address, client.local_address)
+              end
             end
           handle_connection(client, conn_info)
         rescue ex
@@ -165,8 +177,8 @@ module LavinMQ
       listen(s)
     end
 
-    def listen_replication(bind, port)
-      @replicator.bind(bind, port).listen
+    def listen_clustering(bind, port)
+      @replicator.listen(bind, port)
     end
 
     def close
@@ -287,21 +299,24 @@ module LavinMQ
 
       @mem_limit = cgroup_memory_max || System.physical_memory.to_i64
 
-      return if closed? # Data dir can be removed already
-      fs_stats = Filesystem.info(@data_dir)
-      until @disk_free_log.size < log_size
-        @disk_free_log.shift
-      end
-      disk_free = fs_stats.available.to_i64
-      @disk_free_log.push disk_free
-      @disk_free = disk_free
+      begin
+        fs_stats = Filesystem.info(@data_dir)
+        until @disk_free_log.size < log_size
+          @disk_free_log.shift
+        end
+        disk_free = fs_stats.available.to_i64
+        @disk_free_log.push disk_free
+        @disk_free = disk_free
 
-      until @disk_total_log.size < log_size
-        @disk_total_log.shift
+        until @disk_total_log.size < log_size
+          @disk_total_log.shift
+        end
+        disk_total = fs_stats.total.to_i64
+        @disk_total_log.push disk_total
+        @disk_total = disk_total
+      rescue File::NotFoundError
+        # Ignore when server is closed and deleted already
       end
-      disk_total = fs_stats.total.to_i64
-      @disk_total_log.push disk_total
-      @disk_total = disk_total
     end
 
     private def stats_loop

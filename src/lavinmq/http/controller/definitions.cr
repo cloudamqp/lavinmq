@@ -301,7 +301,7 @@ module LavinMQ
               v.exchanges.each_value.reject(&.internal?).each do |e|
                 delayed = e.arguments["x-delayed-exchange"]?
                 if delayed
-                  arguments = e.arguments.dup
+                  arguments = e.arguments.clone
                   arguments["x-delayed-type"] = e.type
                   arguments.delete("x-delayed-exchange")
                 end

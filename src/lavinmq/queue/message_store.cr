@@ -2,7 +2,7 @@ require "../mfile"
 require "../segment_position"
 require "log"
 require "file_utils"
-require "../replication/server"
+require "../clustering/server"
 
 module LavinMQ
   class Queue
@@ -26,7 +26,7 @@ module LavinMQ
       getter size = 0u32
       getter empty_change = Channel(Bool).new
 
-      def initialize(@data_dir : String, @replicator : Replication::Replicator?)
+      def initialize(@queue_data_dir : String, @replicator : Clustering::Replicator?)
         @acks = Hash(UInt32, MFile).new { |acks, seg| acks[seg] = open_ack_file(seg) }
         load_segments_from_disk
         load_deleted_from_disk
@@ -191,7 +191,7 @@ module LavinMQ
         close
         @segments.each_value { |f| @replicator.try &.delete_file(f.path); f.delete }
         @acks.each_value { |f| @replicator.try &.delete_file(f.path); f.delete }
-        FileUtils.rm_rf @data_dir
+        FileUtils.rm_rf @queue_data_dir
       end
 
       def empty?
@@ -242,7 +242,7 @@ module LavinMQ
       private def open_new_segment(next_msg_size = 0) : MFile
         @wfile.unmap unless @wfile == @rfile
         next_id = @wfile_id + 1
-        path = File.join(@data_dir, "msgs.#{next_id.to_s.rjust(10, '0')}")
+        path = File.join(@queue_data_dir, "msgs.#{next_id.to_s.rjust(10, '0')}")
         capacity = Math.max(Config.instance.segment_size, next_msg_size + 4)
         delete_unused_segments
         wfile = MFile.new(path, capacity)
@@ -256,7 +256,7 @@ module LavinMQ
       end
 
       private def open_ack_file(id) : MFile
-        path = File.join(@data_dir, "acks.#{id.to_s.rjust(10, '0')}")
+        path = File.join(@queue_data_dir, "acks.#{id.to_s.rjust(10, '0')}")
         capacity = Config.instance.segment_size // BytesMessage::MIN_BYTESIZE * 4 + 4
         mfile = MFile.new(path, capacity, writeonly: true)
         @replicator.try &.register_file mfile
@@ -266,15 +266,15 @@ module LavinMQ
       private def load_deleted_from_disk
         count = 0u32
         ack_files = 0u32
-        Dir.each(@data_dir) do |f|
+        Dir.each(@queue_data_dir) do |f|
           ack_files += 1 if f.starts_with? "acks."
         end
 
-        Dir.each_child(@data_dir) do |child|
+        Dir.each_child(@queue_data_dir) do |child|
           next unless child.starts_with? "acks."
           seg = child[5, 10].to_u32
           acked = Array(UInt32).new
-          File.open(File.join(@data_dir, child), "a+") do |file|
+          File.open(File.join(@queue_data_dir, child), "a+") do |file|
             loop do
               pos = UInt32.from_io(file, IO::ByteFormat::SystemEndian)
               if pos.zero? # pos 0 doesn't exists (first valid is 4), must be a sparse file
@@ -294,7 +294,7 @@ module LavinMQ
 
       private def load_segments_from_disk : Nil
         ids = Array(UInt32).new
-        Dir.each_child(@data_dir) do |f|
+        Dir.each_child(@queue_data_dir) do |f|
           if f.starts_with? "msgs."
             ids << f[5, 10].to_u32
           end
@@ -305,7 +305,7 @@ module LavinMQ
         last_idx = ids.size - 1
         ids.each_with_index do |seg, idx|
           filename = "msgs.#{seg.to_s.rjust(10, '0')}"
-          path = File.join(@data_dir, filename)
+          path = File.join(@queue_data_dir, filename)
           file = if idx == last_idx
                    # expand the last segment
                    MFile.new(path, Config.instance.segment_size)

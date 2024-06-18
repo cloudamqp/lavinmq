@@ -1,4 +1,4 @@
-require "../replication"
+require "../clustering"
 require "./file_index"
 require "./replicator"
 require "./follower"
@@ -7,9 +7,10 @@ require "../message"
 require "../mfile"
 require "crypto/subtle"
 require "lz4"
+require "../etcd"
 
 module LavinMQ
-  module Replication
+  module Clustering
     # When a follower connects:
     # It sends a static header (wrong header disconnects the client)
     # It sends its password (servers closes the connection if the password is wrong)
@@ -23,17 +24,20 @@ module LavinMQ
     class Server
       include FileIndex
       include Replicator
-      Log = ::Log.for("replication")
+      Log = ::Log.for("clustering")
+
       @lock = Mutex.new(:unchecked)
-      @followers = Array(Follower).new
+      @followers = Array(Follower).new(4)
+      @has_followers = Channel(Int32).new
       @password : String
       @files = Hash(String, MFile?).new
+      @dirty_isr = true
+      @id : Int32
 
-      def initialize
+      def initialize(@config : Config, @etcd : Etcd)
+        @data_dir = @config.data_dir
         @password = password
-        @tcp = TCPServer.new
-        @tcp.sync = false
-        @tcp.reuse_address = true
+        @id = File.read(File.join(@data_dir, ".clustering_id")).to_i(36)
       end
 
       def clear
@@ -85,7 +89,7 @@ module LavinMQ
       end
 
       def with_file(filename, & : MFile | File | Nil -> Nil) : Nil
-        path = File.join(Config.instance.data_dir, filename)
+        path = File.join(@data_dir, filename)
         if @files.has_key? path
           if mfile = @files[path]
             yield mfile
@@ -106,48 +110,55 @@ module LavinMQ
         end
       end
 
-      private def password : String
-        path = File.join(Config.instance.data_dir, ".replication_secret")
-        begin
-          info = File.info(path)
-          raise "File permissions of #{path} has to be 0400" if info.permissions.value != 0o400
-          raise "Secret in #{path} is too short (min 32 bytes)" if info.size < 32
-          password = File.read(path).chomp
-        rescue File::NotFoundError
-          password = Random::Secure.base64(32)
-          File.open(path, "w") do |f|
-            f.chmod(0o400)
-            f.print password
+      def password : String
+        key = "#{@config.clustering_etcd_prefix}/clustering_secret"
+        @etcd.get(key) ||
+          begin
+            Log.info { "Generating new clustering secret" }
+            secret = Random::Secure.base64(32)
+            @etcd.put(key, secret)
+            secret
           end
-        end
-        password
       end
 
-      def bind(host, port)
-        @tcp.bind(host, port)
-        self
-      end
+      @listeners = Array(TCPServer).new(1)
 
-      def listen
-        @tcp.listen
-        Log.info { "Listening on #{@tcp.local_address}" }
-        while socket = @tcp.accept?
-          spawn handle_socket(socket), name: "Replication follower"
+      def listen(host, port)
+        tcp = TCPServer.new(host, port)
+        tcp.sync = false
+        tcp.listen
+        Log.info { "Listening on #{tcp.local_address}" }
+        @listeners << tcp
+        while socket = tcp.accept?
+          spawn handle_socket(socket), name: "Clustering follower"
         end
       end
 
-      def handle_socket(socket)
-        follower = Follower.new(socket, self)
+      private def handle_socket(socket : TCPSocket)
+        follower = Follower.new(socket, @data_dir, self)
         follower.negotiate!(@password)
+        if follower.id == @id
+          Log.error { "Disconnecting follower with the clustering id of the leader" }
+          return
+        end
+        if stale_follower = @followers.find { |f| f.id == follower.id }
+          Log.error { "Disconnecting stale follower with id #{follower.id.to_s(36)}" }
+          stale_follower.close
+        end
+        follower.full_sync # sync the bulk
         @lock.synchronize do
-          follower.full_sync
+          follower.full_sync # sync the last
           @followers << follower
+          @dirty_isr = true
+        end
+        while @has_followers.try_send? @followers.size
         end
         begin
-          follower.read_acks
+          follower.action_loop
         ensure
           @lock.synchronize do
             @followers.delete(follower)
+            @dirty_isr = true
           end
         end
       rescue ex : AuthenticationError
@@ -157,35 +168,85 @@ module LavinMQ
       rescue ex : IO::EOFError
         Log.info { "Follower disconnected" }
       rescue ex : IO::Error
-        Log.warn(exception: ex) { "Follower connection error" } unless socket.closed?
+        Log.warn { "Follower disonnected: #{ex.message}" }
       ensure
         follower.try &.close
       end
 
+      private def update_isr
+        isr_key = "#{@config.clustering_etcd_prefix}/isr"
+        ids = String.build do |str|
+          @followers.each { |f| f.id.to_s(str, 36); str << "," }
+          @id.to_s(str, 36)
+        end
+        Log.info { "In-sync replicas: #{ids}" }
+        @etcd.put(isr_key, ids)
+        @dirty_isr = false
+      end
+
       def close
-        @tcp.close
+        @listeners.each &.close
         @lock.synchronize do
-          done = Channel({Follower, Bool}).new
-          @followers.each do |f|
-            spawn { f.close(done) }
-          end
-          @followers.size.times do
-            follower, synced = done.receive
-            Log.info { "Follower #{follower.name} stopped, in sync: #{synced}" }
-          end
+          @followers.each &.close
           @followers.clear
         end
+        @has_followers.close
         Fiber.yield # required for follower/listener fibers to actually finish
       end
 
       private def each_follower(& : Follower -> Nil) : Nil
+        isr_count = @followers.size
+        until isr_count >= @config.clustering_min_isr
+          Log.warn { "ISR requirement not met (#{isr_count}/#{@config.clustering_min_isr})" }
+          isr_count = @has_followers.receive? || return
+        end
         @lock.synchronize do
+          update_isr if @dirty_isr
           @followers.each do |f|
             yield f
           rescue Channel::ClosedError
             Fiber.yield # Allow other fiber to run to remove the follower from array
           end
         end
+      end
+    end
+
+    class NoopServer
+      include Replicator
+
+      def register_file(file : File)
+      end
+
+      def register_file(mfile : MFile)
+      end
+
+      def replace_file(path : String) # only non mfiles are ever replaced
+      end
+
+      def append(path : String, file : MFile, position : Int32, length : Int32)
+      end
+
+      def append(path : String, obj)
+      end
+
+      def delete_file(path : String)
+      end
+
+      def followers : Array(Follower)
+        Array(Follower).new(0)
+      end
+
+      def close
+      end
+
+      def listen(host, port)
+      end
+
+      def clear
+      end
+
+      def password : String
+        ""
       end
     end
   end
