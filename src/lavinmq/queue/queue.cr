@@ -133,7 +133,7 @@ module LavinMQ
       File.open(File.join(@data_dir, ".queue"), "w") { |f| f.sync = true; f.print @name }
       @state = QueueState::Paused if File.exists?(File.join(@data_dir, ".paused"))
       @msg_store = init_msg_store(@data_dir)
-      #todo: introduce error state, but first need to understand what difference is between closed, paused and error
+      # todo: introduce error state, but first need to understand what difference is between closed, paused and error
       @state = QueueState::Closed if @msg_store.closed
       @empty_change = @msg_store.empty_change
       handle_arguments
