@@ -338,7 +338,7 @@ jobs:
 
       - name: Run LavinMQ in background
         run: |
-          chmod +x bin/lavinmq
+          chmod +x bin/*
           bin/lavinmq --data-dir /tmp/amqp &
 
       - name: Install Go
