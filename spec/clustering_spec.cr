@@ -11,8 +11,12 @@ describe LavinMQ::Clustering::Client do
       "--data-dir=/tmp/clustering-spec.etcd",
       "--logger=zap",
       "--log-level=error",
+      "--heartbeat-interval=3",
+      "--election-timeout=30",
+      "--unsafe-no-fsync=true",
+      "--force-new-cluster=true",
     }, output: STDOUT, error: STDERR)
-    sleep 0.1
+    sleep 0.2
     spec.run
     p.terminate(graceful: false)
     FileUtils.rm_rf "/tmp/clustering-spec.etcd"

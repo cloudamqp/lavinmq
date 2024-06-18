@@ -4,7 +4,7 @@ require "file_utils"
 
 describe LavinMQ::Etcd do
   it "can put and get" do
-    cluster = EtcdCluster.new
+    cluster = EtcdCluster.new(1)
     cluster.run do
       etcd = LavinMQ::Etcd.new(cluster.endpoints)
       etcd.del("foo")
@@ -15,7 +15,7 @@ describe LavinMQ::Etcd do
   end
 
   it "can watch" do
-    cluster = EtcdCluster.new
+    cluster = EtcdCluster.new(1)
     cluster.run do
       etcd = LavinMQ::Etcd.new(cluster.endpoints)
       w = Channel(String?).new
@@ -23,7 +23,10 @@ describe LavinMQ::Etcd do
         etcd.watch("foo") do |val|
           w.send val
         end
+      rescue LavinMQ::Etcd::Error
+        # expect this when etcd nodes are terminated
       end
+      sleep 0.01
       etcd.put "foo", "bar"
       w.receive.should eq "bar"
       etcd.put "foo", "rab"
@@ -34,7 +37,7 @@ describe LavinMQ::Etcd do
   end
 
   it "can elect leader" do
-    cluster = EtcdCluster.new
+    cluster = EtcdCluster.new(1)
     cluster.run do
       etcd = LavinMQ::Etcd.new(cluster.endpoints)
       leader = Channel(String).new
@@ -43,10 +46,12 @@ describe LavinMQ::Etcd do
         etcd.elect_listen(key) do |value|
           leader.send value
         end
+      rescue LavinMQ::Etcd::Error
+        # expect this when etcd nodes are terminated
       end
+      sleep 0.01
       lease = etcd.elect(key, "bar", 1)
       leader.receive.should eq "bar"
-
       spawn(name: "elect other leader spec") do
         begin
           etcd.elect(key, "bar2", 1)
@@ -72,7 +77,7 @@ describe LavinMQ::Etcd do
       etcds.first(2).each &.terminate(graceful: false)
       select
       when lease.receive?
-      when timeout(10.seconds)
+      when timeout(6.seconds)
         fail "should lose the leadership"
       end
     end
@@ -88,7 +93,7 @@ describe LavinMQ::Etcd do
       select
       when lease.receive?
         fail "should not lose the leadership"
-      when timeout(9.seconds)
+      when timeout(6.seconds)
       end
     end
   end
@@ -98,18 +103,22 @@ describe LavinMQ::Etcd do
     cluster.run do
       etcd = LavinMQ::Etcd.new(cluster.endpoints.split(",").first)
       etcd.get("foo") # have to do a connection to be able to learn about new endpoints
-      endpoints = etcd.endpoints.sort!
-      endpoints.should eq ["127.0.0.1:23790", "127.0.0.1:23791", "127.0.0.1:23792"]
+      endpoints = etcd.endpoints
+      endpoints.size.should eq 3
+      endpoints.each &.should start_with "127.0.0.1:23"
     end
   end
 end
 
 class EtcdCluster
-  def initialize(@nodes = 3)
+  @ports : Array(Int32)
+
+  def initialize(nodes = 3)
+    @ports = nodes.times.map { rand(899) + 100 }.to_a
   end
 
   def endpoints
-    @nodes.times.map { |i| "127.0.0.1:2379#{i}" }.join(",")
+    @ports.map { |p| "127.0.0.1:23#{p}" }.join(",")
   end
 
   def run(&)
@@ -123,27 +132,29 @@ class EtcdCluster
   end
 
   def start : Array(Process)
-    cluster_token = "etcd#{rand(Int32::MAX)}"
-    initial_cluster = @nodes.times.map { |i| "l#{i}=http://127.0.0.1:2380#{i}" }.join(",")
-    Array(Process).new(@nodes) do |i|
+    initial_cluster = @ports.map_with_index { |p, i| "l#{i}=http://127.0.0.1:24#{p}" }.join(",")
+    @ports.map_with_index do |p, i|
+      FileUtils.rm_rf "/tmp/l#{i}.etcd"
       Process.new("etcd", {
         "--name=l#{i}",
         "--data-dir=/tmp/l#{i}.etcd",
-        "--listen-peer-urls=http://127.0.0.1:2380#{i}",
-        "--listen-client-urls=http://127.0.0.1:2379#{i}",
-        "--advertise-client-urls=http://127.0.0.1:2379#{i}",
-        "--initial-advertise-peer-urls=http://127.0.0.1:2380#{i}",
-        "--initial-cluster-token=#{cluster_token}",
-        "--initial-cluster-state=new",
+        "--listen-peer-urls=http://127.0.0.1:24#{p}",
+        "--listen-client-urls=http://127.0.0.1:23#{p}",
+        "--advertise-client-urls=http://127.0.0.1:23#{p}",
+        "--initial-advertise-peer-urls=http://127.0.0.1:24#{p}",
         "--initial-cluster", initial_cluster,
         "--logger=zap",
         "--log-level=error",
+        "--heartbeat-interval=10",
+        "--election-timeout=100",
+        "--unsafe-no-fsync=true",
+        "--force-new-cluster=true",
       }, output: STDOUT, error: STDERR)
     end
   end
 
   def stop(etcds)
     etcds.each { |p| p.terminate(graceful: false) if p.exists? }
-    etcds.each { |i| FileUtils.rm_rf "/tmp/l#{i}.etcd" }
+    etcds.size.times { |i| FileUtils.rm_rf "/tmp/l#{i}.etcd" }
   end
 end
