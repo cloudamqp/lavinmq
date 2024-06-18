@@ -338,7 +338,7 @@ jobs:
 
       - name: Run LavinMQ in background
         run: |
-          chmod +x bin/lavinmq
+          chmod +x bin/*
           bin/lavinmq --data-dir /tmp/amqp &
 
       - name: Install Go
@@ -356,7 +356,10 @@ jobs:
       - name: Run specs
         run: |
           cd rabbit-hole
+          bash bin/ci/before_build.sh
           go test -v ./...
+        env:
+          RABBITHOLE_LAVINMQCTL: ../bin/lavinmqctl
 
   release-mode-test:
     name: Test in release mode
