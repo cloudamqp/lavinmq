@@ -237,7 +237,7 @@ module LavinMQ
       json = post_request(tcp, address, "/v3/cluster/member/list", "")
       endpoints = Array(String).new
       json["members"].as_a.each do |m|
-        m["clientURLs"].as_a.each do |url|
+        m["clientURLs"]?.try &.as_a.each do |url|
           uri = URI.parse url.as_s
           if uri.scheme == "http" # Doesn't support https yet
             endpoints << "#{uri.hostname || "127.0.0.1"}:#{uri.port || 2379}"
