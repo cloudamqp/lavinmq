@@ -5,7 +5,7 @@ module LavinMQ
   class Etcd
     Log = ::Log.for(self)
 
-    def initialize(endpoints = "127.0.0.1:2379")
+    def initialize(endpoints = "localhost:2379")
       @endpoints = endpoints.split(',')
     end
 
