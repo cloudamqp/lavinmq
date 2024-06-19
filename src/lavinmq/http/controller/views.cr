@@ -1,4 +1,4 @@
-require "router"
+require "../router"
 require "../../version"
 require "html"
 require "digest/md5"
