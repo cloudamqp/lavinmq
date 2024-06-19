@@ -325,5 +325,5 @@ module LavinMQ
     end
   end
 
-class EmptyFile < Exception; end
+  class EmptyFile < Exception; end
 end
