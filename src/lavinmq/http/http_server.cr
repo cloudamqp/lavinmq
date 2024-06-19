@@ -1,6 +1,5 @@
 require "http/server"
 require "json"
-require "router"
 require "./constants"
 require "./handler/*"
 require "./controller"
