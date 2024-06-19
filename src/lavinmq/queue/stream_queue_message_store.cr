@@ -68,7 +68,7 @@ module LavinMQ
         offset = offset_from_headers(msg.properties.headers)
         {offset, seg, pos}
       rescue ex : IndexError # first segment can be empty if message size >= segment size
-        return offset_at(seg + 1, pos, true) unless retried
+        return offset_at(seg + 1, 4_u32, true) unless retried
         raise ex
       end
 
