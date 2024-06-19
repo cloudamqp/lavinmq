@@ -324,7 +324,7 @@ module LavinMQ
               Log.warn { "Empty file at #{path}, deleting it" }
               file.delete.close
               @replicator.try &.delete_file(path)
-              if idx == 0
+              if idx == 0 # Recreate the file if it's the first segment because we need at least one segment to exist
                 file = MFile.new(path, Config.instance.segment_size)
                 file.write_bytes Schema::VERSION
                 @replicator.try &.append path, Schema::VERSION
