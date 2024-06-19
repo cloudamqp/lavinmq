@@ -194,9 +194,9 @@ module LavinMQ::AMQP
 
       def replace_offsets_file(&)
         old_consumer_offsets = @consumer_offsets
-        @consumer_offsets = MFile.new("#{@consumer_offsets.path}.tmp", 32 * 1024)
+        @consumer_offsets = MFile.new("#{old_consumer_offsets.path}.tmp", 32 * 1024)
         yield # fill the new file with correct data in this block
-        @consumer_offsets.rename(@consumer_offsets.path.sub(".tmp",""))
+        @consumer_offsets.rename(old_consumer_offsets.path)
         old_consumer_offsets.close(truncate_to_size: false)
       end
 
