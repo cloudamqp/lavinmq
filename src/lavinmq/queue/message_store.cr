@@ -130,14 +130,10 @@ module LavinMQ
           notify_empty(true) if @size.zero?
           return Envelope.new(sp, msg, redelivered: false)
         rescue ex : IndexError
-          if @rfile.pos > (@rfile.size - BytesMessage::MIN_BYTESIZE)
-            Log.warn { "Msg file size does not match expected value, but it does not have enough room for more messages." }
-            select_next_read_segment && next
-            return if @size.zero?
-            raise IO::EOFError.new("EOF but @size=#{@size}")
-          else
-            raise Error.new(@rfile, cause: ex)
-          end
+          Log.warn { "Msg file size does not match expected value, moving on to next segment" }
+          select_next_read_segment && next
+          return if @size.zero?
+          raise Error.new(@rfile, cause: ex)
         rescue ex
           raise Error.new(@rfile, cause: ex)
         end
