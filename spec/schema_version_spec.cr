@@ -4,8 +4,7 @@ require "../src/lavinmq/schema"
 describe LavinMQ::SchemaVersion do
   describe "Schema version" do
     it "Empty file should raise EmptyFile" do
-      with_amqp_server do |_s|
-        data_dir = "/tmp/lavinmq-spec"
+      with_datadir do |data_dir|
         path = File.join(data_dir, "test_schema_version")
         file = MFile.new(path, 12)
         expect_raises(LavinMQ::EmptyFile) do
@@ -15,8 +14,7 @@ describe LavinMQ::SchemaVersion do
     end
 
     it "Should verify schema version" do
-      with_amqp_server do |_s|
-        data_dir = "/tmp/lavinmq-spec"
+      with_datadir do |data_dir|
         path = File.join(data_dir, "test_schema_version")
         file = MFile.new(path, 12)
         file.write_bytes LavinMQ::Schema::VERSION
@@ -25,8 +23,7 @@ describe LavinMQ::SchemaVersion do
     end
 
     it "Deletes empty file and creates a new when it is the first file" do
-      with_amqp_server do |_s|
-        data_dir = "/tmp/lavinmq-spec"
+      with_datadir do |data_dir|
         path = File.join(data_dir, "msgs.0000000001")
         file = MFile.new(path, LavinMQ::Config.instance.segment_size)
         file.resize(LavinMQ::Config.instance.segment_size)
