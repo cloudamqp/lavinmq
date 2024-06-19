@@ -101,8 +101,9 @@ describe LavinMQ::DurableQueue do
 
   it "handles files with few extra bytes" do
     queue_name = Random::Secure.hex(10)
-    with_vhost("test_vhost") do |vhost|
-      with_channel(vhost: vhost.name) do |ch|
+    with_amqp_server do |s|
+      vhost = s.vhosts.create("test_vhost")
+      with_channel(s, vhost: vhost.name) do |ch|
         q = ch.queue(queue_name)
         queue = vhost.queues[queue_name].as(LavinMQ::DurableQueue)
         mfile = queue.@msg_store.@segments.first_value
