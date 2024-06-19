@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Full HA clustering support, uses Etcd for leader election and metadata, and a replication protocol between nodes
+- Tags and descriptions on VHosts
+- Can pass an array of URLs to Shovel
+
+### Fixed
+
+- lavinmqctl didn't recognize 201/204 response codes from set_permissions, set_user_tags and add_vhost
+
+### Changed
+
+- Replaced internal HTTP router
+- Specs are more reliable when a new server is started for each spec
+
 ## [1.2.14] - 2024-06-15
 
 ### Fixed
