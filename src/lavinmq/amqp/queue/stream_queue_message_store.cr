@@ -40,6 +40,7 @@ module LavinMQ::AMQP
       # Used once when a consumer is started
       # Populates `segment` and `position` by iterating through segments
       # until `offset` is found
+      # ameba:disable Metrics/CyclomaticComplexity
       def find_offset(offset, tag = nil, track_offset = false) : Tuple(Int64, UInt32, UInt32)
         raise ClosedError.new if @closed
         if track_offset
