@@ -6,7 +6,7 @@ module LavinMQ
     class StaticController
       include ::HTTP::Handler
 
-      PUBLIC_DIR = Path["#{__DIR__}/../../../../static"].expand
+      PUBLIC_DIR = "#{__DIR__}/../../../../static"
 
       def call(context)
         path = context.request.path
