@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - lavinmqctl didn't recognize 201/204 response codes from set_permissions, set_user_tags and add_vhost
+- Queues will no longer be closed if file size is incorrect. Fixes [#669](https://github.com/cloudamqp/lavinmq/issues/669)
 
 ### Changed
 
