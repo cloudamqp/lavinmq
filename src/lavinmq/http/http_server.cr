@@ -1,6 +1,5 @@
 require "http/server"
 require "json"
-require "router"
 require "./constants"
 require "./handler/*"
 require "./controller"
@@ -19,27 +18,27 @@ module LavinMQ
         handlers = [
           StrictTransportSecurity.new,
           AMQPWebsocket.new(@amqp_server),
-          ViewsController.new.route_handler,
+          ViewsController.new,
           StaticController.new,
           ApiErrorHandler.new,
           AuthHandler.new(@amqp_server),
-          PrometheusController.new(@amqp_server).route_handler,
+          PrometheusController.new(@amqp_server),
           ApiDefaultsHandler.new,
-          MainController.new(@amqp_server).route_handler,
-          DefinitionsController.new(@amqp_server).route_handler,
-          ConnectionsController.new(@amqp_server).route_handler,
-          ChannelsController.new(@amqp_server).route_handler,
-          ConsumersController.new(@amqp_server).route_handler,
-          ExchangesController.new(@amqp_server).route_handler,
-          QueuesController.new(@amqp_server).route_handler,
-          BindingsController.new(@amqp_server).route_handler,
-          VHostsController.new(@amqp_server).route_handler,
-          VHostLimitsController.new(@amqp_server).route_handler,
-          UsersController.new(@amqp_server).route_handler,
-          PermissionsController.new(@amqp_server).route_handler,
-          ParametersController.new(@amqp_server).route_handler,
-          NodesController.new(@amqp_server).route_handler,
-          LogsController.new(@amqp_server).route_handler,
+          MainController.new(@amqp_server),
+          DefinitionsController.new(@amqp_server),
+          ConnectionsController.new(@amqp_server),
+          ChannelsController.new(@amqp_server),
+          ConsumersController.new(@amqp_server),
+          ExchangesController.new(@amqp_server),
+          QueuesController.new(@amqp_server),
+          BindingsController.new(@amqp_server),
+          VHostsController.new(@amqp_server),
+          VHostLimitsController.new(@amqp_server),
+          UsersController.new(@amqp_server),
+          PermissionsController.new(@amqp_server),
+          ParametersController.new(@amqp_server),
+          NodesController.new(@amqp_server),
+          LogsController.new(@amqp_server),
         ] of ::HTTP::Handler
         handlers.unshift(::HTTP::LogHandler.new) if Log.level == ::Log::Severity::Debug
         @http = ::HTTP::Server.new(handlers)

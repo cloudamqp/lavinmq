@@ -1,4 +1,4 @@
-require "router"
+require "./router"
 require "../sortable_json"
 
 module LavinMQ
