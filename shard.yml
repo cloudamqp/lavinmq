@@ -28,8 +28,6 @@ dependencies:
     github: cloudamqp/amqp-client.cr
   amq-protocol:
     github: cloudamqp/amq-protocol.cr
-  router:
-    github: tbrand/router.cr
   systemd:
     github: 84codes/systemd.cr
   lz4:
