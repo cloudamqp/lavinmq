@@ -12,17 +12,14 @@ module LavinMQ::AMQP
       @segment_last_ts = Hash(UInt32, Int64).new(0i64) # used for max-age
       @offset_index = Hash(UInt32, Int64).new          # segment_id => offset of first msg
       @timestamp_index = Hash(UInt32, Int64).new       # segment_id => ts of first msg
-      @consumer_offset_path : String
       @consumer_offsets : MFile
       @consumer_offset_positions = Hash(String, Int64).new # used for consumer offsets
-      @consumer_offset_capacity = 32_768
 
       def initialize(*args, **kwargs)
         super
         @last_offset = get_last_offset
         build_segment_indexes
-        @consumer_offset_path = File.join(@queue_data_dir, "consumer_offsets")
-        @consumer_offsets = MFile.new(@consumer_offset_path, @consumer_offset_capacity)
+        @consumer_offsets = MFile.new(File.join(@queue_data_dir, "consumer_offsets"), 32 * 1024)
         @consumer_offset_positions = restore_consumer_offset_positions
         drop_overflow
       end
@@ -172,8 +169,7 @@ module LavinMQ::AMQP
 
       def expand_consumer_offset_file
         pos = @consumer_offsets.size
-        @consumer_offset_capacity += 32_768
-        @consumer_offsets = MFile.new(@consumer_offset_path, @consumer_offset_capacity)
+        @consumer_offsets = MFile.new(@consumer_offsets.path, @consumer_offsets.capacity + 32 * 1024)
         @consumer_offsets.resize(pos)
       end
 
@@ -198,9 +194,9 @@ module LavinMQ::AMQP
 
       def replace_offsets_file(&)
         old_consumer_offsets = @consumer_offsets
-        @consumer_offsets = MFile.new("#{@consumer_offset_path}.tmp", @consumer_offset_capacity)
+        @consumer_offsets = MFile.new("#{@consumer_offsets.path}.tmp", 32 * 1024)
         yield # fill the new file with correct data in this block
-        @consumer_offsets.rename(@consumer_offset_path)
+        @consumer_offsets.rename(@consumer_offsets.path.sub(".tmp",""))
         old_consumer_offsets.close(truncate_to_size: false)
       end
 
