@@ -3,11 +3,11 @@ require "../src/lavinmq/schema"
 
 describe LavinMQ::SchemaVersion do
   describe "Schema version" do
-    it "Empty file should raise EmptyFile" do
+    it "Empty file should raise IO::EOFError" do
       with_datadir do |data_dir|
         path = File.join(data_dir, "test_schema_version")
         file = MFile.new(path, 12)
-        expect_raises(LavinMQ::EmptyFile) do
+        expect_raises(IO::EOFError) do
           LavinMQ::SchemaVersion.verify(file, :message)
         end
       end

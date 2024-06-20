@@ -319,7 +319,7 @@ module LavinMQ
           else
             begin
               SchemaVersion.verify(file, :message)
-            rescue EmptyFile
+            rescue IO::EOFError
               # delete empty file, it will be recreated if it's needed
               Log.warn { "Empty file at #{path}, deleting it" }
               file.delete.close

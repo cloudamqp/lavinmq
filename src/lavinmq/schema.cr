@@ -291,14 +291,14 @@ module LavinMQ
       file.read_at(0, buf.to_slice)
       version = IO::ByteFormat::SystemEndian.decode(Int32, buf.to_slice)
       if version == 0 # if version is 0, read 8 more bytes(ts) and check if that's also 0. If so, the file is empty, set version to default.
-        raise EmptyFile.new if IO::ByteFormat::SystemEndian.decode(Int64, file.to_slice(4, 8)).zero?
+        buffer = uninitialized UInt8[8]
+        file.read_at(4, buffer.to_slice)
+        raise IO::EOFError.new if buf.all?(&.zero?)
       end
       if version != VERSIONS[type]
         raise OutdatedSchemaVersion.new version, file.path
       end
       version
-    rescue IO::EOFError
-      raise EmptyFile.new
     end
 
     def self.prefix(file, type) : Int32
@@ -324,6 +324,4 @@ module LavinMQ
       super "Cannot migrate #{path} from version #{@version}"
     end
   end
-
-  class EmptyFile < Exception; end
 end
