@@ -3,11 +3,10 @@ require "./parameter"
 
 module LavinMQ
   class ParameterStore(T)
-    include Enumerable({ParameterId?, T})
-    
     Log = ::Log.for("parameter_store")
-    
-    def initialize(@data_dir : String, @file_name : String, @replicator : Clustering::Replicator, @log : Log)
+    include Enumerable({ParameterId?, T})
+
+    def initialize(@data_dir : String, @file_name : String, @replicator : Clustering::Replicator)
       @parameters = Hash(ParameterId?, T).new
       load!
     end

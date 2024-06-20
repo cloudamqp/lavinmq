@@ -5,6 +5,7 @@ module LavinMQ
     def run
       source
       context(before: '[', after: ']')
+      data(before: '[', after: ']')
       string ' '
       message
       exception
@@ -17,6 +18,7 @@ module LavinMQ
       severity
       source(before: ' ')
       context(before: '[', after: ']')
+      data(before: '[', after: ']')
       string ' '
       message
       exception
