@@ -33,7 +33,7 @@ module LavinMQ::HTTP::Router
   {% end %}
 
   def find_route(method, path)
-    search_path = "/#{method}#{path.sub(/\/$/, "")}"
+    search_path = "/#{method}#{path.rstrip('/')}"
     @_routes.each do |r|
       if res = r.pattern.match(search_path)
         return {
