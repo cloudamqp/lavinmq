@@ -213,6 +213,19 @@ module LavinMQ
         @acks.each_value &.close
       end
 
+      def open : Nil
+        @closed = false
+        @empty_change = Channel(Bool).new
+        load_segments_from_disk
+        load_deleted_from_disk
+        load_stats_from_segments
+        delete_unused_segments
+        @wfile_id = @segments.last_key
+        @wfile = @segments.last_value
+        @rfile_id = @segments.first_key
+        @rfile = @segments.first_value
+      end
+
       def avg_bytesize : UInt32
         return 0u32 if @size.zero?
         (@bytesize / @size).to_u32

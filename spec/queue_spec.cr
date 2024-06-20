@@ -171,6 +171,20 @@ describe LavinMQ::Queue do
         end
       end
     end
+
+    it "should open queue" do
+      with_amqp_server do |s|
+        tag = "consumer-to-be-canceled"
+        with_channel(s) do |ch|
+          q = ch.queue(q_name)
+          queue = s.vhosts["/"].queues[q_name].as(LavinMQ::DurableQueue)
+          queue.close
+          queue.open
+          q.publish_confirm "m1"
+          q.get.should_not be_nil
+        end
+      end
+    end
   end
 
   describe "Purge" do

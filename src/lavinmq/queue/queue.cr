@@ -136,7 +136,7 @@ module LavinMQ
       @state = QueueState::Paused if File.exists?(File.join(@data_dir, ".paused"))
       @msg_store = init_msg_store(@data_dir)
       if @msg_store.closed
-        @state = QueueState::Closed
+        close
         @closed_reason = @msg_store.closed_reason
       end
       @empty_change = @msg_store.empty_change
@@ -360,6 +360,21 @@ module LavinMQ
       true
     end
 
+    def open : Bool
+      return false unless @closed
+      @closed = false
+      @state = QueueState::Running
+      @queue_expiration_ttl_change = Channel(Nil).new
+      @message_ttl_change = Channel(Nil).new
+      @paused_change = Channel(Bool).new
+      @consumers_empty_change = Channel(Bool).new
+      @msg_store_lock.synchronize do
+        @msg_store.open
+      end
+      @log.debug { "Opened" }
+      true
+    end
+
     def delete : Bool
       return false if @deleted
       @deleted = true
@@ -415,7 +430,6 @@ module LavinMQ
     class Closed < Exception; end
 
     def publish(msg : Message) : Bool
-      pp "state: #{@state}"
       return false if @state.closed?
       reject_on_overflow(msg)
       @msg_store_lock.synchronize do
