@@ -165,7 +165,7 @@ module LavinMQ::AMQP
       end
 
       def consumer_offset_file_full?(consumer_tag)
-        (@consumer_offsets.size + consumer_tag.bytesize + 8) >= @consumer_offsets.capacity
+        (@consumer_offsets.size + 1 + consumer_tag.bytesize + 8) >= @consumer_offsets.capacity
       end
 
       def expand_consumer_offset_file
