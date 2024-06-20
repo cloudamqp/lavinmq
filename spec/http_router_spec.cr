@@ -72,4 +72,19 @@ describe LavinMQ::HTTP::Router do
       routed.should be_true
     end
   end
+
+  describe "#find_route" do
+    it "registers route and finds it" do
+      router = TestRouter.new
+      router.get "/" { |context, _params| context }
+      route = router.find_route("GET", "/")
+      route.should_not be_nil
+    end
+
+    it "does not find unregistered route" do
+      router = TestRouter.new
+      route = router.find_route("GET", "/unregistered")
+      route.should be_nil
+    end
+  end
 end
