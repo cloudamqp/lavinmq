@@ -24,6 +24,7 @@ module LavinMQ
         static_view "/vhost"
         static_view "/queues"
         static_view "/queue"
+        static_view "/unacked"
         static_view "/nodes"
         static_view "/logs"
         static_view "/users"

@@ -101,6 +101,8 @@ function updateQueue (all) {
       document.getElementById('q-ready-bytes').textContent = Helpers.nFormatter(item.ready_bytes) + 'B'
       document.getElementById('q-ready-avg-bytes').textContent = Helpers.nFormatter(item.ready_avg_bytes) + 'B'
       document.getElementById('q-consumers').textContent = Helpers.formatNumber(item.consumers)
+
+      document.getElementById('unacked-link').href = `/unacked#name=${encodeURIComponent(queue)}&vhost=${encodeURIComponent(item.vhost)}`
       item.consumer_details.filtered_count = item.consumers
       consumersDataSource.setConsumers(item.consumer_details)
       const hasMoreConsumers = item.consumer_details.length < item.consumers

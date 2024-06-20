@@ -84,6 +84,22 @@ describe LavinMQ::HTTP::QueuesController do
         body["messages_persistent"].should eq 1
       end
     end
+
+    it "should return unacked messages information" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("unacked_q")
+          2.times { q.publish "m1" }
+          q.subscribe(no_ack: false) { }
+
+          response = http.get("/api/queues/%2f/unacked_q/unacked?page=1&page_size=100")
+          response.status_code.should eq 200
+          pp response.body
+          #body = JSON.parse(response.body)
+          #body.size.should eq 2
+        end
+      end
+    end
   end
   describe "GET /api/queues/vhost/name/bindings" do
     it "should return queue bindings" do
