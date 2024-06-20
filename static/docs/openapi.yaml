@@ -1,0 +1,281 @@
+---
+openapi: 3.0.3
+info:
+  version: v1.2.12
+  title: LavinMQ HTTP API
+  description: HTTP API to programmatically manage all aspects of LavinMQ.
+  contact:
+    name: LavinMQ Team
+    url: https://www.lavinmq.com/
+    email: contact@lavinmq.com
+servers:
+- url: /api
+components:
+  schemas:
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        reason:
+          type: string
+    binding:
+      "$ref": "./schemas/bindings.yaml#/binding"
+    bindings:
+      "$ref": "./schemas/bindings.yaml#/bindings"
+    bindings-PostBindingsExchangeQueueRequestBody:
+      "$ref": "./schemas/bindings.yaml#/PostBindingsExchangeQueueRequestBody"
+    channel-with-consumer-details:
+      "$ref": "./schemas/channels.yaml#/channel-with-consumer-details"
+    channels:
+      "$ref": "./schemas/channels.yaml#/channels"
+    connection:
+      "$ref": "./schemas/connections.yaml#/connection"
+    connections:
+      "$ref": "./schemas/connections.yaml#/connections"
+    consumer-channel-details:
+      "$ref": "./schemas/consumers.yaml#/channel-details"
+    consumers:
+      "$ref": "./schemas/consumers.yaml#/consumers"
+    definitions:
+      "$ref": "./schemas/definitions.yaml#/definitions"
+    definitions-vhost:
+      "$ref": "./schemas/definitions.yaml#/definitions-vhost"
+    definitions-PostDefinitionsRequestBody:
+      "$ref": "./schemas/definitions.yaml#/PostDefinitionsRequestBody"
+    definitions-PostDefinitionsVhostRequestBody:
+      "$ref": "./schemas/definitions.yaml#/PostDefinitionsVhostRequestBody"
+    definitions-UploadDefinitionsRequestBody:
+      "$ref": "./schemas/definitions.yaml#/UploadDefinitionsRequestBody"
+    definitions-UploadDefinitionsVhostRequestBody:
+      "$ref": "./schemas/definitions.yaml#/UploadDefinitionsVhostRequestBody"
+    exchange:
+      "$ref": "./schemas/exchanges.yaml#/exchange"
+    exchanges:
+      "$ref": "./schemas/exchanges.yaml#/exchanges"
+    exchanges-publish:
+      "$ref": "./schemas/exchanges.yaml#/publish"
+    exchanges-type-field:
+      "$ref": "./schemas/exchanges.yaml#/type-field"
+    exchanges-PutExchangeRequestBody:
+      "$ref": "./schemas/exchanges.yaml#/PutExchangeRequestBody"
+    exchanges-PublishRequestBody:
+      "$ref": "./schemas/exchanges.yaml#/PublishRequestBody"
+    main-overview:
+      "$ref": "./schemas/main.yaml#/overview"
+    main-aliveness-test:
+      "$ref": "./schemas/main.yaml#/aliveness-test"
+    main-shovels:
+      "$ref": "./schemas/main.yaml#/shovels"
+    main-federation-links:
+      "$ref": "./schemas/main.yaml#/federation-links"
+    main-extensions:
+      "$ref": "./schemas/main.yaml#/extensions"
+    node:
+      "$ref": "./schemas/nodes.yaml#/node"
+    nodes:
+      "$ref": "./schemas/nodes.yaml#/nodes"
+    parameter:
+      "$ref": "./schemas/parameters.yaml#/parameter"
+    parameters:
+      "$ref": "./schemas/parameters.yaml#/parameters"
+    parameters-PutParameterRequestBody:
+      "$ref": "./schemas/parameters.yaml#/PutParameterRequestBody"
+    global-parameter:
+      "$ref": "./schemas/parameters.yaml#/global-parameter"
+    global-parameters:
+      "$ref": "./schemas/parameters.yaml#/global-parameters"
+    policy:
+      "$ref": "./schemas/policies.yaml#/policy"
+    policies:
+      "$ref": "./schemas/policies.yaml#/policies"
+    policies-PutPolicyRequestBody:
+      "$ref": "./schemas/policies.yaml#/PutPolicyRequestBody"
+    permission:
+      "$ref": "./schemas/permissions.yaml#/permission"
+    permissions:
+      "$ref": "./schemas/permissions.yaml#/permissions"
+    permissions-PutPermissionsRequestBody:
+      "$ref": "./schemas/permissions.yaml#/PutPermissionsRequestBody"
+    queue:
+      "$ref": "./schemas/queues.yaml#/queue"
+    queues:
+      "$ref": "./schemas/queues.yaml#/queues"
+    queue-bindings:
+      "$ref": "./schemas/queues.yaml#/queue-bindings"
+    queue-messages:
+      "$ref": "./schemas/queues.yaml#/messages"
+    queues-PutQueueRequestBody:
+      "$ref": "./schemas/queues.yaml#/PutQueueRequestBody"
+    queues-GetQueueMessagesRequestBody:
+      "$ref": "./schemas/queues.yaml#/GetQueueMessagesRequestBody"
+    user:
+      "$ref": "./schemas/users.yaml#/user"
+    users:
+      "$ref": "./schemas/users.yaml#/users"
+    users-BulkDeleteUsersRequestBody:
+      "$ref": "./schemas/users.yaml#/BulkDeleteUsersRequestBody"
+    users-PutUserRequestBody:
+      "$ref": "./schemas/users.yaml#/PutUserRequestBody"
+    vhost:
+      "$ref": "./schemas/vhosts.yaml#/vhost"
+    vhosts:
+      "$ref": "./schemas/vhosts.yaml#/vhosts"
+paths:
+  "/bindings":
+    "$ref": "./paths/bindings.yaml#/~1bindings"
+  "/bindings/{vhost}":
+    "$ref": "./paths/bindings.yaml#/~1bindings~1{vhost}"
+  "/bindings/{vhost}/e/{name}/q/{queue}":
+    "$ref": "./paths/bindings.yaml#/~1bindings~1{vhost}~1e~1{name}~1q~1{queue}"
+  "/bindings/{vhost}/e/{name}/q/{queue}/{props}":
+    "$ref": "./paths/bindings.yaml#/~1bindings~1{vhost}~1e~1{name}~1q~1{queue}~1{props}"
+  "/bindings/{vhost}/e/{name}/e/{destination}":
+    "$ref": "./paths/bindings.yaml#/~1bindings~1{vhost}~1e~1{name}~1e~1{destination}"
+  "/bindings/{vhost}/e/{name}/e/{destination}/{props}":
+    "$ref": "./paths/bindings.yaml#/~1bindings~1{vhost}~1e~1{name}~1e~1{destination}~1{props}"
+  "/channels":
+    "$ref": "./paths/channels.yaml#/~1channels"
+  "/vhosts/{vhost}/channels":
+    "$ref": "./paths/channels.yaml#/~1vhosts~1{vhost}~1channels"
+  "/channels/{name}":
+    "$ref": "./paths/channels.yaml#/~1channels~1{name}"
+  "/connections":
+    "$ref": "./paths/connections.yaml#/~1connections"
+  "/vhosts/{vhost}/connections":
+    "$ref": "./paths/connections.yaml#/~1vhosts~1{vhost}~1connections"
+  "/connections/{name}":
+    "$ref": "./paths/connections.yaml#/~1connections~1{name}"
+  "/connections/{name}/channels":
+    "$ref": "./paths/connections.yaml#/~1connections~1{name}~1channels"
+  "/api/connections/username/{username}":
+    "$ref": "./paths/connections.yaml#/~1connections~1username~1{username}"
+  "/consumers":
+    "$ref": "./paths/consumers.yaml#/~1consumers"
+  "/consumers/{vhost}":
+    "$ref": "./paths/consumers.yaml#/~1consumers~1{vhost}"
+  "/consumers/{vhost}/{connection}/{channel}/{consumer_tag}":
+    "$ref": "./paths/consumers.yaml#/~1consumers~1{vhost}~1{connection}~1{channel}~1{consumer_tag}"
+  "/definitions":
+    "$ref": "./paths/definitions.yaml#/~1definitions"
+  "/definitions/upload":
+    "$ref": "./paths/definitions.yaml#/~1definitions~1upload"
+  "/definitions/{vhost}":
+    "$ref": "./paths/definitions.yaml#/~1definitions~1{vhost}"
+  "/definitions/{vhost}/upload":
+    "$ref": "./paths/definitions.yaml#/~1definitions~1{vhost}~1upload"
+  "/exchanges":
+    "$ref": "./paths/exchanges.yaml#/~1exchanges"
+  "/exchanges/{vhost}":
+    "$ref": "./paths/exchanges.yaml#/~1exchanges~1{vhost}"
+  "/exchanges/{vhost}/{name}":
+    "$ref": "./paths/exchanges.yaml#/~1exchanges~1{vhost}~1{name}"
+  "/exchanges/{vhost}/{name}/bindings/source":
+    "$ref": "./paths/exchanges.yaml#/~1exchanges~1{vhost}~1{name}~1bindings~1source"
+  "/exchanges/{vhost}/{name}/bindings/destination":
+    "$ref": "./paths/exchanges.yaml#/~1exchanges~1{vhost}~1{name}~1bindings~1destination"
+  "/exchanges/{vhost}/{name}/publish":
+    "$ref": "./paths/exchanges.yaml#/~1exchanges~1{vhost}~1{name}~1publish"
+  "/overview":
+    "$ref": "./paths/main.yaml#/~1overview"
+  "/whoami":
+    "$ref": "./paths/main.yaml#/~1whoami"
+  "/aliveness-test/{vhost}":
+    "$ref": "./paths/main.yaml#/~1aliveness-test~1{vhost}"
+  "/shovels":
+    "$ref": "./paths/main.yaml#/~1shovels"
+  "/shovels/{vhost}":
+    "$ref": "./paths/main.yaml#/~1shovels~1{vhost}"
+  "/federation-links":
+    "$ref": "./paths/main.yaml#/~1federation-links"
+  "/federation-links/{vhost}":
+    "$ref": "./paths/main.yaml#/~1federation-links~1{vhost}"
+  "/extensions":
+    "$ref": "./paths/main.yaml#/~1extensions"
+  "/nodes":
+    "$ref": "./paths/nodes.yaml#/~1nodes"
+  "/nodes/{name}":
+    "$ref": "./paths/nodes.yaml#/~1nodes~1{name}"
+  "/parameters":
+    "$ref": "./paths/parameters.yaml#/~1parameters"
+  "/parameters/{component}":
+    "$ref": "./paths/parameters.yaml#/~1parameters~1{component}"
+  "/parameters/{component}/{vhost}":
+    "$ref": "./paths/parameters.yaml#/~1parameters~1{component}~1{vhost}"
+  "/parameters/{component}/{vhost}/{name}":
+    "$ref": "./paths/parameters.yaml#/~1parameters~1{component}~1{vhost}~1{name}"
+  "/global-parameters":
+    "$ref": "./paths/parameters.yaml#/~1global-parameters"
+  "/global-parameters/{name}":
+    "$ref": "./paths/parameters.yaml#/~1global-parameters~1{name}"
+  "/policies":
+    "$ref": "./paths/policies.yaml#/~1policies"
+  "/policies/{vhost}":
+    "$ref": "./paths/policies.yaml#/~1policies~1{vhost}"
+  "/policies/{vhost}/{name}":
+    "$ref": "./paths/policies.yaml#/~1policies~1{vhost}~1{name}"
+  "/permissions":
+    "$ref": "./paths/permissions.yaml#/~1permissions"
+  "/permissions/{vhost}/{user}":
+    "$ref": "./paths/permissions.yaml#/~1permissions~1{vhost}~1{user}"
+  "/queues":
+    "$ref": "./paths/queues.yaml#/~1queues"
+  "/queues/{vhost}":
+    "$ref": "./paths/queues.yaml#/~1queues~1{vhost}"
+  "/queues/{vhost}/{name}":
+    "$ref": "./paths/queues.yaml#/~1queues~1{vhost}~1{name}"
+  "/queues/{vhost}/{name}/pause":
+    "$ref": "./paths/queues.yaml#/~1queues~1{vhost}~1{name}~1pause"
+  "/queues/{vhost}/{name}/resume":
+    "$ref": "./paths/queues.yaml#/~1queues~1{vhost}~1{name}~1resume"
+  "/queues/{vhost}/{name}/bindings":
+    "$ref": "./paths/queues.yaml#/~1queues~1{vhost}~1{name}~1bindings"
+  "/queues/{vhost}/{name}/contents":
+    "$ref": "./paths/queues.yaml#/~1queues~1{vhost}~1{name}~1contents"
+  "/queues/{vhost}/{name}/get":
+    "$ref": "./paths/queues.yaml#/~1queues~1{vhost}~1{name}~1get"
+  "/users":
+    "$ref": "./paths/users.yaml#/~1users"
+  "/users/without-permissions":
+    "$ref": "./paths/users.yaml#/~1users~1without-permissions"
+  "/users/bulk-delete":
+    "$ref": "./paths/users.yaml#/~1users~1bulk-delete"
+  "/users/{name}":
+    "$ref": "./paths/users.yaml#/~1users~1{name}"
+  "/users/{name}/permissions":
+    "$ref": "./paths/users.yaml#/~1users~1{name}~1permissions"
+  "/vhosts":
+    "$ref": "./paths/vhosts.yaml#/~1vhosts"
+  "/vhosts/{name}":
+    "$ref": "./paths/vhosts.yaml#/~1vhosts~1{name}"
+  "/vhosts/{name}/permissions":
+    "$ref": "./paths/vhosts.yaml#/~1vhosts~1{name}~1permissions"
+tags:
+- name: bindings
+  description: Manage bindings.
+- name: channels
+  description: Get information about open channels.
+- name: connections
+  description: Manage open connections.
+- name: consumers
+  description: Manage connected consumers.
+- name: definitions
+  description: Import and export server definitions.
+- name: exchanges
+  description: Manage exchanges.
+- name: main
+  description: Query the server for various information (e.g. shovels, federation links, extensions).
+- name: nodes
+  description: Get node statistics.
+- name: parameters
+  description: Manage parameters.
+- name: policies
+  description: Manage policies.
+- name: permissions
+  description: Manage permissions.
+- name: queues
+  description: Manage queues.
+- name: users
+  description: Manage users.
+- name: vhosts
+  description: Manage vhosts.

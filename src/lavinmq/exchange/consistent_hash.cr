@@ -24,27 +24,29 @@ module LavinMQ
       end
     end
 
-    def bind(destination : Destination, routing_key : String, headers : Hash(String, AMQP::Field)?)
+    def bind(destination : Destination, routing_key : String, headers : AMQP::Table?)
       w = weight(routing_key)
       @hasher.add(destination.name, w, destination)
-      case destination
-      when Queue
-        @queue_bindings[{routing_key, headers}] << destination
-      when Exchange
-        @exchange_bindings[{routing_key, headers}] << destination
-      end
+      ret = case destination
+            when Queue
+              @queue_bindings[{routing_key, headers}].add? destination
+            when Exchange
+              @exchange_bindings[{routing_key, headers}].add? destination
+            end
       after_bind(destination, routing_key, headers)
+      ret
     end
 
-    def unbind(destination : Destination, routing_key : String, headers : Hash(String, AMQP::Field)?)
+    def unbind(destination : Destination, routing_key : String, headers : AMQP::Table?)
       w = weight(routing_key)
-      case destination
-      when Queue
-        @queue_bindings[{routing_key, headers}].delete destination
-      when Exchange
-        @exchange_bindings[{routing_key, headers}].delete destination
-      end
+      ret = case destination
+            when Queue
+              @queue_bindings[{routing_key, headers}].delete destination
+            when Exchange
+              @exchange_bindings[{routing_key, headers}].delete destination
+            end
       @hasher.remove(destination.name, w)
+      ret
     end
 
     def do_queue_matches(routing_key : String, headers : AMQP::Table?, & : Queue -> _)

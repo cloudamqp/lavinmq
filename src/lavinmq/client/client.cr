@@ -62,22 +62,6 @@ module LavinMQ
       spawn read_loop, name: "Client#read_loop #{@remote_address}"
     end
 
-    # socket's file descriptor
-    def fd
-      case @socket
-      when OpenSSL::SSL::Socket
-        @socket.as(OpenSSL::SSL::Socket).@bio.io.as(IO::FileDescriptor).fd
-      when TCPSocket
-        @socket.as(TCPSocket).fd
-      when UNIXSocket
-        @socket.as(UNIXSocket).fd
-      when WebSocketIO
-        @socket.as(WebSocketIO).fd
-      else
-        raise "Unexpected socket #{@socket.class}"
-      end
-    end
-
     # Returns client provided connection name if set, else server generated name
     def client_name
       @client_properties["connection_name"]?.try(&.as(String)) || @name
@@ -329,9 +313,13 @@ module LavinMQ
     end
 
     private def open_channel(frame)
-      @channels[frame.channel] = Client::Channel.new(self, frame.channel)
-      @vhost.event_tick(EventType::ChannelCreated)
-      send AMQP::Frame::Channel::OpenOk.new(frame.channel)
+      if @channels.has_key? frame.channel
+        close_connection(frame, 504_u16, "CHANNEL_ERROR - second 'channel.open' seen")
+      else
+        @channels[frame.channel] = Client::Channel.new(self, frame.channel)
+        @vhost.event_tick(EventType::ChannelCreated)
+        send AMQP::Frame::Channel::OpenOk.new(frame.channel)
+      end
     end
 
     # ameba:disable Metrics/CyclomaticComplexity
@@ -408,9 +396,9 @@ module LavinMQ
           send AMQP::Frame::Heartbeat.new
         end
       end
-    rescue frame : Error::UnexpectedFrame
-      @log.error { "#{frame.inspect}, unexpected frame" }
-      close_channel(frame, 505_u16, "UNEXPECTED_FRAME")
+    rescue ex : Error::UnexpectedFrame
+      @log.error { ex.inspect }
+      close_channel(ex.frame, 505_u16, "UNEXPECTED_FRAME - #{ex.frame.class.name}")
     end
 
     private def cleanup
@@ -445,7 +433,7 @@ module LavinMQ
       !@running
     end
 
-    def close_channel(frame, code, text)
+    def close_channel(frame : AMQ::Protocol::Frame, code, text)
       return close_connection(frame, code, text) if frame.channel.zero?
       case frame
       when AMQ::Protocol::Frame::Method
@@ -456,7 +444,7 @@ module LavinMQ
       @channels.delete(frame.channel).try &.close
     end
 
-    def close_connection(frame, code, text)
+    def close_connection(frame : AMQ::Protocol::Frame?, code, text)
       @log.info { "Closing, #{text}" }
       case frame
       when AMQ::Protocol::Frame::Method
@@ -489,13 +477,24 @@ module LavinMQ
       close_channel(frame, 406_u16, "PRECONDITION_FAILED - #{text}")
     end
 
-    def send_not_implemented(frame)
-      @log.error { "#{frame.inspect}, not implemented" }
-      close_connection(frame, 540_u16, "NOT_IMPLEMENTED")
+    def send_not_implemented(frame, text = nil)
+      @log.error { "#{frame.inspect}, not implemented reason=\"#{text}\"" }
+      close_channel(frame, 540_u16, "NOT_IMPLEMENTED - #{text}")
+    end
+
+    def send_not_implemented(ex : AMQ::Protocol::Error::NotImplemented)
+      text = "NOT_IMPLEMENTED"
+      if ex.channel.zero?
+        send AMQP::Frame::Connection::Close.new(540, text, ex.class_id, ex.method_id)
+        @running = false
+      else
+        send AMQP::Frame::Channel::Close.new(ex.channel, 540, text, ex.class_id, ex.method_id)
+        @channels.delete(ex.channel).try &.close
+      end
     end
 
     def send_internal_error(message)
-      close_connection(nil, 541_u16, "INTERNAL_ERROR - #{message}")
+      close_connection(nil, 541_u16, "INTERNAL_ERROR - Unexpected error, please report")
     end
 
     def send_frame_error(message = nil)
@@ -582,7 +581,7 @@ module LavinMQ
       else
         size = q.message_count
         @vhost.apply(frame)
-        @exclusive_queues.delete(q) if q.exclusive
+        @exclusive_queues.delete(q) if q.exclusive?
         send AMQP::Frame::Queue::DeleteOk.new(frame.channel, size) unless frame.no_wait
       end
     end
@@ -593,7 +592,7 @@ module LavinMQ
     end
 
     def queue_exclusive_to_other_client?(q)
-      q.exclusive && !@exclusive_queues.includes?(q)
+      q.exclusive? && !@exclusive_queues.includes?(q)
     end
 
     private def declare_queue(frame)
@@ -633,7 +632,7 @@ module LavinMQ
             q.message_count, q.consumer_count)
         end
         @last_queue_name = frame.queue_name
-      elsif frame.exclusive && !q.exclusive
+      elsif frame.exclusive && !q.exclusive?
         send_resource_locked(frame, "Not an exclusive queue")
       else
         send_precondition_failed(frame, "Existing queue '#{q.name}' declared with other arguments")
@@ -641,12 +640,15 @@ module LavinMQ
     end
 
     private def invalid_exclusive_redclare?(frame, q)
-      q.exclusive && !frame.passive && !frame.exclusive
+      q.exclusive? && !frame.passive && !frame.exclusive
     end
 
     @last_queue_name : String?
 
     private def declare_new_queue(frame)
+      unless @vhost.flow?
+        send_precondition_failed(frame, "Server low on disk space, can not create queue")
+      end
       if frame.queue_name.empty?
         frame.queue_name = Queue.generate_name
       end

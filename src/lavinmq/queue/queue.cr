@@ -7,28 +7,17 @@ require "../sortable_json"
 require "../client/channel/consumer"
 require "../message"
 require "../error"
+require "./state"
+require "./event"
 require "./message_store"
 
 module LavinMQ
-  enum QueueState
-    Running
-    Paused
-    Flow
-    Closed
-    Deleted
-
-    def to_s
-      super.downcase
-    end
-  end
-
   class Queue
     include PolicyTarget
-    include Observable
+    include Observable(QueueEvent)
     include Stats
     include SortableJSON
 
-    @durable = false
     @log : Log
     @message_ttl : Int64?
     @max_length : Int64?
@@ -53,6 +42,8 @@ module LavinMQ
 
     getter? paused = false
     getter paused_change = Channel(Bool).new
+
+    getter consumer_timeout : UInt64? = Config.instance.consumer_timeout
 
     @consumers_empty_change = Channel(Bool).new
 
@@ -122,7 +113,8 @@ module LavinMQ
       {"ack", "deliver", "confirm", "get", "get_no_ack", "publish", "redeliver", "reject", "return_unroutable"},
       {"message_count", "unacked_count"})
 
-    getter name, durable, exclusive, auto_delete, arguments, vhost, consumers, last_get_time
+    getter name, arguments, vhost, consumers, last_get_time
+    getter? auto_delete, exclusive
     getter policy : Policy?
     getter operator_policy : OperatorPolicy?
     getter? closed = false
@@ -135,11 +127,11 @@ module LavinMQ
 
     def initialize(@vhost : VHost, @name : String,
                    @exclusive = false, @auto_delete = false,
-                   @arguments = Hash(String, AMQP::Field).new)
+                   @arguments = AMQP::Table.new)
       @last_get_time = RoughTime.monotonic
       @log = Log.for "queue[vhost=#{@vhost.name} name=#{@name}]"
       @data_dir = make_data_dir
-      File.write(File.join(@data_dir, ".queue"), @name)
+      File.open(File.join(@data_dir, ".queue"), "w") { |f| f.sync = true; f.print @name }
       @state = QueueState::Paused if File.exists?(File.join(@data_dir, ".paused"))
       @msg_store = init_msg_store(@data_dir)
       @empty_change = @msg_store.empty_change
@@ -150,7 +142,7 @@ module LavinMQ
 
     # own method so that it can be overriden in other queue implementations
     private def init_msg_store(data_dir)
-      replicator = @durable ? @vhost.@replicator : nil
+      replicator = durable? ? @vhost.@replicator : nil
       MessageStore.new(data_dir, replicator)
     end
 
@@ -158,7 +150,7 @@ module LavinMQ
       data_dir = File.join(@vhost.data_dir, Digest::SHA1.hexdigest @name)
       if Dir.exists? data_dir
         # delete left over files from transient queues
-        unless @durable
+        unless durable?
           FileUtils.rm_r data_dir
           Dir.mkdir_p data_dir
         end
@@ -228,7 +220,10 @@ module LavinMQ
           @vhost.upstreams.try &.link(v.as_s, self)
         when "federation-upstream-set"
           @vhost.upstreams.try &.link_set(v.as_s, self)
-        else nil
+        when "consumer-timeout"
+          unless @consumer_timeout.try &.< v.as_i64
+            @consumer_timeout = v.as_i64.to_u64
+          end
         end
       end
       @policy = policy
@@ -263,6 +258,8 @@ module LavinMQ
       validate_positive("x-delivery-limit", @delivery_limit)
       @reject_on_overflow = parse_header("x-overflow", String) == "reject-publish"
       @single_active_consumer_queue = parse_header("x-single-active-consumer", Bool) == true
+      @consumer_timeout = parse_header("x-consumer-timeout", Int).try &.to_u64
+      validate_positive("x-consumer-timeout", @consumer_timeout)
     end
 
     private macro parse_header(header, type)
@@ -295,10 +292,6 @@ module LavinMQ
 
     def empty? : Bool
       @msg_store.empty?
-    end
-
-    def any? : Bool
-      !empty?
     end
 
     def consumer_count
@@ -355,9 +348,9 @@ module LavinMQ
         @msg_store.close
       end
       # TODO: When closing due to ReadError, queue is deleted if exclusive
-      delete if !@durable || @exclusive
+      delete if !durable? || @exclusive
       Fiber.yield
-      notify_observers(:close)
+      notify_observers(QueueEvent::Closed)
       @log.debug { "Closed" }
       true
     end
@@ -372,21 +365,24 @@ module LavinMQ
       end
       @vhost.delete_queue(@name)
       @log.info { "(messages=#{message_count}) Deleted" }
-      notify_observers(:delete)
+      notify_observers(QueueEvent::Deleted)
+      @vhost.users.each do |_, user|
+        user.remove_queue_from_acl_caches(@vhost.name, @name)
+      end
       true
     end
 
     def details_tuple
       {
         name:                        @name,
-        durable:                     @durable,
+        durable:                     durable?,
         exclusive:                   @exclusive,
         auto_delete:                 @auto_delete,
         arguments:                   @arguments,
         consumers:                   @consumers.size,
         vhost:                       @vhost.name,
         messages:                    @msg_store.size + @unacked_count,
-        messages_persistent:         @durable ? @msg_store.size + @unacked_count : 0,
+        messages_persistent:         durable? ? @msg_store.size + @unacked_count : 0,
         ready:                       @msg_store.size,
         ready_bytes:                 @msg_store.bytesize,
         ready_avg_bytes:             @msg_store.avg_bytesize,
@@ -400,22 +396,6 @@ module LavinMQ
         state:                       @state.to_s,
         effective_policy_definition: Policy.merge_definitions(@policy, @operator_policy),
         message_stats:               current_stats_details,
-      }
-    end
-
-    def size_details_tuple
-      {
-        messages:          @msg_store.size + @unacked_count,
-        ready:             @msg_store.size,
-        ready_bytes:       @msg_store.bytesize,
-        ready_avg_bytes:   @msg_store.avg_bytesize,
-        ready_max_bytes:   0,
-        ready_min_bytes:   0,
-        unacked:           @unacked_count,
-        unacked_bytes:     @unacked_bytesize,
-        unacked_avg_bytes: unacked_avg_bytes,
-        unacked_max_bytes: 0,
-        unacked_min_bytes: 0,
       }
     end
 
@@ -501,12 +481,16 @@ module LavinMQ
     end
 
     private def has_expired?(msg : BytesMessage, requeue = false) : Bool
-      return false if msg.ttl.try(&.zero?) && !requeue && !@consumers.empty?
+      return false if zero_ttl?(msg) && !requeue && !@consumers.empty?
       if expire_at = expire_at(msg)
         expire_at <= RoughTime.unix_ms
       else
         false
       end
+    end
+
+    private def zero_ttl?(msg) : Bool
+      msg.ttl == 0 || @message_ttl == 0
     end
 
     private def expire_at(msg : BytesMessage) : Int64?
@@ -584,35 +568,29 @@ module LavinMQ
       false
     end
 
-    private def handle_dlx_header(meta, reason)
-      props = meta.properties
-      headers = props.headers ||= AMQP::Table.new
-
-      headers.delete("x-delay")
-      headers.delete("x-dead-letter-exchange")
-      headers.delete("x-dead-letter-routing-key")
+    private def handle_dlx_header(msg, reason) : AMQP::Properties
+      h = msg.properties.headers || AMQP::Table.new
+      h.reject! { |k, _| k.in?("x-dead-letter-exchange", "x-dead-letter-routing-key") }
 
       # there's a performance advantage to do `has_key?` over `||=`
-      headers["x-first-death-reason"] = reason.to_s unless headers.has_key? "x-first-death-reason"
-      headers["x-first-death-queue"] = @name unless headers.has_key? "x-first-death-queue"
-      headers["x-first-death-exchange"] = meta.exchange_name unless headers.has_key? "x-first-death-exchange"
+      h["x-first-death-reason"] = reason.to_s unless h.has_key? "x-first-death-reason"
+      h["x-first-death-queue"] = @name unless h.has_key? "x-first-death-queue"
+      h["x-first-death-exchange"] = msg.exchange_name unless h.has_key? "x-first-death-exchange"
 
-      routing_keys = [meta.routing_key.as(AMQP::Field)]
-      if cc = headers.delete("CC")
+      routing_keys = [msg.routing_key.as(AMQP::Field)]
+      if cc = h.delete("CC")
         # should route to all the CC RKs but then delete them,
         # so we (ab)use the BCC header for that
-        headers["BCC"] = cc
+        h["BCC"] = cc
         routing_keys.concat cc.as(Array(AMQP::Field))
       end
 
-      handle_xdeath_header(headers, meta, routing_keys, reason)
-
-      props.expiration = nil
-      props
+      msg.properties.headers = handle_xdeath_header(h, msg.exchange_name, routing_keys, reason, msg.properties.expiration)
+      msg.properties.expiration = nil
+      msg.properties
     end
 
-    private def handle_xdeath_header(headers, meta, routing_keys, reason)
-      props = meta.properties
+    private def handle_xdeath_header(headers, exchange_name, routing_keys, reason, expiration) : AMQP::Table
       xdeaths = headers["x-death"]?.as?(Array(AMQP::Field)) || Array(AMQP::Field).new(1)
 
       found_at = -1
@@ -620,43 +598,44 @@ module LavinMQ
         xd = xd.as(AMQP::Table)
         next if xd["queue"]? != @name
         next if xd["reason"]? != reason.to_s
-        next if xd["exchange"]? != meta.exchange_name
-
+        next if xd["exchange"]? != exchange_name
         count = xd["count"].as?(Int) || 0
-        xd["count"] = count + 1
-        xd["time"] = RoughTime.utc
-        xd["routing_keys"] = routing_keys
-        xd["original-expiration"] = props.expiration if props.expiration
+        xd.merge!({
+          count:          count + 1,
+          time:           RoughTime.utc,
+          "routing-keys": routing_keys,
+        })
+        xd["original-expiration"] = expiration if expiration
         found_at = idx
         break
       end
 
       case found_at
-      when -1
-        # not found so inserting new x-death
-        xd = AMQP::Table.new
-        xd["queue"] = @name
-        xd["reason"] = reason.to_s
-        xd["exchange"] = meta.exchange_name
-        xd["count"] = 1
-        xd["time"] = RoughTime.utc
-        xd["routing-keys"] = routing_keys
-        xd["original-expiration"] = props.expiration if props.expiration
-        xdeaths.unshift xd
+      when -1 # not found so inserting new x-death
+        death = AMQP::Table.new({
+          "queue":        @name,
+          "reason":       reason.to_s,
+          "exchange":     exchange_name,
+          "count":        1,
+          "time":         RoughTime.utc,
+          "routing-keys": routing_keys,
+        })
+        death["original-expiration"] = expiration if expiration
+        xdeaths.unshift death
       when 0
         # do nothing, updated xd is in the front
       else
         # move updated xd to the front
         xd = xdeaths.delete_at(found_at)
-        xdeaths.unshift xd.as(AMQP::Table)
+        xdeaths.unshift xd
       end
       headers["x-death"] = xdeaths
-      nil
+      headers
     end
 
     private def dead_letter_msg(msg : BytesMessage, props, dlx, dlrk)
       @log.debug { "Dead lettering ex=#{dlx} rk=#{dlrk} body_size=#{msg.bodysize} props=#{props}" }
-      @vhost.publish Message.new(msg.timestamp, dlx.to_s, dlrk.to_s,
+      @vhost.publish Message.new(RoughTime.unix_ms, dlx.to_s, dlrk.to_s,
         props, msg.bodysize, IO::Memory.new(msg.body))
     end
 
@@ -679,8 +658,8 @@ module LavinMQ
     end
 
     # If nil is returned it means that the delivery limit is reached
-    def consume_get(no_ack, & : Envelope -> Nil) : Bool
-      get(no_ack) do |env|
+    def consume_get(consumer, & : Envelope -> Nil) : Bool
+      get(consumer.no_ack?) do |env|
         yield env
         env.redelivered ? (@redeliver_count += 1) : (@deliver_count += 1)
       end
@@ -817,11 +796,11 @@ module LavinMQ
           notify_consumers_empty(false)
         end
       end
-      @exclusive_consumer = true if consumer.exclusive
+      @exclusive_consumer = true if consumer.exclusive?
       @has_priority_consumers = true unless consumer.priority.zero?
       @log.debug { "Adding consumer (now #{@consumers.size})" }
       @vhost.event_tick(EventType::ConsumerAdded)
-      notify_observers(:add_consumer, consumer)
+      notify_observers(QueueEvent::ConsumerAdded, consumer)
     end
 
     getter? has_priority_consumers = false
@@ -832,7 +811,7 @@ module LavinMQ
         deleted = @consumers.delete consumer
         @has_priority_consumers = @consumers.any? { |c| !c.priority.zero? }
         if deleted
-          @exclusive_consumer = false if consumer.exclusive
+          @exclusive_consumer = false if consumer.exclusive?
           @log.debug { "Removing consumer with #{consumer.unacked} \
                       unacked messages \
                       (#{@consumers.size} consumers left)" }
@@ -844,12 +823,18 @@ module LavinMQ
             end
           end
           @vhost.event_tick(EventType::ConsumerRemoved)
-          notify_observers(:rm_consumer, consumer)
+          notify_observers(QueueEvent::ConsumerRemoved, consumer)
         end
       end
       if @consumers.empty?
-        notify_consumers_empty(true)
-        delete if @auto_delete
+        if @auto_delete
+          delete
+        else
+          notify_consumers_empty(true)
+          @msg_store_lock.synchronize do
+            @msg_store.unmap_segments
+          end
+        end
       end
     end
 
@@ -879,17 +864,17 @@ module LavinMQ
     end
 
     def match?(frame)
-      @durable == frame.durable &&
+      durable? == frame.durable &&
         @exclusive == frame.exclusive &&
         @auto_delete == frame.auto_delete &&
-        @arguments == frame.arguments.to_h
+        @arguments == frame.arguments
     end
 
     def match?(durable, exclusive, auto_delete, arguments)
-      @durable == durable &&
+      durable? == durable &&
         @exclusive == exclusive &&
         @auto_delete == auto_delete &&
-        @arguments == arguments.to_h
+        @arguments == arguments
     end
 
     def in_use?
@@ -915,14 +900,6 @@ module LavinMQ
       end
     end
 
-    def size_details_to_json(json : JSON::Builder)
-      json.object do
-        size_details_tuple.each do |k, v|
-          json.field(k, v) unless v.nil?
-        end
-      end
-    end
-
     # Used for when channel recovers without requeue
     # eg. redelivers messages it already has unacked
     def read(sp : SegmentPosition) : Envelope
@@ -933,6 +910,10 @@ module LavinMQ
       @log.error(exception: ex) { "Queue closed due to error" }
       close
       raise ex
+    end
+
+    def durable?
+      false
     end
 
     class Error < Exception; end

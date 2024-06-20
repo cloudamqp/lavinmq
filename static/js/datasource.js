@@ -85,8 +85,10 @@ class DataSource {
   }
 
   _setStateFromHash () {
-    const urlParams = Object.fromEntries(new URLSearchParams(window.location.hash.substring(1)).entries())
-    this._setState(urlParams)
+    if (window.location.hash.length > 0) {
+      const urlParams = Object.fromEntries(new URLSearchParams(window.location.hash.substring(1)).entries())
+      this._setState(urlParams)
+    }
   }
 
   _setState (properties = {}) {

@@ -1,4 +1,5 @@
 require "./channel/consumer"
+require "./channel/stream_consumer"
 require "../queue"
 require "../exchange"
 require "../amqp"
@@ -47,8 +48,8 @@ module LavinMQ
         tag : UInt64,
         queue : Queue,
         sp : SegmentPosition,
-        persistent : Bool,
-        consumer : Consumer?
+        consumer : Consumer?,
+        delivered_at : Time::Span
 
       def details_tuple
         {
@@ -104,7 +105,7 @@ module LavinMQ
         end
         raise Error::UnexpectedFrame.new(frame) if @next_publish_exchange_name
         if ex = @client.vhost.exchanges[frame.exchange]?
-          if !ex.internal
+          if !ex.internal?
             @next_publish_exchange_name = frame.exchange
             @next_publish_routing_key = frame.routing_key
             @next_publish_mandatory = frame.mandatory
@@ -235,13 +236,7 @@ module LavinMQ
       @tx_publishes = Array(TxMessage).new
 
       private def publish_and_return(msg)
-        if user_id = msg.properties.user_id
-          if user_id != @client.user.name && !@client.user.can_impersonate?
-            text = "Message's user_id property '#{user_id}' doesn't match actual user '#{@client.user.name}'"
-            @log.error { text }
-            raise Error::PreconditionFailed.new(text)
-          end
-        end
+        validate_user_id(msg.properties.user_id)
         if @tx
           @tx_publishes.push TxMessage.new(msg, @next_publish_mandatory, @next_publish_immediate)
           return
@@ -258,9 +253,18 @@ module LavinMQ
         # nack but then do nothing
       end
 
+      private def validate_user_id(user_id)
+        current_user = @client.user
+        if user_id && user_id != current_user.name && !current_user.can_impersonate?
+          text = "Message's user_id property '#{user_id}' doesn't match actual user '#{current_user.name}'"
+          @log.error { text }
+          raise Error::PreconditionFailed.new(text)
+        end
+      end
+
       private def confirm(&)
         if @confirm
-          msgid = @confirm_total += 1
+          msgid = @confirm_total &+= 1
           begin
             yield
             confirm_ack(msgid)
@@ -351,31 +355,20 @@ module LavinMQ
             @client.send_access_refused(frame, "Queue '#{frame.queue}' in vhost '#{@client.vhost.name}' in exclusive use")
             return
           end
-          priority = consumer_priority(frame) # Must be before ConsumeOk, can close channel
+          c = if q.is_a? StreamQueue
+                StreamConsumer.new(self, q, frame)
+              else
+                Consumer.new(self, q, frame)
+              end
+          @consumers.push(c)
+          q.add_consumer(c)
           unless frame.no_wait
             send AMQP::Frame::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag)
           end
-          c = Consumer.new(self, frame.consumer_tag, q, frame.no_ack, frame.exclusive, priority)
-          @consumers.push(c)
-          q.add_consumer(c)
         else
           @client.send_not_found(frame, "Queue '#{frame.queue}' not declared")
         end
         Fiber.yield # Notify :add_consumer observers
-      end
-
-      private def consumer_priority(frame) : Int32
-        priority = 0
-        if frame.arguments.has_key? "x-priority"
-          prio_arg = frame.arguments["x-priority"]
-          prio_int = prio_arg.as?(Int) || raise Error::PreconditionFailed.new("x-priority must be an integer")
-          begin
-            priority = prio_int.to_i
-          rescue OverflowError
-            raise Error::PreconditionFailed.new("x-priority out of bounds, must fit a 32-bit integer")
-          end
-        end
-        priority
       end
 
       def basic_get(frame)
@@ -384,14 +377,13 @@ module LavinMQ
             @client.send_resource_locked(frame, "Exclusive queue")
           elsif q.has_exclusive_consumer?
             @client.send_access_refused(frame, "Queue '#{frame.queue}' in vhost '#{@client.vhost.name}' in exclusive use")
+          elsif q.is_a? StreamQueue
+            @client.send_not_implemented(frame, "Stream queues does not support basic_get")
           else
             @get_count += 1
             @client.vhost.event_tick(EventType::ClientGet)
             ok = q.basic_get(frame.no_ack) do |env|
-              persistent = env.message.properties.delivery_mode == 2_u8
-              delivery_tag = next_delivery_tag(q, env.segment_position,
-                persistent, frame.no_ack,
-                nil)
+              delivery_tag = next_delivery_tag(q, env.segment_position, frame.no_ack, nil)
               get_ok = AMQP::Frame::Basic::GetOk.new(frame.channel, delivery_tag,
                 env.redelivered, env.message.exchange_name,
                 env.message.routing_key, q.message_count)
@@ -444,20 +436,8 @@ module LavinMQ
         notify_has_capacity(count)
       end
 
-      def unacked_for_queue(queue) : Iterator(SegmentPosition)
-        @unacked.each.select(&.queue.==(queue)).map(&.sp)
-      end
-
       def unacked_count
         @unacked.size
-      end
-
-      def each_unacked(& : Unack -> Nil)
-        @unack_lock.synchronize do
-          @unacked.each do |unack|
-            yield unack
-          end
-        end
       end
 
       record TxAck, delivery_tag : UInt64, multiple : Bool, negative : Bool, requeue : Bool
@@ -481,6 +461,7 @@ module LavinMQ
 
         found = false
         if frame.multiple
+          found = true if frame.delivery_tag.zero?
           delete_multiple_unacked(frame.delivery_tag) do |unack|
             found = true
             do_ack(unack)
@@ -576,7 +557,7 @@ module LavinMQ
 
       private def do_reject(requeue, unack)
         if c = unack.consumer
-          c.reject(unack.sp)
+          c.reject(unack.sp, requeue)
         end
         unack.queue.reject(unack.sp, requeue)
         @reject_count += 1
@@ -607,7 +588,7 @@ module LavinMQ
             @unacked.each do |unack|
               next if delivery_tag_is_in_tx?(unack.tag)
               if consumer = unack.consumer
-                consumer.reject(unack.sp)
+                consumer.reject(unack.sp, requeue: true)
               end
               unack.queue.reject(unack.sp, requeue: true)
             end
@@ -660,13 +641,29 @@ module LavinMQ
         @log.debug { "Closed" }
       end
 
-      def next_delivery_tag(queue : Queue, sp, persistent, no_ack, consumer) : UInt64
+      protected def next_delivery_tag(queue : Queue, sp, no_ack, consumer) : UInt64
         @unack_lock.synchronize do
-          tag = @delivery_tag += 1
-          unless no_ack
-            @unacked.push Unack.new(tag, queue, sp, persistent, consumer)
-          end
+          tag = @delivery_tag &+= 1
+          @unacked.push Unack.new(tag, queue, sp, consumer, RoughTime.monotonic) unless no_ack
           tag
+        end
+      end
+
+      # Iterate over all unacked messages and see if any has been unacked longer than the queue's consumer timeout
+      def check_consumer_timeout
+        @unack_lock.synchronize do
+          queues = Set(Queue).new # only check first delivered message per queue
+          @unacked.each do |unack|
+            if queues.add? unack.queue
+              if timeout = unack.queue.consumer_timeout
+                unacked_ms = RoughTime.monotonic - unack.delivered_at
+                if unacked_ms > timeout.milliseconds
+                  send AMQP::Frame::Channel::Close.new(@id, 406_u16, "PRECONDITION_FAILED - consumer timeout", 60_u16, 20_u16)
+                  break
+                end
+              end
+            end
+          end
         end
       end
 

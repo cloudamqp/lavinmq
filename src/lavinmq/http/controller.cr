@@ -1,4 +1,4 @@
-require "router"
+require "./router"
 require "../sortable_json"
 
 module LavinMQ
@@ -164,6 +164,10 @@ module LavinMQ
         halt(context, 403, {error: "forbidden", reason: message})
       end
 
+      private def precondition_failed(context, message = "Precondition failed")
+        halt(context, 412, {error: "Precondition failed", reason: message})
+      end
+
       private def halt(context, status_code, body = nil)
         context.response.status_code = status_code
         body.try &.to_json(context.response)
@@ -219,13 +223,6 @@ module LavinMQ
       private def refuse_unless_policymaker(context, user, vhost = nil)
         unless user.tags.any? { |t| t.policy_maker? || t.administrator? }
           Log.warn { "user=#{user.name} does not have policymaker access on vhost=#{vhost}" }
-          access_refused(context)
-        end
-      end
-
-      private def refuse_unless_monitoring(context, user)
-        unless user.tags.any? { |t| t.administrator? || t.monitoring? }
-          Log.warn { "user=#{user.name} does not have monitoring access" }
           access_refused(context)
         end
       end

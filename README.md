@@ -43,6 +43,8 @@ echo "deb [signed-by=/usr/share/keyrings/lavinmq.gpg] https://packagecloud.io/cl
 sudo apt-get update
 sudo apt-get install lavinmq
 ```
+If you need to install a specific version of LavinMQ, do so using the following command: 
+`sudo apt install lavinmq=<version>`. This works for both upgrades and downgrades. 
 
 ### Fedora
 
@@ -66,15 +68,15 @@ Run LavinMQ with:
 `lavinmq -D /var/lib/lavinmq`
 
 More configuration options can be viewed with `-h`,
-and you can specify a configuration file too, see [extras/config.ini](extras/config.ini)
+and you can specify a configuration file too, see [extras/lavinmq.ini](extras/lavinmq.ini)
 for an example.
 
 ## Docker
 
-Docker images are published to [Docker Hub](https://hub.docker.com/repository/docker/cloudamqp/lavinmq).
+Docker images are published to [Docker Hub](https://hub.docker.com/r/cloudamqp/lavinmq).
 Fetch and run the latest version with:
 
-`docker run --rm -it -P -v /var/lib/lavinmq:/tmp/amqp cloudamqp/lavinmq`
+    docker run --rm -it -p 5672:5672 -p 15672:15672 -v /tmp/amqp:/var/lib/lavinmq cloudamqp/lavinmq
 
 You are then able to visit the management UI at [http://localhost:15672](http://localhost:15672) and
 start publishing/consuming messages to `amqp://guest:guest@localhost`.
@@ -194,6 +196,7 @@ For questions or suggestions:
 - We are on [Slack](https://join.slack.com/t/lavinmq/shared_invite/zt-1v28sxova-wOyhOvDEKYVQMQpLePNUrg).
 - You can also use the [lavinmq tag](https://stackoverflow.com/questions/tagged/lavinmq) on Stackoverflow
 - If you use LavinMQ via [CloudAMQP](https://www.cloudamqp.com) then reach out to [support@cloudamqp.com]
+
 ## Features
 
 - AMQP 0-9-1 compatible
@@ -220,11 +223,12 @@ For questions or suggestions:
 - Delayed exchanges
 - AMQP WebSocket
 - Single active consumer
+- Replication
+- Stream queues
 
 Currently missing but planned features
 
-- Stream queues
-- Clustering
+- Automatic leader election in clusters
 
 ### Known differences to other AMQP servers
 
@@ -235,40 +239,38 @@ There are a few edge-cases that are handled a bit differently in LavinMQ compare
 - TTL of queues and messages are correct to the 0.1 second, not to the millisecond
 - Newlines are not removed from Queue or Exchange names, they are forbidden
 
-## Replication
+## Clustering
 
-LavinMQ supports replication between a leader server and one or more followers. All changes on the leader is replicated to followers.
+LavinMQ can be fully clustered with multiple other LavinMQ nodes. One node is always the leader and the others stream all changes in real-time. Failover happens instantly when the leader is unavailable.
 
-### Replication configuration
+[etcd](https://etcd.io/) is used for leader election and maintaining the In-Sync-Replica (ISR) set. LavinMQ then uses a custom replication protocol between the nodes. When a follower disconnects it will fall out of the ISR set, and will then not be eligible to be a new leader.
 
-A shared secret is used to allow nodes in a cluster to communicate, make sure that the `.replication_secret` file is the same in all data directores of all nodes.
+### Clustering configuration
 
-Then enable the replication listener on the leader:
+Enable clustering with the following config:
 
 ```ini
-[replication]
-bind = 0.0.0.0
+[clustering]
+enabled = true
+bind = ::
 port = 5679
+advertised_uri = tcp://my-ip:5679
+etcd_endpoints = localhost:2379
 ```
 
 or start LavinMQ with:
 
 ```sh
-lavinmq --data-dir /var/lib/lavinmq --replication-bind 0.0.0.0 --replication-port 5679
+lavinmq --data-dir /var/lib/lavinmq --clustering --clustering-bind :: --clustering-advertised-uri=tcp://my-ip:5679
 ```
 
-Configure the follower(s) to connect to the leader:
+## Stream queues
 
-```ini
-[replication]
-follow = tcp://hostname:port
-```
+Stream queues are like append-only logs and can be consumed multiple times. Each consumer can start to read from anywhere in the queue (using the `x-stream-offset` consumer argument) over and over again.  Stream queues are different from normal queues in that messages are not deleted (see #retention) when a consumer acknowledge them.
 
-or start LavinMQ with:
+### Retention
 
-```sh
-lavinmq --data-dir /var/lib/lavinmq-follower --follow tcp://leader.example.com:5679
-```
+Messages are only deleted when `max-length`, `max-length-bytes` or `max-age` are applied, either as queue arguments or as policies. The limits are checked only when new messages are published to the queue, and only act on whole segments (which by default are 8MiB), so the limits aren't necessarily exact. So even if a `max-age` limit is set, but no messages are published to the queue, messages might still be available in the stream queue that is way older that the limit specified.
 
 ## Contributors
 
@@ -289,6 +291,6 @@ lavinmq --data-dir /var/lib/lavinmq-follower --follow tcp://leader.example.com:5
 
 The software is licensed under the [Apache License 2.0](LICENSE).
 
-Copyright 2018-2023 84codes AB
+Copyright 2018-2024 84codes AB
 
 LavinMQ is a trademark of 84codes AB

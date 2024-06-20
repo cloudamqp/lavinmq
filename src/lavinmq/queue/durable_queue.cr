@@ -2,6 +2,8 @@ require "./queue"
 
 module LavinMQ
   class DurableQueue < Queue
-    @durable = true
+    def durable?
+      true
+    end
   end
 end

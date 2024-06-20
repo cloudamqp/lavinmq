@@ -9,6 +9,7 @@ module LavinMQ
       alias MetricLabels = Hash(String, String) |
                            NamedTuple(name: String) |
                            NamedTuple(channel: String) |
+                           NamedTuple(id: Int32) |
                            NamedTuple(queue: String, vhost: String)
       alias Metric = NamedTuple(name: String, value: MetricValue) |
                      NamedTuple(name: String, value: MetricValue, labels: MetricLabels) |
@@ -34,7 +35,7 @@ module LavinMQ
       end
 
       def write(m : Metric)
-        return unless m[:value]?
+        return if m[:value].nil?
         io = @io
         name = "#{@prefix}_#{m[:name]}"
         if t = m[:type]?
@@ -57,14 +58,14 @@ module LavinMQ
         vhosts = vhosts(u)
         selected = context.request.query_params.fetch_all("vhost")
         vhosts = vhosts.select { |vhost| selected.includes? vhost.name } unless selected.empty?
-        vhosts
+        vhosts.to_a
       end
 
       private def register_routes
         get "/metrics" do |context, _|
           context.response.content_type = "text/plain"
           prefix = context.request.query_params["prefix"]? || "lavinmq"
-          bad_request(context, "prefix to long") if prefix.size > 20
+          bad_request(context, "Prefix too long (max 20 characters)") if prefix.bytesize > 20
           vhosts = target_vhosts(context)
           report(context.response) do
             writer = PrometheusWriter.new(context.response, prefix)
@@ -78,7 +79,7 @@ module LavinMQ
         get "/metrics/detailed" do |context, _|
           context.response.content_type = "text/plain"
           prefix = context.request.query_params["prefix"]? || "lavinmq"
-          bad_request(context, "prefix to long") if prefix.size > 20
+          bad_request(context, "Prefix too long (max 20 characters)") if prefix.bytesize > 20
           families = context.request.query_params.fetch_all("family")
           vhosts = target_vhosts(context)
           report(context.response) do
@@ -102,16 +103,24 @@ module LavinMQ
         end
       end
 
-      private def report(io, &blk)
+      private def report(io, &)
         mem = 0
         elapsed = Time.measure do
-          mem = Benchmark.memory(&blk)
+          mem = Benchmark.memory do
+            begin
+              yield
+            rescue ex
+              Log.error(exception: ex) { "Error while reporting prometheus metrics" }
+            end
+          end
         end
         writer = PrometheusWriter.new(io, "telemetry")
         writer.write({name:  "scrape_duration_seconds",
+                      type:  "gauge",
                       value: elapsed.total_seconds,
                       help:  "Duration for metrics collection in seconds"})
         writer.write({name:  "scrape_mem",
+                      type:  "gauge",
                       value: mem,
                       help:  "Memory used for metrics collections in bytes"})
       end
@@ -119,6 +128,7 @@ module LavinMQ
       private def overview_broker_metrics(vhosts, writer)
         stats = vhost_stats(vhosts)
         writer.write({name:   "identity_info",
+                      type:   "gauge",
                       value:  1,
                       help:   "System information",
                       labels: {
@@ -159,9 +169,11 @@ module LavinMQ
                       type:  "gauge",
                       help:  "Open TCP sockets"})
         writer.write({name:  "process_resident_memory_bytes",
+                      type:  "gauge",
                       value: @amqp_server.rss,
                       help:  "Memory used in bytes"})
         writer.write({name:  "disk_space_available_bytes",
+                      type:  "gauge",
                       value: @amqp_server.disk_free,
                       help:  "Disk space available in bytes"})
         writer.write({name:  "process_max_fds",
@@ -221,17 +233,20 @@ module LavinMQ
 
       private def custom_metrics(vhosts, writer)
         writer.write({name: "uptime", value: @amqp_server.uptime.to_i,
+                      type: "counter",
                       help: "Server uptime in seconds"})
         writer.write({name:  "cpu_system_time_total",
                       value: @amqp_server.sys_time,
-                      type:  "counter",
+                      type:  "gauge",
                       help:  "Total CPU system time"})
         writer.write({name:  "cpu_user_time_total",
                       value: @amqp_server.user_time,
-                      type:  "counter",
+                      type:  "gauge",
                       help:  "Total CPU user time"})
-        writer.write({name: "rss_bytes", value: @amqp_server.rss,
-                      help: "Memory RSS in bytes"})
+        writer.write({name:  "rss_bytes",
+                      type:  "gauge",
+                      value: @amqp_server.rss,
+                      help:  "Memory RSS in bytes"})
         writer.write({name:  "stats_collection_duration_seconds_total",
                       value: @amqp_server.stats_collection_duration_seconds_total.to_f,
                       type:  "gauge",
@@ -244,20 +259,16 @@ module LavinMQ
                       value: @amqp_server.stats_system_collection_duration_seconds.to_f,
                       type:  "gauge",
                       help:  "Time it takes to collect system metrics"})
-        vhosts.each do |vhost|
-          labels = {name: vhost.name}
-          writer.write({name:   "gc_runs_total",
-                        value:  vhost.gc_runs,
-                        labels: labels,
-                        type:   "counter",
-                        help:   "Number of GC runs"})
-          vhost.gc_timing.each do |k, v|
-            writer.write({name:   "gc_time_#{k.downcase.tr(" ", "_")}",
-                          value:  v,
-                          labels: labels,
-                          type:   "counter",
-                          help:   "GC time spent in #{k}"})
-          end
+        writer.write({name:  "total_connected_followers",
+                      value: @amqp_server.followers.size,
+                      type:  "gauge",
+                      help:  "Amount of follower nodes connected"})
+        @amqp_server.followers.each do |f|
+          writer.write({name:   "follower_lag",
+                        labels: {id: f.id},
+                        value:  f.lag,
+                        type:   "gauge",
+                        help:   "Bytes that hasn't been synchronized with the follower yet"})
         end
       end
 

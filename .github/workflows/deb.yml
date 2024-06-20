@@ -37,14 +37,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, ubuntu-20.04, debian-11]
+        os: [ubuntu-24.04, ubuntu-22.04, ubuntu-20.04, debian-12, debian-11]
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
@@ -60,15 +60,15 @@ jobs:
           platforms: linux/amd64,linux/arm64
           pull: true
           build-args: |
-            build_image=84codes/crystal:1.9.1-${{ matrix.os }}
+            build_image=84codes/crystal:1.12.2-${{ matrix.os }}
             version=${{ env.version }}
             DEB_BUILD_OPTIONS="parallel=1"
           outputs: builds
 
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         name: Upload artifact
         with:
-          name: deb-packages
+          name: deb-packages-${{ matrix.os }}
           path: builds
 
       - name: Upload to Packagecloud

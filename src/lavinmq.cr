@@ -1,10 +1,9 @@
 require "./lavinmq/version"
 require "./stdlib/*"
 require "./lavinmq/config"
-require "./lavinmq/server_cli"
 
 config = LavinMQ::Config.instance
-LavinMQ::ServerCLI.new(config).parse
+config.parse # both ARGV and config file
 
 {% unless flag?(:gc_none) %}
   if config.raise_gc_warn?
@@ -16,13 +15,10 @@ LavinMQ::ServerCLI.new(config).parse
 
 # config has to be loaded before we require vhost/queue, byte_format is a constant
 require "./lavinmq/launcher"
-require "./lavinmq/replication/client"
-if uri = config.replication_follow
-  begin
-    LavinMQ::Replication::Client.new(config.data_dir).follow(uri)
-  rescue ex : ArgumentError
-    abort ex.message
-  end
+require "./lavinmq/clustering/controller"
+
+if config.clustering?
+  LavinMQ::Clustering::Controller.new(config).run
 else
-  LavinMQ::Launcher.new(config).run # will block
+  LavinMQ::Launcher.new(config).run
 end

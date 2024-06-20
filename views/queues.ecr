@@ -22,7 +22,7 @@
             <thead>
               <tr>
                 <th><input type="checkbox" id="multi-check-all"></th>
-                <th data-sort-key="vhost">Virtual host</th>
+                <th data-sort-key="vhost" class="left">Virtual host</th>
                 <th data-sort-key="name" class="left">Name</th>
                 <th>Features</th>
                 <th data-sort-key="policy">Policy</th>
@@ -58,7 +58,7 @@
           ensuring their availability and preventing data loss.</span>
           </a>
           </span>
-          <input type="checkbox" name="durable" value="1">
+          <input type="checkbox" name="durable" value="1" checked>
         </label>
         <label>
           <span>
@@ -103,6 +103,14 @@
             </a> |
             <a class="arg-tooltip" data-tag="x-max-priority" data-value="0">Max Priority
               <span class="tooltiptext">Make the queue a priority queue, with a fixed level of different priorities (max 255)</span>
+            </a> |
+            <a class="arg-tooltip" data-tag="x-queue-type" data-value="stream">Stream Queue
+              <span class="tooltiptext">Make the queue a stream queue. It has to be durable and can't be auto-delete</span>
+            </a> |
+            <a class="arg-tooltip" data-tag="x-max-age" data-value="1M">Max age
+              <span class="tooltiptext">Stream queue segments will be deleted when all messages in the segmented is older than this.
+                Valid units are Y(ear), M(onth), D(ays), h(ours), m(inutes), s(seconds).
+                Segments are only deleted when new messages are published to the stream queue.</span>
             </a>
           </div>
         </label>

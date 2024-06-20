@@ -36,7 +36,7 @@ jobs:
     name: Build RPM
     strategy:
       matrix:
-        os: ['fedora-37', 'fedora-38']
+        os: ['fedora-39', 'fedora-40', 'el-9']
     runs-on: ubuntu-latest
     # Set permissions if you're using OIDC token authentication
     permissions:
@@ -44,7 +44,7 @@ jobs:
       id-token: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
@@ -72,15 +72,15 @@ jobs:
           platforms: linux/amd64,linux/arm64
           pull: true
           build-args: |
-            build_image=84codes/crystal:1.9.1-${{ matrix.os }}
+            build_image=84codes/crystal:1.12.2-${{ matrix.os }}
             version=${{ env.version }}
             MAKEFLAGS=-j1
           outputs: RPMS
 
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         name: Upload artifact
         with:
-          name: rpm-packages
+          name: rpm-packages-${{ matrix.os }}
           path: RPMS
 
       - name: Upload to Packagecloud

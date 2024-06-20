@@ -16,7 +16,7 @@ jobs:
         run: apt-get update && apt-get install -y liblz4-dev
 
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           path: 'pr'
 
@@ -27,7 +27,7 @@ jobs:
         run: cd pr && chmod u+x extras/action_benchmark.sh && ./extras/action_benchmark.sh /tmp/pr.log
 
       - name: Checkout main
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           path: 'main'
           ref: 'main'

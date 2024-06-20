@@ -39,26 +39,32 @@ module LavinMQ
 
       getter delete_after, last_unacked
 
-      def initialize(@name : String, @uri : URI, @queue : String?, @exchange : String? = nil,
+      def initialize(@name : String, @uris : Array(URI), @queue : String?, @exchange : String? = nil,
                      @exchange_key : String? = nil,
-                     @delete_after = DEFAULT_DELETE_AFTER, @prefetch = DEFAULT_PREFETCH, @ack_mode = DEFAULT_ACK_MODE,
+                     @delete_after = DEFAULT_DELETE_AFTER, @prefetch = DEFAULT_PREFETCH,
+                     @ack_mode = DEFAULT_ACK_MODE, consumer_args : Hash(String, JSON::Any)? = nil,
                      direct_user : User? = nil)
-        @tag = "Shovel[#{@name}]"
-        cfg = Config.instance
-        @uri.host ||= "#{cfg.amqp_bind}:#{cfg.amqp_port}"
-        unless @uri.user
-          if direct_user
-            @uri.user = direct_user.name
-            @uri.password = direct_user.plain_text_password
-          else
-            raise ArgumentError.new("direct_user required")
+        @tag = "Shovel"
+        raise ArgumentError.new("At least one source uri is required") if @uris.empty?
+        @uris.each do |uri|
+          unless uri.user
+            if direct_user
+              uri.user = direct_user.name
+              uri.password = direct_user.plain_text_password
+            else
+              raise ArgumentError.new("direct_user required")
+            end
           end
+          params = uri.query_params
+          params["name"] ||= "Shovel #{@name} source"
+          uri.query = params.to_s
         end
-        params = @uri.query_params
-        params["name"] ||= "Shovel #{@name} source"
-        @uri.query = params.to_s
         if @queue.nil? && @exchange.nil?
           raise ArgumentError.new("Shovel source requires a queue or an exchange")
+        end
+        @args = AMQ::Protocol::Table.new
+        consumer_args.try &.each do |k, v|
+          @args[k] = v.as_s?
         end
       end
 
@@ -66,7 +72,47 @@ module LavinMQ
         if c = @conn
           c.close
         end
-        @conn = conn = ::AMQP::Client.new(@uri).connect
+        @conn = ::AMQP::Client.new(@uris.sample).connect
+        open_channel
+      end
+
+      def stop
+        # If we have any outstanding messages when closing, ack them first.
+        @last_unacked.try { |delivery_tag| ack(delivery_tag, close: true) }
+        @conn.try &.close(no_wait: false)
+        @q = nil
+        @ch = nil
+      end
+
+      private def at_end?(delivery_tag)
+        @q.not_nil![:message_count] == delivery_tag
+      end
+
+      def ack(delivery_tag, close = false)
+        @ch.try do |ch|
+          next if ch.closed?
+
+          # We batch ack for faster shovel
+          batch_full = delivery_tag % (@prefetch / 2).ceil.to_i == 0
+          if close || batch_full || at_end?(delivery_tag)
+            @last_unacked = nil
+            ch.basic_ack(delivery_tag, multiple: true)
+            if close || (@delete_after.queue_length? && at_end?(delivery_tag))
+              ch.basic_cancel(@tag)
+            end
+          else
+            @last_unacked = delivery_tag
+          end
+        end
+      end
+
+      def started? : Bool
+        !@q.nil? && !@conn.try &.closed?
+      end
+
+      private def open_channel
+        @ch.try &.close
+        conn = @conn.not_nil!
         @ch = ch = conn.channel
         ch.prefetch @prefetch
         q_name = @queue || ""
@@ -81,59 +127,28 @@ module LavinMQ
         end
       end
 
-      def stop
-        # If we have any outstanding messages when closing, ack them first.
-        @last_unacked.try { |delivery_tag| ack(delivery_tag, close: true) }
-        @conn.try &.close(no_wait: false)
-      end
-
-      private def at_end?(delivery_tag)
-        @q.not_nil![:message_count] == delivery_tag
-      end
-
-      def ack(delivery_tag, close = false)
-        @ch.try do |ch|
-          next if ch.closed?
-
-          # We batch ack for faster shovel
-          batch_full = delivery_tag % (@prefetch / 2).ceil.to_i == 0
-          if batch_full || at_end?(delivery_tag) || close
-            @last_unacked = nil
-            ch.basic_ack(delivery_tag, multiple: true)
-            if close || (at_end?(delivery_tag) && @delete_after.queue_length?)
-              ch.basic_cancel(@tag)
-            end
-          else
-            @last_unacked = delivery_tag
-          end
-        end
-      end
-
-      def started? : Bool
-        !@q.nil?
-      end
-
       def each(&blk : ::AMQP::Client::DeliverMessage -> Nil)
         raise "Not started" unless started?
         q = @q.not_nil!
         ch = @ch.not_nil!
+        exclusive = !@args["x-stream-offset"]? # consumers for streams can not be exclusive
         return if @delete_after.queue_length? && q[:message_count].zero?
         ch.basic_consume(q[:queue_name],
           no_ack: @ack_mode.no_ack?,
-          exclusive: true,
+          exclusive: exclusive,
           block: true,
+          args: @args,
           tag: @tag) do |msg|
           blk.call(msg)
 
-          if @ack_mode.on_publish?
-            ack(msg.delivery_tag)
-          end
-
-          if @ack_mode.no_ack? && at_end?(msg.delivery_tag) && @delete_after.queue_length?
-            ch.not_nil!.basic_cancel(@tag)
+          if @ack_mode.no_ack? && @delete_after.queue_length? && at_end?(msg.delivery_tag)
+            ch.basic_cancel(@tag)
           end
         rescue e : FailedDeliveryError
           msg.reject
+        rescue e
+          stop
+          raise e
         end
       end
     end
@@ -148,16 +163,45 @@ module LavinMQ
       abstract def started? : Bool
     end
 
+    class MultiDestinationHandler < Destination
+      @current_dest : Destination?
+
+      def initialize(@destinations : Array(Destination))
+      end
+
+      def start
+        next_dest = @destinations.sample
+        return unless next_dest
+        next_dest.start
+        @current_dest = next_dest
+      end
+
+      def stop
+        @current_dest.try &.stop
+        @current_dest = nil
+      end
+
+      def push(msg, source)
+        @current_dest.try &.push(msg, source)
+      end
+
+      def started? : Bool
+        if dest = @current_dest
+          return dest.started?
+        end
+        false
+      end
+    end
+
     class AMQPDestination < Destination
       @conn : ::AMQP::Client::Connection?
       @ch : ::AMQP::Client::Channel?
 
       def initialize(@name : String, @uri : URI, @queue : String?, @exchange : String? = nil,
                      @exchange_key : String? = nil,
-                     @delete_after = DEFAULT_DELETE_AFTER, @prefetch = DEFAULT_PREFETCH, @ack_mode = DEFAULT_ACK_MODE,
+                     @delete_after = DEFAULT_DELETE_AFTER, @prefetch = DEFAULT_PREFETCH,
+                     @ack_mode = DEFAULT_ACK_MODE, consumer_args : Hash(String, JSON::Any)? = nil,
                      direct_user : User? = nil)
-        cfg = Config.instance
-        @uri.host ||= "#{cfg.amqp_bind}:#{cfg.amqp_port}"
         unless @uri.user
           if direct_user
             @uri.user = direct_user.name
@@ -175,6 +219,10 @@ module LavinMQ
         end
         if @exchange.nil?
           raise ArgumentError.new("Shovel destination requires an exchange")
+        end
+        @args = AMQ::Protocol::Table.new
+        consumer_args.try &.each do |k, v|
+          @args[k] = v.as_s?
         end
       end
 
@@ -197,25 +245,28 @@ module LavinMQ
 
       def stop
         @conn.try &.close
+        @ch = nil
       end
 
       def started? : Bool
-        !@ch.nil?
+        !@ch.nil? && !@conn.try &.closed?
       end
 
       def push(msg, source)
         raise "Not started" unless started?
         ch = @ch.not_nil!
-        ch.confirm_select if @ack_mode.on_confirm?
-        msgid = ch.basic_publish(
-          msg.body_io,
-          @exchange || msg.exchange,
-          @exchange_key || msg.routing_key,
-          props: msg.properties)
-        if @ack_mode.on_confirm?
-          ch.on_confirm(msgid) do
+        ex = @exchange || msg.exchange
+        rk = @exchange_key || msg.routing_key
+        case @ack_mode
+        in AckMode::OnConfirm
+          ch.basic_publish(msg.body_io, ex, rk, props: msg.properties) do
             source.ack(msg.delivery_tag)
           end
+        in AckMode::OnPublish
+          ch.basic_publish(msg.body_io, ex, rk, props: msg.properties)
+          source.ack(msg.delivery_tag)
+        in AckMode::NoAck
+          ch.basic_publish(msg.body_io, ex, rk, props: msg.properties)
         end
       end
     end
@@ -228,8 +279,8 @@ module LavinMQ
 
       def start
         client = ::HTTP::Client.new @uri
-        client.connect_timeout = 10
-        client.read_timeout = 30
+        client.connect_timeout = 10.seconds
+        client.read_timeout = 30.seconds
         client.basic_auth(@uri.user, @uri.password || "") if @uri.user
         @client = client
       end
@@ -263,9 +314,11 @@ module LavinMQ
                  "/"
                end
         response = c.post(path, headers: headers, body: msg.body_io)
-        if @ack_mode.on_confirm?
+        case @ack_mode
+        in AckMode::OnConfirm, AckMode::OnPublish
           raise FailedDeliveryError.new unless response.success?
           source.ack(msg.delivery_tag)
+        in AckMode::NoAck
         end
       end
     end
@@ -301,6 +354,7 @@ module LavinMQ
             @source.start
           end
           @destination.start unless @destination.started?
+
           break if terminated?
           Log.info { "started" }
           @state = State::Running
@@ -312,7 +366,7 @@ module LavinMQ
           @vhost.delete_parameter("shovel", @name) if @source.delete_after.queue_length?
           break
         rescue ex : ::AMQP::Client::Connection::ClosedException | ::AMQP::Client::Channel::ClosedException | Socket::ConnectError
-          return if terminated?
+          break if terminated?
           @state = State::Error
           # Shoveled queue was deleted
           if ex.message.to_s.starts_with?("404")
@@ -358,10 +412,6 @@ module LavinMQ
         @destination.stop
         return if terminated?
         Log.info &.emit("Terminated", name: @name, vhost: @vhost.name)
-      end
-
-      def delete
-        terminate
       end
 
       def terminated?

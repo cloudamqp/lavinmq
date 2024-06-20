@@ -494,14 +494,11 @@ footer .logo {
   font-weight: normal;
   border-bottom: 1px solid var(--font-color-dark);
   padding: .75rem 1.15rem .5rem .75rem;
-  min-width: 10px;
-  max-width: 500px;
-  word-break: keep-all;
-  white-space: nowrap;
 }
 
-.table th:first-child {
-  text-align: left;
+.table td.checkbox {
+  width: 1px;
+  max-width: 10px;
 }
 
 .table th[data-sort-key] {
@@ -536,16 +533,7 @@ footer .logo {
   border-top: 1px solid #ddd;
   padding: .75rem 1.55rem .5rem .55rem;
   color: var(--font-color-light);
-  max-width: 10vw;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  word-break: keep-all;
   white-space: nowrap;
-}
-
-.table tbody td:hover {
-  overflow: visible;
-  background-color: inherit;
 }
 
 .table tbody a {

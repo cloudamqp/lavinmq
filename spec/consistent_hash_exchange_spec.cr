@@ -80,185 +80,197 @@ describe "Consistent Hash Exchange" do
     x_name = "con-hash"
     # List of queues to keep track of so we can clean up
     it "should route all messages to queue if only one queue" do
-      with_channel do |ch|
-        x = ch.exchange(x_name, "x-consistent-hash")
-        q = ch.queue("my-queue-0")
-        q.bind(x.name, "1")
-        x.publish("test message", "rk")
-        q.get(no_ack: true)
-          .try(&.body_io.to_s)
-          .should eq("test message")
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          x = ch.exchange(x_name, "x-consistent-hash")
+          q = ch.queue("my-queue-0")
+          q.bind(x.name, "1")
+          x.publish("test message", "rk")
+          q.get(no_ack: true)
+            .try(&.body_io.to_s)
+            .should eq("test message")
+        end
       end
     end
 
     it "should route on routing key" do
       q_names = Array(String).new
-      with_channel do |ch|
-        x = ch.exchange(x_name, "x-consistent-hash")
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          x = ch.exchange(x_name, "x-consistent-hash")
 
-        q_names << "1"
-        q0 = ch.queue(q_names[0])
-        q0.bind(x.name, "3")
+          q_names << "1"
+          q0 = ch.queue(q_names[0])
+          q0.bind(x.name, "3")
 
-        q_names << "2"
-        q1 = ch.queue(q_names[1])
-        q1.bind(x.name, "3")
+          q_names << "2"
+          q1 = ch.queue(q_names[1])
+          q1.bind(x.name, "3")
 
-        q_names << "3"
-        q2 = ch.queue(q_names[2])
-        q2.bind(x.name, "3")
+          q_names << "3"
+          q2 = ch.queue(q_names[2])
+          q2.bind(x.name, "3")
 
-        x.publish "test message 0", "r1"
-        x.publish "test message 1", "r2"
-        x.publish "test message 2", "r3"
+          x.publish "test message 0", "r1"
+          x.publish "test message 1", "r2"
+          x.publish "test message 2", "r3"
 
-        q0.get(no_ack: true)
-          .try(&.body_io.to_s)
-          .should eq("test message 0")
-        q1.get(no_ack: true)
-          .try(&.body_io.to_s)
-          .should be_nil
-        q2.get(no_ack: true)
-          .try(&.body_io.to_s)
-          .should eq("test message 1")
-        q2.get(no_ack: true)
-          .try(&.body_io.to_s)
-          .should eq("test message 2")
+          q0.get(no_ack: true)
+            .try(&.body_io.to_s)
+            .should eq("test message 0")
+          q1.get(no_ack: true)
+            .try(&.body_io.to_s)
+            .should be_nil
+          q2.get(no_ack: true)
+            .try(&.body_io.to_s)
+            .should eq("test message 1")
+          q2.get(no_ack: true)
+            .try(&.body_io.to_s)
+            .should eq("test message 2")
+        end
       end
     end
 
     it "should fail if header value isn't a string" do
-      with_channel do |ch|
-        x_args = AMQP::Client::Arguments.new({"x-hash-on" => "cluster"})
-        x = ch.exchange(x_name, "x-consistent-hash", args: x_args)
-        q0 = ch.queue("1")
-        q0.bind(x.name, "3")
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          x_args = AMQP::Client::Arguments.new({"x-hash-on" => "cluster"})
+          x = ch.exchange(x_name, "x-consistent-hash", args: x_args)
+          q0 = ch.queue("1")
+          q0.bind(x.name, "3")
 
-        hdrs1 = AMQP::Client::Arguments.new({"cluster" => 123})
+          hdrs1 = AMQP::Client::Arguments.new({"cluster" => 123})
 
-        expect_raises(AMQP::Client::Channel::ClosedException, "PRECONDITION_FAILED") do
-          x.publish_confirm "test message 0", "abc", props: AMQP::Client::Properties.new(headers: hdrs1)
+          expect_raises(AMQP::Client::Channel::ClosedException, "PRECONDITION_FAILED") do
+            x.publish_confirm "test message 0", "abc", props: AMQP::Client::Properties.new(headers: hdrs1)
+          end
         end
       end
     end
 
     it "should route on empty string is header isn't set" do
       q_names = Array(String).new
-      with_channel do |ch|
-        x_args = AMQP::Client::Arguments.new({"x-hash-on" => "cluster"})
-        x = ch.exchange(x_name, "x-consistent-hash", args: x_args)
-        q_names << "1"
-        q0 = ch.queue(q_names[0])
-        q0.bind(x.name, "3")
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          x_args = AMQP::Client::Arguments.new({"x-hash-on" => "cluster"})
+          x = ch.exchange(x_name, "x-consistent-hash", args: x_args)
+          q_names << "1"
+          q0 = ch.queue(q_names[0])
+          q0.bind(x.name, "3")
 
-        q_names << "2"
-        q1 = ch.queue(q_names[1])
-        q1.bind(x.name, "3")
+          q_names << "2"
+          q1 = ch.queue(q_names[1])
+          q1.bind(x.name, "3")
 
-        hdrs1 = AMQP::Client::Arguments.new
-        hdrs2 = AMQP::Client::Arguments.new({"cluster" => "1"})
-        hdrs3 = AMQP::Client::Arguments.new({"cluster" => ""})
+          hdrs1 = AMQP::Client::Arguments.new
+          hdrs2 = AMQP::Client::Arguments.new({"cluster" => "1"})
+          hdrs3 = AMQP::Client::Arguments.new({"cluster" => ""})
 
-        x.publish_confirm "test message 0", "abc", props: AMQP::Client::Properties.new(headers: hdrs1)
-        x.publish_confirm "test message 1", "abc", props: AMQP::Client::Properties.new(headers: hdrs2)
-        x.publish_confirm "test message 2", "abc", props: AMQP::Client::Properties.new(headers: hdrs3)
+          x.publish_confirm "test message 0", "abc", props: AMQP::Client::Properties.new(headers: hdrs1)
+          x.publish_confirm "test message 1", "abc", props: AMQP::Client::Properties.new(headers: hdrs2)
+          x.publish_confirm "test message 2", "abc", props: AMQP::Client::Properties.new(headers: hdrs3)
 
-        q0.get(no_ack: true)
-          .try(&.body_io.to_s)
-          .should eq("test message 0")
-        q0.get(no_ack: true)
-          .try(&.body_io.to_s)
-          .should eq("test message 2")
-        q1.get(no_ack: true)
-          .try(&.body_io.to_s)
-          .should eq("test message 1")
+          q0.get(no_ack: true)
+            .try(&.body_io.to_s)
+            .should eq("test message 0")
+          q0.get(no_ack: true)
+            .try(&.body_io.to_s)
+            .should eq("test message 2")
+          q1.get(no_ack: true)
+            .try(&.body_io.to_s)
+            .should eq("test message 1")
+        end
       end
     end
 
     it "should route on header key" do
       q_names = Array(String).new
-      with_channel do |ch|
-        x_args = AMQP::Client::Arguments.new({"x-hash-on" => "cluster"})
-        x = ch.exchange(x_name, "x-consistent-hash", args: x_args)
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          x_args = AMQP::Client::Arguments.new({"x-hash-on" => "cluster"})
+          x = ch.exchange(x_name, "x-consistent-hash", args: x_args)
 
-        q_names << "1"
-        q0 = ch.queue(q_names[0])
-        q0.bind(x.name, "3")
+          q_names << "1"
+          q0 = ch.queue(q_names[0])
+          q0.bind(x.name, "3")
 
-        q_names << "2"
-        q1 = ch.queue(q_names[1])
-        q1.bind(x.name, "3")
+          q_names << "2"
+          q1 = ch.queue(q_names[1])
+          q1.bind(x.name, "3")
 
-        q_names << "3"
-        q2 = ch.queue(q_names[2])
-        q2.bind(x.name, "3")
+          q_names << "3"
+          q2 = ch.queue(q_names[2])
+          q2.bind(x.name, "3")
 
-        hdrs1 = AMQP::Client::Arguments.new({"cluster" => "r1"})
-        x.publish "test message 0", "abc", props: AMQP::Client::Properties.new(headers: hdrs1)
+          hdrs1 = AMQP::Client::Arguments.new({"cluster" => "r1"})
+          x.publish "test message 0", "abc", props: AMQP::Client::Properties.new(headers: hdrs1)
 
-        hdrs2 = AMQP::Client::Arguments.new({"cluster" => "r2"})
-        x.publish "test message 1", "abc", props: AMQP::Client::Properties.new(headers: hdrs2)
+          hdrs2 = AMQP::Client::Arguments.new({"cluster" => "r2"})
+          x.publish "test message 1", "abc", props: AMQP::Client::Properties.new(headers: hdrs2)
 
-        hdrs3 = AMQP::Client::Arguments.new({"cluster" => "r3"})
-        x.publish "test message 2", "abc", props: AMQP::Client::Properties.new(headers: hdrs3)
+          hdrs3 = AMQP::Client::Arguments.new({"cluster" => "r3"})
+          x.publish "test message 2", "abc", props: AMQP::Client::Properties.new(headers: hdrs3)
 
-        q0.get(no_ack: true)
-          .try(&.body_io.to_s)
-          .should eq("test message 0")
-        q1.get(no_ack: true)
-          .try(&.body_io.to_s)
-          .should be_nil
-        q2.get(no_ack: true)
-          .try(&.body_io.to_s)
-          .should eq("test message 1")
-        q2.get(no_ack: true)
-          .try(&.body_io.to_s)
-          .should eq("test message 2")
+          q0.get(no_ack: true)
+            .try(&.body_io.to_s)
+            .should eq("test message 0")
+          q1.get(no_ack: true)
+            .try(&.body_io.to_s)
+            .should be_nil
+          q2.get(no_ack: true)
+            .try(&.body_io.to_s)
+            .should eq("test message 1")
+          q2.get(no_ack: true)
+            .try(&.body_io.to_s)
+            .should eq("test message 2")
+        end
       end
     end
 
     it "should route on to same queue even after delete" do
-      with_channel do |ch|
-        x = ch.exchange(x_name, "x-consistent-hash")
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          x = ch.exchange(x_name, "x-consistent-hash")
 
-        q0 = ch.queue("1")
-        q0.bind(x.name, "3")
+          q0 = ch.queue("1")
+          q0.bind(x.name, "3")
 
-        q1 = ch.queue("2")
-        q1.bind(x.name, "3")
+          q1 = ch.queue("2")
+          q1.bind(x.name, "3")
 
-        q2 = ch.queue("3")
-        q2.bind(x.name, "3")
+          q2 = ch.queue("3")
+          q2.bind(x.name, "3")
 
-        x.publish "test message 0", "r1"
-        x.publish "test message 1", "r2"
-        x.publish "test message 2", "r3"
+          x.publish "test message 0", "r1"
+          x.publish "test message 1", "r2"
+          x.publish "test message 2", "r3"
 
-        q0.get(no_ack: true)
-          .try(&.body_io.to_s)
-          .should eq("test message 0")
-        q2.get(no_ack: true)
-          .try(&.body_io.to_s)
-          .should eq("test message 1")
-        q2.get(no_ack: true)
-          .try(&.body_io.to_s)
-          .should eq("test message 2")
+          q0.get(no_ack: true)
+            .try(&.body_io.to_s)
+            .should eq("test message 0")
+          q2.get(no_ack: true)
+            .try(&.body_io.to_s)
+            .should eq("test message 1")
+          q2.get(no_ack: true)
+            .try(&.body_io.to_s)
+            .should eq("test message 2")
 
-        Server.vhosts["/"].delete_queue("2")
+          s.vhosts["/"].delete_queue("2")
 
-        x.publish "test message 0", "r1"
-        x.publish "test message 1", "r2"
-        x.publish "test message 2", "r3"
+          x.publish "test message 0", "r1"
+          x.publish "test message 1", "r2"
+          x.publish "test message 2", "r3"
 
-        q0.get(no_ack: true)
-          .try(&.body_io.to_s)
-          .should eq("test message 0")
-        q2.get(no_ack: true)
-          .try(&.body_io.to_s)
-          .should eq("test message 1")
-        q2.get(no_ack: true)
-          .try(&.body_io.to_s)
-          .should eq("test message 2")
+          q0.get(no_ack: true)
+            .try(&.body_io.to_s)
+            .should eq("test message 0")
+          q2.get(no_ack: true)
+            .try(&.body_io.to_s)
+            .should eq("test message 1")
+          q2.get(no_ack: true)
+            .try(&.body_io.to_s)
+            .should eq("test message 2")
+        end
       end
     end
   end
@@ -268,19 +280,21 @@ describe "Consistent Hash Exchange" do
       x_name = "con-hash"
       x2_name = "next-exchange"
 
-      with_channel do |ch|
-        x = ch.exchange(x_name, "x-consistent-hash")
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          x = ch.exchange(x_name, "x-consistent-hash")
 
-        x2 = ch.exchange(x2_name, "direct")
-        x2.bind(x_name, "1")
+          x2 = ch.exchange(x2_name, "direct")
+          x2.bind(x_name, "1")
 
-        q = ch.queue("my-queue")
-        q.bind(x2_name, "rk")
+          q = ch.queue("my-queue")
+          q.bind(x2_name, "rk")
 
-        x.publish("test message", "rk")
-        q.get(no_ack: true)
-          .try(&.body_io.to_s)
-          .should eq("test message")
+          x.publish("test message", "rk")
+          q.get(no_ack: true)
+            .try(&.body_io.to_s)
+            .should eq("test message")
+        end
       end
     end
   end

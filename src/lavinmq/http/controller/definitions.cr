@@ -21,10 +21,15 @@ module LavinMQ
 
         post "/api/definitions/upload" do |context, _params|
           refuse_unless_administrator(context, user(context))
-          ::HTTP::FormData.parse(context.request) do |part|
-            if part.name == "file"
-              body = JSON.parse(part.body)
-              GlobalDefinitions.new(@amqp_server).import(body)
+          if context.request.headers["Content-Type"] == "application/json"
+            body = parse_body(context)
+            GlobalDefinitions.new(@amqp_server).import(body)
+          else
+            ::HTTP::FormData.parse(context.request) do |part|
+              if part.name == "file"
+                body = JSON.parse(part.body)
+                GlobalDefinitions.new(@amqp_server).import(body)
+              end
             end
           end
           redirect_back(context) if context.request.headers["Referer"]?
@@ -205,7 +210,7 @@ module LavinMQ
               name = u["name"].as_s
               pass_hash = u["password_hash"].as_s
               hash_algo = u["hashing_algorithm"]?.try(&.as_s)
-              tags = u["tags"]?.try(&.as_s).to_s.split(",").compact_map { |t| Tag.parse?(t) }
+              tags = u["tags"]?.to_s.gsub(/[\[\]"\s]/, "").split(",").compact_map { |t| Tag.parse?(t) }
               @amqp_server.users.add(name, pass_hash, hash_algo, tags, save: false)
             end
             @amqp_server.users.save!
@@ -277,12 +282,12 @@ module LavinMQ
           json.array do
             vhosts.each_value do |v|
               v.queues.each_value do |q|
-                next if q.exclusive
+                next if q.exclusive?
                 {
                   "name":        q.name,
                   "vhost":       q.vhost.name,
-                  "durable":     q.durable,
-                  "auto_delete": q.auto_delete,
+                  "durable":     q.durable?,
+                  "auto_delete": q.auto_delete?,
                   "arguments":   q.arguments,
                 }.to_json(json)
               end
@@ -293,15 +298,21 @@ module LavinMQ
         private def export_exchanges(json)
           json.array do
             vhosts.each_value do |v|
-              v.exchanges.each_value.reject(&.internal).each do |e|
+              v.exchanges.each_value.reject(&.internal?).each do |e|
+                delayed = e.arguments["x-delayed-exchange"]?
+                if delayed
+                  arguments = e.arguments.clone
+                  arguments["x-delayed-type"] = e.type
+                  arguments.delete("x-delayed-exchange")
+                end
                 {
                   "name":        e.name,
                   "vhost":       e.vhost.name,
-                  "type":        e.type,
-                  "durable":     e.durable,
-                  "auto_delete": e.auto_delete,
-                  "internal":    e.internal,
-                  "arguments":   e.arguments,
+                  "type":        delayed ? "x-delayed-exchange" : e.type,
+                  "durable":     e.durable?,
+                  "auto_delete": e.auto_delete?,
+                  "internal":    e.internal?,
+                  "arguments":   delayed ? arguments : e.arguments,
                 }.to_json(json)
               end
             end
@@ -326,6 +337,19 @@ module LavinMQ
               u.permissions_details.each do |p|
                 p.to_json(json)
               end
+            end
+          end
+        end
+
+        private def export_users(json)
+          json.array do
+            @amqp_server.users.each_value.reject(&.hidden?).each do |u|
+              {
+                "hashing_algorithm": u.user_details["hashing_algorithm"],
+                "name":              u.name,
+                "password_hash":     u.user_details["password_hash"],
+                "tags":              u.tags,
+              }.to_json(json)
             end
           end
         end
@@ -382,7 +406,7 @@ module LavinMQ
           JSON.build(response) do |json|
             json.object do
               json.field("lavinmq_version", LavinMQ::VERSION)
-              json.field("users", @amqp_server.users.values.reject(&.hidden?))
+              json.field("users") { export_users(json) }
               json.field("vhosts", @amqp_server.vhosts)
               json.field("permissions") { export_permissions(json) }
               json.field("queues") { export_queues(json) }

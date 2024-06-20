@@ -64,6 +64,8 @@ module LavinMQ
               context.response.status_code = 204
             elsif name.starts_with? "amq."
               bad_request(context, "Not allowed to use the amq. prefix")
+            elsif name.bytesize > UInt8::MAX
+              bad_request(context, "Queue name too long, can't exceed 255 characters")
             else
               begin
                 @amqp_server.vhosts[vhost]
@@ -91,15 +93,6 @@ module LavinMQ
             q = queue(context, params, vhost)
             q.resume!
             context.response.status_code = 204
-          end
-        end
-
-        get "/api/queues/:vhost/:name/size-details" do |context, params|
-          with_vhost(context, params) do |vhost|
-            refuse_unless_management(context, user(context), vhost)
-            JSON.build(context.response) do |json|
-              queue(context, params, vhost).size_details_to_json(json)
-            end
           end
         end
 

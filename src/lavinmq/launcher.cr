@@ -14,10 +14,11 @@ module LavinMQ
     @tls_context : OpenSSL::SSL::Context::Server?
     @first_shutdown_attempt = true
     @data_dir_lock : DataDirLock?
+    @closed = false
+    @lease : Channel(Nil)?
 
-    def initialize(@config : LavinMQ::Config)
+    def initialize(@config : Config, replicator = Clustering::NoopServer.new, @lease = nil)
       reload_logger
-
       print_environment_info
       print_max_map_count
       fd_limit = System.maximize_fd_limit
@@ -30,7 +31,7 @@ module LavinMQ
       if @config.data_dir_lock?
         @data_dir_lock = DataDirLock.new(@config.data_dir).tap &.acquire
       end
-      @amqp_server = LavinMQ::Server.new(@config.data_dir)
+      @amqp_server = LavinMQ::Server.new(@config.data_dir, replicator)
       @http_server = LavinMQ::HTTP::Server.new(@amqp_server)
       @tls_context = create_tls_context if @config.tls_configured?
       reload_tls_context
@@ -41,12 +42,24 @@ module LavinMQ
     def run
       listen
       SystemD.notify_ready
-      if lock = @data_dir_lock
-        lock.poll
-      else
-        loop do
-          GC.collect
+      loop do
+        if lease = @lease
+          select
+          when lease.receive?
+            if @first_shutdown_attempt
+              Log.error { "Leadership lost" }
+              shutdown_server
+            end
+            Fiber.yield
+            break
+          when timeout(30.seconds)
+            @data_dir_lock.try &.poll
+            GC.collect
+          end
+        else
           sleep 30
+          @data_dir_lock.try &.poll
+          GC.collect
         end
       end
     end
@@ -82,9 +95,9 @@ module LavinMQ
       log_file = (path = @config.log_file) ? File.open(path, "a") : STDOUT
       broadcast_backend = ::Log::BroadcastBackend.new
       backend = if ENV.has_key?("JOURNAL_STREAM")
-                  ::Log::IOBackend.new(io: log_file, formatter: JournalLogFormat)
+                  ::Log::IOBackend.new(io: log_file, formatter: JournalLogFormat, dispatcher: ::Log::DirectDispatcher)
                 else
-                  ::Log::IOBackend.new(io: log_file, formatter: StdoutLogFormat)
+                  ::Log::IOBackend.new(io: log_file, formatter: StdoutLogFormat, dispatcher: ::Log::DirectDispatcher)
                 end
 
       broadcast_backend.append(backend, @config.log_level)
@@ -133,8 +146,8 @@ module LavinMQ
         end
       end
 
-      if replication_bind = @config.replication_bind
-        spawn @amqp_server.listen_replication(replication_bind, @config.replication_port), name: "Replication listener"
+      if clustering_bind = @config.clustering_bind
+        spawn @amqp_server.listen_clustering(clustering_bind, @config.clustering_port), name: "Clustering listener"
       end
 
       unless @config.unix_path.empty?
@@ -160,15 +173,34 @@ module LavinMQ
     end
 
     private def dump_debug_info
-      STDOUT.puts System.resource_usage
-      STDOUT.puts GC.prof_stats
-      STDOUT.puts "Fibers:"
+      puts "GC"
+      ps = GC.prof_stats
+      puts "  heap size: #{ps.heap_size.humanize_bytes}"
+      puts "  free bytes: #{ps.free_bytes.humanize_bytes}"
+      puts "  unmapped bytes: #{ps.unmapped_bytes.humanize_bytes}"
+      puts "  allocated since last GC: #{ps.bytes_since_gc.humanize_bytes}"
+      puts "  allocated before last GC: #{ps.bytes_before_gc.humanize_bytes}"
+      puts "  non garbage collectable bytes: #{ps.non_gc_bytes.humanize_bytes}"
+      puts "  garbage collection cycle number: #{ps.gc_no}"
+      puts "  marker threads: #{ps.markers_m1}"
+      puts "  reclaimed bytes during last GC: #{ps.bytes_reclaimed_since_gc.humanize_bytes}"
+      puts "  reclaimed bytes before last GC: #{ps.reclaimed_bytes_before_gc.humanize_bytes}"
+      puts "Fibers:"
       Fiber.list { |f| puts f.inspect }
       LavinMQ::Reporter.report(@amqp_server)
       STDOUT.flush
     end
 
     private def run_gc
+      STDOUT.puts "Unmapping all segments"
+      STDOUT.flush
+      @amqp_server.vhosts.each_value do |vhost|
+        vhost.queues.each_value do |q|
+          msg_store = q.@msg_store
+          msg_store.@segments.each_value &.unmap
+          msg_store.@acks.each_value &.unmap
+        end
+      end
       STDOUT.puts "Garbage collecting"
       STDOUT.flush
       GC.collect
@@ -195,6 +227,8 @@ module LavinMQ
         @http_server.close
         @amqp_server.close
         @data_dir_lock.try &.release
+        @lease.try &.close
+        Fiber.yield
         Log.info { "Fibers: " }
         Fiber.list { |f| Log.info { f.inspect } }
         exit 0

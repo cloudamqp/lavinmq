@@ -26,8 +26,9 @@ describe LavinMQ::DurableQueue do
   context "with corrupt segments" do
     context "when consumed" do
       it "should be closed" do
-        with_vhost("corrupt_vhost") do |vhost|
-          with_channel(vhost: vhost.name) do |ch|
+        with_amqp_server do |s|
+          vhost = s.vhosts.create("corrupt_vhost")
+          with_channel(s, vhost: vhost.name) do |ch|
             q = ch.queue("corrupt_q")
             queue = vhost.queues["corrupt_q"].as(LavinMQ::DurableQueue)
             q.publish_confirm "test message"
@@ -50,9 +51,10 @@ describe LavinMQ::DurableQueue do
     end
 
     it "should ignore corrupt endings" do
-      with_vhost("corrupt_vhost") do |vhost|
+      with_amqp_server do |s|
+        vhost = s.vhosts.create("corrupt_vhost")
         enq_path = ""
-        with_channel(vhost: vhost.name) do |ch|
+        with_channel(s, vhost: vhost.name) do |ch|
           q = ch.queue("corrupt_q2")
           queue = vhost.queues["corrupt_q2"].as(LavinMQ::DurableQueue)
           enq_path = queue.@msg_store.@segments.last_value.path
@@ -60,10 +62,10 @@ describe LavinMQ::DurableQueue do
             q.publish_confirm "test message #{i}"
           end
         end
-        Server.stop
+        s.stop
         File.open(enq_path, "r+") { |f| f.truncate(f.size - 3) }
-        Server.restart
-        with_channel(vhost: vhost.name) do |ch|
+        s.restart
+        with_channel(s, vhost: vhost.name) do |ch|
           q = ch.queue_declare("corrupt_q2", passive: true)
           q[:message_count].should eq 1
         end
@@ -74,55 +76,89 @@ describe LavinMQ::DurableQueue do
   # Index corruption bug
   # https://github.com/cloudamqp/lavinmq/pull/384
   it "must find messages written after a uncompacted hole" do
-    enq_path = ""
-    with_channel do |ch|
-      q = ch.queue("corruption_test", durable: true)
-      q.publish_confirm "Hello world"
-      queue = Server.vhosts["/"].queues["corruption_test"].as(LavinMQ::DurableQueue)
-      enq_path = queue.@msg_store.@segments.last_value.path
+    with_amqp_server do |s|
+      enq_path = ""
+      with_channel(s) do |ch|
+        q = ch.queue("corruption_test", durable: true)
+        q.publish_confirm "Hello world"
+        queue = s.vhosts["/"].queues["corruption_test"].as(LavinMQ::DurableQueue)
+        enq_path = queue.@msg_store.@segments.last_value.path
+      end
+      s.stop
+      # Emulate the file was preallocated after server crash
+      File.open(enq_path, "r+") { |f| f.truncate(f.size + 24 * 1024**2) }
+      s.restart
+      # Write another message after the prealloced space
+      with_channel(s) do |ch|
+        q = ch.queue("corruption_test", durable: true)
+        q.publish_confirm "Hello world"
+      end
+      s.restart
+      queue = s.vhosts["/"].queues["corruption_test"].as(LavinMQ::DurableQueue)
+      queue.message_count.should eq 2
     end
-    Server.stop
-    # Emulate the file was preallocated after server crash
-    File.open(enq_path, "r+") { |f| f.truncate(f.size + 24 * 1024**2) }
-    Server.restart
-    # Write another message after the prealloced space
-    with_channel do |ch|
-      q = ch.queue("corruption_test", durable: true)
-      q.publish_confirm "Hello world"
+  end
+
+  it "handles files with few extra bytes" do
+    queue_name = Random::Secure.hex(10)
+    with_amqp_server do |s|
+      vhost = s.vhosts.create("test_vhost")
+      with_channel(s, vhost: vhost.name) do |ch|
+        q = ch.queue(queue_name)
+        queue = vhost.queues[queue_name].as(LavinMQ::DurableQueue)
+        mfile = queue.@msg_store.@segments.first_value
+
+        # fill up one segment
+        message_size = 41
+        while mfile.size < (LavinMQ::Config.instance.segment_size - message_size*2)
+          q.publish_confirm "a"
+        end
+        remaining_size = LavinMQ::Config.instance.segment_size - mfile.size - message_size
+        q.publish_confirm "a" * remaining_size
+
+        # publish one more message to create a new segment
+        q.publish_confirm "a"
+
+        # resize first segment to LavinMQ::Config.instance.segment_size
+        mfile.resize(LavinMQ::Config.instance.segment_size)
+
+        # read messages, should not raise any error
+        q.subscribe(tag: "tag", no_ack: false, &.ack)
+        should_eventually(be_true) { queue.empty? }
+      end
     end
-    Server.restart
-    queue = Server.vhosts["/"].queues["corruption_test"].as(LavinMQ::DurableQueue)
-    queue.message_count.should eq 2
   end
 end
 
 describe LavinMQ::VHost do
   pending "GC segments" do
-    vhost = Server.vhosts["/"]
-    vhost.queues.each_value &.delete
-    vhost.queues.clear
+    with_amqp_server do |s|
+      vhost = s.vhosts["/"]
+      vhost.queues.each_value &.delete
+      vhost.queues.clear
 
-    msg_size = 5120
-    overhead = 21
-    body = Bytes.new(msg_size)
+      msg_size = 5120
+      overhead = 21
+      body = Bytes.new(msg_size)
 
-    segments = ->{ Dir.new(vhost.data_dir).children.select!(/^msgs\./) }
+      segments = ->{ Dir.new(vhost.data_dir).children.select!(/^msgs\./) }
 
-    size_of_current_segment = File.size(File.join(vhost.data_dir, segments.call.last))
+      size_of_current_segment = File.size(File.join(vhost.data_dir, segments.call.last))
 
-    msgs_to_fill_2_segments = ((LavinMQ::Config.instance.segment_size * 2 - size_of_current_segment) / (msg_size + overhead)).ceil.to_i
+      msgs_to_fill_2_segments = ((LavinMQ::Config.instance.segment_size * 2 - size_of_current_segment) / (msg_size + overhead)).ceil.to_i
 
-    with_channel do |ch|
-      ch.confirm_select
-      msgid = 0_u64
-      q = ch.queue("dd", durable: true)
-      msgs_to_fill_2_segments.times do
-        msgid = q.publish body
+      with_channel(s) do |ch|
+        ch.confirm_select
+        msgid = 0_u64
+        q = ch.queue("dd", durable: true)
+        msgs_to_fill_2_segments.times do
+          msgid = q.publish body
+        end
+        ch.wait_for_confirm(msgid)
+        segments.call.size.should eq 2
+        q.purge
+        segments.call.size.should eq 1
       end
-      ch.wait_for_confirm(msgid)
-      segments.call.size.should eq 2
-      q.purge
-      segments.call.size.should eq 1
     end
   end
 end

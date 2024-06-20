@@ -13,7 +13,6 @@ const urlEncodedQueue = encodeURIComponent(queue)
 const urlEncodedVhost = encodeURIComponent(vhost)
 const pauseQueueForm = document.querySelector('#pauseQueue')
 const resumeQueueForm = document.querySelector('#resumeQueue')
-const messageSnapshotForm = document.querySelector('#messageSnapshot')
 document.title = queue + ' | LavinMQ'
 let consumerListLength = 20
 
@@ -291,8 +290,6 @@ document.querySelector('#purgeQueue').addEventListener('submit', function (evt) 
   if (window.confirm('Are you sure? Messages cannot be recovered after purging.')) {
     HTTP.request('DELETE', url)
       .then(() => { DOM.toast('Queue purged!') })
-    document.getElementById('ms-date-time').textContent = '-'
-    document.getElementById('snapshotTable').setAttribute('hidden', null)
   }
 })
 
@@ -325,52 +322,6 @@ resumeQueueForm.addEventListener('submit', function (evt) {
       .then(() => {
         DOM.toast('Queue resumed!')
         handleQueueState('running')
-      })
-  }
-})
-
-messageSnapshotForm.addEventListener('submit', function (evt) {
-  evt.preventDefault()
-  const url = 'api/queues/' + urlEncodedVhost + '/' + urlEncodedQueue + '/size-details'
-  if (window.confirm('Are you sure? This will take a snapshot of queue message sizes.')) {
-    HTTP.request('GET', url)
-      .then(item => {
-        DOM.toast('Queue size snapshot')
-        handleQueueState('running')
-        document.getElementById('ms-q-unacked').textContent = item.unacked
-        document.getElementById('ms-q-unacked-bytes').textContent = Helpers.nFormatter(item.unacked_bytes) + 'B'
-        document.getElementById('ms-q-unacked-avg-bytes').textContent = Helpers.nFormatter(item.unacked_avg_bytes) + 'B'
-        document.getElementById('ms-q-unacked-min-bytes').textContent = Helpers.nFormatter(item.unacked_min_bytes) + 'B'
-        document.getElementById('ms-q-unacked-max-bytes').textContent = Helpers.nFormatter(item.unacked_max_bytes) + 'B'
-        document.getElementById('ms-q-total').textContent = Helpers.formatNumber(item.messages)
-        document.getElementById('ms-q-total-bytes').textContent = Helpers.nFormatter(item.unacked_bytes + item.ready_bytes) + 'B'
-        const totalAvgBytes = item.messages !== 0 ? (item.unacked_bytes + item.ready_bytes) / item.messages : 0
-        document.getElementById('ms-q-total-avg-bytes').textContent = Helpers.nFormatter(totalAvgBytes) + 'B'
-        document.getElementById('ms-q-total-max-bytes').textContent = Helpers.nFormatter(0) + 'B'
-        if (item.ready_max_bytes > item.unacked_max_bytes) {
-          document.getElementById('ms-q-total-max-bytes').textContent = Helpers.nFormatter(item.ready_max_bytes) + 'B'
-        } else if (item.unacked_max_bytes > item.ready_max_bytes) {
-          document.getElementById('ms-q-total-max-bytes').textContent = Helpers.nFormatter(item.unacked_max_bytes) + 'B'
-        }
-        document.getElementById('ms-q-total-min-bytes').textContent = Helpers.nFormatter(0) + 'B'
-        let totalMinBytes = 0
-        if (item.ready_min_bytes !== 0 && item.unacked_min_bytes === 0) {
-          totalMinBytes = item.ready_min_bytes
-        } else if (item.unacked_min_bytes !== 0 && item.ready_min_bytes === 0) {
-          totalMinBytes = item.unacked_min_bytes
-        } else if (item.ready_min_bytes < item.unacked_min_bytes) {
-          totalMinBytes = item.ready_min_bytes
-        } else if (item.unacked_min_bytes < item.ready_min_bytes) {
-          totalMinBytes = item.unacked_min_bytes
-        }
-        document.getElementById('ms-q-total-min-bytes').textContent = Helpers.nFormatter(totalMinBytes) + 'B'
-        document.getElementById('ms-q-ready').textContent = Helpers.formatNumber(item.ready)
-        document.getElementById('ms-q-ready-bytes').textContent = Helpers.nFormatter(item.ready_bytes) + 'B'
-        document.getElementById('ms-q-ready-avg-bytes').textContent = Helpers.nFormatter(item.ready_avg_bytes) + 'B'
-        document.getElementById('ms-q-ready-min-bytes').textContent = Helpers.nFormatter(item.ready_min_bytes) + 'B'
-        document.getElementById('ms-q-ready-max-bytes').textContent = Helpers.nFormatter(item.ready_max_bytes) + 'B'
-        document.getElementById('ms-date-time').textContent = Helpers.formatTimestamp(new Date())
-        document.getElementById('snapshotTable').removeAttribute('hidden')
       })
   }
 })

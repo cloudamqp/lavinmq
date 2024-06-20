@@ -11,11 +11,20 @@ module LavinMQ
 
     def_equals_and_hash @segment, @position
 
-    def initialize(@segment : UInt32, @position : UInt32, @bytesize : UInt32, @has_dlx : Bool, @priority : UInt8, @delay : UInt32)
+    def initialize(@segment : UInt32, @position : UInt32, @bytesize : UInt32, @has_dlx = false, @priority = 0u8, @delay = 0u32)
     end
 
     def self.make(segment : UInt32, position : UInt32, msg)
-      self.new(segment, position, msg.bytesize.to_u32, !!msg.dlx, msg.properties.priority || 0u8, msg.delay || 0u32)
+      prio = msg.properties.priority || 0u8
+      has_dlx = false
+      delay = 0u32
+      msg.properties.headers.try &.each do |key, value|
+        case key
+        when "x-dead-letter-exchange" then has_dlx = true
+        when "x-delay"                then delay = value.as?(Int).try(&.to_u32) || 0u32 rescue 0u32
+        end
+      end
+      self.new(segment, position, msg.bytesize.to_u32, has_dlx, prio, delay)
     end
 
     def <=>(other : self)
@@ -27,18 +36,6 @@ module LavinMQ
     def to_s(io : IO)
       io << @segment.to_s.rjust(10, '0')
       io << @position.to_s.rjust(10, '0')
-    end
-
-    # Used in persistent exchange for offset reference
-    def to_i64 : Int64
-      ((segment.to_i64 << 32) | position).to_i64
-    end
-
-    # Used in persistent exchange for offset reference
-    def self.from_i64(i : Int64)
-      seg = i.bits(32..)
-      pos = i.bits(0..31)
-      SegmentPosition.new(seg.to_u32, pos.to_u32, 0u32, false, 0u8, 0u32)
     end
   end
 end

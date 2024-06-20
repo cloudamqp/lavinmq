@@ -6,7 +6,7 @@ module LavinMQ
     @internal = true
 
     private def init_msg_store(data_dir)
-      replicator = @durable ? @vhost.@replicator : nil
+      replicator = durable? ? @vhost.@replicator : nil
       DelayedMessageStore.new(data_dir, replicator)
     end
 
@@ -35,8 +35,22 @@ module LavinMQ
       end
     end
 
+    # Overload to not ruin DLX header
+    private def expire_msg(env : Envelope, reason : Symbol)
+      sp = env.segment_position
+      msg = env.message
+      @log.debug { "Expiring #{sp} now due to #{reason}" }
+      if headers = msg.properties.headers
+        headers.delete("x-delay")
+        msg.properties.headers = headers
+      end
+      @vhost.publish Message.new(msg.timestamp, msg.exchange_name, msg.routing_key,
+        msg.properties, msg.bodysize, IO::Memory.new(msg.body))
+      delete_message sp
+    end
+
     class DelayedMessageStore < MessageStore
-      def initialize(@data_dir : String, @replicator : Replication::Server?)
+      def initialize(@data_dir : String, @replicator : Clustering::Replicator?)
         super
         order_messages
       end
@@ -96,6 +110,8 @@ module LavinMQ
   end
 
   class DurableDelayedExchangeQueue < DelayedExchangeQueue
-    @durable = true
+    def durable?
+      true
+    end
   end
 end

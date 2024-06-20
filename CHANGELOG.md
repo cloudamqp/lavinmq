@@ -9,9 +9,225 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-### Changed
+- Full HA clustering support, uses Etcd for leader election and metadata, and a replication protocol between nodes
+- Tags and descriptions on VHosts
+- Can pass an array of URLs to Shovel
 
 ### Fixed
+
+- lavinmqctl didn't recognize 201/204 response codes from set_permissions, set_user_tags and add_vhost
+- Queues will no longer be closed if file size is incorrect. Fixes [#669](https://github.com/cloudamqp/lavinmq/issues/669)
+
+### Changed
+
+- Replaced internal HTTP router
+- Specs are more reliable when a new server is started for each spec
+
+## [1.2.14] - 2024-06-15
+
+### Fixed
+
+- Exporting definitions broke delayed exchanges [#699](https://github.com/cloudamqp/lavinmq/pull/699)
+- lavinmqctl: escape symbols in parameters (eg. can now create vhosts with / in the name) [#699](https://github.com/cloudamqp/lavinmq/pull/696)
+
+## [1.2.13] - 2024-06-14
+
+### Fixed
+
+- Some prometheus metrics typing was mixed up, counter where it should be gauge
+- Unmap memory mapped files on finalize, could cause segfaults in replication when files already deleted tried to be replicated
+- Bug fix where followers who were synchronizing could miss some updates
+
+### Changed
+
+- Auto reconnect `lavinmqperf throughput` on disconnect
+- Render HTTP API docs using Stoplight Elements
+
+### Added
+
+- HTTP API: /api/connections/:user, lists connections by a specific user
+
+## [1.2.12] - 2024-05-24
+
+### Changed
+- Follower lag is now based on bytes written to action queue instead of socket [#652](https://github.com/cloudamqp/lavinmq/pull/652)
+- Change how delayed exchanges are exported with definitions [#663](https://github.com/cloudamqp/lavinmq/pull/663)
+- Force 4096 bytes frame_max for WebSocket connections [#681](https://github.com/cloudamqp/lavinmq/pull/681)
+
+### Fixed
+- Federated queues now only transfers messages if there is a consumer on the downstream queue [#637](https://github.com/cloudamqp/lavinmq/pull/637)
+- Handle proxied WebSocket connections [#680](https://github.com/cloudamqp/lavinmq/pull/680)
+
+## [1.2.11] - 2024-04-26
+
+### Fixed
+
+- Empty ack files created for all segments [#658](https://github.com/cloudamqp/lavinmq/pull/658)
+- UI: Set proper width (colspan) for pagination cell  [#662](https://github.com/cloudamqp/lavinmq/pull/662)
+- Provide better information about connections LavinMQ initiates [#613](https://github.com/cloudamqp/lavinmq/pull/613)
+- Bugfix: Make sure shovels reconnect after destination disconnects [#667](https://github.com/cloudamqp/lavinmq/pull/667)
+
+### Changed
+- LavinMQ now waits for any followers to be in sync before shutting down [#645](https://github.com/cloudamqp/lavinmq/pull/645)
+- UI: Creating queues and exchanges in the UI now defaults to durable [#656](https://github.com/cloudamqp/lavinmq/pull/656)
+- Rename config.ini -> lavinmq.ini [#664](https://github.com/cloudamqp/lavinmq/pull/664)
+
+### Added
+- Replication lag is now exported in metrics [#646](https://github.com/cloudamqp/lavinmq/pull/646)
+
+## [1.2.10] - 2024-03-25
+
+### Fixed
+
+- Don't use shovel name as consumer tag [#634](https://github.com/cloudamqp/lavinmq/pull/634)
+- Keep the same vhost selected when creating queues [#629](https://github.com/cloudamqp/lavinmq/pull/629)
+- Make sure name of Queues, Exchanges & Vhosts is not longer than 255 characters [#631](https://github.com/cloudamqp/lavinmq/pull/631)
+- Add nilguard for matching x-delayed-type argument [#639](https://github.com/cloudamqp/lavinmq/pull/639)
+
+### Changed
+
+- Use system assigned ports in specs [#640](https://github.com/cloudamqp/lavinmq/pull/640)
+- Let MFile raise ClosedError instead of IO::Error [#642](https://github.com/cloudamqp/lavinmq/pull/642)
+
+### Added
+
+- Improved logging during definitions loading [#621](https://github.com/cloudamqp/lavinmq/pull/621)
+
+## [1.2.9] - 2024-02-05
+
+### Fixed
+
+- LavinMQ now calls Systemd.notify_ready when started as follower [#626](https://github.com/cloudamqp/lavinmq/pull/626)
+
+## [1.2.8] - 2024-01-10
+
+### Fixed
+
+- A bug causing faulty definition frames for delayed exchanges, preventing LavinMQ from starting [#620](https://github.com/cloudamqp/lavinmq/pull/620)
+- Better table views for Queues, where the name isn't cut of
+- Persist table sorting between page loads
+- Don't include permissions in users array in definitions json export, as that was incompatible with other brokers
+- Don't mmap a segment file to just verify the schema version (uses pread instead)
+
+### Changed
+
+- Build binaries and container images using Crystal 1.11.0
+- Don't allow clients open an already open channel
+- Use DirectDispatcher for logging and add more logging to startup procedure [#619](https://github.com/cloudamqp/lavinmq/pull/619)
+
+### Added
+
+- Support for Consumer timeouts, default none.
+
+## [1.2.7] - 2023-12-12
+
+- Version 1.2.6 may not include the bumped version of lavinmq, so instead use version 1.2.7
+
+## [1.2.6] - 2023-12-12
+
+### Fixed
+
+- Don't update user's password hash if given password is the same as current [#586](https://github.com/cloudamqp/lavinmq/pull/586)
+- Remove old segments in the background for stream queues [#608](https://github.com/cloudamqp/lavinmq/pull/608)
+
+### Changed
+
+- New amq-protocol.cr version 1.1.12
+- Add package build for Debian 12 (bookworm) [#597](https://github.com/cloudamqp/lavinmq/pull/597)
+- Do not update permissions if they are the same [#609](https://github.com/cloudamqp/lavinmq/pull/609)
+- Do not update password hash if given current password [#586](https://github.com/cloudamqp/lavinmq/pull/586)
+
+### Added
+
+- Add playwright for frontend specs [#560](https://github.com/cloudamqp/lavinmq/pull/560)
+
+## [1.2.5] - 2023-11-06
+
+### Added
+
+- Consumer arguments support for shovels [#578](https://github.com/cloudamqp/lavinmq/pull/578)
+
+### Fixed
+
+- A bug in delay exchanges caused messages to be routed to x-dead-letter-exchange instead of bound queues. It also ruined any dead lettering headers.
+- A bug that prevented headers exchange to match on table in message headers.
+- Purging a queue with a lot of messages blocked LavinMQ from other operations.
+- Message timestamps not being updated when dead lettered breaking TTL.
+
+### Changed
+
+- Definitions uploads can now be JSON body [#580](https://github.com/cloudamqp/lavinmq/pull/580)
+
+## [1.2.4] - 2023-09-26
+
+### Fixed
+
+- A bug in amq-protocol caused corrupt headers when a message was dead-lettered multiple times [amq-protocol/#14](https://github.com/cloudamqp/amq-protocol.cr/pull/14)
+
+## [1.2.3] - 2023-09-12
+
+### Fixed
+
+- A bug in amq-protocol caused lost headers when dead-lettering [amq-protocol/#12](https://github.com/cloudamqp/amq-protocol.cr/pull/12)
+- Block creation of queues and users when disk is close to full to prevent disk from becoming full [#567](https://github.com/cloudamqp/lavinmq/pull/567)
+- Compacting definitions during runtime to avoid the definitions file to grow endlessly when churning bindings/queues (#571)
+- Only store bind/unbind defintions if not already added, decreases definitions file growth
+- Unmap segments in stream queues regularly
+- Unmap segments when all consumers from a queue has disconnected
+
+## [1.2.2] - 2023-08-22
+
+### Added
+
+- Make it possible to declare temp queues in lavinmqperf connection-count
+
+### Fixed
+
+- Delete fully ACK'd segments when opening new segments [#565](https://github.com/cloudamqp/lavinmq/pull/565)
+- Don't send internal error messages to clients
+- Remove queues from ACL cache on deletion
+- Use federated queue's name if queue name is empty [#562](https://github.com/cloudamqp/lavinmq/pull/562)
+
+### Changed
+
+- Refactoring
+- Use amq-protocol v1.1.8, refactor header handling
+- Optimize SegmentPosition creation
+
+## [1.2.1] - 2023-08-09
+
+### Fixed
+
+- Aggressively unmapping message store segments could result in seg faults when consumers are slow.
+
+## [1.2.0] - 2023-08-08
+
+### Added
+
+- Stream queues, queues that can be consumed multiple times, messages (segments) are only deleted by a retention policy
+
+### Fixed
+
+- Queue message segments where opened with the wrong permissions to be able to be truncated if needed
+
+## [1.1.7] - 2023-08-05
+
+### Fixed
+
+- Acked messages reappeared after server reboot, ack files were accidently truncated
+- Deliver msgs to consumer even if queue ttl is 0
+- Allow multiple formats (array, string etc) of tags in definitions.json
+- Acking delivery tag 0 (with multiple=true) when channel as no unacked messages will not result in an error
+
+### Added
+
+- Signal USR2 will unmap all mmap:ed files (in addition to force a memory garbace collection)
+- Building packages for enterprise linux 9 (EL9, redhat 9, centos stream 9, rocky linux 9 etc)
+
+### Changed
+
+- Removed "Message size snapshot", UI and API, which has been non functioning for a long time
+- Crystal 1.9.2
 
 ## [1.1.6] - 2023-07-20
 

@@ -10,10 +10,6 @@ module LavinMQ
     PolicyMaker
     Impersonator
 
-    def to_json(json : JSON::Builder)
-      to_s.downcase.to_json(json)
-    end
-
     def self.parse_list(list : String) : Array(Tag)
       list.split(",").compact_map { |t| Tag.parse?(t.strip) }
     end
@@ -113,6 +109,7 @@ module LavinMQ
     end
 
     def update_password(password, hash_algorithm = "sha256")
+      return if @password.try &.verify(password)
       @password = User.hash_password(password, hash_algorithm)
     end
 
@@ -176,6 +173,13 @@ module LavinMQ
       @acl_config_cache[cache_key]
     end
 
+    def remove_queue_from_acl_caches(vhost, name)
+      cache_key = {vhost, name}
+      @acl_config_cache.delete(cache_key)
+      @acl_read_cache.delete(cache_key)
+      @acl_write_cache.delete(cache_key)
+    end
+
     def can_impersonate?
       @tags.includes? Tag::Impersonator
     end
@@ -203,17 +207,6 @@ module LavinMQ
 
     private def perm_match?(perm, name)
       perm != /^$/ && perm != // && perm.matches? name
-    end
-
-    private def hash_algorithm(hash)
-      case hash
-      when /^\$2a\$/ then "Bcrypt"
-      when /^\$1\$/  then "MD5"
-      when /^\$5\$/  then "SHA256"
-      when /^\$6\$/  then "SHA512"
-      when /^$/      then ""
-      else                raise UnknownHashAlgoritm.new
-      end
     end
 
     class UnknownHashAlgoritm < Exception; end

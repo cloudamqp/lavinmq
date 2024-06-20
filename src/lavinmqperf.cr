@@ -1,4 +1,5 @@
 require "./lavinmq/version"
+require "./stdlib/openssl"
 require "./stdlib/resource"
 require "option_parser"
 require "amqp-client"
@@ -41,7 +42,7 @@ class Throughput < Perf
   @ack = 0
   @rate = 0
   @consume_rate = 0
-  @confirm = 0
+  @max_unconfirm = 0
   @persistent = false
   @prefetch = 0_u32
   @quiet = false
@@ -75,7 +76,7 @@ class Throughput < Perf
       @ack = v.to_i
     end
     @parser.on("-c max-unconfirmed", "--confirm max-unconfirmed", "Confirm publishes every X messages") do |v|
-      @confirm = v.to_i
+      @max_unconfirm = v.to_i
     end
     @parser.on("-t msgs-in-transaction", "--transaction max-uncommited-messages", "Publish messages in transactions") do |v|
       @pub_in_transaction = v.to_i
@@ -147,14 +148,14 @@ class Throughput < Perf
     done = Channel(Nil).new
     @consumers.times do
       if @poll
-        spawn poll_consume(done)
+        spawn { reconnect_on_disconnect(done) { poll_consume } }
       else
-        spawn consume(done)
+        spawn { reconnect_on_disconnect(done) { consume } }
       end
     end
 
     @publishers.times do
-      spawn pub(done)
+      spawn { reconnect_on_disconnect(done) { pub } }
     end
 
     if @timeout != Time::Span.zero
@@ -220,21 +221,28 @@ class Throughput < Perf
     end
   end
 
-  private def pub(done)
+  private def pub # ameba:disable Metrics/CyclomaticComplexity
     data = Bytes.new(@size) { |i| ((i % 27 + 64)).to_u8 }
     props = @properties
     props.delivery_mode = 2u8 if @persistent
+    unconfirmed = ::Channel(Nil).new(@max_unconfirm)
     AMQP::Client.start(@uri) do |a|
       ch = a.channel
       ch.tx_select if @pub_in_transaction > 0
-      ch.confirm_select if @confirm > 0
+      ch.confirm_select if @max_unconfirm > 0
       Fiber.yield
       start = Time.monotonic
       pubs_this_second = 0
       until @stopped
         Random::DEFAULT.random_bytes(data) if @random_bodies
-        msgid = ch.basic_publish(data, @exchange, @routing_key, props: props)
-        ch.wait_for_confirm(msgid) if @confirm > 0 && (msgid % @confirm) == 0
+        if @max_unconfirm > 0
+          unconfirmed.send nil
+          ch.basic_publish(data, @exchange, @routing_key, props: props) do
+            unconfirmed.receive
+          end
+        else
+          ch.basic_publish(data, @exchange, @routing_key, props: props)
+        end
         ch.tx_commit if @pub_in_transaction > 0 && (@pubs % @pub_in_transaction) == 0
         @pubs += 1
         break if @pubs == @pmessages
@@ -251,11 +259,9 @@ class Throughput < Perf
         end
       end
     end
-  ensure
-    done.send nil
   end
 
-  private def consume(done)
+  private def consume # ameba:disable Metrics/CyclomaticComplexity
     data = Bytes.new(@size) { |i| ((i % 27 + 64)).to_u8 }
     AMQP::Client.start(@uri) do |a|
       ch = a.channel
@@ -294,11 +300,9 @@ class Throughput < Perf
         end
       end
     end
-  ensure
-    done.send nil
   end
 
-  private def poll_consume(done)
+  private def poll_consume
     AMQP::Client.start(@uri) do |a|
       ch = a.channel
       q = begin
@@ -330,6 +334,15 @@ class Throughput < Perf
           end
         end
       end
+    end
+  end
+
+  private def reconnect_on_disconnect(done, &)
+    loop do
+      break yield
+    rescue ex : AMQP::Client::Error | IO::Error
+      puts ex.message
+      sleep 1
     end
   ensure
     done.send nil
@@ -464,12 +477,11 @@ class ConnectionCount < Perf
     @channels.times do |j|
       ch = c.channel
       @consumers.times do |k|
-        ch.queue_declare @queue if i == j == k == 0
+        ch.queue(@queue) if j == k == 0
         # Send raw frame, no wait, no fiber
-        c.write BasicConsumeFrame.new(ch.id, 0_u16, @queue, "", false, true, false, true, AMQP::Client::Arguments.new)
+        c.write BasicConsumeFrame.new(ch.id, 0_u16, "", "", false, true, false, true, AMQP::Client::Arguments.new)
       end
     end
-    print '.'
     @done.send i
   end
 
@@ -477,18 +489,17 @@ class ConnectionCount < Perf
     super
     count = 0
     loop do
-      start = Time.monotonic
-      @connections.times do |i|
-        spawn connect(i)
-        @done.receive
-        if (i + 1) % 100 == 0
-          print i + 1
-          stop = Time.monotonic
-          puts " #{(stop - start).total_milliseconds.round}ms"
-          start = stop
+      @connections.times.each_slice(100) do |slice|
+        start = Time.monotonic
+        slice.each do |i|
+          spawn connect(i)
         end
-      rescue ex : AMQP::Client::Error
-        puts nil, ex.message
+        slice.each do |i|
+          @done.receive
+          print '.'
+        end
+        stop = Time.monotonic
+        puts " #{(stop - start).total_milliseconds.round}ms"
       end
       puts
       print "#{count += @connections} connections "
@@ -507,9 +518,9 @@ class ConnectionCount < Perf
   end
 
   private def rss
-    if File.exists?("/proc/self/statm")
-      File.read("/proc/self/statm").split[1].to_i64 * 4096
-    elsif ps_rss = `ps -o rss= -p $PPID`.to_i64?
+    File.read("/proc/self/statm").split[1].to_i64 * 4096
+  rescue File::NotFoundError
+    if ps_rss = `ps -o rss= -p $PPID`.to_i64?
       ps_rss * 1024
     else
       0

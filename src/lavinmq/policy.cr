@@ -10,6 +10,10 @@ module LavinMQ
   end
 
   class Policy
+    SUPPORTED_POLICIES = {"max-length", "max-length-bytes", "message-ttl", "expires", "overflow",
+                          "dead-letter-exchange", "dead-letter-routing-key", "federation-upstream",
+                          "federation-upstream-set", "delivery-limit", "max-age",
+                          "alternate-exchange", "delayed-message"}
     enum Target
       All
       Queues
@@ -67,15 +71,15 @@ module LavinMQ
           merged[k] = v
         end
       end
-      merged
+      merged.select { |key, _| SUPPORTED_POLICIES.includes?(key) }
     end
 
     def self.merge_definitions(p1 : Nil, p2 : Policy) : Hash(String, JSON::Any)
-      p2.definition
+      p2.definition.select { |key, _| SUPPORTED_POLICIES.includes?(key) }
     end
 
     def self.merge_definitions(p1 : Policy, p2 : Nil) : Hash(String, JSON::Any)
-      p1.definition
+      p1.definition.select { |key, _| SUPPORTED_POLICIES.includes?(key) }
     end
 
     def self.merge_definitions(p1 : Nil, p2 : Nil) : Hash(String, JSON::Any)

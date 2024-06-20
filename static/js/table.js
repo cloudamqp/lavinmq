@@ -21,6 +21,7 @@ function renderTable (id, options = {}, renderRow) {
   if (options.pagination) {
     const paginationCell = table.createTFoot().insertRow().insertCell()
     const paginationContainer = document.createElement('div')
+    paginationCell.colSpan = table.tHead.rows[0].children.length
     paginationCell.appendChild(paginationContainer)
     paginationContainer.classList.add('pagination')
     Pagination.create(paginationContainer, dataSource)
@@ -48,12 +49,13 @@ function renderTable (id, options = {}, renderRow) {
     const items = dataSource.items
     const totalCount = dataSource.totalCount
     document.getElementById(countId).textContent = totalCount
-    const t = document.getElementById(id).tBodies[0]
+    const table = document.getElementById(id)
+    const t = table.tBodies[0]
     if (!Array.isArray(items) || items.length === 0) {
       t.textContent = ''
       const tr = t.appendChild(document.createElement('tr'))
       const td = tr.appendChild(document.createElement('td'))
-      td.colSpan = 100
+      td.colSpan = Array.from(table.tHead.rows[0].children).reduce((sum, item) => sum + item.colSpan, 0)
       td.classList.add('center')
       td.textContent = 'Nope, nothing to see here.'
       return
@@ -112,8 +114,8 @@ function renderTable (id, options = {}, renderRow) {
     container.addEventListener('keyup', e => {
       if (!e.target.classList.contains('filter-table')) return true
       if (e.key === 'Enter') {
-        dataSource.reset()
         dataSource.searchTerm = e.target.value
+        dataSource.page = 1
         reload()
       }
     })

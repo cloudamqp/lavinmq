@@ -2,7 +2,6 @@
 /lib/
 /bin/
 /node_modules/
-/static/docs/
 /static/js/lib/
 /tmp/
 *.log
@@ -12,3 +11,9 @@ shard.override.yml
 config.ini
 *.pem
 perf.data*
+massif.*
+node_modules
+package.json
+package-lock.json
+/playwright/
+/playwright-report/

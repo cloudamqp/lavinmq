@@ -2,13 +2,21 @@ module LavinMQ
   class Reporter
     def self.report(s)
       puts_size_capacity s.@users
+      s.users.each do |name, user|
+        puts "User #{name}"
+        puts_size_capacity user.@tags, 4
+        puts_size_capacity user.@permissions, 4
+        puts_size_capacity user.@acl_read_cache, 4
+        puts_size_capacity user.@acl_write_cache, 4
+        puts_size_capacity user.@acl_config_cache, 4
+      end
       puts_size_capacity s.@vhosts
-      s.vhosts.each do |_, vh|
-        puts "VHost #{vh.name}"
+      s.vhosts.each do |name, vh|
+        puts "VHost #{name}"
         puts_size_capacity vh.@exchanges, 4
         puts_size_capacity vh.@queues, 4
         vh.queues.each do |_, q|
-          puts "    #{q.name} #{q.durable ? "durable" : ""} args=#{q.arguments}"
+          puts "    #{q.name} #{q.durable? ? "durable" : ""} args=#{q.arguments}"
           puts_size_capacity q.@consumers, 6
           puts_size_capacity q.@deliveries, 6
           puts_size_capacity q.@msg_store.@segments, 6
@@ -33,7 +41,9 @@ module LavinMQ
     end
 
     macro puts_size_capacity(obj, indent = 0)
-      STDOUT << " " * {{ indent }}
+      {{ indent }}.times do
+        STDOUT << ' '
+      end
       STDOUT << "{{ obj.name }}"
       STDOUT << " size="
       STDOUT << {{obj}}.size

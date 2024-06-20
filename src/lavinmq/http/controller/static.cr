@@ -68,6 +68,7 @@ module LavinMQ
       {% else %}
         private def serve(context, file_path)
           File.open(File.join(PUBLIC_DIR, file_path)) do |file|
+            file.read_buffering = false
             etag = %(W/"#{Digest::MD5.hexdigest(file)}")
             if context.request.headers["If-None-Match"]? == etag
               context.response.status_code = 304
@@ -93,13 +94,14 @@ module LavinMQ
         when ".txt"        then "text/plain;charset=utf-8"
         when ".html"       then "text/html;charset=utf-8"
         when ".css"        then "text/css;charset=utf-8"
-        when ".js", ".mjs" then "application/javascript;charset=utf-8"
+        when ".js", ".mjs" then "application/javascript"
         when ".png"        then "image/png"
         when ".ico"        then "image/x-icon"
         when ".jpg"        then "image/jpeg"
         when ".gif"        then "image/gif"
         when ".svg"        then "image/svg+xml"
         when ".webp"       then "image/webp"
+        when ".yaml"       then "application/yaml"
         else                    "application/octet-stream"
         end
       end

@@ -18,6 +18,7 @@ on:
       - Makefile
       - 'src/**'
       - 'spec/**'
+      - 'playwright.config.js'
       - 'shard.*'
       - 'static/**'
       - 'views/**'
@@ -30,83 +31,84 @@ jobs:
     name: Format check
     runs-on: ubuntu-latest
     continue-on-error: true
-    container: 84codes/crystal:latest-ubuntu-20.04
+    container: 84codes/crystal:latest-ubuntu-24.04
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - run: crystal tool format --check
 
   lint:
     name: Lint check
     runs-on: ubuntu-latest
     continue-on-error: true
-    container: 84codes/crystal:latest-ubuntu-20.04
+    container: 84codes/crystal:latest-ubuntu-24.04
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Checkout ameba
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           repository: crystal-ameba/ameba
           path: ameba
       - name: Build ameba
         run: make -C ameba
       - name: Run ameba
-        run: ameba/bin/ameba
+        run: ameba/bin/ameba src spec
 
-  js-lint:
+  lint-js:
     name: Lint javascript
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-node@v3
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: latest
-      - name: Setup node
-        run: npm install -g standard
       - name: Run standard
-        run: standard static/js
+        run: make lint-js
 
-  api-lint:
-    name: Lint and build HTTP API documentation
+  lint-openapi:
+    name: Lint OpenAPI
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-
-      - name: Lint and build HTTP API documentation
-        run: make docs
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: latest
+      - name: Run spectral
+        run: make lint-openapi
 
   spec:
     name: Spec
     runs-on: ubuntu-latest
-    container: 84codes/crystal:latest-ubuntu-20.04
+    container: 84codes/crystal:latest-ubuntu-24.04
     steps:
       - name: Print Crystal version
         run: crystal -v
 
       - name: Install dependencies
-        run: apt-get update && apt-get install -y liblz4-dev
+        run: apt-get update && apt-get install -y liblz4-dev etcd-server
 
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Spec
         run: make test
 
   spec_osx:
     name: Spec OS X
-    runs-on: macos-latest
+    runs-on: macos-14
     steps:
-      - run: |
-          brew update
-          brew install crystal pcre2
+      - name: Install dependencies
+        run: |
+          brew install crystal etcd
+          echo "/opt/homebrew/opt/etcd/bin" >> $GITHUB_PATH
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: 1
+          HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: 1
 
-      - name: Print Crystal version
-        run: crystal -v
+      - run: crystal --version
 
-      - name: Checkout
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Spec
         run: make test
@@ -114,14 +116,14 @@ jobs:
   compile:
     name: Compile LavinMQ
     runs-on: ubuntu-latest
-    container: 84codes/crystal:latest-ubuntu-20.04
+    container: 84codes/crystal:latest-ubuntu-24.04
 
     steps:
       - name: Install dependencies
         run: apt-get update && apt-get install -y liblz4-dev
 
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Build lavinmq
         run: make -j bin/lavinmq bin/lavinmqctl DOCS= CRYSTAL_FLAGS=-Dbake_static
@@ -130,24 +132,78 @@ jobs:
         run: bin/lavinmq --build-info
 
       - name: Upload bin/
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: bin
           path: bin/
 
+  path_filter:
+    name: Filters for fronted specs
+    runs-on: ubuntu-latest
+    outputs:
+      views: ${{ steps.changes.outputs.views }}
+      js: ${{ steps.changes.outputs.js }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: changes
+        with:
+          filters: |
+            views:
+              - '**/*.ecr'
+            js:
+              - '**/*.js'
+
+  spec_frontend:
+    name: Fronted specs
+    runs-on: ubuntu-latest
+    needs: [compile, path_filter]
+    if: ${{ needs.path_filter.outputs.views == 'true' || needs.path_filter.outputs.js == 'true' }}
+    steps:
+      - name: Install LavinMQ dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y make libevent-2.1-7 liblz4-1
+
+      - name: Download lavinmq
+        uses: actions/download-artifact@v4
+        with:
+          name: bin
+          path: bin
+
+      - name: Run LavinMQ in background
+        run: |
+          chmod +x bin/*
+          bin/lavinmq --data-dir=/tmp/amqp --bind=:: &
+
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install @playwright/test
+        run: npm install @playwright/test
+
+      - name: Install browsers
+        run: npx playwright install --with-deps
+
+      - name: Run tests
+        run: npx playwright test --reporter=list
+
   java-client-test:
     name: RabbitMQ java client test
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     needs: compile
     continue-on-error: true
 
     steps:
-      - name: Install dependencies
+      - name: Install LavinMQ dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y make libevent-2.1-7 openjdk-13-jre-headless liblz4-1
+          sudo apt-get install -y make libevent-2.1-7 openjdk-21-jre-headless liblz4-1
 
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v4
         with:
           name: bin
           path: bin
@@ -158,7 +214,7 @@ jobs:
           bin/lavinmq --data-dir=/tmp/amqp --bind=:: &
 
       - name: Clone java client
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           repository: cloudamqp/rabbitmq-java-client
           ref: lavinmq-compatible-tests
@@ -173,19 +229,19 @@ jobs:
 
   bunny-test:
     name: Bunny client test
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     needs: compile
 
     steps:
-      - name: Install dependencies
+      - name: Install LavinMQ dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libevent-dev liblz4-1
+          sudo apt-get install -y libevent-2.1-7 liblz4-1
 
       - name: Checkout LavinMQ for bunny_definitions.json
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v4
         with:
           name: bin
           path: bin
@@ -201,7 +257,7 @@ jobs:
           bin/lavinmqctl import_definitions .github/bunny_definitions.json
 
       - name: Clone Bunny
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           repository: ruby-amqp/bunny
           path: bunny
@@ -224,12 +280,17 @@ jobs:
 
   ruby-http-api-test:
     name: RabbitMQ HTTP API Ruby client test
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     needs: compile
     continue-on-error: true
 
     steps:
-      - uses: actions/download-artifact@v3
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libevent-2.1-7 liblz4-1
+
+      - uses: actions/download-artifact@v4
         with:
           name: bin
           path: bin
@@ -240,7 +301,7 @@ jobs:
           bin/lavinmq --data-dir /tmp/amqp &
 
       - name: Clone HTTP API client
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           repository: cloudamqp/rabbitmq_http_api_client
           token: ${{ secrets.PRIVATE_REPO_ACCESS }}
@@ -260,28 +321,33 @@ jobs:
 
   go-http-api-test:
     name: RabbitMQ HTTP API Go client test
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     needs: compile
     continue-on-error: true
 
     steps:
-      - uses: actions/download-artifact@v3
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libevent-2.1-7 liblz4-1
+
+      - uses: actions/download-artifact@v4
         with:
           name: bin
           path: bin
 
       - name: Run LavinMQ in background
         run: |
-          chmod +x bin/lavinmq
+          chmod +x bin/*
           bin/lavinmq --data-dir /tmp/amqp &
 
       - name: Install Go
-        uses: actions/setup-go@v3
+        uses: actions/setup-go@v5
         with:
-          go-version: 1.15.2
+          go-version: 1.22.3
 
       - name: Clone http client
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           repository: cloudamqp/rabbit-hole
           token: ${{ secrets.PRIVATE_REPO_ACCESS }}
@@ -290,19 +356,27 @@ jobs:
       - name: Run specs
         run: |
           cd rabbit-hole
+          bash bin/ci/before_build.sh
           go test -v ./...
+        env:
+          RABBITHOLE_LAVINMQCTL: ../bin/lavinmqctl
 
   release-mode-test:
     name: Test in release mode
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     needs: compile
     continue-on-error: true
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v3
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libevent-2.1-7 liblz4-1
 
-      - uses: actions/download-artifact@v3
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
         with:
           name: bin
           path: bin
@@ -314,3 +388,15 @@ jobs:
 
       - name: Test the static HTTP controller
         run: ./extras/static_requests.sh
+
+  freebsd-test:
+    name: Spec FreeBSD
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Spec
+        uses: vmactions/freebsd-vm@v1
+        with:
+          usesh: true
+          prepare: pkg install -y crystal shards security/openssl curl gmake coreos-etcd34
+          run: gmake test

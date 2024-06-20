@@ -8,7 +8,7 @@ module LavinMQ
     def self.start(socket, connection_info, vhosts, users) : Client?
       remote_address = connection_info.src
       Log.context.set(address: remote_address.to_s)
-      socket.read_timeout = 15
+      socket.read_timeout = 15.seconds
       if confirm_header(socket)
         if start_ok = start(socket)
           if user = authenticate(socket, remote_address, users, start_ok)
@@ -31,7 +31,7 @@ module LavinMQ
 
     private def self.heartbeat_timeout(tune_ok)
       if tune_ok.heartbeat > 0
-        tune_ok.heartbeat / 2
+        (tune_ok.heartbeat / 2).seconds
       end
     end
 
@@ -54,7 +54,7 @@ module LavinMQ
       "product":      "LavinMQ",
       "platform":     "Crystal #{Crystal::VERSION}",
       "version":      LavinMQ::VERSION,
-      "capabilities": AMQP::Table.new({
+      "capabilities": {
         "publisher_confirms":           true,
         "exchange_exchange_bindings":   true,
         "basic.nack":                   true,
@@ -64,7 +64,7 @@ module LavinMQ
         "authentication_failure_close": true,
         "per_consumer_qos":             true,
         "direct_reply_to":              true,
-      }),
+      },
     })
 
     def self.start(socket)
@@ -120,9 +120,10 @@ module LavinMQ
     end
 
     def self.tune(socket)
+      frame_max = socket.is_a?(WebSocketIO) ? 4096_u32 : Config.instance.frame_max
       socket.write_bytes AMQP::Frame::Connection::Tune.new(
         channel_max: Config.instance.channel_max,
-        frame_max: Config.instance.frame_max,
+        frame_max: frame_max,
         heartbeat: Config.instance.heartbeat), IO::ByteFormat::NetworkEndian
       socket.flush
       tune_ok = AMQP::Frame.from_io(socket) do |frame|

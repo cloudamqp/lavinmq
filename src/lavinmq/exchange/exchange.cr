@@ -3,19 +3,21 @@ require "../stats"
 require "../amqp"
 require "../sortable_json"
 require "../observable"
+require "./event"
 require "../queue"
 
 module LavinMQ
-  alias BindingKey = Tuple(String, Hash(String, AMQP::Field)?)
+  alias BindingKey = Tuple(String, AMQP::Table?)
   alias Destination = Queue | Exchange
 
   abstract class Exchange
     include PolicyTarget
     include Stats
     include SortableJSON
-    include Observable
+    include Observable(ExchangeEvent)
 
-    getter name, durable, auto_delete, internal, arguments, queue_bindings, exchange_bindings, vhost, type, alternate_exchange
+    getter name, arguments, queue_bindings, exchange_bindings, vhost, type, alternate_exchange
+    getter? durable, internal, auto_delete
     getter policy : Policy?
     getter operator_policy : OperatorPolicy?
     getter? delayed = false
@@ -29,7 +31,7 @@ module LavinMQ
 
     def initialize(@vhost : VHost, @name : String, @durable = false,
                    @auto_delete = false, @internal = false,
-                   @arguments = Hash(String, AMQP::Field).new)
+                   @arguments = AMQP::Table.new)
       @queue_bindings = Hash(BindingKey, Set(Queue)).new do |h, k|
         h[k] = Set(Queue).new
       end
@@ -42,7 +44,6 @@ module LavinMQ
     def apply_policy(policy : Policy?, operator_policy : OperatorPolicy?)
       clear_policy
       Policy.merge_definitions(policy, operator_policy).each do |k, v|
-        # TODO: Support persitent exchange as policy
         case k
         when "alternate-exchange"
           @alternate_exchange ||= v.as_s?
@@ -91,12 +92,16 @@ module LavinMQ
 
     def match?(type, durable, auto_delete, internal, arguments)
       delayed = type == "x-delayed-message"
-      frame_args = arguments.to_h.dup.reject("x-delayed-type").merge({"x-delayed-exchange" => true})
-      self.type == (delayed ? arguments["x-delayed-type"] : type) &&
+      frame_args = arguments
+      if delayed
+        frame_args = frame_args.clone.merge!({"x-delayed-exchange": true})
+        frame_args.delete("x-delayed-type")
+      end
+      self.type == (delayed ? arguments["x-delayed-type"]? : type) &&
         @durable == durable &&
         @auto_delete == auto_delete &&
         @internal == internal &&
-        @arguments == (delayed ? frame_args : arguments.to_h)
+        @arguments == frame_args
     end
 
     def in_use?
@@ -123,11 +128,11 @@ module LavinMQ
       return unless @delayed
       q_name = "amq.delayed.#{@name}"
       raise "Exchange name too long" if q_name.bytesize > MAX_NAME_LENGTH
-      arguments = Hash(String, AMQP::Field){
+      arguments = AMQP::Table.new({
         "x-dead-letter-exchange" => @name,
         "auto-delete"            => @auto_delete,
-      }
-      @delayed_queue = if durable
+      })
+      @delayed_queue = if durable?
                          DurableDelayedExchangeQueue.new(@vhost, q_name, false, false, arguments)
                        else
                          DelayedExchangeQueue.new(@vhost, q_name, false, false, arguments)
@@ -137,8 +142,8 @@ module LavinMQ
 
     REPUBLISH_HEADERS = {"x-head", "x-tail", "x-from"}
 
-    protected def after_bind(destination : Destination, routing_key : String, headers : Hash(String, AMQP::Field)?)
-      notify_observers(:bind, binding_details({routing_key, headers}, destination))
+    protected def after_bind(destination : Destination, routing_key : String, headers : AMQP::Table?)
+      notify_observers(ExchangeEvent::Bind, binding_details({routing_key, headers}, destination))
       true
     end
 
@@ -150,7 +155,7 @@ module LavinMQ
          @exchange_bindings.each_value.all? &.empty?
         delete
       end
-      notify_observers(:unbind, binding_details({routing_key, headers}, destination))
+      notify_observers(ExchangeEvent::Unbind, binding_details({routing_key, headers}, destination))
     end
 
     protected def delete
@@ -158,14 +163,14 @@ module LavinMQ
       @deleted = true
       @delayed_queue.try &.delete
       @vhost.delete_exchange(@name)
-      notify_observers(:delete)
+      notify_observers(ExchangeEvent::Deleted)
     end
 
     abstract def type : String
-    abstract def bind(destination : Queue, routing_key : String, headers : Hash(String, AMQP::Field)?)
-    abstract def unbind(destination : Queue, routing_key : String, headers : Hash(String, AMQP::Field)?)
-    abstract def bind(destination : Exchange, routing_key : String, headers : Hash(String, AMQP::Field)?)
-    abstract def unbind(destination : Exchange, routing_key : String, headers : Hash(String, AMQP::Field)?)
+    abstract def bind(destination : Queue, routing_key : String, headers : AMQP::Table?)
+    abstract def unbind(destination : Queue, routing_key : String, headers : AMQP::Table?)
+    abstract def bind(destination : Exchange, routing_key : String, headers : AMQP::Table?)
+    abstract def unbind(destination : Exchange, routing_key : String, headers : AMQP::Table?)
     abstract def do_queue_matches(routing_key : String, headers : AMQP::Table?, & : Queue -> _)
     abstract def do_exchange_matches(routing_key : String, headers : AMQP::Table?, & : Exchange -> _)
 

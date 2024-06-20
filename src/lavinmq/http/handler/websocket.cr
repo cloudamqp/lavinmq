@@ -5,8 +5,10 @@ module LavinMQ
     def self.new(amqp_server : Server)
       ::HTTP::WebSocketHandler.new do |ws, ctx|
         req = ctx.request
-        local_address = req.local_address.as(Socket::IPAddress)
-        remote_address = req.remote_address.as(Socket::IPAddress)
+        local_address = req.local_address.as?(Socket::IPAddress) ||
+                        Socket::IPAddress.new("127.0.0.1", 0) # Fake when UNIXAddress
+        remote_address = req.remote_address.as?(Socket::IPAddress) ||
+                         Socket::IPAddress.new("127.0.0.1", 0) # Fake when UNIXAddress
         connection_info = ConnectionInfo.new(remote_address, local_address)
         io = WebSocketIO.new(ws)
         spawn amqp_server.handle_connection(io, connection_info), name: "HandleWSconnection #{remote_address}"
@@ -52,14 +54,13 @@ module LavinMQ
       @ws.close
     end
 
-    def read_timeout=(timeout)
-      @r.read_timeout = timeout
+    # TODO: remove when amqp-client is updated
+    def read_timeout=(timeout : Number)
+      self.read_timeout = timeout.seconds
     end
 
-    def fd
-      io = @ws.@ws.@io
-      return io.fd if io.responds_to?(:fd)
-      0
+    def read_timeout=(timeout : Time::Span?)
+      @r.read_timeout = timeout
     end
   end
 end

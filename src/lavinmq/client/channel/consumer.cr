@@ -9,14 +9,21 @@ module LavinMQ
         include SortableJSON
         Log = ::Log.for("consumer")
 
-        getter channel, tag, queue, no_ack, exclusive, priority
+        getter tag : String
+        getter priority : Int32
+        getter? exclusive : Bool
+        getter? no_ack : Bool
+        getter channel, queue
         getter prefetch_count = 0u16
         getter unacked = 0_u32
         getter? closed = false
         @flow : Bool
 
-        def initialize(@channel : Client::Channel, @tag : String,
-                       @queue : Queue, @no_ack : Bool, @exclusive : Bool, @priority : Int32)
+        def initialize(@channel : Client::Channel, @queue : Queue, frame : AMQP::Frame::Basic::Consume)
+          @tag = frame.consumer_tag
+          @no_ack = frame.no_ack
+          @exclusive = frame.exclusive
+          @priority = consumer_priority(frame) # Must be before ConsumeOk, can close channel
           @prefetch_count = @channel.prefetch_count
           @flow = @channel.flow?
           spawn deliver_loop, name: "Consumer#deliver_loop", same_thread: true
@@ -40,14 +47,13 @@ module LavinMQ
 
         def prefetch_count=(prefetch_count : UInt16)
           @prefetch_count = prefetch_count
-          notify_hash_capacity(@prefetch_count > @unacked)
+          notify_has_capacity(@prefetch_count > @unacked)
         end
 
         private def deliver_loop
           Log.context.set(vhost: @channel.client.vhost.name, queue: @queue.name, client: @channel.client.remote_address.to_s, channel: @channel.id.to_s, consumer_tag: @tag)
           wait_for_single_active_consumer
           queue = @queue
-          no_ack = @no_ack
           i = 0
           loop do
             wait_for_capacity
@@ -63,7 +69,7 @@ module LavinMQ
             {% unless flag?(:release) %}
               Log.debug { "Getting a new message" }
             {% end %}
-            queue.consume_get(no_ack) do |env|
+            queue.consume_get(self) do |env|
               deliver(env.message, env.segment_position, env.redelivered)
             end
             Fiber.yield if (i &+= 1) % 32768 == 0
@@ -154,10 +160,6 @@ module LavinMQ
           end
         end
 
-        def name
-          @tag
-        end
-
         # blocks until the consumer can accept more messages
         private def wait_for_capacity : Nil
           if @prefetch_count > 0
@@ -177,7 +179,7 @@ module LavinMQ
 
         getter has_capacity = ::Channel(Bool).new
 
-        private def notify_hash_capacity(value)
+        private def notify_has_capacity(value)
           while @has_capacity.try_send? value
           end
         end
@@ -185,12 +187,9 @@ module LavinMQ
         def deliver(msg, sp, redelivered = false, recover = false)
           unless @no_ack || recover
             @unacked += 1
-            notify_hash_capacity(false) if @unacked == @prefetch_count
+            notify_has_capacity(false) if @unacked == @prefetch_count
           end
-          persistent = msg.properties.delivery_mode == 2_u8
-          # Log.debug { "Getting delivery tag" }
-          delivery_tag = @channel.next_delivery_tag(@queue, sp, persistent, @no_ack, self)
-          # Log.debug { "Sending BasicDeliver" }
+          delivery_tag = @channel.next_delivery_tag(@queue, sp, @no_ack, self)
           deliver = AMQP::Frame::Basic::Deliver.new(@channel.id, @tag,
             delivery_tag,
             redelivered,
@@ -201,19 +200,30 @@ module LavinMQ
         def ack(sp)
           was_full = @unacked == @prefetch_count
           @unacked -= 1
-          notify_hash_capacity(true) if was_full
+          notify_has_capacity(true) if was_full
         end
 
-        def reject(sp)
+        def reject(sp, requeue = false)
           was_full = @unacked == @prefetch_count
           @unacked -= 1
-          notify_hash_capacity(true) if was_full
+          notify_has_capacity(true) if was_full
         end
 
         def cancel
           @channel.send AMQP::Frame::Basic::Cancel.new(@channel.id, @tag, no_wait: true)
           @channel.consumers.delete self
           close
+        end
+
+        private def consumer_priority(frame) : Int32
+          case prio = frame.arguments["x-priority"]
+          when Int then prio.to_i32
+          else          raise Error::PreconditionFailed.new("x-priority must be an integer")
+          end
+        rescue KeyError
+          0
+        rescue OverflowError
+          raise Error::PreconditionFailed.new("x-priority out of bounds, must fit a 32-bit integer")
         end
 
         def details_tuple

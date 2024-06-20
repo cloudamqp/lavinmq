@@ -2,30 +2,38 @@ require "./spec_helper"
 
 describe LavinMQ::HTTP::MainController do
   it "GET /" do
-    response = ::HTTP::Client.get BASE_URL
-    response.status_code.should eq 200
-    response.headers["Content-Type"].should contain("text/html")
-    response.body.should contain("LavinMQ")
+    with_http_server do |http, _|
+      response = ::HTTP::Client.get "http://#{http.addr}"
+      response.status_code.should eq 200
+      response.headers["Content-Type"].should contain("text/html")
+      response.body.should contain("LavinMQ")
+    end
   end
 
   it "GET / includes head partial" do
-    response = ::HTTP::Client.get BASE_URL
-    response.status_code.should eq 200
-    response.headers["Content-Type"].should contain("text/html")
-    response.body.should contain("<title>")
+    with_http_server do |http, _|
+      response = ::HTTP::Client.get "http://#{http.addr}"
+      response.status_code.should eq 200
+      response.headers["Content-Type"].should contain("text/html")
+      response.body.should contain("<title>")
+    end
   end
 
   it "GET / includes header partial" do
-    response = ::HTTP::Client.get BASE_URL
-    response.status_code.should eq 200
-    response.headers["Content-Type"].should contain("text/html")
-    response.body.should contain("<header>")
+    with_http_server do |http, _|
+      response = ::HTTP::Client.get "http://#{http.addr}"
+      response.status_code.should eq 200
+      response.headers["Content-Type"].should contain("text/html")
+      response.body.should contain("<header>")
+    end
   end
 
   it "GET / includes footer partial" do
-    response = ::HTTP::Client.get BASE_URL
-    response.status_code.should eq 200
-    response.headers["Content-Type"].should contain("text/html")
-    response.body.should contain("<footer>")
+    with_http_server do |http, _|
+      response = ::HTTP::Client.get "http://#{http.addr}"
+      response.status_code.should eq 200
+      response.headers["Content-Type"].should contain("text/html")
+      response.body.should contain("<footer>")
+    end
   end
 end

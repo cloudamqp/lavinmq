@@ -18,8 +18,13 @@ end
 # not `size` large, only on graceful close is the file truncated to its `size`.
 # The file does not expand further than initial `capacity`, unless manually expanded.
 class MFile < IO
+  class ClosedError < IO::Error
+    def initialize
+      super("MFile closed")
+    end
+  end
+
   getter pos : Int64 = 0i64
-  getter? closed : Bool = false
   getter size : Int64 = 0i64
   getter capacity : Int64 = 0i64
   getter path : String
@@ -40,11 +45,6 @@ class MFile < IO
       code = LibC.ftruncate(@fd, @capacity)
       raise File::Error.from_errno("Error truncating file", file: @path) if code < 0
     end
-  end
-
-  # Opens an existing file in readonly mode
-  def self.open(path) : self
-    self.new(path)
   end
 
   # Opens an existing file in readonly mode
@@ -75,12 +75,6 @@ class MFile < IO
     stat.st_size.to_i64
   end
 
-  def disk_usage : Int64
-    code = LibC.fstat(@fd, out stat)
-    raise File::Error.from_errno("Unable to get info", file: @path) if code < 0
-    stat.st_blocks.to_i64 * 512
-  end
-
   private def mmap(length = @capacity) : Pointer(UInt8)
     return Pointer(UInt8).null if length.zero?
     protection = case
@@ -103,20 +97,18 @@ class MFile < IO
     self
   end
 
-  # Unmapping the file
   # The file will be truncated to the current position unless readonly or deleted
   def close(truncate_to_size = true)
-    return if @closed
-    @closed = true
-    begin
-      munmap
-
-      return if @readonly || @deleted || !truncate_to_size
+    # unmap occurs on finalize
+    if truncate_to_size && !@readonly && !@deleted && @fd > 0
       code = LibC.ftruncate(@fd, @size)
       raise File::Error.from_errno("Error truncating file", file: @path) if code < 0
-    ensure
+    end
+  ensure
+    unless @fd == -1
       code = LibC.close(@fd)
       raise File::Error.from_errno("Error closing file", file: @path) if code < 0
+      @fd = -1
     end
   end
 
@@ -147,7 +139,8 @@ class MFile < IO
   # Won't mmap the file if it's unmapped already
   def copy_to(output : IO, size = @size) : Int64
     if unmapped? # don't remap unmapped files
-      io = IO::FileDescriptor.new(@fd, blocking: false, close_on_finalize: false)
+      raise ClosedError.new if @fd < 0
+      io = IO::FileDescriptor.new(@fd, blocking: true, close_on_finalize: false)
       io.rewind
       IO.copy(io, output, size) == size || raise IO::EOFError.new
     else
@@ -174,23 +167,12 @@ class MFile < IO
     raise RuntimeError.from_errno("msync") if code < 0
   end
 
-  private def mremap(new_len, addr = @buffer, old_len = @capacity) : Pointer(UInt8)
-    {% if flag?(:linux) %}
-      ptr = LibC.mremap(addr, old_len, new_len, LibC::MREMAP_MAYMOVE)
-      raise IO::Error.from_errno("mremap") if ptr == LibC::MAP_FAILED
-      ptr.as(UInt8*)
-    {% else %}
-      munmap(addr, old_len)
-      mmap(addr, new_len)
-    {% end %}
-  end
-
   def finalize
-    close(truncate_to_size: false)
+    LibC.close(@fd) if @fd > -1
+    LibC.munmap(@buffer, @capacity) unless @buffer.null?
   end
 
   def write(slice : Bytes) : Nil
-    raise IO::Error.new("MFile closed") if @closed
     size = @size
     new_size = size + slice.size
     raise IO::EOFError.new if new_size > @capacity
@@ -199,7 +181,6 @@ class MFile < IO
   end
 
   def read(slice : Bytes)
-    raise IO::Error.new("MFile closed") if @closed
     pos = @pos
     new_pos = pos + slice.size
     raise IO::EOFError.new if new_pos > @size
@@ -245,12 +226,10 @@ class MFile < IO
   end
 
   def to_slice
-    raise IO::Error.new("MFile closed") if @closed
     Bytes.new(buffer, @size, read_only: true)
   end
 
   def to_slice(pos, size)
-    raise IO::Error.new("MFile closed") if @closed
     raise IO::EOFError.new if pos + size > @size
     Bytes.new(buffer + pos, size, read_only: true)
   end
@@ -269,45 +248,17 @@ class MFile < IO
     DontNeed
   end
 
-  def truncate(new_size : Int) : Nil
-    return if new_size == @capacity
-    code = LibC.ftruncate(@fd, new_size.to_i64)
-    raise File::Error.from_errno("Error truncating file", file: @path) if code < 0
-    old_capacity = @capacity
-    @capacity = @size = new_size.to_i64
-    @pos = new_size.to_i64 if @pos > new_size
-
-    offset = page_align(new_size.to_i64)
-    length = old_capacity - offset
-    munmap(buffer + offset, length) if length > 0
-  end
-
   def resize(new_size : Int) : Nil
     raise ArgumentError.new("Can't expand file larger than capacity, use truncate") if new_size > @capacity
     @size = new_size.to_i64
     @pos = new_size.to_i64 if @pos > new_size
   end
 
-  private def expand(new_size) : Pointer(UInt8)
-    raise ArgumentError.new("new size smaller or equal than current") if new_size <= @capacity
-    new_size = new_size.to_i64
-    code = LibC.ftruncate(@fd, new_size)
-    raise File::Error.from_errno("Error truncating file", file: @path) if code < 0
-    @buffer = mremap(new_size, buffer, @capacity).tap do
-      @capacity = new_size
-    end
-  end
-
-  def rename(new_path)
-    File.rename @path, new_path
-    @path = new_path
-  end
-
-  PAGESIZE = LibC.sysconf(LibC::SC_PAGESIZE).to_u32
-
-  private def page_align(n : Int) : Int
-    n += PAGESIZE - 1
-    n -= n & PAGESIZE - 1
-    n
+  # Read from a specific position in the file
+  # but without mapping the whole file, it uses `pread`
+  def read_at(pos, bytes)
+    cnt = LibC.pread(@fd, bytes, bytes.bytesize, pos)
+    raise IO::Error.from_errno("pread") if cnt == -1
+    cnt
   end
 end
