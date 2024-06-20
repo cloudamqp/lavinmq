@@ -182,13 +182,6 @@ jobs:
         with:
           node-version: 20
 
-      - name: Install playwright dependencies
-        run: |
-          sudo apt-add-repository -s 'deb http://cz.archive.ubuntu.com/ubuntu jammy main universe'
-          sudo apt-add-repository -s 'deb http://cz.archive.ubuntu.com/ubuntu jammy main main'
-          sudo apt-get update
-          sudo apt-get -y install libicu70 libffi7 libx264-163 libvpx7
-
       - name: Install @playwright/test
         run: npm install @playwright/test
 
