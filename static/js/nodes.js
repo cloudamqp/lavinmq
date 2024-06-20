@@ -181,16 +181,17 @@ const followersDataSource = new (class extends DataSource {
 })()
 const followersTableOpts = {
   dataSource: followersDataSource,
-  keyColumns: ['remote_address'],
+  keyColumns: ['id'],
   countId: 'followers-count'
 }
 Table.renderTable('followers', followersTableOpts, (tr, item, firstRender) => {
   if (firstRender) {
-    Table.renderCell(tr, 0, item.remote_address)
+    Table.renderCell(tr, 0, item.id)
   }
-  Table.renderCell(tr, 1, humanizeBytes(item.sent_bytes), 'right')
-  Table.renderCell(tr, 2, humanizeBytes(item.acked_bytes), 'right')
-  Table.renderCell(tr, 3, humanizeBytes(item.sent_bytes - item.acked_bytes), 'right')
+  Table.renderCell(tr, 1, item.remote_address)
+  Table.renderCell(tr, 2, humanizeBytes(item.sent_bytes), 'right')
+  Table.renderCell(tr, 3, humanizeBytes(item.acked_bytes), 'right')
+  Table.renderCell(tr, 4, humanizeBytes(item.sent_bytes - item.acked_bytes), 'right')
 })
 
 function updateCharts (response) {

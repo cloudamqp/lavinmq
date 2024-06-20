@@ -175,6 +175,7 @@ module LavinMQ
           compression_ratio:  @lz4.compression_ratio,
           uncompressed_bytes: @lz4.uncompressed_bytes,
           compressed_bytes:   @lz4.compressed_bytes,
+          id:                 @id.to_s(36),
         }.to_json(json)
       end
 
