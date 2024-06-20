@@ -22,6 +22,8 @@ module LavinMQ
       @segment_msg_count = Hash(UInt32, UInt32).new(0u32)
       @requeued = Deque(SegmentPosition).new
       @closed = false
+      @closed_reason : String?
+      getter closed_reason
       getter bytesize = 0u64
       getter size = 0u32
       getter empty_change = Channel(Bool).new
@@ -339,8 +341,9 @@ module LavinMQ
                 next
               end
             rescue ex
-              Log.error { "Invalid schema version in #{path}, error queue" }
+              Log.error { "Invalid schema version in #{path}" }
               @closed = true
+              @closed_reason = "Invalid schema version in #{path}"
             end
           end
           file.pos = 4
@@ -364,8 +367,9 @@ module LavinMQ
           rescue ex : IO::EOFError
             break
           rescue ex : OverflowError | AMQ::Protocol::Error::FrameDecode
-            Log.error { " error queue" }
+            Log.error { "Failed to read segment #{seg} at pos #{mfile.pos}, #{ex}" }
             @closed = true
+            @closed_reason = "Failed to read segment #{seg} at pos #{mfile.pos}, #{ex}"
           end
           mfile.pos = 4
           mfile.unmap # will be mmap on demand

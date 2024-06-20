@@ -66,7 +66,7 @@ loadMoreConsumersBtn.addEventListener('click', (e) => {
   updateQueue(true)
 })
 
-function handleQueueState (state, closed_reason) {
+function handleQueueState (state, closedReason) {
   document.getElementById('q-state').textContent = state
   switch (state) {
     case 'paused':
@@ -86,22 +86,9 @@ function handleQueueState (state, closed_reason) {
     const tooltip = document.createElement('span')
     tooltip.classList.add('tooltiptext')
     tooltip.classList.add('tooltiptext-long')
-    tooltip.textContent = closed_reason
+    console.log(closedReason)
+    tooltip.textContent = closedReason
     document.getElementById('q-state').appendChild(tooltip)
-    const button = document.createElement('button')
-    button.textContent = 'Try to recover'
-    button.classList.add('btn-warn')
-    button.id='recover-queue'
-    // button.onclick = function () {
-    // text about recovering queue maybe loosing messages
-    // add confirm dialog?
-    
-    //  const url = 'api/queues/' + urlEncodedVhost + '/' + urlEncodedQueue + '/recover'
-    //  HTTP.request('POST', url)
-    
-    document.getElementById('q-state').appendChild(button)
-
-
   }
 }
 
@@ -111,6 +98,7 @@ function updateQueue (all) {
   HTTP.request('GET', queueUrl + '?consumer_list_length=' + consumerListLength)
     .then(item => {
       Chart.update(chart, item.message_stats)
+      console.log(item)
       handleQueueState(item.state, item.closed_reason)
       document.getElementById('q-unacked').textContent = item.unacked
       document.getElementById('q-unacked-bytes').textContent = Helpers.nFormatter(item.unacked_bytes) + 'B'
