@@ -4,12 +4,12 @@ module LavinMQ
   module Federation
     class UpstreamStore
       include Enumerable(Upstream)
+      Log = ::Log.for("federation.upstream_store")
       @upstreams = Hash(String, Upstream).new
       @upstream_sets = Hash(String, Array(Upstream)).new
-      @log : Log
 
       def initialize(@vhost : VHost)
-        @log = Log.for "UpstreamStore[vhost=#{@vhost}]"
+        @metadata = ::Log::Metadata.new(nil, {vhost: @vhost.name})
       end
 
       def each(&)
@@ -34,7 +34,7 @@ module LavinMQ
         queue = config["queue"]?.try(&.as_s)
         @upstreams[name] = Upstream.new(@vhost, name, uri, exchange, queue, ack_mode, expires,
           max_hops, msg_ttl, prefetch, reconnect_delay, consumer_tag)
-        @log.info { "Upstream '#{name}' created" }
+        Log.info &.emit "Upstream '#{name}' created", @metadata
         @upstreams[name]
       end
 
@@ -45,7 +45,7 @@ module LavinMQ
 
       def delete_upstream(name)
         do_delete_upstream(name)
-        @log.info { "Upstream '#{name}' deleted" }
+        Log.info &.emit "Upstream '#{name}' deleted", @metadata
       end
 
       private def do_delete_upstream(name)
@@ -94,7 +94,7 @@ module LavinMQ
 
       def delete_upstream_set(name)
         @upstream_sets.delete(name)
-        @log.info { "Upstream set '#{name}' deleted" }
+        Log.info &.emit "Upstream set '#{name}' deleted", @metadata
       end
 
       def link_set(name, resource : Exchange | Queue)

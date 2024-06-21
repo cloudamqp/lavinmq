@@ -7,7 +7,6 @@ module LavinMQ
 
     def self.start(socket, connection_info, vhosts, users) : Client?
       remote_address = connection_info.src
-      Log.context.set(address: remote_address.to_s)
       socket.read_timeout = 15.seconds
       if confirm_header(socket)
         if start_ok = start(socket)
