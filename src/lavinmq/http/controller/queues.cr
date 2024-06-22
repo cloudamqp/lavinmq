@@ -1,6 +1,7 @@
 require "uri"
 require "../controller"
 require "../binding_helpers"
+require "../../unacked_message"
 
 module LavinMQ
   module HTTP
@@ -48,7 +49,6 @@ module LavinMQ
             @amqp_server.vhosts[vhost].queues[params["name"]].@consumers.each do |c|
               c.@channel.@unacked.each do |u|
                 next if u.queue != @amqp_server.vhosts[vhost].queues[params["name"]]
-                next unless u.consumer
                 if consumer = u.consumer
                   unacked_messages[u.tag] = UnackedMessage.new(u.tag, consumer.tag, u.delivered_at.to_s)
                 end
@@ -223,25 +223,6 @@ module LavinMQ
             end
           end
         end
-      end
-    end
-
-    class UnackedMessage
-      include SortableJSON
-      property message_tag : UInt64
-      property consumer_tag : String
-      property delivered_at : String
-      def initialize(message_tag, consumer_tag, delivered_at)
-        @message_tag = message_tag
-        @consumer_tag = consumer_tag
-        @delivered_at = delivered_at
-      end
-      def details_tuple
-        {
-          message_tag: @message_tag,
-          consumer_tag: @consumer_tag,
-          delivered_at: @delivered_at,
-        }
       end
     end
   end
