@@ -20,7 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Replaced internal HTTP router
+- Replaced HTTP router with an internal one. Now LavinMQ uses 0 external libraries.
 - Specs are more reliable when a new server is started for each spec
 
 ## [1.2.14] - 2024-06-15
