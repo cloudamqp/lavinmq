@@ -290,6 +290,11 @@ module LavinMQ
       buf = uninitialized UInt8[4]
       file.read_at(0, buf.to_slice)
       version = IO::ByteFormat::SystemEndian.decode(Int32, buf.to_slice)
+      if version == 0 # if version is 0, read 8 more bytes(ts) and check if that's also 0. If so, the file is empty, set version to default.
+        buffer = uninitialized UInt8[8]
+        file.read_at(4, buffer.to_slice)
+        raise IO::EOFError.new if buf.all?(&.zero?)
+      end
       if version != VERSIONS[type]
         raise OutdatedSchemaVersion.new version, file.path
       end
