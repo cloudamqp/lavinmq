@@ -94,9 +94,8 @@ describe LavinMQ::HTTP::QueuesController do
 
           response = http.get("/api/queues/%2f/unacked_q/unacked?page=1&page_size=100")
           response.status_code.should eq 200
-          pp response.body
-          #body = JSON.parse(response.body)
-          #body.size.should eq 2
+          body = JSON.parse(response.body)
+          body["items"].size.should eq 2
         end
       end
     end
