@@ -252,22 +252,24 @@ module LavinMQ
     def declare_queue(name, durable, auto_delete, arguments = AMQP::Table.new)
       apply AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, name, false, durable, false,
         auto_delete, false, arguments)
-      Log.info &.emit "queue=#{name} (durable: #{durable}, auto_delete=#{auto_delete}, arguments: #{arguments}) Created", @metadata
+      Log.info &.emit "Created queue: #{name} (durable=#{durable} auto_delete=#{auto_delete} arguments=#{arguments})", @metadata
     end
 
     def delete_queue(name)
       apply AMQP::Frame::Queue::Delete.new(0_u16, 0_u16, name, false, false, false)
+      Log.info &.emit "Deleted queue: #{name}", @metadata
     end
 
     def declare_exchange(name, type, durable, auto_delete, internal = false,
                          arguments = AMQP::Table.new)
       apply AMQP::Frame::Exchange::Declare.new(0_u16, 0_u16, name, type, false, durable,
         auto_delete, internal, false, arguments)
-      Log.info &.emit "exchange=#{name} Created", @metadata
+      Log.info &.emit "Created exchange: #{name} (type=#{type} durable=#{durable} auto_delete=#{auto_delete} arguments=#{arguments})", @metadata
     end
 
     def delete_exchange(name)
       apply AMQP::Frame::Exchange::Delete.new(0_u16, 0_u16, name, false, false)
+      Log.info &.emit "Deleted exchange: #{name}", @metadata
     end
 
     def bind_queue(destination, source, routing_key, arguments = AMQP::Table.new)
