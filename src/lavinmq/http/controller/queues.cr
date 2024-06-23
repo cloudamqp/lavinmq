@@ -51,7 +51,7 @@ module LavinMQ
                 if consumer = u.consumer
                   unacked_messages << UnackedMessage.new(
                     u.tag, consumer.tag,
-                    (RoughTime.monotonic - u.delivered_at).total_seconds,
+                    (RoughTime.monotonic - u.delivered_at).to_i,
                     c.channel_name
                   )
                 end

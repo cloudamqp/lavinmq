@@ -3,7 +3,7 @@ module LavinMQ
     include SortableJSON
     getter message_tag : UInt64
     getter consumer_tag : String
-    getter unacked_for_seconds : Float64
+    getter unacked_for_seconds : Int64
     getter channel_name : String
 
     def initialize(message_tag, consumer_tag, unacked_for_seconds, channel_name)
