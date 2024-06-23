@@ -15,10 +15,10 @@ module LavinMQ
 
     def details_tuple
       {
-        message_tag:  @message_tag,
-        consumer_tag: @consumer_tag,
+        message_tag:         @message_tag,
+        consumer_tag:        @consumer_tag,
         unacked_for_seconds: @unacked_for_seconds,
-        channel_name: @channel_name,
+        channel_name:        @channel_name,
       }
     end
   end
