@@ -15,7 +15,6 @@ module LavinMQ
       getter remote_address
 
       def initialize(@socket : TCPSocket, @data_dir : String, @file_index : FileIndex)
-        Log.context.set(address: @socket.remote_address.to_s)
         @socket.write_timeout = 5.seconds
         @socket.read_timeout = 5.seconds
         @remote_address = @socket.remote_address
@@ -36,7 +35,7 @@ module LavinMQ
           @socket.tcp_keepalive_interval = keepalive[1]
           @socket.tcp_keepalive_count = keepalive[2]
         end
-        Log.info { "Accepted" }
+        Log.info { "Accepted ID #{@id}" }
       end
 
       def full_sync : Nil
