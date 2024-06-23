@@ -5,7 +5,7 @@ const search = new URLSearchParams(window.location.hash.substring(1))
 const queue = search.get('name')
 const vhost = search.get('vhost')
 const url = `api/queues/${encodeURIComponent(vhost)}/${encodeURIComponent(queue)}/unacked`
-const channel_base_url = 'channel#name='
+const channelBaseUrl = 'channel#name='
 document.getElementById('queue-link').href = `/queue#vhost=${encodeURIComponent(vhost)}&name=${encodeURIComponent(queue)}`
 document.getElementById('queue-link').innerHTML = queue
 document.querySelector('#pagename-label').textContent = queue + ' in virtual host ' + vhost
@@ -25,7 +25,7 @@ Table.renderTable('table', tableOptions, function (tr, item, firstRender) {
   Table.renderCell(tr, 0, item.message_tag)
   Table.renderCell(tr, 1, item.consumer_tag)
   const channel = document.createElement('a')
-  channel.href = channel_base_url + item.channel_name
+  channel.href = channelBaseUrl + item.channel_name
   channel.textContent = item.channel_name
   Table.renderCell(tr, 2, channel)
   Table.renderCell(tr, 3, item.unacked_for_seconds)
