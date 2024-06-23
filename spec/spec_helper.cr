@@ -134,3 +134,11 @@ def create_ttl_and_dl_queues(channel, queue_ttl = 1)
   dlq = channel.queue("dlq")
   {q, dlq}
 end
+
+module LavinMQ
+  # Allow creating new Config object without using the singleton
+  class Config
+    def initialize
+    end
+  end
+end
