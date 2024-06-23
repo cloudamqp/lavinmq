@@ -21,9 +21,7 @@ module LavinMQ
       else
         raise UnsupportedSchemaVersion.new(v, data_dir)
       end
-      File.open(File.join(data_dir, "schema_version")) do |f|
-        replicator.register_file(f)
-      end
+      replicator.replace_file(File.join(data_dir, "schema_version"))
     end
 
     private def self.version(data_dir) : Int32?
