@@ -226,7 +226,7 @@ module LavinMQ
         end
 
         def unacked_messages
-          @channel.@unacked
+          @channel.unacked
         end
 
         def channel_name

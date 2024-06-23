@@ -21,6 +21,7 @@ module LavinMQ
       getter prefetch_count = 0_u16
       getter global_prefetch_count = 0_u16
       getter has_capacity = ::Channel(Nil).new
+      getter unacked = Deque(Unack).new
       @confirm = false
       @confirm_total = 0_u64
       @next_publish_mandatory = false
@@ -30,7 +31,7 @@ module LavinMQ
       @next_msg_size = 0_u64
       @next_msg_props : AMQP::Properties?
       @delivery_tag = 0_u64
-      @unacked = Deque(Unack).new
+      #@unacked = Deque(Unack).new
       @unack_lock = Mutex.new(:checked)
       @next_msg_body_file : File?
       @direct_reply_consumer : String?
