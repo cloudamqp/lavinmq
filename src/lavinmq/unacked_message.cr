@@ -3,13 +3,13 @@ module LavinMQ
     include SortableJSON
     getter message_tag : UInt64
     getter consumer_tag : String
-    getter delivered_at : String
+    getter unacked_for_seconds : Float64
     getter channel_name : String
 
-    def initialize(message_tag, consumer_tag, delivered_at, channel_name)
+    def initialize(message_tag, consumer_tag, unacked_for_seconds, channel_name)
       @message_tag = message_tag
       @consumer_tag = consumer_tag
-      @delivered_at = delivered_at
+      @unacked_for_seconds = unacked_for_seconds
       @channel_name = channel_name
     end
 
@@ -17,7 +17,7 @@ module LavinMQ
       {
         message_tag:  @message_tag,
         consumer_tag: @consumer_tag,
-        delivered_at: @delivered_at,
+        unacked_for_seconds: @unacked_for_seconds,
         channel_name: @channel_name,
       }
     end
