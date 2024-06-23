@@ -13,7 +13,7 @@ module LavinMQ
       end
 
       abstract def lag_size : Int64
-      abstract def send(socket : IO) : Int64
+      abstract def send(socket : IO, log = Log) : Int64
 
       getter filename
 
@@ -37,8 +37,8 @@ module LavinMQ
         end
       end
 
-      def send(socket) : Int64
-        Log.debug { "Add #{@filename}" }
+      def send(socket, log = Log) : Int64
+        log.debug { "Add #{@filename}" }
         send_filename(socket)
         if mfile = @mfile
           size = mfile.size.to_i64
@@ -73,7 +73,7 @@ module LavinMQ
           sizeof(Int64) + datasize
       end
 
-      def send(socket) : Int64
+      def send(socket, log = Log) : Int64
         send_filename(socket)
         len : Int64
         case obj = @obj
@@ -90,7 +90,7 @@ module LavinMQ
           socket.write_bytes -len.to_i64, IO::ByteFormat::LittleEndian
           socket.write_bytes obj, IO::ByteFormat::LittleEndian
         end
-        Log.debug { "Append #{len} bytes to #{@filename}" }
+        log.debug { "Append #{len} bytes to #{@filename}" }
         len
       end
     end
@@ -103,8 +103,8 @@ module LavinMQ
         (sizeof(Int32) + filename.bytesize + sizeof(Int64)).to_i64
       end
 
-      def send(socket) : Int64
-        Log.debug { "Delete #{@filename}" }
+      def send(socket, log = Log) : Int64
+        log.debug { "Delete #{@filename}" }
         send_filename(socket)
         socket.write_bytes 0i64
         0i64

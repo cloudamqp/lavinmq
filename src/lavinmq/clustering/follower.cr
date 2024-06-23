@@ -46,15 +46,15 @@ module LavinMQ
         send_requested_files
       end
 
-      def action_loop(socket = @lz4)
+      def action_loop(lz4 = @lz4)
         while action = @actions.receive?
-          action.send(socket)
+          action.send(lz4, Log)
           sent_bytes = action.lag_size.to_i64
           while action2 = @actions.try_receive?
-            action2.send(socket)
+            action2.send(lz4, Log)
             sent_bytes += action2.lag_size
           end
-          socket.flush
+          lz4.flush
           sync(sent_bytes)
         end
       ensure
