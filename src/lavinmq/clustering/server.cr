@@ -24,7 +24,7 @@ module LavinMQ
     class Server
       include FileIndex
       include Replicator
-      Log = ::Log.for("clustering")
+      Log = ::Log.for("clustering.server")
 
       @lock = Mutex.new(:unchecked)
       @followers = Array(Follower).new(4)
@@ -36,6 +36,7 @@ module LavinMQ
       @config : Config
 
       def initialize(config : Config, @etcd : Etcd, @id = File.read(File.join(config.data_dir, ".clustering_id")).to_i(36))
+        Log.info { "ID: #{@id}" }
         @config = config
         @data_dir = @config.data_dir
         @password = password
@@ -63,7 +64,6 @@ module LavinMQ
       end
 
       def append(path : String, obj)
-        Log.debug { "appending #{obj} to #{path}" }
         each_follower &.append(path, obj)
       end
 
@@ -134,6 +134,7 @@ module LavinMQ
       end
 
       private def handle_socket(socket : TCPSocket)
+        Log.context.set(follower: socket.remote_address.to_s)
         follower = Follower.new(socket, @data_dir, self)
         follower.negotiate!(@password)
         if follower.id == @id

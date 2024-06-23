@@ -3,7 +3,7 @@ require "json"
 
 module LavinMQ
   class Etcd
-    Log = ::Log.for(self)
+    Log = ::Log.for("etcd")
 
     def initialize(endpoints = "localhost:2379")
       @endpoints = endpoints.split(',')
@@ -251,7 +251,7 @@ module LavinMQ
       end
       unless @endpoints.size == endpoints.size &&
              @endpoints.all? { |addr| endpoints.includes? addr }
-        Log.info { "Updated endpoints to: #{endpoints}" }
+        Log.info { "Updated endpoints to: #{endpoints} (from: #{@endpoints})" }
         @endpoints = endpoints
       end
     rescue ex : KeyError
