@@ -145,6 +145,21 @@ queue-bindings:
       nullable: true
     properties_key:
       type: string
+queue-unacked:
+  type: array
+  items:
+    "$ref": "#/unacked"
+unacked:
+  type: object
+  properties:
+    message_tag:
+      type: string
+    consumer_tag:
+      type: string
+    channel_name:
+      type: string
+    unacked_for_seconds:
+      type: integer
 messages:
   type: array
   items:
