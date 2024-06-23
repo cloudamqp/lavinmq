@@ -207,6 +207,7 @@ module LavinMQ
 
       # Concatenate as many acks as possible to generate few TCP packets
       private def send_ack_loop(acks, socket)
+        socket.tcp_nodelay = true
         while ack_bytes = acks.receive?
           while ack_bytes2 = acks.try_receive?
             ack_bytes += ack_bytes2
