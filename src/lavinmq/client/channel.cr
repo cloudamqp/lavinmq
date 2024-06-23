@@ -31,7 +31,6 @@ module LavinMQ
       @next_msg_size = 0_u64
       @next_msg_props : AMQP::Properties?
       @delivery_tag = 0_u64
-      # @unacked = Deque(Unack).new
       @unack_lock = Mutex.new(:checked)
       @next_msg_body_file : File?
       @direct_reply_consumer : String?
