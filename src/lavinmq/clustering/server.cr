@@ -149,7 +149,7 @@ module LavinMQ
         @lock.synchronize do
           follower.full_sync # sync the last
           @followers << follower
-          @dirty_isr = true
+          update_isr
         end
         while @has_followers.try_send? @followers.size
         end
