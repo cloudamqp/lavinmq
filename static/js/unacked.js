@@ -5,7 +5,7 @@ const search = new URLSearchParams(window.location.hash.substring(1))
 const queue = search.get('name')
 const vhost = search.get('vhost')
 const url = `api/queues/${encodeURIComponent(vhost)}/${encodeURIComponent(queue)}/unacked`
-const channel_base_url = 'api/channel#name='
+const channel_base_url = 'channel#name='
 document.getElementById('queue-link').href = `/queue#vhost=${encodeURIComponent(vhost)}&name=${encodeURIComponent(queue)}`
 document.getElementById('queue-link').innerHTML = queue
 document.querySelector('#pagename-label').textContent = queue + ' in virtual host ' + vhost
