@@ -18,7 +18,7 @@ module LavinMQ
         message_tag:  @message_tag,
         consumer_tag: @consumer_tag,
         delivered_at: @delivered_at,
-        channel_name: @channel_name
+        channel_name: @channel_name,
       }
     end
   end
