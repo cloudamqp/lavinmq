@@ -5,6 +5,7 @@ require "../src/lavinmq/server"
 require "../src/lavinmq/http/http_server"
 require "http/client"
 require "amqp-client"
+require "log"
 
 Log.setup_from_env(default_level: :error)
 
@@ -139,6 +140,7 @@ module LavinMQ
   # Allow creating new Config object without using the singleton
   class Config
     def initialize
+      @log_level = Log::Severity::Fatal
     end
   end
 end

@@ -151,11 +151,12 @@ module LavinMQ
         STDERR.puts parser
         exit 2
       end
+      reload_logger
     rescue ex
       abort ex.message
     end
 
-    def parse(file)
+    private def parse(file)
       return if file.empty?
       abort "Config could not be found" unless File.file?(file)
       ini = INI.parse(File.read(file))
@@ -169,6 +170,30 @@ module LavinMQ
           raise "Unrecognized config section: #{section}"
         end
       end
+    end
+
+    def reload
+      parse(@config_file)
+      reload_logger
+    end
+
+    private def reload_logger
+      log_file = (path = @log_file) ? File.open(path, "a") : STDOUT
+      broadcast_backend = ::Log::BroadcastBackend.new
+      backend = if ENV.has_key?("JOURNAL_STREAM")
+                  ::Log::IOBackend.new(io: log_file, formatter: JournalLogFormat, dispatcher: ::Log::DirectDispatcher)
+                else
+                  ::Log::IOBackend.new(io: log_file, formatter: StdoutLogFormat, dispatcher: ::Log::DirectDispatcher)
+                end
+
+      broadcast_backend.append(backend, @log_level)
+
+      in_memory_backend = ::Log::InMemoryBackend.instance
+      broadcast_backend.append(in_memory_backend, @log_level)
+
+      ::Log.setup(@log_level, broadcast_backend)
+      target = (path = @log_file) ? path : "stdout"
+      Log.info &.emit("Logger settings", level: @log_level.to_s, target: target)
     end
 
     def tls_configured?
