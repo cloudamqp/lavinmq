@@ -1,16 +1,9 @@
 module LavinMQ
   struct UnackedMessage
     include SortableJSON
-    getter message_tag : UInt64
-    getter consumer_tag : String
-    getter unacked_for_seconds : Int64
-    getter channel_name : String
+    getter message_tag, consumer_tag, unacked_for_seconds, channel_name
 
-    def initialize(message_tag, consumer_tag, unacked_for_seconds, channel_name)
-      @message_tag = message_tag
-      @consumer_tag = consumer_tag
-      @unacked_for_seconds = unacked_for_seconds
-      @channel_name = channel_name
+    def initialize(@message_tag : UInt64, @consumer_tag : String, @unacked_for_seconds : Int64, @channel_name : String)
     end
 
     def details_tuple
