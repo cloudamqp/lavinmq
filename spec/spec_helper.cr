@@ -1,3 +1,12 @@
+require "log"
+Log.setup_from_env(default_level: :error)
+
+class Log
+  def self.setup
+    # noop, don't override during spec
+  end
+end
+
 require "spec"
 require "file_utils"
 require "../src/lavinmq/config" # have to be required first
@@ -5,9 +14,6 @@ require "../src/lavinmq/server"
 require "../src/lavinmq/http/http_server"
 require "http/client"
 require "amqp-client"
-require "log"
-
-Log.setup_from_env(default_level: :error)
 
 DATA_DIR = "/tmp/lavinmq-spec"
 
@@ -140,7 +146,6 @@ module LavinMQ
   # Allow creating new Config object without using the singleton
   class Config
     def initialize
-      @log_level = Log::Severity::Fatal
     end
   end
 end

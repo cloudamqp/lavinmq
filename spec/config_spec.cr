@@ -17,6 +17,6 @@ describe LavinMQ::Config do
     config.parse
     config.config_file.should eq config_file.path
     config.data_dir.should eq "/tmp/lavinmq-spec"
-    config.log_level.to_s.should eq "fatal"
+    config.log_level.to_s.should eq "Fatal"
   end
 end

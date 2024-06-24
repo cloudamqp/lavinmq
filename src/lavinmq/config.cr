@@ -3,6 +3,8 @@ require "uri"
 require "option_parser"
 require "ini"
 require "./version"
+require "./log_formatter"
+require "./in_memory_backend"
 
 module LavinMQ
   class Config

@@ -4,7 +4,6 @@ require "systemd"
 require "./reporter"
 require "./server"
 require "./http/http_server"
-require "./log_formatter"
 require "./in_memory_backend"
 require "./data_dir_lock"
 
