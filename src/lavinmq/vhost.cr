@@ -1,4 +1,3 @@
-require "benchmark"
 require "json"
 require "../stdlib/*"
 require "./policy"

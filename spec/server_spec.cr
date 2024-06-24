@@ -1,4 +1,5 @@
 require "./spec_helper"
+require "benchmark"
 
 describe LavinMQ::Server do
   it "accepts connections" do
