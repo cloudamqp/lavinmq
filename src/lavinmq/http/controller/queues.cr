@@ -47,7 +47,7 @@ module LavinMQ
             refuse_unless_management(context, user(context), vhost)
             unacked_messages = Array(UnackedMessage).new
             @amqp_server.vhosts[vhost].queues[params["name"]].@consumers.each do |c|
-              c.unacked_messages.select { |u| u.queue.name == params["name"] }.each do |u|
+              c.unacked_messages.each.select { |u| u.queue.name == params["name"] } do |u|
                 if consumer = u.consumer
                   unacked_messages << UnackedMessage.new(
                     u.tag, consumer.tag,
