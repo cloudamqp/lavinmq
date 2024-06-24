@@ -8,7 +8,7 @@ const url = `api/queues/${encodeURIComponent(vhost)}/${encodeURIComponent(queue)
 const channelBaseUrl = 'channel#name='
 document.getElementById('queue-link').href = `queue#vhost=${encodeURIComponent(vhost)}&name=${encodeURIComponent(queue)}`
 document.getElementById('queue-link').innerHTML = queue
-document.querySelector('#pagename-label').textContent = queue + ' in virtual host ' + vhost
+document.querySelector('#pagename-label').textContent = `${queue} in virtual host ${vhost}`
 
 const tableOptions = {
   dataSource: new UrlDataSource(url, { useQueryState: false }),
