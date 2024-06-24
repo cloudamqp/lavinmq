@@ -1,6 +1,5 @@
 require "./stdlib/openssl"
 require "./lavinmq/version"
-require "./lavinmq/config"
 require "./lavinmq/http/constants"
 require "./lavinmq/definitions_generator"
 require "http/client"
@@ -8,14 +7,12 @@ require "json"
 require "option_parser"
 
 class LavinMQCtl
-  @@cfg = LavinMQ::Config.instance
   @options = {} of String => String
   @args = {} of String => JSON::Any
   @cmd : String?
   @headers = HTTP::Headers{"Content-Type" => "application/json"}
   @parser = OptionParser.new
   @http : HTTP::Client?
-  @socket : UNIXSocket?
 
   COMPAT_CMDS = {
     {"add_user", "Creates a new user", "<username> <password>"},
@@ -201,7 +198,6 @@ class LavinMQCtl
     abort ex
   ensure
     @http.try(&.close)
-    @socket.try(&.close)
   end
 
   private def connect
@@ -212,8 +208,8 @@ class LavinMQCtl
       c
     else
       begin
-        @socket = socket = UNIXSocket.new(LavinMQ::HTTP::INTERNAL_UNIX_SOCKET)
-        HTTP::Client.new(socket, @@cfg.http_bind, @@cfg.http_port)
+        socket = UNIXSocket.new(LavinMQ::HTTP::INTERNAL_UNIX_SOCKET)
+        HTTP::Client.new(socket)
       rescue Socket::ConnectError
         abort "LavinMQ is not running, socket not found: #{LavinMQ::HTTP::INTERNAL_UNIX_SOCKET}"
       end
