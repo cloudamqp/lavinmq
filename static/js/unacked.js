@@ -12,7 +12,7 @@ document.querySelector('#pagename-label').textContent = queue + ' in virtual hos
 
 const tableOptions = {
   dataSource: new UrlDataSource(url, { useQueryState: false }),
-  keyColumns: ['message_tag', 'consumer_tag', 'channel_name', 'unacked_for_seconds'],
+  keyColumns: ['message_tag', 'channel_name', 'unacked_for_seconds'],
   interval: 5000,
   pagination: true,
   columnSelector: true,
@@ -25,8 +25,9 @@ Table.renderTable('table', tableOptions, function (tr, item, firstRender) {
   Table.renderCell(tr, 0, item.message_tag)
   Table.renderCell(tr, 1, item.consumer_tag)
   const channel = document.createElement('a')
-  channel.href = channelBaseUrl + item.channel_name
+  channel.href = channelBaseUrl + encodeURIComponent(item.channel_name)
   channel.textContent = item.channel_name
   Table.renderCell(tr, 2, channel)
-  Table.renderCell(tr, 3, item.unacked_for_seconds)
+  Table.renderCell(tr, 3, item.unacked_for_seconds, 'right')
+  Table.renderCell(tr, 4, item.prefetch_count, 'right')
 })
