@@ -802,7 +802,7 @@ module LavinMQ
         expire_msg(sp, :rejected)
       end
     rescue ex : MessageStore::Error
-      @log.error(exception: ex) { "Queue closed: #{closed_reason}" }
+      Log.error(exception: ex) { "Queue closed: #{closed_reason}" }
       close
       raise ex
     end
