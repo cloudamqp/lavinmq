@@ -17,11 +17,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - lavinmqctl didn't recognize 201/204 response codes from set_permissions, set_user_tags and add_vhost
 - Queues will no longer be closed if file size is incorrect. Fixes [#669](https://github.com/cloudamqp/lavinmq/issues/669)
+- Improved logging
+- Won't choke on empty message files on boot [#685](https://github.com/cloudamqp/lavinmq/issues/685)
+- Won't choke on somewhat too large message files on boot [#671](https://github.com/cloudamqp/lavinmq/issues/671)
 
 ### Changed
 
 - Replaced HTTP router with an internal one. Now LavinMQ uses 0 external libraries.
 - Specs are more reliable when a new server is started for each spec
+- LavinMQ never sets TLS ciphers by it self, custom ciphers have to be configured via the config
 
 ## [1.2.14] - 2024-06-15
 
