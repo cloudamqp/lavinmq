@@ -13,6 +13,7 @@ const urlEncodedQueue = encodeURIComponent(queue)
 const urlEncodedVhost = encodeURIComponent(vhost)
 const pauseQueueForm = document.querySelector('#pauseQueue')
 const resumeQueueForm = document.querySelector('#resumeQueue')
+const openQueueForm = document.querySelector('#openQueue')
 document.title = queue + ' | LavinMQ'
 let consumerListLength = 20
 
@@ -66,27 +67,31 @@ loadMoreConsumersBtn.addEventListener('click', (e) => {
   updateQueue(true)
 })
 
+// TODO: improve this so it makes sense for a closed queue
 function handleQueueState (state, closedReason) {
   document.getElementById('q-state').textContent = state
   switch (state) {
     case 'paused':
       pauseQueueForm.classList.add('hide')
+      openQueueForm.classList.add('hide')
       resumeQueueForm.classList.remove('hide')
       break
     case 'running':
       pauseQueueForm.classList.remove('hide')
+      openQueueForm.classList.add('hide')
       resumeQueueForm.classList.add('hide')
       break
     default:
       pauseQueueForm.disabled = true
       resumeQueueForm.disabled = true
+      openQueueForm.disabled = true
   }
 
   if (state === 'closed') {
+    openQueueForm.classList.remove('hide')
     const tooltip = document.createElement('span')
     tooltip.classList.add('tooltiptext')
     tooltip.classList.add('tooltiptext-long')
-    console.log(closedReason)
     tooltip.textContent = closedReason
     document.getElementById('q-state').appendChild(tooltip)
   }
@@ -322,6 +327,17 @@ pauseQueueForm.addEventListener('submit', function (evt) {
         handleQueueState('paused')
       })
   }
+})
+
+openQueueForm.addEventListener('submit', function (evt) {
+  evt.preventDefault()
+  const url = 'api/queues/' + urlEncodedVhost + '/' + urlEncodedQueue + '/open'
+  HTTP.request('PUT', url)
+    .then(() => {
+      // TODO: Don't toast something that doesn't happen, fix in whole file
+      DOM.toast('Queue opened!')
+      // TODO: HandleQueueState('running') for closed/open
+    })
 })
 
 resumeQueueForm.addEventListener('submit', function (evt) {

@@ -287,6 +287,18 @@
         </form>
         <p> Pausing a queue will stop deliveries to all consumers. </p>
       </section>
+
+      <section class="card cols-3">
+        <h3>Open Queue</h3>
+        <form method="put" id="openQueue" class="form">
+          <label>
+            <button type="submit" class="btn-warn">Open queue</button>
+          </label>
+        </form>
+        <p>Try to re-open the queue</p>
+        <th id="closed-reason"> <th>
+      </section>
+
       <form method="delete" id="purgeQueue" class="form card cols-3">
         <h3>Purge queue</h3>
         <label>

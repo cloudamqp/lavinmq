@@ -155,7 +155,6 @@ module LavinMQ
               IO::Memory.new(content))
             Log.debug { "Post to exchange=#{e.name} on vhost=#{e.vhost.name} with routing_key=#{routing_key} payload_encoding=#{payload_encoding} properties=#{properties} size=#{size}" }
             ok = e.vhost.publish(msg)
-            bad_request(context, "Message could not be published") unless ok
             {routed: ok}.to_json(context.response)
           end
         end

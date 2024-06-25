@@ -373,6 +373,12 @@ module LavinMQ
       @msg_store_lock.synchronize do
         @msg_store.open
       end
+      if @msg_store.closed
+        @closed_reason = @msg_store.closed_reason
+        Log.debug &.emit("Could not open queue: #{@closed_reason} ", @metadata)
+        close
+        return false
+      end
       Log.debug &.emit("Opened", @metadata)
       true
     end
