@@ -357,8 +357,8 @@ module LavinMQ
               end
             rescue ex
               Log.error { "Closing message store: invalid SchemaVersion in #{path}" }
-              close
               @closed_reason = "Invalid SchemaVersion in #{path}"
+              close
             end
           end
           file.pos = 4
@@ -383,8 +383,8 @@ module LavinMQ
             break
           rescue ex : OverflowError | AMQ::Protocol::Error::FrameDecode
             Log.error { "Closing message store: Failed to read segment #{seg} at pos #{mfile.pos}, #{ex}" }
-            close
             @closed_reason = "Failed to read segment #{seg} at pos #{mfile.pos}, #{ex}"
+            close
           end
           mfile.pos = 4
           mfile.unmap # will be mmap on demand
