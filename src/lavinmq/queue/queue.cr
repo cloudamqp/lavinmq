@@ -137,7 +137,7 @@ module LavinMQ
       @state = QueueState::Paused if File.exists?(File.join(@data_dir, ".paused"))
       @msg_store = init_msg_store(@data_dir)
       if @msg_store.closed
-        @closed_reason = "Message Store: #{@msg_store.closed_reason}"
+        @closed_reason = "#{@msg_store.closed_reason}"
         close
       end
       @empty_change = @msg_store.empty_change

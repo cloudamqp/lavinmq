@@ -1118,3 +1118,11 @@ pre.arguments > div {
 #q-closed-reason-row {
   display: none;
 }
+
+#closed-reason {
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+  word-break: break-word;
+  white-space: normal;
+  box-sizing: border-box;
+}

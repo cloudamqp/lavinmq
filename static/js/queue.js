@@ -88,6 +88,7 @@ function handleQueueState (state, closedReason) {
   }
 
   if (state === 'closed') {
+    document.getElementById('closed-reason').textContent = 'Your Queue is closed due to: ' + closedReason
     openQueueForm.classList.remove('hide')
     const tooltip = document.createElement('span')
     tooltip.classList.add('tooltiptext')
