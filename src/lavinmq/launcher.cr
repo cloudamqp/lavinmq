@@ -261,18 +261,14 @@ module LavinMQ
         tls.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_2 |
                            OpenSSL::SSL::Options::NO_TLS_V1_1 |
                            OpenSSL::SSL::Options::NO_TLS_V1)
-        tls.ciphers = OpenSSL::SSL::Context::CIPHERS_OLD + ":@SECLEVEL=1"
       when "1.1"
         tls.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_2 | OpenSSL::SSL::Options::NO_TLS_V1_1)
         tls.add_options(OpenSSL::SSL::Options::NO_TLS_V1)
-        tls.ciphers = OpenSSL::SSL::Context::CIPHERS_OLD + ":@SECLEVEL=1"
       when "1.2", ""
         tls.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_2)
         tls.add_options(OpenSSL::SSL::Options::NO_TLS_V1_1 | OpenSSL::SSL::Options::NO_TLS_V1)
-        tls.ciphers = OpenSSL::SSL::Context::CIPHERS_INTERMEDIATE
       when "1.3"
         tls.add_options(OpenSSL::SSL::Options::NO_TLS_V1_2)
-        tls.ciphers = OpenSSL::SSL::Context::CIPHERS_INTERMEDIATE
       else
         Log.warn { "Unrecognized @config value for tls_min_version: '#{@config.tls_min_version}'" }
       end
