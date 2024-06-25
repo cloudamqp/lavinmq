@@ -56,6 +56,7 @@ module LavinMQ
           when @queue_expiration_ttl_change.receive
           when @consumers_empty_change.receive
           when timeout ttl
+            @closed_reason = "Queue expired"
             expire_queue
             close
             break
@@ -363,6 +364,7 @@ module LavinMQ
     def open : Bool
       return false unless @closed
       @closed = false
+      @closed_reason = nil
       @state = QueueState::Running
       @queue_expiration_ttl_change = Channel(Nil).new
       @message_ttl_change = Channel(Nil).new
@@ -372,7 +374,6 @@ module LavinMQ
         @msg_store.open
       end
       Log.debug &.emit("Opened", @metadata)
-      @closed_reason = nil
       true
     end
 
