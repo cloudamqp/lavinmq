@@ -3,6 +3,8 @@ require "uri"
 require "option_parser"
 require "ini"
 require "./version"
+require "./log_formatter"
+require "./in_memory_backend"
 
 module LavinMQ
   class Config
@@ -65,97 +67,98 @@ module LavinMQ
     end
 
     private def initialize
-      @parser = OptionParser.new do |parser|
-        parser.banner = "Usage: #{PROGRAM_NAME} [arguments]"
-        parser.on("-c CONF", "--config=CONF", "Config file (INI format)") { |v| @config_file = v }
-        parser.on("-D DATADIR", "--data-dir=DATADIR", "Data directory") { |v| @data_dir = v }
-        parser.on("-b BIND", "--bind=BIND", "IP address that both the AMQP and HTTP servers will listen on (default: 127.0.0.1)") do |v|
-          @amqp_bind = v
-          @http_bind = v
-        end
-        parser.on("-p PORT", "--amqp-port=PORT", "AMQP port to listen on (default: 5672)") do |v|
-          @amqp_port = v.to_i
-        end
-        parser.on("--amqps-port=PORT", "AMQPS port to listen on (default: -1)") do |v|
-          @amqps_port = v.to_i
-        end
-        parser.on("--amqp-bind=BIND", "IP address that the AMQP server will listen on (default: 127.0.0.1)") do |v|
-          @amqp_bind = v
-        end
-        parser.on("--http-port=PORT", "HTTP port to listen on (default: 15672)") do |v|
-          @http_port = v.to_i
-        end
-        parser.on("--https-port=PORT", "HTTPS port to listen on (default: -1)") do |v|
-          @https_port = v.to_i
-        end
-        parser.on("--http-bind=BIND", "IP address that the HTTP server will listen on (default: 127.0.0.1)") do |v|
-          @http_bind = v
-        end
-        parser.on("--amqp-unix-path=PATH", "AMQP UNIX path to listen to") do |v|
-          @unix_path = v
-        end
-        parser.on("--http-unix-path=PATH", "HTTP UNIX path to listen to") do |v|
-          @http_unix_path = v
-        end
-        parser.on("--cert FILE", "TLS certificate (including chain)") { |v| @tls_cert_path = v }
-        parser.on("--key FILE", "Private key for the TLS certificate") { |v| @tls_key_path = v }
-        parser.on("--ciphers CIPHERS", "List of TLS ciphers to allow") { |v| @tls_ciphers = v }
-        parser.on("--tls-min-version=VERSION", "Mininum allowed TLS version (default 1.2)") { |v| @tls_min_version = v }
-        parser.on("-l", "--log-level=LEVEL", "Log level (Default: info)") do |v|
-          level = Log::Severity.parse?(v.to_s)
-          @log_level = level if level
-        end
-        parser.on("--raise-gc-warn", "Raise on GC warnings") { @raise_gc_warn = true }
-        parser.on("--no-data-dir-lock", "Don't put a file lock in the data directory (default true)") { @data_dir_lock = false }
-        parser.on("-d", "--debug", "Verbose logging") { @log_level = Log::Severity::Debug }
-        parser.on("-h", "--help", "Show this help") { puts parser; exit 1 }
-        parser.on("-v", "--version", "Show version") { puts LavinMQ::VERSION; exit 0 }
-        parser.on("--build-info", "Show build information") { puts LavinMQ::BUILD_INFO; exit 0 }
-        parser.on("--guest-only-loopback=BOOL", "Limit guest user to only connect from loopback address") do |v|
-          @guest_only_loopback = {"true", "yes", "y", "1"}.includes? v.to_s
-        end
-        parser.on("--clustering", "Enable clustering") do
-          @clustering = true
-        end
-        parser.on("--clustering-advertised-uri=URI", "Advertised URI for the clustering server") do |v|
-          @clustering_advertised_uri = v
-        end
-        parser.on("--clustering-etcd-prefix=KEY", "Key prefix used in etcd (default: lavinmq)") do |v|
-          @clustering_etcd_prefix = v
-        end
-        parser.on("--clustering-port=PORT", "Listen for clustering followers on this port (default: 5679)") do |v|
-          @clustering_port = v.to_i
-        end
-        parser.on("--clustering-bind=BIND", "Listen for clustering followers on this address (default: localhost)") do |v|
-          @clustering_bind = v
-        end
-        parser.on("--clustering-max-lag=ACTIONS", "Max unsynced replicated messages") do |v|
-          @clustering_max_lag = v.to_i
-        end
-        parser.on("--clustering-min-isr=COUNT", "Required in-sync-replicas") do |v|
-          @clustering_min_isr = v.to_i
-        end
-        parser.on("--clustering-etcd-endpoints=URIs", "Comma separeted host/port pairs (default: 127.0.0.1:2379)") do |v|
-          @clustering_etcd_endpoints = v
-        end
-        parser.invalid_option { |arg| abort "Invalid argument: #{arg}" }
-      end
     end
 
     def parse
-      @parser.parse(ARGV.dup) # only parse args to get config_file
+      parser = OptionParser.new do |p|
+        p.banner = "Usage: #{PROGRAM_NAME} [arguments]"
+        p.on("-c CONF", "--config=CONF", "Config file (INI format)") { |v| @config_file = v }
+        p.on("-D DATADIR", "--data-dir=DATADIR", "Data directory") { |v| @data_dir = v }
+        p.on("-b BIND", "--bind=BIND", "IP address that both the AMQP and HTTP servers will listen on (default: 127.0.0.1)") do |v|
+          @amqp_bind = v
+          @http_bind = v
+        end
+        p.on("-p PORT", "--amqp-port=PORT", "AMQP port to listen on (default: 5672)") do |v|
+          @amqp_port = v.to_i
+        end
+        p.on("--amqps-port=PORT", "AMQPS port to listen on (default: -1)") do |v|
+          @amqps_port = v.to_i
+        end
+        p.on("--amqp-bind=BIND", "IP address that the AMQP server will listen on (default: 127.0.0.1)") do |v|
+          @amqp_bind = v
+        end
+        p.on("--http-port=PORT", "HTTP port to listen on (default: 15672)") do |v|
+          @http_port = v.to_i
+        end
+        p.on("--https-port=PORT", "HTTPS port to listen on (default: -1)") do |v|
+          @https_port = v.to_i
+        end
+        p.on("--http-bind=BIND", "IP address that the HTTP server will listen on (default: 127.0.0.1)") do |v|
+          @http_bind = v
+        end
+        p.on("--amqp-unix-path=PATH", "AMQP UNIX path to listen to") do |v|
+          @unix_path = v
+        end
+        p.on("--http-unix-path=PATH", "HTTP UNIX path to listen to") do |v|
+          @http_unix_path = v
+        end
+        p.on("--cert FILE", "TLS certificate (including chain)") { |v| @tls_cert_path = v }
+        p.on("--key FILE", "Private key for the TLS certificate") { |v| @tls_key_path = v }
+        p.on("--ciphers CIPHERS", "List of TLS ciphers to allow") { |v| @tls_ciphers = v }
+        p.on("--tls-min-version=VERSION", "Mininum allowed TLS version (default 1.2)") { |v| @tls_min_version = v }
+        p.on("-l", "--log-level=LEVEL", "Log level (Default: info)") do |v|
+          level = Log::Severity.parse?(v.to_s)
+          @log_level = level if level
+        end
+        p.on("--raise-gc-warn", "Raise on GC warnings") { @raise_gc_warn = true }
+        p.on("--no-data-dir-lock", "Don't put a file lock in the data directory (default true)") { @data_dir_lock = false }
+        p.on("-d", "--debug", "Verbose logging") { @log_level = Log::Severity::Debug }
+        p.on("-h", "--help", "Show this help") { puts p; exit 1 }
+        p.on("-v", "--version", "Show version") { puts LavinMQ::VERSION; exit 0 }
+        p.on("--build-info", "Show build information") { puts LavinMQ::BUILD_INFO; exit 0 }
+        p.on("--guest-only-loopback=BOOL", "Limit guest user to only connect from loopback address") do |v|
+          @guest_only_loopback = {"true", "yes", "y", "1"}.includes? v.to_s
+        end
+        p.on("--clustering", "Enable clustering") do
+          @clustering = true
+        end
+        p.on("--clustering-advertised-uri=URI", "Advertised URI for the clustering server") do |v|
+          @clustering_advertised_uri = v
+        end
+        p.on("--clustering-etcd-prefix=KEY", "Key prefix used in etcd (default: lavinmq)") do |v|
+          @clustering_etcd_prefix = v
+        end
+        p.on("--clustering-port=PORT", "Listen for clustering followers on this port (default: 5679)") do |v|
+          @clustering_port = v.to_i
+        end
+        p.on("--clustering-bind=BIND", "Listen for clustering followers on this address (default: localhost)") do |v|
+          @clustering_bind = v
+        end
+        p.on("--clustering-max-lag=ACTIONS", "Max unsynced replicated messages") do |v|
+          @clustering_max_lag = v.to_i
+        end
+        p.on("--clustering-min-isr=COUNT", "Required in-sync-replicas") do |v|
+          @clustering_min_isr = v.to_i
+        end
+        p.on("--clustering-etcd-endpoints=URIs", "Comma separeted host/port pairs (default: 127.0.0.1:2379)") do |v|
+          @clustering_etcd_endpoints = v
+        end
+        p.invalid_option { |arg| abort "Invalid argument: #{arg}" }
+      end
+      parser.parse(ARGV.dup) # only parse args to get config_file
       parse(@config_file)
-      @parser.parse(ARGV.dup) # then override any config_file parameters with the cmd line args
+      parser.parse(ARGV.dup) # then override any config_file parameters with the cmd line args
       if @data_dir.empty?
         STDERR.puts "No data directory specified"
-        STDERR.puts @parser
+        STDERR.puts parser
         exit 2
       end
+      reload_logger
     rescue ex
       abort ex.message
     end
 
-    def parse(file)
+    private def parse(file)
       return if file.empty?
       abort "Config could not be found" unless File.file?(file)
       ini = INI.parse(File.read(file))
@@ -169,6 +172,30 @@ module LavinMQ
           raise "Unrecognized config section: #{section}"
         end
       end
+    end
+
+    def reload
+      parse(@config_file)
+      reload_logger
+    end
+
+    private def reload_logger
+      log_file = (path = @log_file) ? File.open(path, "a") : STDOUT
+      broadcast_backend = ::Log::BroadcastBackend.new
+      backend = if ENV.has_key?("JOURNAL_STREAM")
+                  ::Log::IOBackend.new(io: log_file, formatter: JournalLogFormat, dispatcher: ::Log::DirectDispatcher)
+                else
+                  ::Log::IOBackend.new(io: log_file, formatter: StdoutLogFormat, dispatcher: ::Log::DirectDispatcher)
+                end
+
+      broadcast_backend.append(backend, @log_level)
+
+      in_memory_backend = ::Log::InMemoryBackend.instance
+      broadcast_backend.append(in_memory_backend, @log_level)
+
+      ::Log.setup(@log_level, broadcast_backend)
+      target = (path = @log_file) ? path : "stdout"
+      Log.info &.emit("Logger settings", level: @log_level.to_s, target: target)
     end
 
     def tls_configured?

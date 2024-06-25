@@ -4,7 +4,6 @@ require "systemd"
 require "./reporter"
 require "./server"
 require "./http/http_server"
-require "./log_formatter"
 require "./in_memory_backend"
 require "./data_dir_lock"
 
@@ -18,7 +17,6 @@ module LavinMQ
     @lease : Channel(Nil)?
 
     def initialize(@config : Config, replicator = Clustering::NoopServer.new, @lease = nil)
-      reload_logger
       print_environment_info
       print_max_map_count
       fd_limit = System.maximize_fd_limit
@@ -89,28 +87,6 @@ module LavinMQ
           Log.warn { "sysctl -w vm.max_map_count=1000000" }
         end
       {% end %}
-    end
-
-    private def reload_logger
-      log_file = (path = @config.log_file) ? File.open(path, "a") : STDOUT
-      broadcast_backend = ::Log::BroadcastBackend.new
-      backend = if ENV.has_key?("JOURNAL_STREAM")
-                  ::Log::IOBackend.new(io: log_file, formatter: JournalLogFormat, dispatcher: ::Log::DirectDispatcher)
-                else
-                  ::Log::IOBackend.new(io: log_file, formatter: StdoutLogFormat, dispatcher: ::Log::DirectDispatcher)
-                end
-
-      broadcast_backend.append(backend, @config.log_level)
-
-      in_memory_backend = ::Log::InMemoryBackend.instance
-      broadcast_backend.append(in_memory_backend, @config.log_level)
-
-      ::Log.setup(@config.log_level, broadcast_backend)
-      # ::Log.setup do |c|
-      #   c.bind "*", , backend
-      # end
-      target = (path = @config.log_file) ? path : "stdout"
-      Log.info &.emit("logger settings", level: @config.log_level.to_s, target: target)
     end
 
     private def setup_log_exchange
@@ -212,8 +188,7 @@ module LavinMQ
         Log.info { "No configuration file to reload" }
       else
         Log.info { "Reloading configuration file '#{@config.config_file}'" }
-        @config.parse(@config.config_file)
-        reload_logger
+        @config.reload
         reload_tls_context
       end
       SystemD.notify_ready

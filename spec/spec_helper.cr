@@ -1,3 +1,12 @@
+require "log"
+Log.setup_from_env(default_level: :error)
+
+class Log
+  def self.setup
+    # noop, don't override during spec
+  end
+end
+
 require "spec"
 require "file_utils"
 require "../src/lavinmq/config" # have to be required first
@@ -5,8 +14,6 @@ require "../src/lavinmq/server"
 require "../src/lavinmq/http/http_server"
 require "http/client"
 require "amqp-client"
-
-Log.setup_from_env(default_level: :error)
 
 DATA_DIR = "/tmp/lavinmq-spec"
 
@@ -133,4 +140,12 @@ def create_ttl_and_dl_queues(channel, queue_ttl = 1)
   q = channel.queue("ttl", args: args)
   dlq = channel.queue("dlq")
   {q, dlq}
+end
+
+module LavinMQ
+  # Allow creating new Config object without using the singleton
+  class Config
+    def initialize
+    end
+  end
 end
