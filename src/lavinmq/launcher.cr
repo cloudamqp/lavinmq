@@ -123,8 +123,6 @@ module LavinMQ
         if ctx = @tls_context
           spawn @amqp_server.listen_tls(@config.amqp_bind, @config.amqps_port, ctx),
             name: "AMQPS listening on #{@config.amqps_port}"
-        else
-          Log.warn { "Certificate for AMQPS not @configured" }
         end
       end
 
