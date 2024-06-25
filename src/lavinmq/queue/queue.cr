@@ -35,7 +35,6 @@ module LavinMQ
 
     getter unacked_count = 0u32
     getter unacked_bytesize = 0u64
-    getter closed_reason
     @unacked_lock = Mutex.new(:unchecked)
 
     @msg_store_lock = Mutex.new(:reentrant)
@@ -102,7 +101,8 @@ module LavinMQ
         break
       end
     rescue ex : MessageStore::Error
-      Log.error(exception: ex, &.emit("Queue closed due to error", @metadata))
+      @closed_reason = ex.to_s
+      Log.error(exception: ex, &.emit("Queue closed due to error: #{@closed_reason}", @metadata))
       close
       raise ex
     end
@@ -136,8 +136,8 @@ module LavinMQ
       @state = QueueState::Paused if File.exists?(File.join(@data_dir, ".paused"))
       @msg_store = init_msg_store(@data_dir)
       if @msg_store.closed
+        @closed_reason = "Message Store: #{@msg_store.closed_reason}"
         close
-        @closed_reason = @msg_store.closed_reason
       end
       @empty_change = @msg_store.empty_change
       handle_arguments
@@ -371,13 +371,15 @@ module LavinMQ
       @msg_store_lock.synchronize do
         @msg_store.open
       end
-      @log.debug { "Opened" }
+      Log.debug &.emit("Opened", @metadata)
+      @closed_reason = nil
       true
     end
 
     def delete : Bool
       return false if @deleted
       @deleted = true
+      @closed_reason = "Deleted queue"
       close
       @state = QueueState::Deleted
       @msg_store_lock.synchronize do
@@ -439,7 +441,8 @@ module LavinMQ
       drop_overflow unless immediate_delivery?
       true
     rescue ex : MessageStore::Error
-      Log.error(exception: ex, &.emit("Queue closed due to error", @metadata))
+      @closed_reason = ex.to_s
+      Log.error(exception: ex, &.emit("Queue closed due to error #{@closed_reason}", @metadata))
       close
       raise ex
     end
@@ -718,7 +721,8 @@ module LavinMQ
       end
       false
     rescue ex : MessageStore::Error
-      Log.error(exception: ex, &.emit("Queue closed due to error", @metadata))
+      @closed_reason = ex.to_s
+      Log.error(exception: ex, &.emit("Queue closed due to error: #{@closed_reason}", @metadata))
       close
       raise ClosedError.new(cause: ex)
     end
@@ -802,7 +806,8 @@ module LavinMQ
         expire_msg(sp, :rejected)
       end
     rescue ex : MessageStore::Error
-      Log.error(exception: ex) { "Queue closed: #{closed_reason}" }
+      @closed_reason = ex.to_s
+      Log.error(exception: ex) { "Queue closed: #{@closed_reason}" }
       close
       raise ex
     end
@@ -878,7 +883,8 @@ module LavinMQ
       Log.info &.emit("Purged #{delete_count} messages", @metadata)
       delete_count
     rescue ex : MessageStore::Error
-      Log.error exception: ex, &.emit("Queue closed due to error", @metadata)
+      @closed_reason = ex.to_s
+      Log.error exception: ex, &.emit("Queue closing due to error: #{@closed_reason}", @metadata)
       close
       raise ex
     end
@@ -927,7 +933,8 @@ module LavinMQ
       msg_sp = SegmentPosition.make(sp.segment, sp.position, msg)
       Envelope.new(msg_sp, msg, redelivered: true)
     rescue ex : MessageStore::Error
-      Log.error(exception: ex, &.emit("Queue closed due to error: #{closed_reason}", @metadata))
+      @closed_reason = ex.to_s
+      Log.error(exception: ex, &.emit("Queue closed due to error: #{@closed_reason}", @metadata))
       close
       raise ex
     end

@@ -197,6 +197,7 @@ module LavinMQ
 
       def delete
         close
+        @closed_reason = "Queue deleted"
         @segments.each_value { |f| @replicator.try &.delete_file(f.path); f.delete }
         @acks.each_value { |f| @replicator.try &.delete_file(f.path); f.delete }
         FileUtils.rm_rf @queue_data_dir
@@ -215,6 +216,7 @@ module LavinMQ
 
       def open : Nil
         @closed = false
+        @closed_reason = nil
         @empty_change = Channel(Bool).new
         load_segments_from_disk
         load_deleted_from_disk
@@ -354,9 +356,9 @@ module LavinMQ
                 next
               end
             rescue ex
-              Log.error { "Invalid schema version in #{path}" }
-              @closed = true
-              @closed_reason = "Invalid schema version in #{path}"
+              Log.error { "Closing message store: invalid SchemaVersion in #{path}" }
+              close
+              @closed_reason = "Invalid SchemaVersion in #{path}"
             end
           end
           file.pos = 4
@@ -380,8 +382,8 @@ module LavinMQ
           rescue ex : IO::EOFError
             break
           rescue ex : OverflowError | AMQ::Protocol::Error::FrameDecode
-            Log.error { "Failed to read segment #{seg} at pos #{mfile.pos}, #{ex}" }
-            @closed = true
+            Log.error { "Closing message store: Failed to read segment #{seg} at pos #{mfile.pos}, #{ex}" }
+            close
             @closed_reason = "Failed to read segment #{seg} at pos #{mfile.pos}, #{ex}"
           end
           mfile.pos = 4

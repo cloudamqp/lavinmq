@@ -171,8 +171,11 @@ describe LavinMQ::Queue do
         end
       end
     end
+  end
 
-    it "should open queue" do
+  describe "Open" do
+    q_name = "open"
+    it "should open queue from closed state" do
       with_amqp_server do |s|
         tag = "consumer-to-be-canceled"
         with_channel(s) do |ch|
