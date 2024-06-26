@@ -32,6 +32,7 @@ module LavinMQ
     @consumers = Array(Client::Channel::Consumer).new
     @consumers_lock = Mutex.new
     @message_ttl_change = Channel(Nil).new
+    @basic_get_unacked = Deque(Envelope).new
 
     getter unacked_count = 0u32
     getter unacked_bytesize = 0u64
@@ -651,6 +652,7 @@ module LavinMQ
       @queue_expiration_ttl_change.try_send? nil
       @get_count += 1
       get(no_ack) do |env|
+        @basic_get_unacked << env unless no_ack # track unacked messages
         yield env
       end
     end
@@ -687,7 +689,7 @@ module LavinMQ
           end
           delete_message(sp)
         else
-          mark_unacked(sp) do
+          mark_unacked(env) do
             yield env # deliver the message
           end
         end
@@ -700,22 +702,23 @@ module LavinMQ
       raise ClosedError.new(cause: ex)
     end
 
-    private def mark_unacked(sp, &)
-      @log.debug { "Counting as unacked: #{sp}" }
+    private def mark_unacked(env, &)
+      @log.debug { "Counting as unacked: #{env.segment_position}" }
       @unacked_lock.synchronize do
         @unacked_count += 1
-        @unacked_bytesize += sp.bytesize
+        @unacked_bytesize += env.segment_position.bytesize
       end
       begin
         yield
       rescue ex
-        @log.debug { "Not counting as unacked: #{sp}" }
+        @log.debug { "Not counting as unacked: #{env.segment_position}" }
+        @basic_get_unacked.delete(env) # remove unacked message
         @msg_store_lock.synchronize do
-          @msg_store.requeue(sp)
+          @msg_store.requeue(env.segment_position)
         end
         @unacked_lock.synchronize do
           @unacked_count -= 1
-          @unacked_bytesize -= sp.bytesize
+          @unacked_bytesize -= env.segment_position.bytesize
         end
         raise ex
       end
@@ -744,8 +747,14 @@ module LavinMQ
         @ack_count += 1
         @unacked_count -= 1
         @unacked_bytesize -= sp.bytesize
+        remove_from_unacked_list(sp)
       end
       delete_message(sp)
+    end
+
+    private def remove_from_unacked_list(sp)
+      env = Envelope.new(sp, @msg_store[sp], false)
+      @basic_get_unacked.delete(env)
     end
 
     protected def delete_message(sp : SegmentPosition) : Nil
@@ -765,6 +774,7 @@ module LavinMQ
         @reject_count += 1
         @unacked_count -= 1
         @unacked_bytesize -= sp.bytesize
+        remove_from_unacked_list(sp)
       end
       if requeue
         if has_expired?(sp, requeue: true) # guarantee to not deliver expired messages

@@ -45,12 +45,12 @@ module LavinMQ
         get "/api/queues/:vhost/:name/unacked" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            unacked_messages = Array(UnackedMessage).new
-            @amqp_server.vhosts[vhost].queues[params["name"]].@consumers.each do |c|
-              c.unacked_messages.each do |u|
-                next unless u.queue.name == params["name"]
+            consumers = @amqp_server.vhosts[vhost].queues[params["name"]].@consumers.each
+            unacked_messages = consumers.flat_map do |c|
+              c.unacked_messages.each.compact_map do |u|
+                  next unless u.queue.name == params["name"]
                 if consumer = u.consumer
-                  unacked_messages << UnackedMessage.new(
+                  UnackedMessage.new(
                     u.tag, consumer.tag,
                     (RoughTime.monotonic - u.delivered_at).to_i,
                     c.channel_name
@@ -58,7 +58,10 @@ module LavinMQ
                 end
               end
             end
-            page(context, unacked_messages.each)
+            unacked_messages = unacked_messages.chain(@amqp_server.vhosts[vhost].queues[params["name"]].@basic_get_unacked.each.flat_map do |b|
+              UnackedMessage.new(0, "basic_get", 0, "basic_get")
+            end)
+            page(context, unacked_messages)
           end
         end
 
