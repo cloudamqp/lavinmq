@@ -22,9 +22,12 @@ module LavinMQ
       @segment_msg_count = Hash(UInt32, UInt32).new(0u32)
       @requeued = Deque(SegmentPosition).new
       @closed = false
+      @closed_reason : String?
+      getter closed_reason
       getter bytesize = 0u64
       getter size = 0u32
       getter empty_change = Channel(Bool).new
+      getter closed
 
       def initialize(@queue_data_dir : String, @replicator : Clustering::Replicator?)
         @acks = Hash(UInt32, MFile).new { |acks, seg| acks[seg] = open_ack_file(seg) }
@@ -194,6 +197,7 @@ module LavinMQ
 
       def delete
         close
+        @closed_reason = "Queue deleted"
         @segments.each_value { |f| @replicator.try &.delete_file(f.path); f.delete }
         @acks.each_value { |f| @replicator.try &.delete_file(f.path); f.delete }
         FileUtils.rm_rf @queue_data_dir
@@ -208,6 +212,20 @@ module LavinMQ
         @empty_change.close
         @segments.each_value &.close
         @acks.each_value &.close
+      end
+
+      def open : Nil
+        @closed = false
+        @closed_reason = nil
+        @empty_change = Channel(Bool).new
+        load_segments_from_disk
+        load_deleted_from_disk
+        load_stats_from_segments
+        delete_unused_segments
+        @wfile_id = @segments.last_key
+        @wfile = @segments.last_value
+        @rfile_id = @segments.first_key
+        @rfile = @segments.first_value
       end
 
       def avg_bytesize : UInt32
@@ -337,6 +355,10 @@ module LavinMQ
                 @segments.delete seg
                 next
               end
+            rescue ex
+              Log.error { "Closing message store: invalid SchemaVersion in #{path}" }
+              @closed_reason = "Invalid SchemaVersion in #{path}"
+              close
             end
           end
           file.pos = 4
@@ -360,7 +382,9 @@ module LavinMQ
           rescue ex : IO::EOFError
             break
           rescue ex : OverflowError | AMQ::Protocol::Error::FrameDecode
-            raise Error.new(mfile, cause: ex)
+            Log.error { "Closing message store: Failed to read segment #{seg} at pos #{mfile.pos}, #{ex}" }
+            @closed_reason = "Failed to read segment #{seg} at pos #{mfile.pos}, #{ex}"
+            close
           end
           mfile.pos = 4
           mfile.unmap # will be mmap on demand

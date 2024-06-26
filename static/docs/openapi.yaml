@@ -228,6 +228,8 @@ paths:
     "$ref": "./paths/queues.yaml#/~1queues~1{vhost}~1{name}~1pause"
   "/queues/{vhost}/{name}/resume":
     "$ref": "./paths/queues.yaml#/~1queues~1{vhost}~1{name}~1resume"
+  "/queues/{vhost}/{name}/open":
+    "$ref": "./paths/queues.yaml#/~1queues~1{vhost}~1{name}~1open"
   "/queues/{vhost}/{name}/bindings":
     "$ref": "./paths/queues.yaml#/~1queues~1{vhost}~1{name}~1bindings"
   "/queues/{vhost}/{name}/contents":
