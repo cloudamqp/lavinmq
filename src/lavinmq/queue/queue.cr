@@ -130,7 +130,7 @@ module LavinMQ
                    @arguments = AMQP::Table.new)
       @last_get_time = RoughTime.monotonic
       @data_dir = make_data_dir
-      @metadata = ::Log::Metadata.new(nil, {name: @name, vhost: @vhost.name})
+      @metadata = ::Log::Metadata.new(nil, {queue: @name, vhost: @vhost.name})
       @log = Logger.new(Log, @metadata)
       File.open(File.join(@data_dir, ".queue"), "w") { |f| f.sync = true; f.print @name }
       @state = QueueState::Paused if File.exists?(File.join(@data_dir, ".paused"))
