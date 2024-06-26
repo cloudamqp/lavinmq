@@ -389,7 +389,7 @@ describe LavinMQ::StreamQueue do
         data_dir = File.join(vhost.data_dir, Digest::SHA1.hexdigest queue_name)
         msg_store = LavinMQ::StreamQueue::StreamQueueMessageStore.new(data_dir, nil)
         offsets.each_with_index do |offset, i|
-          msg_store.update_consumer_offset(tag_prefix + i.to_s, offset)
+          msg_store.store_consumer_offset(tag_prefix + i.to_s, offset)
         end
         msg_store.close
         sleep 0.1
@@ -402,7 +402,7 @@ describe LavinMQ::StreamQueue do
       end
     end
 
-    it "only saves one entry per consumer tag" do
+    it "appends consumer tag file" do
       queue_name = Random::Secure.hex
       offsets = [84_i64, 24_i64, 1_i64, 100_i64, 42_i64]
       consumer_tag = "ctag-1"
@@ -412,15 +412,53 @@ describe LavinMQ::StreamQueue do
         data_dir = File.join(s.vhosts["/"].data_dir, Digest::SHA1.hexdigest queue_name)
         msg_store = LavinMQ::StreamQueue::StreamQueueMessageStore.new(data_dir, nil)
         offsets.each do |offset|
-          msg_store.update_consumer_offset(consumer_tag, offset)
+          msg_store.store_consumer_offset(consumer_tag, offset)
+        end
+        bytesize = consumer_tag.bytesize + 1 + 8
+        msg_store.@consumer_offsets.size.should eq bytesize*5
+        msg_store.last_offset_by_consumer_tag(consumer_tag).should eq offsets.last
+        msg_store.close
+      end
+    end
+
+    it "compacts consumer tag file on restart" do
+      queue_name = Random::Secure.hex
+      offsets = [84_i64, 24_i64, 1_i64, 100_i64, 42_i64]
+      consumer_tag = "ctag-1"
+      with_amqp_server do |s|
+        StreamQueueSpecHelpers.publish(s, queue_name, 1)
+
+        data_dir = File.join(s.vhosts["/"].data_dir, Digest::SHA1.hexdigest queue_name)
+        msg_store = LavinMQ::StreamQueue::StreamQueueMessageStore.new(data_dir, nil)
+        offsets.each do |offset|
+          msg_store.store_consumer_offset(consumer_tag, offset)
         end
         msg_store.close
-        sleep 0.1
 
         msg_store = LavinMQ::StreamQueue::StreamQueueMessageStore.new(data_dir, nil)
         msg_store.last_offset_by_consumer_tag(consumer_tag).should eq offsets.last
-        msg_store.@consumer_offsets.size.should eq 15
+        bytesize = consumer_tag.bytesize + 1 + 8
+        msg_store.@consumer_offsets.size.should eq bytesize
+        msg_store.close
+      end
+    end
 
+    it "compacts consumer tag file when full" do
+      queue_name = Random::Secure.hex
+      offsets = [84_i64, 24_i64, 1_i64, 100_i64, 42_i64]
+      consumer_tag = Random::Secure.hex(32)
+      with_amqp_server do |s|
+        StreamQueueSpecHelpers.publish(s, queue_name, 1)
+        data_dir = File.join(s.vhosts["/"].data_dir, Digest::SHA1.hexdigest queue_name)
+        msg_store = LavinMQ::StreamQueue::StreamQueueMessageStore.new(data_dir, nil)
+        bytesize = consumer_tag.bytesize + 1 + 8
+
+        offsets = (LavinMQ::Config.instance.segment_size / bytesize).to_i32 + 1
+        offsets.times do |i|
+          msg_store.store_consumer_offset(consumer_tag, i)
+        end
+        msg_store.last_offset_by_consumer_tag(consumer_tag).should eq offsets - 1
+        msg_store.@consumer_offsets.size.should eq bytesize*2
         msg_store.close
       end
     end
@@ -491,7 +529,7 @@ describe LavinMQ::StreamQueue do
         data_dir = File.join(s.vhosts["/"].data_dir, Digest::SHA1.hexdigest queue_name)
         msg_store = LavinMQ::StreamQueue::StreamQueueMessageStore.new(data_dir, nil)
         offsets.each_with_index do |offset, i|
-          msg_store.update_consumer_offset(tag_prefix + i.to_s, offset)
+          msg_store.store_consumer_offset(tag_prefix + i.to_s, offset)
         end
         sleep 0.1
         msg_store.cleanup_consumer_offsets
@@ -578,7 +616,7 @@ describe LavinMQ::StreamQueue do
         msg_store = LavinMQ::StreamQueue::StreamQueueMessageStore.new(data_dir, nil)
         2000.times do |i|
           next if i == 0
-          msg_store.update_consumer_offset("#{consumer_tag_prefix}#{i}", i)
+          msg_store.store_consumer_offset("#{consumer_tag_prefix}#{i}", i)
         end
         msg_store.close
 
