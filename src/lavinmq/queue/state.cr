@@ -5,7 +5,6 @@ module LavinMQ
     Flow
     Closed
     Deleted
-    Error
 
     def to_s
       super.downcase
