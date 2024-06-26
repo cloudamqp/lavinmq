@@ -147,9 +147,8 @@ describe LavinMQ::Shovel do
           x, q2 = ShovelSpecHelpers.setup_qs ch, "na_"
           x.publish_confirm "shovel me", "na_q1"
           spawn { shovel.run }
-          wait_for { shovel.running? }
-          sleep 0.1 # Give time for message to be shoveled
-          s.vhosts["/"].queues["na_q1"].message_count.should eq 0
+          wait_for { s.vhosts["/"].queues["na_q1"].message_count.zero? }
+          wait_for { !s.vhosts["/"].queues["na_q2"].message_count.zero? }
           q2.get(no_ack: false).try(&.body_io.to_s).should eq "shovel me"
         end
       end
