@@ -39,7 +39,7 @@ module LavinMQ
     private def expire_msg(env : Envelope, reason : Symbol)
       sp = env.segment_position
       msg = env.message
-      Log.debug &.emit("Expiring #{sp} now due to #{reason}", @metadata)
+      @log.debug { "Expiring #{sp} now due to #{reason}" }
       if headers = msg.properties.headers
         headers.delete("x-delay")
         msg.properties.headers = headers

@@ -1,5 +1,6 @@
 require "../observable"
 require "amqp-client"
+require "../logger"
 require "../sortable_json"
 require "../queue/event"
 require "../exchange/event"
@@ -22,6 +23,7 @@ module LavinMQ
 
         def initialize(@upstream : Upstream)
           @metadata = ::Log::Metadata.new(nil, {vhost: @upstream.vhost.name, upstream: @upstream.name})
+          @log = Logger.new(Log, @metadata)
           user = @upstream.vhost.users.direct_user
           vhost = @upstream.vhost.name == "/" ? "" : @upstream.vhost.name
           port = Config.instance.amqp_port
@@ -48,13 +50,13 @@ module LavinMQ
         end
 
         def run
-          Log.info &.emit "Starting", @metadata
+          @log.info { "Starting" }
           spawn(run_loop, name: "Federation link #{@upstream.vhost.name}/#{name}")
           Fiber.yield
         end
 
         private def state(state)
-          Log.debug &.emit "state change #{@state}->#{state}", @metadata
+          @log.debug { "state change #{@state}->#{state}" }
           @last_changed = RoughTime.unix_ms
           @state = state
         end
@@ -74,23 +76,23 @@ module LavinMQ
             break if @state.terminating?
             state(State::Stopped)
             sleep @upstream.reconnect_delay.seconds
-            Log.info &.emit "Federation try reconnect", @metadata
+            @log.info { "Federation try reconnect" }
           rescue ex
             break if @state.terminating?
-            Log.info &.emit "Federation link state=#{@state} error=#{ex.inspect}", @metadata
+            @log.info { "Federation link state=#{@state} error=#{ex.inspect}" }
             state(State::Stopped)
             @error = ex.message
             sleep @upstream.reconnect_delay.seconds
-            Log.info &.emit "Federation try reconnect", @metadata
+            @log.info { "Federation try reconnect" }
           end
-          Log.info &.emit "Federation link stopped", @metadata
+          @log.info { "Federation link stopped" }
         ensure
           state(State::Terminated)
-          Log.info &.emit "Terminated", @metadata
+          @log.info { "Terminated" }
         end
 
         private def federate(msg, upstream_ch, exchange, routing_key, immediate = false)
-          Log.debug &.emit "Federating routing_key=#{routing_key}", @metadata
+          @log.debug { "Federating routing_key=#{routing_key}" }
           status = @upstream.vhost.publish(
             Message.new(
               RoughTime.unix_ms, exchange, routing_key, msg.properties,
@@ -203,7 +205,7 @@ module LavinMQ
 
         def on(event : QueueEvent, data)
           return if @state.terminated? || @state.terminating?
-          Log.debug &.emit "event=#{event} data=#{data}", @metadata
+          @log.debug { "event=#{event} data=#{data}" }
           case event
           in .deleted?, .closed?
             @upstream.stop_link(@federated_q)
@@ -213,7 +215,7 @@ module LavinMQ
             nil
           end
         rescue e
-          Log.error &.emit "Could not process event=#{event} data=#{data} error=#{e.inspect_with_backtrace}", @metadata
+          @log.error { "Could not process event=#{event} data=#{data} error=#{e.inspect_with_backtrace}" }
         end
 
         private def setup_queue(upstream_client)
@@ -229,7 +231,7 @@ module LavinMQ
             no_ack = @upstream.ack_mode.no_ack?
             state(State::Running)
             unless @federated_q.immediate_delivery?
-              Log.debug &.emit "Waiting for consumers", @metadata
+              @log.debug { "Waiting for consumers" }
               @consumer_available.receive?
             end
             q_name = q[:queue_name]
@@ -249,7 +251,7 @@ module LavinMQ
               end
             end
           rescue ex : NoDownstreamConsumerError
-            Log.warn &.emit("No downstream consumer active, stopping federation", @metadata)
+            @log.warn(ex) { "No downstream consumer active, stopping federation" }
           end
         end
       end
@@ -270,7 +272,7 @@ module LavinMQ
 
         def on(event : ExchangeEvent, data)
           return if @state.terminated? || @state.terminating?
-          Log.debug &.emit "event=#{event} data=#{data}", @metadata
+          @log.debug { "event=#{event} data=#{data}" }
           case event
           in .deleted?
             @upstream.stop_link(@federated_ex)
@@ -288,7 +290,7 @@ module LavinMQ
             end
           end
         rescue e
-          Log.error &.emit "Could not process event=#{event} data=#{data} error=#{e.inspect_with_backtrace}", @metadata
+          @log.error { "Could not process event=#{event} data=#{data} error=#{e.inspect_with_backtrace}" }
         end
 
         private def data_as_binding_details(data) : BindingDetails
@@ -301,7 +303,7 @@ module LavinMQ
           if q = @consumer_q
             yield q
           else
-            Log.warn &.emit "No upstream connection for exchange event", @metadata
+            @log.warn { "No upstream connection for exchange event" }
           end
         end
 
@@ -323,7 +325,7 @@ module LavinMQ
             ch.queue_delete(@upstream_q)
           end
         rescue e
-          Log.warn exception: e, &.emit "cleanup interrupted ", @metadata
+          @log.warn(e) { "cleanup interrupted " }
         end
 
         private def setup(upstream_client)

@@ -51,7 +51,7 @@ module LavinMQ
               break
             end
             {% unless flag?(:release) %}
-              Log.debug &.emit "Getting a new message", @metadata
+              @log.debug { "Getting a new message" }
             {% end %}
             stream_queue.consume_get(self) do |env|
               deliver(env.message, env.segment_position, env.redelivered)
@@ -59,17 +59,17 @@ module LavinMQ
             Fiber.yield if (i &+= 1) % 32768 == 0
           end
         rescue ex : ClosedError | Queue::ClosedError | Client::Channel::ClosedError | ::Channel::ClosedError
-          Log.debug &.emit "deliver loop exiting: #{ex.inspect}", @metadata
+          @log.debug { "deliver loop exiting: #{ex.inspect}" }
         end
 
         private def wait_for_queue_ready
           if @offset > stream_queue.last_offset && @requeued.empty?
-            Log.debug &.emit "Waiting for queue not to be empty", @metadata
+            @log.debug { "Waiting for queue not to be empty" }
             select
             when stream_queue.new_messages.receive
-              Log.debug &.emit "Queue is not empty", @metadata
+              @log.debug { "Queue is not empty" }
             when @has_requeued.receive
-              Log.debug &.emit "Got a requeued message", @metadata
+              @log.debug { "Got a requeued message" }
             when @notify_closed.receive
             end
             return true

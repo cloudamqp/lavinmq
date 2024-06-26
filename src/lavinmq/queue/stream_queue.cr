@@ -57,7 +57,7 @@ module LavinMQ
       end
       true
     rescue ex : MessageStore::Error
-      Log.error(exception: ex, &.emit("Queue closed due to error", @metadata))
+      @log.error(ex) { "Queue closed due to error" }
       close
       raise ex
     end
@@ -83,7 +83,7 @@ module LavinMQ
       yield env # deliver the message
       true
     rescue ex : MessageStore::Error
-      Log.error(exception: ex, &.emit("Queue closed due to error", @metadata))
+      @log.error(ex) { "Queue closed due to error" }
       close
       raise ClosedError.new(cause: ex)
     end
