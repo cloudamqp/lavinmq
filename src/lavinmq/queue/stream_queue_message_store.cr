@@ -15,7 +15,7 @@ module LavinMQ
       def initialize(@queue_data_dir : String, @replicator : Clustering::Replicator?)
         super
         @last_offset = get_last_offset
-        @consumer_offsets = MFile.new(File.join(@queue_data_dir, "consumer_offsets"), 32 * 1024)
+        @consumer_offsets = MFile.new(File.join(@queue_data_dir, "consumer_offsets"), Config.instance.segment_size)
         @consumer_offset_positions = restore_consumer_offset_positions
         drop_overflow
       end
@@ -128,19 +128,13 @@ module LavinMQ
         positions
       end
 
-      def update_consumer_offset(consumer_tag : String, new_offset : Int64)
-        if pos = @consumer_offset_positions[consumer_tag]?
-          IO::ByteFormat::SystemEndian.encode(new_offset, @consumer_offsets.to_slice(pos, 8, false))
-        else
-          store_consumer_offset(consumer_tag, new_offset)
-        end
-      end
-
       def store_consumer_offset(consumer_tag : String, new_offset : Int64)
+        cleanup_consumer_offsets if consumer_offset_file_full?(consumer_tag)
         expand_consumer_offset_file if consumer_offset_file_full?(consumer_tag)
         @consumer_offsets.write_bytes AMQ::Protocol::ShortString.new(consumer_tag)
         @consumer_offset_positions[consumer_tag] = @consumer_offsets.size
         @consumer_offsets.write_bytes new_offset
+        # replicate
       end
 
       def consumer_offset_file_full?(consumer_tag)
@@ -149,7 +143,7 @@ module LavinMQ
 
       def expand_consumer_offset_file
         pos = @consumer_offsets.size
-        @consumer_offsets = MFile.new(@consumer_offsets.path, @consumer_offsets.capacity + 32 * 1024)
+        @consumer_offsets = MFile.new(@consumer_offsets.path, @consumer_offsets.capacity + Config.instance.segment_size)
         @consumer_offsets.resize(pos)
       end
 
@@ -174,7 +168,7 @@ module LavinMQ
 
       def replace_offsets_file(&)
         old_consumer_offsets = @consumer_offsets
-        @consumer_offsets = MFile.new("#{old_consumer_offsets.path}.tmp", 32 * 1024)
+        @consumer_offsets = MFile.new("#{old_consumer_offsets.path}.tmp", Config.instance.segment_size)
         yield # fill the new file with correct data in this block
         @consumer_offsets.rename(old_consumer_offsets.path)
         old_consumer_offsets.close(truncate_to_size: false)
