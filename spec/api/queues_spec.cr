@@ -89,13 +89,22 @@ describe LavinMQ::HTTP::QueuesController do
       with_http_server do |http, s|
         with_channel(s) do |ch|
           q = ch.queue("unacked_q")
-          2.times { q.publish "m1" }
+          3.times { q.publish "m1" }
+
+          with_channel(s) do |ch|
+            ch.prefetch(1)
+            msg = q.get(no_ack: false)
+            msg.should_not be_nil
+            sq = s.vhosts["/"].queues[q.name]
+            sq.unacked_count.should eq 1
+          end
+
           q.subscribe(no_ack: false) { }
 
           response = http.get("/api/queues/%2f/unacked_q/unacked?page=1&page_size=100")
           response.status_code.should eq 200
           body = JSON.parse(response.body)
-          body["items"].size.should eq 2
+          body["items"].size.should eq 3
         end
       end
     end
