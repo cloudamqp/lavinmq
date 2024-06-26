@@ -64,7 +64,7 @@ module LavinMQ
         end
       @log = Logger.new(Log, @metadata)
       @vhost.add_connection(self)
-      Log.info { "Connection established for user=#{@user.name}" }
+      @log.info { "Connection established for user=#{@user.name}" }
       spawn read_loop, name: "Client#read_loop #{@remote_address}"
     end
 
@@ -109,7 +109,7 @@ module LavinMQ
       loop do
         AMQP::Frame.from_io(socket) do |frame|
           {% unless flag?(:release) %}
-            Log.trace { "Received #{frame.inspect}" }
+            @log.trace { "Received #{frame.inspect}" }
           {% end %}
           if (i += 1) == 8192
             i = 0
@@ -118,12 +118,12 @@ module LavinMQ
           frame_size_ok?(frame) || return
           case frame
           when AMQP::Frame::Connection::Close
-            Log.info { "Client disconnected: #{frame.reply_text}" } unless frame.reply_text.empty?
+            @log.info { "Client disconnected: #{frame.reply_text}" } unless frame.reply_text.empty?
             send AMQP::Frame::Connection::CloseOk.new
             @running = false
             next
           when AMQP::Frame::Connection::CloseOk
-            Log.debug { "Confirmed disconnect" }
+            @log.debug { "Confirmed disconnect" }
             @running = false
             return
           end
@@ -132,10 +132,10 @@ module LavinMQ
           else
             case frame
             when AMQP::Frame::Body
-              Log.debug { "Skipping body, waiting for CloseOk" }
+              @log.debug { "Skipping body, waiting for CloseOk" }
               frame.body.skip(frame.body_size)
             else
-              Log.debug { "Discarding #{frame.class.name}, waiting for CloseOk" }
+              @log.debug { "Discarding #{frame.class.name}, waiting for CloseOk" }
             end
           end
         rescue e : Error::PreconditionFailed
@@ -144,22 +144,22 @@ module LavinMQ
       rescue IO::TimeoutError
         send_heartbeat || break
       rescue ex : AMQP::Error::NotImplemented
-        Log.error { ex.inspect }
+        @log.error { ex.inspect }
         send_not_implemented(ex)
       rescue ex : AMQP::Error::FrameDecode
-        Log.error { ex.inspect_with_backtrace }
+        @log.error { ex.inspect_with_backtrace }
         send_frame_error(ex.message)
       rescue ex : IO::Error | OpenSSL::SSL::Error
-        Log.debug { "Lost connection, while reading (#{ex.inspect})" } unless closed?
+        @log.debug { "Lost connection, while reading (#{ex.inspect})" } unless closed?
         break
       rescue ex : Exception
-        Log.error { "Unexpected error, while reading: #{ex.inspect_with_backtrace}" }
+        @log.error { "Unexpected error, while reading: #{ex.inspect_with_backtrace}" }
         send_internal_error(ex.message)
       end
     ensure
       cleanup
       close_socket
-      Log.info { "Connection disconnected for user=#{@user.name}" }
+      @log.info { "Connection disconnected for user=#{@user.name}" }
     end
 
     private def frame_size_ok?(frame) : Bool
@@ -173,7 +173,7 @@ module LavinMQ
     private def send_heartbeat
       now = RoughTime.monotonic
       if @last_recv_frame + (@heartbeat_timeout + 5).seconds < now
-        Log.info { "Heartbeat timeout (#{@heartbeat_timeout}), last seen frame #{(now - @last_recv_frame).total_seconds} s ago, sent frame #{(now - @last_sent_frame).total_seconds} s ago" }
+        @log.info { "Heartbeat timeout (#{@heartbeat_timeout}), last seen frame #{(now - @last_recv_frame).total_seconds} s ago, sent frame #{(now - @last_sent_frame).total_seconds} s ago" }
         false
       else
         send AMQP::Frame::Heartbeat.new
@@ -186,11 +186,11 @@ module LavinMQ
         channel_is_open = frame.channel.zero? || @channels[frame.channel]?.try &.running?
       end
       unless channel_is_open
-        Log.debug { "Channel #{frame.channel} is closed so is not sending #{frame.inspect}" }
+        @log.debug { "Channel #{frame.channel} is closed so is not sending #{frame.inspect}" }
         return false
       end
       {% unless flag?(:release) %}
-        Log.trace { "Send #{frame.inspect}" }
+        @log.trace { "Send #{frame.inspect}" }
       {% end %}
       @write_lock.synchronize do
         s = @socket
@@ -204,15 +204,15 @@ module LavinMQ
       end
       true
     rescue ex : IO::Error | OpenSSL::SSL::Error
-      Log.debug { "Lost connection, while sending (#{ex.inspect})" } unless closed?
+      @log.debug { "Lost connection, while sending (#{ex.inspect})" } unless closed?
       close_socket
       false
     rescue ex : IO::TimeoutError
-      Log.info { "Timeout while sending (#{ex.inspect})" }
+      @log.info { "Timeout while sending (#{ex.inspect})" }
       close_socket
       false
     rescue ex
-      Log.error { "Unexpected error, while sending: #{ex.inspect_with_backtrace}" }
+      @log.error { "Unexpected error, while sending: #{ex.inspect_with_backtrace}" }
       send_internal_error(ex.message)
       false
     end
@@ -233,14 +233,14 @@ module LavinMQ
         socket = @socket
         websocket = socket.is_a? WebSocketIO
         {% unless flag?(:release) %}
-          Log.trace { "Send #{frame.inspect}" }
+          @log.trace { "Send #{frame.inspect}" }
         {% end %}
         socket.write_bytes frame, ::IO::ByteFormat::NetworkEndian
         socket.flush if websocket
         @send_oct_count += 8_u64 + frame.bytesize
         header = AMQP::Frame::Header.new(frame.channel, 60_u16, 0_u16, msg.bodysize, msg.properties)
         {% unless flag?(:release) %}
-          Log.trace { "Send #{header.inspect}" }
+          @log.trace { "Send #{header.inspect}" }
         {% end %}
         socket.write_bytes header, ::IO::ByteFormat::NetworkEndian
         socket.flush if websocket
@@ -249,7 +249,7 @@ module LavinMQ
         while pos < msg.bodysize
           length = Math.min(msg.bodysize - pos, @max_frame_size - 8).to_u32
           {% unless flag?(:release) %}
-            Log.trace { "Send BodyFrame (pos #{pos}, length #{length})" }
+            @log.trace { "Send BodyFrame (pos #{pos}, length #{length})" }
           {% end %}
           body = case msg
                  in BytesMessage
@@ -267,20 +267,20 @@ module LavinMQ
       end
       true
     rescue ex : IO::Error | OpenSSL::SSL::Error
-      Log.debug { "Lost connection, while sending (#{ex.inspect})" }
+      @log.debug { "Lost connection, while sending (#{ex.inspect})" }
       close_socket
       Fiber.yield
       false
     rescue ex : AMQ::Protocol::Error::FrameEncode
-      Log.warn { "Error encoding frame (#{ex.inspect})" }
+      @log.warn { "Error encoding frame (#{ex.inspect})" }
       close_socket
       false
     rescue ex : IO::TimeoutError
-      Log.info { "Timeout while sending (#{ex.inspect})" }
+      @log.info { "Timeout while sending (#{ex.inspect})" }
       close_socket
       false
     rescue ex
-      Log.error { "Delivery exception: #{ex.inspect_with_backtrace}" }
+      @log.error { "Delivery exception: #{ex.inspect_with_backtrace}" }
       raise ex
     end
 
@@ -295,23 +295,23 @@ module LavinMQ
         else
           case frame
           when AMQP::Frame::Basic::Publish, AMQP::Frame::Header
-            Log.trace { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
+            @log.trace { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
           when AMQP::Frame::Body
-            Log.trace { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
+            @log.trace { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
             frame.body.skip(frame.body_size)
           else
-            Log.trace { "Discarding #{frame.inspect}, waiting for Close(Ok)" }
+            @log.trace { "Discarding #{frame.inspect}, waiting for Close(Ok)" }
           end
         end
       else
         case frame
         when AMQP::Frame::Basic::Publish, AMQP::Frame::Header
-          Log.trace { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
+          @log.trace { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
         when AMQP::Frame::Body
-          Log.trace { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
+          @log.trace { "Discarding #{frame.class.name}, waiting for Close(Ok)" }
           frame.body.skip(frame.body_size)
         else
-          Log.error { "Channel #{frame.channel} not open while processing #{frame.class.name}" }
+          @log.error { "Channel #{frame.channel} not open while processing #{frame.class.name}" }
           close_connection(frame, 504_u16, "CHANNEL_ERROR - Channel #{frame.channel} not open")
         end
       end
@@ -402,7 +402,7 @@ module LavinMQ
         end
       end
     rescue ex : Error::UnexpectedFrame
-      Log.error { ex.inspect }
+      @log.error { ex.inspect }
       close_channel(ex.frame, 505_u16, "UNEXPECTED_FRAME - #{ex.frame.class.name}")
     end
 
@@ -418,14 +418,14 @@ module LavinMQ
     private def close_socket
       @running = false
       @socket.close
-      Log.debug { "Socket closed" }
+      @log.debug { "Socket closed" }
     rescue ex
-      Log.debug { "#{ex.inspect} when closing socket" }
+      @log.debug { "#{ex.inspect} when closing socket" }
     end
 
     def close(reason = nil)
       reason ||= "Connection closed"
-      Log.info { "Closing, #{reason}" }
+      @log.info { "Closing, #{reason}" }
       send AMQP::Frame::Connection::Close.new(320_u16, "CONNECTION_FORCED - #{reason}", 0_u16, 0_u16)
       @running = false
     end
@@ -450,40 +450,40 @@ module LavinMQ
     end
 
     def close_connection(frame : AMQ::Protocol::Frame?, code, text)
-      Log.info { "Closing, #{text}" }
+      @log.info { "Closing, #{text}" }
       case frame
       when AMQ::Protocol::Frame::Method
         send AMQP::Frame::Connection::Close.new(code, text, frame.class_id, frame.method_id)
       else
         send AMQP::Frame::Connection::Close.new(code, text, 0_u16, 0_u16)
       end
-      Log.info { "Connection=#{@name} disconnected" }
+      @log.info { "Connection=#{@name} disconnected" }
     ensure
       @running = false
     end
 
     def send_access_refused(frame, text)
-      Log.warn { "Access refused channel=#{frame.channel} reason=\"#{text}\"" }
+      @log.warn { "Access refused channel=#{frame.channel} reason=\"#{text}\"" }
       close_channel(frame, 403_u16, "ACCESS_REFUSED - #{text}")
     end
 
     def send_not_found(frame, text = "")
-      Log.warn { "Not found channel=#{frame.channel} reason=\"#{text}\"" }
+      @log.warn { "Not found channel=#{frame.channel} reason=\"#{text}\"" }
       close_channel(frame, 404_u16, "NOT_FOUND - #{text}")
     end
 
     def send_resource_locked(frame, text)
-      Log.warn { "Resource locked channel=#{frame.channel} reason=\"#{text}\"" }
+      @log.warn { "Resource locked channel=#{frame.channel} reason=\"#{text}\"" }
       close_channel(frame, 405_u16, "RESOURCE_LOCKED - #{text}")
     end
 
     def send_precondition_failed(frame, text)
-      Log.warn { "Precondition failed channel=#{frame.channel} reason=\"#{text}\"" }
+      @log.warn { "Precondition failed channel=#{frame.channel} reason=\"#{text}\"" }
       close_channel(frame, 406_u16, "PRECONDITION_FAILED - #{text}")
     end
 
     def send_not_implemented(frame, text = nil)
-      Log.error { "#{frame.inspect}, not implemented reason=\"#{text}\"" }
+      @log.error { "#{frame.inspect}, not implemented reason=\"#{text}\"" }
       close_channel(frame, 540_u16, "NOT_IMPLEMENTED - #{text}")
     end
 
