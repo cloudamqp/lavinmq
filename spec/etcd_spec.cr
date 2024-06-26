@@ -123,8 +123,8 @@ class EtcdCluster
 
   def run(&)
     etcds = start
-    sleep 0.1
     begin
+      wait_until_online
       yield etcds
     ensure
       stop(etcds)
@@ -156,5 +156,20 @@ class EtcdCluster
   def stop(etcds)
     etcds.each { |p| p.terminate(graceful: false) if p.exists? }
     etcds.size.times { |i| FileUtils.rm_rf "/tmp/l#{i}.etcd" }
+  end
+
+  private def wait_until_online
+    sock = Socket.tcp(Socket::Family::INET)
+    begin
+      loop do
+        sleep 0.02
+        sock.connect "127.0.0.1", 23000 + @ports.first
+        break
+      rescue Socket::ConnectError
+        next
+      end
+    ensure
+      sock.close
+    end
   end
 end
