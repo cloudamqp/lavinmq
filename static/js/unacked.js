@@ -12,7 +12,7 @@ document.querySelector('#pagename-label').textContent = `${queue} in virtual hos
 
 const tableOptions = {
   dataSource: new UrlDataSource(url, { useQueryState: false }),
-  keyColumns: ['message_tag', 'channel_name'],
+  keyColumns: ['delivery_tag', 'channel_name'],
   interval: 5000,
   pagination: true,
   columnSelector: true,
@@ -22,7 +22,7 @@ const tableOptions = {
 
 Table.renderTable('table', tableOptions, function (tr, item, firstRender) {
   if (firstRender) {
-    Table.renderCell(tr, 0, item.message_tag)
+    Table.renderCell(tr, 0, item.delivery_tag)
     Table.renderCell(tr, 1, item.consumer_tag)
     const channel = document.createElement('a')
     channel.href = channelBaseUrl + encodeURIComponent(item.channel_name)

@@ -152,7 +152,7 @@ queue-unacked:
 unacked:
   type: object
   properties:
-    message_tag:
+    delivery_tag:
       type: string
     consumer_tag:
       type: string
