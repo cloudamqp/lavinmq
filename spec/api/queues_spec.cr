@@ -151,7 +151,7 @@ describe LavinMQ::HTTP::QueuesController do
             q = ch.queue("unacked_q")
             q.publish "m1"
 
-            msg = q.get(no_ack: false)
+            q.get(no_ack: false)
             wait_for { s.vhosts["/"].queues["unacked_q"].basic_get_unacked.size == 1 }
             response = http.get("/api/queues/%2f/unacked_q/unacked?page=1&page_size=100")
             response.status_code.should eq 200
@@ -167,10 +167,10 @@ describe LavinMQ::HTTP::QueuesController do
             q = ch.queue("unacked_q")
             q.publish "m1"
             ch.prefetch(1)
-            msg = q.get(no_ack: false)
-            wait_for { s.vhosts["/"].queues["unacked_q"].unacked_count == 1 }
-
-            msg.not_nil!.ack
+            if msg = q.get(no_ack: false)
+              wait_for { s.vhosts["/"].queues["unacked_q"].unacked_count == 1 }
+              msg.ack
+            end
             wait_for { s.vhosts["/"].queues["unacked_q"].unacked_count == 0 }
             response = http.get("/api/queues/%2f/unacked_q/unacked?page=1&page_size=100")
             response.status_code.should eq 200
@@ -187,10 +187,10 @@ describe LavinMQ::HTTP::QueuesController do
             q.publish "m1"
 
             ch.prefetch(1)
-            msg = q.get(no_ack: false)
-            wait_for { s.vhosts["/"].queues["unacked_q"].unacked_count == 1 }
-            msg.not_nil!.reject
-
+            if msg = q.get(no_ack: false)
+              wait_for { s.vhosts["/"].queues["unacked_q"].unacked_count == 1 }
+              msg.reject
+            end
             wait_for { s.vhosts["/"].queues["unacked_q"].unacked_count == 0 }
             response = http.get("/api/queues/%2f/unacked_q/unacked?page=1&page_size=100")
             response.status_code.should eq 200
@@ -207,7 +207,7 @@ describe LavinMQ::HTTP::QueuesController do
             q.publish "m1"
 
             ch.prefetch(1)
-            msg = q.get(no_ack: false)
+            q.get(no_ack: false)
             wait_for { s.vhosts["/"].queues["unacked_q"].unacked_count == 1 }
           end
           wait_for { s.vhosts["/"].queues["unacked_q"].unacked_count == 0 }
