@@ -151,7 +151,6 @@ module LavinMQ::AMQP
 
       def store_consumer_offset(consumer_tag : String, new_offset : Int64)
         cleanup_consumer_offsets if consumer_offset_file_full?(consumer_tag)
-        expand_consumer_offset_file if consumer_offset_file_full?(consumer_tag)
         @consumer_offsets.write_bytes AMQ::Protocol::ShortString.new(consumer_tag)
         @consumer_offset_positions[consumer_tag] = @consumer_offsets.size
         @consumer_offsets.write_bytes new_offset
@@ -173,23 +172,24 @@ module LavinMQ::AMQP
 
         offsets_to_save = Hash(String, Int64).new
         lowest_offset_in_stream, _seg, _pos = offset_at(@segments.first_key, 4u32)
+        capacity = 0
         @consumer_offset_positions.each do |ctag, _pos|
           if offset = last_offset_by_consumer_tag(ctag)
             offsets_to_save[ctag] = offset if offset >= lowest_offset_in_stream
+            capacity += ctag.bytesize + 1 + 8
           end
         end
-
         @consumer_offset_positions = Hash(String, Int64).new
-        replace_offsets_file do
+        replace_offsets_file(capacity * 1000) do
           offsets_to_save.each do |ctag, offset|
             store_consumer_offset(ctag, offset)
           end
         end
       end
 
-      def replace_offsets_file(&)
+      def replace_offsets_file(capacity : Int, &)
         old_consumer_offsets = @consumer_offsets
-        @consumer_offsets = MFile.new("#{old_consumer_offsets.path}.tmp", Config.instance.segment_size)
+        @consumer_offsets = MFile.new("#{old_consumer_offsets.path}.tmp", capacity)
         yield # fill the new file with correct data in this block
         @consumer_offsets.rename(old_consumer_offsets.path)
         old_consumer_offsets.close(truncate_to_size: false)
