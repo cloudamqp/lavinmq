@@ -88,7 +88,7 @@ describe LavinMQ::DurableQueue do
       end
     end
 
-    it "should open after removing corrupt file do" do
+    it "should open after removing corrupt file" do
       with_amqp_server do |s|
         vhost = s.vhosts.create("corrupt_vhost")
         with_channel(s, vhost: vhost.name) do |ch|
