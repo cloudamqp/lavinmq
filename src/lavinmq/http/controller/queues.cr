@@ -50,7 +50,7 @@ module LavinMQ
               c.unacked_messages.each.compact_map do |u|
                 next unless u.queue.name == params["name"]
                 if consumer = u.consumer
-                  UnackedMessage.new(u.tag, consumer.tag, c.channel_name, u.delivered_at)
+                  UnackedMessage.new(c.channel, u.tag, u.delivered_at, consumer.tag)
                 end
               end
             end
