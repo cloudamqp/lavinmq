@@ -20,6 +20,7 @@ module LavinMQ::AMQP
         @last_offset = get_last_offset
         build_segment_indexes
         @consumer_offsets = MFile.new(File.join(@queue_data_dir, "consumer_offsets"), Config.instance.segment_size)
+        @replicator.try &.register_file @consumer_offsets
         @consumer_offset_positions = restore_consumer_offset_positions
         drop_overflow
       end
@@ -154,17 +155,11 @@ module LavinMQ::AMQP
         @consumer_offsets.write_bytes AMQ::Protocol::ShortString.new(consumer_tag)
         @consumer_offset_positions[consumer_tag] = @consumer_offsets.size
         @consumer_offsets.write_bytes new_offset
-        # replicate
+        @replicator.try &.append(@consumer_offsets.path, (@consumer_offsets.size - consumer_tag.bytesize - 1 - 8).to_i32)
       end
 
       def consumer_offset_file_full?(consumer_tag)
         (@consumer_offsets.size + 1 + consumer_tag.bytesize + 8) >= @consumer_offsets.capacity
-      end
-
-      def expand_consumer_offset_file
-        pos = @consumer_offsets.size
-        @consumer_offsets = MFile.new(@consumer_offsets.path, @consumer_offsets.capacity + Config.instance.segment_size)
-        @consumer_offsets.resize(pos)
       end
 
       def cleanup_consumer_offsets
@@ -193,6 +188,7 @@ module LavinMQ::AMQP
         yield # fill the new file with correct data in this block
         @consumer_offsets.rename(old_consumer_offsets.path)
         old_consumer_offsets.close(truncate_to_size: false)
+        @replicator.try &.replace_file @consumer_offsets.path
       end
 
       def shift?(consumer : Client::Channel::StreamConsumer) : Envelope?
