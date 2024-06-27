@@ -15,7 +15,7 @@ shards:
 
 execution_context:
     git: https://github.com/ysbaddaden/execution_context.git
-    version: 0.1.0+git.commit.2b35128cde4e57beb09f1f0fb994ca0f6ece927c
+    version: 0.1.0+git.commit.647ed93a43e12cff261547b7765e6dda98bfe335
 
   lz4:
     git: https://github.com/84codes/lz4.cr.git
