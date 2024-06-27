@@ -149,14 +149,9 @@ describe LavinMQ::HTTP::QueuesController do
         with_http_server do |http, s|
           with_channel(s) do |ch|
             q = ch.queue("unacked_q")
-            2.times { q.publish "m1" }
+            q.publish "m1"
 
-            with_channel(s) do |ch|
-              ch.prefetch(1)
-              msg = q.get(no_ack: false)
-              wait_for { s.vhosts["/"].queues["unacked_q"].unacked_count == 1 }
-            end
-
+            msg = q.get(no_ack: false)
             wait_for { s.vhosts["/"].queues["unacked_q"].basic_get_unacked.size == 1 }
             response = http.get("/api/queues/%2f/unacked_q/unacked?page=1&page_size=100")
             response.status_code.should eq 200
@@ -170,15 +165,12 @@ describe LavinMQ::HTTP::QueuesController do
         with_http_server do |http, s|
           with_channel(s) do |ch|
             q = ch.queue("unacked_q")
-            2.times { q.publish "m1" }
+            q.publish "m1"
+            ch.prefetch(1)
+            msg = q.get(no_ack: false)
+            wait_for { s.vhosts["/"].queues["unacked_q"].unacked_count == 1 }
 
-            with_channel(s) do |ch|
-              ch.prefetch(1)
-              msg = q.get(no_ack: false)
-              wait_for { s.vhosts["/"].queues["unacked_q"].unacked_count == 1 }
-              msg.not_nil!.ack
-            end
-
+            msg.not_nil!.ack
             wait_for { s.vhosts["/"].queues["unacked_q"].unacked_count == 0 }
             response = http.get("/api/queues/%2f/unacked_q/unacked?page=1&page_size=100")
             response.status_code.should eq 200
@@ -192,14 +184,12 @@ describe LavinMQ::HTTP::QueuesController do
         with_http_server do |http, s|
           with_channel(s) do |ch|
             q = ch.queue("unacked_q")
-            2.times { q.publish "m1" }
+            q.publish "m1"
 
-            with_channel(s) do |ch|
-              ch.prefetch(1)
-              msg = q.get(no_ack: false)
-              wait_for { s.vhosts["/"].queues["unacked_q"].unacked_count == 1 }
-              msg.not_nil!.reject
-            end
+            ch.prefetch(1)
+            msg = q.get(no_ack: false)
+            wait_for { s.vhosts["/"].queues["unacked_q"].unacked_count == 1 }
+            msg.not_nil!.reject
 
             wait_for { s.vhosts["/"].queues["unacked_q"].unacked_count == 0 }
             response = http.get("/api/queues/%2f/unacked_q/unacked?page=1&page_size=100")
@@ -207,6 +197,24 @@ describe LavinMQ::HTTP::QueuesController do
             body = JSON.parse(response.body)
             body["items"].size.should eq 0
           end
+        end
+      end
+
+      it "should be removed from unacked when channel closes" do
+        with_http_server do |http, s|
+          with_channel(s) do |ch|
+            q = ch.queue("unacked_q")
+            q.publish "m1"
+
+            ch.prefetch(1)
+            msg = q.get(no_ack: false)
+            wait_for { s.vhosts["/"].queues["unacked_q"].unacked_count == 1 }
+          end
+          wait_for { s.vhosts["/"].queues["unacked_q"].unacked_count == 0 }
+          response = http.get("/api/queues/%2f/unacked_q/unacked?page=1&page_size=100")
+          response.status_code.should eq 200
+          body = JSON.parse(response.body)
+          body["items"].size.should eq 0
         end
       end
     end
