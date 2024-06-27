@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Full HA clustering support, uses Etcd for leader election and metadata, and a replication protocol between nodes
 - Tags and descriptions on VHosts
 - Can pass an array of URLs to Shovel
+- Added endpoint and page to view unacked messages for a queue [#712](https://github.com/cloudamqp/lavinmq/pull/712)
 
 ### Fixed
 

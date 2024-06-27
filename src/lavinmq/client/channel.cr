@@ -21,6 +21,7 @@ module LavinMQ
       getter prefetch_count = 0_u16
       getter global_prefetch_count = 0_u16
       getter has_capacity = ::Channel(Nil).new
+      getter unacked = Deque(Unack).new
       @confirm = false
       @confirm_total = 0_u64
       @next_publish_mandatory = false
@@ -30,7 +31,6 @@ module LavinMQ
       @next_msg_size = 0_u64
       @next_msg_props : AMQP::Properties?
       @delivery_tag = 0_u64
-      @unacked = Deque(Unack).new
       @unack_lock = Mutex.new(:checked)
       @next_msg_body_file : File?
       @direct_reply_consumer : String?
@@ -387,6 +387,9 @@ module LavinMQ
             @client.vhost.event_tick(EventType::ClientGet)
             ok = q.basic_get(frame.no_ack) do |env|
               delivery_tag = next_delivery_tag(q, env.segment_position, frame.no_ack, nil)
+              unless frame.no_ack # track unacked messages
+                q.basic_get_unacked << UnackedMessage.new(self, delivery_tag, RoughTime.monotonic)
+              end
               get_ok = AMQP::Frame::Basic::GetOk.new(frame.channel, delivery_tag,
                 env.redelivered, env.message.exchange_name,
                 env.message.routing_key, q.message_count)
@@ -485,6 +488,7 @@ module LavinMQ
           c.ack(unack.sp)
         end
         unack.queue.ack(unack.sp)
+        unack.queue.basic_get_unacked.reject! { |u| u.channel == self && u.delivery_tag == unack.tag }
         @client.vhost.event_tick(EventType::ClientAck)
         @ack_count += 1
       end
@@ -563,6 +567,7 @@ module LavinMQ
           c.reject(unack.sp, requeue)
         end
         unack.queue.reject(unack.sp, requeue)
+        unack.queue.basic_get_unacked.reject! { |u| u.channel == self && u.delivery_tag == unack.tag }
         @reject_count += 1
         @client.vhost.event_tick(EventType::ClientReject)
       end
@@ -635,6 +640,7 @@ module LavinMQ
           @unacked.each do |unack|
             @log.debug { "Requeing unacked msg #{unack.sp}" }
             unack.queue.reject(unack.sp, true)
+            unack.queue.basic_get_unacked.reject! { |u| u.channel == self && u.delivery_tag == unack.tag }
           end
           @unacked.clear
         end

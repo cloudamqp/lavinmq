@@ -33,6 +33,7 @@ module LavinMQ
     @consumers_lock = Mutex.new
     @message_ttl_change = Channel(Nil).new
 
+    getter basic_get_unacked = Deque(UnackedMessage).new
     getter unacked_count = 0u32
     getter unacked_bytesize = 0u64
     @unacked_lock = Mutex.new(:unchecked)

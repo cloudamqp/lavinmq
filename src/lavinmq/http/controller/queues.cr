@@ -1,6 +1,7 @@
 require "uri"
 require "../controller"
 require "../binding_helpers"
+require "../../unacked_message"
 
 module LavinMQ
   module HTTP
@@ -38,6 +39,23 @@ module LavinMQ
             JSON.build(context.response) do |json|
               queue(context, params, vhost).to_json(json, consumer_limit)
             end
+          end
+        end
+
+        get "/api/queues/:vhost/:name/unacked" do |context, params|
+          with_vhost(context, params) do |vhost|
+            refuse_unless_management(context, user(context), vhost)
+            consumers = @amqp_server.vhosts[vhost].queues[params["name"]].@consumers.each
+            unacked_messages = consumers.flat_map do |c|
+              c.unacked_messages.each.compact_map do |u|
+                next unless u.queue.name == params["name"]
+                if consumer = u.consumer
+                  UnackedMessage.new(c.channel, u.tag, u.delivered_at, consumer.tag)
+                end
+              end
+            end
+            unacked_messages = unacked_messages.chain(@amqp_server.vhosts[vhost].queues[params["name"]].basic_get_unacked.each)
+            page(context, unacked_messages)
           end
         end
 

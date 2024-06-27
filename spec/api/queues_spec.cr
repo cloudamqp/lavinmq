@@ -85,6 +85,141 @@ describe LavinMQ::HTTP::QueuesController do
       end
     end
   end
+
+  describe "GET /api/queues/vhost/name/unacked" do
+    describe "subscribe" do
+      it "should return unacked messages" do
+        with_http_server do |http, s|
+          with_channel(s) do |ch|
+            q = ch.queue("unacked_q")
+            2.times { q.publish "m1" }
+            q.subscribe(no_ack: false) { }
+
+            wait_for { s.vhosts["/"].queues["unacked_q"].unacked_count == 2 }
+            s.vhosts["/"].queues["unacked_q"].basic_get_unacked.size.should eq 0
+            response = http.get("/api/queues/%2f/unacked_q/unacked?page=1&page_size=100")
+            response.status_code.should eq 200
+            body = JSON.parse(response.body)
+            body["items"].size.should eq 2
+          end
+        end
+      end
+
+      it "should not return if acked" do
+        with_http_server do |http, s|
+          with_channel(s) do |ch|
+            q = ch.queue("unacked_q")
+            2.times { q.publish "m1" }
+
+            q.subscribe(no_ack: false) do |msg|
+              msg.ack
+            end
+            wait_for { s.vhosts["/"].queues["unacked_q"].unacked_count == 0 }
+
+            response = http.get("/api/queues/%2f/unacked_q/unacked?page=1&page_size=100")
+            response.status_code.should eq 200
+            body = JSON.parse(response.body)
+            body["items"].size.should eq 0
+          end
+        end
+      end
+
+      it "should not return if rejected" do
+        with_http_server do |http, s|
+          with_channel(s) do |ch|
+            q = ch.queue("unacked_q")
+            2.times { q.publish "m1" }
+
+            q.subscribe(no_ack: false) do |msg|
+              msg.reject
+            end
+            wait_for { s.vhosts["/"].queues["unacked_q"].unacked_count == 0 }
+
+            response = http.get("/api/queues/%2f/unacked_q/unacked?page=1&page_size=100")
+            response.status_code.should eq 200
+            body = JSON.parse(response.body)
+            body["items"].size.should eq 0
+          end
+        end
+      end
+    end
+
+    describe "basic get" do
+      it "should return unacked messages" do
+        with_http_server do |http, s|
+          with_channel(s) do |ch|
+            q = ch.queue("unacked_q")
+            q.publish "m1"
+
+            q.get(no_ack: false)
+            wait_for { s.vhosts["/"].queues["unacked_q"].basic_get_unacked.size == 1 }
+            response = http.get("/api/queues/%2f/unacked_q/unacked?page=1&page_size=100")
+            response.status_code.should eq 200
+            body = JSON.parse(response.body)
+            body["items"].size.should eq 1
+          end
+        end
+      end
+
+      it "should not return if acked" do
+        with_http_server do |http, s|
+          with_channel(s) do |ch|
+            q = ch.queue("unacked_q")
+            q.publish "m1"
+            ch.prefetch(1)
+            if msg = q.get(no_ack: false)
+              wait_for { s.vhosts["/"].queues["unacked_q"].unacked_count == 1 }
+              msg.ack
+            end
+            wait_for { s.vhosts["/"].queues["unacked_q"].unacked_count == 0 }
+            response = http.get("/api/queues/%2f/unacked_q/unacked?page=1&page_size=100")
+            response.status_code.should eq 200
+            body = JSON.parse(response.body)
+            body["items"].size.should eq 0
+          end
+        end
+      end
+
+      it "should not return if rejected" do
+        with_http_server do |http, s|
+          with_channel(s) do |ch|
+            q = ch.queue("unacked_q")
+            q.publish "m1"
+
+            ch.prefetch(1)
+            if msg = q.get(no_ack: false)
+              wait_for { s.vhosts["/"].queues["unacked_q"].unacked_count == 1 }
+              msg.reject
+            end
+            wait_for { s.vhosts["/"].queues["unacked_q"].unacked_count == 0 }
+            response = http.get("/api/queues/%2f/unacked_q/unacked?page=1&page_size=100")
+            response.status_code.should eq 200
+            body = JSON.parse(response.body)
+            body["items"].size.should eq 0
+          end
+        end
+      end
+
+      it "should be removed from unacked when channel closes" do
+        with_http_server do |http, s|
+          with_channel(s) do |ch|
+            q = ch.queue("unacked_q")
+            q.publish "m1"
+
+            ch.prefetch(1)
+            q.get(no_ack: false)
+            wait_for { s.vhosts["/"].queues["unacked_q"].unacked_count == 1 }
+          end
+          wait_for { s.vhosts["/"].queues["unacked_q"].unacked_count == 0 }
+          response = http.get("/api/queues/%2f/unacked_q/unacked?page=1&page_size=100")
+          response.status_code.should eq 200
+          body = JSON.parse(response.body)
+          body["items"].size.should eq 0
+        end
+      end
+    end
+  end
+
   describe "GET /api/queues/vhost/name/bindings" do
     it "should return queue bindings" do
       with_http_server do |http, s|
