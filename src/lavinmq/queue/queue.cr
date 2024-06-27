@@ -688,7 +688,7 @@ module LavinMQ
           end
           delete_message(sp)
         else
-          mark_unacked(env) do
+          mark_unacked(sp) do
             yield env # deliver the message
           end
         end
@@ -701,22 +701,22 @@ module LavinMQ
       raise ClosedError.new(cause: ex)
     end
 
-    private def mark_unacked(env, &)
-      @log.debug { "Counting as unacked: #{env.segment_position}" }
+    private def mark_unacked(sp, &)
+      @log.debug { "Counting as unacked: #{sp}" }
       @unacked_lock.synchronize do
         @unacked_count += 1
-        @unacked_bytesize += env.segment_position.bytesize
+        @unacked_bytesize += sp.bytesize
       end
       begin
         yield
       rescue ex
-        @log.debug { "Not counting as unacked: #{env.segment_position}" }
+        @log.debug { "Not counting as unacked: #{sp}" }
         @msg_store_lock.synchronize do
-          @msg_store.requeue(env.segment_position)
+          @msg_store.requeue(sp)
         end
         @unacked_lock.synchronize do
           @unacked_count -= 1
-          @unacked_bytesize -= env.segment_position.bytesize
+          @unacked_bytesize -= sp.bytesize
         end
         raise ex
       end
