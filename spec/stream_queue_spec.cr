@@ -608,27 +608,24 @@ describe LavinMQ::StreamQueue do
 
     it "expands consumer offset file when needed" do
       queue_name = Random::Secure.hex
-      consumer_tag_prefix = "ctag-"
+      consumer_tag_prefix = Random::Secure.hex(32)
       with_amqp_server do |s|
         StreamQueueSpecHelpers.publish(s, queue_name, 1)
-
         data_dir = File.join(s.vhosts["/"].data_dir, Digest::SHA1.hexdigest queue_name)
         msg_store = LavinMQ::StreamQueue::StreamQueueMessageStore.new(data_dir, nil)
-        2000.times do |i|
-          next if i == 0
-          msg_store.store_consumer_offset("#{consumer_tag_prefix}#{i}", i)
+        one_offset_bytesize = "#{consumer_tag_prefix}#{1000}".bytesize + 1 + 8
+        offsets = (LavinMQ::Config.instance.segment_size / one_offset_bytesize).to_i32 + 1
+        bytesize = 0
+        offsets.times do |i|
+          consumer_tag = "#{consumer_tag_prefix}#{i + 1000}"
+          msg_store.store_consumer_offset(consumer_tag, i + 1000)
+          bytesize += consumer_tag.bytesize + 1 + 8
         end
-        msg_store.close
-
-        msg_store = LavinMQ::StreamQueue::StreamQueueMessageStore.new(data_dir, nil)
-        msg_store.@consumer_offsets.size.should eq 34_875
-
-        2000.times do |i|
-          next if i == 0
-          msg_store.last_offset_by_consumer_tag("#{consumer_tag_prefix}#{i}").should eq i
+        msg_store.@consumer_offsets.size.should eq bytesize
+        msg_store.@consumer_offsets.size.should be > LavinMQ::Config.instance.segment_size
+        offsets.times do |i|
+          msg_store.last_offset_by_consumer_tag("#{consumer_tag_prefix}#{i + 1000}").should eq i + 1000
         end
-
-        msg_store.close
       end
     end
   end
