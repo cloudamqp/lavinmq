@@ -363,7 +363,7 @@ module LavinMQ
       true
     end
 
-    #What happens if we have followers that have synced corrupted data, and then we fix the leader data and open the queue on the leader node?
+    # What happens if we have followers that have synced corrupted data, and then we fix the leader data and open the queue on the leader node?
     # Implement some sync for replicator only that path
     # Now you need to restart the followers after opening the queue
     def open : Bool
