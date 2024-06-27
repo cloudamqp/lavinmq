@@ -370,7 +370,9 @@ module LavinMQ
       return false unless @closed
       @msg_store = init_msg_store(@data_dir)
       if @msg_store.closed
+        pp "msg storre closed"
         @closed_reason = @msg_store.closed_reason
+        pp @closed_reason
         Log.debug &.emit("Could not open queue: #{@closed_reason} ", @metadata)
         close
         return false

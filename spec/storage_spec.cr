@@ -50,6 +50,77 @@ describe LavinMQ::DurableQueue do
       end
     end
 
+    it "should open after fixing corrupt file" do
+      with_amqp_server do |s|
+        vhost = s.vhosts.create("corrupt_vhost")
+        with_channel(s, vhost: vhost.name) do |ch|
+          q = ch.queue("corrupt_q")
+          queue = vhost.queues["corrupt_q"].as(LavinMQ::DurableQueue)
+          q.publish_confirm "test message"
+
+          sleep 0.01
+          bytes = "111111111aaaaauaoeuaoeu".to_slice
+          backup_paths = {} of String => String
+          queue.@msg_store.@segments.each_value do |mfile|
+            backup_path = "#{mfile.path}.backup"
+            File.copy(mfile.path, backup_path)
+            backup_paths[mfile.path] = backup_path
+
+            File.open(mfile.path, "w+") do |f|
+              f.write(bytes)
+            end
+          end
+
+          q.subscribe(tag: "tag", no_ack: false, &.ack)
+
+          should_eventually(be_true) { queue.state.closed? }
+
+          # Restore the files from the backups
+          backup_paths.each do |path, backup_path|
+            File.copy(backup_path, path)
+            File.delete(backup_path)
+          end
+
+          queue.open.should eq true
+          q.publish_confirm "m1"
+          q.get.should_not be_nil
+        end
+      end
+    end
+
+    it "should open after removing corrupt file do" do
+      with_amqp_server do |s|
+        vhost = s.vhosts.create("corrupt_vhost")
+        with_channel(s, vhost: vhost.name) do |ch|
+          q = ch.queue("corrupt_q")
+          queue = vhost.queues["corrupt_q"].as(LavinMQ::DurableQueue)
+          q.publish_confirm "test message"
+
+          sleep 0.01
+          bytes = "111111111aaaaauaoeuaoeu".to_slice
+          corrupt_path = ""
+          queue.@msg_store.@segments.each_value do |mfile|
+            File.open(mfile.path, "w+") do |f|
+              f.write(bytes)
+            end
+            corrupt_path = mfile.path
+          end
+
+          q.subscribe(tag: "tag", no_ack: false, &.ack)
+
+          should_eventually(be_true) { queue.state.closed? }
+
+          File.delete(corrupt_path)
+
+          queue.open.should eq true
+          q.publish_confirm "m1"
+          q.get.should_not be_nil
+        end
+      end
+    end
+
+
+
     it "should ignore corrupt endings" do
       with_amqp_server do |s|
         vhost = s.vhosts.create("corrupt_vhost")

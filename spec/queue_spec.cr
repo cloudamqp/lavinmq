@@ -181,7 +181,7 @@ describe LavinMQ::Queue do
           q = ch.queue(q_name)
           queue = s.vhosts["/"].queues[q_name].as(LavinMQ::DurableQueue)
           queue.close
-          queue.open
+          queue.open.should eq true
           q.publish_confirm "m1"
           q.get.should_not be_nil
         end
