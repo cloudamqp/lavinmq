@@ -211,6 +211,7 @@ module LavinMQ
         @closed = true
         @empty_change.close
         @segments.each_value &.close
+        @segments.clear
         @acks.each_value &.close
       end
 

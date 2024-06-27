@@ -273,7 +273,8 @@
         </table>
       </div>
       <div id="messages" class="cols-12"></div>
-      <section class="card cols-3">
+
+      <section id="pauseQueueCard" class="card cols-3">
         <h3>Pause Queue</h3>
         <form method="put" id="pauseQueue" class="form">
           <label>
@@ -288,9 +289,9 @@
         <p> Pausing a queue will stop deliveries to all consumers. </p>
       </section>
 
-      <section class="card cols-3">
+      <section id="closedQueueCard" class="card cols-3">
         <h3>Closed Queue</h3>
-        <form method="put" id="openQueue" class="form">
+        <form method="put" id="closedQueueForm"  class="form">
           <p class="card" id="closed-reason"> <p>
           <label>
             <button type="submit" class="btn-warn prop-tooltip" data-tag="open-queue">Open queue

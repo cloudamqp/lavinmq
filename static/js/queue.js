@@ -11,9 +11,11 @@ const queue = search.get('name')
 const vhost = search.get('vhost')
 const urlEncodedQueue = encodeURIComponent(queue)
 const urlEncodedVhost = encodeURIComponent(vhost)
+const pauseQueueCard = document.querySelector('#pauseQueueCard')
 const pauseQueueForm = document.querySelector('#pauseQueue')
 const resumeQueueForm = document.querySelector('#resumeQueue')
-const openQueueForm = document.querySelector('#openQueue')
+const closedQueueCard = document.querySelector('#closedQueueCard')
+const closedQueueForm = document.querySelector('#closedQueueForm')
 document.title = queue + ' | LavinMQ'
 let consumerListLength = 20
 
@@ -73,23 +75,26 @@ function handleQueueState (state, closedReason) {
   switch (state) {
     case 'paused':
       pauseQueueForm.classList.add('hide')
-      openQueueForm.classList.add('hide')
       resumeQueueForm.classList.remove('hide')
+      closedQueueCard.classList.add('hide')
       break
     case 'running':
       pauseQueueForm.classList.remove('hide')
-      openQueueForm.classList.add('hide')
       resumeQueueForm.classList.add('hide')
+      closedQueueCard.classList.add('hide')
+      break
+    case 'closed':
+      closedQueueCard.classList.remove('hide')
+      pauseQueueCard.classList.add('hide')
       break
     default:
       pauseQueueForm.disabled = true
       resumeQueueForm.disabled = true
-      openQueueForm.disabled = true
   }
 
   if (state === 'closed') {
+    console.log('closedReason', closedReason)
     document.getElementById('closed-reason').textContent = 'Your Queue is closed due to: ' + closedReason
-    openQueueForm.classList.remove('hide')
     const tooltip = document.createElement('span')
     tooltip.classList.add('tooltiptext')
     tooltip.classList.add('tooltiptext-long')
@@ -330,7 +335,7 @@ pauseQueueForm.addEventListener('submit', function (evt) {
   }
 })
 
-openQueueForm.addEventListener('submit', function (evt) {
+closedQueueForm.addEventListener('submit', function (evt) {
   evt.preventDefault()
   const url = 'api/queues/' + urlEncodedVhost + '/' + urlEncodedQueue + '/open'
   HTTP.request('PUT', url)

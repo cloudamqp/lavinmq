@@ -119,7 +119,6 @@ module LavinMQ
     getter operator_policy : OperatorPolicy?
     getter? closed = false
     getter state = QueueState::Running
-    getter empty_change : Channel(Bool)
     getter single_active_consumer : Client::Channel::Consumer? = nil
     getter single_active_consumer_change = Channel(Client::Channel::Consumer).new
     @single_active_consumer_queue = false
@@ -140,7 +139,6 @@ module LavinMQ
         @closed_reason = "#{@msg_store.closed_reason}"
         close
       end
-      @empty_change = @msg_store.empty_change
       handle_arguments
       spawn queue_expire_loop, name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}" if @expires
       spawn message_expire_loop, name: "Queue#message_expire_loop #{@vhost.name}/#{@name}"
@@ -300,6 +298,10 @@ module LavinMQ
       @msg_store.empty?
     end
 
+    def empty_change
+      @msg_store.empty_change
+    end
+
     def consumer_count
       @consumers.size.to_u32
     end
@@ -361,25 +363,28 @@ module LavinMQ
       true
     end
 
+    #What happens if we have followers, and have followers that have synced corrupted data already
+    # Implement some sync for replicator only that path
+    # Now you need to restart the followers after opening the queue
     def open : Bool
       return false unless @closed
-      @closed = false
-      @closed_reason = nil
-      @state = QueueState::Running
-      @queue_expiration_ttl_change = Channel(Nil).new
-      @message_ttl_change = Channel(Nil).new
-      @paused_change = Channel(Bool).new
-      @consumers_empty_change = Channel(Bool).new
-      @msg_store_lock.synchronize do
-        @msg_store.open
-      end
+      @msg_store = init_msg_store(@data_dir)
       if @msg_store.closed
         @closed_reason = @msg_store.closed_reason
         Log.debug &.emit("Could not open queue: #{@closed_reason} ", @metadata)
         close
         return false
       end
+      @queue_expiration_ttl_change = Channel(Nil).new
+      @message_ttl_change = Channel(Nil).new
+      @paused_change = Channel(Bool).new
+      @consumers_empty_change = Channel(Bool).new
+      spawn queue_expire_loop, name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}" if @expires
+      spawn message_expire_loop, name: "Queue#message_expire_loop #{@vhost.name}/#{@name}"
       Log.debug &.emit("Opened", @metadata)
+      @closed = false
+      @closed_reason = nil
+      @state = QueueState::Running
       true
     end
 
