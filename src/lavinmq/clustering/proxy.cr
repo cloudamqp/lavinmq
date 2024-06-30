@@ -8,13 +8,20 @@ module LavinMQ
     class Proxy
       Log = ::Log.for("clustering.proxy")
       @proxy_header = false
+      @local_address : String
 
       def initialize(bind_host, bind_port)
-        @server = TCPServer.new(bind_host, bind_port)
+        @server = s = TCPServer.new(bind_host, bind_port)
+        @local_address = s.local_address.to_s
+      end
+
+      def initialize(path : String)
+        @server = s = UNIXServer.new(path)
+        @local_address = s.local_address.to_s
       end
 
       def forward_to(target_host, target_port, @proxy_header = false)
-        Log.info { "Proxying from #{@server.local_address} to #{target_host}:#{target_port}" }
+        Log.info { "Proxying from #{@local_address} to #{target_host}:#{target_port}" }
         while socket = @server.accept?
           spawn handle_client(socket, target_host, target_port), name: "Handle proxy client"
         end
@@ -26,11 +33,13 @@ module LavinMQ
 
       private def handle_client(client, target_host, target_port)
         target = TCPSocket.new(target_host, target_port)
-        set_socket_opts(client)
         set_socket_opts(target)
-        if @proxy_header
-          proxy_header = ProxyProtocol::V1.new(client.remote_address, client.local_address)
-          target.write_bytes proxy_header, IO::ByteFormat::NetworkEndian
+        if client.is_a? TCPSocket
+          set_socket_opts(client)
+          if @proxy_header
+            proxy_header = ProxyProtocol::V1.new(client.remote_address, client.local_address)
+            target.write_bytes proxy_header, IO::ByteFormat::NetworkEndian
+          end
         end
         spawn(name: "Proxy client copy loop") do
           begin
@@ -48,7 +57,7 @@ module LavinMQ
         client.close rescue nil
       end
 
-      private def set_socket_opts(socket)
+      private def set_socket_opts(socket : TCPSocket)
         socket.sync = true
         socket.read_buffering = false
         socket.tcp_nodelay = true
