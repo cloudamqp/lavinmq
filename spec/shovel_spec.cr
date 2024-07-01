@@ -286,7 +286,7 @@ describe LavinMQ::Shovel do
     it "should ack all messages that has been moved" do
       with_amqp_server do |s|
         vhost = s.vhosts.create("x")
-        prefetch = 9_u16
+        prefetch = 1_u16
         source = LavinMQ::Shovel::AMQPSource.new(
           "spec",
           [URI.parse(s.amqp_url)],
@@ -310,7 +310,7 @@ describe LavinMQ::Shovel do
           x.publish_confirm "shovel me 2", "prefetch2_q1"
           x.publish_confirm "shovel me 2", "prefetch2_q1"
           wait_for { s.vhosts["/"].queues["prefetch2_q2"].message_count == 4 }
-          sleep 0.1
+          wait_for { s.vhosts["/"].queues["prefetch2_q1"].message_count == 0 }
           shovel.terminate
           s.vhosts["/"].queues["prefetch2_q2"].message_count.should eq 4
           s.vhosts["/"].queues["prefetch2_q1"].message_count.should eq 0
