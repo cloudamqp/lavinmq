@@ -312,6 +312,7 @@ describe LavinMQ::Shovel do
           wait_for { s.vhosts["/"].queues["prefetch2_q2"].message_count == 4 }
           wait_for { s.vhosts["/"].queues["prefetch2_q1"].message_count == 0 }
           shovel.terminate
+          wait_for { s.vhosts["/"].queues["prefetch2_q1"].message_count == 0 }
           s.vhosts["/"].queues["prefetch2_q2"].message_count.should eq 4
           s.vhosts["/"].queues["prefetch2_q1"].message_count.should eq 0
         end
