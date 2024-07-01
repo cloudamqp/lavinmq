@@ -48,12 +48,10 @@ class LavinMQ::Clustering::Controller
     @etcd.elect_listen("#{@config.clustering_etcd_prefix}/leader") do |uri|
       repli_client.try &.close
       if uri == @advertised_uri # if this instance has become leader
-        repli_client = nil
         Log.debug { "Is leader, don't replicate from self" }
-        next
+        return
       end
       Log.info { "Leader: #{uri}" }
-
       key = "#{@config.clustering_etcd_prefix}/clustering_secret"
       secret = @etcd.get(key).not_nil!("Clustering secret is missing in etcd")
       repli_client = r = Clustering::Client.new(@config, @id, secret)
