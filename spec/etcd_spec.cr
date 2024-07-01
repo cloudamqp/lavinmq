@@ -26,7 +26,7 @@ describe LavinMQ::Etcd do
       rescue LavinMQ::Etcd::Error
         # expect this when etcd nodes are terminated
       end
-      sleep 0.01
+      sleep 0.1
       etcd.put "foo", "bar"
       w.receive.should eq "bar"
       etcd.put "foo", "rab"
@@ -49,7 +49,7 @@ describe LavinMQ::Etcd do
       rescue LavinMQ::Etcd::Error
         # expect this when etcd nodes are terminated
       end
-      sleep 0.01
+      sleep 0.1
       lease = etcd.elect(key, "bar", 1)
       leader.receive.should eq "bar"
       spawn(name: "elect other leader spec") do
