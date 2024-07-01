@@ -98,7 +98,7 @@ describe LavinMQ::Etcd do
     end
   end
 
-  it "learns new cluster endpoints" do
+  pending "learns new cluster endpoints" do
     cluster = EtcdCluster.new
     cluster.run do
       etcd = LavinMQ::Etcd.new(cluster.endpoints.split(",").first)

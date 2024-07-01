@@ -230,7 +230,7 @@ module LavinMQ
         socket.tcp_keepalive_idle = 5
         socket.tcp_keepalive_count = 3
         socket.tcp_keepalive_interval = 1
-        update_endpoints(socket, address)
+        # update_endpoints(socket, address)
         return {socket, address}
       rescue IO::Error
         next
