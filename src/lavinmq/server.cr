@@ -81,19 +81,7 @@ module LavinMQ
           remote_address = client.remote_address
           set_socket_options(client)
           set_buffer_size(client)
-          conn_info =
-            case Config.instance.tcp_proxy_protocol
-            when 1 then ProxyProtocol::V1.parse(client)
-            when 2 then ProxyProtocol::V2.parse(client)
-            else
-              if client.peek[0, 5] == "PROXY".to_slice &&
-                 followers.any? { |f| f.remote_address.address == remote_address.address }
-                # Expect PROXY protocol header if remote address is a follower
-                ProxyProtocol::V1.parse(client)
-              else
-                ConnectionInfo.new(remote_address, client.local_address)
-              end
-            end
+          conn_info = extract_conn_info(client)
           handle_connection(client, conn_info)
         rescue ex
           Log.warn(exception: ex) { "Error accepting connection from #{remote_address}" }
@@ -104,6 +92,26 @@ module LavinMQ
       abort "Unrecoverable error in listener: #{ex.inspect_with_backtrace}"
     ensure
       @listeners.delete(s)
+    end
+
+    private def extract_conn_info(client) : ConnectionInfo
+      remote_address = client.remote_address
+      case Config.instance.tcp_proxy_protocol
+      when 1 then ProxyProtocol::V1.parse(client)
+      when 2 then ProxyProtocol::V2.parse(client)
+      else
+        if client.peek[0, 5] == "PROXY".to_slice &&
+           followers.any? { |f| f.remote_address.address == remote_address.address }
+          # Expect PROXY protocol header if remote address is a follower
+          ProxyProtocol::V1.parse(client)
+        elsif client.peek[0, 8] == ProxyProtocol::V2::Signature.to_slice[0, 8] &&
+              followers.any? { |f| f.remote_address.address == remote_address.address }
+          # Expect PROXY protocol header if remote address is a follower
+          ProxyProtocol::V2.parse(client)
+        else
+          ConnectionInfo.new(remote_address, client.local_address)
+        end
+      end
     end
 
     def listen(s : UNIXServer)
