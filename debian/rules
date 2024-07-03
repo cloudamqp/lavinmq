@@ -1,9 +1,6 @@
 #!/usr/bin/make -f
 export DH_VERBOSE=1
+export DEB_BUILD_OPTIONS += nostrip
 
 %:
 	dh $@
-
-.PHONY: override_dh_strip
-override_dh_strip:
-	dh_strip --keep-debug
