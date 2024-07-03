@@ -203,7 +203,7 @@ module LavinMQ
         end
       end
 
-      private Signature = StaticArray[13u8, 10u8, 13u8, 10u8, 0u8, 13u8, 10u8, 81u8, 85u8, 73u8, 84u8, 10u8]
+      Signature = StaticArray[13u8, 10u8, 13u8, 10u8, 0u8, 13u8, 10u8, 81u8, 85u8, 73u8, 84u8, 10u8]
 
       private enum SSLCLIENT : UInt8
         SSL       = 0x01

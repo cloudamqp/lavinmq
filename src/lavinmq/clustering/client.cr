@@ -11,6 +11,8 @@ module LavinMQ
       @closed = false
       @amqp_proxy : Proxy?
       @http_proxy : Proxy?
+      @unix_amqp_proxy : Proxy?
+      @unix_http_proxy : Proxy?
       @socket : TCPSocket?
 
       def initialize(@config : Config, @id : Int32, @password : String, proxy = true)
@@ -28,6 +30,8 @@ module LavinMQ
         if proxy
           @amqp_proxy = Proxy.new(@config.amqp_bind, @config.amqp_port)
           @http_proxy = Proxy.new(@config.http_bind, @config.http_port)
+          @unix_amqp_proxy = Proxy.new(@config.unix_path) unless @config.unix_path.empty?
+          @unix_http_proxy = Proxy.new(@config.http_unix_path) unless @config.http_unix_path.empty?
         end
       end
 
@@ -48,6 +52,12 @@ module LavinMQ
         end
         if http_proxy = @http_proxy
           spawn http_proxy.forward_to(host, @config.http_port), name: "HTTP proxy"
+        end
+        if unix_amqp_proxy = @unix_amqp_proxy
+          spawn unix_amqp_proxy.forward_to(host, @config.amqp_port), name: "AMQP proxy"
+        end
+        if unix_http_proxy = @unix_http_proxy
+          spawn unix_http_proxy.forward_to(host, @config.http_port), name: "HTTP proxy"
         end
         loop do
           @socket = socket = TCPSocket.new(host, port)
@@ -238,6 +248,8 @@ module LavinMQ
         @closed = true
         @amqp_proxy.try &.close
         @http_proxy.try &.close
+        @unix_amqp_proxy.try &.close
+        @unix_http_proxy.try &.close
         @files.each_value &.close
         @data_dir_lock.release
         @socket.try &.close
