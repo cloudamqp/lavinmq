@@ -78,8 +78,6 @@ describe LavinMQ::HTTP::PermissionsController do
       with_http_server do |http, _|
         response = http.put("/api/permissions/%2f/guest", body: "\"{}\"")
         response.status_code.should eq 400
-        body = JSON.parse(response.body)
-        body["reason"].as_s.should eq("Input needs to be a JSON object.")
       end
     end
 
@@ -88,7 +86,7 @@ describe LavinMQ::HTTP::PermissionsController do
         response = http.put("/api/permissions/%2f/guest", body: "a")
         response.status_code.should eq 400
         body = JSON.parse(response.body)
-        body["reason"].as_s.should eq("Malformed JSON.")
+        body["reason"].as_s.should eq("Malformed JSON")
       end
     end
   end

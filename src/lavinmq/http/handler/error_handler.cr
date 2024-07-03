@@ -14,7 +14,7 @@ module LavinMQ
       rescue ex : Server::NotFoundError
         Log.info { "method=#{context.request.method} path=#{context.request.path} status=#{context.response.status_code} message=\"#{ex.message}\"" }
         not_found(context, ex.message)
-      rescue ex : JSON::Error | Server::ExpectedBodyError | ArgumentError | TypeCastError
+      rescue ex : JSON::Error | ArgumentError | TypeCastError
         error = Log.level == ::Log::Severity::Debug ? ex.inspect_with_backtrace : "\"#{ex.message}\""
         Log.error { "method=#{context.request.method} path=#{context.request.path} status=400 error=#{error}" }
         context.response.status_code = 400
