@@ -7,13 +7,6 @@ module LavinMQ
 
       def call(context)
         call_next(context)
-      rescue ex : Server::UnknownContentType
-        context.response.content_type = "text/plain"
-        context.response.status_code = 415
-        context.response.print ex.message
-      rescue ex : Server::NotFoundError
-        Log.info { "method=#{context.request.method} path=#{context.request.path} status=#{context.response.status_code} message=\"#{ex.message}\"" }
-        not_found(context, ex.message)
       rescue ex : JSON::Error | ArgumentError | TypeCastError
         error = Log.level == ::Log::Severity::Debug ? ex.inspect_with_backtrace : "\"#{ex.message}\""
         Log.error { "method=#{context.request.method} path=#{context.request.path} status=400 error=#{error}" }
@@ -28,13 +21,6 @@ module LavinMQ
         Log.error { "method=#{context.request.method} path=#{context.request.path} status=500 error=#{ex.inspect_with_backtrace}" }
         context.response.status_code = 500
         {error: "internal_server_error", reason: "Internal Server Error"}.to_json(context.response)
-      end
-
-      def not_found(context, message = nil)
-        context.response.content_type = "text/plain"
-        context.response.status_code = 404
-        context.response.print "Not found\n"
-        context.response.print message
       end
     end
   end

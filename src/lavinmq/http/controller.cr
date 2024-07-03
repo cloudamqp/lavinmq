@@ -142,7 +142,7 @@ module LavinMQ
               bad_request(context, "Request body has to be a JSON object")
             end
           else
-            bad_request(context, "Unknown content-type: #{ct}")
+            unsupported_content_type(context, ct)
           end
         else
           bad_request(context, "Request body required")
@@ -155,7 +155,7 @@ module LavinMQ
         halt(context, 404, {error: "Object Not Found", reason: message})
       end
 
-      private def bad_request(context, message = "Bad request")
+      private def bad_request(context, message)
         halt(context, 400, {error: "bad_request", reason: message})
       end
 
@@ -168,7 +168,11 @@ module LavinMQ
       end
 
       private def precondition_failed(context, message = "Precondition failed")
-        halt(context, 412, {error: "Precondition failed", reason: message})
+        halt(context, 412, {error: "precondition_failed", reason: message})
+      end
+
+      private def unsupported_content_type(context, content_type)
+        halt(context, 415, {error: "unsupported_content_type", reason: "Unsupported content type #{content_type}"})
       end
 
       private def halt(context, status_code, body = nil)
