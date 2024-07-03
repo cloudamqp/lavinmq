@@ -72,7 +72,7 @@ module LavinMQ
           refuse_unless_administrator(context, user(context))
           with_vhost(context, params, "name") do |vhost|
             v = @amqp_server.vhosts[vhost]?
-            not_found(context, "Not Found") unless v
+            not_found(context) unless v
             body = parse_body(context)
             backup = true == body["backup"]?
             dir_name = body["backup_dir_name"]?.to_s

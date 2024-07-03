@@ -1,6 +1,5 @@
 require "http/server/handler"
 require "http/server/context"
-require "string_scanner"
 
 module LavinMQ::HTTP::Router
   include ::HTTP::Handler
