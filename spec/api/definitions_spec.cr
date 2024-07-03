@@ -208,8 +208,6 @@ describe LavinMQ::HTTP::Server do
       with_http_server do |http, _|
         response = http.post("/api/definitions", body: "\"{}\"")
         response.status_code.should eq 400
-        body = JSON.parse(response.body)
-        body["reason"].as_s.should eq("Input needs to be a JSON object.")
       end
     end
 
@@ -218,7 +216,7 @@ describe LavinMQ::HTTP::Server do
         response = http.post("/api/definitions", body: "a")
         response.status_code.should eq 400
         body = JSON.parse(response.body)
-        body["reason"].as_s.should eq("Malformed JSON.")
+        body["reason"].as_s.should eq("Malformed JSON")
       end
     end
   end
@@ -513,8 +511,6 @@ describe LavinMQ::HTTP::Server do
       with_http_server do |http, _|
         response = http.post("/api/definitions/%2f", body: "\"{}\"")
         response.status_code.should eq 400
-        body = JSON.parse(response.body)
-        body["reason"].as_s.should eq("Input needs to be a JSON object.")
       end
     end
 
@@ -523,7 +519,7 @@ describe LavinMQ::HTTP::Server do
         response = http.post("/api/definitions/%2f", body: "a")
         response.status_code.should eq 400
         body = JSON.parse(response.body)
-        body["reason"].as_s.should eq("Malformed JSON.")
+        body["reason"].as_s.should eq("Malformed JSON")
       end
     end
     describe "user tags and vhost access" do

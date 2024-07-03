@@ -81,11 +81,17 @@ module LavinMQ
         File.delete?(INTERNAL_UNIX_SOCKET)
       end
 
-      class NotFoundError < Exception; end
+      class NotFoundError < Exception
+        def initialize(message = "Not found")
+          super
+        end
+      end
 
-      class ExpectedBodyError < ArgumentError; end
-
-      class UnknownContentType < Exception; end
+      class UnknownContentType < Exception
+        def initialize(message = "Unknown content type")
+          super
+        end
+      end
     end
   end
 end

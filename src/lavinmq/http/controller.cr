@@ -127,25 +127,28 @@ module LavinMQ
         halt(context, 302)
       end
 
-      private def parse_body(context)
-        raise Server::ExpectedBodyError.new if context.request.body.nil?
-        ct = context.request.headers["Content-Type"]?
-        if ct.nil? || ct.empty? || ct == "application/json"
-          body = if context.request.content_length == 0
-                   JSON::Any.new({} of String => JSON::Any)
-                 else
-                   JSON.parse(context.request.body.not_nil!)
-                 end
-          if body.as_h?
-            body
+      private def parse_body(context) : JSON::Any
+        if body = context.request.body
+          ct = context.request.headers["Content-Type"]?
+          if ct.nil? || ct.empty? || ct == "application/json"
+            json = if context.request.content_length == 0
+                     JSON::Any.new(Hash(String, JSON::Any).new)
+                   else
+                     JSON.parse(body)
+                   end
+            if json.as_h?
+              json
+            else
+              bad_request(context, "Request body has to be a JSON object")
+            end
           else
-            bad_request(context, "Input needs to be a JSON object.")
+            bad_request(context, "Unknown content-type: #{ct}")
           end
         else
-          raise Server::UnknownContentType.new("Unknown Content-Type: #{ct}")
+          bad_request(context, "Request body required")
         end
       rescue e : JSON::ParseException
-        bad_request(context, "Malformed JSON.")
+        bad_request(context, "Malformed JSON")
       end
 
       private def not_found(context, message = "Not Found")
