@@ -54,7 +54,7 @@ module LavinMQ
           spawn http_proxy.forward_to(host, @config.http_port), name: "HTTP proxy"
         end
         if unix_amqp_proxy = @unix_amqp_proxy
-          spawn unix_amqp_proxy.forward_to(host, @config.amqp_port, true), name: "AMQP proxy"
+          spawn unix_amqp_proxy.forward_to(host, @config.amqp_port), name: "AMQP proxy"
         end
         if unix_http_proxy = @unix_http_proxy
           spawn unix_http_proxy.forward_to(host, @config.http_port), name: "HTTP proxy"
