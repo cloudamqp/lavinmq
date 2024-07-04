@@ -449,6 +449,7 @@ module LavinMQ
             env = @msg_store.shift? || break
             @log.debug { "Overflow drop head sp=#{env.segment_position}" }
             expire_msg(env, :maxlen)
+            Fiber.yield
           end
         end
       end
@@ -459,6 +460,7 @@ module LavinMQ
             env = @msg_store.shift? || break
             @log.debug { "Overflow drop head sp=#{env.segment_position}" }
             expire_msg(env, :maxlenbytes)
+            Fiber.yield
           end
         end
       end
