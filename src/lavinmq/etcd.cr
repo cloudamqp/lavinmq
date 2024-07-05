@@ -106,8 +106,6 @@ module LavinMQ
       post_stream("/v3/election/observe", %({"name":"#{Base64.strict_encode name}"})) do |json|
         if value = json.dig?("result", "kv", "value")
           yield Base64.decode_string(value.as_s)
-        elsif error = json.dig?("error", "message")
-          raise Error.new(error.as_s)
         else
           raise Error.new(json.to_s)
         end
@@ -116,71 +114,59 @@ module LavinMQ
 
     private def post(path, body) : JSON::Any
       with_tcp do |tcp, address|
-        post_request(tcp, address, path, body)
-      rescue ex : IO::Error | ResponseError
-        Log.warn { "Failed request to #{address}#{path}: #{ex.message}" }
-        tcp.close
-        raise ex
+        return post_request(tcp, address, path, body)
       end
     end
 
-    private def post_request(tcp, address, path, body)
+    private def post_request(tcp, address, path, body) : JSON::Any
       send_request(tcp, address, path, body)
-      status, content_length = headers(tcp)
-      json =
-        case content_length
-        when -1 # chunked response
-          bytesize = tcp.read_line.to_i(16)
-          chunk = tcp.read_string(bytesize)
-          raise ResponseError.new unless tcp.read_line.empty?
-          raise ResponseError.new unless tcp.read_line == "0"
-          raise ResponseError.new unless tcp.read_line.empty?
-          JSON.parse(chunk)
-        when 0 # empty response body
-        else
-          body = tcp.read_string(content_length)
-          JSON.parse(body)
-        end
-      raise StatusNotOk.new(status) unless status == "HTTP/1.1 200 OK"
-      raise EmptyResponse.new if json.nil?
-      json
+      content_length = read_headers(tcp)
+      case content_length
+      when -1 # chunked response, expect only one chunk
+        chunks = read_chunks(tcp)
+        parse_json! chunks
+      else
+        body = tcp.read_string(content_length)
+        parse_json! body
+      end
     end
 
     private def post_stream(path, body, & : JSON::Any -> _)
+      with_tcp do |tcp, address|
+        send_request(tcp, address, path, body)
+        content_length = read_headers(tcp)
+        if content_length == -1 # Chunked response
+          read_chunks(tcp) do |chunk|
+            yield parse_json! chunk
+          end
+        else
+          body = tcp.read_string(content_length)
+          yield parse_json! body
+        end
+      end
+    end
+
+    private def read_chunks(tcp, & : String -> _) : Nil
+      response_finished = false
       loop do
-        response_finished = false
-        with_tcp do |tcp, address|
-          send_request(tcp, address, path, body)
-          status = tcp.read_line
-          raise StatusNotOk.new(status) unless status == "HTTP/1.1 200 OK"
-          chunked_response = false
-          until (line = tcp.read_line).empty?
-            if line == "Transfer-Encoding: chunked"
-              chunked_response = true
-            end
-          end
-          raise ResponseError.new("Expected a chunked response") unless chunked_response
-          loop do
-            bytesize = tcp.read_line.to_i(16)
-            if bytesize > 0
-              chunk = tcp.read_string(bytesize + 2)
-              begin
-                yield JSON.parse(chunk)
-              rescue ex
-                STDERR.puts "Uncaught excpetion in fiber #{Fiber.current.name}"
-                abort ex.inspect_with_backtrace
-              end
-            else
-              tcp.skip(2) # \r\n follows each chunk
-              response_finished = true
-              break
-            end
-          end
-        rescue ex : IO::Error
-          Log.warn { "Disconnected while streaming from #{address}#{path}: #{ex.message}" }
-          sleep 1
-        ensure
-          tcp.close unless response_finished # the server will otherwise keep sending chunks
+        bytesize = tcp.read_line.to_i(16)
+        chunk = tcp.read_string(bytesize)
+        tcp.skip(2) # each chunk ends with \r\n
+        break if bytesize.zero?
+        yield chunk
+      end
+      response_finished = true
+    ensure
+      tcp.close unless response_finished # the server will otherwise keep sending chunks
+    end
+
+    private def read_chunks(tcp) : String
+      String.build do |str|
+        loop do
+          bytesize = tcp.read_line.to_i(16)
+          IO.copy(tcp, str, bytesize)
+          tcp.skip(2) # each chunk ends with \r\n
+          break if bytesize.zero?
         end
       end
     end
@@ -194,15 +180,31 @@ module LavinMQ
       tcp.flush
     end
 
-    private def headers(tcp) : Tuple(String, Int32)
+    # Parse response headers, return Content-Length (-1 implies chunked response)
+    private def read_headers(tcp) : Int32
       status_line = tcp.read_line
-      content_length = -1
+      content_length = 0
       until (line = tcp.read_line).empty?
-        if line.starts_with? "Content-Length: "
-          content_length = line.split(':', 2).last.to_i
+        case line
+        when "Transfer-Encoding: chunked" then content_length = -1
+        when /^Content-Length: (\d+)$/    then content_length = $~[1].to_i
         end
       end
-      {status_line, content_length}
+
+      case status_line
+      when "HTTP/1.1 200 OK"
+      else
+        if content_length == -1
+          chunks = read_chunks(tcp)
+          parse_json! chunks # should raise
+          raise Error.new(status_line)
+        else
+          body = tcp.read_string(content_length)
+          parse_json! body # should raise
+          raise Error.new(status_line)
+        end
+      end
+      content_length
     end
 
     @connections = Deque(Tuple(TCPSocket, String)).new
@@ -212,8 +214,16 @@ module LavinMQ
         socket, address = @connections.shift? || connect
         begin
           return yield({socket, address})
-        rescue ex : IO::Error
+        rescue ex : NoLeader
+          raise ex # don't retry when leader is missing
+        rescue ex : Error
+          Log.warn { "Service Unavailable at #{address}, #{ex.message}, retrying" }
+          socket.close rescue nil
+          sleep 0.1
+        rescue IO::Error
           Log.warn { "Lost connection to #{address}, retrying" }
+          socket.close rescue nil
+          sleep 0.1
         ensure
           @connections.push({socket, address}) unless socket.closed?
         end
@@ -259,16 +269,34 @@ module LavinMQ
       raise ex
     end
 
-    class Error < Exception; end
+    # Parses JSON but raises if there's a error message
+    private def parse_json!(str : String) : JSON::Any
+      json = JSON.parse(str)
+      raise_if_error(json)
+      json
+    end
 
-    class EmptyResponse < Error; end
-
-    class StatusNotOk < Error; end
-
-    class ResponseError < Error
-      def initialize(msg = "Unexpected response")
-        super
+    private def raise_if_error(json)
+      if error = json["error"]?
+        Log.debug { "etcd error: #{error}" }
+        if errorh = error.as_h?
+          error_msg = errorh["message"].as_s
+          case error_msg
+          when "error reading from server: EOF"
+            raise IO::EOFError.new(error_msg)
+          when "etcdserver: no leader"
+            raise NoLeader.new(error_msg)
+          else
+            raise Error.new error_msg
+          end
+        else
+          raise Error.new error.as_s
+        end
       end
     end
+
+    class Error < Exception; end
+
+    class NoLeader < Error; end
   end
 end
