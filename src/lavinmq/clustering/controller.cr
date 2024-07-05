@@ -46,6 +46,7 @@ class LavinMQ::Clustering::Controller
   private def follow_leader
     repli_client = nil
     @etcd.elect_listen("#{@config.clustering_etcd_prefix}/leader") do |uri|
+      next if repli_client.try &.follows?(uri) # if lost connection to etcd we continue follow the leader as is
       repli_client.try &.close
       if uri == @advertised_uri # if this instance has become leader
         repli_client = nil
