@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- HTTP API: Regression where an (empty) body was required to PUT a new vhost
+
+### Added
+
+- Can view which messages are unacked in each queue (HTTP and UI)
+- Clustering clients will now listen on the UNIX sockets if configured
+- Clustering server will accept PROXY protocol V2 headers from followers
+
+### Changed
+
+- Deb packages now includes all debug symbols, for useful stacktraces
+
 ## [2.0.0-rc.1] - 2024-06-25
 
 ### Added
