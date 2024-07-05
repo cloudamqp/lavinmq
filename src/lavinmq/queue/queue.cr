@@ -450,7 +450,7 @@ module LavinMQ
             env = @msg_store.shift? || break
             @log.debug { "Overflow drop head sp=#{env.segment_position}" }
             expire_msg(env, :maxlen)
-            counter += 1
+            counter &+= 1
             if counter >= 256
               Fiber.yield
               counter = 0
