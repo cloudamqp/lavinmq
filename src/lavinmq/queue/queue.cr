@@ -445,13 +445,14 @@ module LavinMQ
     private def drop_overflow : Nil
       counter = 0
       if ml = @max_length
+        pp "max_length"
         @msg_store_lock.synchronize do
           while @msg_store.size > ml
             env = @msg_store.shift? || break
             @log.debug { "Overflow drop head sp=#{env.segment_position}" }
             expire_msg(env, :maxlen)
             counter &+= 1
-            if counter >= 256
+            if counter >= 16 * 1024
               Fiber.yield
               counter = 0
             end
@@ -460,13 +461,14 @@ module LavinMQ
       end
 
       if mlb = @max_length_bytes
+        pp "max_length_bytes"
         @msg_store_lock.synchronize do
           while @msg_store.bytesize > mlb
             env = @msg_store.shift? || break
             @log.debug { "Overflow drop head sp=#{env.segment_position}" }
             expire_msg(env, :maxlenbytes)
-            counter += 1
-            if counter >= 256
+            counter &+= 1
+            if counter >= 16 * 1024
               Fiber.yield
               counter = 0
             end
