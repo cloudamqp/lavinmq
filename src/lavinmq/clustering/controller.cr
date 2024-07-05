@@ -53,9 +53,15 @@ class LavinMQ::Clustering::Controller
         return
       end
       Log.info { "Leader: #{uri}" }
-
       key = "#{@config.clustering_etcd_prefix}/clustering_secret"
-      secret = @etcd.get(key).not_nil!("Clustering secret is missing in etcd")
+      secret = @etcd.get(key)
+      until secret # the leader might not have had time to set the secret yet
+        Log.debug { "Clustering secret is missing, watching for it" }
+        @etcd.watch(key) do |value|
+          secret = value
+          break
+        end
+      end
       repli_client = r = Clustering::Client.new(@config, @id, secret)
       spawn r.follow(uri), name: "Clustering client #{uri}"
     end
