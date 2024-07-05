@@ -7,9 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-rc.2] - 2024-07-05
+
 ### Fixed
 
 - HTTP API: Regression where an (empty) body was required to PUT a new vhost
+- Etcd actions are retried, etcd can now be restarted without issues
+- Clustering secret is monitored if not available yet when becoming a replication follower
 
 ### Added
 
@@ -20,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Deb packages now includes all debug symbols, for useful stacktraces
+- Don't dynamically fetch active etcd endpoints
 
 ## [2.0.0-rc.1] - 2024-06-25
 
