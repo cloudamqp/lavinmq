@@ -49,9 +49,8 @@ class LavinMQ::Clustering::Controller
       next if repli_client.try &.follows?(uri) # if lost connection to etcd we continue follow the leader as is
       repli_client.try &.close
       if uri == @advertised_uri # if this instance has become leader
-        repli_client = nil
         Log.debug { "Is leader, don't replicate from self" }
-        next
+        return
       end
       Log.info { "Leader: #{uri}" }
 
