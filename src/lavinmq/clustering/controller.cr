@@ -64,6 +64,7 @@ class LavinMQ::Clustering::Controller
       end
       repli_client = r = Clustering::Client.new(@config, @id, secret)
       spawn r.follow(uri), name: "Clustering client #{uri}"
+      SystemD.notify_ready
     end
   end
 
