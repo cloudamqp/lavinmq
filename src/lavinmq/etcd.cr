@@ -240,9 +240,11 @@ module LavinMQ
         socket.tcp_keepalive_idle = 5
         socket.tcp_keepalive_count = 3
         socket.tcp_keepalive_interval = 1
-        update_endpoints(socket, address)
+        # update_endpoints(socket, address)
+        Log.debug { "Connected to #{address}" }
         return {socket, address}
-      rescue IO::Error
+      rescue ex : IO::Error
+        Log.debug { "Could not connect to #{address}: #{ex}" }
         next
       end
       raise Error.new("No endpoint responded")
