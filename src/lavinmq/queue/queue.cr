@@ -445,7 +445,6 @@ module LavinMQ
     private def drop_overflow : Nil
       counter = 0
       if ml = @max_length
-        pp "max_length"
         @msg_store_lock.synchronize do
           while @msg_store.size > ml
             env = @msg_store.shift? || break
@@ -461,7 +460,6 @@ module LavinMQ
       end
 
       if mlb = @max_length_bytes
-        pp "max_length_bytes"
         @msg_store_lock.synchronize do
           while @msg_store.bytesize > mlb
             env = @msg_store.shift? || break
