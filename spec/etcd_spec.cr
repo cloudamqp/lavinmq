@@ -18,15 +18,17 @@ describe LavinMQ::Etcd do
     cluster = EtcdCluster.new(1)
     cluster.run do
       etcd = LavinMQ::Etcd.new(cluster.endpoints)
-      w = Channel(String?).new
+      w = Channel(String?).new(1)
       spawn(name: "etcd watch spec") do
+        etcd.get("foo").should be_nil
+        w.send nil
         etcd.watch("foo") do |val|
           w.send val
         end
       rescue LavinMQ::Etcd::Error
         # expect this when etcd nodes are terminated
       end
-      sleep 0.1
+      w.receive # sync
       etcd.put "foo", "bar"
       w.receive.should eq "bar"
       etcd.put "foo", "rab"
@@ -49,7 +51,6 @@ describe LavinMQ::Etcd do
       rescue LavinMQ::Etcd::Error
         # expect this when etcd nodes are terminated
       end
-      sleep 0.1
       lease = etcd.elect(key, "bar", 1)
       leader.receive.should eq "bar"
       spawn(name: "elect other leader spec") do
@@ -77,7 +78,7 @@ describe LavinMQ::Etcd do
       etcds.first(2).each &.terminate(graceful: false)
       select
       when lease.receive?
-      when timeout(6.seconds)
+      when timeout(9.seconds)
         fail "should lose the leadership"
       end
     end
@@ -145,10 +146,7 @@ class EtcdCluster
         "--initial-cluster", initial_cluster,
         "--logger=zap",
         "--log-level=error",
-        "--heartbeat-interval=10",
-        "--election-timeout=100",
         "--unsafe-no-fsync=true",
-        "--force-new-cluster=true",
       }, output: STDOUT, error: STDERR)
     end
   end
@@ -161,12 +159,14 @@ class EtcdCluster
   private def wait_until_online
     sock = Socket.tcp(Socket::Family::INET)
     begin
-      loop do
-        sleep 0.02
-        sock.connect "127.0.0.1", 23000 + @ports.first
-        break
-      rescue Socket::ConnectError
-        next
+      @ports.each do |port|
+        loop do
+          sleep 0.02
+          sock.connect "127.0.0.1", 23000 + port
+          break
+        rescue Socket::ConnectError
+          next
+        end
       end
     ensure
       sock.close

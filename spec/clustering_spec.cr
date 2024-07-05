@@ -11,16 +11,26 @@ describe LavinMQ::Clustering::Client do
       "--data-dir=/tmp/clustering-spec.etcd",
       "--logger=zap",
       "--log-level=error",
-      "--heartbeat-interval=3",
-      "--election-timeout=30",
       "--unsafe-no-fsync=true",
       "--force-new-cluster=true",
     }, output: STDOUT, error: STDERR)
-    sleep 0.2
-    spec.run
-    p.terminate(graceful: false)
-    FileUtils.rm_rf "/tmp/clustering-spec.etcd"
-    FileUtils.rm_rf follower_data_dir
+
+    sock = Socket.tcp(Socket::Family::INET)
+    loop do
+      sleep 0.02
+      sock.connect "127.0.0.1", 2379
+      break
+    rescue Socket::ConnectError
+      next
+    end
+    sock.close
+    begin
+      spec.run
+    ensure
+      p.terminate(graceful: false)
+      FileUtils.rm_rf "/tmp/clustering-spec.etcd"
+      FileUtils.rm_rf follower_data_dir
+    end
   end
 
   it "can stream changes" do
@@ -83,11 +93,10 @@ describe LavinMQ::Clustering::Client do
     rescue LavinMQ::Etcd::Error
       # expect this when etcd nodes are terminated
     end
-    Fiber.yield
+    sleep 0.5
     spawn(name: "failover1") do
       controller1.run
     end
-    Fiber.yield
     spawn(name: "failover2") do
       controller2.run
     end
