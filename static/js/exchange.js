@@ -49,7 +49,7 @@ updateExchange()
 const tableOptions = {
   dataSource: new UrlDataSource(exchangeUrl + '/bindings/source', { useQueryState: false }),
   pagination: true,
-  keyColumns: ['properties_key']
+  keyColumns: ['properties_key', 'destination', 'routing_key']
 }
 const bindingsTable = Table.renderTable('bindings-table', tableOptions, function (tr, item, all) {
   if (!all) return
