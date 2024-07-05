@@ -46,7 +46,8 @@ module LavinMQ
       end
 
       def follow(host : String, port : Int32)
-        SystemD.notify_ready
+        @host = host
+        @port = port
         if amqp_proxy = @amqp_proxy
           spawn amqp_proxy.forward_to(host, @config.amqp_port, true), name: "AMQP proxy"
         end
@@ -74,6 +75,20 @@ module LavinMQ
           Log.info { "Disconnected from server #{host}:#{port} (#{ex}), retrying..." }
           sleep 1
         end
+      end
+
+      def follows?(uri : String) : Bool
+        follows? URI.parse(uri)
+      end
+
+      def follows?(uri : URI) : Bool
+        host = uri.hostname.not_nil!("Host missing in follow URI")
+        port = uri.port || 5679
+        follows?(host, port)
+      end
+
+      def follows?(host : String, port : Int32) : Bool
+        @host == host && @port == port
       end
 
       private def sync(socket, lz4)
