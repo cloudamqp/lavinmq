@@ -89,7 +89,7 @@ module LavinMQ
             lease_revoke(lease_id)
             channel.close
             break
-          when timeout((ttl / 2.0).seconds)
+          when timeout((ttl * 0.9).seconds)
             ttl = lease_keepalive(lease_id)
           end
         rescue ex
