@@ -64,7 +64,7 @@ module LavinMQ
     end
 
     def lease_revoke(id) : Nil
-      post("/v3/kv/lease/revoke", body: %({"ID":"#{id}"}))
+      post("/v3/lease/revoke", body: %({"ID":"#{id}"}))
       true
     end
 
