@@ -37,6 +37,6 @@ development_dependencies:
   ameba:
     github: crystal-ameba/ameba
 
-crystal: 1.12.0
+crystal: 1.13.0
 
 license: Apache-2.0
