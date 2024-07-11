@@ -18,6 +18,7 @@ module LavinMQ
       def initialize(path : String)
         @server = s = UNIXServer.new(path)
         @local_address = s.local_address.to_s
+        File.chmod(path, 0o666)
       end
 
       def forward_to(target_host, target_port, @proxy_header = false)
