@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-rc.3] - 2024-07-12
+
+### Changed
+
+- Build with Crystal 1.13.1
+
+### Fixed
+
+- Make proxied UNIX sockets in followers RW for all
+- SystemD notify ready in cluster mode when lader is found
+
 ## [2.0.0-rc.2] - 2024-07-05
 
 ### Fixed
