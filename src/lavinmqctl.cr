@@ -1,4 +1,3 @@
-require "./stdlib/openssl"
 require "./lavinmq/version"
 require "./lavinmq/http/constants"
 require "./lavinmq/definitions_generator"
