@@ -57,7 +57,13 @@ module LavinMQ
           sync(sent_bytes)
         end
       ensure
-        close
+        begin
+          @lz4.close
+          @socket.close
+        rescue IO::Error
+          # ignore connection errors while closing
+        end
+        @closed.close
       end
 
       private def sync(bytes, socket = @socket) : Nil
@@ -158,12 +164,11 @@ module LavinMQ
         lag_size
       end
 
+      @closed = Channel(Nil).new
+
       def close
         @actions.close
-        @lz4.close
-        @socket.close
-      rescue IO::Error
-        # ignore connection errors while closing
+        @closed.receive?
       end
 
       def to_json(json : JSON::Builder)
