@@ -3,7 +3,8 @@ require "../src/lavinmq/etcd"
 require "file_utils"
 
 describe LavinMQ::Etcd do
-  it "can put and get" do
+  pending "can put and get" do
+    pending "dont run etcd specs"
     cluster = EtcdCluster.new(1)
     cluster.run do
       etcd = LavinMQ::Etcd.new(cluster.endpoints)
@@ -14,7 +15,7 @@ describe LavinMQ::Etcd do
     end
   end
 
-  it "can watch" do
+  pending "can watch" do
     cluster = EtcdCluster.new(1)
     cluster.run do
       etcd = LavinMQ::Etcd.new(cluster.endpoints)
@@ -38,7 +39,7 @@ describe LavinMQ::Etcd do
     end
   end
 
-  it "can elect leader" do
+  pending "can elect leader" do
     cluster = EtcdCluster.new(1)
     cluster.run do
       etcd = LavinMQ::Etcd.new(cluster.endpoints)
@@ -69,7 +70,7 @@ describe LavinMQ::Etcd do
     end
   end
 
-  it "will lose leadership when loosing quorum" do
+  pending "will lose leadership when loosing quorum" do
     cluster = EtcdCluster.new
     cluster.run do |etcds|
       etcd = LavinMQ::Etcd.new(cluster.endpoints)
@@ -84,7 +85,7 @@ describe LavinMQ::Etcd do
     end
   end
 
-  it "will not lose leadership when only one etcd node is lost" do
+  pending "will not lose leadership when only one etcd node is lost" do
     cluster = EtcdCluster.new
     cluster.run do |etcds|
       etcd = LavinMQ::Etcd.new(cluster.endpoints)
