@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Files where not being properly unmapped, causing disk space not to be released [#728](https://github.com/cloudamqp/lavinmq/pull/728)
+- Files where not being properly unmapped, causing disk space not to be released [#728](https://github.com/cloudamqp/lavinmq/pull/729)
 
 
 ## [1.2.14] - 2024-06-15
