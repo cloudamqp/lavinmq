@@ -4,7 +4,6 @@ require "file_utils"
 
 describe LavinMQ::Etcd do
   pending "can put and get" do
-    pending "dont run etcd specs"
     cluster = EtcdCluster.new(1)
     cluster.run do
       etcd = LavinMQ::Etcd.new(cluster.endpoints)
