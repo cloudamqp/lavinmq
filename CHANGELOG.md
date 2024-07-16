@@ -34,6 +34,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Can pass an array of URLs to Shovel
 - Added endpoint and page to view unacked messages for a queue [#712](https://github.com/cloudamqp/lavinmq/pull/712)
 
+## [1.2.15] - 2024-07-16
+
+### Fixed
+
+- Files where not being properly unmapped, causing disk space not to be released [#728](https://github.com/cloudamqp/lavinmq/pull/729)
+
 ## [1.2.14] - 2024-06-15
 
 ### Fixed
