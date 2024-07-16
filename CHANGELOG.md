@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.15] - 2024-07-16
+
+### Fixed
+
+- Files where not being properly unmapped, causing disk space not to be released [#728](https://github.com/cloudamqp/lavinmq/pull/728)
+
+
 ## [1.2.14] - 2024-06-15
 
 ### Fixed
