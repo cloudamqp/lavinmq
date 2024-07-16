@@ -7,58 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [2.0.0-rc.3] - 2024-07-12
+## [1.3.0] - 2024-07-16
 
 ### Changed
 
+- Disabled old replication in anticipation of coming clustering. 
 - Build with Crystal 1.13.1
-
-### Fixed
-
-- Make proxied UNIX sockets in followers RW for all
-- SystemD notify ready in cluster mode when lader is found
-
-## [2.0.0-rc.2] - 2024-07-05
+- Deb packages now includes all debug symbols, for useful stacktraces
+- Replaced HTTP router with an internal one. Now LavinMQ uses 0 external libraries.
+- Specs are more reliable when a new server is started for each spec
+- LavinMQ never sets TLS ciphers by it self, custom ciphers have to be configured via the config
 
 ### Fixed
 
 - HTTP API: Regression where an (empty) body was required to PUT a new vhost
-- Etcd actions are retried, etcd can now be restarted without issues
-- Clustering secret is monitored if not available yet when becoming a replication follower
-
-### Added
-
-- Can view which messages are unacked in each queue (HTTP and UI)
-- Clustering clients will now listen on the UNIX sockets if configured
-- Clustering server will accept PROXY protocol V2 headers from followers
-
-### Changed
-
-- Deb packages now includes all debug symbols, for useful stacktraces
-- Don't dynamically fetch active etcd endpoints
-
-## [2.0.0-rc.1] - 2024-06-25
-
-### Added
-
-- Full HA clustering support, uses Etcd for leader election and metadata, and a replication protocol between nodes
-- Tags and descriptions on VHosts
-- Can pass an array of URLs to Shovel
-- Added endpoint and page to view unacked messages for a queue [#712](https://github.com/cloudamqp/lavinmq/pull/712)
-
-### Fixed
-
 - lavinmqctl didn't recognize 201/204 response codes from set_permissions, set_user_tags and add_vhost
 - Queues will no longer be closed if file size is incorrect. Fixes [#669](https://github.com/cloudamqp/lavinmq/issues/669)
 - Improved logging
 - Won't choke on empty message files on boot [#685](https://github.com/cloudamqp/lavinmq/issues/685)
 - Won't choke on somewhat too large message files on boot [#671](https://github.com/cloudamqp/lavinmq/issues/671)
 
-### Changed
+### Added
 
-- Replaced HTTP router with an internal one. Now LavinMQ uses 0 external libraries.
-- Specs are more reliable when a new server is started for each spec
-- LavinMQ never sets TLS ciphers by it self, custom ciphers have to be configured via the config
+- Can view which messages are unacked in each queue (HTTP and UI)
+- Tags and descriptions on VHosts
+- Can pass an array of URLs to Shovel
+- Added endpoint and page to view unacked messages for a queue [#712](https://github.com/cloudamqp/lavinmq/pull/712)
 
 ## [1.2.14] - 2024-06-15
 
