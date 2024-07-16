@@ -120,6 +120,7 @@ module LavinMQ
           @guest_only_loopback = {"true", "yes", "y", "1"}.includes? v.to_s
         end
         p.on("--clustering", "Enable clustering") do
+          abort "clustering is not supported"
           @clustering = true
         end
         p.on("--clustering-advertised-uri=URI", "Advertised URI for the clustering server") do |v|
@@ -239,7 +240,9 @@ module LavinMQ
     private def parse_clustering(settings)
       settings.each do |config, v|
         case config
-        when "enabled"        then @clustering = true?(v)
+        when "enabled"
+          @clustering = true?(v)
+          abort "clustering is not supported" if @clustering
         when "etcd_prefix"    then @clustering_etcd_prefix = v
         when "etcd_endpoints" then @clustering_etcd_endpoints = v
         when "advertised_uri" then @clustering_advertised_uri = v
