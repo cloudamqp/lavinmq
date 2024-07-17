@@ -7,11 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.3.0] - 2024-07-16
+## [1.3.0] - 2024-07-17
+
+### Removed
+
+- Removed old replication in anticipation of coming clustering.
 
 ### Changed
 
-- Disabled old replication in anticipation of coming clustering. 
 - Build with Crystal 1.13.1
 - Deb packages now includes all debug symbols, for useful stacktraces
 - Replaced HTTP router with an internal one. Now LavinMQ uses 0 external libraries.
