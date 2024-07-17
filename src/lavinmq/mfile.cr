@@ -168,6 +168,7 @@ class MFile < IO
   end
 
   def finalize
+    LibC.printf("mfile#finalize %s\n", @path)
     LibC.close(@fd) if @fd > -1
     LibC.munmap(@buffer, @capacity) unless @buffer.null?
   end

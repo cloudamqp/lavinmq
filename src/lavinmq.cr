@@ -1,3 +1,4 @@
+ require "./mem_prof"
 require "./lavinmq/version"
 require "./stdlib/*"
 require "./lavinmq/config"
