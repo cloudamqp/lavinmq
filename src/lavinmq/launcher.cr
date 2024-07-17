@@ -1,3 +1,7 @@
+{% unless flag?(:release) %}
+  require "perf_tools/mem_prof"
+  require "perf_tools/fiber_trace"
+{% end %}
 require "log"
 require "file"
 require "systemd"
@@ -202,9 +206,19 @@ module LavinMQ
       puts "  marker threads: #{ps.markers_m1}"
       puts "  reclaimed bytes during last GC: #{ps.bytes_reclaimed_since_gc.humanize_bytes}"
       puts "  reclaimed bytes before last GC: #{ps.reclaimed_bytes_before_gc.humanize_bytes}"
-      puts "Fibers:"
-      Fiber.list { |f| puts f.inspect }
-      LavinMQ::Reporter.report(@amqp_server)
+      # puts "Fibers:"
+      # Fiber.list { |f| puts f.inspect }
+      # LavinMQ::Reporter.report(@amqp_server)
+      {% unless flag?(:release) %}
+        puts "Object counts:"
+        PerfTools::MemProf.log_object_counts(STDOUT)
+        puts "Object sizes:"
+        PerfTools::MemProf.log_object_sizes(STDOUT)
+        puts "Allocations:"
+        PerfTools::MemProf.log_allocations(STDOUT)
+        puts "Fibers:"
+        PerfTools::FiberTrace.log_fibers(STDOUT)
+      {% end %}
       STDOUT.flush
     end
 
