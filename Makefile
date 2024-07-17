@@ -6,7 +6,7 @@ VIEW_TARGETS := $(patsubst views/%.ecr,static/views/%.html,$(VIEW_SOURCES))
 VIEW_PARTIALS := $(wildcard views/partials/*.ecr)
 JS := static/js/lib/chunks/helpers.segment.js static/js/lib/chart.js static/js/lib/amqp-websocket-client.mjs static/js/lib/amqp-websocket-client.mjs.map static/js/lib/luxon.js static/js/lib/chartjs-adapter-luxon.esm.js static/js/lib/elements-8.2.0.js static/js/lib/elements-8.2.0.css
 CRYSTAL_FLAGS := --release --stats
-override CRYSTAL_FLAGS += --error-on-warnings --link-flags=-pie
+override CRYSTAL_FLAGS += --error-on-warnings --link-flags=-pie -Dgc_none
 
 .DEFAULT_GOAL := all
 
@@ -52,7 +52,7 @@ bin/%-debug: src/%.cr $(SOURCES) lib $(JS) $(DOCS) | bin
 	crystal build $< -o $@ --debug $(CRYSTAL_FLAGS)
 
 bin/lavinmqperf: src/lavinmqperf.cr $(PERF_SOURCES) lib | bin
-	crystal build $< -o $@ -Dpreview_mt $(CRYSTAL_FLAGS)
+	crystal build $< -o $@ $(CRYSTAL_FLAGS)
 
 bin/lavinmqctl: src/lavinmqctl.cr lib | bin
 	crystal build $< -o $@ -Dgc_none $(CRYSTAL_FLAGS)

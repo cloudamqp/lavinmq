@@ -1,3 +1,6 @@
+{% if flag?(:gc_none) %}
+  require "immix"
+{% end %}
 require "log"
 require "./lavinmq/version"
 require "./lavinmqperf/*"

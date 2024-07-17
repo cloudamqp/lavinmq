@@ -34,6 +34,9 @@ dependencies:
     github: 84codes/lz4.cr
   mqtt-protocol:
     github: 84codes/mqtt-protocol.cr
+  immix:
+    github: ysbaddaden/gc
+    branch: master
 
 development_dependencies:
   ameba:
