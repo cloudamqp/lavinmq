@@ -62,7 +62,6 @@ describe LavinMQ::Shovel do
           "spec",
           URI.parse(s.amqp_url),
           "ql_q2",
-          delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
           direct_user: s.users.direct_user
         )
         shovel = LavinMQ::Shovel::Runner.new(source, dest, "ql_shovel", vhost)
@@ -204,17 +203,15 @@ describe LavinMQ::Shovel do
           "spec",
           URI.parse(s.amqp_url),
           "prefetch_q2",
-          delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
-          prefetch: 21_u16,
           direct_user: s.users.direct_user
         )
-        shovel = LavinMQ::Shovel::Runner.new(source, dest, "prefetch_shovel", vhost)
         with_channel(s) do |ch|
           x = ShovelSpecHelpers.setup_qs(ch, "prefetch_").first
           100.times do
             x.publish_confirm "shovel me", "prefetch_q1"
           end
           wait_for { s.vhosts["/"].queues["prefetch_q1"].message_count == 100 }
+          shovel = LavinMQ::Shovel::Runner.new(source, dest, "prefetch_shovel", vhost)
           shovel.run
           wait_for { shovel.terminated? }
           s.vhosts["/"].queues["prefetch_q1"].message_count.should eq 0
@@ -333,7 +330,6 @@ describe LavinMQ::Shovel do
           "spec",
           URI.parse(s.amqp_url),
           "prefetch2_q2",
-          prefetch: prefetch,
           direct_user: s.users.direct_user
         )
         shovel = LavinMQ::Shovel::Runner.new(source, dest, "prefetch2_shovel", vhost)
@@ -430,9 +426,7 @@ describe LavinMQ::Shovel do
           "spec",
           URI.parse(s.amqp_url),
           q2_name,
-          delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
           direct_user: s.users.direct_user,
-          consumer_args: consumer_args
         )
 
         shovel = LavinMQ::Shovel::Runner.new(source, dest, "ql_shovel", vhost)
@@ -481,7 +475,6 @@ describe LavinMQ::Shovel do
           "#{long_prefix}q2",
           URI.parse(s.amqp_url),
           "#{long_prefix}q2",
-          delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
           direct_user: s.users.direct_user
         )
         shovel = LavinMQ::Shovel::Runner.new(source, dest, "ql_shovel", vhost)

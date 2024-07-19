@@ -32,7 +32,7 @@ module LavinMQ
         ack_mode,
         config["src-consumer-args"]?.try &.as_h?,
         direct_user: @vhost.users.direct_user)
-      dest = destination(name, config, ack_mode, delete_after, prefetch)
+      dest = destination(name, config, ack_mode)
       shovel = Shovel::Runner.new(src, dest, name, @vhost, reconnect_delay)
       @shovels[name] = shovel
       spawn(shovel.run, name: "Shovel name=#{name} vhost=#{@vhost.name}")
@@ -48,7 +48,7 @@ module LavinMQ
       end
     end
 
-    private def destination(name, config, ack_mode, delete_after, prefetch)
+    private def destination(name, config, ack_mode)
       uris = parse_uris(config["dest-uri"])
       destinations = uris.map do |uri|
         case uri.scheme
@@ -59,8 +59,7 @@ module LavinMQ
             config["dest-queue"]?.try &.as_s?,
             config["dest-exchange"]?.try &.as_s?,
             config["dest-exchange-key"]?.try &.as_s?,
-            delete_after: delete_after,
-            prefetch: prefetch,
+            ack_mode,
             direct_user: @vhost.users.direct_user)
         end
       end

@@ -207,10 +207,7 @@ module LavinMQ
       @ch : ::AMQP::Client::Channel?
 
       def initialize(@name : String, @uri : URI, @queue : String?, @exchange : String? = nil,
-                     @exchange_key : String? = nil,
-                     @delete_after = DEFAULT_DELETE_AFTER, @prefetch = DEFAULT_PREFETCH,
-                     @ack_mode = DEFAULT_ACK_MODE, consumer_args : Hash(String, JSON::Any)? = nil,
-                     direct_user : User? = nil)
+                     @exchange_key : String? = nil, @ack_mode = DEFAULT_ACK_MODE, direct_user : User? = nil)
         unless @uri.user
           if direct_user
             @uri.user = direct_user.name
@@ -228,10 +225,6 @@ module LavinMQ
         end
         if @exchange.nil?
           raise ArgumentError.new("Shovel destination requires an exchange")
-        end
-        @args = AMQ::Protocol::Table.new
-        consumer_args.try &.each do |k, v|
-          @args[k] = v.as_s?
         end
       end
 
