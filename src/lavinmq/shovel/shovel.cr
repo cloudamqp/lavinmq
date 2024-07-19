@@ -1,6 +1,7 @@
 require "../sortable_json"
 require "amqp-client"
 require "http/client"
+require "wait_group"
 
 module LavinMQ
   module Shovel
@@ -78,28 +79,33 @@ module LavinMQ
 
       def stop
         # If we have any outstanding messages when closing, ack them first.
-        @last_unacked.try { |delivery_tag| ack(delivery_tag, close: true) }
+        @ch.try &.basic_cancel(@tag, no_wait: true)
+        @last_unacked.try { |delivery_tag| ack(delivery_tag) }
         @conn.try &.close(no_wait: false)
         @q = nil
         @ch = nil
       end
 
       private def at_end?(delivery_tag)
-        @q.not_nil![:message_count] == delivery_tag
+        @delete_after.queue_length? && @q.not_nil![:message_count] == delivery_tag
       end
 
-      def ack(delivery_tag, close = false)
-        @ch.try do |ch|
-          next if ch.closed?
+      private def past_end?(delivery_tag)
+        @delete_after.queue_length? && @q.not_nil![:message_count] < delivery_tag
+      end
+
+      @done = WaitGroup.new(1)
+
+      def ack(delivery_tag)
+        if ch = @ch
+          return if ch.closed?
 
           # We batch ack for faster shovel
           batch_full = delivery_tag % (@prefetch / 2).ceil.to_i == 0
-          if close || batch_full || at_end?(delivery_tag)
+          if batch_full || at_end?(delivery_tag)
             @last_unacked = nil
             ch.basic_ack(delivery_tag, multiple: true)
-            if close || (@delete_after.queue_length? && at_end?(delivery_tag))
-              ch.basic_cancel(@tag)
-            end
+            @done.done if at_end?(delivery_tag)
           else
             @last_unacked = delivery_tag
           end
@@ -114,7 +120,6 @@ module LavinMQ
         @ch.try &.close
         conn = @conn.not_nil!
         @ch = ch = conn.channel
-        ch.prefetch @prefetch
         q_name = @queue || ""
         @q = q = begin
           ch.queue_declare(q_name, passive: true)
@@ -125,6 +130,10 @@ module LavinMQ
         if @exchange || @exchange_key
           ch.queue_bind(q[:queue_name], @exchange || "", @exchange_key || "")
         end
+        if @delete_after.queue_length? && q[:message_count] > 0
+          @prefetch = Math.min(q[:message_count], @prefetch).to_u16
+        end
+        ch.prefetch @prefetch
       end
 
       def each(&blk : ::AMQP::Client::DeliverMessage -> Nil)
@@ -139,10 +148,10 @@ module LavinMQ
           block: true,
           args: @args,
           tag: @tag) do |msg|
-          blk.call(msg)
-
-          if @ack_mode.no_ack? && @delete_after.queue_length? && at_end?(msg.delivery_tag)
-            ch.basic_cancel(@tag)
+          blk.call(msg) unless past_end?(msg.delivery_tag)
+          if at_end?(msg.delivery_tag)
+            ch.basic_cancel(@tag, no_wait: true)
+            @done.wait # wait for last ack before returning, which will close connection
           end
         rescue e : FailedDeliveryError
           msg.reject

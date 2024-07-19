@@ -1,6 +1,7 @@
 require "./spec_helper"
 require "../src/lavinmq/shovel"
 require "http/server"
+require "wait_group"
 
 module ShovelSpecHelpers
   def self.setup_qs(ch, prefix = "") : {AMQP::Client::Exchange, AMQP::Client::Queue}
@@ -13,6 +14,40 @@ end
 
 describe LavinMQ::Shovel do
   describe "AMQP" do
+    it "will wait to ack all msgs before deleting it self" do
+      with_amqp_server do |s|
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec",
+          [URI.parse(s.amqp_url)],
+          "d",
+          delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
+          direct_user: s.users.direct_user
+        )
+        dest = LavinMQ::Shovel::AMQPDestination.new(
+          "spec",
+          URI.parse(s.amqp_url),
+          "q",
+          direct_user: s.users.direct_user
+        )
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "ql_shovel", s.vhosts["/"])
+        with_channel(s) do |ch|
+          q = ch.queue("q", args: AMQ::Protocol::Table.new({"x-dead-letter-exchange": "amq.fanout"}))
+          d = ch.queue("d")
+          d.bind("amq.fanout", "")
+          done = WaitGroup.new
+          q.subscribe(no_ack: false) { |msg| msg.reject; done.done }
+          done.add
+          q.publish "foobar"
+          done.wait
+          done.add
+          shovel.run
+          done.wait
+          q.message_count.should eq 0
+          d.message_count.should eq 1
+        end
+      end
+    end
+
     it "should shovel and stop when queue length is met" do
       with_amqp_server do |s|
         vhost = s.vhosts.create("x")
