@@ -41,7 +41,7 @@ module LavinMQ
         Signal::TERM.trap { close_and_exit }
       end
 
-      def close_and_exit
+      private def close_and_exit
         Log.info { "Received termination signal, shutting down..." }
         close
         exit 0
