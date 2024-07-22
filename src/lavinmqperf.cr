@@ -185,11 +185,7 @@ class Throughput < Perf
       consumes_last = @consumes
       sleep 1
       unless @quiet
-        print "Publish rate: "
-        print @pubs - pubs_last
-        print " msgs/s Consume rate: "
-        print @consumes - consumes_last
-        print " msgs/s\n"
+        puts "Publish rate: #{@pubs - pubs_last} msgs/s Consume rate: #{@consumes - consumes_last} msgs/s"
       end
     end
     summary(start)
@@ -200,8 +196,8 @@ class Throughput < Perf
     elapsed = (stop - start).total_seconds
     avg_pub = (@pubs / elapsed).round(1)
     avg_consume = (@consumes / elapsed).round(1)
+    puts
     if @json_output
-      print "\n"
       JSON.build(STDOUT) do |json|
         json.object do
           json.field "elapsed_seconds", elapsed
@@ -209,15 +205,11 @@ class Throughput < Perf
           json.field "avg_consume_rate", avg_consume
         end
       end
-      print "\n"
+      puts
     else
-      print "\nSummary:\n"
-      print "Average publish rate: "
-      print avg_pub
-      print " msgs/s\n"
-      print "Average consume rate: "
-      print avg_consume
-      print " msgs/s\n"
+      puts "Summary:"
+      puts "Average publish rate: #{avg_pub} msgs/s"
+      puts "Average consume rate: #{avg_consume} msgs/s"
     end
   end
 
