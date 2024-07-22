@@ -5,6 +5,7 @@ require "amqp-client"
 require "benchmark"
 require "json"
 require "log"
+require "wait_group"
 
 Log.setup_from_env
 
@@ -144,7 +145,7 @@ class Throughput < Perf
   def run
     super
 
-    done = Channel(Nil).new
+    done = WaitGroup.new(@consumers + @publishers)
     @consumers.times do
       if @poll
         spawn { reconnect_on_disconnect(done) { poll_consume } }
@@ -169,12 +170,12 @@ class Throughput < Perf
     Signal::INT.trap do
       abort "Aborting" if @stopped
       @stopped = true
-      summary(start, done)
+      summary(start)
       exit 0
     end
 
     spawn do
-      (@publishers + @consumers).times { done.receive }
+      done.wait
       @stopped = true
     end
 
@@ -191,10 +192,10 @@ class Throughput < Perf
         print " msgs/s\n"
       end
     end
-    summary(start, done)
+    summary(start)
   end
 
-  private def summary(start : Time::Span, done)
+  private def summary(start : Time::Span)
     stop = Time.monotonic
     elapsed = (stop - start).total_seconds
     avg_pub = (@pubs / elapsed).round(1)
@@ -344,7 +345,7 @@ class Throughput < Perf
       sleep 1
     end
   ensure
-    done.send nil
+    done.done
   end
 end
 
