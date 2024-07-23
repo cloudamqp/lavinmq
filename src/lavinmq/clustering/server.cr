@@ -202,7 +202,6 @@ module LavinMQ
           Log.warn { "ISR requirement not met (#{isr_count}/#{@config.clustering_min_isr})" }
           isr_count = @has_followers.receive? || return
         end
-        end
         @lock.synchronize do
           update_isr if @dirty_isr
           @followers.each do |f|
