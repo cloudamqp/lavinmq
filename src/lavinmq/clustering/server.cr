@@ -197,7 +197,7 @@ module LavinMQ
       private def each_follower(& : Follower -> Nil) : Nil
         isr_count = @followers.size
         return if @listeners.empty? # Don't require ISRs before the server has started and followers can connect
-        
+
         until isr_count >= @config.clustering_min_isr
           Log.warn { "ISR requirement not met (#{isr_count}/#{@config.clustering_min_isr})" }
           isr_count = @has_followers.receive? || return
