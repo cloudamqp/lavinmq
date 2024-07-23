@@ -16,6 +16,7 @@ module LavinMQ
       end
 
       def initialize(path : String)
+        File.delete?(path)
         @server = s = UNIXServer.new(path)
         @local_address = s.local_address.to_s
         File.chmod(path, 0o666)
