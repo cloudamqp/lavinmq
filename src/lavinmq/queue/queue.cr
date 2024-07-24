@@ -11,6 +11,7 @@ require "../error"
 require "./state"
 require "./event"
 require "./message_store"
+require "../unacked_message"
 
 module LavinMQ
   class Queue
