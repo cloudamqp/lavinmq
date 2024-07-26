@@ -169,6 +169,7 @@ class MFile < IO
 
   def finalize
     LibC.printf("mfile#finalize %s\n", @path)
+    PerfTools::MemProf.untrack self.as(Pointer(Void)) # https://github.com/crystal-lang/perf-tools/issues/19
     LibC.close(@fd) if @fd > -1
     LibC.munmap(@buffer, @capacity) unless @buffer.null?
   end

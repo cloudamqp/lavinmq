@@ -17,8 +17,8 @@ shards:
     version: 1.0.0+git.commit.96d714f7593c66ca7425872fd26c7b1286806d3d
 
   perf_tools:
-    git: https://github.com/crystal-lang/perf-tools.git
-    version: 0.1.0+git.commit.72f0956c9edfb2a67d4eb18e134a34c711a9d94a
+    git: https://github.com/beta-ziliani/perf-tools.git
+    version: 0.1.0+git.commit.a0f545af92c8347b4339bb3409add5f5f6045a6d
 
   systemd:
     git: https://github.com/84codes/systemd.cr.git
