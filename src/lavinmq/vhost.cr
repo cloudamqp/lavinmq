@@ -596,12 +596,14 @@ module LavinMQ
       when AMQP::Frame::Exchange::Delete
         @etcd.del(join_path("lavinmq", @name, "exchanges", f.exchange_name))
       when AMQP::Frame::Exchange::Bind
-        @etcd.put(join_path("lavinmq", @name, "exchange", f.destination, "bindings", f.source, f.routing_key, f.arguments.hash),
+        args_hash = f.arguments.hash(Crystal::Hasher.new(0, 0)).result
+        @etcd.put(join_path("lavinmq", @name, "exchange", f.destination, "bindings", f.source, f.routing_key, args_hash),
           {
             arguments: f.arguments,
           }.to_json)
       when AMQP::Frame::Exchange::Unbind
-        @etcd.del(join_path("lavinmq", @name, "exchange", f.destination, "bindings", f.source, f.routing_key, f.arguments.hash))
+        args_hash = f.arguments.hash(Crystal::Hasher.new(0, 0)).result
+        @etcd.del(join_path("lavinmq", @name, "exchange", f.destination, "bindings", f.source, f.routing_key, args_hash))
       when AMQP::Frame::Queue::Declare
         @etcd.put(join_path("lavinmq", @name, "queues", f.queue_name), {
           arguments: f.arguments,
@@ -609,12 +611,14 @@ module LavinMQ
       when AMQP::Frame::Queue::Delete
         @etcd.del(join_path("lavinmq", @name, "queues", f.queue_name))
       when AMQP::Frame::Queue::Bind
-        @etcd.put(join_path("lavinmq", @name, "queues", f.queue_name, "bindings", f.exchange_name, f.routing_key, f.arguments.hash),
+        args_hash = f.arguments.hash(Crystal::Hasher.new(0, 0)).result
+        @etcd.put(join_path("lavinmq", @name, "queues", f.queue_name, "bindings", f.exchange_name, f.routing_key, args_hash),
           {
             arguments: f.arguments,
           }.to_json)
       when AMQP::Frame::Queue::Unbind
-        @etcd.put(join_path("lavinmq", @name, "queues", f.queue_name, "bindings", f.exchange_name, f.routing_key, f.arguments.hash))
+        args_hash = f.arguments.hash(Crystal::Hasher.new(0, 0)).result
+        @etcd.del(join_path("lavinmq", @name, "queues", f.queue_name, "bindings", f.exchange_name, f.routing_key, args_hash))
       else raise "Cannot apply frame #{f.class} in vhost #{@name}"
       end
     end
