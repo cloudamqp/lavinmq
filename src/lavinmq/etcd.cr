@@ -254,10 +254,6 @@ module LavinMQ
           return yield({socket, address})
         rescue ex : NoLeader
           raise ex # don't retry when leader is missing
-        rescue ex : Error
-          Log.warn { "Service Unavailable at #{address}, #{ex.message}, retrying" }
-          socket.close rescue nil
-          sleep 0.1.seconds
         rescue IO::Error
           Log.warn { "Lost connection to #{address}, retrying" }
           socket.close rescue nil
