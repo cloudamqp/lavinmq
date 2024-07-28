@@ -584,6 +584,50 @@ module LavinMQ
       end
     end
 
+    private def store_definition_in_etcd(frame)
+      case f
+      when AMQP::Frame::Exchange::Declare
+        @etcd.put(join_path("lavinmq", @name, "exchanges", f.exchange_name), {
+          type:        f.exchange_type,
+          auto_delete: f.auto_delete,
+          internal:    f.internal,
+          arguments:   f.arguments,
+        }.to_json)
+      when AMQP::Frame::Exchange::Delete
+        @etcd.del(join_path("lavinmq", @name, "exchanges", f.exchange_name))
+      when AMQP::Frame::Exchange::Bind
+        @etcd.put(join_path("lavinmq", @name, "exchange", f.destination, "bindings", f.source, f.routing_key, f.arguments.hash),
+          {
+            arguments: f.arguments,
+          }.to_json)
+      when AMQP::Frame::Exchange::Unbind
+        @etcd.del(join_path("lavinmq", @name, "exchange", f.destination, "bindings", f.source, f.routing_key, f.arguments.hash))
+      when AMQP::Frame::Queue::Declare
+        @etcd.put(join_path("lavinmq", @name, "queues", f.queue_name), {
+          arguments: f.arguments,
+        }.to_json)
+      when AMQP::Frame::Queue::Delete
+        @etcd.del(join_path("lavinmq", @name, "queues", f.queue_name))
+      when AMQP::Frame::Queue::Bind
+        @etcd.put(join_path("lavinmq", @name, "queues", f.queue_name, "bindings", f.exchange_name, f.routing_key, f.arguments.hash),
+          {
+            arguments: f.arguments,
+          }.to_json)
+      when AMQP::Frame::Queue::Unbind
+        @etcd.put(join_path("lavinmq", @name, "queues", f.queue_name, "bindings", f.exchange_name, f.routing_key, f.arguments.hash))
+      else raise "Cannot apply frame #{f.class} in vhost #{@name}"
+      end
+    end
+
+    private def join_path(*args)
+      String.build do |str|
+        args.each_with_index do |a, i|
+          str << "/" unless i.zero?
+          URI.encode_www_form a.to_s, str
+        end
+      end
+    end
+
     private def make_exchange(vhost, name, type, durable, auto_delete, internal, arguments)
       case type
       when "direct"

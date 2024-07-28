@@ -19,6 +19,20 @@ module LavinMQ
       end
     end
 
+    def get_prefix(key) : Array(String)
+      range_end = key.to_slice.dup
+      len = range_end.bytesize
+      (len - 1).downto(0) do |i|
+        (range_end[i] &+= 1).zero? || break # continue if wrapped around
+        len = i
+      end
+      range_end = len.zero? ? Bytes[0] : range_end[0, len] # drop ending null values
+      json = post("/v3/kv/range", %({"key":"#{Base64.strict_encode key}","range_end":"#{Base64.strict_encode range_end}","limit":0,"serializable":true}))
+      json["kvs"].as_a.map do |kv|
+        Base64.decode_string kv["value"].as_s
+      end
+    end
+
     def put(key, value) : String?
       body = %({"key":"#{Base64.strict_encode key}","value":"#{Base64.strict_encode value}","prev_kv":true})
       json = post("/v3/kv/put", body)
