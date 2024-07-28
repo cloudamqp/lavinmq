@@ -19,17 +19,22 @@ module LavinMQ
       end
     end
 
-    def get_prefix(key) : Array(String)
-      range_end = key.to_slice.dup
+    # Get all keys with a prefix
+    def get_prefix(prefix) : Array(String)
+      range_end = prefix.to_slice.dup
       len = range_end.bytesize
       (len - 1).downto(0) do |i|
         (range_end[i] &+= 1).zero? || break # continue if wrapped around
         len = i
       end
       range_end = len.zero? ? Bytes[0] : range_end[0, len] # drop ending null values
-      json = post("/v3/kv/range", %({"key":"#{Base64.strict_encode key}","range_end":"#{Base64.strict_encode range_end}","limit":0,"serializable":true}))
-      json["kvs"].as_a.map do |kv|
-        Base64.decode_string kv["value"].as_s
+      json = post("/v3/kv/range", %({"key":"#{Base64.strict_encode prefix}","range_end":"#{Base64.strict_encode range_end}","limit":0,"serializable":true}))
+      if kvs = json["kvs"]?
+        kvs.as_a.map do |kv|
+          Base64.decode_string kv["value"].as_s
+        end
+      else
+        Array(String).new(0)
       end
     end
 
@@ -41,9 +46,23 @@ module LavinMQ
       end
     end
 
+    # Delete a key
     def del(key) : Int32
       json = post("/v3/kv/deleterange", %({"key":"#{Base64.strict_encode key}"}))
       json.dig?("deleted").try(&.as_s.to_i) || 0
+    end
+
+    # Delete all keys with a prefix
+    def del_prefix(prefix) : Int32
+      range_end = prefix.to_slice.dup
+      len = range_end.bytesize
+      (len - 1).downto(0) do |i|
+        (range_end[i] &+= 1).zero? || break # continue if wrapped around
+        len = i
+      end
+      range_end = len.zero? ? Bytes[0] : range_end[0, len] # drop ending null values
+      json = post("/v3/kv/deleterange", %({"key":"#{Base64.strict_encode prefix}","range_end":"#{Base64.strict_encode range_end}"}))
+      json["deleted"].as_s.to_i
     end
 
     def watch(key, &)

@@ -14,6 +14,30 @@ describe LavinMQ::Etcd do
     end
   end
 
+  it "can get all keys with a prefix" do
+    cluster = EtcdCluster.new(1)
+    cluster.run do
+      etcd = LavinMQ::Etcd.new(cluster.endpoints)
+      etcd.put("foo/a", "bar")
+      etcd.put("foo/b", "bar")
+      etcd.put("fou/c", "bar")
+      etcd.get_prefix("foo").should eq %w(bar bar)
+    end
+  end
+
+  it "can get delete all keys with a prefix" do
+    cluster = EtcdCluster.new(1)
+    cluster.run do
+      etcd = LavinMQ::Etcd.new(cluster.endpoints)
+      etcd.put("foo/a", "bar")
+      etcd.put("foo/b", "bar")
+      etcd.put("fou/c", "bar")
+      etcd.del_prefix("foo").should eq 2
+      etcd.get_prefix("foo").should eq %w()
+      etcd.get("foo/a").should be_nil
+    end
+  end
+
   it "can watch" do
     cluster = EtcdCluster.new(1)
     cluster.run do
