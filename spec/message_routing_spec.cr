@@ -289,8 +289,11 @@ describe LavinMQ::HeadersExchange do
       hdrs1 = LavinMQ::AMQP::Table.new({
         "x-match" => "any", "org" => "84codes", "user" => "test",
       })
+      hdrs2 = LavinMQ::AMQP::Table.new({
+        "x-match" => "any", "user" => "test", "org" => "84codes",
+      })
       x.bind(q12, "", hdrs1)
-      x.unbind(q12, "", hdrs1)
+      x.unbind(q12, "", hdrs2)
       x.matches("", hdrs1).size.should eq 0
     end
 
