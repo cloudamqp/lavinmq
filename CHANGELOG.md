@@ -12,7 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Build with Crystal 1.13.1
-
+- Yield at end of while loop in Queue#drop_overflow to avoid holding the fiber for too long [#725](https://github.com/cloudamqp/lavinmq/pull/725)
+  
 ### Fixed
 
 - Make proxied UNIX sockets in followers RW for all
