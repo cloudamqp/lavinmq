@@ -67,10 +67,10 @@ function render (id, unit, options = {}, stacked = false) {
           }
         },
         y: {
-          scaleLabel: {
+          title: {
             display: true,
-            labelString: unit,
-            fontSize: 14
+            text: unit,
+            fontsize: 14
           },
           ticks: {
             beginAtZero: true,
