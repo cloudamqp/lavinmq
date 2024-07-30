@@ -21,7 +21,7 @@ describe LavinMQ::Etcd do
       etcd.put("foo/a", "bar")
       etcd.put("foo/b", "bar")
       etcd.put("fou/c", "bar")
-      etcd.get_prefix("foo").should eq %w(bar bar)
+      etcd.get_prefix("foo").should eq Hash{"foo/a" => "bar", "foo/b" => "bar"}
     end
   end
 
@@ -33,7 +33,7 @@ describe LavinMQ::Etcd do
       etcd.put("foo/b", "bar")
       etcd.put("fou/c", "bar")
       etcd.del_prefix("foo").should eq 2
-      etcd.get_prefix("foo").should eq %w()
+      etcd.get_prefix("foo").empty?.should be_true
       etcd.get("foo/a").should be_nil
     end
   end
