@@ -144,7 +144,7 @@ setInterval(updateQueue, 5000)
 
 const tableOptions = {
   dataSource: new UrlDataSource(queueUrl + '/bindings', { useQueryState: false }),
-  keyColumns: ['properties_key', 'source', 'routing_key'],
+  keyColumns: ['source', 'properties_key'],
   countId: 'bindings-count'
 }
 const bindingsTable = Table.renderTable('bindings-table', tableOptions, function (tr, item, all) {
