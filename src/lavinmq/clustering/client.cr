@@ -33,6 +33,14 @@ module LavinMQ
           @unix_amqp_proxy = Proxy.new(@config.unix_path) unless @config.unix_path.empty?
           @unix_http_proxy = Proxy.new(@config.http_unix_path) unless @config.http_unix_path.empty?
         end
+        Signal::INT.trap { close_and_exit }
+        Signal::TERM.trap { close_and_exit }
+      end
+
+      private def close_and_exit
+        Log.info { "Received termination signal, shutting down..." }
+        close
+        exit 0
       end
 
       def follow(uri : String)
