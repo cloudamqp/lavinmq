@@ -20,7 +20,7 @@ module LavinMQ
     end
 
     # Get all keys with a prefix
-    def get_prefix(prefix) : Array(String)
+    def get_prefix(prefix) : Hash(String, String)
       range_end = prefix.to_slice.dup
       len = range_end.bytesize
       (len - 1).downto(0) do |i|
@@ -29,13 +29,15 @@ module LavinMQ
       end
       range_end = len.zero? ? Bytes[0] : range_end[0, len] # drop ending null values
       json = post("/v3/kv/range", %({"key":"#{Base64.strict_encode prefix}","range_end":"#{Base64.strict_encode range_end}","limit":0,"serializable":true}))
+      result = Hash(String, String).new
       if kvs = json["kvs"]?
-        kvs.as_a.map do |kv|
-          Base64.decode_string kv["value"].as_s
+        kvs.as_a.each do |kv|
+          key = Base64.decode_string kv["key"].as_s
+          value = Base64.decode_string kv["value"].as_s
+          result[key] = value
         end
-      else
-        Array(String).new(0)
       end
+      result
     end
 
     def put(key, value) : String?
