@@ -13,11 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Build with Crystal 1.13.1
 - Yield at end of while loop in Queue#drop_overflow to avoid holding the fiber for too long [#725](https://github.com/cloudamqp/lavinmq/pull/725)
-  
+
 ### Fixed
 
 - Make proxied UNIX sockets in followers RW for all
 - SystemD notify ready in cluster mode when lader is found
+- Make keyColumns look for unique combinations on bindings tables [#726](https://github.com/cloudamqp/lavinmq/pull/726)
 
 ## [2.0.0-rc.2] - 2024-07-05
 
