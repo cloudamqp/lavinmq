@@ -672,7 +672,7 @@ describe LavinMQ::HTTP::Server do
         "auto_delete": false,
         "delayed": true
       })
-      response = http.put("/api/exchanges/%2f/test-delayed", body: body)
+      http.put("/api/exchanges/%2f/test-delayed", body: body)
       response = http.get("/api/definitions")
       body = JSON.parse(response.body)
       http.delete("/api/exchanges/%2f/test-delayed")
