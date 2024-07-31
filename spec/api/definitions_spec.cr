@@ -673,13 +673,10 @@ describe LavinMQ::HTTP::Server do
         "delayed": true
       })
       response = http.put("/api/exchanges/%2f/test-delayed", body: body)
-      wait_for { s.vhosts["/"].exchanges.has_key?("test-delayed") == true }
       response = http.get("/api/definitions")
       body = JSON.parse(response.body)
       http.delete("/api/exchanges/%2f/test-delayed")
-      wait_for { s.vhosts["/"].exchanges.has_key?("test-delayed") == false }
       LavinMQ::HTTP::DefinitionsController::GlobalDefinitions.new(s).import(body)
-      wait_for { s.vhosts["/"].exchanges.has_key?("test-delayed") == true }
       response = http.get("/api/exchanges/%2f/test-delayed")
       response.status_code.should eq 200
     end
