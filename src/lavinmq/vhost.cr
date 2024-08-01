@@ -675,7 +675,7 @@ module LavinMQ
         TopicExchange.new(vhost, name, durable, auto_delete, internal, arguments)
       when "headers"
         HeadersExchange.new(vhost, name, durable, auto_delete, internal, arguments)
-      when "x-delayed-message"
+      when "x-delayed-message", "x-delayed-exchange"
         arguments = arguments.clone
         type = arguments.delete("x-delayed-type")
         raise Error::ExchangeTypeError.new("Missing required argument 'x-delayed-type'") unless type

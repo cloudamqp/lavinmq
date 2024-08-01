@@ -662,4 +662,23 @@ describe LavinMQ::HTTP::Server do
       vhost.exchanges["test"].match?(*args).should be_true
     end
   end
+
+  it "should be able to import delayed exchanges created in LavinMQ (issue #743)" do
+    with_http_server do |http, s|
+      body = %({
+        "type": "direct",
+        "durable": true,
+        "internal": false,
+        "auto_delete": false,
+        "delayed": true
+      })
+      http.put("/api/exchanges/%2f/test-delayed", body: body)
+      response = http.get("/api/definitions")
+      body = JSON.parse(response.body)
+      http.delete("/api/exchanges/%2f/test-delayed")
+      LavinMQ::HTTP::DefinitionsController::GlobalDefinitions.new(s).import(body)
+      response = http.get("/api/exchanges/%2f/test-delayed")
+      response.status_code.should eq 200
+    end
+  end
 end
