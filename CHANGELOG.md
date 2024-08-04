@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Memory leak in Crystal's Hash implementation
+- Accept `x-delayed-exchange` and `x-delayed-messages` as exchange type for delayed message the exchanges
+- Bindings are sorted properly in the web interface
+- Wait for followers to synchronize on shutdown of leader
+- Shovel the exact number of messages available on start if `delete-after=queue-length`, not more
+- Prevet a queue that's overflowing to consume too much resources
+
+### Changed
+
+- Merge the header field and properties.header fields when publishing messages in the web interface
+
 ## [2.0.0-rc.3] - 2024-07-12
 
 ### Changed
