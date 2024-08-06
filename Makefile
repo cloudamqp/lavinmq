@@ -2,7 +2,7 @@ BINS := bin/lavinmq bin/lavinmqctl bin/lavinmqperf
 SOURCES := $(shell find src/lavinmq src/stdlib -name '*.cr' 2> /dev/null)
 JS := static/js/lib/chunks/helpers.segment.js static/js/lib/chart.js static/js/lib/amqp-websocket-client.mjs static/js/lib/amqp-websocket-client.mjs.map static/js/lib/luxon.js static/js/lib/chartjs-adapter-luxon.esm.js static/js/lib/elements-8.2.0.js static/js/lib/elements-8.2.0.css
 CRYSTAL_FLAGS := --release
-override CRYSTAL_FLAGS += --error-on-warnings --link-flags=-pie
+override CRYSTAL_FLAGS += --error-on-warnings --link-flags=-pie -Dgc_none
 
 .PHONY: all
 all: $(BINS)
@@ -14,7 +14,7 @@ bin/%-debug: src/%.cr $(SOURCES) lib $(JS) $(DOCS) | bin
 	crystal build $< -o $@ --debug $(CRYSTAL_FLAGS)
 
 bin/lavinmqperf: src/lavinmqperf.cr lib | bin
-	crystal build $< -o $@ -Dpreview_mt $(CRYSTAL_FLAGS)
+	crystal build $< -o $@ $(CRYSTAL_FLAGS)
 
 bin/lavinmqctl: src/lavinmqctl.cr lib | bin
 	crystal build $< -o $@ -Dgc_none $(CRYSTAL_FLAGS)

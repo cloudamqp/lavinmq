@@ -1,3 +1,6 @@
+{% if flag?(:gc_none) %}
+  require "immix"
+{% end %}
 require "./lavinmq/version"
 require "./stdlib/resource"
 require "option_parser"
