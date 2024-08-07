@@ -14,9 +14,9 @@ Naming/BlockParameterName:
 Lint/NotNil:
   Description: Identifies usage of `not_nil!` calls
   Excluded:
-  - src/lavinmq/client/amqp_connection.cr
-  - src/lavinmq/client/channel.cr
-  - src/lavinmq/client/client.cr
+  - src/lavinmq/amqp/connection_factory.cr
+  - src/lavinmq/amqp/channel.cr
+  - src/lavinmq/amqp/client.cr
   - src/lavinmq/federation/link.cr
   - src/lavinmq/http/controller/main.cr
   - src/lavinmq/http/controller/exchanges.cr

@@ -1,16 +1,16 @@
-require "./channel/consumer"
-require "./channel/stream_consumer"
-require "../logger"
+require "./client"
+require "./consumer"
+require "./stream_consumer"
+require "../error"
 require "../queue"
 require "../exchange"
 require "../amqp"
 require "../stats"
 require "../sortable_json"
-require "../error"
 
 module LavinMQ
-  class Client
-    class Channel
+  module AMQP
+    class Channel < LavinMQ::Client::Channel
       include Stats
       include SortableJSON
 
@@ -39,7 +39,7 @@ module LavinMQ
 
       rate_stats({"ack", "get", "publish", "deliver", "redeliver", "reject", "confirm", "return_unroutable"})
 
-      Log = ::Log.for("channel")
+      Log = ::Log.for "AMQP.channel"
 
       def initialize(@client : Client, @id : UInt16)
         @metadata = ::Log::Metadata.new(nil, {client: @client.remote_address.to_s, channel: @id.to_i})
@@ -106,7 +106,7 @@ module LavinMQ
           @client.send_precondition_failed(frame, "Server low on disk space")
           return
         end
-        raise Error::UnexpectedFrame.new(frame) if @next_publish_exchange_name
+        raise LavinMQ::Error::UnexpectedFrame.new(frame) if @next_publish_exchange_name
         if ex = @client.vhost.exchanges[frame.exchange]?
           if !ex.internal?
             @next_publish_exchange_name = frame.exchange
@@ -126,9 +126,9 @@ module LavinMQ
       end
 
       def next_msg_headers(frame)
-        raise Error::UnexpectedFrame.new(frame) if @next_publish_exchange_name.nil?
-        raise Error::UnexpectedFrame.new(frame) if @next_msg_props
-        raise Error::UnexpectedFrame.new(frame) if frame.class_id != 60
+        raise LavinMQ::Error::UnexpectedFrame.new(frame) if @next_publish_exchange_name.nil?
+        raise LavinMQ::Error::UnexpectedFrame.new(frame) if @next_msg_props
+        raise LavinMQ::Error::UnexpectedFrame.new(frame) if frame.class_id != 60
         valid_expiration?(frame) || return
         if direct_reply_to?(frame.properties.reply_to)
           if drc = @direct_reply_consumer
@@ -154,7 +154,7 @@ module LavinMQ
       def add_content(frame)
         if @next_publish_exchange_name.nil? || @next_msg_props.nil?
           frame.body.skip(frame.body_size)
-          raise Error::UnexpectedFrame.new(frame)
+          raise LavinMQ::Error::UnexpectedFrame.new(frame)
         end
         if @tx # in transaction mode, copy all bodies to the tmp file serially
           copied = IO.copy(frame.body, next_msg_body_file, frame.body_size)
@@ -248,7 +248,7 @@ module LavinMQ
         confirm do
           ok = @client.vhost.publish msg, @next_publish_immediate, @visited, @found_queues
           basic_return(msg, @next_publish_mandatory, @next_publish_immediate) unless ok
-        rescue e : Error::PreconditionFailed
+        rescue e : LavinMQ::Error::PreconditionFailed
           msg.body_io.skip(msg.bodysize)
           send AMQP::Frame::Channel::Close.new(@id, 406_u16, "PRECONDITION_FAILED - #{e.message}", 60_u16, 40_u16)
         end
@@ -261,7 +261,7 @@ module LavinMQ
         if user_id && user_id != current_user.name && !current_user.can_impersonate?
           text = "Message's user_id property '#{user_id}' doesn't match actual user '#{current_user.name}'"
           @log.error { text }
-          raise Error::PreconditionFailed.new(text)
+          raise LavinMQ::Error::PreconditionFailed.new(text)
         end
       end
 
@@ -359,9 +359,9 @@ module LavinMQ
             return
           end
           c = if q.is_a? StreamQueue
-                StreamConsumer.new(self, q, frame)
+                AMQP::StreamConsumer.new(self, q, frame)
               else
-                Consumer.new(self, q, frame)
+                AMQP::Consumer.new(self, q, frame)
               end
           @consumers.push(c)
           q.add_consumer(c)
