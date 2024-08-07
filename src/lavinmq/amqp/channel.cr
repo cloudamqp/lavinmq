@@ -39,7 +39,7 @@ module LavinMQ
 
       rate_stats({"ack", "get", "publish", "deliver", "redeliver", "reject", "confirm", "return_unroutable"})
 
-      Log = ::Log.for("channel")
+      Log = ::Log.for "AMQP.channel"
 
       def initialize(@client : Client, @id : UInt16)
         @metadata = ::Log::Metadata.new(nil, {client: @client.remote_address.to_s, channel: @id.to_i})

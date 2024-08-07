@@ -29,7 +29,7 @@ module LavinMQ
       @last_sent_frame = RoughTime.monotonic
       rate_stats({"send_oct", "recv_oct"})
       DEFAULT_EX = "amq.default"
-      Log        = ::Log.for("client")
+      Log        = ::Log.for "AMQP.client"
 
       def initialize(@socket : IO,
                     @connection_info : ConnectionInfo,
