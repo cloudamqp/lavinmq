@@ -32,11 +32,11 @@ module LavinMQ
       Log        = ::Log.for "AMQP.client"
 
       def initialize(@socket : IO,
-                    @connection_info : ConnectionInfo,
-                    @vhost : VHost,
-                    @user : User,
-                    tune_ok,
-                    start_ok)
+                     @connection_info : ConnectionInfo,
+                     @vhost : VHost,
+                     @user : User,
+                     tune_ok,
+                     start_ok)
         @remote_address = @connection_info.src
         @local_address = @connection_info.dst
 
@@ -244,11 +244,11 @@ module LavinMQ
               @log.trace { "Send BodyFrame (pos #{pos}, length #{length})" }
             {% end %}
             body = case msg
-                  in BytesMessage
-                    AMQP::Frame::BytesBody.new(frame.channel, length, msg.body[pos, length])
-                  in Message
-                    AMQP::Frame::Body.new(frame.channel, length, msg.body_io)
-                  end
+                   in BytesMessage
+                     AMQP::Frame::BytesBody.new(frame.channel, length, msg.body[pos, length])
+                   in Message
+                     AMQP::Frame::Body.new(frame.channel, length, msg.body_io)
+                   end
             socket.write_bytes body, ::IO::ByteFormat::NetworkEndian
             socket.flush if websocket
             @send_oct_count += 8_u64 + body.bytesize

@@ -102,7 +102,7 @@ module LavinMQ
         username, password = credentials(start_ok)
         user = users[username]?
         return user if user && user.password && user.password.not_nil!.verify(password) &&
-                      guest_only_loopback?(remote_address, user)
+                       guest_only_loopback?(remote_address, user)
 
         if user.nil?
           Log.warn { "User \"#{username}\" not found" }
