@@ -1,5 +1,6 @@
 require "log"
 require "../version"
+require "../amqp/client"
 
 module LavinMQ
   class AMQPConnection
@@ -14,7 +15,7 @@ module LavinMQ
             if tune_ok = tune(socket)
               if vhost = open(socket, vhosts, user)
                 socket.read_timeout = heartbeat_timeout(tune_ok)
-                return Client.new(socket, connection_info, vhost, user, tune_ok, start_ok)
+                return LavinMQ::AMQP::Client.new(socket, connection_info, vhost, user, tune_ok, start_ok)
               end
             end
           end

@@ -13,6 +13,7 @@ require "./config"
 require "./connection_info"
 require "./proxy_protocol"
 require "./client/client"
+require "./client/amqp_connection"
 require "./stats"
 
 module LavinMQ
