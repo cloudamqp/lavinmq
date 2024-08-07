@@ -13,6 +13,8 @@ require "./config"
 require "./connection_info"
 require "./proxy_protocol"
 require "./client/client"
+require "./client/connection_factory"
+require "./amqp/connection_factory"
 require "./stats"
 
 module LavinMQ
@@ -34,6 +36,7 @@ module LavinMQ
       @users = UserStore.new(@data_dir, @replicator)
       @vhosts = VHostStore.new(@data_dir, @users, @replicator)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator)
+      @amqp_connection_factory = LavinMQ::AMQP::ConnectionFactory.new
       apply_parameter
       spawn stats_loop, name: "Server#stats_loop"
     end
@@ -239,7 +242,7 @@ module LavinMQ
     end
 
     def handle_connection(socket, connection_info)
-      client = AMQPConnection.start(socket, connection_info, @vhosts, @users)
+      client = @amqp_connection_factory.start(socket, connection_info, @vhosts, @users)
     ensure
       socket.close if client.nil?
     end

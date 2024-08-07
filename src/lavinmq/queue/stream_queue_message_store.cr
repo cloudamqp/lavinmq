@@ -88,7 +88,7 @@ module LavinMQ
         {msg_offset, segment, pos}
       end
 
-      def shift?(consumer : Client::Channel::StreamConsumer) : Envelope?
+      def shift?(consumer : AMQP::StreamConsumer) : Envelope?
         raise ClosedError.new if @closed
 
         if env = shift_requeued(consumer.requeued)

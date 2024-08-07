@@ -1,5 +1,7 @@
 require "amq-protocol"
 
 module LavinMQ
-  alias AMQP = AMQ::Protocol
+  module AMQP
+    include AMQ::Protocol
+  end
 end
