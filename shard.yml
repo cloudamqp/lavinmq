@@ -36,6 +36,9 @@ dependencies:
 development_dependencies:
   ameba:
     github: crystal-ameba/ameba
+  perf_tools:
+    github: beta-ziliani/perf-tools
+    branch: feat/refered
 
 crystal: 1.13.0
 
