@@ -44,8 +44,12 @@ module LavinMQ
         headers.delete("x-delay")
         msg.properties.headers = headers
       end
-      @vhost.publish Message.new(msg.timestamp, msg.exchange_name, msg.routing_key,
-        msg.properties, msg.bodysize, IO::Memory.new(msg.body))
+      if exchange_name = arguments["x-dead-letter-exchange"]?.try &.to_s
+        @vhost.publish Message.new(msg.timestamp, exchange_name, msg.routing_key,
+          msg.properties, msg.bodysize, IO::Memory.new(msg.body))
+      else
+        @log.warn { "Can't publish delayed message #{sp}: missing x-dead-letter-exchange" }
+      end
       delete_message sp
     end
 
