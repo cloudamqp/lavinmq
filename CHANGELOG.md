@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Wait for followers to synchronize on shutdown of leader
 - Shovel the exact number of messages available on start if `delete-after=queue-length`, not more
 - Prevet a queue that's overflowing to consume too much resources
+- Dead-lettering loop when publishing to a delayed exchange's internal queue [#748](https://github.com/cloudamqp/lavinmq/pull/748)
 
 ### Changed
 

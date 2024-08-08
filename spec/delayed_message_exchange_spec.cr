@@ -119,4 +119,39 @@ describe "Delayed Message Exchange" do
       end
     end
   end
+
+  it "should always use x-dead-letter-exchange when expiring the message" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        x = ch.exchange(x_name, "topic", args: x_args)
+        q = ch.queue(q_name)
+        q.bind(x.name, "#")
+
+        delayed_q_name = s.vhosts["/"].exchanges[x_name].@delayed_queue.try &.name || raise "No delay queue?"
+
+        msgs = Channel(AMQP::Client::DeliverMessage).new
+        q.subscribe { |msg| msgs.send msg }
+
+        props = AMQP::Client::Properties.new(
+          headers: AMQP::Client::Arguments.new({
+            "x-delay" => 100,
+          }),
+        )
+
+        # Publish direct to the delayed queue which leaves exchange empty
+        ch.basic_publish "body", exchange: "", routing_key: delayed_q_name, props: props
+
+        # Wait for the message to be expired. Just receiving it actually verifies that
+        # exchange has been set to x-dead-letter-exchange
+        select
+        when msg = msgs.receive
+          msg.exchange.should eq x_name
+        when timeout 3.second
+          msgs.close
+          ch.close
+          raise "x-dead-letter-exchange not sent, message is looping?"
+        end
+      end
+    end
+  end
 end
