@@ -324,6 +324,7 @@ module LavinMQ
             ch = c.channel
             ch.queue_delete(@upstream_q)
             ch.exchange_delete(@upstream_q)
+            ch.exchange_delete(@upstream_exchange)
           end
         rescue e
           @log.warn(e) { "cleanup interrupted " }
