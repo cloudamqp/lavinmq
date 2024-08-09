@@ -323,6 +323,7 @@ module LavinMQ
           ::AMQP::Client.start(upstream_uri) do |c|
             ch = c.channel
             ch.queue_delete(@upstream_q)
+            ch.exchange_delete(@upstream_q)
           end
         rescue e
           @log.warn(e) { "cleanup interrupted " }
