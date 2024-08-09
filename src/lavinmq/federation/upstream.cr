@@ -63,7 +63,10 @@ module LavinMQ
         if link = @ex_links[federated_exchange.name]?
           return link
         end
-        upstream_exchange = @exchange ||= federated_exchange.name
+        upstream_exchange = @exchange || federated_exchange.name
+        if upstream_exchange.nil? || upstream_exchange.empty?
+          upstream_exchange = federated_exchange.name
+        end
         upstream_q = "federation: #{upstream_exchange} -> #{System.hostname}:#{vhost.name}:#{federated_exchange.name}"
         link = ExchangeLink.new(self, federated_exchange, upstream_q, upstream_exchange)
         @ex_links[federated_exchange.name] = link
