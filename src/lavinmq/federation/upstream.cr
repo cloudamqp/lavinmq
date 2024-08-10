@@ -63,7 +63,7 @@ module LavinMQ
         if link = @ex_links[federated_exchange.name]?
           return link
         end
-        upstream_exchange = @exchange || federated_exchange.name
+        upstream_exchange = @exchange
         if upstream_exchange.nil? || upstream_exchange.empty?
           upstream_exchange = federated_exchange.name
         end
