@@ -158,21 +158,6 @@ describe LavinMQ::Federation::Upstream do
     end
   end
 
-  it "should delete internal exchanges after deleting a federation link" do
-    with_amqp_server do |s|
-      vhost = s.vhosts["/"]
-      upstream, upstream_vhost = UpstreamSpecHelpers.setup_federation(s, "qf test upstream delete", "upstream_ex")
-      with_channel(s) do |ch|
-        downstream_ex = ch.exchange("downstream_ex", "topic")
-        link = upstream.link(vhost.exchanges[downstream_ex.name])
-        wait_for { link.state.running? }
-        upstream_vhost.exchanges["federation: upstream_ex -> #{System.hostname}:downstream:downstream_ex"]
-        link.terminate
-        upstream_vhost.exchanges.should_not contain("federation: upstream_ex -> #{System.hostname}:downstream:downstream_ex")
-      end
-    end
-  end
-
   it "should federate exchange" do
     with_amqp_server do |s|
       vhost = s.vhosts["/"]
@@ -376,6 +361,25 @@ describe LavinMQ::Federation::Upstream do
         wait_for { s.vhosts[us_vhost.name].queues[us_queue_name].message_count == 0 }
         wait_for { s.vhosts[ds_vhost.name].queues[ds_queue_name].message_count == 0 }
         wait_for { messages_consumed == 1 }
+      end
+    end
+  end
+
+  it "should delete internal exchange and queue after deleting a federation link" do
+    with_amqp_server do |s|
+      vhost = s.vhosts["/"]
+      upstream, upstream_vhost = UpstreamSpecHelpers.setup_federation(s, "qf test upstream delete", "upstream_ex", "upstream_q")
+      federation_name = "federation: upstream_ex -> #{System.hostname}:downstream:downstream_ex"
+
+      with_channel(s) do |ch|
+        downstream_ex = ch.exchange("downstream_ex", "topic")
+        link = upstream.link(vhost.exchanges[downstream_ex.name])
+        wait_for { link.state.running? }
+        upstream_vhost.queues[federation_name]
+        upstream_vhost.exchanges[federation_name]
+        link.terminate
+        upstream_vhost.queues.should_not contain(federation_name)
+        upstream_vhost.exchanges.should_not contain(federation_name)
       end
     end
   end
