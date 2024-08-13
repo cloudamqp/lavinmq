@@ -365,6 +365,25 @@ describe LavinMQ::Federation::Upstream do
     end
   end
 
+  it "should delete internal exchange and queue after deleting a federation link" do
+    with_amqp_server do |s|
+      vhost = s.vhosts["/"]
+      upstream, upstream_vhost = UpstreamSpecHelpers.setup_federation(s, "qf test upstream delete", "upstream_ex", "upstream_q")
+      federation_name = "federation: upstream_ex -> #{System.hostname}:downstream:downstream_ex"
+
+      with_channel(s) do |ch|
+        downstream_ex = ch.exchange("downstream_ex", "topic")
+        link = upstream.link(vhost.exchanges[downstream_ex.name])
+        wait_for { link.state.running? }
+        upstream_vhost.queues.has_key?(federation_name).should eq true
+        upstream_vhost.exchanges.has_key?(federation_name).should eq true
+        link.terminate
+        upstream_vhost.queues.has_key?(federation_name).should eq false
+        upstream_vhost.exchanges.has_key?(federation_name).should eq false
+      end
+    end
+  end
+
   it "should reflect all bindings to upstream q" do
     with_amqp_server do |s|
       upstream, upstream_vhost, _ = UpstreamSpecHelpers.setup_federation(s, "ef test bindings", "upstream_ex")
