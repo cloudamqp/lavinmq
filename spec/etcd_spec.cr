@@ -157,19 +157,19 @@ class EtcdCluster
   end
 
   private def wait_until_online
-    sock = Socket.tcp(Socket::Family::INET)
+    sock : Socket? = nil
     begin
       @ports.each do |port|
         loop do
           sleep 0.02
-          sock.connect "127.0.0.1", 23000 + port
+          sock = TCPSocket.new "127.0.0.1", 23000 + port
           break
-        rescue Socket::ConnectError
+        rescue e : Socket::ConnectError
           next
         end
       end
     ensure
-      sock.close
+      sock.try &.close
     end
   end
 end

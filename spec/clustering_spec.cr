@@ -15,15 +15,15 @@ describe LavinMQ::Clustering::Client do
       "--force-new-cluster=true",
     }, output: STDOUT, error: STDERR)
 
-    sock = Socket.tcp(Socket::Family::INET)
+    sock : Socket? = nil
     loop do
       sleep 0.02
-      sock.connect "127.0.0.1", 2379
+      sock = TCPSocket.new "127.0.0.1", 2379
       break
-    rescue Socket::ConnectError
+    rescue e : Socket::ConnectError
       next
     end
-    sock.close
+    sock.try &.close
     begin
       spec.run
     ensure
