@@ -400,6 +400,22 @@ describe LavinMQ::Federation::Upstream do
     end
   end
 
+  {% for descr, v in {nil: nil, empty: ""} %}
+    describe "when @exchange is {{descr}}" do
+      it "should use downstream exchange name as upstream exchange" do
+        with_amqp_server do |s|
+          vhost = s.vhosts["/"]
+
+          vhost.declare_exchange("ex1", "topic", true, false)
+
+          upstream = LavinMQ::Federation::Upstream.new(vhost, "test", "amqp://", {{v}})
+          link1 = upstream.link(vhost.exchanges["ex1"])
+
+          link1.@upstream_exchange.should eq "ex1"
+        end
+      end
+    end
+  {% end %}
   describe "when @queue is nil" do
     describe "#link(Queue)" do
       it "should create link that consumes upstream queue with same name as downstream queue" do
