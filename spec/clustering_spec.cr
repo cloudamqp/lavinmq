@@ -15,18 +15,21 @@ describe LavinMQ::Clustering::Client do
       "--force-new-cluster=true",
     }, output: STDOUT, error: STDERR)
 
-    sock : Socket? = nil
+    client = HTTP::Client.new("127.0.0.1", 2379)
     i = 0
     loop do
       sleep 0.02
-      sock = TCPSocket.new "127.0.0.1", 2379
-      break
+      response = client.get("/version")
+      if response.status.ok?
+        next if response.body.includes? "not_decided"
+        break
+      end
     rescue e : Socket::ConnectError
       i += 1
       raise "Cant connect to etcd on port 2379. Giving up after 100 tries. (#{e.message})" if i >= 100
       next
     end
-    sock.try &.close
+    client.close
     begin
       spec.run
     ensure

@@ -158,19 +158,20 @@ class EtcdCluster
 
   private def wait_until_online
     @ports.each do |port|
-      sock : Socket? = nil
       i = 0
+      client = HTTP::Client.new("127.0.0.1", 23000 + port)
       loop do
         sleep 0.02
-        sock = TCPSocket.new "127.0.0.1", 23000 + port
-        break
-      rescue e : Socket::ConnectError
+        response = client.get("/version")
+        if response.status.ok?
+          next if response.body.includes? "not_decided"
+          break
+        end
+      rescue e : Exception
         i += 1
-        raise "Cant connect to etcd on port #{23000 + port}. Giving up after 100 tries. (#{e.message})" if i >= 100
+        raise "Etcd on ort #{23000 + port} not up? (#{e.message})" if i >= 100
         next
       end
-    ensure
-      sock.try &.close
     end
   end
 end
