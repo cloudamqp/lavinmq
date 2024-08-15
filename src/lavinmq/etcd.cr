@@ -1,4 +1,5 @@
 require "http/client"
+require "wait_group"
 require "json"
 
 module LavinMQ
@@ -82,7 +83,9 @@ module LavinMQ
     def elect(name, value, ttl = 5) : Channel(Nil)
       channel = Channel(Nil).new
       lease_id, ttl = lease_grant(ttl)
+      wg = WaitGroup.new(1)
       spawn(name: "Etcd lease keepalive #{lease_id}") do
+        wg.done
         loop do
           select
           when channel.receive?
@@ -99,6 +102,7 @@ module LavinMQ
         end
       end
       election_campaign(name, value, lease_id)
+      wg.wait
       channel
     end
 
