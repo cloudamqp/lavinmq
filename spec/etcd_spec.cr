@@ -29,6 +29,7 @@ describe LavinMQ::Etcd do
         # expect this when etcd nodes are terminated
       end
       w.receive # sync
+      sleep 0.05
       etcd.put "foo", "bar"
       w.receive.should eq "bar"
       etcd.put "foo", "rab"
