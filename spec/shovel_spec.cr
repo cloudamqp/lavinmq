@@ -318,7 +318,8 @@ describe LavinMQ::Shovel do
     it "should ack all messages that has been moved" do
       with_amqp_server do |s|
         vhost = s.vhosts.create("x")
-        prefetch = 1_u16
+        # Use prefetch 5, then the batch ack will ack every third message
+        prefetch = 5_u16
         source = LavinMQ::Shovel::AMQPSource.new(
           "spec",
           [URI.parse(s.amqp_url)],
@@ -340,10 +341,13 @@ describe LavinMQ::Shovel do
           x.publish_confirm "shovel me 2", "prefetch2_q1"
           x.publish_confirm "shovel me 2", "prefetch2_q1"
           x.publish_confirm "shovel me 2", "prefetch2_q1"
+          # Wait until four messages has been published to destination...
           wait_for { s.vhosts["/"].queues["prefetch2_q2"].message_count == 4 }
-          wait_for { s.vhosts["/"].queues["prefetch2_q1"].message_count == 0 }
+          # ... but only three has been acked (because batching)
+          wait_for { s.vhosts["/"].queues["prefetch2_q1"].unacked_count == 1 }
+          # Now when we terminate the shovel it should ack the last message(s)
           shovel.terminate
-          wait_for { s.vhosts["/"].queues["prefetch2_q1"].message_count == 0 }
+          wait_for { s.vhosts["/"].queues["prefetch2_q1"].unacked_count == 0 }
           s.vhosts["/"].queues["prefetch2_q2"].message_count.should eq 4
           s.vhosts["/"].queues["prefetch2_q1"].message_count.should eq 0
         end
