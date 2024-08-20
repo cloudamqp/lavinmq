@@ -155,10 +155,11 @@ module LavinMQ
           end
         rescue e : FailedDeliveryError
           msg.reject
-        rescue e
-          stop
-          raise e
         end
+      rescue e
+        Log.warn { "name=#{@name} #{e.message}" }
+        stop
+        raise e
       end
     end
 

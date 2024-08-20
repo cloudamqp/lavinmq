@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Shovel AMQP source didn't reconnect on network failures
 - Dead-lettering loop when publishing to a delayed exchange's internal queue [#748](https://github.com/cloudamqp/lavinmq/pull/748)
 - Exchange federation tried to bind to upstream's default exchange
 - Shovel ack all unacked messages on stop
