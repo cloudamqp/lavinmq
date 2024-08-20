@@ -14,6 +14,38 @@ end
 
 describe LavinMQ::Shovel do
   describe "AMQP" do
+    describe "Source" do
+      it "will stop and raise on unexpected disconnect" do
+        with_amqp_server do |s|
+          source = LavinMQ::Shovel::AMQPSource.new(
+            "spec",
+            [URI.parse(s.amqp_url)],
+            "source",
+            direct_user: s.users.direct_user
+          )
+
+          wg = WaitGroup.new(1)
+          exception : Exception? = nil
+          spawn do
+            source.start
+            wg.done
+            source.each do
+            end
+          rescue ex
+            exception = ex
+          ensure
+            wg.done
+          end
+          wg.wait # wait for source to start
+          wg.add 1
+          s.vhosts["/"].connections.each &.close("spec")
+          wg.wait # wait for exception to be rescued
+          source.started?.should be_false
+          exception.should be_a AMQP::Client::Connection::ClosedException
+        end
+      end
+    end
+
     it "will wait to ack all msgs before deleting it self" do
       with_amqp_server do |s|
         source = LavinMQ::Shovel::AMQPSource.new(

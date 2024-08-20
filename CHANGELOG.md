@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Prevet a queue that's overflowing to consume too much resources
 - Dead-lettering loop when publishing to a delayed exchange's internal queue [#748](https://github.com/cloudamqp/lavinmq/pull/748)
 - Exchange federation tried to bind to upstream's default exchange
+- Shovel AMQP source didn't reconnect on network failures
 
 ### Changed
 
