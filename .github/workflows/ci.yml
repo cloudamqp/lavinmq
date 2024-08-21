@@ -81,6 +81,7 @@ jobs:
     name: Spec
     runs-on: ubuntu-latest
     container: 84codes/crystal:latest-ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - name: Print Crystal version
         run: crystal -v
@@ -97,6 +98,7 @@ jobs:
   spec_osx:
     name: Spec OS X
     runs-on: macos-14
+    timeout-minutes: 10
     steps:
       - name: Install dependencies
         run: |
@@ -392,6 +394,7 @@ jobs:
   freebsd-test:
     name: Spec FreeBSD
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - name: Spec
