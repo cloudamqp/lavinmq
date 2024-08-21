@@ -188,10 +188,11 @@ module LavinMQ
     private def read_headers(tcp) : Int32
       status_line = tcp.read_line
       content_length = 0
-      until (line = tcp.read_line).empty?
-        case line
+      loop do
+        case tcp.read_line
         when "Transfer-Encoding: chunked" then content_length = -1
         when /^Content-Length: (\d+)$/    then content_length = $~[1].to_i
+        when ""                           then break
         end
       end
 
@@ -280,6 +281,10 @@ module LavinMQ
       json = JSON.parse(str)
       raise_if_error(json)
       json
+    rescue JSON::ParseException
+      part = str[0, 96]
+      part += "..." if str.size > 96
+      raise Error.new("Unexpected response from etcd endpoint: #{part}")
     end
 
     private def raise_if_error(json)
