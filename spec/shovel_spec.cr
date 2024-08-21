@@ -24,24 +24,15 @@ describe LavinMQ::Shovel do
             direct_user: s.users.direct_user
           )
 
-          wg = WaitGroup.new(1)
-          exception : Exception? = nil
-          spawn do
-            source.start
-            wg.done
+          source.start
+
+          s.vhosts["/"].queues["source"].publish(LavinMQ::Message.new("", "", ""))
+          expect_raises(AMQP::Client::Connection::ClosedException) do
             source.each do
+              s.vhosts["/"].connections.each &.close("spec")
             end
-          rescue ex
-            exception = ex
-          ensure
-            wg.done
           end
-          wg.wait # wait for source to start
-          wg.add 1
-          s.vhosts["/"].connections.each &.close("spec")
-          wg.wait # wait for exception to be rescued
           source.started?.should be_false
-          exception.should be_a AMQP::Client::Connection::ClosedException
         end
       end
     end
