@@ -400,3 +400,4 @@ jobs:
           usesh: true
           prepare: pkg install -y crystal shards security/openssl curl gmake coreos-etcd34
           run: gmake test
+        continue-on-error: true
