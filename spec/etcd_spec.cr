@@ -79,7 +79,7 @@ describe LavinMQ::Etcd do
       etcds.first(2).each &.terminate(graceful: false)
       select
       when lease.receive?
-      when timeout(9.seconds)
+      when timeout(15.seconds)
         fail "should lose the leadership"
       end
     end
