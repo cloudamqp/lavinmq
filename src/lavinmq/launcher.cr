@@ -172,6 +172,9 @@ module LavinMQ
     end
 
     private def run_gc
+      STDOUT.puts "Log objects linkted to MFile"
+      STDOUT.flush
+      PerfTools::MemProf.log_objects_linked_to_type STDOUT, MFile, true
       STDOUT.puts "Unmapping all segments"
       STDOUT.flush
       @amqp_server.vhosts.each_value do |vhost|
