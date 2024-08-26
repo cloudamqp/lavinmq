@@ -80,7 +80,7 @@ module LavinMQ
       def stop
         # If we have any outstanding messages when closing, ack them first.
         @ch.try &.basic_cancel(@tag, no_wait: true)
-        @last_unacked.try { |delivery_tag| ack(delivery_tag) }
+        @last_unacked.try { |delivery_tag| ack(delivery_tag, batch: false) }
         @conn.try &.close(no_wait: false)
         @q = nil
         @ch = nil
@@ -96,13 +96,13 @@ module LavinMQ
 
       @done = WaitGroup.new(1)
 
-      def ack(delivery_tag)
+      def ack(delivery_tag, batch = true)
         if ch = @ch
           return if ch.closed?
 
           # We batch ack for faster shovel
           batch_full = delivery_tag % (@prefetch / 2).ceil.to_i == 0
-          if batch_full || at_end?(delivery_tag)
+          if !batch || batch_full || at_end?(delivery_tag)
             @last_unacked = nil
             ch.basic_ack(delivery_tag, multiple: true)
             @done.done if at_end?(delivery_tag)
