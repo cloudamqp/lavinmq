@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## Fixed
+
+- Shovel ack all unacked messages on stop
+
 ## [1.3.0] - 2024-07-17
 
 ### Removed
