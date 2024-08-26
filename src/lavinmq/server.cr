@@ -2,6 +2,7 @@ require "socket"
 require "openssl"
 require "systemd"
 require "./amqp"
+require "./mqtt/protocol"
 require "./rough_time"
 require "../stdlib/*"
 require "./vhost_store"
@@ -15,6 +16,7 @@ require "./proxy_protocol"
 require "./client/client"
 require "./client/connection_factory"
 require "./amqp/connection_factory"
+require "./mqtt/connection_factory"
 require "./stats"
 
 module LavinMQ
@@ -74,8 +76,8 @@ module LavinMQ
       Iterator(Client).chain(@vhosts.each_value.map(&.connections.each))
     end
 
-    def listen(s : TCPServer)
-      @listeners[s] = :amqp
+    def listen(s : TCPServer, protocol)
+      @listeners[s] = :protocol
       Log.info { "Listening on #{s.local_address}" }
       loop do
         client = s.accept? || break
@@ -85,7 +87,7 @@ module LavinMQ
           set_socket_options(client)
           set_buffer_size(client)
           conn_info = extract_conn_info(client)
-          handle_connection(client, conn_info)
+          handle_connection(client, conn_info, protocol)
         rescue ex
           Log.warn(exception: ex) { "Error accepting connection from #{remote_address}" }
           client.close rescue nil
@@ -120,8 +122,8 @@ module LavinMQ
       end
     end
 
-    def listen(s : UNIXServer)
-      @listeners[s] = :amqp
+    def listen(s : UNIXServer, protocol)
+      @listeners[s] = :protocol
       Log.info { "Listening on #{s.local_address}" }
       loop do # do not try to use while
         client = s.accept? || break
@@ -135,7 +137,7 @@ module LavinMQ
             when 2 then ProxyProtocol::V2.parse(client)
             else        ConnectionInfo.local # TODO: use unix socket address, don't fake local
             end
-          handle_connection(client, conn_info)
+          handle_connection(client, conn_info, protocol)
         rescue ex
           Log.warn(exception: ex) { "Error accepting connection from #{remote_address}" }
           client.close rescue nil
@@ -147,13 +149,13 @@ module LavinMQ
       @listeners.delete(s)
     end
 
-    def listen(bind = "::", port = 5672)
+    def listen(bind = "::", port = 5672, protocol = :amqp)
       s = TCPServer.new(bind, port)
-      listen(s)
+      listen(s, protocol)
     end
 
-    def listen_tls(s : TCPServer, context)
-      @listeners[s] = :amqps
+    def listen_tls(s : TCPServer, context, protocol)
+      @listeners[s] = :protocol
       Log.info { "Listening on #{s.local_address} (TLS)" }
       loop do # do not try to use while
         client = s.accept? || break
@@ -168,7 +170,7 @@ module LavinMQ
           conn_info.ssl = true
           conn_info.ssl_version = ssl_client.tls_version
           conn_info.ssl_cipher = ssl_client.cipher
-          handle_connection(ssl_client, conn_info)
+          handle_connection(ssl_client, conn_info, protocol)
         rescue ex
           Log.warn(exception: ex) { "Error accepting TLS connection from #{remote_addr}" }
           client.close rescue nil
@@ -180,15 +182,15 @@ module LavinMQ
       @listeners.delete(s)
     end
 
-    def listen_tls(bind, port, context)
-      listen_tls(TCPServer.new(bind, port), context)
+    def listen_tls(bind, port, context, protocol)
+      listen_tls(TCPServer.new(bind, port), context, protocol)
     end
 
-    def listen_unix(path : String)
+    def listen_unix(path : String, protocol)
       File.delete?(path)
       s = UNIXServer.new(path)
       File.chmod(path, 0o666)
-      listen(s)
+      listen(s, protocol)
     end
 
     def listen_clustering(bind, port)
@@ -244,8 +246,17 @@ module LavinMQ
       end
     end
 
-    def handle_connection(socket, connection_info)
-      client = @amqp_connection_factory.start(socket, connection_info, @vhosts, @users)
+    def handle_connection(socket, connection_info, protocol)
+      case protocol
+      when :amqp
+        client = @amqp_connection_factory.start(socket, connection_info, @vhosts, @users)
+      when :mqtt
+        client = MQTT::ConnectionFactory.new(socket, connection_info, @users, @vhosts["/"]).start
+      else
+        Log.warn { "Unknown protocol '#{protocol}'" }
+        socket.close
+      end
+
     ensure
       socket.close if client.nil?
     end
