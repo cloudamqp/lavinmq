@@ -80,9 +80,9 @@ def with_amqp_server(tls = false, replicator = LavinMQ::Clustering::NoopServer.n
       ctx = OpenSSL::SSL::Context::Server.new
       ctx.certificate_chain = "spec/resources/server_certificate.pem"
       ctx.private_key = "spec/resources/server_key.pem"
-      spawn(name: "amqp tls listen") { s.listen_tls(tcp_server, ctx) }
+      spawn(name: "amqp tls listen") { s.listen_tls(tcp_server, ctx, "amqp") }
     else
-      spawn(name: "amqp tcp listen") { s.listen(tcp_server) }
+      spawn(name: "amqp tcp listen") { s.listen(tcp_server, "amqp") }
     end
     Fiber.yield
     yield s
@@ -91,6 +91,16 @@ def with_amqp_server(tls = false, replicator = LavinMQ::Clustering::NoopServer.n
     FileUtils.rm_rf(LavinMQ::Config.instance.data_dir)
   end
 end
+
+#do i need to do this?
+# def with_mqtt_server(tls = false, & : LavinMQ::Server -> Nil)
+#   tcp_server = TCPServer.new("localhost", 0)
+#   s = LavinMQ::Server.new(LavinMQ::Config.instance.data_dir, replicator)
+#   begin
+#     if tls
+#     end
+
+# end
 
 def with_http_server(&)
   with_amqp_server do |s|
