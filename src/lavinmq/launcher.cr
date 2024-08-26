@@ -115,13 +115,13 @@ module LavinMQ
 
     private def listen
       if @config.amqp_port > 0
-        spawn @amqp_server.listen(@config.amqp_bind, @config.amqp_port),
+        spawn @amqp_server.listen(@config.amqp_bind, @config.amqp_port, :amqp),
           name: "AMQP listening on #{@config.amqp_port}"
       end
 
       if @config.amqps_port > 0
         if ctx = @tls_context
-          spawn @amqp_server.listen_tls(@config.amqp_bind, @config.amqps_port, ctx),
+          spawn @amqp_server.listen_tls(@config.amqp_bind, @config.amqps_port, ctx, :amqp),
             name: "AMQPS listening on #{@config.amqps_port}"
         end
       end
@@ -131,7 +131,7 @@ module LavinMQ
       end
 
       unless @config.unix_path.empty?
-        spawn @amqp_server.listen_unix(@config.unix_path), name: "AMQP listening at #{@config.unix_path}"
+        spawn @amqp_server.listen_unix(@config.unix_path, :amqp), name: "AMQP listening at #{@config.unix_path}"
       end
 
       if @config.http_port > 0
@@ -149,6 +149,11 @@ module LavinMQ
       @http_server.bind_internal_unix
       spawn(name: "HTTP listener") do
         @http_server.not_nil!.listen
+      end
+
+      if @config.mqtt_port > 0
+        spawn @amqp_server.listen(@config.mqtt_bind, @config.mqtt_port, :mqtt),
+          name: "MQTT listening on #{@config.mqtt_port}"
       end
     end
 

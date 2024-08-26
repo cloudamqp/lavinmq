@@ -17,6 +17,8 @@ module LavinMQ
     property amqp_bind = "127.0.0.1"
     property amqp_port = 5672
     property amqps_port = -1
+    property mqtt_port = 1883
+    property mqtt_bind = "127.0.0.1"
     property unix_path = ""
     property unix_proxy_protocol = 1_u8 # PROXY protocol version on unix domain socket connections
     property tcp_proxy_protocol = 0_u8  # PROXY protocol version on amqp tcp connections
