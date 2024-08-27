@@ -80,6 +80,7 @@ describe LavinMQ::Server do
             msg.reject(requeue: false)
             done.send nil
           end
+        rescue AMQP::Client::Connection::ClosedException
         end
       end
       timeout = false
