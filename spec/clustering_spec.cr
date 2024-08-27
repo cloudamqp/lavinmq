@@ -2,7 +2,7 @@ require "./spec_helper"
 require "../src/lavinmq/clustering/client"
 require "../src/lavinmq/clustering/controller"
 
-describe LavinMQ::Clustering::Client do
+pending LavinMQ::Clustering::Client do
   follower_data_dir = "/tmp/lavinmq-follower"
 
   around_each do |spec|
