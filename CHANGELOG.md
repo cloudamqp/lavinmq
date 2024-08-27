@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Don't shovel msgs after initial queue length
 - Memory leak in Crystal's Hash implementation
 - Bindings are sorted properly in the web interface
 - Shovel AMQP source didn't reconnect on network failures
