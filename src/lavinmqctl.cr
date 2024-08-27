@@ -227,6 +227,7 @@ class LavinMQCtl
       @options["host"] = v
     end
     @parser.on("-n node", "--node=node", "Specify node") do |v|
+      # Only used by tests in cloudamqp/rabbitmq-java-client
       @options["node"] = v
     end
     @parser.on("-q", "--quiet", "suppress informational messages") do
