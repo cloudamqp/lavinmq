@@ -10,8 +10,10 @@ module LavinMQ
       include SortableJSON
 
       getter vhost, channels, log, name, user
-      Log = ::Log.for "MQTT.client"
+
+      @channels = Hash(UInt16, Client::Channel).new
       rate_stats({"send_oct", "recv_oct"})
+      Log = ::Log.for "MQTT.client"
 
       def initialize(@socket : ::IO,
                      @connection_info : ConnectionInfo,
@@ -21,13 +23,13 @@ module LavinMQ
         @lock = Mutex.new
         @remote_address = @connection_info.src
         @local_address = @connection_info.dst
+        @name = "#{@remote_address} -> #{@local_address}"
+        connection_name = @name
         @metadata = ::Log::Metadata.new(nil, {vhost: @vhost.name, address: @remote_address.to_s})
         @log = Logger.new(Log, @metadata)
-        @channels = Hash(UInt16, Client::Channel).new
         @vhost.add_connection(self)
+        @log.info { "Connection established for user=#{@user.name}" }
         spawn read_loop
-        connection_name = "#{@remote_address} -> #{@local_address}"
-        @name = "#{@remote_address} -> #{@local_address}"
       end
 
       private def read_loop
@@ -48,6 +50,7 @@ module LavinMQ
       def read_and_handle_packet
         packet : MQTT::Packet = MQTT::Packet.from_io(@io)
         Log.info { "recv #{packet.inspect}" }
+        @recv_oct_count += packet.bytesize
 
         case packet
         when MQTT::Publish     then pp "publish"
@@ -62,13 +65,11 @@ module LavinMQ
       end
 
       private def send(packet)
-      @lock.synchronize do
-        packet.to_io(@io)
-        @socket.flush
-      end
-      # @broker.increment_bytes_sent(packet.bytesize)
-      # @broker.increment_messages_sent
-      # @broker.increment_publish_sent if packet.is_a?(MQTT::Protocol::Publish)
+        @lock.synchronize do
+          packet.to_io(@io)
+          @socket.flush
+        end
+        @send_oct_count += packet.bytesize
       end
 
       def receive_pingreq(packet : MQTT::PingReq)
