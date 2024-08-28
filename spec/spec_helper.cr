@@ -92,16 +92,6 @@ def with_amqp_server(tls = false, replicator = LavinMQ::Clustering::NoopServer.n
   end
 end
 
-#do i need to do this?
-# def with_mqtt_server(tls = false, & : LavinMQ::Server -> Nil)
-#   tcp_server = TCPServer.new("localhost", 0)
-#   s = LavinMQ::Server.new(LavinMQ::Config.instance.data_dir, replicator)
-#   begin
-#     if tls
-#     end
-
-# end
-
 def with_http_server(&)
   with_amqp_server do |s|
     h = LavinMQ::HTTP::Server.new(s)
