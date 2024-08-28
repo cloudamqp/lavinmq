@@ -9,7 +9,7 @@ module LavinMQ
       include Stats
       include SortableJSON
 
-      getter vhost, channels, log, name, user
+      getter vhost, channels, log, name, user, client_id
 
       @channels = Hash(UInt16, Client::Channel).new
       rate_stats({"send_oct", "recv_oct"})
@@ -18,13 +18,13 @@ module LavinMQ
       def initialize(@socket : ::IO,
                      @connection_info : ConnectionInfo,
                      @vhost : VHost,
-                     @user : User)
+                     @user : User,
+                     @client_id : String)
         @io = MQTT::IO.new(@socket)
         @lock = Mutex.new
         @remote_address = @connection_info.src
         @local_address = @connection_info.dst
         @name = "#{@remote_address} -> #{@local_address}"
-        connection_name = @name
         @metadata = ::Log::Metadata.new(nil, {vhost: @vhost.name, address: @remote_address.to_s})
         @log = Logger.new(Log, @metadata)
         @vhost.add_connection(self)
@@ -81,6 +81,7 @@ module LavinMQ
           vhost:             @vhost.name,
           user:              @user.name,
           protocol:          "MQTT",
+          client_id:         @client_id,
         }.merge(stats_details)
       end
 
