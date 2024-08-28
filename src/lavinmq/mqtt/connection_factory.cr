@@ -21,7 +21,7 @@ module LavinMQ
           if user = authenticate(io, packet, @users)
             ::MQTT::Protocol::Connack.new(false, ::MQTT::Protocol::Connack::ReturnCode::Accepted).to_io(io)
             io.flush
-            return LavinMQ::MQTT::Client.new(@socket, @connection_info, @vhost, user)
+            return LavinMQ::MQTT::Client.new(@socket, @connection_info, @vhost, user, packet.client_id)
           end
         end
         rescue ex
