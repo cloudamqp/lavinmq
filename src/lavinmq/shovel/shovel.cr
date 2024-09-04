@@ -142,21 +142,18 @@ module LavinMQ
 
         # We only need if we're actually batching
         if ack_batch_size > 1
-          spawn(name: "Shovel #{@name} ack") { ack_timeout_loop }
+          spawn(name: "Shovel #{@name} ack timeout loop") { ack_timeout_loop(ch) }
         end
       end
 
-      private def ack_timeout_loop
-        ch_id = @ch.object_id
+      private def ack_timeout_loop(ch)
         batch_ack_timeout = @batch_ack_timeout
-        Log.trace { "ack_timeout_loop starting for ch #{ch_id}" }
+        Log.trace { "ack_timeout_loop starting for ch #{ch}" }
         loop do
           last_unacked = @last_unacked
           sleep batch_ack_timeout
 
-          # The channel may have been closed an reopened while we're sleeping,
-          # therefore we're checking object id to see if it's been closed.
-          break if @ch.object_id != ch_id || @ch.try &.closed?
+          break if ch.closed?
 
           # We have nothing in memory
           next if last_unacked.nil?
@@ -171,7 +168,7 @@ module LavinMQ
             ack(last_unacked, batch: false)
           end
         end
-        Log.trace { "ack_timeout_loop stopped for ch #{ch_id}" }
+        Log.trace { "ack_timeout_loop stopped for ch #{ch}" }
       end
 
       def each(&blk : ::AMQP::Client::DeliverMessage -> Nil)
