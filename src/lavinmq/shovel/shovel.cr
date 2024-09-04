@@ -140,7 +140,7 @@ module LavinMQ
         end
         ch.prefetch @prefetch
 
-        # We only need if we're actually batching
+        # We only start timeout loop if we're actually batching
         if ack_batch_size > 1
           spawn(name: "Shovel #{@name} ack timeout loop") { ack_timeout_loop(ch) }
         end
