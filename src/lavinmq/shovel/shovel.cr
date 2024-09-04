@@ -162,7 +162,7 @@ module LavinMQ
           # there is nothing to ack
           next if @last_unacked.nil?
 
-          # Our memory is the same is the current @last_unacked which means
+          # Our memory is the same as the current @last_unacked which means
           # that nothing has happend, lets ack!
           if last_unacked == @last_unacked
             ack(last_unacked, batch: false)
