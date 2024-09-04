@@ -5,11 +5,12 @@ require "wait_group"
 
 module LavinMQ
   module Shovel
-    Log                     = ::Log.for("shovel")
-    DEFAULT_ACK_MODE        = AckMode::OnConfirm
-    DEFAULT_DELETE_AFTER    = DeleteAfter::Never
-    DEFAULT_PREFETCH        = 1000_u16
-    DEFAULT_RECONNECT_DELAY =        5
+    Log                       = ::Log.for("shovel")
+    DEFAULT_ACK_MODE          = AckMode::OnConfirm
+    DEFAULT_DELETE_AFTER      = DeleteAfter::Never
+    DEFAULT_PREFETCH          = 1000_u16
+    DEFAULT_RECONNECT_DELAY   =        5
+    DEFAULT_BATCH_ACK_TIMEOUT = 3.seconds
 
     enum State
       Starting
@@ -44,7 +45,7 @@ module LavinMQ
                      @exchange_key : String? = nil,
                      @delete_after = DEFAULT_DELETE_AFTER, @prefetch = DEFAULT_PREFETCH,
                      @ack_mode = DEFAULT_ACK_MODE, consumer_args : Hash(String, JSON::Any)? = nil,
-                     direct_user : User? = nil)
+                     direct_user : User? = nil, @batch_ack_timeout : Time::Span = DEFAULT_BATCH_ACK_TIMEOUT)
         @tag = "Shovel"
         raise ArgumentError.new("At least one source uri is required") if @uris.empty?
         @uris.each do |uri|
@@ -134,6 +135,36 @@ module LavinMQ
           @prefetch = Math.min(q[:message_count], @prefetch).to_u16
         end
         ch.prefetch @prefetch
+
+        spawn(name: "Shovel #{@name} ack") { ack_timeout_loop }
+      end
+
+      private def ack_timeout_loop
+        ch_id = @ch.object_id
+        batch_ack_timeout = @batch_ack_timeout
+        Log.trace { "ack_timeout_loop starting for ch #{ch_id}" }
+        loop do
+          last_unacked = @last_unacked
+          sleep batch_ack_timeout
+
+          # The channel may have been closed an reopened while we're sleeping,
+          # therefore we're checking object id to see if it's been closed.
+          break if @ch.object_id != ch_id || @ch.try &.closed?
+
+          # We have nothing in memory
+          next if last_unacked.nil?
+
+          # @last_unacked is nil after an ack has been sent, i.e if nil
+          # there is nothing to ack
+          next if @last_unacked.nil?
+
+          # Our memory is the same is the current @last_unacked which means
+          # that nothing has happend, lets ack!
+          if last_unacked == @last_unacked
+            ack(last_unacked, batch: false)
+          end
+        end
+        Log.trace { "ack_timeout_loop stopped for ch #{ch_id}" }
       end
 
       def each(&blk : ::AMQP::Client::DeliverMessage -> Nil)
