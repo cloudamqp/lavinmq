@@ -102,7 +102,7 @@ module LavinMQ
           return if ch.closed?
 
           # We batch ack for faster shovel
-          batch_full = delivery_tag % (@prefetch / 2).ceil.to_i == 0
+          batch_full = delivery_tag % ack_batch_size == 0
           if !batch || batch_full || at_end?(delivery_tag)
             @last_unacked = nil
             ch.basic_ack(delivery_tag, multiple: true)
@@ -115,6 +115,10 @@ module LavinMQ
 
       def started? : Bool
         !@q.nil? && !@conn.try &.closed?
+      end
+
+      private def ack_batch_size
+        (@prefetch / 2).ceil.to_i
       end
 
       private def open_channel
@@ -136,7 +140,10 @@ module LavinMQ
         end
         ch.prefetch @prefetch
 
-        spawn(name: "Shovel #{@name} ack") { ack_timeout_loop }
+        # We only need if we're actually batching
+        if ack_batch_size > 1
+          spawn(name: "Shovel #{@name} ack") { ack_timeout_loop }
+        end
       end
 
       private def ack_timeout_loop
