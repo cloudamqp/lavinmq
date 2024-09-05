@@ -107,6 +107,27 @@ index 102aa0d..530d875 100644
 +		ensureTestVhost(rmqc)
  	})
 
+ 	Context("GET /overview", func() {
+@@ -306,6 +319,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
+
+ 			Ω(err).Should(BeNil())
+ 			Ω(xs).ShouldNot(BeEmpty())
++
+ 			Ω(xs).Should(ContainElement("amqp"))
+ 		})
+ 	})
+@@ -357,6 +371,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
+ 	Context("GET /nodes", func() {
+ 		It("returns decoded response", func() {
+ 			xs, err := rmqc.ListNodes()
++			Ω(err).Should(BeNil())
+ 			res := xs[0]
+
+ 			Ω(err).Should(BeNil())
+@@ -384,7 +399,7 @@ var _ = Describe("RabbitMQ HTTP API client", func() {
+ 		})
+ 	})
+
 -	Context("PUT /cluster-name", func() {
 +	XContext("PUT /cluster-name", func() {
  		It("Set cluster name", func() {
