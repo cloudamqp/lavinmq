@@ -365,6 +365,7 @@ jobs:
 
       - name: Run specs
         run: |
+          cd rabbit-hole
           go test -v ./...
 
   release-mode-test:
