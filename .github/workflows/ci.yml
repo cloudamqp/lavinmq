@@ -352,6 +352,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: michaelklishin/rabbit-hole
+          ref: 37defcefa36b528b024f0b377435b459eb8eb9fc
           path: rabbit-hole
 
       - name: Setup rabbit-hole
