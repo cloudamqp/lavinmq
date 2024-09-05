@@ -49,7 +49,7 @@ index 42d835e..9df44c8 100755
 
  # set cluster name
 -$CTL set_cluster_name rabbitmq@localhost
-+$CTL set_cluster_name lavinmq@localhost
++# $CTL set_cluster_name rabbitmq@localhost
 
 -$CTL enable_feature_flag all
 +# $CTL enable_feature_flag all
