@@ -351,13 +351,13 @@ jobs:
       - name: Clone http client
         uses: actions/checkout@v4
         with:
-          repository: cloudamqp/rabbit-hole
-          token: ${{ secrets.PRIVATE_REPO_ACCESS }}
+          repository: michaelklishin/rabbit-hole
           path: rabbit-hole
 
       - name: Run specs
         run: |
           cd rabbit-hole
+          git apply ../.github/rabbit-hole.patch
           bash bin/ci/before_build.sh
           go test -v ./...
         env:
