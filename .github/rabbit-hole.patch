@@ -14,7 +14,7 @@ index 42d835e..9df44c8 100755
 -CTL=${RABBITHOLE_RABBITMQCTL:="sudo rabbitmqctl"}
 -PLUGINS=${RABBITHOLE_RABBITMQ_PLUGINS:="sudo rabbitmq-plugins"}
 +set -eux
-+CTL=${RABBITHOLE_LAVINMQCTL:="bin/lavinmqctl"}
++CTL=${RABBITHOLE_LAVINMQCTL:="lavinmqctl"}
 +# PLUGINS=${RABBITHOLE_RABBITMQ_PLUGINS:="sudo rabbitmq-plugins"}
 
  case $CTL in

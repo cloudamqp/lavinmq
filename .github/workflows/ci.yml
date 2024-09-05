@@ -360,12 +360,12 @@ jobs:
           curl https://raw.githubusercontent.com/cloudamqp/lavinmq/rabbit-hole-patch/.github/rabbit-hole.patch -o rabbit-hole.patch
           git apply rabbit-hole.patch
           bash bin/ci/before_build.sh
+        env:
+          RABBITHOLE_LAVINMQCTL: ../bin/lavinmqctl
 
       - name: Run specs
         run: |
           go test -v ./...
-        env:
-          RABBITHOLE_LAVINMQCTL: ../bin/lavinmqctl
 
   release-mode-test:
     name: Test in release mode
