@@ -354,13 +354,15 @@ jobs:
           repository: michaelklishin/rabbit-hole
           path: rabbit-hole
 
+      - name: Setup rabbit-hole
+        run: |
+          cd rabbit-hole
+          curl https://raw.githubusercontent.com/cloudamqp/lavinmq/rabbit-hole-patch/.github/rabbit-hole.patch -o rabbit-hole.patch
+          git apply rabbit-hole.patch
+          bash bin/ci/before_build.sh
+
       - name: Run specs
         run: |
-          pwd
-          ls -la
-          cd rabbit-hole
-          git apply ../.github/rabbit-hole.patch
-          bash bin/ci/before_build.sh
           go test -v ./...
         env:
           RABBITHOLE_LAVINMQCTL: ../bin/lavinmqctl
