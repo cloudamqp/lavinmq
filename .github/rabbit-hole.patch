@@ -1,9 +1,3 @@
-commit db5198bf9e0892e6f157168e32ed57a53d01e223
-Author: Magnus Landerblom <magnus@landerblom.se>
-Date:   Mon Oct 5 11:01:06 2020 +0200
-
-    LavinMQ adjustments
-
 diff --git a/bin/ci/before_build.sh b/bin/ci/before_build.sh
 index 42d835e..9df44c8 100755
 --- a/bin/ci/before_build.sh
