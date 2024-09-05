@@ -356,6 +356,8 @@ jobs:
 
       - name: Run specs
         run: |
+          pwd
+          ls -la
           cd rabbit-hole
           git apply ../.github/rabbit-hole.patch
           bash bin/ci/before_build.sh
