@@ -79,7 +79,7 @@ module LavinMQ
     end
 
     def listen(s : TCPServer, protocol)
-      @listeners[s] = :protocol
+      @listeners[s] = protocol
       Log.info { "Listening on #{s.local_address}" }
       loop do
         client = s.accept? || break
@@ -125,7 +125,7 @@ module LavinMQ
     end
 
     def listen(s : UNIXServer, protocol)
-      @listeners[s] = :protocol
+      @listeners[s] = protocol
       Log.info { "Listening on #{s.local_address}" }
       loop do # do not try to use while
         client = s.accept? || break
@@ -157,7 +157,7 @@ module LavinMQ
     end
 
     def listen_tls(s : TCPServer, context, protocol)
-      @listeners[s] = :protocol
+      @listeners[s] = protocol
       Log.info { "Listening on #{s.local_address} (TLS)" }
       loop do # do not try to use while
         client = s.accept? || break
@@ -257,7 +257,6 @@ module LavinMQ
         Log.warn { "Unknown protocol '#{protocol}'" }
         socket.close
       end
-
     ensure
       socket.close if client.nil?
     end
