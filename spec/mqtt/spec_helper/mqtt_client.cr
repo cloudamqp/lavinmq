@@ -1,5 +1,4 @@
 require "mqtt-protocol"
-require "./mqtt_helpers"
 
 module Specs
   class MqttClient
