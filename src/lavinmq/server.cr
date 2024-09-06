@@ -39,6 +39,7 @@ module LavinMQ
       @vhosts = VHostStore.new(@data_dir, @users, @replicator)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator)
       @amqp_connection_factory = LavinMQ::AMQP::ConnectionFactory.new
+      @mqtt_connection_factory = MQTT::ConnectionFactory.new(@users, @vhosts["/"])
       apply_parameter
       spawn stats_loop, name: "Server#stats_loop"
     end
@@ -251,7 +252,7 @@ module LavinMQ
       when :amqp
         client = @amqp_connection_factory.start(socket, connection_info, @vhosts, @users)
       when :mqtt
-        client = MQTT::ConnectionFactory.new(socket, connection_info, @users, @vhosts["/"]).start
+        client = @mqtt_connection_factory.start(socket, connection_info)
       else
         Log.warn { "Unknown protocol '#{protocol}'" }
         socket.close

@@ -14,6 +14,7 @@ require "./schema"
 require "./event_type"
 require "./stats"
 require "./queue_factory"
+require "./mqtt/session_store"
 
 module LavinMQ
   class VHost
@@ -25,7 +26,7 @@ module LavinMQ
                 "redeliver", "reject", "consumer_added", "consumer_removed"})
 
     getter name, exchanges, queues, data_dir, operator_policies, policies, parameters, shovels,
-      direct_reply_consumers, connections, dir, users
+      direct_reply_consumers, connections, dir, users, sessions
     property? flow = true
     getter? closed = false
     property max_connections : Int32?
@@ -36,6 +37,7 @@ module LavinMQ
     @direct_reply_consumers = Hash(String, Client::Channel).new
     @shovels : ShovelStore?
     @upstreams : Federation::UpstreamStore?
+    @sessions : MQTT::SessionStore?
     @connections = Array(Client).new(512)
     @definitions_file : File
     @definitions_lock = Mutex.new(:reentrant)
@@ -58,6 +60,7 @@ module LavinMQ
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator, vhost: @name)
       @shovels = ShovelStore.new(self)
       @upstreams = Federation::UpstreamStore.new(self)
+      @sessions = MQTT::SessionStore.new(self)
       load!
       spawn check_consumer_timeouts_loop, name: "Consumer timeouts loop"
     end
@@ -334,6 +337,18 @@ module LavinMQ
     def rm_connection(client : Client)
       event_tick(EventType::ConnectionClosed)
       @connections.delete client
+    end
+
+    def start_session(client : Client)
+      client_id = client.client_id
+      session = MQTT::Session.new(self, client_id)
+      sessions[client_id] = session
+      @queues[client_id] = session
+    end
+
+    def clear_session(client : Client)
+      sessions.delete client.client_id
+      @queues.delete client.client_id
     end
 
     SHOVEL                  = "shovel"
@@ -651,6 +666,10 @@ module LavinMQ
 
     def shovels
       @shovels.not_nil!
+    end
+
+    def sessions
+      @sessions.not_nil!
     end
 
     def event_tick(event_type)

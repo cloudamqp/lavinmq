@@ -2,6 +2,7 @@ require "openssl"
 require "socket"
 require "../client"
 require "../error"
+require "./session"
 
 module LavinMQ
   module MQTT
@@ -10,8 +11,8 @@ module LavinMQ
       include SortableJSON
 
       getter vhost, channels, log, name, user, client_id
-
       @channels = Hash(UInt16, Client::Channel).new
+      @session : MQTT::Session | Nil
       rate_stats({"send_oct", "recv_oct"})
       Log = ::Log.for "MQTT.client"
 
@@ -19,7 +20,8 @@ module LavinMQ
                      @connection_info : ConnectionInfo,
                      @vhost : VHost,
                      @user : User,
-                     @client_id : String)
+                     @client_id : String,
+                     @clean_session = false)
         @io = MQTT::IO.new(@socket)
         @lock = Mutex.new
         @remote_address = @connection_info.src
@@ -28,7 +30,9 @@ module LavinMQ
         @metadata = ::Log::Metadata.new(nil, {vhost: @vhost.name, address: @remote_address.to_s})
         @log = Logger.new(Log, @metadata)
         @vhost.add_connection(self)
+        @session = start_session(self)
         @log.info { "Connection established for user=#{@user.name}" }
+        pp "spawn"
         spawn read_loop
       end
 
@@ -43,6 +47,10 @@ module LavinMQ
         rescue ex : MQTT::Error::Connect
         Log.warn { "Connect error #{ex.inspect}" }
         ensure
+
+        if @clean_session
+          disconnect_session(self)
+        end
         @socket.close
         @vhost.rm_connection(self)
       end
@@ -53,7 +61,7 @@ module LavinMQ
         @recv_oct_count += packet.bytesize
 
         case packet
-        when MQTT::Publish     then pp "publish"
+        when MQTT::Publish     then recieve_publish(packet)
         when MQTT::PubAck      then pp "puback"
         when MQTT::Subscribe   then pp "subscribe"
         when MQTT::Unsubscribe then pp "unsubscribe"
@@ -76,6 +84,29 @@ module LavinMQ
         send(MQTT::PingResp.new)
       end
 
+      def recieve_publish(packet)
+        msg = Message.new("mqtt", packet.topic, packet.payload.to_s, AMQ::Protocol::Properties.new)
+        @vhost.publish(msg)
+        # @session = start_session(self) unless @session
+        # @session.publish(msg)
+        # if packet.qos > 0 && (packet_id = packet.packet_id)
+        #   send(MQTT::PubAck.new(packet_id))
+        # end
+      end
+
+      def recieve_puback(packet)
+      end
+
+      #let prefetch = 1
+      def recieve_subscribe(packet)
+        # exclusive conusmer
+        #
+      end
+
+      def recieve_unsubscribe(packet)
+
+      end
+
       def details_tuple
         {
           vhost:             @vhost.name,
@@ -85,6 +116,21 @@ module LavinMQ
         }.merge(stats_details)
       end
 
+      def start_session(client) : MQTT::Session
+        if @clean_session
+          pp "clear session"
+          @vhost.clear_session(client)
+        end
+        pp "start session"
+        @vhost.start_session(client)
+      end
+
+      def disconnect_session(client)
+        pp "disconnect session"
+        @vhost.clear_session(client)
+      end
+
+
       def update_rates
       end
 
@@ -93,6 +139,7 @@ module LavinMQ
 
       def force_close
       end
+
     end
   end
 end
