@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Shovel AMQP source didn't reconnect on network failures (partially fixed in prev release) [#758](https://github.com/cloudamqp/lavinmq/pull/758)
 
+### Changed
+
+- Updated RabbitMQ HTTP API Go client test to use a patch-file for LavinMQ compatibility [#778](https://github.com/cloudamqp/lavinmq/pull/778)
+
 ## [2.0.0-rc.4] - 2024-08-21
 
 ### Fixed
