@@ -19,7 +19,7 @@ Table.renderTable('table', tableOptions, function (tr, item, all) {
   if (all) {
     const connectionLink = document.createElement('a')
     connectionLink.href = `connection#name=${encodeURIComponent(item.name)}`
-    if (item.protocol !== 'MQTT' && item.client_properties.connection_name) {
+    if (item?.client_properties?.connection_name) {
       connectionLink.appendChild(document.createElement('span')).textContent = item.name
       connectionLink.appendChild(document.createElement('br'))
       connectionLink.appendChild(document.createElement('small')).textContent = item.client_properties.connection_name
@@ -37,7 +37,7 @@ Table.renderTable('table', tableOptions, function (tr, item, all) {
     Table.renderCell(tr, 10, item.timeout, 'right')
     Table.renderCell(tr, 8, item.auth_mechanism)
     const clientDiv = document.createElement('span')
-    if (item.protocol !== 'MQTT') {
+    if (item?.client_properties) {
       clientDiv.textContent = `${item.client_properties.product} / ${item.client_properties.platform || ''}`
       clientDiv.appendChild(document.createElement('br'))
       clientDiv.appendChild(document.createElement('small')).textContent = item.client_properties.version
