@@ -4,23 +4,18 @@ require "./spec_helper"
 require "mqtt-protocol"
 require "../src/lavinmq/mqtt/connection_factory"
 
-
 def setup_connection(s, pass)
   left, right = UNIXSocket.pair
   io = MQTT::Protocol::IO.new(left)
   s.users.create("usr", "pass", [LavinMQ::Tag::Administrator])
   MQTT::Protocol::Connect.new("abc", false, 60u16, "usr", pass.to_slice, nil).to_io(io)
-  connection_factory = LavinMQ::MQTT::ConnectionFactory.new(right,
-                                                            LavinMQ::ConnectionInfo.local,
-                                                            s.users,
-                                                            s.vhosts["/"])
-  { connection_factory.start, io }
+  connection_factory = LavinMQ::MQTT::ConnectionFactory.new(
+    s.users,
+    s.vhosts["/"])
+  {connection_factory.start(right, LavinMQ::ConnectionInfo.local), io}
 end
 
 describe LavinMQ do
-  src = "127.0.0.1"
-  dst = "127.0.0.1"
-
   it "MQTT connection should pass authentication" do
     with_amqp_server do |s|
       client, io = setup_connection(s, "pass")

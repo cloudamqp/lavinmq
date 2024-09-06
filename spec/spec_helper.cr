@@ -92,12 +92,16 @@ def with_server(protocol, tls = false, replicator = LavinMQ::Clustering::NoopSer
   end
 end
 
-def with_amqp_server(tls = false, replicator = LavinMQ::Clustering::NoopServer.new, &blk : LavinMQ::Server -> Nil)
-  with_server(:amqp, tls, replicator, &blk)
+def with_amqp_server(tls = false, replicator = LavinMQ::Clustering::NoopServer.new, & : LavinMQ::Server -> Nil)
+  with_server(:amqp, tls, replicator) do |s|
+    yield s
+  end
 end
 
-def with_mqtt_server(tls = false, replicator = LavinMQ::Clustering::NoopServer.new, &blk : LavinMQ::Server -> Nil)
-  with_server(:mqtt, tls, replicator, &blk)
+def with_mqtt_server(tls = false, replicator = LavinMQ::Clustering::NoopServer.new, & : LavinMQ::Server -> Nil)
+  with_server(:mqtt, tls, replicator) do |s|
+    yield s
+  end
 end
 
 def with_http_server(&)

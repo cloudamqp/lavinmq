@@ -8,8 +8,7 @@ require "../user"
 module LavinMQ
   module MQTT
     class ConnectionFactory
-      def initialize(
-                     @users : UserStore,
+      def initialize(@users : UserStore,
                      @vhost : VHost)
       end
 
@@ -23,16 +22,16 @@ module LavinMQ
             return LavinMQ::MQTT::Client.new(socket, connection_info, @vhost, user, packet.client_id, packet.clean_session?)
           end
         end
-        rescue ex
-          Log.warn { "Recieved the wrong packet" }
-          socket.close
+      rescue ex
+        Log.warn { "Recieved the wrong packet" }
+        socket.close
       end
 
       def authenticate(io, packet)
         return nil unless (username = packet.username) && (password = packet.password)
         user = @users[username]?
         return user if user && user.password && user.password.not_nil!.verify(String.new(password))
-        #probably not good to differentiate between user not found and wrong password
+        # probably not good to differentiate between user not found and wrong password
         if user.nil?
           Log.warn { "User \"#{username}\" not found" }
         else
