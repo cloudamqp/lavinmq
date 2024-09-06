@@ -351,17 +351,23 @@ jobs:
       - name: Clone http client
         uses: actions/checkout@v4
         with:
-          repository: cloudamqp/rabbit-hole
-          token: ${{ secrets.PRIVATE_REPO_ACCESS }}
+          repository: michaelklishin/rabbit-hole
+          ref: 37defcefa36b528b024f0b377435b459eb8eb9fc
           path: rabbit-hole
+
+      - name: Setup rabbit-hole
+        run: |
+          cd rabbit-hole
+          curl https://raw.githubusercontent.com/cloudamqp/lavinmq/rabbit-hole-patch/.github/rabbit-hole.patch -o rabbit-hole.patch
+          git apply rabbit-hole.patch
+          bash bin/ci/before_build.sh
+        env:
+          RABBITHOLE_LAVINMQCTL: ../bin/lavinmqctl
 
       - name: Run specs
         run: |
           cd rabbit-hole
-          bash bin/ci/before_build.sh
           go test -v ./...
-        env:
-          RABBITHOLE_LAVINMQCTL: ../bin/lavinmqctl
 
   release-mode-test:
     name: Test in release mode
