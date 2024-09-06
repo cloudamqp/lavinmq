@@ -72,7 +72,7 @@ def test_headers(headers = nil)
   req_hdrs
 end
 
-def with_amqp_server(tls = false, replicator = LavinMQ::Clustering::NoopServer.new, & : LavinMQ::Server -> Nil)
+def with_server(protocol, tls = false, replicator = LavinMQ::Clustering::NoopServer.new, & : LavinMQ::Server -> Nil)
   tcp_server = TCPServer.new("localhost", 0)
   s = LavinMQ::Server.new(LavinMQ::Config.instance.data_dir, replicator)
   begin
@@ -80,9 +80,9 @@ def with_amqp_server(tls = false, replicator = LavinMQ::Clustering::NoopServer.n
       ctx = OpenSSL::SSL::Context::Server.new
       ctx.certificate_chain = "spec/resources/server_certificate.pem"
       ctx.private_key = "spec/resources/server_key.pem"
-      spawn(name: "amqp tls listen") { s.listen_tls(tcp_server, ctx, "amqp") }
+      spawn(name: "#{protocol} tls listen") { s.listen_tls(tcp_server, ctx, protocol) }
     else
-      spawn(name: "amqp tcp listen") { s.listen(tcp_server, "amqp") }
+      spawn(name: "#{protocol} tcp listen") { s.listen(tcp_server, protocol) }
     end
     Fiber.yield
     yield s
@@ -90,6 +90,14 @@ def with_amqp_server(tls = false, replicator = LavinMQ::Clustering::NoopServer.n
     s.close
     FileUtils.rm_rf(LavinMQ::Config.instance.data_dir)
   end
+end
+
+def with_amqp_server(tls = false, replicator = LavinMQ::Clustering::NoopServer.new, &blk : LavinMQ::Server -> Nil)
+  with_server(:amqp, tls, replicator, &blk)
+end
+
+def with_mqtt_server(tls = false, replicator = LavinMQ::Clustering::NoopServer.new, &blk : LavinMQ::Server -> Nil)
+  with_server(:mqtt, tls, replicator, &blk)
 end
 
 def with_http_server(&)
