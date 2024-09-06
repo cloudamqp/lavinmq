@@ -32,8 +32,11 @@ module LavinMQ
         @vhost.add_connection(self)
         @session = start_session(self)
         @log.info { "Connection established for user=#{@user.name}" }
-        pp "spawn"
         spawn read_loop
+      end
+
+      def client_name
+        "mqtt-client"
       end
 
       private def read_loop
@@ -44,10 +47,11 @@ module LavinMQ
           # If we dont breakt the loop here we'll get a IO/Error on next read.
           break if packet.is_a?(MQTT::Disconnect)
         end
-        rescue ex : MQTT::Error::Connect
+      rescue ex : MQTT::Error::Connect
         Log.warn { "Connect error #{ex.inspect}" }
-        ensure
-
+      rescue ex : ::IO::EOFError
+        Log.info { "eof #{ex.inspect}" }
+      ensure
         if @clean_session
           disconnect_session(self)
         end
@@ -67,7 +71,7 @@ module LavinMQ
         when MQTT::Unsubscribe then pp "unsubscribe"
         when MQTT::PingReq     then receive_pingreq(packet)
         when MQTT::Disconnect  then return packet
-        else raise "invalid packet type for client to send"
+        else                        raise "invalid packet type for client to send"
         end
         packet
       end
@@ -97,22 +101,21 @@ module LavinMQ
       def recieve_puback(packet)
       end
 
-      #let prefetch = 1
+      # let prefetch = 1
       def recieve_subscribe(packet)
         # exclusive conusmer
         #
       end
 
       def recieve_unsubscribe(packet)
-
       end
 
       def details_tuple
         {
-          vhost:             @vhost.name,
-          user:              @user.name,
-          protocol:          "MQTT",
-          client_id:         @client_id,
+          vhost:     @vhost.name,
+          user:      @user.name,
+          protocol:  "MQTT",
+          client_id: @client_id,
         }.merge(stats_details)
       end
 
@@ -121,7 +124,6 @@ module LavinMQ
           pp "clear session"
           @vhost.clear_session(client)
         end
-        pp "start session"
         @vhost.start_session(client)
       end
 
@@ -130,16 +132,14 @@ module LavinMQ
         @vhost.clear_session(client)
       end
 
-
       def update_rates
       end
 
-      def close(reason)
+      def close(reason = "")
       end
 
       def force_close
       end
-
     end
   end
 end
