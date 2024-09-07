@@ -4,7 +4,7 @@ Version: 1.0.0
 Release: 1%{?dist}
 
 License: ASL 2.0
-BuildRequires: systemd-rpm-macros crystal curl help2man
+BuildRequires: systemd-rpm-macros crystal curl help2man lz4-devel openssl-devel
 Requires(pre): shadow-utils
 Suggests: etcd
 URL: https://github.com/cloudamqp/lavinmq
