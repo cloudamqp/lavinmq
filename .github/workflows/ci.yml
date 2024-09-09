@@ -140,7 +140,7 @@ jobs:
           path: bin/
 
   path_filter:
-    name: Filters for fronted specs
+    name: Filters for frontend specs
     runs-on: ubuntu-latest
     outputs:
       views: ${{ steps.changes.outputs.views }}
@@ -158,8 +158,8 @@ jobs:
               - '**/*.js'
 
   spec_frontend:
-    name: Fronted specs
-    runs-on: ubuntu-latest
+    name: Frontend specs
+    runs-on: ubuntu-24.04
     needs: [compile, path_filter]
     if: ${{ needs.path_filter.outputs.views == 'true' || needs.path_filter.outputs.js == 'true' }}
     steps:
@@ -186,6 +186,9 @@ jobs:
 
       - name: Install @playwright/test
         run: npm install @playwright/test
+
+      - name: List npm packages
+        run: npm ls
 
       - name: Install browsers
         run: npx playwright install --with-deps
