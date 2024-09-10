@@ -19,7 +19,7 @@ module MqttHelpers
     socket.sync = true
     socket.read_buffering = true
     socket.buffer_size = 16384
-    socket.read_timeout = 60.seconds
+    socket.read_timeout = 1.seconds
     yield socket
   ensure
     socket.try &.close
