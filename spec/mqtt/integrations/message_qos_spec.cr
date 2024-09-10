@@ -185,9 +185,8 @@ module MqttSpecs
       end
     end
 
-    # TODO: Not yet migrated due to the Spectator::Synchronizer
     pending "qos1 unacked messages re-sent in the initial order [MQTT-4.6.0-1]" do
-      max_inflight_messages = 5 # TODO value was previous "MyraMQ::Config.settings.max_inflight_messages"
+      max_inflight_messages = 10
       # We'll only ACK odd packet ids, and the first id is 1, so if we don't
       # do -1 the last packet (id=20) won't be sent because we've reached max
       # inflight with all odd ids.
@@ -210,7 +209,8 @@ module MqttSpecs
           end
 
           # Read all messages, but only ack every second
-          sync = Spectator::Synchronizer.new
+          # sync = Spectator::Synchronizer.new
+          sync = Channel(Bool).new(1)
           spawn(name: "read msgs") do
             number_of_messages.times do |i|
               pkt = read_packet(io)
@@ -218,16 +218,23 @@ module MqttSpecs
               # We only ack odd packet ids
               puback(io, pub.packet_id) if (i % 2) > 0
             end
-            sync.done
+            sync.send true
+            # sync.done
           end
-          sync.synchronize(timeout: 3.second, msg: "Timeout first read")
+          select
+          when sync.receive
+          when timeout(3.seconds)
+            fail "Timeout first read"
+          end
+          # sync.synchronize(timeout: 3.second, msg: "Timeout first read")
           disconnect(io)
         end
 
         # We should now get the 50 messages we didn't ack previously, and in order
         with_client_io(server) do |io|
           connect(io, client_id: "subscriber")
-          sync = Spectator::Synchronizer.new
+          # sync = Spectator::Synchronizer.new
+          sync = Channel(Bool).new(1)
           spawn(name: "read msgs") do
             (number_of_messages // 2).times do |i|
               pkt = read_packet(io)
@@ -237,9 +244,15 @@ module MqttSpecs
               data = IO::ByteFormat::SystemEndian.decode(UInt16, pub.payload)
               data.should eq(i * 2)
             end
-            sync.done
+            sync.send true
+            # sync.done
           end
-          sync.synchronize(timeout: 3.second, msg: "Timeout second read")
+          select
+          when sync.receive
+          when timeout(3.seconds)
+            puts "Timeout second read"
+          end
+          # sync.synchronize(timeout: 3.second, msg: "Timeout second read")
           disconnect(io)
         end
       end
