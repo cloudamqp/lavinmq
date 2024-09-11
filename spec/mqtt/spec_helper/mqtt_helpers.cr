@@ -25,9 +25,18 @@ module MqttHelpers
     socket.try &.close
   end
 
-  def with_server(tls = false, replicator = LavinMQ::Clustering::NoopServer.new, &blk : LavinMQ::Server -> Nil)
-    with_server(:mqtt, tls, replicator) do |s|
+  def with_server(& : LavinMQ::Server -> Nil)
+    mqtt_server = TCPServer.new("localhost", 0)
+    amqp_server = TCPServer.new("localhost", 0)
+    s = LavinMQ::Server.new(LavinMQ::Config.instance.data_dir, LavinMQ::Clustering::NoopServer.new)
+    begin
+      spawn(name: "amqp tcp listen") { s.listen(amqp_server, :amqp) }
+      spawn(name: "mqtt tcp listen") { s.listen(mqtt_server, :mqtt) }
+      Fiber.yield
       yield s
+    ensure
+      s.close
+      FileUtils.rm_rf(LavinMQ::Config.instance.data_dir)
     end
   end
 
