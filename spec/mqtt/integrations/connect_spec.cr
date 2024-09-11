@@ -8,7 +8,7 @@ module MqttSpecs
       pending "should replace the already connected client [MQTT-3.1.4-2]" do
         with_server do |server|
           with_client_io(server) do |io|
-            connect(io)
+            connect(io, false)
             with_client_io(server) do |io2|
               connect(io2)
               io.should be_closed

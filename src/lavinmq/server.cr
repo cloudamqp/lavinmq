@@ -49,7 +49,12 @@ module LavinMQ
     end
 
     def amqp_url
-      addr = @listeners.each_key.select(TCPServer).first.local_address
+      addr = @listeners
+        .select { |k, v| k.is_a?(TCPServer) && v == :amqp }
+        .keys
+        .select(TCPServer)
+        .first
+        .local_address
       "amqp://#{addr}"
     end
 

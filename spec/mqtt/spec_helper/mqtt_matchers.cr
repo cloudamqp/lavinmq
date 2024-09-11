@@ -11,11 +11,11 @@ module MqttMatchers
     end
 
     def failure_message(actual_value)
-      "Expected #{actual_value.pretty_inspect} to be closed"
+      "Expected socket to be closed"
     end
 
     def negative_failure_message(actual_value)
-      "Expected #{actual_value.pretty_inspect} to be open"
+      "Expected socket to be open"
     end
   end
 
@@ -33,11 +33,11 @@ module MqttMatchers
     end
 
     def failure_message(actual_value)
-      "Expected #{actual_value.pretty_inspect} to be drained"
+      "Expected socket to be drained"
     end
 
     def negative_failure_message(actual_value)
-      "Expected #{actual_value.pretty_inspect} to not be drained"
+      "Expected socket to not be drained"
     end
   end
 
