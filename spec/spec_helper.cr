@@ -29,6 +29,13 @@ end
 
 def with_channel(s : LavinMQ::Server, file = __FILE__, line = __LINE__, **args, &)
   name = "lavinmq-spec-#{file}:#{line}"
+  port = s.@listeners
+    .select { |k, v| k.is_a?(TCPServer) && v == :amqp }
+    .keys
+    .select(TCPServer)
+    .first
+    .local_address
+    .port
   args = {port: amqp_port(s), name: name}.merge(args)
   conn = AMQP::Client.new(**args).connect
   ch = conn.channel
@@ -72,7 +79,7 @@ def test_headers(headers = nil)
   req_hdrs
 end
 
-def with_server(protocol, tls = false, replicator = LavinMQ::Clustering::NoopServer.new, & : LavinMQ::Server -> Nil)
+def with_amqp_server(tls = false, replicator = LavinMQ::Clustering::NoopServer.new, & : LavinMQ::Server -> Nil)
   tcp_server = TCPServer.new("localhost", 0)
   s = LavinMQ::Server.new(LavinMQ::Config.instance.data_dir, replicator)
   begin
@@ -80,21 +87,15 @@ def with_server(protocol, tls = false, replicator = LavinMQ::Clustering::NoopSer
       ctx = OpenSSL::SSL::Context::Server.new
       ctx.certificate_chain = "spec/resources/server_certificate.pem"
       ctx.private_key = "spec/resources/server_key.pem"
-      spawn(name: "#{protocol} tls listen") { s.listen_tls(tcp_server, ctx, protocol) }
+      spawn(name: "amqp tls listen") { s.listen_tls(tcp_server, ctx, :amqp) }
     else
-      spawn(name: "#{protocol} tcp listen") { s.listen(tcp_server, protocol) }
+      spawn(name: "amqp tcp listen") { s.listen(tcp_server, :amqp) }
     end
     Fiber.yield
     yield s
   ensure
     s.close
     FileUtils.rm_rf(LavinMQ::Config.instance.data_dir)
-  end
-end
-
-def with_amqp_server(tls = false, replicator = LavinMQ::Clustering::NoopServer.new, & : LavinMQ::Server -> Nil)
-  with_server(:amqp, tls, replicator) do |s|
-    yield s
   end
 end
 
