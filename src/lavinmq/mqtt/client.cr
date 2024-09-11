@@ -89,8 +89,10 @@ module LavinMQ
       end
 
       def recieve_publish(packet)
-        msg = Message.new("mqtt", packet.topic, packet.payload.to_s, AMQ::Protocol::Properties.new)
+        # TODO: String.new around payload.. should be stored as Bytes
+        msg = Message.new("mqtt", packet.topic, String.new(packet.payload), AMQ::Protocol::Properties.new)
         @vhost.publish(msg)
+        send packet # TODO: Ok to send back same packet?
         # @session = start_session(self) unless @session
         # @session.publish(msg)
         # if packet.qos > 0 && (packet_id = packet.packet_id)
