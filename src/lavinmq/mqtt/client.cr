@@ -12,7 +12,7 @@ module LavinMQ
 
       getter vhost, channels, log, name, user, client_id
       @channels = Hash(UInt16, Client::Channel).new
-      @session : MQTT::Session | Nil
+      session : MQTT::Session
       rate_stats({"send_oct", "recv_oct"})
       Log = ::Log.for "MQTT.client"
 
@@ -21,7 +21,8 @@ module LavinMQ
                      @vhost : VHost,
                      @user : User,
                      @client_id : String,
-                     @clean_session = false)
+                     @clean_session = false,
+                     @will : MQTT::Will? = nil)
         @io = MQTT::IO.new(@socket)
         @lock = Mutex.new
         @remote_address = @connection_info.src
@@ -30,7 +31,7 @@ module LavinMQ
         @metadata = ::Log::Metadata.new(nil, {vhost: @vhost.name, address: @remote_address.to_s})
         @log = Logger.new(Log, @metadata)
         @vhost.add_connection(self)
-        @session = start_session(self)
+        session = start_session(self)
         @log.info { "Connection established for user=#{@user.name}" }
         spawn read_loop
       end
@@ -52,6 +53,7 @@ module LavinMQ
       rescue ex : ::IO::EOFError
         Log.info { "eof #{ex.inspect}" }
       ensure
+        # publish_will
         if @clean_session
           disconnect_session(self)
         end
@@ -132,6 +134,19 @@ module LavinMQ
         pp "disconnect session"
         @vhost.clear_session(client)
       end
+
+      # TODO: WIP
+      # private def publish_will
+      #   if will = @will
+      #     Log.debug { "publishing will" }
+      #     msg = Message.new("mqtt", will.topic, will.payload.to_s, AMQ::Protocol::Properties.new)
+      #     pp "publish will to session"
+      #     session = start_session(self)
+      #     # session.publish(msg)
+      #   end
+      # rescue ex
+      #   Log.warn { "Failed to publish will: #{ex.message}" }
+      # end
 
       def update_rates
       end

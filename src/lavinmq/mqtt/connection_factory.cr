@@ -13,13 +13,13 @@ module LavinMQ
       end
 
       def start(socket : ::IO, connection_info : ConnectionInfo)
-        io = ::MQTT::Protocol::IO.new(socket)
+        io = MQTT::IO.new(socket)
         if packet = MQTT::Packet.from_io(socket).as?(MQTT::Connect)
           Log.trace { "recv #{packet.inspect}" }
           if user = authenticate(io, packet)
-            ::MQTT::Protocol::Connack.new(false, ::MQTT::Protocol::Connack::ReturnCode::Accepted).to_io(io)
+            MQTT::Connack.new(false, MQTT::Connack::ReturnCode::Accepted).to_io(io)
             io.flush
-            return LavinMQ::MQTT::Client.new(socket, connection_info, @vhost, user, packet.client_id, packet.clean_session?)
+            return LavinMQ::MQTT::Client.new(socket, connection_info, @vhost, user, packet.client_id, packet.clean_session?, packet.will)
           end
         end
       rescue ex
@@ -37,7 +37,7 @@ module LavinMQ
         else
           Log.warn { "Authentication failure for user \"#{username}\"" }
         end
-        ::MQTT::Protocol::Connack.new(false, ::MQTT::Protocol::Connack::ReturnCode::NotAuthorized).to_io(io)
+        MQTT::Connack.new(false, MQTT::Connack::ReturnCode::NotAuthorized).to_io(io)
         nil
       end
     end
