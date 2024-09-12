@@ -85,19 +85,18 @@ module LavinMQ
       end
 
       def receive_pingreq(packet : MQTT::PingReq)
-        send(MQTT::PingResp.new)
+        send MQTT::PingResp.new
       end
 
       def recieve_publish(packet)
         # TODO: String.new around payload.. should be stored as Bytes
         msg = Message.new("mqtt", packet.topic, String.new(packet.payload), AMQ::Protocol::Properties.new)
         @vhost.publish(msg)
-        send packet # TODO: Ok to send back same packet?
-        # @session = start_session(self) unless @session
-        # @session.publish(msg)
-        # if packet.qos > 0 && (packet_id = packet.packet_id)
-        #   send(MQTT::PubAck.new(packet_id))
-        # end
+        # send packet # TODO: Ok to send back same packet?
+        # Ok to not send anything if qos = 0 (at most once delivery)
+        if packet.qos > 0 && (packet_id = packet.packet_id)
+          send(MQTT::PubAck.new(packet_id))
+        end
       end
 
       def recieve_puback(packet)
