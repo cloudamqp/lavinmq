@@ -5,11 +5,12 @@ require "wait_group"
 
 module LavinMQ
   module Shovel
-    Log                     = ::Log.for("shovel")
-    DEFAULT_ACK_MODE        = AckMode::OnConfirm
-    DEFAULT_DELETE_AFTER    = DeleteAfter::Never
-    DEFAULT_PREFETCH        = 1000_u16
-    DEFAULT_RECONNECT_DELAY =        5
+    Log                       = ::Log.for("shovel")
+    DEFAULT_ACK_MODE          = AckMode::OnConfirm
+    DEFAULT_DELETE_AFTER      = DeleteAfter::Never
+    DEFAULT_PREFETCH          = 1000_u16
+    DEFAULT_RECONNECT_DELAY   =        5
+    DEFAULT_BATCH_ACK_TIMEOUT = 3.seconds
 
     enum State
       Starting
@@ -44,7 +45,7 @@ module LavinMQ
                      @exchange_key : String? = nil,
                      @delete_after = DEFAULT_DELETE_AFTER, @prefetch = DEFAULT_PREFETCH,
                      @ack_mode = DEFAULT_ACK_MODE, consumer_args : Hash(String, JSON::Any)? = nil,
-                     direct_user : User? = nil)
+                     direct_user : User? = nil, @batch_ack_timeout : Time::Span = DEFAULT_BATCH_ACK_TIMEOUT)
         @tag = "Shovel"
         raise ArgumentError.new("At least one source uri is required") if @uris.empty?
         @uris.each do |uri|
@@ -101,7 +102,7 @@ module LavinMQ
           return if ch.closed?
 
           # We batch ack for faster shovel
-          batch_full = delivery_tag % (@prefetch / 2).ceil.to_i == 0
+          batch_full = delivery_tag % ack_batch_size == 0
           if !batch || batch_full || at_end?(delivery_tag)
             @last_unacked = nil
             ch.basic_ack(delivery_tag, multiple: true)
@@ -114,6 +115,10 @@ module LavinMQ
 
       def started? : Bool
         !@q.nil? && !@conn.try &.closed?
+      end
+
+      private def ack_batch_size
+        (@prefetch / 2).ceil.to_i
       end
 
       private def open_channel
@@ -134,6 +139,36 @@ module LavinMQ
           @prefetch = Math.min(q[:message_count], @prefetch).to_u16
         end
         ch.prefetch @prefetch
+
+        # We only start timeout loop if we're actually batching
+        if ack_batch_size > 1
+          spawn(name: "Shovel #{@name} ack timeout loop") { ack_timeout_loop(ch) }
+        end
+      end
+
+      private def ack_timeout_loop(ch)
+        batch_ack_timeout = @batch_ack_timeout
+        Log.trace { "ack_timeout_loop starting for ch #{ch}" }
+        loop do
+          last_unacked = @last_unacked
+          sleep batch_ack_timeout
+
+          break if ch.closed?
+
+          # We have nothing in memory
+          next if last_unacked.nil?
+
+          # @last_unacked is nil after an ack has been sent, i.e if nil
+          # there is nothing to ack
+          next if @last_unacked.nil?
+
+          # Our memory is the same as the current @last_unacked which means
+          # that nothing has happend, lets ack!
+          if last_unacked == @last_unacked
+            ack(last_unacked, batch: false)
+          end
+        end
+        Log.trace { "ack_timeout_loop stopped for ch #{ch}" }
       end
 
       def each(&blk : ::AMQP::Client::DeliverMessage -> Nil)

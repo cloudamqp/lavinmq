@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Shovels' batching of acks caused a lot of unacked messages in source broker [#777](https://github.com/cloudamqp/lavinmq/pull/777)
 - Shovel AMQP source didn't reconnect on network failures (partially fixed in prev release) [#758](https://github.com/cloudamqp/lavinmq/pull/758)
 
 ### Changed

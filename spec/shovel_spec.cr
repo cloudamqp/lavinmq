@@ -35,6 +35,90 @@ describe LavinMQ::Shovel do
           source.started?.should be_false
         end
       end
+
+      it "will start ack timeout loop if needed" do
+        with_amqp_server do |s|
+          source_name = Random::Secure.base64(32)
+          source = LavinMQ::Shovel::AMQPSource.new(
+            source_name,
+            [URI.parse(s.amqp_url)],
+            "source",
+            prefetch: 100,
+            direct_user: s.users.direct_user
+          )
+
+          source.start
+
+          s.vhosts["/"].queues["source"].publish(LavinMQ::Message.new("", "", ""))
+          wg = WaitGroup.new(1)
+          spawn { source.each { wg.done } }
+          wg.wait
+
+          fiber_found = false
+          Fiber.list do |f|
+            if (name = f.name) && name.includes?("ack timeout loop") && name.includes?(source_name)
+              fiber_found = true
+            end
+          end
+          source.stop
+
+          fiber_found.should be_true
+        end
+      end
+
+      it "wont start ack timeout loop when not needed" do
+        with_amqp_server do |s|
+          source_name = Random::Secure.base64(32)
+          source = LavinMQ::Shovel::AMQPSource.new(
+            source_name,
+            [URI.parse(s.amqp_url)],
+            "source",
+            prefetch: 1,
+            direct_user: s.users.direct_user
+          )
+
+          source.start
+
+          s.vhosts["/"].queues["source"].publish(LavinMQ::Message.new("", "", ""))
+          wg = WaitGroup.new(1)
+          spawn { source.each { wg.done } }
+          wg.wait
+
+          fiber_found = false
+          Fiber.list do |f|
+            if (name = f.name) && name.includes?("ack timeout loop") && name.includes?(source_name)
+              fiber_found = true
+            end
+          end
+          source.stop
+
+          fiber_found.should be_false
+        end
+      end
+
+      it "will ack after timeout" do
+        with_amqp_server do |s|
+          source_name = Random::Secure.base64(32)
+          source = LavinMQ::Shovel::AMQPSource.new(
+            source_name,
+            [URI.parse(s.amqp_url)],
+            "source",
+            prefetch: 10,
+            direct_user: s.users.direct_user,
+            batch_ack_timeout: 1.nanosecond
+          )
+
+          source.start
+
+          s.vhosts["/"].queues["source"].publish(LavinMQ::Message.new("", "", ""))
+          wg = WaitGroup.new(1)
+          spawn { source.each { |m| source.ack(m.delivery_tag) && wg.done } }
+          wg.wait
+          sleep 1.millisecond
+          s.vhosts["/"].queues["source"].unacked_count.should eq 0
+          source.stop
+        end
+      end
     end
 
     it "will wait to ack all msgs before deleting it self" do
