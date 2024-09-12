@@ -5,6 +5,7 @@ module LavinMQ
         super
       end
 
+      #if sub comes in with clean_session, set auto_delete on session
       #rm_consumer override for clean_session
     end
   end
