@@ -16,12 +16,8 @@ module MqttSpecs
             connect(io)
 
             payload = slice = Bytes[1, 254, 200, 197, 123, 4, 87]
-            publish(io, topic: "test", payload: payload)
-            pub = read_packet(io)
-            pub.should be_a(MQTT::Protocol::Publish)
-            pub = pub.as(MQTT::Protocol::Publish)
-            pub.payload.should eq(payload)
-            pub.topic.should eq("test")
+            ack = publish(io, topic: "test", payload: payload, qos: 1u8)
+            ack.should be_a(MQTT::Protocol::PubAck)
 
             body = q.get(no_ack: true).try do |v|
               s = Slice(UInt8).new(payload.size)
