@@ -10,7 +10,7 @@ module LavinMQ
       alias MetricLabels = Hash(String, String) |
                            NamedTuple(name: String) |
                            NamedTuple(channel: String) |
-                           NamedTuple(id: Int32) |
+                           NamedTuple(id: String) |
                            NamedTuple(queue: String, vhost: String)
       alias Metric = NamedTuple(name: String, value: MetricValue) |
                      NamedTuple(name: String, value: MetricValue, labels: MetricLabels) |
@@ -266,7 +266,7 @@ module LavinMQ
                       help:  "Amount of follower nodes connected"})
         @amqp_server.followers.each do |f|
           writer.write({name:   "follower_lag",
-                        labels: {id: f.id},
+                        labels: {id: f.id.to_s(36)},
                         value:  f.lag,
                         type:   "gauge",
                         help:   "Bytes that hasn't been synchronized with the follower yet"})
