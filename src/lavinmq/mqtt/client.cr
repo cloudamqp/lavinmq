@@ -53,10 +53,8 @@ module LavinMQ
       rescue ex : ::IO::EOFError
         Log.info { "eof #{ex.inspect}" }
       ensure
-        # publish_will
-        if @clean_session
-          disconnect_session(self)
-        end
+        publish_will if @will
+        disconnect_session(self) if @clean_session
         @socket.close
         @vhost.rm_connection(self)
       end
@@ -135,18 +133,14 @@ module LavinMQ
         @vhost.clear_session(client)
       end
 
-      # TODO: WIP
-      # private def publish_will
-      #   if will = @will
-      #     Log.debug { "publishing will" }
-      #     msg = Message.new("mqtt", will.topic, will.payload.to_s, AMQ::Protocol::Properties.new)
-      #     pp "publish will to session"
-      #     session = start_session(self)
-      #     # session.publish(msg)
-      #   end
-      # rescue ex
-      #   Log.warn { "Failed to publish will: #{ex.message}" }
-      # end
+      # TODO: actually publish will to session
+      private def publish_will
+        if will = @will
+          pp "Publish will to session"
+        end
+      rescue ex
+        Log.warn { "Failed to publish will: #{ex.message}" }
+      end
 
       def update_rates
       end
