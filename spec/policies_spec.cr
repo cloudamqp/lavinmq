@@ -28,10 +28,10 @@ describe LavinMQ::VHost do
     PoliciesSpec.with_vhost do |vhost|
       vhost.queues["test1"] = LavinMQ::Queue.new(vhost, "test")
       vhost.add_policy("test", "^.*$", "all", definitions, -10_i8)
-      sleep 0.01.seconds
+      sleep 10.milliseconds
       vhost.queues["test1"].policy.try(&.name).should eq "test"
       vhost.delete_policy("test")
-      sleep 0.01.seconds
+      sleep 10.milliseconds
       vhost.queues["test1"].policy.should be_nil
     end
   end
@@ -59,7 +59,7 @@ describe LavinMQ::VHost do
       defs = {"max-length" => JSON::Any.new(1_i64)} of String => JSON::Any
       vhost.queues["test"] = LavinMQ::Queue.new(vhost, "test")
       vhost.add_policy("ml", "^.*$", "queues", defs, 11_i8)
-      sleep 0.01.seconds
+      sleep 10.milliseconds
       vhost.queues["test"].policy.not_nil!.name.should eq "ml"
     end
   end
@@ -70,7 +70,7 @@ describe LavinMQ::VHost do
       vhost.queues["test2"] = LavinMQ::Queue.new(vhost, "test")
       vhost.add_policy("ml2", "^.*$", "queues", defs, 1_i8)
       vhost.add_policy("ml1", "^.*$", "queues", defs, 0_i8)
-      sleep 0.01.seconds
+      sleep 10.milliseconds
       vhost.queues["test2"].policy.not_nil!.name.should eq "ml2"
     end
   end
@@ -102,7 +102,7 @@ describe LavinMQ::VHost do
         end
         ch.queue_declare("policy-ttl", passive: true)[:message_count].should eq 10
         s.vhosts["/"].add_policy("ttl", "^.*$", "all", defs, 12_i8)
-        sleep 0.01.seconds
+        sleep 10.milliseconds
         ch.queue_declare("policy-ttl", passive: true)[:message_count].should eq 0
         s.vhosts["/"].delete_policy("ttl")
       end
@@ -116,7 +116,7 @@ describe LavinMQ::VHost do
         q = ch.queue("qttl")
         q.publish_confirm ""
         s.vhosts["/"].add_policy("qttl", "^.*$", "all", defs, 12_i8)
-        sleep 0.01.seconds
+        sleep 10.milliseconds
         expect_raises(AMQP::Client::Channel::ClosedException) do
           ch.queue_declare("qttl", passive: true)
         end
@@ -151,7 +151,7 @@ describe LavinMQ::VHost do
         ch.queue_declare("max-length-bytes", passive: true)[:message_count].should eq 3
         sleep 0.02.seconds
         s.vhosts["/"].add_policy("max-length-bytes", "^.*$", "all", defs, 12_i8)
-        sleep 0.01.seconds
+        sleep 10.milliseconds
         ch.queue_declare("max-length-bytes", passive: true)[:message_count].should eq 2
         q.get(no_ack: true).try(&.body_io.to_s).should eq("short2")
         q.get(no_ack: true).try(&.body_io.to_s).should eq("long")
@@ -166,7 +166,7 @@ describe LavinMQ::VHost do
       with_channel(s) do |ch|
         q = ch.queue("max-length-bytes", exclusive: true)
         s.vhosts["/"].add_policy("max-length-bytes", "^.*$", "all", defs, 12_i8)
-        sleep 0.01.seconds
+        sleep 10.milliseconds
         q.publish_confirm "short1"
         q.publish_confirm "short2"
         q.publish_confirm "long"
@@ -185,7 +185,7 @@ describe LavinMQ::VHost do
       with_channel(s) do |ch|
         q = ch.queue("max-length-bytes", exclusive: true)
         s.vhosts["/"].add_policy("max-length-bytes", "^.*$", "all", defs, 12_i8)
-        sleep 0.01.seconds
+        sleep 10.milliseconds
         q.publish_confirm "short1"
         q.publish_confirm "short2"
         q.publish_confirm "long"
@@ -256,7 +256,7 @@ describe LavinMQ::VHost do
                               "delayed-message"}
         vhost.queues["test"] = LavinMQ::Queue.new(vhost, "test")
         vhost.add_policy("test", "^.*$", "all", definitions, -10_i8)
-        sleep 0.01.seconds
+        sleep 10.milliseconds
         vhost.queues["test"].details_tuple[:effective_policy_definition].as(Hash(String, JSON::Any)).each_key do |k|
           supported_policies.includes?(k).should be_true
         end
@@ -272,11 +272,11 @@ describe LavinMQ::VHost do
         vhost.exchanges["x-with-ae"] = LavinMQ::DirectExchange.new(vhost, "x-with-ae",
           arguments: AMQ::Protocol::Table.new({"x-alternate-exchange": "ae2"}))
         vhost.add_policy("test", ".*", "all", definitions, 100_i8)
-        sleep 0.01.seconds
+        sleep 10.milliseconds
         vhost.exchanges["no-ae"].@alternate_exchange.should eq "dead-letters"
         vhost.exchanges["x-with-ae"].@alternate_exchange.should eq "ae2"
         vhost.delete_policy("test")
-        sleep 0.01.seconds
+        sleep 10.milliseconds
         vhost.exchanges["no-ae"].@alternate_exchange.should be_nil
         vhost.exchanges["x-with-ae"].@alternate_exchange.should eq "ae2"
       end
@@ -287,11 +287,11 @@ describe LavinMQ::VHost do
         vhost.queues["test1"] = LavinMQ::Queue.new(vhost, "test1", arguments: LavinMQ::AMQP::Table.new({"x-max-length" => 1_i64}))
         vhost.queues["test2"] = LavinMQ::Queue.new(vhost, "test2", arguments: LavinMQ::AMQP::Table.new({"x-max-length" => 11_i64}))
         vhost.add_policy("test", ".*", "all", definitions, 100_i8)
-        sleep 0.01.seconds
+        sleep 10.milliseconds
         vhost.queues["test1"].@max_length.should eq 1
         vhost.queues["test2"].@max_length.should eq 10
         vhost.delete_policy("test")
-        sleep 0.01.seconds
+        sleep 10.milliseconds
         vhost.queues["test1"].@max_length.should eq 1
         vhost.queues["test2"].@max_length.should eq 11
       end

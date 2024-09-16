@@ -508,7 +508,7 @@ module LavinMQ
     private def load!
       load_definitions!
       spawn(name: "Load parameters") do
-        sleep 0.01.seconds
+        sleep 10.milliseconds
         next if @closed
         apply_parameters
         apply_policies

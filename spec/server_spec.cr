@@ -140,7 +140,7 @@ describe LavinMQ::Server do
         q.unbind(x.name, "")
         x.publish("m1", q.name)
         code.receive.should eq 404
-        sleep 0.01.seconds
+        sleep 10.milliseconds
         ch.closed?.should be_true
       end
     end
@@ -422,7 +422,7 @@ describe LavinMQ::Server do
         msgs = [] of AMQP::Client::DeliverMessage
         tag = q.subscribe { |msg| msgs << msg }
         q.unsubscribe(tag)
-        sleep 0.01.seconds
+        sleep 10.milliseconds
         ch.has_subscriber?(tag).should eq false
       end
     end
@@ -569,7 +569,7 @@ describe LavinMQ::Server do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         ch.basic_ack(0, multiple: true)
-        sleep 0.01.seconds
+        sleep 10.milliseconds
         ch.basic_ack(0, multiple: true)
       end
     end
@@ -639,7 +639,7 @@ describe LavinMQ::Server do
         q.publish_confirm("m2").should be_true
         definitions = {"max-length" => JSON::Any.new(1_i64)} of String => JSON::Any
         s.vhosts["/"].add_policy("test", "^mlq$", "queues", definitions, 10_i8)
-        sleep 0.01.seconds
+        sleep 10.milliseconds
         s.vhosts["/"].queues["mlq"].message_count.should eq 1
       end
     end
@@ -840,7 +840,7 @@ describe LavinMQ::Server do
         q1.bind(x1.name, "rk")
         q2.bind(x1.name, "rk")
         x1.publish("m1", "rk")
-        sleep 0.05.seconds
+        sleep 0.05.milliseconds
         msg_q1 = q1.get(no_ack: true)
         msg_q2 = q2.get(no_ack: true)
         msg_q1.not_nil!.body_io.to_s.should eq("m1")
@@ -885,11 +885,11 @@ describe LavinMQ::Server do
         5.times { q.publish "" }
         delivered = 0
         tag = q.subscribe(no_ack: false) { |_m| delivered += 1 }
-        sleep 0.05.seconds
+        sleep 0.05.milliseconds
         q.unsubscribe(tag)
-        sleep 0.05.seconds
+        sleep 0.05.milliseconds
         ch.basic_recover(requeue: true)
-        sleep 0.05.seconds
+        sleep 0.05.milliseconds
         q.delete[:message_count].should eq 5
       end
     end
@@ -1102,7 +1102,7 @@ describe LavinMQ::Server do
         end
         q.publish "1"
         ch.@connection.@io.as(TCPSocket).close
-        sleep 0.05.seconds
+        sleep 0.05.milliseconds
         count.should eq 0
 
         Fiber.yield

@@ -276,7 +276,7 @@ describe LavinMQ::Queue do
         sq = s.vhosts["/"].queues[q.name]
         sq.unacked_count.should eq 1
         msg.not_nil!.ack
-        sleep 0.01.seconds
+        sleep 10.milliseconds
         sq.unacked_count.should eq 0
       end
     end
@@ -296,7 +296,7 @@ describe LavinMQ::Queue do
         sq = s.vhosts["/"].queues[q.name]
         sq.unacked_count.should eq 1
         msg.ack
-        sleep 0.01.seconds
+        sleep 10.milliseconds
         sq.unacked_count.should eq 0
       end
     end

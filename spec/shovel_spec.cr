@@ -644,7 +644,7 @@ describe LavinMQ::Shovel do
           props = AMQP::Client::Properties.new("text/plain", nil, headers)
           x.publish_confirm "shovel me", "ql_q1", props: props
           shovel.run
-          sleep 0.01.seconds
+          sleep 10.milliseconds
 
           # Check that we have sent one message successfully
           path.should eq "/pp"

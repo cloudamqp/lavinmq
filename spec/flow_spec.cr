@@ -16,7 +16,7 @@ describe "Flow" do
         ch.flow(false)
         msgs.pop.ack
         q.publish "msg"
-        sleep 0.05.seconds # wait little so a new message could be delivered
+        sleep 50.milliseconds # wait little so a new message could be delivered
         msgs.size.should eq 0
         ch.flow(true)
         wait_for { msgs.size == 1 }
