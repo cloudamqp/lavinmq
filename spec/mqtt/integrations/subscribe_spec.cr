@@ -28,7 +28,7 @@ module MqttSpecs
       end
     end
 
-    pending "bits 3,2,1,0 must be set to 0,0,1,0 [MQTT-3.8.1-1]" do
+    it "bits 3,2,1,0 must be set to 0,0,1,0 [MQTT-3.8.1-1]" do
       with_server do |server|
         with_client_io(server) do |io|
           connect(io)
@@ -48,7 +48,7 @@ module MqttSpecs
       end
     end
 
-    pending "must contain at least one topic filter [MQTT-3.8.3-3]" do
+    it "must contain at least one topic filter [MQTT-3.8.3-3]" do
       with_server do |server|
         with_client_io(server) do |io|
           connect(io)
@@ -67,7 +67,7 @@ module MqttSpecs
       end
     end
 
-    pending "should not allow any payload reserved bits to be set [MQTT-3-8.3-4]" do
+    it "should not allow any payload reserved bits to be set [MQTT-3-8.3-4]" do
       with_server do |server|
         with_client_io(server) do |io|
           connect(io)
