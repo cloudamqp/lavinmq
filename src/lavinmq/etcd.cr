@@ -224,11 +224,11 @@ module LavinMQ
         rescue ex : Error
           Log.warn { "Service Unavailable at #{address}, #{ex.message}, retrying" }
           socket.close rescue nil
-          sleep 0.1
+          sleep 0.1.seconds
         rescue IO::Error
           Log.warn { "Lost connection to #{address}, retrying" }
           socket.close rescue nil
-          sleep 0.1
+          sleep 0.1.seconds
         ensure
           @connections.push({socket, address}) unless socket.closed?
         end

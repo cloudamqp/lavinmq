@@ -63,7 +63,7 @@ module LavinMQ
 
     private def check_consumer_timeouts_loop
       loop do
-        sleep Config.instance.consumer_timeout_loop_interval
+        sleep Config.instance.consumer_timeout_loop_interval.seconds
         return if @closed
         @connections.each do |c|
           c.channels.each_value do |ch|
@@ -457,7 +457,7 @@ module LavinMQ
       # wait up to 10s for clients to gracefully close
       100.times do
         break if @connections.empty?
-        sleep 0.1
+        sleep 0.1.seconds
       end
       # then force close the remaining (close tcp socket)
       @connections.each &.force_close
@@ -508,7 +508,7 @@ module LavinMQ
     private def load!
       load_definitions!
       spawn(name: "Load parameters") do
-        sleep 0.01
+        sleep 10.milliseconds
         next if @closed
         apply_parameters
         apply_policies

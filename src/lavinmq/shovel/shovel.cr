@@ -9,7 +9,7 @@ module LavinMQ
     DEFAULT_ACK_MODE          = AckMode::OnConfirm
     DEFAULT_DELETE_AFTER      = DeleteAfter::Never
     DEFAULT_PREFETCH          = 1000_u16
-    DEFAULT_RECONNECT_DELAY   =        5
+    DEFAULT_RECONNECT_DELAY   = 5.seconds
     DEFAULT_BATCH_ACK_TIMEOUT = 3.seconds
 
     enum State
@@ -373,7 +373,7 @@ module LavinMQ
       getter name, vhost
 
       def initialize(@source : AMQPSource, @destination : Destination,
-                     @name : String, @vhost : VHost, @reconnect_delay = DEFAULT_RECONNECT_DELAY)
+                     @name : String, @vhost : VHost, @reconnect_delay : Time::Span = DEFAULT_RECONNECT_DELAY)
       end
 
       def state
@@ -427,7 +427,7 @@ module LavinMQ
       def exponential_reconnect_delay
         @retries += 1
         if @retries > RETRY_THRESHOLD
-          sleep Math.min(MAX_DELAY, @reconnect_delay ** (@retries - RETRY_THRESHOLD))
+          sleep Math.min(MAX_DELAY, @reconnect_delay.seconds ** (@retries - RETRY_THRESHOLD)).seconds
         else
           sleep @reconnect_delay
         end

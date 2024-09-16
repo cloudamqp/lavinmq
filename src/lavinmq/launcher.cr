@@ -51,7 +51,7 @@ module LavinMQ
             GC.collect
           end
         else
-          sleep 30
+          sleep 30.seconds
           @data_dir_lock.try &.poll
           GC.collect
         end

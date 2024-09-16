@@ -81,7 +81,7 @@ module LavinMQ
           socket.try &.close
           break if @closed
           Log.info { "Disconnected from server #{host}:#{port} (#{ex}), retrying..." }
-          sleep 1
+          sleep 1.seconds
         end
       end
 

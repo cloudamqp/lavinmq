@@ -18,7 +18,7 @@ describe LavinMQ::Clustering::Client do
     client = HTTP::Client.new("127.0.0.1", 2379)
     i = 0
     loop do
-      sleep 0.02
+      sleep 0.02.seconds
       response = client.get("/version")
       if response.status.ok?
         next if response.body.includes? "not_decided"
@@ -99,25 +99,25 @@ describe LavinMQ::Clustering::Client do
     rescue LavinMQ::Etcd::Error
       # expect this when etcd nodes are terminated
     end
-    sleep 0.5
+    sleep 0.5.seconds
     spawn(name: "failover1") do
       controller1.run
     end
     spawn(name: "failover2") do
       controller2.run
     end
-    sleep 0.1
+    sleep 0.1.seconds
     leader = listen.receive
     case leader
     when /1$/
       controller1.stop
       listen.receive.should match /2$/
-      sleep 0.1
+      sleep 0.1.seconds
       controller2.stop
     when /2$/
       controller2.stop
       listen.receive.should match /1$/
-      sleep 0.1
+      sleep 0.1.seconds
       controller1.stop
     else fail("no leader elected")
     end

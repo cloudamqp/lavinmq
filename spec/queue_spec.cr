@@ -276,7 +276,7 @@ describe LavinMQ::Queue do
         sq = s.vhosts["/"].queues[q.name]
         sq.unacked_count.should eq 1
         msg.not_nil!.ack
-        sleep 0.01
+        sleep 10.milliseconds
         sq.unacked_count.should eq 0
       end
     end
@@ -296,7 +296,7 @@ describe LavinMQ::Queue do
         sq = s.vhosts["/"].queues[q.name]
         sq.unacked_count.should eq 1
         msg.ack
-        sleep 0.01
+        sleep 10.milliseconds
         sq.unacked_count.should eq 0
       end
     end
@@ -342,7 +342,7 @@ describe LavinMQ::Queue do
         sub = q.subscribe(no_ack: true) { |_| }
         Dir.exists?(data_dir).should be_true
         q.unsubscribe(sub)
-        sleep 0.1
+        sleep 0.1.seconds
         Dir.exists?(data_dir).should be_false
       end
     end

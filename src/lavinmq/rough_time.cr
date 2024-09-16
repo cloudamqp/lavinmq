@@ -5,7 +5,7 @@ module RoughTime
 
   spawn(name: "RoughTime") do
     loop do
-      sleep 0.1
+      sleep 0.1.seconds
       @@utc = Time.utc
       @@unix_ms = @@utc.to_unix_ms // 100 * 100
       @@monotonic = Time.monotonic
