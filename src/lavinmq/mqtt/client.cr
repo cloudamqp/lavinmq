@@ -6,6 +6,90 @@ require "./session"
 
 module LavinMQ
   module MQTT
+    class MqttConsumer < LavinMQ::Client::Channel::Consumer
+      getter unacked = 0_u32
+      getter tag : String = "mqtt"
+      property prefetch_count = 1
+
+      def initialize(@client : Client, @queue : Queue)
+        @has_capacity.try_send? true
+        spawn deliver_loop, name: "Consumer deliver loop", same_thread: true
+      end
+
+      private def deliver_loop
+        queue = @queue
+        i = 0
+        loop do
+          queue.consume_get(self) do |env|
+            deliver(env.message, env.segment_position, env.redelivered)
+          end
+          Fiber.yield if (i &+= 1) % 32768 == 0
+        end
+      rescue ex
+        puts "deliver loop exiting: #{ex.inspect}"
+      end
+
+      def details_tuple
+        {
+          queue: {
+            name:  "mqtt.client_id",
+            vhost: "mqtt",
+          },
+        }
+      end
+
+      def no_ack?
+        true
+      end
+
+      def accepts? : Bool
+        true
+      end
+
+      def deliver(msg, sp, redelivered = false, recover = false)
+        # pp "deliver", msg, sp
+        pub_args = {
+          packet_id: 123u16, # next_packet_id,
+          payload:   msg.body,
+          dup:       false,
+          qos:       0u8,
+          retain:    false,
+          topic:     "test",
+        } # .merge(args)
+        @client.send(::MQTT::Protocol::Publish.new(**pub_args))
+        # MQTT::Protocol::PubAck.from_io(io) if pub_args[:qos].positive? && expect_response
+      end
+
+      def exclusive?
+        true
+      end
+
+      def cancel
+      end
+
+      def close
+      end
+
+      def closed?
+        false
+      end
+
+      def flow(active : Bool)
+      end
+
+      getter has_capacity = ::Channel(Bool).new
+
+      def ack(sp)
+      end
+
+      def reject(sp, requeue = false)
+      end
+
+      def priority
+        0
+      end
+    end
+
     class Client < LavinMQ::Client
       include Stats
       include SortableJSON
@@ -67,7 +151,7 @@ module LavinMQ
         case packet
         when MQTT::Publish     then recieve_publish(packet)
         when MQTT::PubAck      then pp "puback"
-        when MQTT::Subscribe   then pp "subscribe"
+        when MQTT::Subscribe   then recieve_subscribe(packet)
         when MQTT::Unsubscribe then pp "unsubscribe"
         when MQTT::PingReq     then receive_pingreq(packet)
         when MQTT::Disconnect  then return packet
@@ -76,7 +160,7 @@ module LavinMQ
         packet
       end
 
-      private def send(packet)
+      def send(packet)
         @lock.synchronize do
           packet.to_io(@io)
           @socket.flush
@@ -90,7 +174,8 @@ module LavinMQ
 
       def recieve_publish(packet)
         # TODO: String.new around payload.. should be stored as Bytes
-        msg = Message.new("mqtt", packet.topic, String.new(packet.payload), AMQ::Protocol::Properties.new)
+
+        msg = Message.new("amq.topic", packet.topic, String.new(packet.payload), AMQ::Protocol::Properties.new)
         @vhost.publish(msg)
         # send packet # TODO: Ok to send back same packet?
         # Ok to not send anything if qos = 0 (at most once delivery)
@@ -102,10 +187,24 @@ module LavinMQ
       def recieve_puback(packet)
       end
 
-      # let prefetch = 1
-      def recieve_subscribe(packet)
-        # exclusive conusmer
-        #
+      def recieve_subscribe(packet : MQTT::Subscribe)
+        name = "mqtt.#{@client_id}"
+        durable = false
+        auto_delete = true
+        tbl = AMQP::Table.new
+        q = @vhost.declare_queue(name, durable, auto_delete, tbl)
+        packet.topic_filters.each do |tf|
+          rk = topicfilter_to_routingkey(tf)
+          @vhost.bind_queue(name, "amq.topic", rk)
+        end
+        queue = @vhost.queues[name]
+        consumer = MqttConsumer.new(self, queue)
+        queue.add_consumer(consumer)
+        send(MQTT::SubAck.new([::MQTT::Protocol::SubAck::ReturnCode::QoS0], packet.packet_id))
+      end
+
+      def topicfilter_to_routingkey(tf) : String
+        tf.topic.gsub("/") { "." }
       end
 
       def recieve_unsubscribe(packet)

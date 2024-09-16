@@ -3,6 +3,12 @@ require "./mqtt_client"
 require "../../spec_helper"
 
 module MqttHelpers
+  GENERATOR = (0u16..).each
+
+  def next_packet_id
+    GENERATOR.next.as(UInt16)
+  end
+
   def with_client_socket(server, &)
     listener = server.listeners.find { |l| l[:protocol] == :mqtt }
     tcp_listener = listener.as(NamedTuple(ip_address: String, protocol: Symbol, port: Int32))
@@ -45,14 +51,6 @@ module MqttHelpers
       io = MQTT::Protocol::IO.new(socket)
       with MqttHelpers yield io
     end
-  end
-
-  def packet_id_generator
-    (0u16..).each
-  end
-
-  def next_packet_id
-    packet_id_generator.next.as(UInt16)
   end
 
   def connect(io, expect_response = true, **args)
