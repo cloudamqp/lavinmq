@@ -25,6 +25,7 @@ module LavinMQ
           end
           Fiber.yield if (i &+= 1) % 32768 == 0
         end
+      rescue LavinMQ::Queue::ClosedError
       rescue ex
         puts "deliver loop exiting: #{ex.inspect}"
       end
@@ -47,15 +48,18 @@ module LavinMQ
       end
 
       def deliver(msg, sp, redelivered = false, recover = false)
-        # pp "deliver", msg, sp
+        packet_id = nil
+        if message_id = msg.properties.message_id
+          packet_id = message_id.to_u16 unless message_id.empty?
+        end
         pub_args = {
-          packet_id: 123u16, # next_packet_id,
+          packet_id: packet_id,
           payload:   msg.body,
           dup:       false,
           qos:       0u8,
           retain:    false,
           topic:     "test",
-        } # .merge(args)
+        }
         @client.send(::MQTT::Protocol::Publish.new(**pub_args))
         # MQTT::Protocol::PubAck.from_io(io) if pub_args[:qos].positive? && expect_response
       end
@@ -175,11 +179,13 @@ module LavinMQ
       end
 
       def recieve_publish(packet)
+        rk = topicfilter_to_routingkey(packet.topic)
+        props = AMQ::Protocol::Properties.new(
+          message_id: packet.packet_id.to_s
+        )
         # TODO: String.new around payload.. should be stored as Bytes
-
-        msg = Message.new("amq.topic", packet.topic, String.new(packet.payload), AMQ::Protocol::Properties.new)
+        msg = Message.new("amq.topic", rk, String.new(packet.payload), props)
         @vhost.publish(msg)
-        # send packet # TODO: Ok to send back same packet?
         # Ok to not send anything if qos = 0 (at most once delivery)
         if packet.qos > 0 && (packet_id = packet.packet_id)
           send(MQTT::PubAck.new(packet_id))
@@ -206,7 +212,7 @@ module LavinMQ
       end
 
       def topicfilter_to_routingkey(tf) : String
-        tf.topic.gsub("/") { "." }
+        tf.gsub("/", ".")
       end
 
       def recieve_unsubscribe(packet)
