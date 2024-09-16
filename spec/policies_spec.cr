@@ -149,7 +149,7 @@ describe LavinMQ::VHost do
         q.publish_confirm "short2"
         q.publish_confirm "long"
         ch.queue_declare("max-length-bytes", passive: true)[:message_count].should eq 3
-        sleep 0.02.seconds
+        sleep 20.milliseconds
         s.vhosts["/"].add_policy("max-length-bytes", "^.*$", "all", defs, 12_i8)
         sleep 10.milliseconds
         ch.queue_declare("max-length-bytes", passive: true)[:message_count].should eq 2

@@ -840,7 +840,7 @@ describe LavinMQ::Server do
         q1.bind(x1.name, "rk")
         q2.bind(x1.name, "rk")
         x1.publish("m1", "rk")
-        sleep 0.05.milliseconds
+        sleep 50.milliseconds
         msg_q1 = q1.get(no_ack: true)
         msg_q2 = q2.get(no_ack: true)
         msg_q1.not_nil!.body_io.to_s.should eq("m1")
@@ -885,11 +885,11 @@ describe LavinMQ::Server do
         5.times { q.publish "" }
         delivered = 0
         tag = q.subscribe(no_ack: false) { |_m| delivered += 1 }
-        sleep 0.05.milliseconds
+        sleep 50.milliseconds
         q.unsubscribe(tag)
-        sleep 0.05.milliseconds
+        sleep 50.milliseconds
         ch.basic_recover(requeue: true)
-        sleep 0.05.milliseconds
+        sleep 50.milliseconds
         q.delete[:message_count].should eq 5
       end
     end
@@ -1102,7 +1102,7 @@ describe LavinMQ::Server do
         end
         q.publish "1"
         ch.@connection.@io.as(TCPSocket).close
-        sleep 0.05.milliseconds
+        sleep 50.milliseconds
         count.should eq 0
 
         Fiber.yield

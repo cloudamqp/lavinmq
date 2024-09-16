@@ -162,7 +162,7 @@ class EtcdCluster
       i = 0
       client = HTTP::Client.new("127.0.0.1", 23000 + port)
       loop do
-        sleep 0.02.seconds
+        sleep 20.milliseconds
         response = client.get("/version")
         if response.status.ok?
           next if response.body.includes? "not_decided"
