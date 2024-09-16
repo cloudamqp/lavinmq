@@ -16,13 +16,20 @@ module MqttSpecs
             connect(pub_io, client_id: "pub")
 
             payload = slice = Bytes[1, 254, 200, 197, 123, 4, 87]
-            ack = publish(pub_io, topic: "test", payload: payload, qos: 0u8)
+            packet_id = next_packet_id
+            ack = publish(pub_io,
+              topic: "test",
+              payload: payload,
+              qos: 0u8,
+              packet_id: packet_id
+            )
             ack.should be_nil
 
             msg = read_packet(sub_io)
             msg.should be_a(MQTT::Protocol::Publish)
             msg = msg.as(MQTT::Protocol::Publish)
             msg.payload.should eq payload
+            msg.packet_id.should be_nil # QoS=0
           end
         end
       end
