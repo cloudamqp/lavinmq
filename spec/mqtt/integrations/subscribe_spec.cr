@@ -4,6 +4,30 @@ module MqttSpecs
   extend MqttHelpers
   extend MqttMatchers
   describe "subscribe" do
+    it "pub/sub" do
+      with_server do |server|
+        with_client_io(server) do |sub_io|
+          connect(sub_io, client_id: "sub")
+
+          topic_filters = mk_topic_filters({"test", 0})
+          subscribe(sub_io, topic_filters: topic_filters)
+
+          with_client_io(server) do |pub_io|
+            connect(pub_io, client_id: "pub")
+
+            payload = slice = Bytes[1, 254, 200, 197, 123, 4, 87]
+            ack = publish(pub_io, topic: "test", payload: payload, qos: 0u8)
+            ack.should be_nil
+
+            msg = read_packet(sub_io)
+            msg.should be_a(MQTT::Protocol::Publish)
+            msg = msg.as(MQTT::Protocol::Publish)
+            msg.payload.should eq payload
+          end
+        end
+      end
+    end
+
     pending "bits 3,2,1,0 must be set to 0,0,1,0 [MQTT-3.8.1-1]" do
       with_server do |server|
         with_client_io(server) do |io|
@@ -97,6 +121,24 @@ module MqttSpecs
           pub.qos.should eq(1u8)
 
           io.should be_drained
+        end
+      end
+    end
+  end
+
+  describe "amqp" do
+    pending "should create a queue and subscribe queue to amq.topic" do
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io)
+
+          topic_filters = mk_topic_filters({"a/b", 0})
+          suback = subscribe(io, topic_filters: topic_filters)
+          suback.should be_a(MQTT::Protocol::SubAck)
+
+          q = server.vhosts["/"].queues["mqtt.client_id"]
+          binding = q.bindings.find { |a, b| a.is_a?(LavinMQ::TopicExchange) && b[0] == "a.b" }
+          binding.should_not be_nil
         end
       end
     end
