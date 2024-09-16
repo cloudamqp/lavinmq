@@ -258,7 +258,7 @@ describe LavinMQ::Shovel do
           x.publish_confirm "shovel me", "ap_q1"
           spawn shovel.run
           wait_for { shovel.running? }
-          sleep 0.1 # Give time for message to be shoveled
+          sleep 0.1.seconds # Give time for message to be shoveled
           s.vhosts["/"].queues["ap_q1"].message_count.should eq 0
           q2.get(no_ack: false).try(&.body_io.to_s).should eq "shovel me"
         end
@@ -644,7 +644,7 @@ describe LavinMQ::Shovel do
           props = AMQP::Client::Properties.new("text/plain", nil, headers)
           x.publish_confirm "shovel me", "ql_q1", props: props
           shovel.run
-          sleep 0.01
+          sleep 0.01.seconds
 
           # Check that we have sent one message successfully
           path.should eq "/pp"

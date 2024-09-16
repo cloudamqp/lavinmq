@@ -140,7 +140,7 @@ describe LavinMQ::Server do
         q.unbind(x.name, "")
         x.publish("m1", q.name)
         code.receive.should eq 404
-        sleep 0.01
+        sleep 0.01.seconds
         ch.closed?.should be_true
       end
     end
@@ -206,9 +206,9 @@ describe LavinMQ::Server do
       with_channel(s) do |ch|
         q = ch.queue
         q.publish_confirm "expired", props: AMQP::Client::Properties.new(expiration: "1")
-        sleep 0.2
+        sleep 0.2.seconds
         q.publish_confirm "expired", props: AMQP::Client::Properties.new(expiration: "1")
-        sleep 0.2
+        sleep 0.2.seconds
         msg = q.get(no_ack: true)
         msg.should be_nil
       end
@@ -363,7 +363,7 @@ describe LavinMQ::Server do
         ch.prefetch 1
         q.subscribe(no_ack: false) do |msg|
           mch.send msg
-          sleep 0.2
+          sleep 0.2.seconds
           msg.ack
         end
         10.times do |i|
@@ -422,7 +422,7 @@ describe LavinMQ::Server do
         msgs = [] of AMQP::Client::DeliverMessage
         tag = q.subscribe { |msg| msgs << msg }
         q.unsubscribe(tag)
-        sleep 0.01
+        sleep 0.01.seconds
         ch.has_subscriber?(tag).should eq false
       end
     end
@@ -462,7 +462,7 @@ describe LavinMQ::Server do
         x.publish "m2", q.name, props: AMQP::Client::Properties.new(headers: hdrs)
         msgs = Channel(AMQP::Client::DeliverMessage).new(2)
         q.subscribe { |msg| msgs.send msg }
-        spawn { sleep 5; msgs.close }
+        spawn { sleep 5.seconds; msgs.close }
         2.times { msgs.receive?.should_not be_nil }
       end
     end
@@ -569,7 +569,7 @@ describe LavinMQ::Server do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         ch.basic_ack(0, multiple: true)
-        sleep 0.01
+        sleep 0.01.seconds
         ch.basic_ack(0, multiple: true)
       end
     end
@@ -639,7 +639,7 @@ describe LavinMQ::Server do
         q.publish_confirm("m2").should be_true
         definitions = {"max-length" => JSON::Any.new(1_i64)} of String => JSON::Any
         s.vhosts["/"].add_policy("test", "^mlq$", "queues", definitions, 10_i8)
-        sleep 0.01
+        sleep 0.01.seconds
         s.vhosts["/"].queues["mlq"].message_count.should eq 1
       end
     end
@@ -840,7 +840,7 @@ describe LavinMQ::Server do
         q1.bind(x1.name, "rk")
         q2.bind(x1.name, "rk")
         x1.publish("m1", "rk")
-        sleep 0.05
+        sleep 0.05.seconds
         msg_q1 = q1.get(no_ack: true)
         msg_q2 = q2.get(no_ack: true)
         msg_q1.not_nil!.body_io.to_s.should eq("m1")
@@ -885,11 +885,11 @@ describe LavinMQ::Server do
         5.times { q.publish "" }
         delivered = 0
         tag = q.subscribe(no_ack: false) { |_m| delivered += 1 }
-        sleep 0.05
+        sleep 0.05.seconds
         q.unsubscribe(tag)
-        sleep 0.05
+        sleep 0.05.seconds
         ch.basic_recover(requeue: true)
-        sleep 0.05
+        sleep 0.05.seconds
         q.delete[:message_count].should eq 5
       end
     end
@@ -1042,7 +1042,7 @@ describe LavinMQ::Server do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         ch.basic_ack(1)
-        sleep 0.1
+        sleep 0.1.seconds
         expect_raises(AMQP::Client::Channel::ClosedException, /PRECONDITION_FAILED - unknown delivery tag 1/) do
           ch.basic_ack(1)
         end
@@ -1062,7 +1062,7 @@ describe LavinMQ::Server do
         _msg3 = ch.basic_get(q.name, no_ack: false)
         msg2.not_nil!.ack
         msg2.not_nil!.ack # this will trigger the error
-        sleep 0.1
+        sleep 0.1.seconds
         expect_raises(AMQP::Client::Channel::ClosedException, /PRECONDITION_FAILED - unknown delivery tag 2/) do
           msg1.not_nil!.ack
         end
@@ -1082,7 +1082,7 @@ describe LavinMQ::Server do
         msg3 = ch.basic_get(q.name, no_ack: false)
         msg2.not_nil!.ack
         msg2.not_nil!.ack(multiple: true) # this should tigger a precondition fail
-        sleep 0.1
+        sleep 0.1.seconds
         expect_raises(AMQP::Client::Channel::ClosedException, /PRECONDITION_FAILED - unknown delivery tag 2/) do
           msg3.not_nil!.ack
         end
@@ -1102,7 +1102,7 @@ describe LavinMQ::Server do
         end
         q.publish "1"
         ch.@connection.@io.as(TCPSocket).close
-        sleep 0.05
+        sleep 0.05.seconds
         count.should eq 0
 
         Fiber.yield

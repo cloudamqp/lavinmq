@@ -246,7 +246,7 @@ describe LavinMQ::Federation::Upstream do
           end
           upstream_ex.publish_confirm "msg1", "rk1"
           msgs.receive.should eq "msg1"
-          sleep 0.01 # allow the downstream federation to ack the msg
+          sleep 0.01.seconds # allow the downstream federation to ack the msg
           upstream_vhost.connections.each do |conn|
             next unless conn.client_name.starts_with?("Federation link")
             conn.close
@@ -410,10 +410,10 @@ describe LavinMQ::Federation::Upstream do
           downstream_q.bind("downstream_ex", "after.link.#{i}")
           queues << downstream_q
         end
-        sleep 0.1
+        sleep 0.1.seconds
         upstream_q.bindings.size.should eq queues.size
         queues.each &.delete
-        sleep 0.01
+        sleep 0.01.seconds
         upstream_q.bindings.size.should eq 0
       end
     end

@@ -148,7 +148,7 @@ module LavinMQ
 
     private def unmap_and_remove_segments_loop
       until closed?
-        sleep 60
+        sleep 60.seconds
         unmap_and_remove_segments
       end
     end

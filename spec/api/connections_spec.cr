@@ -139,7 +139,7 @@ describe LavinMQ::HTTP::ConnectionsController do
         with_channel(s, user: "arnold", password: "pw") do
           response = http.delete("/api/connections/username/arnold", headers: hdrs)
           response.status_code.should eq 204
-          sleep 0.1
+          sleep 0.1.seconds
           response = http.get("/api/connections/username/arnold", headers: hdrs)
           body = JSON.parse(response.body)
           body.as_a.empty?.should be_true

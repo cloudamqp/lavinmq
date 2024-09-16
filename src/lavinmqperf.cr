@@ -183,7 +183,7 @@ class Throughput < Perf
       break if @stopped
       pubs_last = @pubs
       consumes_last = @consumes
-      sleep 1
+      sleep 1.seconds
       unless @quiet
         puts "Publish rate: #{@pubs - pubs_last} msgs/s Consume rate: #{@consumes - consumes_last} msgs/s"
       end
@@ -334,7 +334,7 @@ class Throughput < Perf
       break yield
     rescue ex : AMQP::Client::Error | IO::Error
       puts ex.message
-      sleep 1
+      sleep 1.seconds
     end
   ensure
     done.done

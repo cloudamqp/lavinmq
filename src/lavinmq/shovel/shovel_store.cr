@@ -21,7 +21,7 @@ module LavinMQ
       delete_after = Shovel::DeleteAfter.parse?(delete_after_str) || Shovel::DEFAULT_DELETE_AFTER
       ack_mode_str = config["ack-mode"]?.try(&.as_s.delete("-")).to_s
       ack_mode = Shovel::AckMode.parse?(ack_mode_str) || Shovel::DEFAULT_ACK_MODE
-      reconnect_delay = config["reconnect-delay"]?.try &.as_i || Shovel::DEFAULT_RECONNECT_DELAY
+      reconnect_delay = config["reconnect-delay"]?.try &.as_i.seconds || Shovel::DEFAULT_RECONNECT_DELAY
       prefetch = config["src-prefetch-count"]?.try(&.as_i.to_u16) || Shovel::DEFAULT_PREFETCH
       src = Shovel::AMQPSource.new(name, parse_uris(config["src-uri"]),
         config["src-queue"]?.try &.as_s?,

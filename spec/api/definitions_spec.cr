@@ -173,7 +173,7 @@ describe LavinMQ::HTTP::Server do
         response.status_code.should eq 200
         # Because we run shovels in a new Fiber we have to make sure the shovel is not started
         # after this spec has finished
-        sleep 0.1 # Start the shovel
+        sleep 0.1.seconds # Start the shovel
         wait_for do
           shovels = s.vhosts["/"].shovels.not_nil!
           shovels.each_value.all? &.running?
