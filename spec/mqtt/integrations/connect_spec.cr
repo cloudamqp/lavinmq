@@ -20,7 +20,7 @@ module MqttSpecs
 
     describe "receives connack" do
       describe "with expected flags set" do
-        pending "no session present when reconnecting a non-clean session with a clean session [MQTT-3.1.2-6]" do
+        it "no session present when reconnecting a non-clean session with a clean session [MQTT-3.1.2-6]" do
           with_server do |server|
             with_client_io(server) do |io|
               connect(io, clean_session: false)
@@ -41,7 +41,7 @@ module MqttSpecs
           end
         end
 
-        pending "no session present when reconnecting a clean session with a non-clean session [MQTT-3.1.2-6]" do
+        it "no session present when reconnecting a clean session with a non-clean session [MQTT-3.1.2-6]" do
           with_server do |server|
             with_client_io(server) do |io|
               connect(io, clean_session: true)
@@ -60,7 +60,7 @@ module MqttSpecs
           end
         end
 
-        pending "no session present when reconnecting a clean session [MQTT-3.1.2-6]" do
+        it "no session present when reconnecting a clean session [MQTT-3.1.2-6]" do
           with_server do |server|
             with_client_io(server) do |io|
               connect(io, clean_session: true)
@@ -100,7 +100,7 @@ module MqttSpecs
       end
 
       describe "with expected return code" do
-        pending "for valid credentials [MQTT-3.1.4-4]" do
+        it "for valid credentials [MQTT-3.1.4-4]" do
           with_server do |server|
             with_client_io(server) do |io|
               connack = connect(io)
@@ -127,7 +127,7 @@ module MqttSpecs
         #   end
         # end
 
-        pending "for invalid protocol version [MQTT-3.1.2-2]" do
+        it "for invalid protocol version [MQTT-3.1.2-2]" do
           with_server do |server|
             with_client_io(server) do |io|
               temp_io = IO::Memory.new
@@ -150,7 +150,7 @@ module MqttSpecs
           end
         end
 
-        pending "for empty client id with non-clean session [MQTT-3.1.3-8]" do
+        it "for empty client id with non-clean session [MQTT-3.1.3-8]" do
           with_server do |server|
             with_client_io(server) do |io|
               connack = connect(io, client_id: "", clean_session: false)
