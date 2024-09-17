@@ -22,6 +22,13 @@ module LavinMQ
             return LavinMQ::MQTT::Client.new(socket, connection_info, @vhost, user, packet.client_id, packet.clean_session?, packet.will)
           end
         end
+      rescue ex : MQTT::Error::Connect
+        Log.warn { "Connect error #{ex.inspect}" }
+        if io
+          MQTT::Connack.new(false, MQTT::Connack::ReturnCode.new(ex.return_code)).to_io(io)
+        end
+        socket.close
+
       rescue ex
         Log.warn { "Recieved the wrong packet" }
         socket.close
