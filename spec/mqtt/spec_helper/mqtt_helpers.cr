@@ -112,5 +112,7 @@ module MqttHelpers
 
   def read_packet(io)
     MQTT::Protocol::Packet.from_io(io)
+  rescue IO::TimeoutError
+    fail "Did not get packet on time"
   end
 end

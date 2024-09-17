@@ -108,9 +108,9 @@ module MqttSpecs
           # Publish something to the topic we're subscribed to...
           publish(io, topic: "a/b", payload: "a".to_slice, qos: 1u8)
           # ... consume it...
-          pub = read_packet(io).as(MQTT::Protocol::Publish)
+          packet = read_packet(io).as(MQTT::Protocol::Publish)
           # ... and verify it be qos0 (i.e. our subscribe is correct)
-          pub.qos.should eq(0u8)
+          packet.qos.should eq(0u8)
 
           # Now do a second subscribe with another qos and do the same verification
           topic_filters = mk_topic_filters({"a/b", 1})
@@ -123,9 +123,9 @@ module MqttSpecs
           # Publish something to the topic we're subscribed to...
           publish(io, topic: "a/b", payload: "a".to_slice, qos: 1u8)
           # ... consume it...
-          pub = read_packet(io).as(MQTT::Protocol::Publish)
+          packet = read_packet(io).as(MQTT::Protocol::Publish)
           # ... and verify it be qos0 (i.e. our subscribe is correct)
-          pub.qos.should eq(1u8)
+          packet.qos.should eq(1u8)
 
           io.should be_drained
         end

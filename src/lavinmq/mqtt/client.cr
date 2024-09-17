@@ -200,15 +200,18 @@ module LavinMQ
         durable = false
         auto_delete = true
         tbl = AMQP::Table.new
+        # TODO: declare Session instead
         q = @vhost.declare_queue(name, durable, auto_delete, tbl)
+        qos = Array(MQTT::SubAck::ReturnCode).new
         packet.topic_filters.each do |tf|
-          rk = topicfilter_to_routingkey(tf)
+          qos << MQTT::SubAck::ReturnCode.from_int(tf.qos)
+          rk = topicfilter_to_routingkey(tf.topic)
           @vhost.bind_queue(name, "amq.topic", rk)
         end
         queue = @vhost.queues[name]
         consumer = MqttConsumer.new(self, queue)
         queue.add_consumer(consumer)
-        send(MQTT::SubAck.new([::MQTT::Protocol::SubAck::ReturnCode::QoS0], packet.packet_id))
+        send(MQTT::SubAck.new(qos, packet.packet_id))
       end
 
       def topicfilter_to_routingkey(tf) : String
