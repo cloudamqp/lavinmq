@@ -137,6 +137,9 @@ class LavinMQCtl
     @parser.on("status", "Display server status") do
       @cmd = "status"
     end
+    @parser.on("cluster_status", "Display cluster status") do
+      @cmd = "cluster_status"
+    end
     @parser.on("definitions", "Generate definitions json from a data directory") do
       @cmd = "definitions"
     end
@@ -182,6 +185,7 @@ class LavinMQCtl
     when "create_exchange"       then create_exchange
     when "delete_exchange"       then delete_exchange
     when "status"                then status
+    when "cluster_status"        then cluster_status
     when "set_vhost_limits"      then set_vhost_limits
     when "set_permissions"       then set_permissions
     when "definitions"           then definitions
@@ -608,6 +612,21 @@ class LavinMQCtl
     puts "Messages: #{body.dig("queue_totals", "messages")}"
     puts "Messages ready: #{body.dig("queue_totals", "messages_ready")}"
     puts "Messages unacked: #{body.dig("queue_totals", "messages_unacknowledged")}"
+  end
+
+  private def cluster_status
+    resp = http.get "/api/nodes"
+    handle_response(resp, 200)
+    body = JSON.parse(resp.body)
+    puts "Node #{body[0].dig("name")} is running LavinMQ v#{body[0].dig("applications")[0].dig("version")} "
+    if followers = body[0].dig("followers").as_a
+      puts "Followers:"
+      puts "ID \t| Address \t\t| Lag"
+      followers.each do |f|
+        lag = f.dig("sent_bytes").as_i64 - f.dig("acked_bytes").as_i64
+        puts "#{f.dig("id")} \t| #{f.dig("remote_address")} \t| #{lag}"
+      end
+    end
   end
 
   private def set_vhost_limits
