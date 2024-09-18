@@ -59,6 +59,26 @@ module LavinMQ
         @vhost.add_connection(self)
         @log.info { "Connection established for user=#{@user.name}" }
         spawn read_loop, name: "Client#read_loop #{@remote_address}"
+        spawn flush_loop, name: "Client#flush_loop #{@remote_address}"
+      end
+
+      FLUSH_BUFFER_SIZE = ENV["FLUSH_BUFFER_SIZE"]?.try(&.to_i) || 128
+      @flush_buffer = ::Channel(Bool).new(FLUSH_BUFFER_SIZE)
+
+      private def flush_loop
+        flush_buffer = @flush_buffer
+        while flush_buffer.receive? && @running
+          @write_lock.synchronize do
+            while flush_buffer.try_receive?
+            end
+            @socket.flush
+          end
+        end
+      rescue e : IO::Error
+      end
+
+      private def flush
+        @flush_buffer.send(true)
       end
 
       # Returns client provided connection name if set, else server generated name
@@ -190,8 +210,8 @@ module LavinMQ
         @write_lock.synchronize do
           s = @socket
           s.write_bytes frame, IO::ByteFormat::NetworkEndian
-          s.flush
         end
+        flush
         @last_sent_frame = RoughTime.monotonic
         @send_oct_count += 8_u64 + frame.bytesize
         if frame.is_a?(AMQP::Frame::Connection::CloseOk)
@@ -224,9 +244,9 @@ module LavinMQ
 
       def deliver(frame, msg)
         return false if closed?
+        socket = @socket
+        websocket = socket.is_a? WebSocketIO
         @write_lock.synchronize do
-          socket = @socket
-          websocket = socket.is_a? WebSocketIO
           {% unless flag?(:release) %}
             @log.trace { "Send #{frame.inspect}" }
           {% end %}
@@ -257,9 +277,9 @@ module LavinMQ
             @send_oct_count += 8_u64 + body.bytesize
             pos += length
           end
-          socket.flush unless websocket # Websockets need to send one frame per WS frame
           @last_sent_frame = RoughTime.monotonic
         end
+        flush unless websocket # Websockets need to send one frame per WS frame
         true
       rescue ex : IO::Error | OpenSSL::SSL::Error
         @log.debug { "Lost connection, while sending message (#{ex.inspect})" } unless closed?
@@ -412,7 +432,11 @@ module LavinMQ
 
       private def close_socket
         @running = false
-        @socket.close
+        @write_lock.synchronize do
+          @flush_buffer.close
+          @socket.close
+        end
+        @log.debug { "Socket closed" }
       rescue ex
         @log.debug { "#{ex.inspect} when closing socket" }
       end
