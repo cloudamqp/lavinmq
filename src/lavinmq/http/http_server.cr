@@ -86,7 +86,8 @@ module LavinMQ
       def self.follower_internal_socket_http_server
         http_server = ::HTTP::Server.new do |context|
           context.response.status_code = 503
-          context.response.status_message = "This node is a follower and does not handle HTTP requests."
+          context.response.print "This node is a follower and does not handle lavinmqctl commands. \n" \
+                                 "Please connect to the leader node by using the --host option."
         end
 
         File.delete?(INTERNAL_UNIX_SOCKET)
