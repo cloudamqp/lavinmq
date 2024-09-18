@@ -106,13 +106,20 @@ describe LavinMQ::HTTP::Server do
       ]})
         response = http.post("/api/definitions", body: body)
         response.status_code.should eq 200
-        matches = [] of String
         ex = s.vhosts["/"].exchanges["import_x1"]
-        ex.do_exchange_matches("r.k2", nil) { |e| matches << e.name }
-        matches.includes?("import_x2").should be_true
-        matches.clear
-        ex.do_queue_matches("rk", nil) { |e| matches << e.name }
-        matches.includes?("import_q1").should be_true
+        qs = Set(LavinMQ::Queue).new
+        es = Set(LavinMQ::Exchange).new
+        ex.find_queues("r.k2", nil, qs, es)
+        res = Set(LavinMQ::Exchange).new
+        res << s.vhosts["/"].exchanges["import_x1"]
+        res << s.vhosts["/"].exchanges["import_x2"]
+        es.should eq res
+        qs = Set(LavinMQ::Queue).new
+        es = Set(LavinMQ::Exchange).new
+        ex.find_queues("rk", nil, qs, es)
+        res = Set(LavinMQ::Queue).new
+        res << s.vhosts["/"].queues["import_q1"]
+        qs.should eq res
       end
     end
 
@@ -470,13 +477,20 @@ describe LavinMQ::HTTP::Server do
       ]})
         response = http.post("/api/definitions/%2f", body: body)
         response.status_code.should eq 200
-        matches = [] of String
         ex = s.vhosts["/"].exchanges["import_x1"]
-        ex.do_exchange_matches("r.k2", nil) { |e| matches << e.name }
-        matches.includes?("import_x2").should be_true
-        matches.clear
-        ex.do_queue_matches("rk", nil) { |e| matches << e.name }
-        matches.includes?("import_q1").should be_true
+        qs = Set(LavinMQ::Queue).new
+        es = Set(LavinMQ::Exchange).new
+        ex.find_queues("r.k2", nil, qs, es)
+        res = Set(LavinMQ::Exchange).new
+        res << s.vhosts["/"].exchanges["import_x1"]
+        res << s.vhosts["/"].exchanges["import_x2"]
+        es.should eq res
+        qs = Set(LavinMQ::Queue).new
+        es = Set(LavinMQ::Exchange).new
+        ex.find_queues("rk", nil, qs, es)
+        res = Set(LavinMQ::Queue).new
+        res << s.vhosts["/"].queues["import_q1"]
+        qs.should eq res
       end
     end
 
