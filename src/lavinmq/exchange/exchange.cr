@@ -7,8 +7,17 @@ require "./event"
 require "../queue"
 
 module LavinMQ
-  alias BindingKey = Tuple(String, AMQP::Table?)
   alias Destination = Queue | Exchange
+  record BindingKey, routing_key : String, arguments : AMQP::Table? = nil do
+    def properties_key
+      if arguments.nil? || arguments.try(&.empty?)
+        routing_key.empty? ? "~" : routing_key
+      else
+        hsh = Base64.urlsafe_encode(arguments.to_s)
+        "#{routing_key}~#{hsh}"
+      end
+    end
+  end
 
   abstract class Exchange
     include PolicyTarget
@@ -16,7 +25,7 @@ module LavinMQ
     include SortableJSON
     include Observable(ExchangeEvent)
 
-    getter name, arguments, queue_bindings, exchange_bindings, vhost, type, alternate_exchange
+    getter name, arguments, vhost, type, alternate_exchange
     getter? durable, internal, auto_delete
     getter policy : Policy?
     getter operator_policy : OperatorPolicy?
@@ -32,12 +41,6 @@ module LavinMQ
     def initialize(@vhost : VHost, @name : String, @durable = false,
                    @auto_delete = false, @internal = false,
                    @arguments = AMQP::Table.new)
-      @queue_bindings = Hash(BindingKey, Set(Queue)).new do |h, k|
-        h[k] = Set(Queue).new
-      end
-      @exchange_bindings = Hash(BindingKey, Set(Exchange)).new do |h, k|
-        h[k] = Set(Exchange).new
-      end
       handle_arguments
     end
 
@@ -105,20 +108,10 @@ module LavinMQ
     end
 
     def in_use?
-      return true if @queue_bindings.size > 0
-      return true if @exchange_bindings.size > 0
-      return true if @vhost.exchanges.any? { |_, x| x.exchange_bindings.any? { |_, exs| exs.includes? self } }
-      false
-    end
-
-    def bindings_details
-      Iterator.chain({@queue_bindings.each, @exchange_bindings.each}).flat_map do |(key, destinations)|
-        destinations.map { |destination| binding_details(key, destination) }
+      return true unless bindings_details.empty?
+      @vhost.exchanges.any? do |_, x|
+        x.bindings_details.each.any? { |bd| bd.destination == self }
       end
-    end
-
-    def binding_details(key, destination)
-      BindingDetails.new(name, vhost.name, key, destination)
     end
 
     MAX_NAME_LENGTH = 256
@@ -142,22 +135,6 @@ module LavinMQ
 
     REPUBLISH_HEADERS = {"x-head", "x-tail", "x-from"}
 
-    protected def after_bind(destination : Destination, routing_key : String, headers : AMQP::Table?)
-      notify_observers(ExchangeEvent::Bind, binding_details({routing_key, headers}, destination))
-      true
-    end
-
-    protected def after_unbind(destination, routing_key, headers)
-      @queue_bindings.reject! { |_k, v| v.empty? }
-      @exchange_bindings.reject! { |_k, v| v.empty? }
-      if @auto_delete &&
-         @queue_bindings.each_value.all? &.empty? &&
-         @exchange_bindings.each_value.all? &.empty?
-        delete
-      end
-      notify_observers(ExchangeEvent::Unbind, binding_details({routing_key, headers}, destination))
-    end
-
     protected def delete
       return if @deleted
       @deleted = true
@@ -167,18 +144,82 @@ module LavinMQ
     end
 
     abstract def type : String
-    abstract def bind(destination : Queue, routing_key : String, headers : AMQP::Table?)
-    abstract def unbind(destination : Queue, routing_key : String, headers : AMQP::Table?)
-    abstract def bind(destination : Exchange, routing_key : String, headers : AMQP::Table?)
-    abstract def unbind(destination : Exchange, routing_key : String, headers : AMQP::Table?)
-    abstract def do_queue_matches(routing_key : String, headers : AMQP::Table?, & : Queue -> _)
-    abstract def do_exchange_matches(routing_key : String, headers : AMQP::Table?, & : Exchange -> _)
+    abstract def bind(destination : Destination, routing_key : String, headers : AMQP::Table?)
+    abstract def unbind(destination : Destination, routing_key : String, headers : AMQP::Table?)
+    abstract def bindings_details : Iterator(BindingDetails)
 
-    def queue_matches(routing_key : String, headers = nil, &blk : Queue -> _)
+    def publish(msg : Message, immediate : Bool,
+                queues : Set(Queue) = Set(Queue).new,
+                exchanges : Set(Exchange) = Set(Exchange).new) : Int32
+      @publish_in_count += 1
+      headers = msg.properties.headers
       if should_delay_message?(headers)
-        @delayed_queue.try { |q| yield q }
-      else
-        do_queue_matches(routing_key, headers, &blk)
+        if q = @delayed_queue
+          q.publish(msg)
+          return 1
+        else
+          return 0
+        end
+      end
+      find_queues(msg.routing_key, headers, queues, exchanges)
+      if queues.empty?
+        @unroutable_count += 1
+        return 0
+      end
+      return 0 if immediate && !queues.any? &.immediate_delivery?
+
+      count = 0
+      queues.each do |queue|
+        if queue.publish(msg)
+          count += 1
+          msg.body_io.seek(-msg.bodysize.to_i64, IO::Seek::Current) # rewind
+        end
+      end
+      @publish_out_count += count
+      count
+    end
+
+    def find_queues(routing_key : String, headers : AMQP::Table?,
+                    queues : Set(Queue),
+                    exchanges : Set(Exchange) = Set(Exchange).new) : Nil
+      return unless exchanges.add? self
+      bindings(routing_key, headers).each do |d|
+        case d
+        when Queue
+          queues.add(d) unless d.closed?
+        when Exchange
+          d.find_queues(routing_key, headers, queues, exchanges)
+        end
+      end
+
+      if hdrs = headers
+        find_cc_queues(hdrs, "CC", queues)
+        find_cc_queues(hdrs, "BCC", queues)
+        hdrs.delete "BCC"
+      end
+
+      if queues.empty? && alternate_exchange
+        @vhost.exchanges[alternate_exchange]?.try do |ae|
+          ae.find_queues(routing_key, headers, queues, exchanges)
+        end
+      end
+    end
+
+    private def find_cc_queues(headers, key, queues)
+      return unless cc = headers[key]?
+      cc = cc.as?(Array(AMQP::Field))
+
+      raise Error::PreconditionFailed.new("#{key} header not a string array") unless cc
+
+      hdrs = headers.clone
+      hdrs.delete "CC"
+      hdrs.delete key
+      cc.each do |rk|
+        if rk = rk.as?(String)
+          find_queues(rk, hdrs, queues)
+        else
+          raise Error::PreconditionFailed.new("#{key} header not a string array")
+        end
       end
     end
 
@@ -204,22 +245,28 @@ module LavinMQ
         end
       end
     end
+
+    class AccessRefused < Error
+      def initialize(@exchange : Exchange)
+        super("Access refused to #{@exchange.name}")
+      end
+    end
   end
 
   struct BindingDetails
     include SortableJSON
-    getter source, vhost, key, destination
+    getter source, vhost, binding_key, destination
 
     def initialize(@source : String, @vhost : String,
-                   @key : BindingKey, @destination : Queue | Exchange)
-    end
-
-    def routing_key
-      @key[0]
+                   @binding_key : BindingKey, @destination : Destination)
     end
 
     def arguments
-      @key[1]
+      @binding_key.arguments
+    end
+
+    def routing_key
+      @binding_key.routing_key
     end
 
     def details_tuple
@@ -228,19 +275,10 @@ module LavinMQ
         vhost:            @vhost,
         destination:      @destination.name,
         destination_type: @destination.is_a?(Queue) ? "queue" : "exchange",
-        routing_key:      routing_key,
-        arguments:        arguments || NamedTuple.new,
-        properties_key:   BindingDetails.hash_key(@key),
+        routing_key:      @binding_key.routing_key,
+        arguments:        @binding_key.arguments,
+        properties_key:   @binding_key.properties_key,
       }
-    end
-
-    def self.hash_key(key : BindingKey)
-      if key[1].nil? || key[1].try &.empty?
-        key[0].empty? ? "~" : key[0]
-      else
-        hsh = Base64.urlsafe_encode(key[1].to_s)
-        "#{key[0]}~#{hsh}"
-      end
     end
   end
 end

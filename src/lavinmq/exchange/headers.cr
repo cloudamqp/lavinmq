@@ -2,8 +2,8 @@ require "./exchange"
 
 module LavinMQ
   class HeadersExchange < Exchange
-    def type : String
-      "headers"
+    @bindings = Hash(AMQP::Table, Set(Destination)).new do |h, k|
+      h[k] = Set(Destination).new
     end
 
     def initialize(@vhost : VHost, @name : String, @durable = false,
@@ -13,44 +13,45 @@ module LavinMQ
       super
     end
 
-    def bind(destination : Queue, routing_key, headers)
-      validate!(headers)
-      args = headers ? @arguments.clone.merge!(headers) : @arguments
-      ret = @queue_bindings[{routing_key, args}].add? destination
-      after_bind(destination, routing_key, headers)
-      ret
+    def type : String
+      "headers"
     end
 
-    def bind(destination : Exchange, routing_key, headers)
-      validate!(headers)
-      args = headers ? @arguments.clone.merge!(headers) : @arguments
-      ret = @exchange_bindings[{routing_key, args}].add? destination
-      after_bind(destination, routing_key, headers)
-      ret
-    end
-
-    def unbind(destination : Queue, routing_key, headers)
-      args = headers ? @arguments.clone.merge!(headers) : @arguments
-      ret = @queue_bindings[{routing_key, args}].delete destination
-      after_unbind(destination, routing_key, headers)
-      ret
-    end
-
-    def unbind(destination : Exchange, routing_key, headers)
-      args = headers ? @arguments.clone.merge!(headers) : @arguments
-      ret = @exchange_bindings[{routing_key, args}].delete destination
-      after_unbind(destination, routing_key, headers)
-      ret
-    end
-
-    def do_queue_matches(routing_key, headers = nil, & : Queue ->)
-      matches(@queue_bindings, routing_key, headers) do |destination|
-        yield destination.as(Queue)
+    def bindings_details : Iterator(BindingDetails)
+      @bindings.each.flat_map do |args, ds|
+        ds.map do |d|
+          binding_key = BindingKey.new("", args)
+          BindingDetails.new(name, vhost.name, binding_key, d)
+        end
       end
     end
 
-    def do_exchange_matches(routing_key, headers = nil, & : Exchange ->)
-      matches(@exchange_bindings, routing_key, headers) { |e| yield e.as(Exchange) }
+    def bind(destination : Destination, routing_key, headers)
+      validate!(headers)
+      args = headers ? @arguments.clone.merge!(headers) : @arguments
+      return false unless @bindings[args].add? destination
+      binding_key = BindingKey.new(routing_key, args)
+      data = BindingDetails.new(name, vhost.name, binding_key, destination)
+      notify_observers(ExchangeEvent::Bind, data)
+      true
+    end
+
+    def unbind(destination : Destination, routing_key, headers)
+      args = headers ? @arguments.clone.merge!(headers) : @arguments
+      bds = @bindings[args]
+      return false unless bds.delete(destination)
+      @bindings.delete(routing_key) if bds.empty?
+
+      binding_key = BindingKey.new(routing_key, args)
+      data = BindingDetails.new(name, vhost.name, binding_key, destination)
+      notify_observers(ExchangeEvent::Unbind, data)
+
+      delete if @auto_delete && @bindings.each_value.all?(&.empty?)
+      true
+    end
+
+    protected def bindings(routing_key, headers) : Iterator(Destination)
+      matches(headers).each
     end
 
     private def validate!(headers) : Nil
@@ -63,27 +64,19 @@ module LavinMQ
       end
     end
 
-    # ameba:disable Metrics/CyclomaticComplexity
-    private def matches(bindings, routing_key, headers, & : Queue | Exchange ->)
-      bindings.each do |bt, dst|
-        args = bt[1] || next
+    private def matches(headers) : Iterator(Destination)
+      @bindings.each.select do |args, _|
         if headers.nil? || headers.empty?
-          if args.empty?
-            dst.each { |d| yield d }
-          end
+          args.empty?
         else
           case args["x-match"]?
           when "any"
-            if args.any? { |k, v| !k.starts_with?("x-") && (headers.has_key?(k) && headers[k] == v) }
-              dst.each { |d| yield d }
-            end
+            args.any? { |k, v| !k.starts_with?("x-") && (headers.has_key?(k) && headers[k] == v) }
           else
-            if args.all? { |k, v| k.starts_with?("x-") || (headers.has_key?(k) && headers[k] == v) }
-              dst.each { |d| yield d }
-            end
+            args.all? { |k, v| k.starts_with?("x-") || (headers.has_key?(k) && headers[k] == v) }
           end
         end
-      end
+      end.flat_map { |_, v| v.each }
     end
   end
 end

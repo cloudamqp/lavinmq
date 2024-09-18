@@ -432,7 +432,7 @@ describe LavinMQ::Federation::Upstream do
         wait_for { upstream.links.first?.try &.state.running? }
 
         upstream_q = upstream_vhost.queues.values.first
-        upstream_q.bindings.size.should eq queues.size
+        upstream_q.bindings.size.should eq queues.size + 1 # +1 for the default exchange
         # Assert setup is correct
         10.times do |i|
           downstream_q = downstream_ch.queue("")
@@ -440,10 +440,10 @@ describe LavinMQ::Federation::Upstream do
           queues << downstream_q
         end
         sleep 0.1.seconds
-        upstream_q.bindings.size.should eq queues.size
+        upstream_q.bindings.size.should eq queues.size + 1
         queues.each &.delete
         sleep 10.milliseconds
-        upstream_q.bindings.size.should eq 0
+        upstream_q.bindings.size.should eq 1
       end
     end
   end
