@@ -13,7 +13,6 @@ require "./queue"
 require "./schema"
 require "./event_type"
 require "./stats"
-require "./mqtt/session"
 
 module LavinMQ
   class VHost
