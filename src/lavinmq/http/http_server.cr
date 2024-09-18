@@ -88,7 +88,7 @@ module LavinMQ
           context.response.status_code = 503
           context.response.status_message = "This node is a follower and does not handle HTTP requests."
         end
-        
+
         File.delete?(INTERNAL_UNIX_SOCKET)
         addr = http_server.bind_unix(INTERNAL_UNIX_SOCKET)
         File.chmod(INTERNAL_UNIX_SOCKET, 0o660)
