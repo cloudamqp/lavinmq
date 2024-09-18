@@ -15,6 +15,7 @@ module LavinMQ
 
     class Server
       getter http
+
       def initialize(@amqp_server : LavinMQ::Server)
         handlers = [
           StrictTransportSecurity.new,
