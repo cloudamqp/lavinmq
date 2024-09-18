@@ -68,9 +68,9 @@ module LavinMQ
       private def flush_loop
         flush_buffer = @flush_buffer
         while flush_buffer.receive? && @running
+          while flush_buffer.try_receive?
+          end
           @write_lock.synchronize do
-            while flush_buffer.try_receive?
-            end
             @socket.flush
           end
         end
@@ -124,7 +124,7 @@ module LavinMQ
             {% unless flag?(:release) %}
               @log.trace { "Received #{frame.inspect}" }
             {% end %}
-            if (i += 1) == 8192
+            if (i &+= 1) == 8192
               i = 0
               Fiber.yield
             end
