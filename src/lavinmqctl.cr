@@ -250,6 +250,11 @@ class LavinMQCtl
 
   private def handle_response(resp, *ok)
     return if ok.includes? resp.status_code
+    if resp.status_code == 503
+      puts "[ERROR] This node is a follower and does not handle lavinmqctl commands."
+      puts "Please connect to the leader node by using the --host option."
+      exit 2
+    end
     puts "#{resp.status_code} - #{resp.status}"
     puts resp.body if resp.body? && !resp.headers["Content-Type"]?.try(&.starts_with?("text/html"))
     exit 1
