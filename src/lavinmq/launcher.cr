@@ -146,7 +146,7 @@ module LavinMQ
         @http_server.bind_unix(@config.http_unix_path)
       end
 
-      @http_server.bind_internal_unix
+      HTTP::Server.bind_internal_unix(@http_server.http)
       spawn(name: "HTTP listener") do
         @http_server.not_nil!.listen
       end

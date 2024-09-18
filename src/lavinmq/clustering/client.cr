@@ -33,6 +33,8 @@ module LavinMQ
           @unix_amqp_proxy = Proxy.new(@config.unix_path) unless @config.unix_path.empty?
           @unix_http_proxy = Proxy.new(@config.http_unix_path) unless @config.http_unix_path.empty?
         end
+        HTTP::Server.follower_internal_socket_http_server
+
         Signal::INT.trap { close_and_exit }
         Signal::TERM.trap { close_and_exit }
       end

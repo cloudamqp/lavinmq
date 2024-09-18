@@ -14,6 +14,7 @@ module LavinMQ
     Log = ::Log.for "http"
 
     class Server
+      getter http
       def initialize(@amqp_server : LavinMQ::Server)
         handlers = [
           StrictTransportSecurity.new,
@@ -64,9 +65,9 @@ module LavinMQ
         addr
       end
 
-      def bind_internal_unix
+      def self.bind_internal_unix(http)
         File.delete?(INTERNAL_UNIX_SOCKET)
-        addr = @http.bind_unix(INTERNAL_UNIX_SOCKET)
+        addr = http.bind_unix(INTERNAL_UNIX_SOCKET)
         File.chmod(INTERNAL_UNIX_SOCKET, 0o660)
         Log.info { "Bound to #{addr}" }
         addr
@@ -79,6 +80,20 @@ module LavinMQ
       def close
         @http.try &.close
         File.delete?(INTERNAL_UNIX_SOCKET)
+      end
+
+      # Starts a HTTP server that binds to the internal UNIX socket used by lavinmqctl.
+      # The server returns 503 to signal that the node is a follower and can not handle the request.
+      def self.follower_internal_socket_http_server
+        http_server = ::HTTP::Server.new do |context|
+          context.response.status_code = 503
+          context.response.status_message = "This node is a follower and does not handle HTTP requests."
+        end
+        self.bind_internal_unix(http_server)
+
+        spawn(name: "HTTP listener") do
+          http_server.listen
+        end
       end
     end
   end
