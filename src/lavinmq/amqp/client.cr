@@ -136,7 +136,7 @@ module LavinMQ
               @running = false
               next
             when AMQP::Frame::Connection::CloseOk
-              @log.debug { "Confirmed disconnect" }
+              @log.info { "Confirmed disconnect" }
               @running = false
               return
             end
@@ -145,10 +145,10 @@ module LavinMQ
             else
               case frame
               when AMQP::Frame::Body
-                @log.debug { "Skipping body, waiting for CloseOk" }
+                @log.info { "Skipping body, waiting for CloseOk" }
                 frame.body.skip(frame.body_size)
               else
-                @log.debug { "Discarding #{frame.class.name}, waiting for CloseOk" }
+                @log.info { "Discarding #{frame.class.name}, waiting for CloseOk" }
               end
             end
           rescue e : LavinMQ::Error::PreconditionFailed
@@ -164,7 +164,7 @@ module LavinMQ
           send_frame_error(ex.message)
           break
         rescue ex : IO::Error | OpenSSL::SSL::Error
-          @log.debug { "Lost connection, while reading (#{ex.inspect})" } unless closed?
+          @log.info(exception: ex) { "Lost connection, while reading (#{ex.inspect})" } unless closed?
           break
         rescue ex : Exception
           @log.error { "Unexpected error, while reading: #{ex.inspect_with_backtrace}" }
@@ -172,6 +172,7 @@ module LavinMQ
           break
         end
       ensure
+        @log.info { "Connection disconnecting for user=#{@user.name}" }
         cleanup
         close_socket
         @log.info { "Connection disconnected for user=#{@user.name}" }
@@ -219,7 +220,7 @@ module LavinMQ
         end
         true
       rescue ex : IO::Error | OpenSSL::SSL::Error
-        @log.debug { "Lost connection, while sending (#{ex.inspect})" } unless closed?
+        @log.info(exception: ex) { "Lost connection, while sending (#{ex.inspect})" } unless closed?
         close_socket
         false
       rescue ex : IO::TimeoutError
@@ -246,43 +247,49 @@ module LavinMQ
         return false if closed?
         socket = @socket
         websocket = socket.is_a? WebSocketIO
+        {% unless flag?(:release) %}
+          @log.trace { "Send #{frame.inspect}" }
+        {% end %}
         @write_lock.synchronize do
-          {% unless flag?(:release) %}
-            @log.trace { "Send #{frame.inspect}" }
-          {% end %}
           socket.write_bytes frame, ::IO::ByteFormat::NetworkEndian
           socket.flush if websocket
           @send_oct_count += 8_u64 + frame.bytesize
-          header = AMQP::Frame::Header.new(frame.channel, 60_u16, 0_u16, msg.bodysize, msg.properties)
-          {% unless flag?(:release) %}
-            @log.trace { "Send #{header.inspect}" }
-          {% end %}
+          @last_sent_frame = RoughTime.monotonic
+        end
+        header = AMQP::Frame::Header.new(frame.channel, 60_u16, 0_u16, msg.bodysize, msg.properties)
+        {% unless flag?(:release) %}
+          @log.trace { "Send #{header.inspect}" }
+        {% end %}
+        @write_lock.synchronize do
           socket.write_bytes header, ::IO::ByteFormat::NetworkEndian
           socket.flush if websocket
           @send_oct_count += 8_u64 + header.bytesize
-          pos = 0
-          while pos < msg.bodysize
-            length = Math.min(msg.bodysize - pos, @max_frame_size - 8).to_u32
-            {% unless flag?(:release) %}
-              @log.trace { "Send BodyFrame (pos #{pos}, length #{length})" }
-            {% end %}
-            body = case msg
-                   in BytesMessage
-                     AMQP::Frame::BytesBody.new(frame.channel, length, msg.body[pos, length])
-                   in Message
-                     AMQP::Frame::Body.new(frame.channel, length, msg.body_io)
-                   end
+          @last_sent_frame = RoughTime.monotonic
+        end
+        pos = 0
+        while pos < msg.bodysize
+          length = Math.min(msg.bodysize - pos, @max_frame_size - 8).to_u32
+          {% unless flag?(:release) %}
+            @log.trace { "Send BodyFrame (pos #{pos}, length #{length})" }
+          {% end %}
+          body = case msg
+                 in BytesMessage
+                   AMQP::Frame::BytesBody.new(frame.channel, length, msg.body[pos, length])
+                 in Message
+                   AMQP::Frame::Body.new(frame.channel, length, msg.body_io)
+                 end
+          @write_lock.synchronize do
             socket.write_bytes body, ::IO::ByteFormat::NetworkEndian
             socket.flush if websocket
             @send_oct_count += 8_u64 + body.bytesize
-            pos += length
+            @last_sent_frame = RoughTime.monotonic
           end
-          @last_sent_frame = RoughTime.monotonic
+          pos += length
         end
         flush unless websocket # Websockets need to send one frame per WS frame
         true
       rescue ex : IO::Error | OpenSSL::SSL::Error
-        @log.debug { "Lost connection, while sending message (#{ex.inspect})" } unless closed?
+        @log.info(exception: ex) { "Lost connection, while sending (#{ex.inspect})" }
         close_socket
         Fiber.yield
         false
@@ -432,13 +439,13 @@ module LavinMQ
 
       private def close_socket
         @running = false
+        @flush_buffer.close
         @write_lock.synchronize do
-          @flush_buffer.close
           @socket.close
         end
-        @log.debug { "Socket closed" }
+        @log.info { "Socket closed" }
       rescue ex
-        @log.debug { "#{ex.inspect} when closing socket" }
+        @log.info { "#{ex.inspect} when closing socket" }
       end
 
       def close(reason = nil, timeout : Time::Span = 5.seconds)
