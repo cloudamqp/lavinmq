@@ -618,14 +618,18 @@ class LavinMQCtl
     resp = http.get "/api/nodes"
     handle_response(resp, 200)
     body = JSON.parse(resp.body)
-    puts "Node #{body[0].dig("name")} is running LavinMQ v#{body[0].dig("applications")[0].dig("version")} "
+    puts "Cluster status of node #{body[0].dig("name")}"
+    puts "This node is running LavinMQ v#{body[0].dig("applications")[0].dig("version")}"
     if followers = body[0].dig("followers").as_a
+      puts ""
       puts "Followers:"
       puts "ID \t| Address \t\t| Lag"
       followers.each do |f|
         lag = f.dig("sent_bytes").as_i64 - f.dig("acked_bytes").as_i64
         puts "#{f.dig("id")} \t| #{f.dig("remote_address")} \t| #{lag}"
       end
+    else
+      puts "This node has no followers"
     end
   end
 
