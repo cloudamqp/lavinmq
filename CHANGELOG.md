@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Updated RabbitMQ HTTP API Go client test to use a patch-file for LavinMQ compatibility [#778](https://github.com/cloudamqp/lavinmq/pull/778)
 
+### Added
+
+- Added cluster_status to lavinmqctl [#787](https://github.com/cloudamqp/lavinmq/pull/787)
+
 ## [2.0.0-rc.4] - 2024-08-21
 
 ### Fixed
