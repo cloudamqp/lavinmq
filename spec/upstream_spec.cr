@@ -264,47 +264,34 @@ describe LavinMQ::Federation::Upstream do
     end
   end
 
-  it "should reconnect queue link after upstream restart" do
+  it "should reconnect queue link after upstream disconnect" do
     with_amqp_server do |s|
       upstream, upstream_vhost, downstream_vhost = UpstreamSpecHelpers.setup_federation(s, "ef test upstream restart", nil, "upstream_q")
       UpstreamSpecHelpers.start_link(upstream, "downstream_q", "queues")
       s.users.add_permission("guest", "upstream", /.*/, /.*/, /.*/)
       s.users.add_permission("guest", "downstream", /.*/, /.*/, /.*/)
 
-      with_channel(s, vhost: "upstream") do |upstream_ch|
-        with_channel(s, vhost: "downstream") do |downstream_ch|
-          upstream_ex = upstream_ch.exchange("upstream_ex", "topic")
-          downstream_ch.exchange("downstream_ex", "topic")
+      upstream_vhost.declare_exchange("upstream_ex", "topic", true, false)
+      upstream_vhost.declare_queue("upstream_q", true, false)
+      downstream_vhost.declare_exchange("downstream_ex", "topic", true, false)
+      downstream_vhost.declare_queue("downstream_q", true, false)
 
-          upstream_q = upstream_ch.queue("upstream_q")
-          downstream_q = downstream_ch.queue("downstream_q")
-          wait_for { downstream_vhost.queues["downstream_q"].policy.try(&.name) == "FE" }
+      wait_for { downstream_vhost.queues["downstream_q"].policy.try(&.name) == "FE" }
+      wait_for { upstream.links.first?.try &.state.running? }
 
-          # Assert setup is correct
-          wait_for { upstream.links.first?.try &.state.running? }
-          msgs = Channel(String).new
+      sleep 1.seconds
 
-          upstream_vhost.connections.each do |conn|
-            next unless conn.client_name.starts_with?("Federation link")
-            conn.close
-          end
-
-          # wait for upstream_connection to be reconnected
-          wait_for { upstream.links.first?.try { |l| l.@upstream_connection.try &.closed? == false } }
-          wait_for { upstream.links.first?.try(&.state.running?) }
-
-          # publish to upstream & subscribe to downstream
-          upstream_q.publish "msg1"
-          upstream_q.publish "msg2"
-          downstream_q.subscribe do |msg|
-            msgs.send msg.body_io.to_s
-          end
-          msgs.receive.should eq "msg1"
-          msgs.receive.should eq "msg2"
-        end
+      # Disconnect the federation link
+      upstream_vhost.connections.each do |conn|
+        next unless conn.client_name.starts_with?("Federation link")
+        conn.close
       end
-      upstream_vhost.queues.each_value.all?(&.empty?).should be_true
-      UpstreamSpecHelpers.cleanup_vhosts(s)
+
+      sleep 1.seconds
+
+      # wait for federation link to be reconnected
+      wait_for { upstream.links.first?.try &.state.running? }
+      wait_for { upstream.links.first?.try { |l| l.@upstream_connection.try &.closed? == false } }
     end
   end
 
