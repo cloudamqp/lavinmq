@@ -238,16 +238,14 @@ describe LavinMQ::Federation::Upstream do
 
       wait_for { downstream_vhost.queues["downstream_q"].policy.try(&.name) == "FE" }
       wait_for { upstream.links.first?.try &.state.running? }
-
-      sleep 1.seconds
+      sleep 0.1.seconds
 
       # Disconnect the federation link
       upstream_vhost.connections.each do |conn|
         next unless conn.client_name.starts_with?("Federation link")
         conn.close
       end
-
-      sleep 1.seconds
+      sleep 0.1.seconds
 
       # wait for federation link to be reconnected
       wait_for { upstream.links.first?.try &.state.running? }
