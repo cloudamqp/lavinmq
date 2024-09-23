@@ -25,7 +25,7 @@ module MqttSpecs
             with_client_io(server) do |io|
               connect(io, clean_session: false)
 
-              # Myra won't save sessions without subscriptions
+              # LavinMQ won't save sessions without subscriptions
               subscribe(io,
                 topic_filters: [subtopic("a/topic", 0u8)],
                 packet_id: 1u16
