@@ -339,17 +339,7 @@ module LavinMQ
       @connections.delete client
     end
 
-    def start_session(client : Client)
-      client_id = client.client_id
-      session = MQTT::Session.new(self, client_id)
-      sessions[client_id] = session
-      @queues[client_id] = session
-    end
 
-    def clear_session(client : Client)
-      sessions.delete client.client_id
-      @queues.delete client.client_id
-    end
 
     SHOVEL                  = "shovel"
     FEDERATION_UPSTREAM     = "federation-upstream"

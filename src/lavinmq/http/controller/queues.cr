@@ -42,22 +42,22 @@ module LavinMQ
           end
         end
 
-        get "/api/queues/:vhost/:name/unacked" do |context, params|
-          with_vhost(context, params) do |vhost|
-            refuse_unless_management(context, user(context), vhost)
-            q = queue(context, params, vhost)
-            unacked_messages = q.consumers.each.flat_map do |c|
-              c.unacked_messages.each.compact_map do |u|
-                next unless u.queue == q
-                if consumer = u.consumer
-                  UnackedMessage.new(c.channel, u.tag, u.delivered_at, consumer.tag)
-                end
-              end
-            end
-            unacked_messages = unacked_messages.chain(q.basic_get_unacked.each)
-            page(context, unacked_messages)
-          end
-        end
+        # get "/api/queues/:vhost/:name/unacked" do |context, params|
+        #   with_vhost(context, params) do |vhost|
+        #     refuse_unless_management(context, user(context), vhost)
+        #     q = queue(context, params, vhost)
+        #     # unacked_messages = q.consumers.each.flat_map do |c|
+        #     #   c.unacked_messages.each.compact_map do |u|
+        #     #     next unless u.queue == q
+        #     #     if consumer = u.consumer
+        #     #       UnackedMessage.new(c.channel, u.tag, u.delivered_at, consumer.tag)
+        #     #     end
+        #     #   end
+        #     # end
+        #     # unacked_messages = unacked_messages.chain(q.basic_get_unacked.each)
+        #     # page(context, unacked_messages)
+        #   end
+        # end
 
         put "/api/queues/:vhost/:name" do |context, params|
           with_vhost(context, params) do |vhost|

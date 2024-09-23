@@ -79,7 +79,7 @@ module MqttSpecs
           end
         end
 
-        pending "session present when reconnecting a non-clean session [MQTT-3.1.2-4]" do
+        it "session present when reconnecting a non-clean session [MQTT-3.1.2-4]" do
           with_server do |server|
             with_client_io(server) do |io|
               connect(io, clean_session: false)

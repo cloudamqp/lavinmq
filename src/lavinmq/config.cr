@@ -8,7 +8,7 @@ require "./in_memory_backend"
 
 module LavinMQ
   class Config
-    DEFAULT_LOG_LEVEL = ::Log::Severity::Info
+    DEFAULT_LOG_LEVEL = ::Log::Severity::Trace
 
     property data_dir : String = ENV.fetch("STATE_DIRECTORY", "/var/lib/lavinmq")
     property config_file = File.exists?(File.join(ENV.fetch("CONFIGURATION_DIRECTORY", "/etc/lavinmq"), "lavinmq.ini")) ? File.join(ENV.fetch("CONFIGURATION_DIRECTORY", "/etc/lavinmq"), "lavinmq.ini") : ""
