@@ -15,16 +15,14 @@ module LavinMQ
       end
 
       def start(socket : ::IO, connection_info : ConnectionInfo)
-
         io = MQTT::IO.new(socket)
         if packet = MQTT::Packet.from_io(socket).as?(MQTT::Connect)
           Log.trace { "recv #{packet.inspect}" }
           if user = authenticate(io, packet)
             session_present = @broker.session_present?(packet.client_id, packet.clean_session?)
-            pp "in connection_factory: #{session_present}"
             MQTT::Connack.new(session_present, MQTT::Connack::ReturnCode::Accepted).to_io(io)
             io.flush
-            return LavinMQ::MQTT::Client.new(socket, connection_info, user, @vhost, @broker, packet.client_id, packet.clean_session?, packet.will)
+            return @broker.connect_client(socket, connection_info, user, @vhost, packet)
           end
         end
       rescue ex : MQTT::Error::Connect
