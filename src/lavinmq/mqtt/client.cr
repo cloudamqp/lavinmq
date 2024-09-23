@@ -57,7 +57,7 @@ module LavinMQ
         Log.info { "eof #{ex.inspect}" }
       ensure
         publish_will if @will
-        disconnect_session(self) if @clean_session
+        @broker.clear_session(client_id) if @clean_session
         @socket.close
         @broker.vhost.rm_connection(self)
       end
@@ -114,6 +114,7 @@ module LavinMQ
         auto_delete = true
         tbl = AMQP::Table.new
         # TODO: declare Session instead
+        @broker.start_session(@client_id, @clean_session)
         q = @broker.vhost.declare_queue(name, durable, auto_delete, tbl)
         qos = Array(MQTT::SubAck::ReturnCode).new
         packet.topic_filters.each do |tf|
@@ -145,21 +146,20 @@ module LavinMQ
 
       def start_session(client) : MQTT::Session
         if @clean_session
-          pp "clear session"
+           Log.trace { "clear session" }
           @broker.clear_session(client)
         end
         @broker.start_session(client)
       end
 
       def disconnect_session(client)
-        pp "disconnect session"
+        Log.trace { "disconnect session" }
         @broker.clear_session(client)
       end
 
       # TODO: actually publish will to session
       private def publish_will
         if will = @will
-          pp "Publish will to session"
         end
       rescue ex
         Log.warn { "Failed to publish will: #{ex.message}" }
