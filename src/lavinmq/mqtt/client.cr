@@ -56,6 +56,7 @@ module LavinMQ
       rescue ex : ::IO::EOFError
         Log.info { "eof #{ex.inspect}" }
       ensure
+        pp "ensuring"
         publish_will if @will
         @broker.clear_session(client_id) if @clean_session
         @socket.close
@@ -169,6 +170,9 @@ module LavinMQ
       end
 
       def close(reason = "")
+        Log.trace { "Client#close" }
+        @closed = true
+        @socket.close
       end
 
       def force_close
