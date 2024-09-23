@@ -8,12 +8,12 @@ require "./in_memory_backend"
 
 module LavinMQ
   class Config
-    DEFAULT_LOG_LEVEL = ::Log::Severity::Info
+    DEFAULT_LOG_LEVEL = Log::Severity::Trace
 
     property data_dir : String = ENV.fetch("STATE_DIRECTORY", "/var/lib/lavinmq")
     property config_file = File.exists?(File.join(ENV.fetch("CONFIGURATION_DIRECTORY", "/etc/lavinmq"), "lavinmq.ini")) ? File.join(ENV.fetch("CONFIGURATION_DIRECTORY", "/etc/lavinmq"), "lavinmq.ini") : ""
     property log_file : String? = nil
-    property log_level : ::Log::Severity = DEFAULT_LOG_LEVEL
+    property log_level : Log::Severity = DEFAULT_LOG_LEVEL
     property amqp_bind = "127.0.0.1"
     property amqp_port = 5672
     property amqps_port = -1
@@ -58,6 +58,7 @@ module LavinMQ
     property clustering_bind = "127.0.0.1"
     property clustering_port = 5679
     property clustering_max_lag = 8192      # number of clustering actions
+    property clustering_min_isr = 0         # number of In Sync Replicas required at all time
     property max_deleted_definitions = 8192 # number of deleted queues, unbinds etc that compacts the definitions file
     property consumer_timeout : UInt64? = nil
     property consumer_timeout_loop_interval = 60 # seconds
@@ -108,12 +109,12 @@ module LavinMQ
         p.on("--ciphers CIPHERS", "List of TLS ciphers to allow") { |v| @tls_ciphers = v }
         p.on("--tls-min-version=VERSION", "Mininum allowed TLS version (default 1.2)") { |v| @tls_min_version = v }
         p.on("-l", "--log-level=LEVEL", "Log level (Default: info)") do |v|
-          level = ::Log::Severity.parse?(v.to_s)
+          level = Log::Severity.parse?(v.to_s)
           @log_level = level if level
         end
         p.on("--raise-gc-warn", "Raise on GC warnings") { @raise_gc_warn = true }
         p.on("--no-data-dir-lock", "Don't put a file lock in the data directory (default true)") { @data_dir_lock = false }
-        p.on("-d", "--debug", "Verbose logging") { @log_level = ::Log::Severity::Debug }
+        p.on("-d", "--debug", "Verbose logging") { @log_level = Log::Severity::Debug }
         p.on("-h", "--help", "Show this help") { puts p; exit 1 }
         p.on("-v", "--version", "Show version") { puts LavinMQ::VERSION; exit 0 }
         p.on("--build-info", "Show build information") { puts LavinMQ::BUILD_INFO; exit 0 }
@@ -137,6 +138,9 @@ module LavinMQ
         end
         p.on("--clustering-max-lag=ACTIONS", "Max unsynced replicated messages") do |v|
           @clustering_max_lag = v.to_i
+        end
+        p.on("--clustering-min-isr=COUNT", "Required in-sync-replicas") do |v|
+          @clustering_min_isr = v.to_i
         end
         p.on("--clustering-etcd-endpoints=URIs", "Comma separeted host/port pairs (default: 127.0.0.1:2379)") do |v|
           @clustering_etcd_endpoints = v
@@ -207,7 +211,7 @@ module LavinMQ
         case config
         when "data_dir"                then @data_dir = v
         when "data_dir_lock"           then @data_dir_lock = true?(v)
-        when "log_level"               then @log_level = ::Log::Severity.parse(v)
+        when "log_level"               then @log_level = Log::Severity.parse(v)
         when "log_file"                then @log_file = v
         when "stats_interval"          then @stats_interval = v.to_i32
         when "stats_log_size"          then @stats_log_size = v.to_i32
@@ -244,6 +248,7 @@ module LavinMQ
         when "bind"           then @clustering_bind = v
         when "port"           then @clustering_port = v.to_i32
         when "max_lag"        then @clustering_max_lag = v.to_i32
+        when "min_isr"        then @clustering_min_isr = v.to_i32
         else
           STDERR.puts "WARNING: Unrecognized configuration 'clustering/#{config}'"
         end
