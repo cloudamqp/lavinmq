@@ -12,7 +12,15 @@ module LavinMQ
       end
 
       def set_clean_session
+        pp "Setting clean session"
+        clear_session
         @clean_session = true
+      end
+
+
+      #Maybe use something other than purge?
+      def clear_session
+        purge
       end
 
       #TODO: implement subscribers array and session_present? and send instead of false
