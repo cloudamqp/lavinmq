@@ -5,7 +5,7 @@ module MqttSpecs
   extend MqttMatchers
   describe "connect [MQTT-3.1.4-1]" do
     describe "when client already connected" do
-      pending "should replace the already connected client [MQTT-3.1.4-2]" do
+      it "should replace the already connected client [MQTT-3.1.4-2]" do
         with_server do |server|
           with_client_io(server) do |io|
             connect(io, false)
@@ -163,7 +163,8 @@ module MqttSpecs
           end
         end
 
-        pending "for password flag set without username flag set [MQTT-3.1.2-22]" do
+        # TODO: rescue and log error
+        it "for password flag set without username flag set [MQTT-3.1.2-22]" do
           with_server do |server|
             with_client_io(server) do |io|
               connect = MQTT::Protocol::Connect.new(
@@ -186,7 +187,7 @@ module MqttSpecs
       end
 
       describe "tcp socket is closed [MQTT-3.1.4-1]" do
-        pending "if first packet is not a CONNECT [MQTT-3.1.0-1]" do
+        it "if first packet is not a CONNECT [MQTT-3.1.0-1]" do
           with_server do |server|
             with_client_io(server) do |io|
               ping(io)
@@ -195,7 +196,7 @@ module MqttSpecs
           end
         end
 
-        pending "for a second CONNECT packet [MQTT-3.1.0-2]" do
+        it "for a second CONNECT packet [MQTT-3.1.0-2]" do
           with_server do |server|
             with_client_io(server) do |io|
               connect(io)
@@ -206,7 +207,7 @@ module MqttSpecs
           end
         end
 
-        pending "for invalid client id [MQTT-3.1.3-4]." do
+        it "for invalid client id [MQTT-3.1.3-4]." do
           with_server do |server|
             with_client_io(server) do |io|
               MQTT::Protocol::Connect.new(
@@ -223,7 +224,7 @@ module MqttSpecs
           end
         end
 
-        pending "for invalid protocol name [MQTT-3.1.2-1]" do
+        it "for invalid protocol name [MQTT-3.1.2-1]" do
           with_server do |server|
             with_client_io(server) do |io|
               connect = MQTT::Protocol::Connect.new(
@@ -244,7 +245,7 @@ module MqttSpecs
           end
         end
 
-        pending "for reserved bit set [MQTT-3.1.2-3]" do
+        it "for reserved bit set [MQTT-3.1.2-3]" do
           with_server do |server|
             with_client_io(server) do |io|
               connect = MQTT::Protocol::Connect.new(
