@@ -56,7 +56,6 @@ module LavinMQ
     property clustering_bind = "127.0.0.1"
     property clustering_port = 5679
     property clustering_max_lag = 8192      # number of clustering actions
-    property clustering_min_isr = 0         # number of In Sync Replicas required at all time
     property max_deleted_definitions = 8192 # number of deleted queues, unbinds etc that compacts the definitions file
     property consumer_timeout : UInt64? = nil
     property consumer_timeout_loop_interval = 60 # seconds
@@ -136,9 +135,6 @@ module LavinMQ
         end
         p.on("--clustering-max-lag=ACTIONS", "Max unsynced replicated messages") do |v|
           @clustering_max_lag = v.to_i
-        end
-        p.on("--clustering-min-isr=COUNT", "Required in-sync-replicas") do |v|
-          @clustering_min_isr = v.to_i
         end
         p.on("--clustering-etcd-endpoints=URIs", "Comma separeted host/port pairs (default: 127.0.0.1:2379)") do |v|
           @clustering_etcd_endpoints = v
@@ -246,7 +242,6 @@ module LavinMQ
         when "bind"           then @clustering_bind = v
         when "port"           then @clustering_port = v.to_i32
         when "max_lag"        then @clustering_max_lag = v.to_i32
-        when "min_isr"        then @clustering_min_isr = v.to_i32
         else
           STDERR.puts "WARNING: Unrecognized configuration 'clustering/#{config}'"
         end

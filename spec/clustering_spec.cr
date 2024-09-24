@@ -40,7 +40,6 @@ describe LavinMQ::Clustering::Client do
   end
 
   it "can stream changes" do
-    LavinMQ::Config.instance.clustering_min_isr = 1
     replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Etcd.new, 0)
     tcp_server = TCPServer.new("localhost", 0)
     spawn(replicator.listen(tcp_server), name: "repli server spec")

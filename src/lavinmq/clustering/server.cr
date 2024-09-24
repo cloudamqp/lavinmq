@@ -195,11 +195,6 @@ module LavinMQ
       end
 
       private def each_follower(& : Follower -> Nil) : Nil
-        isr_count = @followers.size
-        until isr_count >= @config.clustering_min_isr
-          Log.warn { "ISR requirement not met (#{isr_count}/#{@config.clustering_min_isr})" }
-          isr_count = @has_followers.receive? || return
-        end
         @lock.synchronize do
           update_isr if @dirty_isr
           @followers.each do |f|
