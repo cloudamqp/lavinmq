@@ -28,7 +28,6 @@ module LavinMQ
 
       @lock = Mutex.new(:unchecked)
       @followers = Array(Follower).new(4)
-      @has_followers = Channel(Int32).new
       @password : String
       @files = Hash(String, MFile?).new
       @dirty_isr = true
@@ -151,8 +150,6 @@ module LavinMQ
           @followers << follower
           update_isr
         end
-        while @has_followers.try_send? @followers.size
-        end
         begin
           follower.action_loop
         ensure
@@ -190,7 +187,6 @@ module LavinMQ
           @followers.each &.close
           @followers.clear
         end
-        @has_followers.close
         Fiber.yield # required for follower/listener fibers to actually finish
       end
 
