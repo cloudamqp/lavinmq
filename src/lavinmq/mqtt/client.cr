@@ -43,7 +43,7 @@ module LavinMQ
 
       private def read_loop
         loop do
-          Log.trace { "waiting for packet" }
+          @log.trace { "waiting for packet" }
           packet = read_and_handle_packet
           # The disconnect packet has been handled and the socket has been closed.
           # If we dont breakt the loop here we'll get a IO/Error on next read.
@@ -52,9 +52,9 @@ module LavinMQ
       rescue ex : ::MQTT::Protocol::Error::PacketDecode
         @socket.close
       rescue ex : MQTT::Error::Connect
-        Log.warn { "Connect error #{ex.inspect}" }
-      rescue ex : ::IO::EOFError
-        Log.info { "eof #{ex.inspect}" }
+        @log.warn { "Connect error #{ex.inspect}" }
+      rescue ex : ::IO::Error
+        @log.warn(exception: ex) { "Read Loop error" }
       ensure
         pp "ensuring"
         publish_will if @will
@@ -65,7 +65,7 @@ module LavinMQ
 
       def read_and_handle_packet
         packet : MQTT::Packet = MQTT::Packet.from_io(@io)
-        Log.info { "recv #{packet.inspect}" }
+        @log.info { "recv #{packet.inspect}" }
         @recv_oct_count += packet.bytesize
 
         case packet
@@ -147,14 +147,14 @@ module LavinMQ
 
       def start_session(client) : MQTT::Session
         if @clean_session
-           Log.trace { "clear session" }
+           @log.trace { "clear session" }
           @broker.clear_session(client)
         end
         @broker.start_session(client)
       end
 
       def disconnect_session(client)
-        Log.trace { "disconnect session" }
+        @log.trace { "disconnect session" }
         @broker.clear_session(client)
       end
 
@@ -163,14 +163,14 @@ module LavinMQ
         if will = @will
         end
       rescue ex
-        Log.warn { "Failed to publish will: #{ex.message}" }
+        @log.warn { "Failed to publish will: #{ex.message}" }
       end
 
       def update_rates
       end
 
       def close(reason = "")
-        Log.trace { "Client#close" }
+        @log.trace { "Client#close" }
         @closed = true
         @socket.close
       end
