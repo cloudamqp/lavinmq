@@ -251,7 +251,7 @@ class LavinMQCtl
   private def handle_response(resp, *ok)
     return if ok.includes? resp.status_code
     if resp.status_code == 503
-      output "[ERROR] #{resp.body}"
+      output resp.body
       exit 2
     end
     output "#{resp.status_code} - #{resp.status}"
@@ -426,13 +426,7 @@ class LavinMQCtl
     if conns = JSON.parse(resp.body).as_a?
       cc = conns.map do |u|
         next unless conn = u.as_h?
-        {
-          # columns.map { |c| conn[c] }
-          "user"      => conn["user"].to_s,
-          "peer_host" => conn["peer_host"].to_s,
-          "peer_port" => conn["peer_port"].to_s,
-          "state"     => conn["state"].to_s,
-        }
+        conn.select { |k, v| columns.includes? k }
       end
       output cc, columns
     else
