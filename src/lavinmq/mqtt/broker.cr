@@ -23,7 +23,7 @@ module LavinMQ
       def session_present?(client_id : String, clean_session) : Bool
         session = @sessions[client_id]?
         pp "session_present? #{session.inspect}"
-        return false if session.nil? || clean_session && session.set_clean_session
+        return false if session.nil? || ( clean_session && session.set_clean_session )
         true
       end
 
