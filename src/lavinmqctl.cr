@@ -424,23 +424,6 @@ class LavinMQCtl
     end
   end
 
-  private def print_erlang_terms(h : Hash)
-    str = "["
-    last_index = h.size - 1
-    h.each_with_index do |(key, value), i|
-      print "{\"#{key}\","
-      case value.raw
-      when Hash   then str += print_erlang_terms(value.as_h)
-      when String then str += "\"#{value}\""
-      else             str += value.to_s
-      end
-      str += "}"
-      str += "," unless i == last_index
-    end
-    str += "]"
-    return str
-  end
-
   private def close_connection
     name = ARGV.shift?
     abort @banner unless name
