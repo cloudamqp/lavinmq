@@ -50,7 +50,7 @@ describe LavinMQ::Clustering::Client do
       repli.follow("localhost", tcp_server.local_address.port)
       done.send nil
     end
-
+    wait_for { replicator.followers.size == 1 }
     with_amqp_server(replicator: replicator) do |s|
       with_channel(s) do |ch|
         q = ch.queue("repli")
