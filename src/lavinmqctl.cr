@@ -264,25 +264,15 @@ class LavinMQCtl
       puts data.to_json
     else
       case data
-      when String
-        output_string(data)
       when Hash
-        output_hash(data)
+        data.keys.each do |k|
+          puts "#{k}: #{data[k]}"
+        end
       when Array
         output_array(data, columns)
       else
         puts data
       end
-    end
-  end
-
-  private def output_string(data : String)
-    puts data
-  end
-
-  private def output_hash(data : Hash)
-    data.keys.each do |k|
-      puts "#{k}: #{data[k]}"
     end
   end
 
