@@ -234,22 +234,12 @@ class LavinMQCtl
       # Only used by tests in cloudamqp/rabbitmq-java-client
       @options["node"] = v
     end
-    @parser.on("-q", "--quiet", "suppress informational messages") do
-      @options["quiet"] = "yes"
-    end
-    @parser.on("-s", "--silent", "suppress informational messages and table formatting") do
-      @options["silent"] = "yes"
-    end
-    @parser.on("-f format", "--format=format", "Output format (text, json)") do |v|
+    @parser.on("-f format", "--format=format", "Format output (text, json)") do |v|
       if v != "text" && v != "json"
         abort "Invalid format: #{v}"
       end
       @options["format"] = v
     end
-  end
-
-  private def quiet?
-    @options["quiet"]? || @options["silent"]?
   end
 
   private def entity_arg
@@ -276,8 +266,6 @@ class LavinMQCtl
       case data
       when String
         output_string(data)
-      when NamedTuple
-        output_tuple(data)
       when Hash
         output_hash(data)
       when Array
@@ -287,15 +275,9 @@ class LavinMQCtl
       end
     end
   end
-  
+
   private def output_string(data : String)
     puts data
-  end
-
-  private def output_tuple(data : NamedTuple)
-    data.each do |k,v|
-      puts "#{k}: #{v}"
-    end
   end
 
   private def output_hash(data : Hash)
@@ -312,7 +294,7 @@ class LavinMQCtl
       values = [] of String
       if item.is_a?(Hash)
         item.keys.each do |k|
-          values << item[k]
+          values << item[k].to_s
         end
       elsif item.is_a?(JSON::Any)
         if hash = item.as_h
@@ -357,14 +339,13 @@ class LavinMQCtl
   private def list_users
     resp = http.get "/api/users", @headers
     handle_response(resp, 200)
-    user_array = [] of Hash(String, String)
     if users = JSON.parse(resp.body).as_a?
-      users.each do |u|
+      uu = users.map do |u|
         next unless user = u.as_h?
-        user_array << { "name" => user["name"].to_s, "tags"=> user["tags"].to_s }
+        {"name" => user["name"].to_s, "tags" => user["tags"].to_s}
       end
+      output uu
     end
-    output user_array
   end
 
   private def add_user
@@ -401,15 +382,13 @@ class LavinMQCtl
   private def list_queues
     vhost = @options["vhost"]? || "/"
     resp = http.get "/api/queues/#{URI.encode_www_form(vhost)}", @headers
-    queues_array = [] of Hash(String, String)
     handle_response(resp, 200)
     if queues = JSON.parse(resp.body).as_a?
-      queues.each do |u|
+      qq = queues.map do |u|
         next unless q = u.as_h?
-        queues_array << { "name" => q["name"].to_s, "messages" => q["messages"].to_s }
+        {"name" => q["name"].to_s, "messages" => q["messages"].to_s}
       end
-      output queues_array, ["name", "messages"]
-      true
+      output qq, ["name", "messages"]
     else
       abort "invalid data"
     end
@@ -445,11 +424,17 @@ class LavinMQCtl
     resp = http.get "/api/connections", @headers
     handle_response(resp, 200)
     if conns = JSON.parse(resp.body).as_a?
-      conn_arr = conns.map do |u|
+      cc = conns.map do |u|
         next unless conn = u.as_h?
-        columns.map { |c| conn[c] }
+        {
+          # columns.map { |c| conn[c] }
+          "user"      => conn["user"].to_s,
+          "peer_host" => conn["peer_host"].to_s,
+          "peer_port" => conn["peer_port"].to_s,
+          "state"     => conn["state"].to_s,
+        }
       end
-      output conn_arr, columns
+      output cc, columns
     else
       abort "invalid data"
     end
@@ -475,7 +460,6 @@ class LavinMQCtl
   private def close_connection
     name = ARGV.shift?
     abort @banner unless name
-    puts "Closing connection #{name} ..." unless quiet?
     @headers["X-Reason"] = ARGV.shift? || "Closed via lavinmqctl"
     resp = http.delete "/api/connections/#{URI.encode_path(name)}", @headers
     handle_response(resp, 204)
@@ -484,29 +468,30 @@ class LavinMQCtl
   private def close_all_connections
     resp = http.get "/api/connections", @headers
     handle_response(resp, 200)
+    closed_conns = [] of Hash(String, String)
     if conns = JSON.parse(resp.body).as_a?
       @headers["X-Reason"] = ARGV.shift? || "Closed via lavinmqctl"
       conns.each do |u|
         next unless conn = u.as_h?
         name = conn["name"].to_s
-        puts "Closing connection #{name} ..." unless quiet?
         http.delete "/api/connections/#{URI.encode_path(name)}", @headers
+        closed_conns << {"name" => name}
       end
     else
       abort "invalid data"
     end
+    output closed_conns, ["closed_connections"]
   end
 
   private def list_vhosts
     resp = http.get "/api/vhosts", @headers
-    puts "Listing vhosts ..." unless quiet?
     handle_response(resp, 200)
     if vhosts = JSON.parse(resp.body).as_a?
-      puts "name"
-      vhosts.each do |u|
+      vv = vhosts.map do |u|
         next unless v = u.as_h?
-        puts "#{v["name"]}"
+        {"name" => v["name"].to_s}
       end
+      output vv
     else
       abort "invalid data"
     end
@@ -553,17 +538,23 @@ class LavinMQCtl
   private def list_policies
     vhost = @options["vhost"]? || "/"
     resp = http.get "/api/policies/#{URI.encode_www_form(vhost)}", @headers
-    puts "Listing policies for vhost #{vhost} ..." unless quiet?
     handle_response(resp, 200)
     if policies = JSON.parse(resp.body).as_a?
-      puts "vhost\tname\tpattern\tapply-to\tdefinition\tpriority"
-      policies.each do |u|
+      pp = policies.map do |u|
         next unless p = u.as_h?
-        puts "#{p["vhost"]}\t#{p["name"]}\t#{p["pattern"]}\t#{p["apply-to"]}\t#{p["definition"]}\t#{p["priority"]}"
+        {
+          "vhost"      => p["vhost"].to_s,
+          "name"       => p["name"].to_s,
+          "pattern"    => p["pattern"].to_s,
+          "apply-to"   => p["apply-to"].to_s,
+          "definition" => p["definition"].as_h,
+          "priority"   => p["priority"].to_s,
+        }
       end
     else
       abort "invalid data"
     end
+    output pp, ["vhost", "name", "pattern", "apply-to", "definition", "priority"]
   end
 
   private def set_policy
@@ -608,15 +599,17 @@ class LavinMQCtl
   private def list_exchanges
     vhost = @options["vhost"]? || "/"
     resp = http.get "/api/exchanges/#{URI.encode_www_form(vhost)}", @headers
-    puts "Listing exchanges for vhost #{vhost} ..." unless quiet?
     handle_response(resp, 200)
     columns = %w[name type]
-    puts columns.join("\t")
     if exchanges = JSON.parse(resp.body).as_a?
-      exchanges.each do |e|
-        next unless ex = e.as_h?
-        columns.each { |c| print ex[c]; print "\t" }
+      ee = exchanges.map do |u|
+        next unless e = u.as_h?
+        {
+          "name" => e["name"].to_s,
+          "type" => e["type"].to_s,
+        }
       end
+      output ee, columns
     else
       abort "invalid data"
     end
@@ -653,49 +646,40 @@ class LavinMQCtl
     resp = http.get "/api/overview"
     handle_response(resp, 200)
     body = JSON.parse(resp.body)
-    obj = {
-      "Version": {body.dig("lavinmq_version")},
-      "Node": {body.dig("node")},
-      "Uptime": {body.dig("uptime")},
-      "Connections": {body.dig("object_totals", "connections")},
-      "Channels": {body.dig("object_totals", "channels")},
-      "Consumers": {body.dig("object_totals", "consumers")},
-      "Exchanges": {body.dig("object_totals", "exchanges")},
-      "Queues": {body.dig("object_totals", "queues")},
-      "Messages": {body.dig("queue_totals", "messages")},
-      "Messages ready": {body.dig("queue_totals", "messages_ready")},
-      "Messages unacked": {body.dig("queue_totals", "messages_unacknowledged")},
+    status_obj = {
+      "Version"          => body.dig("lavinmq_version"),
+      "Node"             => body.dig("node"),
+      "Uptime"           => body.dig("uptime"),
+      "Connections"      => body.dig("object_totals", "connections"),
+      "Channels"         => body.dig("object_totals", "channels"),
+      "Consumers"        => body.dig("object_totals", "consumers"),
+      "Exchanges"        => body.dig("object_totals", "exchanges"),
+      "Queues"           => body.dig("object_totals", "queues"),
+      "Messages"         => body.dig("queue_totals", "messages"),
+      "Messages ready"   => body.dig("queue_totals", "messages_ready"),
+      "Messages unacked" => body.dig("queue_totals", "messages_unacknowledged"),
     }
-    output(obj)
-    #puts "Version: #{body.dig("lavinmq_version")}"
-    #puts "Node: #{body.dig("node")}"
-    #puts "Uptime: #{body.dig("uptime")}"
-    #puts "Connections: #{body.dig("object_totals", "connections")}"
-    #puts "Channels: #{body.dig("object_totals", "channels")}"
-    #puts "Consumers: #{body.dig("object_totals", "consumers")}"
-    #puts "Exchanges: #{body.dig("object_totals", "exchanges")}"
-    #puts "Queues: #{body.dig("object_totals", "queues")}"
-    #puts "Messages: #{body.dig("queue_totals", "messages")}"
-    #puts "Messages ready: #{body.dig("queue_totals", "messages_ready")}"
-    #puts "Messages unacked: #{body.dig("queue_totals", "messages_unacknowledged")}"
+    output(status_obj)
   end
 
   private def cluster_status
     resp = http.get "/api/nodes"
     handle_response(resp, 200)
     body = JSON.parse(resp.body)
-    puts "Cluster status of node #{body[0].dig("name")}"
-    puts "This node is running LavinMQ v#{body[0].dig("applications")[0].dig("version")}"
     if followers = body[0].dig("followers").as_a
-      puts ""
-      puts "Followers:"
-      puts "ID \t| Address \t\t| Lag"
-      followers.each do |f|
-        lag = f.dig("sent_bytes").as_i64 - f.dig("acked_bytes").as_i64
-        puts "#{f.dig("id")} \t| #{f.dig("remote_address")} \t| #{lag}"
+      followers.map do |f|
+        {
+          "id"      => f.dig("id"),
+          "address" => f.dig("remote_address"),
+          "lag"     => f.dig("sent_bytes").as_i64 - f.dig("acked_bytes").as_i64,
+        }
       end
-    else
-      puts "This node has no followers"
+      cluster_status_obj = {
+        "this_node" => body[0].dig("name"),
+        "version"   => body[0].dig("applications")[0].dig("version"),
+        "followers" => followers,
+      }
+      output cluster_status_obj
     end
   end
 
