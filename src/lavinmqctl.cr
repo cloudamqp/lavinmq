@@ -249,7 +249,7 @@ class LavinMQCtl
   end
 
   private def quiet?
-    @options["quiet"]? || @options["silent"]? || @options["format"] == "json"
+    @options["quiet"]? || @options["silent"]? || @options["format"]? == "json"
   end
 
   private def entity_arg
