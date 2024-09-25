@@ -27,7 +27,7 @@ module LavinMQ
                 "redeliver", "reject", "consumer_added", "consumer_removed"})
 
     getter name, exchanges, queues, data_dir, operator_policies, policies, parameters, shovels,
-      direct_reply_consumers, connections, dir, users, sessions
+      direct_reply_consumers, connections, dir, users
     property? flow = true
     getter? closed = false
     property max_connections : Int32?
