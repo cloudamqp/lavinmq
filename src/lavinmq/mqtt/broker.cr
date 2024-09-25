@@ -1,18 +1,47 @@
 module LavinMQ
   module MQTT
+    struct Sessions
+
+      @queues : Hash(String, Queue)
+
+      def initialize( @vhost : VHost)
+        @queues = @vhost.queues
+      end
+
+      def []?(client_id : String) : Session?
+        @queues["amq.mqtt-#{client_id}"]?.try &.as(Session)
+      end
+
+      def [](client_id : String) : Session
+        @queues["amq.mqtt-#{client_id}"].as(Session)
+      end
+
+      def declare(client_id : String, clean_session : Bool)
+        if session = self[client_id]?
+        return session
+        end
+        @vhost.declare_queue("amq.mqtt-#{client_id}", !clean_session, clean_session, AMQP::Table.new({"x-queue-type": "mqtt"}))
+        return self[client_id]
+      end
+
+      def delete(client_id : String)
+        @vhost.delete_queue("amq.mqtt-#{client_id}")
+      end
+    end
+
     class Broker
 
       getter vhost, sessions
+
       def initialize(@vhost : VHost)
-        @queues = Hash(String, Session).new
-        @sessions = Hash(String, Session).new
+        @sessions = Sessions.new(@vhost)
         @clients = Hash(String, Client).new
       end
 
+      #remember to remove the old client entry form the hash if you replace a client. (maybe it already does?)
       def connect_client(socket, connection_info, user, vhost, packet)
         if prev_client = @clients[packet.client_id]?
           Log.trace { "Found previous client connected with client_id: #{packet.client_id}, closing" }
-          pp "rev client"
           prev_client.close
         end
         client = MQTT::Client.new(socket, connection_info, user, vhost, self, packet.client_id, packet.clean_session?, packet.will)
@@ -20,30 +49,24 @@ module LavinMQ
         client
       end
 
-      def session_present?(client_id : String, clean_session) : Bool
-        session = @sessions[client_id]?
-        pp "session_present? #{session.inspect}"
-        return false if session.nil? || ( clean_session && session.set_clean_session )
-        true
+      def subscribe(client, packet)
+        name = "amq.mqtt-#{client.client_id}"
+        durable = false
+        auto_delete = false
+        pp "clean_session: #{client.@clean_session}"
+        @sessions.declare(client.client_id, client.@clean_session)
+        # Handle bindings, packet.topics
       end
 
-      def start_session(client_id, clean_session)
-        session = MQTT::Session.new(@vhost, client_id)
-        session.set_clean_session if clean_session
-        @sessions[client_id] = session
-        @queues[client_id] = session
+      def session_present?(client_id : String, clean_session) : Bool
+        session = @sessions[client_id]?
+        return false if session.nil? || clean_session
+        true
       end
 
       def clear_session(client_id)
         @sessions.delete client_id
-        @queues.delete client_id
       end
-
-      # def connected(client) : MQTT::Session
-      #   session = Session.new(client.vhost, client.client_id)
-      #   session.connect(client)
-      #   session
-      # end
     end
   end
 end
