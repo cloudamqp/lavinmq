@@ -26,7 +26,6 @@ module LavinMQ
           raise Error::PreconditionFailed.new("A stream queue cannot be auto-delete")
         end
         StreamQueue.new(vhost, frame.queue_name, frame.exclusive, frame.auto_delete, frame.arguments)
-      # TODO: MQTT session only allowed as durable queue to start with
       elsif mqtt_session? frame
         MQTT::Session.new(vhost, frame.queue_name, frame.auto_delete, frame.arguments)
       else
