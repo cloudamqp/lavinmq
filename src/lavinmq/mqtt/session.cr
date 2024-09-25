@@ -5,22 +5,17 @@ module LavinMQ
        getter clean_session
       def initialize(@vhost : VHost,
                      @name : String,
-                     @exclusive = true,
                      @auto_delete = false,
                      arguments : ::AMQ::Protocol::Table = AMQP::Table.new)
-        super
+        super(@vhost, @name, false, @auto_delete, arguments)
       end
 
-      def set_clean_session
-        pp "Setting clean session"
-        clear_session
-        @clean_session = true
+      def clean_session?
+        @auto_delete
       end
 
-
-      #Maybe use something other than purge?
-      def clear_session
-        purge
+      def durable?
+        !clean_session?
       end
 
       #TODO: implement subscribers array and session_present? and send instead of false

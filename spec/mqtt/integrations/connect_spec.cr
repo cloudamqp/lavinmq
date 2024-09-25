@@ -163,7 +163,6 @@ module MqttSpecs
           end
         end
 
-        # TODO: rescue and log error
         it "for password flag set without username flag set [MQTT-3.1.2-22]" do
           with_server do |server|
             with_client_io(server) do |io|

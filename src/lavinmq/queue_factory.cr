@@ -24,7 +24,9 @@ module LavinMQ
         elsif frame.auto_delete
           raise Error::PreconditionFailed.new("A stream queue cannot be auto-delete")
         end
-        AMQP::StreamQueue.new(vhost, frame.queue_name, frame.exclusive, frame.auto_delete, frame.arguments)
+        StreamQueue.new(vhost, frame.queue_name, frame.exclusive, frame.auto_delete, frame.arguments)
+      elsif mqtt_session? frame
+        MQTT::Session.new(vhost, frame.queue_name, frame.auto_delete, frame.arguments)
       else
         warn_if_unsupported_queue_type frame
         AMQP::DurableQueue.new(vhost, frame.queue_name, frame.exclusive, frame.auto_delete, frame.arguments)
@@ -36,6 +38,8 @@ module LavinMQ
         AMQP::PriorityQueue.new(vhost, frame.queue_name, frame.exclusive, frame.auto_delete, frame.arguments)
       elsif stream_queue? frame
         raise Error::PreconditionFailed.new("A stream queue cannot be non-durable")
+      elsif mqtt_session? frame
+        MQTT::Session.new(vhost, frame.queue_name, frame.auto_delete, frame.arguments)
       else
         warn_if_unsupported_queue_type frame
         AMQP::Queue.new(vhost, frame.queue_name, frame.exclusive, frame.auto_delete, frame.arguments)
@@ -59,6 +63,10 @@ module LavinMQ
       if frame.arguments["x-queue-type"]?
         Log.info { "The queue type #{frame.arguments["x-queue-type"]} is not supported by LavinMQ and will be changed to the default queue type" }
       end
+    end
+
+    private def self.mqtt_session?(frame) : Bool
+      frame.arguments["x-queue-type"]? == "mqtt"
     end
   end
 end
