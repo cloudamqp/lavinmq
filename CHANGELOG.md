@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Shovels' batching of acks caused a lot of unacked messages in source broker [#777](https://github.com/cloudamqp/lavinmq/pull/777)
 - Shovel AMQP source didn't reconnect on network failures (partially fixed in prev release) [#758](https://github.com/cloudamqp/lavinmq/pull/758)
 - Running lavinmqctl commands on a follower node now displays an error and exits with code 2 [#785](https://github.com/cloudamqp/lavinmq/pull/785)
+- Federation queue links now reconnects if the upstream disconnects [#788](https://github.com/cloudamqp/lavinmq/pull/788)
 
 ### Changed
 
