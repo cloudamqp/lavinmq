@@ -32,7 +32,7 @@ module LavinMQ
         @name = "#{@remote_address} -> #{@local_address}"
         @metadata = ::Log::Metadata.new(nil, {vhost: @broker.vhost.name, address: @remote_address.to_s})
         @log = Logger.new(Log, @metadata)
-        # @session = @broker.connected(self)
+        @broker.vhost.add_connection(self)
         @log.info { "Connection established for user=#{@user.name}" }
         spawn read_loop
       end
@@ -55,9 +55,11 @@ module LavinMQ
         @log.warn { "Connect error #{ex.inspect}" }
       rescue ex : ::IO::Error
         @log.warn(exception: ex) { "Read Loop error" }
-      ensure
-        pp "ensuring"
+         publish_will if @will
+      rescue ex
         publish_will if @will
+        raise ex
+      ensure
         @broker.clear_session(client_id) if @clean_session
         @socket.close
         @broker.vhost.rm_connection(self)
@@ -110,20 +112,16 @@ module LavinMQ
       end
 
       def recieve_subscribe(packet : MQTT::Subscribe)
-        name = "mqtt.#{@client_id}"
-        durable = false
-        auto_delete = true
-        tbl = AMQP::Table.new
-        # TODO: declare Session instead
-        @broker.start_session(@client_id, @clean_session)
-        q = @broker.vhost.declare_queue(name, durable, auto_delete, tbl)
+        @broker.subscribe(self, packet)
         qos = Array(MQTT::SubAck::ReturnCode).new
         packet.topic_filters.each do |tf|
           qos << MQTT::SubAck::ReturnCode.from_int(tf.qos)
           rk = topicfilter_to_routingkey(tf.topic)
-          @broker.vhost.bind_queue(name, "amq.topic", rk)
+          #handle bindings in broker.
+          @broker.vhost.bind_queue("amq.mqtt-#{client_id}", "amq.topic", rk)
         end
-        queue = @broker.vhost.queues[name]
+        # handle add_consumer in broker.
+        queue = @broker.vhost.queues["amq.mqtt-#{client_id}"]
         consumer = MqttConsumer.new(self, queue)
         queue.add_consumer(consumer)
         send(MQTT::SubAck.new(qos, packet.packet_id))
@@ -143,19 +141,6 @@ module LavinMQ
           protocol:  "MQTT",
           client_id: @client_id,
         }.merge(stats_details)
-      end
-
-      def start_session(client) : MQTT::Session
-        if @clean_session
-           @log.trace { "clear session" }
-          @broker.clear_session(client)
-        end
-        @broker.start_session(client)
-      end
-
-      def disconnect_session(client)
-        @log.trace { "disconnect session" }
-        @broker.clear_session(client)
       end
 
       # TODO: actually publish will to session
