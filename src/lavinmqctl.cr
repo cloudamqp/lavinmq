@@ -261,10 +261,11 @@ class LavinMQCtl
 
   private def output(data, columns = nil)
     if @options["format"]? == "json"
-      puts data.to_json
+      data.to_json(STDOUT)
+      puts
     else
       case data
-      when Hash
+      when Hash, NamedTuple
         data.keys.each do |k|
           puts "#{k}: #{data[k]}"
         end
@@ -279,18 +280,19 @@ class LavinMQCtl
   private def output_array(data : Array, columns : Array(String)?)
     if columns
       puts columns.join("\t")
+    else
+      if first = data.first?
+        first = first.as_h if first.is_a?(JSON::Any)
+        puts first.keys.join("\t")
+      end
     end
     data.each do |item|
       values = [] of String
-      if item.is_a?(Hash)
-        item.keys.each do |k|
-          values << item[k].to_s
-        end
+      if item.is_a?(Hash) || item.is_a?(NamedTuple)
+        values = item.values.map &.to_s
       elsif item.is_a?(JSON::Any)
         if hash = item.as_h
-          hash.keys.each do |k|
-            values << hash[k].to_s
-          end
+          values = hash.values.map &.to_s
         end
       else
         values << item.to_s
@@ -332,7 +334,7 @@ class LavinMQCtl
     if users = JSON.parse(resp.body).as_a?
       uu = users.map do |u|
         next unless user = u.as_h?
-        {"name" => user["name"].to_s, "tags" => user["tags"].to_s}
+        {name: user["name"].to_s, tags: user["tags"].to_s}
       end
       output uu
     end
@@ -376,9 +378,9 @@ class LavinMQCtl
     if queues = JSON.parse(resp.body).as_a?
       qq = queues.map do |u|
         next unless q = u.as_h?
-        {"name" => q["name"].to_s, "messages" => q["messages"].to_s}
+        {name: q["name"].to_s, messages: q["messages"].to_s}
       end
-      output qq, ["name", "messages"]
+      output qq
     else
       abort "invalid data"
     end
@@ -416,9 +418,9 @@ class LavinMQCtl
     if conns = JSON.parse(resp.body).as_a?
       cc = conns.map do |u|
         next unless conn = u.as_h?
-        conn.select { |k, v| columns.includes? k }
+        conn.select { |k, _v| columns.includes? k }
       end
-      output cc, columns
+      output cc
     else
       abort "invalid data"
     end
@@ -435,14 +437,14 @@ class LavinMQCtl
   private def close_all_connections
     resp = http.get "/api/connections", @headers
     handle_response(resp, 200)
-    closed_conns = [] of Hash(String, String)
+    closed_conns = [] of NamedTuple(name: String)
     if conns = JSON.parse(resp.body).as_a?
       @headers["X-Reason"] = ARGV.shift? || "Closed via lavinmqctl"
       conns.each do |u|
         next unless conn = u.as_h?
         name = conn["name"].to_s
         http.delete "/api/connections/#{URI.encode_path(name)}", @headers
-        closed_conns << {"name" => name}
+        closed_conns << {name: name}
       end
     else
       abort "invalid data"
@@ -456,7 +458,7 @@ class LavinMQCtl
     if vhosts = JSON.parse(resp.body).as_a?
       vv = vhosts.map do |u|
         next unless v = u.as_h?
-        {"name" => v["name"].to_s}
+        {name: v["name"].to_s}
       end
       output vv
     else
@@ -507,21 +509,10 @@ class LavinMQCtl
     resp = http.get "/api/policies/#{URI.encode_www_form(vhost)}", @headers
     handle_response(resp, 200)
     if policies = JSON.parse(resp.body).as_a?
-      pp = policies.map do |u|
-        next unless p = u.as_h?
-        {
-          "vhost"      => p["vhost"].to_s,
-          "name"       => p["name"].to_s,
-          "pattern"    => p["pattern"].to_s,
-          "apply-to"   => p["apply-to"].to_s,
-          "definition" => p["definition"].as_h,
-          "priority"   => p["priority"].to_s,
-        }
-      end
+      output policies
     else
       abort "invalid data"
     end
-    output pp, ["vhost", "name", "pattern", "apply-to", "definition", "priority"]
   end
 
   private def set_policy
@@ -567,16 +558,15 @@ class LavinMQCtl
     vhost = @options["vhost"]? || "/"
     resp = http.get "/api/exchanges/#{URI.encode_www_form(vhost)}", @headers
     handle_response(resp, 200)
-    columns = %w[name type]
     if exchanges = JSON.parse(resp.body).as_a?
       ee = exchanges.map do |u|
         next unless e = u.as_h?
         {
-          "name" => e["name"].to_s,
-          "type" => e["type"].to_s,
+          name: e["name"].to_s,
+          type: e["type"].to_s,
         }
       end
-      output ee, columns
+      output ee
     else
       abort "invalid data"
     end
@@ -614,17 +604,17 @@ class LavinMQCtl
     handle_response(resp, 200)
     body = JSON.parse(resp.body)
     status_obj = {
-      "Version"          => body.dig("lavinmq_version"),
-      "Node"             => body.dig("node"),
-      "Uptime"           => body.dig("uptime"),
-      "Connections"      => body.dig("object_totals", "connections"),
-      "Channels"         => body.dig("object_totals", "channels"),
-      "Consumers"        => body.dig("object_totals", "consumers"),
-      "Exchanges"        => body.dig("object_totals", "exchanges"),
-      "Queues"           => body.dig("object_totals", "queues"),
-      "Messages"         => body.dig("queue_totals", "messages"),
-      "Messages ready"   => body.dig("queue_totals", "messages_ready"),
-      "Messages unacked" => body.dig("queue_totals", "messages_unacknowledged"),
+      Version:          body.dig("lavinmq_version"),
+      Node:             body.dig("node"),
+      Uptime:           body.dig("uptime"),
+      Connections:      body.dig("object_totals", "connections"),
+      Channels:         body.dig("object_totals", "channels"),
+      Consumers:        body.dig("object_totals", "consumers"),
+      Exchanges:        body.dig("object_totals", "exchanges"),
+      Queues:           body.dig("object_totals", "queues"),
+      Messages:         body.dig("queue_totals", "messages"),
+      Messages_ready:   body.dig("queue_totals", "messages_ready"),
+      Messages_unacked: body.dig("queue_totals", "messages_unacknowledged"),
     }
     output(status_obj)
   end
@@ -636,15 +626,15 @@ class LavinMQCtl
     if followers = body[0].dig("followers").as_a
       followers.map do |f|
         {
-          "id"      => f.dig("id"),
-          "address" => f.dig("remote_address"),
-          "lag"     => f.dig("sent_bytes").as_i64 - f.dig("acked_bytes").as_i64,
+          id:      f.dig("id"),
+          address: f.dig("remote_address"),
+          lag:     f.dig("sent_bytes").as_i64 - f.dig("acked_bytes").as_i64,
         }
       end
       cluster_status_obj = {
-        "this_node" => body[0].dig("name"),
-        "version"   => body[0].dig("applications")[0].dig("version"),
-        "followers" => followers,
+        this_node: body[0].dig("name"),
+        version:   body[0].dig("applications")[0].dig("version"),
+        followers: followers,
       }
       output cluster_status_obj
     end
