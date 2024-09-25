@@ -234,12 +234,22 @@ class LavinMQCtl
       # Only used by tests in cloudamqp/rabbitmq-java-client
       @options["node"] = v
     end
+    @parser.on("-q", "--quiet", "suppress informational messages") do
+      @options["quiet"] = "yes"
+    end
+    @parser.on("-s", "--silent", "suppress informational messages and table formatting") do
+      @options["silent"] = "yes"
+    end
     @parser.on("-f format", "--format=format", "Format output (text, json)") do |v|
       if v != "text" && v != "json"
         abort "Invalid format: #{v}"
       end
       @options["format"] = v
     end
+  end
+
+  private def quiet?
+    @options["quiet"]? || @options["silent"]? || @options["format"] == "json"
   end
 
   private def entity_arg
@@ -331,6 +341,7 @@ class LavinMQCtl
   private def list_users
     resp = http.get "/api/users", @headers
     handle_response(resp, 200)
+    puts "Listing users ..." unless quiet?
     if users = JSON.parse(resp.body).as_a?
       uu = users.map do |u|
         next unless user = u.as_h?
@@ -374,6 +385,7 @@ class LavinMQCtl
   private def list_queues
     vhost = @options["vhost"]? || "/"
     resp = http.get "/api/queues/#{URI.encode_www_form(vhost)}", @headers
+    puts "Listing queues for vhost #{vhost} ..." unless quiet?
     handle_response(resp, 200)
     if queues = JSON.parse(resp.body).as_a?
       qq = queues.map do |u|
@@ -414,6 +426,7 @@ class LavinMQCtl
     columns = ARGV
     columns = ["user", "peer_host", "peer_port", "state"] if columns.empty?
     resp = http.get "/api/connections", @headers
+    puts "Listing connections ..." unless quiet?
     handle_response(resp, 200)
     if conns = JSON.parse(resp.body).as_a?
       cc = conns.map do |u|
@@ -429,6 +442,7 @@ class LavinMQCtl
   private def close_connection
     name = ARGV.shift?
     abort @banner unless name
+    puts "Closing connection #{name} ..." unless quiet?
     @headers["X-Reason"] = ARGV.shift? || "Closed via lavinmqctl"
     resp = http.delete "/api/connections/#{URI.encode_path(name)}", @headers
     handle_response(resp, 204)
@@ -443,6 +457,7 @@ class LavinMQCtl
       conns.each do |u|
         next unless conn = u.as_h?
         name = conn["name"].to_s
+        puts "Closing connection #{name} ..." unless quiet?
         http.delete "/api/connections/#{URI.encode_path(name)}", @headers
         closed_conns << {name: name}
       end
@@ -454,6 +469,7 @@ class LavinMQCtl
 
   private def list_vhosts
     resp = http.get "/api/vhosts", @headers
+    puts "Listing vhosts ..." unless quiet?
     handle_response(resp, 200)
     if vhosts = JSON.parse(resp.body).as_a?
       vv = vhosts.map do |u|
@@ -507,6 +523,7 @@ class LavinMQCtl
   private def list_policies
     vhost = @options["vhost"]? || "/"
     resp = http.get "/api/policies/#{URI.encode_www_form(vhost)}", @headers
+    puts "Listing policies for vhost #{vhost} ..." unless quiet?
     handle_response(resp, 200)
     if policies = JSON.parse(resp.body).as_a?
       output policies
@@ -557,6 +574,7 @@ class LavinMQCtl
   private def list_exchanges
     vhost = @options["vhost"]? || "/"
     resp = http.get "/api/exchanges/#{URI.encode_www_form(vhost)}", @headers
+    puts "Listing exchanges for vhost #{vhost} ..." unless quiet?
     handle_response(resp, 200)
     if exchanges = JSON.parse(resp.body).as_a?
       ee = exchanges.map do |u|
