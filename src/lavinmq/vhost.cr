@@ -360,13 +360,13 @@ module LavinMQ
       end
     end
 
-    alias QueueBinding = Tuple(BindingKey, Exchange)
+    record QueueBinding, binding_key : BindingKey, exchange : Exchange
 
     def queue_bindings(queue : Queue)
       iterators = @exchanges.each_value.map do |ex|
         ex.queue_bindings.each.select do |(_binding_args, destinations)|
           destinations.includes?(queue)
-        end.map { |(binding_args, _destinations)| {ex, binding_args} }
+        end.map { |(binding_key, _destinations)| QueueBinding.new(binding_key, ex) }
       end
       Iterator(QueueBinding).chain(iterators)
     end
