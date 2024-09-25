@@ -429,14 +429,48 @@ class LavinMQCtl
     puts "Listing connections ..." unless quiet?
     handle_response(resp, 200)
     if conns = JSON.parse(resp.body).as_a?
-      cc = conns.map do |u|
-        next unless conn = u.as_h?
-        conn.select { |k, _v| columns.includes? k }
+      if @options["format"]? == "json"
+        cc = conns.map do |u|
+          next unless conn = u.as_h?
+          conn.select { |k, _v| columns.includes? k }
+        end
+        output cc
+      else
+        puts columns.join("\t")
+        conns.each do |u|
+          if conn = u.as_h?
+            columns.each_with_index do |c, i|
+              case c
+              when "client_properties"
+                print_erlang_terms(conn[c].as_h)
+              else
+                print conn[c]
+              end
+              print "\t" unless i == columns.size - 1
+            end
+            puts
+          end
+        end
       end
-      output cc
     else
       abort "invalid data"
     end
+  end
+
+  private def print_erlang_terms(h : Hash)
+    print '['
+    last_index = h.size - 1
+    h.each_with_index do |(key, value), i|
+      print "{\"#{key}\","
+      case value.raw
+      when Hash   then print_erlang_terms(value.as_h)
+      when String then print '"', value, '"'
+      else             print value
+      end
+      print '}'
+      print ',' unless i == last_index
+    end
+    print ']'
   end
 
   private def close_connection
