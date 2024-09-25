@@ -15,6 +15,7 @@ require "./event_type"
 require "./stats"
 require "./queue_factory"
 require "./mqtt/session_store"
+require "./mqtt/session"
 
 module LavinMQ
   class VHost
@@ -37,7 +38,6 @@ module LavinMQ
     @direct_reply_consumers = Hash(String, Client::Channel).new
     @shovels : ShovelStore?
     @upstreams : Federation::UpstreamStore?
-    @sessions : MQTT::SessionStore?
     @connections = Array(Client).new(512)
     @definitions_file : File
     @definitions_lock = Mutex.new(:reentrant)
@@ -60,7 +60,6 @@ module LavinMQ
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator, vhost: @name)
       @shovels = ShovelStore.new(self)
       @upstreams = Federation::UpstreamStore.new(self)
-      @sessions = MQTT::SessionStore.new(self)
       load!
       spawn check_consumer_timeouts_loop, name: "Consumer timeouts loop"
     end
@@ -338,8 +337,6 @@ module LavinMQ
       event_tick(EventType::ConnectionClosed)
       @connections.delete client
     end
-
-
 
     SHOVEL                  = "shovel"
     FEDERATION_UPSTREAM     = "federation-upstream"
