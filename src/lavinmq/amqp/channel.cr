@@ -247,7 +247,6 @@ module LavinMQ
         end
 
         confirm do
-          #here
           ok = @client.vhost.publish msg, @next_publish_immediate, @visited, @found_queues
           basic_return(msg, @next_publish_mandatory, @next_publish_immediate) unless ok
         rescue e : LavinMQ::Error::PreconditionFailed
