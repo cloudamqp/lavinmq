@@ -306,8 +306,8 @@ module LavinMQ
         when AMQP::Frame::Exchange::Delete
           if x = @exchanges.delete f.exchange_name
             @exchanges.each_value do |ex|
-              ex.exchange_bindings.each do |binding_args, destinations|
-                ex.unbind(x, *binding_args) if destinations.includes?(x)
+              ex.exchange_bindings.each do |binding_key, destinations|
+                ex.unbind(x, binding_key.routing_key, binding_key.arguments) if destinations.includes?(x)
               end
             end
             x.delete
@@ -334,8 +334,8 @@ module LavinMQ
         when AMQP::Frame::Queue::Delete
           if q = @queues.delete(f.queue_name)
             @exchanges.each_value do |ex|
-              ex.queue_bindings.each do |binding_args, destinations|
-                ex.unbind(q, *binding_args) if destinations.includes?(q)
+              ex.queue_bindings.each do |binding_key, destinations|
+                ex.unbind(q, binding_key.routing_key, binding_key.arguments) if destinations.includes?(q)
               end
             end
             store_definition(f, dirty: true) if !loading && q.durable? && !q.exclusive?
@@ -624,17 +624,17 @@ module LavinMQ
           io.write_bytes f
         end
         @exchanges.each_value.select(&.durable?).each do |e|
-          e.queue_bindings.each do |(routing_key, arguments), queues|
-            args = arguments || AMQP::Table.new
+          e.queue_bindings.each do |binding_key, queues|
+            args = binding_key.arguments || AMQP::Table.new
             queues.each do |q|
-              f = AMQP::Frame::Queue::Bind.new(0_u16, 0_u16, q.name, e.name, routing_key, false, args)
+              f = AMQP::Frame::Queue::Bind.new(0_u16, 0_u16, q.name, e.name, binding_key.routing_key, false, args)
               io.write_bytes f
             end
           end
-          e.exchange_bindings.each do |(routing_key, arguments), exchanges|
-            args = arguments || AMQP::Table.new
+          e.exchange_bindings.each do |binding_key, exchanges|
+            args = binding_key.arguments || AMQP::Table.new
             exchanges.each do |ex|
-              f = AMQP::Frame::Exchange::Bind.new(0_u16, 0_u16, ex.name, e.name, routing_key, false, args)
+              f = AMQP::Frame::Exchange::Bind.new(0_u16, 0_u16, ex.name, e.name, binding_key.routing_key, false, args)
               io.write_bytes f
             end
           end

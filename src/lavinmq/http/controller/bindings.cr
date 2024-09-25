@@ -35,7 +35,7 @@ module LavinMQ
             itr = e.queue_bindings.each.select { |(_, v)| v.includes?(q) }
               .map { |(k, _)| e.binding_details(k, q) }
             if e.name.empty?
-              default_binding = BindingDetails.new("", q.vhost.name, {q.name, nil}, q)
+              default_binding = BindingDetails.new("", q.vhost.name, BindingKey.new(q.name, nil), q)
               itr = {default_binding}.each.chain(itr)
             end
             page(context, itr)
@@ -63,7 +63,7 @@ module LavinMQ
               bad_request(context, "Field 'routing_key' is required")
             end
             ok = e.vhost.bind_queue(q.name, e.name, routing_key, arguments)
-            props = BindingDetails.hash_key({routing_key, arguments})
+            props = BindingDetails.hash_key(BindingKey.new(routing_key, arguments))
             context.response.headers["Location"] = q.name + "/" + props
             context.response.status_code = 201
             Log.debug do
@@ -101,8 +101,8 @@ module LavinMQ
             found = false
             e.queue_bindings.each do |k, destinations|
               next unless destinations.includes?(q) && BindingDetails.hash_key(k) == props
-              arguments = k[1] || AMQP::Table.new
-              @amqp_server.vhosts[vhost].unbind_queue(q.name, e.name, k[0], arguments)
+              arguments = k.arguments || AMQP::Table.new
+              @amqp_server.vhosts[vhost].unbind_queue(q.name, e.name, k.routing_key, arguments)
               found = true
               Log.debug { "exchange '#{e.name}' unbound from queue '#{q.name}' with key '#{k}'" }
               break
@@ -144,7 +144,7 @@ module LavinMQ
               bad_request(context, "Field 'routing_key' is required")
             end
             source.vhost.bind_exchange(destination.name, source.name, routing_key, arguments)
-            props = BindingDetails.hash_key({routing_key, arguments})
+            props = BindingDetails.hash_key(BindingKey.new(routing_key, arguments))
             context.response.headers["Location"] = context.request.path + "/" + props
             context.response.status_code = 201
           end
@@ -180,8 +180,8 @@ module LavinMQ
             found = false
             source.exchange_bindings.each do |k, destinations|
               next unless destinations.includes?(destination) && BindingDetails.hash_key(k) == props
-              arguments = k[1] || AMQP::Table.new
-              @amqp_server.vhosts[vhost].unbind_exchange(destination.name, source.name, k[0], arguments)
+              arguments = k.arguments || AMQP::Table.new
+              @amqp_server.vhosts[vhost].unbind_exchange(destination.name, source.name, k.routing_key, arguments)
               found = true
               break
             end

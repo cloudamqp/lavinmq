@@ -29,9 +29,9 @@ module LavinMQ
       @hasher.add(destination.name, w, destination)
       ret = case destination
             when Queue
-              @queue_bindings[{routing_key, headers}].add? destination
+              @queue_bindings[BindingKey.new(routing_key, headers)].add? destination
             when Exchange
-              @exchange_bindings[{routing_key, headers}].add? destination
+              @exchange_bindings[BindingKey.new(routing_key, headers)].add? destination
             end
       after_bind(destination, routing_key, headers)
       ret
@@ -41,9 +41,9 @@ module LavinMQ
       w = weight(routing_key)
       ret = case destination
             when Queue
-              @queue_bindings[{routing_key, headers}].delete destination
+              @queue_bindings[BindingKey.new(routing_key, headers)].delete destination
             when Exchange
-              @exchange_bindings[{routing_key, headers}].delete destination
+              @exchange_bindings[BindingKey.new(routing_key, headers)].delete destination
             end
       @hasher.remove(destination.name, w)
       ret

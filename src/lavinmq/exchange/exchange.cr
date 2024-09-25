@@ -7,7 +7,7 @@ require "./event"
 require "../queue"
 
 module LavinMQ
-  alias BindingKey = Tuple(String, AMQP::Table?)
+  record BindingKey, routing_key : String, arguments : AMQP::Table?
   alias Destination = Queue | Exchange
 
   abstract class Exchange
@@ -143,7 +143,7 @@ module LavinMQ
     REPUBLISH_HEADERS = {"x-head", "x-tail", "x-from"}
 
     protected def after_bind(destination : Destination, routing_key : String, headers : AMQP::Table?)
-      notify_observers(ExchangeEvent::Bind, binding_details({routing_key, headers}, destination))
+      notify_observers(ExchangeEvent::Bind, binding_details(BindingKey.new(routing_key, headers), destination))
       true
     end
 
@@ -155,7 +155,7 @@ module LavinMQ
          @exchange_bindings.each_value.all? &.empty?
         delete
       end
-      notify_observers(ExchangeEvent::Unbind, binding_details({routing_key, headers}, destination))
+      notify_observers(ExchangeEvent::Unbind, binding_details(BindingKey.new(routing_key, headers), destination))
     end
 
     protected def delete
@@ -215,11 +215,11 @@ module LavinMQ
     end
 
     def routing_key
-      @key[0]
+      @key.routing_key
     end
 
     def arguments
-      @key[1]
+      @key.arguments
     end
 
     def details_tuple
@@ -235,11 +235,11 @@ module LavinMQ
     end
 
     def self.hash_key(key : BindingKey)
-      if key[1].nil? || key[1].try &.empty?
-        key[0].empty? ? "~" : key[0]
+      if key.arguments.nil? || key.arguments.try &.empty?
+        key.routing_key.empty? ? "~" : key.routing_key
       else
-        hsh = Base64.urlsafe_encode(key[1].to_s)
-        "#{key[0]}~#{hsh}"
+        hsh = Base64.urlsafe_encode(key.arguments.to_s)
+        "#{key.routing_key}~#{hsh}"
       end
     end
   end

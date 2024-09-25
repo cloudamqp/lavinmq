@@ -59,7 +59,7 @@ describe LavinMQ::Queue do
           x.publish_confirm "test message", q.name
           q.get(no_ack: true).try(&.body_io.to_s).should eq("test message")
 
-          iq = s.vhosts["/"].exchanges[x_name].queue_bindings[{q.name, nil}].first
+          iq = s.vhosts["/"].exchanges[x_name].queue_bindings[LavinMQ::BindingKey.new(q.name, nil)].first
           iq.pause!
 
           x.publish_confirm "test message 2", q.name
@@ -93,7 +93,7 @@ describe LavinMQ::Queue do
           x.publish_confirm "test message", q.name
           q.get(no_ack: true).try(&.body_io.to_s).should eq("test message")
 
-          iq = s.vhosts["/"].exchanges[x_name].queue_bindings[{q.name, nil}].first
+          iq = s.vhosts["/"].exchanges[x_name].queue_bindings[LavinMQ::BindingKey.new(q.name, nil)].first
           iq.pause!
 
           x.publish_confirm "test message 2", q.name
@@ -126,7 +126,7 @@ describe LavinMQ::Queue do
           x.publish_confirm "test message", q.name
           q.get(no_ack: true).try(&.body_io.to_s).should eq("test message")
 
-          iq = s.vhosts["/"].exchanges[x_name].queue_bindings[{q.name, nil}].first
+          iq = s.vhosts["/"].exchanges[x_name].queue_bindings[LavinMQ::BindingKey.new(q.name, nil)].first
           iq.pause!
 
           x.publish_confirm "test message 2", q.name
@@ -187,7 +187,7 @@ describe LavinMQ::Queue do
           x.publish_confirm "test message 3", q.name
           x.publish_confirm "test message 4", q.name
 
-          internal_queue = s.vhosts["/"].exchanges[x_name].queue_bindings[{q.name, nil}].first
+          internal_queue = s.vhosts["/"].exchanges[x_name].queue_bindings[LavinMQ::BindingKey.new(q.name, nil)].first
           internal_queue.message_count.should eq 4
 
           response = http.delete("/api/queues/%2f/#{q_name}/contents")
@@ -209,7 +209,7 @@ describe LavinMQ::Queue do
           end
 
           vhost = s.vhosts["/"]
-          internal_queue = vhost.exchanges[x_name].queue_bindings[{q.name, nil}].first
+          internal_queue = vhost.exchanges[x_name].queue_bindings[LavinMQ::BindingKey.new(q.name, nil)].first
           internal_queue.message_count.should eq 10
 
           response = http.delete("/api/queues/%2f/#{q_name}/contents?count=5")
@@ -235,7 +235,7 @@ describe LavinMQ::Queue do
             x.publish_confirm "test message #{i}", q.name
           end
 
-          internal_queue = s.vhosts["/"].exchanges[x_name].queue_bindings[{q.name, nil}].first
+          internal_queue = s.vhosts["/"].exchanges[x_name].queue_bindings[LavinMQ::BindingKey.new(q.name, nil)].first
 
           internal_queue.message_count.should eq 10
 
