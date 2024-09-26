@@ -436,7 +436,7 @@ class LavinMQCtl
         end
         output cc
       else
-        puts columns.join("\t")
+        puts columns.join(STDOUT, "\t")
         conns.each do |u|
           if conn = u.as_h?
             columns.each_with_index do |c, i|
