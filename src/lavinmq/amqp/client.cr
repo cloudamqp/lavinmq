@@ -118,13 +118,14 @@ module LavinMQ
 
       private def read_loop
         i = 0
+        yield_interval = ENV.fetch("READ_LOOP_YIELD_INTERVAL", "1024").to_i
         socket = @socket
         loop do
           AMQP::Frame.from_io(socket) do |frame|
             {% unless flag?(:release) %}
               @log.trace { "Received #{frame.inspect}" }
             {% end %}
-            if (i &+= 1) == 8192
+            if (i &+= 1) == yield_interval
               i = 0
               Fiber.yield
             end
