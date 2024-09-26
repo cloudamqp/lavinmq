@@ -289,7 +289,7 @@ class LavinMQCtl
 
   private def output_array(data : Array, columns : Array(String)?)
     if columns
-      puts columns.join("\t")
+      puts columns.join(STDOUT, "\t")
     else
       if first = data.first?
         first = first.as_h if first.is_a?(JSON::Any)
