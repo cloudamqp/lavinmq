@@ -276,8 +276,8 @@ class LavinMQCtl
     else
       case data
       when Hash, NamedTuple
-        data.keys.each do |k|
-          puts "#{k}: #{data[k]}"
+        data.each do |k, v|
+          STDOUT << k << " " << v << "\n"
         end
       when Array
         output_array(data, columns)
