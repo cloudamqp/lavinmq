@@ -26,7 +26,7 @@ module LavinMQ
         end
         StreamQueue.new(vhost, frame.queue_name, frame.exclusive, frame.auto_delete, frame.arguments)
       else
-        check_unsupported_queue_type frame
+        warn_if_unsupported_queue_type frame
         DurableQueue.new(vhost, frame.queue_name, frame.exclusive, frame.auto_delete, frame.arguments)
       end
     end
@@ -37,7 +37,7 @@ module LavinMQ
       elsif stream_queue? frame
         raise Error::PreconditionFailed.new("A stream queue cannot be non-durable")
       else
-        check_unsupported_queue_type frame
+        warn_if_unsupported_queue_type frame
         Queue.new(vhost, frame.queue_name, frame.exclusive, frame.auto_delete, frame.arguments)
       end
     end
@@ -55,7 +55,7 @@ module LavinMQ
       frame.arguments["x-queue-type"]? == "stream"
     end
 
-    private def self.check_unsupported_queue_type(frame)
+    private def self.warn_if_unsupported_queue_type(frame)
       if frame.arguments["x-queue-type"]?
         Log.warn { "The queue type #{frame.arguments["x-queue-type"]} is not supported by LavinMQ and will revert to default" }
       end
