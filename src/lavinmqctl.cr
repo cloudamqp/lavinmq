@@ -684,8 +684,8 @@ class LavinMQCtl
         }
       end
       cluster_status_obj = {
-        this_node: body[0].dig("name"),
-        version:   body[0].dig("applications")[0].dig("version"),
+        this_node: body.dig(0, "name"),
+        version:   body.dig(0, "applications", 0, "version"),
         followers: followers,
       }
       output cluster_status_obj
