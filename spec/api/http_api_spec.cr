@@ -91,6 +91,7 @@ describe LavinMQ::HTTP::Server do
         response = http.get("/api/overview")
         before_ack_count = JSON.parse(response.body).dig("message_stats", "ack")
         before_deliver_count = JSON.parse(response.body).dig("message_stats", "deliver")
+        before_deliver_get_count = JSON.parse(response.body).dig("message_stats", "deliver_get")
 
         with_channel(s) do |ch|
           q1 = ch.queue("stats_q1", exclusive: true)
@@ -111,7 +112,7 @@ describe LavinMQ::HTTP::Server do
         count = JSON.parse(response.body).dig("message_stats", "deliver")
         count.should eq(before_deliver_count.as_i + 5)
         count = JSON.parse(response.body).dig("message_stats", "deliver_get")
-        count.should eq(before_deliver_count.as_i + 5)
+        count.should eq(before_deliver_get_count.as_i + 5)
       end
     end
 
