@@ -277,7 +277,7 @@ class LavinMQCtl
       case data
       when Hash, NamedTuple
         data.each do |k, v|
-          STDOUT << k << " " << v << "\n"
+          STDOUT << k << ": " << v << "\n"
         end
       when Array
         output_array(data, columns)
@@ -291,23 +291,25 @@ class LavinMQCtl
     if columns
       puts columns.join(STDOUT, "\t")
     else
-      if first = data.first?
-        first = first.as_h if first.is_a?(JSON::Any)
-        puts first.keys.join("\t")
+      case first = data.first?
+      when NamedTuple
+        puts first.keys.join(STDOUT, "\t")
+      when JSON::Any
+        puts first.as_h.each_key.join(STDOUT, "\t")
       end
     end
     data.each do |item|
-      values = [] of String
-      if item.is_a?(Hash) || item.is_a?(NamedTuple)
-        values = item.values.map &.to_s
-      elsif item.is_a?(JSON::Any)
-        if hash = item.as_h
-          values = hash.values.map &.to_s
-        end
+      case item
+      when Hash
+        item.each_value.join(STDOUT, "\t")
+      when JSON::Any
+        item.as_h.each_value.join(STDOUT, "\t")
+      when NamedTuple
+        item.values.join(STDOUT, "\t")
       else
-        values << item.to_s
+        item.to_s(STDOUT)
       end
-      puts values.join("\t")
+      puts
     end
   end
 
