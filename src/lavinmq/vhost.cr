@@ -20,7 +20,7 @@ module LavinMQ
     include Stats
 
     rate_stats({"channel_closed", "channel_created", "connection_closed", "connection_created",
-                "queue_declared", "queue_deleted", "ack", "deliver", "get", "publish", "confirm",
+                "queue_declared", "queue_deleted", "ack", "deliver", "deliver_get", "get", "publish", "confirm",
                 "redeliver", "reject", "consumer_added", "consumer_removed"})
 
     getter name, exchanges, queues, data_dir, operator_policies, policies, parameters, shovels,
@@ -220,13 +220,14 @@ module LavinMQ
 
     def message_details
       ready = unacked = 0_u64
-      ack = confirm = deliver = get = get_no_ack = publish = redeliver = return_unroutable = 0_u64
+      ack = confirm = deliver = get = get_no_ack = publish = redeliver = return_unroutable = deliver_get = 0_u64
       @queues.each_value do |q|
         ready += q.message_count
         unacked += q.unacked_count
         ack += q.ack_count
         confirm += q.confirm_count
         deliver += q.deliver_count
+        deliver_get += q.deliver_get_count
         get += q.get_count
         get_no_ack += q.get_no_ack_count
         publish += q.publish_count
@@ -243,6 +244,7 @@ module LavinMQ
           deliver:           deliver,
           get:               get,
           get_no_ack:        get_no_ack,
+          deliver_get:       deliver_get,
           publish:           publish,
           redeliver:         redeliver,
           return_unroutable: return_unroutable,
@@ -718,14 +720,18 @@ module LavinMQ
       in EventType::QueueDeclared        then @queue_declared_count += 1
       in EventType::QueueDeleted         then @queue_deleted_count += 1
       in EventType::ClientAck            then @ack_count += 1
-      in EventType::ClientDeliver        then @deliver_count += 1
-      in EventType::ClientGet            then @get_count += 1
       in EventType::ClientPublish        then @publish_count += 1
       in EventType::ClientPublishConfirm then @confirm_count += 1
       in EventType::ClientRedeliver      then @redeliver_count += 1
       in EventType::ClientReject         then @reject_count += 1
       in EventType::ConsumerAdded        then @consumer_added_count += 1
       in EventType::ConsumerRemoved      then @consumer_removed_count += 1
+      in EventType::ClientDeliver
+        @deliver_count += 1
+        @deliver_get_count += 1
+      in EventType::ClientGet
+        @get_count += 1
+        @deliver_get_count += 1
       end
     end
 
