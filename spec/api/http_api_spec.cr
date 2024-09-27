@@ -180,7 +180,6 @@ describe LavinMQ::HTTP::Server do
         5.times do
           q1.get.not_nil!
         end
-        c = 0
       end
 
       response = http.get("/api/overview")
