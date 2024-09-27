@@ -93,7 +93,7 @@ module MqttSpecs
       end
     end
 
-    pending "should replace old subscription with new [MQTT-3.8.4-3]" do
+    it "should replace old subscription with new [MQTT-3.8.4-3]" do
       with_server do |server|
         with_client_io(server) do |io|
           connect(io)
@@ -124,28 +124,10 @@ module MqttSpecs
           publish(io, topic: "a/b", payload: "a".to_slice, qos: 1u8)
           # ... consume it...
           packet = read_packet(io).as(MQTT::Protocol::Publish)
-          # ... and verify it be qos0 (i.e. our subscribe is correct)
+          # ... and verify it be qos1 (i.e. our second subscribe is correct)
           packet.qos.should eq(1u8)
 
           io.should be_drained
-        end
-      end
-    end
-  end
-
-  describe "amqp" do
-    pending "should create a queue and subscribe queue to amq.topic" do
-      with_server do |server|
-        with_client_io(server) do |io|
-          connect(io)
-
-          topic_filters = mk_topic_filters({"a/b", 0})
-          suback = subscribe(io, topic_filters: topic_filters)
-          suback.should be_a(MQTT::Protocol::SubAck)
-
-          q = server.vhosts["/"].queues["mqtt.client_id"]
-          binding = q.bindings.find { |a, b| a.is_a?(LavinMQ::TopicExchange) && b[0] == "a.b" }
-          binding.should_not be_nil
         end
       end
     end
