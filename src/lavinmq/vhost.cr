@@ -726,11 +726,9 @@ module LavinMQ
       in EventType::ClientReject         then @reject_count += 1
       in EventType::ConsumerAdded        then @consumer_added_count += 1
       in EventType::ConsumerRemoved      then @consumer_removed_count += 1
+      in EventType::ClientGet            then @get_count += 1
       in EventType::ClientDeliver
         @deliver_count += 1
-        @deliver_get_count += 1
-      in EventType::ClientGet
-        @get_count += 1
         @deliver_get_count += 1
       end
     end
