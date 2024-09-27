@@ -44,7 +44,7 @@ describe LavinMQ::HTTP::QueuesController do
       end
     end
 
-    it "should return message stats " do
+    it "should return message stats" do
       with_http_server do |http, s|
         with_channel(s) do |ch|
           q = ch.queue("stats_q")
