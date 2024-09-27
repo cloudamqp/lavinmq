@@ -42,6 +42,7 @@ module LavinMQ
       end
 
       private def read_loop
+
         loop do
           @log.trace { "waiting for packet" }
           packet = read_and_handle_packet
@@ -95,7 +96,7 @@ module LavinMQ
       end
 
       def recieve_publish(packet : MQTT::Publish)
-        rk = topicfilter_to_routingkey(packet.topic)
+        rk = @broker.topicfilter_to_routingkey(packet.topic)
         props = AMQ::Protocol::Properties.new(
           message_id: packet.packet_id.to_s
         )
@@ -112,23 +113,11 @@ module LavinMQ
       end
 
       def recieve_subscribe(packet : MQTT::Subscribe)
-        @broker.subscribe(self, packet)
-        qos = Array(MQTT::SubAck::ReturnCode).new
-        packet.topic_filters.each do |tf|
-          qos << MQTT::SubAck::ReturnCode.from_int(tf.qos)
-          rk = topicfilter_to_routingkey(tf.topic)
-          #handle bindings in broker.
-          @broker.vhost.bind_queue("amq.mqtt-#{client_id}", "amq.topic", rk)
-        end
-        # handle add_consumer in broker.
-        queue = @broker.vhost.queues["amq.mqtt-#{client_id}"]
-        consumer = MqttConsumer.new(self, queue)
-        queue.add_consumer(consumer)
+        qos = @broker.subscribe(self, packet)
+        session = @broker.sessions[@client_id]
+        consumer = MqttConsumer.new(self, session)
+        session.add_consumer(consumer)
         send(MQTT::SubAck.new(qos, packet.packet_id))
-      end
-
-      def topicfilter_to_routingkey(tf) : String
-        tf.gsub("/", ".")
       end
 
       def recieve_unsubscribe(packet)

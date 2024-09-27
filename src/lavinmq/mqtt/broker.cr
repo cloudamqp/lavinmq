@@ -1,7 +1,6 @@
 module LavinMQ
   module MQTT
     struct Sessions
-
       @queues : Hash(String, Queue)
 
       def initialize( @vhost : VHost)
@@ -17,11 +16,10 @@ module LavinMQ
       end
 
       def declare(client_id : String, clean_session : Bool)
-        if session = self[client_id]?
-        return session
+         self[client_id]? || begin
+          @vhost.declare_queue("amq.mqtt-#{client_id}", !clean_session, clean_session, AMQP::Table.new({"x-queue-type": "mqtt"}))
+          self[client_id]
         end
-        @vhost.declare_queue("amq.mqtt-#{client_id}", !clean_session, clean_session, AMQP::Table.new({"x-queue-type": "mqtt"}))
-        return self[client_id]
       end
 
       def delete(client_id : String)
@@ -30,7 +28,6 @@ module LavinMQ
     end
 
     class Broker
-
       getter vhost, sessions
 
       def initialize(@vhost : VHost)
@@ -38,7 +35,12 @@ module LavinMQ
         @clients = Hash(String, Client).new
       end
 
-      #remember to remove the old client entry form the hash if you replace a client. (maybe it already does?)
+      def session_present?(client_id : String, clean_session) : Bool
+        session = @sessions[client_id]?
+        return false if session.nil? || clean_session
+        true
+      end
+
       def connect_client(socket, connection_info, user, vhost, packet)
         if prev_client = @clients[packet.client_id]?
           Log.trace { "Found previous client connected with client_id: #{packet.client_id}, closing" }
@@ -50,18 +52,18 @@ module LavinMQ
       end
 
       def subscribe(client, packet)
-        name = "amq.mqtt-#{client.client_id}"
-        durable = false
-        auto_delete = false
-        pp "clean_session: #{client.@clean_session}"
-        @sessions.declare(client.client_id, client.@clean_session)
-        # Handle bindings, packet.topics
+        session = @sessions.declare(client.client_id, client.@clean_session)
+        qos = Array(MQTT::SubAck::ReturnCode).new(packet.topic_filters.size)
+        packet.topic_filters.each do |tf|
+          qos << MQTT::SubAck::ReturnCode.from_int(tf.qos)
+          rk = topicfilter_to_routingkey(tf.topic)
+          session.subscribe(rk, tf.qos)
+        end
+        qos
       end
 
-      def session_present?(client_id : String, clean_session) : Bool
-        session = @sessions[client_id]?
-        return false if session.nil? || clean_session
-        true
+      def topicfilter_to_routingkey(tf) : String
+        tf.gsub("/", ".")
       end
 
       def clear_session(client_id)
