@@ -37,7 +37,7 @@ module LavinMQ
       @tx = false
       @next_msg_body_tmp = IO::Memory.new
 
-      rate_stats({"ack", "get", "publish", "deliver", "redeliver", "reject", "confirm", "return_unroutable"})
+      rate_stats({"ack", "get", "publish", "deliver", "deliver_get", "redeliver", "reject", "confirm", "return_unroutable"})
 
       Log = ::Log.for "AMQP.channel"
 
@@ -330,6 +330,7 @@ module LavinMQ
           @client.vhost.event_tick(EventType::ClientRedeliver)
         else
           @deliver_count += 1
+          @deliver_get_count += 1
           @client.vhost.event_tick(EventType::ClientDeliver)
         end
       end
@@ -384,6 +385,7 @@ module LavinMQ
             @client.send_not_implemented(frame, "Stream queues does not support basic_get")
           else
             @get_count += 1
+            @deliver_get_count += 1
             @client.vhost.event_tick(EventType::ClientGet)
             ok = q.basic_get(frame.no_ack) do |env|
               delivery_tag = next_delivery_tag(q, env.segment_position, frame.no_ack, nil)

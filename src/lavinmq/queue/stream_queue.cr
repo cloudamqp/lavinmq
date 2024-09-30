@@ -70,7 +70,12 @@ module LavinMQ
     def consume_get(consumer : AMQP::StreamConsumer, & : Envelope -> Nil) : Bool
       get(consumer) do |env|
         yield env
-        env.redelivered ? (@redeliver_count += 1) : (@deliver_count += 1)
+        if env.redelivered
+          @redeliver_count += 1
+        else
+          @deliver_count += 1
+          @deliver_get_count += 1
+        end
       end
     end
 

@@ -91,6 +91,7 @@ describe LavinMQ::HTTP::Server do
         response = http.get("/api/overview")
         before_ack_count = JSON.parse(response.body).dig("message_stats", "ack")
         before_deliver_count = JSON.parse(response.body).dig("message_stats", "deliver")
+        before_deliver_get_count = JSON.parse(response.body).dig("message_stats", "deliver_get")
 
         with_channel(s) do |ch|
           q1 = ch.queue("stats_q1", exclusive: true)
@@ -110,6 +111,8 @@ describe LavinMQ::HTTP::Server do
         count.should eq(before_ack_count.as_i + 5)
         count = JSON.parse(response.body).dig("message_stats", "deliver")
         count.should eq(before_deliver_count.as_i + 5)
+        count = JSON.parse(response.body).dig("message_stats", "deliver_get")
+        count.should eq(before_deliver_get_count.as_i + 5)
       end
     end
 
@@ -143,6 +146,7 @@ describe LavinMQ::HTTP::Server do
       with_http_server do |http, s|
         response = http.get("/api/overview")
         before_count = JSON.parse(response.body).dig("message_stats", "get")
+        before_count_deliver_get = JSON.parse(response.body).dig("message_stats", "deliver_get")
 
         with_channel(s) do |ch|
           q1 = ch.queue("stats_q1", exclusive: true)
@@ -157,9 +161,33 @@ describe LavinMQ::HTTP::Server do
         response = http.get("/api/overview")
         count = JSON.parse(response.body).dig("message_stats", "get")
         count.should eq(before_count.as_i + 5)
+        count = JSON.parse(response.body).dig("message_stats", "deliver_get")
+        count.should eq(before_count_deliver_get.as_i + 5)
       end
     end
   end
+
+  it "should return the number of message deliver_gets" do
+    with_http_server do |http, s|
+      response = http.get("/api/overview")
+      before_count = JSON.parse(response.body).dig("message_stats", "deliver_get")
+
+      with_channel(s) do |ch|
+        q1 = ch.queue("stats_q1", exclusive: true)
+        10.times do
+          q1.publish_confirm("m")
+        end
+        5.times do
+          q1.get.not_nil!
+        end
+      end
+
+      response = http.get("/api/overview")
+      count = JSON.parse(response.body).dig("message_stats", "deliver_get")
+      count.should eq(before_count.as_i + 5)
+    end
+  end
+
   describe "GET /api/aliveness-test/vhost" do
     it "should run aliveness-test" do
       with_http_server do |http, _|
@@ -170,6 +198,7 @@ describe LavinMQ::HTTP::Server do
       end
     end
   end
+
   describe "Pagination" do
     it "should page results" do
       with_http_server do |http, _|

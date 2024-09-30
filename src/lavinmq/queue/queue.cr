@@ -110,7 +110,7 @@ module LavinMQ
 
     # Creates @[x]_count and @[x]_rate and @[y]_log
     rate_stats(
-      {"ack", "deliver", "confirm", "get", "get_no_ack", "publish", "redeliver", "reject", "return_unroutable"},
+      {"ack", "deliver", "deliver_get", "confirm", "get", "get_no_ack", "publish", "redeliver", "reject", "return_unroutable"},
       {"message_count", "unacked_count"})
 
     getter name, arguments, vhost, consumers, last_get_time
@@ -666,6 +666,7 @@ module LavinMQ
       @last_get_time = RoughTime.monotonic
       @queue_expiration_ttl_change.try_send? nil
       @get_count += 1
+      @deliver_get_count += 1
       get(no_ack) do |env|
         yield env
       end
@@ -675,7 +676,12 @@ module LavinMQ
     def consume_get(consumer, & : Envelope -> Nil) : Bool
       get(consumer.no_ack?) do |env|
         yield env
-        env.redelivered ? (@redeliver_count += 1) : (@deliver_count += 1)
+        if env.redelivered
+          @redeliver_count += 1
+        else
+          @deliver_count += 1
+          @deliver_get_count += 1
+        end
       end
     end
 
