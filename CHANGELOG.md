@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Added cluster_status to lavinmqctl [#787](https://github.com/cloudamqp/lavinmq/pull/787)
+- Added deliver_get to message_stats [#793](https://github.com/cloudamqp/lavinmq/pull/793)
 
 ## [2.0.0-rc.4] - 2024-08-21
 
