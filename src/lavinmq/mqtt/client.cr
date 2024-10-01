@@ -75,7 +75,7 @@ module LavinMQ
         when MQTT::Publish     then recieve_publish(packet)
         when MQTT::PubAck      then pp "puback"
         when MQTT::Subscribe   then recieve_subscribe(packet)
-        when MQTT::Unsubscribe then pp "unsubscribe"
+        when MQTT::Unsubscribe then recieve_unsubscribe(packet)
         when MQTT::PingReq     then receive_pingreq(packet)
         when MQTT::Disconnect  then return packet
         else                        raise "invalid packet type for client to send"
@@ -101,8 +101,10 @@ module LavinMQ
           message_id: packet.packet_id.to_s
         )
         # TODO: String.new around payload.. should be stored as Bytes
+        # Send to MQTT-exchange
         msg = Message.new("amq.topic", rk, String.new(packet.payload), props)
         @broker.vhost.publish(msg)
+
         # Ok to not send anything if qos = 0 (at most once delivery)
         if packet.qos > 0 && (packet_id = packet.packet_id)
           send(MQTT::PubAck.new(packet_id))
@@ -121,6 +123,12 @@ module LavinMQ
       end
 
       def recieve_unsubscribe(packet)
+        session = @broker.sessions[@client_id]
+        @broker.unsubscribe(self, packet)
+        if consumer = session.consumers.find { |c| c.tag == "mqtt" }
+          session.rm_consumer(consumer)
+        end
+        send(MQTT::UnsubAck.new(packet.packet_id))
       end
 
       def details_tuple
