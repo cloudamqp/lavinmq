@@ -23,8 +23,7 @@ module LavinMQ
                      @broker : MQTT::Broker,
                      @client_id : String,
                      @clean_session = false,
-                     @will : MQTT::Will? = nil
-                     )
+                     @will : MQTT::Will? = nil)
         @io = MQTT::IO.new(@socket)
         @lock = Mutex.new
         @remote_address = @connection_info.src
@@ -42,7 +41,6 @@ module LavinMQ
       end
 
       private def read_loop
-
         loop do
           @log.trace { "waiting for packet" }
           packet = read_and_handle_packet
@@ -56,7 +54,7 @@ module LavinMQ
         @log.warn { "Connect error #{ex.inspect}" }
       rescue ex : ::IO::Error
         @log.warn(exception: ex) { "Read Loop error" }
-         publish_will if @will
+        publish_will if @will
       rescue ex
         publish_will if @will
         raise ex
@@ -97,12 +95,16 @@ module LavinMQ
 
       def recieve_publish(packet : MQTT::Publish)
         rk = @broker.topicfilter_to_routingkey(packet.topic)
+        headers = AMQ::Protocol::Table.new(
+          qos: packet.qos,
+          packet_id: packet_id
+        )
         props = AMQ::Protocol::Properties.new(
-          message_id: packet.packet_id.to_s
+          headers: headers
         )
         # TODO: String.new around payload.. should be stored as Bytes
         # Send to MQTT-exchange
-        msg = Message.new("amq.topic", rk, String.new(packet.payload), props)
+        msg = Message.new("mqtt.default", rk, String.new(packet.payload), props)
         @broker.vhost.publish(msg)
 
         # Ok to not send anything if qos = 0 (at most once delivery)
@@ -207,11 +209,12 @@ module LavinMQ
         if message_id = msg.properties.message_id
           packet_id = message_id.to_u16 unless message_id.empty?
         end
+        qos = 0u8 # msg.properties.qos
         pub_args = {
           packet_id: packet_id,
           payload:   msg.body,
           dup:       false,
-          qos:       0u8,
+          qos:       qos,
           retain:    false,
           topic:     "test",
         }

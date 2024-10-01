@@ -3,7 +3,7 @@ module LavinMQ
     struct Sessions
       @queues : Hash(String, Queue)
 
-      def initialize( @vhost : VHost)
+      def initialize(@vhost : VHost)
         @queues = @vhost.queues
       end
 
@@ -16,7 +16,7 @@ module LavinMQ
       end
 
       def declare(client_id : String, clean_session : Bool)
-         self[client_id]? || begin
+        self[client_id]? || begin
           @vhost.declare_queue("amq.mqtt-#{client_id}", !clean_session, clean_session, AMQP::Table.new({"x-queue-type": "mqtt"}))
           self[client_id]
         end
@@ -33,6 +33,8 @@ module LavinMQ
       def initialize(@vhost : VHost)
         @sessions = Sessions.new(@vhost)
         @clients = Hash(String, Client).new
+        exchange = MQTTExchange.new(@vhost, "mqtt.default", true, false, true)
+        @vhost.exchanges["mqtt.default"] = exchange
       end
 
       def session_present?(client_id : String, clean_session) : Bool

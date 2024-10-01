@@ -1,8 +1,8 @@
 module LavinMQ
   module MQTT
     class Session < Queue
-        @clean_session : Bool = false
-        getter clean_session
+      @clean_session : Bool = false
+      getter clean_session
 
       def initialize(@vhost : VHost,
                      @name : String,
@@ -11,8 +11,13 @@ module LavinMQ
         super(@vhost, @name, false, @auto_delete, arguments)
       end
 
-      def clean_session?; @auto_delete; end
-      def durable?; !clean_session?; end
+      def clean_session?
+        @auto_delete
+      end
+
+      def durable?
+        !clean_session?
+      end
 
       # TODO: "amq.tocpic" is hardcoded, should be the mqtt-exchange when that is finished
       def subscribe(rk, qos)
@@ -21,7 +26,7 @@ module LavinMQ
           return if binding.binding_key.arguments == arguments
           unbind(rk, binding.binding_key.arguments)
         end
-        @vhost.bind_queue(@name, "amq.topic", rk, arguments)
+        @vhost.bind_queue(@name, "mqtt.default", rk, arguments)
       end
 
       def unsubscribe(rk)
