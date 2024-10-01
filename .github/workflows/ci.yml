@@ -222,12 +222,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: rabbitmq/rabbitmq-java-client
+          ref: v5.22.0
           path: rabbitmq-java-client
 
       - name: Patch tests
         run: |
           cd rabbitmq-java-client
-          curl https://raw.githubusercontent.com/cloudamqp/lavinmq/rabbitmq-client-test-patch/.github/rabbitmq-java-client.patch -o rabbitmq-java-client.patch
+          curl https://raw.githubusercontent.com/cloudamqp/lavinmq/main/.github/rabbitmq-java-client.patch -o rabbitmq-java-client.patch
           git apply rabbitmq-java-client.patch
       - name: Run java tests (allowed to fail)
         id: test
