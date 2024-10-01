@@ -5,7 +5,7 @@ module MqttSpecs
   extend MqttMatchers
 
   describe "unsubscribe" do
-    pending "bits 3,2,1,0 must be set to 0,0,1,0 [MQTT-3.10.1-1]" do
+    it "bits 3,2,1,0 must be set to 0,0,1,0 [MQTT-3.10.1-1]" do
       with_server do |server|
         with_client_io(server) do |io|
           connect(io)
@@ -23,7 +23,7 @@ module MqttSpecs
       end
     end
 
-    pending "must contain at least one topic filter [MQTT-3.10.3-2]" do
+    it "must contain at least one topic filter [MQTT-3.10.3-2]" do
       with_server do |server|
         with_client_io(server) do |io|
           connect(io)
@@ -41,7 +41,7 @@ module MqttSpecs
       end
     end
 
-    pending "must stop adding any new messages for delivery to the Client, but completes delivery of previous messages [MQTT-3.10.4-2] and [MQTT-3.10.4-3]" do
+    it "must stop adding any new messages for delivery to the Client, but completes delivery of previous messages [MQTT-3.10.4-2] and [MQTT-3.10.4-3]" do
       with_server do |server|
         with_client_io(server) do |pubio|
           connect(pubio, client_id: "publisher")
