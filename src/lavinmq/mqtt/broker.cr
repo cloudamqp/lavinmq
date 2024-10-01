@@ -62,6 +62,14 @@ module LavinMQ
         qos
       end
 
+      def unsubscribe(client, packet)
+        session = @sessions[client.client_id]
+        packet.topics.each do |tf|
+          rk = topicfilter_to_routingkey(tf)
+          session.unsubscribe(rk)
+        end
+      end
+
       def topicfilter_to_routingkey(tf) : String
         tf.gsub("/", ".")
       end
