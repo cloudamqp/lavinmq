@@ -40,7 +40,6 @@ describe LavinMQ::Clustering::Client do
   end
 
   it "can stream changes" do
-    LavinMQ::Config.instance.clustering_min_isr = 1
     replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Etcd.new, 0)
     tcp_server = TCPServer.new("localhost", 0)
     spawn(replicator.listen(tcp_server), name: "repli server spec")
@@ -51,7 +50,7 @@ describe LavinMQ::Clustering::Client do
       repli.follow("localhost", tcp_server.local_address.port)
       done.send nil
     end
-
+    wait_for { replicator.followers.size == 1 }
     with_amqp_server(replicator: replicator) do |s|
       with_channel(s) do |ch|
         q = ch.queue("repli")
