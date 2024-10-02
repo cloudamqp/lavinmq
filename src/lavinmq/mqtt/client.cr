@@ -59,14 +59,15 @@ module LavinMQ
         publish_will if @will
         raise ex
       ensure
-        @broker.clear_session(client_id) if @clean_session
+        @broker.disconnect_client(client_id)
+
         @socket.close
         @broker.vhost.rm_connection(self)
       end
 
       def read_and_handle_packet
         packet : MQTT::Packet = MQTT::Packet.from_io(@io)
-        @log.info { "recv #{packet.inspect}" }
+        @log.info { "RECIEVED PACKET:  #{packet.inspect}" }
         @recv_oct_count += packet.bytesize
 
         case packet
@@ -76,16 +77,22 @@ module LavinMQ
         when MQTT::Unsubscribe then recieve_unsubscribe(packet)
         when MQTT::PingReq     then receive_pingreq(packet)
         when MQTT::Disconnect  then return packet
+
         else                        raise "invalid packet type for client to send"
         end
         packet
       end
 
       def send(packet)
+        pp "SEND PACKET: #{packet.inspect}"
         @lock.synchronize do
+          pp 1
           packet.to_io(@io)
+          pp 2
           @socket.flush
+          pp 3
         end
+        pp 4
         @send_oct_count += packet.bytesize
       end
 
@@ -95,10 +102,10 @@ module LavinMQ
 
       def recieve_publish(packet : MQTT::Publish)
         rk = @broker.topicfilter_to_routingkey(packet.topic)
-        headers = AMQ::Protocol::Table.new(
-          qos: packet.qos,
-          packet_id: packet_id
-        )
+        headers = AMQ::Protocol::Table.new({
+          "qos": packet.qos,
+          "packet_id": packet.packet_id
+        })
         props = AMQ::Protocol::Properties.new(
           headers: headers
         )
@@ -114,13 +121,12 @@ module LavinMQ
       end
 
       def recieve_puback(packet)
+
       end
 
       def recieve_subscribe(packet : MQTT::Subscribe)
         qos = @broker.subscribe(self, packet)
         session = @broker.sessions[@client_id]
-        consumer = MqttConsumer.new(self, session)
-        session.add_consumer(consumer)
         send(MQTT::SubAck.new(qos, packet.packet_id))
       end
 
@@ -184,7 +190,7 @@ module LavinMQ
         end
       rescue LavinMQ::Queue::ClosedError
       rescue ex
-        puts "deliver loop exiting: #{ex.inspect}"
+        puts "deliver loop exiting: #{ex.inspect_with_backtrace}"
       end
 
       def details_tuple
@@ -205,11 +211,16 @@ module LavinMQ
       end
 
       def deliver(msg, sp, redelivered = false, recover = false)
+        pp "Deliver MSG: #{msg.inspect}"
+
         packet_id = nil
         if message_id = msg.properties.message_id
           packet_id = message_id.to_u16 unless message_id.empty?
         end
-        qos = 0u8 # msg.properties.qos
+
+        qos = msg.properties.delivery_mode
+        qos = 0u8
+        # qos = 1u8
         pub_args = {
           packet_id: packet_id,
           payload:   msg.body,

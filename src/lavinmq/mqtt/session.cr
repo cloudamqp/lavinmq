@@ -15,11 +15,23 @@ module LavinMQ
         @auto_delete
       end
 
+      def client=(client : MQTT::Client?)
+        return if @closed
+          @last_get_time = RoughTime.monotonic
+          @consumers_lock.synchronize do
+            consumers.each &.close
+            @consumers.clear
+            if c = client
+              @consumers << MqttConsumer.new(c, self)
+            end
+        end
+        @log.debug { "Setting MQTT client" }
+      end
+
       def durable?
         !clean_session?
       end
 
-      # TODO: "amq.tocpic" is hardcoded, should be the mqtt-exchange when that is finished
       def subscribe(rk, qos)
         arguments = AMQP::Table.new({"x-mqtt-qos": qos})
         if binding = find_binding(rk)

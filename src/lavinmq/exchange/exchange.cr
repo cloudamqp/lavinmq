@@ -174,12 +174,6 @@ module LavinMQ
       return 0 if queues.empty?
       return 0 if immediate && !queues.any? &.immediate_delivery?
 
-      # TODO: For each matching binding, get the QoS and write to message header "qos"
-      # Should be done in the MQTTExchange not in this super class
-      # if a = arguments[msg.routing_key]
-      # msg.properties.header["qos"] = q.qos
-      # end
-
       count = 0
       queues.each do |queue|
         if queue.publish(msg)
