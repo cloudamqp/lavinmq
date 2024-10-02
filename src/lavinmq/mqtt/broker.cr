@@ -48,13 +48,31 @@ module LavinMQ
           Log.trace { "Found previous client connected with client_id: #{packet.client_id}, closing" }
           prev_client.close
         end
+
         client = MQTT::Client.new(socket, connection_info, user, vhost, self, packet.client_id, packet.clean_session?, packet.will)
+        if session = @sessions[client.client_id]?
+          session.client = client
+        end
         @clients[packet.client_id] = client
         client
       end
 
+      def disconnect_client(client_id)
+        if session = @sessions[client_id]?
+          if session.clean_session?
+            sessions.delete(client_id)
+          else
+            session.client = nil
+          end
+        end
+        @clients.delete client_id
+      end
+
       def subscribe(client, packet)
-        session = @sessions.declare(client.client_id, client.@clean_session)
+        unless session = @sessions[client.client_id]?
+          session = sessions.declare(client.client_id, client.@clean_session)
+          session.client = client
+        end
         qos = Array(MQTT::SubAck::ReturnCode).new(packet.topic_filters.size)
         packet.topic_filters.each do |tf|
           qos << MQTT::SubAck::ReturnCode.from_int(tf.qos)
@@ -65,7 +83,7 @@ module LavinMQ
       end
 
       def unsubscribe(client, packet)
-        session = @sessions[client.client_id]
+        session = sessions[client.client_id]
         packet.topics.each do |tf|
           rk = topicfilter_to_routingkey(tf)
           session.unsubscribe(rk)
@@ -77,7 +95,7 @@ module LavinMQ
       end
 
       def clear_session(client_id)
-        @sessions.delete client_id
+        sessions.delete client_id
       end
     end
   end
