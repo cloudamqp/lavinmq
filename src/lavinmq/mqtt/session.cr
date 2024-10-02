@@ -54,6 +54,41 @@ module LavinMQ
       private def unbind(rk, arguments)
         @vhost.unbind_queue(@name, "amq.topic", rk, arguments || AMQP::Table.new)
       end
+
+      private def get(no_ack : Bool, & : Envelope -> Nil) : Bool
+        raise ClosedError.new if @closed
+        loop do # retry if msg expired or deliver limit hit
+          env = @msg_store_lock.synchronize { @msg_store.shift? } || break
+
+          sp = env.segment_position
+          no_ack = env.message.properties.delivery_mode == 0
+          if no_ack
+            begin
+              yield env # deliver the message
+            rescue ex   # requeue failed delivery
+              @msg_store_lock.synchronize { @msg_store.requeue(sp) }
+              raise ex
+            end
+            delete_message(sp)
+          else
+            mark_unacked(sp) do
+              yield env # deliver the message
+            end
+          end
+          return true
+        end
+        false
+      rescue ex : MessageStore::Error
+        @log.error(ex) { "Queue closed due to error" }
+        close
+        raise ClosedError.new(cause: ex)
+      end
+
+      private def message_expire_loop
+      end
+
+      private def queue_expire_loop
+      end
     end
   end
 end
