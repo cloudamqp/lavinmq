@@ -20,6 +20,15 @@ module LavinMQ
       end
     end
 
+
+      # TODO: For each matching binding, get the QoS and write to message header "qos"
+      # Should be done in the MQTTExchange not in this super class
+      # if a = arguments[msg.routing_key]
+      # msg.properties.header["qos"] = q.qos
+      # end
+      # use delivery_mode on properties instead, always set to 1 or 0
+
+
     def bind(destination : Destination, topic_filter : String, arguments = nil) : Bool
       # binding = Binding.new(topic_filter, arguments["x-mqtt-qos"])
       binding_key = BindingKey.new(topic_filter, arguments)
