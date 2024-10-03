@@ -67,7 +67,7 @@ module LavinMQ
 
       def read_and_handle_packet
         packet : MQTT::Packet = MQTT::Packet.from_io(@io)
-        @log.info { "RECIEVED PACKET:  #{packet.inspect}" }
+        @log.info { "Recieved packet:  #{packet.inspect}" }
         @recv_oct_count += packet.bytesize
 
         case packet
@@ -97,16 +97,8 @@ module LavinMQ
 
       def recieve_publish(packet : MQTT::Publish)
         rk = @broker.topicfilter_to_routingkey(packet.topic)
-        headers = AMQ::Protocol::Table.new({
-          "qos": packet.qos,
-          "packet_id": packet.packet_id
-        })
-        props = AMQ::Protocol::Properties.new(
-          headers: headers
-        )
         # TODO: String.new around payload.. should be stored as Bytes
-        # Send to MQTT-exchange
-        msg = Message.new("mqtt.default", rk, String.new(packet.payload), props)
+        msg = Message.new("mqtt.default", rk, String.new(packet.payload))
         @broker.vhost.publish(msg)
 
         # Ok to not send anything if qos = 0 (at most once delivery)
@@ -169,28 +161,27 @@ module LavinMQ
       getter tag : String = "mqtt"
       property prefetch_count = 1
 
-      def initialize(@client : Client, @queue : Queue)
+      def initialize(@client : Client, @session : MQTT::Session)
         @has_capacity.try_send? true
         spawn deliver_loop, name: "Consumer deliver loop", same_thread: true
       end
 
       private def deliver_loop
-        queue = @queue
+        session = @session
         i = 0
         loop do
-          queue.consume_get(self) do |env|
+          session.consume_get(self) do |env|
             deliver(env.message, env.segment_position, env.redelivered)
           end
           Fiber.yield if (i &+= 1) % 32768 == 0
         end
-      rescue LavinMQ::Queue::ClosedError
       rescue ex
         puts "deliver loop exiting: #{ex.inspect_with_backtrace}"
       end
 
       def details_tuple
         {
-          queue: {
+          session: {
             name:  "mqtt.client_id",
             vhost: "mqtt",
           },
