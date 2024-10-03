@@ -52,10 +52,11 @@ module LavinMQ
       end
 
       private def unbind(rk, arguments)
-        @vhost.unbind_queue(@name, "amq.topic", rk, arguments || AMQP::Table.new)
+        @vhost.unbind_queue(@name, "mqtt.default", rk, arguments || AMQP::Table.new)
       end
 
       private def get(no_ack : Bool, & : Envelope -> Nil) : Bool
+        #let packet_id be message counter, look at myra for counter
         raise ClosedError.new if @closed
         loop do # retry if msg expired or deliver limit hit
           env = @msg_store_lock.synchronize { @msg_store.shift? } || break
@@ -71,6 +72,15 @@ module LavinMQ
             end
             delete_message(sp)
           else
+
+            # packet_id = generate packet id
+            # save packet id to hash
+            # add hash to env
+            #
+            #
+            #
+            # Generate_next_id = next_id from mqtt
+
             mark_unacked(sp) do
               yield env # deliver the message
             end

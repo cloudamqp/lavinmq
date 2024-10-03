@@ -84,15 +84,10 @@ module LavinMQ
       end
 
       def send(packet)
-        pp "SEND PACKET: #{packet.inspect}"
         @lock.synchronize do
-          pp 1
           packet.to_io(@io)
-          pp 2
           @socket.flush
-          pp 3
         end
-        pp 4
         @send_oct_count += packet.bytesize
       end
 
@@ -213,14 +208,14 @@ module LavinMQ
       def deliver(msg, sp, redelivered = false, recover = false)
         pp "Deliver MSG: #{msg.inspect}"
 
-        packet_id = nil
-        if message_id = msg.properties.message_id
-          packet_id = message_id.to_u16 unless message_id.empty?
-        end
+        # packet_id = nil
+        # if message_id = msg.properties.message_id
+        #   packet_id = message_id.to_u16 unless message_id.empty?
+        # end
 
-        qos = msg.properties.delivery_mode
-        qos = 0u8
-        # qos = 1u8
+        packet_id = 3u16
+
+        qos = msg.properties.delivery_mode || 0u8
         pub_args = {
           packet_id: packet_id,
           payload:   msg.body,
