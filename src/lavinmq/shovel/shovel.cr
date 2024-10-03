@@ -410,13 +410,13 @@ module LavinMQ
           if ex.message.to_s.starts_with?("404")
             break
           end
-          Log.error(exception: ex) { ex.message }
+          Log.warn { ex.message }
           @error = ex.message
           exponential_reconnect_delay
         rescue ex
           break if terminated?
           @state = State::Error
-          Log.error(exception: ex) { ex.message }
+          Log.warn { ex.message }
           @error = ex.message
           exponential_reconnect_delay
         end
