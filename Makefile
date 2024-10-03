@@ -4,6 +4,8 @@ JS := static/js/lib/chunks/helpers.segment.js static/js/lib/chart.js static/js/l
 CRYSTAL_FLAGS := --release --stats
 override CRYSTAL_FLAGS += --error-on-warnings --link-flags=-pie
 
+include makefiles/tailwindcss.mk
+
 .PHONY: all
 all: $(BINS)
 
@@ -118,5 +120,5 @@ uninstall:
 	$(RM) $(DESTDIR)$(SHAREDSTATEDIR)/lavinmq
 
 .PHONY: clean
-clean:
+clean: tw-clean
 	$(RM) $(BINS) $(DOCS) $(JS) $(MANPAGES)
