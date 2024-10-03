@@ -65,7 +65,6 @@ module LavinMQ
     end
 
     def unbind(destination : Destination, routing_key, headers = nil) : Bool
-      pp "GETS HERE 3.1"
       binding_key = BindingKey.new(routing_key, arguments)
       rk_bindings = @bindings[binding_key]
       return false unless rk_bindings.delete destination
