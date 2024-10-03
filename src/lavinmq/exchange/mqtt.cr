@@ -20,14 +20,40 @@ module LavinMQ
       end
     end
 
+    def publish(msg : Message, immediate : Bool,
+            queues : Set(Queue) = Set(Queue).new,
+            exchanges : Set(Exchange) = Set(Exchange).new) : Int32
+      @publish_in_count += 1
+      headers = msg.properties.headers
+      find_queues(msg.routing_key, headers, queues, exchanges)
+      if queues.empty?
+        @unroutable_count += 1
+        return 0
+      end
+      return 0 if immediate && !queues.any? &.immediate_delivery?
 
-      # TODO: For each matching binding, get the QoS and write to message header "qos"
-      # Should be done in the MQTTExchange not in this super class
-      # if a = arguments[msg.routing_key]
-      # msg.properties.header["qos"] = q.qos
-      # end
-      # use delivery_mode on properties instead, always set to 1 or 0
+      count = 0
+      queues.each do |queue|
+        qos = 0_u8
+        @bindings.each do |binding_key, destinations|
+          if binding_key.routing_key == msg.routing_key
+            if arg = binding_key.arguments
+              if qos_value = arg["x-mqtt-qos"]?
+                qos = qos_value.try &.as(UInt8)
+              end
+            end
+          end
+        end
+        msg.properties.delivery_mode = qos
 
+        if queue.publish(msg)
+          @publish_out_count += 1
+          count += 1
+          msg.body_io.seek(-msg.bodysize.to_i64, IO::Seek::Current) # rewind
+        end
+      end
+      count
+    end
 
     def bind(destination : Destination, topic_filter : String, arguments = nil) : Bool
       # binding = Binding.new(topic_filter, arguments["x-mqtt-qos"])
@@ -39,6 +65,7 @@ module LavinMQ
     end
 
     def unbind(destination : Destination, routing_key, headers = nil) : Bool
+      pp "GETS HERE 3.1"
       binding_key = BindingKey.new(routing_key, arguments)
       rk_bindings = @bindings[binding_key]
       return false unless rk_bindings.delete destination
@@ -62,11 +89,9 @@ module LavinMQ
 
     private def matches(binding_key : BindingKey) : Iterator(Destination)
       @bindings.each.select do |binding, destinations|
-        msg_qos = binding_key.arguments.try { |a| a["qos"]?.try(&.as(UInt8)) } || 0
-        binding_qos = binding.arguments.try { |a| a["x-mqtt-pos"]?.try(&.as(UInt8)) } || 0
 
         # Use Jons tree finder..
-        binding.routing_key == binding_key.routing_key && msg_qos >= binding_qos
+        binding.routing_key == binding_key.routing_key
       end.flat_map { |_, v| v.each }
     end
   end
