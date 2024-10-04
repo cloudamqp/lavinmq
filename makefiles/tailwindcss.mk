@@ -15,7 +15,7 @@ TW_ARCH := $(shell uname -m)
 ifeq ($(TW_ARCH), x86_64)
 	TW_ARCH := x64
 endif
-ifeq ($(ARCH), arm64)
+ifeq ($(TW_ARCH), aarch64)
 	TW_ARCH := arm64
 endif
 
