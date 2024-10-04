@@ -25,6 +25,7 @@ RUN crystal tool format --check
 # Build
 FROM base AS builder
 COPY Makefile .
+COPY ./makefiles ./makefiles
 RUN make js lib
 ARG MAKEFLAGS=-j2
 RUN make all bin/lavinmq-debug
