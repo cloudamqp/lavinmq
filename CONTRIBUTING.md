@@ -1,4 +1,4 @@
-You are interested in contributing to LavinMQ, but you are not sure how to? 
+You are interested in contributing to LavinMQ, but you are not sure how to?
 Right now, you can contribute to LavinMQ in one of two ways:
 
 1. [Code contributions](#code-contributions)
@@ -17,6 +17,7 @@ The first step to making a code contribution, is starting a conversation around 
 1. Compile and run locally with `crystal run src/lavinmq.cr -- -D /tmp/amqp`
 1. Pull js dependencies with `make js`
 1. Build API docs with `make docs` (requires `npx`)
+1. Complie css with `make css`, or `make tw-watch` to recompile whenever sources change
 1. Build with `shards build`
 
 ### Release
@@ -32,11 +33,11 @@ Your schedule won't allow you make code contributions? Still fine, you can:
 ### [Report an issue](https://github.com/cloudamqp/lavinmq/issues/new)
 
 - This could be an easily reproducible bug or even a feature request.
-- If you spot an unexpected behaviour but you are not yet sure what the underlying bug is, the best place to post is [LavinMQ's community Slack](https://join.slack.com/t/lavinmq/shared_invite/zt-1v28sxova-wOyhOvDEKYVQMQpLePNUrg). This would allow us to interactively figure out what is going on. 
+- If you spot an unexpected behaviour but you are not yet sure what the underlying bug is, the best place to post is [LavinMQ's community Slack](https://join.slack.com/t/lavinmq/shared_invite/zt-1v28sxova-wOyhOvDEKYVQMQpLePNUrg). This would allow us to interactively figure out what is going on.
 
 ### [Give us some feedback](https://github.com/cloudamqp/lavinmq/discussions)
 
-We are also curious and happy to hear about your experience with LavinMQ. You can email us via contact@cloudamqp.com or reach us on Slack. Not sure what to write to us?
+We are also curious and happy to hear about your experience with LavinMQ. You can email us via <contact@cloudamqp.com> or reach us on Slack. Not sure what to write to us?
 
 - You can write to us about your first impression of LavinMQ
 - You can talk to us about features that are most important to you or your organization

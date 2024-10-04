@@ -1,6 +1,7 @@
 BINS := bin/lavinmq bin/lavinmqctl bin/lavinmqperf
 SOURCES := $(shell find src/lavinmq src/stdlib -name '*.cr' 2> /dev/null)
 JS := static/js/lib/chunks/helpers.segment.js static/js/lib/chart.js static/js/lib/amqp-websocket-client.mjs static/js/lib/amqp-websocket-client.mjs.map static/js/lib/luxon.js static/js/lib/chartjs-adapter-luxon.esm.js static/js/lib/elements-8.2.0.js static/js/lib/elements-8.2.0.css
+CSS := src/main.css
 CRYSTAL_FLAGS := --release --stats
 override CRYSTAL_FLAGS += --error-on-warnings --link-flags=-pie
 
@@ -9,10 +10,10 @@ include makefiles/tailwindcss.mk
 .PHONY: all
 all: $(BINS)
 
-bin/%: src/%.cr $(SOURCES) lib $(JS) $(DOCS) | bin
+bin/%: src/%.cr $(SOURCES) lib $(JS) $(CSS) $(DOCS) | bin
 	crystal build $< -o $@ $(CRYSTAL_FLAGS)
 
-bin/%-debug: src/%.cr $(SOURCES) lib $(JS) $(DOCS) | bin
+bin/%-debug: src/%.cr $(SOURCES) lib $(JS) $(CSS) $(DOCS) | bin
 	crystal build $< -o $@ --debug $(CRYSTAL_FLAGS)
 
 bin/lavinmqperf: src/lavinmqperf.cr lib | bin
@@ -68,8 +69,11 @@ man: $(MANPAGES)
 .PHONY: js
 js: $(JS)
 
+.PHONY: css
+css: $(CSS)
+
 .PHONY: deps
-deps: js lib
+deps: js lib css
 
 .PHONY: lint
 lint: lib

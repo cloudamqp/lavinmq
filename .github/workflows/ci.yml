@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - Makefile
+      - 'makefiles/**'
       - 'src/**'
       - 'spec/**'
       - 'shard.*'
@@ -16,6 +17,7 @@ on:
       - main
     paths:
       - Makefile
+      - 'makefiles/**'
       - 'src/**'
       - 'spec/**'
       - 'playwright.config.js'
