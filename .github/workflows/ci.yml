@@ -225,7 +225,7 @@ jobs:
           ref: v5.22.0
           path: rabbitmq-java-client
 
-      - name: Patch tests
+      - name: Get patch file
         uses: actions/checkout@v4
         with:
           repository: cloudamqp/lavinmq
@@ -237,9 +237,6 @@ jobs:
 
       - name: Patch tests
         run: |
-          ls -la
-          ls -la lavinmq
-          ls -la lavinmq/.github
           cd rabbitmq-java-client
           git apply ../lavinmq/.github/rabbitmq-java-client.patch
 
