@@ -237,6 +237,9 @@ jobs:
 
       - name: Patch tests
         run: |
+          ls -la
+          ls -la lavinmq
+          ls -la lavinmq/.github
           cd rabbitmq-java-client
           git apply ../lavinmq/.github/rabbitmq-java-client.patch
 
