@@ -226,10 +226,20 @@ jobs:
           path: rabbitmq-java-client
 
       - name: Patch tests
+        uses: actions/checkout@v4
+        with:
+          repository: cloudamqp/lavinmq
+          path: lavinmq
+          # only checkout the lint rules
+          sparse-checkout: |
+            .github/rabbitmq-java-client.patch
+          sparse-checkout-cone-mode: false
+
+      - name: Patch tests
         run: |
           cd rabbitmq-java-client
-          curl https://raw.githubusercontent.com/cloudamqp/lavinmq/main/.github/rabbitmq-java-client.patch -o rabbitmq-java-client.patch
-          git apply rabbitmq-java-client.patch
+          git apply ../lavinmq/.github/rabbitmq-java-client.patch
+
       - name: Run java tests (allowed to fail)
         id: test
         run: |
