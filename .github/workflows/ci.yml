@@ -221,16 +221,31 @@ jobs:
       - name: Clone java client
         uses: actions/checkout@v4
         with:
-          repository: cloudamqp/rabbitmq-java-client
-          ref: lavinmq-compatible-tests
+          repository: rabbitmq/rabbitmq-java-client
+          ref: v5.22.0
           path: rabbitmq-java-client
+
+      - name: Get patch file
+        uses: actions/checkout@v4
+        with:
+          repository: cloudamqp/lavinmq
+          path: lavinmq
+          # only checkout the lint rules
+          sparse-checkout: |
+            .github/rabbitmq-java-client.patch
+          sparse-checkout-cone-mode: false
+
+      - name: Patch tests
+        run: |
+          cd rabbitmq-java-client
+          git apply ../lavinmq/.github/rabbitmq-java-client.patch
 
       - name: Run java tests (allowed to fail)
         id: test
         run: |
           cd rabbitmq-java-client
           make deps
-          ./mvnw -q verify -P '!setup-test-cluster' -Dit.test=FunctionalTestSuite -Drabbitmqctl.bin=../bin/lavinmqctl
+          ./mvnw verify -Dtest-broker.A.nodename=lavin@testhost -Dit.test=ClientTestSuite,FunctionalTestSuite -Drabbitmqctl.bin=../bin/lavinmqctl
 
   bunny-test:
     name: Bunny client test
