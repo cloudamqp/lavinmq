@@ -86,19 +86,6 @@ index 22b2042f7..30f35c68a 100644
      }
  
      protected String generateQueueName() {
-diff --git a/src/test/java/com/rabbitmq/client/test/ClientTestSuite.java b/src/test/java/com/rabbitmq/client/test/ClientTestSuite.java
-index cc515be62..ede9d4baa 100644
---- a/src/test/java/com/rabbitmq/client/test/ClientTestSuite.java
-+++ b/src/test/java/com/rabbitmq/client/test/ClientTestSuite.java
-@@ -58,7 +58,7 @@ import org.junit.platform.suite.api.Suite;
-     ClientVersionTest.class,
-     TestUtilsTest.class,
-     StrictExceptionHandlerTest.class,
--    NoAutoRecoveryWhenTcpWindowIsFullTest.class,
-+    // NoAutoRecoveryWhenTcpWindowIsFullTest.class,
-     JacksonJsonRpcTest.class,
-     AddressTest.class,
-     DefaultRetryHandlerTest.class,
 diff --git a/src/test/java/com/rabbitmq/client/test/LambdaCallbackTest.java b/src/test/java/com/rabbitmq/client/test/LambdaCallbackTest.java
 index 1fb6c2e82..b9a8d4783 100644
 --- a/src/test/java/com/rabbitmq/client/test/LambdaCallbackTest.java
