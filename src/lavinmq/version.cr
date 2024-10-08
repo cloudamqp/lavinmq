@@ -1,5 +1,9 @@
 module LavinMQ
-  VERSION = {{ `git describe --tags 2>/dev/null || shards version`.chomp.stringify.gsub(/^v/, "") }}
+  {% if flag?(:windows) %}
+    VERSION = {{ `git describe --tags`.chomp.stringify.gsub(/^v/, "") }}
+  {% else %}
+    VERSION = {{ `git describe --tags 2>/dev/null || shards version`.chomp.stringify.gsub(/^v/, "") }}
+  {% end %}
 
   macro build_flags
     String.build do |flags|
