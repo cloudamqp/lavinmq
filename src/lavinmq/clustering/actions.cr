@@ -1,4 +1,8 @@
-require "../mfile"
+{% if flag?(:windows) %}
+  require "../mfile_windows"
+{% else %}
+  require "../mfile"
+{% end %}
 
 module LavinMQ
   module Clustering

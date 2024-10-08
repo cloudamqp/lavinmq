@@ -1,4 +1,8 @@
-require "../mfile"
+{% if flag?(:windows) %}
+  require "../mfile_windows"
+{% else %}
+  require "../mfile"
+{% end %}
 require "../segment_position"
 require "log"
 require "file_utils"

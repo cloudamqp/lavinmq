@@ -4,7 +4,11 @@ require "./replicator"
 require "./follower"
 require "../config"
 require "../message"
-require "../mfile"
+{% if flag?(:windows) %}
+  require "../mfile_windows"
+{% else %}
+  require "../mfile"
+{% end %}
 require "crypto/subtle"
 require "lz4"
 require "../etcd"

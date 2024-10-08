@@ -15,11 +15,17 @@ require "../src/lavinmq/http/http_server"
 require "http/client"
 require "amqp-client"
 
-LavinMQ::Config.instance.data_dir = "/tmp/lavinmq-spec"
+{% if flag?(:windows) %}
+  LavinMQ::Config.instance.data_dir = "C:\\tmp\\lavinmq-spec"
+{% else %}
+  LavinMQ::Config.instance.data_dir = "/tmp/lavinmq-spec"
+{% end %}
+
 LavinMQ::Config.instance.segment_size = 512 * 1024
 LavinMQ::Config.instance.consumer_timeout_loop_interval = 1
 
 def with_datadir(&)
+  FileUtils.rm_rf data_dir if data_dir
   data_dir = File.tempname("lavinmq", "spec")
   Dir.mkdir_p data_dir
   yield data_dir
@@ -71,6 +77,7 @@ end
 
 def with_amqp_server(tls = false, replicator = LavinMQ::Clustering::NoopServer.new, & : LavinMQ::Server -> Nil)
   tcp_server = TCPServer.new("localhost", 0)
+  FileUtils.rm_rf(LavinMQ::Config.instance.data_dir)
   s = LavinMQ::Server.new(LavinMQ::Config.instance.data_dir, replicator)
   begin
     if tls
