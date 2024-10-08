@@ -168,7 +168,9 @@ module LavinMQ
         http_server.bind_unix(@config.http_unix_path)
       end
 
-      http_server.bind_internal_unix
+      {% unless flag?(:windows) %}
+        @http_server.bind_internal_unix
+      {% end %}
       spawn(name: "HTTP listener") do
         http_server.listen
       end
@@ -242,12 +244,14 @@ module LavinMQ
     end
 
     private def setup_signal_traps
-      Signal::USR1.trap { dump_debug_info }
-      Signal::USR2.trap { run_gc }
-      Signal::HUP.trap { reload_server }
-      Signal::INT.trap { shutdown_server }
-      Signal::TERM.trap { shutdown_server }
-      Signal::SEGV.reset # Let the OS generate a coredump
+      {% unless flag?(:windows) %}
+        Signal::USR1.trap { dump_debug_info }
+        Signal::USR2.trap { run_gc }
+        Signal::HUP.trap { reload_server }
+        Signal::INT.trap { shutdown_server }
+        Signal::TERM.trap { shutdown_server }
+        Signal::SEGV.reset # Let the OS generate a coredump
+      {% end %}
     end
 
     private def create_tls_context
