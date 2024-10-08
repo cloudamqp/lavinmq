@@ -600,6 +600,9 @@ module LavinMQ
           end
         end
         io.fsync
+        {% if flag?(:windows) %}
+          @definitions_file.close
+        {% end %}
         File.rename io.path, @definitions_file_path
         @replicator.replace_file @definitions_file_path
         @definitions_file.close
@@ -683,6 +686,8 @@ module LavinMQ
       {% if flag?(:linux) %}
         ret = LibC.syncfs(@definitions_file.fd)
         raise IO::Error.from_errno("syncfs") if ret != 0
+      {% elsif flag?(:windows) %}
+        ret = @definitions_file.fsync
       {% else %}
         LibC.sync
       {% end %}
