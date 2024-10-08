@@ -22,5 +22,5 @@ shards:
 
   systemd:
     git: https://github.com/84codes/systemd.cr.git
-    version: 2.0.0
+    version: 2.0.0+git.commit.972201ff6b072e9915ccd611df794c294eaf7d24
 

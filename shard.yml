@@ -30,6 +30,7 @@ dependencies:
     github: cloudamqp/amq-protocol.cr
   systemd:
     github: 84codes/systemd.cr
+    branch: main
   lz4:
     github: 84codes/lz4.cr
   mqtt-protocol:
