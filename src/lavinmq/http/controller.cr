@@ -6,6 +6,12 @@ module LavinMQ
     abstract class Controller
       include Router
 
+      # Define Log in each controller
+      # source will be "lmq.http.<controller name>" without controller suffix
+      macro inherited
+        Log = LavinMQ::Log.for "http.{{@type.name.split("::").last.downcase.gsub(/controller$/, "").id}}"
+      end
+
       def initialize(@amqp_server : LavinMQ::Server)
         register_routes
       end

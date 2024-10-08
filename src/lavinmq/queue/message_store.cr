@@ -16,7 +16,7 @@ module LavinMQ
     # Deleted messages are written to acks.#{segment}
     class MessageStore
       PURGE_YIELD_INTERVAL = 16_384
-      Log                  = ::Log.for("MessageStore")
+      Log                  = LavinMQ::Log.for "message_store"
       @segments = Hash(UInt32, MFile).new
       @deleted = Hash(UInt32, Array(UInt32)).new
       @segment_msg_count = Hash(UInt32, UInt32).new(0u32)

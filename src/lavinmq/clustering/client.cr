@@ -6,7 +6,7 @@ require "lz4"
 module LavinMQ
   module Clustering
     class Client
-      Log = ::Log.for("clustering.client")
+      Log = LavinMQ::Log.for "clustering.client"
       @data_dir_lock : DataDirLock
       @closed = false
       @amqp_proxy : Proxy?

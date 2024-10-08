@@ -5,7 +5,7 @@ require "wait_group"
 
 module LavinMQ
   module Shovel
-    Log                       = ::Log.for("shovel")
+    Log                       = LavinMQ::Log.for "shovel"
     DEFAULT_ACK_MODE          = AckMode::OnConfirm
     DEFAULT_DELETE_AFTER      = DeleteAfter::Never
     DEFAULT_PREFETCH          = 1000_u16

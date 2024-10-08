@@ -1,5 +1,6 @@
 require "./lavinmq/version"
 require "./stdlib/*"
+require "./lavinmq/logger"
 require "./lavinmq/config"
 
 config = LavinMQ::Config.instance

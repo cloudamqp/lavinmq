@@ -5,7 +5,7 @@ module LavinMQ
   module AMQP
     class Consumer < LavinMQ::Client::Channel::Consumer
       include SortableJSON
-      Log = ::Log.for "AMQP.consumer"
+      Log = LavinMQ::Log.for "amqp.consumer"
       getter tag : String
       getter priority : Int32
       getter? exclusive : Bool
