@@ -18,7 +18,7 @@ module LavinMQ
         end
       end
 
-      {% if flag?(:release) || flag?(:bake_static) %}
+      {% if flag?(:bake_static) %}
         Files = {
           {{ run("./static/bake", PUBLIC_DIR) }}
         }
