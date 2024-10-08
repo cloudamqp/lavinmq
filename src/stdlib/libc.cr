@@ -15,4 +15,21 @@ lib LibC
   {% elsif flag?(:openbsd) %}
     SC_PHYS_PAGES = 500
   {% end %}
+
+  {% if flag?(:windows) %}
+    fun GetSystemInfo : SYSTEM_INFO
+    fun GlobalMemoryStatusEx(Void*) : Void*
+
+    struct MEMORYSTATUSEX
+      dwLength : Int
+      dwMemoryLoad : Int
+      ullTotalPhys : Int64
+      ullAvailPhys : Int64
+      ullTotalPageFile : Int64
+      ullAvailPageFile : Int64
+      ullTotalVirtual : Int64
+      ullAvailVirtual : Int64
+      ullAvailExtendedVirtual : Int64
+    end
+  {% end %}
 end

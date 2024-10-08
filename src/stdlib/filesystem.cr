@@ -67,6 +67,14 @@ lib LibC
     end
 
     fun statfs(file : Char*, buf : Statfs*) : Int
+  {% elsif flag?(:windows) %}
+    fun GetDiskFreeSpaceExA(lpRootPathName : Char*, lpFreeBytesAvailableToCaller : Void*, lpTotalNumberOfBytes : Void*, lpTotalNumberOfFreeBytes : Void*) : Bool
+
+    struct Statfs
+      bsize : Int64
+      blocks : UInt64
+      bavail : UInt64
+    end
   {% else %}
     {% raise "No statfs implementation" %}
   {% end %}
@@ -102,6 +110,18 @@ end
       unless LibC.statfs(path.check_no_null_byte, pointerof(statfs)).zero?
         raise File::Error.from_errno("Error getting statfs", file: path)
       end
+      FilesystemInfo.new(statfs)
+    end
+  end
+{% elsif flag?(:windows) %}
+  module Filesystem
+    def self.info(path)
+      statfs = uninitialized LibC::Statfs
+      a = b = c = 0_i64
+      LibC.GetDiskFreeSpaceExA(path.check_no_null_byte, pointerof(a), pointerof(b), pointerof(c))
+      statfs.bavail = a
+      statfs.blocks = b
+      statfs.bsize = 1
       FilesystemInfo.new(statfs)
     end
   end
