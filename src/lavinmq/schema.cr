@@ -34,7 +34,7 @@ module LavinMQ
       children = Dir.children(data_dir).reject!(&.in?("backups", ".lock"))
       return if children.empty?
 
-      backup_dir = File.join(data_dir, "backups", Time.utc.to_rfc3339)
+      backup_dir = File.join(data_dir, "backups", Time.utc.to_rfc3339.gsub(":", ""))
       Log.info { "Saving a backup of #{data_dir} to #{backup_dir}" }
       Dir.mkdir_p(backup_dir)
       children.each do |child|
@@ -285,13 +285,18 @@ module LavinMQ
     end
 
     def self.verify(file : MFile, type) : Int32
-      buf = uninitialized UInt8[4]
-      file.read_at(0, buf.to_slice)
-      version = IO::ByteFormat::SystemEndian.decode(Int32, buf.to_slice)
+      version = 0
+      {% unless flag?(:windows) %}
+        buf = uninitialized UInt8[4]
+        file.read_at(0, buf.to_slice)
+        version = IO::ByteFormat::SystemEndian.decode(Int32, buf.to_slice)
+      {% else %}
+        version = IO::ByteFormat::SystemEndian.decode(Int32, file.read_at(0, 4))
+      {% end %}
       if version == 0 # if version is 0, read 8 more bytes(ts) and check if that's also 0. If so, the file is empty, set version to default.
         buffer = uninitialized UInt8[8]
         file.read_at(4, buffer.to_slice)
-        raise IO::EOFError.new if buf.all?(&.zero?)
+        raise IO::EOFError.new if buffer.all?(&.zero?)
       end
       if version != VERSIONS[type]
         raise OutdatedSchemaVersion.new version, file.path
