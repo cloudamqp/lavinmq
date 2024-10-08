@@ -1,5 +1,7 @@
 lib LibC
-  fun setrlimit(Int, Rlimit*) : Int
+  {% if flag?(:windows) %}
+    fun _setmaxstdio(max : Int) : Int
+  {% end %}
 end
 
 struct Time::Span
@@ -26,6 +28,18 @@ module System
       {% end %}
     end
 
+    def initialize(user_time, sys_time, blocks_in, blocks_out, minor_page_faults, major_page_faults, voluntary_context_switches, involuntary_context_switches, max_rss)
+      @user_time = Time::Span.new(seconds: user_time.to_i)
+      @sys_time = Time::Span.new(seconds: sys_time.to_i)
+      @blocks_in = blocks_in
+      @blocks_out = blocks_out
+      @minor_page_faults = minor_page_faults
+      @major_page_faults = major_page_faults
+      @voluntary_context_switches = voluntary_context_switches
+      @involuntary_context_switches = involuntary_context_switches
+      @max_rss = max_rss
+    end
+
     getter user_time : Time::Span
     getter sys_time : Time::Span
     {% if flag?(:arm) %}
@@ -48,19 +62,28 @@ module System
   end
 
   def self.resource_usage
-    usg = uninitialized LibC::RUsage
-    if LibC.getrusage(LibC::RUSAGE_SELF, pointerof(usg)) != 0
-      raise Error.from_errno("rusage")
-    end
-    ResourceUsage.new(usg)
+    {% if flag?(:windows) %}
+      times = Process.times
+      ResourceUsage.new(times.@utime, times.@stime, 0_i64, 0_i64, 0_i64, 0_i64, 0_i64, 0_i64, 0_i64)
+    {% else %}
+      usg = uninitialized LibC::RUsage
+      if LibC.getrusage(LibC::RUSAGE_SELF, pointerof(usg)) != 0
+        raise Error.from_errno("rusage")
+      end
+      ResourceUsage.new(usg)
+    {% end %}
   end
 
   def self.file_descriptor_limit
-    rlimit = uninitialized LibC::Rlimit
-    if LibC.getrlimit(LibC::RLIMIT_NOFILE, pointerof(rlimit)) != 0
-      raise Error.from_errno("getrlimit")
-    end
-    {rlimit.rlim_cur, rlimit.rlim_max}
+    {% if flag?(:windows) %}
+      {2048, 2048}
+    {% else %}
+      rlimit = uninitialized LibC::Rlimit
+      if LibC.getrlimit(LibC::RLIMIT_NOFILE, pointerof(rlimit)) != 0
+        raise Error.from_errno("getrlimit")
+      end
+      {rlimit.rlim_cur, rlimit.rlim_max}
+    {% end %}
   end
 
   def self.file_descriptor_limit=(limit) : Nil
@@ -84,9 +107,13 @@ module System
 
   def self.maximize_fd_limit
     _, fd_limit_max = System.file_descriptor_limit
-    System.file_descriptor_limit = fd_limit_max
-    fd_limit_current, _ = System.file_descriptor_limit
-    fd_limit_current
+    {% unless flag?(:windows) %}
+      System.file_descriptor_limit = fd_limit_max
+      fd_limit_current, _ = System.file_descriptor_limit
+      fd_limit_current
+    {% else %}
+      LibC._setmaxstdio(2048)
+    {% end %}
   end
 
   class Error < Exception
