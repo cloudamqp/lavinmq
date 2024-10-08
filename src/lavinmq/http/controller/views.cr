@@ -71,6 +71,8 @@ module LavinMQ
       # etag won't change in runtime
       {% if flag?(:release) %}
         ETag = %(W/"#{LavinMQ::VERSION}")
+      {% elsif flag?(:windows) %}
+        ETag = "abc"
       {% else %}
         ETag = %(W/"{{ `date +%s`.strip }}")
       {% end %}
