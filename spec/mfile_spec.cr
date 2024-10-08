@@ -1,5 +1,9 @@
 require "spec"
-require "../src/lavinmq/mfile"
+{% if flag?(:windows) %}
+  require "../src/lavinmq/mfile_windows"
+{% else %}
+  require "../src/lavinmq/mfile"
+{% end %}
 
 describe MFile do
   it "can be double closed" do
