@@ -41,7 +41,9 @@ module LavinMQ
       skipped += io.skip(io.read_byte || raise IO::EOFError.new) + 1 # ex
       skipped += io.skip(io.read_byte || raise IO::EOFError.new) + 1 # rk
       skipped += AMQ::Protocol::Properties.skip(io, format)
-      skipped += io.skip(UInt64.from_io io, format) + sizeof(UInt64)
+      # skipped += io.skip(UInt64.from_io io, format) + sizeof(UInt64)
+      skipped += io.skip(io.read_bytes UInt64, format) + sizeof(UInt64)
+
       skipped
     end
 
