@@ -381,7 +381,11 @@ module LavinMQ
       statm.try &.close
     end
 
-    PAGE_SIZE = LibC.getpagesize
+    {% if flag?(:windows) %}
+      PAGE_SIZE = LibC.GetSystemInfo.@dwPageSize
+    {% else %}
+      PAGE_SIZE = LibC.getpagesize
+    {% end %}
 
     # statm: https://man7.org/linux/man-pages/man5/proc.5.html
     # the second number in the output is the estimated RSS in pages
@@ -401,7 +405,11 @@ module LavinMQ
 
     # used on non linux systems
     private def ps_rss
-      (`ps -o rss= -p $PPID`.to_i64? || 0i64) * 1024
+      {% unless flag?(:windows) %}
+        (`ps -o rss= -p $PPID`.to_i64? || 0i64) * 1024
+      {% else %}
+        0_i64 # TO-DO
+      {% end %}
     end
 
     # Available memory might be limited by a cgroup
