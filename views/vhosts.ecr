@@ -2,11 +2,11 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
-    <% render "head" %>
+    <% render "partials/head" %>
     <script type="module" src="js/vhosts.js"></script>
   </head>
   <body>
-    <% render "header" %>
+    <% render "partials/header" %>
     <main>
       <section class="card">
         <div id="table-error"></div>
@@ -34,6 +34,6 @@
         <button type="submit" class="btn-primary">Add virtual host</button>
       </form>
     </main>
-    <% render "footer" %>
+    <% render "partials/footer" %>
   </body>
 </html>
