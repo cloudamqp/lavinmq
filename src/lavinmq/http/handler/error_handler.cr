@@ -3,6 +3,7 @@ require "http/server/handler"
 module LavinMQ
   module HTTP
     class ApiErrorHandler
+      Log = LavinMQ::Log.for "http.apierror"
       include ::HTTP::Handler
 
       def call(context)

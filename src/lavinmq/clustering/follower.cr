@@ -6,7 +6,7 @@ require "socket"
 module LavinMQ
   module Clustering
     class Follower
-      Log = ::Log.for("clustering.follower")
+      Log = LavinMQ::Log.for "clustering.follower"
 
       @acked_bytes = 0_i64
       @sent_bytes = 0_i64

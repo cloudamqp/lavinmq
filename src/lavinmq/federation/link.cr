@@ -10,7 +10,7 @@ module LavinMQ
     class Upstream
       abstract class Link
         include SortableJSON
-        Log = ::Log.for("federation.link")
+        Log = LavinMQ::Log.for "federation.link"
         getter last_changed, error, state
 
         @last_changed : Int64?

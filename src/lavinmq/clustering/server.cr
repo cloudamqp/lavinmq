@@ -24,7 +24,7 @@ module LavinMQ
     class Server
       include FileIndex
       include Replicator
-      Log = ::Log.for("clustering.server")
+      Log = LavinMQ::Log.for "clustering.server"
 
       @lock = Mutex.new(:unchecked)
       @followers = Array(Follower).new(4)

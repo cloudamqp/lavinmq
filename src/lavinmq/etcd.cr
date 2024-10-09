@@ -4,7 +4,7 @@ require "json"
 
 module LavinMQ
   class Etcd
-    Log = ::Log.for("etcd")
+    Log = LavinMQ::Log.for "etcd"
 
     def initialize(endpoints = "localhost:2379")
       @endpoints = endpoints.split(',')

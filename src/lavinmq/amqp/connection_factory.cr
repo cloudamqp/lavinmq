@@ -1,4 +1,3 @@
-require "log"
 require "../version"
 require "./client"
 require "../client/connection_factory"
@@ -6,7 +5,7 @@ require "../client/connection_factory"
 module LavinMQ
   module AMQP
     class ConnectionFactory < LavinMQ::ConnectionFactory
-      Log = ::Log.for "AMQP.ConnectionFactory"
+      Log = LavinMQ::Log.for "amqp.connection_factory"
 
       def start(socket, connection_info, vhosts, users) : Client?
         remote_address = connection_info.src

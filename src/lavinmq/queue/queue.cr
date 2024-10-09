@@ -124,7 +124,7 @@ module LavinMQ
     getter single_active_consumer_change = Channel(Client::Channel::Consumer).new
     @single_active_consumer_queue = false
     @data_dir : String
-    Log = ::Log.for "queue"
+    Log = LavinMQ::Log.for "queue"
     @metadata : ::Log::Metadata
 
     def initialize(@vhost : VHost, @name : String,
