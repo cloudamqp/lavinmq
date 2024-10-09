@@ -1,5 +1,3 @@
-require "../../logger"
-
 module LavinMQ
   abstract class Client
     abstract class Channel

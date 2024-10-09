@@ -1,5 +1,4 @@
 require "socket"
-require "../logger"
 require "../config"
 require "../proxy_protocol"
 

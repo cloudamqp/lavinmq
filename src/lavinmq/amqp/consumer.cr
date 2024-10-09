@@ -1,5 +1,6 @@
 require "log"
 require "../client/channel/consumer"
+require "../logger"
 
 module LavinMQ
   module AMQP

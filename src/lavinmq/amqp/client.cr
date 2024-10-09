@@ -3,6 +3,7 @@ require "socket"
 require "./channel"
 require "../client"
 require "../error"
+require "../logger"
 
 module LavinMQ
   module AMQP
