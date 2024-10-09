@@ -16,7 +16,7 @@ module LavinMQ
     def bind(destination : Queue, routing_key, headers)
       validate!(headers)
       args = headers ? @arguments.clone.merge!(headers) : @arguments
-      ret = @queue_bindings[{routing_key, args}].add? destination
+      ret = @queue_bindings[BindingKey.new(routing_key, args)].add? destination
       after_bind(destination, routing_key, headers)
       ret
     end
@@ -24,21 +24,21 @@ module LavinMQ
     def bind(destination : Exchange, routing_key, headers)
       validate!(headers)
       args = headers ? @arguments.clone.merge!(headers) : @arguments
-      ret = @exchange_bindings[{routing_key, args}].add? destination
+      ret = @exchange_bindings[BindingKey.new(routing_key, args)].add? destination
       after_bind(destination, routing_key, headers)
       ret
     end
 
     def unbind(destination : Queue, routing_key, headers)
       args = headers ? @arguments.clone.merge!(headers) : @arguments
-      ret = @queue_bindings[{routing_key, args}].delete destination
+      ret = @queue_bindings[BindingKey.new(routing_key, args)].delete destination
       after_unbind(destination, routing_key, headers)
       ret
     end
 
     def unbind(destination : Exchange, routing_key, headers)
       args = headers ? @arguments.clone.merge!(headers) : @arguments
-      ret = @exchange_bindings[{routing_key, args}].delete destination
+      ret = @exchange_bindings[BindingKey.new(routing_key, args)].delete destination
       after_unbind(destination, routing_key, headers)
       ret
     end
@@ -66,7 +66,7 @@ module LavinMQ
     # ameba:disable Metrics/CyclomaticComplexity
     private def matches(bindings, routing_key, headers, & : Queue | Exchange ->)
       bindings.each do |bt, dst|
-        args = bt[1] || next
+        args = bt.arguments || next
         if headers.nil? || headers.empty?
           if args.empty?
             dst.each { |d| yield d }

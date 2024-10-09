@@ -65,7 +65,7 @@ describe LavinMQ::HTTP::BindingsController do
         response = http.post("/api/bindings/%2f/e/be1/q/bindings_q1", body: body)
         response.status_code.should eq 201
         response.headers["Location"].should eq "bindings_q1/rk"
-        s.vhosts["/"].exchanges["be1"].queue_bindings.last_key.first.should eq "rk"
+        s.vhosts["/"].exchanges["be1"].queue_bindings.last_key.routing_key.should eq "rk"
       end
     end
 
