@@ -8,6 +8,8 @@ module LavinMQ
                      @name : String,
                      @auto_delete = false,
                      arguments : ::AMQ::Protocol::Table = AMQP::Table.new)
+                    @count = 0u16
+                    @unacked = Deque(SegmentPosition).new
         super(@vhost, @name, false, @auto_delete, arguments)
       end
 
@@ -17,13 +19,21 @@ module LavinMQ
 
       def client=(client : MQTT::Client?)
         return if @closed
-          @last_get_time = RoughTime.monotonic
-          @consumers_lock.synchronize do
-            consumers.each &.close
-            @consumers.clear
-            if c = client
-              @consumers << MqttConsumer.new(c, self)
-            end
+        @last_get_time = RoughTime.monotonic
+        consumers.each do |c|
+          c.close
+          rm_consumer c
+        end
+
+        @msg_store_lock.synchronize do
+          @unacked.each do |sp|
+            @msg_store.requeue(sp)
+          end
+        end
+        @unacked.clear
+
+        if c = client
+          @consumers << MqttConsumer.new(c, self)
         end
         @log.debug { "Setting MQTT client" }
       end
@@ -63,7 +73,7 @@ module LavinMQ
 
           sp = env.segment_position
           no_ack = env.message.properties.delivery_mode == 0
-          if no_ack
+          if false
             begin
               yield env # deliver the message
             rescue ex   # requeue failed delivery
@@ -72,17 +82,10 @@ module LavinMQ
             end
             delete_message(sp)
           else
-
-            # packet_id = generate packet id
-            # save packet id to hash
-            # add hash to env
-            #
-            #
-            #
-            # Generate_next_id = next_id from mqtt
-
+            env.message.properties.message_id = next_id.to_s
             mark_unacked(sp) do
               yield env # deliver the message
+              @unacked << sp
             end
           end
           return true
@@ -94,10 +97,34 @@ module LavinMQ
         raise ClosedError.new(cause: ex)
       end
 
-      private def message_expire_loop
+      def ack(sp : SegmentPosition) : Nil
+        # TDO: maybe risky to not have locka round this
+        @unacked.delete sp
+        super sp
       end
 
-      private def queue_expire_loop
+      private def message_expire_loop; end
+
+      private def queue_expire_loop; end
+
+      private def next_id : UInt16?
+        @count += 1u16
+
+        # return nil if @unacked.size == @max_inflight
+        # start_id = @packet_id
+        # next_id : UInt16 = start_id + 1
+        # while @unacked.has_key?(next_id)
+        #   if next_id == 65_535
+        #     next_id = 1
+        #   else
+        #     next_id += 1
+        #   end
+        #   if next_id == start_id
+        #     return nil
+        #   end
+        # end
+        # @packet_id = next_id
+        # next_id
       end
     end
   end
