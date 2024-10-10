@@ -31,6 +31,7 @@ module MqttSpecs
                 packet_id: 1u16
               )
               disconnect(io)
+              sleep 0.1
             end
             with_client_io(server) do |io|
               connack = connect(io, clean_session: true)
@@ -50,6 +51,7 @@ module MqttSpecs
                 packet_id: 1u16
               )
               disconnect(io)
+              sleep 0.1
             end
             with_client_io(server) do |io|
               connack = connect(io, clean_session: false)
@@ -69,6 +71,7 @@ module MqttSpecs
                 packet_id: 1u16
               )
               disconnect(io)
+              sleep 0.1
             end
             with_client_io(server) do |io|
               connack = connect(io, clean_session: true)
@@ -88,6 +91,7 @@ module MqttSpecs
                 packet_id: 1u16
               )
               disconnect(io)
+              sleep 0.1
             end
             with_client_io(server) do |io|
               connack = connect(io, clean_session: false)
@@ -106,7 +110,6 @@ module MqttSpecs
               connack = connect(io)
               connack.should be_a(MQTT::Protocol::Connack)
               connack = connack.as(MQTT::Protocol::Connack)
-              pp connack.return_code
               connack.return_code.should eq(MQTT::Protocol::Connack::ReturnCode::Accepted)
             end
           end
@@ -271,7 +274,6 @@ module MqttSpecs
               topics = mk_topic_filters({"a/b", 1})
               subscribe(io, topic_filters: topics)
               disconnect(io)
-              pp server.vhosts["/"].queues["amq.mqtt-client_id"].consumers
             end
             sleep 0.1
             server.vhosts["/"].queues["amq.mqtt-client_id"].consumers.should be_empty
