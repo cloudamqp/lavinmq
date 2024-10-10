@@ -181,7 +181,6 @@ module LavinMQ
       end
 
       def deliver(msg, sp, redelivered = false, recover = false)
-        pp "Delivering message: #{msg.inspect}"
         packet_id = nil
         if message_id = msg.properties.message_id
           packet_id = message_id.to_u16 unless message_id.empty?
