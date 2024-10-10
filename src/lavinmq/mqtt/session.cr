@@ -11,10 +11,24 @@ module LavinMQ
                     @count = 0u16
                     @unacked = Deque(SegmentPosition).new
         super(@vhost, @name, false, @auto_delete, arguments)
+        spawn deliver_loop, name: "Consumer deliver loop", same_thread: true
       end
 
       def clean_session?
         @auto_delete
+      end
+
+      private def deliver_loop
+        i = 0
+        loop do
+          break if consumers.empty?
+          consume_get(consumers.first) do |env|
+            consumers.first.deliver(env.message, env.segment_position, env.redelivered)
+          end
+          Fiber.yield if (i &+= 1) % 32768 == 0
+        end
+      rescue ex
+        puts "deliver loop exiting: #{ex.inspect_with_backtrace}"
       end
 
       def client=(client : MQTT::Client?)
@@ -34,6 +48,7 @@ module LavinMQ
 
         if c = client
           @consumers << MqttConsumer.new(c, self)
+          spawn deliver_loop, name: "Consumer deliver loop", same_thread: true
         end
         @log.debug { "Setting MQTT client" }
       end
