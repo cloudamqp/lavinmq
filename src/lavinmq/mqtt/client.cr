@@ -161,21 +161,6 @@ module LavinMQ
 
       def initialize(@client : Client, @session : MQTT::Session)
         @has_capacity.try_send? true
-        spawn deliver_loop, name: "Consumer deliver loop", same_thread: true
-      end
-
-      private def deliver_loop
-        session = @session
-        i = 0
-        # move deliver loop to session in order to control flow based on the consumer
-        loop do
-          session.consume_get(self) do |env|
-            deliver(env.message, env.segment_position, env.redelivered)
-          end
-          Fiber.yield if (i &+= 1) % 32768 == 0
-        end
-      rescue ex
-        puts "deliver loop exiting: #{ex.inspect_with_backtrace}"
       end
 
       def details_tuple
