@@ -53,9 +53,12 @@ module MqttSpecs
             subscribe(io, topic_filters: topics)
             disconnect(io)
           end
+          pp "first consumers: #{server.vhosts["/"].queues["amq.mqtt-client_id"].consumers}"
 
           # Publish messages that will be stored for the subscriber
           2.times { |i| publish(pubio, topic: "a/b", payload: i.to_s.to_slice, qos: 0u8) }
+
+          pp "first msg count: #{server.vhosts["/"].queues["amq.mqtt-client_id"].message_count}"
 
           # Let the subscriber connect and read the messages, but don't ack. Then unsubscribe.
           # We must read the Publish packets before unsubscribe, else the "suback" will be stuck.
@@ -70,6 +73,8 @@ module MqttSpecs
             unsubscribe(io, topics: ["a/b"])
             disconnect(io)
           end
+          pp "second msg count: #{server.vhosts["/"].queues["amq.mqtt-client_id"].message_count}"
+          pp "unacked msgs: #{server.vhosts["/"].queues["amq.mqtt-client_id"].unacked_count}"
 
           # Publish more messages
           2.times { |i| publish(pubio, topic: "a/b", payload: (2 + i).to_s.to_slice, qos: 0u8) }
