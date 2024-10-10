@@ -67,7 +67,9 @@ module LavinMQ
         end
       {% else %}
         private def serve(context, file_path)
+          Log.debug { "Serve #{file_path} from static?" }
           File.open(File.join(PUBLIC_DIR, file_path)) do |file|
+            Log.debug { "Serving static #{file_path}" }
             file.read_buffering = false
             etag = %(W/"#{Digest::MD5.hexdigest(file)}")
             if context.request.headers["If-None-Match"]? == etag
@@ -85,6 +87,13 @@ module LavinMQ
             context
           end
         rescue File::NotFoundError
+          # To enable faster frontend development, we try to serve a views from static folder.
+          # Use `make dev-ui` to compile and watch for changes.
+          return if file_path.starts_with?("/views/")
+          view = file_path.lstrip("/")
+          view = "overview" if view.empty?
+          file_path = "/views/#{view}.html"
+          serve(context, file_path)
         end
       {% end %}
 
