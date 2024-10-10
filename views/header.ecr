@@ -1,5 +1,10 @@
-<header>
-  <h2><%=pagename%><small id="pagename-label"></small>
+<header class="text-light-400 bg-dark-900">
+  <div id="menu-header">
+    <a class="lavinmq-logo" href="/"><img alt="LavinMQ logo" id="logo" src="img/logo-lavinmq-all-white.svg" width="120" height="24"></a>
+    <span class="version-tab">v<%= LavinMQ::VERSION %></span>
+    <!--<small id="version"><%= LavinMQ::VERSION %></small>-->
+  </div>
+  <h2><!--<%=pagename%>--><small id="pagename-label"></small>
   </h2>
   <nav id="user-menu">
     <ul>
@@ -19,12 +24,14 @@
       </li>
     </ul>
   </nav>
+  <div class="r-c"><div class="r-c-inner"></div></div>
 </header>
 <nav id="menu">
-  <h1 id="menu-header">
-    <a href="/"><img alt="LavinMQ logo" id="logo" src="img/logo-lavinmq-white.svg" width="222" height="45"></a>
+  <!--<h1 id="menu-header">
+    <a href="/"><img alt="LavinMQ logo" id="logo" src="img/logo-lavinmq-all-white.svg" width="120" height="24"></a>
+    <span class="version-tab">v2.0.0</span>
     <small id="version"><%= LavinMQ::VERSION %></small>
-  </h1>
+  </h1>-->
   <button id="menu-button"></button>
   <ul id="menu-content">
     <% {
