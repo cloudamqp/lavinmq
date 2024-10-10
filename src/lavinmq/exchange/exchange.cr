@@ -152,6 +152,15 @@ module LavinMQ
                 queues : Set(Queue) = Set(Queue).new,
                 exchanges : Set(Exchange) = Set(Exchange).new) : Int32
       @publish_in_count += 1
+      count = do_publish(msg, immediate, queues, exchanges)
+      @unroutable_count += 1 if count.zero?
+      @publish_out_count += count
+      count
+    end
+
+    def do_publish(msg : Message, immediate : Bool,
+                   queues : Set(Queue) = Set(Queue).new,
+                   exchanges : Set(Exchange) = Set(Exchange).new) : Int32
       headers = msg.properties.headers
       if should_delay_message?(headers)
         if q = @delayed_queue
@@ -162,10 +171,7 @@ module LavinMQ
         end
       end
       find_queues(msg.routing_key, headers, queues, exchanges)
-      if queues.empty?
-        @unroutable_count += 1
-        return 0
-      end
+      return 0 if queues.empty?
       return 0 if immediate && !queues.any? &.immediate_delivery?
 
       count = 0
@@ -175,7 +181,6 @@ module LavinMQ
           msg.body_io.seek(-msg.bodysize.to_i64, IO::Seek::Current) # rewind
         end
       end
-      @publish_out_count += count
       count
     end
 
@@ -231,11 +236,6 @@ module LavinMQ
       x_deaths = headers["x-death"]?.try(&.as?(Array(AMQP::Field)))
       x_death = x_deaths.try(&.first).try(&.as?(AMQP::Table))
       x_death.nil? || (x_death["queue"]? != "amq.delayed.#{@name}")
-    end
-
-    def exchange_matches(routing_key : String, headers = nil, &blk : Exchange -> _)
-      return if should_delay_message?(headers)
-      do_exchange_matches(routing_key, headers, &blk)
     end
 
     def to_json(json : JSON::Builder)
