@@ -421,3 +421,17 @@ describe LavinMQ::Exchange do
     end
   end
 end
+describe LavinMQ::MQTTExchange do
+  it "should only allow Session to bind" do
+    with_amqp_server do |s|
+      vhost = s.vhosts.create("x")
+      q1 = LavinMQ::Queue.new(vhost, "q1")
+      s1 = LavinMQ::MQTT::Session.new(vhost, "q1")
+      x = LavinMQ::MQTTExchange.new(vhost, "")
+      x.bind(s1, "s1", LavinMQ::AMQP::Table.new)
+      expect_raises(LavinMQ::Exchange::AccessRefused) do
+        x.bind(q1, "q1", LavinMQ::AMQP::Table.new)
+      end
+    end
+  end
+end
