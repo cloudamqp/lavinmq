@@ -152,6 +152,15 @@ module LavinMQ
                 queues : Set(Queue) = Set(Queue).new,
                 exchanges : Set(Exchange) = Set(Exchange).new) : Int32
       @publish_in_count += 1
+      count = _publish(msg, immediate, queues, exchanges)
+      @publish_out_count += count
+      @unroutable_count += 1 if count.zero?
+      count
+    end
+
+    private def _publish(msg : Message, immediate : Bool,
+                         queues : Set(Queue) = Set(Queue).new,
+                         exchanges : Set(Exchange) = Set(Exchange).new) : Int32
       headers = msg.properties.headers
       if should_delay_message?(headers)
         if q = @delayed_queue
@@ -163,7 +172,6 @@ module LavinMQ
       end
       find_queues(msg.routing_key, headers, queues, exchanges)
       if queues.empty?
-        @unroutable_count += 1
         return 0
       end
       return 0 if immediate && !queues.any? &.immediate_delivery?
@@ -175,7 +183,6 @@ module LavinMQ
           msg.body_io.seek(-msg.bodysize.to_i64, IO::Seek::Current) # rewind
         end
       end
-      @publish_out_count += count
       count
     end
 
