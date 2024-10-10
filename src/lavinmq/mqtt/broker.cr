@@ -59,12 +59,10 @@ module LavinMQ
 
       def disconnect_client(client_id)
         if session = @sessions[client_id]?
-          if session.clean_session?
-            sessions.delete(client_id)
-          else
-            session.client = nil
-          end
+          session.client = nil
+          sessions.delete(client_id) if session.clean_session?
         end
+
         @clients.delete client_id
       end
 

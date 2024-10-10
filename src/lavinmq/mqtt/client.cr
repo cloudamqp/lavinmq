@@ -62,6 +62,7 @@ module LavinMQ
         @broker.disconnect_client(client_id)
 
         @socket.close
+        #move to disconnect client
         @broker.vhost.rm_connection(self)
       end
 
@@ -120,9 +121,6 @@ module LavinMQ
       def recieve_unsubscribe(packet)
         session = @broker.sessions[@client_id]
         @broker.unsubscribe(self, packet)
-        if consumer = session.consumers.find { |c| c.tag == "mqtt" }
-          session.rm_consumer(consumer)
-        end
         send(MQTT::UnsubAck.new(packet.packet_id))
       end
 
@@ -169,6 +167,7 @@ module LavinMQ
       private def deliver_loop
         session = @session
         i = 0
+        # move deliver loop to session in order to control flow based on the consumer
         loop do
           session.consume_get(self) do |env|
             deliver(env.message, env.segment_position, env.redelivered)
@@ -197,14 +196,11 @@ module LavinMQ
       end
 
       def deliver(msg, sp, redelivered = false, recover = false)
-        pp "Deliver MSG: #{msg.inspect}"
-
-        # packet_id = nil
-        # if message_id = msg.properties.message_id
-        #   packet_id = message_id.to_u16 unless message_id.empty?
-        # end
-
-        packet_id = 3u16
+        pp "Delivering message: #{msg.inspect}"
+        packet_id = nil
+        if message_id = msg.properties.message_id
+          packet_id = message_id.to_u16 unless message_id.empty?
+        end
 
         qos = msg.properties.delivery_mode || 0u8
         pub_args = {

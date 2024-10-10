@@ -20,6 +20,8 @@ module LavinMQ
       end
     end
 
+
+    # TODO: we can probably clean this up a bit
     def publish(msg : Message, immediate : Bool,
             queues : Set(Queue) = Set(Queue).new,
             exchanges : Set(Exchange) = Set(Exchange).new) : Int32
@@ -35,14 +37,11 @@ module LavinMQ
       count = 0
       queues.each do |queue|
         qos = 0_u8
-        @bindings.each do |binding_key, destinations|
-          if binding_key.routing_key == msg.routing_key
-            if arg = binding_key.arguments
-              if qos_value = arg["x-mqtt-qos"]?
-                qos = qos_value.try &.as(UInt8)
-              end
-            end
-          end
+        bindings_details.each do |binding_detail|
+          next unless binding_detail.destination == queue
+          next unless arg = binding_detail.binding_key.arguments
+          next unless qos_value = arg["x-mqtt-qos"]?
+          qos = qos_value.try &.as(UInt8)
         end
         msg.properties.delivery_mode = qos
 
@@ -55,9 +54,12 @@ module LavinMQ
       count
     end
 
-    def bind(destination : Destination, topic_filter : String, arguments = nil) : Bool
+    def bind(destination : Destination, routing_key : String, headers = nil) : Bool
       # binding = Binding.new(topic_filter, arguments["x-mqtt-qos"])
-      binding_key = BindingKey.new(topic_filter, arguments)
+
+      # TODO: build spec for this early return
+      raise LavinMQ::Exchange::AccessRefused.new(self) unless destination.is_a?(MQTT::Session)
+      binding_key = BindingKey.new(routing_key, headers)
       return false unless @bindings[binding_key].add? destination
       data = BindingDetails.new(name, vhost.name, binding_key, destination)
       notify_observers(ExchangeEvent::Bind, data)
@@ -65,11 +67,10 @@ module LavinMQ
     end
 
     def unbind(destination : Destination, routing_key, headers = nil) : Bool
-      binding_key = BindingKey.new(routing_key, arguments)
+      binding_key = BindingKey.new(routing_key, headers)
       rk_bindings = @bindings[binding_key]
       return false unless rk_bindings.delete destination
       @bindings.delete binding_key if rk_bindings.empty?
-
       data = BindingDetails.new(name, vhost.name, binding_key, destination)
       notify_observers(ExchangeEvent::Unbind, data)
 

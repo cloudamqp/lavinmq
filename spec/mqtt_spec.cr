@@ -11,7 +11,8 @@ def setup_connection(s, pass)
   MQTT::Protocol::Connect.new("abc", false, 60u16, "usr", pass.to_slice, nil).to_io(io)
   connection_factory = LavinMQ::MQTT::ConnectionFactory.new(
     s.users,
-    s.vhosts["/"])
+    s.vhosts["/"],
+    LavinMQ::MQTT::Broker.new(s.vhosts["/"]))
   {connection_factory.start(right, LavinMQ::ConnectionInfo.local), io}
 end
 
