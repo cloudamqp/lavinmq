@@ -36,11 +36,6 @@ dependencies:
 development_dependencies:
   ameba:
     github: crystal-ameba/ameba
-  live_reload:
-    github: bcardiff/live_reload.cr
-  inotify:
-    github: petoem/inotify.cr
-    version: 1.0.3
 
 crystal: 1.13.2
 

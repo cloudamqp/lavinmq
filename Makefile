@@ -10,7 +10,8 @@ override CRYSTAL_FLAGS += --error-on-warnings --link-flags=-pie
 .PHONY: livereload
 livereload:
 	@echo "Starting livereload server..."
-	@(pid=$$!; trap 'kill -TERM $$pid' INT; crystal run views/_livereload.cr &)
+	@which livereload > /dev/null || npm install -g livereload
+	@(pid=$$!; trap 'kill -TERM $$pid' INT; livereload -w 2000 static &)
 
 .PHONY: views
 views: $(VIEW_TARGETS)

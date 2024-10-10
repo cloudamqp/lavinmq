@@ -12,14 +12,6 @@ shards:
     git: https://github.com/cloudamqp/amqp-client.cr.git
     version: 1.2.7
 
-  inotify:
-    git: https://github.com/petoem/inotify.cr.git
-    version: 1.0.3
-
-  live_reload:
-    git: https://github.com/bcardiff/live_reload.cr.git
-    version: 0.1.0
-
   lz4:
     git: https://github.com/84codes/lz4.cr.git
     version: 1.0.0+git.commit.96d714f7593c66ca7425872fd26c7b1286806d3d
