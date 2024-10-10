@@ -7,66 +7,80 @@
   </head>
   <body>
     <% render "partials/header" %>
-    <main>
-      <div id="overview" class="card">
-        <div>
-          <div class="counter" id="connections">0</div>
-          <div class="counter-header"><a href="connections">Connections</a></div>
+    <div class="grid-content">
+      <main>
+        <div id="breadcrumbs">
+          <h2 class="page-title"><%=pagename%></h2>
         </div>
-        <div>
-          <div class="counter" id="channels">0</div>
-          <div class="counter-header"><a href="channels">Channels</a></div>
+        <div id="overview" class="card flex border-light w-full flex-row items-center gap-5 rounded-xl bg-dark-900 px-6 pb-7 pt-7">
+          <div>
+            <div class="counter" id="connections">0</div>
+            <div class="counter-header"><a href="connections">Connections</a></div>
+          </div>
+          <div class="overview-divider"></div>
+          <div>
+            <div class="counter" id="channels">0</div>
+            <div class="counter-header"><a href="channels">Channels</a></div>
+          </div>
+          <div class="overview-divider"></div>
+          <div>
+            <div class="counter" id="consumers">0</div>
+            <div class="counter-header"><a href="consumers">Consumers</a></div>
+          </div>
+          <div class="overview-divider"></div>
+          <div>
+            <div class="counter" id="exchanges">0</div>
+            <div class="counter-header"><a href="exchanges">Exchanges</a></div>
+          </div>
+          <div class="overview-divider"></div>
+          <div>
+            <div class="counter" id="queues">0</div>
+            <div class="counter-header"><a href="queues">Queues</a></div>
+          </div>
+          <div class="overview-divider"></div>
+          <div class="flex-1 text-center">
+            <div class="counter" id="uptime">0s</div>
+            <div class="counter-header">Uptime</div>
+          </div>
         </div>
-        <div>
-          <div class="counter" id="consumers">0</div>
-          <div class="counter-header"><a href="consumers">Consumers</a></div>
-        </div>
-        <div>
-          <div class="counter" id="exchanges">0</div>
-          <div class="counter-header"><a href="exchanges">Exchanges</a></div>
-        </div>
-        <div>
-          <div class="counter" id="queues">0</div>
-          <div class="counter-header"><a href="queues">Queues</a></div>
-        </div>
-        <div>
-          <div class="counter" id="uptime">0s</div>
-          <div class="counter-header">Uptime</div>
-        </div>
-      </div>
-      <section class="card cols-4 cols-6-md">
-        <h3>Queued messages</h3>
-        <div class="chart-container" id="msgChart"></div>
-      </section>
-      <section class="card cols-4 cols-6-md">
-        <h3>Data rates</h3>
-        <div class="chart-container" id="dataChart"></div>
-      </section>
-      <section class="card cols-4 cols-6-md">
-        <h3>Message rates</h3>
-        <div class="chart-container" id="rateChart"></div>
-      </section>
-      <form id="importDefinitions" method="post" enctype="multipart/form-data" class="form card cols-6">
-        <h3>Upload definitions</h3>
-        <label>
-          <span>Virtual host</span>
-          <select id="uploadDefinitionsVhost" name="vhost" required></select>
-        </label>
-        <label>
-          <span>File</span>
-          <input id="file" name="file" type="file" accept=".json" required />
-        </label>
-        <button type="submit" class="btn-primary">Upload</button>
-      </form>
-      <form id="exportDefinitions" method="post" class="form card cols-6">
-        <h3>Export definitions</h3>
-        <label>
-          <span>Virtual host</span>
-          <select id="exportDefinitionsVhost" name="vhost" required></select>
-        </label>
-        <button type="submit" class="btn-primary">Download</button>
-      </form>
-    </main>
-    <% render "partials/footer" %>
+        <section class="card border-light cols-4 cols-6-md rounded-xl bg-dark-900 px-6 pb-6 pt-4">
+          <h3 class="text-lg font-semibold text-light-400">Queued messages</h3>
+          <div class="chart-container relative mt-4" id="msgChart"></div>
+        </section>
+        <section class="card border-light cols-4 cols-6-md rounded-xl bg-dark-900 px-6 pb-6 pt-4">
+          <h3 class="text-lg font-semibold text-light-400">Data rates</h3>
+          <div class="chart-container relative mt-4" id="dataChart"></div>
+        </section>
+        <section class="card border-light cols-4 cols-6-md rounded-xl bg-dark-900 px-6 pb-6 pt-4">
+          <h3 class="text-lg font-semibold text-light-400">Message rates</h3>
+          <div class="chart-container relative mt-4" id="rateChart"></div>
+        </section>
+        <form id="importDefinitions" method="post" enctype="multipart/form-data" class="form card p-0 cols-6 rounded-xl bg-dark-900 border-light">
+          <h3 class="text-light-400 text-base leading-5 font-semibold px-6 py-4 border-b-light mb-0">Upload definitions</h3>
+          <div class="px-6 py-4">
+            <label class="mt-0 mb-4">
+              <span class="text-light-400">Virtual host</span>
+              <select id="uploadDefinitionsVhost" name="vhost" required></select>
+            </label>
+            <label class="mt-0 mb-4">
+              <span class="text-light-400">File</span>
+              <input id="file" name="file" type="file" accept=".json" required />
+            </label>
+            <button type="submit" class="btn-primary">Upload</button>
+          </div>
+        </form>
+        <form id="exportDefinitions" method="post" class="form card cols-6 p-0 cols-6 rounded-xl bg-dark-900 border-light">
+          <h3 class="text-light-400 text-base leading-5 font-semibold px-6 py-4 border-b-light mb-0">Export definitions</h3>
+          <div class="px-6 py-4">
+            <label class="mt-0 mb-4">
+              <span class="text-light-400">Virtual host</span>
+              <select id="exportDefinitionsVhost" name="vhost" required></select>
+            </label>
+            <button type="submit" class="btn-primary">Download</button>
+          </div>
+        </form>
+      </main>
+      <% render "partials/footer" %>
+    </div>
   </body>
 </html>

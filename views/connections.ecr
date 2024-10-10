@@ -7,35 +7,40 @@
   </head>
   <body>
     <% render "partials/header" %>
-    <main>
-      <section class="card">
-        <div class="table-wrapper">
-          <div id="table-error"></div>
-          <table id="table" class="table">
-            <thead>
-              <tr>
-                <th data-sort-key="vhost">Virtual host</th>
-                <th data-sort-key="name" class="left">Name</th>
-                <th data-sort-key="user" class="left">User</th>
-                <th data-sort-key="state">State</th>
-                <th data-sort-key="ssl">TLS</th>
-                <th data-sort-key="tls_version">TLS Version</th>
-                <th data-sort-key="cipher">Cipher</th>
-                <th data-sort-key="protocol">Protocol</th>
-                <th data-sort-key="channels">Channels</th>
-                <th data-sort-key="channel_max">Channel max</th>
-                <th data-sort-key="timeout">Heartbeat</th>
-                <th>Client</th>
-                <th data-sort-key="connected_at">Connected at</th>
-                <th data-sort-key="recv_oct">Received bytes</th>
-                <th data-sort-key="send_oct">Sent bytes</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
+    <div class="grid-content">
+      <main>
+        <div id="breadcrumbs">
+          <h2 class="page-title"><%=pagename%></h2>
         </div>
-      </section>
-    </main>
-    <% render "partials/footer" %>
+        <section class="card">
+          <div class="table-wrapper">
+            <div id="table-error"></div>
+            <table id="table" class="table">
+              <thead>
+                <tr>
+                  <th data-sort-key="vhost">Virtual host</th>
+                  <th data-sort-key="name" class="left">Name</th>
+                  <th data-sort-key="user" class="left">User</th>
+                  <th data-sort-key="state">State</th>
+                  <th data-sort-key="ssl">TLS</th>
+                  <th data-sort-key="tls_version">TLS Version</th>
+                  <th data-sort-key="cipher">Cipher</th>
+                  <th data-sort-key="protocol">Protocol</th>
+                  <th data-sort-key="channels">Channels</th>
+                  <th data-sort-key="channel_max">Channel max</th>
+                  <th data-sort-key="timeout">Heartbeat</th>
+                  <th>Client</th>
+                  <th data-sort-key="connected_at">Connected at</th>
+                  <th data-sort-key="recv_oct">Received bytes</th>
+                  <th data-sort-key="send_oct">Sent bytes</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+      <% render "partials/footer" %>
+    </div>
   </body>
 </html>
