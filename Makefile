@@ -7,6 +7,8 @@ JS := static/js/lib/chunks/helpers.segment.js static/js/lib/chart.js static/js/l
 CRYSTAL_FLAGS := --release --stats
 override CRYSTAL_FLAGS += --error-on-warnings --link-flags=-pie
 
+.DEFAULT_GOAL := all
+
 .PHONY: livereload
 livereload:
 	@echo "Starting livereload server..."
