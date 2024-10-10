@@ -1,12 +1,12 @@
 require "./exchange"
+require "../mqtt/subscription_tree"
 
 module LavinMQ
   class MQTTExchange < Exchange
-    # record Binding, topic_filter : String, qos : UInt8
-
     @bindings = Hash(BindingKey, Set(Destination)).new do |h, k|
       h[k] = Set(Destination).new
     end
+    @tree = MQTT::SubscriptionTree.new
 
     def type : String
       "mqtt"
@@ -20,11 +20,10 @@ module LavinMQ
       end
     end
 
-
     # TODO: we can probably clean this up a bit
     def publish(msg : Message, immediate : Bool,
-            queues : Set(Queue) = Set(Queue).new,
-            exchanges : Set(Exchange) = Set(Exchange).new) : Int32
+                queues : Set(Queue) = Set(Queue).new,
+                exchanges : Set(Exchange) = Set(Exchange).new) : Int32
       @publish_in_count += 1
       headers = msg.properties.headers
       find_queues(msg.routing_key, headers, queues, exchanges)
@@ -55,22 +54,28 @@ module LavinMQ
     end
 
     def bind(destination : Destination, routing_key : String, headers = nil) : Bool
-      # binding = Binding.new(topic_filter, arguments["x-mqtt-qos"])
-
-      # TODO: build spec for this early return
       raise LavinMQ::Exchange::AccessRefused.new(self) unless destination.is_a?(MQTT::Session)
+
       binding_key = BindingKey.new(routing_key, headers)
       return false unless @bindings[binding_key].add? destination
+
+      qos = headers.try { |h| h.fetch("x-mqtt-qos", "0").as(UInt8) }
+      @tree.subscribe(routing_key, destination, qos)
+
       data = BindingDetails.new(name, vhost.name, binding_key, destination)
       notify_observers(ExchangeEvent::Bind, data)
       true
     end
 
     def unbind(destination : Destination, routing_key, headers = nil) : Bool
+      raise LavinMQ::Exchange::AccessRefused.new(self) unless destination.is_a?(MQTT::Session)
       binding_key = BindingKey.new(routing_key, headers)
       rk_bindings = @bindings[binding_key]
       return false unless rk_bindings.delete destination
       @bindings.delete binding_key if rk_bindings.empty?
+
+      @tree.unsubscribe(routing_key, destination)
+
       data = BindingDetails.new(name, vhost.name, binding_key, destination)
       notify_observers(ExchangeEvent::Unbind, data)
 
@@ -88,9 +93,10 @@ module LavinMQ
     end
 
     private def matches(binding_key : BindingKey) : Iterator(Destination)
-      @bindings.each.select do |binding, destinations|
+      @tree.each_entry(binding_key.routing_key) do |session, qos|
+      end
 
-        # Use Jons tree finder..
+      @bindings.each.select do |binding, destinations|
         binding.routing_key == binding_key.routing_key
       end.flat_map { |_, v| v.each }
     end
