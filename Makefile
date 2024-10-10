@@ -11,7 +11,7 @@ override CRYSTAL_FLAGS += --error-on-warnings --link-flags=-pie
 livereload:
 	@echo "Starting livereload server..."
 	@which livereload > /dev/null || npm install -g livereload
-	@(pid=$$!; trap 'kill -TERM $$pid' INT; livereload -w 2000 static &)
+	@(pid=$$!; trap 'kill -TERM $$pid' INT; livereload static &)
 
 .PHONY: views
 views: $(VIEW_TARGETS)
@@ -25,7 +25,10 @@ dev-ui: livereload watch-views
 
 static/views/%.html: views/%.ecr $(VIEW_PARTIALS)
 	@mkdir -p static/views
-	@INPUT=$< crystal run views/_render.cr > $@ && echo "Rendered $< to $@"
+	@TEMP_FILE=$$(mktemp) && \
+	INPUT=$< crystal run views/_render.cr > $$TEMP_FILE && \
+	mv $$TEMP_FILE $@ && \
+	echo "Rendered $< to $@"
 
 .PHONY: clean-views
 clean-views:
