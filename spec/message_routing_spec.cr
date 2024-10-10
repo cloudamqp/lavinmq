@@ -5,8 +5,10 @@ module LavinMQ
     # Monkey patch for backward compability and easier testing
     def matches(routing_key, headers = nil) : Set(Queue | Exchange)
       s = Set(Queue | Exchange).new
-      queue_matches(routing_key, headers) { |q| s << q }
-      exchange_matches(routing_key, headers) { |x| s << x }
+      qs = Set(Queue).new
+      es = Set(Exchange).new
+      find_queues(routing_key, headers, qs, es)
+      qs.each { |q| s << q }
       s
     end
   end
@@ -19,7 +21,9 @@ describe LavinMQ::DirectExchange do
       q1 = LavinMQ::Queue.new(vhost, "q1")
       x = LavinMQ::DirectExchange.new(vhost, "")
       x.bind(q1, "q1", LavinMQ::AMQP::Table.new)
-      x.matches("q1").should eq(Set{q1})
+      found_queues = Set(LavinMQ::Queue).new
+      x.find_queues("q1", nil, found_queues, Set(LavinMQ::Exchange).new)
+      found_queues.should eq(Set{q1})
     end
   end
 
@@ -27,7 +31,10 @@ describe LavinMQ::DirectExchange do
     with_amqp_server do |s|
       vhost = s.vhosts.create("x")
       x = LavinMQ::DirectExchange.new(vhost, "")
-      x.matches("q1").should be_empty
+
+      found_queues = Set(LavinMQ::Queue).new
+      x.find_queues("q1", nil, found_queues, Set(LavinMQ::Exchange).new)
+      found_queues.should be_empty
     end
   end
 end
@@ -39,7 +46,10 @@ describe LavinMQ::FanoutExchange do
       q1 = LavinMQ::Queue.new(vhost, "q1")
       x = LavinMQ::FanoutExchange.new(vhost, "")
       x.bind(q1, "")
-      x.matches("any").should eq(Set{q1})
+
+      found_queues = Set(LavinMQ::Queue).new
+      x.find_queues("q1", nil, found_queues, Set(LavinMQ::Exchange).new)
+      found_queues.should eq(Set{q1})
     end
   end
 
@@ -47,7 +57,9 @@ describe LavinMQ::FanoutExchange do
     with_amqp_server do |s|
       vhost = s.vhosts.create("x")
       x = LavinMQ::FanoutExchange.new(vhost, "")
-      x.matches("q1").should be_empty
+      found_queues = Set(LavinMQ::Queue).new
+      x.find_queues("q1", nil, found_queues, Set(LavinMQ::Exchange).new)
+      found_queues.should be_empty
     end
   end
 end
@@ -304,6 +316,108 @@ describe LavinMQ::HeadersExchange do
         x.bind(q13, "", nil)
         x.matches("", nil).size.should eq 1
       end
+    end
+  end
+end
+
+describe LavinMQ::Exchange do
+  it "should handle CC in header" do
+    with_amqp_server do |s|
+      vhost = s.vhosts.create("x")
+      q1 = LavinMQ::Queue.new(vhost, "q1")
+      q2 = LavinMQ::Queue.new(vhost, "q2")
+      x = LavinMQ::DirectExchange.new(vhost, "")
+      x.bind(q1, "q1", LavinMQ::AMQP::Table.new)
+      x.bind(q2, "q2", LavinMQ::AMQP::Table.new)
+      found_queues = Set(LavinMQ::Queue).new
+      headers = LavinMQ::AMQP::Table.new
+      headers["CC"] = ["q2"]
+      x.find_queues("q1", headers, found_queues)
+      found_queues.should eq(Set{q1, q2})
+    end
+  end
+  it "should raise if CC header isn't array" do
+    with_amqp_server do |s|
+      vhost = s.vhosts.create("x")
+      q1 = LavinMQ::Queue.new(vhost, "q1")
+      q2 = LavinMQ::Queue.new(vhost, "q2")
+      x = LavinMQ::DirectExchange.new(vhost, "")
+      x.bind(q1, "q1", LavinMQ::AMQP::Table.new)
+      x.bind(q2, "q2", LavinMQ::AMQP::Table.new)
+      found_queues = Set(LavinMQ::Queue).new
+      headers = LavinMQ::AMQP::Table.new
+      headers["CC"] = "q2"
+      expect_raises(LavinMQ::Error::PreconditionFailed) do
+        x.find_queues("q1", headers, found_queues)
+      end
+    end
+  end
+
+  it "should handle BCC in header" do
+    with_amqp_server do |s|
+      vhost = s.vhosts.create("x")
+      q1 = LavinMQ::Queue.new(vhost, "q1")
+      q2 = LavinMQ::Queue.new(vhost, "q2")
+      x = LavinMQ::DirectExchange.new(vhost, "")
+      x.bind(q1, "q1", LavinMQ::AMQP::Table.new)
+      x.bind(q2, "q2", LavinMQ::AMQP::Table.new)
+      found_queues = Set(LavinMQ::Queue).new
+      headers = LavinMQ::AMQP::Table.new
+      headers["BCC"] = ["q2"]
+      x.find_queues("q1", headers, found_queues)
+      found_queues.should eq(Set{q1, q2})
+    end
+  end
+
+  it "should raise if BCC header isn't array" do
+    with_amqp_server do |s|
+      vhost = s.vhosts.create("x")
+      q1 = LavinMQ::Queue.new(vhost, "q1")
+      q2 = LavinMQ::Queue.new(vhost, "q2")
+      x = LavinMQ::DirectExchange.new(vhost, "")
+      x.bind(q1, "q1", LavinMQ::AMQP::Table.new)
+      x.bind(q2, "q2", LavinMQ::AMQP::Table.new)
+      found_queues = Set(LavinMQ::Queue).new
+      headers = LavinMQ::AMQP::Table.new
+      headers["BCC"] = "q2"
+      expect_raises(LavinMQ::Error::PreconditionFailed) do
+        x.find_queues("q1", headers, found_queues)
+      end
+    end
+  end
+
+  it "should drop BCC from header" do
+    with_amqp_server do |s|
+      vhost = s.vhosts.create("x")
+      q1 = LavinMQ::Queue.new(vhost, "q1")
+      q2 = LavinMQ::Queue.new(vhost, "q2")
+      x = LavinMQ::DirectExchange.new(vhost, "")
+      x.bind(q1, "q1", LavinMQ::AMQP::Table.new)
+      x.bind(q2, "q2", LavinMQ::AMQP::Table.new)
+      found_queues = Set(LavinMQ::Queue).new
+      headers = LavinMQ::AMQP::Table.new
+      headers["BCC"] = ["q2"]
+      x.find_queues("q1", headers, found_queues)
+      headers["BCC"]?.should be_nil
+    end
+  end
+
+  it "should read both CC and BCC" do
+    with_amqp_server do |s|
+      vhost = s.vhosts.create("x")
+      q1 = LavinMQ::Queue.new(vhost, "q1")
+      q2 = LavinMQ::Queue.new(vhost, "q2")
+      q3 = LavinMQ::Queue.new(vhost, "q3")
+      x = LavinMQ::DirectExchange.new(vhost, "")
+      x.bind(q1, "q1", LavinMQ::AMQP::Table.new)
+      x.bind(q2, "q2", LavinMQ::AMQP::Table.new)
+      x.bind(q3, "q3", LavinMQ::AMQP::Table.new)
+      found_queues = Set(LavinMQ::Queue).new
+      headers = LavinMQ::AMQP::Table.new
+      headers["CC"] = ["q2"]
+      headers["BCC"] = ["q3"]
+      x.find_queues("q1", headers, found_queues)
+      found_queues.should eq(Set{q1, q2, q3})
     end
   end
 end

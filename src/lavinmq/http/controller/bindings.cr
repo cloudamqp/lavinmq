@@ -32,10 +32,10 @@ module LavinMQ
             refuse_unless_management(context, user(context), vhost)
             e = exchange(context, params, vhost)
             q = queue(context, params, vhost, "queue")
-            itr = e.queue_bindings.each.select { |(_, v)| v.includes?(q) }
-              .map { |(k, _)| e.binding_details(k, q) }
+            itr = e.bindings_details.select { |db| db.destination == q }
             if e.name.empty?
-              default_binding = BindingDetails.new("", q.vhost.name, {q.name, nil}, q)
+              binding_key = BindingKey.new(q.name)
+              default_binding = BindingDetails.new("", q.vhost.name, binding_key, q)
               itr = {default_binding}.each.chain(itr)
             end
             page(context, itr)
@@ -63,7 +63,7 @@ module LavinMQ
               bad_request(context, "Field 'routing_key' is required")
             end
             ok = e.vhost.bind_queue(q.name, e.name, routing_key, arguments)
-            props = BindingDetails.hash_key({routing_key, arguments})
+            props = BindingKey.new(routing_key, arguments).properties_key
             context.response.headers["Location"] = q.name + "/" + props
             context.response.status_code = 201
             Log.debug do
@@ -79,8 +79,7 @@ module LavinMQ
             e = exchange(context, params, vhost)
             q = queue(context, params, vhost, "queue")
             props = URI.decode_www_form(params["props"])
-            binding = binding_for_props(context, e, q, props)
-            e.binding_details(binding[0], q).to_json(context.response)
+            binding_for_props(context, e, q, props).to_json(context.response)
           end
         end
 
@@ -99,12 +98,14 @@ module LavinMQ
             end
             props = URI.decode_www_form(params["props"])
             found = false
-            e.queue_bindings.each do |k, destinations|
-              next unless destinations.includes?(q) && BindingDetails.hash_key(k) == props
-              arguments = k[1] || AMQP::Table.new
-              @amqp_server.vhosts[vhost].unbind_queue(q.name, e.name, k[0], arguments)
+            e.bindings_details.each do |binding|
+              next unless binding.destination == q && binding.binding_key.properties_key == props
+              arguments = binding.arguments || AMQP::Table.new
+              @amqp_server.vhosts[vhost].unbind_queue(q.name, e.name,
+                binding.routing_key, arguments)
               found = true
-              Log.debug { "exchange '#{e.name}' unbound from queue '#{q.name}' with key '#{k}'" }
+              Log.debug { "exchange '#{e.name}' unbound from queue '#{q.name}' with " \
+                          " key '#{binding.routing_key}'" }
               break
             end
             context.response.status_code = found ? 204 : 404
@@ -116,8 +117,8 @@ module LavinMQ
             refuse_unless_management(context, user(context), vhost)
             source = exchange(context, params, vhost)
             destination = exchange(context, params, vhost, "destination")
-            page(context, source.exchange_bindings.each.select { |(_, v)| v.includes?(destination) }
-              .map { |(k, _)| source.binding_details(k, destination) })
+            bindings = source.bindings_details.select { |bd| bd.destination == destination }
+            page(context, bindings)
           end
         end
 
@@ -144,7 +145,7 @@ module LavinMQ
               bad_request(context, "Field 'routing_key' is required")
             end
             source.vhost.bind_exchange(destination.name, source.name, routing_key, arguments)
-            props = BindingDetails.hash_key({routing_key, arguments})
+            props = BindingKey.new(routing_key, arguments).properties_key
             context.response.headers["Location"] = context.request.path + "/" + props
             context.response.status_code = 201
           end
@@ -157,7 +158,7 @@ module LavinMQ
             destination = exchange(context, params, vhost, "destination")
             props = URI.decode_www_form(params["props"])
             binding = binding_for_props(context, source, destination, props)
-            source.binding_details(binding[0], destination).to_json(context.response)
+            binding.to_json(context.response)
           end
         end
 
@@ -178,10 +179,12 @@ module LavinMQ
             end
             props = URI.decode_www_form(params["props"])
             found = false
-            source.exchange_bindings.each do |k, destinations|
-              next unless destinations.includes?(destination) && BindingDetails.hash_key(k) == props
-              arguments = k[1] || AMQP::Table.new
-              @amqp_server.vhosts[vhost].unbind_exchange(destination.name, source.name, k[0], arguments)
+            source.bindings_details.each do |binding|
+              next unless binding.destination == destination &&
+                          binding.binding_key.properties_key == props
+              arguments = binding.arguments || AMQP::Table.new
+              @amqp_server.vhosts[vhost].unbind_exchange(destination.name,
+                source.name, binding.routing_key, arguments)
               found = true
               break
             end
