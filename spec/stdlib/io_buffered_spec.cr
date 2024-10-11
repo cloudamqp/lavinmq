@@ -101,21 +101,19 @@ describe IO::Buffered do
       end
     end
 
-    it "raises if io is closed" do
-      initial_data = "000foo".to_slice
+    it "returns what's in buffer upto size if io is closed" do
+      initial_data = "foobar".to_slice
       with_io(initial_data) do |read_io, write_io|
         read_io.read_buffering = true
         read_io.buffer_size = 9
 
         data = Bytes.new(3)
         read_io.read data
+        data.should eq "foo".to_slice
 
-        data.should eq "000".to_slice
         write_io.close
 
-        expect_raises(IO::Error) do
-          read_io.peek(6)
-        end
+        read_io.peek(6).should eq "bar".to_slice
       end
     end
   end
