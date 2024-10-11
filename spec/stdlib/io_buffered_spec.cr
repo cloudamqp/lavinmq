@@ -34,6 +34,14 @@ describe IO::Buffered do
       end
     end
 
+    it "returns slice of requested size" do
+      with_io("foo bar".to_slice) do |read_io, _write_io|
+        read_io.read_buffering = true
+        read_io.buffer_size = 5
+        read_io.peek(3).should eq "foo".to_slice
+      end
+    end
+
     it "will read until buffer contains at least size bytes" do
       initial_data = Bytes.new(3)
       Random::Secure.random_bytes(initial_data)
