@@ -1,5 +1,4 @@
 require "ecr/macros"
-require "live_reload"
 require "../src/lavinmq/version"
 
 # Used by `make dev-ui` to render views to static files for faster frontend development.
