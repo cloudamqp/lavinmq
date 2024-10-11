@@ -82,5 +82,41 @@ describe IO::Buffered do
         peeked.should eq "foobar".to_slice
       end
     end
+
+    it "will move existing data to beginning of internal buffer " do
+      initial_data = "000foo".to_slice
+      with_io(initial_data) do |read_io, write_io|
+        read_io.read_buffering = true
+        read_io.buffer_size = 9
+
+        data = Bytes.new(3)
+        read_io.read data
+        data.should eq "000".to_slice
+
+        extra_data = "barbaz".to_slice
+        write_io.write extra_data
+
+        peeked = read_io.peek(6)
+        peeked.should eq "foobar".to_slice
+      end
+    end
+
+    it "raises if io is closed" do
+      initial_data = "000foo".to_slice
+      with_io(initial_data) do |read_io, write_io|
+        read_io.read_buffering = true
+        read_io.buffer_size = 9
+
+        data = Bytes.new(3)
+        read_io.read data
+
+        data.should eq "000".to_slice
+        write_io.close
+
+        expect_raises(IO::Error) do
+          read_io.peek(6)
+        end
+      end
+    end
   end
 end
