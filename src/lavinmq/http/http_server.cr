@@ -11,9 +11,11 @@ end
 
 module LavinMQ
   module HTTP
-    Log = ::Log.for "http"
+    Log = LavinMQ::Log.for "http"
 
     class Server
+      Log = LavinMQ::Log.for "http.server"
+
       def initialize(@amqp_server : LavinMQ::Server)
         handlers = [
           StrictTransportSecurity.new,
@@ -40,7 +42,7 @@ module LavinMQ
           NodesController.new(@amqp_server),
           LogsController.new(@amqp_server),
         ] of ::HTTP::Handler
-        handlers.unshift(::HTTP::LogHandler.new) if Log.level == ::Log::Severity::Debug
+        handlers.unshift(::HTTP::LogHandler.new(log: Log)) if Log.level == ::Log::Severity::Debug
         @http = ::HTTP::Server.new(handlers)
       end
 

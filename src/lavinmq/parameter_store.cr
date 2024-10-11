@@ -6,7 +6,7 @@ module LavinMQ
   class ParameterStore(T)
     include Enumerable({ParameterId?, T})
 
-    Log = ::Log.for("parameterstore")
+    Log = LavinMQ::Log.for "parameter_store"
 
     def initialize(@data_dir : String, @file_name : String, @replicator : Clustering::Replicator, vhost : String? = nil)
       metadata = vhost ? ::Log::Metadata.build({vhost: vhost}) : ::Log::Metadata.empty

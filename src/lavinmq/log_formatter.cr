@@ -1,7 +1,7 @@
 require "log"
 
 module LavinMQ
-  struct JournalLogFormat < Log::StaticFormatter
+  struct JournalLogFormat < ::Log::StaticFormatter
     def run
       source
       context(before: '[', after: ']')
@@ -12,7 +12,7 @@ module LavinMQ
     end
   end
 
-  struct StdoutLogFormat < Log::StaticFormatter
+  struct StdoutLogFormat < ::Log::StaticFormatter
     def run
       timestamp
       severity

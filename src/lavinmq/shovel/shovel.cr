@@ -5,7 +5,7 @@ require "wait_group"
 
 module LavinMQ
   module Shovel
-    Log                       = ::Log.for("shovel")
+    Log                       = LavinMQ::Log.for "shovel"
     DEFAULT_ACK_MODE          = AckMode::OnConfirm
     DEFAULT_DELETE_AFTER      = DeleteAfter::Never
     DEFAULT_PREFETCH          = 1000_u16
@@ -410,13 +410,13 @@ module LavinMQ
           if ex.message.to_s.starts_with?("404")
             break
           end
-          Log.error(exception: ex) { ex.message }
+          Log.warn { ex.message }
           @error = ex.message
           exponential_reconnect_delay
         rescue ex
           break if terminated?
           @state = State::Error
-          Log.error(exception: ex) { ex.message }
+          Log.warn { ex.message }
           @error = ex.message
           exponential_reconnect_delay
         end

@@ -28,7 +28,7 @@ module LavinMQ
     @flow = true
     @listeners = Hash(Socket::Server, Symbol).new # Socket => protocol
     @replicator : Clustering::Replicator
-    Log = ::Log.for "amqpserver"
+    Log = LavinMQ::Log.for "server"
 
     def initialize(@data_dir : String, @replicator = Clustering::NoopServer.new)
       Dir.mkdir_p @data_dir

@@ -4,7 +4,7 @@ module LavinMQ
   module Schema
     VERSION = 4
 
-    Log = ::Log.for("Schema")
+    Log = LavinMQ::Log.for "schema"
 
     def self.migrate(data_dir, replicator) : Nil
       case v = version(data_dir)
@@ -66,7 +66,7 @@ module LavinMQ
 
     # Migrates a data directory from version 1-3 to version 4
     class SchemaV4
-      Log = ::Log.for("SchemaV4")
+      Log = LavinMQ::Log.for "schema_v4"
 
       def initialize(@data_dir : String)
       end
@@ -268,7 +268,7 @@ module LavinMQ
   end
 
   class SchemaVersion
-    Log = ::Log.for("SchemaVersion")
+    Log = LavinMQ::Log.for "schema_version"
 
     VERSIONS = {
       definition: 1,

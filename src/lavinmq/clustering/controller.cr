@@ -3,7 +3,7 @@ require "../etcd"
 require "./client"
 
 class LavinMQ::Clustering::Controller
-  Log = ::Log.for("clustering.controller")
+  Log = LavinMQ::Log.for "clustering.controller"
 
   @id : Int32
 

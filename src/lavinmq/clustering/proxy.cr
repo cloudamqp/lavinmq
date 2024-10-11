@@ -1,12 +1,11 @@
 require "socket"
-require "log"
 require "../config"
 require "../proxy_protocol"
 
 module LavinMQ
   module Clustering
     class Proxy
-      Log = ::Log.for("clustering.proxy")
+      Log = LavinMQ::Log.for "clustering.proxy"
       @proxy_header = false
       @local_address : String
 

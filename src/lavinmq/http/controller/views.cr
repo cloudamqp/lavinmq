@@ -8,6 +8,8 @@ module LavinMQ
     class ViewsController
       include Router
 
+      Log = LavinMQ::Log.for "http.views"
+
       def initialize
         static_view "/", "overview"
         static_view "/login"

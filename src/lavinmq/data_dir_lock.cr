@@ -3,7 +3,7 @@ module LavinMQ
   # Can work as a poor mans cluster where the master nodes acquires
   # a file lock on a shared file system like NFS
   class DataDirLock
-    Log = ::Log.for(self)
+    Log = LavinMQ::Log.for "data_dir_lock"
 
     def initialize(data_dir)
       @lock = File.open(File.join(data_dir, ".lock"), "a+")

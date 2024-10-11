@@ -5,7 +5,7 @@ require "./user"
 module LavinMQ
   class VHostStore
     include Enumerable({String, VHost})
-    Log = ::Log.for "vhoststore"
+    Log = LavinMQ::Log.for "vhost_store"
 
     def initialize(@data_dir : String, @users : UserStore, @replicator : Clustering::Replicator)
       @vhosts = Hash(String, VHost).new

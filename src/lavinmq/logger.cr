@@ -1,6 +1,8 @@
 require "log"
 
 module LavinMQ
+  Log = ::Log.for "lmq"
+
   struct Logger
     def initialize(@log : ::Log, @metadata : ::Log::Metadata)
     end

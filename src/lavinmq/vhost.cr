@@ -40,7 +40,7 @@ module LavinMQ
     @definitions_lock = Mutex.new(:reentrant)
     @definitions_file_path : String
     @definitions_deletes = 0
-    Log = ::Log.for("vhost")
+    Log = LavinMQ::Log.for "vhost"
 
     def initialize(@name : String, @server_data_dir : String, @users : UserStore, @replicator : Clustering::Replicator, @description = "", @tags = Array(String).new(0))
       @log = Logger.new(Log, vhost: @name)
