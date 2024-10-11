@@ -7,9 +7,9 @@ module IO::Buffered
       raise ArgumentError.new("size (#{size}) can't be greater than buffer_size #{@buffer_size}")
     end
 
-    remaining_capacity = @buffer_size - @in_buffer_rem.size
-    return @in_buffer_rem[0, size] unless remaining_capacity.positive?
+    return @in_buffer_rem[0, size] if size < @in_buffer_rem.size
 
+    remaining_capacity = @buffer_size - @in_buffer_rem.size
     in_buffer = in_buffer()
 
     while @in_buffer_rem.size < size
