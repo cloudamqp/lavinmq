@@ -56,16 +56,13 @@ describe IO::Buffered do
       with_io(initial_data) do |read_io, write_io|
         read_io.read_buffering = true
         read_io.buffer_size = 10
-        wg = WaitGroup.new(1)
-        peeked = nil
-        spawn do
-          peeked = read_io.peek(6)
-          wg.done
-        end
+
         read_io.peek.should eq "foo".to_slice
+
         extra_data = "barbaz".to_slice
         write_io.write extra_data
-        wg.wait
+
+        peeked = read_io.peek(6)
         peeked.should eq "foobar".to_slice
       end
     end
@@ -75,16 +72,13 @@ describe IO::Buffered do
       with_io(initial_data) do |read_io, write_io|
         read_io.read_buffering = true
         read_io.buffer_size = 9
-        wg = WaitGroup.new(1)
-        peeked = nil
-        spawn do
-          peeked = read_io.peek(6)
-          wg.done
-        end
+
         read_io.peek.should eq "foo".to_slice
+
         extra_data = "barbaz".to_slice
         write_io.write extra_data
-        wg.wait
+
+        peeked = read_io.peek(6)
         peeked.should eq "foobar".to_slice
       end
     end
