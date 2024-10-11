@@ -20,8 +20,8 @@ module LavinMQ
         handlers = [
           StrictTransportSecurity.new,
           AMQPWebsocket.new(@amqp_server),
-          ViewsController.new,
           StaticController.new,
+          ViewsController.new,
           ApiErrorHandler.new,
           AuthHandler.new(@amqp_server),
           PrometheusController.new(@amqp_server),
