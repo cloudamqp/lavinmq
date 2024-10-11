@@ -67,7 +67,7 @@ describe IO::Buffered do
       end
     end
 
-    it "will read up to buffer size" do
+    it "will read up to buffer size if possible" do
       initial_data = "foo".to_slice
       with_io(initial_data) do |read_io, write_io|
         read_io.read_buffering = true
