@@ -34,6 +34,15 @@ describe IO::Buffered do
       end
     end
 
+    it "raises unless size is positive" do
+      with_io do |read_io, _write_io|
+        read_io.read_buffering = true
+        expect_raises(ArgumentError) do
+          read_io.peek(-10)
+        end
+      end
+    end
+
     it "returns slice of requested size" do
       with_io("foo bar".to_slice) do |read_io, _write_io|
         read_io.read_buffering = true
