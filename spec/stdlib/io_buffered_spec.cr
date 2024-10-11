@@ -52,44 +52,40 @@ describe IO::Buffered do
     end
 
     it "will read until buffer contains at least size bytes" do
-      initial_data = Bytes.new(3)
-      Random::Secure.random_bytes(initial_data)
+      initial_data = "foo".to_slice
       with_io(initial_data) do |read_io, write_io|
         read_io.read_buffering = true
-        read_io.buffer_size = 100
+        read_io.buffer_size = 10
         wg = WaitGroup.new(1)
+        peeked = nil
         spawn do
-          read_io.peek(20)
+          peeked = read_io.peek(6)
           wg.done
         end
-        Fiber.yield
-        read_io.peek.size.should eq initial_data.size
-        extra_data = Bytes.new(17)
-        Random::Secure.random_bytes(extra_data)
+        read_io.peek.should eq "foo".to_slice
+        extra_data = "barbaz".to_slice
         write_io.write extra_data
         wg.wait
-        read_io.peek.size.should eq(initial_data.size + extra_data.size)
+        peeked.should eq "foobar".to_slice
       end
     end
 
     it "will read up to buffer size" do
-      initial_data = Bytes.new(3)
-      Random::Secure.random_bytes(initial_data)
+      initial_data = "foo".to_slice
       with_io(initial_data) do |read_io, write_io|
         read_io.read_buffering = true
-        read_io.buffer_size = 200
+        read_io.buffer_size = 9
         wg = WaitGroup.new(1)
+        peeked = nil
         spawn do
-          read_io.peek(20)
+          peeked = read_io.peek(6)
           wg.done
         end
-        Fiber.yield
-        read_io.peek.size.should eq initial_data.size
-        extra_data = Bytes.new(500)
-        Random::Secure.random_bytes(extra_data)
+        read_io.peek.should eq "foo".to_slice
+        extra_data = "barbaz".to_slice
         write_io.write extra_data
         wg.wait
-        read_io.peek.size.should eq(read_io.buffer_size)
+        peeked.should eq "foobar".to_slice
       end
     end
   end
