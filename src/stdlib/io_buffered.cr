@@ -7,16 +7,16 @@ module IO::Buffered
       raise ArgumentError.new("size (#{size}) can't be greater than buffer_size #{@buffer_size}")
     end
 
-    to_read = @buffer_size - @in_buffer_rem.size
-    return @in_buffer_rem[0, size] unless to_read.positive?
+    remaining_capacity = @buffer_size - @in_buffer_rem.size
+    return @in_buffer_rem[0, size] unless remaining_capacity.positive?
 
     in_buffer = in_buffer()
 
     while @in_buffer_rem.size < size
-      target = Slice.new(in_buffer + @in_buffer_rem.size, to_read)
+      target = Slice.new(in_buffer + @in_buffer_rem.size, remaining_capacity)
       read_size = unbuffered_read(target).to_i
-      @in_buffer_rem = Slice.new(in_buffer, @in_buffer_rem.size + read_size)
-      to_read -= read_size
+      remaining_capacity -= read_size
+      @in_buffer_rem = Slice.new(in_buffer, @buffer_size - remaining_capacity)
     end
 
     @in_buffer_rem[0, size]
