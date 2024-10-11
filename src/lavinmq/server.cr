@@ -104,6 +104,7 @@ module LavinMQ
       when 2 then ProxyProtocol::V2.parse(client)
       else
         peeked = client.peek(8)
+        raise "failed to determine protocol" if peeked.size < 8
         if peeked[0, 5] == "PROXY".to_slice &&
            followers.any? { |f| f.remote_address.address == remote_address.address }
           # Expect PROXY protocol header if remote address is a follower

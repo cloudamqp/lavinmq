@@ -17,11 +17,15 @@ module IO::Buffered
     end
 
     while @in_buffer_rem.size < size
-      target = Slice.new(in_buffer + @in_buffer_rem.size, remaining_capacity)
+      target = Slice.new(in_buffer + @in_buffer_rem.size, @buffer_size - @in_buffer_rem.size)
       bytes_read = unbuffered_read(target).to_i
-      raise IO::Error.new("io closed?") if bytes_read.zero?
+      break if bytes_read.zero?
       remaining_capacity -= bytes_read
-      @in_buffer_rem = Slice.new(in_buffer, @buffer_size - remaining_capacity)
+      @in_buffer_rem = Slice.new(in_buffer, @in_buffer_rem.size + bytes_read)
+    end
+
+    if @in_buffer_rem.size < size
+      return @in_buffer_rem
     end
 
     @in_buffer_rem[0, size]
