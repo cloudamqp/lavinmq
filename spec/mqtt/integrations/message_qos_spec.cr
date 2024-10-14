@@ -4,7 +4,7 @@ module MqttSpecs
   extend MqttHelpers
   extend MqttMatchers
   describe "message qos" do
-    pending "both qos bits can't be set [MQTT-3.3.1-4]" do
+    it "both qos bits can't be set [MQTT-3.3.1-4]" do
       with_server do |server|
         with_client_io(server) do |io|
           connect(io)
@@ -19,7 +19,7 @@ module MqttSpecs
       end
     end
 
-    pending "qos is set according to subscription qos [MYRA non-normative]" do
+    it "qos is set according to subscription qos [LavinMQ non-normative]" do
       with_server do |server|
         with_client_io(server) do |io|
           connect(io)
@@ -46,13 +46,14 @@ module MqttSpecs
       end
     end
 
-    pending "qos1 messages are stored for offline sessions [MQTT-3.1.2-5]" do
+    it "qos1 messages are stored for offline sessions [MQTT-3.1.2-5]" do
       with_server do |server|
         with_client_io(server) do |io|
           connect(io)
           topic_filters = mk_topic_filters({"a/b", 1u8})
           subscribe(io, topic_filters: topic_filters)
           disconnect(io)
+          sleep 0.1
         end
 
         with_client_io(server) do |publisher_io|
@@ -62,6 +63,7 @@ module MqttSpecs
             publish(publisher_io, topic: "a/b", qos: 0u8)
           end
           disconnect(publisher_io)
+          sleep 0.1
         end
 
         with_client_io(server) do |io|
@@ -78,7 +80,7 @@ module MqttSpecs
       end
     end
 
-    pending "acked qos1 message won't be sent again" do
+    it "acked qos1 message won't be sent again" do
       with_server do |server|
         with_client_io(server) do |io|
           connect(io)
@@ -90,6 +92,7 @@ module MqttSpecs
             publish(publisher_io, topic: "a/b", payload: "1".to_slice, qos: 0u8)
             publish(publisher_io, topic: "a/b", payload: "2".to_slice, qos: 0u8)
             disconnect(publisher_io)
+            sleep 0.1
           end
 
           pkt = read_packet(io)
@@ -98,6 +101,7 @@ module MqttSpecs
             puback(io, pub.packet_id)
           end
           disconnect(io)
+          sleep 0.1
         end
 
         with_client_io(server) do |io|
