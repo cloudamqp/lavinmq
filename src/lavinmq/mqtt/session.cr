@@ -81,14 +81,14 @@ module LavinMQ
       end
 
       private def get(no_ack : Bool, & : Envelope -> Nil) : Bool
-        #let packet_id be message counter, look at myra for counter
         raise ClosedError.new if @closed
         loop do # retry if msg expired or deliver limit hit
           env = @msg_store_lock.synchronize { @msg_store.shift? } || break
 
           sp = env.segment_position
           no_ack = env.message.properties.delivery_mode == 0
-          if false
+          if no_ack
+            pp "no ack"
             begin
               yield env # deliver the message
             rescue ex   # requeue failed delivery
@@ -113,7 +113,8 @@ module LavinMQ
       end
 
       def ack(sp : SegmentPosition) : Nil
-        # TDO: maybe risky to not have locka round this
+        # TODO: maybe risky to not have lock around this
+        pp "Acking?"
         @unacked.delete sp
         super sp
       end
