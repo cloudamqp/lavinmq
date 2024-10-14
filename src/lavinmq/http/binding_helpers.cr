@@ -10,19 +10,9 @@ module LavinMQ
         end
       end
 
-      private def binding_for_props(context, source, destination : Queue, props)
-        binding = source.queue_bindings.find do |k, v|
-          v.includes?(destination) && BindingDetails.hash_key(k) == props
-        end
-        unless binding
-          not_found(context, "Binding '#{props}' on exchange '#{source.name}' -> queue '#{destination.name}' does not exist")
-        end
-        binding
-      end
-
-      private def binding_for_props(context, source, destination : Exchange, props)
-        binding = source.exchange_bindings.find do |k, v|
-          v.includes?(destination) && BindingDetails.hash_key(k) == props
+      private def binding_for_props(context, source, destination : Destination, props)
+        binding = source.bindings_details.find do |bd|
+          bd.destination == destination && bd.binding_key.properties_key == props
         end
         unless binding
           not_found(context, "Binding '#{props}' on exchange '#{source.name}' -> exchange '#{destination.name}' does not exist")

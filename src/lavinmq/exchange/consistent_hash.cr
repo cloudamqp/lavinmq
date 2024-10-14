@@ -4,9 +4,50 @@ require "../consistent_hasher.cr"
 module LavinMQ
   class ConsistentHashExchange < Exchange
     @hasher = ConsistentHasher(Destination).new
+    @bindings = Hash(Destination, String).new
 
     def type : String
       "x-consistent-hash"
+    end
+
+    def bindings_details : Iterator(BindingDetails)
+      @bindings.each.map do |d, w|
+        binding_key = BindingKey.new(w, @arguments)
+        BindingDetails.new(name, vhost.name, binding_key, d)
+      end
+    end
+
+    def bind(destination : Destination, routing_key : String, headers : AMQP::Table?)
+      return false if @bindings.has_key? destination
+      @bindings[destination] = routing_key
+      w = weight(routing_key)
+      @hasher.add(destination.name, w, destination)
+      binding_key = BindingKey.new(routing_key, @arguments)
+      data = BindingDetails.new(name, vhost.name, binding_key, destination)
+      notify_observers(ExchangeEvent::Bind, data)
+      true
+    end
+
+    def unbind(destination : Destination, routing_key : String, headers : AMQP::Table?)
+      return false unless @bindings.delete destination
+      w = weight(routing_key)
+      @hasher.remove(destination.name, w)
+
+      binding_key = BindingKey.new(routing_key, @arguments)
+      data = BindingDetails.new(name, vhost.name, binding_key, destination)
+      notify_observers(ExchangeEvent::Unbind, data)
+
+      delete if @auto_delete && @bindings.empty?
+      true
+    end
+
+    protected def bindings(routing_key, headers) : Iterator(Destination)
+      key = hash_key(routing_key, headers)
+      if d = @hasher.get(key)
+        {d}.each
+      else
+        Iterator(Destination).empty
+      end
     end
 
     private def weight(routing_key : String) : UInt32
@@ -21,47 +62,6 @@ module LavinMQ
       when String then value.as(String)
       when Nil    then ""
       else             raise Error::PreconditionFailed.new("Routing header must be string")
-      end
-    end
-
-    def bind(destination : Destination, routing_key : String, headers : AMQP::Table?)
-      w = weight(routing_key)
-      @hasher.add(destination.name, w, destination)
-      ret = case destination
-            when Queue
-              @queue_bindings[{routing_key, headers}].add? destination
-            when Exchange
-              @exchange_bindings[{routing_key, headers}].add? destination
-            end
-      after_bind(destination, routing_key, headers)
-      ret
-    end
-
-    def unbind(destination : Destination, routing_key : String, headers : AMQP::Table?)
-      w = weight(routing_key)
-      ret = case destination
-            when Queue
-              @queue_bindings[{routing_key, headers}].delete destination
-            when Exchange
-              @exchange_bindings[{routing_key, headers}].delete destination
-            end
-      @hasher.remove(destination.name, w)
-      ret
-    end
-
-    def do_queue_matches(routing_key : String, headers : AMQP::Table?, & : Queue -> _)
-      key = hash_key(routing_key, headers)
-      case dest = @hasher.get(key)
-      when Queue
-        yield dest.as(Queue)
-      end
-    end
-
-    def do_exchange_matches(routing_key : String, headers : AMQP::Table?, & : Exchange -> _)
-      key = hash_key(routing_key, headers)
-      case dest = @hasher.get(key)
-      when Exchange
-        yield dest.as(Exchange)
       end
     end
   end

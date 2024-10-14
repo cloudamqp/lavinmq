@@ -2,40 +2,46 @@ require "./exchange"
 
 module LavinMQ
   class DirectExchange < Exchange
+    @bindings = Hash(String, Set(Destination)).new do |h, k|
+      h[k] = Set(Destination).new
+    end
+
     def type : String
       "direct"
     end
 
-    def bind(destination : Queue, routing_key, headers = nil)
-      ret = @queue_bindings[{routing_key, nil}].add? destination
-      after_bind(destination, routing_key, headers)
-      ret
+    def bindings_details : Iterator(BindingDetails)
+      @bindings.each.flat_map do |key, ds|
+        ds.each.map do |d|
+          binding_key = BindingKey.new(key)
+          BindingDetails.new(name, vhost.name, binding_key, d)
+        end
+      end
     end
 
-    def bind(destination : Exchange, routing_key, headers = nil)
-      ret = @exchange_bindings[{routing_key, nil}].add? destination
-      after_bind(destination, routing_key, headers)
-      ret
+    def bind(destination : Destination, routing_key, headers = nil) : Bool
+      return false unless @bindings[routing_key].add? destination
+      binding_key = BindingKey.new(routing_key)
+      data = BindingDetails.new(name, vhost.name, binding_key, destination)
+      notify_observers(ExchangeEvent::Bind, data)
+      true
     end
 
-    def unbind(destination : Queue, routing_key, headers = nil)
-      ret = @queue_bindings[{routing_key, nil}].delete destination
-      after_unbind(destination, routing_key, headers)
-      ret
+    def unbind(destination : Destination, routing_key, headers = nil) : Bool
+      rk_bindings = @bindings[routing_key]
+      return false unless rk_bindings.delete destination
+      @bindings.delete routing_key if rk_bindings.empty?
+
+      binding_key = BindingKey.new(routing_key)
+      data = BindingDetails.new(name, vhost.name, binding_key, destination)
+      notify_observers(ExchangeEvent::Unbind, data)
+
+      delete if @auto_delete && @bindings.each_value.all?(&.empty?)
+      true
     end
 
-    def unbind(destination : Exchange, routing_key, headers = nil)
-      ret = @exchange_bindings[{routing_key, nil}].delete destination
-      after_unbind(destination, routing_key, headers)
-      ret
-    end
-
-    def do_queue_matches(routing_key, headers = nil, & : Queue -> _)
-      @queue_bindings[{routing_key, nil}].each { |q| yield q }
-    end
-
-    def do_exchange_matches(routing_key, headers = nil, & : Exchange -> _)
-      @exchange_bindings[{routing_key, nil}].each { |x| yield x }
+    protected def bindings(routing_key, headers) : Iterator(Destination)
+      @bindings[routing_key].each
     end
   end
 end
