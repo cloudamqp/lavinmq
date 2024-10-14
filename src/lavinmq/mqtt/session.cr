@@ -8,8 +8,8 @@ module LavinMQ
                      @name : String,
                      @auto_delete = false,
                      arguments : ::AMQ::Protocol::Table = AMQP::Table.new)
-                    @count = 0u16
-                    @unacked = Deque(SegmentPosition).new
+        @count = 0u16
+        @unacked = Deque(SegmentPosition).new
         super(@vhost, @name, false, @auto_delete, arguments)
         spawn deliver_loop, name: "Consumer deliver loop", same_thread: true
       end
