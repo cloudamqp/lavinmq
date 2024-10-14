@@ -26,9 +26,9 @@ module LavinMQ
       "mqtt"
     end
 
-    private def _publish(msg : Message, immediate : Bool,
-                         queues : Set(Queue) = Set(Queue).new,
-                         exchanges : Set(Exchange) = Set(Exchange).new) : Int32
+    private def do_publish(msg : Message, immediate : Bool,
+                           queues : Set(Queue) = Set(Queue).new,
+                           exchanges : Set(Exchange) = Set(Exchange).new) : Int32
       count = 0
       @tree.each_entry(msg.routing_key) do |queue, qos|
         msg.properties.delivery_mode = qos
