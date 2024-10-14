@@ -152,6 +152,7 @@ module LavinMQ
                 queues : Set(Queue) = Set(Queue).new,
                 exchanges : Set(Exchange) = Set(Exchange).new) : Int32
       @publish_in_count += 1
+      pp "pub"
       count = do_publish(msg, immediate, queues, exchanges)
       @unroutable_count += 1 if count.zero?
       @publish_out_count += count

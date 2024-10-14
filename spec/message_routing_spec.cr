@@ -434,4 +434,16 @@ describe LavinMQ::MQTTExchange do
       end
     end
   end
+
+  it "publish messages to queues with it's own publish method" do
+    with_amqp_server do |s|
+      vhost = s.vhosts.create("x")
+      s1 = LavinMQ::MQTT::Session.new(vhost, "session 1")
+      x = LavinMQ::MQTTExchange.new(vhost, "mqtt.default")
+      x.bind(s1, "s1", LavinMQ::AMQP::Table.new)
+      msg = LavinMQ::Message.new("mqtt.default", "s1", "hej")
+      x.publish(msg, false)
+      s1.message_count.should eq 1
+    end
+  end
 end
