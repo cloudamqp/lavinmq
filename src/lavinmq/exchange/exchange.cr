@@ -190,9 +190,9 @@ module LavinMQ
       return unless exchanges.add? self
       bindings(routing_key, headers).each do |d|
         case d
-        when Queue
+        in Queue
           queues.add(d)
-        when Exchange
+        in Exchange
           d.find_queues(routing_key, headers, queues, exchanges)
         end
       end
