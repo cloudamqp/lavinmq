@@ -12,7 +12,13 @@ require "../src/lavinmq/version"
   end
 
   macro active_path?(path)
-    "#{\{{path}}}" == {{source}}
+    local_path = if "#{\{{path}}}" == "."
+      "overview"
+    else
+      \{{path}}
+    end
+
+    "#{local_path}" == {{source}}
   end
 
   render({{source}})
