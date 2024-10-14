@@ -268,7 +268,7 @@ module MqttSpecs
 
         it "should not publish after disconnect" do
           with_server do |server|
-              # Create a non-clean session with an active subscription
+            # Create a non-clean session with an active subscription
             with_client_io(server) do |io|
               connect(io, clean_session: false)
               topics = mk_topic_filters({"a/b", 1})
@@ -279,7 +279,6 @@ module MqttSpecs
             server.vhosts["/"].queues["amq.mqtt-client_id"].consumers.should be_empty
           end
         end
-
       end
     end
   end
