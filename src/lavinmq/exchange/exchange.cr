@@ -110,7 +110,7 @@ module LavinMQ
     def in_use?
       return true unless bindings_details.empty?
       @vhost.exchanges.any? do |_, x|
-        x.bindings_details.each.any? { |bd| bd.destination == self }
+        x.bindings_details.any? { |bd| bd.destination == self }
       end
     end
 
