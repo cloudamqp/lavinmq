@@ -10,7 +10,7 @@ module LavinMQ
   module MQTT
     class ConnectionFactory
       def initialize(@users : UserStore,
-                      @vhost : VHost,
+                     @vhost : VHost,
                      @broker : MQTT::Broker)
       end
 

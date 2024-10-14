@@ -62,7 +62,7 @@ module LavinMQ
         @broker.disconnect_client(client_id)
 
         @socket.close
-        #move to disconnect client
+        # move to disconnect client
         @broker.vhost.rm_connection(self)
       end
 
@@ -78,7 +78,6 @@ module LavinMQ
         when MQTT::Unsubscribe then recieve_unsubscribe(packet)
         when MQTT::PingReq     then receive_pingreq(packet)
         when MQTT::Disconnect  then return packet
-
         else                        raise "invalid packet type for client to send"
         end
         packet
@@ -109,7 +108,6 @@ module LavinMQ
       end
 
       def recieve_puback(packet)
-
       end
 
       def recieve_subscribe(packet : MQTT::Subscribe)
