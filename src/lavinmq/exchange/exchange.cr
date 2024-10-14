@@ -191,7 +191,7 @@ module LavinMQ
       bindings(routing_key, headers).each do |d|
         case d
         when Queue
-          queues.add(d) unless d.closed?
+          queues.add(d)
         when Exchange
           d.find_queues(routing_key, headers, queues, exchanges)
         end
