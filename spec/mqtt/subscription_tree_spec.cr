@@ -1,17 +1,15 @@
 require "./spec_helper"
 require "../../src/lavinmq/mqtt/subscription_tree"
-# require "../src/myramq/broker"
-# require "../src/myramq/session"
 
 describe LavinMQ::MQTT::SubscriptionTree do
-  tree = LavinMQ::MQTT::SubscriptionTree.new
-
   describe "#any?" do
     it "returns false for empty tree" do
+      tree = LavinMQ::MQTT::SubscriptionTree(String).new
       tree.any?("a").should be_false
     end
 
     describe "with subs" do
+      tree = LavinMQ::MQTT::SubscriptionTree(String).new
       before_each do
         test_data = [
           "a/b",
@@ -19,10 +17,10 @@ describe LavinMQ::MQTT::SubscriptionTree do
           "a/b/c/d/#",
           "a/+/c/d/#",
         ]
-        session = LavinMQ::MQTT::Session.new
+        target = "target"
 
         test_data.each do |topic|
-          tree.subscribe(topic, session, 0u8)
+          tree.subscribe(topic, target, 0u8)
         end
       end
 
@@ -46,55 +44,63 @@ describe LavinMQ::MQTT::SubscriptionTree do
 
   describe "#empty?" do
     it "returns true before any subscribe" do
+      tree = LavinMQ::MQTT::SubscriptionTree(String).new
       tree.empty?.should be_true
     end
 
     it "returns false after a non-wildcard subscribe" do
-      session = mock(MQTT::Session)
+      tree = LavinMQ::MQTT::SubscriptionTree(String).new
+      session = "target"
       tree.subscribe("topic", session, 0u8)
       tree.empty?.should be_false
     end
 
     it "returns false after a +-wildcard subscribe" do
-      session = mock(MQTT::Session)
+      tree = LavinMQ::MQTT::SubscriptionTree(String).new
+      session = "target"
       tree.subscribe("a/+/topic", session, 0u8)
       tree.empty?.should be_false
     end
 
     it "returns false after a #-wildcard subscribe" do
-      session = mock(MQTT::Session)
+      tree = LavinMQ::MQTT::SubscriptionTree(String).new
+      session = "session"
       tree.subscribe("a/#/topic", session, 0u8)
       tree.empty?.should be_false
     end
 
     it "returns true after unsubscribing only existing non-wildcard subscription" do
-      session = mock(MQTT::Session)
+      tree = LavinMQ::MQTT::SubscriptionTree(String).new
+      session = "session"
       tree.subscribe("topic", session, 0u8)
       tree.unsubscribe("topic", session)
       tree.empty?.should be_true
     end
 
     it "returns true after unsubscribing only existing +-wildcard subscription" do
-      session = mock(MQTT::Session)
+      tree = LavinMQ::MQTT::SubscriptionTree(String).new
+      session = "session"
       tree.subscribe("a/+/topic", session, 0u8)
       tree.unsubscribe("a/+/topic", session)
       tree.empty?.should be_true
     end
 
     it "returns true after unsubscribing only existing #+-wildcard subscription" do
-      session = mock(MQTT::Session)
+      tree = LavinMQ::MQTT::SubscriptionTree(String).new
+      session = "session"
       tree.subscribe("a/b/#", session, 0u8)
       tree.unsubscribe("a/b/#", session)
       tree.empty?.should be_true
     end
 
     it "returns true after unsubscribing many different subscriptions" do
+      tree = LavinMQ::MQTT::SubscriptionTree(String).new
       test_data = [
-        {mock(MQTT::Session), "a/b"},
-        {mock(MQTT::Session), "a/+/b"},
-        {mock(MQTT::Session), "a/b/c/d#"},
-        {mock(MQTT::Session), "a/+/c/d/#"},
-        {mock(MQTT::Session), "#"},
+        {"session", "a/b"},
+        {"session", "a/+/b"},
+        {"session", "a/b/c/d#"},
+        {"session", "a/+/c/d/#"},
+        {"session", "#"},
       ]
 
       test_data.each do |session, topic|
@@ -110,12 +116,13 @@ describe LavinMQ::MQTT::SubscriptionTree do
   end
 
   it "subscriptions is found" do
+    tree = LavinMQ::MQTT::SubscriptionTree(String).new
     test_data = [
-      {mock(MQTT::Session), [{"a/b", 0u8}]},
-      {mock(MQTT::Session), [{"a/b", 0u8}]},
-      {mock(MQTT::Session), [{"a/c", 0u8}]},
-      {mock(MQTT::Session), [{"a/+", 0u8}]},
-      {mock(MQTT::Session), [{"#", 0u8}]},
+      {"session", [{"a/b", 0u8}]},
+      {"session", [{"a/b", 0u8}]},
+      {"session", [{"a/c", 0u8}]},
+      {"session", [{"a/+", 0u8}]},
+      {"session", [{"#", 0u8}]},
     ]
 
     test_data.each do |s|
@@ -128,6 +135,7 @@ describe LavinMQ::MQTT::SubscriptionTree do
 
     calls = 0
     tree.each_entry "a/b" do |_session, qos|
+      puts "qos=#{qos}"
       qos.should eq 0u8
       calls += 1
     end
@@ -135,12 +143,13 @@ describe LavinMQ::MQTT::SubscriptionTree do
   end
 
   it "unsubscribe unsubscribes" do
+    tree = LavinMQ::MQTT::SubscriptionTree(String).new
     test_data = [
-      {mock(MQTT::Session), [{"a/b", 0u8}]},
-      {mock(MQTT::Session), [{"a/b", 0u8}]},
-      {mock(MQTT::Session), [{"a/c", 0u8}]},
-      {mock(MQTT::Session), [{"a/+", 0u8}]},
-      {mock(MQTT::Session), [{"#", 0u8}]},
+      {"session", [{"a/b", 0u8}]},
+      {"session", [{"a/b", 0u8}]},
+      {"session", [{"a/c", 0u8}]},
+      {"session", [{"a/+", 0u8}]},
+      {"session", [{"#", 0u8}]},
     ]
 
     test_data.each do |session, subscriptions|
@@ -162,7 +171,8 @@ describe LavinMQ::MQTT::SubscriptionTree do
   end
 
   it "changes qos level" do
-    session = mock(MQTT::Session)
+    tree = LavinMQ::MQTT::SubscriptionTree(String).new
+    session = "session"
     tree.subscribe("a/b", session, 0u8)
     tree.each_entry "a/b" { |_sess, qos| qos.should eq 0u8 }
     tree.subscribe("a/b", session, 1u8)
@@ -170,14 +180,15 @@ describe LavinMQ::MQTT::SubscriptionTree do
   end
 
   it "can iterate all entries" do
+    tree = LavinMQ::MQTT::SubscriptionTree(String).new
     test_data = [
-      {mock(MQTT::Session), [{"a/b", 0u8}]},
-      {mock(MQTT::Session), [{"a/b/c/d/e", 0u8}]},
-      {mock(MQTT::Session), [{"+/c", 0u8}]},
-      {mock(MQTT::Session), [{"a/+", 0u8}]},
-      {mock(MQTT::Session), [{"#", 0u8}]},
-      {mock(MQTT::Session), [{"a/b/#", 0u8}]},
-      {mock(MQTT::Session), [{"a/+/c", 0u8}]},
+      {"session", [{"a/b", 0u8}]},
+      {"session", [{"a/b/c/d/e", 0u8}]},
+      {"session", [{"+/c", 0u8}]},
+      {"session", [{"a/+", 0u8}]},
+      {"session", [{"#", 0u8}]},
+      {"session", [{"a/b/#", 0u8}]},
+      {"session", [{"a/+/c", 0u8}]},
     ]
 
     test_data.each do |session, subscriptions|
