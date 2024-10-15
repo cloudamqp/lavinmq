@@ -1,5 +1,6 @@
 require "./exchange"
 require "../mqtt/subscription_tree"
+require "../mqtt/session"
 
 module LavinMQ
   class MQTTExchange < Exchange
@@ -17,10 +18,10 @@ module LavinMQ
       end
     end
 
-    @bindings = Hash(MqttBindingKey, Set(Destination)).new do |h, k|
-      h[k] = Set(Destination).new
+    @bindings = Hash(MqttBindingKey, Set(MQTT::Session)).new do |h, k|
+      h[k] = Set(MQTT::Session).new
     end
-    @tree = MQTT::SubscriptionTree(Destination).new
+    @tree = MQTT::SubscriptionTree(MQTT::Session).new
 
     def type : String
       "mqtt"
