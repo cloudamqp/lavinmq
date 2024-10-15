@@ -1,5 +1,5 @@
 require "./spec_helper"
-require "../src/myramq/string_token_iterator"
+require "../../src/lavinmq/mqtt/string_token_iterator"
 
 def strings
   [
@@ -16,18 +16,18 @@ def strings
   ]
 end
 
-Spectator.describe MyraMQ::SubscriptionTree do
-  sample strings do |testdata|
+describe LavinMQ::MQTT::StringTokenIterator do
+  strings.each do |testdata|
     it "is iterated correct" do
-      itr = MyraMQ::StringTokenIterator.new(testdata[0], '/')
+      itr = LavinMQ::MQTT::StringTokenIterator.new(testdata[0], '/')
       res = Array(String).new
       while itr.next?
         val = itr.next
-        expect(val).to_not be_nil
+        val.should_not be_nil
         res << val.not_nil!
       end
-      expect(itr.next?).to be_false
-      expect(res).to eq testdata[1]
+      itr.next?.should be_false
+      res.should eq testdata[1]
     end
   end
 end
