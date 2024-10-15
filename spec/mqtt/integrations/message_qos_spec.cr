@@ -53,7 +53,6 @@ module MqttSpecs
           topic_filters = mk_topic_filters({"a/b", 1u8})
           subscribe(io, topic_filters: topic_filters)
           disconnect(io)
-          sleep 100.milliseconds
         end
 
         with_client_io(server) do |publisher_io|
@@ -63,7 +62,6 @@ module MqttSpecs
             publish(publisher_io, topic: "a/b", qos: 0u8)
           end
           disconnect(publisher_io)
-          sleep 100.milliseconds
         end
 
         with_client_io(server) do |io|
@@ -92,7 +90,6 @@ module MqttSpecs
             publish(publisher_io, topic: "a/b", payload: "1".to_slice, qos: 0u8)
             publish(publisher_io, topic: "a/b", payload: "2".to_slice, qos: 0u8)
             disconnect(publisher_io)
-            sleep 100.milliseconds
           end
 
           pkt = read_packet(io)
@@ -101,7 +98,6 @@ module MqttSpecs
             puback(io, pub.packet_id)
           end
           disconnect(io)
-          sleep 100.milliseconds
         end
 
         with_client_io(server) do |io|
@@ -116,7 +112,7 @@ module MqttSpecs
       end
     end
 
-    pending "acks must not be ordered" do
+    it "acks must not be ordered" do
       with_server do |server|
         with_client_io(server) do |io|
           connect(io)
@@ -151,7 +147,8 @@ module MqttSpecs
       end
     end
 
-    pending "cannot ack invalid packet id" do
+    # TODO: rescue so we don't get ugly missing hash key errors
+    it "cannot ack invalid packet id" do
       with_server do |server|
         with_client_io(server) do |io|
           connect(io)
@@ -164,7 +161,7 @@ module MqttSpecs
       end
     end
 
-    pending "cannot ack a message twice" do
+    it "cannot ack a message twice" do
       with_server do |server|
         with_client_io(server) do |io|
           connect(io)
@@ -189,7 +186,7 @@ module MqttSpecs
       end
     end
 
-    pending "qos1 unacked messages re-sent in the initial order [MQTT-4.6.0-1]" do
+    it "qos1 unacked messages re-sent in the initial order [MQTT-4.6.0-1]" do
       max_inflight_messages = 10
       # We'll only ACK odd packet ids, and the first id is 1, so if we don't
       # do -1 the last packet (id=20) won't be sent because we've reached max
