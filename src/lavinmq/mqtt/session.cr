@@ -88,7 +88,7 @@ module LavinMQ
           sp = env.segment_position
           no_ack = env.message.properties.delivery_mode == 0
           if no_ack
-            pp "no ack"
+            # pp "no ack"
             begin
               yield env # deliver the message
             rescue ex   # requeue failed delivery
