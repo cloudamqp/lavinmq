@@ -26,6 +26,7 @@ targets:
 dependencies:
   amqp-client:
     github: cloudamqp/amqp-client.cr
+    branch: execution-context-compatibility
   amq-protocol:
     github: cloudamqp/amq-protocol.cr
   execution_context:
