@@ -118,11 +118,11 @@ describe LavinMQ::MQTT::SubscriptionTree do
   it "subscriptions is found" do
     tree = LavinMQ::MQTT::SubscriptionTree(String).new
     test_data = [
-      {"session", [{"a/b", 0u8}]},
-      {"session", [{"a/b", 0u8}]},
-      {"session", [{"a/c", 0u8}]},
-      {"session", [{"a/+", 0u8}]},
-      {"session", [{"#", 0u8}]},
+      {"session1", [{"a/b", 0u8}]},
+      {"session2", [{"a/b", 0u8}]},
+      {"session3", [{"a/c", 0u8}]},
+      {"session4", [{"a/+", 0u8}]},
+      {"session5", [{"#", 0u8}]},
     ]
 
     test_data.each do |s|
@@ -144,11 +144,11 @@ describe LavinMQ::MQTT::SubscriptionTree do
   it "unsubscribe unsubscribes" do
     tree = LavinMQ::MQTT::SubscriptionTree(String).new
     test_data = [
-      {"session", [{"a/b", 0u8}]},
-      {"session", [{"a/b", 0u8}]},
-      {"session", [{"a/c", 0u8}]},
-      {"session", [{"a/+", 0u8}]},
-      {"session", [{"#", 0u8}]},
+      {"session1", [{"a/b", 0u8}]},
+      {"session2", [{"a/b", 0u8}]},
+      {"session3", [{"a/c", 0u8}]},
+      {"session4", [{"a/+", 0u8}]},
+      {"session5", [{"#", 0u8}]},
     ]
 
     test_data.each do |session, subscriptions|
