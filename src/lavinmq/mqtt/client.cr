@@ -73,7 +73,7 @@ module LavinMQ
 
         case packet
         when MQTT::Publish     then recieve_publish(packet)
-        when MQTT::PubAck      then pp "puback"
+        when MQTT::PubAck      then nil
         when MQTT::Subscribe   then recieve_subscribe(packet)
         when MQTT::Unsubscribe then recieve_unsubscribe(packet)
         when MQTT::PingReq     then receive_pingreq(packet)
