@@ -53,7 +53,7 @@ module MqttSpecs
           topic_filters = mk_topic_filters({"a/b", 1u8})
           subscribe(io, topic_filters: topic_filters)
           disconnect(io)
-          sleep 0.1
+          sleep 100.milliseconds
         end
 
         with_client_io(server) do |publisher_io|
@@ -63,7 +63,7 @@ module MqttSpecs
             publish(publisher_io, topic: "a/b", qos: 0u8)
           end
           disconnect(publisher_io)
-          sleep 0.1
+          sleep 100.milliseconds
         end
 
         with_client_io(server) do |io|
@@ -92,7 +92,7 @@ module MqttSpecs
             publish(publisher_io, topic: "a/b", payload: "1".to_slice, qos: 0u8)
             publish(publisher_io, topic: "a/b", payload: "2".to_slice, qos: 0u8)
             disconnect(publisher_io)
-            sleep 0.1
+            sleep 100.milliseconds
           end
 
           pkt = read_packet(io)
@@ -101,7 +101,7 @@ module MqttSpecs
             puback(io, pub.packet_id)
           end
           disconnect(io)
-          sleep 0.1
+          sleep 100.milliseconds
         end
 
         with_client_io(server) do |io|
