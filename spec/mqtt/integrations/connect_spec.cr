@@ -192,7 +192,8 @@ module MqttSpecs
         it "if first packet is not a CONNECT [MQTT-3.1.0-1]" do
           with_server do |server|
             with_client_io(server) do |io|
-              ping(io)
+              payload = slice = Bytes[1, 254, 200, 197, 123, 4, 87]
+              publish(io, topic: "test", payload: payload, qos: 0u8)
               io.should be_closed
             end
           end

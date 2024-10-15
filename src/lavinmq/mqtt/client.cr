@@ -73,7 +73,7 @@ module LavinMQ
 
         case packet
         when MQTT::Publish     then recieve_publish(packet)
-        when MQTT::PubAck      then nil
+        when MQTT::PubAck      then recieve_puback(packet)
         when MQTT::Subscribe   then recieve_subscribe(packet)
         when MQTT::Unsubscribe then recieve_unsubscribe(packet)
         when MQTT::PingReq     then receive_pingreq(packet)
@@ -108,6 +108,7 @@ module LavinMQ
       end
 
       def recieve_puback(packet)
+        @broker.sessions[@client_id].ack(packet)
       end
 
       def recieve_subscribe(packet : MQTT::Subscribe)
