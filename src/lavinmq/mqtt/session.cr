@@ -9,7 +9,8 @@ module LavinMQ
                      @auto_delete = false,
                      arguments : ::AMQ::Protocol::Table = AMQP::Table.new)
         @count = 0u16
-        @unacked = Deque(SegmentPosition).new
+        @unacked = Hash(UInt16, SegmentPosition).new
+
         super(@vhost, @name, false, @auto_delete, arguments)
         spawn deliver_loop, name: "Consumer deliver loop", same_thread: true
       end
@@ -40,7 +41,7 @@ module LavinMQ
         end
 
         @msg_store_lock.synchronize do
-          @unacked.each do |sp|
+          @unacked.values.each do |sp|
             @msg_store.requeue(sp)
           end
         end
@@ -83,12 +84,12 @@ module LavinMQ
       private def get(no_ack : Bool, & : Envelope -> Nil) : Bool
         raise ClosedError.new if @closed
         loop do # retry if msg expired or deliver limit hit
+          id = next_id
           env = @msg_store_lock.synchronize { @msg_store.shift? } || break
 
           sp = env.segment_position
           no_ack = env.message.properties.delivery_mode == 0
           if no_ack
-            # pp "no ack"
             begin
               yield env # deliver the message
             rescue ex   # requeue failed delivery
@@ -97,10 +98,10 @@ module LavinMQ
             end
             delete_message(sp)
           else
-            env.message.properties.message_id = next_id.to_s
+            env.message.properties.message_id = id.to_s
             mark_unacked(sp) do
               yield env # deliver the message
-              @unacked << sp
+              @unacked[id] = sp
             end
           end
           return true
@@ -112,10 +113,11 @@ module LavinMQ
         raise ClosedError.new(cause: ex)
       end
 
-      def ack(sp : SegmentPosition) : Nil
+      def ack(packet : MQTT::PubAck) : Nil
         # TODO: maybe risky to not have lock around this
-        pp "Acking?"
-        @unacked.delete sp
+        id = packet.packet_id
+        sp = @unacked[id]
+        @unacked.delete id
         super sp
       end
 
@@ -124,7 +126,8 @@ module LavinMQ
       private def queue_expire_loop; end
 
       private def next_id : UInt16?
-        @count += 1u16
+        @count &+= 1u16
+
 
         # return nil if @unacked.size == @max_inflight
         # start_id = @packet_id
