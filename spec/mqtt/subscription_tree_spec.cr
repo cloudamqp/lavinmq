@@ -135,7 +135,6 @@ describe LavinMQ::MQTT::SubscriptionTree do
 
     calls = 0
     tree.each_entry "a/b" do |_session, qos|
-      puts "qos=#{qos}"
       qos.should eq 0u8
       calls += 1
     end
