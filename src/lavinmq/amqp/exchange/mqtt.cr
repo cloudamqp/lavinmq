@@ -22,7 +22,7 @@ module LavinMQ
     @bindings = Hash(MqttBindingKey, Set(Destination)).new do |h, k|
       h[k] = Set(Destination).new
     end
-    @tree = MQTT::SubscriptionTree.new
+    @tree = MQTT::SubscriptionTree(Destination).new
 
     def type : String
       "mqtt"
