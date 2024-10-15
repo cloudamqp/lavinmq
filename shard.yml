@@ -30,6 +30,7 @@ dependencies:
     github: cloudamqp/amq-protocol.cr
   execution_context:
     github: ysbaddaden/execution_context
+    branch: feature/lifetime-event-loop
   systemd:
     github: 84codes/systemd.cr
   lz4:
