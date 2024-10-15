@@ -111,11 +111,13 @@ module LavinMQ
       when 1 then ProxyProtocol::V1.parse(client)
       when 2 then ProxyProtocol::V2.parse(client)
       else
-        if client.peek[0, 5] == "PROXY".to_slice &&
+        peeked = client.peek(8)
+        raise "failed to determine protocol" if peeked.size < 8
+        if peeked[0, 5] == "PROXY".to_slice &&
            followers.any? { |f| f.remote_address.address == remote_address.address }
           # Expect PROXY protocol header if remote address is a follower
           ProxyProtocol::V1.parse(client)
-        elsif client.peek[0, 8] == ProxyProtocol::V2::Signature.to_slice[0, 8] &&
+        elsif peeked[0, 8] == ProxyProtocol::V2::Signature.to_slice[0, 8] &&
               followers.any? { |f| f.remote_address.address == remote_address.address }
           # Expect PROXY protocol header if remote address is a follower
           ProxyProtocol::V2.parse(client)
