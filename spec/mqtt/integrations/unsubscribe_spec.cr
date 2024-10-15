@@ -53,7 +53,6 @@ module MqttSpecs
             subscribe(io, topic_filters: topics)
             disconnect(io)
           end
-          sleep 1.second
 
           # Publish messages that will be stored for the subscriber
           2.times { |i| publish(pubio, topic: "a/b", payload: i.to_s.to_slice, qos: 0u8) }
@@ -71,7 +70,6 @@ module MqttSpecs
             unsubscribe(io, topics: ["a/b"])
             disconnect(io)
           end
-          sleep 1.second
 
           # Publish more messages
           2.times { |i| publish(pubio, topic: "a/b", payload: (2 + i).to_s.to_slice, qos: 0u8) }
