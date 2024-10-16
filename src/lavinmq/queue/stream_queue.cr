@@ -51,7 +51,7 @@ module LavinMQ
     # save message id / segment position
     def publish(msg : Message) : Bool
       return false if @state.closed?
-      @msg_store_lock.synchronize do
+      @msg_store_lock_w.synchronize do
         @msg_store.push(msg)
         @publish_count += 1
       end
@@ -84,7 +84,7 @@ module LavinMQ
     # if we encouncer an unrecoverable ReadError, close queue
     private def get(consumer : AMQP::StreamConsumer, & : Envelope -> Nil) : Bool
       raise ClosedError.new if @closed
-      env = @msg_store_lock.synchronize { @msg_store.shift?(consumer) } || return false
+      env = @msg_store_lock_r.synchronize { @msg_store.shift?(consumer) } || return false
       yield env # deliver the message
       true
     rescue ex : MessageStore::Error
@@ -165,7 +165,7 @@ module LavinMQ
           used_segments << consumer.as(AMQP::StreamConsumer).segment
         end
       end
-      @msg_store_lock.synchronize do
+      @msg_store_lock_r.synchronize do
         stream_queue_msg_store.drop_overflow
         stream_queue_msg_store.unmap_segments(except: used_segments)
       end

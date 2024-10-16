@@ -39,7 +39,8 @@ module LavinMQ
     getter unacked_bytesize = 0u64
     @unacked_lock = Mutex.new(:unchecked)
 
-    @msg_store_lock = Mutex.new(:reentrant)
+    @msg_store_lock_w = Mutex.new(:reentrant)
+    @msg_store_lock_r = Mutex.new(:reentrant)
     @msg_store : MessageStore
 
     getter? paused = false
@@ -347,8 +348,10 @@ module LavinMQ
         @consumers.clear
       end
       Fiber.yield # Allow all consumers to cancel before closing mmap:s
-      @msg_store_lock.synchronize do
-        @msg_store.close
+      @msg_store_lock_w.synchronize do
+        @msg_store_lock_r.synchronize do
+          @msg_store.close
+        end
       end
       # TODO: When closing due to ReadError, queue is deleted if exclusive
       delete if !durable? || @exclusive
@@ -363,8 +366,10 @@ module LavinMQ
       @deleted = true
       close
       @state = QueueState::Deleted
-      @msg_store_lock.synchronize do
-        @msg_store.delete
+      @msg_store_lock_w.synchronize do
+        @msg_store_lock_r.synchronize do
+          @msg_store.delete
+        end
       end
       @vhost.delete_queue(@name)
       @log.info { "(messages=#{message_count}) Deleted" }
@@ -414,7 +419,7 @@ module LavinMQ
     def publish(msg : Message) : Bool
       return false if @state.closed?
       reject_on_overflow(msg)
-      @msg_store_lock.synchronize do
+      @msg_store_lock_w.synchronize do
         @msg_store.push(msg)
         @publish_count += 1
       end
@@ -446,7 +451,7 @@ module LavinMQ
     private def drop_overflow : Nil
       counter = 0
       if ml = @max_length
-        @msg_store_lock.synchronize do
+        @msg_store_lock_r.synchronize do
           while @msg_store.size > ml
             env = @msg_store.shift? || break
             @log.debug { "Overflow drop head sp=#{env.segment_position}" }
@@ -461,7 +466,7 @@ module LavinMQ
       end
 
       if mlb = @max_length_bytes
-        @msg_store_lock.synchronize do
+        @msg_store_lock_r.synchronize do
           while @msg_store.bytesize > mlb
             env = @msg_store.shift? || break
             @log.debug { "Overflow drop head sp=#{env.segment_position}" }
@@ -477,7 +482,7 @@ module LavinMQ
     end
 
     private def time_to_message_expiration : Time::Span?
-      env = @msg_store_lock.synchronize { @msg_store.first? } || return
+      env = @msg_store_lock_r.synchronize { @msg_store.first? } || return
       @log.debug { "Checking if message #{env.message} has to be expired" }
       if expire_at = expire_at(env.message)
         expire_in = expire_at - RoughTime.unix_ms
@@ -490,7 +495,7 @@ module LavinMQ
     end
 
     private def has_expired?(sp : SegmentPosition, requeue = false) : Bool
-      msg = @msg_store_lock.synchronize { @msg_store[sp] }
+      msg = @msg_store_lock_r.synchronize { @msg_store[sp] }
       has_expired?(msg, requeue)
     end
 
@@ -520,7 +525,7 @@ module LavinMQ
 
     private def expire_messages : Nil
       i = 0
-      @msg_store_lock.synchronize do
+      @msg_store_lock_r.synchronize do
         loop do
           env = @msg_store.first? || break
           msg = env.message
@@ -540,7 +545,7 @@ module LavinMQ
 
     private def expire_msg(sp : SegmentPosition, reason : Symbol)
       if sp.has_dlx? || @dlx
-        msg = @msg_store_lock.synchronize { @msg_store[sp] }
+        msg = @msg_store_lock_r.synchronize { @msg_store[sp] }
         env = Envelope.new(sp, msg, false)
         expire_msg(env, reason)
       else
@@ -691,7 +696,7 @@ module LavinMQ
     private def get(no_ack : Bool, & : Envelope -> Nil) : Bool
       raise ClosedError.new if @closed
       loop do # retry if msg expired or deliver limit hit
-        env = @msg_store_lock.synchronize { @msg_store.shift? } || break
+        env = @msg_store_lock_r.synchronize { @msg_store.shift? } || break
         if has_expired?(env.message) # guarantee to not deliver expired messages
           expire_msg(env, :expired)
           next
@@ -704,7 +709,7 @@ module LavinMQ
           begin
             yield env # deliver the message
           rescue ex   # requeue failed delivery
-            @msg_store_lock.synchronize { @msg_store.requeue(sp) }
+            @msg_store_lock_r.synchronize { @msg_store.requeue(sp) }
             raise ex
           end
           delete_message(sp)
@@ -732,7 +737,7 @@ module LavinMQ
         yield
       rescue ex
         @log.debug { "Not counting as unacked: #{sp}" }
-        @msg_store_lock.synchronize do
+        @msg_store_lock_r.synchronize do
           @msg_store.requeue(sp)
         end
         @unacked_lock.synchronize do
@@ -775,7 +780,7 @@ module LavinMQ
         @log.debug { "Deleting: #{sp}" }
       {% end %}
       @deliveries.delete(sp) if @delivery_limit
-      @msg_store_lock.synchronize do
+      @msg_store_lock_r.synchronize do
         @msg_store.delete(sp)
       end
     end
@@ -792,7 +797,7 @@ module LavinMQ
         if has_expired?(sp, requeue: true) # guarantee to not deliver expired messages
           expire_msg(sp, :expired)
         else
-          @msg_store_lock.synchronize do
+          @msg_store_lock_r.synchronize do
             @msg_store.requeue(sp)
           end
           drop_overflow unless immediate_delivery?
@@ -849,8 +854,10 @@ module LavinMQ
           delete
         else
           notify_consumers_empty(true)
-          @msg_store_lock.synchronize do
-            @msg_store.unmap_segments
+          @msg_store_lock_w.synchronize do
+            @msg_store_lock_r.synchronize do
+              @msg_store.unmap_segments
+            end
           end
         end
       end
@@ -872,7 +879,7 @@ module LavinMQ
     end
 
     def purge(max_count : Int = UInt32::MAX) : UInt32
-      delete_count = @msg_store_lock.synchronize { @msg_store.purge(max_count) }
+      delete_count = @msg_store_lock_r.synchronize { @msg_store.purge(max_count) }
       @log.info { "Purged #{delete_count} messages" }
       delete_count
     rescue ex : MessageStore::Error
@@ -921,7 +928,7 @@ module LavinMQ
     # Used for when channel recovers without requeue
     # eg. redelivers messages it already has unacked
     def read(sp : SegmentPosition) : Envelope
-      msg = @msg_store_lock.synchronize { @msg_store[sp] }
+      msg = @msg_store_lock_r.synchronize { @msg_store[sp] }
       msg_sp = SegmentPosition.make(sp.segment, sp.position, msg)
       Envelope.new(msg_sp, msg, redelivered: true)
     rescue ex : MessageStore::Error
