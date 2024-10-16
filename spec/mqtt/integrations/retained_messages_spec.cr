@@ -4,7 +4,7 @@ module MqttSpecs
   extend MqttHelpers
   extend MqttMatchers
   describe "retained messages" do
-    pending "retained messages are received on subscribe" do
+    it "retained messages are received on subscribe" do
       with_server do |server|
         with_client_io(server) do |io|
           connect(io, client_id: "publisher")
