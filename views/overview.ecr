@@ -47,12 +47,12 @@
           <h3 class="text-lg font-semibold text-light-400">Queued messages</h3>
           <div class="chart-container" id="msgChart"></div>
         </section>
-        <section class="card cols-4 cols-6-md">
-          <h3>Data rates</h3>
+        <section class="card border-light cols-4 cols-6-md rounded-xl bg-dark-900 px-6 pb-6 pt-4">
+          <h3 class="text-lg font-semibold text-light-400">Data rates</h3>
           <div class="chart-container" id="dataChart"></div>
         </section>
-        <section class="card cols-4 cols-6-md">
-          <h3>Message rates</h3>
+        <section class="card border-light cols-4 cols-6-md rounded-xl bg-dark-900 px-6 pb-6 pt-4">
+          <h3 class="text-lg font-semibold text-light-400">Message rates</h3>
           <div class="chart-container" id="rateChart"></div>
         </section>
         <form id="importDefinitions" method="post" enctype="multipart/form-data" class="form card p-0 cols-6 rounded-xl bg-dark-900 border-light">
@@ -69,13 +69,15 @@
             <button type="submit" class="btn-primary">Upload</button>
           </div>
         </form>
-        <form id="exportDefinitions" method="post" class="form card cols-6">
-          <h3>Export definitions</h3>
-          <label>
-            <span>Virtual host</span>
-            <select id="exportDefinitionsVhost" name="vhost" required></select>
-          </label>
-          <button type="submit" class="btn-primary">Download</button>
+        <form id="exportDefinitions" method="post" class="form card p-0 cols-6 rounded-xl bg-dark-900 border-light">
+          <h3 class="text-light-400 text-base leading-5 font-semibold px-6 py-4 border-b-light mb-0">Export definitions</h3>
+          <div class="px-6 py-4">
+            <label class="mt-0 mb-4">
+              <span class="text-light-400">Virtual host</span>
+              <select id="exportDefinitionsVhost" name="vhost" required></select>
+            </label>
+            <button type="submit" class="btn-primary">Download</button>
+          </div>
         </form>
       </main>
       <% render "partials/footer" %>
