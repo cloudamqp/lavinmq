@@ -96,6 +96,8 @@ module LavinMQ
         }.merge(stats_details)
       end
 
+      YIELD_INTERVAL = ENV["CLIENT_YIELD_INTERVAL"].try &.to_i || 8192
+
       private def read_loop
         i = 0
         socket = @socket
@@ -104,7 +106,7 @@ module LavinMQ
             {% unless flag?(:release) %}
               @log.trace { "Received #{frame.inspect}" }
             {% end %}
-            if (i += 1) == 8192
+            if (i += 1) == YIELD_INTERVAL
               i = 0
               Fiber.yield
             end
