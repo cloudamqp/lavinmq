@@ -33,6 +33,9 @@ module LavinMQ
       def initialize(@vhost : VHost)
         @sessions = Sessions.new(@vhost)
         @clients = Hash(String, Client).new
+        #retain store init, and give to exhcange
+        # #one topic per file line, (use read lines etc)
+        # #TODO: remember to block the mqtt namespace
         exchange = MQTTExchange.new(@vhost, "mqtt.default", true, false, true)
         @vhost.exchanges["mqtt.default"] = exchange
       end
@@ -77,8 +80,13 @@ module LavinMQ
           rk = topicfilter_to_routingkey(tf.topic)
           session.subscribe(rk, tf.qos)
         end
+        publish_retained_messages packet.topic_filters
         qos
       end
+
+      def publish_retained_messages(topic_filters)
+      end
+
 
       def unsubscribe(client, packet)
         session = sessions[client.client_id]
