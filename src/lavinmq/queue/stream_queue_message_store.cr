@@ -10,7 +10,7 @@ module LavinMQ
       getter last_offset : Int64
       @segment_last_ts = Hash(UInt32, Int64).new(0i64) # used for max-age
 
-      def initialize(@queue_data_dir : String, @replicator : Clustering::Replicator?)
+      def initialize(@queue_data_dir : String, metadata : ::Log::Metadata, @replicator : Clustering::Replicator?)
         super
         @last_offset = get_last_offset
         drop_overflow
