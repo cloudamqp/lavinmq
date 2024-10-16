@@ -49,8 +49,14 @@
         </section>
         <section class="card border-light cols-4 cols-6-md rounded-xl bg-dark-900 px-6 pb-6 pt-4">
           <h3 class="text-lg font-semibold text-light-400">Data rates</h3>
+          <div class="chart-container" id="dataChart"></div>
+        <section class="card border-light cols-4 cols-6-md rounded-xl bg-dark-900 px-6 pb-6 pt-4">
+          <h3 class="text-lg font-semibold text-light-400">Data rates</h3>
           <div class="chart-container relative mt-4" id="dataChart"></div>
         </section>
+        <section class="card border-light cols-4 cols-6-md rounded-xl bg-dark-900 px-6 pb-6 pt-4">
+          <h3 class="text-lg font-semibold text-light-400">Message rates</h3>
+          <div class="chart-container" id="rateChart"></div>
         <section class="card border-light cols-4 cols-6-md rounded-xl bg-dark-900 px-6 pb-6 pt-4">
           <h3 class="text-lg font-semibold text-light-400">Message rates</h3>
           <div class="chart-container relative mt-4" id="rateChart"></div>
@@ -69,7 +75,7 @@
             <button type="submit" class="btn-primary">Upload</button>
           </div>
         </form>
-        <form id="exportDefinitions" method="post" class="form card cols-6 p-0 cols-6 rounded-xl bg-dark-900 border-light">
+        <form id="exportDefinitions" method="post" class="form card p-0 cols-6 rounded-xl bg-dark-900 border-light">
           <h3 class="text-light-400 text-base leading-5 font-semibold px-6 py-4 border-b-light mb-0">Export definitions</h3>
           <div class="px-6 py-4">
             <label class="mt-0 mb-4">
