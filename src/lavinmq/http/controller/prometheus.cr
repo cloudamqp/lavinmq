@@ -270,6 +270,11 @@ module LavinMQ
                         value:  f.lag_in_bytes,
                         type:   "gauge",
                         help:   "Bytes that hasn't been synchronized with the follower yet"})
+          writer.write({name:   "follower_lag_in_actions",
+                        labels: {id: f.id.to_s(36)},
+                        value:  f.lag_in_actions,
+                        type:   "gauge",
+                        help:   "Actions that hasn't been synchronized with the follower yet"})
         end
       end
 
