@@ -6,22 +6,24 @@ module LavinMQ
       "direct"
     end
 
-    def bind(destination, routing_key, headers = nil)
-      raise "Access refused"
+    def bindings_details : Iterator(BindingDetails)
+      Iterator(BindingDetails).empty
     end
 
-    def unbind(destination, routing_key, headers = nil)
-      raise "Access refused"
-    end
-
-    def do_queue_matches(routing_key, headers = nil, & : Queue -> _)
+    protected def bindings(routing_key, headers) : Iterator(Destination)
       if q = @vhost.queues[routing_key]?
-        yield q
+        Tuple(Destination).new(q).each
+      else
+        Iterator(Destination).empty
       end
     end
 
-    def do_exchange_matches(routing_key, headers = nil, & : Exchange -> _)
-      # noop
+    def bind(destination, routing_key, headers = nil)
+      raise LavinMQ::Exchange::AccessRefused.new(self)
+    end
+
+    def unbind(destination, routing_key, headers = nil)
+      raise LavinMQ::Exchange::AccessRefused.new(self)
     end
   end
 end

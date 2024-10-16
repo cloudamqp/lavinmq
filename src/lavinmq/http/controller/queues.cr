@@ -134,9 +134,7 @@ module LavinMQ
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
             queue = queue(context, params, vhost)
-            itr = queue.bindings.map { |exchange, args| BindingDetails.new(exchange.name, vhost, args, queue) }
-            default_binding = BindingDetails.new("", queue.vhost.name, {queue.name, nil}, queue)
-            page(context, {default_binding}.each.chain(itr))
+            page(context, queue.bindings)
           end
         end
 
