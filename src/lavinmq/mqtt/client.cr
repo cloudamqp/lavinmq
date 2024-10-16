@@ -96,7 +96,6 @@ module LavinMQ
       end
 
       def recieve_publish(packet : MQTT::Publish)
-
         rk = @broker.topicfilter_to_routingkey(packet.topic)
         # TODO: String.new around payload.. should be stored as Bytes
         msg = Message.new("mqtt.default", rk, String.new(packet.payload))
