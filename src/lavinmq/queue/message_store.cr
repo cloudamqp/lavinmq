@@ -26,7 +26,8 @@ module LavinMQ
       getter size = 0u32
       getter empty_change = Channel(Bool).new
 
-      def initialize(@queue_data_dir : String, @replicator : Clustering::Replicator?)
+      def initialize(@queue_data_dir : String, metadata : ::Log::Metadata, @replicator : Clustering::Replicator?)
+        @log = Logger.new(Log, metadata)
         @acks = Hash(UInt32, MFile).new { |acks, seg| acks[seg] = open_ack_file(seg) }
         load_segments_from_disk
         load_deleted_from_disk
@@ -130,7 +131,7 @@ module LavinMQ
           notify_empty(true) if @size.zero?
           return Envelope.new(sp, msg, redelivered: false)
         rescue ex : IndexError
-          Log.warn { "Msg file size does not match expected value, moving on to next segment" }
+          @log.warn { "Msg file size does not match expected value, moving on to next segment" }
           select_next_read_segment && next
           return if @size.zero?
           raise Error.new(@rfile, cause: ex)
@@ -161,7 +162,7 @@ module LavinMQ
           ack_count = afile.size // sizeof(UInt32)
           msg_count = @segment_msg_count[sp.segment]
           if ack_count == msg_count
-            Log.debug { "Deleting segment #{sp.segment}" }
+            @log.debug { "Deleting segment #{sp.segment}" }
             select_next_read_segment if sp.segment == @rfile_id
             if a = @acks.delete(sp.segment)
               a.delete.close
@@ -275,6 +276,7 @@ module LavinMQ
           ack_files += 1 if f.starts_with? "acks."
         end
 
+        @log.info { "Loading #{ack_files} ack files" }
         Dir.each_child(@queue_data_dir) do |child|
           next unless child.starts_with? "acks."
           seg = child[5, 10].to_u32
@@ -292,9 +294,10 @@ module LavinMQ
             end
             @replicator.try &.register_file(file)
           end
-          Log.info { "Loading acks (#{count}/#{ack_files})" } if (count += 1) % 128 == 0
+          @log.info { "Loaded #{count}/#{ack_files}" } if (count += 1) % 128 == 0
           @deleted[seg] = acked.sort! unless acked.empty?
         end
+        @log.info { "Loaded #{count} ack files" }
       end
 
       private def load_segments_from_disk : Nil
@@ -326,7 +329,7 @@ module LavinMQ
               SchemaVersion.verify(file, :message)
             rescue IO::EOFError
               # delete empty file, it will be recreated if it's needed
-              Log.warn { "Empty file at #{path}, deleting it" }
+              @log.warn { "Empty file at #{path}, deleting it" }
               file.delete.close
               @replicator.try &.delete_file(path)
               if idx == 0 # Recreate the file if it's the first segment because we need at least one segment to exist
@@ -347,6 +350,7 @@ module LavinMQ
       # Populate bytesize, size and segment_msg_count
       private def load_stats_from_segments : Nil
         counter = 0
+        @log.info { "Loading #{@segments.size} segments" }
         @segments.each do |seg, mfile|
           count = 0u32
           loop do
@@ -364,9 +368,10 @@ module LavinMQ
           end
           mfile.pos = 4
           mfile.unmap # will be mmap on demand
-          Log.info { "Loading stats (#{counter}/#{@segments.size})" } if (counter += 1) % 128 == 0
+          @log.info { "Loaded #{counter}/#{@segments.size}" } if (counter &+= 1) % 128 == 0
           @segment_msg_count[seg] = count
         end
+        @log.info { "Loaded #{counter} segments" }
       end
 
       private def update_stats_per_msg(seg, ts, bytesize)
@@ -380,7 +385,7 @@ module LavinMQ
           next if seg == current_seg # don't the delete the segment still being written to
 
           if (acks = @acks[seg]?) && @segment_msg_count[seg] == (acks.size // sizeof(UInt32))
-            Log.debug { "Deleting unused segment #{seg}" }
+            @log.debug { "Deleting unused segment #{seg}" }
             @segment_msg_count.delete seg
             @deleted.delete seg
             if ack = @acks.delete(seg)
