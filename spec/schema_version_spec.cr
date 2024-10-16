@@ -28,7 +28,7 @@ describe LavinMQ::SchemaVersion do
         file = MFile.new(path, LavinMQ::Config.instance.segment_size)
         file.resize(LavinMQ::Config.instance.segment_size)
         # init new message store
-        msg_store = LavinMQ::Queue::MessageStore.new(data_dir, nil)
+        msg_store = LavinMQ::Queue::MessageStore.new(data_dir, ::Log::Metadata.empty, nil)
         msg_store.@segments.first_value.size.should eq 4
       end
     end
@@ -42,7 +42,7 @@ describe LavinMQ::SchemaVersion do
         file = MFile.new(path, LavinMQ::Config.instance.segment_size)
         file.resize(LavinMQ::Config.instance.segment_size)
         # init new message store
-        msg_store = LavinMQ::Queue::MessageStore.new(data_dir, nil)
+        msg_store = LavinMQ::Queue::MessageStore.new(data_dir, ::Log::Metadata.empty, nil)
         msg_store.@segments.size.should eq 1
       end
     end
