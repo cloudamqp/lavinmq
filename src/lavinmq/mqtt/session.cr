@@ -83,16 +83,16 @@ module LavinMQ
 
       private def get(no_ack : Bool, & : Envelope -> Nil) : Bool
         raise ClosedError.new if @closed
-        loop do # retry if msg expired or deliver limit hit
+        loop do
           id = next_id
           env = @msg_store_lock.synchronize { @msg_store.shift? } || break
-
           sp = env.segment_position
           no_ack = env.message.properties.delivery_mode == 0
           if no_ack
+            env.message.properties.message_id = id.to_s
             begin
-              yield env # deliver the message
-            rescue ex   # requeue failed delivery
+              yield env
+            rescue ex
               @msg_store_lock.synchronize { @msg_store.requeue(sp) }
               raise ex
             end
@@ -100,7 +100,7 @@ module LavinMQ
           else
             env.message.properties.message_id = id.to_s
             mark_unacked(sp) do
-              yield env # deliver the message
+              yield env
               @unacked[id] = sp
             end
           end
