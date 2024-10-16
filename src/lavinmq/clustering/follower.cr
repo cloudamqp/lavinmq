@@ -176,6 +176,7 @@ module LavinMQ
           remote_address:     @remote_address.to_s,
           sent_bytes:         @sent_bytes,
           acked_bytes:        @acked_bytes,
+          lag_in_actions:     lag_in_actions,
           compression_ratio:  @lz4.compression_ratio,
           uncompressed_bytes: @lz4.uncompressed_bytes,
           compressed_bytes:   @lz4.compressed_bytes,
@@ -185,6 +186,10 @@ module LavinMQ
 
       def lag : Int64
         @sent_bytes - @acked_bytes
+      end
+
+      def lag_in_actions : Int32
+        @actions.size
       end
     end
   end
