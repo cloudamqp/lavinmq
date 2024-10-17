@@ -1,9 +1,11 @@
 require "./exchange"
 require "../mqtt/subscription_tree"
 require "../mqtt/session"
+require "../mqtt/retain_store"
 
 module LavinMQ
   class MQTTExchange < Exchange
+
     struct MqttBindingKey
       def initialize(routing_key : String, arguments : AMQP::Table? = nil)
         @binding_key = BindingKey.new(routing_key, arguments)
@@ -27,10 +29,19 @@ module LavinMQ
       "mqtt"
     end
 
+    def initialize(vhost : VHost, name : String, @retain_store : MQTT::RetainStore)
+      super(vhost, name, true, false, true)
+    end
+
     private def do_publish(msg : Message, immediate : Bool,
                            queues : Set(Queue) = Set(Queue).new,
                            exchanges : Set(Exchange) = Set(Exchange).new) : Int32
       count = 0
+
+      if msg.properties.try &.headers.try &.["x-mqtt-retain"]?
+        @retain_store.retain(routing_key_to_topic(msg.routing_key), msg.body_io, msg.bodysize)
+      end
+
       @tree.each_entry(msg.routing_key) do |queue, qos|
         msg.properties.delivery_mode = qos
         if queue.publish(msg)
@@ -39,6 +50,10 @@ module LavinMQ
         end
       end
       count
+    end
+
+    def routing_key_to_topic(routing_key : String) : String
+        routing_key.tr(".*", "/+")
     end
 
     def bindings_details : Iterator(BindingDetails)

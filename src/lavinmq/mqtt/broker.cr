@@ -1,3 +1,5 @@
+require "./retain_store"
+
 module LavinMQ
   module MQTT
     struct Sessions
@@ -31,12 +33,11 @@ module LavinMQ
       getter vhost, sessions
 
       def initialize(@vhost : VHost)
+        #TODO: remember to block the mqtt namespace
         @sessions = Sessions.new(@vhost)
         @clients = Hash(String, Client).new
-        #retain store init, and give to exhcange
-        # #one topic per file line, (use read lines etc)
-        # #TODO: remember to block the mqtt namespace
-        exchange = MQTTExchange.new(@vhost, "mqtt.default", true, false, true)
+        @retained_store = RetainStore.new(Path[@vhost.data_dir].join("mqtt_reatined_store").to_s)
+        exchange = MQTTExchange.new(@vhost, "mqtt.default", @retained_store)
         @vhost.exchanges["mqtt.default"] = exchange
       end
 
@@ -79,14 +80,10 @@ module LavinMQ
           qos << MQTT::SubAck::ReturnCode.from_int(tf.qos)
           rk = topicfilter_to_routingkey(tf.topic)
           session.subscribe(rk, tf.qos)
+          # deliver retained messages retain store .each (Use TF!!!)
         end
-        publish_retained_messages packet.topic_filters
         qos
       end
-
-      def publish_retained_messages(topic_filters)
-      end
-
 
       def unsubscribe(client, packet)
         session = sessions[client.client_id]
@@ -97,11 +94,15 @@ module LavinMQ
       end
 
       def topicfilter_to_routingkey(tf) : String
-        tf.gsub("/", ".")
+        tf.tr("/+", ".*")
       end
 
       def clear_session(client_id)
         sessions.delete client_id
+      end
+
+      def close()
+        @retain_store.close
       end
     end
   end
