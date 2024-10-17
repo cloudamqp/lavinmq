@@ -37,7 +37,6 @@ module LavinMQ
                            queues : Set(Queue) = Set(Queue).new,
                            exchanges : Set(Exchange) = Set(Exchange).new) : Int32
       count = 0
-
       if msg.properties.try &.headers.try &.["x-mqtt-retain"]?
         @retain_store.retain(routing_key_to_topic(msg.routing_key), msg.body_io, msg.bodysize)
       end
