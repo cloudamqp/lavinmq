@@ -32,6 +32,8 @@ dependencies:
     github: 84codes/systemd.cr
   lz4:
     github: 84codes/lz4.cr
+  mqtt-protocol:
+    github: 84codes/mqtt-protocol.cr
 
 development_dependencies:
   ameba:
