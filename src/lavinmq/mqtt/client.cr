@@ -97,10 +97,14 @@ module LavinMQ
 
       def recieve_publish(packet : MQTT::Publish)
         rk = @broker.topicfilter_to_routingkey(packet.topic)
+        properties = if packet.retain?
+          AMQP::Properties.new(headers: AMQP::Table.new({ "x-mqtt-retain": true}))
+        else
+          AMQ::Protocol::Properties.new
+        end
         # TODO: String.new around payload.. should be stored as Bytes
-        msg = Message.new("mqtt.default", rk, String.new(packet.payload))
+        msg = Message.new("mqtt.default", rk, String.new(packet.payload), properties)
         @broker.vhost.publish(msg)
-
         # Ok to not send anything if qos = 0 (at most once delivery)
         if packet.qos > 0 && (packet_id = packet.packet_id)
           send(MQTT::PubAck.new(packet_id))
