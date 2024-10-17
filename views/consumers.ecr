@@ -7,28 +7,33 @@
   </head>
   <body>
     <% render "partials/header" %>
-    <main>
-      <section class="card">
-        <div class="table-wrapper">
-          <div id="table-error"></div>
-          <table id="table" class="table">
-            <thead>
-              <tr>
-                <th data-sort-key="vhost">Virtual host</th>
-                <th data-sort-key="queue">Queue</th>
-                <th data-sort-key="channel">Channel</th>
-                <th data-sort-key="consumer_tag" class="left">Consumer tag</th>
-                <th>Ack required</th>
-                <th>Exclusive</th>
-                <th data-sort-key="prefetch_count" class="right">Prefetch count</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
+    <div class="grid-content">
+      <main>
+        <div id="breadcrumbs">
+            <h2 class="page-title flex flex-row items-center"><%=pagename%><div class="bg-green-400 ml-2 inline-block text-center text-sm text-dark-400 py-1 px-3 rounded-sm" id="pagename-label"></div></h2>
         </div>
-      </section>
-    </main>
-    <% render "partials/footer" %>
+        <section class="card">
+          <div class="table-wrapper">
+            <div id="table-error"></div>
+            <table id="table" class="table">
+              <thead>
+                <tr>
+                  <th data-sort-key="vhost">Virtual host</th>
+                  <th data-sort-key="queue">Queue</th>
+                  <th data-sort-key="channel">Channel</th>
+                  <th data-sort-key="consumer_tag" class="left">Consumer tag</th>
+                  <th>Ack required</th>
+                  <th>Exclusive</th>
+                  <th data-sort-key="prefetch_count" class="right">Prefetch count</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+      <% render "partials/footer" %>
+    </div>
   </body>
 </html>

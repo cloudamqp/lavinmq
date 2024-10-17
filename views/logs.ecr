@@ -7,23 +7,28 @@
   </head>
   <body>
     <% render "partials/header" %>
-    <main>
-      <section id="livelog" class="card livelog">
-        <button id="download-logs" class="btn-primary"><a download href="api/logs">Download logs</a></button>
-        <div id="table-error"></div>
-        <table id="table" class="table">
-          <thead>
-            <tr>
-              <th class="livelog-timestamp">Timestamp</th>
-              <th class="livelog-severity">Severity</th>
-              <th class="livelog-source">Source</th>
-              <th class="livelog-message">Message</th>
-            </tr>
-          </thead>
-          <tbody id="livelog-body"></tbody>
-        </table>
-      </section>
-    </main>
-    <% render "partials/footer" %>
+    <div class="grid-content">
+      <main>
+        <div id="breadcrumbs" class="cols-12">
+            <h2 class="page-title flex flex-row items-center"><span><%=pagename%></span></h2>
+        </div>
+        <section id="livelog" class="card livelog">
+          <button id="download-logs" class="btn-primary"><a download href="api/logs">Download logs</a></button>
+          <div id="table-error"></div>
+          <table id="table" class="table">
+            <thead>
+              <tr>
+                <th class="livelog-timestamp">Timestamp</th>
+                <th class="livelog-severity">Severity</th>
+                <th class="livelog-source">Source</th>
+                <th class="livelog-message">Message</th>
+              </tr>
+            </thead>
+            <tbody id="livelog-body"></tbody>
+          </table>
+        </section>
+      </main>
+      <% render "partials/footer" %>
+    </div>
   </body>
 </html>
