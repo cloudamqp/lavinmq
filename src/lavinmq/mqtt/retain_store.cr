@@ -109,20 +109,20 @@ module LavinMQ
       def each(subscription : String, &block : String, Bytes -> Nil) : Nil
         @lock.synchronize do
           @index.each(subscription) do |topic, file_name|
-            yield topic, read(file_name)
+            block.call(topic, read(file_name))
           end
         end
         nil
       end
 
       private def read(file_name : String) : Bytes
-        @lock.synchronize do
+        # @lock.synchronize do
           File.open(File.join(@dir, file_name), "r") do |f|
-            body = slice.new(f.size)
+            body = Slice(UInt8).new(f.size)
             f.read_fully(body)
             body
           end
-        end
+        # end
       end
 
       def retained_messages
