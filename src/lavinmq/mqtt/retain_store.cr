@@ -1,200 +1,143 @@
 require "./topic_tree"
+require "digest/sha256"
 
 module LavinMQ
-  class RetainStore
-    Log = MyraMQ::Log.for("retainstore")
+  module MQTT
+    class RetainStore
+      Log = LavinMQ::Log.for("retainstore")
 
-    RETAINED_STORE_DIR_NAME = "retained"
-    MESSAGE_FILE_SUFFIX     = ".msg"
-    INDEX_FILE_NAME         = "index"
+      MESSAGE_FILE_SUFFIX     = ".msg"
+      INDEX_FILE_NAME         = "index"
 
-    # This is a helper strut to read and write retain index entries
-    struct RetainIndexEntry
-      getter topic, sp
+      alias IndexTree = TopicTree(String)
 
-      def initialize(@topic : String, @sp : SegmentPosition)
+      def initialize(@dir : String, @index = IndexTree.new)
+        Dir.mkdir_p @dir
+        @index_file = File.new(File.join(@dir, INDEX_FILE_NAME), "a+")
+        @lock = Mutex.new
+        @lock.synchronize do
+          if @index.empty?
+            restore_index(@index, @index_file)
+            write_index
+            @index_file = File.new(File.join(@dir, INDEX_FILE_NAME), "a+")
+          end
+        end
       end
 
-      def to_io(io : IO)
-        io.write_bytes @topic.bytesize.to_u16, ::IO::ByteFormat::NetworkEndian
-        io.write @topic.to_slice
-        @sp.to_io(io, ::IO::ByteFormat::NetworkEndian)
-      end
-
-      def self.from_io(io : IO)
-        topic_length = UInt16.from_io(io, ::IO::ByteFormat::NetworkEndian)
-        topic = io.read_string(topic_length)
-        sp = SegmentPosition.from_io(io, ::IO::ByteFormat::NetworkEndian)
-        self.new(topic, sp)
-      end
-    end
-
-    alias IndexTree = TopicTree(RetainIndexEntry)
-
-    # TODO: change frm "data_dir" to "retained_dir", i.e. pass
-    # equivalent of File.join(data_dir, RETAINED_STORE_DIR_NAME) as
-    # data_dir.
-    def initialize(data_dir : String, @index = IndexTree.new, index_file : IO? = nil)
-      @dir = File.join(data_dir, RETAINED_STORE_DIR_NAME)
-      Dir.mkdir_p @dir
-
-      @index_file = index_file || File.new(File.join(@dir, INDEX_FILE_NAME), "a+")
-      if (buffered_index_file = @index_file).is_a?(IO::Buffered)
-        buffered_index_file.sync = true
-      end
-
-      @segment = 0u64
-
-      @lock = Mutex.new
-      @lock.synchronize do
-        if @index.empty?
-          restore_index(@index, @index_file)
+      def close
+        @lock.synchronize do
           write_index
         end
       end
-    end
 
-    def close
-      @lock.synchronize do
-        write_index
-      end
-    end
+      private def restore_index(index : IndexTree, index_file : ::IO)
+        Log.info { "restoring index" }
+        dir = @dir
+        msg_count = 0
+        msg_file_segments = Set(String).new(
+          Dir[Path[dir, "*#{MESSAGE_FILE_SUFFIX}"]].compact_map do |fname|
+            File.basename(fname)
+          end
+        )
 
-    private def restore_index(index : IndexTree, index_file : IO)
-      Log.info { "restoring index" }
-      # If @segment is greater than zero we've already restored index or have been
-      # writing messages
-      raise "restore_index: can't restore, @segment=#{@segment} > 0" unless @segment.zero?
-      dir = @dir
-
-      # Create a set with all segment positions based on msg files
-      msg_file_segments = Set(UInt64).new(
-        Dir[Path[dir, "*#{MESSAGE_FILE_SUFFIX}"]].compact_map do |fname|
-          File.basename(fname, MESSAGE_FILE_SUFFIX).to_u64?
-        end
-      )
-
-      segment = 0u64
-      msg_count = 0
-      loop do
-        entry = RetainIndexEntry.from_io(index_file)
-
-        unless msg_file_segments.delete(entry.sp.to_u64)
-          Log.warn { "msg file for topic #{entry.topic} missing, dropping from index" }
-          next
+        while topic = index_file.gets
+          msg_file_name = make_file_name(topic)
+          unless msg_file_segments.delete(msg_file_name)
+            Log.warn { "msg file for topic #{topic} missing, dropping from index" }
+            next
+          end
+          index.insert(topic, msg_file_name)
+          Log.debug { "restored #{topic}" }
+          msg_count += 1
         end
 
-        index.insert(entry.topic, entry)
-        segment = Math.max(segment, entry.sp.to_u64 + 1)
-        Log.debug { "restored #{entry.topic}" }
-        msg_count += 1
-      rescue IO::EOFError
-        break
-      end
-
-      # TODO: Device what's the truth: index file or msgs file. Mybe drop the index file and rebuild
-      # index from msg files?
-      unless msg_file_segments.empty?
-        Log.warn { "unreferenced messages: " \
-                   "#{msg_file_segments.map { |u| "#{u}#{MESSAGE_FILE_SUFFIX}" }.join(",")}" }
-      end
-
-      @segment = segment
-      Log.info { "restoring index done, @segment = #{@segment}, msg_count = #{msg_count}" }
-    end
-
-    def retain(topic : String, body : Bytes) : Nil
-      @lock.synchronize do
-        Log.trace { "retain topic=#{topic} body.bytesize=#{body.bytesize}" }
-
-        # An empty message with retain flag means clear the topic from retained messages
-        if body.bytesize.zero?
-          delete_from_index(topic)
-          return
+        # TODO: Device what's the truth: index file or msgs file. Mybe drop the index file and rebuild
+        # index from msg files?
+        unless msg_file_segments.empty?
+          Log.warn { "unreferenced messages: #{msg_file_segments.join(",")}" }
         end
+        #TODO: delete unreferenced messages?
+        Log.info { "restoring index done, msg_count = #{msg_count}" }
+      end
 
-        sp = if entry = @index[topic]?
-               entry.sp
-             else
-               new_sp = SegmentPosition.new(@segment)
-               @segment += 1
-               add_to_index(topic, new_sp)
-               new_sp
-             end
+      def retain(topic : String, body_io : ::IO, size : UInt64) : Nil
+        @lock.synchronize do
+          Log.debug { "retain topic=#{topic} body.bytesize=#{size}" }
+          # An empty message with retain flag means clear the topic from retained messages
+          if size.zero?
+            delete_from_index(topic)
+            return
+          end
 
-        File.open(File.join(@dir, self.class.make_file_name(sp)), "w+") do |f|
-          f.sync = true
-          MessageData.new(topic, body).to_io(f)
+          unless msg_file_name = @index[topic]?
+            msg_file_name = make_file_name(topic)
+            add_to_index(topic, msg_file_name)
+          end
+
+          File.open(File.join(@dir, msg_file_name), "w+") do |f|
+            f.sync = true
+            ::IO.copy(body_io, f)
+          end
         end
       end
-    end
 
-    private def write_index
-      tmp_file = File.join(@dir, "#{INDEX_FILE_NAME}.next")
-      File.open(tmp_file, "w+") do |f|
-        @index.each do |entry|
-          entry.to_io(f)
+      private def write_index
+        tmp_file = File.join(@dir, "#{INDEX_FILE_NAME}.next")
+        File.open(tmp_file, "w+") do |f|
+          @index.each do |topic, _filename|
+            f.puts topic
+          end
+        end
+        File.rename tmp_file, File.join(@dir, INDEX_FILE_NAME)
+      ensure
+        FileUtils.rm_rf tmp_file unless tmp_file.nil?
+      end
+
+      private def add_to_index(topic : String, file_name : String) : Nil
+        @index.insert topic, file_name
+        @index_file.puts topic
+        @index_file.flush
+      end
+
+      private def delete_from_index(topic : String) : Nil
+        if file_name = @index.delete topic
+          Log.trace { "deleted '#{topic}' from index, deleting file #{file_name}" }
+          File.delete? File.join(@dir, file_name)
         end
       end
-      File.rename tmp_file, File.join(@dir, INDEX_FILE_NAME)
-    ensure
-      FileUtils.rm_rf tmp_file unless tmp_file.nil?
-    end
 
-    private def add_to_index(topic : String, sp : SegmentPosition) : Nil
-      entry = RetainIndexEntry.new(topic, sp)
-      @index.insert topic, entry
-      entry.to_io(@index_file)
-    end
-
-    private def delete_from_index(topic : String) : Nil
-      if entry = @index.delete topic
-        file_name = self.class.make_file_name(entry.sp)
-        Log.trace { "deleted '#{topic}' from index, deleting file #{file_name}" }
-        File.delete? File.join(@dir, file_name)
+      def each(subscription : String, &block : String, Bytes -> Nil) : Nil
+        @lock.synchronize do
+          @index.each(subscription) do |topic, file_name|
+            yield topic, read(file_name)
+          end
+        end
+        nil
       end
-    end
 
-    def each(subscription : String, &block : String, SegmentPosition -> Nil) : Nil
-      @lock.synchronize do
-        @index.each(subscription) do |entry|
-          block.call(entry.topic, entry.sp)
+      private def read(file_name : String) : Bytes
+        @lock.synchronize do
+          File.open(File.join(@dir, file_name), "r") do |f|
+            body = slice.new(f.size)
+            f.read_fully(body)
+            body
+          end
         end
       end
-      nil
-    end
 
-    def read(sp : SegmentPosition) : MessageData?
-      unless sp.retain?
-        Log.error { "can't handle sp with retain=true" }
-        return
+      def retained_messages
+        @lock.synchronize do
+          @index.size
+        end
       end
-      @lock.synchronize do
-        read_message_file(sp)
-      end
-    end
 
-    def retained_messages
-      @lock.synchronize do
-        @index.size
+      @hasher = Digest::MD5.new
+      def make_file_name(topic : String) : String
+        @hasher.update topic.to_slice
+        hash = @hasher.hexfinal
+        @hasher.reset
+        "#{hash}#{MESSAGE_FILE_SUFFIX}"
       end
-    end
-
-    @[AlwaysInline]
-    private def read_message_file(sp : SegmentPosition) : MessageData?
-      file_name = self.class.make_file_name(sp)
-      file = File.join @dir, file_name
-      File.open(file, "r") do |f|
-        MessageData.from_io(f)
-      end
-    rescue e : File::NotFoundError
-      Log.error { "message file #{file_name} doesn't exist" }
-      nil
-    end
-
-    @[AlwaysInline]
-    def self.make_file_name(sp : SegmentPosition) : String
-      "#{sp.to_u64}#{MESSAGE_FILE_SUFFIX}"
     end
   end
 end
