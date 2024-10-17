@@ -36,8 +36,8 @@ module LavinMQ
         #TODO: remember to block the mqtt namespace
         @sessions = Sessions.new(@vhost)
         @clients = Hash(String, Client).new
-        @retained_store = RetainStore.new(Path[@vhost.data_dir].join("mqtt_reatined_store").to_s)
-        exchange = MQTTExchange.new(@vhost, "mqtt.default", @retained_store)
+        @retain_store = RetainStore.new(Path[@vhost.data_dir].join("mqtt_reatined_store").to_s)
+        exchange = MQTTExchange.new(@vhost, "mqtt.default", @retain_store)
         @vhost.exchanges["mqtt.default"] = exchange
       end
 
@@ -80,7 +80,10 @@ module LavinMQ
           qos << MQTT::SubAck::ReturnCode.from_int(tf.qos)
           rk = topicfilter_to_routingkey(tf.topic)
           session.subscribe(rk, tf.qos)
-          # deliver retained messages retain store .each (Use TF!!!)
+          @retain_store.each(tf.topic) do |topic, body|
+            msg = Message.new("mqtt.default", topic, String.new(body))
+            @vhost.publish(msg)
+          end
         end
         qos
       end
