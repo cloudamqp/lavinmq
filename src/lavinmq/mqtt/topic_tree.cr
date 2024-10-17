@@ -83,7 +83,7 @@ module LavinMQ
         @leafs.size + @sublevels.values.sum(0, &.size)
       end
 
-      def each(filter : String, &blk : (Stirng, TEntity) -> _)
+      def each(filter : String, &blk : (String, TEntity) -> _)
         each(StringTokenIterator.new(filter, '/'), &blk)
       end
 
