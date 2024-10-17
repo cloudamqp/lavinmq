@@ -228,11 +228,12 @@ module LavinMQ
             else
               File.delete? File.join(@data_dir, filename)
             end
-          when .positive? # full file is coming
-            Log.debug { "Getting full file #{filename} (#{len} bytes)" }
-            f = @files[filename]
-            f.truncate
+          when .positive? # replace file
+            Log.debug { "Replacing file #{filename} (#{len} bytes)" }
+            f = @files["#{filename}.tmp"]
             IO.copy(lz4, f, len) == len || raise IO::EOFError.new("Full file not received")
+            f.rename f.path[0..-5]
+            @files.delete("#{filename}.tmp")
           end
           ack_bytes = len.abs + sizeof(Int64) + filename_len + sizeof(Int32)
           acks.send(ack_bytes)
