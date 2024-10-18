@@ -118,7 +118,7 @@ module LavinMQ
       private def read(file_name : String) : Bytes
         # @lock.synchronize do
           File.open(File.join(@dir, file_name), "r") do |f|
-            body = Slice(UInt8).new(f.size)
+            body = Bytes.new(f.size)
             f.read_fully(body)
             body
           end
