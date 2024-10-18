@@ -276,7 +276,7 @@ module LavinMQ
           ack_files += 1 if f.starts_with? "acks."
         end
 
-        @log.info { "Loading #{ack_files} ack files" }
+        @log.debug { "Loading #{ack_files} ack files" }
         Dir.each_child(@queue_data_dir) do |child|
           next unless child.starts_with? "acks."
           seg = child[5, 10].to_u32
@@ -294,10 +294,10 @@ module LavinMQ
             end
             @replicator.try &.register_file(file)
           end
-          @log.info { "Loaded #{count}/#{ack_files}" } if (count += 1) % 128 == 0
+          @log.debug { "Loaded #{count}/#{ack_files} ack files" } if (count += 1) % 128 == 0
           @deleted[seg] = acked.sort! unless acked.empty?
         end
-        @log.info { "Loaded #{count} ack files" }
+        @log.debug { "Loaded #{count} ack files" }
       end
 
       private def load_segments_from_disk : Nil
@@ -350,7 +350,12 @@ module LavinMQ
       # Populate bytesize, size and segment_msg_count
       private def load_stats_from_segments : Nil
         counter = 0
-        @log.info { "Loading #{@segments.size} segments" }
+        is_long_queue = @segments.size > 128
+        if is_long_queue
+          @log.info { "Loading #{@segments.size} segments" }
+        else
+          @log.debug { "Loading #{@segments.size} segments" }
+        end
         @segments.each do |seg, mfile|
           count = 0u32
           loop do
@@ -368,7 +373,7 @@ module LavinMQ
           end
           mfile.pos = 4
           mfile.unmap # will be mmap on demand
-          @log.info { "Loaded #{counter}/#{@segments.size}" } if (counter &+= 1) % 128 == 0
+          @log.info { "Loaded #{counter}/#{@segments.size} segments" } if (counter &+= 1) % 128 == 0
           @segment_msg_count[seg] = count
         end
         @log.info { "Loaded #{counter} segments" }
