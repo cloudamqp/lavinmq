@@ -41,7 +41,7 @@ module LavinMQ
 
     private def init_msg_store(data_dir)
       replicator = @vhost.@replicator
-      @msg_store = StreamQueueMessageStore.new(data_dir, @metadata, replicator)
+      @msg_store = StreamQueueMessageStore.new(data_dir, replicator, metadata: @metadata)
     end
 
     private def stream_queue_msg_store : StreamQueueMessageStore

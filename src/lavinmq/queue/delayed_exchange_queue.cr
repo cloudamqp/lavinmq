@@ -14,7 +14,7 @@ module LavinMQ
 
     private def init_msg_store(data_dir)
       replicator = durable? ? @vhost.@replicator : nil
-      DelayedMessageStore.new(data_dir, @metadata, replicator)
+      DelayedMessageStore.new(data_dir, replicator, metadata: @metadata)
     end
 
     private def expire_at(msg : BytesMessage) : Int64?
@@ -57,7 +57,7 @@ module LavinMQ
     end
 
     class DelayedMessageStore < MessageStore
-      def initialize(@data_dir : String, metadata : ::Log::Metadata, @replicator : Clustering::Replicator?)
+      def initialize(*args, **kwargs)
         super
         order_messages
       end

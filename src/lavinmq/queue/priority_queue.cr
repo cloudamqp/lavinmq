@@ -4,11 +4,12 @@ module LavinMQ
   class PriorityQueue < Queue
     private def init_msg_store(data_dir)
       replicator = durable? ? @vhost.@replicator : nil
-      PriorityMessageStore.new(data_dir, @metadata, replicator)
+      PriorityMessageStore.new(data_dir, replicator, metadata: @metadata)
     end
 
     class PriorityMessageStore < MessageStore
-      def initialize(@data_dir : String, metadata : ::Log::Metadata, @replicator : Clustering::Replicator?)
+      # def initialize(@data_dir : String, metadata : ::Log::Metadata, @replicator : Clustering::Replicator?)
+      def initialize(*args, **kwargs)
         super
         order_messages
       end
