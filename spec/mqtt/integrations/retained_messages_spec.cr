@@ -23,7 +23,7 @@ module MqttSpecs
       end
     end
 
-    pending "retained messages are redelivered for subscriptions with qos1" do
+    it "retained messages are redelivered for subscriptions with qos1" do
       with_server do |server|
         with_client_io(server) do |io|
           connect(io, client_id: "publisher")
@@ -54,7 +54,7 @@ module MqttSpecs
       end
     end
 
-    pending "retain is set in PUBLISH for retained messages" do
+    it "retain is set in PUBLISH for retained messages" do
       with_server do |server|
         with_client_io(server) do |io|
           connect(io)
@@ -69,7 +69,7 @@ module MqttSpecs
           subscribe(io, topic_filters: topic_filters)
 
           pub = read_packet(io).as(MQTT::Protocol::Publish)
-          pub.retain?.should be(true)
+          pub.retain?.should eq(true)
 
           disconnect(io)
         end

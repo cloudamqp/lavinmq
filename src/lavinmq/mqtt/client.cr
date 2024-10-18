@@ -68,7 +68,7 @@ module LavinMQ
 
       def read_and_handle_packet
         packet : MQTT::Packet = MQTT::Packet.from_io(@io)
-        @log.info { "Recieved packet:  #{packet.inspect}" }
+        @log.trace { "Recieved packet:  #{packet.inspect}" }
         @recv_oct_count += packet.bytesize
 
         case packet
@@ -96,15 +96,7 @@ module LavinMQ
       end
 
       def recieve_publish(packet : MQTT::Publish)
-        rk = @broker.topicfilter_to_routingkey(packet.topic)
-        properties = if packet.retain?
-          AMQP::Properties.new(headers: AMQP::Table.new({ "x-mqtt-retain": true}))
-        else
-          AMQ::Protocol::Properties.new
-        end
-        # TODO: String.new around payload.. should be stored as Bytes
-        msg = Message.new("mqtt.default", rk, String.new(packet.payload), properties)
-        @broker.vhost.publish(msg)
+        @broker.publish(packet)
         # Ok to not send anything if qos = 0 (at most once delivery)
         if packet.qos > 0 && (packet_id = packet.packet_id)
           send(MQTT::PubAck.new(packet_id))
@@ -188,6 +180,7 @@ module LavinMQ
         if message_id = msg.properties.message_id
           packet_id = message_id.to_u16 unless message_id.empty?
         end
+        retained = msg.properties.try &.headers.try &.["x-mqtt-retain"]? == true
 
         qos = msg.properties.delivery_mode || 0u8
         pub_args = {
@@ -195,8 +188,8 @@ module LavinMQ
           payload:   msg.body,
           dup:       redelivered,
           qos:       qos,
-          retain:    false,
-          topic:     "test",
+          retain:    retained,
+          topic:     msg.routing_key.tr(".", "/"),
         }
         @client.send(::MQTT::Protocol::Publish.new(**pub_args))
         # MQTT::Protocol::PubAck.from_io(io) if pub_args[:qos].positive? && expect_response
