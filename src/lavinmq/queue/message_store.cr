@@ -350,7 +350,7 @@ module LavinMQ
       # Populate bytesize, size and segment_msg_count
       private def load_stats_from_segments : Nil
         counter = 0
-        is_long_queue = @segments.size > 128
+        is_long_queue = @segments.size > 255
         if is_long_queue
           @log.info { "Loading #{@segments.size} segments" }
         else
@@ -373,7 +373,11 @@ module LavinMQ
           end
           mfile.pos = 4
           mfile.unmap # will be mmap on demand
-          @log.info { "Loaded #{counter}/#{@segments.size} segments" } if (counter &+= 1) % 128 == 0
+          if is_long_queue
+            @log.info { "Loaded #{counter}/#{@segments.size} segments" } if (counter &+= 1) % 128 == 0
+          else
+            @log.debug { "Loaded #{counter}/#{@segments.size} segments" } if (counter &+= 1) % 128 == 0
+          end
           @segment_msg_count[seg] = count
         end
         @log.info { "Loaded #{counter} segments" }
