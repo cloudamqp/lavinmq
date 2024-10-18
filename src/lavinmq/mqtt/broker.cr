@@ -37,8 +37,8 @@ module LavinMQ
         @sessions = Sessions.new(@vhost)
         @clients = Hash(String, Client).new
         @retain_store = RetainStore.new(Path[@vhost.data_dir].join("mqtt_reatined_store").to_s)
-        exchange = MQTTExchange.new(@vhost, "mqtt.default", @retain_store)
-        @vhost.exchanges["mqtt.default"] = exchange
+        @exchange = MQTTExchange.new(@vhost, "mqtt.default", @retain_store)
+        @vhost.exchanges["mqtt.default"] = @exchange
       end
 
       def session_present?(client_id : String, clean_session) : Bool
@@ -70,6 +70,22 @@ module LavinMQ
         @clients.delete client_id
       end
 
+      def publish(packet : MQTT::Publish)
+        rk = topicfilter_to_routingkey(packet.topic)
+        properties = if packet.retain?
+          AMQP::Properties.new(headers: AMQP::Table.new({ "x-mqtt-retain": true}))
+        else
+          AMQ::Protocol::Properties.new
+        end
+        # TODO: String.new around payload.. should be stored as Bytes
+        msg = Message.new("mqtt.default", rk, String.new(packet.payload), properties)
+        @exchange.publish(msg, false)
+      end
+
+      def topicfilter_to_routingkey(tf) : String
+        tf.tr("/+", ".*")
+      end
+
       def subscribe(client, packet)
         unless session = @sessions[client.client_id]?
           session = sessions.declare(client.client_id, client.@clean_session)
@@ -78,11 +94,13 @@ module LavinMQ
         qos = Array(MQTT::SubAck::ReturnCode).new(packet.topic_filters.size)
         packet.topic_filters.each do |tf|
           qos << MQTT::SubAck::ReturnCode.from_int(tf.qos)
-          rk = topicfilter_to_routingkey(tf.topic)
-          session.subscribe(rk, tf.qos)
+          session.subscribe(tf.topic, tf.qos)
           @retain_store.each(tf.topic) do |topic, body|
-            msg = Message.new("mqtt.default", topic, String.new(body))
-            @vhost.publish(msg)
+            rk = topicfilter_to_routingkey(topic)
+            msg = Message.new("mqtt.default", rk, String.new(body),
+                              AMQP::Properties.new(headers: AMQP::Table.new({ "x-mqtt-retain": true}),
+                              delivery_mode: tf.qos ))
+            session.publish(msg)
           end
         end
         qos
@@ -91,13 +109,8 @@ module LavinMQ
       def unsubscribe(client, packet)
         session = sessions[client.client_id]
         packet.topics.each do |tf|
-          rk = topicfilter_to_routingkey(tf)
-          session.unsubscribe(rk)
+          session.unsubscribe(tf)
         end
-      end
-
-      def topicfilter_to_routingkey(tf) : String
-        tf.tr("/+", ".*")
       end
 
       def clear_session(client_id)
