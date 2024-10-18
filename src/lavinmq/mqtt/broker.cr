@@ -27,13 +27,17 @@ module LavinMQ
       def delete(client_id : String)
         @vhost.delete_queue("amq.mqtt-#{client_id}")
       end
+
+      def delete(session : Session)
+        session.delete
+      end
     end
 
     class Broker
       getter vhost, sessions
 
       def initialize(@vhost : VHost)
-        #TODO: remember to block the mqtt namespace
+        # TODO: remember to block the mqtt namespace
         @sessions = Sessions.new(@vhost)
         @clients = Hash(String, Client).new
         @retain_store = RetainStore.new(Path[@vhost.data_dir].join("mqtt_reatined_store").to_s)
@@ -42,8 +46,9 @@ module LavinMQ
       end
 
       def session_present?(client_id : String, clean_session) : Bool
+        return false if clean_session
         session = @sessions[client_id]?
-        return false if session.nil? || clean_session
+        return false if session.nil? || session.clean_session?
         true
       end
 
@@ -52,10 +57,13 @@ module LavinMQ
           Log.trace { "Found previous client connected with client_id: #{packet.client_id}, closing" }
           prev_client.close
         end
-
         client = MQTT::Client.new(socket, connection_info, user, vhost, self, packet.client_id, packet.clean_session?, packet.will)
         if session = @sessions[client.client_id]?
-          session.client = client
+          if session.clean_session?
+            sessions.delete session
+          else
+            session.client = client
+          end
         end
         @clients[packet.client_id] = client
         client
@@ -73,10 +81,10 @@ module LavinMQ
       def publish(packet : MQTT::Publish)
         rk = topicfilter_to_routingkey(packet.topic)
         properties = if packet.retain?
-          AMQP::Properties.new(headers: AMQP::Table.new({ "x-mqtt-retain": true}))
-        else
-          AMQ::Protocol::Properties.new
-        end
+                       AMQP::Properties.new(headers: AMQP::Table.new({"x-mqtt-retain": true}))
+                     else
+                       AMQ::Protocol::Properties.new
+                     end
         # TODO: String.new around payload.. should be stored as Bytes
         msg = Message.new("mqtt.default", rk, String.new(packet.payload), properties)
         @exchange.publish(msg, false)
@@ -98,8 +106,8 @@ module LavinMQ
           @retain_store.each(tf.topic) do |topic, body|
             rk = topicfilter_to_routingkey(topic)
             msg = Message.new("mqtt.default", rk, String.new(body),
-                              AMQP::Properties.new(headers: AMQP::Table.new({ "x-mqtt-retain": true}),
-                              delivery_mode: tf.qos ))
+              AMQP::Properties.new(headers: AMQP::Table.new({"x-mqtt-retain": true}),
+                delivery_mode: tf.qos))
             session.publish(msg)
           end
         end
@@ -117,7 +125,7 @@ module LavinMQ
         sessions.delete client_id
       end
 
-      def close()
+      def close
         @retain_store.close
       end
     end
