@@ -53,7 +53,7 @@ body {
   margin: 0;
   min-height: 100vh;*/
   /*background-color: var(--bg-color); M*/
-  background-color: #161616;
+  background-color: #101010;
   color: var(--font-color);
   font-size: 10pt;
   -webkit-font-smoothing: antialiased;
@@ -213,7 +213,11 @@ main {
 
 /* Utility classes */
 .bg-dark-900 {
-  background-color: #1d1d1d;
+  background-color: #161616;
+}
+
+.bg-dark-600 {
+  background-color: #2D2C2C;
 }
 
 .bg-green-400 {
@@ -254,6 +258,10 @@ main {
 
 .text-center {
   text-align: center;
+}
+
+.text-left {
+  text-align: left;
 }
 
 .leading-5 {
@@ -322,6 +330,10 @@ main {
 .py-4 {
   padding-top: 1rem;
   padding-bottom: 1rem;
+}
+
+.min-h-6 {
+  min-height: 1.5rem;
 }
 
 .border-light {
@@ -408,7 +420,7 @@ main {
   grid-column: 1 / span 1;
   grid-row: 1 / span 4;
   /*background-color: rgba(0, 0, 0, 0.8); M*/
-  background-color: #1d1d1d;
+  background-color: #161616;
   --font-color: #9d9c9a;
   --highlight-color: #2d2c2c;
   color: var(--font-color);
@@ -464,7 +476,7 @@ footer .logo {
   /*text-transform: uppercase; M*/
   /*font-weight: 300;*/
   /*padding: 10px 0;*/
-  background: #1d1d1d;
+  background: #161616;
   border-radius: 12px;
   padding: 1.75rem 1.5rem;
   align-items: center;
@@ -868,10 +880,12 @@ footer .logo {
 
 .table tbody tr:nth-of-type(odd) {
   background-color: #fafafa;
+  background-color: #242424;
 }
 
 .table tbody tr:nth-of-type(even) {
   background-color: #fff;
+  background-color: #1D1D1D;
 }
 
 [id$="-error"] {
