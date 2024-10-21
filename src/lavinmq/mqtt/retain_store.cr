@@ -6,8 +6,8 @@ module LavinMQ
     class RetainStore
       Log = LavinMQ::Log.for("retainstore")
 
-      MESSAGE_FILE_SUFFIX     = ".msg"
-      INDEX_FILE_NAME         = "index"
+      MESSAGE_FILE_SUFFIX = ".msg"
+      INDEX_FILE_NAME     = "index"
 
       alias IndexTree = TopicTree(String)
 
@@ -56,7 +56,7 @@ module LavinMQ
         unless msg_file_segments.empty?
           Log.warn { "unreferenced messages: #{msg_file_segments.join(",")}" }
         end
-        #TODO: delete unreferenced messages?
+        # TODO: delete unreferenced messages?
         Log.info { "restoring index done, msg_count = #{msg_count}" }
       end
 
@@ -117,11 +117,11 @@ module LavinMQ
 
       private def read(file_name : String) : Bytes
         # @lock.synchronize do
-          File.open(File.join(@dir, file_name), "r") do |f|
-            body = Bytes.new(f.size)
-            f.read_fully(body)
-            body
-          end
+        File.open(File.join(@dir, file_name), "r") do |f|
+          body = Bytes.new(f.size)
+          f.read_fully(body)
+          body
+        end
         # end
       end
 
@@ -132,6 +132,7 @@ module LavinMQ
       end
 
       @hasher = Digest::MD5.new
+
       def make_file_name(topic : String) : String
         @hasher.update topic.to_slice
         hash = @hasher.hexfinal
