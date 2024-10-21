@@ -5,7 +5,6 @@ require "../mqtt/retain_store"
 
 module LavinMQ
   class MQTTExchange < Exchange
-
     struct MqttBindingKey
       def initialize(routing_key : String, arguments : AMQP::Table? = nil)
         @binding_key = BindingKey.new(routing_key, arguments)
@@ -53,7 +52,7 @@ module LavinMQ
     end
 
     def routing_key_to_topic(routing_key : String) : String
-        routing_key.tr(".*", "/+")
+      routing_key.tr(".*", "/+")
     end
 
     def bindings_details : Iterator(BindingDetails)

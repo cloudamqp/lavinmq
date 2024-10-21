@@ -134,7 +134,7 @@ module LavinMQ
       private def next_id : UInt16?
         @count &+= 1u16
 
-        #TODO: implement this?
+        # TODO: implement this?
         # return nil if @unacked.size == @max_inflight
         # start_id = @packet_id
         # next_id : UInt16 = start_id + 1
