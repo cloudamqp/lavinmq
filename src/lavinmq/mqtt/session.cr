@@ -1,3 +1,5 @@
+require "../error"
+
 module LavinMQ
   module MQTT
     class Session < Queue
@@ -125,6 +127,8 @@ module LavinMQ
         sp = @unacked[id]
         @unacked.delete id
         super sp
+      rescue
+         raise ::IO::Error.new("Could not acknowledge package with id: #{id}")
       end
 
       private def message_expire_loop; end

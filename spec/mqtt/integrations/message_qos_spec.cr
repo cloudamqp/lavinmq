@@ -151,6 +151,7 @@ module MqttSpecs
       with_server do |server|
         with_client_io(server) do |io|
           connect(io)
+          # we need to subscribe in order to have a session
           topic_filters = mk_topic_filters({"a/b", 1u8})
           subscribe(io, topic_filters: topic_filters)
           puback(io, 123u16)
