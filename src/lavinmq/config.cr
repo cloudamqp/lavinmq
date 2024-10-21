@@ -140,7 +140,7 @@ module LavinMQ
         p.on("--clustering-etcd-endpoints=URIs", "Comma separeted host/port pairs (default: 127.0.0.1:2379)") do |v|
           @clustering_etcd_endpoints = v
         end
-        p.on("--default-consumer-prefetch=NUMBER", "Default consumer prefetch") do |v|
+        p.on("--default-consumer-prefetch=NUMBER", "Default consumer prefetch (default 65535)") do |v|
           @default_consumer_prefetch = v.to_u16
         end
         p.invalid_option { |arg| abort "Invalid argument: #{arg}" }
