@@ -104,9 +104,6 @@ module LavinMQ
       end
 
       def recieve_puback(packet)
-        pp packet.inspect
-        pp @client_id
-        pp @broker.sessions
         @broker.sessions[@client_id].ack(packet)
       end
 
