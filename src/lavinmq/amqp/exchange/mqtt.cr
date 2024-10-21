@@ -42,7 +42,7 @@ module LavinMQ
         @retain_store.retain(topic, msg.body_io, msg.bodysize)
       end
 
-      @tree.each_entry(topic) do |queue, qos|
+      @tree.each_entry(msg.routing_key) do |queue, qos|
         msg.properties.delivery_mode = qos
         if queue.publish(msg)
           count += 1

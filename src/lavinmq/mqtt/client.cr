@@ -60,7 +60,6 @@ module LavinMQ
         raise ex
       ensure
         @broker.disconnect_client(client_id)
-
         @socket.close
         # move to disconnect client
         @broker.vhost.rm_connection(self)
@@ -128,9 +127,9 @@ module LavinMQ
         }.merge(stats_details)
       end
 
-      # TODO: actually publish will to session
       private def publish_will
         if will = @will
+          @broker.publish(will)
         end
       rescue ex
         @log.warn { "Failed to publish will: #{ex.message}" }
