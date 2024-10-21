@@ -78,16 +78,13 @@ module LavinMQ
         @clients.delete client_id
       end
 
-      def create_properties(packet : MQTT::Publish | MQTT::Will) : AMQP::Properties
+      def publish(packet : MQTT::Publish | MQTT::Will)
         headers = AMQP::Table.new
         headers["x-mqtt-retain"] = true if packet.retain?
         headers["x-mqtt-will"] = true if packet.is_a?(MQTT::Will)
-        AMQP::Properties.new(headers: headers).tap { |props| props.delivery_mode = packet.qos if packet.responds_to?(:qos) }
-      end
+        properties = AMQP::Properties.new(headers: headers).tap { |props| props.delivery_mode = packet.qos if packet.responds_to?(:qos) }
 
-      def publish(packet : MQTT::Publish | MQTT::Will)
         rk = topicfilter_to_routingkey(packet.topic)
-        properties = create_properties(packet)
         # TODO: String.new around payload.. should be stored as Bytes
         msg = Message.new("mqtt.default", rk, String.new(packet.payload), properties)
         @exchange.publish(msg, false)
