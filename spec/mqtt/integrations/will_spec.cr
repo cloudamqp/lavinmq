@@ -5,7 +5,7 @@ module MqttSpecs
   extend MqttMatchers
 
   describe "client will" do
-    pending "will is not delivered on graceful disconnect [MQTT-3.14.4-3]" do
+    it "will is not delivered on graceful disconnect [MQTT-3.14.4-3]" do
       with_server do |server|
         with_client_io(server) do |io|
           connect(io)
@@ -34,7 +34,7 @@ module MqttSpecs
       end
     end
 
-    pending "will is delivered on ungraceful disconnect" do
+    it "will is delivered on ungraceful disconnect" do
       with_server do |server|
         with_client_io(server) do |io|
           connect(io)
@@ -59,7 +59,7 @@ module MqttSpecs
       end
     end
 
-    pending "will can be retained [MQTT-3.1.2-17]" do
+    it "will can be retained [MQTT-3.1.2-17]" do
       with_server do |server|
         with_client_io(server) do |io2|
           will = MQTT::Protocol::Will.new(
@@ -85,7 +85,7 @@ module MqttSpecs
       end
     end
 
-    pending "will won't be published if missing permission" do
+    it "will won't be published if missing permission" do
       with_server do |server|
         with_client_io(server) do |io|
           connect(io)
@@ -110,7 +110,7 @@ module MqttSpecs
       end
     end
 
-    pending "will qos can't be set of will flag is unset [MQTT-3.1.2-13]" do
+    it "will qos can't be set of will flag is unset [MQTT-3.1.2-13]" do
       with_server do |server|
         with_client_io(server) do |io|
           temp_io = IO::Memory.new
@@ -127,7 +127,7 @@ module MqttSpecs
       end
     end
 
-    pending "will qos must not be 3 [MQTT-3.1.2-14]" do
+    it "will qos must not be 3 [MQTT-3.1.2-14]" do
       with_server do |server|
         with_client_io(server) do |io|
           temp_io = IO::Memory.new
@@ -146,7 +146,7 @@ module MqttSpecs
       end
     end
 
-    pending "will retain can't be set of will flag is unset [MQTT-3.1.2-15]" do
+    it "will retain can't be set of will flag is unset [MQTT-3.1.2-15]" do
       with_server do |server|
         with_client_io(server) do |io|
           temp_io = IO::Memory.new
