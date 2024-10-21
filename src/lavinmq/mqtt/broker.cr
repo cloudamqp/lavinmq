@@ -79,14 +79,13 @@ module LavinMQ
       end
 
       def publish(packet : MQTT::Publish | MQTT::Will)
-        headers = AMQP::Table.new
-        headers["x-mqtt-retain"] = true if packet.retain?
-        headers["x-mqtt-will"] = true if packet.is_a?(MQTT::Will)
-        properties = AMQP::Properties.new(headers: headers).tap { |props| props.delivery_mode = packet.qos if packet.responds_to?(:qos) }
-
-        rk = topicfilter_to_routingkey(packet.topic)
-        # TODO: String.new around payload.. should be stored as Bytes
-        msg = Message.new("mqtt.default", rk, String.new(packet.payload), properties)
+        headers = AMQP::Table.new.tap do |h|
+          h["x-mqtt-retain"] = true if packet.retain?
+        end
+        properties = AMQP::Properties.new(headers: headers).tap do |p|
+          p.delivery_mode = packet.qos if packet.responds_to?(:qos)
+        end
+        msg = Message.new("mqtt.default", topicfilter_to_routingkey(packet.topic), String.new(packet.payload), properties)
         @exchange.publish(msg, false)
       end
 
