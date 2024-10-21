@@ -5,7 +5,7 @@ module MqttSpecs
   extend MqttMatchers
 
   describe "duplicate messages" do
-    pending "dup must not be set if qos is 0 [MQTT-3.3.1-2]" do
+    it "dup must not be set if qos is 0 [MQTT-3.3.1-2]" do
       with_server do |server|
         with_client_io(server) do |io|
           connect(io)
@@ -32,7 +32,7 @@ module MqttSpecs
       end
     end
 
-    pending "dup is set when a message is being redelivered [MQTT-3.3.1.-1]" do
+    it "dup is set when a message is being redelivered [MQTT-3.3.1.-1]" do
       with_server do |server|
         with_client_io(server) do |io|
           connect(io)
@@ -59,7 +59,7 @@ module MqttSpecs
       end
     end
 
-    pending "dup on incoming messages is not propagated to other clients [MQTT-3.3.1-3]" do
+    it "dup on incoming messages is not propagated to other clients [MQTT-3.3.1-3]" do
       with_server do |server|
         with_client_io(server) do |io|
           connect(io)
