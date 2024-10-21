@@ -12,7 +12,7 @@ module LavinMQ
       getter? exclusive : Bool
       getter? no_ack : Bool
       getter channel, queue
-      getter prefetch_count = 0u16
+      getter prefetch_count  : UInt16 = Config.instance.default_consumer_prefetch
       getter unacked = 0_u32
       getter? closed = false
       @flow : Bool
