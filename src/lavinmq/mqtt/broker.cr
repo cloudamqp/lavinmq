@@ -106,8 +106,6 @@ module LavinMQ
         packet.topic_filters.each do |tf|
           qos << MQTT::SubAck::ReturnCode.from_int(tf.qos)
           session.subscribe(tf.topic, tf.qos)
-
-          #Publish retained messages
           @retain_store.each(tf.topic) do |topic, body|
             rk = topicfilter_to_routingkey(topic)
             msg = Message.new("mqtt.default", rk, String.new(body),
