@@ -147,11 +147,12 @@ module MqttSpecs
       end
     end
 
-    # TODO: rescue so we don't get ugly missing hash key errors
     it "cannot ack invalid packet id" do
       with_server do |server|
         with_client_io(server) do |io|
           connect(io)
+          topic_filters = mk_topic_filters({"a/b", 1u8})
+          subscribe(io, topic_filters: topic_filters)
           puback(io, 123u16)
 
           expect_raises(IO::Error) do
