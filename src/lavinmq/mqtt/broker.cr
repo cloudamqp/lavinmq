@@ -47,7 +47,7 @@ module LavinMQ
 
       def session_present?(client_id : String, clean_session) : Bool
         return false if clean_session
-        session = @sessions[client_id]?
+        session = sessions[client_id]?
         return false if session.nil? || session.clean_session?
         true
       end
@@ -58,7 +58,7 @@ module LavinMQ
           prev_client.close
         end
         client = MQTT::Client.new(socket, connection_info, user, vhost, self, packet.client_id, packet.clean_session?, packet.will)
-        if session = @sessions[client.client_id]?
+        if session = sessions[client.client_id]?
           if session.clean_session?
             sessions.delete session
           else
@@ -70,7 +70,7 @@ module LavinMQ
       end
 
       def disconnect_client(client_id)
-        if session = @sessions[client_id]?
+        if session = sessions[client_id]?
           session.client = nil
           sessions.delete(client_id) if session.clean_session?
         end
@@ -94,7 +94,7 @@ module LavinMQ
       end
 
       def subscribe(client, packet)
-        unless session = @sessions[client.client_id]?
+        unless session = sessions[client.client_id]?
           session = sessions.declare(client.client_id, client.@clean_session)
           session.client = client
         end
