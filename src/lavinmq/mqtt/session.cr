@@ -1,8 +1,11 @@
+require "../queue"
 require "../error"
 
 module LavinMQ
   module MQTT
     class Session < Queue
+      Log = ::LavinMQ::Log.for "mqtt.session"
+
       @clean_session : Bool = false
       getter clean_session
 
@@ -14,6 +17,8 @@ module LavinMQ
         @unacked = Hash(UInt16, SegmentPosition).new
 
         super(@vhost, @name, false, @auto_delete, arguments)
+
+        @log = Logger.new(Log, @metadata)
         spawn deliver_loop, name: "Consumer deliver loop", same_thread: true
       end
 
@@ -53,7 +58,7 @@ module LavinMQ
           @consumers << MqttConsumer.new(c, self)
           spawn deliver_loop, name: "Consumer deliver loop", same_thread: true
         end
-        @log.debug { "Setting MQTT client" }
+        @log.debug { "client set to '#{client.try &.name}'" }
       end
 
       def durable?
@@ -128,7 +133,7 @@ module LavinMQ
         @unacked.delete id
         super sp
       rescue
-         raise ::IO::Error.new("Could not acknowledge package with id: #{id}")
+        raise ::IO::Error.new("Could not acknowledge package with id: #{id}")
       end
 
       private def message_expire_loop; end
