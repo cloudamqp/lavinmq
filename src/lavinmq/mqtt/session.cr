@@ -111,7 +111,6 @@ module LavinMQ
             delete_message(sp)
           else
             id = next_id
-            pp id
             return false unless id
             env.message.properties.message_id = id.to_s
             mark_unacked(sp) do
