@@ -15,7 +15,7 @@ module MqttSpecs
           with_client_io(server) do |pub_io|
             connect(pub_io, client_id: "pub")
 
-            payload = slice = Bytes[1, 254, 200, 197, 123, 4, 87]
+            payload = Bytes[1, 254, 200, 197, 123, 4, 87]
             packet_id = next_packet_id
             ack = publish(pub_io,
               topic: "test",
