@@ -14,7 +14,7 @@ module LavinMQ
       @channels = Hash(UInt16, Client::Channel).new
       @session : MQTT::Session?
       rate_stats({"send_oct", "recv_oct"})
-      Log = ::Log.for "MQTT.client"
+      Log = ::Log.for "mqtt.client"
 
       def initialize(@socket : ::IO,
                      @connection_info : ConnectionInfo,
@@ -77,8 +77,7 @@ module LavinMQ
         when MQTT::Unsubscribe then recieve_unsubscribe(packet)
         when MQTT::PingReq     then receive_pingreq(packet)
         when MQTT::Disconnect  then return packet
-          # TODO: do we raise here? or just disconnect if we get an invalid frame
-        else raise "invalid packet type for client to send"
+        else                        raise "received unexpected packet: #{packet}"
         end
         packet
       end
