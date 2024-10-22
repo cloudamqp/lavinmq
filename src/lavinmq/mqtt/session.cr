@@ -14,6 +14,7 @@ module LavinMQ
                      @auto_delete = false,
                      arguments : ::AMQ::Protocol::Table = AMQP::Table.new)
         @count = 0u16
+        @max_inflight = 65_535u16 # TODO: get this from config
         @unacked = Hash(UInt16, SegmentPosition).new
 
         super(@vhost, @name, false, @auto_delete, arguments)
@@ -97,12 +98,10 @@ module LavinMQ
       private def get(no_ack : Bool, & : Envelope -> Nil) : Bool
         raise ClosedError.new if @closed
         loop do
-          id = next_id
           env = @msg_store_lock.synchronize { @msg_store.shift? } || break
           sp = env.segment_position
           no_ack = env.message.properties.delivery_mode == 0
           if no_ack
-            env.message.properties.message_id = id.to_s
             begin
               yield env
             rescue ex
@@ -111,6 +110,9 @@ module LavinMQ
             end
             delete_message(sp)
           else
+            id = next_id
+            pp id
+            return false unless id
             env.message.properties.message_id = id.to_s
             mark_unacked(sp) do
               yield env
@@ -141,24 +143,16 @@ module LavinMQ
       private def queue_expire_loop; end
 
       private def next_id : UInt16?
-        @count &+= 1u16
-
-        # TODO: implement this?
-        # return nil if @unacked.size == @max_inflight
-        # start_id = @packet_id
-        # next_id : UInt16 = start_id + 1
-        # while @unacked.has_key?(next_id)
-        #   if next_id == 65_535
-        #     next_id = 1
-        #   else
-        #     next_id += 1
-        #   end
-        #   if next_id == start_id
-        #     return nil
-        #   end
-        # end
-        # @packet_id = next_id
-        # next_id
+        return nil if @unacked.size == @max_inflight
+        start_id = @count
+        next_id : UInt16 = start_id &+ 1_u16
+        while @unacked.has_key?(next_id)
+          next_id &+= 1u16
+          next_id = 1u16 if next_id == 0
+          return nil if next_id == start_id
+        end
+        @count = next_id
+        next_id
       end
     end
   end
