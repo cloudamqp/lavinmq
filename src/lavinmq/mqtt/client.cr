@@ -76,9 +76,9 @@ module LavinMQ
         when MQTT::Subscribe   then recieve_subscribe(packet)
         when MQTT::Unsubscribe then recieve_unsubscribe(packet)
         when MQTT::PingReq     then receive_pingreq(packet)
-        when MQTT::Connect     then raise ::IO::Error.new("Can not connect already connected client")
         when MQTT::Disconnect  then return packet
-        else raise "invalid packet type for client to send: #{packet.inspect}"
+          # TODO: do we raise here? or just disconnect if we get an invalid frame
+        else raise "invalid packet type for client to send"
         end
         packet
       end
