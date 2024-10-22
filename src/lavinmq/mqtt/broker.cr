@@ -78,7 +78,7 @@ module LavinMQ
         @clients.delete client_id
       end
 
-      def publish(packet : MQTT::Publish | MQTT::Will)
+      def publish(packet : MQTT::Publish)
         headers = AMQP::Table.new.tap do |h|
           h["x-mqtt-retain"] = true if packet.retain?
         end

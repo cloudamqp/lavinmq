@@ -128,9 +128,16 @@ module LavinMQ
       end
 
       private def publish_will
-        if will = @will
-          @broker.publish(will)
-        end
+        return unless will = @will
+        packet = MQTT::Publish.new(
+          topic: will.topic,
+          payload: will.payload,
+          packet_id: nil,
+          qos: will.qos,
+          retain: will.retain?,
+          dup: false,
+        )
+        @broker.publish(packet)
       rescue ex
         @log.warn { "Failed to publish will: #{ex.message}" }
       end
