@@ -1,6 +1,6 @@
 require "mqtt-protocol"
 
-module Specs
+module MqttHelpers
   class MqttClient
     def next_packet_id
       @packet_id_generator.next.as(UInt16)
