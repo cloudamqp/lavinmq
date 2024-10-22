@@ -68,9 +68,7 @@ module LavinMQ
       Iterator(Destination).empty
     end
 
-    def bind(destination : Destination, routing_key : String, headers = nil) : Bool
-      raise LavinMQ::Exchange::AccessRefused.new(self) unless destination.is_a?(MQTT::Session)
-
+    def bind(destination : MQTT::Session, routing_key : String, headers = nil) : Bool
       qos = headers.try { |h| h["x-mqtt-qos"]?.try(&.as(UInt8)) } || 0u8
       binding_key = MqttBindingKey.new(routing_key, headers)
       @bindings[binding_key].add destination
@@ -81,8 +79,7 @@ module LavinMQ
       true
     end
 
-    def unbind(destination : Destination, routing_key, headers = nil) : Bool
-      raise LavinMQ::Exchange::AccessRefused.new(self) unless destination.is_a?(MQTT::Session)
+    def unbind(destination : MQTT::Session, routing_key, headers = nil) : Bool
       binding_key = MqttBindingKey.new(routing_key, headers)
       rk_bindings = @bindings[binding_key]
       rk_bindings.delete destination
@@ -95,6 +92,14 @@ module LavinMQ
 
       delete if @auto_delete && @bindings.each_value.all?(&.empty?)
       true
+    end
+
+    def bind(destination : Destination, routing_key : String, headers = nil) : Bool
+      raise LavinMQ::Exchange::AccessRefused.new(self)
+    end
+
+    def unbind(destination : Destination, routing_key, headers = nil) : Bool
+      raise LavinMQ::Exchange::AccessRefused.new(self)
     end
   end
 end
