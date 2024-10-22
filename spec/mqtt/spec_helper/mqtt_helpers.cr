@@ -9,7 +9,7 @@ module MqttHelpers
     GENERATOR.next.as(UInt16)
   end
 
-  def with_client_socket(server, &)
+  def with_client_socket(server)
     listener = server.listeners.find { |l| l[:protocol] == :mqtt }
     tcp_listener = listener.as(NamedTuple(ip_address: String, protocol: Symbol, port: Int32))
 
@@ -26,6 +26,11 @@ module MqttHelpers
     socket.read_buffering = true
     socket.buffer_size = 16384
     socket.read_timeout = 1.seconds
+    socket
+  end
+
+  def with_client_socket(server, &)
+    socket = with_client_socket(server)
     yield socket
   ensure
     socket.try &.close
@@ -46,10 +51,14 @@ module MqttHelpers
     end
   end
 
+  def with_client_io(server)
+    socket = with_client_socket(server)
+    MQTT::Protocol::IO.new(socket)
+  end
+
   def with_client_io(server, &)
-    with_client_socket(server) do |socket|
-      io = MQTT::Protocol::IO.new(socket)
-      with MqttHelpers yield io
+    with_client_socket(server) do |io|
+      with MqttHelpers yield MQTT::Protocol::IO.new(io)
     end
   end
 
