@@ -108,12 +108,10 @@ module LavinMQ
 
       def recieve_subscribe(packet : MQTT::Subscribe)
         qos = @broker.subscribe(self, packet)
-        session = @broker.sessions[@client_id]
         send(MQTT::SubAck.new(qos, packet.packet_id))
       end
 
       def recieve_unsubscribe(packet : MQTT::Unsubscribe)
-        session = @broker.sessions[@client_id]
         @broker.unsubscribe(self, packet)
         send(MQTT::UnsubAck.new(packet.packet_id))
       end
