@@ -134,7 +134,7 @@ header {
   position: absolute;
   bottom: -16px;
   left: 320px;
-  background: #1d1d1d;
+  background: #161616;
   overflow: hidden;
 }
 
@@ -145,7 +145,7 @@ header {
   position: absolute;
   top: 0;
   left: 0;
-  background: #161616;
+  background: #101010;
 }
 
 #menu-header {
@@ -364,6 +364,24 @@ main {
   align-items: center;
 }
 /* Utility classes */
+
+select.upd-sel {
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%23f7f5f2' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+  background-position: right .5rem center;
+  background-repeat: no-repeat;
+  background-size: 1.5em 1.5em;
+  padding-right: 2.5rem;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  height: auto;
+  padding: 0.75rem 1rem;
+  border-radius: 0.375rem;
+  border: none;
+  box-shadow: none;
+}
 
 .cols-1 {
   grid-column: auto / span 1;
@@ -862,6 +880,7 @@ footer .logo {
   border-top: 1px solid #ddd;
   padding: 0.75rem 1.55rem 0.5rem 0.55rem;
   color: var(--font-color-light);
+  color: #CDCBC9;
   white-space: nowrap;
 }
 
@@ -870,6 +889,7 @@ footer .logo {
   position: relative;
   padding-right: 10px;
   z-index: 1000;
+  color: #CDCBC9;
 }
 
 .self-link {
@@ -880,12 +900,12 @@ footer .logo {
 
 .table tbody tr:nth-of-type(odd) {
   background-color: #fafafa;
-  background-color: #242424;
+  background-color: #1D1D1D;
 }
 
 .table tbody tr:nth-of-type(even) {
   background-color: #fff;
-  background-color: #1D1D1D;
+  background-color: #161616;
 }
 
 [id$="-error"] {
