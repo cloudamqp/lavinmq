@@ -66,13 +66,17 @@
           <div class="px-6 py-4">
             <label class="mt-0 mb-4">
               <span class="text-light-400">Virtual host</span>
-              <select id="uploadDefinitionsVhost" name="vhost" class="upd-sel bg-dark-600 text-light-400" required></select>
+              <select id="uploadDefinitionsVhost" name="vhost" class="dropdown bg-dark-600 text-light-400" required></select>
             </label>
             <label class="mt-0 mb-4">
               <span class="text-light-400">File</span>
               <input id="file" name="file" type="file" accept=".json" required />
             </label>
-            <button type="submit" class="btn-primary">Upload</button>
+            <button type="submit" class="btn-outline"><span>Upload</span><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20" fill="none">
+<path d="M17.5 12.5V15.8333C17.5 16.2754 17.3244 16.6993 17.0118 17.0118C16.6993 17.3244 16.2754 17.5 15.8333 17.5H4.16667C3.72464 17.5 3.30072 17.3244 2.98816 17.0118C2.67559 16.6993 2.5 16.2754 2.5 15.8333V12.5" stroke="#F7F5F2" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M14.1668 6.66667L10.0002 2.5L5.8335 6.66667" stroke="#F7F5F2" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M10 2.5V12.5" stroke="#F7F5F2" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
+</svg></button>
           </div>
         </form>
         <form id="exportDefinitions" method="post" class="form card p-0 cols-6 rounded-xl bg-dark-900 border-light">
@@ -80,9 +84,13 @@
           <div class="px-6 py-4">
             <label class="mt-0 mb-4">
               <span class="text-light-400">Virtual host</span>
-              <select id="exportDefinitionsVhost" name="vhost" required></select>
+              <select id="exportDefinitionsVhost" class="dropdown bg-dark-600 text-light-400" name="vhost" required></select>
             </label>
-            <button type="submit" class="btn-primary">Download</button>
+            <button type="submit" class="btn-outline"><span>Download</span><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20" fill="none">
+<path d="M17.5 12.5V15.8333C17.5 16.2754 17.3244 16.6993 17.0118 17.0118C16.6993 17.3244 16.2754 17.5 15.8333 17.5H4.16667C3.72464 17.5 3.30072 17.3244 2.98816 17.0118C2.67559 16.6993 2.5 16.2754 2.5 15.8333V12.5" stroke="#F7F5F2" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M5.8335 8.33334L10.0002 12.5L14.1668 8.33334" stroke="#F7F5F2" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M10 12.5V2.5" stroke="#F7F5F2" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
+</svg></button>
           </div>
         </form>
       </main>
