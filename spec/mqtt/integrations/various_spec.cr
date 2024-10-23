@@ -22,7 +22,6 @@ module MqttSpecs
           connect(io, clean_session: false)
           packet = read_packet(io).should be_a(MQTT::Protocol::Publish)
           packet.topic.should eq "a/b/c"
-          pp packet
         rescue
           fail "timeout; message not routed"
         end
