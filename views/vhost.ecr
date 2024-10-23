@@ -7,109 +7,114 @@
   </head>
   <body>
     <% render "partials/header" %>
-    <main>
-      <section class="card cols-6">
-        <h3>
-          Message stats
-        </h3>
-        <table id="msg-table" class="details-table">
-          <tr>
-            <th>Ready</th>
-            <td id="ready"></td>
-          </tr>
-          <tr>
-            <th>Unacked</th>
-            <td id="unacked"></td>
-          </tr>
-          <tr>
-            <th>Total</th>
-            <td id="total"></td>
-          </tr>
-        </table>
-      </section>
-      <section class="card cols-6">
-        <h3>
-          Limits
-        </h3>
-        <table id="limits-table" class="details-table">
-          <tr>
-            <th>Max connections</th>
-            <td id="max-connections"></td>
-          </tr>
-          <tr>
-            <th>Max queues</th>
-            <td id="max-queues"></td>
-          </tr>
-        </table>
-      </section>
-      <section class="card">
-        <h3>
-          Permissions
-          <small id="permissions-count"></small>
-        </h3>
-        <div class="table-wrapper">
-          <div id="permissions-error"></div>
-          <table id="permissions" class="table">
-            <thead>
-              <tr>
-                <th>User</th>
-                <th>Configure regexp</th>
-                <th>Write regexp</th>
-                <th>Read regexp</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
+    <div class="grid-content">
+      <main>
+        <div id="breadcrumbs" class="cols-12">
+            <h2 class="page-title flex flex-row items-center"><%=pagename%><span style="margin: 0 4px;">/</span> <div id="pagename-label"></div></h2>
         </div>
-      </section>
-      <form method="put" id="setPermission" class="form card cols-6">
-        <h3>Set permission</h3>
-        <label>
-          <span>User</span>
-          <select name="user" required></select>
-        </label>
-        <label>
-          <span>Configure regexp</span>
-          <input type="text" name="configure" required value=".*">
-        </label>
-        <label>
-          <span>Write regexp</span>
-          <input type="text" name="write" required value=".*">
-        </label>
-        <label>
-          <span>Read regexp</span>
-          <input type="text" name="read" required value=".*">
-        </label>
-        <button type="submit" class="btn-primary">Set permission</button>
-      </form>
-      <form method="put" id="setLimits" class="form card cols-6">
-        <h3>Set limits</h3>
-        <label>
-          <span>Max connections</span>
-          <input type="number" name="max-connections" class="right">
-        </label>
-        <label>
-          <span>Max queues</span>
-          <input type="number" name="max-queues" class="right">
-        </label>
-        <button type="submit" class="btn-primary">Set limits</button>
-      </form>
-      <section class="card cols-4">
-        <h3>Danger zone</h3>
-        <form method="post" id="resetVhost" class="form">
+        <section class="card cols-6">
+          <h3>
+            Message stats
+          </h3>
+          <table id="msg-table" class="details-table">
+            <tr>
+              <th>Ready</th>
+              <td id="ready"></td>
+            </tr>
+            <tr>
+              <th>Unacked</th>
+              <td id="unacked"></td>
+            </tr>
+            <tr>
+              <th>Total</th>
+              <td id="total"></td>
+            </tr>
+          </table>
+        </section>
+        <section class="card cols-6">
+          <h3>
+            Limits
+          </h3>
+          <table id="limits-table" class="details-table">
+            <tr>
+              <th>Max connections</th>
+              <td id="max-connections"></td>
+            </tr>
+            <tr>
+              <th>Max queues</th>
+              <td id="max-queues"></td>
+            </tr>
+          </table>
+        </section>
+        <section class="card">
+          <h3>
+            Permissions
+            <small id="permissions-count"></small>
+          </h3>
+          <div class="table-wrapper">
+            <div id="permissions-error"></div>
+            <table id="permissions" class="table">
+              <thead>
+                <tr>
+                  <th>User</th>
+                  <th>Configure regexp</th>
+                  <th>Write regexp</th>
+                  <th>Read regexp</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </section>
+        <form method="put" id="setPermission" class="form card cols-6">
+          <h3>Set permission</h3>
           <label>
-            <button title="Will purge all queues and close the consumers" type="submit" class="btn-danger">Reset vhost</button>
+            <span>User</span>
+            <select name="user" required></select>
           </label>
-        </form>
-        <br />
-        <form method="delete" id="deleteVhost" class="form">
           <label>
-            <button type="submit" class="btn-danger">Delete vhost</button>
+            <span>Configure regexp</span>
+            <input type="text" name="configure" required value=".*">
           </label>
+          <label>
+            <span>Write regexp</span>
+            <input type="text" name="write" required value=".*">
+          </label>
+          <label>
+            <span>Read regexp</span>
+            <input type="text" name="read" required value=".*">
+          </label>
+          <button type="submit" class="btn-primary">Set permission</button>
         </form>
-      </section>
-    </main>
-    <% render "partials/footer" %>
+        <form method="put" id="setLimits" class="form card cols-6">
+          <h3>Set limits</h3>
+          <label>
+            <span>Max connections</span>
+            <input type="number" name="max-connections" class="right">
+          </label>
+          <label>
+            <span>Max queues</span>
+            <input type="number" name="max-queues" class="right">
+          </label>
+          <button type="submit" class="btn-primary">Set limits</button>
+        </form>
+        <section class="card cols-4">
+          <h3>Danger zone</h3>
+          <form method="post" id="resetVhost" class="form">
+            <label>
+              <button title="Will purge all queues and close the consumers" type="submit" class="btn-danger">Reset vhost</button>
+            </label>
+          </form>
+          <br />
+          <form method="delete" id="deleteVhost" class="form">
+            <label>
+              <button type="submit" class="btn-danger">Delete vhost</button>
+            </label>
+          </form>
+        </section>
+      </main>
+      <% render "partials/footer" %>
+    </div>
   </body>
 </html>
