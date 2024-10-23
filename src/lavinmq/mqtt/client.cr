@@ -48,7 +48,6 @@ module LavinMQ
           # If we dont breakt the loop here we'll get a IO/Error on next read.
           break if packet.is_a?(MQTT::Disconnect)
         end
-        #do we even need this as a "case" if we don't log anything special?
       rescue ex : ::MQTT::Protocol::Error::PacketDecode
         publish_will if @will
         @socket.close
@@ -61,10 +60,8 @@ module LavinMQ
         publish_will if @will
         raise ex
       ensure
-        @broker.disconnect_client(client_id)
+        @broker.disconnect_client(self)
         @socket.close
-        # move to disconnect client
-        @broker.vhost.rm_connection(self)
       end
 
       def read_and_handle_packet
