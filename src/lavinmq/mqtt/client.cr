@@ -48,7 +48,9 @@ module LavinMQ
           # If we dont breakt the loop here we'll get a IO/Error on next read.
           break if packet.is_a?(MQTT::Disconnect)
         end
+        #do we even need this as a "case" if we don't log anything special?
       rescue ex : ::MQTT::Protocol::Error::PacketDecode
+        publish_will if @will
         @socket.close
       rescue ex : MQTT::Error::Connect
         @log.warn { "Connect error #{ex.inspect}" }
