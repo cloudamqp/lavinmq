@@ -49,10 +49,11 @@ module LavinMQ
           break if packet.is_a?(MQTT::Disconnect)
         end
       rescue ex : ::MQTT::Protocol::Error::PacketDecode
+        @log.warn(exception: ex) { "Packet decode error" }
         publish_will if @will
         @socket.close
       rescue ex : MQTT::Error::Connect
-        @log.warn { "Connect error #{ex.inspect}" }
+        @log.warn { "Connect error: #{ex.message}" }
       rescue ex : ::IO::Error
         @log.warn(exception: ex) { "Read Loop error" }
         publish_will if @will
