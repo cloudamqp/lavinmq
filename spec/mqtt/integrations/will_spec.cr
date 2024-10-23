@@ -5,7 +5,7 @@ module MqttSpecs
   extend MqttMatchers
 
   describe "client will" do
-    it "will is not delivered on graceful disconnect [MQTT-3.14.4-3]" do
+    it "is not delivered on graceful disconnect [MQTT-3.14.4-3]" do
       with_server do |server|
         with_client_io(server) do |io|
           connect(io)
@@ -22,10 +22,7 @@ module MqttSpecs
           # If the will has been published it should be received before this
           publish(io, topic: "a/b", payload: "alive".to_slice)
 
-          pub = read_packet(io)
-
-          pub.should be_a(MQTT::Protocol::Publish)
-          pub = pub.as(MQTT::Protocol::Publish)
+          pub = read_packet(io).should be_a(MQTT::Protocol::Publish)
           pub.payload.should eq("alive".to_slice)
           pub.topic.should eq("a/b")
 
@@ -34,32 +31,59 @@ module MqttSpecs
       end
     end
 
-    it "will is delivered on ungraceful disconnect" do
-      with_server do |server|
-        with_client_io(server) do |io|
-          connect(io)
-          topic_filters = mk_topic_filters({"will/t", 0})
-          subscribe(io, topic_filters: topic_filters)
+    describe "is delivered on ungraceful disconnect" do
+      it "when client unexpected closes tcp connection" do
+        with_server do |server|
+          with_client_io(server) do |io|
+            connect(io)
+            topic_filters = mk_topic_filters({"will/t", 0})
+            subscribe(io, topic_filters: topic_filters)
 
-          with_client_io(server) do |io2|
-            will = MQTT::Protocol::Will.new(
-              topic: "will/t", payload: "dead".to_slice, qos: 0u8, retain: false)
-            connect(io2, client_id: "will_client", will: will, keepalive: 1u16)
+            with_client_io(server) do |io2|
+              will = MQTT::Protocol::Will.new(
+                topic: "will/t", payload: "dead".to_slice, qos: 0u8, retain: false)
+              connect(io2, client_id: "will_client", will: will, keepalive: 1u16)
+            end
+
+            pub = read_packet(io).should be_a(MQTT::Protocol::Publish)
+            pub.payload.should eq("dead".to_slice)
+            pub.topic.should eq("will/t")
+
+            disconnect(io)
           end
+        end
+      end
 
-          pub = read_packet(io)
+      it "when server closes connection because protocol error" do
+        with_server do |server|
+          with_client_io(server) do |io|
+            connect(io)
+            topic_filters = mk_topic_filters({"will/t", 0})
+            subscribe(io, topic_filters: topic_filters)
 
-          pub.should be_a(MQTT::Protocol::Publish)
-          pub = pub.as(MQTT::Protocol::Publish)
-          pub.payload.should eq("dead".to_slice)
-          pub.topic.should eq("will/t")
+            with_client_io(server) do |io2|
+              will = MQTT::Protocol::Will.new(
+                topic: "will/t", payload: "dead".to_slice, qos: 0u8, retain: false)
+              connect(io2, client_id: "will_client", will: will, keepalive: 20u16)
 
-          disconnect(io)
+              broken_packet_io = IO::Memory.new
+              publish(MQTT::Protocol::IO.new(broken_packet_io), topic: "foo", qos: 1u8, expect_response: false)
+              broken_packet = broken_packet_io.to_slice
+              broken_packet[0] |= 0b0000_0110u8 # set both qos bits to 1
+              io2.write broken_packet
+            end
+
+            pub = read_packet(io).should be_a(MQTT::Protocol::Publish)
+            pub.payload.should eq("dead".to_slice)
+            pub.topic.should eq("will/t")
+
+            disconnect(io)
+          end
         end
       end
     end
 
-    it "will can be retained [MQTT-3.1.2-17]" do
+    it "can be retained [MQTT-3.1.2-17]" do
       with_server do |server|
         with_client_io(server) do |io2|
           will = MQTT::Protocol::Will.new(
@@ -72,10 +96,7 @@ module MqttSpecs
           topic_filters = mk_topic_filters({"will/t", 0})
           subscribe(io, topic_filters: topic_filters)
 
-          pub = read_packet(io)
-
-          pub.should be_a(MQTT::Protocol::Publish)
-          pub = pub.as(MQTT::Protocol::Publish)
+          pub = read_packet(io).should be_a(MQTT::Protocol::Publish)
           pub.payload.should eq("dead".to_slice)
           pub.topic.should eq("will/t")
           pub.retain?.should eq(true)
@@ -85,7 +106,7 @@ module MqttSpecs
       end
     end
 
-    it "will won't be published if missing permission" do
+    it "won't be published if missing permission" do
       with_server do |server|
         with_client_io(server) do |io|
           connect(io)
@@ -110,7 +131,7 @@ module MqttSpecs
       end
     end
 
-    it "will qos can't be set of will flag is unset [MQTT-3.1.2-13]" do
+    it "qos can't be set of will flag is unset [MQTT-3.1.2-13]" do
       with_server do |server|
         with_client_io(server) do |io|
           temp_io = IO::Memory.new
@@ -127,7 +148,7 @@ module MqttSpecs
       end
     end
 
-    it "will qos must not be 3 [MQTT-3.1.2-14]" do
+    it "qos must not be 3 [MQTT-3.1.2-14]" do
       with_server do |server|
         with_client_io(server) do |io|
           temp_io = IO::Memory.new
@@ -146,7 +167,7 @@ module MqttSpecs
       end
     end
 
-    it "will retain can't be set of will flag is unset [MQTT-3.1.2-15]" do
+    it "retain can't be set of will flag is unset [MQTT-3.1.2-15]" do
       with_server do |server|
         with_client_io(server) do |io|
           temp_io = IO::Memory.new

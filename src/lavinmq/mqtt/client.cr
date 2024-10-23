@@ -29,7 +29,7 @@ module LavinMQ
         @remote_address = @connection_info.src
         @local_address = @connection_info.dst
         @name = "#{@remote_address} -> #{@local_address}"
-        @metadata = ::Log::Metadata.new(nil, {vhost: @broker.vhost.name, address: @remote_address.to_s})
+        @metadata = ::Log::Metadata.new(nil, {vhost: @broker.vhost.name, address: @remote_address.to_s, client_id: client_id})
         @log = Logger.new(Log, @metadata)
         @broker.vhost.add_connection(self)
         @log.info { "Connection established for user=#{@user.name}" }
