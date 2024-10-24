@@ -8,13 +8,13 @@ module LavinMQ
 
       @clean_session : Bool = false
       getter clean_session
+      getter max_inflight_messages : UInt16? = Config.instance.max_inflight_messages
 
       def initialize(@vhost : VHost,
                      @name : String,
                      @auto_delete = false,
                      arguments : ::AMQ::Protocol::Table = AMQP::Table.new)
         @count = 0u16
-        @max_inflight = 65_535u16 # TODO: get this from config
         @unacked = Hash(UInt16, SegmentPosition).new
 
         super(@vhost, @name, false, @auto_delete, arguments)
@@ -142,7 +142,7 @@ module LavinMQ
       private def queue_expire_loop; end
 
       private def next_id : UInt16?
-        return nil if @unacked.size == @max_inflight
+        return nil if @unacked.size == max_inflight_messages
         start_id = @count
         next_id : UInt16 = start_id &+ 1_u16
         while @unacked.has_key?(next_id)
