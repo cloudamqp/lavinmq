@@ -54,7 +54,7 @@ module LavinMQ
       rescue ex : MQTT::Error::Connect
         @log.warn { "Connect error: #{ex.message}" }
       rescue ex : ::IO::Error
-        @log.warn(exception: ex) { "Read Loop error" }
+        @log.warn { "Client unexpectedly closed connection" } unless @closed
         publish_will if @will
       rescue ex
         @log.warn(exception: ex) { "Read Loop error" }
