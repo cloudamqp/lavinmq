@@ -42,6 +42,7 @@ module LavinMQ
     property? set_timestamp = false             # in message headers when receive
     property socket_buffer_size = 16384         # bytes
     property? tcp_nodelay = false               # bool
+    property max_inflight_messages : UInt16 = 65_535
     property segment_size : Int32 = 8 * 1024**2 # bytes
     property max_inflight_messages : UInt16 = 65_535
     property? raise_gc_warn : Bool = false
