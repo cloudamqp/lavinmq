@@ -1,6 +1,5 @@
 require "../spec_helper"
 
-
 module MqttSpecs
   extend MqttHelpers
   alias IndexTree =  LavinMQ::MQTT::TopicTree(String)
