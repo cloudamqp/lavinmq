@@ -1,8 +1,8 @@
-require "../mfile"
-require "../segment_position"
+require "../../mfile"
+require "../../segment_position"
 require "log"
 require "file_utils"
-require "../clustering/server"
+require "../../clustering/server"
 
 module LavinMQ
   class Queue

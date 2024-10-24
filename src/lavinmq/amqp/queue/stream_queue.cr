@@ -1,5 +1,5 @@
 require "./durable_queue"
-require "../amqp/stream_consumer"
+require "../stream_consumer"
 require "./stream_queue_message_store"
 
 module LavinMQ

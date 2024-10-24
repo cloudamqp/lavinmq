@@ -1,5 +1,5 @@
 require "./spec_helper"
-require "./../src/lavinmq/queue"
+require "./../src/lavinmq/amqp/queue"
 
 describe LavinMQ::StreamQueue do
   stream_queue_args = LavinMQ::AMQP::Table.new({"x-queue-type": "stream"})
