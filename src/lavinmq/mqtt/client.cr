@@ -51,7 +51,6 @@ module LavinMQ
       rescue ex : ::MQTT::Protocol::Error::PacketDecode
         @log.warn(exception: ex) { "Packet decode error" }
         publish_will if @will
-        @socket.close
       rescue ex : MQTT::Error::Connect
         @log.warn { "Connect error: #{ex.message}" }
       rescue ex : ::IO::Error
