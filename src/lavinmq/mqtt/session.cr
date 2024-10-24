@@ -20,7 +20,7 @@ module LavinMQ
         super(@vhost, @name, false, @auto_delete, arguments)
 
         @log = Logger.new(Log, @metadata)
-        spawn deliver_loop, name: "Consumer deliver loop", same_thread: true
+        spawn deliver_loop, name: "Session#deliver_loop", same_thread: true
       end
 
       def clean_session?
@@ -30,14 +30,20 @@ module LavinMQ
       private def deliver_loop
         i = 0
         loop do
-          break if consumers.empty?
-          consume_get(consumers.first) do |env|
+          break if @closed
+          if @msg_store.empty? || @consumers.empty?
+            Channel.receive_first(@msg_store.empty_change, @consumers_empty_change)
+            next
+          end
+          get(false) do |env|
             consumers.first.deliver(env.message, env.segment_position, env.redelivered)
           end
           Fiber.yield if (i &+= 1) % 32768 == 0
         end
+      rescue ::Channel::ClosedError
+        return
       rescue ex
-        puts "deliver loop exiting: #{ex.inspect_with_backtrace}"
+        @log.trace(exception: ex) { "deliver loop exiting" }
       end
 
       def client=(client : MQTT::Client?)
@@ -57,7 +63,6 @@ module LavinMQ
 
         if c = client
           @consumers << MQTT::Consumer.new(c, self)
-          spawn deliver_loop, name: "Consumer deliver loop", same_thread: true
         end
         @log.debug { "client set to '#{client.try &.name}'" }
       end
