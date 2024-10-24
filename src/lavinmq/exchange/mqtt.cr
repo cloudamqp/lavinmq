@@ -32,6 +32,16 @@ module LavinMQ
       super(vhost, name, true, false, true)
     end
 
+    def publish(packet : MQTT::Publish) : Int32
+      headers = AMQP::Table.new.tap do |h|
+        h["x-mqtt-retain"] = true if packet.retain?
+      end
+      properties = AMQP::Properties.new(headers: headers).tap do |p|
+        p.delivery_mode = packet.qos if packet.responds_to?(:qos)
+      end
+      publish Message.new("mqtt.default", topicfilter_to_routingkey(packet.topic), String.new(packet.payload), properties), false
+    end
+
     private def do_publish(msg : Message, immediate : Bool,
                            queues : Set(Queue) = Set(Queue).new,
                            exchanges : Set(Exchange) = Set(Exchange).new) : Int32
@@ -49,6 +59,10 @@ module LavinMQ
         end
       end
       count
+    end
+
+    def topicfilter_to_routingkey(tf) : String
+      tf.tr("/+", ".*")
     end
 
     def routing_key_to_topic(routing_key : String) : String
