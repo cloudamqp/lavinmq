@@ -57,8 +57,8 @@ module LavinMQ
         @log.warn(exception: ex) { "Read Loop error" }
         publish_will if @will
       rescue ex
+        @log.warn(exception: ex) { "Read Loop error" }
         publish_will if @will
-        raise ex
       ensure
         @broker.disconnect_client(self)
         @socket.close
