@@ -12,10 +12,10 @@
         <div id="breadcrumbs" class="cols-12">
             <h2 class="page-title flex flex-row items-center"><span><%=pagename%></span><div class="bg-green-400 ml-2 inline-block text-center text-sm text-dark-400 py-1 px-3 rounded-sm" id="pagename-label"></div></h2>
         </div>
-        <section class="card">
+        <section class="card rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
           <div class="table-wrapper">
             <div id="upstreamTable-error"></div>
-            <table id="upstreamTable" class="table">
+            <table id="upstreamTable" class="table text-light-400">
               <thead>
                 <tr>
                   <td>Virtual host</td>
@@ -37,14 +37,17 @@
             </table>
           </div>
         </section>
-        <section class="card">
-          <h3>
+        <div id="breadcrumbs" class="cols-12">
+            <h2 class="page-title flex flex-row items-center"><span>Federation links</span><div class="bg-green-400 ml-2 inline-block text-center text-sm text-dark-400 py-1 px-3 rounded-sm" id="links-count"></div></h2>
+        </div>
+        <section class="card rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
+          <!--<h3>
             Federation Links
             <small id="links-count"></small>
-          </h3>
+          </h3>-->
           <div class="table-wrapper">
             <div id="linksTable-error"></div>
-            <table id="linksTable" class="table">
+            <table id="linksTable" class="table text-light-400">
               <thead>
                 <tr>
                   <td>Virtual host</td>
