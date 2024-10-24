@@ -1,5 +1,5 @@
 require "./spec_helper"
-require "./../src/lavinmq/queue"
+require "./../src/lavinmq/amqp/queue"
 require "./../src/lavinmq/rough_time"
 
 describe "Dead lettering" do

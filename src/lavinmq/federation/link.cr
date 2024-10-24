@@ -2,7 +2,7 @@ require "../observable"
 require "amqp-client"
 require "../logger"
 require "../sortable_json"
-require "../queue/event"
+require "../amqp/queue/event"
 require "../exchange/event"
 
 module LavinMQ
