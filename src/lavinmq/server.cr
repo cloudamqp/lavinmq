@@ -2,6 +2,7 @@ require "socket"
 require "openssl"
 require "systemd"
 require "./amqp"
+require "./mqtt/protocol"
 require "./rough_time"
 require "../stdlib/*"
 require "./vhost_store"
@@ -15,6 +16,7 @@ require "./proxy_protocol"
 require "./client/client"
 require "./client/connection_factory"
 require "./amqp/connection_factory"
+require "./mqtt/connection_factory"
 require "./stats"
 
 module LavinMQ
@@ -37,6 +39,8 @@ module LavinMQ
       @vhosts = VHostStore.new(@data_dir, @users, @replicator)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator)
       @amqp_connection_factory = LavinMQ::AMQP::ConnectionFactory.new
+      @broker = LavinMQ::MQTT::Broker.new(@vhosts["/"])
+      @mqtt_connection_factory = MQTT::ConnectionFactory.new(@users, @vhosts["/"], @broker)
       apply_parameter
       spawn stats_loop, name: "Server#stats_loop"
     end
@@ -46,7 +50,12 @@ module LavinMQ
     end
 
     def amqp_url
-      addr = @listeners.each_key.select(TCPServer).first.local_address
+      addr = @listeners
+        .select { |k, v| k.is_a?(TCPServer) && v == :amqp }
+        .keys
+        .select(TCPServer)
+        .first
+        .local_address
       "amqp://#{addr}"
     end
 
@@ -55,6 +64,7 @@ module LavinMQ
       @closed = true
       @vhosts.each_value &.close
       @replicator.clear
+      @broker.close
       Fiber.yield
     end
 
@@ -74,8 +84,8 @@ module LavinMQ
       Iterator(Client).chain(@vhosts.each_value.map(&.connections.each))
     end
 
-    def listen(s : TCPServer)
-      @listeners[s] = :amqp
+    def listen(s : TCPServer, protocol)
+      @listeners[s] = protocol
       Log.info { "Listening on #{s.local_address}" }
       loop do
         client = s.accept? || break
@@ -85,7 +95,7 @@ module LavinMQ
           set_socket_options(client)
           set_buffer_size(client)
           conn_info = extract_conn_info(client)
-          handle_connection(client, conn_info)
+          handle_connection(client, conn_info, protocol)
         rescue ex
           Log.warn(exception: ex) { "Error accepting connection from #{remote_address}" }
           client.close rescue nil
@@ -103,11 +113,13 @@ module LavinMQ
       when 1 then ProxyProtocol::V1.parse(client)
       when 2 then ProxyProtocol::V2.parse(client)
       else
-        if client.peek[0, 5] == "PROXY".to_slice &&
+        peeked = client.peek(8)
+        raise "failed to determine protocol" if peeked.size < 8
+        if peeked[0, 5] == "PROXY".to_slice &&
            followers.any? { |f| f.remote_address.address == remote_address.address }
           # Expect PROXY protocol header if remote address is a follower
           ProxyProtocol::V1.parse(client)
-        elsif client.peek[0, 8] == ProxyProtocol::V2::Signature.to_slice[0, 8] &&
+        elsif peeked[0, 8] == ProxyProtocol::V2::Signature.to_slice[0, 8] &&
               followers.any? { |f| f.remote_address.address == remote_address.address }
           # Expect PROXY protocol header if remote address is a follower
           ProxyProtocol::V2.parse(client)
@@ -117,8 +129,8 @@ module LavinMQ
       end
     end
 
-    def listen(s : UNIXServer)
-      @listeners[s] = :amqp
+    def listen(s : UNIXServer, protocol)
+      @listeners[s] = protocol
       Log.info { "Listening on #{s.local_address}" }
       loop do # do not try to use while
         client = s.accept? || break
@@ -132,7 +144,7 @@ module LavinMQ
             when 2 then ProxyProtocol::V2.parse(client)
             else        ConnectionInfo.local # TODO: use unix socket address, don't fake local
             end
-          handle_connection(client, conn_info)
+          handle_connection(client, conn_info, protocol)
         rescue ex
           Log.warn(exception: ex) { "Error accepting connection from #{remote_address}" }
           client.close rescue nil
@@ -144,13 +156,13 @@ module LavinMQ
       @listeners.delete(s)
     end
 
-    def listen(bind = "::", port = 5672)
+    def listen(bind = "::", port = 5672, protocol = :amqp)
       s = TCPServer.new(bind, port)
-      listen(s)
+      listen(s, protocol)
     end
 
-    def listen_tls(s : TCPServer, context)
-      @listeners[s] = :amqps
+    def listen_tls(s : TCPServer, context, protocol)
+      @listeners[s] = protocol
       Log.info { "Listening on #{s.local_address} (TLS)" }
       loop do # do not try to use while
         client = s.accept? || break
@@ -165,7 +177,7 @@ module LavinMQ
           conn_info.ssl = true
           conn_info.ssl_version = ssl_client.tls_version
           conn_info.ssl_cipher = ssl_client.cipher
-          handle_connection(ssl_client, conn_info)
+          handle_connection(ssl_client, conn_info, protocol)
         rescue ex
           Log.warn(exception: ex) { "Error accepting TLS connection from #{remote_addr}" }
           client.close rescue nil
@@ -177,15 +189,15 @@ module LavinMQ
       @listeners.delete(s)
     end
 
-    def listen_tls(bind, port, context)
-      listen_tls(TCPServer.new(bind, port), context)
+    def listen_tls(bind, port, context, protocol)
+      listen_tls(TCPServer.new(bind, port), context, protocol)
     end
 
-    def listen_unix(path : String)
+    def listen_unix(path : String, protocol)
       File.delete?(path)
       s = UNIXServer.new(path)
       File.chmod(path, 0o666)
-      listen(s)
+      listen(s, protocol)
     end
 
     def listen_clustering(bind, port)
@@ -241,8 +253,16 @@ module LavinMQ
       end
     end
 
-    def handle_connection(socket, connection_info)
-      client = @amqp_connection_factory.start(socket, connection_info, @vhosts, @users)
+    def handle_connection(socket, connection_info, protocol)
+      case protocol
+      when :amqp
+        client = @amqp_connection_factory.start(socket, connection_info, @vhosts, @users)
+      when :mqtt
+        client = @mqtt_connection_factory.start(socket, connection_info)
+      else
+        Log.warn { "Unknown protocol '#{protocol}'" }
+        socket.close
+      end
     ensure
       socket.close if client.nil?
     end

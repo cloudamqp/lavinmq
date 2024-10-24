@@ -17,6 +17,8 @@ module LavinMQ
     property amqp_bind = "127.0.0.1"
     property amqp_port = 5672
     property amqps_port = -1
+    property mqtt_bind = "127.0.0.1"
+    property mqtt_port = 1883
     property unix_path = ""
     property unix_proxy_protocol = 1_u8 # PROXY protocol version on unix domain socket connections
     property tcp_proxy_protocol = 0_u8  # PROXY protocol version on amqp tcp connections
@@ -38,6 +40,7 @@ module LavinMQ
     property? set_timestamp = false             # in message headers when receive
     property socket_buffer_size = 16384         # bytes
     property? tcp_nodelay = false               # bool
+    property max_inflight_messages : UInt16 = 65_535
     property segment_size : Int32 = 8 * 1024**2 # bytes
     property? raise_gc_warn : Bool = false
     property? data_dir_lock : Bool = true
@@ -56,6 +59,7 @@ module LavinMQ
     property clustering_bind = "127.0.0.1"
     property clustering_port = 5679
     property clustering_max_lag = 8192      # number of clustering actions
+    property clustering_min_isr = 0         # number of In Sync Replicas required at all time
     property max_deleted_definitions = 8192 # number of deleted queues, unbinds etc that compacts the definitions file
     property consumer_timeout : UInt64? = nil
     property consumer_timeout_loop_interval = 60 # seconds
@@ -136,6 +140,9 @@ module LavinMQ
         p.on("--clustering-max-lag=ACTIONS", "Max unsynced replicated messages") do |v|
           @clustering_max_lag = v.to_i
         end
+        p.on("--clustering-min-isr=COUNT", "Required in-sync-replicas") do |v|
+          @clustering_min_isr = v.to_i
+        end
         p.on("--clustering-etcd-endpoints=URIs", "Comma separeted host/port pairs (default: 127.0.0.1:2379)") do |v|
           @clustering_etcd_endpoints = v
         end
@@ -162,6 +169,7 @@ module LavinMQ
         case section
         when "main"         then parse_main(settings)
         when "amqp"         then parse_amqp(settings)
+        when "mqtt"         then parse_mqtt(settings)
         when "mgmt", "http" then parse_mgmt(settings)
         when "clustering"   then parse_clustering(settings)
         when "replication"  then abort("#{file}: [replication] is deprecated and replaced with [clustering], see the README for more information")
@@ -242,6 +250,7 @@ module LavinMQ
         when "bind"           then @clustering_bind = v
         when "port"           then @clustering_port = v.to_i32
         when "max_lag"        then @clustering_max_lag = v.to_i32
+        when "min_isr"        then @clustering_min_isr = v.to_i32
         else
           STDERR.puts "WARNING: Unrecognized configuration 'clustering/#{config}'"
         end
@@ -270,6 +279,21 @@ module LavinMQ
         end
       end
     end
+
+    private def parse_mqtt(settings)
+      settings.each do |config, v|
+        case config
+        when "bind"                  then @mqtt_bind = v
+        when "port"                  then @mqtt_port = v.to_i32
+        when "tls_cert"              then @tls_cert_path = v # backward compatibility
+        when "tls_key"               then @tls_key_path = v  # backward compatibility
+        when "max_inflight_messages" then @max_inflight_messages = v.to_u16
+        else
+          STDERR.puts "WARNING: Unrecognized configuration 'mqtt/#{config}'"
+        end
+      end
+    end
+
 
     private def parse_mgmt(settings)
       settings.each do |config, v|
