@@ -45,80 +45,82 @@
             </table>
           </div>
         </section>
-        <form method="put" id="declare" class="form card">
-          <h3>Add queue</h3>
-          <label>
-            <span>Virtual host</span>
-            <select name="vhost" required></select>
-          </label>
-          <label>
-            <span>Name</span>
-            <input type="text" name="name" required>
-          </label>
-          <label>
-            <span>
-            <a class="prop-tooltip" data-tag="alternate-exchange">Durable
-            <span class="prop-tooltiptext">"Durable" queues persist even when the server restarts,
-            ensuring their availability and preventing data loss.</span>
-            </a>
-            </span>
-            <input type="checkbox" name="durable" value="1" checked>
-          </label>
-          <label>
-            <span>
-            <a class="prop-tooltip" data-tag="alternate-exchange">Auto-delete
-            <span class="prop-tooltiptext">"Auto-delete" queues are automatically removed when the
-            last consumer disconnects, freeing up system resources.</span>
-            </a>
-            </span>
-            <input type="checkbox" name="auto_delete" value="1">
-          </label>
-          <label>
-            <span>Arguments</span>
-            <textarea name="arguments" placeholder='{ "key": value }'></textarea>
-            <div id="dataTags" class="label">
-              <a class="arg-tooltip" data-tag="x-expires" data-value="0">Auto Expire
-                <span class="tooltiptext">How long a queue can be unused for before it is automatically deleted
-                  (milliseconds).</span>
-              </a> |
-              <a class="arg-tooltip" data-tag="x-max-length" data-value="0">Max Length
-                <span class="tooltiptext">How many (ready) messages a queue can contain before it starts to drop them from
-                  its head.</span>
-              </a> |
-              <a class="arg-tooltip" data-tag="x-message-ttl" data-value="0">Message TTL
-                <span class="tooltiptext">How long a message published to a queue can live before it is discarded
-                  (milliseconds).</span>
-              </a> |
-              <a class="arg-tooltip" data-tag="x-delivery-limit" data-value="0">Delivery limit
-                <span class="tooltiptext">The number of times a message can be redelivered before dropped or
-                  dead-lettered</span>
-              </a> |
-              <a class="arg-tooltip" data-tag="x-overflow">Overflow behaviour
-                <span class="tooltiptext">This determines what happens to messages when the maximum length of a queue is
-                  reached. Valid value are reject-publish.</span>
-              </a> |
-              <a class="arg-tooltip" data-tag="x-dead-letter-exchange">Dead letter exchange
-                <span class="tooltiptext">Optional name of an exchange to which messages will be republished if they are
-                  rejected or expire.</span>
-              </a> |
-              <a class="arg-tooltip" data-tag="x-dead-letter-routing-key">Dead letter routing key
-                <span class="tooltiptext">Optional replacement routing key to use when a message is dead-lettered. If not
-                  set, the message's original routing key will be used.</span>
-              </a> |
-              <a class="arg-tooltip" data-tag="x-max-priority" data-value="0">Max Priority
-                <span class="tooltiptext">Make the queue a priority queue, with a fixed level of different priorities (max 255)</span>
-              </a> |
-              <a class="arg-tooltip" data-tag="x-queue-type" data-value="stream">Stream Queue
-                <span class="tooltiptext">Make the queue a stream queue. It has to be durable and can't be auto-delete</span>
-              </a> |
-              <a class="arg-tooltip" data-tag="x-max-age" data-value="1M">Max age
-                <span class="tooltiptext">Stream queue segments will be deleted when all messages in the segmented is older than this.
-                  Valid units are Y(ear), M(onth), D(ays), h(ours), m(inutes), s(seconds).
-                  Segments are only deleted when new messages are published to the stream queue.</span>
+        <form method="put" id="declare" class="form card rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
+          <h3 class="text-lg font-semibold text-light-400">Add queue</h3>
+          <div class="py-4">
+            <label class="mt-0 mb-4">
+              <span class="text-light-400">Virtual host</span>
+              <select class="dropdown bg-dark-600 text-light-400" name="vhost" required></select>
+            </label>
+            <label class="mt-0 mb-4">
+              <span class="text-light-400">Name</span>
+              <input class="regular-text" type="text" name="name" required>
+            </label>
+            <label>
+              <span>
+              <a class="prop-tooltip" data-tag="alternate-exchange">Durable
+              <span class="prop-tooltiptext">"Durable" queues persist even when the server restarts,
+              ensuring their availability and preventing data loss.</span>
               </a>
-            </div>
-          </label>
-          <button type="submit" class="btn-primary">Add queue</button>
+              </span>
+              <input type="checkbox" name="durable" value="1" checked>
+            </label>
+            <label>
+              <span>
+              <a class="prop-tooltip" data-tag="alternate-exchange">Auto-delete
+              <span class="prop-tooltiptext">"Auto-delete" queues are automatically removed when the
+              last consumer disconnects, freeing up system resources.</span>
+              </a>
+              </span>
+              <input type="checkbox" name="auto_delete" value="1">
+            </label>
+            <label>
+              <span>Arguments</span>
+              <textarea name="arguments" placeholder='{ "key": value }'></textarea>
+              <div id="dataTags" class="label">
+                <a class="arg-tooltip" data-tag="x-expires" data-value="0">Auto Expire
+                  <span class="tooltiptext">How long a queue can be unused for before it is automatically deleted
+                    (milliseconds).</span>
+                </a> |
+                <a class="arg-tooltip" data-tag="x-max-length" data-value="0">Max Length
+                  <span class="tooltiptext">How many (ready) messages a queue can contain before it starts to drop them from
+                    its head.</span>
+                </a> |
+                <a class="arg-tooltip" data-tag="x-message-ttl" data-value="0">Message TTL
+                  <span class="tooltiptext">How long a message published to a queue can live before it is discarded
+                    (milliseconds).</span>
+                </a> |
+                <a class="arg-tooltip" data-tag="x-delivery-limit" data-value="0">Delivery limit
+                  <span class="tooltiptext">The number of times a message can be redelivered before dropped or
+                    dead-lettered</span>
+                </a> |
+                <a class="arg-tooltip" data-tag="x-overflow">Overflow behaviour
+                  <span class="tooltiptext">This determines what happens to messages when the maximum length of a queue is
+                    reached. Valid value are reject-publish.</span>
+                </a> |
+                <a class="arg-tooltip" data-tag="x-dead-letter-exchange">Dead letter exchange
+                  <span class="tooltiptext">Optional name of an exchange to which messages will be republished if they are
+                    rejected or expire.</span>
+                </a> |
+                <a class="arg-tooltip" data-tag="x-dead-letter-routing-key">Dead letter routing key
+                  <span class="tooltiptext">Optional replacement routing key to use when a message is dead-lettered. If not
+                    set, the message's original routing key will be used.</span>
+                </a> |
+                <a class="arg-tooltip" data-tag="x-max-priority" data-value="0">Max Priority
+                  <span class="tooltiptext">Make the queue a priority queue, with a fixed level of different priorities (max 255)</span>
+                </a> |
+                <a class="arg-tooltip" data-tag="x-queue-type" data-value="stream">Stream Queue
+                  <span class="tooltiptext">Make the queue a stream queue. It has to be durable and can't be auto-delete</span>
+                </a> |
+                <a class="arg-tooltip" data-tag="x-max-age" data-value="1M">Max age
+                  <span class="tooltiptext">Stream queue segments will be deleted when all messages in the segmented is older than this.
+                    Valid units are Y(ear), M(onth), D(ays), h(ours), m(inutes), s(seconds).
+                    Segments are only deleted when new messages are published to the stream queue.</span>
+                </a>
+              </div>
+            </label>
+            <button type="submit" class="btn-primary">Add queue</button>
+          </div>
         </form>
       </main>
       <% render "partials/footer" %>
