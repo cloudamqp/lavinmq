@@ -96,7 +96,7 @@ module LavinMQ
 
       def recieve_publish(packet : MQTT::Publish)
         @broker.publish(packet)
-        # Ok to not send anything if qos = 0 (at most once delivery)
+        # Ok to not send anything if qos = 0 (fire and forget)
         if packet.qos > 0 && (packet_id = packet.packet_id)
           send(MQTT::PubAck.new(packet_id))
         end
