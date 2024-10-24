@@ -56,7 +56,7 @@ module LavinMQ
         @unacked.clear
 
         if c = client
-          @consumers << MqttConsumer.new(c, self)
+          @consumers << MQTT::Consumer.new(c, self)
           spawn deliver_loop, name: "Consumer deliver loop", same_thread: true
         end
         @log.debug { "client set to '#{client.try &.name}'" }

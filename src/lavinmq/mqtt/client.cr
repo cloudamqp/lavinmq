@@ -153,7 +153,7 @@ module LavinMQ
       end
     end
 
-    class MqttConsumer < LavinMQ::Client::Channel::Consumer
+    class Consumer < LavinMQ::Client::Channel::Consumer
       getter unacked = 0_u32
       getter tag : String = "mqtt"
       property prefetch_count = 1
