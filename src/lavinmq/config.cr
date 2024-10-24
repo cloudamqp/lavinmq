@@ -40,6 +40,7 @@ module LavinMQ
     property? set_timestamp = false             # in message headers when receive
     property socket_buffer_size = 16384         # bytes
     property? tcp_nodelay = false               # bool
+    property max_inflight_messages : UInt16 = 65_535
     property segment_size : Int32 = 8 * 1024**2 # bytes
     property? raise_gc_warn : Bool = false
     property? data_dir_lock : Bool = true
@@ -168,6 +169,7 @@ module LavinMQ
         case section
         when "main"         then parse_main(settings)
         when "amqp"         then parse_amqp(settings)
+        when "mqtt"         then parse_mqtt(settings)
         when "mgmt", "http" then parse_mgmt(settings)
         when "clustering"   then parse_clustering(settings)
         when "replication"  then abort("#{file}: [replication] is deprecated and replaced with [clustering], see the README for more information")
@@ -277,6 +279,21 @@ module LavinMQ
         end
       end
     end
+
+    private def parse_mqtt(settings)
+      settings.each do |config, v|
+        case config
+        when "bind"                  then @mqtt_bind = v
+        when "port"                  then @mqtt_port = v.to_i32
+        when "tls_cert"              then @tls_cert_path = v # backward compatibility
+        when "tls_key"               then @tls_key_path = v  # backward compatibility
+        when "max_inflight_messages" then @max_inflight_messages = v.to_u16
+        else
+          STDERR.puts "WARNING: Unrecognized configuration 'mqtt/#{config}'"
+        end
+      end
+    end
+
 
     private def parse_mgmt(settings)
       settings.each do |config, v|
