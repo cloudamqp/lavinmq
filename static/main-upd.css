@@ -646,6 +646,10 @@ footer .logo {
   color: var(--font-color-light);
 }
 
+#overview a:hover {
+  color: #f7f5f2;
+}
+
 @media (max-width: 1850px) {
   .cols-6-md {
     grid-column: auto / span 6 !important;
@@ -1622,6 +1626,8 @@ pre.arguments > div {
 
 #dataTags a {
   color: #9D9C9A;
+  font-size: 14px;
+  line-height: 20px;
 }
 
 #dataTags a:hover {
