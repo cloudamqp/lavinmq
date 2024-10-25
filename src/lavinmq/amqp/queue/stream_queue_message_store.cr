@@ -228,6 +228,7 @@ module LavinMQ::AMQP
         @segments.each do |seg_id, mfile|
           msg = BytesMessage.from_bytes(mfile.to_slice + 4u32)
           @first_offset_per_segment[seg_id] = offset_from_headers(msg.properties.headers)
+        rescue IndexError
         end
       end
     end
