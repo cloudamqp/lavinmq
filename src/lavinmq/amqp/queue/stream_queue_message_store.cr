@@ -9,11 +9,13 @@ module LavinMQ::AMQP
       property max_age : Time::Span | Time::MonthSpan | Nil
       getter last_offset : Int64
       @segment_last_ts = Hash(UInt32, Int64).new(0i64) # used for max-age
+      @first_offset_per_segment = Hash(UInt32, Int64).new
 
       def initialize(*args, **kwargs)
         super
         @last_offset = get_last_offset
         drop_overflow
+        find_first_offset_per_segment
       end
 
       private def get_last_offset : Int64
@@ -65,6 +67,14 @@ module LavinMQ::AMQP
         segment = @segments.first_key
         pos = 4u32
         msg_offset = 0i64
+
+        if offset.is_a?(Int) # find the right segment
+          @first_offset_per_segment.each do |seg_id, first_seg_offset|
+            break if first_seg_offset >= offset
+            segment = seg_id
+          end
+        end
+
         loop do
           rfile = @segments[segment]?
           if rfile.nil? || pos == rfile.size
@@ -147,6 +157,7 @@ module LavinMQ::AMQP
       private def open_new_segment(next_msg_size = 0) : MFile
         super.tap do
           drop_overflow
+          @first_offset_per_segment[@segments.last_key] = @last_offset
         end
       end
 
@@ -178,6 +189,7 @@ module LavinMQ::AMQP
           msg_count = @segment_msg_count.delete(seg_id)
           @size -= msg_count if msg_count
           @segment_last_ts.delete(seg_id)
+          @first_offset_per_segment.delete(seg_id)
           @bytesize -= mfile.size - 4
           mfile.delete.close
           @replicator.try &.delete_file(mfile.path)
@@ -210,6 +222,13 @@ module LavinMQ::AMQP
 
       private def offset_from_headers(headers) : Int64
         headers.not_nil!("Message lacks headers")["x-stream-offset"].as(Int64)
+      end
+
+      private def find_first_offset_per_segment
+        @segments.each do |seg_id, mfile|
+          msg = BytesMessage.from_bytes(mfile.to_slice + 4u32)
+          @first_offset_per_segment[seg_id] = offset_from_headers(msg.properties.headers)
+        end
       end
     end
   end
