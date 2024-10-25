@@ -21,7 +21,7 @@ require "./stats"
 
 module LavinMQ
   class Server
-    getter vhosts, users, data_dir, parameters
+    getter vhosts, users, data_dir, parameters, broker
     getter? closed, flow
     include ParameterTarget
 
