@@ -149,6 +149,45 @@ module MqttSpecs
           end
         end
 
+        it "client_id must be the first field of the connect packet [MQTT-3.1.3-3]" do
+          with_server do |server|
+            with_client_io(server) do |io|
+              connect = MQTT::Protocol::Connect.new(
+                client_id: "client_id",
+                clean_session: true,
+                keepalive: 30u16,
+                username: "valid_user",
+                password: "valid_password".to_slice,
+                will: nil
+              ).to_slice
+              connect[0] = 'x'.ord.to_u8
+              io.write_bytes_raw connect
+              io.should be_closed
+            end
+          end
+        end
+
+        it "accepts zero byte client_id but is assigned a unique client_id [MQTT-3.1.3-6]" do
+          with_server do |server|
+            with_client_io(server) do |io|
+              connack = connect(io, client_id: "", clean_session: true)
+              server.broker.@clients.first[1].@client_id.should_not eq("")
+            end
+          end
+        end
+
+        it "accepts zero-byte ClientId with CleanSession set to 1 [MQTT-3.1.3-7]" do
+          with_server do |server|
+            with_client_io(server) do |io|
+              connack = connect(io, client_id: "", clean_session: true)
+              connack.should be_a(MQTT::Protocol::Connack)
+              connack = connack.as(MQTT::Protocol::Connack)
+              connack.return_code.should eq(MQTT::Protocol::Connack::ReturnCode::Accepted)
+              io.should_not be_closed
+            end
+          end
+        end
+
         it "for empty client id with non-clean session [MQTT-3.1.3-8]" do
           with_server do |server|
             with_client_io(server) do |io|
@@ -156,7 +195,6 @@ module MqttSpecs
               connack.should be_a(MQTT::Protocol::Connack)
               connack = connack.as(MQTT::Protocol::Connack)
               connack.return_code.should eq(MQTT::Protocol::Connack::ReturnCode::IdentifierRejected)
-              # Verify that connection is closed [MQTT-3.1.4-1]
               io.should be_closed
             end
           end
