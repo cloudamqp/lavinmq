@@ -64,16 +64,9 @@ module LavinMQ::AMQP
       end
 
       private def find_offset_in_segments(offset : Int | Time) : Tuple(Int64, UInt32, UInt32)
-        segment = @segments.first_key
+        segment = find_segment_by_offset(offset)
         pos = 4u32
         msg_offset = 0i64
-
-        if offset.is_a?(Int) # find the right segment
-          @first_offset_per_segment.each do |seg_id, first_seg_offset|
-            break if first_seg_offset >= offset
-            segment = seg_id
-          end
-        end
 
         loop do
           rfile = @segments[segment]?
@@ -96,6 +89,16 @@ module LavinMQ::AMQP
           raise rfile ? Error.new(rfile, cause: ex) : ex
         end
         {msg_offset, segment, pos}
+      end
+
+      private def find_segment_by_offset(offset) : UInt32
+        seg = @segments.first_key
+        return seg unless offset.is_a?(Int)
+        @first_offset_per_segment.each do |seg_id, first_seg_offset|
+          break if first_seg_offset >= offset
+          seg = seg_id
+        end
+        seg
       end
 
       def shift?(consumer : AMQP::StreamConsumer) : Envelope?
