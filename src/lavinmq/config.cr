@@ -55,8 +55,8 @@ module LavinMQ
     property clustering_advertised_uri : String? = nil
     property clustering_bind = "127.0.0.1"
     property clustering_port = 5679
-    property clustering_max_lag = 8192      # number of clustering actions
-    property max_deleted_definitions = 8192 # number of deleted queues, unbinds etc that compacts the definitions file
+    property clustering_max_unsynced_actions = 8192 # number of unsynced clustering actions
+    property max_deleted_definitions = 8192         # number of deleted queues, unbinds etc that compacts the definitions file
     property consumer_timeout : UInt64? = nil
     property consumer_timeout_loop_interval = 60 # seconds
     @@instance : Config = self.new
@@ -133,8 +133,8 @@ module LavinMQ
         p.on("--clustering-bind=BIND", "Listen for clustering followers on this address (default: localhost)") do |v|
           @clustering_bind = v
         end
-        p.on("--clustering-max-lag=ACTIONS", "Max unsynced replicated messages") do |v|
-          @clustering_max_lag = v.to_i
+        p.on("--clustering-max-unsynced-actions=ACTIONS", "Maximum unsynced actions") do |v|
+          @clustering_max_unsynced_actions = v.to_i
         end
         p.on("--clustering-etcd-endpoints=URIs", "Comma separeted host/port pairs (default: 127.0.0.1:2379)") do |v|
           @clustering_etcd_endpoints = v
@@ -235,13 +235,13 @@ module LavinMQ
     private def parse_clustering(settings)
       settings.each do |config, v|
         case config
-        when "enabled"        then @clustering = true?(v)
-        when "etcd_prefix"    then @clustering_etcd_prefix = v
-        when "etcd_endpoints" then @clustering_etcd_endpoints = v
-        when "advertised_uri" then @clustering_advertised_uri = v
-        when "bind"           then @clustering_bind = v
-        when "port"           then @clustering_port = v.to_i32
-        when "max_lag"        then @clustering_max_lag = v.to_i32
+        when "enabled"              then @clustering = true?(v)
+        when "etcd_prefix"          then @clustering_etcd_prefix = v
+        when "etcd_endpoints"       then @clustering_etcd_endpoints = v
+        when "advertised_uri"       then @clustering_advertised_uri = v
+        when "bind"                 then @clustering_bind = v
+        when "port"                 then @clustering_port = v.to_i32
+        when "max_unsynced_actions" then @clustering_max_unsynced_actions = v.to_i32
         else
           STDERR.puts "WARNING: Unrecognized configuration 'clustering/#{config}'"
         end

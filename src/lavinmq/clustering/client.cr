@@ -207,7 +207,7 @@ module LavinMQ
       end
 
       private def stream_changes(socket, lz4)
-        acks = Channel(Int64).new(@config.clustering_max_lag)
+        acks = Channel(Int64).new(@config.clustering_max_unsynced_actions)
         spawn send_ack_loop(acks, socket), name: "Send ack loop"
         loop do
           filename_len = lz4.read_bytes Int32, IO::ByteFormat::LittleEndian

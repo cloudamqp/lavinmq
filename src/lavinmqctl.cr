@@ -678,13 +678,6 @@ class LavinMQCtl
     handle_response(resp, 200)
     body = JSON.parse(resp.body)
     if followers = body[0].dig("followers").as_a
-      followers.map do |f|
-        {
-          id:      f.dig("id"),
-          address: f.dig("remote_address"),
-          lag:     f.dig("sent_bytes").as_i64 - f.dig("acked_bytes").as_i64,
-        }
-      end
       cluster_status_obj = {
         this_node: body.dig(0, "name"),
         version:   body.dig(0, "applications", 0, "version"),
