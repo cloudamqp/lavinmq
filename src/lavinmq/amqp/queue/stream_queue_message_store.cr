@@ -67,7 +67,6 @@ module LavinMQ::AMQP
         segment = find_segment_by_offset(offset)
         pos = 4u32
         msg_offset = 0i64
-
         loop do
           rfile = @segments[segment]?
           if rfile.nil? || pos == rfile.size
