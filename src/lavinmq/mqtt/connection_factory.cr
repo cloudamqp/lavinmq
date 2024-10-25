@@ -19,6 +19,7 @@ module LavinMQ
         if packet = MQTT::Packet.from_io(socket).as?(MQTT::Connect)
           Log.trace { "recv #{packet.inspect}" }
           if user = authenticate(io, packet)
+            packet = assign_client_id_to_packet(packet) if packet.client_id.empty?
             session_present = @broker.session_present?(packet.client_id, packet.clean_session?)
             MQTT::Connack.new(session_present, MQTT::Connack::ReturnCode::Accepted).to_io(io)
             io.flush
@@ -32,7 +33,7 @@ module LavinMQ
         end
         socket.close
       rescue ex
-        Log.warn { "Recieved the wrong packet" }
+        Log.warn { "Recieved invalid Connect packet" }
         socket.close
       end
 
@@ -48,6 +49,16 @@ module LavinMQ
         end
         MQTT::Connack.new(false, MQTT::Connack::ReturnCode::NotAuthorized).to_io(io)
         nil
+      end
+
+        def assign_client_id_to_packet(packet)
+         client_id = "#{Random::Secure.base64(32)}"
+         MQTT::Connect.new(client_id,
+                           packet.clean_session?,
+                           packet.keepalive,
+                           packet.username,
+                           packet.password,
+                           packet.will)
       end
     end
   end
