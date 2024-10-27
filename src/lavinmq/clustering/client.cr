@@ -233,7 +233,7 @@ module LavinMQ
             f = @files["#{filename}.tmp"]
             IO.copy(lz4, f, len) == len || raise IO::EOFError.new("Full file not received")
             f.rename f.path[0..-5]
-            @files.delete("#{filename}.tmp")
+            @files.delete("#{filename}.tmp").try &.close
           end
           ack_bytes = len.abs + sizeof(Int64) + filename_len + sizeof(Int32)
           acks.send(ack_bytes)
