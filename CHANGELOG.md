@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Federation queue links now reconnects if the upstream disconnects [#788](https://github.com/cloudamqp/lavinmq/pull/788)
 - Proxying from followers is now more resilient [#812](https://github.com/cloudamqp/lavinmq/pull/812)
 - Unsupported queue types will now log a warning [#792](https://github.com/cloudamqp/lavinmq/pull/792)
+- Sorting on consumer count at channels page
+- Log if user tries to declare a queue with an unknown queue type [#792](https://github.com/cloudamqp/lavinmq/pull/792)
+- Force close AMQP connections if an protocol error occurs
+- Remove min_isr setting [#789](https://github.com/cloudamqp/lavinmq/pull/789)
 
 ### Changed
 
@@ -27,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Changed logging to provide more information about which queue is being handled [#809](https://github.com/cloudamqp/lavinmq/pull/809)
 - Publishing messages are now handled fully by exchanges [#786](https://github.com/cloudamqp/lavinmq/pull/786)
 - Logging is now handled more uniformly throghout LavinMQ [#800](https://github.com/cloudamqp/lavinmq/pull/800)
+- Don't log handled exceptions as error with backtrace [#776](https://github.com/cloudamqp/lavinmq/pull/776)
 
 ### Added
 
