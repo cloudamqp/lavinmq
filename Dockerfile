@@ -1,6 +1,6 @@
 # Base layer
 FROM 84codes/crystal:1.13.1-ubuntu-24.04 AS base
-RUN apt-get update && apt-get install liblz4-dev
+RUN apt-get update && apt-get install -y liblz4-dev
 WORKDIR /tmp
 COPY shard.yml shard.lock .
 RUN shards install --production
@@ -10,7 +10,7 @@ COPY ./src ./src
 
 # Run specs on build platform
 FROM base AS spec
-RUN apt-get install etcd-server
+RUN apt-get install -y etcd-server
 COPY ./spec ./spec
 ARG spec_args="--order random"
 RUN crystal spec ${spec_args}

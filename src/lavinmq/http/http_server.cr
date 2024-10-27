@@ -11,15 +11,17 @@ end
 
 module LavinMQ
   module HTTP
-    Log = ::Log.for "http"
+    Log = LavinMQ::Log.for "http"
 
     class Server
+      Log = LavinMQ::Log.for "http.server"
+
       def initialize(@amqp_server : LavinMQ::Server)
         handlers = [
           StrictTransportSecurity.new,
           AMQPWebsocket.new(@amqp_server),
-          ViewsController.new,
           StaticController.new,
+          ViewsController.new,
           ApiErrorHandler.new,
           AuthHandler.new(@amqp_server),
           PrometheusController.new(@amqp_server),
@@ -40,7 +42,7 @@ module LavinMQ
           NodesController.new(@amqp_server),
           LogsController.new(@amqp_server),
         ] of ::HTTP::Handler
-        handlers.unshift(::HTTP::LogHandler.new) if Log.level == ::Log::Severity::Debug
+        handlers.unshift(::HTTP::LogHandler.new(log: Log)) if Log.level == ::Log::Severity::Debug
         @http = ::HTTP::Server.new(handlers)
       end
 
@@ -79,6 +81,25 @@ module LavinMQ
       def close
         @http.try &.close
         File.delete?(INTERNAL_UNIX_SOCKET)
+      end
+
+      # Starts a HTTP server that binds to the internal UNIX socket used by lavinmqctl.
+      # The server returns 503 to signal that the node is a follower and can not handle the request.
+      def self.follower_internal_socket_http_server
+        http_server = ::HTTP::Server.new do |context|
+          context.response.status_code = 503
+          context.response.print "This node is a follower and does not handle lavinmqctl commands. \n" \
+                                 "Please connect to the leader node by using the --host option."
+        end
+
+        File.delete?(INTERNAL_UNIX_SOCKET)
+        addr = http_server.bind_unix(INTERNAL_UNIX_SOCKET)
+        File.chmod(INTERNAL_UNIX_SOCKET, 0o660)
+        Log.info { "Bound to #{addr}" }
+
+        spawn(name: "HTTP listener") do
+          http_server.listen
+        end
       end
     end
   end

@@ -10,7 +10,7 @@ module LavinMQ
     class Upstream
       abstract class Link
         include SortableJSON
-        Log = ::Log.for("federation.link")
+        Log = LavinMQ::Log.for "federation.link"
         getter last_changed, error, state
 
         @last_changed : Int64?
@@ -232,7 +232,14 @@ module LavinMQ
             state(State::Running)
             unless @federated_q.immediate_delivery?
               @log.debug { "Waiting for consumers" }
-              @consumer_available.receive?
+              loop do
+                select
+                when @consumer_available.receive?
+                  break
+                when timeout(1.second)
+                  return if @upstream_connection.try &.closed?
+                end
+              end
             end
             q_name = q[:queue_name]
             upstream_channel.basic_consume(q_name, no_ack: no_ack, tag: @upstream.consumer_tag, block: true) do |msg|
@@ -323,6 +330,7 @@ module LavinMQ
           ::AMQP::Client.start(upstream_uri) do |c|
             ch = c.channel
             ch.queue_delete(@upstream_q)
+            ch.exchange_delete(@upstream_q)
           end
         rescue e
           @log.warn(e) { "cleanup interrupted " }

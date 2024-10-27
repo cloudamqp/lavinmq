@@ -59,7 +59,7 @@ describe LavinMQ::Queue do
           x.publish_confirm "test message", q.name
           q.get(no_ack: true).try(&.body_io.to_s).should eq("test message")
 
-          iq = s.vhosts["/"].exchanges[x_name].queue_bindings[{q.name, nil}].first
+          iq = s.vhosts["/"].queues[q.name]
           iq.pause!
 
           x.publish_confirm "test message 2", q.name
@@ -93,7 +93,7 @@ describe LavinMQ::Queue do
           x.publish_confirm "test message", q.name
           q.get(no_ack: true).try(&.body_io.to_s).should eq("test message")
 
-          iq = s.vhosts["/"].exchanges[x_name].queue_bindings[{q.name, nil}].first
+          iq = s.vhosts["/"].queues[q.name]
           iq.pause!
 
           x.publish_confirm "test message 2", q.name
@@ -126,7 +126,7 @@ describe LavinMQ::Queue do
           x.publish_confirm "test message", q.name
           q.get(no_ack: true).try(&.body_io.to_s).should eq("test message")
 
-          iq = s.vhosts["/"].exchanges[x_name].queue_bindings[{q.name, nil}].first
+          iq = s.vhosts["/"].queues[q.name]
           iq.pause!
 
           x.publish_confirm "test message 2", q.name
@@ -187,7 +187,7 @@ describe LavinMQ::Queue do
           x.publish_confirm "test message 3", q.name
           x.publish_confirm "test message 4", q.name
 
-          internal_queue = s.vhosts["/"].exchanges[x_name].queue_bindings[{q.name, nil}].first
+          internal_queue = s.vhosts["/"].queues[q.name]
           internal_queue.message_count.should eq 4
 
           response = http.delete("/api/queues/%2f/#{q_name}/contents")
@@ -209,7 +209,7 @@ describe LavinMQ::Queue do
           end
 
           vhost = s.vhosts["/"]
-          internal_queue = vhost.exchanges[x_name].queue_bindings[{q.name, nil}].first
+          internal_queue = vhost.queues[q.name]
           internal_queue.message_count.should eq 10
 
           response = http.delete("/api/queues/%2f/#{q_name}/contents?count=5")
@@ -235,8 +235,7 @@ describe LavinMQ::Queue do
             x.publish_confirm "test message #{i}", q.name
           end
 
-          internal_queue = s.vhosts["/"].exchanges[x_name].queue_bindings[{q.name, nil}].first
-
+          internal_queue = s.vhosts["/"].queues[q.name]
           internal_queue.message_count.should eq 10
 
           channel = Channel(String).new(1)
@@ -276,7 +275,7 @@ describe LavinMQ::Queue do
         sq = s.vhosts["/"].queues[q.name]
         sq.unacked_count.should eq 1
         msg.not_nil!.ack
-        sleep 0.01
+        sleep 10.milliseconds
         sq.unacked_count.should eq 0
       end
     end
@@ -296,7 +295,7 @@ describe LavinMQ::Queue do
         sq = s.vhosts["/"].queues[q.name]
         sq.unacked_count.should eq 1
         msg.ack
-        sleep 0.01
+        sleep 10.milliseconds
         sq.unacked_count.should eq 0
       end
     end
@@ -342,7 +341,7 @@ describe LavinMQ::Queue do
         sub = q.subscribe(no_ack: true) { |_| }
         Dir.exists?(data_dir).should be_true
         q.unsubscribe(sub)
-        sleep 0.1
+        sleep 0.1.seconds
         Dir.exists?(data_dir).should be_false
       end
     end

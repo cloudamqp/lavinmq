@@ -15,15 +15,21 @@ describe LavinMQ::Clustering::Client do
       "--force-new-cluster=true",
     }, output: STDOUT, error: STDERR)
 
-    sock = Socket.tcp(Socket::Family::INET)
+    client = HTTP::Client.new("127.0.0.1", 2379)
+    i = 0
     loop do
-      sleep 0.02
-      sock.connect "127.0.0.1", 2379
-      break
-    rescue Socket::ConnectError
+      sleep 0.02.seconds
+      response = client.get("/version")
+      if response.status.ok?
+        next if response.body.includes? "not_decided"
+        break
+      end
+    rescue e : Socket::ConnectError
+      i += 1
+      raise "Cant connect to etcd on port 2379. Giving up after 100 tries. (#{e.message})" if i >= 100
       next
     end
-    sock.close
+    client.close
     begin
       spec.run
     ensure
@@ -34,7 +40,6 @@ describe LavinMQ::Clustering::Client do
   end
 
   it "can stream changes" do
-    LavinMQ::Config.instance.clustering_min_isr = 1
     replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Etcd.new, 0)
     tcp_server = TCPServer.new("localhost", 0)
     spawn(replicator.listen(tcp_server), name: "repli server spec")
@@ -45,7 +50,7 @@ describe LavinMQ::Clustering::Client do
       repli.follow("localhost", tcp_server.local_address.port)
       done.send nil
     end
-
+    wait_for { replicator.followers.size == 1 }
     with_amqp_server(replicator: replicator) do |s|
       with_channel(s) do |ch|
         q = ch.queue("repli")
@@ -93,25 +98,25 @@ describe LavinMQ::Clustering::Client do
     rescue LavinMQ::Etcd::Error
       # expect this when etcd nodes are terminated
     end
-    sleep 0.5
+    sleep 0.5.seconds
     spawn(name: "failover1") do
       controller1.run
     end
     spawn(name: "failover2") do
       controller2.run
     end
-    sleep 0.1
+    sleep 0.1.seconds
     leader = listen.receive
     case leader
     when /1$/
       controller1.stop
       listen.receive.should match /2$/
-      sleep 0.1
+      sleep 0.1.seconds
       controller2.stop
     when /2$/
       controller2.stop
       listen.receive.should match /1$/
-      sleep 0.1
+      sleep 0.1.seconds
       controller1.stop
     else fail("no leader elected")
     end

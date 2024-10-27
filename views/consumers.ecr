@@ -2,11 +2,11 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
-    <% render "head" %>
+    <% render "partials/head" %>
     <script type="module" src="js/consumers.js"></script>
   </head>
   <body>
-    <% render "header" %>
+    <% render "partials/header" %>
     <main>
       <section class="card">
         <div class="table-wrapper">
@@ -17,10 +17,10 @@
                 <th data-sort-key="vhost">Virtual host</th>
                 <th data-sort-key="queue">Queue</th>
                 <th data-sort-key="channel">Channel</th>
-                <th data-sort-key="consumer-tag" class="left">Consumer tag</th>
+                <th data-sort-key="consumer_tag" class="left">Consumer tag</th>
                 <th>Ack required</th>
                 <th>Exclusive</th>
-                <th data-sort-key="prefetch" class="right">Prefetch count</th>
+                <th data-sort-key="prefetch_count" class="right">Prefetch count</th>
                 <th></th>
               </tr>
             </thead>
@@ -29,6 +29,6 @@
         </div>
       </section>
     </main>
-    <% render "footer" %>
+    <% render "partials/footer" %>
   </body>
 </html>

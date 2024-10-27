@@ -49,7 +49,7 @@ updateExchange()
 const tableOptions = {
   dataSource: new UrlDataSource(exchangeUrl + '/bindings/source', { useQueryState: false }),
   pagination: true,
-  keyColumns: ['properties_key']
+  keyColumns: ['destination', 'properties_key']
 }
 const bindingsTable = Table.renderTable('bindings-table', tableOptions, function (tr, item, all) {
   if (!all) return
@@ -107,7 +107,7 @@ document.querySelector('#publishMessage').addEventListener('submit', function (e
   const url = 'api/exchanges/' + urlEncodedVhost + '/' + urlEncodedExchange + '/publish'
   const properties = DOM.parseJSON(data.get('properties'))
   properties.delivery_mode = parseInt(data.get('delivery_mode'))
-  properties.headers = DOM.parseJSON(data.get('headers'))
+  properties.headers = { ...properties.headers, ...DOM.parseJSON(data.get('headers')) }
   const body = {
     payload: data.get('payload'),
     payload_encoding: data.get('payload_encoding'),

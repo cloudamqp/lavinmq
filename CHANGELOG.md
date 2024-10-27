@@ -7,16 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Shovels' batching of acks caused a lot of unacked messages in source broker [#777](https://github.com/cloudamqp/lavinmq/pull/777)
+- Shovel AMQP source didn't reconnect on network failures (partially fixed in prev release) [#758](https://github.com/cloudamqp/lavinmq/pull/758)
+- Running lavinmqctl commands on a follower node now displays an error and exits with code 2 [#785](https://github.com/cloudamqp/lavinmq/pull/785)
+- Federation queue links now reconnects if the upstream disconnects [#788](https://github.com/cloudamqp/lavinmq/pull/788)
+
+### Changed
+
+- Updated RabbitMQ HTTP API Go client test to use a patch-file for LavinMQ compatibility [#778](https://github.com/cloudamqp/lavinmq/pull/778)
+- Renames clustering_max_lag -> clustering_max_unsynced_actions to clarify that it is measured in number of actions [#810](https://github.com/cloudamqp/lavinmq/pull/810)
+- Renames lag -> lag_in_bytes to clarify that lag is measured in bytes [#810](https://github.com/cloudamqp/lavinmq/pull/810)
+
+### Added
+
+- Added cluster_status to lavinmqctl [#787](https://github.com/cloudamqp/lavinmq/pull/787)
+- Added deliver_get to message_stats [#793](https://github.com/cloudamqp/lavinmq/pull/793)
+
+## [2.0.0-rc.4] - 2024-08-21
+
+### Fixed
+
+- Memory leak in Crystal's Hash implementation
+- Accept `x-delayed-exchange` and `x-delayed-messages` as exchange type for delayed message the exchanges
+- Bindings are sorted properly in the web interface
+- Wait for followers to synchronize on shutdown of leader
+- Shovel the exact number of messages available on start if `delete-after=queue-length`, not more
+- Prevet a queue that's overflowing to consume too much resources
+- Dead-lettering loop when publishing to a delayed exchange's internal queue [#748](https://github.com/cloudamqp/lavinmq/pull/748)
+- Exchange federation tried to bind to upstream's default exchange
+- Shovel AMQP source didn't reconnect on network failures
+- Shovel ack all unacked messages on stop
+- Accept custom certificate parameters in shovel URI such as: `?cacertfile=/tmp/ca.pem&certfile=/tmp/cert.pem&keyfile=/tmp/key.pem`
+
+### Changed
+
+- Merge the header field and properties.header fields when publishing messages in the web interface
+
 ## [2.0.0-rc.3] - 2024-07-12
 
 ### Changed
 
 - Build with Crystal 1.13.1
+- Yield at end of while loop in Queue#drop_overflow to avoid holding the fiber for too long [#725](https://github.com/cloudamqp/lavinmq/pull/725)
 
 ### Fixed
 
 - Make proxied UNIX sockets in followers RW for all
 - SystemD notify ready in cluster mode when lader is found
+- Make keyColumns look for unique combinations on bindings tables [#726](https://github.com/cloudamqp/lavinmq/pull/726)
 
 ## [2.0.0-rc.2] - 2024-07-05
 

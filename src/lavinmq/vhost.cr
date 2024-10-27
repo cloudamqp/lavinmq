@@ -20,7 +20,7 @@ module LavinMQ
     include Stats
 
     rate_stats({"channel_closed", "channel_created", "connection_closed", "connection_created",
-                "queue_declared", "queue_deleted", "ack", "deliver", "get", "publish", "confirm",
+                "queue_declared", "queue_deleted", "ack", "deliver", "deliver_get", "get", "publish", "confirm",
                 "redeliver", "reject", "consumer_added", "consumer_removed"})
 
     getter name, exchanges, queues, data_dir, operator_policies, policies, parameters, shovels,
@@ -40,7 +40,7 @@ module LavinMQ
     @definitions_lock = Mutex.new(:reentrant)
     @definitions_file_path : String
     @definitions_deletes = 0
-    Log = ::Log.for("vhost")
+    Log = LavinMQ::Log.for "vhost"
 
     def initialize(@name : String, @server_data_dir : String, @users : UserStore, @replicator : Clustering::Replicator, @description = "", @tags = Array(String).new(0))
       @log = Logger.new(Log, vhost: @name)
@@ -63,7 +63,7 @@ module LavinMQ
 
     private def check_consumer_timeouts_loop
       loop do
-        sleep Config.instance.consumer_timeout_loop_interval
+        sleep Config.instance.consumer_timeout_loop_interval.seconds
         return if @closed
         @connections.each do |c|
           c.channels.each_value do |ch|
@@ -121,90 +121,11 @@ module LavinMQ
     def publish(msg : Message, immediate = false,
                 visited = Set(Exchange).new, found_queues = Set(Queue).new) : Bool
       ex = @exchanges[msg.exchange_name]? || return false
-      ex.publish_in_count += 1
-      headers = msg.properties.headers
-      find_all_queues(ex, msg.routing_key, headers, visited, found_queues)
-      headers.delete("BCC") if headers
-      if found_queues.empty?
-        ex.unroutable_count += 1
-        return false
-      end
-      return false if immediate && !found_queues.any? &.immediate_delivery?
-      ok = false
-      found_queues.each do |q|
-        if q.publish(msg)
-          ex.publish_out_count += 1
-          ok = true
-          msg.body_io.seek(-msg.bodysize.to_i64, IO::Seek::Current) # rewind
-        end
-      end
-      ok
+      published_queue_count = ex.publish(msg, immediate, found_queues, visited)
+      !published_queue_count.zero?
     ensure
       visited.clear
       found_queues.clear
-    end
-
-    private def find_all_queues(ex : Exchange, routing_key : String,
-                                headers : AMQP::Table?,
-                                visited : Set(Exchange),
-                                queues : Set(Queue)) : Nil
-      ex.queue_matches(routing_key, headers) do |q|
-        next if q.closed?
-        queues.add? q
-      end
-
-      ex.exchange_matches(routing_key, headers) do |e2e|
-        visited.add(ex)
-        if visited.add?(e2e)
-          find_all_queues(e2e, routing_key, headers, visited, queues)
-        end
-      end
-
-      find_cc_queues(ex, headers, visited, queues)
-
-      if queues.empty? && ex.alternate_exchange
-        if ae = @exchanges[ex.alternate_exchange]?
-          visited.add(ex)
-          if visited.add?(ae)
-            find_all_queues(ae, routing_key, headers, visited, queues)
-          end
-        end
-      end
-    end
-
-    private def find_cc_queues(ex, headers, visited, queues)
-      if cc = headers.try(&.fetch("CC", nil))
-        if cc = cc.as?(Array(AMQP::Field))
-          hdrs = headers.not_nil!.clone
-          hdrs.delete "CC"
-          cc.each do |cc_rk|
-            if cc_rk = cc_rk.as?(String)
-              find_all_queues(ex, cc_rk, hdrs, visited, queues)
-            else
-              raise Error::PreconditionFailed.new("CC header not a string array")
-            end
-          end
-        else
-          raise Error::PreconditionFailed.new("CC header not a string array")
-        end
-      end
-
-      if bcc = headers.try(&.fetch("BCC", nil))
-        if bcc = bcc.as?(Array(AMQP::Field))
-          hdrs = headers.not_nil!.clone
-          hdrs.delete "CC"
-          hdrs.delete "BCC"
-          bcc.each do |bcc_rk|
-            if bcc_rk = bcc_rk.as?(String)
-              find_all_queues(ex, bcc_rk, hdrs, visited, queues)
-            else
-              raise Error::PreconditionFailed.new("BCC header not a string array")
-            end
-          end
-        else
-          raise Error::PreconditionFailed.new("BCC header not a string array")
-        end
-      end
     end
 
     def details_tuple
@@ -220,13 +141,14 @@ module LavinMQ
 
     def message_details
       ready = unacked = 0_u64
-      ack = confirm = deliver = get = get_no_ack = publish = redeliver = return_unroutable = 0_u64
+      ack = confirm = deliver = get = get_no_ack = publish = redeliver = return_unroutable = deliver_get = 0_u64
       @queues.each_value do |q|
         ready += q.message_count
         unacked += q.unacked_count
         ack += q.ack_count
         confirm += q.confirm_count
         deliver += q.deliver_count
+        deliver_get += q.deliver_get_count
         get += q.get_count
         get_no_ack += q.get_no_ack_count
         publish += q.publish_count
@@ -243,6 +165,7 @@ module LavinMQ
           deliver:           deliver,
           get:               get,
           get_no_ack:        get_no_ack,
+          deliver_get:       deliver_get,
           publish:           publish,
           redeliver:         redeliver,
           return_unroutable: return_unroutable,
@@ -306,8 +229,9 @@ module LavinMQ
         when AMQP::Frame::Exchange::Delete
           if x = @exchanges.delete f.exchange_name
             @exchanges.each_value do |ex|
-              ex.exchange_bindings.each do |binding_args, destinations|
-                ex.unbind(x, *binding_args) if destinations.includes?(x)
+              ex.bindings_details.each do |binding|
+                next unless binding.destination == x
+                ex.unbind(x, binding.routing_key, binding.arguments)
               end
             end
             x.delete
@@ -334,8 +258,9 @@ module LavinMQ
         when AMQP::Frame::Queue::Delete
           if q = @queues.delete(f.queue_name)
             @exchanges.each_value do |ex|
-              ex.queue_bindings.each do |binding_args, destinations|
-                ex.unbind(q, *binding_args) if destinations.includes?(q)
+              ex.bindings_details.each do |binding|
+                next unless binding.destination == q
+                ex.unbind(q, binding.routing_key, binding.arguments)
               end
             end
             store_definition(f, dirty: true) if !loading && q.durable? && !q.exclusive?
@@ -360,15 +285,12 @@ module LavinMQ
       end
     end
 
-    alias QueueBinding = Tuple(BindingKey, Exchange)
-
-    def queue_bindings(queue : Queue)
-      iterators = @exchanges.each_value.map do |ex|
-        ex.queue_bindings.each.select do |(_binding_args, destinations)|
-          destinations.includes?(queue)
-        end.map { |(binding_args, _destinations)| {ex, binding_args} }
+    def queue_bindings(queue : Queue) : Iterator(BindingDetails)
+      default_binding = BindingDetails.new("", name, BindingKey.new(queue.name), queue)
+      bindings = @exchanges.each_value.flat_map do |ex|
+        ex.bindings_details.select { |binding| binding.destination == queue }
       end
-      Iterator(QueueBinding).chain(iterators)
+      {default_binding}.each.chain(bindings)
     end
 
     def add_operator_policy(name : String, pattern : String, apply_to : String,
@@ -457,7 +379,7 @@ module LavinMQ
       # wait up to 10s for clients to gracefully close
       100.times do
         break if @connections.empty?
-        sleep 0.1
+        sleep 0.1.seconds
       end
       # then force close the remaining (close tcp socket)
       @connections.each &.force_close
@@ -508,7 +430,7 @@ module LavinMQ
     private def load!
       load_definitions!
       spawn(name: "Load parameters") do
-        sleep 0.01
+        sleep 10.milliseconds
         next if @closed
         apply_parameters
         apply_policies
@@ -624,17 +546,17 @@ module LavinMQ
           io.write_bytes f
         end
         @exchanges.each_value.select(&.durable?).each do |e|
-          e.queue_bindings.each do |(routing_key, arguments), queues|
-            args = arguments || AMQP::Table.new
-            queues.each do |q|
-              f = AMQP::Frame::Queue::Bind.new(0_u16, 0_u16, q.name, e.name, routing_key, false, args)
-              io.write_bytes f
-            end
-          end
-          e.exchange_bindings.each do |(routing_key, arguments), exchanges|
-            args = arguments || AMQP::Table.new
-            exchanges.each do |ex|
-              f = AMQP::Frame::Exchange::Bind.new(0_u16, 0_u16, ex.name, e.name, routing_key, false, args)
+          e.bindings_details.each do |binding|
+            args = binding.arguments || AMQP::Table.new
+            frame = case binding.destination
+                    when Queue
+                      AMQP::Frame::Queue::Bind.new(0_u16, 0_u16, binding.destination.name, e.name,
+                        binding.routing_key, false, args)
+                    when Exchange
+                      AMQP::Frame::Exchange::Bind.new(0_u16, 0_u16, binding.destination.name, e.name,
+                        binding.routing_key, false, args)
+                    end
+            if f = frame
               io.write_bytes f
             end
           end
@@ -675,7 +597,7 @@ module LavinMQ
         TopicExchange.new(vhost, name, durable, auto_delete, internal, arguments)
       when "headers"
         HeadersExchange.new(vhost, name, durable, auto_delete, internal, arguments)
-      when "x-delayed-message"
+      when "x-delayed-message", "x-delayed-exchange"
         arguments = arguments.clone
         type = arguments.delete("x-delayed-type")
         raise Error::ExchangeTypeError.new("Missing required argument 'x-delayed-type'") unless type
@@ -718,14 +640,16 @@ module LavinMQ
       in EventType::QueueDeclared        then @queue_declared_count += 1
       in EventType::QueueDeleted         then @queue_deleted_count += 1
       in EventType::ClientAck            then @ack_count += 1
-      in EventType::ClientDeliver        then @deliver_count += 1
-      in EventType::ClientGet            then @get_count += 1
       in EventType::ClientPublish        then @publish_count += 1
       in EventType::ClientPublishConfirm then @confirm_count += 1
       in EventType::ClientRedeliver      then @redeliver_count += 1
       in EventType::ClientReject         then @reject_count += 1
       in EventType::ConsumerAdded        then @consumer_added_count += 1
       in EventType::ConsumerRemoved      then @consumer_removed_count += 1
+      in EventType::ClientGet            then @get_count += 1
+      in EventType::ClientDeliver
+        @deliver_count += 1
+        @deliver_get_count += 1
       end
     end
 

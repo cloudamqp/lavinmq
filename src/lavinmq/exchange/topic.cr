@@ -2,75 +2,67 @@ require "./exchange"
 
 module LavinMQ
   class TopicExchange < Exchange
-    def initialize(*args)
-      super(*args)
-      @queue_binding_keys = Hash(Array(String), Set(Queue)).new do |h, k|
-        h[k] = Set(Queue).new
-      end
-      @exchange_binding_keys = Hash(Array(String), Set(Exchange)).new do |h, k|
-        h[k] = Set(Exchange).new
-      end
+    @bindings = Hash(Array(String), Set(Destination)).new do |h, k|
+      h[k] = Set(Destination).new
     end
 
     def type : String
       "topic"
     end
 
-    def bind(destination : Queue, routing_key, headers = nil)
-      ret = @queue_bindings[{routing_key, nil}].add? destination
-      @queue_binding_keys[routing_key.split(".")] << destination
-      after_bind(destination, routing_key, headers)
-      ret
-    end
-
-    def bind(destination : Exchange, routing_key, headers = nil)
-      ret = @exchange_bindings[{routing_key, nil}].add? destination
-      @exchange_binding_keys[routing_key.split(".")] << destination
-      after_bind(destination, routing_key, headers)
-      ret
-    end
-
-    def unbind(destination : Queue, routing_key, headers = nil)
-      ret = @queue_bindings[{routing_key, nil}].delete destination
-      @queue_binding_keys[routing_key.split(".")].delete destination
-      after_unbind(destination, routing_key, headers)
-      ret
-    end
-
-    def unbind(destination : Exchange, routing_key, headers = nil)
-      ret = @exchange_bindings[{routing_key, nil}].delete destination
-      @exchange_binding_keys[routing_key.split(".")].delete destination
-      after_unbind(destination, routing_key, headers)
-      ret
-    end
-
-    def do_queue_matches(routing_key, headers = nil, & : Queue -> _)
-      matches(@queue_binding_keys, routing_key, headers) do |destination|
-        yield destination.as(Queue)
+    def bindings_details : Iterator(BindingDetails)
+      @bindings.each.flat_map do |rk, ds|
+        ds.each.map do |d|
+          binding_key = BindingKey.new(rk.join("."))
+          BindingDetails.new(name, vhost.name, binding_key, d)
+        end
       end
     end
 
-    def do_exchange_matches(routing_key, headers = nil, & : Exchange -> _)
-      matches(@exchange_binding_keys, routing_key, headers) { |e| yield e.as(Exchange) }
+    def bind(destination : Destination, routing_key, headers = nil)
+      return false unless @bindings[routing_key.split(".")].add? destination
+      binding_key = BindingKey.new(routing_key)
+      data = BindingDetails.new(name, vhost.name, binding_key, destination)
+      notify_observers(ExchangeEvent::Bind, data)
+      true
+    end
+
+    def unbind(destination : Destination, routing_key, headers = nil)
+      rks = routing_key.split(".")
+      bds = @bindings[routing_key.split(".")]
+      return false unless bds.delete destination
+      @bindings.delete(rks) if bds.empty?
+
+      binding_key = BindingKey.new(routing_key)
+      data = BindingDetails.new(name, vhost.name, binding_key, destination)
+      notify_observers(ExchangeEvent::Unbind, data)
+
+      delete if @auto_delete && @bindings.each_value.all?(&.empty?)
+      true
+    end
+
+    protected def bindings(routing_key, headers) : Iterator(Destination)
+      select_matches(routing_key).each
     end
 
     # ameba:disable Metrics/CyclomaticComplexity
-    private def matches(binding_keys, routing_key, headers = nil, & : Queue | Exchange -> _)
-      return if binding_keys.empty?
+    private def select_matches(routing_key) : Iterator(Destination)
+      binding_keys = @bindings
+
+      return Iterator(Destination).empty if binding_keys.empty?
 
       # optimize the case where the only binding key is '#'
       if binding_keys.size == 1
         bk, qs = binding_keys.first
         if bk.size == 1
           if bk.first == "#"
-            qs.each { |d| yield d }
-            return
+            return qs.each
           end
         end
       end
 
       rk_parts = routing_key.split(".")
-      binding_keys.each do |bks, dst|
+      binding_keys.each.select do |bks, _|
         ok = false
         prev_hash = false
         size = bks.size # binding keys can max be 256 chars long anyway
@@ -127,8 +119,8 @@ module LavinMQ
           break unless ok
           i += 1
         end
-        dst.each { |d| yield d } if ok
-      end
+        ok
+      end.flat_map { |_, v| v.each }
     end
   end
 end

@@ -71,8 +71,6 @@ module LavinMQ
       end
 
       abstract class Definitions
-        Log = ::Log.for(self)
-
         def initialize(@amqp_server : LavinMQ::Server)
         end
 

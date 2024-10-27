@@ -1,8 +1,40 @@
 BINS := bin/lavinmq bin/lavinmqctl bin/lavinmqperf
 SOURCES := $(shell find src/lavinmq src/stdlib -name '*.cr' 2> /dev/null)
+VIEW_SOURCES := $(wildcard views/*.ecr)
+VIEW_TARGETS := $(patsubst views/%.ecr,static/views/%.html,$(VIEW_SOURCES))
+VIEW_PARTIALS := $(wildcard views/partials/*.ecr)
 JS := static/js/lib/chunks/helpers.segment.js static/js/lib/chart.js static/js/lib/amqp-websocket-client.mjs static/js/lib/amqp-websocket-client.mjs.map static/js/lib/luxon.js static/js/lib/chartjs-adapter-luxon.esm.js static/js/lib/elements-8.2.0.js static/js/lib/elements-8.2.0.css
-CRYSTAL_FLAGS := --release
+CRYSTAL_FLAGS := --release --stats
 override CRYSTAL_FLAGS += --error-on-warnings --link-flags=-pie -Dgc_none
+
+.DEFAULT_GOAL := all
+
+.PHONY: livereload
+livereload:
+	@echo "Starting livereload server..."
+	@which livereload > /dev/null || npm install -g livereload
+	@(pid=$$!; trap 'kill -TERM $$pid' INT; livereload static &)
+
+.PHONY: views
+views: $(VIEW_TARGETS)
+
+.PHONY: watch-views
+watch-views:
+	while true; do $(MAKE) -q -s views || $(MAKE) -j views; sleep 0.5; done
+
+.PHONY: dev-ui
+dev-ui: livereload watch-views
+
+static/views/%.html: views/%.ecr $(VIEW_PARTIALS)
+	@mkdir -p static/views
+	@TEMP_FILE=$$(mktemp) && \
+	INPUT=$< crystal run views/_render.cr > $$TEMP_FILE && \
+	mv $$TEMP_FILE $@ && \
+	echo "Rendered $< to $@"
+
+.PHONY: clean-views
+clean-views:
+	$(RM) $(VIEW_TARGETS)
 
 .PHONY: all
 all: $(BINS)
@@ -119,4 +151,4 @@ uninstall:
 
 .PHONY: clean
 clean:
-	$(RM) $(BINS) $(DOCS) $(JS) $(MANPAGES)
+	$(RM) $(BINS) $(DOCS) $(JS) $(MANPAGES) $(VIEW_TARGETS)

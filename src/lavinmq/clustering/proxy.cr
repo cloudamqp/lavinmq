@@ -1,12 +1,11 @@
 require "socket"
-require "log"
 require "../config"
 require "../proxy_protocol"
 
 module LavinMQ
   module Clustering
     class Proxy
-      Log = ::Log.for("clustering.proxy")
+      Log = LavinMQ::Log.for "clustering.proxy"
       @proxy_header = false
       @local_address : String
 
@@ -16,6 +15,7 @@ module LavinMQ
       end
 
       def initialize(path : String)
+        File.delete?(path)
         @server = s = UNIXServer.new(path)
         @local_address = s.local_address.to_s
         File.chmod(path, 0o666)

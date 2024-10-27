@@ -8,6 +8,7 @@ require "amqp-client"
 require "benchmark"
 require "json"
 require "log"
+require "wait_group"
 
 Log.setup_from_env
 
@@ -147,7 +148,7 @@ class Throughput < Perf
   def run
     super
 
-    done = Channel(Nil).new
+    done = WaitGroup.new(@consumers + @publishers)
     @consumers.times do
       if @poll
         spawn { reconnect_on_disconnect(done) { poll_consume } }
@@ -172,12 +173,12 @@ class Throughput < Perf
     Signal::INT.trap do
       abort "Aborting" if @stopped
       @stopped = true
-      summary(start, done)
+      summary(start)
       exit 0
     end
 
     spawn do
-      (@publishers + @consumers).times { done.receive }
+      done.wait
       @stopped = true
     end
 
@@ -185,25 +186,21 @@ class Throughput < Perf
       break if @stopped
       pubs_last = @pubs
       consumes_last = @consumes
-      sleep 1
+      sleep 1.seconds
       unless @quiet
-        print "Publish rate: "
-        print @pubs - pubs_last
-        print " msgs/s Consume rate: "
-        print @consumes - consumes_last
-        print " msgs/s\n"
+        puts "Publish rate: #{@pubs - pubs_last} msgs/s Consume rate: #{@consumes - consumes_last} msgs/s"
       end
     end
-    summary(start, done)
+    summary(start)
   end
 
-  private def summary(start : Time::Span, done)
+  private def summary(start : Time::Span)
     stop = Time.monotonic
     elapsed = (stop - start).total_seconds
     avg_pub = (@pubs / elapsed).round(1)
     avg_consume = (@consumes / elapsed).round(1)
+    puts
     if @json_output
-      print "\n"
       JSON.build(STDOUT) do |json|
         json.object do
           json.field "elapsed_seconds", elapsed
@@ -211,15 +208,11 @@ class Throughput < Perf
           json.field "avg_consume_rate", avg_consume
         end
       end
-      print "\n"
+      puts
     else
-      print "\nSummary:\n"
-      print "Average publish rate: "
-      print avg_pub
-      print " msgs/s\n"
-      print "Average consume rate: "
-      print avg_consume
-      print " msgs/s\n"
+      puts "Summary:"
+      puts "Average publish rate: #{avg_pub} msgs/s"
+      puts "Average consume rate: #{avg_consume} msgs/s"
     end
   end
 
@@ -344,10 +337,10 @@ class Throughput < Perf
       break yield
     rescue ex : AMQP::Client::Error | IO::Error
       puts ex.message
-      sleep 1
+      sleep 1.seconds
     end
   ensure
-    done.send nil
+    done.done
   end
 end
 

@@ -6,7 +6,7 @@ require "lz4"
 module LavinMQ
   module Clustering
     class Client
-      Log = ::Log.for("clustering.client")
+      Log = LavinMQ::Log.for "clustering.client"
       @data_dir_lock : DataDirLock
       @closed = false
       @amqp_proxy : Proxy?
@@ -33,6 +33,16 @@ module LavinMQ
           @unix_amqp_proxy = Proxy.new(@config.unix_path) unless @config.unix_path.empty?
           @unix_http_proxy = Proxy.new(@config.http_unix_path) unless @config.http_unix_path.empty?
         end
+        HTTP::Server.follower_internal_socket_http_server
+
+        Signal::INT.trap { close_and_exit }
+        Signal::TERM.trap { close_and_exit }
+      end
+
+      private def close_and_exit
+        Log.info { "Received termination signal, shutting down..." }
+        close
+        exit 0
       end
 
       def follow(uri : String)
@@ -73,7 +83,7 @@ module LavinMQ
           socket.try &.close
           break if @closed
           Log.info { "Disconnected from server #{host}:#{port} (#{ex}), retrying..." }
-          sleep 1
+          sleep 1.seconds
         end
       end
 
@@ -197,7 +207,7 @@ module LavinMQ
       end
 
       private def stream_changes(socket, lz4)
-        acks = Channel(Int64).new(@config.clustering_max_lag)
+        acks = Channel(Int64).new(@config.clustering_max_unsynced_actions)
         spawn send_ack_loop(acks, socket), name: "Send ack loop"
         loop do
           filename_len = lz4.read_bytes Int32, IO::ByteFormat::LittleEndian

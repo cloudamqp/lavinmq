@@ -11,6 +11,7 @@ require "../error"
 require "./state"
 require "./event"
 require "./message_store"
+require "../unacked_message"
 
 module LavinMQ
   class Queue
@@ -109,7 +110,7 @@ module LavinMQ
 
     # Creates @[x]_count and @[x]_rate and @[y]_log
     rate_stats(
-      {"ack", "deliver", "confirm", "get", "get_no_ack", "publish", "redeliver", "reject", "return_unroutable"},
+      {"ack", "deliver", "deliver_get", "confirm", "get", "get_no_ack", "publish", "redeliver", "reject", "return_unroutable"},
       {"message_count", "unacked_count"})
 
     getter name, arguments, vhost, consumers, last_get_time
@@ -123,7 +124,7 @@ module LavinMQ
     getter single_active_consumer_change = Channel(Client::Channel::Consumer).new
     @single_active_consumer_queue = false
     @data_dir : String
-    Log = ::Log.for "queue"
+    Log = LavinMQ::Log.for "queue"
     @metadata : ::Log::Metadata
 
     def initialize(@vhost : VHost, @name : String,
@@ -145,7 +146,7 @@ module LavinMQ
     # own method so that it can be overriden in other queue implementations
     private def init_msg_store(data_dir)
       replicator = durable? ? @vhost.@replicator : nil
-      MessageStore.new(data_dir, replicator)
+      MessageStore.new(data_dir, replicator, metadata: @metadata)
     end
 
     private def make_data_dir : String
@@ -443,12 +444,18 @@ module LavinMQ
     end
 
     private def drop_overflow : Nil
+      counter = 0
       if ml = @max_length
         @msg_store_lock.synchronize do
           while @msg_store.size > ml
             env = @msg_store.shift? || break
             @log.debug { "Overflow drop head sp=#{env.segment_position}" }
             expire_msg(env, :maxlen)
+            counter &+= 1
+            if counter >= 16 * 1024
+              Fiber.yield
+              counter = 0
+            end
           end
         end
       end
@@ -459,6 +466,11 @@ module LavinMQ
             env = @msg_store.shift? || break
             @log.debug { "Overflow drop head sp=#{env.segment_position}" }
             expire_msg(env, :maxlenbytes)
+            counter &+= 1
+            if counter >= 16 * 1024
+              Fiber.yield
+              counter = 0
+            end
           end
         end
       end
@@ -654,6 +666,7 @@ module LavinMQ
       @last_get_time = RoughTime.monotonic
       @queue_expiration_ttl_change.try_send? nil
       @get_count += 1
+      @deliver_get_count += 1
       get(no_ack) do |env|
         yield env
       end
@@ -663,7 +676,12 @@ module LavinMQ
     def consume_get(consumer, & : Envelope -> Nil) : Bool
       get(consumer.no_ack?) do |env|
         yield env
-        env.redelivered ? (@redeliver_count += 1) : (@deliver_count += 1)
+        if env.redelivered
+          @redeliver_count += 1
+        else
+          @deliver_count += 1
+          @deliver_get_count += 1
+        end
       end
     end
 

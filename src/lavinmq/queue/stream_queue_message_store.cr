@@ -10,7 +10,7 @@ module LavinMQ
       getter last_offset : Int64
       @segment_last_ts = Hash(UInt32, Int64).new(0i64) # used for max-age
 
-      def initialize(@queue_data_dir : String, @replicator : Clustering::Replicator?)
+      def initialize(*args, **kwargs)
         super
         @last_offset = get_last_offset
         drop_overflow
@@ -88,7 +88,7 @@ module LavinMQ
         {msg_offset, segment, pos}
       end
 
-      def shift?(consumer : Client::Channel::StreamConsumer) : Envelope?
+      def shift?(consumer : AMQP::StreamConsumer) : Envelope?
         raise ClosedError.new if @closed
 
         if env = shift_requeued(consumer.requeued)

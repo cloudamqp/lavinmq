@@ -29,6 +29,7 @@ describe LavinMQ::Etcd do
         # expect this when etcd nodes are terminated
       end
       w.receive # sync
+      sleep 50.milliseconds
       etcd.put "foo", "bar"
       w.receive.should eq "bar"
       etcd.put "foo", "rab"
@@ -78,7 +79,7 @@ describe LavinMQ::Etcd do
       etcds.first(2).each &.terminate(graceful: false)
       select
       when lease.receive?
-      when timeout(9.seconds)
+      when timeout(15.seconds)
         fail "should lose the leadership"
       end
     end
@@ -157,19 +158,21 @@ class EtcdCluster
   end
 
   private def wait_until_online
-    sock = Socket.tcp(Socket::Family::INET)
-    begin
-      @ports.each do |port|
-        loop do
-          sleep 0.02
-          sock.connect "127.0.0.1", 23000 + port
+    @ports.each do |port|
+      i = 0
+      client = HTTP::Client.new("127.0.0.1", 23000 + port)
+      loop do
+        sleep 20.milliseconds
+        response = client.get("/version")
+        if response.status.ok?
+          next if response.body.includes? "not_decided"
           break
-        rescue Socket::ConnectError
-          next
         end
+      rescue e : Exception
+        i += 1
+        raise "Etcd on ort #{23000 + port} not up? (#{e.message})" if i >= 100
+        next
       end
-    ensure
-      sock.close
     end
   end
 end

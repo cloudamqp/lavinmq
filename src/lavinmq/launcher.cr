@@ -9,7 +9,7 @@ require "./data_dir_lock"
 
 module LavinMQ
   class Launcher
-    Log = ::Log.for "launcher"
+    Log = LavinMQ::Log.for "launcher"
     @tls_context : OpenSSL::SSL::Context::Server?
     @first_shutdown_attempt = true
     @data_dir_lock : DataDirLock?
@@ -51,7 +51,7 @@ module LavinMQ
             GC.collect
           end
         else
-          sleep 30
+          sleep 30.seconds
           @data_dir_lock.try &.poll
           GC.collect
         end

@@ -124,4 +124,50 @@ describe LavinMQ::Exchange do
       end
     end
   end
+
+  describe "in_use?" do
+    it "should not be in use when just created" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          ch.exchange("e1", "topic", auto_delete: true)
+          ch.exchange("e2", "topic", auto_delete: true)
+          s.vhosts["/"].exchanges["e1"].in_use?.should be_false
+          s.vhosts["/"].exchanges["e2"].in_use?.should be_false
+        end
+      end
+    end
+    it "should be in use when it has bindings" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          x1 = ch.exchange("e1", "topic", auto_delete: true)
+          x2 = ch.exchange("e2", "topic", auto_delete: true)
+          x2.bind(x1.name, "#")
+          s.vhosts["/"].exchanges["e2"].in_use?.should be_true
+        end
+      end
+    end
+    it "should be in use when other exchange has binding to it" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          x1 = ch.exchange("e1", "topic", auto_delete: true)
+          x2 = ch.exchange("e2", "topic", auto_delete: true)
+          x2.bind(x1.name, "#")
+          s.vhosts["/"].exchanges["e1"].in_use?.should be_true
+        end
+      end
+    end
+
+    it "should be in use when it has bindings" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          x1 = ch.exchange("e1", "topic")
+          x2 = ch.exchange("e2", "topic", auto_delete: true)
+          x2.bind(x1.name, "#")
+          s.vhosts["/"].exchanges["e1"].in_use?.should be_true
+          x2.unbind(x1.name, "#")
+          s.vhosts["/"].exchanges["e1"].in_use?.should be_false
+        end
+      end
+    end
+  end
 end

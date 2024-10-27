@@ -6,11 +6,11 @@ require "socket"
 module LavinMQ
   module Clustering
     class Follower
-      Log = ::Log.for("clustering.follower")
+      Log = LavinMQ::Log.for "clustering.follower"
 
       @acked_bytes = 0_i64
       @sent_bytes = 0_i64
-      @actions = Channel(Action).new(Config.instance.clustering_max_lag)
+      @actions = Channel(Action).new(Config.instance.clustering_max_unsynced_actions)
       getter id = -1
       getter remote_address
 
@@ -176,6 +176,7 @@ module LavinMQ
           remote_address:     @remote_address.to_s,
           sent_bytes:         @sent_bytes,
           acked_bytes:        @acked_bytes,
+          lag_in_bytes:       lag_in_bytes,
           compression_ratio:  @lz4.compression_ratio,
           uncompressed_bytes: @lz4.uncompressed_bytes,
           compressed_bytes:   @lz4.compressed_bytes,
@@ -183,7 +184,7 @@ module LavinMQ
         }.to_json(json)
       end
 
-      def lag : Int64
+      def lag_in_bytes : Int64
         @sent_bytes - @acked_bytes
       end
     end

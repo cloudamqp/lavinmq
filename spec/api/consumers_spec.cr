@@ -34,7 +34,7 @@ describe LavinMQ::HTTP::ConsumersController do
         with_channel(s) do |ch|
           q = ch.queue("")
           q.subscribe { }
-          sleep 0.01
+          sleep 10.milliseconds
           response = http.get("/api/consumers/%2f")
           response.status_code.should eq 200
           body = JSON.parse(response.body)
@@ -59,7 +59,7 @@ describe LavinMQ::HTTP::ConsumersController do
         with_channel(s) do |ch|
           q = ch.queue("")
           consumer = q.subscribe { }
-          sleep 0.01
+          sleep 10.milliseconds
           conn = s.connections.to_a.last.name
           response = http.delete("/api/consumers/%2f/#{URI.encode_path(conn)}/#{ch.id}/#{consumer}")
           response.status_code.should eq 204
@@ -74,7 +74,7 @@ describe LavinMQ::HTTP::ConsumersController do
         with_channel(s) do |ch|
           q = ch.queue("")
           consumer = q.subscribe { }
-          sleep 0.01
+          sleep 10.milliseconds
           response = http.delete("/api/consumers/%2f/#{URI.encode_path("abc")}/#{ch.id}/#{consumer}")
           response.status_code.should eq 404
         end
@@ -87,7 +87,7 @@ describe LavinMQ::HTTP::ConsumersController do
           conn = s.connections.first.name
           q = ch.queue("")
           consumer = q.subscribe { }
-          sleep 0.01
+          sleep 10.milliseconds
           response = http.delete("/api/consumers/%2f/#{URI.encode_path(conn)}/123/#{consumer}")
           response.status_code.should eq 404
         end
@@ -100,7 +100,7 @@ describe LavinMQ::HTTP::ConsumersController do
           conn = s.connections.first.name
           q = ch.queue("")
           q.subscribe { }
-          sleep 0.01
+          sleep 10.milliseconds
           response = http.delete("/api/consumers/%2f/#{URI.encode_path(conn)}/#{ch.id}/test")
           response.status_code.should eq 404
         end

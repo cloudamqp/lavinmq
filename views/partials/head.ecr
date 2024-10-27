@@ -10,3 +10,6 @@
 <link rel="apple-touch-icon" sizes="180x180" href="img/favicon.png">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="google" content="notranslate">
+<%- {% unless flag?(:release) %} -%>
+  <script async src="http://localhost:35729/livereload.js"></script>
+<%- {% end %} -%>

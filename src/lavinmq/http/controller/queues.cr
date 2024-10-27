@@ -45,16 +45,16 @@ module LavinMQ
         get "/api/queues/:vhost/:name/unacked" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            consumers = @amqp_server.vhosts[vhost].queues[params["name"]].@consumers.each
-            unacked_messages = consumers.flat_map do |c|
+            q = queue(context, params, vhost)
+            unacked_messages = q.consumers.each.flat_map do |c|
               c.unacked_messages.each.compact_map do |u|
-                next unless u.queue.name == params["name"]
+                next unless u.queue == q
                 if consumer = u.consumer
                   UnackedMessage.new(c.channel, u.tag, u.delivered_at, consumer.tag)
                 end
               end
             end
-            unacked_messages = unacked_messages.chain(@amqp_server.vhosts[vhost].queues[params["name"]].basic_get_unacked.each)
+            unacked_messages = unacked_messages.chain(q.basic_get_unacked.each)
             page(context, unacked_messages)
           end
         end
@@ -134,9 +134,7 @@ module LavinMQ
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
             queue = queue(context, params, vhost)
-            itr = queue.bindings.map { |exchange, args| BindingDetails.new(exchange.name, vhost, args, queue) }
-            default_binding = BindingDetails.new("", queue.vhost.name, {queue.name, nil}, queue)
-            page(context, {default_binding}.each.chain(itr))
+            page(context, queue.bindings)
           end
         end
 

@@ -1,14 +1,16 @@
 require "../sortable_json"
 require "amqp-client"
 require "http/client"
+require "wait_group"
 
 module LavinMQ
   module Shovel
-    Log                     = ::Log.for("shovel")
-    DEFAULT_ACK_MODE        = AckMode::OnConfirm
-    DEFAULT_DELETE_AFTER    = DeleteAfter::Never
-    DEFAULT_PREFETCH        = 1000_u16
-    DEFAULT_RECONNECT_DELAY =        5
+    Log                       = LavinMQ::Log.for "shovel"
+    DEFAULT_ACK_MODE          = AckMode::OnConfirm
+    DEFAULT_DELETE_AFTER      = DeleteAfter::Never
+    DEFAULT_PREFETCH          = 1000_u16
+    DEFAULT_RECONNECT_DELAY   = 5.seconds
+    DEFAULT_BATCH_ACK_TIMEOUT = 3.seconds
 
     enum State
       Starting
@@ -43,7 +45,7 @@ module LavinMQ
                      @exchange_key : String? = nil,
                      @delete_after = DEFAULT_DELETE_AFTER, @prefetch = DEFAULT_PREFETCH,
                      @ack_mode = DEFAULT_ACK_MODE, consumer_args : Hash(String, JSON::Any)? = nil,
-                     direct_user : User? = nil)
+                     direct_user : User? = nil, @batch_ack_timeout : Time::Span = DEFAULT_BATCH_ACK_TIMEOUT)
         @tag = "Shovel"
         raise ArgumentError.new("At least one source uri is required") if @uris.empty?
         @uris.each do |uri|
@@ -78,28 +80,33 @@ module LavinMQ
 
       def stop
         # If we have any outstanding messages when closing, ack them first.
-        @last_unacked.try { |delivery_tag| ack(delivery_tag, close: true) }
+        @ch.try &.basic_cancel(@tag, no_wait: true)
+        @last_unacked.try { |delivery_tag| ack(delivery_tag, batch: false) }
         @conn.try &.close(no_wait: false)
         @q = nil
         @ch = nil
       end
 
       private def at_end?(delivery_tag)
-        @q.not_nil![:message_count] == delivery_tag
+        @delete_after.queue_length? && @q.not_nil![:message_count] == delivery_tag
       end
 
-      def ack(delivery_tag, close = false)
-        @ch.try do |ch|
-          next if ch.closed?
+      private def past_end?(delivery_tag)
+        @delete_after.queue_length? && @q.not_nil![:message_count] < delivery_tag
+      end
+
+      @done = WaitGroup.new(1)
+
+      def ack(delivery_tag, batch = true)
+        if ch = @ch
+          return if ch.closed?
 
           # We batch ack for faster shovel
-          batch_full = delivery_tag % (@prefetch / 2).ceil.to_i == 0
-          if close || batch_full || at_end?(delivery_tag)
+          batch_full = delivery_tag % ack_batch_size == 0
+          if !batch || batch_full || at_end?(delivery_tag)
             @last_unacked = nil
             ch.basic_ack(delivery_tag, multiple: true)
-            if close || (@delete_after.queue_length? && at_end?(delivery_tag))
-              ch.basic_cancel(@tag)
-            end
+            @done.done if at_end?(delivery_tag)
           else
             @last_unacked = delivery_tag
           end
@@ -110,11 +117,14 @@ module LavinMQ
         !@q.nil? && !@conn.try &.closed?
       end
 
+      private def ack_batch_size
+        (@prefetch / 2).ceil.to_i
+      end
+
       private def open_channel
         @ch.try &.close
         conn = @conn.not_nil!
         @ch = ch = conn.channel
-        ch.prefetch @prefetch
         q_name = @queue || ""
         @q = q = begin
           ch.queue_declare(q_name, passive: true)
@@ -125,6 +135,40 @@ module LavinMQ
         if @exchange || @exchange_key
           ch.queue_bind(q[:queue_name], @exchange || "", @exchange_key || "")
         end
+        if @delete_after.queue_length? && q[:message_count] > 0
+          @prefetch = Math.min(q[:message_count], @prefetch).to_u16
+        end
+        ch.prefetch @prefetch
+
+        # We only start timeout loop if we're actually batching
+        if ack_batch_size > 1
+          spawn(name: "Shovel #{@name} ack timeout loop") { ack_timeout_loop(ch) }
+        end
+      end
+
+      private def ack_timeout_loop(ch)
+        batch_ack_timeout = @batch_ack_timeout
+        Log.trace { "ack_timeout_loop starting for ch #{ch}" }
+        loop do
+          last_unacked = @last_unacked
+          sleep batch_ack_timeout
+
+          break if ch.closed?
+
+          # We have nothing in memory
+          next if last_unacked.nil?
+
+          # @last_unacked is nil after an ack has been sent, i.e if nil
+          # there is nothing to ack
+          next if @last_unacked.nil?
+
+          # Our memory is the same as the current @last_unacked which means
+          # that nothing has happend, lets ack!
+          if last_unacked == @last_unacked
+            ack(last_unacked, batch: false)
+          end
+        end
+        Log.trace { "ack_timeout_loop stopped for ch #{ch}" }
       end
 
       def each(&blk : ::AMQP::Client::DeliverMessage -> Nil)
@@ -139,17 +183,18 @@ module LavinMQ
           block: true,
           args: @args,
           tag: @tag) do |msg|
-          blk.call(msg)
-
-          if @ack_mode.no_ack? && @delete_after.queue_length? && at_end?(msg.delivery_tag)
-            ch.basic_cancel(@tag)
+          blk.call(msg) unless past_end?(msg.delivery_tag)
+          if at_end?(msg.delivery_tag)
+            ch.basic_cancel(@tag, no_wait: true)
+            @done.wait # wait for last ack before returning, which will close connection
           end
         rescue e : FailedDeliveryError
           msg.reject
-        rescue e
-          stop
-          raise e
         end
+      rescue e
+        Log.warn { "name=#{@name} #{e.message}" }
+        stop
+        raise e
       end
     end
 
@@ -198,10 +243,7 @@ module LavinMQ
       @ch : ::AMQP::Client::Channel?
 
       def initialize(@name : String, @uri : URI, @queue : String?, @exchange : String? = nil,
-                     @exchange_key : String? = nil,
-                     @delete_after = DEFAULT_DELETE_AFTER, @prefetch = DEFAULT_PREFETCH,
-                     @ack_mode = DEFAULT_ACK_MODE, consumer_args : Hash(String, JSON::Any)? = nil,
-                     direct_user : User? = nil)
+                     @exchange_key : String? = nil, @ack_mode = DEFAULT_ACK_MODE, direct_user : User? = nil)
         unless @uri.user
           if direct_user
             @uri.user = direct_user.name
@@ -219,10 +261,6 @@ module LavinMQ
         end
         if @exchange.nil?
           raise ArgumentError.new("Shovel destination requires an exchange")
-        end
-        @args = AMQ::Protocol::Table.new
-        consumer_args.try &.each do |k, v|
-          @args[k] = v.as_s?
         end
       end
 
@@ -335,7 +373,7 @@ module LavinMQ
       getter name, vhost
 
       def initialize(@source : AMQPSource, @destination : Destination,
-                     @name : String, @vhost : VHost, @reconnect_delay = DEFAULT_RECONNECT_DELAY)
+                     @name : String, @vhost : VHost, @reconnect_delay : Time::Span = DEFAULT_RECONNECT_DELAY)
       end
 
       def state
@@ -372,13 +410,13 @@ module LavinMQ
           if ex.message.to_s.starts_with?("404")
             break
           end
-          Log.error(exception: ex) { ex.message }
+          Log.warn { ex.message }
           @error = ex.message
           exponential_reconnect_delay
         rescue ex
           break if terminated?
           @state = State::Error
-          Log.error(exception: ex) { ex.message }
+          Log.warn { ex.message }
           @error = ex.message
           exponential_reconnect_delay
         end
@@ -389,7 +427,7 @@ module LavinMQ
       def exponential_reconnect_delay
         @retries += 1
         if @retries > RETRY_THRESHOLD
-          sleep Math.min(MAX_DELAY, @reconnect_delay ** (@retries - RETRY_THRESHOLD))
+          sleep Math.min(MAX_DELAY, @reconnect_delay.seconds ** (@retries - RETRY_THRESHOLD)).seconds
         else
           sleep @reconnect_delay
         end

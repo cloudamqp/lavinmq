@@ -33,7 +33,7 @@ describe LavinMQ::DurableQueue do
             queue = vhost.queues["corrupt_q"].as(LavinMQ::DurableQueue)
             q.publish_confirm "test message"
 
-            sleep 0.01
+            sleep 10.milliseconds
             bytes = "111111111aaaaauaoeuaoeu".to_slice
             queue.@msg_store.@segments.each_value do |mfile|
               File.open(mfile.path, "w+") do |f|

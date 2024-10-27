@@ -1,13 +1,20 @@
-require "./queue"
+"./queue"
 require "./durable_queue"
 
 module LavinMQ
   class DelayedExchangeQueue < Queue
     @internal = true
 
+    @exchange_name : String
+
+    def initialize(*args)
+      super(*args)
+      @exchange_name = arguments["x-dead-letter-exchange"]?.try(&.to_s) || raise "Missing x-dead-letter-exchange"
+    end
+
     private def init_msg_store(data_dir)
       replicator = durable? ? @vhost.@replicator : nil
-      DelayedMessageStore.new(data_dir, replicator)
+      DelayedMessageStore.new(data_dir, replicator, metadata: @metadata)
     end
 
     private def expire_at(msg : BytesMessage) : Int64?
@@ -44,13 +51,13 @@ module LavinMQ
         headers.delete("x-delay")
         msg.properties.headers = headers
       end
-      @vhost.publish Message.new(msg.timestamp, msg.exchange_name, msg.routing_key,
+      @vhost.publish Message.new(msg.timestamp, @exchange_name, msg.routing_key,
         msg.properties, msg.bodysize, IO::Memory.new(msg.body))
       delete_message sp
     end
 
     class DelayedMessageStore < MessageStore
-      def initialize(@data_dir : String, @replicator : Clustering::Replicator?)
+      def initialize(*args, **kwargs)
         super
         order_messages
       end

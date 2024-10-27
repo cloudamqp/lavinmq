@@ -106,13 +106,20 @@ describe LavinMQ::HTTP::Server do
       ]})
         response = http.post("/api/definitions", body: body)
         response.status_code.should eq 200
-        matches = [] of String
         ex = s.vhosts["/"].exchanges["import_x1"]
-        ex.do_exchange_matches("r.k2", nil) { |e| matches << e.name }
-        matches.includes?("import_x2").should be_true
-        matches.clear
-        ex.do_queue_matches("rk", nil) { |e| matches << e.name }
-        matches.includes?("import_q1").should be_true
+        qs = Set(LavinMQ::Queue).new
+        es = Set(LavinMQ::Exchange).new
+        ex.find_queues("r.k2", nil, qs, es)
+        res = Set(LavinMQ::Exchange).new
+        res << s.vhosts["/"].exchanges["import_x1"]
+        res << s.vhosts["/"].exchanges["import_x2"]
+        es.should eq res
+        qs = Set(LavinMQ::Queue).new
+        es = Set(LavinMQ::Exchange).new
+        ex.find_queues("rk", nil, qs, es)
+        res = Set(LavinMQ::Queue).new
+        res << s.vhosts["/"].queues["import_q1"]
+        qs.should eq res
       end
     end
 
@@ -173,7 +180,7 @@ describe LavinMQ::HTTP::Server do
         response.status_code.should eq 200
         # Because we run shovels in a new Fiber we have to make sure the shovel is not started
         # after this spec has finished
-        sleep 0.1 # Start the shovel
+        sleep 0.1.seconds # Start the shovel
         wait_for do
           shovels = s.vhosts["/"].shovels.not_nil!
           shovels.each_value.all? &.running?
@@ -470,13 +477,20 @@ describe LavinMQ::HTTP::Server do
       ]})
         response = http.post("/api/definitions/%2f", body: body)
         response.status_code.should eq 200
-        matches = [] of String
         ex = s.vhosts["/"].exchanges["import_x1"]
-        ex.do_exchange_matches("r.k2", nil) { |e| matches << e.name }
-        matches.includes?("import_x2").should be_true
-        matches.clear
-        ex.do_queue_matches("rk", nil) { |e| matches << e.name }
-        matches.includes?("import_q1").should be_true
+        qs = Set(LavinMQ::Queue).new
+        es = Set(LavinMQ::Exchange).new
+        ex.find_queues("r.k2", nil, qs, es)
+        res = Set(LavinMQ::Exchange).new
+        res << s.vhosts["/"].exchanges["import_x1"]
+        res << s.vhosts["/"].exchanges["import_x2"]
+        es.should eq res
+        qs = Set(LavinMQ::Queue).new
+        es = Set(LavinMQ::Exchange).new
+        ex.find_queues("rk", nil, qs, es)
+        res = Set(LavinMQ::Queue).new
+        res << s.vhosts["/"].queues["import_q1"]
+        qs.should eq res
       end
     end
 
@@ -660,6 +674,25 @@ describe LavinMQ::HTTP::Server do
       vhost.declare_exchange "test", *args
       http.get("/api/definitions")
       vhost.exchanges["test"].match?(*args).should be_true
+    end
+  end
+
+  it "should be able to import delayed exchanges created in LavinMQ (issue #743)" do
+    with_http_server do |http, s|
+      body = %({
+        "type": "direct",
+        "durable": true,
+        "internal": false,
+        "auto_delete": false,
+        "delayed": true
+      })
+      http.put("/api/exchanges/%2f/test-delayed", body: body)
+      response = http.get("/api/definitions")
+      body = JSON.parse(response.body)
+      http.delete("/api/exchanges/%2f/test-delayed")
+      LavinMQ::HTTP::DefinitionsController::GlobalDefinitions.new(s).import(body)
+      response = http.get("/api/exchanges/%2f/test-delayed")
+      response.status_code.should eq 200
     end
   end
 end

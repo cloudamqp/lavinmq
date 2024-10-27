@@ -112,7 +112,7 @@ describe LavinMQ::StreamQueue do
           q = ch.queue("stream-max-age", args: AMQP::Client::Arguments.new(args))
           data = Bytes.new(LavinMQ::Config.instance.segment_size)
           2.times { q.publish_confirm data }
-          sleep 1.1
+          sleep 1.1.seconds
           q.publish_confirm data
           q.message_count.should eq 1
         end
@@ -127,7 +127,7 @@ describe LavinMQ::StreamQueue do
           q = ch.queue("stream-max-age-policy", args: AMQP::Client::Arguments.new(args))
           data = Bytes.new(LavinMQ::Config.instance.segment_size)
           2.times { q.publish_confirm data }
-          sleep 1.1
+          sleep 1.1.seconds
           q.publish_confirm data
           q.message_count.should eq 1
         end
@@ -142,7 +142,7 @@ describe LavinMQ::StreamQueue do
           data = Bytes.new(LavinMQ::Config.instance.segment_size)
           2.times { q.publish_confirm data }
           q.message_count.should eq 2
-          sleep 1.1
+          sleep 1.1.seconds
           s.vhosts["/"].add_policy("max", "stream-max-age-policy", "queues", {"max-age" => JSON::Any.new("1s")}, 0i8)
           q.message_count.should eq 1
         end

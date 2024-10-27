@@ -48,12 +48,32 @@ describe LavinMQ::HTTP::QueuesController do
       with_http_server do |http, s|
         with_channel(s) do |ch|
           q = ch.queue("stats_q")
-          q.publish "m1"
+          3.times { q.publish "m1" }
         end
+
+        msgs = Channel(Int32).new
+        with_channel(s) do |ch|
+          q = ch.queue("stats_q")
+          1.times { q.get }
+
+          ch.prefetch 1
+          q.subscribe(no_ack: false) do |msg|
+            msgs.send 1
+            msg.ack
+          end
+        end
+        msgs.receive
+
+        body = %({ "count": 1, "ack_mode": "get", "encoding": "auto" })
+        http.post("/api/queues/%2f/stats_q/get", body: body)
+
         response = http.get("/api/queues/%2f/stats_q")
         response.status_code.should eq 200
         body = JSON.parse(response.body)
         body["message_stats"]["publish_details"]["rate"].nil?.should be_false
+        body["message_stats"]["get"].should eq 2
+        body["message_stats"]["deliver"].should eq 1
+        body["message_stats"]["deliver_get"].should eq 3
       end
     end
 
@@ -318,7 +338,7 @@ describe LavinMQ::HTTP::QueuesController do
         with_channel(s) do |ch|
           q = ch.queue("q3", auto_delete: false, durable: true, exclusive: false)
           q.publish "m1"
-          sleep 0.05
+          sleep 0.05.milliseconds
           body = %({
           "count": 1,
           "ack_mode": "reject_requeue_true",
@@ -380,7 +400,7 @@ describe LavinMQ::HTTP::QueuesController do
         with_channel(s) do |ch|
           q = ch.queue("q5", auto_delete: false, durable: true, exclusive: false)
           q.publish "m1"
-          sleep 0.05
+          sleep 0.05.milliseconds
           body = %({
           "count": 2,
           "ack_mode": "get",
@@ -414,7 +434,7 @@ describe LavinMQ::HTTP::QueuesController do
         with_channel(s) do |ch|
           q = ch.queue("q7")
           q.publish "m1"
-          sleep 0.05
+          sleep 0.05.milliseconds
           body = %({
           "count": 1,
           "ack_mode": "get",
@@ -433,7 +453,7 @@ describe LavinMQ::HTTP::QueuesController do
         with_channel(s) do |ch|
           q = ch.queue("q8")
           q.publish "m1"
-          sleep 0.05
+          sleep 0.05.milliseconds
           body = %({
           "count": 1,
           "ack_mode": "get",

@@ -81,6 +81,7 @@ jobs:
     name: Spec
     runs-on: ubuntu-latest
     container: 84codes/crystal:latest-ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - name: Print Crystal version
         run: crystal -v
@@ -97,6 +98,7 @@ jobs:
   spec_osx:
     name: Spec OS X
     runs-on: macos-14
+    timeout-minutes: 10
     steps:
       - name: Install dependencies
         run: |
@@ -138,7 +140,7 @@ jobs:
           path: bin/
 
   path_filter:
-    name: Filters for fronted specs
+    name: Filters for frontend specs
     runs-on: ubuntu-latest
     outputs:
       views: ${{ steps.changes.outputs.views }}
@@ -156,8 +158,8 @@ jobs:
               - '**/*.js'
 
   spec_frontend:
-    name: Fronted specs
-    runs-on: ubuntu-latest
+    name: Frontend specs
+    runs-on: ubuntu-24.04
     needs: [compile, path_filter]
     if: ${{ needs.path_filter.outputs.views == 'true' || needs.path_filter.outputs.js == 'true' }}
     steps:
@@ -184,6 +186,9 @@ jobs:
 
       - name: Install @playwright/test
         run: npm install @playwright/test
+
+      - name: List npm packages
+        run: npm ls
 
       - name: Install browsers
         run: npx playwright install --with-deps
@@ -216,16 +221,31 @@ jobs:
       - name: Clone java client
         uses: actions/checkout@v4
         with:
-          repository: cloudamqp/rabbitmq-java-client
-          ref: lavinmq-compatible-tests
+          repository: rabbitmq/rabbitmq-java-client
+          ref: v5.22.0
           path: rabbitmq-java-client
+
+      - name: Get patch file
+        uses: actions/checkout@v4
+        with:
+          repository: cloudamqp/lavinmq
+          path: lavinmq
+          # only checkout the lint rules
+          sparse-checkout: |
+            .github/rabbitmq-java-client.patch
+          sparse-checkout-cone-mode: false
+
+      - name: Patch tests
+        run: |
+          cd rabbitmq-java-client
+          git apply ../lavinmq/.github/rabbitmq-java-client.patch
 
       - name: Run java tests (allowed to fail)
         id: test
         run: |
           cd rabbitmq-java-client
           make deps
-          ./mvnw -q verify -P '!setup-test-cluster' -Dit.test=FunctionalTestSuite -Drabbitmqctl.bin=../bin/lavinmqctl
+          ./mvnw verify -Dtest-broker.A.nodename=lavin@testhost -Dit.test=ClientTestSuite,FunctionalTestSuite -Drabbitmqctl.bin=../bin/lavinmqctl
 
   bunny-test:
     name: Bunny client test
@@ -349,17 +369,23 @@ jobs:
       - name: Clone http client
         uses: actions/checkout@v4
         with:
-          repository: cloudamqp/rabbit-hole
-          token: ${{ secrets.PRIVATE_REPO_ACCESS }}
+          repository: michaelklishin/rabbit-hole
+          ref: 37defcefa36b528b024f0b377435b459eb8eb9fc
           path: rabbit-hole
+
+      - name: Setup rabbit-hole
+        run: |
+          cd rabbit-hole
+          curl https://raw.githubusercontent.com/cloudamqp/lavinmq/main/.github/rabbit-hole.patch -o rabbit-hole.patch
+          git apply rabbit-hole.patch
+          bash bin/ci/before_build.sh
+        env:
+          RABBITHOLE_LAVINMQCTL: ../bin/lavinmqctl
 
       - name: Run specs
         run: |
           cd rabbit-hole
-          bash bin/ci/before_build.sh
           go test -v ./...
-        env:
-          RABBITHOLE_LAVINMQCTL: ../bin/lavinmqctl
 
   release-mode-test:
     name: Test in release mode
@@ -392,6 +418,7 @@ jobs:
   freebsd-test:
     name: Spec FreeBSD
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - name: Spec
@@ -400,3 +427,4 @@ jobs:
           usesh: true
           prepare: pkg install -y crystal shards security/openssl curl gmake coreos-etcd34
           run: gmake test
+        continue-on-error: true

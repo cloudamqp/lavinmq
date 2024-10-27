@@ -71,7 +71,7 @@ describe LavinMQ::VHost do
       v.declare_queue("q", true, false)
       s.vhosts["test"].bind_queue("q", "e", "q")
       s.restart
-      s.vhosts["test"].exchanges["e"].queue_bindings[{"q", nil}].size.should eq 1
+      s.vhosts["test"].exchanges["e"].bindings_details.first.destination.name.should eq "q"
     end
   end
 

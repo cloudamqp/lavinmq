@@ -1,6 +1,7 @@
 require "./spec_helper"
 require "../src/lavinmq/shovel"
 require "http/server"
+require "wait_group"
 
 module ShovelSpecHelpers
   def self.setup_qs(ch, prefix = "") : {AMQP::Client::Exchange, AMQP::Client::Queue}
@@ -13,6 +14,147 @@ end
 
 describe LavinMQ::Shovel do
   describe "AMQP" do
+    describe "Source" do
+      it "will stop and raise on unexpected disconnect" do
+        with_amqp_server do |s|
+          source = LavinMQ::Shovel::AMQPSource.new(
+            "spec",
+            [URI.parse(s.amqp_url)],
+            "source",
+            direct_user: s.users.direct_user
+          )
+
+          source.start
+
+          s.vhosts["/"].queues["source"].publish(LavinMQ::Message.new("", "", ""))
+          expect_raises(AMQP::Client::Connection::ClosedException) do
+            source.each do
+              s.vhosts["/"].connections.each &.close("spec")
+            end
+          end
+          source.started?.should be_false
+        end
+      end
+
+      it "will start ack timeout loop if needed" do
+        with_amqp_server do |s|
+          source_name = Random::Secure.base64(32)
+          source = LavinMQ::Shovel::AMQPSource.new(
+            source_name,
+            [URI.parse(s.amqp_url)],
+            "source",
+            prefetch: 100,
+            direct_user: s.users.direct_user
+          )
+
+          source.start
+
+          s.vhosts["/"].queues["source"].publish(LavinMQ::Message.new("", "", ""))
+          wg = WaitGroup.new(1)
+          spawn { source.each { wg.done } }
+          wg.wait
+
+          fiber_found = false
+          Fiber.list do |f|
+            if (name = f.name) && name.includes?("ack timeout loop") && name.includes?(source_name)
+              fiber_found = true
+            end
+          end
+          source.stop
+
+          fiber_found.should be_true
+        end
+      end
+
+      it "wont start ack timeout loop when not needed" do
+        with_amqp_server do |s|
+          source_name = Random::Secure.base64(32)
+          source = LavinMQ::Shovel::AMQPSource.new(
+            source_name,
+            [URI.parse(s.amqp_url)],
+            "source",
+            prefetch: 1,
+            direct_user: s.users.direct_user
+          )
+
+          source.start
+
+          s.vhosts["/"].queues["source"].publish(LavinMQ::Message.new("", "", ""))
+          wg = WaitGroup.new(1)
+          spawn { source.each { wg.done } }
+          wg.wait
+
+          fiber_found = false
+          Fiber.list do |f|
+            if (name = f.name) && name.includes?("ack timeout loop") && name.includes?(source_name)
+              fiber_found = true
+            end
+          end
+          source.stop
+
+          fiber_found.should be_false
+        end
+      end
+
+      it "will ack after timeout" do
+        with_amqp_server do |s|
+          source_name = Random::Secure.base64(32)
+          source = LavinMQ::Shovel::AMQPSource.new(
+            source_name,
+            [URI.parse(s.amqp_url)],
+            "source",
+            prefetch: 10,
+            direct_user: s.users.direct_user,
+            batch_ack_timeout: 1.nanosecond
+          )
+
+          source.start
+
+          s.vhosts["/"].queues["source"].publish(LavinMQ::Message.new("", "", ""))
+          wg = WaitGroup.new(1)
+          spawn { source.each { |m| source.ack(m.delivery_tag) && wg.done } }
+          wg.wait
+          sleep 1.millisecond
+          s.vhosts["/"].queues["source"].unacked_count.should eq 0
+          source.stop
+        end
+      end
+    end
+
+    it "will wait to ack all msgs before deleting it self" do
+      with_amqp_server do |s|
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec",
+          [URI.parse(s.amqp_url)],
+          "d",
+          delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
+          direct_user: s.users.direct_user
+        )
+        dest = LavinMQ::Shovel::AMQPDestination.new(
+          "spec",
+          URI.parse(s.amqp_url),
+          "q",
+          direct_user: s.users.direct_user
+        )
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "ql_shovel", s.vhosts["/"])
+        with_channel(s) do |ch|
+          q = ch.queue("q", args: AMQ::Protocol::Table.new({"x-dead-letter-exchange": "amq.fanout"}))
+          d = ch.queue("d")
+          d.bind("amq.fanout", "")
+          done = WaitGroup.new
+          q.subscribe(no_ack: false) { |msg| msg.reject; done.done }
+          done.add
+          q.publish "foobar"
+          done.wait
+          done.add
+          shovel.run
+          done.wait
+          q.message_count.should eq 0
+          d.message_count.should eq 1
+        end
+      end
+    end
+
     it "should shovel and stop when queue length is met" do
       with_amqp_server do |s|
         vhost = s.vhosts.create("x")
@@ -27,7 +169,6 @@ describe LavinMQ::Shovel do
           "spec",
           URI.parse(s.amqp_url),
           "ql_q2",
-          delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
           direct_user: s.users.direct_user
         )
         shovel = LavinMQ::Shovel::Runner.new(source, dest, "ql_shovel", vhost)
@@ -117,7 +258,7 @@ describe LavinMQ::Shovel do
           x.publish_confirm "shovel me", "ap_q1"
           spawn shovel.run
           wait_for { shovel.running? }
-          sleep 0.1 # Give time for message to be shoveled
+          sleep 0.1.seconds # Give time for message to be shoveled
           s.vhosts["/"].queues["ap_q1"].message_count.should eq 0
           q2.get(no_ack: false).try(&.body_io.to_s).should eq "shovel me"
         end
@@ -169,17 +310,15 @@ describe LavinMQ::Shovel do
           "spec",
           URI.parse(s.amqp_url),
           "prefetch_q2",
-          delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
-          prefetch: 21_u16,
           direct_user: s.users.direct_user
         )
-        shovel = LavinMQ::Shovel::Runner.new(source, dest, "prefetch_shovel", vhost)
         with_channel(s) do |ch|
           x = ShovelSpecHelpers.setup_qs(ch, "prefetch_").first
           100.times do
             x.publish_confirm "shovel me", "prefetch_q1"
           end
           wait_for { s.vhosts["/"].queues["prefetch_q1"].message_count == 100 }
+          shovel = LavinMQ::Shovel::Runner.new(source, dest, "prefetch_shovel", vhost)
           shovel.run
           wait_for { shovel.terminated? }
           s.vhosts["/"].queues["prefetch_q1"].message_count.should eq 0
@@ -286,7 +425,8 @@ describe LavinMQ::Shovel do
     it "should ack all messages that has been moved" do
       with_amqp_server do |s|
         vhost = s.vhosts.create("x")
-        prefetch = 1_u16
+        # Use prefetch 5, then the batch ack will ack every third message
+        prefetch = 5_u16
         source = LavinMQ::Shovel::AMQPSource.new(
           "spec",
           [URI.parse(s.amqp_url)],
@@ -298,7 +438,6 @@ describe LavinMQ::Shovel do
           "spec",
           URI.parse(s.amqp_url),
           "prefetch2_q2",
-          prefetch: prefetch,
           direct_user: s.users.direct_user
         )
         shovel = LavinMQ::Shovel::Runner.new(source, dest, "prefetch2_shovel", vhost)
@@ -309,10 +448,13 @@ describe LavinMQ::Shovel do
           x.publish_confirm "shovel me 2", "prefetch2_q1"
           x.publish_confirm "shovel me 2", "prefetch2_q1"
           x.publish_confirm "shovel me 2", "prefetch2_q1"
+          # Wait until four messages has been published to destination...
           wait_for { s.vhosts["/"].queues["prefetch2_q2"].message_count == 4 }
-          wait_for { s.vhosts["/"].queues["prefetch2_q1"].message_count == 0 }
+          # ... but only three has been acked (because batching)
+          wait_for { s.vhosts["/"].queues["prefetch2_q1"].unacked_count == 1 }
+          # Now when we terminate the shovel it should ack the last message(s)
           shovel.terminate
-          wait_for { s.vhosts["/"].queues["prefetch2_q1"].message_count == 0 }
+          wait_for { s.vhosts["/"].queues["prefetch2_q1"].unacked_count == 0 }
           s.vhosts["/"].queues["prefetch2_q2"].message_count.should eq 4
           s.vhosts["/"].queues["prefetch2_q1"].message_count.should eq 0
         end
@@ -395,9 +537,7 @@ describe LavinMQ::Shovel do
           "spec",
           URI.parse(s.amqp_url),
           q2_name,
-          delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
           direct_user: s.users.direct_user,
-          consumer_args: consumer_args
         )
 
         shovel = LavinMQ::Shovel::Runner.new(source, dest, "ql_shovel", vhost)
@@ -446,7 +586,6 @@ describe LavinMQ::Shovel do
           "#{long_prefix}q2",
           URI.parse(s.amqp_url),
           "#{long_prefix}q2",
-          delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
           direct_user: s.users.direct_user
         )
         shovel = LavinMQ::Shovel::Runner.new(source, dest, "ql_shovel", vhost)
@@ -505,7 +644,7 @@ describe LavinMQ::Shovel do
           props = AMQP::Client::Properties.new("text/plain", nil, headers)
           x.publish_confirm "shovel me", "ql_q1", props: props
           shovel.run
-          sleep 0.01
+          sleep 10.milliseconds
 
           # Check that we have sent one message successfully
           path.should eq "/pp"

@@ -10,7 +10,7 @@ shards:
 
   amqp-client:
     git: https://github.com/cloudamqp/amqp-client.cr.git
-    version: 1.2.5
+    version: 1.2.8
 
   immix:
     git: https://github.com/ysbaddaden/gc.git
