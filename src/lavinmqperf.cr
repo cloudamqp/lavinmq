@@ -103,7 +103,7 @@ class Throughput < Perf
     @parser.on("-p", "--persistent", "Persistent messages (default false)") do
       @persistent = true
     end
-    @parser.on("-P", "--prefetch=number", "Number of messages to prefetch (default 0, unlimited)") do |v|
+    @parser.on("-P", "--prefetch=number", "Number of messages to prefetch (default @prefetch)") do |v|
       @prefetch = v.to_u16
     end
     @parser.on("-g", "--poll", "Poll with basic_get instead of consuming") do
