@@ -501,6 +501,10 @@ select.dropdown {
   }
 }
 
+.btn-green a {
+  color: #141414;
+}
+
 ::-webkit-file-upload-button {
   -webkit-appearance: button; /* 1 */
   font: inherit; /* 2 */
@@ -1222,17 +1226,19 @@ footer .logo {
 }
 
 .details-table {
-  margin-left: -1.5rem;
+  /*margin-left: -1.5rem;
   margin-right: -1.5rem;
   margin-bottom: -1.5rem;
-  width: calc(100% + 3rem);
+  width: calc(100% + 3rem);*/
+  width: 100%;
   border-collapse: collapse;
   table-layout: fixed;
+  font-size: 0.875rem;
 }
 
 .details-table th {
   text-align: left;
-  border-top: 1px solid #e0e1e2;
+  border-top: 1px solid #404040;
   vertical-align: middle;
   padding: 0.75rem;
   padding-left: 1rem;
@@ -1240,14 +1246,14 @@ footer .logo {
 }
 
 .details-table td {
-  border-top: 1px solid #e0e1e2;
+  border-top: 1px solid #404040;
   vertical-align: middle;
   padding: 0.75rem;
 }
 
 .details-table td,
 .details-table th {
-  border-right: 1px dashed #e0e1e2;
+  border-right: 1px dashed #404040;
 }
 
 .details-table tr:first-child > * {
@@ -1261,6 +1267,7 @@ footer .logo {
 
 .details-table td {
   overflow-wrap: break-word;
+  color: #CDCBC9;
 }
 
 .small-table {
@@ -1357,6 +1364,8 @@ a[data-tag] {
 
 .form legend {
   margin-bottom: 20px;
+  padding: 0 0.25rem;
+  font-weight: 600;
 }
 
 .form button[type="submit"]:not(.btn-inline),
@@ -1428,7 +1437,7 @@ fieldset {
   border-width: 1px;
   border-radius: 3px;
   border-style: solid;
-  border-color: var(--separator-color);
+  border-color: #2D2C2C;
   color: var(--font-color-dark);
   margin-bottom: 15px;
 }
@@ -1525,6 +1534,7 @@ fieldset.inline {
   color: #fff;
   animation: fadeIn 0.5s, fadeOut 0.5s ease-in 5s forwards;
   opacity: 0.9;
+  z-index: 10000;
 }
 .success {
   background-color: #2a9463;
@@ -1743,7 +1753,7 @@ pre.arguments > div {
 }
 
 #download-logs {
-  margin: 5px 0 5px 0;
+  margin: 5px 0 16px 0;
 }
 
 #download-logs a {

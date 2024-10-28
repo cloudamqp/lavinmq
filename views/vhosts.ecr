@@ -29,13 +29,15 @@
             </table>
           </div>
         </section>
-        <form method="put" id="createVhost" class="form card">
-          <h3>Add virtual host</h3>
-          <label>
-            <span>Name</span>
-            <input type="text" name="name" required>
-          </label>
-          <button type="submit" class="btn-primary">Add virtual host</button>
+        <form method="put" id="createVhost" class="form card rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
+          <h3 class="text-lg font-semibold text-light-400">Add virtual host</h3>
+          <div class="py-4">
+            <label class="mt-0 mb-4">
+              <span class="text-light-400">Name</span>
+              <input class="regular-text" type="text" name="name" required>
+            </label>
+            <button type="submit" class="btn-green">Add virtual host</button>
+          </div>
         </form>
       </main>
       <% render "partials/footer" %>
