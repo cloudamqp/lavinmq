@@ -86,7 +86,7 @@ describe LavinMQ::Clustering::Client do
     wait_for { replicator.followers.size == 1 }
     with_amqp_server(replicator: replicator) do |s|
       s.users.create("u1", "p1")
-      wait_for { replicator.followers.first?.try &.lag == 0 }
+      wait_for { replicator.followers.first?.try &.lag_in_bytes == 0 }
       repli.close
       done.receive
     end
