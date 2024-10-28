@@ -47,4 +47,11 @@ class Channel(T)
   ensure
     @lock.unlock
   end
+
+  def size : Int32
+    if queue = @queue
+      return queue.size
+    end
+    0i32
+  end
 end
