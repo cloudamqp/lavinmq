@@ -61,80 +61,81 @@
             </table>
           </div>
         </section>
-        <form method="put" id="createUpstream" class="form card">
-          <h3>
+        <form method="put" id="createUpstream" class="form card rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
+          <h3 class="text-lg font-semibold text-light-400">
             <span class="when-create">Add a new upstream</span>
             <span class="when-edit">Edit upstream</span>
           </h3>
-          <fieldset>
-            <legend>General paramenters</legend>
-            <label class="when-create">
-              <span>Virtual host</span>
-              <select name="vhost" required></select>
-            </label>
-            <label>
-              <span>Name</span>
-              <input type="text" name="name" required data-primary-key="">
-            </label>
-            <label>
-              <span>URI</span>
-              <input type="text" name="uri" required value="amqp://">
-            </label>
-            <label>
-              <span>Prefetch</span>
-              <input type="number" name="prefetch-count" value="1000">
-            </label>
-            <label>
-              <span>Reconnect delay</span>
-              <input type="number" name="reconnect-delay" value="5">
-            </label>
-            <label>
-              <span>Ack mode</span>
-              <select name="ack-mode" required>
-                <option value="on-confirm" selected>On confirm</option>
-                <option value="on-publish">On publish</option>
-                <option value="no-ack">No ack</option>
-              </select>
-            </label>
-          </fieldset>
-          <fieldset>
-            <legend>Federated exchange parameters</legend>
-            <label>
-              <span>Exchange</span>
-              <input type="text" name="exchange" list="exchange-datalist">
-              <datalist id="exchange-datalist"></datalist>
-            </label>
-            <!-- <label>
-              <span>Max hops</span>
-              <input type="number" name="max-hops">
-            </label> -->
-            <label>
-              <span>Expires</span>
-              <input type="number" name="expires">
-            </label>
-            <label>
-              <span>Message TTL</span>
-              <input type="number" name="message-ttl">
-            </label>
-          </fieldset>
-          <fieldset>
-            <legend>Federated queue parameters</legend>
-            <label>
-              <span>Queue</span>
-              <input type="text" name="queue" list="queue-datalist">
-              <datalist id="queue-datalist"></datalist>
-            </label>
-            <label>
-              <span>Consumer tag</span>
-              <input type="text" name="consumer-tag">
-            </label>
-          </fieldset>
-          <button type="submit" class="btn-primary when-create">Add upstream</button>
-          <div class="when-edit">
-            <button type="submit" class="btn-primary">Update</button>
-            <button type="reset" class="btn-danger cancel">Cancel</button>
+          <div class="py-4">
+            <fieldset>
+              <legend class="text-light-400">General paramenters</legend>
+              <label class="when-create mt-0 mb-4">
+                <span class="text-light-400">Virtual host</span>
+                <select class="dropdown bg-dark-600 text-light-400" name="vhost" required></select>
+              </label>
+              <label class="mt-0 mb-4">
+                <span class="text-light-400">Name</span>
+                <input class="regular-text" type="text" name="name" required data-primary-key="">
+              </label>
+              <label class="mt-0 mb-4">
+                <span class="text-light-400">URI</span>
+                <input class="regular-text" type="text" name="uri" required value="amqp://">
+              </label>
+              <label class="mt-0 mb-4">
+                <span class="text-light-400">Prefetch</span>
+                <input class="regular-text" type="number" name="prefetch-count" value="1000">
+              </label>
+              <label class="mt-0 mb-4">
+                <span class="text-light-400">Reconnect delay</span>
+                <input class="regular-text" type="number" name="reconnect-delay" value="5">
+              </label>
+              <label class="mt-0 mb-4">
+                <span class="text-light-400">Ack mode</span>
+                <select class="dropdown bg-dark-600 text-light-400" name="ack-mode" required>
+                  <option value="on-confirm" selected>On confirm</option>
+                  <option value="on-publish">On publish</option>
+                  <option value="no-ack">No ack</option>
+                </select>
+              </label>
+            </fieldset>
+            <fieldset>
+              <legend class="text-light-400">Federated exchange parameters</legend>
+              <label class="mt-0 mb-4">
+                <span class="text-light-400">Exchange</span>
+                <input class="regular-text" type="text" name="exchange" list="exchange-datalist">
+                <datalist id="exchange-datalist"></datalist>
+              </label>
+              <!-- <label>
+                <span>Max hops</span>
+                <input type="number" name="max-hops">
+              </label> -->
+              <label class="mt-0 mb-4">
+                <span class="text-light-400">Expires</span>
+                <input class="regular-text" type="number" name="expires">
+              </label>
+              <label class="mt-0 mb-4">
+                <span class="text-light-400">Message TTL</span>
+                <input class="regular-text" type="number" name="message-ttl">
+              </label>
+            </fieldset>
+            <fieldset>
+              <legend class="text-light-400">Federated queue parameters</legend>
+              <label class="mt-0 mb-4">
+                <span class="text-light-400">Queue</span>
+                <input class="regular-text" type="text" name="queue" list="queue-datalist">
+                <datalist id="queue-datalist"></datalist>
+              </label>
+              <label class="mt-0 mb-4">
+                <span class="text-light-400">Consumer tag</span>
+                <input class="regular-text" type="text" name="consumer-tag">
+              </label>
+            </fieldset>
+            <button type="submit" class="btn-green when-create">Add upstream</button>
+            <div class="when-edit flex gap-2">
+              <button type="submit" class="btn-green">Update</button>
+              <button type="reset" class="btn-outlined cancel">Cancel</button>
+            </div>
           </div>
-
         </form>
       </main>
       <% render "partials/footer" %>

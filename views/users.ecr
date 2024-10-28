@@ -26,29 +26,31 @@
             <tbody></tbody>
           </table>
         </section>
-        <form method="put" id="createUser" class="form card">
-          <h3>Add user</h3>
-          <label>
-            <span>Username</span>
-            <input type="text" name="username" required>
-          </label>
-          <label>
-            <span>Password</span>
-            <input type="password" name="password">
-          </label>
-          <label>
-            <span>Tags</span>
-            <input type="text" name="tags">
-          </label>
-          <div id="dataTags" class="label">
-            <a data-tag="administrator">Administrator</a> |
-            <a data-tag="policymaker">Policymaker</a> |
-            <a data-tag="monitoring">Monitoring</a> |
-            <a data-tag="management">Management</a> |
-            <a data-tag="impersonator">Impersonator</a> |
-            <a data-tag="">None</a>
+        <form method="put" id="createUser" class="form card rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
+          <h3 class="text-lg font-semibold text-light-400">Add user</h3>
+          <div class="py-4">
+            <label class="mt-0 mb-4">
+              <span class="text-light-400">Username</span>
+              <input class="regular-text" type="text" name="username" required>
+            </label>
+            <label class="mt-0 mb-4">
+              <span class="text-light-400">Password</span>
+              <input class="regular-text" type="password" name="password">
+            </label>
+            <label class="mt-0 mb-0">
+              <span class="text-light-400">Tags</span>
+              <input class="regular-text" type="text" name="tags">
+            </label>
+            <div id="dataTags" class="label">
+              <a data-tag="administrator">Administrator</a> |
+              <a data-tag="policymaker">Policymaker</a> |
+              <a data-tag="monitoring">Monitoring</a> |
+              <a data-tag="management">Management</a> |
+              <a data-tag="impersonator">Impersonator</a> |
+              <a data-tag="">None</a>
+            </div>
+            <button type="submit" class="btn-green">Add user</button>
           </div>
-          <button type="submit" class="btn-primary">Add user</button>
         </form>
       </main>
       <% render "partials/footer" %>
