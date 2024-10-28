@@ -19,7 +19,7 @@ module LavinMQ
       property? running = true
       getter? flow = true
       getter consumers = Array(Consumer).new
-      getter prefetch_count = 0_u16
+      getter prefetch_count : UInt16 = Config.instance.default_consumer_prefetch
       getter global_prefetch_count = 0_u16
       getter has_capacity = ::Channel(Nil).new
       getter unacked = Deque(Unack).new

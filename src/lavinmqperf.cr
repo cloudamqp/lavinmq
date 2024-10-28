@@ -44,7 +44,7 @@ class Throughput < Perf
   @consume_rate = 0
   @max_unconfirm = 0
   @persistent = false
-  @prefetch = 0_u32
+  @prefetch : UInt16? = nil
   @quiet = false
   @poll = false
   @json_output = false
@@ -103,8 +103,8 @@ class Throughput < Perf
     @parser.on("-p", "--persistent", "Persistent messages (default false)") do
       @persistent = true
     end
-    @parser.on("-P", "--prefetch=number", "Number of messages to prefetch (default 0, unlimited)") do |v|
-      @prefetch = v.to_u32
+    @parser.on("-P", "--prefetch=number", "Number of messages to prefetch)") do |v|
+      @prefetch = v.to_u16
     end
     @parser.on("-g", "--poll", "Poll with basic_get instead of consuming") do
       @poll = true
@@ -264,7 +264,9 @@ class Throughput < Perf
         ch.queue(@queue, passive: true)
       end
       ch.tx_select if @ack_in_transaction > 0
-      ch.prefetch @prefetch unless @prefetch.zero?
+      if prefetch = @prefetch
+        ch.prefetch prefetch
+      end
       q.bind(@exchange, @routing_key) unless @exchange.empty?
       Fiber.yield
       consumes_this_second = 0
@@ -303,7 +305,9 @@ class Throughput < Perf
         ch = a.channel
         ch.queue(@queue, passive: true)
       end
-      ch.prefetch @prefetch unless @prefetch.zero?
+      if prefetch = @prefetch
+        ch.prefetch prefetch
+      end
       q.bind(@exchange, @routing_key) unless @exchange.empty?
       Fiber.yield
       consumes_this_second = 0
