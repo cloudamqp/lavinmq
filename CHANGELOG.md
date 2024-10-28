@@ -16,10 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Running lavinmqctl commands on a follower node now displays an error and exits with code 2 [#785](https://github.com/cloudamqp/lavinmq/pull/785)
 - Federation queue links now reconnects if the upstream disconnects [#788](https://github.com/cloudamqp/lavinmq/pull/788)
 - Proxying from followers is now more resilient [#812](https://github.com/cloudamqp/lavinmq/pull/812)
-- Unsupported queue types will now log a warning [#792](https://github.com/cloudamqp/lavinmq/pull/792)
 - Sorting on consumer count at channels page
 - Log if user tries to declare a queue with an unknown queue type [#792](https://github.com/cloudamqp/lavinmq/pull/792)
-- Force close AMQP connections if an protocol error occurs
+- Force close AMQP connections if a protocol error occurs
 - Remove min_isr setting [#789](https://github.com/cloudamqp/lavinmq/pull/789)
 
 ### Changed
