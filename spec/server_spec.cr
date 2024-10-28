@@ -1288,4 +1288,15 @@ describe LavinMQ::Server do
       end
     end
   end
+
+  it "can handle non valid protocol starts" do
+    LavinMQ::Config.instance.clustering = true
+    with_amqp_server do |s|
+      t = TCPSocket.new("localhost", amqp_port(s))
+      t.print "HTTP"
+      buf = Bytes.new 8
+      t.read(buf)
+      buf.should eq Bytes['A'.ord, 'M'.ord, 'Q'.ord, 'P'.ord, 0, 0, 9, 1]
+    end
+  end
 end

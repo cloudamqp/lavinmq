@@ -103,11 +103,14 @@ module LavinMQ
       when 1 then ProxyProtocol::V1.parse(client)
       when 2 then ProxyProtocol::V2.parse(client)
       else
-        if client.peek[0, 5] == "PROXY".to_slice &&
+        # Allow proxy connection from followers
+        if Config.instance.clustering? &&
+           client.peek[0, 5]? == "PROXY".to_slice &&
            followers.any? { |f| f.remote_address.address == remote_address.address }
           # Expect PROXY protocol header if remote address is a follower
           ProxyProtocol::V1.parse(client)
-        elsif client.peek[0, 8] == ProxyProtocol::V2::Signature.to_slice[0, 8] &&
+        elsif Config.instance.clustering? &&
+              client.peek[0, 8]? == ProxyProtocol::V2::Signature.to_slice[0, 8] &&
               followers.any? { |f| f.remote_address.address == remote_address.address }
           # Expect PROXY protocol header if remote address is a follower
           ProxyProtocol::V2.parse(client)

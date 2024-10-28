@@ -29,13 +29,16 @@ end
 
 def with_channel(s : LavinMQ::Server, file = __FILE__, line = __LINE__, **args, &)
   name = "lavinmq-spec-#{file}:#{line}"
-  port = s.@listeners.keys.select(TCPServer).first.local_address.port
-  args = {port: port, name: name}.merge(args)
+  args = {port: amqp_port(s), name: name}.merge(args)
   conn = AMQP::Client.new(**args).connect
   ch = conn.channel
   yield ch
 ensure
   conn.try &.close(no_wait: false)
+end
+
+def amqp_port(s)
+  s.@listeners.keys.select(TCPServer).first.local_address.port
 end
 
 def should_eventually(expectation, timeout = 5.seconds, file = __FILE__, line = __LINE__, &)
