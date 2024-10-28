@@ -72,6 +72,33 @@ describe LavinMQ::Clustering::Client do
     end
   end
 
+  it "can stream full file" do
+    replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Etcd.new, 0)
+    tcp_server = TCPServer.new("localhost", 0)
+    spawn(replicator.listen(tcp_server), name: "repli server spec")
+    config = LavinMQ::Config.new.tap &.data_dir = follower_data_dir
+    repli = LavinMQ::Clustering::Client.new(config, 1, replicator.password, proxy: false)
+    done = Channel(Nil).new
+    spawn(name: "follow spec") do
+      repli.follow("localhost", tcp_server.local_address.port)
+      done.send nil
+    end
+    wait_for { replicator.followers.size == 1 }
+    with_amqp_server(replicator: replicator) do |s|
+      s.users.create("u1", "p1")
+      wait_for { replicator.followers.first?.try &.lag_in_bytes == 0 }
+      repli.close
+      done.receive
+    end
+
+    server = LavinMQ::Server.new(follower_data_dir)
+    begin
+      server.users["u1"].should_not be_nil
+    ensure
+      server.close
+    end
+  end
+
   it "will failover" do
     config1 = LavinMQ::Config.new
     config1.data_dir = "/tmp/failover1"
