@@ -301,6 +301,10 @@ main {
   margin-top: 0;
 }
 
+.mt-4 {
+  margin-top: 1rem;
+}
+
 .ml-2 {
   margin-left: 0.5rem;
 }
@@ -368,6 +372,14 @@ main {
 .items-center {
   align-items: center;
 }
+
+.gap-1	{
+  gap: 0.25rem;
+}
+
+.gap-2 {
+  gap: 0.5rem;
+}
 /* Utility classes end */
 
 /* Components */
@@ -387,6 +399,66 @@ select.dropdown {
   border-radius: 0.375rem;
   border: 1px solid rgb(247 245 242 / 0.1);
   box-shadow: none;
+}
+
+.btn-small {
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 600;
+  border-radius: 0.5rem;
+  padding: 0.375rem 1rem;
+  border: 1px solid #F7F5F2;
+  background: #F7F5F2;
+  color: #141414;
+  box-shadow: none;
+  display: inline-flex !important;
+  flex-direction: row;
+  align-items: center;
+  gap: .5rem;
+  margin-right: 0.5rem;
+
+  &.bg-light-400 {
+    background: #F7F5F2;
+    color: #141414;
+  }
+}
+
+.btn-small-outlined {
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 600;
+  border-radius: 0.5rem;
+  padding: 0.375rem 1rem;
+  border: 1px solid #2D2C2C;
+  color: #F7F5F2;
+  background: transparent;
+  box-shadow: none;
+  display: inline-flex !important;
+  flex-direction: row;
+  align-items: center;
+  gap: .5rem;
+}
+
+.btn-small-outlined-danger {
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 600;
+  border-radius: 0.5rem;
+  padding: 0.375rem 0.5rem;
+  border: 1px solid #2D2C2C;
+  color: #F7F5F2;
+  background: transparent;
+  box-shadow: none;
+  display: inline-flex !important;
+  flex-direction: row;
+  align-items: center;
+  gap: .5rem;
+
+  &:after {
+    content: url(img/icon-cross.svg);
+    position: relative;
+    top: 1px;
+  }
 }
 
 .btn-outlined {
@@ -425,7 +497,7 @@ select.dropdown {
   gap: .5rem;
 
   &:hover {
-    background: #6BD097;
+    background: #44FC70;
   }
 }
 
