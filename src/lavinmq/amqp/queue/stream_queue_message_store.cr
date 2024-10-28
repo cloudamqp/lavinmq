@@ -10,11 +10,13 @@ module LavinMQ::AMQP
       getter last_offset : Int64
       @segment_last_ts = Hash(UInt32, Int64).new(0i64) # used for max-age
       @offset_index : Hash(UInt32, Int64) # segment_id => offset of first msg
+      @offset_index_ts : Hash(UInt32, Int64) # segment_id => ts of first msg
 
       def initialize(*args, **kwargs)
         super
         @last_offset = get_last_offset
         @offset_index = build_segment_offset_index
+        @offset_index_ts = build_segment_offset_index_ts
         drop_overflow
       end
 
@@ -92,10 +94,17 @@ module LavinMQ::AMQP
 
       private def offset_index_lookup(offset) : UInt32
         seg = @segments.first_key
-        return seg unless offset.is_a?(Int)
-        @offset_index.each do |seg_id, first_seg_offset|
-          break if first_seg_offset >= offset
-          seg = seg_id
+        case offset
+        when Int
+          @offset_index.each do |seg_id, first_seg_offset|
+            break if first_seg_offset >= offset
+            seg = seg_id
+          end
+        when Time
+          @offset_index_ts.each do |seg_id, first_seg_ts|
+            break if Time.unix_ms(first_seg_ts) >= offset
+            seg = seg_id
+          end
         end
         seg
       end
@@ -232,6 +241,15 @@ module LavinMQ::AMQP
           offset_from_headers(msg.properties.headers)
         rescue IndexError
           @last_offset
+        end
+      end
+
+      private def build_segment_offset_index_ts : Hash(UInt32, Int64)
+        @segments.transform_values do |mfile|
+          msg = BytesMessage.from_bytes(mfile.to_slice + 4u32)
+          msg.timestamp
+        rescue IndexError
+          RoughTime.unix_ms
         end
       end
     end
