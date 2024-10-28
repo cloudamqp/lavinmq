@@ -13,6 +13,7 @@ require "./amqp/queue"
 require "./schema"
 require "./event_type"
 require "./stats"
+require "./queue_factory"
 
 module LavinMQ
   class VHost

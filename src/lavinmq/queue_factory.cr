@@ -1,7 +1,7 @@
-require "./queue"
-require "./priority_queue"
-require "./durable_queue"
-require "./stream_queue"
+require "./amqp/queue"
+require "./amqp/queue/priority_queue"
+require "./amqp/queue/durable_queue"
+require "./amqp/queue/stream_queue"
 
 module LavinMQ
   class QueueFactory
