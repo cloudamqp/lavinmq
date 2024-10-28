@@ -7,12 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-rc.5] - 2024-10-28
+
 ### Fixed
 
 - Shovels' batching of acks caused a lot of unacked messages in source broker [#777](https://github.com/cloudamqp/lavinmq/pull/777)
 - Shovel AMQP source didn't reconnect on network failures (partially fixed in prev release) [#758](https://github.com/cloudamqp/lavinmq/pull/758)
 - Running lavinmqctl commands on a follower node now displays an error and exits with code 2 [#785](https://github.com/cloudamqp/lavinmq/pull/785)
 - Federation queue links now reconnects if the upstream disconnects [#788](https://github.com/cloudamqp/lavinmq/pull/788)
+- Proxying from followers is now more resilient [#812](https://github.com/cloudamqp/lavinmq/pull/812)
+- Unsupported queue types will now log a warning [#792](https://github.com/cloudamqp/lavinmq/pull/792)
 
 ### Changed
 
@@ -20,11 +24,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Renames clustering_max_lag -> clustering_max_unsynced_actions to clarify that it is measured in number of actions [#810](https://github.com/cloudamqp/lavinmq/pull/810)
 - Renames lag -> lag_in_bytes to clarify that lag is measured in bytes [#810](https://github.com/cloudamqp/lavinmq/pull/810)
 - Suggests etcd 3.4.0 as min version [#815](https://github.com/cloudamqp/lavinmq/pull/815)
+- Changed logging to provide more information about which queue is being handled [#809](https://github.com/cloudamqp/lavinmq/pull/809)
+- Publishing messages are now handled fully by exchanges [#786](https://github.com/cloudamqp/lavinmq/pull/786)
+- Logging is now handled more uniformly throghout LavinMQ [#800](https://github.com/cloudamqp/lavinmq/pull/800)
 
 ### Added
 
 - Added cluster_status to lavinmqctl [#787](https://github.com/cloudamqp/lavinmq/pull/787)
 - Added deliver_get to message_stats [#793](https://github.com/cloudamqp/lavinmq/pull/793)
+- Added a configurable default consumer prefetch value for all consumers. Defaults to 65535. [#813](https://github.com/cloudamqp/lavinmq/pull/813)
+- Output format (text/json) can now be selected when running lavinmqctl cmds [#790](https://github.com/cloudamqp/lavinmq/pull/790)
 
 ## [2.0.0-rc.4] - 2024-08-21
 
