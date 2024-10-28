@@ -412,16 +412,16 @@ module LavinMQ
 
       private def close_socket(force : Bool = false)
         @running = false
-        if force && (socket = @socket.as?(Socket))
-          # Socket#close_write will close on "kernel level" which will ensure
-          # we abort any blocking writes. Socket#close tries to flush the socket
-          # etc, meaning that we may block for a long time (or forever for broken
-          # clients)
-          socket.close_write
-          socket.close
-        else
-          @socket.close
+        return @socket.close unless force
+
+        case @socket
+        when Socket
+          @socket.close_write
+        when OpenSSL::Socket
+          @socket.@bio.io.close_write
         end
+
+        @socket.close
       rescue ex
         @log.debug { "#{ex.inspect} when closing socket" }
       end
