@@ -58,7 +58,7 @@
             </label>
             <label>
               <span>
-              <a class="prop-tooltip" data-tag="alternate-exchange">Durable
+              <a class="prop-tooltip text-light-400" data-tag="alternate-exchange">Durable<span class="tooltip-icon">?</span>
               <span class="prop-tooltiptext">"Durable" queues persist even when the server restarts,
               ensuring their availability and preventing data loss.</span>
               </a>
@@ -67,16 +67,16 @@
             </label>
             <label>
               <span>
-              <a class="prop-tooltip" data-tag="alternate-exchange">Auto-delete
+              <a class="prop-tooltip text-light-400" data-tag="alternate-exchange">Auto-delete<span class="tooltip-icon">?</span>
               <span class="prop-tooltiptext">"Auto-delete" queues are automatically removed when the
               last consumer disconnects, freeing up system resources.</span>
               </a>
               </span>
               <input type="checkbox" name="auto_delete" value="1">
             </label>
-            <label>
-              <span>Arguments</span>
-              <textarea name="arguments" placeholder='{ "key": value }'></textarea>
+            <label class="mt-4 mb-4">
+              <span class="text-light-400">Arguments</span>
+              <textarea class="regular-textarea" name="arguments" placeholder='{ "key": value }'></textarea>
               <div id="dataTags" class="label">
                 <a class="arg-tooltip" data-tag="x-expires" data-value="0">Auto Expire
                   <span class="tooltiptext">How long a queue can be unused for before it is automatically deleted
@@ -119,7 +119,7 @@
                 </a>
               </div>
             </label>
-            <button type="submit" class="btn-primary">Add queue</button>
+            <button type="submit" class="btn-green">Add queue</button>
           </div>
         </form>
       </main>
