@@ -1,6 +1,6 @@
 require "./queue"
 
-module LavinMQ
+module LavinMQ::AMQP
   class DurableQueue < Queue
     def durable?
       true

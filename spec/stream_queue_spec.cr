@@ -1,7 +1,7 @@
 require "./spec_helper"
 require "./../src/lavinmq/amqp/queue"
 
-describe LavinMQ::StreamQueue do
+describe LavinMQ::AMQP::StreamQueue do
   stream_queue_args = LavinMQ::AMQP::Table.new({"x-queue-type": "stream"})
 
   describe "Consume" do

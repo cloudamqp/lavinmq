@@ -1,9 +1,9 @@
 require "./stream_queue"
 
-module LavinMQ
+module LavinMQ::AMQP
   class StreamQueue < DurableQueue
     class StreamQueueMessageStore < MessageStore
-      getter new_messages = Channel(Bool).new
+      getter new_messages = ::Channel(Bool).new
       property max_length : Int64?
       property max_length_bytes : Int64?
       property max_age : Time::Span | Time::MonthSpan | Nil

@@ -62,7 +62,7 @@ describe LavinMQ::Clustering::Client do
 
     server = LavinMQ::Server.new(follower_data_dir)
     begin
-      q = server.vhosts["/"].queues["repli"].as(LavinMQ::DurableQueue)
+      q = server.vhosts["/"].queues["repli"].as(LavinMQ::AMQP::DurableQueue)
       q.message_count.should eq 1
       q.basic_get(true) do |env|
         String.new(env.message.body).to_s.should eq "hello world"

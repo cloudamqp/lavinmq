@@ -8,13 +8,14 @@ require "../../sortable_json"
 require "../../client/channel/consumer"
 require "../../message"
 require "../../error"
+require "../../queue"
 require "./state"
 require "./event"
 require "./message_store"
 require "../../unacked_message"
 
-module LavinMQ
-  class Queue
+module LavinMQ::AMQP
+  class Queue < LavinMQ::Queue
     include PolicyTarget
     include Observable(QueueEvent)
     include Stats
@@ -32,7 +33,7 @@ module LavinMQ
     @deliveries = Hash(SegmentPosition, Int32).new
     @consumers = Array(Client::Channel::Consumer).new
     @consumers_lock = Mutex.new
-    @message_ttl_change = Channel(Nil).new
+    @message_ttl_change = ::Channel(Nil).new
 
     getter basic_get_unacked = Deque(UnackedMessage).new
     getter unacked_count = 0u32
@@ -43,11 +44,11 @@ module LavinMQ
     @msg_store : MessageStore
 
     getter? paused = false
-    getter paused_change = Channel(Bool).new
+    getter paused_change = ::Channel(Bool).new
 
     getter consumer_timeout : UInt64? = Config.instance.consumer_timeout
 
-    @consumers_empty_change = Channel(Bool).new
+    @consumers_empty_change = ::Channel(Bool).new
 
     private def queue_expire_loop
       loop do
@@ -119,9 +120,9 @@ module LavinMQ
     getter operator_policy : OperatorPolicy?
     getter? closed = false
     getter state = QueueState::Running
-    getter empty_change : Channel(Bool)
+    getter empty_change : ::Channel(Bool)
     getter single_active_consumer : Client::Channel::Consumer? = nil
-    getter single_active_consumer_change = Channel(Client::Channel::Consumer).new
+    getter single_active_consumer_change = ::Channel(Client::Channel::Consumer).new
     @single_active_consumer_queue = false
     @data_dir : String
     Log = LavinMQ::Log.for "queue"
@@ -321,7 +322,7 @@ module LavinMQ
       File.delete(File.join(@data_dir, ".paused"))
     end
 
-    @queue_expiration_ttl_change = Channel(Nil).new
+    @queue_expiration_ttl_change = ::Channel(Nil).new
 
     private def queue_expiration_ttl : Time::Span?
       if e = @expires

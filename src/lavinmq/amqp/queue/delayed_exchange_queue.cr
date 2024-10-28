@@ -1,7 +1,7 @@
 "./queue"
 require "./durable_queue"
 
-module LavinMQ
+module LavinMQ::AMQP
   class DelayedExchangeQueue < Queue
     @internal = true
 

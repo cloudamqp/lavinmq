@@ -1,6 +1,6 @@
 require "./durable_queue"
 
-module LavinMQ
+module LavinMQ::AMQP
   class PriorityQueue < Queue
     private def init_msg_store(data_dir)
       replicator = durable? ? @vhost.@replicator : nil

@@ -126,9 +126,9 @@ module LavinMQ
         "auto-delete"            => @auto_delete,
       })
       @delayed_queue = if durable?
-                         DurableDelayedExchangeQueue.new(@vhost, q_name, false, false, arguments)
+                         AMQP::DurableDelayedExchangeQueue.new(@vhost, q_name, false, false, arguments)
                        else
-                         DelayedExchangeQueue.new(@vhost, q_name, false, false, arguments)
+                         AMQP::DelayedExchangeQueue.new(@vhost, q_name, false, false, arguments)
                        end
       @vhost.queues[q_name] = @delayed_queue.as(Queue)
     end

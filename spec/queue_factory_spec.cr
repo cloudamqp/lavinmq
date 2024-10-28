@@ -20,7 +20,7 @@ describe LavinMQ::QueueFactory do
       frame = AMQ::Protocol::Frame::Method::Queue::Declare.new(0, 0, "test", false, durable, false,
         false, false, queue_args)
       q = LavinMQ::QueueFactory.make(s.vhosts["/"], frame)
-      q.is_a?(LavinMQ::DurableQueue).should be_true
+      q.is_a?(LavinMQ::AMQP::DurableQueue).should be_true
     end
   end
 
@@ -32,7 +32,7 @@ describe LavinMQ::QueueFactory do
         frame = AMQ::Protocol::Frame::Method::Queue::Declare.new(0, 0, "test", false, durable, false,
           false, false, queue_args)
         q = LavinMQ::QueueFactory.make(s.vhosts["/"], frame)
-        q.is_a?(LavinMQ::PriorityQueue).should be_true
+        q.is_a?(LavinMQ::AMQP::PriorityQueue).should be_true
       end
     end
 
@@ -43,7 +43,7 @@ describe LavinMQ::QueueFactory do
         frame = AMQ::Protocol::Frame::Method::Queue::Declare.new(0, 0, "test", false, durable, false,
           false, false, queue_args)
         q = LavinMQ::QueueFactory.make(s.vhosts["/"], frame)
-        q.is_a?(LavinMQ::DurablePriorityQueue).should be_true
+        q.is_a?(LavinMQ::AMQP::DurablePriorityQueue).should be_true
       end
     end
 
@@ -53,7 +53,7 @@ describe LavinMQ::QueueFactory do
         frame = AMQ::Protocol::Frame::Method::Queue::Declare.new(0, 0, "test", false, true, false,
           false, false, queue_args)
         q = LavinMQ::QueueFactory.make(s.vhosts["/"], frame)
-        q.should be_a LavinMQ::StreamQueue
+        q.should be_a LavinMQ::AMQP::StreamQueue
       end
     end
   end

@@ -37,7 +37,7 @@ describe LavinMQ::SchemaVersion do
       with_amqp_server do |s|
         v = s.vhosts["/"]
         v.declare_queue("q", true, false)
-        data_dir = s.vhosts["/"].queues["q"].@msg_store.@queue_data_dir
+        data_dir = s.vhosts["/"].queues["q"].as(LavinMQ::AMQP::Queue).@msg_store.@queue_data_dir
         path = File.join(data_dir, "msgs.0000000002")
         file = MFile.new(path, LavinMQ::Config.instance.segment_size)
         file.resize(LavinMQ::Config.instance.segment_size)

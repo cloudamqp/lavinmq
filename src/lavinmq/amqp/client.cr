@@ -650,7 +650,7 @@ module LavinMQ
           send_precondition_failed(frame, "Server low on disk space, can not create queue")
         end
         if frame.queue_name.empty?
-          frame.queue_name = Queue.generate_name
+          frame.queue_name = AMQP::Queue.generate_name
         end
         dlx = frame.arguments["x-dead-letter-exchange"]?.try &.as?(String)
         dlx_ok = dlx.nil? || (@user.can_write?(@vhost.name, dlx) && @user.can_read?(@vhost.name, name))

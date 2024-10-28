@@ -64,7 +64,7 @@ module LavinMQ
             refuse_unless_management(context, user(context), vhost)
             user = user(context)
             name = URI.decode_www_form(params["name"])
-            name = Queue.generate_name if name.empty?
+            name = AMQP::Queue.generate_name if name.empty?
             body = parse_body(context)
             durable = body["durable"]?.try(&.as_bool?) || false
             auto_delete = body["auto_delete"]?.try(&.as_bool?) || false
