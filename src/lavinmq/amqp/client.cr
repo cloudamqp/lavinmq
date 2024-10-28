@@ -423,7 +423,7 @@ module LavinMQ
 
         socket = @socket
         if socket.responds_to?(:"write_timeout=")
-          socket.write_timeout = force_close_timeout
+          socket.write_timeout = timeout
         end
 
         socket.close
