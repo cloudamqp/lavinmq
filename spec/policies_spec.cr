@@ -26,7 +26,7 @@ describe LavinMQ::VHost do
 
   it "should remove policy from resource when deleted" do
     PoliciesSpec.with_vhost do |vhost|
-      vhost.queues["test1"] = LavinMQ::Queue.new(vhost, "test")
+      vhost.queues["test1"] = LavinMQ::AMQP::Queue.new(vhost, "test")
       vhost.add_policy("test", "^.*$", "all", definitions, -10_i8)
       sleep 10.milliseconds
       vhost.queues["test1"].policy.try(&.name).should eq "test"
@@ -57,7 +57,7 @@ describe LavinMQ::VHost do
   it "should apply policy" do
     PoliciesSpec.with_vhost do |vhost|
       defs = {"max-length" => JSON::Any.new(1_i64)} of String => JSON::Any
-      vhost.queues["test"] = LavinMQ::Queue.new(vhost, "test")
+      vhost.queues["test"] = LavinMQ::AMQP::Queue.new(vhost, "test")
       vhost.add_policy("ml", "^.*$", "queues", defs, 11_i8)
       sleep 10.milliseconds
       vhost.queues["test"].policy.not_nil!.name.should eq "ml"
@@ -67,7 +67,7 @@ describe LavinMQ::VHost do
   it "should respect priority" do
     PoliciesSpec.with_vhost do |vhost|
       defs = {"max-length" => JSON::Any.new(1_i64)} of String => JSON::Any
-      vhost.queues["test2"] = LavinMQ::Queue.new(vhost, "test")
+      vhost.queues["test2"] = LavinMQ::AMQP::Queue.new(vhost, "test")
       vhost.add_policy("ml2", "^.*$", "queues", defs, 1_i8)
       vhost.add_policy("ml1", "^.*$", "queues", defs, 0_i8)
       sleep 10.milliseconds
@@ -254,7 +254,7 @@ describe LavinMQ::VHost do
                               "federation-upstream", "federation-upstream-set",
                               "delivery-limit", "max-age", "alternate-exchange",
                               "delayed-message"}
-        vhost.queues["test"] = LavinMQ::Queue.new(vhost, "test")
+        vhost.queues["test"] = LavinMQ::AMQP::Queue.new(vhost, "test")
         vhost.add_policy("test", "^.*$", "all", definitions, -10_i8)
         sleep 10.milliseconds
         vhost.queues["test"].details_tuple[:effective_policy_definition].as(Hash(String, JSON::Any)).each_key do |k|
@@ -284,16 +284,16 @@ describe LavinMQ::VHost do
 
     it "should use the lowest value" do
       PoliciesSpec.with_vhost do |vhost|
-        vhost.queues["test1"] = LavinMQ::Queue.new(vhost, "test1", arguments: LavinMQ::AMQP::Table.new({"x-max-length" => 1_i64}))
-        vhost.queues["test2"] = LavinMQ::Queue.new(vhost, "test2", arguments: LavinMQ::AMQP::Table.new({"x-max-length" => 11_i64}))
+        vhost.queues["test1"] = LavinMQ::AMQP::Queue.new(vhost, "test1", arguments: LavinMQ::AMQP::Table.new({"x-max-length" => 1_i64}))
+        vhost.queues["test2"] = LavinMQ::AMQP::Queue.new(vhost, "test2", arguments: LavinMQ::AMQP::Table.new({"x-max-length" => 11_i64}))
         vhost.add_policy("test", ".*", "all", definitions, 100_i8)
         sleep 10.milliseconds
-        vhost.queues["test1"].@max_length.should eq 1
-        vhost.queues["test2"].@max_length.should eq 10
+        vhost.queues["test1"].as(LavinMQ::AMQP::Queue).@max_length.should eq 1
+        vhost.queues["test2"].as(LavinMQ::AMQP::Queue).@max_length.should eq 10
         vhost.delete_policy("test")
         sleep 10.milliseconds
-        vhost.queues["test1"].@max_length.should eq 1
-        vhost.queues["test2"].@max_length.should eq 11
+        vhost.queues["test1"].as(LavinMQ::AMQP::Queue).@max_length.should eq 1
+        vhost.queues["test2"].as(LavinMQ::AMQP::Queue).@max_length.should eq 11
       end
     end
   end

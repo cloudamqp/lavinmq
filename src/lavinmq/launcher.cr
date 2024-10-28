@@ -176,9 +176,11 @@ module LavinMQ
       STDOUT.flush
       @amqp_server.vhosts.each_value do |vhost|
         vhost.queues.each_value do |q|
-          msg_store = q.@msg_store
-          msg_store.@segments.each_value &.unmap
-          msg_store.@acks.each_value &.unmap
+          if q = q.as(LavinMQ::AMQP::Queue)
+            msg_store = q.@msg_store
+            msg_store.@segments.each_value &.unmap
+            msg_store.@acks.each_value &.unmap
+          end
         end
       end
       STDOUT.puts "Garbage collecting"

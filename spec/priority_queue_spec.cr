@@ -1,6 +1,6 @@
 require "./spec_helper"
 
-describe LavinMQ::PriorityQueue do
+describe LavinMQ::AMQP::PriorityQueue do
   it "should prioritize messages" do
     with_amqp_server do |s|
       with_channel(s) do |ch|

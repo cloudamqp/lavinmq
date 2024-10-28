@@ -1,7 +1,7 @@
 require "./spec_helper"
 require "./../src/lavinmq/amqp/queue"
 
-describe LavinMQ::Queue do
+describe LavinMQ::AMQP::Queue do
   it "Should dead letter expired messages" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
@@ -73,7 +73,7 @@ describe LavinMQ::Queue do
         s.vhosts.create("/")
         v = s.vhosts["/"].not_nil!
         v.declare_queue("q", true, false)
-        data_dir = s.vhosts["/"].queues["q"].@msg_store.@queue_data_dir
+        data_dir = s.vhosts["/"].queues["q"].as(LavinMQ::AMQP::Queue).@msg_store.@queue_data_dir
         s.vhosts["/"].queues["q"].pause!
         File.exists?(File.join(data_dir, ".paused")).should be_true
         s.restart
@@ -158,7 +158,7 @@ describe LavinMQ::Queue do
         tag = "consumer-to-be-canceled"
         with_channel(s) do |ch|
           q = ch.queue(q_name)
-          queue = s.vhosts["/"].queues[q_name].as(LavinMQ::DurableQueue)
+          queue = s.vhosts["/"].queues[q_name].as(LavinMQ::AMQP::DurableQueue)
           q.publish_confirm "m1"
 
           # Should get canceled
@@ -263,7 +263,7 @@ describe LavinMQ::Queue do
       with_channel(s) do |ch|
         ch.queue "transient", durable: false
       end
-      data_dir = s.vhosts["/"].queues["transient"].@msg_store.@queue_data_dir
+      data_dir = s.vhosts["/"].queues["transient"].as(LavinMQ::AMQP::Queue).@msg_store.@queue_data_dir
       s.stop
       Dir.exists?(data_dir).should be_false
     end
@@ -275,7 +275,7 @@ describe LavinMQ::Queue do
       with_channel(s) do |ch|
         q = ch.queue "transient", durable: false
         q.publish_confirm "foobar"
-        data_dir = s.vhosts["/"].queues["transient"].@msg_store.@queue_data_dir
+        data_dir = s.vhosts["/"].queues["transient"].as(LavinMQ::AMQP::Queue).@msg_store.@queue_data_dir
         FileUtils.cp_r data_dir, "#{data_dir}.copy"
       end
       s.stop
@@ -294,7 +294,7 @@ describe LavinMQ::Queue do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         q = ch.queue("q", auto_delete: true)
-        data_dir = s.vhosts["/"].queues["q"].@msg_store.@queue_data_dir
+        data_dir = s.vhosts["/"].queues["q"].as(LavinMQ::AMQP::Queue).@msg_store.@queue_data_dir
         sub = q.subscribe(no_ack: true) { |_| }
         Dir.exists?(data_dir).should be_true
         q.unsubscribe(sub)

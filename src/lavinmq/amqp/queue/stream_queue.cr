@@ -2,7 +2,7 @@ require "./durable_queue"
 require "../stream_consumer"
 require "./stream_queue_message_store"
 
-module LavinMQ
+module LavinMQ::AMQP
   class StreamQueue < DurableQueue
     def initialize(@vhost : VHost, @name : String,
                    @exclusive = false, @auto_delete = false,
