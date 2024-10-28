@@ -417,7 +417,7 @@ module LavinMQ
         @log.debug { "#{ex.inspect} when closing socket" }
       end
 
-      def close(reason = nil, timeout : Time::Span = 60.seconds)
+      def close(reason = nil, timeout : Time::Span = 5.seconds)
         reason ||= "Connection closed"
         @log.info { "Closing: #{reason}" }
 
