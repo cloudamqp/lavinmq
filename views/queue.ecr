@@ -12,9 +12,9 @@
         <div id="breadcrumbs" class="cols-12">
             <h2 class="page-title flex flex-row items-center"><%=pagename%> <span style="margin: 0 4px;">/</span> <div id="pagename-label"></div></h2>
         </div>
-        <section class="card cols-4">
-          <h3>Details</h3>
-          <table class="details-table">
+        <section class="card cols-4 rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
+          <h3 class="text-lg font-semibold text-light-400">Details</h3>
+          <table class="details-table text-light-400">
             <tr>
               <th>Features</th>
               <td id="q-features"></td>
@@ -41,9 +41,9 @@
             </tr>
           </table>
         </section>
-        <section class="card cols-4">
-          <h3>Messages</h3>
-          <table class="details-table">
+        <section class="card cols-4 rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
+          <h3 class="text-lg font-semibold text-light-400">Messages</h3>
+          <table class="details-table text-light-400">
             <tr>
               <th></th>
               <th>Count</th>
@@ -70,22 +70,22 @@
             </tr>
           </table>
         </section>
-        <section class="card cols-4">
-          <h3>Arguments</h3>
-          <pre class="arguments" id="q-arguments"></pre>
+        <section class="card cols-4 rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
+          <h3 class="text-lg font-semibold text-light-400">Arguments</h3>
+          <pre class="arguments text-light-400" id="q-arguments"></pre>
         </section>
-        <section class="card">
-          <h3>Rates</h3>
+        <section class="card rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
+          <h3 class="text-lg font-semibold text-light-400">Rates</h3>
           <div class="chart-container" id="chart"></div>
         </section>
-        <section class="card">
-          <h3>
+        <section class="card rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
+          <h3 class="text-lg font-semibold text-light-400 flex flex-row items-center">
             Consumers
-            <small id="consumer-count"></small>
+            <small class="bg-green-400 ml-2 inline-block text-center text-sm text-dark-400 counter-pill py-1 px-3 rounded-sm" id="consumer-count"></small>
           </h3>
           <div class="table-wrapper">
             <div id="table-error"></div>
-            <table id="table" class="table">
+            <table id="table" class="table text-light-400">
               <thead>
                 <tr>
                   <th class="left">Channel</th>
@@ -101,14 +101,14 @@
           </div>
           <button class="load-more" id="load-more-consumers"></button>
         </section>
-        <section class="card">
-          <h3>
+        <section class="card rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
+          <h3 class="text-lg font-semibold text-light-400 flex flex-row items-center">
             Bindings
-            <small id="bindings-count"></small>
+            <small class="bg-green-400 ml-2 inline-block text-center text-sm text-dark-400 counter-pill py-1 px-3 rounded-sm" id="bindings-count"></small>
           </h3>
           <div class="table-wrapper">
             <div id="bindings-table-error"></div>
-            <table id="bindings-table" class="table">
+            <table id="bindings-table" class="table text-light-400">
               <thead>
                 <tr>
                   <th class="left">From</th>
@@ -121,126 +121,134 @@
             </table>
           </div>
         </section>
-        <form method="post" id="addBinding" class="form card cols-6">
-          <h3>Add a binding to this queue</h3>
-          <label>
-            <span>From exchange</span>
-            <input name="source" type="text" required list="exchange-list">
-            <datalist id="exchange-list"></datalist>
-          </label>
-          <label>
-            <span>Routing key</span>
-            <input name="routing_key" type="text">
-          </label>
-          <label>
-            <span>Arguments</span>
-            <textarea name="arguments" placeholder='{ "key": value }'></textarea>
-          </label>
-          <button type="submit" class="btn-primary">Bind</button>
+        <form method="post" id="addBinding" class="form card cols-6 rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
+          <h3 class="text-lg font-semibold text-light-400">Add a binding to this queue</h3>
+          <div class="py-4">
+            <label class="mt-0 mb-4">
+              <span class="text-light-400">From exchange</span>
+              <input class="regular-text" name="source" type="text" required list="exchange-list">
+              <datalist id="exchange-list"></datalist>
+            </label>
+            <label class="mt-0 mb-4">
+              <span class="text-light-400">Routing key</span>
+              <input class="regular-text" name="routing_key" type="text">
+            </label>
+            <label class="mt-0 mb-4">
+              <span class="text-light-400">Arguments</span>
+              <textarea class="regular-textarea" name="arguments" placeholder='{ "key": value }'></textarea>
+            </label>
+            <button type="submit" class="btn-green">Bind</button>
+          </div>
         </form>
-        <form method="post" id="publishMessage" class="form card cols-6">
-          <h3>Publish message</h3>
-          <p>
+        <form method="post" id="publishMessage" class="form card cols-6 rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
+          <h3 class="text-lg font-semibold text-light-400">Publish message</h3>
+          <p class="text-light-300">
             Message will be published to the default exchange with routing key <span class="queue"></span>, routing it to
             this queue.
           </p>
-          <label>
-            <span>Delivery mode</span>
-            <select name="delivery_mode">
-              <option value="2">Persistent</option>
-            </select>
-          </label>
-          <label>
-            <span>Headers</span>
-            <textarea name="headers" placeholder='{ "key": value }'></textarea>
-          </label>
-          <label>
-            <span>Properties</span>
-            <textarea name="properties" placeholder='{ "key": value }'></textarea>
-            <div id="dataTags" class="label">
-              <a class="arg-tooltip" data-tag="content_type" data-value="&quot;application/json&quot;">Content Type
-                <span class="tooltiptext">Type of the content used by application. Default set to 'application/json'</span>
-              </a> |
-              <a class="arg-tooltip" data-tag="content_encoding">Content Encoding
-                <span class="tooltiptext">Encoding of the content used by application.</span>
-              </a> |
-              <a class="arg-tooltip" data-tag="expiration" data-value="0">Message TTL
-                <span class="tooltiptext">How long a message published to a queue can live before it is discarded
-                  (milliseconds).</span>
-              </a> |
-              <a class="arg-tooltip" data-tag="priority" data-value="1">Priority
-                <span class="tooltiptext">Priority of the message in the queue.</span>
-              </a> |
-              <a class="arg-tooltip" data-tag="message_id">Message ID
-                <span class="tooltiptext">Message identifier of the message used by application.</span>
-              </a> |
-              <a class="arg-tooltip" data-tag="timestamp">Timestamp
-                <span class="tooltiptext">Timestamp of the message used by application.</span>
-              </a> |
-              <a class="arg-tooltip" data-tag="type">Type
-                <span class="tooltiptext">Type of the message used by application.</span>
-              </a> |
-              <a class="arg-tooltip" data-tag="user_id">User ID
-                <span class="tooltiptext">User identifier when impersonate another user.</span>
-              </a> |
-              <a class="arg-tooltip" data-tag="app_id">App ID
-                <span class="tooltiptext">Application identifier.</span>
-              </a> |
-              <a class="arg-tooltip" data-tag="correlation_id">Correlation ID
-                <span class="tooltiptext">Correlation identifier for RPC</span>
-              </a> |
-              <a class="arg-tooltip" data-tag="reply_to">Reply To
-                <span class="tooltiptext">Reply to queue for RPC</span>
-              </a>
-            </div>
-          </label>
-          <label>
-            <span>Payload</span>
-            <textarea name="payload"></textarea>
-          </label>
-          <label>
-            <span>Payload encoding</span>
-            <select name="payload_encoding">
-              <option value="string">String</option>
-              <option value="base64">Base64</option>
-            </select>
-          </label>
-          <button type="submit" class="btn-primary">Publish message</button>
-        </form>
-        <section class="card cols-6">
-          <form method="post" id="getMessages" class="form">
-            <h3>Get messages</h3>
-            <label>
-              <span>Mode</span>
-              <select name="mode">
-                <option value="get">Get Ack</option>
-                <option value="reject_requeue_true" selected>Reject and Requeue</option>
-                <option value="reject_requeue_false">Reject</option>
+          <div class="py-4">
+            <label class="mt-0 mb-4">
+              <span class="text-light-400">Delivery mode</span>
+              <select class="dropdown" name="delivery_mode">
+                <option value="2">Persistent</option>
               </select>
             </label>
-            <label>
-              <span>Encoding</span>
-              <select name="encoding">
-                <option value="auto">Auto string/base64</option>
+            <label class="mt-0 mb-4">
+              <span class="text-light-400">Headers</span>
+              <textarea class="regular-textarea" name="headers" placeholder='{ "key": value }'></textarea>
+            </label>
+            <label class="mt-0 mb-4">
+              <span class="text-light-400">Properties</span>
+              <textarea class="regular-textarea" name="properties" placeholder='{ "key": value }'></textarea>
+              <div id="dataTags" class="label">
+                <a class="arg-tooltip" data-tag="content_type" data-value="&quot;application/json&quot;">Content Type
+                  <span class="tooltiptext">Type of the content used by application. Default set to 'application/json'</span>
+                </a> |
+                <a class="arg-tooltip" data-tag="content_encoding">Content Encoding
+                  <span class="tooltiptext">Encoding of the content used by application.</span>
+                </a> |
+                <a class="arg-tooltip" data-tag="expiration" data-value="0">Message TTL
+                  <span class="tooltiptext">How long a message published to a queue can live before it is discarded
+                    (milliseconds).</span>
+                </a> |
+                <a class="arg-tooltip" data-tag="priority" data-value="1">Priority
+                  <span class="tooltiptext">Priority of the message in the queue.</span>
+                </a> |
+                <a class="arg-tooltip" data-tag="message_id">Message ID
+                  <span class="tooltiptext">Message identifier of the message used by application.</span>
+                </a> |
+                <a class="arg-tooltip" data-tag="timestamp">Timestamp
+                  <span class="tooltiptext">Timestamp of the message used by application.</span>
+                </a> |
+                <a class="arg-tooltip" data-tag="type">Type
+                  <span class="tooltiptext">Type of the message used by application.</span>
+                </a> |
+                <a class="arg-tooltip" data-tag="user_id">User ID
+                  <span class="tooltiptext">User identifier when impersonate another user.</span>
+                </a> |
+                <a class="arg-tooltip" data-tag="app_id">App ID
+                  <span class="tooltiptext">Application identifier.</span>
+                </a> |
+                <a class="arg-tooltip" data-tag="correlation_id">Correlation ID
+                  <span class="tooltiptext">Correlation identifier for RPC</span>
+                </a> |
+                <a class="arg-tooltip" data-tag="reply_to">Reply To
+                  <span class="tooltiptext">Reply to queue for RPC</span>
+                </a>
+              </div>
+            </label>
+            <label class="mt-0 mb-4">
+              <span class="text-light-400">Payload</span>
+              <textarea class="regular-textarea" name="payload"></textarea>
+            </label>
+            <label class="mt-0 mb-4">
+              <span class="text-light-400">Payload encoding</span>
+              <select class="dropdown" name="payload_encoding">
+                <option value="string">String</option>
                 <option value="base64">Base64</option>
               </select>
             </label>
-            <label>
-              <span>Messages</span>
-              <input type="number" name="messages" value=1>
-            </label>
-            <button type="submit" class="btn-primary">Get message(s)</button>
+            <button type="submit" class="btn-green">Publish message</button>
+          </div>
+        </form>
+        <section class="card cols-6 rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
+          <form method="post" id="getMessages" class="form">
+            <h3 class="text-lg font-semibold text-light-400">Get messages</h3>
+            <div class="py-4">
+              <label class="mt-0 mb-4">
+                <span class="text-light-400">Mode</span>
+                <select class="dropdown" name="mode">
+                  <option value="get">Get Ack</option>
+                  <option value="reject_requeue_true" selected>Reject and Requeue</option>
+                  <option value="reject_requeue_false">Reject</option>
+                </select>
+              </label>
+              <label class="mt-0 mb-4">
+                <span class="text-light-400">Encoding</span>
+                <select class="dropdown" name="encoding">
+                  <option value="auto">Auto string/base64</option>
+                  <option value="base64">Base64</option>
+                </select>
+              </label>
+              <label class="mt-0 mb-4">
+                <span class="text-light-400">Messages</span>
+                <input class="regular-text" type="number" name="messages" value=1>
+              </label>
+              <button type="submit" class="btn-green">Get message(s)</button>
+            </div>
           </form>
         </section>
-        <form method="post" id="moveMessages" class="form card cols-6">
-          <h3>Move messages</h3>
-          <label>
-            <span>Destination queue</span>
-            <input type="text" name="shovel-destination" list="queue-list">
-            <datalist id="queue-list">
-            </datalist>
-          </label>
-          <button type="submit" class="btn-primary">Move messages</button>
+        <form method="post" id="moveMessages" class="form card cols-6 rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
+          <h3 class="text-lg font-semibold text-light-400">Move messages</h3>
+          <div class="py-4">
+            <label class="mt-0 mb-4">
+              <span class="text-light-400">Destination queue</span>
+              <input class="regular-text" type="text" name="shovel-destination" list="queue-list">
+              <datalist id="queue-list">
+              </datalist>
+            </label>
+            <button type="submit" class="btn-green">Move messages</button>
+          </div>
         </form>
         <div id="message-template" class="hide message card">
           <h4 class="message-header">Message <span class="message-number"></span></h4>
@@ -277,11 +285,11 @@
           </table>
         </div>
         <div id="messages" class="cols-12"></div>
-        <section class="card cols-3">
-          <h3>Pause Queue</h3>
+        <section class="card cols-3 rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
+          <h3 class="text-lg font-semibold text-light-400">Pause Queue</h3>
           <form method="put" id="pauseQueue" class="form">
             <label>
-              <button type="submit" class="btn-warn">Pause queue</button>
+              <button type="submit" class="btn-warn" style="margin-left: 0;">Pause queue</button>
             </label>
           </form>
           <form method="put" id="resumeQueue" class="form hide">
@@ -289,23 +297,23 @@
               <button type="submit" class="btn-warn">Resume queue</button>
             </label>
           </form>
-          <p> Pausing a queue will stop deliveries to all consumers. </p>
+          <p class="text-light-300">Pausing a queue will stop deliveries to all consumers.</p>
         </section>
-        <form method="delete" id="purgeQueue" class="form card cols-3">
-          <h3>Purge queue</h3>
-          <label>
-            <span>Number of messages</span>
-            <input type="number" name="count" min="1" placeholder="All">
+        <form method="delete" id="purgeQueue" class="form card cols-3 rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
+          <h3 class="text-lg font-semibold text-light-400">Purge queue</h3>
+          <label class="mt-0 mb-4">
+            <span class="text-light-400">Number of messages</span>
+            <input class="regular-text" type="number" name="count" min="1" placeholder="All">
           </label>
           <label>
-            <button type="submit" class="btn-danger">Purge queue</button>
+            <button type="submit" class="btn-danger" style="margin-left: 0;">Purge queue</button>
           </label>
         </form>
-        <section class="card cols-3">
-          <h3>Delete queue</h3>
+        <section class="card cols-3 rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
+          <h3 class="text-lg font-semibold text-light-400">Delete queue</h3>
           <form method="delete" id="deleteQueue" class="form">
             <label>
-              <button type="submit" class="btn-danger">Delete queue</button>
+              <button type="submit" class="btn-danger" style="margin-left: 0;">Delete queue</button>
             </label>
           </form>
         </section>

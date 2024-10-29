@@ -321,6 +321,10 @@ main {
   padding-top: 1rem;
 }
 
+.pt-6 {
+  padding-top: 1.5rem;
+}
+
 .px-3 {
   padding-left: 0.375rem;
   padding-right: 0.375rem;
@@ -369,6 +373,10 @@ main {
   flex-direction: column;
 }
 
+.justify-center {
+  justify-content: center;
+}
+
 .items-center {
   align-items: center;
 }
@@ -399,6 +407,8 @@ select.dropdown {
   border-radius: 0.375rem;
   border: 1px solid rgb(247 245 242 / 0.1);
   box-shadow: none;
+  background-color: #2D2C2C;
+  color: #f7f5f2;
 }
 
 .btn-small {
@@ -495,6 +505,9 @@ select.dropdown {
   flex-direction: row;
   align-items: center;
   gap: .5rem;
+  text-align: center;
+  justify-content: center;
+  min-width: 6rem;
 
   &:hover {
     background: #44FC70;
@@ -573,6 +586,10 @@ textarea.regular-textarea {
   height: 40px;
   background-color: rgb(247 245 242 / 0.1);
   display: block;
+}
+
+.counter-pill:empty {
+  padding: 0;
 }
 /* Components end */
 
@@ -1091,8 +1108,7 @@ footer .logo {
 }
 
 .filter-table {
-  margin: 2px;
-
+  margin-bottom: 1rem;
   padding: 0.75rem 1rem;
   border-radius: 0.375rem;
   border: none;
@@ -1100,6 +1116,7 @@ footer .logo {
   background: #2D2C2C;
   border: 1px solid #414040;
   color: #f7f5f2;
+  max-width: 300px !important;
 }
 
 .table {
@@ -1179,6 +1196,10 @@ footer .logo {
   padding-right: 10px;
   z-index: 1000;
   color: #CDCBC9;
+
+  &:hover {
+    color: #F7F5F2;
+  }
 }
 
 .self-link {
@@ -1424,7 +1445,7 @@ form textarea:disabled {
 }
 
 button:hover {
-  opacity: 0.8;
+  /*opacity: 0.8;*/
 }
 
 textarea {
