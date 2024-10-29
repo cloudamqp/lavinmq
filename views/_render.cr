@@ -18,7 +18,7 @@ require "../src/lavinmq/version"
       \{{path}}
     end
 
-    "#{local_path}" == {{source}}
+    "#{local_path}" == {{source}} || "#{local_path}" == "#{ {{source}} }s"
   end
 
   render({{source}})
