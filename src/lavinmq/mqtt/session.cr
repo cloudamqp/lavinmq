@@ -62,7 +62,7 @@ module LavinMQ
         @unacked.clear
 
         if c = client
-          @consumers << MQTT::Consumer.new(c, self)
+          add_consumer MQTT::Consumer.new(c, self)
         end
         @log.debug { "client set to '#{client.try &.name}'" }
       end
