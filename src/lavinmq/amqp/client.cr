@@ -421,13 +421,14 @@ module LavinMQ
         reason ||= "Connection closed"
         @log.info { "Closing: #{reason}" }
 
-        send AMQP::Frame::Connection::Close.new(320_u16, "CONNECTION_FORCED - #{reason}", 0_u16, 0_u16)
-        @running = false
-
         socket = @socket
         if socket.responds_to?(:"write_timeout=")
           socket.write_timeout = timeout
+          socket.read_timeout = timeout
         end
+
+        send AMQP::Frame::Connection::Close.new(320_u16, "CONNECTION_FORCED - #{reason}", 0_u16, 0_u16)
+        @running = false
 
         socket.close
       end
