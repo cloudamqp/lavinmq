@@ -7,28 +7,30 @@
   </head>
   <body>
     <% render "partials/header" %>
-    <main class="unacked-main">
-      <section class="card">
-        <h3>
-          <a href="" id="queue-link"></a>
-          <small id="unacked-count"></small>
-        </h3>
-        <div class="table-wrapper">
-          <div id="table-error"></div>
-          <table id="table" class="table">
-            <thead>
-              <tr>
-                <th class="left">Message tag</th>
-                <th class="left">Consumer tag</th>
-                <th class="left">Channel</th>
-                <th class="right">Seconds unacked</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-        </div>
-      </section>
-    </main>
-    <% render "partials/footer" %>
+    <div class="grid-content">
+      <main class="unacked-main">
+        <section class="card">
+          <h3>
+            <a href="" id="queue-link"></a>
+            <small id="unacked-count"></small>
+          </h3>
+          <div class="table-wrapper">
+            <div id="table-error"></div>
+            <table id="table" class="table">
+              <thead>
+                <tr>
+                  <th class="left">Message tag</th>
+                  <th class="left">Consumer tag</th>
+                  <th class="left">Channel</th>
+                  <th class="right">Seconds unacked</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+      <% render "partials/footer" %>
+    </div>
   </body>
 </html>

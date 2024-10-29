@@ -12,9 +12,9 @@
         <div id="breadcrumbs" class="cols-12">
             <h2 class="page-title flex flex-row items-center"><%=pagename%><span style="margin: 0 4px;">/</span> <div id="pagename-label"></div></h2>
         </div>
-        <section class="card cols-6">
-          <h3>Details</h3>
-          <table class="details-table">
+        <section class="card cols-6 rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
+          <h3 class="text-lg font-semibold text-light-400">Details</h3>
+          <table class="details-table text-light-400">
             <tr>
               <th>Username</th>
               <td id="conn-username"></td>
@@ -45,9 +45,9 @@
             </tr>
           </table>
         </section>
-        <section class="card cols-6">
-          <h3>Client properties</h3>
-          <table class="details-table">
+        <section class="card cols-6 rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
+          <h3 class="text-lg font-semibold text-light-400">Client properties</h3>
+          <table class="details-table text-light-400">
             <tr>
               <th>Client name</th>
               <td><pre id="cp-name"></pre></td>
@@ -70,18 +70,18 @@
             </tr>
           </table>
         </section>
-        <section class="card">
-          <h3>Rates</h3>
+        <section class="card rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
+          <h3 class="text-lg font-semibold text-light-400">Rates</h3>
           <div class="chart-container" id="chart"></div>
         </section>
-        <section class="card">
-          <h3>
+        <section class="card rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
+          <h3 class="text-lg font-semibold text-light-400 flex flex-row items-center">
             Channels
-            <small id="table-count"></small>
+            <small class="bg-green-400 ml-2 inline-block text-center text-sm text-dark-400 py-1 px-3 rounded-sm" id="table-count"></small>
           </h3>
           <div class="table-wrapper">
             <div id="table-error"></div>
-            <table id="table" class="table">
+            <table id="table" class="table text-light-400">
               <thead>
                 <tr>
                   <th data-sort-key="name">Name</th>
@@ -97,13 +97,15 @@
             </table>
           </div>
         </section>
-        <form method="delete" id="closeConnection" class="form card">
-          <h3>Close connection</h3>
-          <label>
-            <span>Reason</span>
-            <input type="text" name="reason" value="Closed via Web management">
-          </label>
-          <button type="submit" class="btn-secondary">Close</button>
+        <form method="delete" id="closeConnection" class="form card rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
+          <h3 class="text-lg font-semibold text-light-400 flex flex-row items-center">Close connection</h3>
+          <div class="py-4">
+            <label class="mt-0 mb-4">
+              <span class="text-light-400">Reason</span>
+              <input class="regular-text" type="text" name="reason" value="Closed via Web management">
+            </label>
+            <button type="submit" class="btn-outlined"><span>Close</span><img src="img/icon-cross.svg" /></button>
+          </div>
         </form>
       </main>
       <% render "partials/footer" %>

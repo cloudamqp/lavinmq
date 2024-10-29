@@ -13,19 +13,21 @@
             <h2 class="page-title flex flex-row items-center"><%=pagename%><div class="bg-green-400 ml-2 inline-block text-center text-sm text-dark-400 py-1 px-3 rounded-sm" id="pagename-label"></div></h2>
         </div>
         <section class="card rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
-          <div id="table-error"></div>
-          <table id="table" class="table text-light-400">
-            <thead>
-              <tr>
-                <th data-sort-key="vhost" class="text-left">Virtual host</th>
-                <th data-sort-key="name" class="left">Name</th>
-                <th data-sort-key="type" class="left">Type</th>
-                <th>Features</th>
-                <th data-sort-key="policy">Policy</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
+          <div class="table-wrapper">
+            <div id="table-error"></div>
+            <table id="table" class="table text-light-400">
+              <thead>
+                <tr>
+                  <th data-sort-key="vhost" class="text-left">Virtual host</th>
+                  <th data-sort-key="name" class="left">Name</th>
+                  <th data-sort-key="type" class="left">Type</th>
+                  <th>Features</th>
+                  <th data-sort-key="policy">Policy</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
         </section>
         <form method="put" id="addExchange" class="form card rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
           <h3 class="text-lg font-semibold text-light-400">Add exchange</h3>
