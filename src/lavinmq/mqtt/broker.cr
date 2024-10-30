@@ -57,10 +57,6 @@ module LavinMQ
         @exchange.publish(packet)
       end
 
-      def topicfilter_to_routingkey(tf) : String
-        tf.tr("/+", ".*")
-      end
-
       def subscribe(client, packet)
         unless session = sessions[client.client_id]?
           session = sessions.declare(client.client_id, client.@clean_session)
@@ -71,8 +67,7 @@ module LavinMQ
           qos << MQTT::SubAck::ReturnCode.from_int(tf.qos)
           session.subscribe(tf.topic, tf.qos)
           @retain_store.each(tf.topic) do |topic, body|
-            rk = topicfilter_to_routingkey(topic)
-            msg = Message.new("mqtt.default", rk, String.new(body),
+            msg = Message.new("mqtt.default", topic, String.new(body),
               AMQP::Properties.new(headers: AMQP::Table.new({"x-mqtt-retain": true}),
                 delivery_mode: tf.qos))
             session.publish(msg)

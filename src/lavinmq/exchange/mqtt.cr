@@ -39,19 +39,18 @@ module LavinMQ
       properties = AMQP::Properties.new(headers: headers).tap do |p|
         p.delivery_mode = packet.qos if packet.responds_to?(:qos)
       end
-      publish Message.new("mqtt.default", topicfilter_to_routingkey(packet.topic), String.new(packet.payload), properties), false
+      publish Message.new("mqtt.default", packet.topic, String.new(packet.payload), properties), false
     end
 
     private def do_publish(msg : Message, immediate : Bool,
                            queues : Set(Queue) = Set(Queue).new,
                            exchanges : Set(Exchange) = Set(Exchange).new) : Int32
       count = 0
-      topic = routing_key_to_topic(msg.routing_key)
       if msg.properties.try &.headers.try &.["x-mqtt-retain"]?
-        @retain_store.retain(topic, msg.body_io, msg.bodysize)
+        @retain_store.retain(msg.routing_key, msg.body_io, msg.bodysize)
       end
 
-      @tree.each_entry(topic) do |queue, qos|
+      @tree.each_entry(msg.routing_key) do |queue, qos|
         msg.properties.delivery_mode = qos
         if queue.publish(msg)
           count += 1
@@ -83,11 +82,10 @@ module LavinMQ
     end
 
     def bind(destination : MQTT::Session, routing_key : String, headers = nil) : Bool
-      topic = routing_key_to_topic(routing_key)
       qos = headers.try { |h| h["x-mqtt-qos"]?.try(&.as(UInt8)) } || 0u8
       binding_key = MqttBindingKey.new(routing_key, headers)
       @bindings[binding_key].add destination
-      @tree.subscribe(topic, destination, qos)
+      @tree.subscribe(routing_key, destination, qos)
 
       data = BindingDetails.new(name, vhost.name, binding_key.inner, destination)
       notify_observers(ExchangeEvent::Bind, data)
@@ -95,13 +93,12 @@ module LavinMQ
     end
 
     def unbind(destination : MQTT::Session, routing_key, headers = nil) : Bool
-      topic = routing_key_to_topic(routing_key)
       binding_key = MqttBindingKey.new(routing_key, headers)
       rk_bindings = @bindings[binding_key]
       rk_bindings.delete destination
       @bindings.delete binding_key if rk_bindings.empty?
 
-      @tree.unsubscribe(topic, destination)
+      @tree.unsubscribe(routing_key, destination)
 
       data = BindingDetails.new(name, vhost.name, binding_key.inner, destination)
       notify_observers(ExchangeEvent::Unbind, data)

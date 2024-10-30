@@ -72,24 +72,18 @@ module LavinMQ
       end
 
       def subscribe(tf, qos)
-        rk = topicfilter_to_routingkey(tf)
         arguments = AMQP::Table.new({"x-mqtt-qos": qos})
-        if binding = find_binding(rk)
+        if binding = find_binding(tf)
           return if binding.binding_key.arguments == arguments
-          unbind(rk, binding.binding_key.arguments)
+          unbind(tf, binding.binding_key.arguments)
         end
-        @vhost.bind_queue(@name, "mqtt.default", rk, arguments)
+        @vhost.bind_queue(@name, "mqtt.default", tf, arguments)
       end
 
       def unsubscribe(tf)
-        rk = topicfilter_to_routingkey(tf)
-        if binding = find_binding(rk)
-          unbind(rk, binding.binding_key.arguments)
+        if binding = find_binding(tf)
+          unbind(tf, binding.binding_key.arguments)
         end
-      end
-
-      def topicfilter_to_routingkey(tf) : String
-        tf.tr("/+", ".*")
       end
 
       private def find_binding(rk)
