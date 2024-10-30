@@ -12,11 +12,11 @@
         <div id="breadcrumbs" class="cols-12">
             <h2 class="page-title flex flex-row items-center"><%=pagename%><span style="margin: 0 4px;">/</span> <div id="pagename-label"></div></h2>
         </div>
-        <section class="card cols-6">
-          <h3>
+        <section class="card cols-6 rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
+          <h3 class="text-lg font-semibold text-light-400">
             Message stats
           </h3>
-          <table id="msg-table" class="details-table">
+          <table id="msg-table" class="details-table text-light-400">
             <tr>
               <th>Ready</th>
               <td id="ready"></td>
@@ -31,11 +31,11 @@
             </tr>
           </table>
         </section>
-        <section class="card cols-6">
-          <h3>
+        <section class="card cols-6 rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
+          <h3 class="text-lg font-semibold text-light-400">
             Limits
           </h3>
-          <table id="limits-table" class="details-table">
+          <table id="limits-table" class="details-table text-light-400">
             <tr>
               <th>Max connections</th>
               <td id="max-connections"></td>
@@ -46,14 +46,14 @@
             </tr>
           </table>
         </section>
-        <section class="card">
-          <h3>
+        <section class="card rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
+          <h3 class="text-lg font-semibold text-light-400 flex flex-row items-center">
             Permissions
-            <small id="permissions-count"></small>
+            <small class="bg-green-400 ml-2 inline-block text-center text-sm text-dark-400 py-1 px-3 rounded-sm" id="permissions-count"></small>
           </h3>
           <div class="table-wrapper">
             <div id="permissions-error"></div>
-            <table id="permissions" class="table">
+            <table id="permissions" class="table text-light-400">
               <thead>
                 <tr>
                   <th>User</th>
@@ -67,40 +67,44 @@
             </table>
           </div>
         </section>
-        <form method="put" id="setPermission" class="form card cols-6">
-          <h3>Set permission</h3>
-          <label>
-            <span>User</span>
-            <select name="user" required></select>
-          </label>
-          <label>
-            <span>Configure regexp</span>
-            <input type="text" name="configure" required value=".*">
-          </label>
-          <label>
-            <span>Write regexp</span>
-            <input type="text" name="write" required value=".*">
-          </label>
-          <label>
-            <span>Read regexp</span>
-            <input type="text" name="read" required value=".*">
-          </label>
-          <button type="submit" class="btn-primary">Set permission</button>
+        <form method="put" id="setPermission" class="form card cols-6 rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
+          <h3 class="text-lg font-semibold text-light-400 flex flex-row items-center">Set permission</h3>
+          <div class="py-4">
+            <label class="mt-0 mb-4">
+              <span class="text-light-400">User</span>
+              <select class="dropdown" name="user" required></select>
+            </label>
+            <label class="mt-0 mb-4">
+              <span class="text-light-400">Configure regexp</span>
+              <input class="regular-text" type="text" name="configure" required value=".*">
+            </label>
+            <label class="mt-0 mb-4">
+              <span class="text-light-400">Write regexp</span>
+              <input class="regular-text" type="text" name="write" required value=".*">
+            </label>
+            <label class="mt-0 mb-4">
+              <span class="text-light-400">Read regexp</span>
+              <input class="regular-text" type="text" name="read" required value=".*">
+            </label>
+            <button type="submit" class="btn-green">Set permission</button>
+          </div>
         </form>
-        <form method="put" id="setLimits" class="form card cols-6">
-          <h3>Set limits</h3>
-          <label>
-            <span>Max connections</span>
-            <input type="number" name="max-connections" class="right">
-          </label>
-          <label>
-            <span>Max queues</span>
-            <input type="number" name="max-queues" class="right">
-          </label>
-          <button type="submit" class="btn-primary">Set limits</button>
+        <form method="put" id="setLimits" class="form card cols-6 rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
+          <h3 class="text-lg font-semibold text-light-400 flex flex-row items-center">Set limits</h3>
+          <div class="py-4">
+            <label class="mt-0 mb-4">
+              <span class="text-light-400">Max connections</span>
+              <input class="regular-text" type="number" name="max-connections" class="right">
+            </label>
+            <label class="mt-0 mb-4">
+              <span class="text-light-400">Max queues</span>
+              <input class="regular-text" type="number" name="max-queues" class="right">
+            </label>
+            <button type="submit" class="btn-green">Set limits</button>
+          </div>
         </form>
-        <section class="card cols-4">
-          <h3>Danger zone</h3>
+        <section class="card cols-4 rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
+          <h3 class="text-lg font-semibold text-light-400 flex flex-row items-center">Danger zone</h3>
           <form method="post" id="resetVhost" class="form">
             <label>
               <button title="Will purge all queues and close the consumers" type="submit" class="btn-danger">Reset vhost</button>
