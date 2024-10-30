@@ -253,6 +253,7 @@ module LavinMQ
           return false unless src.unbind(dst, f.routing_key, f.arguments)
           store_definition(f, dirty: true) if !loading && src.durable? && dst.durable?
         when AMQP::Frame::Queue::Declare
+          return false if f.queue_name.starts_with?("mqtt.") && f.arguments["x-queue-type"]? != "mqtt"
           return false if @queues.has_key? f.queue_name
           q = @queues[f.queue_name] = QueueFactory.make(self, f)
           apply_policies([q] of Queue) unless loading
