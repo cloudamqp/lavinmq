@@ -59,6 +59,12 @@ function render (id, unit, options = {}, stacked = false) {
           gridLines: {
             display: false
           },
+          grid: {
+            color: '#2D2C2C'
+          },
+          border: {
+            dash: [2, 4],
+          },
           time: {
             unit: 'second',
             displayFormats: {
@@ -71,6 +77,12 @@ function render (id, unit, options = {}, stacked = false) {
             display: true,
             text: unit,
             fontsize: 14
+          },
+          grid: {
+            color: '#2D2C2C'
+          },
+          border: {
+            dash: [2, 4],
           },
           ticks: {
             beginAtZero: true,

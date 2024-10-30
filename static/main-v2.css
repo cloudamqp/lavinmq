@@ -1023,7 +1023,7 @@ footer .logo {
 }
 
 #version:before {
-  content: "v";
+  /*content: "v";*/
 }
 
 #user-menu {
