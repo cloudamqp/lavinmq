@@ -532,22 +532,6 @@ class LavinMQCtl
     handle_response(resp, 204)
   end
 
-  private def reset_vhost
-    name = ARGV.shift?
-    abort @banner unless name
-    body = if @options.has_key? "backup"
-             dir_name = @options["backup-dir-name"]?.to_s
-             dir_name = Time.utc.to_unix.to_s if dir_name.empty?
-             {
-               "backup":          true,
-               "backup_dir_name": dir_name,
-             }
-           end
-    body ||= {} of String => String
-    resp = http.post "/api/vhosts/#{URI.encode_www_form(name)}/purge_and_close_consumers", @headers, body.to_json
-    handle_response(resp, 204)
-  end
-
   private def clear_policy
     vhost = @options["vhost"]? || "/"
     name = ARGV.shift?
