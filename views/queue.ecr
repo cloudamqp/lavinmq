@@ -137,7 +137,7 @@
               <span class="text-light-400">Arguments</span>
               <textarea class="regular-textarea" name="arguments" placeholder='{ "key": value }'></textarea>
             </label>
-            <button type="submit" class="btn-outlined">Bind</button>
+            <button type="submit" class="btn btn-outlined">Bind</button>
           </div>
         </form>
         <form method="post" id="publishMessage" class="form card cols-6 rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
@@ -208,7 +208,7 @@
                 <option value="base64">Base64</option>
               </select>
             </label>
-            <button type="submit" class="btn-outlined">Publish message</button>
+            <button type="submit" class="btn btn-outlined">Publish message</button>
           </div>
         </form>
         <section class="card cols-6 rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
@@ -234,7 +234,7 @@
                 <span class="text-light-400">Messages</span>
                 <input class="regular-text" type="number" name="messages" value=1>
               </label>
-              <button type="submit" class="btn-outlined">Get message(s)</button>
+              <button type="submit" class="btn btn-outlined">Get message(s)</button>
             </div>
           </form>
         </section>
@@ -247,7 +247,7 @@
               <datalist id="queue-list">
               </datalist>
             </label>
-            <button type="submit" class="btn-outlined">Move messages</button>
+            <button type="submit" class="btn btn-outlined">Move messages</button>
           </div>
         </form>
         <div id="message-template" class="hide message card">
@@ -289,12 +289,12 @@
           <h3 class="text-lg font-semibold text-light-400">Pause Queue</h3>
           <form method="put" id="pauseQueue" class="form">
             <label>
-              <button type="submit" class="btn-warn" style="margin-left: 0;">Pause queue</button>
+              <button type="submit" class="btn btn-yellow" style="margin-left: 0;">Pause queue</button>
             </label>
           </form>
           <form method="put" id="resumeQueue" class="form hide">
             <label>
-              <button type="submit" class="btn-warn">Resume queue</button>
+              <button type="submit" class="btn btn-yellow">Resume queue</button>
             </label>
           </form>
           <p class="text-light-300">Pausing a queue will stop deliveries to all consumers.</p>
@@ -306,14 +306,14 @@
             <input class="regular-text" type="number" name="count" min="1" placeholder="All">
           </label>
           <label>
-            <button type="submit" class="btn-danger" style="margin-left: 0;">Purge queue</button>
+            <button type="submit" class="btn btn-red" style="margin-left: 0;">Purge queue</button>
           </label>
         </form>
         <section class="card cols-3 rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
           <h3 class="text-lg font-semibold text-light-400">Delete queue</h3>
           <form method="delete" id="deleteQueue" class="form">
             <label>
-              <button type="submit" class="btn-danger" style="margin-left: 0;">Delete queue</button>
+              <button type="submit" class="btn btn-red" style="margin-left: 0;">Delete queue</button>
             </label>
           </form>
         </section>

@@ -36,7 +36,7 @@ const permissionsTable = Table.renderTable('permissions', tableOptions, (tr, ite
     const buttons = document.createElement('div')
     buttons.classList.add('buttons')
     const deleteBtn = document.createElement('button')
-    deleteBtn.classList.add('btn-danger')
+    deleteBtn.classList.add('btn-small-outlined-danger')
     deleteBtn.innerText = 'Clear'
     deleteBtn.onclick = function () {
       const username = encodeURIComponent(item.user)
@@ -48,7 +48,7 @@ const permissionsTable = Table.renderTable('permissions', tableOptions, (tr, ite
         })
     }
     const editBtn = document.createElement('button')
-    editBtn.classList.add('btn-secondary')
+    editBtn.classList.add('btn-small')
     editBtn.innerText = 'Edit'
     editBtn.onclick = function () {
       Form.editItem('#setPermission', item)

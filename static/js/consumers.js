@@ -26,7 +26,7 @@ Table.renderTable('table', tableOptions, function (tr, item, firstRender) {
   const exclusive = item.exclusive ? '●' : '○'
   const cancelForm = document.createElement('form')
   const btn = document.createElement('button')
-  btn.classList.add('btn-primary')
+  btn.classList.add('btn-small-outlined-danger')
   btn.type = 'submit'
   btn.textContent = 'Cancel'
 

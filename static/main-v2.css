@@ -75,10 +75,11 @@ body.login {
 }
 
 body.login main {
-  width: 60%;
-  min-width: 400px;
-  max-width: 800px;
-  margin: 40px auto;
+  min-height: 100vh; 
+  margin: 0 auto; 
+  width: 100%; 
+  min-width: 100%; 
+  max-width: 100%;
 }
 /* Login page end */
 
@@ -416,7 +417,7 @@ header h2 {
   font-weight: 600;
   border-radius: 0.5rem;
   padding: 0.375rem 1rem;
-  border: 1px solid #F7F5F2;
+  border: 1px solid transparent;
   background: #F7F5F2;
   color: #141414;
   box-shadow: none;
@@ -429,6 +430,10 @@ header h2 {
   &.bg-light-400 {
     background: #F7F5F2;
     color: #141414;
+  }
+
+  &:hover {
+    background: #CBCAC7;
   }
 }
 
@@ -468,17 +473,18 @@ header h2 {
     position: relative;
     top: 1px;
   }
+
+  &:hover {
+    background: #2D2C2C;
+  }
 }
 
-.btn-outlined {
+.btn {
   font-size: 0.875rem;
   line-height: 1.25rem;
   font-weight: 600;
   border-radius: 800px;
   padding: 0.625rem 1rem;
-  background: transparent;
-  border: 1px solid #2D2C2C;
-  color: #f7f5f2;
   box-shadow: none;
   display: flex !important;
   flex-direction: row;
@@ -486,6 +492,12 @@ header h2 {
   gap: .5rem;
   justify-content: center;
   min-width: 6rem;
+}
+
+.btn-outlined {
+  background: transparent;
+  border: 1px solid #2D2C2C;
+  color: #f7f5f2;
 
   &:hover {
     background: #2D2C2C;
@@ -493,22 +505,9 @@ header h2 {
 }
 
 .btn-green {
-  font-size: 0.875rem;
-  line-height: 1.25rem;
-  font-weight: 600;
-  border-radius: 800px;
-  padding: 0.625rem 1rem;
   background: #54BE7E;
-  border: 1px solid #2D2C2C;
+  border: 1px solid transparent;
   color: #141414;
-  box-shadow: none;
-  display: flex !important;
-  flex-direction: row;
-  align-items: center;
-  gap: .5rem;
-  text-align: center;
-  justify-content: center;
-  min-width: 6rem;
 
   &:hover {
     background: #44FC70;
@@ -517,6 +516,26 @@ header h2 {
 
 .btn-green a {
   color: #141414;
+}
+
+.btn-yellow {
+  background: #e2b149;
+  border: 1px solid transparent;
+  color: #141414;
+
+  &:hover {
+    background: #eea812;
+  }
+}
+
+.btn-red {
+  background: #ED4337;
+  border: 1px solid transparent;
+  color: #141414;
+
+  &:hover {
+    background: #f01e0f;
+  }
 }
 
 .btn-primary {
@@ -542,7 +561,7 @@ header h2 {
   padding: 0 40px;
   border: none;
   text-transform: uppercase;
-  background-color: #c46868;
+  background-color: #ED4337;
   color: #fff;
 }
 
@@ -568,6 +587,25 @@ header h2 {
 .card {
   grid-column: 1 / span 12;
   position: relative;
+}
+
+.login-card {
+  grid-column: 1 / span 12; 
+  align-items: center; 
+  display: flex; 
+  flex-direction: column; 
+  justify-content: center;
+}
+
+.login-form {
+  width: 100%; 
+  max-width: 400px;
+}
+
+.login-form label {
+  display: flex; 
+  flex-direction: column; 
+  margin: 12px auto;
 }
 
 .card > :first-child,
@@ -600,19 +638,21 @@ header h2 {
 }
 
 .tooltip-icon {
-  background: #54BE7E;
+  border: 1px solid #F7F5F2;
   border-radius: 80px;
   width: 16px;
   height: 16px;
   display: inline-block;
   text-align: center;
   margin-left: 4px;
-  color: #141414;
+  color: #F7F5F2;
   font-weight: 600;
+  font-size: 12px;
 }
 
 .prop-tooltip:hover .tooltip-icon {
-  background: #44FC70;
+  border-color: rgba(247, 254, 242, .6);
+  color: rgba(247, 254, 242, .6);
 }
 
 .overview-divider {
@@ -1023,7 +1063,7 @@ footer .logo {
 }
 
 #version:before {
-  /*content: "v";*/
+  content: "v";
 }
 
 #user-menu {

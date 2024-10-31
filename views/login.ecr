@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <title>Login | LavinMQ</title>
-    <link href="main.css" rel="stylesheet">
+    <link href="main-v2.css" rel="stylesheet">
     <meta name="google" content="notranslate">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" sizes="32x32" href="favicon.ico">
@@ -12,18 +12,19 @@
   </head>
   <body class="login">
     <main>
-      <section class="card">
-        <h1>LavinMQ</h1>
-        <form id="login" class="form">
+      <section class="card col-2 px-6 pb-6 pt-4 text-center login-card">
+        <!--<h1 class="text-lg font-semibold text-light-400">LavinMQ</h1>-->
+        <img alt="LavinMQ logo" src="img/logo-lavinmq-all-white.svg" style="width: 140px; margin-bottom: 48px;">
+        <form id="login" class="form login-form">
           <label>
-            <span>Username</span>
-            <input type="text" id="username">
+            <span class="text-light-400 font-semibold" style="text-align: left; margin-bottom: 8px; display: none;">Username</span>
+            <input class="regular-text" type="text" id="username" style="width: auto; border-radius: 16px; padding: 1rem 1rem;" placeholder="Username">
           </label>
           <label>
-            <span>Password</span>
-            <input type="password" id="password">
+            <span class="text-light-400 font-semibold" style="text-align: left; margin-bottom: 8px; display: none;">Password</span>
+            <input class="regular-text" type="password" id="password" style="width: auto; border-radius: 16px; padding: 1rem 1rem;" placeholder="Password">
           </label>
-          <button type="submit" class="btn-primary">Sign in</button>
+          <button type="submit" class="btn btn-green" style="width: 100%; margin-left: 0; font-size: 1rem; padding: 1rem 1rem; line-height: 1.5rem; margin-top: 24px;">Sign in</button>
         </form>
       </section>
     </main>

@@ -86,7 +86,7 @@
               <span class="text-light-400">Read regexp</span>
               <input class="regular-text" type="text" name="read" required value=".*">
             </label>
-            <button type="submit" class="btn-green">Set permission</button>
+            <button type="submit" class="btn btn-green">Set permission</button>
           </div>
         </form>
         <form method="put" id="setLimits" class="form card cols-6 rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
@@ -100,20 +100,20 @@
               <span class="text-light-400">Max queues</span>
               <input class="regular-text" type="number" name="max-queues" class="right">
             </label>
-            <button type="submit" class="btn-green">Set limits</button>
+            <button type="submit" class="btn btn-green">Set limits</button>
           </div>
         </form>
         <section class="card cols-4 rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
           <h3 class="text-lg font-semibold text-light-400 flex flex-row items-center">Danger zone</h3>
           <form method="post" id="resetVhost" class="form">
             <label>
-              <button title="Will purge all queues and close the consumers" type="submit" class="btn-danger">Reset vhost</button>
+              <button title="Will purge all queues and close the consumers" type="submit" class="btn btn-red">Reset vhost</button>
             </label>
           </form>
           <br />
           <form method="delete" id="deleteVhost" class="form">
             <label>
-              <button type="submit" class="btn-danger">Delete vhost</button>
+              <button type="submit" class="btn btn-red">Delete vhost</button>
             </label>
           </form>
         </section>
