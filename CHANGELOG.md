@@ -5,13 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+
 ## [Unreleased]
 
 ### Changed
 
 - Remove the 'reset vhost' feature [#822](https://github.com/cloudamqp/lavinmq/pull/822/files)
 
-## [2.0.0-rc.5] - 2024-10-28
+## [2.0.0] - 2024-10-31
+
+With the release of 2.0.0 we introduce High Availablility for LavinMQ in the form of clustering. With clustering, LavinMQ replicates data between nodes with our own replication protocol, and uses etcd for leader election. See [this post](https://lavinmq.com/blog/lavinmq-high-availability) in the LavinMQ blog or the [readme](https://github.com/cloudamqp/lavinmq?tab=readme-ov-file#clustering) for more information about clustering.
+
+### Added
+
+- Full HA clustering support, uses etcd for leader election and metadata, and a replication protocol between nodes.
+- Added cluster_status to lavinmqctl [#787](https://github.com/cloudamqp/lavinmq/pull/787)
+- Added deliver_get to message_stats [#793](https://github.com/cloudamqp/lavinmq/pull/793)
+- Added a configurable default consumer prefetch value for all consumers. Defaults to 65535. [#813](https://github.com/cloudamqp/lavinmq/pull/813)
+- Output format (text/json) can now be selected when running lavinmqctl cmds [#790](https://github.com/cloudamqp/lavinmq/pull/790)
+- Clustering clients will now listen on the UNIX sockets if configured
+- Clustering server will accept PROXY protocol V2 headers from followers
 
 ### Fixed
 
@@ -24,6 +37,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Log if user tries to declare a queue with an unknown queue type [#792](https://github.com/cloudamqp/lavinmq/pull/792)
 - Force close AMQP connections if a protocol error occurs
 - Remove min_isr setting [#789](https://github.com/cloudamqp/lavinmq/pull/789)
+- Wait for followers to synchronize on shutdown of leader
+- Make proxied UNIX sockets in followers RW for all
+- SystemD notify ready in cluster mode when lader is found
+- Etcd actions are retried, etcd can now be restarted without issues
+- Clustering secret is monitored if not available yet when becoming a replication follower
 
 ### Changed
 
@@ -35,88 +53,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Publishing messages are now handled fully by exchanges [#786](https://github.com/cloudamqp/lavinmq/pull/786)
 - Logging is now handled more uniformly throghout LavinMQ [#800](https://github.com/cloudamqp/lavinmq/pull/800)
 - Don't log handled exceptions as error with backtrace [#776](https://github.com/cloudamqp/lavinmq/pull/776)
+- Don't dynamically fetch active etcd endpoints
 
-### Added
+## [2.0.0-rc.5] - 2024-10-28
 
-- Added cluster_status to lavinmqctl [#787](https://github.com/cloudamqp/lavinmq/pull/787)
-- Added deliver_get to message_stats [#793](https://github.com/cloudamqp/lavinmq/pull/793)
-- Added a configurable default consumer prefetch value for all consumers. Defaults to 65535. [#813](https://github.com/cloudamqp/lavinmq/pull/813)
-- Output format (text/json) can now be selected when running lavinmqctl cmds [#790](https://github.com/cloudamqp/lavinmq/pull/790)
+See https://github.com/cloudamqp/lavinmq/releases/tag/v2.0.0-rc.5 for changes in this pre-release
 
-## [2.0.0-rc.4] - 2024-08-21
+## [1.3.1] - 2024-08-29
 
 ### Fixed
 
-- Memory leak in Crystal's Hash implementation
-- Accept `x-delayed-exchange` and `x-delayed-messages` as exchange type for delayed message the exchanges
-- Bindings are sorted properly in the web interface
-- Wait for followers to synchronize on shutdown of leader
-- Shovel the exact number of messages available on start if `delete-after=queue-length`, not more
-- Prevet a queue that's overflowing to consume too much resources
-- Dead-lettering loop when publishing to a delayed exchange's internal queue [#748](https://github.com/cloudamqp/lavinmq/pull/748)
-- Exchange federation tried to bind to upstream's default exchange
-- Shovel AMQP source didn't reconnect on network failures
-- Shovel ack all unacked messages on stop
-- Accept custom certificate parameters in shovel URI such as: `?cacertfile=/tmp/ca.pem&certfile=/tmp/cert.pem&keyfile=/tmp/key.pem`
+- Don't shovel messages after initial queue length [#734](https://github.com/cloudamqp/lavinmq/pull/734)
+   - Shovels that were set up to stop after the initial queue length will now stop. For high ingress queues a race condition could trigger these shovels to send more messages than the initial queue length.
+- Memory leak in Crystal's Hash implementation fixed [#14862](https://github.com/crystal-lang/crystal/pull/14862)
+   - This release is using Crystal `1.13.2`
+- Bindings are now sorted properly in the web interface [#726](https://github.com/cloudamqp/lavinmq/pull/726)
+- Shovel AMQP source didn't reconnect on network failures [#758](https://github.com/cloudamqp/lavinmq/pull/758)
+  - Update `amqp-client.cr` to get a necessary fix for reconnecting shovel sources
+- Dead-lettering loop when publishing to a delayed exchange's internal queue was fixed [#748](https://github.com/cloudamqp/lavinmq/pull/748)
+- Exchange federation tried to bind to the upstream's default exchange [#749](https://github.com/cloudamqp/lavinmq/pull/749)
+- Shovel ack all unacked messages on stop [#755](https://github.com/cloudamqp/lavinmq/pull/755)
+- Prevent a queue that is overflowing from consuming too many resources [#725](https://github.com/cloudamqp/lavinmq/pull/725)
 
-### Changed
+## [2.0.0-rc.4] - 2024-08-21
 
-- Merge the header field and properties.header fields when publishing messages in the web interface
+See https://github.com/cloudamqp/lavinmq/releases/tag/v2.0.0-rc.4 for changes in this pre-release
 
-## [2.0.0-rc.3] - 2024-07-12
+## [1.3.0] - 2024-07-17
+
+### Removed
+
+- Removed old replication in anticipation of coming clustering.
 
 ### Changed
 
 - Build with Crystal 1.13.1
-- Yield at end of while loop in Queue#drop_overflow to avoid holding the fiber for too long [#725](https://github.com/cloudamqp/lavinmq/pull/725)
-
-### Fixed
-
-- Make proxied UNIX sockets in followers RW for all
-- SystemD notify ready in cluster mode when lader is found
-- Make keyColumns look for unique combinations on bindings tables [#726](https://github.com/cloudamqp/lavinmq/pull/726)
-
-## [2.0.0-rc.2] - 2024-07-05
+- Deb packages now includes all debug symbols, for useful stacktraces
+- Replaced HTTP router with an internal one. Now LavinMQ uses 0 external libraries.
+- Specs are more reliable when a new server is started for each spec
+- LavinMQ never sets TLS ciphers by it self, custom ciphers have to be configured via the config
 
 ### Fixed
 
 - HTTP API: Regression where an (empty) body was required to PUT a new vhost
-- Etcd actions are retried, etcd can now be restarted without issues
-- Clustering secret is monitored if not available yet when becoming a replication follower
-
-### Added
-
-- Can view which messages are unacked in each queue (HTTP and UI)
-- Clustering clients will now listen on the UNIX sockets if configured
-- Clustering server will accept PROXY protocol V2 headers from followers
-
-### Changed
-
-- Deb packages now includes all debug symbols, for useful stacktraces
-- Don't dynamically fetch active etcd endpoints
-
-## [2.0.0-rc.1] - 2024-06-25
-
-### Added
-
-- Full HA clustering support, uses Etcd for leader election and metadata, and a replication protocol between nodes
-- Tags and descriptions on VHosts
-- Can pass an array of URLs to Shovel
-- Added endpoint and page to view unacked messages for a queue [#712](https://github.com/cloudamqp/lavinmq/pull/712)
-
-### Fixed
-
 - lavinmqctl didn't recognize 201/204 response codes from set_permissions, set_user_tags and add_vhost
 - Queues will no longer be closed if file size is incorrect. Fixes [#669](https://github.com/cloudamqp/lavinmq/issues/669)
 - Improved logging
 - Won't choke on empty message files on boot [#685](https://github.com/cloudamqp/lavinmq/issues/685)
 - Won't choke on somewhat too large message files on boot [#671](https://github.com/cloudamqp/lavinmq/issues/671)
 
-### Changed
+### Added
 
-- Replaced HTTP router with an internal one. Now LavinMQ uses 0 external libraries.
-- Specs are more reliable when a new server is started for each spec
-- LavinMQ never sets TLS ciphers by it self, custom ciphers have to be configured via the config
+- Can view which messages are unacked in each queue (HTTP and UI) [#712](https://github.com/cloudamqp/lavinmq/pull/712)
+- Tags and descriptions on VHosts
+- Can pass an array of URLs to Shovel
+
+## [2.0.0-rc.3] - 2024-07-12
+
+See https://github.com/cloudamqp/lavinmq/releases/tag/v2.0.0-rc.3 for changes in this pre-release
+
+## [2.0.0-rc.2] - 2024-07-05
+
+See https://github.com/cloudamqp/lavinmq/releases/tag/v2.0.0-rc.2 for changes in this pre-release
+
+## [2.0.0-rc.1] - 2024-06-25
+
+See https://github.com/cloudamqp/lavinmq/releases/tag/v2.0.0-rc.1 for changes in this pre-release
 
 ## [1.2.14] - 2024-06-15
 
