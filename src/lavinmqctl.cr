@@ -124,16 +124,6 @@ class LavinMQCtl
         @args["x-persist-ms"] = JSON::Any.new(v.to_i64)
       end
     end
-    @parser.on("reset_vhost", "Purges all messages in all queues in the vhost and close all consumers, optionally back up the data") do
-      @cmd = "reset_vhost"
-      self.banner = "Usage: #{PROGRAM_NAME} reset_vhost <vhost>"
-      @parser.on("--backup-data", "Backup the vhost data folder") do
-        @options["backup"] = "true"
-      end
-      @parser.on("--backup-dir-name=", "Name of the backup folder, defaults to current unix timestamp") do |v|
-        @options["backup-dir-name"] = v
-      end
-    end
     @parser.on("status", "Display server status") do
       @cmd = "status"
     end
@@ -174,7 +164,6 @@ class LavinMQCtl
     when "list_vhosts"           then list_vhosts
     when "add_vhost"             then add_vhost
     when "delete_vhost"          then delete_vhost
-    when "reset_vhost"           then reset_vhost
     when "clear_policy"          then clear_policy
     when "list_policies"         then list_policies
     when "set_policy"            then set_policy
