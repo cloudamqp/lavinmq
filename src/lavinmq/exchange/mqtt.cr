@@ -32,40 +32,44 @@ module LavinMQ
       super(vhost, name, true, false, true)
     end
 
+    def publish(msg : Message, immediate : Bool,
+                queues : Set(Queue) = Set(Queue).new,
+                exchanges : Set(Exchange) = Set(Exchange).new) : Int32
+      raise LavinMQ::Exchange::AccessRefused.new(self)
+    end
+
     def publish(packet : MQTT::Publish) : Int32
+      @publish_in_count += 1
+
       headers = AMQP::Table.new.tap do |h|
         h["x-mqtt-retain"] = true if packet.retain?
       end
       properties = AMQP::Properties.new(headers: headers).tap do |p|
         p.delivery_mode = packet.qos if packet.responds_to?(:qos)
       end
-      publish Message.new("mqtt.default", packet.topic, String.new(packet.payload), properties), false
-    end
 
-    private def do_publish(msg : Message, immediate : Bool,
-                           queues : Set(Queue) = Set(Queue).new,
-                           exchanges : Set(Exchange) = Set(Exchange).new) : Int32
+      timestamp = RoughTime.unix_ms
+      bodysize = packet.payload.size.to_u64
+      body = IO::Memory.new(bodysize)
+      body.write(packet.payload)
+      body.rewind
+
+      @retain_store.retain(packet.topic, body, bodysize) if packet.retain?
+
+      body.rewind
+      msg = Message.new(timestamp, "mqtt.default", packet.topic, properties, bodysize, body)
+
       count = 0
-      if msg.properties.try &.headers.try &.["x-mqtt-retain"]?
-        @retain_store.retain(msg.routing_key, msg.body_io, msg.bodysize)
-      end
-
-      @tree.each_entry(msg.routing_key) do |queue, qos|
+      @tree.each_entry(packet.topic) do |queue, qos|
         msg.properties.delivery_mode = qos
         if queue.publish(msg)
           count += 1
           msg.body_io.seek(-msg.bodysize.to_i64, IO::Seek::Current) # rewind
         end
       end
+      @unroutable_count += 1 if count.zero?
+      @publish_out_count += count
       count
-    end
-
-    def topicfilter_to_routingkey(tf) : String
-      tf.tr("/+", ".*")
-    end
-
-    def routing_key_to_topic(routing_key : String) : String
-      routing_key.tr(".*", "/+")
     end
 
     def bindings_details : Iterator(BindingDetails)
