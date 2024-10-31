@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Remove the 'reset vhost' feature [#822](https://github.com/cloudamqp/lavinmq/pull/822/files)
+
 ## [2.0.0-rc.5] - 2024-10-28
 
 ### Fixed
