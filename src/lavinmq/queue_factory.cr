@@ -2,6 +2,8 @@ require "./amqp/queue"
 require "./amqp/queue/priority_queue"
 require "./amqp/queue/durable_queue"
 require "./amqp/queue/stream_queue"
+require "../mqtt/session"
+require "../prefix_validation"
 
 module LavinMQ
   class QueueFactory
@@ -16,7 +18,7 @@ module LavinMQ
     end
 
     private def self.make_durable(vhost, frame)
-      validate_mqtt_queue_name frame
+      raise Error::PreconditionFailed.new("Not allowed to use that prefix") if PrefixValidation.invalid?(frame.queue_name) && !mqtt_session?(frame)
       if prio_queue? frame
         AMQP::DurablePriorityQueue.new(vhost, frame.queue_name, frame.exclusive, frame.auto_delete, frame.arguments)
       elsif stream_queue? frame
@@ -35,7 +37,7 @@ module LavinMQ
     end
 
     private def self.make_queue(vhost, frame)
-      validate_mqtt_queue_name frame
+      raise Error::PreconditionFailed.new("Not allowed to use that prefix") if PrefixValidation.invalid?(frame.queue_name) && !mqtt_session?(frame)
       if prio_queue? frame
         AMQP::PriorityQueue.new(vhost, frame.queue_name, frame.exclusive, frame.auto_delete, frame.arguments)
       elsif stream_queue? frame
@@ -69,12 +71,6 @@ module LavinMQ
 
     private def self.mqtt_session?(frame) : Bool
       frame.arguments["x-queue-type"]? == "mqtt"
-    end
-
-    private def self.validate_mqtt_queue_name(frame)
-      if frame.queue_name.starts_with?("mqtt.") && !mqtt_session?(frame)
-        raise Error::PreconditionFailed.new("Only MQTT sessions can create queues with the prefix 'mqtt.'")
-      end
     end
   end
 end
