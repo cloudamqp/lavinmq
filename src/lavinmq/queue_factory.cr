@@ -2,8 +2,8 @@ require "./amqp/queue"
 require "./amqp/queue/priority_queue"
 require "./amqp/queue/durable_queue"
 require "./amqp/queue/stream_queue"
-require "../mqtt/session"
-require "../prefix_validation"
+require "./mqtt/session"
+require "./prefix_validation"
 
 module LavinMQ
   class QueueFactory
@@ -27,7 +27,7 @@ module LavinMQ
         elsif frame.auto_delete
           raise Error::PreconditionFailed.new("A stream queue cannot be auto-delete")
         end
-        StreamQueue.new(vhost, frame.queue_name, frame.exclusive, frame.auto_delete, frame.arguments)
+        AMQP::StreamQueue.new(vhost, frame.queue_name, frame.exclusive, frame.auto_delete, frame.arguments)
       elsif mqtt_session? frame
         MQTT::Session.new(vhost, frame.queue_name, frame.auto_delete, frame.arguments)
       else
