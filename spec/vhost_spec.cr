@@ -141,53 +141,6 @@ describe LavinMQ::VHost do
       end
     end
   end
-  describe "Purge vhost" do
-    it "should purge all queues in the vhost" do
-      with_amqp_server do |s|
-        with_channel(s) do |ch|
-          x = ch.exchange("purge", "direct")
-          q1 = ch.queue("purge_1", durable: true)
-          q2 = ch.queue("purge_1", durable: true)
-          q1.bind(x.name, q1.name)
-          q2.bind(x.name, q2.name)
-
-          x.publish_confirm "test message 1.1", q1.name
-          x.publish_confirm "test message 2.1", q1.name
-          x.publish_confirm "test message 2.1", q2.name
-          x.publish_confirm "test message 2.2", q2.name
-
-          vhost = s.vhosts["/"]
-          vhost.message_details[:messages].should eq 4
-
-          vhost.purge_queues_and_close_consumers(false, "")
-          vhost.message_details[:messages].should eq 0
-        end
-      end
-    end
-
-    it "should backup the folder on reset" do
-      with_amqp_server do |s|
-        with_channel(s) do |ch|
-          x = ch.exchange("purge", "direct")
-          q1 = ch.queue("purge_1", durable: true)
-          q2 = ch.queue("purge_1", durable: true)
-          q1.bind(x.name, q1.name)
-          q2.bind(x.name, q2.name)
-
-          x.publish_confirm "test message 1.1", q1.name
-          x.publish_confirm "test message 2.1", q1.name
-          x.publish_confirm "test message 2.1", q2.name
-          x.publish_confirm "test message 2.2", q2.name
-
-          vhost = s.vhosts["/"]
-          vhost.purge_queues_and_close_consumers(true, "reset_spec")
-
-          backup_dir = Path.new(vhost.data_dir, "..", "#{vhost.dir}_reset_spec").normalize
-          Dir.exists?(backup_dir).should be_true
-        end
-      end
-    end
-  end
 
   it "can limit queues" do
     with_amqp_server do |s|

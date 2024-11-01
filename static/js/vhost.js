@@ -115,11 +115,3 @@ document.querySelector('#deleteVhost').addEventListener('submit', function (evt)
       .then(() => { window.location = 'vhosts' })
   }
 })
-document.querySelector('#resetVhost').addEventListener('submit', function (evt) {
-  evt.preventDefault()
-  const url = 'api/vhosts/' + urlEncodedVhost + '/purge_and_close_consumers'
-  if (window.confirm('This will purge all queues and close the consumers on this vhost\nAre you sure?')) {
-    HTTP.request('POST', url)
-      .then(() => { window.location = 'vhost#name=' + urlEncodedVhost })
-  }
-})

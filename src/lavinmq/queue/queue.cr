@@ -861,16 +861,6 @@ module LavinMQ
       end
     end
 
-    def purge_and_close_consumers : UInt32
-      # closing all channels will move all unacked back into ready queue
-      # so we are purging all messages from the queue, not only ready
-      consumers = @consumers_lock.synchronize { @consumers.dup }
-      consumers.each(&.channel.close)
-      count = purge
-      notify_consumers_empty(true)
-      count.to_u32
-    end
-
     def purge(max_count : Int = UInt32::MAX) : UInt32
       delete_count = @msg_store_lock.synchronize { @msg_store.purge(max_count) }
       @log.info { "Purged #{delete_count} messages" }
