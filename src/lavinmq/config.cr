@@ -32,14 +32,14 @@ module LavinMQ
     property http_unix_path = ""
     property http_systemd_socket_name = "lavinmq-http.socket"
     property amqp_systemd_socket_name = "lavinmq-amqp.socket"
-    property heartbeat = 300_u16                # second
-    property frame_max = 131_072_u32            # bytes
-    property channel_max = 2048_u16             # number
-    property stats_interval = 5000              # millisecond
-    property stats_log_size = 120               # 10 mins at 5s interval
-    property? set_timestamp = false             # in message headers when receive
-    property socket_buffer_size = 16384         # bytes
-    property? tcp_nodelay = false               # bool
+    property heartbeat = 300_u16        # second
+    property frame_max = 131_072_u32    # bytes
+    property channel_max = 2048_u16     # number
+    property stats_interval = 5000      # millisecond
+    property stats_log_size = 120       # 10 mins at 5s interval
+    property? set_timestamp = false     # in message headers when receive
+    property socket_buffer_size = 16384 # bytes
+    property? tcp_nodelay = false       # bool
     property max_inflight_messages : UInt16 = 65_535
     property segment_size : Int32 = 8 * 1024**2 # bytes
     property? raise_gc_warn : Bool = false
@@ -293,7 +293,6 @@ module LavinMQ
         end
       end
     end
-
 
     private def parse_mgmt(settings)
       settings.each do |config, v|
