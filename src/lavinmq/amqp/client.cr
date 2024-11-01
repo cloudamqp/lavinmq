@@ -551,7 +551,7 @@ module LavinMQ
         elsif frame.exchange_name.empty?
           send_access_refused(frame, "Not allowed to delete the default exchange")
         elsif PrefixValidation.invalid?(frame.exchange_name)
-            send_access_refused(frame, "Not allowed to use that prefix")
+          send_access_refused(frame, "Not allowed to use that prefix")
         elsif !@vhost.exchanges.has_key? frame.exchange_name
           # should return not_found according to spec but we make it idempotent
           send AMQP::Frame::Exchange::DeleteOk.new(frame.channel) unless frame.no_wait

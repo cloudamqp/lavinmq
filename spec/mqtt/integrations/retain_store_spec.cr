@@ -2,12 +2,12 @@ require "../spec_helper"
 
 module MqttSpecs
   extend MqttHelpers
-  alias IndexTree =  LavinMQ::MQTT::TopicTree(String)
+  alias IndexTree = LavinMQ::MQTT::TopicTree(String)
 
   context "retain_store" do
     after_each do
-    # Clear out the retain_store directory
-    FileUtils.rm_rf("tmp/retain_store")
+      # Clear out the retain_store directory
+      FileUtils.rm_rf("tmp/retain_store")
     end
 
     describe "retain" do
