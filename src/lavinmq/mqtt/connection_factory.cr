@@ -51,14 +51,14 @@ module LavinMQ
         nil
       end
 
-        def assign_client_id_to_packet(packet)
-         client_id = "#{Random::Secure.base64(32)}"
-         MQTT::Connect.new(client_id,
-                           packet.clean_session?,
-                           packet.keepalive,
-                           packet.username,
-                           packet.password,
-                           packet.will)
+      def assign_client_id_to_packet(packet)
+        client_id = "#{Random::Secure.base64(32)}"
+        MQTT::Connect.new(client_id,
+          packet.clean_session?,
+          packet.keepalive,
+          packet.username,
+          packet.password,
+          packet.will)
       end
     end
   end
