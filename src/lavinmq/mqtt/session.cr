@@ -1,9 +1,10 @@
-require "../queue"
+require "../amqp/queue/queue"
 require "../error"
 
 module LavinMQ
   module MQTT
-    class Session < Queue
+    class Session < LavinMQ::AMQP::Queue
+      include SortableJSON
       Log = ::LavinMQ::Log.for "mqtt.session"
 
       @clean_session : Bool = false

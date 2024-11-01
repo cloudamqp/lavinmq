@@ -14,7 +14,6 @@ require "./schema"
 require "./event_type"
 require "./stats"
 require "./queue_factory"
-require "./mqtt/session_store"
 require "./mqtt/session"
 
 module LavinMQ
