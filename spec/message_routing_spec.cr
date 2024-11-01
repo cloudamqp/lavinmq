@@ -425,7 +425,7 @@ describe LavinMQ::MQTTExchange do
   it "should only allow Session to bind" do
     with_amqp_server do |s|
       vhost = s.vhosts.create("x")
-      q1 = LavinMQ::Queue.new(vhost, "q1")
+      q1 = LavinMQ::AMQP::Queue.new(vhost, "q1")
       s1 = LavinMQ::MQTT::Session.new(vhost, "q1")
       x = LavinMQ::MQTTExchange.new(vhost, "", LavinMQ::MQTT::RetainStore.new(vhost.data_dir))
       x.bind(s1, "s1", LavinMQ::AMQP::Table.new)

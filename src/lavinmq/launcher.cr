@@ -181,7 +181,7 @@ module LavinMQ
       STDOUT.flush
       @amqp_server.vhosts.each_value do |vhost|
         vhost.queues.each_value do |q|
-          if q = q.as(LavinMQ::AMQP::Queue)
+          if q = (q.as(LavinMQ::AMQP::Queue) || q.as(LavinMQ::MQTT::Session))
             msg_store = q.@msg_store
             msg_store.@segments.each_value &.unmap
             msg_store.@acks.each_value &.unmap
