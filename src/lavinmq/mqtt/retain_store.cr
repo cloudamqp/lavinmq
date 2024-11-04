@@ -54,7 +54,10 @@ module LavinMQ
         # TODO: Device what's the truth: index file or msgs file. Mybe drop the index file and rebuild
         # index from msg files?
         unless msg_file_segments.empty?
-          Log.warn { "unreferenced messages: #{msg_file_segments.join(",")}" }
+          Log.warn { "unreferenced messages will be deleted: #{msg_file_segments.join(",")}" }
+          msg_file_segments.each do |msg_file_name|
+            File.delete? File.join(dir, msg_file_name)
+          end
         end
         # TODO: delete unreferenced messages?
         Log.info { "restoring index done, msg_count = #{msg_count}" }
@@ -116,13 +119,11 @@ module LavinMQ
       end
 
       private def read(file_name : String) : Bytes
-        # @lock.synchronize do
         File.open(File.join(@dir, file_name), "r") do |f|
           body = Bytes.new(f.size)
           f.read_fully(body)
           body
         end
-        # end
       end
 
       def retained_messages
