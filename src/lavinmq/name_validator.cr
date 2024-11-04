@@ -4,8 +4,7 @@ class NameValidator
   PREFIX_LIST = ["mqtt.", "amq."]
 
   def self.valid_prefix?(name)
-    prefix = name[0..name.index(".") || name.size - 1]
-    return true if PREFIX_LIST.includes?(prefix)
+    return true if PREFIX_LIST.any? { |prefix| name.starts_with? prefix }
     return false
   end
 
