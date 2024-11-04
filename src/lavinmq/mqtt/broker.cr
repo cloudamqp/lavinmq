@@ -4,6 +4,7 @@ require "./session"
 require "./sessions"
 require "./retain_store"
 require "../vhost"
+require "./exchange"
 
 module LavinMQ
   module MQTT
@@ -15,7 +16,7 @@ module LavinMQ
         @sessions = Sessions.new(@vhost)
         @clients = Hash(String, Client).new
         @retain_store = RetainStore.new(Path[@vhost.data_dir].join("mqtt_reatined_store").to_s)
-        @exchange = MQTTExchange.new(@vhost, "mqtt.default", @retain_store)
+        @exchange = MQTT::Exchange.new(@vhost, "mqtt.default", @retain_store)
         @vhost.exchanges["mqtt.default"] = @exchange
       end
 
