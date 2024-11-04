@@ -9,8 +9,8 @@ module LavinMQ::AMQP
       property max_age : Time::Span | Time::MonthSpan | Nil
       getter last_offset : Int64
       @segment_last_ts = Hash(UInt32, Int64).new(0i64) # used for max-age
-      @offset_index : Hash(UInt32, Int64) # segment_id => offset of first msg
-      @offset_index_ts : Hash(UInt32, Int64) # segment_id => ts of first msg
+      @offset_index : Hash(UInt32, Int64)              # segment_id => offset of first msg
+      @offset_index_ts : Hash(UInt32, Int64)           # segment_id => ts of first msg
 
       def initialize(*args, **kwargs)
         super
