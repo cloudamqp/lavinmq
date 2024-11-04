@@ -654,10 +654,6 @@ module LavinMQ
       @shovels.not_nil!
     end
 
-    def sessions
-      @sessions.not_nil!
-    end
-
     def event_tick(event_type)
       case event_type
       in EventType::ChannelClosed        then @channel_closed_count += 1
