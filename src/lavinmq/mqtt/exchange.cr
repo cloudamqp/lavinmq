@@ -6,9 +6,9 @@ require "./retain_store"
 module LavinMQ
   module MQTT
     class Exchange < Exchange
-      struct MqttBindingKey
+      struct BindingKey
         def initialize(routing_key : String, arguments : AMQP::Table? = nil)
-          @binding_key = BindingKey.new(routing_key, arguments)
+          @binding_key = LavinMQ::BindingKey.new(routing_key, arguments)
         end
 
         def inner
@@ -20,7 +20,7 @@ module LavinMQ
         end
       end
 
-      @bindings = Hash(MqttBindingKey, Set(MQTT::Session)).new do |h, k|
+      @bindings = Hash(BindingKey, Set(MQTT::Session)).new do |h, k|
         h[k] = Set(MQTT::Session).new
       end
       @tree = MQTT::SubscriptionTree(MQTT::Session).new
@@ -88,7 +88,7 @@ module LavinMQ
 
       def bind(destination : MQTT::Session, routing_key : String, headers = nil) : Bool
         qos = headers.try { |h| h["x-mqtt-qos"]?.try(&.as(UInt8)) } || 0u8
-        binding_key = MqttBindingKey.new(routing_key, headers)
+        binding_key = BindingKey.new(routing_key, headers)
         @bindings[binding_key].add destination
         @tree.subscribe(routing_key, destination, qos)
 
@@ -98,7 +98,7 @@ module LavinMQ
       end
 
       def unbind(destination : MQTT::Session, routing_key, headers = nil) : Bool
-        binding_key = MqttBindingKey.new(routing_key, headers)
+        binding_key = BindingKey.new(routing_key, headers)
         rk_bindings = @bindings[binding_key]
         rk_bindings.delete destination
         @bindings.delete binding_key if rk_bindings.empty?
