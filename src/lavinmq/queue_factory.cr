@@ -3,7 +3,7 @@ require "./amqp/queue/priority_queue"
 require "./amqp/queue/durable_queue"
 require "./amqp/queue/stream_queue"
 require "./mqtt/session"
-require "./prefix_validation"
+require "./name_validator"
 
 module LavinMQ
   class QueueFactory

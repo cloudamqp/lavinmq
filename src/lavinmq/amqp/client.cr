@@ -4,7 +4,7 @@ require "./channel"
 require "../client"
 require "../error"
 require "../logger"
-require "../prefix_validation.cr"
+require "../name_validator.cr"
 
 module LavinMQ
   module AMQP
@@ -509,7 +509,7 @@ module LavinMQ
       end
 
       private def declare_exchange(frame)
-        if !valid_entity_name(frame.exchange_name)
+        if !NameValidator.valid_entity_name(frame.exchange_name)
           send_precondition_failed(frame, "Exchange name isn't valid")
         elsif frame.exchange_name.empty?
           send_access_refused(frame, "Not allowed to declare the default exchange")
@@ -517,7 +517,7 @@ module LavinMQ
           redeclare_exchange(e, frame)
         elsif frame.passive
           send_not_found(frame, "Exchange '#{frame.exchange_name}' doesn't exists")
-        elsif PrefixValidation.invalid?(frame.exchange_name)
+        elsif NameValidator.valid_prefix?(frame.exchange_name)
           send_access_refused(frame, "Not allowed to use that prefix")
         else
           ae = frame.arguments["x-alternate-exchange"]?.try &.as?(String)
@@ -546,11 +546,11 @@ module LavinMQ
       end
 
       private def delete_exchange(frame)
-        if !valid_entity_name(frame.exchange_name)
+        if !NameValidator.valid_entity_name(frame.exchange_name)
           send_precondition_failed(frame, "Exchange name isn't valid")
         elsif frame.exchange_name.empty?
           send_access_refused(frame, "Not allowed to delete the default exchange")
-        elsif PrefixValidation.invalid?(frame.exchange_name)
+        elsif NameValidator.valid_prefix?(frame.exchange_name)
           send_access_refused(frame, "Not allowed to use that prefix")
         elsif !@vhost.exchanges.has_key? frame.exchange_name
           # should return not_found according to spec but we make it idempotent
@@ -570,7 +570,7 @@ module LavinMQ
         if frame.queue_name.empty? && @last_queue_name
           frame.queue_name = @last_queue_name.not_nil!
         end
-        if !valid_entity_name(frame.queue_name)
+        if !NameValidator.valid_entity_name(frame.queue_name)
           send_precondition_failed(frame, "Queue name isn't valid")
           return
         end
@@ -593,17 +593,12 @@ module LavinMQ
         end
       end
 
-      private def valid_entity_name(name) : Bool
-        return true if name.empty?
-        name.matches?(/\A[ -~]*\z/)
-      end
-
       def queue_exclusive_to_other_client?(q)
         q.exclusive? && !@exclusive_queues.includes?(q)
       end
 
       private def declare_queue(frame)
-        if !frame.queue_name.empty? && !valid_entity_name(frame.queue_name)
+        if !frame.queue_name.empty? && !NameValidator.valid_entity_name(frame.queue_name)
           send_precondition_failed(frame, "Queue name isn't valid")
         elsif q = @vhost.queues.fetch(frame.queue_name, nil)
           redeclare_queue(frame, q)
@@ -620,7 +615,7 @@ module LavinMQ
           end
         elsif frame.passive
           send_not_found(frame, "Queue '#{frame.queue_name}' doesn't exists")
-        elsif PrefixValidation.invalid?(frame.queue_name)
+        elsif NameValidator.valid_prefix?(frame.queue_name)
           send_access_refused(frame, "Not allowed to use that prefix")
         elsif @vhost.max_queues.try { |max| @vhost.queues.size >= max }
           send_access_refused(frame, "queue limit in vhost '#{@vhost.name}' (#{@vhost.max_queues}) is reached")
@@ -737,10 +732,10 @@ module LavinMQ
       end
 
       private def valid_q_bind_unbind?(frame) : Bool
-        if !valid_entity_name(frame.queue_name)
+        if !NameValidator.valid_entity_name(frame.queue_name)
           send_precondition_failed(frame, "Queue name isn't valid")
           return false
-        elsif !valid_entity_name(frame.exchange_name)
+        elsif !NameValidator.valid_entity_name(frame.exchange_name)
           send_precondition_failed(frame, "Exchange name isn't valid")
           return false
         end
@@ -795,7 +790,7 @@ module LavinMQ
           send_access_refused(frame, "User doesn't have write permissions to queue '#{frame.queue_name}'")
           return
         end
-        if !valid_entity_name(frame.queue_name)
+        if !NameValidator.valid_entity_name(frame.queue_name)
           send_precondition_failed(frame, "Queue name isn't valid")
         elsif q = @vhost.queues.fetch(frame.queue_name, nil)
           if queue_exclusive_to_other_client?(q)
@@ -821,7 +816,7 @@ module LavinMQ
         if frame.queue.empty? && @last_queue_name
           frame.queue = @last_queue_name.not_nil!
         end
-        if !valid_entity_name(frame.queue)
+        if !NameValidator.valid_entity_name(frame.queue)
           send_precondition_failed(frame, "Queue name isn't valid")
           return
         end
@@ -836,7 +831,7 @@ module LavinMQ
         if frame.queue.empty? && @last_queue_name
           frame.queue = @last_queue_name.not_nil!
         end
-        if !valid_entity_name(frame.queue)
+        if !NameValidator.valid_entity_name(frame.queue)
           send_precondition_failed(frame, "Queue name isn't valid")
           return
         end
