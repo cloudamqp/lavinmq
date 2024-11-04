@@ -2,7 +2,7 @@ require "uri"
 require "../controller"
 require "../binding_helpers"
 require "../../unacked_message"
-require "../../prefix_validation"
+require "../../name_validator"
 
 module LavinMQ
   module HTTP
@@ -81,7 +81,7 @@ module LavinMQ
                 bad_request(context, "Existing queue declared with other arguments arg")
               end
               context.response.status_code = 204
-            elsif PrefixValidation.invalid?(name)
+            elsif NameValidator.valid_prefix?(name)
               bad_request(context, "Not allowed to use that prefix")
             elsif name.bytesize > UInt8::MAX
               bad_request(context, "Queue name too long, can't exceed 255 characters")
