@@ -18,7 +18,6 @@ module LavinMQ
     end
 
     private def self.make_durable(vhost, frame)
-      raise Error::PreconditionFailed.new("Not allowed to use that prefix") if PrefixValidation.invalid?(frame.queue_name) && !mqtt_session?(frame)
       if prio_queue? frame
         AMQP::DurablePriorityQueue.new(vhost, frame.queue_name, frame.exclusive, frame.auto_delete, frame.arguments)
       elsif stream_queue? frame
@@ -37,7 +36,6 @@ module LavinMQ
     end
 
     private def self.make_queue(vhost, frame)
-      raise Error::PreconditionFailed.new("Not allowed to use that prefix") if PrefixValidation.invalid?(frame.queue_name) && !mqtt_session?(frame)
       if prio_queue? frame
         AMQP::PriorityQueue.new(vhost, frame.queue_name, frame.exclusive, frame.auto_delete, frame.arguments)
       elsif stream_queue? frame
