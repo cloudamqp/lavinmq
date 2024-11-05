@@ -1,12 +1,17 @@
 <header class="text-light-400 bg-dark-900">
   <div id="menu-header">
     <a class="lavinmq-logo" href="/"><img alt="LavinMQ logo" id="logo" src="img/logo-lavinmq-all-white.svg" width="120" height="24"></a>
-    <span class="version-tab" id="version">v<%= LavinMQ::VERSION %></span>
+    <span class="version-tab" id="version"><%= LavinMQ::VERSION %></span>
   </div>
   <nav id="user-menu">
     <ul>
-      <li><span id="username"></span></li>
-      <li>
+      <li class="flex flex-row items-center">
+        <div class="flex flex-col">
+          <span class="sm-label">User</span>
+          <span class="font-semibold" id="username"></span>
+        </div>
+      </li>
+      <li class="flex flex-row items-center">
         <form id="user-vhost">
           <label>
             <span>vhost:</span>
@@ -24,11 +29,6 @@
   <div class="r-c"><div class="r-c-inner"></div></div>
 </header>
 <nav id="menu">
-  <!--<h1 id="menu-header">
-    <a href="/"><img alt="LavinMQ logo" id="logo" src="img/logo-lavinmq-all-white.svg" width="120" height="24"></a>
-    <span class="version-tab">v2.0.0</span>
-    <small id="version"><%= LavinMQ::VERSION %></small>
-  </h1>-->
   <button id="menu-button"></button>
   <ul id="menu-content">
     <% {

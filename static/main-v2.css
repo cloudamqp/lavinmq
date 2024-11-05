@@ -1075,6 +1075,34 @@ footer .logo {
 
 #user-menu ul {
   margin: 0;
+  /* M */
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+}
+
+#user-menu ul li:after {
+  content: '';
+  width: 1px;
+  height: 24px;
+  background: #2D2C2C;
+  margin-left: 16px;
+}
+
+#user-menu ul li:last-child {
+  font-weight: 600;
+}
+
+#user-menu ul li:last-child:after {
+  display: none;
+}
+
+#user-menu .flex {
+  display: inline-flex;
+}
+
+.sm-label {
+  font-size: 0.75rem;
 }
 
 #user-menu a:hover {
@@ -1092,7 +1120,7 @@ footer .logo {
 
 #user-menu li {
   display: inline-block;
-  margin: 0 5px;
+  margin: 0 8px;
 }
 
 #user-info {
@@ -1663,12 +1691,13 @@ fieldset.inline {
   position: absolute;
   top: 20px;
   right: 20px;
-  background: white;
+  background: #2d2c2c;
   padding: 15px;
-  border: 1px solid #ddd;
+  border: 1px solid #414040;
   border-radius: 3px;
   overflow: visible;
   z-index: 99;
+  color: #f7f5f2;
 }
 
 .tooltip .close {
@@ -1817,17 +1846,4 @@ pre.arguments > div {
   margin-left: 8px;
   margin-right: 8px;
   font-weight: 600;
-}
-
-.version-tab:before {
-  content: "";
-  width: 6px;
-  height: 6px;
-  display: inline-block;
-  background: #44fc70;
-  border-radius: 80px;
-  margin-right: 8px;
-  position: relative;
-  top: -1px;
-  display: none;
 }

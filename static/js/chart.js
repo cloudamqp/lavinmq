@@ -11,8 +11,10 @@ Chart.register(Tooltip)
 Chart.register(Title)
 Chart.register(Filler)
 
-const chartColors = ['#003f5c', '#ffa600', '#665191', '#a05195', '#d45087', '#f95d6a', '#ff7c43', '#2f4b7c',
-  '#EE6868', '#2F6497', '#6C8893']
+//const chartColors = ['#003f5c', '#ffa600', '#665191', '#a05195', '#d45087', '#f95d6a', '#ff7c43', '#2f4b7c',
+  //'#EE6868', '#2F6497', '#6C8893']
+const chartColors = ['#54be7e', '#4589ff', '#d12771', '#d2a106', '#08bdba', '#bae6ff', '#ba4e00',
+  '#d4bbff', '#8a3ffc', '#33b1ff', '#007d79']
 
 const POLLING_RATE = 5000
 const X_AXIS_LENGTH = 600000 // 10 min
