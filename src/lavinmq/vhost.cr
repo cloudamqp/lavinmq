@@ -369,18 +369,68 @@ module LavinMQ
       upstreams.stop_all
     end
 
+    private def close_connections(reason, close_done : Channel(Nil))
+      ch = Channel(Client).new
+      wg = WaitGroup.new
+
+      fiber_count = 0
+      spawn_close_fiber = -> do
+        fiber_id = (fiber_count &+= 1)
+        @log.trace { "Spawn close fiber #{fiber_id}" }
+        wg.add
+        spawn(name: "vhost close connection #{fiber_id}") do
+          loop do
+            select
+            when client = ch.receive
+              client.close(reason)
+            when timeout 50.milliseconds
+              break
+            end
+          rescue
+          end
+          wg.done
+          @log.trace { "Exit close fiber #{fiber_id}" }
+        end
+      end
+
+      {@connections.size, 100}.min.times do
+        spawn_close_fiber.call
+      end
+
+      @connections.each do |client|
+        loop do
+          select
+          when ch.send client
+            break
+          when timeout 200.milliseconds
+            # Spawn more fibers if all current are too busy closing "zombies"
+            spawn_close_fiber.call
+          end
+        end
+      end
+
+      wg.wait
+      ch.close
+      close_done.try &.close
+    end
+
     def close(reason = "Broker shutdown")
       @closed = true
       stop_shovels
       stop_upstream_links
-      Fiber.yield
+
       @log.debug { "Closing connections" }
-      @connections.each &.close(reason)
-      # wait up to 10s for clients to gracefully close
-      100.times do
-        break if @connections.empty?
-        sleep 0.1.seconds
+      close_done = Channel(Nil).new
+      close_connections reason, close_done
+      @log.debug { "Close sent to all connections" }
+
+      select
+      when close_done.receive?
+        @log.debug { "All connections closed gracefully" }
+      when timeout 10.seconds
+        @log.warn { "Timeout waiting for connections to close. #{@connections.size} left." }
       end
+
       # then force close the remaining (close tcp socket)
       @connections.each &.force_close
       Fiber.yield # yield so that Client read_loops can shutdown

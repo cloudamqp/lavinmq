@@ -429,8 +429,6 @@ module LavinMQ
 
         send AMQP::Frame::Connection::Close.new(320_u16, "CONNECTION_FORCED - #{reason}", 0_u16, 0_u16)
         @running = false
-
-        socket.close
       end
 
       def force_close
