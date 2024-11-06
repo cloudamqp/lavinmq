@@ -69,7 +69,7 @@ module LavinMQ
                 bad_request(context, "Not allowed to publish to internal exchange")
               end
               context.response.status_code = 204
-            elsif NameValidator.valid_prefix?(name)
+            elsif NameValidator.reserved_prefix?(name)
               bad_request(context, "Not allowed to use that prefix")
             elsif name.bytesize > UInt8::MAX
               bad_request(context, "Exchange name too long, can't exceed 255 characters")

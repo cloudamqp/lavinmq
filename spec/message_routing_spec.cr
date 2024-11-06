@@ -421,6 +421,7 @@ describe LavinMQ::Exchange do
     end
   end
 end
+
 describe LavinMQ::MQTT::Exchange do
   it "should only allow Session to bind" do
     with_amqp_server do |s|
