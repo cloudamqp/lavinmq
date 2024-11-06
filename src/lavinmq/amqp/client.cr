@@ -517,7 +517,7 @@ module LavinMQ
           redeclare_exchange(e, frame)
         elsif frame.passive
           send_not_found(frame, "Exchange '#{frame.exchange_name}' doesn't exists")
-        elsif NameValidator.valid_prefix?(frame.exchange_name)
+        elsif NameValidator.reserved_prefix?(frame.exchange_name)
           send_access_refused(frame, "Not allowed to use that prefix")
         else
           ae = frame.arguments["x-alternate-exchange"]?.try &.as?(String)
@@ -550,7 +550,7 @@ module LavinMQ
           send_precondition_failed(frame, "Exchange name isn't valid")
         elsif frame.exchange_name.empty?
           send_access_refused(frame, "Not allowed to delete the default exchange")
-        elsif NameValidator.valid_prefix?(frame.exchange_name)
+        elsif NameValidator.reserved_prefix?(frame.exchange_name)
           send_access_refused(frame, "Not allowed to use that prefix")
         elsif !@vhost.exchanges.has_key? frame.exchange_name
           # should return not_found according to spec but we make it idempotent
@@ -615,7 +615,7 @@ module LavinMQ
           end
         elsif frame.passive
           send_not_found(frame, "Queue '#{frame.queue_name}' doesn't exists")
-        elsif NameValidator.valid_prefix?(frame.queue_name)
+        elsif NameValidator.reserved_prefix?(frame.queue_name)
           send_access_refused(frame, "Not allowed to use that prefix")
         elsif @vhost.max_queues.try { |max| @vhost.queues.size >= max }
           send_access_refused(frame, "queue limit in vhost '#{@vhost.name}' (#{@vhost.max_queues}) is reached")
