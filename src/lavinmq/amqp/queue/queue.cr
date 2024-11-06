@@ -850,9 +850,9 @@ module LavinMQ::AMQP
           delete
         else
           notify_consumers_empty(true)
-          #          @msg_store_lock.synchronize do
-          #            @msg_store.unmap_segments
-          #          end
+          @msg_store_lock.synchronize do
+            @msg_store.unmap_segments
+          end
         end
       end
     end
