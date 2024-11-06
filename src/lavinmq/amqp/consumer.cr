@@ -186,6 +186,8 @@ module LavinMQ
         end
       end
 
+      @deliver_wg = WaitGroup.new
+
       def deliver(msg, sp, redelivered = false, recover = false)
         unless @no_ack || recover
           @unacked += 1
