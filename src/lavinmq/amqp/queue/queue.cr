@@ -745,7 +745,7 @@ module LavinMQ::AMQP
     end
 
     def unacked_messages
-     unacked_messages = consumers.each.select(AMQP::Consumer).flat_map do |c|
+      unacked_messages = consumers.each.select(AMQP::Consumer).flat_map do |c|
         c.unacked_messages.each.compact_map do |u|
           next unless u.queue == self
           if consumer = u.consumer
