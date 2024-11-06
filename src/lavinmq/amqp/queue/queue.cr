@@ -744,6 +744,18 @@ module LavinMQ::AMQP
       end
     end
 
+    def unacked_messages
+     unacked_messages = consumers.each.select(AMQP::Consumer).flat_map do |c|
+        c.unacked_messages.each.compact_map do |u|
+          next unless u.queue == self
+          if consumer = u.consumer
+            UnackedMessage.new(c.channel, u.tag, u.delivered_at, consumer.tag)
+          end
+        end
+      end
+      unacked_messages = unacked_messages.chain(self.basic_get_unacked.each)
+    end
+
     private def with_delivery_count_header(env) : Envelope?
       if limit = @delivery_limit
         sp = env.segment_position
