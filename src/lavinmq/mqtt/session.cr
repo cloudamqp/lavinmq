@@ -72,6 +72,10 @@ module LavinMQ
         !clean_session?
       end
 
+      def unacked_messages
+        Iterator(UnackedMessage).empty
+      end
+
       def subscribe(tf, qos)
         arguments = AMQP::Table.new({"x-mqtt-qos": qos})
         if binding = find_binding(tf)
