@@ -3,7 +3,7 @@
 
 # ![LavinMQ](static/img/logo-lavinmq.svg)
 
-A message queue server that implements the AMQP 0-9-1 protocol.
+A message queue & streaming server that implements the AMQP 0-9-1 protocol.
 Written in [Crystal](https://crystal-lang.org/).
 
 Aims to be very fast, has low RAM requirements, handles very long queues,
@@ -225,10 +225,7 @@ For questions or suggestions:
 - Single active consumer
 - Replication
 - Stream queues
-
-Currently missing but planned features
-
-- Automatic leader election in clusters
+- Automatic leader election in clusters via etcd
 
 ### Known differences to other AMQP servers
 
