@@ -84,7 +84,7 @@ module LavinMQ
           end
           File.rename tmp_file, File.join(@dir, msg_file_name)
         ensure
-        FileUtils.rm_rf tmp_file unless tmp_file.nil?
+          FileUtils.rm_rf tmp_file unless tmp_file.nil?
         end
       end
 
