@@ -23,7 +23,12 @@ watch-views:
 	while true; do $(MAKE) -q -s views || $(MAKE) -j views; sleep 0.5; done
 
 .PHONY: dev-ui
-dev-ui: livereload watch-views
+dev-ui:
+	@trap '$(MAKE) clean-views; trap - EXIT' EXIT INT TERM; \
+	 $(MAKE) livereload & \
+	 livereload_pid=$$!; \
+	 $(MAKE) watch-views; \
+	 wait $$livereload_pid
 
 static/views/%.html: views/%.ecr $(VIEW_PARTIALS)
 	@mkdir -p static/views
