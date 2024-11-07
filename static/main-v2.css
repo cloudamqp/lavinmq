@@ -47,7 +47,7 @@
 }
 
 body {
-  background-color: #101010;
+  background-color: #181818;
   color: var(--font-color);
   font-size: 10pt;
   -webkit-font-smoothing: antialiased;
@@ -231,6 +231,7 @@ header h2 {
 /* Utility classes */
 .bg-dark-900 {
   background-color: #161616;
+  background-color: #1D1D1D;
 }
 
 .bg-dark-600 {
@@ -623,7 +624,7 @@ header h2 {
   position: absolute;
   bottom: -16px;
   left: 320px;
-  background: #161616;
+  background: #1D1D1D;
   overflow: hidden;
 }
 
@@ -634,7 +635,7 @@ header h2 {
   position: absolute;
   top: 0;
   left: 0;
-  background: #101010;
+  background: #181818;
 }
 
 .tooltip-icon {
@@ -721,7 +722,7 @@ header h2 {
 #menu {
   grid-column: 1 / span 1;
   grid-row: 1 / span 4;
-  background-color: #161616;
+  background-color: #1D1D1D;
   --font-color: #9d9c9a;
   --highlight-color: #2d2c2c;
   color: var(--font-color);
@@ -759,7 +760,6 @@ footer .logo {
   flex-direction: row;
   font-size: 14px;
   line-height: 24px;
-  background: #161616;
   border-radius: 12px;
   padding: 1.75rem 1.5rem;
   align-items: center;
@@ -1281,13 +1281,11 @@ footer .logo {
 }
 
 .table tbody tr:nth-of-type(odd) {
-  background-color: #fafafa;
-  background-color: #1D1D1D;
+  background-color: #242424;
 }
 
 .table tbody tr:nth-of-type(even) {
-  background-color: #fff;
-  background-color: #161616;
+  background-color: #1D1D1D;
 }
 
 [id$="-error"] {
