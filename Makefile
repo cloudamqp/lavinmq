@@ -27,7 +27,7 @@ dev-ui:
 	@trap '$(MAKE) clean-views; trap - EXIT' EXIT INT TERM; \
 	 $(MAKE) livereload & \
 	 livereload_pid=$$!; \
-	 $(MAKE) watch-views; \
+	 $(MAKE) -s watch-views; \
 	 wait $$livereload_pid
 
 static/views/%.html: views/%.ecr $(VIEW_PARTIALS)
