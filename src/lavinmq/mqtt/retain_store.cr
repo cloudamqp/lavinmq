@@ -77,10 +77,12 @@ module LavinMQ
             add_to_index(topic, msg_file_name)
           end
 
-          File.open(File.join(@dir, msg_file_name), "w+") do |f|
+          tmp_file = File.join(@dir, "#{msg_file_name}.tmp")
+          File.open(tmp_file, "w+") do |f|
             f.sync = true
             ::IO.copy(body_io, f)
           end
+          File.rename tmp_file, File.join(@dir, msg_file_name)
         end
       end
 
