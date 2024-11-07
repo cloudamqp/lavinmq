@@ -419,14 +419,14 @@ module LavinMQ
       stop_shovels
       stop_upstream_links
 
-      @log.debug { "Closing connections" }
+      @log.info { "Closing connections" }
       close_done = Channel(Nil).new
       close_connections reason, close_done
       @log.debug { "Close sent to all connections" }
 
       select
       when close_done.receive?
-        @log.debug { "All connections closed gracefully" }
+        @log.info { "All connections closed gracefully" }
       when timeout 10.seconds
         @log.warn { "Timeout waiting for connections to close. #{@connections.size} left." }
       end
