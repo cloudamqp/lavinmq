@@ -1210,7 +1210,6 @@ footer .logo {
 
 .table th {
   font-weight: normal;
-  border-bottom: 1px solid var(--font-color-dark);
   border-bottom: 1px solid #CBCAC7;
   padding: 0.75rem 1.15rem 0.5rem 0.75rem;
 }
@@ -1298,7 +1297,7 @@ footer .logo {
 }
 
 .table-multihead {
-  box-shadow: inset -9px 0px 0px 0px #161616,
+  box-shadow: inset -9px 0px 0px 0px #1D1D1D,
     inset -10px 0px 0px 0px var(--font-color-dark);
 }
 
