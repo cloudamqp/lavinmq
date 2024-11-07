@@ -83,6 +83,8 @@ module LavinMQ
             ::IO.copy(body_io, f)
           end
           File.rename tmp_file, File.join(@dir, msg_file_name)
+        ensure
+        FileUtils.rm_rf tmp_file unless tmp_file.nil?
         end
       end
 
