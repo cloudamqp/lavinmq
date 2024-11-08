@@ -296,6 +296,7 @@ module LavinMQ
           end
           @log.debug { "Loaded #{count}/#{ack_files} ack files" } if (count += 1) % 128 == 0
           @deleted[seg] = acked.sort! unless acked.empty?
+          Fiber.yield
         end
         @log.debug { "Loaded #{count} ack files" }
       end
@@ -344,6 +345,7 @@ module LavinMQ
           end
           file.pos = 4
           @segments[seg] = file
+          Fiber.yield
         end
       end
 
@@ -378,6 +380,7 @@ module LavinMQ
           else
             @log.debug { "Loaded #{counter}/#{@segments.size} segments" } if (counter &+= 1) % 128 == 0
           end
+          Fiber.yield
           @segment_msg_count[seg] = count
         end
         @log.info { "Loaded #{counter} segments" }
@@ -405,6 +408,7 @@ module LavinMQ
             @replicator.try &.delete_file(mfile.path)
             true
           end
+          Fiber.yield
         end
       end
 
