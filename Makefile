@@ -126,6 +126,12 @@ test: lib
 format:
 	crystal tool format --check
 
+rpm: clean
+	rpmdev-setuptree
+	cp lavinmq.spec ${HOME}/rpmbuild/SPECS
+	tar czvf ${HOME}/rpmbuild/SOURCES/lavinmq.tar.gz -C .. $(notdir $(shell pwd))
+	rpmbuild -ba lavinmq.spec
+
 DESTDIR :=
 PREFIX := /usr
 BINDIR := $(PREFIX)/bin
