@@ -11,9 +11,15 @@ module LavinMQ
 
       alias IndexTree = TopicTree(String)
 
-      def initialize(@dir : String, @index = IndexTree.new)
+      def initialize(@dir : String, @replicator : Clustering::Replicator, @index = IndexTree.new)
         Dir.mkdir_p @dir
+        @files = Hash(String, File).new do |files, file_name|
+          f = files[file_name] = File.new(File.join(@dir, file_name), "w+")
+          f.sync = true
+          f
+        end
         @index_file = File.new(File.join(@dir, INDEX_FILE_NAME), "a+")
+        @replicator.register_file(@index_file)
         @lock = Mutex.new
         @lock.synchronize do
           if @index.empty?
@@ -59,7 +65,6 @@ module LavinMQ
             File.delete? File.join(dir, msg_file_name)
           end
         end
-        # TODO: delete unreferenced messages?
         Log.info { "restoring index done, msg_count = #{msg_count}" }
       end
 
@@ -78,13 +83,10 @@ module LavinMQ
           end
 
           tmp_file = File.join(@dir, "#{msg_file_name}.tmp")
-          File.open(tmp_file, "w+") do |f|
-            f.sync = true
-            ::IO.copy(body_io, f)
-          end
-          File.rename tmp_file, File.join(@dir, msg_file_name)
-        ensure
-          FileUtils.rm_rf tmp_file unless tmp_file.nil?
+          f = @files[msg_file_name]
+          f.pos = 0
+          ::IO.copy(body_io, f)
+          @replicator.replace_file(File.join(@dir, msg_file_name))
         end
       end
 
@@ -96,6 +98,8 @@ module LavinMQ
           end
         end
         File.rename tmp_file, File.join(@dir, INDEX_FILE_NAME)
+        @replicator.replace_file(File.join(@dir, INDEX_FILE_NAME))
+
       ensure
         FileUtils.rm_rf tmp_file unless tmp_file.nil?
       end
@@ -104,12 +108,20 @@ module LavinMQ
         @index.insert topic, file_name
         @index_file.puts topic
         @index_file.flush
+        bytes = Bytes.new(topic.bytesize+1)
+        bytes.copy_from(topic.to_slice)
+        bytes[-1] = 10u8
+        @replicator.append(file_name, bytes)
       end
 
       private def delete_from_index(topic : String) : Nil
         if file_name = @index.delete topic
           Log.trace { "deleted '#{topic}' from index, deleting file #{file_name}" }
-          File.delete? File.join(@dir, file_name)
+          if file = @files.delete(file_name)
+            file.close
+            file.delete
+          end
+          @replicator.delete_file(File.join(@dir, file_name))
         end
       end
 
@@ -123,11 +135,11 @@ module LavinMQ
       end
 
       private def read(file_name : String) : Bytes
-        File.open(File.join(@dir, file_name), "r") do |f|
-          body = Bytes.new(f.size)
-          f.read_fully(body)
-          body
-        end
+        f = @files[file_name]
+        f.pos = 0
+        body = Bytes.new(f.size)
+        f.read_fully(body)
+        body
       end
 
       def retained_messages
