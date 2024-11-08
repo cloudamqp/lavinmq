@@ -60,6 +60,7 @@ module LavinMQ
     property consumer_timeout : UInt64? = nil
     property consumer_timeout_loop_interval = 60 # seconds
     property default_consumer_prefetch = UInt16::MAX
+    property user_storage = "local"
     @@instance : Config = self.new
 
     def self.instance : LavinMQ::Config

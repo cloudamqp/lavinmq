@@ -5,7 +5,7 @@ require "./amqp"
 require "./rough_time"
 require "../stdlib/*"
 require "./vhost_store"
-require "./user_store"
+require "./local_user_store"
 require "./exchange"
 require "./amqp/queue"
 require "./parameter"
@@ -33,7 +33,7 @@ module LavinMQ
     def initialize(@data_dir : String, @replicator = Clustering::NoopServer.new)
       Dir.mkdir_p @data_dir
       Schema.migrate(@data_dir, @replicator)
-      @users = UserStore.new(@data_dir, @replicator)
+      @users = LocalUserStore.new(@data_dir, @replicator)
       @vhosts = VHostStore.new(@data_dir, @users, @replicator)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator)
       @amqp_connection_factory = LavinMQ::AMQP::ConnectionFactory.new
@@ -62,7 +62,7 @@ module LavinMQ
       stop
       Dir.mkdir_p @data_dir
       Schema.migrate(@data_dir, @replicator)
-      @users = UserStore.new(@data_dir, @replicator)
+      @users = LocalUserStore.new(@data_dir, @replicator)
       @vhosts = VHostStore.new(@data_dir, @users, @replicator)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator)
       apply_parameter
