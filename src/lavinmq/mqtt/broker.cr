@@ -11,11 +11,10 @@ module LavinMQ
     class Broker
       getter vhost, sessions
 
-      def initialize(@vhost : VHost)
-        # TODO: remember to block the mqtt namespace
+      def initialize(@vhost : VHost, @replicator : Clustering::Replicator)
         @sessions = Sessions.new(@vhost)
         @clients = Hash(String, Client).new
-        @retain_store = RetainStore.new(Path[@vhost.data_dir].join("mqtt_reatined_store").to_s)
+        @retain_store = RetainStore.new(Path[@vhost.data_dir].join("mqtt_reatined_store").to_s, @replicator)
         @exchange = MQTT::Exchange.new(@vhost, "mqtt.default", @retain_store)
         @vhost.exchanges["mqtt.default"] = @exchange
       end
