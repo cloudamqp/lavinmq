@@ -11,6 +11,7 @@ module LavinMQ
       @acked_bytes = 0_i64
       @sent_bytes = 0_i64
       @actions = Channel(Action).new(Config.instance.clustering_max_unsynced_actions)
+      @closed = false
       getter id = -1
       getter remote_address
 
@@ -63,7 +64,6 @@ module LavinMQ
         rescue IO::Error
           # ignore connection errors while closing
         end
-        @closed.close
       end
 
       private def sync(bytes, socket = @socket) : Nil
@@ -75,6 +75,9 @@ module LavinMQ
       private def read_ack(socket = @socket) : Int64
         len = socket.read_bytes(Int64, IO::ByteFormat::LittleEndian)
         @acked_bytes += len
+        if @closed && lag_in_bytes == 0
+          @closed_change.close
+        end
         len
       end
 
@@ -166,11 +169,14 @@ module LavinMQ
         lag_size
       end
 
-      @closed = Channel(Nil).new
+      @closed_change = Channel(Nil).new
 
       def close
+        @closed = true
         @actions.close
-        @closed.receive?
+        if lag_in_bytes > 0
+          @closed_change.receive?
+        end
       end
 
       def to_json(json : JSON::Builder)
