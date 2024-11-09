@@ -47,7 +47,7 @@ module LavinMQ
         if sort_by = params.fetch("sort", nil)
           sorted_items = all_items.to_a
           filtered_count = sorted_items.size
-          sorted_items.sort_by! { |i| i.dig(sort_by) }
+          sorted_items.sort_by! { |i| i.dig?(sort_by) }
           sorted_items.reverse! if params["sort_reverse"]?.try { |s| !(s =~ /^false$/i) }
           all_items = sorted_items.each
         end
