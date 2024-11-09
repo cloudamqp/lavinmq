@@ -22,14 +22,10 @@ module LavinMQ
         return iterator unless raw_name = params["name"]?
         term = URI.decode_www_form(raw_name)
         if params["use_regex"]?.try { |v| v == "true" }
-          iterator.select { |v| match_value(v).to_s =~ /#{term}/ }
+          iterator.select { |v| v[:name].to_s =~ /#{term}/ }
         else
-          iterator.select { |v| match_value(v).to_s.includes?(term) }
+          iterator.select { |v| v[:name].to_s.includes?(term) }
         end
-      end
-
-      protected def match_value(value)
-        value[:name]? || value["name"]?
       end
 
       MAX_PAGE_SIZE = 10_000
@@ -44,26 +40,14 @@ module LavinMQ
           return context
         end
         iterator = iterator.map do |i|
-          i.details_tuple
-        rescue e
-          {error: e.message}
+          i.metadata
         end
         all_items = filter_values(params, iterator)
-        if sort_by = params.fetch("sort", nil).try &.split(".")
+
+        if sort_by = params.fetch("sort", nil)
           sorted_items = all_items.to_a
           filtered_count = sorted_items.size
-          if first_element = sorted_items.first?
-            {% begin %}
-              case dig(first_element, sort_by)
-                {% for k in {Int32, UInt16, UInt32, UInt64, Float64} %}
-                when {{k.id}}
-                  sorted_items.sort_by! { |i| dig(i, sort_by).as({{k.id}}) }
-                {% end %}
-              else
-                sorted_items.sort_by! { |i| dig(i, sort_by).to_s.downcase }
-              end
-            {% end %}
-          end
+          sorted_items.sort_by! { |i| i.dig(sort_by) }
           sorted_items.reverse! if params["sort_reverse"]?.try { |s| !(s =~ /^false$/i) }
           all_items = sorted_items.each
         end
