@@ -55,7 +55,7 @@ module LavinMQ
           if first_element = sorted_items.first?
             {% begin %}
               case dig(first_element, sort_by)
-                {% for k in {Int32, UInt32, UInt64, Float64} %}
+                {% for k in {Int32, UInt16, UInt32, UInt64, Float64} %}
                 when {{k.id}}
                   sorted_items.sort_by! { |i| dig(i, sort_by).as({{k.id}}) }
                 {% end %}
