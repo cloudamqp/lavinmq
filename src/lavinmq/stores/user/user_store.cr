@@ -1,4 +1,4 @@
-require "../user"
+require "../../user"
 
 module LavinMQ
   abstract class UserStore
