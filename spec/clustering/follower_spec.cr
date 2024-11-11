@@ -184,6 +184,7 @@ module FollowerSpec
         client_socket.write_bytes follower.lag_in_bytes.to_i64, IO::ByteFormat::LittleEndian
         client_socket.flush
         wg.wait
+        follower.lag_in_bytes.should eq 0
         closed.should be_true
       end
     end
