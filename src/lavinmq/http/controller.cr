@@ -40,7 +40,7 @@ module LavinMQ
           return context
         end
         iterator = iterator.map do |i|
-          i.metadata
+        iterator = iterator.map &.metadata
         end
         all_items = filter_values(params, iterator)
 
