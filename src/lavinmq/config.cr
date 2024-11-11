@@ -19,6 +19,7 @@ module LavinMQ
     property amqps_port = -1
     property mqtt_bind = "127.0.0.1"
     property mqtt_port = 1883
+    property mqtts_port = 8883
     property unix_path = ""
     property unix_proxy_protocol = 1_u8 # PROXY protocol version on unix domain socket connections
     property tcp_proxy_protocol = 0_u8  # PROXY protocol version on amqp tcp connections
@@ -89,6 +90,12 @@ module LavinMQ
         end
         p.on("--amqp-bind=BIND", "IP address that the AMQP server will listen on (default: 127.0.0.1)") do |v|
           @amqp_bind = v
+        end
+        p.on("-m PORT", "--mqtt-port=PORT", "MQTT port to listen on (default: 1883)") do |v|
+          @mqtt_port = v.to_i
+        end
+        p.on("--mqtts-port=PORT", "MQTTS port to listen on (default: 8883)") do |v|
+          @mqtts_port = v.to_i
         end
         p.on("--http-port=PORT", "HTTP port to listen on (default: 15672)") do |v|
           @http_port = v.to_i
@@ -285,6 +292,7 @@ module LavinMQ
         case config
         when "bind"                  then @mqtt_bind = v
         when "port"                  then @mqtt_port = v.to_i32
+        when "tls_port"              then @mqtts_port = v.to_i32
         when "tls_cert"              then @tls_cert_path = v # backward compatibility
         when "tls_key"               then @tls_key_path = v  # backward compatibility
         when "max_inflight_messages" then @max_inflight_messages = v.to_u16
