@@ -201,6 +201,7 @@ module LavinMQ::AMQP
           @size -= msg_count if msg_count
           @segment_last_ts.delete(seg_id)
           @offset_index.delete(seg_id)
+          @timestamp_index.delete(seg_id)
           @bytesize -= mfile.size - 4
           mfile.delete.close
           @replicator.try &.delete_file(mfile.path)
