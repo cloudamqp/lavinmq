@@ -10,9 +10,9 @@
     <div class="grid-content">
       <main>
         <div id="breadcrumbs">
-            <h2 class="page-title flex flex-row items-center"><%=pagename%><div class="bg-green-400 ml-2 inline-block text-center text-sm text-dark-400 py-1 px-3 rounded-sm" id="pagename-label"></div></h2>
+            <h2 class="page-title"><%=pagename%><div class="tiny-badge" id="pagename-label"></div></h2>
         </div>
-        <section class="card rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
+        <section class="card regular-card">
           <div class="table-wrapper">
             <div id="table-error"></div>
             <table id="table" class="table text-light-400">
@@ -29,24 +29,24 @@
             </table>
           </div>
         </section>
-        <form method="put" id="addExchange" class="form card rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
-          <h3 class="text-lg font-semibold text-light-400">Add exchange</h3>
+        <form method="put" id="addExchange" class="form card regular-card">
+          <h3 class="title-m">Add exchange</h3>
           <div class="py-4">
             <label class="mt-0 mb-4">
-              <span class="text-light-400">Virtual host</span>
-              <select class="dropdown bg-dark-600 text-light-400" name="vhost" required></select>
+              <span class="field-label">Virtual host</span>
+              <select class="dropdown" name="vhost" required></select>
             </label>
             <label class="mt-0 mb-4">
-              <span class="text-light-400">Name</span>
+              <span class="field-label">Name</span>
               <input class="regular-text" type="text" name="name" required>
             </label>
             <label class="mt-0 mb-4">
-              <span class="text-light-400">Type</span>
-              <select class="dropdown bg-dark-600 text-light-400" name="type" required></select>
+              <span class="field-label">Type</span>
+              <select class="dropdown" name="type" required></select>
             </label>
             <label>
               <span>
-                <a class="prop-tooltip text-light-400" data-tag="alternate-exchange">Durable<span class="tooltip-icon">?</span>
+                <a class="prop-tooltip" data-tag="alternate-exchange">Durable<span class="tooltip-icon">?</span>
                   <span class="prop-tooltiptext">"Durable" exchanges persist even when the server restarts,
                     ensuring their availability and preventing data loss.</span>
                 </a>
@@ -55,7 +55,7 @@
             </label>
             <label>
               <span>
-              <a class="prop-tooltip text-light-400" data-tag="alternate-exchange">Auto-delete<span class="tooltip-icon">?</span>
+              <a class="prop-tooltip" data-tag="alternate-exchange">Auto-delete<span class="tooltip-icon">?</span>
               <span class="prop-tooltiptext">"Auto-delete" exchanges are automatically removed when they
               are no longer in use, freeing up system resources.</span>
               </a>
@@ -64,7 +64,7 @@
             </label>
             <label>
               <span>
-              <a class="prop-tooltip text-light-400" data-tag="alternate-exchange">Internal<span class="tooltip-icon">?</span>
+              <a class="prop-tooltip" data-tag="alternate-exchange">Internal<span class="tooltip-icon">?</span>
               <span class="prop-tooltiptext"> "Internal" exchanges are specifically designed for internal
               use within the messaging system and are not intended for direct interaction with external components.</span>
               </a>
@@ -73,7 +73,7 @@
             </label>
             <label>
               <span>
-              <a class="prop-tooltip text-light-400" data-tag="alternate-exchange">Delayed<span class="tooltip-icon">?</span>
+              <a class="prop-tooltip" data-tag="alternate-exchange">Delayed<span class="tooltip-icon">?</span>
               <span class="prop-tooltiptext">"Delayed" exchanges introduce a delay before delivering
               messages, allowing for delayed processing or scheduling of tasks.</span>
               </a>
@@ -81,7 +81,7 @@
               <input type="checkbox" name="delayed" value="1">
             </label>
             <label class="mt-4 mb-4">
-              <span class="text-light-400">Arguments</span>
+              <span class="field-label">Arguments</span>
               <textarea class="regular-textarea" name="arguments" placeholder='{ "key": value }'></textarea>
               <div id="dataTags" class="label">
                 <a class="arg-tooltip" data-tag="x-alternate-exchange">Alternate Exchange

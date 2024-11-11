@@ -12,7 +12,7 @@
         <div id="breadcrumbs">
             <h2 class="page-title min-h-6 flex flex-row items-center"><%=pagename%></h2>
         </div>
-        <div id="overview" class="card flex border-light w-full flex-row items-center gap-5 rounded-xl bg-dark-900 px-6 pb-7 pt-7">
+        <div id="overview" class="card overview-card">
           <div>
             <div class="counter" id="connections">0</div>
             <div class="counter-header"><a href="connections">Connections</a></div>
@@ -43,27 +43,27 @@
             <div class="counter-header">Uptime</div>
           </div>
         </div>
-        <section class="card border-light cols-4 cols-6-md rounded-xl bg-dark-900 px-6 pb-6 pt-4">
-          <h3 class="text-lg font-semibold text-light-400">Queued messages</h3>
+        <section class="card regular-card cols-4 cols-6-md">
+          <h3 class="title-m">Queued messages</h3>
           <div class="chart-container relative mt-4" id="msgChart"></div>
         </section>
-        <section class="card border-light cols-4 cols-6-md rounded-xl bg-dark-900 px-6 pb-6 pt-4">
-          <h3 class="text-lg font-semibold text-light-400">Data rates</h3>
+        <section class="card regular-card cols-4 cols-6-md">
+          <h3 class="title-m">Data rates</h3>
           <div class="chart-container relative mt-4" id="dataChart"></div>
         </section>
-        <section class="card border-light cols-4 cols-6-md rounded-xl bg-dark-900 px-6 pb-6 pt-4">
-          <h3 class="text-lg font-semibold text-light-400">Message rates</h3>
+        <section class="card regular-card cols-4 cols-6-md">
+          <h3 class="title-m">Message rates</h3>
           <div class="chart-container relative mt-4" id="rateChart"></div>
         </section>
-        <form id="importDefinitions" method="post" enctype="multipart/form-data" class="form card p-0 cols-6 rounded-xl bg-dark-900 border-light">
-          <h3 class="text-light-400 text-base leading-5 font-semibold px-6 py-4 border-b-light mb-0">Upload definitions</h3>
+        <form id="importDefinitions" method="post" enctype="multipart/form-data" class="form card tb-card cols-6">
+          <h3 class="title-m form-card-title">Upload definitions</h3>
           <div class="px-6 py-4">
             <label class="mt-0 mb-4">
-              <span class="text-light-400">Virtual host</span>
-              <select id="uploadDefinitionsVhost" name="vhost" class="dropdown bg-dark-600 text-light-400" required></select>
+              <span class="field-label">Virtual host</span>
+              <select id="uploadDefinitionsVhost" name="vhost" class="dropdown" required></select>
             </label>
             <label class="mt-0 mb-4">
-              <span class="text-light-400">File</span>
+              <span class="field-label">File</span>
               <input id="file" name="file" type="file" accept=".json" required />
             </label>
             <button type="submit" class="btn btn-outlined"><span>Upload</span><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20" fill="none">
@@ -73,12 +73,12 @@
 </svg></button>
           </div>
         </form>
-        <form id="exportDefinitions" method="post" class="form card p-0 cols-6 rounded-xl bg-dark-900 border-light">
-          <h3 class="text-light-400 text-base leading-5 font-semibold px-6 py-4 border-b-light mb-0">Export definitions</h3>
+        <form id="exportDefinitions" method="post" class="form card tb-card cols-6">
+          <h3 class="title-m form-card-title">Export definitions</h3>
           <div class="px-6 py-4">
             <label class="mt-0 mb-4">
-              <span class="text-light-400">Virtual host</span>
-              <select id="exportDefinitionsVhost" class="dropdown bg-dark-600 text-light-400" name="vhost" required></select>
+              <span class="field-label">Virtual host</span>
+              <select id="exportDefinitionsVhost" class="dropdown" name="vhost" required></select>
             </label>
             <button type="submit" class="btn btn-outlined"><span>Download</span><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20" fill="none">
 <path d="M17.5 12.5V15.8333C17.5 16.2754 17.3244 16.6993 17.0118 17.0118C16.6993 17.3244 16.2754 17.5 15.8333 17.5H4.16667C3.72464 17.5 3.30072 17.3244 2.98816 17.0118C2.67559 16.6993 2.5 16.2754 2.5 15.8333V12.5" stroke="#F7F5F2" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
