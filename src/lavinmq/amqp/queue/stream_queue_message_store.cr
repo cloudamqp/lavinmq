@@ -10,13 +10,13 @@ module LavinMQ::AMQP
       getter last_offset : Int64
       @segment_last_ts = Hash(UInt32, Int64).new(0i64) # used for max-age
       @offset_index : Hash(UInt32, Int64)              # segment_id => offset of first msg
-      @offset_index_ts : Hash(UInt32, Int64)           # segment_id => ts of first msg
+      @timestamp_index : Hash(UInt32, Int64)           # segment_id => ts of first msg
 
       def initialize(*args, **kwargs)
         super
         @last_offset = get_last_offset
         @offset_index = build_segment_offset_index
-        @offset_index_ts = build_segment_offset_index_ts
+        @timestamp_index = build_segment_offset_index_ts
         drop_overflow
       end
 
@@ -101,7 +101,7 @@ module LavinMQ::AMQP
             seg = seg_id
           end
         when Time
-          @offset_index_ts.each do |seg_id, first_seg_ts|
+          @timestamp_index.each do |seg_id, first_seg_ts|
             break if Time.unix_ms(first_seg_ts) >= offset
             seg = seg_id
           end
