@@ -38,7 +38,7 @@ module LavinMQ
         delete "/api/connections/:name" do |context, params|
           with_connection(context, params) do |c|
             reason = context.request.headers["X-Reason"]? || "Closed via management plugin"
-            c.close(reason, timeout: 3.seconds)
+            c.close(reason)
             context.response.status_code = 204
           end
         end
