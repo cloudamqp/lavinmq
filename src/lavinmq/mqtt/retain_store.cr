@@ -99,7 +99,6 @@ module LavinMQ
         end
         File.rename tmp_file, File.join(@dir, INDEX_FILE_NAME)
         @replicator.replace_file(File.join(@dir, INDEX_FILE_NAME))
-
       ensure
         FileUtils.rm_rf tmp_file unless tmp_file.nil?
       end
@@ -108,7 +107,7 @@ module LavinMQ
         @index.insert topic, file_name
         @index_file.puts topic
         @index_file.flush
-        bytes = Bytes.new(topic.bytesize+1)
+        bytes = Bytes.new(topic.bytesize + 1)
         bytes.copy_from(topic.to_slice)
         bytes[-1] = 10u8
         @replicator.append(file_name, bytes)
