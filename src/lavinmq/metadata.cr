@@ -85,12 +85,14 @@ module LavinMQ
       {% begin %}
         {%
           paths = [] of Array(String)
-          to_process = T.keys.map { |k| {[k], T[k]} }
-          # This will walk the "namedtuple tree" and find all paths to values
-          to_process.each do |(path, type)|
+          # This will walk the "namedtuple tree" and find all paths to values. It's not
+          # possible to do recursive macros, but ArrayLiteral#each will iterate over items
+          # added while currently iterating.
+          to_visit = T.keys.map { |k| {[k], T[k]} }
+          to_visit.each do |(path, type)|
             if type <= NamedTuple
               paths << path
-              type.keys.each { |k| to_process << {path + [k], type[k]} }
+              type.keys.each { |k| to_visit << {path + [k], type[k]} }
             else
               paths << path
             end
