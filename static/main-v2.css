@@ -290,10 +290,6 @@ header h2 {
   line-height: 1.25rem;
 }
 
-.text-center {
-  text-align: center;
-}
-
 .font-semibold {
   font-weight: 600;
 }
@@ -1766,13 +1762,14 @@ pre.arguments > div {
   padding: 1.5rem;
   border-radius: 4px;
   box-shadow: 0 1px 15px 1px rgba(39, 39, 39, 0.1);
-  background-color: #fff;
+  background-color: #2d2c2c;
   grid-column: 1 / span 12;
   position: fixed;
   margin-left: 50px;
   border: 3px solid darkgrey;
   z-index: 1001;
   padding: 8px;
+  color: #f7f5f2;
 }
 .popup-card .popup-header {
   margin-top: 0;
