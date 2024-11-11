@@ -96,7 +96,7 @@ module LavinMQ::AMQP
         case offset
         when Int
           @offset_index.each do |seg_id, first_seg_offset|
-            break if first_seg_offset >= offset
+            break if first_seg_offset > offset
             seg = seg_id
           end
         when Time
