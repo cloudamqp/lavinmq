@@ -10,9 +10,9 @@
     <div class="grid-content">
       <main>
         <div id="breadcrumbs">
-            <h2 class="page-title flex flex-row items-center"><%=pagename%><div class="bg-green-400 ml-2 inline-block text-center text-sm text-dark-400 py-1 px-3 rounded-sm" id="pagename-label"></div></h2>
+            <h2 class="page-title"><%=pagename%><div class="tiny-badge" id="pagename-label"></div></h2>
         </div>
-        <section class="card rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
+        <section class="card regular-card">
           <div id="multiselect-controls" class="popup-card hide">
             <a class="popup-close" href="#">&#x2715</a>
             <h4 class="popup-header">Queue actions (<em><span id="multi-queue-count">0</span> selected</em>)</h4>
@@ -45,20 +45,20 @@
             </table>
           </div>
         </section>
-        <form method="put" id="declare" class="form card rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
-          <h3 class="text-lg font-semibold text-light-400">Add queue</h3>
+        <form method="put" id="declare" class="form card regular-card">
+          <h3 class="title-m">Add queue</h3>
           <div class="py-4">
             <label class="mt-0 mb-4">
-              <span class="text-light-400">Virtual host</span>
-              <select class="dropdown bg-dark-600 text-light-400" name="vhost" required></select>
+              <span class="field-label">Virtual host</span>
+              <select class="dropdown" name="vhost" required></select>
             </label>
             <label class="mt-0 mb-4">
-              <span class="text-light-400">Name</span>
+              <span class="field-label">Name</span>
               <input class="regular-text" type="text" name="name" required>
             </label>
             <label>
               <span>
-              <a class="prop-tooltip text-light-400" data-tag="alternate-exchange">Durable<span class="tooltip-icon">?</span>
+              <a class="prop-tooltip" data-tag="alternate-exchange">Durable<span class="tooltip-icon">?</span>
               <span class="prop-tooltiptext">"Durable" queues persist even when the server restarts,
               ensuring their availability and preventing data loss.</span>
               </a>

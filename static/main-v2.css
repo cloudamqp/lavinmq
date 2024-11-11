@@ -959,8 +959,7 @@ footer .logo {
     border-radius: 100px;
   }
 
-  #menu-content,
-  #menu-header {
+  #menu-content {
     display: none;
   }
 
@@ -972,8 +971,6 @@ footer .logo {
     z-index: 1001;
     border-radius: 0px 4px 4px 4px;
     transition: all 0.3s;
-    background-color: #000;
-    --font-color: #fff;
     --highlight-color: rgba(0, 0, 0, 0.4);
     color: var(--font-color);
     position: relative;
@@ -992,7 +989,7 @@ footer .logo {
     padding-top: 16px;
     padding-bottom: 24px;
     z-index: 9998;
-    background: #161616;
+    background: var(--bg-color-dark);
   }
 
   #menu-content::after {
@@ -1048,7 +1045,8 @@ footer .logo {
   header {
     align-items: center;
     grid-row: 1 / span 3;
-    padding: 10px 0 0 60px;
+    padding: 0;
+    justify-content: center;
   }
 
   main {
@@ -1262,6 +1260,7 @@ footer .logo {
   font-weight: normal;
   border-bottom: 1px solid #CBCAC7;
   padding: 0.75rem 1.15rem 0.5rem 0.75rem;
+  text-align: left;
 }
 
 .table td.checkbox {
@@ -1924,6 +1923,10 @@ pre.arguments > div {
   textarea {
     width: 100%;
   }
+
+  .version-tab {
+    display: none;
+  }
 }
 
 #usermenu-button {
@@ -1952,7 +1955,7 @@ pre.arguments > div {
   header #user-menu {
     position: absolute;
     width: 100%;
-    background: #161616;
+    background: var(--bg-color-dark);
     margin: 0;
     justify-content: center;
     display: flex;
@@ -1966,5 +1969,7 @@ pre.arguments > div {
 
   #usermenu-button {
     display: block;
+    position: absolute;
+    right: 0;
   }
 }
