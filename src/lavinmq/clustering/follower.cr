@@ -75,7 +75,7 @@ module LavinMQ
       private def read_ack(socket = @socket) : Int64
         len = socket.read_bytes(Int64, IO::ByteFormat::LittleEndian)
         @acked_bytes += len
-        if @closed && lag_in_bytes == 0
+        if @closed && lag_in_bytes.zero?
           @closed_change.close
         end
         len
