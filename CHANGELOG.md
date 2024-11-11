@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- etcd lease will no longer expire during slow startup [#834](https://github.com/cloudamqp/lavinmq/pull/834)
+
 ### Changed
 
 - Remove the 'reset vhost' feature [#822](https://github.com/cloudamqp/lavinmq/pull/822/files)
