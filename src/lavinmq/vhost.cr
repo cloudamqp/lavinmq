@@ -379,15 +379,7 @@ module LavinMQ
         @log.trace { "Spawn close fiber #{fiber_id}" }
         wg.add
         spawn(name: "vhost close connection #{fiber_id}") do
-          loop do
-            select
-            when client = ch.receive
-              client.close(reason)
-            when timeout 50.milliseconds
-              break
-            end
-          rescue
-          end
+          loop { client.close ch.receive? }
           wg.done
           @log.trace { "Exit close fiber #{fiber_id}" }
         end
@@ -409,8 +401,8 @@ module LavinMQ
         end
       end
 
-      wg.wait
       ch.close
+      wg.wait
       close_done.try &.close
     end
 
