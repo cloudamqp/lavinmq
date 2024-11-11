@@ -79,15 +79,6 @@ module LavinMQ
         context
       end
 
-      private def dig(i : NamedTuple, keys : Array(String))
-        if keys.size > 1
-          nt = i[keys.first].as?(NamedTuple) || return
-          dig(nt, keys[1..])
-        else
-          i[keys.first]? || 0
-        end
-      end
-
       private def array_iterator_to_json(json, iterator, columns : Array(String)?, start : Int, page_size : Int)
         size = 0
         total = 0
