@@ -9,14 +9,13 @@ module LavinMQ::AMQP
       property max_age : Time::Span | Time::MonthSpan | Nil
       getter last_offset : Int64
       @segment_last_ts = Hash(UInt32, Int64).new(0i64) # used for max-age
-      @offset_index : Hash(UInt32, Int64)              # segment_id => offset of first msg
-      @timestamp_index : Hash(UInt32, Int64)           # segment_id => ts of first msg
+      @offset_index = Hash(UInt32, Int64).new          # segment_id => offset of first msg
+      @timestamp_index = Hash(UInt32, Int64).new       # segment_id => ts of first msg
 
       def initialize(*args, **kwargs)
         super
         @last_offset = get_last_offset
-        @offset_index = build_segment_offset_index
-        @timestamp_index = build_segment_offset_index_ts
+        build_segment_indexes
         drop_overflow
       end
 
@@ -235,21 +234,14 @@ module LavinMQ::AMQP
         headers.not_nil!("Message lacks headers")["x-stream-offset"].as(Int64)
       end
 
-      private def build_segment_offset_index : Hash(UInt32, Int64)
-        @segments.transform_values do |mfile|
+      private def build_segment_indexes
+        @segments.each do |seg_id, mfile|
           msg = BytesMessage.from_bytes(mfile.to_slice + 4u32)
-          offset_from_headers(msg.properties.headers)
+          @offset_index[seg_id] = offset_from_headers(msg.properties.headers)
+          @timestamp_index[seg_id] = msg.timestamp
         rescue IndexError
-          @last_offset
-        end
-      end
-
-      private def build_segment_offset_index_ts : Hash(UInt32, Int64)
-        @segments.transform_values do |mfile|
-          msg = BytesMessage.from_bytes(mfile.to_slice + 4u32)
-          msg.timestamp
-        rescue IndexError
-          RoughTime.unix_ms
+          @offset_index[seg_id] = @last_offset
+          @timestamp_index[seg_id] = RoughTime.unix_ms
         end
       end
     end
