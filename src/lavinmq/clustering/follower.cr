@@ -174,9 +174,7 @@ module LavinMQ
       def close
         @closed = true
         @actions.close
-        if lag_in_bytes > 0
-          @closed_change.receive?
-        end
+        @closed_change.receive? if lag_in_bytes > 0
       end
 
       def to_json(json : JSON::Builder)
