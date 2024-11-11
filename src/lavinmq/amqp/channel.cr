@@ -1,6 +1,5 @@
 require "./client"
 require "./consumer"
-# require "../public_info"
 require "./stream_consumer"
 require "../error"
 require "../logger"
@@ -15,7 +14,6 @@ module LavinMQ
     class Channel < LavinMQ::Client::Channel
       include Stats
       include SortableJSON
-      #      include PublicInfo
 
       getter id, name
       property? running = true
@@ -74,10 +72,6 @@ module LavinMQ
           message_stats:           stats_details,
         }
       end
-
-      #      def public_info : PublicInfoData
-      #        ChannelPublicInfoData.new details_tuple
-      #      end
 
       def flow(active : Bool)
         @flow = active
