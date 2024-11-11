@@ -155,6 +155,13 @@ module LavinMQ
         spawn @amqp_server.listen(@config.mqtt_bind, @config.mqtt_port, :mqtt),
           name: "MQTT listening on #{@config.mqtt_port}"
       end
+
+      if @config.mqtts_port > 0
+        if ctx = @tls_context
+          spawn @amqp_server.listen_tls(@config.mqtt_bind, @config.mqtts_port, ctx, :mqtt),
+            name: "MQTTS listening on #{@config.mqtts_port}"
+        end
+      end
     end
 
     private def dump_debug_info
