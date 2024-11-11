@@ -39,9 +39,7 @@ module LavinMQ
           {error: "payload_too_large", reason: "Max allowed page_size 10000"}.to_json(context.response)
           return context
         end
-        iterator = iterator.map do |i|
         iterator = iterator.map &.metadata
-        end
         all_items = filter_values(params, iterator)
 
         if sort_by = params.fetch("sort", nil)
