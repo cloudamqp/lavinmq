@@ -101,7 +101,7 @@ module LavinMQ::AMQP
           end
         when Time
           @timestamp_index.each do |seg_id, first_seg_ts|
-            break if Time.unix_ms(first_seg_ts) >= offset
+            break if Time.unix_ms(first_seg_ts) > offset
             seg = seg_id
           end
         end
