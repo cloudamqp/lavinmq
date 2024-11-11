@@ -58,7 +58,7 @@ module LavinMQ
           connections = get_connections_by_username(context, params["username"])
           reason = context.request.headers["X-Reason"]? || "Closed via management plugin"
           connections.each do |c|
-            c.close(reason, timeout: 3.seconds)
+            c.close(reason)
           end
           context.response.status_code = 204
           context
