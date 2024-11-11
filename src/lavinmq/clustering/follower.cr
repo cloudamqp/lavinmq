@@ -171,10 +171,17 @@ module LavinMQ
 
       @closed_and_in_sync = Channel(Nil).new
 
-      def close
+      def close(timeout : Time::Span = 30.seconds)
         @closed = true
         @actions.close
-        @closed_and_in_sync.receive? if lag_in_bytes > 0
+        if lag_in_bytes > 0
+          Log.info { "Waiting for follower to be in sync" }
+          select
+          when @closed_and_in_sync.receive?
+          when timeout(timeout)
+            Log.warn { "Timeout waiting for follower to be in sync" }
+          end
+        end
       end
 
       def to_json(json : JSON::Builder)
