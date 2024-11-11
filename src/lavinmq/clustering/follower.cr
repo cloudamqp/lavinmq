@@ -76,7 +76,7 @@ module LavinMQ
         len = socket.read_bytes(Int64, IO::ByteFormat::LittleEndian)
         @acked_bytes += len
         if @closed && lag_in_bytes.zero?
-          @closed_change.close
+          @closed_and_in_sync.close
         end
         len
       end
@@ -169,12 +169,12 @@ module LavinMQ
         lag_size
       end
 
-      @closed_change = Channel(Nil).new
+      @closed_and_in_sync = Channel(Nil).new
 
       def close
         @closed = true
         @actions.close
-        @closed_change.receive? if lag_in_bytes > 0
+        @closed_and_in_sync.receive? if lag_in_bytes > 0
       end
 
       def to_json(json : JSON::Builder)
