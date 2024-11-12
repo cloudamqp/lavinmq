@@ -4,19 +4,21 @@ module AMQ::Protocol
 end
 
 module LavinMQ
-  # Wraps a generic NamedTuple to make it possible to add
-  # methods to it. Used in e.g. HTTP::Controller.
-  struct Metadata(T)
+  abstract struct Metadata
+    def self.new(data : NamedTuple)
+      NamedTupleMetadata.new(data)
+    end
+
     # This is similar to JSON::Any..
     struct Value(T) # , V)
       include Comparable(Value)
 
-      def self.nil
-        new(nil)
-      end
-
       def initialize(@value : T)
         @type = T
+      end
+
+      def self.nil
+        new(nil)
       end
 
       def type
@@ -47,7 +49,11 @@ module LavinMQ
 
       delegate to_json, to_s, to: @value
     end
+  end
 
+  # Wraps a generic NamedTuple to make it possible to add
+  # methods to it. Used in e.g. HTTP::Controller.
+  struct NamedTupleMetadata(T) < Metadata
     def initialize(@data : T)
     end
 
@@ -60,11 +66,6 @@ module LavinMQ
     # Takes a dot separated path and returns the value at that path
     # If T is `{a: {b: {c: 1} d: "foo"}` #dig("a.b.c") returns a Value(Int32)
     # and #dig("a.d") returns a Value(String)
-
-    def dig(path : Symbol | String)
-      fetch(path) { raise KeyError.new "Invalid path: #{path.inspect}" }
-    end
-
     def dig(path : Symbol | String)
       fetch(path) { raise KeyError.new "Invalid path: #{path.inspect}" }
     end
