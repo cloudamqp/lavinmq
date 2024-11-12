@@ -612,7 +612,11 @@ module LavinMQ
       bytes = frame.to_slice
       @definitions_file.write bytes
       @replicator.append @definitions_file_path, bytes
-      @definitions_file.fsync
+      if etcd = @replicator.as?(Clustering::Server).try &.@etcd # FIXME: hack
+        store_definition_in_etcd(frame, etcd)
+      else
+        @definitions_file.fsync
+      end
       if dirty
         if (@definitions_deletes += 1) >= Config.instance.max_deleted_definitions
           compact!
@@ -621,41 +625,41 @@ module LavinMQ
       end
     end
 
-    private def store_definition_in_etcd(frame)
+    private def store_definition_in_etcd(f, etcd)
       case f
       when AMQP::Frame::Exchange::Declare
-        @etcd.put(etcd_path("exchanges", f.exchange_name), {
+        etcd.put(etcd_path("exchanges", f.exchange_name), {
           type:        f.exchange_type,
           auto_delete: f.auto_delete,
           internal:    f.internal,
           arguments:   f.arguments,
         }.to_json)
       when AMQP::Frame::Exchange::Delete
-        @etcd.del(etcd_path("exchanges", f.exchange_name))
-        @etcd.del_prefix(etcd_path("exchange-bindings", f.exchange_name))
+        etcd.del(etcd_path("exchanges", f.exchange_name))
+        etcd.del_prefix(etcd_path("exchange-bindings", f.exchange_name))
       when AMQP::Frame::Exchange::Bind
         args_hash = f.arguments.hash(Crystal::Hasher.new(0, 0)).result
-        @etcd.put(etcd_path("exchanges", f.destination, "bindings", f.source, f.routing_key, args_hash),
+        etcd.put(etcd_path("exchanges", f.destination, "bindings", f.source, f.routing_key, args_hash),
           {arguments: f.arguments}.to_json)
       when AMQP::Frame::Exchange::Unbind
         args_hash = f.arguments.hash(Crystal::Hasher.new(0, 0)).result
-        @etcd.del(etcd_path("exchanges", f.destination, "bindings", f.source, f.routing_key, args_hash))
+        etcd.del(etcd_path("exchanges", f.destination, "bindings", f.source, f.routing_key, args_hash))
       when AMQP::Frame::Queue::Declare
-        @etcd.put(etcd_path("queues", f.queue_name), {
+        etcd.put(etcd_path("queues", f.queue_name), {
           arguments: f.arguments,
         }.to_json)
       when AMQP::Frame::Queue::Delete
-        @etcd.del(etcd_path("queues", f.queue_name))
-        @etcd.del_prefix(etcd_path("queue-bindings", f.queue_name))
+        etcd.del(etcd_path("queues", f.queue_name))
+        etcd.del_prefix(etcd_path("queue-bindings", f.queue_name))
       when AMQP::Frame::Queue::Bind
         args_hash = f.arguments.hash(Crystal::Hasher.new(0, 0)).result
-        @etcd.put(etcd_path("queues", f.queue_name, "bindings", f.exchange_name, f.routing_key, args_hash),
+        etcd.put(etcd_path("queues", f.queue_name, "bindings", f.exchange_name, f.routing_key, args_hash),
           {
             arguments: f.arguments,
           }.to_json)
       when AMQP::Frame::Queue::Unbind
         args_hash = f.arguments.hash(Crystal::Hasher.new(0, 0)).result
-        @etcd.del(etcd_path("queues", f.queue_name, "bindings", f.exchange_name, f.routing_key, args_hash))
+        etcd.del(etcd_path("queues", f.queue_name, "bindings", f.exchange_name, f.routing_key, args_hash))
       else raise "Cannot apply frame #{f.class} in vhost #{@name}"
       end
     end
@@ -665,7 +669,7 @@ module LavinMQ
         str << Config.instance.clustering_etcd_prefix
         str << "/vhosts/"
         URI.encode_www_form @name, str
-        args.each do |a, i|
+        args.each do |a|
           str << "/"
           URI.encode_www_form a.to_s, str
         end
