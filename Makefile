@@ -154,6 +154,13 @@ uninstall:
 	$(RM) $(DESTDIR)$(DOCDIR)/{lavinmq,README.md,CHANGELOG.md,NOTICE}
 	$(RM) $(DESTDIR)$(SHAREDSTATEDIR)/lavinmq
 
+.PHONY: rpm
+rpm:
+	rpmdev-setuptree
+	git archive --prefix lavinmq/ --output ~/rpmbuild/SOURCES/lavinmq.tar.gz HEAD
+	sed -E "s/^(Version:).*/\1 $(shell ./rpm-version)/" lavinmq.spec > ~/rpmbuild/SPECS/lavinmq.spec
+	rpmbuild -bb ~/rpmbuild/SPECS/lavinmq.spec
+
 .PHONY: clean
 clean:
 	$(RM) $(BINS) $(DOCS) $(JS) $(MANPAGES) $(VIEW_TARGETS)
