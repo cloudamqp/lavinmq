@@ -134,7 +134,8 @@ module LavinMQ
                       help:   "System information",
                       labels: {
                         "#{writer.prefix}_version" => LavinMQ::VERSION,
-                        "#{writer.prefix}_cluster" => System.hostname,
+                        "#{writer.prefix}_node"    => System.hostname,
+                        "#{writer.prefix}_cluster" => Config.instance.clustering_name,
                       }})
 
         writer.write({name:  "connections_opened_total",

@@ -50,6 +50,7 @@ module LavinMQ
     property free_disk_min : Int64 = 0  # bytes
     property free_disk_warn : Int64 = 0 # bytes
     property? clustering = false
+    property clustering_name = ""
     property clustering_etcd_prefix = "lavinmq"
     property clustering_etcd_endpoints = "localhost:2379"
     property clustering_advertised_uri : String? = nil
@@ -121,6 +122,9 @@ module LavinMQ
         end
         p.on("--clustering", "Enable clustering") do
           @clustering = true
+        end
+        p.on("--clustering-name=NAME", "Cluster name (default: \"\")") do |v|
+          @clustering_name = v
         end
         p.on("--clustering-advertised-uri=URI", "Advertised URI for the clustering server") do |v|
           @clustering_advertised_uri = v
@@ -241,6 +245,7 @@ module LavinMQ
       settings.each do |config, v|
         case config
         when "enabled"              then @clustering = true?(v)
+        when "name"                 then @clustering_name = v
         when "etcd_prefix"          then @clustering_etcd_prefix = v
         when "etcd_endpoints"       then @clustering_etcd_endpoints = v
         when "advertised_uri"       then @clustering_advertised_uri = v
