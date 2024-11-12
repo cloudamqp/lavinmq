@@ -191,7 +191,7 @@ module LavinMQ::AMQP
         @replicator.try &.replace_file @consumer_offsets.path
       end
 
-      def shift?(consumer : Client::Channel::StreamConsumer) : Envelope?
+      def shift?(consumer : AMQP::StreamConsumer) : Envelope?
         raise ClosedError.new if @closed
 
         if env = shift_requeued(consumer.requeued)
