@@ -613,7 +613,7 @@ describe LavinMQ::AMQP::StreamQueue do
         StreamQueueSpecHelpers.publish(s, queue_name, 1)
         data_dir = File.join(s.vhosts["/"].data_dir, Digest::SHA1.hexdigest queue_name)
         msg_store = LavinMQ::AMQP::StreamQueue::StreamQueueMessageStore.new(data_dir, nil)
-        one_offset_bytesize = "#{consumer_tag_prefix}#{1000}".bytesize + 1 + 8
+        one_offset_bytesize = "#{consumer_tag_prefix}1000".bytesize + 1 + 8
         offsets = (LavinMQ::Config.instance.segment_size / one_offset_bytesize).to_i32 + 1
         bytesize = 0
         offsets.times do |i|
