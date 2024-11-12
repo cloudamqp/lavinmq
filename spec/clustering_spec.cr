@@ -74,61 +74,43 @@ describe LavinMQ::Clustering::Client do
     end
   end
 
-  # just some playing around with copilot, does not work
-  # it "replicates and streams retained messages to followers" do
-  #   replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Etcd.new, 0)
-  #   tcp_server = TCPServer.new("localhost", 0)
-  #   spawn(replicator.listen(tcp_server), name: "repli server spec")
-  #   config = LavinMQ::Config.new.tap &.data_dir = follower_data_dir
-  #   repli = LavinMQ::Clustering::Client.new(config, 1, replicator.password, proxy: false)
-  #   done = Channel(Nil).new
-  #   spawn(name: "follow spec") do
-  #     repli.follow("localhost", tcp_server.local_address.port)
-  #     done.send nil
-  #   end
-  #   wait_for { replicator.followers.size == 1 }
+  it "replicates and streams retained messages to followers" do
+    replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Etcd.new, 0)
+    tcp_server = TCPServer.new("localhost", 0)
 
-  #   # Set up the retain store and retain some messages
-  #   index = IndexTree.new
-  #   retain_store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", replicator, index)
-  #   props = LavinMQ::AMQP::Properties.new
-  #   msg1 = LavinMQ::Message.new(100, "test", "rk", props, 10, IO::Memory.new("body1"))
-  #   msg2 = LavinMQ::Message.new(100, "test", "rk", props, 10, IO::Memory.new("body2"))
-  #   retain_store.retain("topic1", msg1.body_io, msg1.bodysize)
-  #   retain_store.retain("topic2", msg2.body_io, msg2.bodysize)
+    spawn(replicator.listen(tcp_server), name: "repli server spec")
+    config = LavinMQ::Config.new.tap &.data_dir = follower_data_dir
+    repli = LavinMQ::Clustering::Client.new(config, 1, replicator.password, proxy: false)
+    done = Channel(Nil).new
+    spawn(name: "follow spec") do
+      repli.follow("localhost", tcp_server.local_address.port)
+      done.send nil
+    end
+    wait_for { replicator.followers.size == 1 }
 
-  #   with_amqp_server(replicator: replicator) do |s|
-  #     with_channel(s) do |ch|
-  #       q = ch.queue("repli")
-  #       q.publish_confirm "hello world"
-  #     end
-  #     repli.close
-  #     done.receive
-  #   end
+    retain_store = LavinMQ::MQTT::RetainStore.new("#{LavinMQ::Config.instance.data_dir}/retain_store", replicator)
+    props = LavinMQ::AMQP::Properties.new
+    msg1 = LavinMQ::Message.new(100, "test", "rk", props, 10, IO::Memory.new("body1"))
+    msg2 = LavinMQ::Message.new(100, "test", "rk", props, 10, IO::Memory.new("body2"))
+    retain_store.retain("topic1", msg1.body_io, msg1.bodysize)
+    retain_store.retain("topic2", msg2.body_io, msg2.bodysize)
 
-  #   server = LavinMQ::Server.new(follower_data_dir)
-  #   begin
-  #     q = server.vhosts["/"].queues["repli"].as(LavinMQ::AMQP::DurableQueue)
-  #     q.message_count.should eq 1
-  #     q.basic_get(true) do |env|
-  #       String.new(env.message.body).to_s.should eq "hello world"
-  #     end.should be_true
+    wait_for { replicator.@followers.first.lag_in_bytes == 0 }
+    repli.close
+    done.receive
 
-  #     # Verify that the retained messages are streamed to the follower
-  #     follower_retain_store = LavinMQ::MQTT::RetainStore.new(follower_data_dir, replicator, IndexTree.new)
-  #     follower_retain_store.each("topic1") do |topic, bytes|
-  #       topic.should eq("topic1")
-  #       String.new(bytes).should eq("body1")
-  #     end
-  #     follower_retain_store.each("topic2") do |topic, bytes|
-  #       topic.should eq("topic2")
-  #       String.new(bytes).should eq("body2")
-  #     end
-  #     follower_retain_store.retained_messages.should eq(2)
-  #   ensure
-  #     server.close
-  #   end
-  # end
+    follower_retain_store = LavinMQ::MQTT::RetainStore.new("#{follower_data_dir}/retain_store", LavinMQ::Clustering::NoopServer.new)
+    a = Array(String).new(2)
+    b = Array(String).new(2)
+    follower_retain_store.each("#") do |topic, bytes|
+      a << topic
+      b << String.new(bytes)
+    end
+
+    a.sort!.should eq(["topic1", "topic2"])
+    b.sort!.should eq(["body1", "body2"])
+    follower_retain_store.retained_messages.should eq(2)
+  end
 
   it "can stream full file" do
     replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Etcd.new, 0)
