@@ -415,8 +415,11 @@ module LavinMQ
 
       @log.info { "Closing connections" }
       close_done = Channel(Nil).new
-      close_connections reason, close_done
-      @log.debug { "Close sent to all connections" }
+
+      spawn do
+        close_connections reason, close_done
+        @log.debug { "Close sent to all connections" }
+      end
 
       select
       when close_done.receive?
