@@ -33,7 +33,7 @@ module StreamQueueSpecHelpers
   end
 end
 
-describe LavinMQ::StreamQueue do
+describe LavinMQ::AMQP::StreamQueue do
   stream_queue_args = LavinMQ::AMQP::Table.new({"x-queue-type": "stream"})
 
   describe "Consume" do
@@ -263,14 +263,14 @@ describe LavinMQ::StreamQueue do
         StreamQueueSpecHelpers.publish(s, queue_name, 1)
 
         data_dir = File.join(vhost.data_dir, Digest::SHA1.hexdigest queue_name)
-        msg_store = LavinMQ::StreamQueue::StreamQueueMessageStore.new(data_dir, nil)
+        msg_store = LavinMQ::AMQP::StreamQueue::StreamQueueMessageStore.new(data_dir, nil)
         offsets.each_with_index do |offset, i|
           msg_store.store_consumer_offset(tag_prefix + i.to_s, offset)
         end
         msg_store.close
         sleep 0.1
 
-        msg_store = LavinMQ::StreamQueue::StreamQueueMessageStore.new(data_dir, nil)
+        msg_store = LavinMQ::AMQP::StreamQueue::StreamQueueMessageStore.new(data_dir, nil)
         offsets.each_with_index do |offset, i|
           msg_store.last_offset_by_consumer_tag(tag_prefix + i.to_s).should eq offset
         end
@@ -286,7 +286,7 @@ describe LavinMQ::StreamQueue do
         StreamQueueSpecHelpers.publish(s, queue_name, 1)
 
         data_dir = File.join(s.vhosts["/"].data_dir, Digest::SHA1.hexdigest queue_name)
-        msg_store = LavinMQ::StreamQueue::StreamQueueMessageStore.new(data_dir, nil)
+        msg_store = LavinMQ::AMQP::StreamQueue::StreamQueueMessageStore.new(data_dir, nil)
         offsets.each do |offset|
           msg_store.store_consumer_offset(consumer_tag, offset)
         end
@@ -305,13 +305,13 @@ describe LavinMQ::StreamQueue do
         StreamQueueSpecHelpers.publish(s, queue_name, 1)
 
         data_dir = File.join(s.vhosts["/"].data_dir, Digest::SHA1.hexdigest queue_name)
-        msg_store = LavinMQ::StreamQueue::StreamQueueMessageStore.new(data_dir, nil)
+        msg_store = LavinMQ::AMQP::StreamQueue::StreamQueueMessageStore.new(data_dir, nil)
         offsets.each do |offset|
           msg_store.store_consumer_offset(consumer_tag, offset)
         end
         msg_store.close
 
-        msg_store = LavinMQ::StreamQueue::StreamQueueMessageStore.new(data_dir, nil)
+        msg_store = LavinMQ::AMQP::StreamQueue::StreamQueueMessageStore.new(data_dir, nil)
         msg_store.last_offset_by_consumer_tag(consumer_tag).should eq offsets.last
         bytesize = consumer_tag.bytesize + 1 + 8
         msg_store.@consumer_offsets.size.should eq bytesize
@@ -326,7 +326,7 @@ describe LavinMQ::StreamQueue do
       with_amqp_server do |s|
         StreamQueueSpecHelpers.publish(s, queue_name, 1)
         data_dir = File.join(s.vhosts["/"].data_dir, Digest::SHA1.hexdigest queue_name)
-        msg_store = LavinMQ::StreamQueue::StreamQueueMessageStore.new(data_dir, nil)
+        msg_store = LavinMQ::AMQP::StreamQueue::StreamQueueMessageStore.new(data_dir, nil)
         bytesize = consumer_tag.bytesize + 1 + 8
 
         offsets = (LavinMQ::Config.instance.segment_size / bytesize).to_i32 + 1
@@ -403,7 +403,7 @@ describe LavinMQ::StreamQueue do
         StreamQueueSpecHelpers.publish(s, queue_name, 1)
 
         data_dir = File.join(s.vhosts["/"].data_dir, Digest::SHA1.hexdigest queue_name)
-        msg_store = LavinMQ::StreamQueue::StreamQueueMessageStore.new(data_dir, nil)
+        msg_store = LavinMQ::AMQP::StreamQueue::StreamQueueMessageStore.new(data_dir, nil)
         offsets.each_with_index do |offset, i|
           msg_store.store_consumer_offset(tag_prefix + i.to_s, offset)
         end
@@ -412,7 +412,7 @@ describe LavinMQ::StreamQueue do
         msg_store.close
         sleep 0.1
 
-        msg_store = LavinMQ::StreamQueue::StreamQueueMessageStore.new(data_dir, nil)
+        msg_store = LavinMQ::AMQP::StreamQueue::StreamQueueMessageStore.new(data_dir, nil)
         msg_store.last_offset_by_consumer_tag(tag_prefix + 1.to_s).should eq nil
         msg_store.last_offset_by_consumer_tag(tag_prefix + 0.to_s).should eq offsets[0]
         msg_store.close
@@ -444,7 +444,7 @@ describe LavinMQ::StreamQueue do
           msgs.receive
         end
 
-        msg_store = LavinMQ::StreamQueue::StreamQueueMessageStore.new(data_dir, nil)
+        msg_store = LavinMQ::AMQP::StreamQueue::StreamQueueMessageStore.new(data_dir, nil)
         msg_store.last_offset_by_consumer_tag(consumer_tag).should eq 2
 
         with_channel(s) do |ch|
@@ -452,7 +452,7 @@ describe LavinMQ::StreamQueue do
           2.times { q.publish_confirm msg_body }
         end
 
-        msg_store = LavinMQ::StreamQueue::StreamQueueMessageStore.new(data_dir, nil)
+        msg_store = LavinMQ::AMQP::StreamQueue::StreamQueueMessageStore.new(data_dir, nil)
         msg_store.last_offset_by_consumer_tag(consumer_tag).should eq nil
       end
     end
@@ -477,7 +477,7 @@ describe LavinMQ::StreamQueue do
 
         sleep 0.1
         data_dir = File.join(s.vhosts["/"].data_dir, Digest::SHA1.hexdigest queue_name)
-        msg_store = LavinMQ::StreamQueue::StreamQueueMessageStore.new(data_dir, nil)
+        msg_store = LavinMQ::AMQP::StreamQueue::StreamQueueMessageStore.new(data_dir, nil)
         msg_store.last_offset_by_consumer_tag(c_tag).should eq nil
       end
     end
@@ -488,7 +488,7 @@ describe LavinMQ::StreamQueue do
       with_amqp_server do |s|
         StreamQueueSpecHelpers.publish(s, queue_name, 1)
         data_dir = File.join(s.vhosts["/"].data_dir, Digest::SHA1.hexdigest queue_name)
-        msg_store = LavinMQ::StreamQueue::StreamQueueMessageStore.new(data_dir, nil)
+        msg_store = LavinMQ::AMQP::StreamQueue::StreamQueueMessageStore.new(data_dir, nil)
         one_offset_bytesize = "#{consumer_tag_prefix}#{1000}".bytesize + 1 + 8
         offsets = (LavinMQ::Config.instance.segment_size / one_offset_bytesize).to_i32 + 1
         bytesize = 0
