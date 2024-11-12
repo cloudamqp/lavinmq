@@ -369,43 +369,30 @@ module LavinMQ
       upstreams.stop_all
     end
 
-    private def close_connections(reason, close_done : Channel(Nil))
-      ch = Channel(Client).new
-      wg = WaitGroup.new
-
-      fiber_count = 0
-      spawn_close_fiber = -> do
-        fiber_id = (fiber_count &+= 1)
-        @log.trace { "Spawn close fiber #{fiber_id}" }
-        wg.add
-        spawn(name: "vhost close connection #{fiber_id}") do
-          while client = ch.receive?
-            client.close(reason)
-          end
-          wg.done
-          @log.trace { "Exit close fiber #{fiber_id}" }
-        end
-      end
-
-      {@connections.size, 100}.min.times do
-        spawn_close_fiber.call
-      end
-
-      @connections.each do |client|
-        loop do
-          select
-          when ch.send client
-            break
-          when timeout 200.milliseconds
-            # Spawn more fibers if all current are too busy closing "zombies"
-            spawn_close_fiber.call
+    private def close_connections(reason)
+      WaitGroup.wait do |wg|
+        to_close = Channel(Client).new
+        fiber_count = 0
+        @connections.each do |client|
+          loop do
+            select
+            when to_close.send client
+              break
+            else
+              fiber_id = fiber_count &+= 1
+              @log.trace { "spawning close conn fiber #{fiber_id} " }
+              wg.spawn do
+                while client_to_close = to_close.receive?
+                  client_to_close.close(reason)
+                end
+                @log.trace { "exiting close conn fiber #{fiber_id} " }
+              end
+              Fiber.yield
+            end
           end
         end
+        to_close.close
       end
-
-      ch.close
-      wg.wait
-      close_done.try &.close
     end
 
     def close(reason = "Broker shutdown")
@@ -417,16 +404,18 @@ module LavinMQ
       close_done = Channel(Nil).new
 
       spawn do
-        close_connections reason, close_done
+        close_connections reason
         @log.debug { "Close sent to all connections" }
+        close_done.close
       end
 
       select
       when close_done.receive?
         @log.info { "All connections closed gracefully" }
-      when timeout 10.seconds
+      when timeout 5.seconds
         @log.warn { "Timeout waiting for connections to close. #{@connections.size} left." }
       end
+      close_done.close
 
       # then force close the remaining (close tcp socket)
       @connections.each &.force_close
