@@ -22,9 +22,9 @@ module LavinMQ
         return iterator unless raw_name = params["name"]?
         term = URI.decode_www_form(raw_name)
         if params["use_regex"]?.try { |v| v == "true" }
-          iterator.select { |v| v[:name].to_s =~ /#{term}/ }
+          iterator.select &.[:name].to_s.matches?(/#{term}/)
         else
-          iterator.select { |v| v[:name].to_s.includes?(term) }
+          iterator.select &.[:name].to_s.includes?(term)
         end
       end
 
@@ -45,7 +45,7 @@ module LavinMQ
         if sort_by = params.fetch("sort", nil)
           sorted_items = all_items.to_a
           filtered_count = sorted_items.size
-          sorted_items.sort_by! { |i| i.dig?(sort_by) }
+          sorted_items.sort_by! &.dig?(sort_by)
           sorted_items.reverse! if params["sort_reverse"]?.try { |s| !(s =~ /^false$/i) }
           all_items = sorted_items.each
         end

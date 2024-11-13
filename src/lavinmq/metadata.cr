@@ -45,7 +45,7 @@ module LavinMQ
           end
         {% end %}
 
-        return 0
+        0
       end
 
       delegate to_json, to_s, to: @value
