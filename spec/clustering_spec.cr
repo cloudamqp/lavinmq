@@ -95,7 +95,7 @@ describe LavinMQ::Clustering::Client do
     retain_store.retain("topic1", msg1.body_io, msg1.bodysize)
     retain_store.retain("topic2", msg2.body_io, msg2.bodysize)
 
-    wait_for { replicator.@followers.first.lag_in_bytes == 0 }
+    wait_for { replicator.followers.first?.try &.lag_in_bytes == 0 }
     repli.close
     done.receive
 
