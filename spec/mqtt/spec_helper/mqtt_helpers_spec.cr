@@ -10,8 +10,8 @@ module MqttHelpers
   end
 
   def with_client_socket(server)
-    listener = server.listeners.find { |l| l[:protocol] == :mqtt }
-    tcp_listener = listener.as(NamedTuple(ip_address: String, protocol: Symbol, port: Int32))
+    listener = server.listeners.find { |l| l[:protocol].mqtt? }
+    tcp_listener = listener.as(NamedTuple(ip_address: String, protocol: LavinMQ::Server::Protocol, port: Int32))
 
     socket = TCPSocket.new(
       tcp_listener[:ip_address],
@@ -41,8 +41,8 @@ module MqttHelpers
     amqp_server = TCPServer.new("localhost", 0)
     s = LavinMQ::Server.new(LavinMQ::Config.instance.data_dir, LavinMQ::Clustering::NoopServer.new)
     begin
-      spawn(name: "amqp tcp listen") { s.listen(amqp_server, :amqp) }
-      spawn(name: "mqtt tcp listen") { s.listen(mqtt_server, :mqtt) }
+      spawn(name: "amqp tcp listen") { s.listen(amqp_server, LavinMQ::Server::Protocol::AMQP) }
+      spawn(name: "mqtt tcp listen") { s.listen(mqtt_server, LavinMQ::Server::Protocol::MQTT) }
       Fiber.yield
       yield s
     ensure
