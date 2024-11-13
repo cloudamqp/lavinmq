@@ -14,7 +14,11 @@ module LavinMQ
       def initialize(@dir : String, @replicator : Clustering::Replicator, @index = IndexTree.new)
         Dir.mkdir_p @dir
         @files = Hash(String, File).new do |files, file_name|
-          f = files[file_name] = File.new(File.join(@dir, file_name), "r+")
+           file_path = File.join(@dir, file_name)
+          unless File.exists?(file_path)
+            File.open(file_path, "w").close
+          end
+          f = files[file_name] = File.new(file_path, "r+")
           f.sync = true
           f
         end
@@ -81,7 +85,6 @@ module LavinMQ
             msg_file_name = make_file_name(topic)
             add_to_index(topic, msg_file_name)
           end
-
           tmp_file = File.join(@dir, "#{msg_file_name}.tmp")
           f = @files[msg_file_name]
           f.pos = 0
