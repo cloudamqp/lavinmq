@@ -1,7 +1,7 @@
 require "./spec_helper"
 
 module LavinMQ
-  struct Metadata(T)
+  struct NamedTupleMetadata(T) < Metadata
     describe Value do
       describe "compare" do
         {% begin %}
@@ -17,6 +17,7 @@ module LavinMQ
               {nil, nil, 0},
               {1, "a", -1},
               {"a", 1, 1},
+              {1u8, 2i32, -1},
             }
           %}
           {% for values in testdata %}

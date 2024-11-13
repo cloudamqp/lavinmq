@@ -29,23 +29,26 @@ module LavinMQ
         @value
       end
 
-      def <=>(other : Value)
+      def <=>(other : Value(T2)) forall T2
         return 0 if @value.nil? && other.@value.nil?
         return -1 if @value.nil?
         return 1 if other.@value.nil?
 
-        if Number === @value === other.@value
-          return @value <=> other.@value
-        end
+        {% if T <= Number && T2 <= Number %}
+          if other_value = other.@value
+            return @value <=> other_value
+          end
+        {% end %}
+
         if self.type != other.type
           return @value.to_s <=> other.@value.to_s
         end
 
-        if (value = @value) && (other_value = other.@value.as?(T))
-          if value.is_a?(Comparable)
+        {% if T <= Comparable %}
+          if (value = @value) && (other_value = other.@value.as?(T))
             return value <=> other_value
           end
-        end
+        {% end %}
 
         return 0
       end

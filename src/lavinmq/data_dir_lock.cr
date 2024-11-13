@@ -14,6 +14,7 @@ module LavinMQ
     def acquire
       begin
         @lock.flock_exclusive(blocking: false)
+        Log.debug { "Data directory lock acquired" }
       rescue
         Log.info { "Data directory locked by '#{@lock.gets_to_end}'" }
         Log.info { "Waiting for file lock to be released" }
