@@ -370,18 +370,51 @@ module LavinMQ
       upstreams.stop_all
     end
 
+    private def close_connections(reason)
+      WaitGroup.wait do |wg|
+        to_close = Channel(Client).new
+        fiber_count = 0
+        @connections.each do |client|
+          select
+          when to_close.send client
+          else
+            fiber_id = fiber_count &+= 1
+            @log.trace { "spawning close conn fiber #{fiber_id} " }
+            wg.spawn do
+              client.close(reason)
+              while client_to_close = to_close.receive?
+                client_to_close.close(reason)
+              end
+              @log.trace { "exiting close conn fiber #{fiber_id} " }
+            end
+            Fiber.yield
+          end
+        end
+        to_close.close
+      end
+    end
+
     def close(reason = "Broker shutdown")
       @closed = true
       stop_shovels
       stop_upstream_links
-      Fiber.yield
-      @log.debug { "Closing connections" }
-      @connections.each &.close(reason)
-      # wait up to 10s for clients to gracefully close
-      100.times do
-        break if @connections.empty?
-        sleep 0.1.seconds
+
+      @log.info { "Closing connections" }
+      close_done = Channel(Nil).new
+
+      spawn do
+        close_connections reason
+        @log.debug { "Close sent to all connections" }
+        close_done.close
       end
+
+      select
+      when close_done.receive?
+        @log.info { "All connections closed gracefully" }
+      when timeout 15.seconds
+        @log.warn { "Timeout waiting for connections to close. #{@connections.size} left that will be forced closed." }
+      end
+      close_done.close
       # then force close the remaining (close tcp socket)
       @connections.each &.force_close
       Fiber.yield # yield so that Client read_loops can shutdown

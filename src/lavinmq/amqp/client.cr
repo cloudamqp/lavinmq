@@ -262,7 +262,7 @@ module LavinMQ
         end
         true
       rescue ex : IO::Error | OpenSSL::SSL::Error
-        @log.debug { "Lost connection, while sending (#{ex.inspect})" }
+        @log.debug { "Lost connection, while sending message (#{ex.inspect})" } unless closed?
         close_socket
         Fiber.yield
         false
@@ -413,14 +413,20 @@ module LavinMQ
       private def close_socket
         @running = false
         @socket.close
-        @log.debug { "Socket closed" }
       rescue ex
         @log.debug { "#{ex.inspect} when closing socket" }
       end
 
-      def close(reason = nil)
+      def close(reason = nil, timeout : Time::Span = 5.seconds)
         reason ||= "Connection closed"
-        @log.info { "Closing, #{reason}" }
+        @log.info { "Closing: #{reason}" }
+
+        socket = @socket
+        if socket.responds_to?(:"write_timeout=")
+          socket.write_timeout = timeout
+          socket.read_timeout = timeout
+        end
+
         send AMQP::Frame::Connection::Close.new(320_u16, "CONNECTION_FORCED - #{reason}", 0_u16, 0_u16)
         @running = false
       end
