@@ -13,8 +13,8 @@ module LavinMQ
     @tls_context : OpenSSL::SSL::Context::Server?
     @first_shutdown_attempt = true
     @data_dir_lock : DataDirLock?
-    @closed = false
     @lease : Channel(Nil)?
+    @running = false
 
     def initialize(@config : Config, replicator = Clustering::NoopServer.new, @lease = nil)
       print_environment_info
@@ -40,6 +40,7 @@ module LavinMQ
     def run
       listen
       SystemD.notify_ready
+      @running = true
       loop do
         if lease = @lease
           select
@@ -56,10 +57,11 @@ module LavinMQ
           GC.collect
         end
       end
-      stop
+      stop if @running
     end
 
     def stop
+      @running = false
       Log.warn { "Stopping" }
       SystemD.notify_stopping
       @http_server.close rescue nil
