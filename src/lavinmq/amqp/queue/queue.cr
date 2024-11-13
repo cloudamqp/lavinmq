@@ -753,7 +753,7 @@ module LavinMQ::AMQP
           end
         end
       end
-      unacked_messages = unacked_messages.chain(self.basic_get_unacked.each)
+      unacked_messages.chain(self.basic_get_unacked.each)
     end
 
     private def with_delivery_count_header(env) : Envelope?

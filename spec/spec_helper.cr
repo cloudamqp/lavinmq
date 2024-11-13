@@ -29,7 +29,7 @@ end
 
 def with_channel(s : LavinMQ::Server, file = __FILE__, line = __LINE__, **args, &)
   name = "lavinmq-spec-#{file}:#{line}"
-  port = s.@listeners
+  s.@listeners
     .select { |k, v| k.is_a?(TCPServer) && v == :amqp }
     .keys
     .select(TCPServer)

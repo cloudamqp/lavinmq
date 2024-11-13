@@ -65,8 +65,8 @@ module LavinMQ
         # index from msg files?
         unless msg_file_segments.empty?
           Log.warn { "unreferenced messages will be deleted: #{msg_file_segments.join(",")}" }
-          msg_file_segments.each do |msg_file_name|
-            File.delete? File.join(dir, msg_file_name)
+          msg_file_segments.each do |file_name|
+            File.delete? File.join(dir, file_name)
           end
         end
         Log.info { "restoring index done, msg_count = #{msg_count}" }
@@ -85,7 +85,6 @@ module LavinMQ
             msg_file_name = make_file_name(topic)
             add_to_index(topic, msg_file_name)
           end
-          tmp_file = File.join(@dir, "#{msg_file_name}.tmp")
           f = @files[msg_file_name]
           f.pos = 0
           ::IO.copy(body_io, f)
