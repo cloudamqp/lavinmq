@@ -21,6 +21,11 @@ require "./stats"
 
 module LavinMQ
   class Server
+    enum Protocol
+      AMQP
+      MQTT
+    end
+
     getter vhosts, users, data_dir, parameters, broker
     getter? closed, flow
     include ParameterTarget
@@ -28,7 +33,7 @@ module LavinMQ
     @start = Time.monotonic
     @closed = false
     @flow = true
-    @listeners = Hash(Socket::Server, Symbol).new # Socket => protocol
+    @listeners = Hash(Socket::Server, Protocol).new # Socket => protocol
     @replicator : Clustering::Replicator
     Log = LavinMQ::Log.for "server"
 
@@ -84,7 +89,7 @@ module LavinMQ
       Iterator(Client).chain(@vhosts.each_value.map(&.connections.each))
     end
 
-    def listen(s : TCPServer, protocol)
+    def listen(s : TCPServer, protocol : Protocol)
       @listeners[s] = protocol
       Log.info { "Listening on #{s.local_address}" }
       loop do
@@ -130,7 +135,7 @@ module LavinMQ
       end
     end
 
-    def listen(s : UNIXServer, protocol)
+    def listen(s : UNIXServer, protocol : Protocol)
       @listeners[s] = protocol
       Log.info { "Listening on #{s.local_address}" }
       loop do # do not try to use while
@@ -157,12 +162,12 @@ module LavinMQ
       @listeners.delete(s)
     end
 
-    def listen(bind = "::", port = 5672, protocol = :amqp)
+    def listen(bind = "::", port = 5672, protocol : Protocol = :amqp)
       s = TCPServer.new(bind, port)
       listen(s, protocol)
     end
 
-    def listen_tls(s : TCPServer, context, protocol)
+    def listen_tls(s : TCPServer, context, protocol : Protocol)
       @listeners[s] = protocol
       Log.info { "Listening on #{s.local_address} (TLS)" }
       loop do # do not try to use while
@@ -190,11 +195,11 @@ module LavinMQ
       @listeners.delete(s)
     end
 
-    def listen_tls(bind, port, context, protocol)
+    def listen_tls(bind, port, context, protocol : Protocol = :amqp)
       listen_tls(TCPServer.new(bind, port), context, protocol)
     end
 
-    def listen_unix(path : String, protocol)
+    def listen_unix(path : String, protocol : Protocol)
       File.delete?(path)
       s = UNIXServer.new(path)
       File.chmod(path, 0o666)
@@ -254,15 +259,12 @@ module LavinMQ
       end
     end
 
-    def handle_connection(socket, connection_info, protocol)
+    def handle_connection(socket, connection_info, protocol : Protocol)
       case protocol
-      when :amqp
+      in .amqp?
         client = @amqp_connection_factory.start(socket, connection_info, @vhosts, @users)
-      when :mqtt
+      in .mqtt?
         client = @mqtt_connection_factory.start(socket, connection_info)
-      else
-        Log.warn { "Unknown protocol '#{protocol}'" }
-        socket.close
       end
     ensure
       socket.close if client.nil?
