@@ -1,8 +1,3 @@
-module AMQ::Protocol
-  struct Table
-  end
-end
-
 module LavinMQ
   abstract struct Metadata
     def self.new(data : NamedTuple)
@@ -29,12 +24,12 @@ module LavinMQ
         @value
       end
 
-      def <=>(other : Value(T2)) forall T2
+      def <=>(other : Value(U)) forall U
         return 0 if @value.nil? && other.@value.nil?
         return -1 if @value.nil?
         return 1 if other.@value.nil?
 
-        {% if T <= Number && T2 <= Number %}
+        {% if T <= Number && U <= Number %}
           if other_value = other.@value
             return @value <=> other_value
           end
