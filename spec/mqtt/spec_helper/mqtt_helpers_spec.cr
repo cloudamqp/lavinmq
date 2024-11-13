@@ -1,5 +1,5 @@
 require "mqtt-protocol"
-require "./mqtt_client"
+require "./mqtt_client_spec"
 require "../../spec_helper"
 
 module MqttHelpers

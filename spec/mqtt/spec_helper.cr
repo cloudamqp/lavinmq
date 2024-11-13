@@ -1,3 +1,3 @@
-require "./spec_helper/mqtt_helpers"
-require "./spec_helper/mqtt_matchers"
-require "./spec_helper/mqtt_protocol"
+require "./spec_helper/mqtt_helpers_spec"
+require "./spec_helper/mqtt_matchers_spec"
+require "./spec_helper/mqtt_protocol_spec"

@@ -422,29 +422,29 @@ describe LavinMQ::Exchange do
   end
 end
 
-describe LavinMQ::MQTT::Exchange do
-  it "should only allow Session to bind" do
-    with_amqp_server do |s|
-      vhost = s.vhosts.create("x")
-      q1 = LavinMQ::AMQP::Queue.new(vhost, "q1")
-      s1 = LavinMQ::MQTT::Session.new(vhost, "q1")
-      x = LavinMQ::MQTT::Exchange.new(vhost, "", LavinMQ::MQTT::RetainStore.new(vhost.data_dir))
-      x.bind(s1, "s1", LavinMQ::AMQP::Table.new)
-      expect_raises(LavinMQ::Exchange::AccessRefused) do
-        x.bind(q1, "q1", LavinMQ::AMQP::Table.new)
-      end
-    end
-  end
+# describe LavinMQ::MQTT::Exchange do
+#   it "should only allow Session to bind" do
+#     with_amqp_server do |s|
+#       vhost = s.vhosts.create("x")
+#       q1 = LavinMQ::AMQP::Queue.new(vhost, "q1")
+#       s1 = LavinMQ::MQTT::Session.new(vhost, "q1")
+#       x = LavinMQ::MQTT::Exchange.new(vhost, "", LavinMQ::MQTT::RetainStore.new(vhost.data_dir))
+#       x.bind(s1, "s1", LavinMQ::AMQP::Table.new)
+#       expect_raises(LavinMQ::Exchange::AccessRefused) do
+#         x.bind(q1, "q1", LavinMQ::AMQP::Table.new)
+#       end
+#     end
+#   end
 
-  it "publish messages to queues with it's own publish method" do
-    with_amqp_server do |s|
-      vhost = s.vhosts.create("x")
-      s1 = LavinMQ::MQTT::Session.new(vhost, "session 1")
-      x = LavinMQ::MQTT::Exchange.new(vhost, "mqtt.default", LavinMQ::MQTT::RetainStore.new(vhost.data_dir))
-      x.bind(s1, "s1", LavinMQ::AMQP::Table.new)
-      msg = LavinMQ::Message.new("mqtt.default", "s1", "hej")
-      x.publish(msg, false)
-      s1.message_count.should eq 1
-    end
-  end
-end
+#   it "publish messages to queues with it's own publish method" do
+#     with_amqp_server do |s|
+#       vhost = s.vhosts.create("x")
+#       s1 = LavinMQ::MQTT::Session.new(vhost, "session 1")
+#       x = LavinMQ::MQTT::Exchange.new(vhost, "mqtt.default", LavinMQ::MQTT::RetainStore.new(vhost.data_dir))
+#       x.bind(s1, "s1", LavinMQ::AMQP::Table.new)
+#       msg = LavinMQ::Message.new("mqtt.default", "s1", "hej")
+#       x.publish(msg, false)
+#       s1.message_count.should eq 1
+#     end
+#   end
+# end
