@@ -20,6 +20,7 @@ module LavinMQ
     property mqtt_bind = "127.0.0.1"
     property mqtt_port = 1883
     property mqtts_port = 8883
+    property mqtt_unix_path = ""
     property unix_path = ""
     property unix_proxy_protocol = 1_u8 # PROXY protocol version on unix domain socket connections
     property tcp_proxy_protocol = 0_u8  # PROXY protocol version on amqp tcp connections
@@ -111,6 +112,9 @@ module LavinMQ
         end
         p.on("--http-unix-path=PATH", "HTTP UNIX path to listen to") do |v|
           @http_unix_path = v
+        end
+        p.on("--mqtt-unix-path=PATH", "MQTT UNIX path to listen to") do |v|
+          @mqtt_unix_path = v
         end
         p.on("--cert FILE", "TLS certificate (including chain)") { |v| @tls_cert_path = v }
         p.on("--key FILE", "Private key for the TLS certificate") { |v| @tls_key_path = v }
@@ -295,6 +299,7 @@ module LavinMQ
         when "tls_port"              then @mqtts_port = v.to_i32
         when "tls_cert"              then @tls_cert_path = v # backward compatibility
         when "tls_key"               then @tls_key_path = v  # backward compatibility
+        when "mqtt_unix_path"        then @mqtt_unix_path = v
         when "max_inflight_messages" then @max_inflight_messages = v.to_u16
         else
           STDERR.puts "WARNING: Unrecognized configuration 'mqtt/#{config}'"
