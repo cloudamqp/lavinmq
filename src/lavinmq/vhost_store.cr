@@ -43,7 +43,11 @@ module LavinMQ
     end
 
     def close
-      @vhosts.each_value &.close
+      WaitGroup.wait do |wg|
+        @vhosts.each_value do |vhost|
+          wg.spawn &->vhost.close
+        end
+      end
     end
 
     def to_json(json : JSON::Builder)
