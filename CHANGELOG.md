@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - etcd lease will no longer expire during slow startup [#834](https://github.com/cloudamqp/lavinmq/pull/834)
 - leader node is no longer unresponsive while sending file_list/files to new followers [#838](https://github.com/cloudamqp/lavinmq/pull/838)
+- leader node now waits for all data to be acked to all followers before shutting down on graceful shutdown [#835](https://github.com/cloudamqp/lavinmq/pull/835)
 
 ### Changed
 
