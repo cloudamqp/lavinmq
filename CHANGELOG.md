@@ -13,14 +13,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - etcd lease will no longer expire during slow startup [#834](https://github.com/cloudamqp/lavinmq/pull/834)
 - leader node is no longer unresponsive while sending file_list/files to new followers [#838](https://github.com/cloudamqp/lavinmq/pull/838)
 - leader node now waits for all data to be acked to all followers before shutting down on graceful shutdown [#835](https://github.com/cloudamqp/lavinmq/pull/835)
+- Improve broker initiated client disconnects [#816](https://github.com/cloudamqp/lavinmq/pull/816)
+- Fixed sorting on unacked messages [#836](https://github.com/cloudamqp/lavinmq/pull/836)
 
 ### Changed
 
-- Remove the 'reset vhost' feature [#822](https://github.com/cloudamqp/lavinmq/pull/822/files)
+- Remove the 'reset vhost' feature [#822](https://github.com/cloudamqp/lavinmq/pull/822)
+- Build with latest crystal version [#841](https://github.com/cloudamqp/lavinmq/pull/841)
+- Added metadata when logging connection handshake [#826](https://github.com/cloudamqp/lavinmq/pull/826)
 
 ### Added
 
 - Added some indexing for streams, greatly increasing performance when looking up by offset or timestamp [#817](https://github.com/cloudamqp/lavinmq/pull/817)
+- added buildstep for 'make rpm' [#840](https://github.com/cloudamqp/lavinmq/pull/840)
 
 ## [2.0.0] - 2024-10-31
 
