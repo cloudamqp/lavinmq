@@ -34,6 +34,9 @@ module LavinMQ
         return -1 if @value.nil?
         return 1 if other.@value.nil?
 
+        if Number === @value === other.@value
+          return @value <=> other.@value
+        end
         if self.type != other.type
           return @value.to_s <=> other.@value.to_s
         end
