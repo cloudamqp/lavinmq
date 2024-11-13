@@ -10,7 +10,7 @@ module MqttHelpers
   end
 
   def with_client_socket(server)
-    listener = server.listeners.find { |l| l[:protocol].mqtt? }
+    listener = server.listeners.find(&.[:protocol].mqtt?)
     tcp_listener = listener.as(NamedTuple(ip_address: String, protocol: LavinMQ::Server::Protocol, port: Int32))
 
     socket = TCPSocket.new(
