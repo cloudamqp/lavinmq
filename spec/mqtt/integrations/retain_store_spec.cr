@@ -30,7 +30,6 @@ module MqttSpecs
         store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", LavinMQ::Clustering::NoopServer.new, index)
         props = LavinMQ::AMQP::Properties.new
         msg = LavinMQ::Message.new(100, "test", "rk", props, 10, IO::Memory.new("body"))
-        msg2 = LavinMQ::Message.new(100, "test", "rk", props, 10, IO::Memory.new("body"))
 
         store.retain("a", msg.body_io, msg.bodysize)
         index.size.should eq(1)
@@ -97,7 +96,7 @@ module MqttSpecs
         store.close
 
         new_index = IndexTree.new
-        store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", LavinMQ::Clustering::NoopServer.new, new_index)
+        LavinMQ::MQTT::RetainStore.new("tmp/retain_store", LavinMQ::Clustering::NoopServer.new, new_index)
 
         new_index.size.should eq(1)
         new_index.@leafs.has_key?("a").should be_true
