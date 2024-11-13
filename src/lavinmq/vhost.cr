@@ -410,11 +410,10 @@ module LavinMQ
       select
       when close_done.receive?
         @log.info { "All connections closed gracefully" }
-      when timeout 5.seconds
-        @log.warn { "Timeout waiting for connections to close. #{@connections.size} left." }
+      when timeout 15.seconds
+        @log.warn { "Timeout waiting for connections to close. #{@connections.size} left that will be forced closed." }
       end
       close_done.close
-
       # then force close the remaining (close tcp socket)
       @connections.each &.force_close
       Fiber.yield # yield so that Client read_loops can shutdown
