@@ -10,11 +10,11 @@
     <div class="grid-content">
       <main>
         <div id="breadcrumbs" class="cols-12">
-            <h2 class="page-title flex flex-row items-center"><%=pagename%><span style="margin: 0 4px;">/</span> <div id="pagename-label"></div></h2>
+            <h2 class="page-title"><%=pagename%><span class="breadcrumb-divider">/</span> <div id="pagename-label"></div></h2>
         </div>
-        <section class="card cols-6 rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
-          <h3 class="text-lg font-semibold text-light-400 flex flex-row items-center">Details</h3>
-          <table class="details-table text-light-400">
+        <section class="card cols-6 regular-card">
+          <h3 class="title-m">Details</h3>
+          <table class="details-table">
             <tr>
               <th>Connection</th>
               <td id="ch-connection"></td>
@@ -33,9 +33,9 @@
             </tr>
           </table>
         </section>
-        <section class="card cols-6 rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
-          <h3 class="text-lg font-semibold text-light-400 flex flex-row items-center">Stats</h3>
-          <table class="details-table text-light-400">
+        <section class="card cols-6 regular-card">
+          <h3 class="title-m">Stats</h3>
+          <table class="details-table">
             <tr>
               <th>Messages unacknowledged</th>
               <td id="ch-unacked"></td>
@@ -50,14 +50,14 @@
             </tr>
           </table>
         </section>
-        <section class="card rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
-          <h3 class="text-lg font-semibold text-light-400 flex flex-row items-center">Message rates</h3>
+        <section class="card regular-card">
+          <h3 class="title-m">Message rates</h3>
           <div class="chart-container" id="chart"></div>
         </section>
-        <section class="card rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
-          <h3 class="text-lg font-semibold text-light-400 flex flex-row items-center">
+        <section class="card regular-card">
+          <h3 class="title-m has-badge">
             Consumers
-            <small class="bg-green-400 ml-2 inline-block text-center text-sm text-dark-400 py-1 px-3 rounded-sm" id="consumer-count"></small>
+            <small class="tiny-badge" id="consumer-count"></small>
           </h3>
           <div class="table-wrapper">
             <div id="table-error"></div>

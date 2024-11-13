@@ -10,11 +10,11 @@
     <div class="grid-content">
       <main class="queue-main">
         <div id="breadcrumbs" class="cols-12">
-            <h2 class="page-title flex flex-row items-center"><%=pagename%> <span style="margin: 0 4px;">/</span> <div id="pagename-label"></div></h2>
+            <h2 class="page-title"><%=pagename%> <span class="breadcrumb-divider">/</span> <div id="pagename-label"></div></h2>
         </div>
-        <section class="card cols-4 rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
-          <h3 class="text-lg font-semibold text-light-400">Details</h3>
-          <table class="details-table text-light-400">
+        <section class="card cols-4 regular-card">
+          <h3 class="title-m">Details</h3>
+          <table class="details-table">
             <tr>
               <th>Features</th>
               <td id="q-features"></td>
@@ -41,9 +41,9 @@
             </tr>
           </table>
         </section>
-        <section class="card cols-4 rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
-          <h3 class="text-lg font-semibold text-light-400">Messages</h3>
-          <table class="details-table text-light-400">
+        <section class="card cols-4 regular-card">
+          <h3 class="title-m">Messages</h3>
+          <table class="details-table">
             <tr>
               <th></th>
               <th>Count</th>
@@ -70,22 +70,22 @@
             </tr>
           </table>
         </section>
-        <section class="card cols-4 rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
-          <h3 class="text-lg font-semibold text-light-400">Arguments</h3>
-          <pre class="arguments text-light-400" id="q-arguments"></pre>
+        <section class="card cols-4 regular-card">
+          <h3 class="title-m">Arguments</h3>
+          <pre class="arguments" id="q-arguments"></pre>
         </section>
-        <section class="card rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
-          <h3 class="text-lg font-semibold text-light-400">Rates</h3>
+        <section class="card regular-card">
+          <h3 class="title-m">Rates</h3>
           <div class="chart-container" id="chart"></div>
         </section>
-        <section class="card rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
-          <h3 class="text-lg font-semibold text-light-400 flex flex-row items-center">
+        <section class="card regular-card">
+          <h3 class="title-m has-badge">
             Consumers
-            <small class="bg-green-400 ml-2 inline-block text-center text-sm text-dark-400 counter-pill py-1 px-3 rounded-sm" id="consumer-count"></small>
+            <small class="tiny-badge counter-pill" id="consumer-count"></small>
           </h3>
           <div class="table-wrapper">
             <div id="table-error"></div>
-            <table id="table" class="table text-light-400">
+            <table id="table" class="table">
               <thead>
                 <tr>
                   <th class="left">Channel</th>
@@ -101,14 +101,14 @@
           </div>
           <button class="load-more" id="load-more-consumers"></button>
         </section>
-        <section class="card rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
-          <h3 class="text-lg font-semibold text-light-400 flex flex-row items-center">
+        <section class="card regular-card">
+          <h3 class="title-m has-badge">
             Bindings
-            <small class="bg-green-400 ml-2 inline-block text-center text-sm text-dark-400 counter-pill py-1 px-3 rounded-sm" id="bindings-count"></small>
+            <small class="tiny-badge counter-pill" id="bindings-count"></small>
           </h3>
           <div class="table-wrapper">
             <div id="bindings-table-error"></div>
-            <table id="bindings-table" class="table text-light-400">
+            <table id="bindings-table" class="table">
               <thead>
                 <tr>
                   <th class="left">From</th>
@@ -121,44 +121,44 @@
             </table>
           </div>
         </section>
-        <form method="post" id="addBinding" class="form card cols-6 rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
-          <h3 class="text-lg font-semibold text-light-400">Add a binding to this queue</h3>
+        <form method="post" id="addBinding" class="form card cols-6 regular-card">
+          <h3 class="title-m">Add a binding to this queue</h3>
           <div class="py-4">
             <label class="mt-0 mb-4">
-              <span class="text-light-400">From exchange</span>
+              <span class="field-label">From exchange</span>
               <input class="regular-text" name="source" type="text" required list="exchange-list">
               <datalist id="exchange-list"></datalist>
             </label>
             <label class="mt-0 mb-4">
-              <span class="text-light-400">Routing key</span>
+              <span class="field-label">Routing key</span>
               <input class="regular-text" name="routing_key" type="text">
             </label>
             <label class="mt-0 mb-4">
-              <span class="text-light-400">Arguments</span>
+              <span class="field-label">Arguments</span>
               <textarea class="regular-textarea" name="arguments" placeholder='{ "key": value }'></textarea>
             </label>
             <button type="submit" class="btn btn-outlined">Bind</button>
           </div>
         </form>
-        <form method="post" id="publishMessage" class="form card cols-6 rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
-          <h3 class="text-lg font-semibold text-light-400">Publish message</h3>
-          <p class="text-light-300">
+        <form method="post" id="publishMessage" class="form card cols-6 regular-card">
+          <h3 class="title-m">Publish message</h3>
+          <p class="card-desc">
             Message will be published to the default exchange with routing key <span class="queue"></span>, routing it to
             this queue.
           </p>
           <div class="py-4">
             <label class="mt-0 mb-4">
-              <span class="text-light-400">Delivery mode</span>
+              <span class="field-label">Delivery mode</span>
               <select class="dropdown" name="delivery_mode">
                 <option value="2">Persistent</option>
               </select>
             </label>
             <label class="mt-0 mb-4">
-              <span class="text-light-400">Headers</span>
+              <span class="field-label">Headers</span>
               <textarea class="regular-textarea" name="headers" placeholder='{ "key": value }'></textarea>
             </label>
             <label class="mt-0 mb-4">
-              <span class="text-light-400">Properties</span>
+              <span class="field-label">Properties</span>
               <textarea class="regular-textarea" name="properties" placeholder='{ "key": value }'></textarea>
               <div id="dataTags" class="label">
                 <a class="arg-tooltip" data-tag="content_type" data-value="&quot;application/json&quot;">Content Type
@@ -198,11 +198,11 @@
               </div>
             </label>
             <label class="mt-0 mb-4">
-              <span class="text-light-400">Payload</span>
+              <span class="field-label">Payload</span>
               <textarea class="regular-textarea" name="payload"></textarea>
             </label>
             <label class="mt-0 mb-4">
-              <span class="text-light-400">Payload encoding</span>
+              <span class="field-label">Payload encoding</span>
               <select class="dropdown" name="payload_encoding">
                 <option value="string">String</option>
                 <option value="base64">Base64</option>
@@ -211,12 +211,12 @@
             <button type="submit" class="btn btn-outlined">Publish message</button>
           </div>
         </form>
-        <section class="card cols-6 rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
+        <section class="card cols-6 regular-card">
           <form method="post" id="getMessages" class="form">
-            <h3 class="text-lg font-semibold text-light-400">Get messages</h3>
+            <h3 class="title-m">Get messages</h3>
             <div class="py-4">
               <label class="mt-0 mb-4">
-                <span class="text-light-400">Mode</span>
+                <span class="field-label">Mode</span>
                 <select class="dropdown" name="mode">
                   <option value="get">Get Ack</option>
                   <option value="reject_requeue_true" selected>Reject and Requeue</option>
@@ -224,25 +224,25 @@
                 </select>
               </label>
               <label class="mt-0 mb-4">
-                <span class="text-light-400">Encoding</span>
+                <span class="field-label">Encoding</span>
                 <select class="dropdown" name="encoding">
                   <option value="auto">Auto string/base64</option>
                   <option value="base64">Base64</option>
                 </select>
               </label>
               <label class="mt-0 mb-4">
-                <span class="text-light-400">Messages</span>
+                <span class="field-label">Messages</span>
                 <input class="regular-text" type="number" name="messages" value=1>
               </label>
               <button type="submit" class="btn btn-outlined">Get message(s)</button>
             </div>
           </form>
         </section>
-        <form method="post" id="moveMessages" class="form card cols-6 rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
-          <h3 class="text-lg font-semibold text-light-400">Move messages</h3>
+        <form method="post" id="moveMessages" class="form card cols-6 regular-card">
+          <h3 class="title-m">Move messages</h3>
           <div class="py-4">
             <label class="mt-0 mb-4">
-              <span class="text-light-400">Destination queue</span>
+              <span class="field-label">Destination queue</span>
               <input class="regular-text" type="text" name="shovel-destination" list="queue-list">
               <datalist id="queue-list">
               </datalist>
@@ -285,35 +285,35 @@
           </table>
         </div>
         <div id="messages" class="cols-12"></div>
-        <section class="card cols-4 rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
-          <h3 class="text-lg font-semibold text-light-400">Pause Queue</h3>
+        <section class="card cols-4 regular-card">
+          <h3 class="title-m">Pause Queue</h3>
           <form method="put" id="pauseQueue" class="form">
             <label>
-              <button type="submit" class="btn btn-yellow" style="margin-left: 0;">Pause queue</button>
+              <button type="submit" class="btn btn-yellow ml-0">Pause queue</button>
             </label>
           </form>
           <form method="put" id="resumeQueue" class="form hide">
             <label>
-              <button type="submit" class="btn btn-yellow">Resume queue</button>
+              <button type="submit" class="btn btn-yellow ml-0">Resume queue</button>
             </label>
           </form>
-          <p class="text-light-300">Pausing a queue will stop deliveries to all consumers.</p>
+          <p class="card-desc mt-4">Pausing a queue will stop deliveries to all consumers.</p>
         </section>
-        <form method="delete" id="purgeQueue" class="form card cols-4 rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
-          <h3 class="text-lg font-semibold text-light-400">Purge queue</h3>
+        <form method="delete" id="purgeQueue" class="form card cols-4 regular-card">
+          <h3 class="title-m">Purge queue</h3>
           <label class="mt-0 mb-4">
-            <span class="text-light-400">Number of messages</span>
+            <span class="field-label">Number of messages</span>
             <input class="regular-text" type="number" name="count" min="1" placeholder="All">
           </label>
           <label>
-            <button type="submit" class="btn btn-red" style="margin-left: 0;">Purge queue</button>
+            <button type="submit" class="btn btn-red ml-0">Purge queue</button>
           </label>
         </form>
-        <section class="card cols-4 rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
-          <h3 class="text-lg font-semibold text-light-400">Delete queue</h3>
+        <section class="card cols-4 regular-card">
+          <h3 class="title-m">Delete queue</h3>
           <form method="delete" id="deleteQueue" class="form">
             <label>
-              <button type="submit" class="btn btn-red" style="margin-left: 0;">Delete queue</button>
+              <button type="submit" class="btn btn-red ml-0">Delete queue</button>
             </label>
           </form>
         </section>

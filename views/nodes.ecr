@@ -10,11 +10,11 @@
     <div class="grid-content">
       <main>
         <div id="breadcrumbs" class="cols-12">
-            <h2 class="page-title flex flex-row items-center"><span><%=pagename%></span></h2>
+            <h2 class="page-title"><span><%=pagename%></span></h2>
         </div>
-        <section class="card cols-6 rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
-          <h3 class="text-lg font-semibold text-light-400">Details</h3>
-          <table class="details-table text-light-400">
+        <section class="card cols-6 regular-card">
+          <h3 class="title-m">Details</h3>
+          <table class="details-table">
             <tr>
               <th>Name</th>
               <td id="tr-name"></td>
@@ -29,7 +29,7 @@
             </tr>
             <tr>
               <th>
-                <a class="prop-tooltip text-light-400" data-tag="alternate-exchange">Memory usage<span class="tooltip-icon">?</span>
+                <a class="prop-tooltip" data-tag="alternate-exchange">Memory usage<span class="tooltip-icon">?</span>
                 <span class="prop-tooltiptext">The amount of memory LavinMQ uses relative to the available system space</span>
                 </a>
               </th>
@@ -37,7 +37,7 @@
             </tr>
             <tr>
               <th>
-                <a class="prop-tooltip text-light-400" data-tag="alternate-exchange">Disk usage<span class="tooltip-icon">?</span>
+                <a class="prop-tooltip" data-tag="alternate-exchange">Disk usage<span class="tooltip-icon">?</span>
                 <span class="prop-tooltiptext">The amount of disk memory the system uses relative to the available system space</span>
                 </a>
               </th>
@@ -49,43 +49,43 @@
             </tr>
           </table>
         </section>
-        <section class="card cols-6 rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
-          <h3 class="text-lg font-semibold text-light-400">Stats</h3>
-          <table id="stats-table" class="details-table text-light-400">
+        <section class="card cols-6 regular-card">
+          <h3 class="title-m">Stats</h3>
+          <table id="stats-table" class="details-table">
           </table>
         </section>
-        <section class="card cols-4 cols-6-md border-light rounded-xl bg-dark-900 px-6 pb-6 pt-4">
-          <h3 class="text-lg font-semibold text-light-400">Memory usage</h3>
+        <section class="card cols-4 cols-6-md regular-card">
+          <h3 class="title-m">Memory usage</h3>
           <div class="chart-container" id="memoryChart"></div>
         </section>
-        <section class="card cols-4 cols-6-md border-light rounded-xl bg-dark-900 px-6 pb-6 pt-4">
-          <h3 class="text-lg font-semibold text-light-400">IO</h3>
+        <section class="card cols-4 cols-6-md regular-card">
+          <h3 class="title-m">IO</h3>
           <div class="chart-container" id="ioChart"></div>
         </section>
-        <section class="card cols-4 cols-6-md border-light rounded-xl bg-dark-900 px-6 pb-6 pt-4">
-          <h3 class="text-lg font-semibold text-light-400">CPU usage</h3>
+        <section class="card cols-4 cols-6-md regular-card">
+          <h3 class="title-m">CPU usage</h3>
           <div class="chart-container" id="cpuChart"></div>
         </section>
-        <section class="card cols-4 cols-6-md border-light rounded-xl bg-dark-900 px-6 pb-6 pt-4">
-          <h3 class="text-lg font-semibold text-light-400">Connection churn</h3>
+        <section class="card cols-4 cols-6-md regular-card">
+          <h3 class="title-m">Connection churn</h3>
           <div class="chart-container" id="connectionChurnChart"></div>
         </section>
-        <section class="card cols-4 cols-6-md border-light rounded-xl bg-dark-900 px-6 pb-6 pt-4">
-          <h3 class="text-lg font-semibold text-light-400">Channel churn</h3>
+        <section class="card cols-4 cols-6-md regular-card">
+          <h3 class="title-m">Channel churn</h3>
           <div class="chart-container" id="channelChurnChart"></div>
         </section>
-        <section class="card cols-4 cols-6-md border-light rounded-xl bg-dark-900 px-6 pb-6 pt-4">
-          <h3 class="text-lg font-semibold text-light-400">Queue churn</h3>
+        <section class="card cols-4 cols-6-md regular-card">
+          <h3 class="title-m">Queue churn</h3>
           <div class="chart-container" id="queueChurnChart"></div>
         </section>
-        <section class="card border-light rounded-xl bg-dark-900 px-6 pb-6 pt-4">
-          <h3 class="text-lg font-semibold text-light-400 flex flex-row items-center">
+        <section class="card regular-card">
+          <h3 class="title-m flex flex-row items-center">
             Followers
-            <small class="bg-green-400 ml-2 inline-block text-center text-sm text-dark-400 py-1 px-3 rounded-sm" id="followers-count"></small>
+            <small class="tiny-badge" id="followers-count"></small>
           </h3>
           <div class="table-wrapper">
             <div id="followers-error"></div>
-            <table id="followers" class="table text-light-400">
+            <table id="followers" class="table">
               <thead>
                 <tr>
                   <th class="left">ID</th>

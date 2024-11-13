@@ -10,27 +10,27 @@
     <div class="grid-content">
       <main>
         <div id="breadcrumbs" class="cols-12">
-            <h2 class="page-title flex flex-row items-center"><span><%=pagename%></span><div class="bg-green-400 ml-2 inline-block text-center text-sm text-dark-400 py-1 px-3 rounded-sm" id="pagename-label"></div></h2>
+            <h2 class="page-title"><span><%=pagename%></span><div class="tiny-badge" id="pagename-label"></div></h2>
         </div>
-        <section class="card rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
+        <section class="card regular-card">
           <div class="table-wrapper">
             <div id="upstreamTable-error"></div>
-            <table id="upstreamTable" class="table text-light-400">
+            <table id="upstreamTable" class="table">
               <thead>
                 <tr>
-                  <td>Virtual host</td>
-                  <td data-sort-key="name">Name</td>
-                  <td>URI</td>
-                  <td>Prefetch</td>
-                  <td>Reconnect delay</td>
-                  <td>Ack mode</td>
-                  <td>Exchange</td>
+                  <th>Virtual host</th>
+                  <th data-sort-key="name">Name</th>
+                  <th>URI</th>
+                  <th>Prefetch</th>
+                  <th>Reconnect delay</th>
+                  <th>Ack mode</th>
+                  <th>Exchange</th>
                   <!-- <td>Max hops</td> -->
-                  <td>Expiry</td>
-                  <td>Message TTL</td>
-                  <td>Queue</td>
-                  <td>Consumer Tag</td>
-                  <td></td>
+                  <th>Expiry</th>
+                  <th>Message TTL</th>
+                  <th>Queue</th>
+                  <th>Consumer Tag</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody></tbody>
@@ -38,60 +38,56 @@
           </div>
         </section>
         <div id="breadcrumbs" class="cols-12">
-            <h2 class="page-title flex flex-row items-center"><span>Federation links</span><div class="bg-green-400 ml-2 inline-block text-center text-sm text-dark-400 py-1 px-3 rounded-sm" id="links-count"></div></h2>
+            <h2 class="page-title"><span>Federation links</span><div class="tiny-badge" id="links-count"></div></h2>
         </div>
-        <section class="card rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
-          <!--<h3>
-            Federation Links
-            <small id="links-count"></small>
-          </h3>-->
+        <section class="card regular-card">
           <div class="table-wrapper">
             <div id="linksTable-error"></div>
             <table id="linksTable" class="table text-light-400">
               <thead>
                 <tr>
-                  <td>Virtual host</td>
-                  <td data-sort-key="name">Upstream</td>
-                  <td>URI</td>
-                  <td>Resource</td>
-                  <td>Connected at</td>
+                  <th>Virtual host</th>
+                  <th data-sort-key="name">Upstream</th>
+                  <th>URI</th>
+                  <th>Resource</th>
+                  <th>Connected at</th>
                 </tr>
               </thead>
               <tbody></tbody>
             </table>
           </div>
         </section>
-        <form method="put" id="createUpstream" class="form card rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
-          <h3 class="text-lg font-semibold text-light-400">
+        <form method="put" id="createUpstream" class="form card regular-card">
+          <h3 class="title-m">
             <span class="when-create">Add a new upstream</span>
             <span class="when-edit">Edit upstream</span>
           </h3>
           <div class="py-4">
             <fieldset>
-              <legend class="text-light-400">General paramenters</legend>
+              <legend class="field-label">General paramenters</legend>
               <label class="when-create mt-0 mb-4">
-                <span class="text-light-400">Virtual host</span>
-                <select class="dropdown bg-dark-600 text-light-400" name="vhost" required></select>
+                <span class="field-label">Virtual host</span>
+                <select class="dropdown" name="vhost" required></select>
               </label>
               <label class="mt-0 mb-4">
-                <span class="text-light-400">Name</span>
+                <span class="field-label">Name</span>
                 <input class="regular-text" type="text" name="name" required data-primary-key="">
               </label>
               <label class="mt-0 mb-4">
-                <span class="text-light-400">URI</span>
+                <span class="field-label">URI</span>
                 <input class="regular-text" type="text" name="uri" required value="amqp://">
               </label>
               <label class="mt-0 mb-4">
-                <span class="text-light-400">Prefetch</span>
+                <span class="field-label">Prefetch</span>
                 <input class="regular-text" type="number" name="prefetch-count" value="1000">
               </label>
               <label class="mt-0 mb-4">
-                <span class="text-light-400">Reconnect delay</span>
+                <span class="field-label">Reconnect delay</span>
                 <input class="regular-text" type="number" name="reconnect-delay" value="5">
               </label>
               <label class="mt-0 mb-4">
-                <span class="text-light-400">Ack mode</span>
-                <select class="dropdown bg-dark-600 text-light-400" name="ack-mode" required>
+                <span class="field-label">Ack mode</span>
+                <select class="dropdown" name="ack-mode" required>
                   <option value="on-confirm" selected>On confirm</option>
                   <option value="on-publish">On publish</option>
                   <option value="no-ack">No ack</option>
@@ -99,9 +95,9 @@
               </label>
             </fieldset>
             <fieldset>
-              <legend class="text-light-400">Federated exchange parameters</legend>
+              <legend class="field-label">Federated exchange parameters</legend>
               <label class="mt-0 mb-4">
-                <span class="text-light-400">Exchange</span>
+                <span class="field-label">Exchange</span>
                 <input class="regular-text" type="text" name="exchange" list="exchange-datalist">
                 <datalist id="exchange-datalist"></datalist>
               </label>
@@ -110,23 +106,23 @@
                 <input type="number" name="max-hops">
               </label> -->
               <label class="mt-0 mb-4">
-                <span class="text-light-400">Expires</span>
+                <span class="field-label">Expires</span>
                 <input class="regular-text" type="number" name="expires">
               </label>
               <label class="mt-0 mb-4">
-                <span class="text-light-400">Message TTL</span>
+                <span class="field-label">Message TTL</span>
                 <input class="regular-text" type="number" name="message-ttl">
               </label>
             </fieldset>
             <fieldset>
-              <legend class="text-light-400">Federated queue parameters</legend>
+              <legend class="field-label">Federated queue parameters</legend>
               <label class="mt-0 mb-4">
-                <span class="text-light-400">Queue</span>
+                <span class="field-label">Queue</span>
                 <input class="regular-text" type="text" name="queue" list="queue-datalist">
                 <datalist id="queue-datalist"></datalist>
               </label>
               <label class="mt-0 mb-4">
-                <span class="text-light-400">Consumer tag</span>
+                <span class="field-label">Consumer tag</span>
                 <input class="regular-text" type="text" name="consumer-tag">
               </label>
             </fieldset>

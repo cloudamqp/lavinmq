@@ -31,6 +31,7 @@
   --theme-color-light: #eff7f6;
   --theme-color-link: #f7f5f2;
   --font-color-light: #f7f5f2;
+  --font-color-darker: #9D9C9A;
   --font-color: rgb(100, 100, 100);
   --font-color-dark: #2c2c2c;
   --font-color-darkest: #141414;
@@ -325,6 +326,10 @@ header h2 {
   margin-top: 1rem;
 }
 
+.ml-0 {
+  margin-left: 0 !important;
+}
+
 .ml-2 {
   margin-left: 0.5rem;
 }
@@ -591,6 +596,10 @@ header h2 {
   align-items: center;
 }
 
+.breadcrumb-divider {
+  margin: 0 4px;
+}
+
 .card {
   grid-column: 1 / span 12;
   position: relative;
@@ -637,6 +646,16 @@ header h2 {
   font-size: 1.125rem;
   line-height: 1.75rem;
   font-weight: 600;
+}
+
+.title-m.has-badge {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+}
+
+.card-desc {
+  color: var(--font-color-darker);
 }
 
 .form-card-title {
@@ -1243,6 +1262,7 @@ footer .logo {
   border-collapse: collapse;
   width: 100%;
   border-radius: 3px;
+  color: var(--font-color-light);
 }
 .table tbody {
   border-bottom: solid 1px #ddd;
@@ -1259,8 +1279,9 @@ footer .logo {
 .table th {
   font-weight: normal;
   border-bottom: 1px solid #CBCAC7;
-  padding: 0.75rem 1.15rem 0.5rem 0.75rem;
+  padding: 0.75rem 1.5rem 0.5rem 0.75rem;
   text-align: left;
+  white-space: nowrap;
 }
 
 .table td.checkbox {
@@ -1369,11 +1390,12 @@ footer .logo {
   border-collapse: collapse;
   table-layout: fixed;
   font-size: 0.875rem;
+  color: var(--font-color-light);
 }
 
 .details-table th {
   text-align: left;
-  border-top: 1px solid #404040;
+  border-top: 1px dashed #404040;
   vertical-align: middle;
   padding: 0.75rem;
   padding-left: 1rem;
@@ -1381,7 +1403,7 @@ footer .logo {
 }
 
 .details-table td {
-  border-top: 1px solid #404040;
+  border-top: 1px dashed #404040;
   vertical-align: middle;
   padding: 0.75rem;
 }
@@ -1792,6 +1814,10 @@ fieldset.inline {
 pre.arguments > div {
   padding-left: 1em;
   text-indent: -1em;
+}
+
+.arguments {
+  color: var(--font-color-light);
 }
 
 #dataTags {
