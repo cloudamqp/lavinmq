@@ -107,6 +107,7 @@ module LavinMQ
           socket.write_bytes path.bytesize.to_i32, IO::ByteFormat::LittleEndian
           socket.write path.to_slice
           socket.write hash
+          Fiber.yield
         end
         socket.write_bytes 0i32
         socket.flush
@@ -120,6 +121,7 @@ module LavinMQ
           filename = socket.read_string(filename_len)
           send_requested_file(filename)
           @lz4.flush
+          Fiber.yield
         end
       end
 
