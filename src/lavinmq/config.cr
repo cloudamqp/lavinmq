@@ -123,7 +123,7 @@ module LavinMQ
         p.on("--clustering", "Enable clustering") do
           @clustering = true
         end
-        p.on("--clustering-name=NAME", "Cluster name (default: \"\")") do |v|
+        p.on("--clustering-name=NAME", "Cluster name, currently only used to group Prometheus metrics (default: \"\")") do |v|
           @clustering_name = v
         end
         p.on("--clustering-advertised-uri=URI", "Advertised URI for the clustering server") do |v|
