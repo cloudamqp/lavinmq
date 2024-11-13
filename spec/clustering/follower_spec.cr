@@ -154,4 +154,39 @@ module FollowerSpec
       end
     end
   end
+
+  describe "#stream changes" do
+    it "should fully sync on graceful shutdown" do
+      with_datadir do |data_dir|
+        follower_socket, client_socket = FakeSocket.pair
+        lz4_writer = Compress::LZ4::Writer.new(follower_socket, Compress::LZ4::CompressOptions.new(auto_flush: false, block_mode_linked: true))
+        file_index = FakeFileIndex.new(data_dir)
+        follower = LavinMQ::Clustering::Follower.new(follower_socket, data_dir, file_index)
+        wg = WaitGroup.new(1)
+        10.times do
+          follower.append("#{data_dir}/file", "hello world".to_slice)
+        end
+        spawn do
+          follower.action_loop lz4_writer
+        end
+
+        closed = false
+        spawn do
+          wg.done
+          follower.close
+          closed = true
+          wg.done
+        end
+
+        wg.wait
+        closed.should be_false
+        wg.add(1)
+        client_socket.write_bytes follower.lag_in_bytes.to_i64, IO::ByteFormat::LittleEndian
+        client_socket.flush
+        wg.wait
+        follower.lag_in_bytes.should eq 0
+        closed.should be_true
+      end
+    end
+  end
 end

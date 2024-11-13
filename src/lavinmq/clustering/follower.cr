@@ -11,6 +11,7 @@ module LavinMQ
       @acked_bytes = 0_i64
       @sent_bytes = 0_i64
       @actions = Channel(Action).new(Config.instance.clustering_max_unsynced_actions)
+      @closed = false
       getter id = -1
       getter remote_address
 
@@ -63,7 +64,6 @@ module LavinMQ
         rescue IO::Error
           # ignore connection errors while closing
         end
-        @closed.close
       end
 
       private def sync(bytes, socket = @socket) : Nil
@@ -75,6 +75,9 @@ module LavinMQ
       private def read_ack(socket = @socket) : Int64
         len = socket.read_bytes(Int64, IO::ByteFormat::LittleEndian)
         @acked_bytes += len
+        if @closed && lag_in_bytes.zero?
+          @closed_and_in_sync.close
+        end
         len
       end
 
@@ -166,11 +169,19 @@ module LavinMQ
         lag_size
       end
 
-      @closed = Channel(Nil).new
+      @closed_and_in_sync = Channel(Nil).new
 
-      def close
+      def close(timeout : Time::Span = 30.seconds)
+        @closed = true
         @actions.close
-        @closed.receive?
+        if lag_in_bytes > 0
+          Log.info { "Waiting for follower to be in sync" }
+          select
+          when @closed_and_in_sync.receive?
+          when timeout(timeout)
+            Log.warn { "Timeout waiting for follower to be in sync" }
+          end
+        end
       end
 
       def to_json(json : JSON::Builder)
