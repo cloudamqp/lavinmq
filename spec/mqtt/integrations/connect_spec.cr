@@ -170,7 +170,7 @@ module MqttSpecs
         it "accepts zero byte client_id but is assigned a unique client_id [MQTT-3.1.3-6]" do
           with_server do |server|
             with_client_io(server) do |io|
-              connack = connect(io, client_id: "", clean_session: true)
+              connect(io, client_id: "", clean_session: true)
               server.broker.@clients.first[1].@client_id.should_not eq("")
             end
           end

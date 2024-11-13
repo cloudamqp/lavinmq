@@ -113,7 +113,7 @@ module LavinMQ
       end
     end
 
-    private def listen
+    private def listen # ameba:disable Metrics/CyclomaticComplexity
       if @config.amqp_port > 0
         spawn @amqp_server.listen(@config.amqp_bind, @config.amqp_port, :amqp),
           name: "AMQP listening on #{@config.amqp_port}"
@@ -161,6 +161,9 @@ module LavinMQ
           spawn @amqp_server.listen_tls(@config.mqtt_bind, @config.mqtts_port, ctx, :mqtt),
             name: "MQTTS listening on #{@config.mqtts_port}"
         end
+      end
+      unless @config.unix_path.empty?
+        spawn @amqp_server.listen_unix(@config.mqtt_unix_path, :mqtt), name: "MQTT listening at #{@config.unix_path}"
       end
     end
 

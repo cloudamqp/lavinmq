@@ -40,13 +40,8 @@ module LavinMQ
       def authenticate(io, packet)
         return nil unless (username = packet.username) && (password = packet.password)
         user = @users[username]?
-        return user if user && user.password && user.password.not_nil!.verify(String.new(password))
-        # probably not good to differentiate between user not found and wrong password
-        if user.nil?
-          Log.warn { "User \"#{username}\" not found" }
-        else
-          Log.warn { "Authentication failure for user \"#{username}\"" }
-        end
+        return user if user && user.password && user.password.try(&.verify(String.new(password)))
+        Log.warn { "Authentication failure for user \"#{username}\"" }
         MQTT::Connack.new(false, MQTT::Connack::ReturnCode::NotAuthorized).to_io(io)
         nil
       end

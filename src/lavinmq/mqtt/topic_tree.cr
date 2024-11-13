@@ -17,7 +17,8 @@ module LavinMQ
       end
 
       def insert(topic : StringTokenIterator, entity : TEntity) : TEntity?
-        current = topic.next.not_nil!
+        current = topic.next
+        raise ArgumentError.new "topic cannot be empty" unless current
         if topic.next?
           @sublevels[current].insert(topic, entity)
         else
