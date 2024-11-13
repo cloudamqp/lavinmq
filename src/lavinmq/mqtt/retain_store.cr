@@ -14,7 +14,7 @@ module LavinMQ
       def initialize(@dir : String, @replicator : Clustering::Replicator, @index = IndexTree.new)
         Dir.mkdir_p @dir
         @files = Hash(String, File).new do |files, file_name|
-           file_path = File.join(@dir, file_name)
+          file_path = File.join(@dir, file_name)
           unless File.exists?(file_path)
             File.open(file_path, "w").close
           end
