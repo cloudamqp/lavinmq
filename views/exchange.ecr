@@ -10,11 +10,11 @@
     <div class="grid-content">
       <main>
         <div id="breadcrumbs" class="cols-12">
-            <h2 class="page-title flex flex-row items-center"><%=pagename%><small class="bg-green-400 ml-2 inline-block text-center text-sm text-dark-400 counter-pill py-1 px-3 rounded-sm" id="pagename-label"></small></h2>
+            <h2 class="page-title"><%=pagename%><small class="tiny-badge" id="pagename-label"></small></h2>
         </div>
-        <section class="card cols-4 rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
-          <h3 class="text-lg font-semibold text-light-400">Details</h3>
-          <table class="details-table text-light-400">
+        <section class="card cols-4 regular-card">
+          <h3 class="title-m">Details</h3>
+          <table class="details-table">
             <tr>
               <th>Type</th>
               <td id="e-type"></td>
@@ -33,18 +33,18 @@
             </tr>
           </table>
         </section>
-        <section class="card cols-8 rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
-          <h3 class="text-lg font-semibold text-light-400">Rates</h3>
+        <section class="card cols-8 regular-card">
+          <h3 class="title-m">Rates</h3>
           <div class="chart-container" id="chart"></div>
         </section>
-        <section class="card rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
-          <h3 class="text-lg font-semibold text-light-400 flex flex-row items-center">
+        <section class="card regular-card">
+          <h3 class="title-m has-badge">
             Bindings
-            <small class="bg-green-400 ml-2 inline-block text-center text-sm text-dark-400 counter-pill py-1 px-3 rounded-sm" id="bindings-table-count"></small>
+            <small class="tiny-badge counter-pill" id="bindings-table-count"></small>
           </h3>
           <div class="table-wrapper">
             <div id="bindings-table-error"></div>
-            <table id="bindings-table" class="table text-light-400">
+            <table id="bindings-table" class="table">
               <thead>
                 <tr>
                   <th class="left">Type</th>
@@ -58,8 +58,8 @@
             </table>
           </div>
         </section>
-        <form method="post" id="addBinding" class="form card cols-6 rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
-          <h3 class="text-lg font-semibold text-light-400 flex flex-row items-center">Add a binding from this exchange</h3>
+        <form method="post" id="addBinding" class="form card cols-6 regular-card">
+          <h3 class="title-m">Add a binding from this exchange</h3>
           <div class="py-4">
             <label class="mt-0 mb-4">
               <select class="dropdown" id="dest-type" name="dest-type" required>
@@ -70,35 +70,35 @@
               <datalist id="exchange-dest-list"></datalist>
             </label>
             <label class="mt-0 mb-4">
-              <span class="text-light-400">Routing key</span>
+              <span class="field-label">Routing key</span>
               <input class="regular-text" name="routing_key" type="text">
             </label>
             <label class="mt-0 mb-4">
-              <span class="text-light-400">Arguments</span>
+              <span class="field-label">Arguments</span>
               <textarea class="regular-textarea" name="arguments" placeholder='{ "key": value }'></textarea>
             </label>
             <button type="submit" class="btn btn-green">Bind</button>
           </div>
         </form>
-        <form method="post" id="publishMessage" class="form card cols-6 rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
+        <form method="post" id="publishMessage" class="form card cols-6 regular-card">
           <h3 class="text-lg font-semibold text-light-400 flex flex-row items-center">Publish message</h3>
           <div class="py-4">
             <label class="mt-0 mb-4">
-              <span class="text-light-400">Routing key</span>
+              <span class="field-label">Routing key</span>
               <input class="regular-text" name="routing_key" type="text">
             </label>
             <label class="mt-0 mb-4">
-              <span class="text-light-400">Delivery mode</span>
+              <span class="field-label">Delivery mode</span>
               <select class="dropdown" name="delivery_mode">
                 <option value="2">Persistent</option>
               </select>
             </label>
             <label class="mt-0 mb-4">
-              <span class="text-light-400">Headers</span>
+              <span class="field-label">Headers</span>
               <textarea class="regular-textarea" name="headers" placeholder='{ "key": value }'></textarea>
             </label>
             <label class="mt-0 mb-4">
-              <span class="text-light-400">Properties</span>
+              <span class="field-label">Properties</span>
               <textarea class="regular-textarea" name="properties" placeholder='{ "key": value }'></textarea>
               <div id="dataTags" class="label">
                 <a class="arg-tooltip" data-tag="content_type" data-value="&quot;application/json&quot;">Content Type
@@ -138,11 +138,11 @@
               </div>
             </label>
             <label class="mt-0 mb-4">
-              <span class="text-light-400">Payload</span>
+              <span class="field-label">Payload</span>
               <textarea class="regular-textarea" name="payload"></textarea>
             </label>
             <label class="mt-0 mb-4">
-              <span class="text-light-400">Payload encoding</span>
+              <span class="field-label">Payload encoding</span>
               <select class="dropdown" name="payload_encoding">
                 <option value="string">String</option>
                 <option value="base64">Base64</option>
@@ -151,11 +151,11 @@
             <button type="submit" class="btn btn-green">Publish message</button>
           </div>
         </form>
-        <section class="card cols-4 rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
-          <h3 class="text-lg font-semibold text-light-400 flex flex-row items-center">Danger zone</h3>
+        <section class="card cols-4 regular-card">
+          <h3 class="title-m">Danger zone</h3>
           <form method="delete" id="deleteExchange" class="form">
             <label>
-              <button type="submit" class="btn btn-outlined" style="margin-left: 0;"><span>Delete exchange</span><img src="img/icon-cross.svg" /></button>
+              <button type="submit" class="btn btn-outlined"><span>Delete exchange</span><img src="img/icon-cross.svg" /></button>
             </label>
           </form>
         </section>

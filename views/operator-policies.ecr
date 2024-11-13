@@ -10,12 +10,12 @@
     <div class="grid-content">
       <main>
         <div id="breadcrumbs" class="cols-12">
-            <h2 class="page-title flex flex-row items-center"><span><%=pagename%></span><div class="bg-green-400 ml-2 inline-block text-center text-sm text-dark-400 py-1 px-3 rounded-sm" id="pagename-label"></div></h2>
+            <h2 class="page-title"><span><%=pagename%></span><div class="tiny-badge" id="pagename-label"></div></h2>
         </div>
-        <section class="card rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
+        <section class="card regular-card">
           <div class="table-wrapper">
             <div id="table-error"></div>
-            <table id="table" class="table text-light-400">
+            <table id="table" class="table">
               <thead>
                 <tr>
                   <th>Virtual host</th>
@@ -31,34 +31,34 @@
             </table>
           </div>
         </section>
-        <form method="put" id="createPolicy" class="form card rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
-          <h3 class="text-lg font-semibold text-light-400">
+        <form method="put" id="createPolicy" class="form card regular-card">
+          <h3 class="title-m">
             <span class="when-create">Add operator policy</span>
             <span class="when-edit">Edit operator policy</span>
           </h3>
           <div class="py-4">
             <label class="when-create mt-0 mb-4">
-              <span class="text-light-400">Virtual host</span>
-              <select class="dropdown bg-dark-600 text-light-400" id="addPolicyVhost" name="vhost" required></select>
+              <span class="field-label">Virtual host</span>
+              <select class="dropdown" id="addPolicyVhost" name="vhost" required></select>
             </label>
             <label class="mt-0 mb-4">
-              <span class="text-light-400">Name</span>
+              <span class="field-label">Name</span>
               <input class="regular-text" type="text" name="name" required data-primary-key="">
             </label>
             <label class="mt-0 mb-4">
-              <span class="text-light-400">Pattern</span>
+              <span class="field-label">Pattern</span>
               <input class="regular-text" type="text" name="pattern" required>
             </label>
             <label class="mt-0 mb-4">
-              <span class="text-light-400">Apply to</span>
-              <select class="dropdown bg-dark-600 text-light-400" id="addPolicyApplyTo" name="apply-to" required>
+              <span class="field-label">Apply to</span>
+              <select class="dropdown" id="addPolicyApplyTo" name="apply-to" required>
                 <option value="all">Exchanges &amp; Queues</option>
                 <option value="exchanges">Exchanges</option>
                 <option value="queues">Queues</option>
               </select>
             </label>
             <label class="mt-0 mb-4">
-              <span class="text-light-400">Definition</span>
+              <span class="field-label">Definition</span>
               <textarea class="regular-textarea" name="definition" placeholder='{ "key": value }'></textarea>
               <div id="dataTags" class="label">
                 <a class="arg-tooltip" data-tag="max-length">Max length
@@ -88,7 +88,7 @@
               </div>
             </label>
             <label class="mt-0 mb-4">
-              <span class="text-light-400">Priority</span>
+              <span class="field-label">Priority</span>
               <input class="regular-text" type="number" name="priority" value="0" max="10" min="-10" step="1" required>
             </label>
             <button type="submit" class="btn btn-green when-create">Add operator policy</button>

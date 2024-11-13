@@ -10,12 +10,12 @@
     <div class="grid-content">
       <main>
         <div id="breadcrumbs" class="cols-12">
-            <h2 class="page-title flex flex-row items-center"><span><%=pagename%></span><div class="bg-green-400 ml-2 inline-block text-center text-sm text-dark-400 py-1 px-3 rounded-sm" id="pagename-label"></div></h2>
+            <h2 class="page-title"><span><%=pagename%></span><div class="tiny-badge" id="pagename-label"></div></h2>
         </div>
-        <section class="card rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
+        <section class="card regular-card">
           <div id="table-error"></div>
           <div class="table-wrapper">
-            <table id="table" class="table text-light-400">
+            <table id="table" class="table">
               <thead>
                 <tr>
                   <th data-sort-key="name" class="left">Name</th>
@@ -29,11 +29,11 @@
             </table>
           </div>
         </section>
-        <form method="put" id="createVhost" class="form card rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
-          <h3 class="text-lg font-semibold text-light-400">Add virtual host</h3>
+        <form method="put" id="createVhost" class="form card regular-card">
+          <h3 class="title-m">Add virtual host</h3>
           <div class="py-4">
             <label class="mt-0 mb-4">
-              <span class="text-light-400">Name</span>
+              <span class="field-label">Name</span>
               <input class="regular-text" type="text" name="name" required>
             </label>
             <button type="submit" class="btn btn-green">Add virtual host</button>

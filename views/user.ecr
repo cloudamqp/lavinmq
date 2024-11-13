@@ -10,11 +10,11 @@
     <div class="grid-content">
       <main>
         <div id="breadcrumbs" class="cols-12">
-            <h2 class="page-title flex flex-row items-center"><%=pagename%><span style="margin: 0 4px;">/</span> <div id="pagename-label"></div></h2>
+            <h2 class="page-title"><%=pagename%><span class="breadcrumb-divider">/</span> <div id="pagename-label"></div></h2>
         </div>
-        <section class="card cols-4 rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
-          <h3 class="text-lg font-semibold text-light-400">Details</h3>
-          <table class="details-table text-light-400">
+        <section class="card cols-4 regular-card">
+          <h3 class="title-m">Details</h3>
+          <table class="details-table">
             <tr>
               <th>Tags</th>
               <td id="tags"></td>
@@ -25,14 +25,14 @@
             </tr>
           </table>
         </section>
-        <section class="card rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
-          <h3 class="text-lg font-semibold text-light-400 flex flex-row items-center">
+        <section class="card regular-card">
+          <h3 class="title-m has-badge">
             Permissions
-            <small class="bg-green-400 ml-2 inline-block text-center text-sm text-dark-400 py-1 px-3 rounded-sm" id="permissions-count"></small>
+            <small class="tiny-badge" id="permissions-count"></small>
           </h3>
           <div class="table-wrapper">
             <div id="permissions-error"></div>
-            <table id="permissions" class="table text-light-400">
+            <table id="permissions" class="table">
               <thead>
                 <tr>
                   <th>Virtual host</th>
@@ -46,26 +46,26 @@
             </table>
           </div>
         </section>
-        <form method="put" id="setPermission" class="form card cols-6 rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
-          <h3 class="text-lg font-semibold text-light-400">
+        <form method="put" id="setPermission" class="form card cols-6 regular-card">
+          <h3 class="title-m">
             <span class="when-create">Set permission</span>
             <span class="when-edit">Edit permission</span>
           </h3>
           <div class="py-4">
             <label class="mt-0 mb-4">
-              <span class="text-light-400">Virtual host</span>
+              <span class="field-label">Virtual host</span>
               <select class="dropdown" name="vhost" required data-primary-key=""></select>
             </label>
             <label class="mt-0 mb-4">
-              <span class="text-light-400">Configure regexp</span>
+              <span class="field-label">Configure regexp</span>
               <input class="regular-text" type="text" name="configure" required value=".*">
             </label>
             <label class="mt-0 mb-4">
-              <span class="text-light-400">Write regexp</span>
+              <span class="field-label">Write regexp</span>
               <input class="regular-text" type="text" name="write" required value=".*">
             </label>
             <label class="mt-0 mb-4">
-              <span class="text-light-400">Read regexp</span>
+              <span class="field-label">Read regexp</span>
               <input class="regular-text" type="text" name="read" required value=".*">
             </label>
             <button type="submit" class="btn btn-green when-create">Set permission</button>
@@ -75,19 +75,19 @@
             </div>
           </div>
         </form>
-        <form method="put" id="updateUser" class="form card cols-6 rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
-          <h3 class="text-lg font-semibold text-light-400">Update user</h3>
+        <form method="put" id="updateUser" class="form card cols-6 regular-card">
+          <h3 class="title-m">Update user</h3>
           <div class="py-4">
             <label class="mt-0 mb-4">
-              <span class="text-light-400">Remove password</span>
+              <span class="field-label">Remove password</span>
               <input type="checkbox" name="remove_password">
             </label>
             <label class="mt-0 mb-4">
-              <span class="text-light-400">Password</span>
+              <span class="field-label">Password</span>
               <input class="regular-text" type="password" name="password" placeholder="Leave empty to only update tags">
             </label>
             <label class="mt-0 mb-0">
-              <span class="text-light-400">Tags</span>
+              <span class="field-label">Tags</span>
               <input class="regular-text" type="text" name="tags">
             </label>
             <div id="dataTags" class="label">
@@ -101,11 +101,11 @@
             <button type="submit" class="btn btn-green">Update user</button>
           </div>
         </form>
-        <section class="card cols-4 rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
-          <h3 class="text-lg font-semibold text-light-400">Danger zone</h3>
+        <section class="card cols-4 regular-card">
+          <h3 class="title-m">Danger zone</h3>
           <form method="delete" id="deleteUser" class="form">
             <label>
-              <button type="submit" class="btn btn-red">Delete user</button>
+              <button type="submit" class="btn btn-red ml-0">Delete user</button>
             </label>
           </form>
         </section>

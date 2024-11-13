@@ -22,7 +22,7 @@
 
           <div class="table-wrapper">
             <div id="table-error"></div>
-            <table id="table" class="table text-light-400">
+            <table id="table" class="table">
               <thead>
                 <tr>
                   <th><input type="checkbox" id="multi-check-all"></th>
@@ -67,7 +67,7 @@
             </label>
             <label>
               <span>
-              <a class="prop-tooltip text-light-400" data-tag="alternate-exchange">Auto-delete<span class="tooltip-icon">?</span>
+              <a class="prop-tooltip" data-tag="alternate-exchange">Auto-delete<span class="tooltip-icon">?</span>
               <span class="prop-tooltiptext">"Auto-delete" queues are automatically removed when the
               last consumer disconnects, freeing up system resources.</span>
               </a>
@@ -75,7 +75,7 @@
               <input type="checkbox" name="auto_delete" value="1">
             </label>
             <label class="mt-4 mb-4">
-              <span class="text-light-400">Arguments</span>
+              <span class="field-label">Arguments</span>
               <textarea class="regular-textarea" name="arguments" placeholder='{ "key": value }'></textarea>
               <div id="dataTags" class="label">
                 <a class="arg-tooltip" data-tag="x-expires" data-value="0">Auto Expire

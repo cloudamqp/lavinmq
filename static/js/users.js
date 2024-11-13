@@ -24,7 +24,7 @@ HTTP.request('GET', 'api/permissions').then(permissions => {
     const vhosts = permissions.filter(p => p.user === item.name).map(p => p.vhost).join(', ')
     Table.renderCell(tr, 1, item.tags)
     Table.renderCell(tr, 2, vhosts)
-    Table.renderCell(tr, 3, hasPassword, 'center')
+    Table.renderCell(tr, 3, hasPassword)
   })
 }).catch(e => {
   Table.toggleDisplayError('users', e.status === 403 ? 'You need administrator role to see this view' : e.body)

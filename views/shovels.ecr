@@ -10,12 +10,12 @@
     <div class="grid-content">
       <main>
         <div id="breadcrumbs" class="cols-12">
-            <h2 class="page-title flex flex-row items-center"><span><%=pagename%></span><div class="bg-green-400 ml-2 inline-block text-center text-sm text-dark-400 py-1 px-3 rounded-sm" id="pagename-label"></div></h2>
+            <h2 class="page-title"><span><%=pagename%></span><div class="tiny-badge" id="pagename-label"></div></h2>
         </div>
-        <section class="card rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
+        <section class="card regular-card">
           <div class="table-wrapper">
             <div id="table-error"></div>
-            <table id="table" class="table text-light-400">
+            <table id="table" class="table">
               <thead>
                 <tr>
                   <td colspan="2"></td>
@@ -42,80 +42,80 @@
             </table>
           </div>
         </section>
-        <form method="put" id="createShovel" class="form card rounded-xl bg-dark-900 px-6 pb-6 pt-4 border-light">
-          <h3 class="text-lg font-semibold text-light-400">
+        <form method="put" id="createShovel" class="form card regular-card">
+          <h3 class="title-m">
             <span class="when-create">Add a new shovel</span>
             <span class="when-edit">Edit shovel</span>
           </h3>
           <div class="py-4">
             <label class="when-create mt-0 mb-4">
-              <span class="text-light-400">Virtual host</span>
-              <select class="dropdown bg-dark-600 text-light-400" name="vhost" required></select>
+              <span class="field-label">Virtual host</span>
+              <select class="dropdown" name="vhost" required></select>
             </label>
             <label class="mt-0 mb-4">
-              <span class="text-light-400">Name</span>
+              <span class="field-label">Name</span>
               <input class="regular-text" type="text" name="name" required data-primary-key="">
             </label>
             <fieldset class="inline">
-              <legend class="text-light-400">Source</legend>
+              <legend class="field-label">Source</legend>
               <label class="mt-0 mb-4">
-                <span class="text-light-400">URI</span>
+                <span class="field-label">URI</span>
                 <input class="regular-text" type="text" name="src-uri" required value="amqp://">
               </label>
               <label class="mt-0 mb-4">
-                <span class="text-light-400">Type</span>
-                <select class="dropdown bg-dark-600 text-light-400" name="src-type" required>
+                <span class="field-label">Type</span>
+                <select class="dropdown" name="src-type" required>
                   <option value="queue">Queue</option>
                   <option value="exchange">Exchange</option>
                 </select>
               </label>
               <label class="mt-0 mb-4">
-                <span class="text-light-400">Endpoint</span>
+                <span class="field-label">Endpoint</span>
                 <input class="regular-text" type="text" name="src-endpoint" required list="shovel-src-list">
                 <datalist id="shovel-src-list"></datalist>
               </label>
               <label id="srcRoutingKey" class="hide mt-0 mb-4">
-                <span class="text-light-400">Routing key</span>
+                <span class="field-label">Routing key</span>
                 <input class="regular-text" type="text" name="src-exchange-key">
               </label>
               <label class="mt-0 mb-4">
-                <span class="text-light-400">Prefetch</span>
+                <span class="field-label">Prefetch</span>
                 <input class="regular-text" type="number" name="src-prefetch-count" value="1000">
               </label>
               <label class="mt-0 mb-4">
-                <span class="text-light-400">Auto delete</span>
-                <select class="dropdown bg-dark-600 text-light-400" name="src-delete-after" required>
+                <span class="field-label">Auto delete</span>
+                <select class="dropdown" name="src-delete-after" required>
                   <option value="never">Never</option>
                   <option value="queue-length">Queue length</option>
                 </select>
               </label>
             </fieldset>
             <fieldset class="inline">
-              <legend class="text-light-400">Destination</legend>
+              <legend class="field-label">Destination</legend>
               <label class="mt-0 mb-4">
-                <span class="text-light-400">URI</span>
+                <span class="field-label">URI</span>
                 <input class="regular-text" type="text" name="dest-uri" required value="amqp://">
               </label>
               <label class="amqp-dest-field mt-0 mb-4">
-                <span class="text-light-400">Type</span>
-                <select class="dropdown bg-dark-600 text-light-400" name="dest-type" required>
+                <span class="field-label">Type</span>
+                <select class="dropdown" name="dest-type" required>
                   <option value="queue">Queue</option>
                   <option value="exchange">Exchange</option>
                 </select>
               </label>
               <label class="amqp-dest-field mt-0 mb-4">
-                <span class="text-light-400">Endpoint</span>
+                <span class="field-label">Endpoint</span>
                 <input class="regular-text" type="text" name="dest-endpoint" list="shovel-dest-list">
                 <datalist id="shovel-dest-list"></datalist>
               </label>
             </fieldset>
             <label class="mt-0 mb-4">
-              <span class="text-light-400">Reconnect delay</span>
+              <span class="field-label">Reconnect delay</span>
               <input class="regular-text" type="number" name="reconnect-delay" value="5">
             </label>
             <label class="mt-0 mb-4">
-              <span class="text-light-400">Ack mode</span>
-              <select class="dropdown bg-dark-600 text-light-400" name="ack-mode" required>
+              <span class="field-label">Ack mode</span>
+              <select class="dropdown" name="ack-mode" required>
                 <option value="on-confirm" selected>On confirm</option>
                 <option value="on-publish">On publish</option>
                 <option value="no-ack">No ack</option>
