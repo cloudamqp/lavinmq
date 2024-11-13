@@ -24,13 +24,13 @@ module LavinMQ
         @value
       end
 
-      def <=>(other : Value(U)) forall U
+      def <=>(other : Value)
         return 0 if @value.nil? && other.@value.nil?
         return -1 if @value.nil?
         return 1 if other.@value.nil?
 
-        {% if T <= Number && U <= Number %}
-          if other_value = other.@value
+        {% if T <= Number %}
+          if other_value = other.@value.as?(Number)
             return @value <=> other_value
           end
         {% end %}
