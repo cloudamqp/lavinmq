@@ -38,9 +38,9 @@ module LavinMQ
     end
 
     def run
+      @running = true
       listen
       SystemD.notify_ready
-      @running = true
       loop do
         if lease = @lease
           select
@@ -57,10 +57,11 @@ module LavinMQ
           GC.collect
         end
       end
-      stop if @running
+      stop
     end
 
     def stop
+      return unless @running
       @running = false
       Log.warn { "Stopping" }
       SystemD.notify_stopping
