@@ -447,7 +447,6 @@ describe LavinMQ::MQTT::Exchange do
       store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", LavinMQ::Clustering::NoopServer.new, index)
       x = LavinMQ::MQTT::Exchange.new(vhost, "mqtt.default", store)
       x.bind(s1, "s1", LavinMQ::AMQP::Table.new)
-      # msg = LavinMQ::Message.new("mqtt.default", "s1", "hej")
       pub_args = {
         packet_id: 1u16,
         payload:   Bytes.new(0),
