@@ -26,7 +26,7 @@ module LavinMQ
       MQTT
     end
 
-    getter vhosts, users, data_dir, parameters, broker
+    getter vhosts, users, data_dir, parameters
     getter? closed, flow
     include ParameterTarget
 
@@ -34,6 +34,7 @@ module LavinMQ
     @closed = false
     @flow = true
     @listeners = Hash(Socket::Server, Protocol).new # Socket => protocol
+    @connection_factories = Hash(Protocol, ConnectionFactory).new
     @replicator : Clustering::Replicator
     Log = LavinMQ::Log.for "server"
 
@@ -43,9 +44,8 @@ module LavinMQ
       @users = UserStore.new(@data_dir, @replicator)
       @vhosts = VHostStore.new(@data_dir, @users, @replicator)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator)
-      @amqp_connection_factory = LavinMQ::AMQP::ConnectionFactory.new
-      @broker = LavinMQ::MQTT::Broker.new(@vhosts["/"], @replicator)
-      @mqtt_connection_factory = MQTT::ConnectionFactory.new(@users, @vhosts["/"], @broker)
+      @connection_factories[Protocol::AMQP] = AMQP::ConnectionFactory.new(@users, @vhosts)
+      @connection_factories[Protocol::MQTT] = MQTT::ConnectionFactory.new(@users, @vhosts, @replicator)
       apply_parameter
       spawn stats_loop, name: "Server#stats_loop"
     end
@@ -69,7 +69,6 @@ module LavinMQ
       @closed = true
       @vhosts.each_value &.close
       @replicator.clear
-      @broker.close
       Fiber.yield
     end
 
@@ -260,12 +259,7 @@ module LavinMQ
     end
 
     def handle_connection(socket, connection_info, protocol : Protocol)
-      case protocol
-      in .amqp?
-        client = @amqp_connection_factory.start(socket, connection_info, @vhosts, @users)
-      in .mqtt?
-        client = @mqtt_connection_factory.start(socket, connection_info)
-      end
+      client = @connection_factories[protocol].start(socket, connection_info)
     ensure
       socket.close if client.nil?
     end

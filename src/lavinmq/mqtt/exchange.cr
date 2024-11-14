@@ -1,4 +1,5 @@
 require "../exchange"
+require "./consts"
 require "./subscription_tree"
 require "./session"
 require "./retain_store"
@@ -58,7 +59,7 @@ module LavinMQ
         @retain_store.retain(packet.topic, body, bodysize) if packet.retain?
 
         body.rewind
-        msg = Message.new(timestamp, "mqtt.default", packet.topic, properties, bodysize, body)
+        msg = Message.new(timestamp, EXCHANGE, packet.topic, properties, bodysize, body)
 
         count = 0
         @tree.each_entry(packet.topic) do |queue, qos|
@@ -87,7 +88,7 @@ module LavinMQ
       end
 
       def bind(destination : MQTT::Session, routing_key : String, headers = nil) : Bool
-        qos = headers.try { |h| h["x-mqtt-qos"]?.try(&.as(UInt8)) } || 0u8
+        qos = headers.try { |h| h[QOS_HEADER]?.try(&.as(UInt8)) } || 0u8
         binding_key = BindingKey.new(routing_key, headers)
         @bindings[binding_key].add destination
         @tree.subscribe(routing_key, destination, qos)

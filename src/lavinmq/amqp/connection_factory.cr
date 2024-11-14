@@ -1,6 +1,8 @@
 require "../version"
 require "../logger"
 require "./client"
+require "../user_store"
+require "../vhost_store"
 require "../client/connection_factory"
 
 module LavinMQ
@@ -8,16 +10,19 @@ module LavinMQ
     class ConnectionFactory < LavinMQ::ConnectionFactory
       Log = LavinMQ::Log.for "amqp.connection_factory"
 
-      def start(socket, connection_info, vhosts, users) : Client?
+      def initialize(@users : UserStore, @vhosts : VHostStore)
+      end
+
+      def start(socket, connection_info : ConnectionInfo) : Client?
         remote_address = connection_info.src
         socket.read_timeout = 15.seconds
         metadata = ::Log::Metadata.build({address: remote_address.to_s})
         logger = Logger.new(Log, metadata)
         if confirm_header(socket, logger)
           if start_ok = start(socket, logger)
-            if user = authenticate(socket, remote_address, users, start_ok, logger)
+            if user = authenticate(socket, remote_address, start_ok, logger)
               if tune_ok = tune(socket, logger)
-                if vhost = open(socket, vhosts, user, logger)
+                if vhost = open(socket, user, logger)
                   socket.read_timeout = heartbeat_timeout(tune_ok)
                   return LavinMQ::AMQP::Client.new(socket, connection_info, vhost, user, tune_ok, start_ok)
                 end
@@ -71,7 +76,7 @@ module LavinMQ
         },
       })
 
-      def start(socket, log)
+      def start(socket, log : Logger)
         start = AMQP::Frame::Connection::Start.new(server_properties: SERVER_PROPERTIES)
         socket.write_bytes start, ::IO::ByteFormat::NetworkEndian
         socket.flush
@@ -100,9 +105,9 @@ module LavinMQ
         end
       end
 
-      def authenticate(socket, remote_address, users, start_ok, log)
+      def authenticate(socket, remote_address, start_ok, log)
         username, password = credentials(start_ok)
-        user = users[username]?
+        user = @users[username]?
         return user if user && user.password && user.password.not_nil!.verify(password) &&
                        guest_only_loopback?(remote_address, user)
 
@@ -150,10 +155,10 @@ module LavinMQ
         tune_ok
       end
 
-      def open(socket, vhosts, user, log)
+      def open(socket, user, log)
         open = AMQP::Frame.from_io(socket) { |f| f.as(AMQP::Frame::Connection::Open) }
         vhost_name = open.vhost.empty? ? "/" : open.vhost
-        if vhost = vhosts[vhost_name]?
+        if vhost = @vhosts[vhost_name]?
           if user.permissions[vhost_name]?
             if vhost.max_connections.try { |max| vhost.connections.size >= max }
               log.warn { "Max connections (#{vhost.max_connections}) reached for vhost #{vhost_name}" }
@@ -186,6 +191,9 @@ module LavinMQ
         return true unless user.name == "guest"
         return true unless Config.instance.guest_only_loopback?
         remote_address.loopback?
+      end
+
+      def close
       end
     end
   end

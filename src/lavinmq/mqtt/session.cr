@@ -1,5 +1,6 @@
 require "../amqp/queue/queue"
 require "../error"
+require "./consts"
 
 module LavinMQ
   module MQTT
@@ -77,12 +78,12 @@ module LavinMQ
       end
 
       def subscribe(tf, qos)
-        arguments = AMQP::Table.new({"x-mqtt-qos": qos})
+        arguments = AMQP::Table.new({QOS_HEADER: qos})
         if binding = find_binding(tf)
           return if binding.binding_key.arguments == arguments
           unbind(tf, binding.binding_key.arguments)
         end
-        @vhost.bind_queue(@name, "mqtt.default", tf, arguments)
+        @vhost.bind_queue(@name, EXCHANGE, tf, arguments)
       end
 
       def unsubscribe(tf)
@@ -96,7 +97,7 @@ module LavinMQ
       end
 
       private def unbind(rk, arguments)
-        @vhost.unbind_queue(@name, "mqtt.default", rk, arguments || AMQP::Table.new)
+        @vhost.unbind_queue(@name, EXCHANGE, rk, arguments || AMQP::Table.new)
       end
 
       private def get(no_ack : Bool, & : Envelope -> Nil) : Bool

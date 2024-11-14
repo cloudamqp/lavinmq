@@ -171,7 +171,7 @@ module MqttSpecs
           with_server do |server|
             with_client_io(server) do |io|
               connect(io, client_id: "", clean_session: true)
-              server.broker.@clients.first[1].@client_id.should_not eq("")
+              server.vhosts["/"].connections.select(LavinMQ::MQTT::Client).first.client_id.should_not eq("")
             end
           end
         end

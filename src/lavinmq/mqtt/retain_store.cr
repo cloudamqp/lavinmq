@@ -1,5 +1,5 @@
 require "./topic_tree"
-require "digest/sha256"
+require "digest/md5"
 
 module LavinMQ
   module MQTT

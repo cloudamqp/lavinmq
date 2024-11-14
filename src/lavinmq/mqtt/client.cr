@@ -3,6 +3,7 @@ require "socket"
 require "../client"
 require "../error"
 require "./session"
+require "./protocol"
 
 module LavinMQ
   module MQTT

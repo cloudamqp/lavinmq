@@ -1,10 +1,11 @@
 require "./client"
+require "./consts"
+require "./exchange"
 require "./protocol"
 require "./session"
 require "./sessions"
 require "./retain_store"
 require "../vhost"
-require "./exchange"
 
 module LavinMQ
   module MQTT
@@ -15,8 +16,8 @@ module LavinMQ
         @sessions = Sessions.new(@vhost)
         @clients = Hash(String, Client).new
         @retain_store = RetainStore.new(Path[@vhost.data_dir].join("mqtt_reatined_store").to_s, @replicator)
-        @exchange = MQTT::Exchange.new(@vhost, "mqtt.default", @retain_store)
-        @vhost.exchanges["mqtt.default"] = @exchange
+        @exchange = MQTT::Exchange.new(@vhost, EXCHANGE, @retain_store)
+        @vhost.exchanges[EXCHANGE] = @exchange
       end
 
       def session_present?(client_id : String, clean_session) : Bool
@@ -26,12 +27,12 @@ module LavinMQ
         true
       end
 
-      def connect_client(socket, connection_info, user, vhost, packet)
+      def connect_client(socket, connection_info, user, packet)
         if prev_client = @clients[packet.client_id]?
           Log.trace { "Found previous client connected with client_id: #{packet.client_id}, closing" }
           prev_client.close
         end
-        client = MQTT::Client.new(socket, connection_info, user, vhost, self, packet.client_id, packet.clean_session?, packet.will)
+        client = MQTT::Client.new(socket, connection_info, user, @vhost, self, packet.client_id, packet.clean_session?, packet.will)
         if session = sessions[client.client_id]?
           if session.clean_session?
             sessions.delete session
@@ -67,7 +68,7 @@ module LavinMQ
           qos << MQTT::SubAck::ReturnCode.from_int(tf.qos)
           session.subscribe(tf.topic, tf.qos)
           @retain_store.each(tf.topic) do |topic, body|
-            msg = Message.new("mqtt.default", topic, String.new(body),
+            msg = Message.new(EXCHANGE, topic, String.new(body),
               AMQP::Properties.new(headers: AMQP::Table.new({"x-mqtt-retain": true}),
                 delivery_mode: tf.qos))
             session.publish(msg)
