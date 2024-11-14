@@ -11,7 +11,7 @@ module LavinMQ
       include Stats
       include SortableJSON
 
-      getter vhost, channels, log, name, user, client_id, socket
+      getter vhost, channels, log, name, user, client_id, socket, remote_address, connection_info
       @channels = Hash(UInt16, Client::Channel).new
       @session : MQTT::Session?
       rate_stats({"send_oct", "recv_oct"})
@@ -165,9 +165,19 @@ module LavinMQ
       def details_tuple
         {
           session: {
-            name:  "mqtt.client_id",
+            name:  "mqtt.#{@client.client_id}",
             vhost: "mqtt",
           },
+          channel_details: {
+            peer_host: "#{@client.remote_address}",
+            peer_port: "#{@client.connection_info.src}",
+            connection_name: "mqtt.#{@client.client_id}",
+            user: "#{@client.user}",
+            number: "",
+            name: "mqtt.#{@client.client_id}",
+          },
+          prefetch_count: prefetch_count,
+          consumer_tag: "-",
         }
       end
 
