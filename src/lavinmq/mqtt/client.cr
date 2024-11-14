@@ -62,7 +62,7 @@ module LavinMQ
         publish_will if @will
       ensure
         @broker.disconnect_client(self)
-        @socket.close
+        close_socket
       end
 
       def read_and_handle_packet
@@ -151,6 +151,15 @@ module LavinMQ
 
       def force_close
       end
+
+      private def close_socket
+        socket = @socket
+        if socket.responds_to?(:"write_timeout=")
+          socket.write_timeout = 1.seconds
+        end
+        socket.close
+      rescue ::IO::Error
+      end
     end
 
     class Consumer < LavinMQ::Client::Channel::Consumer
@@ -164,9 +173,9 @@ module LavinMQ
 
       def details_tuple
         {
-          session: {
+          queue: {
             name:  "mqtt.#{@client.client_id}",
-            vhost: "mqtt",
+            vhost: @client.vhost.name,
           },
           channel_details: {
             peer_host:       "#{@client.remote_address}",
@@ -177,7 +186,7 @@ module LavinMQ
             name:            "mqtt.#{@client.client_id}",
           },
           prefetch_count: prefetch_count,
-          consumer_tag:   "-",
+          consumer_tag:   @client.client_id,
         }
       end
 
@@ -195,18 +204,16 @@ module LavinMQ
           packet_id = message_id.to_u16 unless message_id.empty?
         end
         retained = msg.properties.try &.headers.try &.["x-mqtt-retain"]? == true
-
         qos = msg.properties.delivery_mode || 0u8
         pub_args = {
           packet_id: packet_id,
           payload:   msg.body,
-          dup:       redelivered,
+          dup:       qos.zero? ? false : redelivered,
           qos:       qos,
           retain:    retained,
           topic:     msg.routing_key,
         }
         @client.send(::MQTT::Protocol::Publish.new(**pub_args))
-        # MQTT::Protocol::PubAck.from_io(io) if pub_args[:qos].positive? && expect_response
       end
 
       def exclusive?
