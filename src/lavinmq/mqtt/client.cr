@@ -203,7 +203,7 @@ module LavinMQ
           dup:       redelivered,
           qos:       qos,
           retain:    retained,
-          topic:     msg.routing_key.tr(".", "/"),
+          topic:     msg.routing_key,
         }
         @client.send(::MQTT::Protocol::Publish.new(**pub_args))
         # MQTT::Protocol::PubAck.from_io(io) if pub_args[:qos].positive? && expect_response
