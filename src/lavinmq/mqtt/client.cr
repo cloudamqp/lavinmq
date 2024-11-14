@@ -12,6 +12,7 @@ module LavinMQ
       include SortableJSON
 
       getter vhost, channels, log, name, user, client_id, socket, remote_address, connection_info
+      @connected_at = RoughTime.unix_ms
       @channels = Hash(UInt16, Client::Channel).new
       @session : MQTT::Session?
       rate_stats({"send_oct", "recv_oct"})
@@ -118,10 +119,11 @@ module LavinMQ
 
       def details_tuple
         {
-          vhost:     @broker.vhost.name,
-          user:      @user.name,
-          protocol:  "MQTT",
-          client_id: @client_id,
+          vhost:        @broker.vhost.name,
+          user:         @user.name,
+          protocol:     "MQTT",
+          client_id:    @client_id,
+          connected_at: @connected_at,
         }.merge(stats_details)
       end
 
