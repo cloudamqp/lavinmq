@@ -200,22 +200,11 @@ module LavinMQ
         true
       end
 
+      def deliver(msg : MQTT::Publish)
+        @client.send(msg)
+      end
+
       def deliver(msg, sp, redelivered = false, recover = false)
-        packet_id = nil
-        if message_id = msg.properties.message_id
-          packet_id = message_id.to_u16 unless message_id.empty?
-        end
-        retained = msg.properties.try &.headers.try &.["x-mqtt-retain"]? == true
-        qos = msg.properties.delivery_mode || 0u8
-        pub_args = {
-          packet_id: packet_id,
-          payload:   msg.body,
-          dup:       qos.zero? ? false : redelivered,
-          qos:       qos,
-          retain:    retained,
-          topic:     msg.routing_key,
-        }
-        @client.send(::MQTT::Protocol::Publish.new(**pub_args))
       end
 
       def exclusive?
