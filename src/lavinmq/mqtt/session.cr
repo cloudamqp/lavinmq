@@ -37,8 +37,9 @@ module LavinMQ
             Channel.receive_first(@msg_store.empty_change, @consumers_empty_change)
             next
           end
-          get(false) do |env|
-            consumers.first.deliver(env.message, env.segment_position, env.redelivered)
+          consumer = consumers.first.as(MQTT::Consumer)
+          get_packet(false) do |pub_packet|
+            consumer.deliver(pub_packet)
           end
           Fiber.yield if (i &+= 1) % 32768 == 0
         rescue ::IO::Error
@@ -103,15 +104,16 @@ module LavinMQ
         @vhost.unbind_queue(@name, EXCHANGE, rk, arguments || AMQP::Table.new)
       end
 
-      private def get(no_ack : Bool, & : Envelope -> Nil) : Bool
+      private def get_packet(no_ack : Bool, & : MQTT::Publish -> Nil) : Bool
         raise ClosedError.new if @closed
         loop do
           env = @msg_store_lock.synchronize { @msg_store.shift? } || break
           sp = env.segment_position
           no_ack = env.message.properties.delivery_mode == 0
           if no_ack
+            packet = build_packet(env, nil)
             begin
-              yield env
+              yield packet
             rescue ex
               @msg_store_lock.synchronize { @msg_store.requeue(sp) }
               raise ex
@@ -120,9 +122,9 @@ module LavinMQ
           else
             id = next_id
             return false unless id
-            env.message.properties.message_id = id.to_s
+            packet = build_packet(env, id)
             mark_unacked(sp) do
-              yield env
+              yield packet
               @unacked[id] = sp
             end
           end
@@ -133,6 +135,20 @@ module LavinMQ
         @log.error(ex) { "Queue closed due to error" }
         close
         raise ClosedError.new(cause: ex)
+      end
+
+      def build_packet(env, packet_id) : MQTT::Publish
+        msg = env.message
+        retained = msg.properties.try &.headers.try &.["x-mqtt-retain"]? == true
+        qos = msg.properties.delivery_mode || 0u8
+        MQTT::Publish.new(
+          packet_id: packet_id,
+          payload: msg.body,
+          dup: env.redelivered,
+          qos: qos,
+          retain: retained,
+          topic: msg.routing_key.tr(".", "/")
+        )
       end
 
       def ack(packet : MQTT::PubAck) : Nil
