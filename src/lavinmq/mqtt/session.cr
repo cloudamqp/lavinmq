@@ -147,7 +147,7 @@ module LavinMQ
           dup: env.redelivered,
           qos: qos,
           retain: retained,
-          topic: msg.routing_key.tr(".", "/")
+          topic: msg.routing_key
         )
       end
 
