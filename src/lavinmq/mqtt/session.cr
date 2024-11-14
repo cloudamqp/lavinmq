@@ -41,11 +41,14 @@ module LavinMQ
             consumers.first.deliver(env.message, env.segment_position, env.redelivered)
           end
           Fiber.yield if (i &+= 1) % 32768 == 0
+        rescue ::IO::Error
+        rescue ex
+          @log.error(exception: ex) { "Unexpected error in deliver loop" }
         end
       rescue ::Channel::ClosedError
         return
       rescue ex
-        @log.trace(exception: ex) { "deliver loop exiting" }
+        @log.error(exception: ex) { "deliver loop exited unexpectedly" }
       end
 
       def client=(client : MQTT::Client?)
