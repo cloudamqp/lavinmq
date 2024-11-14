@@ -422,14 +422,13 @@ describe LavinMQ::Exchange do
   end
 end
 
-alias IndexTree = LavinMQ::MQTT::TopicTree(String)
 describe LavinMQ::MQTT::Exchange do
   it "should only allow Session to bind" do
     with_amqp_server do |s|
       vhost = s.vhosts.create("x")
       q1 = LavinMQ::AMQP::Queue.new(vhost, "q1")
       s1 = LavinMQ::MQTT::Session.new(vhost, "q1")
-      index = IndexTree.new
+      index = LavinMQ::MQTT::TopicTree(String).new
       store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", LavinMQ::Clustering::NoopServer.new, index)
       x = LavinMQ::MQTT::Exchange.new(vhost, "", store)
       x.bind(s1, "s1", LavinMQ::AMQP::Table.new)
@@ -443,7 +442,7 @@ describe LavinMQ::MQTT::Exchange do
     with_amqp_server do |s|
       vhost = s.vhosts.create("x")
       s1 = LavinMQ::MQTT::Session.new(vhost, "session 1")
-      index = IndexTree.new
+      index = LavinMQ::MQTT::TopicTree(String).new
       store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", LavinMQ::Clustering::NoopServer.new, index)
       x = LavinMQ::MQTT::Exchange.new(vhost, "mqtt.default", store)
       x.bind(s1, "s1", LavinMQ::AMQP::Table.new)
