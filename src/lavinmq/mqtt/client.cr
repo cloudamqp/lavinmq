@@ -169,15 +169,15 @@ module LavinMQ
             vhost: "mqtt",
           },
           channel_details: {
-            peer_host: "#{@client.remote_address}",
-            peer_port: "#{@client.connection_info.src}",
+            peer_host:       "#{@client.remote_address}",
+            peer_port:       "#{@client.connection_info.src}",
             connection_name: "mqtt.#{@client.client_id}",
-            user: "#{@client.user}",
-            number: "",
-            name: "mqtt.#{@client.client_id}",
+            user:            "#{@client.user}",
+            number:          "",
+            name:            "mqtt.#{@client.client_id}",
           },
           prefetch_count: prefetch_count,
-          consumer_tag: "-",
+          consumer_tag:   "-",
         }
       end
 
