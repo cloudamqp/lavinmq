@@ -449,10 +449,12 @@ module LavinMQ
       io = @definitions_file
       if io.size.zero?
         load_default_definitions
-        compact!
         return
       end
-
+      if etcd = @replicator.etcd
+        load_definitions_from_etcd(etcd)
+        return
+      end
       @log.info { "Loading definitions" }
       @definitions_lock.synchronize do
         @log.debug { "Verifying schema" }
@@ -522,23 +524,23 @@ module LavinMQ
 
     private def load_default_definitions
       @log.info { "Loading default definitions" }
-      @exchanges[""] = DefaultExchange.new(self, "", true, false, false)
-      @exchanges["amq.direct"] = DirectExchange.new(self, "amq.direct", true, false, false)
-      @exchanges["amq.fanout"] = FanoutExchange.new(self, "amq.fanout", true, false, false)
-      @exchanges["amq.topic"] = TopicExchange.new(self, "amq.topic", true, false, false)
-      @exchanges["amq.headers"] = HeadersExchange.new(self, "amq.headers", true, false, false)
-      @exchanges["amq.match"] = HeadersExchange.new(self, "amq.match", true, false, false)
+      declare_exchange("", "direct", true, false)
+      declare_exchange("amq.direct", "direct", true, false)
+      declare_exchange("amq.fanout", "fanout", true, false)
+      declare_exchange("amq.topic", "topic", true, false)
+      declare_exchange("amq.headers", "headers", true, false)
+      declare_exchange("amq.match", "headers", true, false)
     end
 
-    private def load_definitions_from_etcd
-      @etcd.get_prefix(etcd_path("queues")).each do |key, value|
+    private def load_definitions_from_etcd(etcd : Etcd)
+      etcd.get_prefix(etcd_path("queues")).each do |key, value|
         queue_name = ""
         key.split('/') { |s| queue_name = URI.decode_www_form(s) } # get last split value without allocation
         json = JSON.parse(value)
         @queues[queue_name] = QueueFactory.make(self, json)
       end
 
-      @etcd.get_prefix(etcd_path("exchanges")).each do |key, value|
+      etcd.get_prefix(etcd_path("exchanges")).each do |key, value|
         exchange_name = ""
         key.split('/') { |s| exchange_name = URI.decode_www_form(s) } # get last split value without allocation
         json = JSON.parse(value)
@@ -546,7 +548,7 @@ module LavinMQ
           make_exchange(self, exchange_name, json["type"].as_s, true, json["auto_delete"].as_bool, json["internal"].as_bool, json["arguments"].as_h)
       end
 
-      @etcd.get_prefix(etcd_path("queue-bindings")).each do |key, value|
+      etcd.get_prefix(etcd_path("queue-bindings")).each do |key, value|
         _, _, _, queue_name, exchange_name, routing_key, _ = split_etcd_path(key)
         json = JSON.parse(value)
         x = @exchanges[exchange_name]
@@ -554,7 +556,7 @@ module LavinMQ
         x.bind(q, routing_key, json["arguments"].to_h)
       end
 
-      @etcd.get_prefix(etcd_path("exchange-bindings")).each do |key, value|
+      etcd.get_prefix(etcd_path("exchange-bindings")).each do |key, value|
         _, _, _, destination, source, routing_key, _ = split_etcd_path(key)
         json = JSON.parse(value)
         src = @exchanges[source]
@@ -612,7 +614,7 @@ module LavinMQ
       bytes = frame.to_slice
       @definitions_file.write bytes
       @replicator.append @definitions_file_path, bytes
-      if etcd = @replicator.as?(Clustering::Server).try &.@etcd # FIXME: hack
+      if etcd = @replicator.etcd
         store_definition_in_etcd(frame, etcd)
       else
         @definitions_file.fsync
