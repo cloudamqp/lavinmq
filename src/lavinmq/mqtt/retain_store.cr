@@ -13,15 +13,6 @@ module LavinMQ
 
       def initialize(@dir : String, @replicator : Clustering::Replicator, @index = IndexTree.new)
         Dir.mkdir_p @dir
-        @files = Hash(String, File).new do |files, file_name|
-          file_path = File.join(@dir, file_name)
-          unless File.exists?(file_path)
-            File.open(file_path, "w").close
-          end
-          f = files[file_name] = File.new(file_path, "r+")
-          f.sync = true
-          f
-        end
         @index_file = File.new(File.join(@dir, INDEX_FILE_NAME), "a+")
         @replicator.register_file(@index_file)
         @lock = Mutex.new
@@ -85,11 +76,14 @@ module LavinMQ
             msg_file_name = make_file_name(topic)
             add_to_index(topic, msg_file_name)
           end
-          f = @files[msg_file_name]
-          f.truncate(0)
-          f.pos = 0
-          ::IO.copy(body_io, f)
-          @replicator.replace_file(File.join(@dir, msg_file_name))
+          tmp_file = File.join(@dir, "#{msg_file_name}.tmp")
+          File.open(tmp_file, "w+") do |f|
+            f.sync = true
+            ::IO.copy(body_io, f)
+          end
+          File.rename tmp_file, File.join(@dir, msg_file_name)
+        ensure
+          FileUtils.rm_rf tmp_file unless tmp_file.nil?
         end
       end
 
@@ -119,10 +113,7 @@ module LavinMQ
       private def delete_from_index(topic : String) : Nil
         if file_name = @index.delete topic
           Log.trace { "deleted '#{topic}' from index, deleting file #{file_name}" }
-          if file = @files.delete(file_name)
-            file.close
-            file.delete
-          end
+          File.delete? File.join(@dir, file_name)
           @replicator.delete_file(File.join(@dir, file_name))
         end
       end
@@ -137,11 +128,11 @@ module LavinMQ
       end
 
       private def read(file_name : String) : Bytes
-        f = @files[file_name]
-        f.pos = 0
-        body = Bytes.new(f.size)
-        f.read_fully(body)
-        body
+        File.open(File.join(@dir, file_name), "r") do |f|
+          body = Bytes.new(f.size)
+          f.read_fully(body)
+          body
+        end
       end
 
       def retained_messages
