@@ -86,6 +86,7 @@ module LavinMQ
             add_to_index(topic, msg_file_name)
           end
           f = @files[msg_file_name]
+          f.truncate(0)
           f.pos = 0
           ::IO.copy(body_io, f)
           @replicator.replace_file(File.join(@dir, msg_file_name))
