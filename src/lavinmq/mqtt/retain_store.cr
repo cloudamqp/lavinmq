@@ -13,6 +13,15 @@ module LavinMQ
 
       def initialize(@dir : String, @replicator : Clustering::Replicator, @index = IndexTree.new)
         Dir.mkdir_p @dir
+        @files = Hash(String, File).new do |files, file_name|
+          file_path = File.join(@dir, file_name)
+          unless File.exists?(file_path)
+            File.open(file_path, "w").close
+          end
+          f = files[file_name] = File.new(file_path, "r+")
+          f.sync = true
+          f
+        end
         @index_file = File.new(File.join(@dir, INDEX_FILE_NAME), "a+")
         @replicator.register_file(@index_file)
         @lock = Mutex.new
@@ -76,12 +85,17 @@ module LavinMQ
             msg_file_name = make_file_name(topic)
             add_to_index(topic, msg_file_name)
           end
+
           tmp_file = File.join(@dir, "#{msg_file_name}.tmp")
           File.open(tmp_file, "w+") do |f|
             f.sync = true
             ::IO.copy(body_io, f)
           end
-          File.rename tmp_file, File.join(@dir, msg_file_name)
+          final_file_path = File.join(@dir, msg_file_name)
+          File.rename(tmp_file, final_file_path)
+          @files.delete(final_file_path)
+          @files[final_file_path] = File.new(final_file_path, "r+")
+          @replicator.replace_file(final_file_path)
         ensure
           FileUtils.rm_rf tmp_file unless tmp_file.nil?
         end
@@ -113,7 +127,11 @@ module LavinMQ
       private def delete_from_index(topic : String) : Nil
         if file_name = @index.delete topic
           Log.trace { "deleted '#{topic}' from index, deleting file #{file_name}" }
-          File.delete? File.join(@dir, file_name)
+          if file = @files[file_name]
+            @files.delete(file)
+            file.close
+            file.delete
+          end
           @replicator.delete_file(File.join(@dir, file_name))
         end
       end
