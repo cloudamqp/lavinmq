@@ -45,8 +45,10 @@ module LavinMQ
         if lease = @lease
           select
           when lease.receive?
+            break unless @running
             Log.warn { "Lost leadership lease" }
-            break
+            stop
+            exit 1
           when timeout(30.seconds)
             @data_dir_lock.try &.poll
             GC.collect
@@ -57,7 +59,6 @@ module LavinMQ
           GC.collect
         end
       end
-      stop
     end
 
     def stop
