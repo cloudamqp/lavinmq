@@ -376,14 +376,14 @@ module LavinMQ
           mfile.pos = 4
           mfile.unmap # will be mmap on demand
           if is_long_queue
-            @log.info { "Loaded #{counter}/#{@segments.size} segments" } if (counter &+= 1) % 128 == 0
+            @log.info { "Loaded #{counter}/#{@segments.size} segments, #{@size} messages" } if (counter &+= 1) % 128 == 0
           else
-            @log.debug { "Loaded #{counter}/#{@segments.size} segments" } if (counter &+= 1) % 128 == 0
+            @log.debug { "Loaded #{counter}/#{@segments.size} segments, #{@size} messages" } if (counter &+= 1) % 128 == 0
           end
           Fiber.yield
           @segment_msg_count[seg] = count
         end
-        @log.info { "Loaded #{counter} segments" }
+        @log.info { "Loaded #{counter} segments, #{@size} messages" }
       end
 
       private def update_stats_per_msg(seg, ts, bytesize)
