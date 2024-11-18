@@ -44,7 +44,7 @@ module LavinMQ
         @publish_in_count += 1
 
         headers = AMQP::Table.new.tap do |h|
-          h["x-mqtt-retain"] = true if packet.retain?
+          h[RETAIN_HEADER] = true if packet.retain?
         end
         properties = AMQP::Properties.new(headers: headers).tap do |p|
           p.delivery_mode = packet.qos if packet.responds_to?(:qos)

@@ -192,9 +192,6 @@ module LavinMQ
         return true unless Config.instance.guest_only_loopback?
         remote_address.loopback?
       end
-
-      def close
-      end
     end
   end
 end

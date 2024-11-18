@@ -70,7 +70,7 @@ module LavinMQ
               end
               context.response.status_code = 204
             elsif NameValidator.reserved_prefix?(name)
-              bad_request(context, "Prefix forbidden")
+              bad_request(context, "Prefix #{NameValidator::PREFIX_LIST} forbidden, please choose another name")
             elsif name.bytesize > UInt8::MAX
               bad_request(context, "Exchange name too long, can't exceed 255 characters")
             else
