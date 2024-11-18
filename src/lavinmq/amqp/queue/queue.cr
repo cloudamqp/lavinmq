@@ -413,7 +413,7 @@ module LavinMQ::AMQP
     class Closed < Exception; end
 
     def publish(msg : Message) : Bool
-      return false if @state.closed?
+      return false if @deleted || @state.closed?
       reject_on_overflow(msg)
       @msg_store_lock.synchronize do
         @msg_store.push(msg)
