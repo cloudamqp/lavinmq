@@ -78,6 +78,8 @@ module LavinMQ
       Schema.migrate(@data_dir, @replicator)
       @users = UserStore.new(@data_dir, @replicator)
       @vhosts = VHostStore.new(@data_dir, @users, @replicator)
+      @connection_factories[Protocol::AMQP] = AMQP::ConnectionFactory.new(@users, @vhosts)
+      @connection_factories[Protocol::MQTT] = MQTT::ConnectionFactory.new(@users, @vhosts, @replicator)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator)
       apply_parameter
       @closed = false

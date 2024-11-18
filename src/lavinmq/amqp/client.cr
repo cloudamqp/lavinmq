@@ -512,13 +512,13 @@ module LavinMQ
         if !NameValidator.valid_entity_name(frame.exchange_name)
           send_precondition_failed(frame, "Exchange name isn't valid")
         elsif frame.exchange_name.empty?
-          send_access_refused(frame, "Prefix forbidden")
+          send_access_refused(frame, "Not allowed to declare the default exchange")
         elsif e = @vhost.exchanges.fetch(frame.exchange_name, nil)
           redeclare_exchange(e, frame)
         elsif frame.passive
           send_not_found(frame, "Exchange '#{frame.exchange_name}' doesn't exists")
         elsif NameValidator.reserved_prefix?(frame.exchange_name)
-          send_access_refused(frame, "Prefix forbidden")
+          send_access_refused(frame, "Prefix #{NameValidator::PREFIX_LIST} forbidden, please choose another name")
         else
           ae = frame.arguments["x-alternate-exchange"]?.try &.as?(String)
           ae_ok = ae.nil? || (@user.can_write?(@vhost.name, ae) && @user.can_read?(@vhost.name, frame.exchange_name))
@@ -549,9 +549,9 @@ module LavinMQ
         if !NameValidator.valid_entity_name(frame.exchange_name)
           send_precondition_failed(frame, "Exchange name isn't valid")
         elsif frame.exchange_name.empty?
-          send_access_refused(frame, "Prefix forbidden")
+          send_access_refused(frame, "Prefix #{NameValidator::PREFIX_LIST} forbidden, please choose another name")
         elsif NameValidator.reserved_prefix?(frame.exchange_name)
-          send_access_refused(frame, "Prefix forbidden")
+          send_access_refused(frame, "Prefix #{NameValidator::PREFIX_LIST} forbidden, please choose another name")
         elsif !@vhost.exchanges.has_key? frame.exchange_name
           # should return not_found according to spec but we make it idempotent
           send AMQP::Frame::Exchange::DeleteOk.new(frame.channel) unless frame.no_wait
@@ -616,7 +616,7 @@ module LavinMQ
         elsif frame.passive
           send_not_found(frame, "Queue '#{frame.queue_name}' doesn't exists")
         elsif NameValidator.reserved_prefix?(frame.queue_name)
-          send_access_refused(frame, "Prefix forbidden")
+          send_access_refused(frame, "Prefix #{NameValidator::PREFIX_LIST} forbidden, please choose another name")
         elsif @vhost.max_queues.try { |max| @vhost.queues.size >= max }
           send_access_refused(frame, "queue limit in vhost '#{@vhost.name}' (#{@vhost.max_queues}) is reached")
         else
