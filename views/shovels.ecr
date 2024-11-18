@@ -48,41 +48,41 @@
             <span class="when-edit">Edit shovel</span>
           </h3>
           <div class="py-4">
-            <label class="when-create mt-0 mb-4">
+            <label class="when-create mb-4">
               <span class="field-label">Virtual host</span>
               <select class="dropdown" name="vhost" required></select>
             </label>
-            <label class="mt-0 mb-4">
+            <label class="mb-4">
               <span class="field-label">Name</span>
               <input class="regular-text" type="text" name="name" required data-primary-key="">
             </label>
             <fieldset class="inline">
               <legend class="field-label">Source</legend>
-              <label class="mt-0 mb-4">
+              <label class="mb-4">
                 <span class="field-label">URI</span>
                 <input class="regular-text" type="text" name="src-uri" required value="amqp://">
               </label>
-              <label class="mt-0 mb-4">
+              <label class="mb-4">
                 <span class="field-label">Type</span>
                 <select class="dropdown" name="src-type" required>
                   <option value="queue">Queue</option>
                   <option value="exchange">Exchange</option>
                 </select>
               </label>
-              <label class="mt-0 mb-4">
+              <label class="mb-4">
                 <span class="field-label">Endpoint</span>
                 <input class="regular-text" type="text" name="src-endpoint" required list="shovel-src-list">
                 <datalist id="shovel-src-list"></datalist>
               </label>
-              <label id="srcRoutingKey" class="hide mt-0 mb-4">
+              <label id="srcRoutingKey" class="hide mb-4">
                 <span class="field-label">Routing key</span>
                 <input class="regular-text" type="text" name="src-exchange-key">
               </label>
-              <label class="mt-0 mb-4">
+              <label class="mb-4">
                 <span class="field-label">Prefetch</span>
                 <input class="regular-text" type="number" name="src-prefetch-count" value="1000">
               </label>
-              <label class="mt-0 mb-4">
+              <label class="mb-4">
                 <span class="field-label">Auto delete</span>
                 <select class="dropdown" name="src-delete-after" required>
                   <option value="never">Never</option>
@@ -92,28 +92,28 @@
             </fieldset>
             <fieldset class="inline">
               <legend class="field-label">Destination</legend>
-              <label class="mt-0 mb-4">
+              <label class="mb-4">
                 <span class="field-label">URI</span>
                 <input class="regular-text" type="text" name="dest-uri" required value="amqp://">
               </label>
-              <label class="amqp-dest-field mt-0 mb-4">
+              <label class="amqp-dest-field mb-4">
                 <span class="field-label">Type</span>
                 <select class="dropdown" name="dest-type" required>
                   <option value="queue">Queue</option>
                   <option value="exchange">Exchange</option>
                 </select>
               </label>
-              <label class="amqp-dest-field mt-0 mb-4">
+              <label class="amqp-dest-field mb-4">
                 <span class="field-label">Endpoint</span>
                 <input class="regular-text" type="text" name="dest-endpoint" list="shovel-dest-list">
                 <datalist id="shovel-dest-list"></datalist>
               </label>
             </fieldset>
-            <label class="mt-0 mb-4">
+            <label class="mb-4">
               <span class="field-label">Reconnect delay</span>
               <input class="regular-text" type="number" name="reconnect-delay" value="5">
             </label>
-            <label class="mt-0 mb-4">
+            <label class="mb-4">
               <span class="field-label">Ack mode</span>
               <select class="dropdown" name="ack-mode" required>
                 <option value="on-confirm" selected>On confirm</option>
