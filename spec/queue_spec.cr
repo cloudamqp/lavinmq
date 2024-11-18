@@ -389,5 +389,26 @@ describe LavinMQ::AMQP::Queue do
     ensure
       FileUtils.rm_rf tmpdir if tmpdir
     end
+
+    it "should not raise NotFoundError if segment is gone when deleting" do
+      tmpdir = File.tempname "lavin", ".spec"
+      Dir.mkdir_p tmpdir
+      store = LavinMQ::Queue::MessageStore.new(tmpdir, nil)
+      data = Random::Secure.hex(512)
+      io = IO::Memory.new(data.to_slice)
+      until store.@segments.size > 1
+        io.rewind
+        store.push(LavinMQ::Message.new(0i64, "a", "b", AMQ::Protocol::Properties.new, data.bytesize.to_u64, io))
+      end
+
+      Dir.glob(File.join(tmpdir, "msgs.*")).each do |f|
+        File.delete(f)
+      end
+
+      store.purge # should not raise
+
+    ensure
+      FileUtils.rm_rf tmpdir if tmpdir
+    end
   end
 end
