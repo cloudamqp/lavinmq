@@ -91,7 +91,11 @@ class MFile < IO
   end
 
   def delete(*, raise_on_missing = true) : self
-    File.delete?(@path)
+    if raise_on_missing
+      File.delete(@path)
+    else
+      File.delete?(@path)
+    end
     @deleted = true
     self
   end
