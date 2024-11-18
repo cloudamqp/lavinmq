@@ -97,6 +97,17 @@ class MFile < IO
     self
   end
 
+  # Delete and ignore NotFoundError
+  def delete! : self
+    code = LibC.unlink(@path.check_no_null_byte)
+    if code < 0
+      err = File::Error.from_errno("Error deleting file", file: @path)
+      raise err unless err.is_a?(File::NotFoundError)
+    end
+    @deleted = true
+    self
+  end
+
   # The file will be truncated to the current position unless readonly or deleted
   def close(truncate_to_size = true)
     # unmap occurs on finalize
