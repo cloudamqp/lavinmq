@@ -124,16 +124,16 @@
         <form method="post" id="addBinding" class="form card cols-6 regular-card">
           <h3 class="title-m">Add a binding to this queue</h3>
           <div class="py-4">
-            <label class="mt-0 mb-4">
+            <label class="mb-4">
               <span class="field-label">From exchange</span>
               <input class="regular-text" name="source" type="text" required list="exchange-list">
               <datalist id="exchange-list"></datalist>
             </label>
-            <label class="mt-0 mb-4">
+            <label class="mb-4">
               <span class="field-label">Routing key</span>
               <input class="regular-text" name="routing_key" type="text">
             </label>
-            <label class="mt-0 mb-4">
+            <label class="mb-4">
               <span class="field-label">Arguments</span>
               <textarea class="regular-textarea" name="arguments" placeholder='{ "key": value }'></textarea>
             </label>
@@ -147,17 +147,17 @@
             this queue.
           </p>
           <div class="py-4">
-            <label class="mt-0 mb-4">
+            <label class="mb-4">
               <span class="field-label">Delivery mode</span>
               <select class="dropdown" name="delivery_mode">
                 <option value="2">Persistent</option>
               </select>
             </label>
-            <label class="mt-0 mb-4">
+            <label class="mb-4">
               <span class="field-label">Headers</span>
               <textarea class="regular-textarea" name="headers" placeholder='{ "key": value }'></textarea>
             </label>
-            <label class="mt-0 mb-4">
+            <label class="mb-4">
               <span class="field-label">Properties</span>
               <textarea class="regular-textarea" name="properties" placeholder='{ "key": value }'></textarea>
               <div id="dataTags" class="label">
@@ -197,11 +197,11 @@
                 </a>
               </div>
             </label>
-            <label class="mt-0 mb-4">
+            <label class="mb-4">
               <span class="field-label">Payload</span>
               <textarea class="regular-textarea" name="payload"></textarea>
             </label>
-            <label class="mt-0 mb-4">
+            <label class="mb-4">
               <span class="field-label">Payload encoding</span>
               <select class="dropdown" name="payload_encoding">
                 <option value="string">String</option>
@@ -215,7 +215,7 @@
           <form method="post" id="getMessages" class="form">
             <h3 class="title-m">Get messages</h3>
             <div class="py-4">
-              <label class="mt-0 mb-4">
+              <label class="mb-4">
                 <span class="field-label">Mode</span>
                 <select class="dropdown" name="mode">
                   <option value="get">Get Ack</option>
@@ -223,14 +223,14 @@
                   <option value="reject_requeue_false">Reject</option>
                 </select>
               </label>
-              <label class="mt-0 mb-4">
+              <label class="mb-4">
                 <span class="field-label">Encoding</span>
                 <select class="dropdown" name="encoding">
                   <option value="auto">Auto string/base64</option>
                   <option value="base64">Base64</option>
                 </select>
               </label>
-              <label class="mt-0 mb-4">
+              <label class="mb-4">
                 <span class="field-label">Messages</span>
                 <input class="regular-text" type="number" name="messages" value=1>
               </label>
@@ -241,7 +241,7 @@
         <form method="post" id="moveMessages" class="form card cols-6 regular-card">
           <h3 class="title-m">Move messages</h3>
           <div class="py-4">
-            <label class="mt-0 mb-4">
+            <label class="mb-4">
               <span class="field-label">Destination queue</span>
               <input class="regular-text" type="text" name="shovel-destination" list="queue-list">
               <datalist id="queue-list">
@@ -301,7 +301,7 @@
         </section>
         <form method="delete" id="purgeQueue" class="form card cols-4 regular-card">
           <h3 class="title-m">Purge queue</h3>
-          <label class="mt-0 mb-4">
+          <label class="mb-4">
             <span class="field-label">Number of messages</span>
             <input class="regular-text" type="number" name="count" min="1" placeholder="All">
           </label>

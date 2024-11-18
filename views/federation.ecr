@@ -43,7 +43,7 @@
         <section class="card regular-card">
           <div class="table-wrapper">
             <div id="linksTable-error"></div>
-            <table id="linksTable" class="table text-light-400">
+            <table id="linksTable" class="table">
               <thead>
                 <tr>
                   <th>Virtual host</th>
@@ -65,27 +65,27 @@
           <div class="py-4">
             <fieldset>
               <legend class="field-label">General paramenters</legend>
-              <label class="when-create mt-0 mb-4">
+              <label class="when-create mb-4">
                 <span class="field-label">Virtual host</span>
                 <select class="dropdown" name="vhost" required></select>
               </label>
-              <label class="mt-0 mb-4">
+              <label class="mb-4">
                 <span class="field-label">Name</span>
                 <input class="regular-text" type="text" name="name" required data-primary-key="">
               </label>
-              <label class="mt-0 mb-4">
+              <label class="mb-4">
                 <span class="field-label">URI</span>
                 <input class="regular-text" type="text" name="uri" required value="amqp://">
               </label>
-              <label class="mt-0 mb-4">
+              <label class="mb-4">
                 <span class="field-label">Prefetch</span>
                 <input class="regular-text" type="number" name="prefetch-count" value="1000">
               </label>
-              <label class="mt-0 mb-4">
+              <label class="mb-4">
                 <span class="field-label">Reconnect delay</span>
                 <input class="regular-text" type="number" name="reconnect-delay" value="5">
               </label>
-              <label class="mt-0 mb-4">
+              <label class="mb-4">
                 <span class="field-label">Ack mode</span>
                 <select class="dropdown" name="ack-mode" required>
                   <option value="on-confirm" selected>On confirm</option>
@@ -96,7 +96,7 @@
             </fieldset>
             <fieldset>
               <legend class="field-label">Federated exchange parameters</legend>
-              <label class="mt-0 mb-4">
+              <label class="mb-4">
                 <span class="field-label">Exchange</span>
                 <input class="regular-text" type="text" name="exchange" list="exchange-datalist">
                 <datalist id="exchange-datalist"></datalist>
@@ -105,23 +105,23 @@
                 <span>Max hops</span>
                 <input type="number" name="max-hops">
               </label> -->
-              <label class="mt-0 mb-4">
+              <label class="mb-4">
                 <span class="field-label">Expires</span>
                 <input class="regular-text" type="number" name="expires">
               </label>
-              <label class="mt-0 mb-4">
+              <label class="mb-4">
                 <span class="field-label">Message TTL</span>
                 <input class="regular-text" type="number" name="message-ttl">
               </label>
             </fieldset>
             <fieldset>
               <legend class="field-label">Federated queue parameters</legend>
-              <label class="mt-0 mb-4">
+              <label class="mb-4">
                 <span class="field-label">Queue</span>
                 <input class="regular-text" type="text" name="queue" list="queue-datalist">
                 <datalist id="queue-datalist"></datalist>
               </label>
-              <label class="mt-0 mb-4">
+              <label class="mb-4">
                 <span class="field-label">Consumer tag</span>
                 <input class="regular-text" type="text" name="consumer-tag">
               </label>

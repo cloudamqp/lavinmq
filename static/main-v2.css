@@ -241,7 +241,7 @@ header h2 {
 /* Navigation end */
 
 /* Utility classes */
-.bg-dark-900 {
+/*.bg-dark-900 {
   background-color: #161616;
   background-color: #1D1D1D;
 }
@@ -264,7 +264,7 @@ header h2 {
 
 .text-dark-400 {
   color: #141414;
-}
+}*/
 
 .text-sm {
   font-size: 0.875rem;
@@ -663,6 +663,7 @@ header h2 {
   line-height: 1.25rem;
   padding: 1rem 1.5rem;
   border-bottom: 1px solid var(--border-color-lightest);
+  margin-bottom: 0;
 }
 
 .login-form {
@@ -810,10 +811,11 @@ footer {
   border-top-left-radius: 12px;
   border-top-right-radius: 12px;
   box-shadow: 0 1px 15px 1px rgba(39, 39, 39, 0.1);
-  background-color: #fff;
-  color: var(--font-color-light);
+  background-color: var(--bg-color-dark);
+  color: var(--font-color-darker);
   padding: 20px;
   grid-row: 4;
+  text-align: center;
 }
 
 footer .logo {
@@ -1474,7 +1476,6 @@ footer .logo {
 
 label {
   display: block;
-  margin: 0.5em 0;
 }
 
 .center {
