@@ -91,7 +91,7 @@ class MFile < IO
   end
 
   def delete(*, raise_on_missing = true) : self
-    Crystal::System::File.delete(@path, raise_on_missing: raise_on_missing)
+    File.delete?(@path)
     @deleted = true
     self
   end
