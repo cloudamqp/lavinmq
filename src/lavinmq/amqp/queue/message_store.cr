@@ -165,11 +165,11 @@ module LavinMQ
             @log.debug { "Deleting segment #{sp.segment}" }
             select_next_read_segment if sp.segment == @rfile_id
             if a = @acks.delete(sp.segment)
-              a.delete!.close
+              a.delete(raise_on_missing: false).close
               @replicator.try &.delete_file(a.path)
             end
             if seg = @segments.delete(sp.segment)
-              seg.delete!.close
+              seg.delete(raise_on_missing: false).close
               @replicator.try &.delete_file(seg.path)
             end
             @segment_msg_count.delete(sp.segment)
@@ -331,7 +331,7 @@ module LavinMQ
             rescue IO::EOFError
               # delete empty file, it will be recreated if it's needed
               @log.warn { "Empty file at #{path}, deleting it" }
-              file.delete!.close
+              file.delete(raise_on_missing: false).close
               @replicator.try &.delete_file(path)
               if idx == 0 # Recreate the file if it's the first segment because we need at least one segment to exist
                 file = MFile.new(path, Config.instance.segment_size)
@@ -401,10 +401,10 @@ module LavinMQ
             @segment_msg_count.delete seg
             @deleted.delete seg
             if ack = @acks.delete(seg)
-              ack.delete!.close
+              ack.delete(raise_on_missing: false).close
               @replicator.try &.delete_file(ack.path)
             end
-            mfile.delete!.close
+            mfile.delete(raise_on_missing: false).close
             @replicator.try &.delete_file(mfile.path)
             true
           end

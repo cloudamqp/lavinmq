@@ -90,20 +90,8 @@ class MFile < IO
     addr
   end
 
-  def delete : self
-    code = LibC.unlink(@path.check_no_null_byte)
-    raise File::Error.from_errno("Error deleting file", file: @path) if code < 0
-    @deleted = true
-    self
-  end
-
-  # Delete and ignore NotFoundError
-  def delete! : self
-    code = LibC.unlink(@path.check_no_null_byte)
-    if code < 0
-      err = File::Error.from_errno("Error deleting file", file: @path)
-      raise err unless err.is_a?(File::NotFoundError)
-    end
+  def delete(*, raise_on_missing = true) : self
+    Crystal::System::File.delete(@path, raise_on_missing: raise_on_missing)
     @deleted = true
     self
   end
