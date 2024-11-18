@@ -198,10 +198,12 @@ module LavinMQ
           delivery_tag,
           redelivered,
           msg.exchange_name, msg.routing_key)
-        @deliver_wg.add
-        @channel.deliver(deliver, msg, redelivered)
-      ensure
-        @deliver_wg.done
+        begin
+          @deliver_wg.add
+          @channel.deliver(deliver, msg, redelivered)
+        ensure
+          @deliver_wg.done
+        end
       end
 
       def ack(sp)
