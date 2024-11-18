@@ -74,7 +74,7 @@ describe LavinMQ::Clustering::Client do
     end
   end
 
-  pending "replicates and streams retained messages to followers" do
+  it "replicates and streams retained messages to followers" do
     replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Etcd.new, 0)
     tcp_server = TCPServer.new("localhost", 0)
 
@@ -95,7 +95,7 @@ describe LavinMQ::Clustering::Client do
     retain_store.retain("topic1", msg1.body_io, msg1.bodysize)
     retain_store.retain("topic2", msg2.body_io, msg2.bodysize)
 
-    wait_for { replicator.followers.first?.try &.lag_in_bytes == 0 }
+    wait_for(10) { replicator.followers.first?.try &.lag_in_bytes == 0 }
     repli.close
     done.receive
 
