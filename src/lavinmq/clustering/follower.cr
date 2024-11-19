@@ -73,8 +73,10 @@ module LavinMQ
       end
 
       private def read_ack(socket = @socket) : Int64
+        # Sometimes when running clustering_spec len is greater than sent_bytes. Causing lag_in_bytes to be negative.
         len = socket.read_bytes(Int64, IO::ByteFormat::LittleEndian)
         @acked_bytes += len
+        STDOUT.write "Follower #{@remote_address} read ack of #{len} acked_bytes=#{@acked_bytes} sent_bytes=#{@sent_bytes}\n".to_slice
         if @closed && lag_in_bytes.zero?
           @closed_and_in_sync.close
         end
@@ -165,6 +167,7 @@ module LavinMQ
       private def send_action(action : Action) : Int64
         lag_size = action.lag_size
         @sent_bytes += lag_size
+        STDOUT.write "Follower #{@remote_address} sent bytes: #{lag_size} acked_bytes=#{@acked_bytes} sent_bytes=#{@sent_bytes}\n".to_slice
         @actions.send action
         lag_size
       end
