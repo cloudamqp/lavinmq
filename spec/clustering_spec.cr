@@ -110,6 +110,8 @@ describe LavinMQ::Clustering::Client do
     a.sort!.should eq(["topic1", "topic2"])
     b.sort!.should eq(["body1", "body2"])
     follower_retain_store.retained_messages.should eq(2)
+  ensure
+    replicator.try &.close
   end
 
   it "can stream full file" do
