@@ -34,9 +34,10 @@ module LavinMQ
     @alternate_exchange : String?
     @delayed_queue : Queue?
     @deleted = false
+    @deduper : Deduplication::Deduper?
 
-    rate_stats({"publish_in", "publish_out", "unroutable"})
-    property publish_in_count, publish_out_count, unroutable_count
+    rate_stats({"publish_in", "publish_out", "unroutable", "dedup"})
+    property publish_in_count, publish_out_count, unroutable_count, dedup_count
 
     def initialize(@vhost : VHost, @name : String, @durable = false,
                    @auto_delete = false, @internal = false,
@@ -75,6 +76,13 @@ module LavinMQ
       if @arguments["x-delayed-exchange"]?.try &.as?(Bool)
         @delayed = true
         init_delayed_queue
+      end
+      if @arguments["x-message-deduplication"]?.try &.as?(Bool)
+        ttl = @arguments["x-cache-ttl"]?.try(&.as?(Int32)).try(&.to_u32)
+        size = @arguments["x-cache-size"]?.try(&.as?(Int32)).try(&.to_u32)
+        raise "Invalid x-cache-size for message deduplication" unless size
+        cache = Deduplication::MemoryCache(AMQ::Protocol::Field).new(size)
+        @deduper = Deduplication::Deduper.new(cache, ttl)
       end
     end
 
@@ -133,8 +141,6 @@ module LavinMQ
       @vhost.queues[q_name] = @delayed_queue.as(Queue)
     end
 
-    REPUBLISH_HEADERS = {"x-head", "x-tail", "x-from"}
-
     protected def delete
       return if @deleted
       @deleted = true
@@ -151,6 +157,13 @@ module LavinMQ
     def publish(msg : Message, immediate : Bool,
                 queues : Set(Queue) = Set(Queue).new,
                 exchanges : Set(Exchange) = Set(Exchange).new) : Int32
+      if d = @deduper
+        if d.duplicate?(msg)
+          @dedup_count += 1
+          return 0
+        end
+        d.add(msg)
+      end
       @publish_in_count += 1
       count = do_publish(msg, immediate, queues, exchanges)
       @unroutable_count += 1 if count.zero?
