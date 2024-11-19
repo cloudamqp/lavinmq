@@ -36,7 +36,7 @@ jobs:
     name: Build RPM
     strategy:
       matrix:
-        os: ['fedora-39', 'fedora-40', 'el-9']
+        os: ['fedora-41', 'fedora-40', 'el-9']
     runs-on: ubuntu-latest
     # Set permissions if you're using OIDC token authentication
     permissions:
@@ -49,21 +49,7 @@ jobs:
           fetch-depth: 0
 
       - name: Generate version string
-        run: |
-          last_tag=$(git describe --tags --abbrev=0)
-          version=$(cut -d- -f1 <<< ${last_tag:1})
-          pre_release=$(cut -d- -f2 -s <<< $last_tag)
-          if [ -n "$pre_release" ]
-          then version=$version~${pre_release//./}
-          fi
-          git_describe=$(git describe --tags)
-          post_release=${git_describe//$last_tag/}
-          post_release=${post_release:1}
-          post_release=${post_release//-/.}
-          if [ -n "$post_release" ]
-          then version=$version^${post_release}
-          fi
-          echo "version=$version" >> $GITHUB_ENV
+        run: echo "version=$(./rpm-version)" >> $GITHUB_ENV
 
       - uses: depot/setup-action@v1
       - uses: depot/build-push-action@v1
@@ -72,7 +58,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           pull: true
           build-args: |
-            build_image=84codes/crystal:1.13.2-${{ matrix.os }}
+            build_image=84codes/crystal:latest-${{ matrix.os }}
             version=${{ env.version }}
             MAKEFLAGS=-j1
           outputs: RPMS

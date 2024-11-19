@@ -53,7 +53,7 @@ module LavinMQ
     def stop
       return if @closed
       @closed = true
-      @vhosts.each_value &.close
+      @vhosts.close
       @replicator.clear
       Fiber.yield
     end
