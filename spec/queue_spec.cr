@@ -396,6 +396,8 @@ describe LavinMQ::AMQP::Queue do
       store = LavinMQ::Queue::MessageStore.new(tmpdir, nil)
       data = Random::Secure.hex(512)
       io = IO::Memory.new(data.to_slice)
+
+      # Publish enough data to have more than one segment
       until store.@segments.size > 1
         io.rewind
         store.push(LavinMQ::Message.new(0i64, "a", "b", AMQ::Protocol::Properties.new, data.bytesize.to_u64, io))
@@ -405,8 +407,7 @@ describe LavinMQ::AMQP::Queue do
         File.delete(f)
       end
 
-      store.purge # should not raise
-
+      store.purge
     ensure
       FileUtils.rm_rf tmpdir if tmpdir
     end
