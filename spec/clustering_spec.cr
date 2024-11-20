@@ -94,13 +94,15 @@ describe LavinMQ::Clustering::Client do
     wait_for { replicator.followers.size == 1 }
 
     retain_store = LavinMQ::MQTT::RetainStore.new("#{LavinMQ::Config.instance.data_dir}/retain_store", replicator)
+    wait_for { replicator.followers.first?.try &.lag_in_bytes == 0 }
+
     props = LavinMQ::AMQP::Properties.new
     msg1 = LavinMQ::Message.new(100, "test", "rk", props, 10, IO::Memory.new("body1"))
     msg2 = LavinMQ::Message.new(100, "test", "rk", props, 10, IO::Memory.new("body2"))
     retain_store.retain("topic1", msg1.body_io, msg1.bodysize)
     retain_store.retain("topic2", msg2.body_io, msg2.bodysize)
 
-    wait_for(10.seconds) { replicator.followers.first?.try &.lag_in_bytes == 0 }
+    wait_for { replicator.followers.first?.try &.lag_in_bytes == 0 }
     repli.close
     done.receive
 
