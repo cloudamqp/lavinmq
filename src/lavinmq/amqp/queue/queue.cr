@@ -127,6 +127,7 @@ module LavinMQ::AMQP
     @data_dir : String
     Log = LavinMQ::Log.for "queue"
     @metadata : ::Log::Metadata
+    @deduper : Deduplication::Deduper?
 
     def initialize(@vhost : VHost, @name : String,
                    @exclusive = false, @auto_delete = false,
@@ -264,6 +265,13 @@ module LavinMQ::AMQP
       @single_active_consumer_queue = parse_header("x-single-active-consumer", Bool) == true
       @consumer_timeout = parse_header("x-consumer-timeout", Int).try &.to_u64
       validate_positive("x-consumer-timeout", @consumer_timeout)
+      if @arguments["x-message-deduplication"]?.try &.as?(Bool)
+        ttl = @arguments["x-cache-ttl"]?.try(&.as?(Int32)).try(&.to_u32)
+        size = @arguments["x-cache-size"]?.try(&.as?(Int32)).try(&.to_u32)
+        raise "Invalid x-cache-size for message deduplication" unless size
+        cache = Deduplication::MemoryCache(AMQ::Protocol::Field).new(size)
+        @deduper = Deduplication::Deduper.new(cache, ttl)
+      end
     end
 
     private macro parse_header(header, type)
@@ -414,6 +422,13 @@ module LavinMQ::AMQP
 
     def publish(msg : Message) : Bool
       return false if @deleted || @state.closed?
+      if d = @deduper
+        if d.duplicate?(msg)
+          # @dedup_count += 1
+          return false
+        end
+        d.add(msg)
+      end
       reject_on_overflow(msg)
       @msg_store_lock.synchronize do
         @msg_store.push(msg)
