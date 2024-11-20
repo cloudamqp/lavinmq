@@ -121,7 +121,7 @@ module LavinMQ
         bytes = Bytes.new(topic.bytesize + 1)
         bytes.copy_from(topic.to_slice)
         bytes[-1] = 10u8
-        @replicator.append(file_name, bytes)
+        @replicator.append(File.join(@dir, INDEX_FILE_NAME), bytes)
       end
 
       private def delete_from_index(topic : String) : Nil
