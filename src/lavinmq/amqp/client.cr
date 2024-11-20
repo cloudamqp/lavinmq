@@ -118,14 +118,13 @@ module LavinMQ
 
       private def read_loop
         i = 0
-        yield_interval = ENV.fetch("READ_LOOP_YIELD_INTERVAL", "1024").to_i
         socket = @socket
         loop do
           AMQP::Frame.from_io(socket) do |frame|
             {% unless flag?(:release) %}
               @log.trace { "Received #{frame.inspect}" }
             {% end %}
-            if (i &+= 1) == yield_interval
+            if (i &+= 1) == 8192
               i = 0
               Fiber.yield
             end
@@ -283,7 +282,7 @@ module LavinMQ
         flush unless websocket # Websockets need to send one frame per WS frame
         true
       rescue ex : IO::Error | OpenSSL::SSL::Error
-        @log.debug { "Lost connection, while sending (#{ex.inspect})" }
+        @log.debug { "Lost connection, while sending message (#{ex.inspect})" } unless closed?
         close_socket
         Fiber.yield
         false
@@ -437,7 +436,6 @@ module LavinMQ
           @flush_buffer.close
           @socket.close
         end
-        @log.debug { "Socket closed" }
       rescue ex
         @log.debug { "#{ex.inspect} when closing socket" }
       end
