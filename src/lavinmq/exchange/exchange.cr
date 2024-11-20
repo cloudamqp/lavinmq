@@ -78,12 +78,18 @@ module LavinMQ
         init_delayed_queue
       end
       if @arguments["x-message-deduplication"]?.try &.as?(Bool)
-        ttl = @arguments["x-cache-ttl"]?.try(&.as?(Int32)).try(&.to_u32)
-        size = @arguments["x-cache-size"]?.try(&.as?(Int32)).try(&.to_u32)
-        header_key = @arguments["x-deduplication-header"]?.try(&.as?(String))
-        raise "Invalid x-cache-size for message deduplication" unless size
+        ttl = parse_header("x-cache-ttl", Int).try(&.to_u32)
+        size = parse_header("x-cache-size", Int).try(&.to_u32)
+        raise LavinMQ::Error::PreconditionFailed.new("Invalid x-cache-size for message deduplication") unless size
+        header_key = parse_header("x-deduplication-header", String)
         cache = Deduplication::MemoryCache(AMQ::Protocol::Field).new(size)
         @deduper = Deduplication::Deduper.new(cache, ttl, header_key)
+      end
+    end
+
+    private macro parse_header(header, type)
+      if value = @arguments["{{ header.id }}"]?
+        value.as?({{ type }}) || raise LavinMQ::Error::PreconditionFailed.new("{{ header.id }} header not a {{ type.id }}")
       end
     end
 
