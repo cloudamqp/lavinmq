@@ -48,7 +48,7 @@ module LavinMQ
     end
 
     # Returns {ID, TTL}
-    def lease_grant(ttl = 5) : Tuple(Int64, Int32)
+    def lease_grant(ttl = 10) : Tuple(Int64, Int32)
       json = post("/v3/lease/grant", body: %({"TTL":"#{ttl}"}))
       ttl = json.dig("TTL").as_s.to_i
       id = json.dig("ID").as_s.to_i64
@@ -80,7 +80,7 @@ module LavinMQ
     # Campaign for an election
     # Returns a Channel when elected leader,
     # when the channel is closed the leadership is lost
-    def elect(name, value, ttl = 5) : Channel(Nil)
+    def elect(name, value, ttl = 10) : Channel(Nil)
       channel = Channel(Nil).new
       lease_id, ttl = lease_grant(ttl)
       wg = WaitGroup.new(1)
