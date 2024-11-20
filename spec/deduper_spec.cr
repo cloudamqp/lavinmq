@@ -33,21 +33,21 @@ describe LavinMQ::Deduplication do
   end
 end
 
-class MockCache(T) < LavinMQ::Deduplication::Cache(T)
-  @counter = Hash(String, Array({T, UInt32?})).new do |h, k|
-    h[k] = Array({T, UInt32?}).new
+class MockCache < LavinMQ::Deduplication::Cache(AMQ::Protocol::Field)
+  @counter = Hash(String, Array({String, UInt32?})).new do |h, k|
+    h[k] = Array({String, UInt32?}).new
   end
 
-  def contains?(key : T) : Bool
-    @counter["contains?"] << {key, nil}
+  def contains?(key) : Bool
+    @counter["contains?"] << {key.as(String), nil}
     false
   end
 
-  def insert(key : T, ttl : UInt32? = nil)
-    @counter["insert"] << {key, ttl}
+  def insert(key, ttl = nil)
+    @counter["insert"] << {key.as(String), ttl}
   end
 
-  def calls(key : String) : Array({T, UInt32?})
+  def calls(key : String)
     @counter[key]
   end
 end
@@ -55,7 +55,7 @@ end
 describe LavinMQ::Deduplication::Deduper do
   describe "duplicate?" do
     it "should return false if \"x-deduplication-header\" is missing (no identifier, always unique)" do
-      mock = MockCache(AMQ::Protocol::Field).new
+      mock = MockCache.new
       deduper = LavinMQ::Deduplication::Deduper.new(mock)
       props = LavinMQ::AMQP::Properties.new
       msg = LavinMQ::Message.new("ex", "rk", "body", props)
@@ -64,7 +64,7 @@ describe LavinMQ::Deduplication::Deduper do
     end
 
     it "should check cache if entry exists" do
-      mock = MockCache(AMQ::Protocol::Field).new
+      mock = MockCache.new
       deduper = LavinMQ::Deduplication::Deduper.new(mock)
       props = LavinMQ::AMQP::Properties.new(headers: LavinMQ::AMQP::Table.new({
         "x-deduplication-header" => "msg1",
@@ -75,7 +75,7 @@ describe LavinMQ::Deduplication::Deduper do
     end
 
     it "should only insert into cache if header has a value" do
-      mock = MockCache(AMQ::Protocol::Field).new
+      mock = MockCache.new
       deduper = LavinMQ::Deduplication::Deduper.new(mock)
       props = LavinMQ::AMQP::Properties.new(headers: LavinMQ::AMQP::Table.new)
       msg = LavinMQ::Message.new("ex", "rk", "body", props)
@@ -84,7 +84,7 @@ describe LavinMQ::Deduplication::Deduper do
     end
 
     it "should only insert into cache if header has a value" do
-      mock = MockCache(AMQ::Protocol::Field).new
+      mock = MockCache.new
       deduper = LavinMQ::Deduplication::Deduper.new(mock)
       props = LavinMQ::AMQP::Properties.new(headers: LavinMQ::AMQP::Table.new({
         "x-deduplication-header" => "msg1",
@@ -95,7 +95,7 @@ describe LavinMQ::Deduplication::Deduper do
     end
 
     it "should respect x-cache-ttl on message" do
-      mock = MockCache(AMQ::Protocol::Field).new
+      mock = MockCache.new
       deduper = LavinMQ::Deduplication::Deduper.new(mock)
       props = LavinMQ::AMQP::Properties.new(headers: LavinMQ::AMQP::Table.new({
         "x-deduplication-header" => "msg1",
@@ -109,7 +109,7 @@ describe LavinMQ::Deduplication::Deduper do
     end
 
     it "should fallback to default ttl" do
-      mock = MockCache(AMQ::Protocol::Field).new
+      mock = MockCache.new
       deduper = LavinMQ::Deduplication::Deduper.new(mock, 12)
       props = LavinMQ::AMQP::Properties.new(headers: LavinMQ::AMQP::Table.new({
         "x-deduplication-header" => "msg1",
@@ -122,7 +122,7 @@ describe LavinMQ::Deduplication::Deduper do
     end
 
     it "should prio message ttl over default ttl" do
-      mock = MockCache(AMQ::Protocol::Field).new
+      mock = MockCache.new
       deduper = LavinMQ::Deduplication::Deduper.new(mock, 12)
       props = LavinMQ::AMQP::Properties.new(headers: LavinMQ::AMQP::Table.new({
         "x-deduplication-header" => "msg1",
@@ -135,7 +135,7 @@ describe LavinMQ::Deduplication::Deduper do
       calls.first[1].should eq 10
     end
     it "should allow checking any header for dedups" do
-      mock = MockCache(AMQ::Protocol::Field).new
+      mock = MockCache.new
       deduper = LavinMQ::Deduplication::Deduper.new(mock, 10, "custom")
       props = LavinMQ::AMQP::Properties.new(headers: LavinMQ::AMQP::Table.new({
         "custom" => "msg1",
