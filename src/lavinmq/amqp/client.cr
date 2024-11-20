@@ -62,8 +62,7 @@ module LavinMQ
         spawn flush_loop, name: "Client#flush_loop #{@remote_address}"
       end
 
-      FLUSH_BUFFER_SIZE = ENV["FLUSH_BUFFER_SIZE"]?.try(&.to_i) || 128
-      @flush_buffer = ::Channel(Bool).new(FLUSH_BUFFER_SIZE)
+      @flush_buffer = ::Channel(Bool).new(128)
 
       private def flush_loop
         flush_buffer = @flush_buffer
@@ -124,7 +123,7 @@ module LavinMQ
             {% unless flag?(:release) %}
               @log.trace { "Received #{frame.inspect}" }
             {% end %}
-            if (i &+= 1) == 8192
+            if (i += 1) == 8192
               i = 0
               Fiber.yield
             end
