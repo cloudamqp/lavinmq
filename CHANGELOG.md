@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Don't raise FileNotFound when deleting already deleted file [#849](https://github.com/cloudamqp/lavinmq/pull/849)
+- Increase default etcd lease TTL to 10s and run keepalive earlier [#847](https://github.com/cloudamqp/lavinmq/pull/847)
 
 
 ## [2.0.1] - 2024-11-13
