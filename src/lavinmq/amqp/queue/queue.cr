@@ -111,7 +111,7 @@ module LavinMQ::AMQP
 
     # Creates @[x]_count and @[x]_rate and @[y]_log
     rate_stats(
-      {"ack", "deliver", "deliver_get", "confirm", "get", "get_no_ack", "publish", "redeliver", "reject", "return_unroutable"},
+      {"ack", "deliver", "deliver_get", "confirm", "get", "get_no_ack", "publish", "redeliver", "reject", "return_unroutable", "dedup"},
       {"message_count", "unacked_count"})
 
     getter name, arguments, vhost, consumers, last_get_time
@@ -425,7 +425,7 @@ module LavinMQ::AMQP
       return false if @deleted || @state.closed?
       if d = @deduper
         if d.duplicate?(msg)
-          # @dedup_count += 1
+          @dedup_count += 1
           return false
         end
         d.add(msg)
