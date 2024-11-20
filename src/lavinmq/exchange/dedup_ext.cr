@@ -27,7 +27,10 @@ module LavinMQ
     end
 
     class Deduper
-      def initialize(@cache : Cache(AMQ::Protocol::Field), @default_ttl : UInt32? = nil)
+      DEFAULT_HEADER_KEY = "x-deduplication-header"
+
+      def initialize(@cache : Cache(AMQ::Protocol::Field), @default_ttl : UInt32? = nil,
+                     @header_key : String? = nil)
       end
 
       def add(msg : Message)
@@ -45,7 +48,8 @@ module LavinMQ
       private def dedup_key(msg)
         headers = msg.properties.headers
         return unless headers
-        headers["x-deduplication-header"]?
+        key = @header_key || DEFAULT_HEADER_KEY
+        headers[key]?
       end
 
       private def dedup_ttl(msg) : UInt32?

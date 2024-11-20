@@ -134,5 +134,17 @@ describe LavinMQ::Deduplication::Deduper do
       calls.first[0].should eq "msg1"
       calls.first[1].should eq 10
     end
+    it "should allow checking any header for dedups" do
+      mock = MockCache(AMQ::Protocol::Field).new
+      deduper = LavinMQ::Deduplication::Deduper.new(mock, 10, "custom")
+      props = LavinMQ::AMQP::Properties.new(headers: LavinMQ::AMQP::Table.new({
+        "custom" => "msg1",
+      }))
+      msg = LavinMQ::Message.new("ex", "rk", "body", props)
+      deduper.add(msg)
+      calls = mock.calls("insert")
+      calls.first[0].should eq "msg1"
+      calls.first[1].should eq 10
+    end
   end
 end

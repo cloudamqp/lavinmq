@@ -80,9 +80,10 @@ module LavinMQ
       if @arguments["x-message-deduplication"]?.try &.as?(Bool)
         ttl = @arguments["x-cache-ttl"]?.try(&.as?(Int32)).try(&.to_u32)
         size = @arguments["x-cache-size"]?.try(&.as?(Int32)).try(&.to_u32)
+        header_key = @arguments["x-deduplication-header"]?.try(&.as?(String))
         raise "Invalid x-cache-size for message deduplication" unless size
         cache = Deduplication::MemoryCache(AMQ::Protocol::Field).new(size)
-        @deduper = Deduplication::Deduper.new(cache, ttl)
+        @deduper = Deduplication::Deduper.new(cache, ttl, header_key)
       end
     end
 
