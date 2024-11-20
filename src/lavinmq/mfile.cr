@@ -90,9 +90,12 @@ class MFile < IO
     addr
   end
 
-  def delete : self
-    code = LibC.unlink(@path.check_no_null_byte)
-    raise File::Error.from_errno("Error deleting file", file: @path) if code < 0
+  def delete(*, raise_on_missing = true) : self
+    if raise_on_missing
+      File.delete(@path)
+    else
+      File.delete?(@path)
+    end
     @deleted = true
     self
   end
