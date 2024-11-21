@@ -61,7 +61,7 @@
         <form method="post" id="addBinding" class="form card cols-6 regular-card">
           <h3 class="title-m">Add a binding from this exchange</h3>
           <div class="py-4">
-            <label class="mt-0 mb-4">
+            <label class="mb-4">
               <select class="dropdown" id="dest-type" name="dest-type" required>
                 <option value="q">To queue</option>
                 <option value="e">To exchange</option>
@@ -69,11 +69,11 @@
               <input class="regular-text" name="destination" type="text" required list="exchange-dest-list">
               <datalist id="exchange-dest-list"></datalist>
             </label>
-            <label class="mt-0 mb-4">
+            <label class="mb-4">
               <span class="field-label">Routing key</span>
               <input class="regular-text" name="routing_key" type="text">
             </label>
-            <label class="mt-0 mb-4">
+            <label class="mb-4">
               <span class="field-label">Arguments</span>
               <textarea class="regular-textarea" name="arguments" placeholder='{ "key": value }'></textarea>
             </label>
@@ -81,23 +81,23 @@
           </div>
         </form>
         <form method="post" id="publishMessage" class="form card cols-6 regular-card">
-          <h3 class="text-lg font-semibold text-light-400 flex flex-row items-center">Publish message</h3>
+          <h3 class="title-m">Publish message</h3>
           <div class="py-4">
-            <label class="mt-0 mb-4">
+            <label class="mb-4">
               <span class="field-label">Routing key</span>
               <input class="regular-text" name="routing_key" type="text">
             </label>
-            <label class="mt-0 mb-4">
+            <label class="mb-4">
               <span class="field-label">Delivery mode</span>
               <select class="dropdown" name="delivery_mode">
                 <option value="2">Persistent</option>
               </select>
             </label>
-            <label class="mt-0 mb-4">
+            <label class="mb-4">
               <span class="field-label">Headers</span>
               <textarea class="regular-textarea" name="headers" placeholder='{ "key": value }'></textarea>
             </label>
-            <label class="mt-0 mb-4">
+            <label class="mb-4">
               <span class="field-label">Properties</span>
               <textarea class="regular-textarea" name="properties" placeholder='{ "key": value }'></textarea>
               <div id="dataTags" class="label">
@@ -137,11 +137,11 @@
                 </a>
               </div>
             </label>
-            <label class="mt-0 mb-4">
+            <label class="mb-4">
               <span class="field-label">Payload</span>
               <textarea class="regular-textarea" name="payload"></textarea>
             </label>
-            <label class="mt-0 mb-4">
+            <label class="mb-4">
               <span class="field-label">Payload encoding</span>
               <select class="dropdown" name="payload_encoding">
                 <option value="string">String</option>
@@ -155,7 +155,7 @@
           <h3 class="title-m">Danger zone</h3>
           <form method="delete" id="deleteExchange" class="form">
             <label>
-              <button type="submit" class="btn btn-outlined"><span>Delete exchange</span><img src="img/icon-cross.svg" /></button>
+              <button type="submit" class="btn btn-outlined ml-0"><span>Delete exchange</span><img src="img/icon-cross.svg" /></button>
             </label>
           </form>
         </section>
