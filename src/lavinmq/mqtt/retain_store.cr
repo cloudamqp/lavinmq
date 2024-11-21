@@ -22,14 +22,15 @@ module LavinMQ
           f.sync = true
           f
         end
-        @index_file = File.new(File.join(@dir, INDEX_FILE_NAME), "a+")
+        @index_file_name = File.join(@dir, INDEX_FILE_NAME)
+        @index_file = File.new(@index_file_name, "a+")
         @replicator.register_file(@index_file)
         @lock = Mutex.new
         @lock.synchronize do
           if @index.empty?
             restore_index(@index, @index_file)
             write_index
-            @index_file = File.new(File.join(@dir, INDEX_FILE_NAME), "a+")
+            @index_file = File.new(@index_file_name, "a+")
           end
         end
       end
@@ -108,8 +109,8 @@ module LavinMQ
             f.puts topic
           end
         end
-        File.rename tmp_file, File.join(@dir, INDEX_FILE_NAME)
-        @replicator.replace_file(File.join(@dir, INDEX_FILE_NAME))
+        File.rename tmp_file, @index_file_name
+        @replicator.replace_file(@index_file_name)
       ensure
         FileUtils.rm_rf tmp_file unless tmp_file.nil?
       end
@@ -121,7 +122,7 @@ module LavinMQ
         bytes = Bytes.new(topic.bytesize + 1)
         bytes.copy_from(topic.to_slice)
         bytes[-1] = 10u8
-        @replicator.append(File.join(@dir, INDEX_FILE_NAME), bytes)
+        @replicator.append(@index_file_name, bytes)
       end
 
       private def delete_from_index(topic : String) : Nil
