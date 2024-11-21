@@ -1875,7 +1875,7 @@ pre.arguments > div {
   content: "\2715";
 }
 
-@media (max-width: 800px) {
+@media (max-width: 1000px) {
   header #user-menu {
     position: absolute;
     width: 100%;
@@ -1884,6 +1884,7 @@ pre.arguments > div {
     justify-content: center;
     display: flex;
     top: 56px;
+    padding: 8px 0;
     display: none;
   }
 
