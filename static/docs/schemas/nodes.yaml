@@ -85,6 +85,27 @@ node:
       type: integer
     fd_used:
       type: integer
+    followers:
+      type: array
+      items:
+        type: object
+        properties:
+          id:
+            type: string
+          remote_address:
+            type: string
+          sent_bytes:
+            type: integer
+          acked_bytes:
+            type: integer
+          lag_in_bytes:
+            type: integer
+          compression_ratio:
+            type: number
+          uncompressed_bytes:
+            type: integer
+          compressed_bytes:
+            type: integer
     io_read_count:
       type: integer
     io_read_details:
