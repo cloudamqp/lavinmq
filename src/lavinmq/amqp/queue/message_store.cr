@@ -195,9 +195,15 @@ module LavinMQ
 
       def delete
         close
-        @segments.each_value { |f| @replicator.try &.delete_file(f.path); f.delete }
-        @acks.each_value { |f| @replicator.try &.delete_file(f.path); f.delete }
+        @segments.each_value { |f| delete_file(f) }
+        @acks.each_value { |f| delete_file(f) }
         FileUtils.rm_rf @queue_data_dir
+      end
+
+      def delete_file(file)
+        @replicator.try &.delete_file(file.path)
+        file.delete(raise_on_missing: false)
+        Fiber.yield
       end
 
       def empty?
