@@ -104,6 +104,7 @@ describe LavinMQ::VHost do
 
   it "should compact definitions during runtime" do
     with_amqp_server do |s|
+      LavinMQ::Config.instance.max_deleted_definitions = 8
       v = s.vhosts.create("test")
       (LavinMQ::Config.instance.max_deleted_definitions - 1).times do
         v.declare_queue("q", true, false)
