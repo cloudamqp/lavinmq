@@ -39,7 +39,7 @@
   --bg-color-darkest: #181818;
   --bg-color-dark: #1D1D1D;
   --separator-color: rgba(185, 185, 185, 0.507);
-  --border-color-lightest: rgb(247 245 242 / 0.1);
+  --border-color-light: rgb(247 245 242 / 0.1);
   --bg-green-dark: #54BE7E;
 }
 
@@ -74,20 +74,6 @@ a:hover {
   color: rgba(247, 254, 242, .6);
 }
 /* Base end */
-
-/* Login page */
-body.login {
-  display: block;
-}
-
-body.login main {
-  min-height: 100vh; 
-  margin: 0 auto; 
-  width: 100%; 
-  min-width: 100%; 
-  max-width: 100%;
-}
-/* Login page end */
 
 /* Form */
 .field-label {
@@ -481,6 +467,46 @@ header h2 {
 }
 /* Buttons end */
 
+/* Login page */
+body.login {
+  display: block;
+}
+
+body.login main {
+  min-height: 100vh; 
+  margin: 0 auto; 
+  width: 100%; 
+  min-width: 100%; 
+  max-width: 100%;
+}
+
+.login-logo {
+  width: 140px; 
+  margin-bottom: 48px;
+}
+
+.login-label {
+  text-align: left; 
+  margin-bottom: 8px;
+  display: none !important;
+}
+
+.login-input {
+  width: auto !important; 
+  border-radius: 8px !important; 
+  padding: 1rem 1rem !important;
+}
+
+.login-btn {
+  width: 100%; 
+  margin-left: 0 !important; 
+  font-size: 1rem; 
+  padding: 1rem 1rem; 
+  line-height: 1.5rem; 
+  margin-top: 24px;
+}
+/* Login page end */
+
 /* Components */
 .page-title {
   font-size: 18px;
@@ -503,14 +529,14 @@ header h2 {
 }
 
 .regular-card {
-  border: 1px solid var(--border-color-lightest);
+  /*border: 1px solid var(--border-color-light);*/
   padding: 1rem 1.5rem 1.5rem;
   border-radius: 0.75rem;
   background-color: var(--bg-color-dark);
 }
 
 .tb-card {
-  border: 1px solid var(--border-color-lightest);
+  /*border: 1px solid var(--border-color-light);*/
   padding: 0;
   border-radius: 0.75rem;
   background-color: var(--bg-color-dark);
@@ -559,7 +585,7 @@ header h2 {
   font-size: 1rem;
   line-height: 1.25rem;
   padding: 1rem 1.5rem;
-  border-bottom: 1px solid var(--border-color-lightest);
+  border-bottom: 1px solid var(--border-color-light);
   margin-bottom: 0;
 }
 
@@ -729,7 +755,7 @@ footer .logo {
   border-radius: 0.75rem;
   padding: 1.75rem 1.5rem;
   align-items: center;
-  border: 1px solid var(--border-color-lightest);
+  /*border: 1px solid var(--border-color-light);*/
   background-color: var(--bg-color-dark);
 }
 
