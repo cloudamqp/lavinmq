@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Increase default etcd lease TTL to 10s and run keepalive earlier [#847](https://github.com/cloudamqp/lavinmq/pull/847)
 
 
+### Changed
+
+- Exit with status 1 if lost leadership so that LavinMQ is restarted by systemd [#846](https://github.com/cloudamqp/lavinmq/pull/846)
+
 ## [2.0.1] - 2024-11-13
 
 ### Fixed
