@@ -164,6 +164,7 @@ module LavinMQ
     def publish(msg : Message, immediate : Bool,
                 queues : Set(Queue) = Set(Queue).new,
                 exchanges : Set(Exchange) = Set(Exchange).new) : Int32
+      @publish_in_count += 1
       if d = @deduper
         if d.duplicate?(msg)
           @dedup_count += 1
@@ -171,7 +172,6 @@ module LavinMQ
         end
         d.add(msg)
       end
-      @publish_in_count += 1
       count = do_publish(msg, immediate, queues, exchanges)
       @unroutable_count += 1 if count.zero?
       @publish_out_count += count
