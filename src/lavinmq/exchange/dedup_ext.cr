@@ -20,7 +20,7 @@ module LavinMQ
       end
 
       def insert(key : T, ttl : UInt32? = nil)
-        @store.delete(@store.first_key) if @store.size >= @size
+        @store.shift if @store.size >= @size
         @store[key] = ttl ? RoughTime.unix_ms + ttl : nil
       end
     end
