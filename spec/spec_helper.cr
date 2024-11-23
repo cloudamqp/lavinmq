@@ -14,6 +14,8 @@ require "../src/lavinmq/server"
 require "../src/lavinmq/http/http_server"
 require "http/client"
 require "amqp-client"
+require "http/server"
+require "json"
 
 LavinMQ::Config.instance.data_dir = "/tmp/lavinmq-spec"
 LavinMQ::Config.instance.segment_size = 512 * 1024
@@ -103,6 +105,159 @@ def with_http_server(&)
     ensure
       h.close
     end
+  end
+end
+
+class AuthBackend
+  getter? running : Bool
+
+  # Structure pour représenter une requête d'authentification
+  struct AuthRequest
+    include JSON::Serializable
+    property username : String
+    property password : String
+  end
+
+  struct AuthVhostRequest
+    include JSON::Serializable
+    property username : String
+    property vhost : String
+    property action : String
+  end
+
+  struct AuthResourceRequest
+    include JSON::Serializable
+    property username : String
+    property vhost : String
+    property resource : String
+    property name : String
+    property permission : String
+  end
+
+  # Simule une base de données d'utilisateurs
+  USERS = {
+    "admin" => "secret",
+    "user1" => "password123",
+  }
+
+  # Simule des permissions sur les vhosts
+  VHOST_PERMISSIONS = {
+    "admin" => ["vhost1", "vhost2"],
+    "user1" => ["vhost1"],
+  }
+
+  # Simule des permissions sur les ressources
+  RESOURCE_PERMISSIONS = {
+    "admin" => {"exchange1" => "configure", "queue1" => "write"},
+    "user1" => {"queue1" => "read"},
+  }
+
+  def initialize(@address : String = "0.0.0.0", @port : Int32 = 8081)
+    @server = HTTP::Server.new do |context|
+      handle_request(context)
+    end
+    @running = false
+  end
+
+  def run
+    if @running
+      puts "Server is already running at http://#{@address}:#{@port}"
+      return
+    end
+
+    @running = true
+    spawn do
+      puts "Starting server at http://#{@address}:#{@port}"
+      @server.listen(@address, @port)
+    rescue ex : Exception
+      puts "Server encountered an error: #{ex.message}"
+      @running = false
+    end
+  end
+
+  def kill
+    if !@running
+      puts "Server is not running."
+      return
+    end
+
+    puts "Stopping server..."
+    @server.close
+    @running = false
+    puts "Server stopped."
+  end
+
+  private def handle_request(context : HTTP::Server::Context)
+    request = context.request
+    response = context.response
+
+    case request.path
+    when "/auth/user"
+      handle_user_auth(request, response)
+    when "/auth/vhost"
+      handle_vhost_auth(request, response)
+    when "/auth/resource"
+      handle_resource_auth(request, response)
+    else
+      response.status_code = 404
+      response.print("Not Found")
+    end
+  end
+
+  private def handle_user_auth(request : HTTP::Request, response : HTTP::Server::Response)
+    if body = request.body
+      auth_request = AuthRequest.from_json(body)
+
+      if USERS[auth_request.username] == auth_request.password
+        allow_response(response)
+      else
+        deny_response(response)
+      end
+    else
+      deny_response(response)
+    end
+  end
+
+  private def handle_vhost_auth(request : HTTP::Request, response : HTTP::Server::Response)
+    if body = request.body
+      vhost_request = AuthVhostRequest.from_json(body)
+
+      if VHOST_PERMISSIONS[vhost_request.username].includes?(vhost_request.vhost)
+        allow_response(response)
+      else
+        deny_response(response)
+      end
+    else
+      deny_response(response)
+    end
+  end
+
+  private def handle_resource_auth(request : HTTP::Request, response : HTTP::Server::Response)
+    if body = request.body
+      resource_request = AuthResourceRequest.from_json(body)
+
+      if user_perms = RESOURCE_PERMISSIONS[resource_request.username]?
+        if user_perms[resource_request.name] == resource_request.permission
+          allow_response(response)
+        else
+          deny_response(response)
+        end
+      else
+        deny_response(response)
+      end
+    else
+      deny_response(response)
+    end
+  end
+
+  private def allow_response(response)
+    response.status_code = 200
+    response.print "allow"
+  end
+
+  private def deny_response(response)
+    response.status_code = 403
+    response.print "deny"
   end
 end
 
