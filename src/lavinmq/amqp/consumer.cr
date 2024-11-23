@@ -17,6 +17,7 @@ module LavinMQ
       getter? closed = false
       @flow : Bool
       @metadata : ::Log::Metadata
+      @deliver_wg = WaitGroup.new
 
       def initialize(@channel : AMQP::Channel, @queue : Queue, frame : AMQP::Frame::Basic::Consume)
         @tag = frame.consumer_tag
@@ -32,6 +33,7 @@ module LavinMQ
 
       def close
         @closed = true
+        @deliver_wg.wait
         @queue.rm_consumer(self)
         @notify_closed.close
         @has_capacity.close
@@ -194,7 +196,12 @@ module LavinMQ
           delivery_tag,
           redelivered,
           msg.exchange_name, msg.routing_key)
-        @channel.deliver(deliver, msg, redelivered)
+        begin
+          @deliver_wg.add
+          @channel.deliver(deliver, msg, redelivered)
+        ensure
+          @deliver_wg.done
+        end
       end
 
       def ack(sp)
