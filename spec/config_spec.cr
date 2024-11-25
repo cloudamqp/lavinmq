@@ -10,6 +10,7 @@ describe LavinMQ::Config do
         data_dir = /tmp/lavinmq-spec
         [mgmt]
         [amqp]
+        [auth]
       CONFIG
     end
     config = LavinMQ::Config.new

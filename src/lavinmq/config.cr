@@ -60,7 +60,12 @@ module LavinMQ
     property consumer_timeout : UInt64? = nil
     property consumer_timeout_loop_interval = 60 # seconds
     property default_consumer_prefetch = UInt16::MAX
-    property user_storage = "local"
+    property auth_backends = Hash(Int32, String).new
+    property auth_http_method : String?
+    property auth_http_user_path : String?
+    property auth_http_vhost_path : String?
+    property auth_http_resource_path : String?
+    property auth_http_topic_path : String?
     @@instance : Config = self.new
 
     def self.instance : LavinMQ::Config
@@ -169,6 +174,7 @@ module LavinMQ
         when "amqp"         then parse_amqp(settings)
         when "mgmt", "http" then parse_mgmt(settings)
         when "clustering"   then parse_clustering(settings)
+        when "auth"         then parse_auth(settings)
         when "replication"  then abort("#{file}: [replication] is deprecated and replaced with [clustering], see the README for more information")
         else
           raise "Unrecognized config section: #{section}"
@@ -234,6 +240,21 @@ module LavinMQ
         when "default_consumer_prefetch" then @default_consumer_prefetch = v.to_u16
         else
           STDERR.puts "WARNING: Unrecognized configuration 'main/#{config}'"
+        end
+      end
+    end
+
+    private def parse_auth(settings)
+      settings.each do |config, v|
+        case config
+        when /^auth_backends\.(\d+)$/  then @auth_backends[$1.to_i] = v
+        when "auth_http.http_method"   then @auth_http_method = v
+        when "auth_http.user_path"     then @auth_http_user_path = v
+        when "auth_http.vhost_path"    then @auth_http_vhost_path = v
+        when "auth_http.resource_path" then @auth_http_resource_path = v
+        when "auth_http.topic_path"    then @auth_http_topic_path = v
+        else
+          STDERR.puts "WARNING: Unrecognized configuration 'auth/#{config}'"
         end
       end
     end
