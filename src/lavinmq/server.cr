@@ -39,6 +39,9 @@ module LavinMQ
       @vhosts = VHostStore.new(@data_dir, @users, @replicator)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator)
       @amqp_connection_factory = LavinMQ::AMQP::ConnectionFactory.new
+      @cache = Cache(String,Bool).new(Config.instance.auth_cache_time)
+      @auth_chain = AuthenticationChain.new(@cache)
+      @auth_chain.add_service(LocalAuthService.new(@users))
       apply_parameter
       spawn stats_loop, name: "Server#stats_loop"
     end
@@ -57,6 +60,7 @@ module LavinMQ
       @closed = true
       @vhosts.close
       @replicator.clear
+      @cache.clear
       Fiber.yield
     end
 
@@ -67,6 +71,8 @@ module LavinMQ
       @users = UserStore.new(@data_dir, @replicator)
       @vhosts = VHostStore.new(@data_dir, @users, @replicator)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator)
+      @auth_chain = AuthenticationChain.new(@cache)
+      @auth_chain.add_service(LocalAuthService.new(@users))
       apply_parameter
       @closed = false
       Fiber.yield

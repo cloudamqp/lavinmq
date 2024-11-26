@@ -61,6 +61,7 @@ module LavinMQ
     property consumer_timeout_loop_interval = 60 # seconds
     property default_consumer_prefetch = UInt16::MAX
     property auth_backends = Hash(Int32, String).new
+    property auth_cache_time : Time::Span = 10.seconds
     property auth_http_method : String?
     property auth_http_user_path : String?
     property auth_http_vhost_path : String?
@@ -248,6 +249,7 @@ module LavinMQ
       settings.each do |config, v|
         case config
         when /^auth_backends\.(\d+)$/  then @auth_backends[$1.to_i] = v
+        when "auth_cache_time"         then @auth_cache_time = v.to_i.seconds
         when "auth_http.http_method"   then @auth_http_method = v
         when "auth_http.user_path"     then @auth_http_user_path = v
         when "auth_http.vhost_path"    then @auth_http_vhost_path = v
