@@ -6,7 +6,7 @@ module LavinMQ
   class AuthenticationChain
     @first_service : AuthenticationService?
 
-    def initialize
+    def initialize(@auth_cache = Cache(String, Bool).new(10.seconds))
       @first_service = nil
     end
 
@@ -24,8 +24,11 @@ module LavinMQ
     end
 
     def authorize?(username : String, password : String)
+      if value = @auth_cache.get?(username)
+        return value
+      end
       if service = @first_service
-        service.authorize?(username, password)
+        @auth_cache.set(username, service.authorize?(username, password))
       end
     end
   end

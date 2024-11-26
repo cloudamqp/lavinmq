@@ -8,12 +8,12 @@ class MockAuthService < LavinMQ::AuthenticationService
   def initialize(@should_succeed = false)
   end
 
-  def authorize?(username : String, password : String)
+  def authorize?(username : String, password : String) : Bool
     @last_username = username
     @last_password = password
 
     if @should_succeed
-      "allow"
+      true
     else
       try_next(username, password)
     end
@@ -56,7 +56,7 @@ describe LavinMQ::AuthenticationChain do
       chain.add_service(service1)
       chain.add_service(service2)
 
-      chain.authorize?("user", "pass").should be_nil
+      chain.authorize?("user", "pass").should be_false
     end
   end
 end

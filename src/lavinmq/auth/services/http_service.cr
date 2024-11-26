@@ -7,7 +7,7 @@ module LavinMQ
     def initialize(@method : String, @user_path : String, @whost_path : String, @resource_path : String, @topic_path : String)
     end
 
-    def authorize?(username : String, password : String)
+    def authorize?(username : String, password : String) : Bool
       payload = {
         "username" => username,
         "password" => password,
@@ -18,7 +18,7 @@ module LavinMQ
         body: payload).success?
 
       if success
-        "allow"
+        true
       else
         try_next(username, password)
       end
