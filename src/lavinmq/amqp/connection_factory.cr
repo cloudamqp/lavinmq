@@ -1,7 +1,11 @@
 require "../version"
 require "../logger"
 require "./client"
+require "../user_store"
+require "../vhost_store"
 require "../client/connection_factory"
+require "../auth/basic_auth"
+require "../auth/oauth2"
 
 module LavinMQ
   module AMQP
@@ -102,15 +106,9 @@ module LavinMQ
 
       def authenticate(socket, remote_address, users, start_ok, log)
         username, password = credentials(start_ok)
-        user = users[username]?
-        return user if user && user.password && user.password.not_nil!.verify(password) &&
-                       guest_only_loopback?(remote_address, user)
-
-        if user.nil?
-          log.warn { "User \"#{username}\" not found" }
-        else
-          log.warn { "Authentication failure for user \"#{username}\"" }
-        end
+        # TODO: only initialize handler for the configured auth methods
+        auth_handler = LavinMQ::BasicAuthHandler.new(LavinMQ::OAuth2Handler.new)
+        return auth_handler.authenticate(username, password, users, remote_address)
         props = start_ok.client_properties
         if capabilities = props["capabilities"]?.try &.as?(AMQP::Table)
           if capabilities["authentication_failure_close"]?.try &.as?(Bool)
@@ -180,12 +178,6 @@ module LavinMQ
           socket.flush
         end
         nil
-      end
-
-      private def guest_only_loopback?(remote_address, user) : Bool
-        return true unless user.name == "guest"
-        return true unless Config.instance.guest_only_loopback?
-        remote_address.loopback?
       end
     end
   end
