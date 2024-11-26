@@ -1,5 +1,5 @@
 require "./spec_helper"
-require "../src/lavinmq/exchange/dedup_ext.cr"
+require "../src/lavinmq/deduplication.cr"
 
 describe LavinMQ::Deduplication do
   describe LavinMQ::Deduplication::MemoryCache do

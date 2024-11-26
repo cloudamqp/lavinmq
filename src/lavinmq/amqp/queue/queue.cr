@@ -13,6 +13,7 @@ require "./state"
 require "./event"
 require "./message_store"
 require "../../unacked_message"
+require "../../deduplication"
 
 module LavinMQ::AMQP
   class Queue < LavinMQ::Queue
