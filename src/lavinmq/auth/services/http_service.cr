@@ -8,14 +8,13 @@ module LavinMQ
     end
 
     def authorize?(username : String, password : String)
-
       payload = {
         "username" => username,
-        "password" => password
+        "password" => password,
       }.to_json
 
       success = ::HTTP::Client.post(@user_path,
-        headers: ::HTTP::Headers{"Content-Type" => "application/json"}, 
+        headers: ::HTTP::Headers{"Content-Type" => "application/json"},
         body: payload).success?
 
       if success

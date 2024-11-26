@@ -1,9 +1,15 @@
 require "json"
-require "./user_store"
+require "./user"
 
 module LavinMQ
-  class LocalUserStore < UserStore
-    Log = LavinMQ::Log.for "user_store"
+  class UserStore
+    include Enumerable({String, User})
+    DIRECT_USER = "__direct"
+    Log         = LavinMQ::Log.for "user_store"
+
+    def self.hidden?(name)
+      DIRECT_USER == name
+    end
 
     def initialize(@data_dir : String, @replicator : Clustering::Replicator)
       @users = Hash(String, User).new
