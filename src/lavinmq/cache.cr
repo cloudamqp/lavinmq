@@ -39,6 +39,14 @@ module LavinMQ
       end
     end
 
+    def fetch(key : K, ttl : Time::Span = @default_ttl, &) : V
+      if value = get?(key)
+        return value
+      end
+      value = yield
+      set(key, value, ttl)
+    end
+
     def delete(key : K) : Bool
       @mutex.synchronize do
         @data.delete(key) ? true : false
