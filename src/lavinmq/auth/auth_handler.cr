@@ -1,6 +1,5 @@
 module LavinMQ
   abstract class AuthHandler
-
     @successor : AuthHandler?
 
     def initialize(successor : AuthHandler? = nil)
