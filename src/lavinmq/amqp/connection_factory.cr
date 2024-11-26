@@ -8,14 +8,14 @@ module LavinMQ
     class ConnectionFactory < LavinMQ::ConnectionFactory
       Log = LavinMQ::Log.for "amqp.connection_factory"
 
-      def start(socket, connection_info, vhosts, users) : Client?
+      def start(socket, connection_info, vhosts, users, auth_chain) : Client?
         remote_address = connection_info.src
         socket.read_timeout = 15.seconds
         metadata = ::Log::Metadata.build({address: remote_address.to_s})
         logger = Logger.new(Log, metadata)
         if confirm_header(socket, logger)
           if start_ok = start(socket, logger)
-            if user = authenticate(socket, remote_address, users, start_ok, logger)
+            if user = authenticate(socket, remote_address, users, start_ok, logger, auth_chain)
               if tune_ok = tune(socket, logger)
                 if vhost = open(socket, vhosts, user, logger)
                   socket.read_timeout = heartbeat_timeout(tune_ok)
@@ -100,10 +100,11 @@ module LavinMQ
         end
       end
 
-      def authenticate(socket, remote_address, users, start_ok, log)
+      def authenticate(socket, remote_address, users, start_ok, log, auth_chain)
         username, password = credentials(start_ok)
+        # TODO: resolve how other provider can produce LavinMQ::User.
         user = users[username]?
-        return user if user && user.password && user.password.not_nil!.verify(password) &&
+        return user if user && auth_chain.authorize?(username, password) &&
                        guest_only_loopback?(remote_address, user)
 
         if user.nil?
