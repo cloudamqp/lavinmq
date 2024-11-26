@@ -1,8 +1,6 @@
 require "../version"
 require "../logger"
 require "./client"
-require "../user_store"
-require "../vhost_store"
 require "../client/connection_factory"
 require "../auth/basic_auth"
 require "../auth/oauth2"
