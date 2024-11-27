@@ -171,14 +171,13 @@ describe LavinMQ::Exchange do
     end
   end
   describe "message deduplication" do
-    args = AMQP::Client::Arguments.new({
-      "x-message-deduplication" => true,
-      "x-cache-size"            => 10,
-    })
-
     it "should handle message deduplication" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
+          args = AMQP::Client::Arguments.new({
+            "x-message-deduplication" => true,
+            "x-cache-size"            => 10,
+          })
           ch.exchange("test", "topic", args: args)
           ch.queue.bind("test", "#")
           ex = s.vhosts["/"].exchanges["test"]
@@ -204,7 +203,11 @@ describe LavinMQ::Exchange do
     it "should handle message deduplication, on custom header" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
-          args["x-deduplication-header"] = "custom"
+          args = AMQP::Client::Arguments.new({
+            "x-message-deduplication" => true,
+            "x-cache-size"            => 10,
+            "x-deduplication-header"  => "custom",
+          })
           ch.exchange("test", "topic", args: args)
           ch.queue.bind("test", "#")
           ex = s.vhosts["/"].exchanges["test"]
