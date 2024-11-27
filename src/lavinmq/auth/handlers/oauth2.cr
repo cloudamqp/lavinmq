@@ -1,3 +1,5 @@
+require "../auth_handler"
+
 module LavinMQ
   class OAuth2Handler < LavinMQ::AuthHandler
     def authenticate(username : String, password : String)
