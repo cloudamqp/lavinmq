@@ -56,7 +56,7 @@ module LavinMQ
       private def deliver_loop
         wait_for_single_active_consumer
         queue = @queue
-        i = 0
+        delivered_bytes = 0_i32
         loop do
           wait_for_capacity
           loop do
@@ -73,8 +73,12 @@ module LavinMQ
           {% end %}
           queue.consume_get(self) do |env|
             deliver(env.message, env.segment_position, env.redelivered)
+            delivered_bytes &+= env.message.bytesize
           end
-          Fiber.yield if (i &+= 1) % 32768 == 0
+          if delivered_bytes > 1_048_576 # 32768 * 32
+            delivered_bytes = 0
+            Fiber.yield
+          end
         end
       rescue ex : ClosedError | Queue::ClosedError | AMQP::Channel::ClosedError | ::Channel::ClosedError
         @log.debug { "deliver loop exiting: #{ex.inspect}" }
