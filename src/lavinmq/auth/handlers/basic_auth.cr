@@ -1,5 +1,5 @@
-require "./auth_handler"
-require "../server"
+require "../auth_handler"
+require "../../server"
 
 module LavinMQ
   class BasicAuthHandler < LavinMQ::AuthHandler

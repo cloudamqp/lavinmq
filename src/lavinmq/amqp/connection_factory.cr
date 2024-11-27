@@ -2,8 +2,8 @@ require "../version"
 require "../logger"
 require "./client"
 require "../client/connection_factory"
-require "../auth/basic_auth"
-require "../auth/oauth2"
+require "../auth/handlers/basic_auth"
+require "../auth/handlers/oauth2"
 
 module LavinMQ
   module AMQP
