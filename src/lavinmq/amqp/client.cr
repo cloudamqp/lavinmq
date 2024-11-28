@@ -104,7 +104,7 @@ module LavinMQ
             {% unless flag?(:release) %}
               @log.trace { "Received #{frame.inspect}" }
             {% end %}
-            if (received_bytes &+= frame.bytesize) > 131_072 # 8192 * 16
+            if (received_bytes &+= frame.bytesize) > Config.instance.yield_each_received_bytes
               received_bytes = 0
               Fiber.yield
             end

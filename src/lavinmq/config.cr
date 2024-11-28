@@ -60,6 +60,8 @@ module LavinMQ
     property consumer_timeout : UInt64? = nil
     property consumer_timeout_loop_interval = 60 # seconds
     property default_consumer_prefetch = UInt16::MAX
+    property yield_each_received_bytes = 131_072 # after how many received bytes the read_loop fiber yields
+    property yield_each_delivered_bytes = 1_048_576 # after how many delivered bytes the deliver_loop fiber yields
     @@instance : Config = self.new
 
     def self.instance : LavinMQ::Config
@@ -168,6 +170,7 @@ module LavinMQ
         when "amqp"         then parse_amqp(settings)
         when "mgmt", "http" then parse_mgmt(settings)
         when "clustering"   then parse_clustering(settings)
+        when "advanced"     then parse_advanced(settings)
         when "replication"  then abort("#{file}: [replication] is deprecated and replaced with [clustering], see the README for more information")
         else
           raise "Unrecognized config section: #{section}"
@@ -288,6 +291,17 @@ module LavinMQ
         when "systemd_socket_name" then @http_systemd_socket_name = v
         else
           STDERR.puts "WARNING: Unrecognized configuration 'mgmt/#{config}'"
+        end
+      end
+    end
+
+    private def parse_advanced(settings)
+      settings.each do |config, v|
+        case config
+        when "yield_each_delivered_bytes" then @yield_each_delivered_bytes = v.to_i32
+        when "yield_each_received_bytes"  then @yield_each_received_bytes = v.to_i32
+        else
+          STDERR.puts "WARNING: Unrecognized configuration 'advanced/#{config}'"
         end
       end
     end

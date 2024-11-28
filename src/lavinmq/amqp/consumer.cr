@@ -75,7 +75,7 @@ module LavinMQ
             deliver(env.message, env.segment_position, env.redelivered)
             delivered_bytes &+= env.message.bytesize
           end
-          if delivered_bytes > 1_048_576 # 32768 * 32
+          if delivered_bytes > Config.instance.yield_each_delivered_bytes
             delivered_bytes = 0
             Fiber.yield
           end
