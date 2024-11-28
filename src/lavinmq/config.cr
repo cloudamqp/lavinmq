@@ -60,7 +60,7 @@ module LavinMQ
     property consumer_timeout : UInt64? = nil
     property consumer_timeout_loop_interval = 60 # seconds
     property default_consumer_prefetch = UInt16::MAX
-    property yield_each_received_bytes = 131_072 # after how many received bytes the read_loop fiber yields
+    property yield_each_received_bytes = 131_072    # after how many received bytes the read_loop fiber yields
     property yield_each_delivered_bytes = 1_048_576 # after how many delivered bytes the deliver_loop fiber yields
     @@instance : Config = self.new
 
