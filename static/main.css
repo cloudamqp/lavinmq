@@ -19,14 +19,6 @@
   font-display: swap;
 }
 
-@font-face {
-  font-family: Inter;
-  src: url("fonts/Inter-SemiBoldItalic.woff2") format("woff2");
-  font-weight: 600;
-  font-style: italic;
-  font-display: swap;
-}
-
 :root {
   --theme-color-light: #eff7f6;
   --theme-color-link: #f7f5f2;
@@ -89,19 +81,12 @@ textarea {
   font: inherit; /* 2 */
 }
 
-[type='file'] {
+input[type='file'] {
   background: unset;
   border-color: inherit;
   border-width: 0;
-  border-radius: 0;
-  padding: 0;
-  font-size: unset;
-  line-height: inherit;
   font-size: 14px;
   line-height: 20px;
-  -webkit-appearance: none;
-     -moz-appearance: none;
-          appearance: none;
   padding: 8px;
   border-radius: 0.375rem;
   box-shadow: none;
@@ -109,8 +94,7 @@ textarea {
   border: 1px solid rgb(247 245 242 / 0.1);
 }
 
-[type='file']:focus {
-  outline: 1px solid ButtonText;
+input[type='file']:focus {
   outline: 1px auto -webkit-focus-ring-color;
 }
 
@@ -248,7 +232,7 @@ header h2 {
 }
 
 .ml-0 {
-  margin-left: 0 !important;
+  margin-left: 0;
 }
 
 .ml-2 {
@@ -360,7 +344,7 @@ header h2 {
   align-items: center;
   gap: .5rem;
 
-  &:after {
+  &::after {
     content: url(img/icon-cross.svg);
     position: relative;
     top: 1px;
@@ -519,8 +503,9 @@ body.login main {
   align-items: center;
 }
 
-.breadcrumb-divider {
-  margin: 0 4px;
+.subpage-title::before {
+  content: '/';
+  margin: 0 0.5rem;
 }
 
 .card {
@@ -529,14 +514,12 @@ body.login main {
 }
 
 .regular-card {
-  /*border: 1px solid var(--border-color-light);*/
   padding: 1rem 1.5rem 1.5rem;
   border-radius: 0.75rem;
   background-color: var(--bg-color-dark);
 }
 
 .tb-card {
-  /*border: 1px solid var(--border-color-light);*/
   padding: 0;
   border-radius: 0.75rem;
   background-color: var(--bg-color-dark);
@@ -755,7 +738,6 @@ footer .logo {
   border-radius: 0.75rem;
   padding: 1.75rem 1.5rem;
   align-items: center;
-  /*border: 1px solid var(--border-color-light);*/
   background-color: var(--bg-color-dark);
 }
 
@@ -812,7 +794,6 @@ footer .logo {
     border-radius: 4px 4px 0px 0px;
   }
 
-  /* M */
   #menu {
     background: none;
     width: 56px;
@@ -871,7 +852,6 @@ footer .logo {
   .overview-divider {
     display: none;
   }
-  /* M */
 
   #menu-button.open-menu::before {
     content: "\2715";
@@ -1004,7 +984,6 @@ footer .logo {
 
   .card {
     max-width: 95%;
-    /*overflow-x: scroll;*/
   }
 
   header #user-menu {
@@ -1067,13 +1046,12 @@ footer .logo {
 
 #user-menu ul {
   margin: 0;
-  /* M */
   display: flex;
   flex-direction: row;
   align-items: center;
 }
 
-#user-menu ul li:after {
+#user-menu ul li::after {
   content: '';
   width: 1px;
   height: 24px;
@@ -1085,7 +1063,7 @@ footer .logo {
   font-weight: 600;
 }
 
-#user-menu ul li:last-child:after {
+#user-menu ul li:last-child::after {
   display: none;
 }
 
@@ -1457,7 +1435,7 @@ a[data-tag] {
 
 .form label button[type="submit"]:not(.btn-inline),
 .form label input[type="submit"]:not(.btn-inline) {
-  margin-left: 15px;
+  margin-left: 0;
   display: inline-block;
 }
 
@@ -1831,7 +1809,6 @@ pre.arguments > div {
   text-align: left;
 }
 
-/* New */
 .version-tab {
   font-size: 12px;
   line-height: 16px;
@@ -1889,7 +1866,7 @@ pre.arguments > div {
   display: none;
 }
 
-#usermenu-button:before {
+#usermenu-button::before {
   content: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none'%3E%3Cpath d='M20 21V19C20 17.9391 19.5786 16.9217 18.8284 16.1716C18.0783 15.4214 17.0609 15 16 15H8C6.93913 15 5.92172 15.4214 5.17157 16.1716C4.42143 16.9217 4 17.9391 4 19V21' stroke='%23F7F5F2' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M12 11C14.2091 11 16 9.20914 16 7C16 4.79086 14.2091 3 12 3C9.79086 3 8 4.79086 8 7C8 9.20914 9.79086 11 12 11Z' stroke='%23F7F5F2' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   color: #f7f5f2;
   font-weight: 600;
@@ -1897,7 +1874,7 @@ pre.arguments > div {
   height: 24px;
 }
 
-#usermenu-button.open-menu:before {
+#usermenu-button.open-menu::before {
   content: "\2715";
 }
 
