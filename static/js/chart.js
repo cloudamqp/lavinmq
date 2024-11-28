@@ -63,7 +63,7 @@ function render (id, unit, options = {}, stacked = false) {
             color: '#2D2C2C'
           },
           border: {
-            dash: [2, 4],
+            dash: [2, 4]
           },
           time: {
             unit: 'second',
@@ -82,7 +82,7 @@ function render (id, unit, options = {}, stacked = false) {
             color: '#2D2C2C'
           },
           border: {
-            dash: [2, 4],
+            dash: [2, 4]
           },
           ticks: {
             beginAtZero: true,
