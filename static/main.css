@@ -20,17 +20,14 @@
 }
 
 :root {
-  --theme-color-light: #eff7f6;
   --theme-color-link: #f7f5f2;
   --font-color-light: #f7f5f2;
   --font-color-darker: #9D9C9A;
-  --font-color: rgb(100, 100, 100);
   --font-color-dark: #2c2c2c;
   --font-color-darkest: #141414;
   --bg-color: #ebecf1;
   --bg-color-darkest: #181818;
   --bg-color-dark: #1D1D1D;
-  --separator-color: rgba(185, 185, 185, 0.507);
   --border-color-light: rgb(247 245 242 / 0.1);
   --bg-green-dark: #54BE7E;
 }
@@ -46,7 +43,7 @@
 
 body {
   background-color: #181818;
-  color: var(--font-color);
+  color: var(--font-color-darker);
   font-size: 10pt;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -386,7 +383,7 @@ header h2 {
   color: #141414;
 
   &:hover {
-    background: #44FC70;
+    background-color: #44FC70;
   }
 }
 
@@ -400,7 +397,7 @@ header h2 {
   color: #141414;
 
   &:hover {
-    background: #eea812;
+    background-color: #eea812;
   }
 }
 
@@ -410,7 +407,7 @@ header h2 {
   color: #141414;
 
   &:hover {
-    background: #f01e0f;
+    background-color: #f01e0f;
   }
 }
 
@@ -697,9 +694,8 @@ body.login main {
   grid-column: 1 / span 1;
   grid-row: 1 / span 4;
   background-color: #1D1D1D;
-  --font-color: #9d9c9a;
+  --font-color: var(--font-color-darker);
   --highlight-color: #2d2c2c;
-  color: var(--font-color);
   position: relative;
   position: fixed;
   left: 0;
@@ -757,12 +753,12 @@ footer .logo {
 }
 
 #overview .counter-header {
-  color: #9D9C9A;
+  color: var(--font-color-darker);
 }
 
 #overview a,
 #overview a:visited {
-  color: #9D9C9A;
+  color: var(--font-color-darker);
 }
 
 #overview a:hover {
@@ -895,8 +891,6 @@ footer .logo {
     z-index: 1001;
     border-radius: 0px 4px 4px 4px;
     transition: all 0.3s;
-    --highlight-color: rgba(0, 0, 0, 0.4);
-    color: var(--font-color);
     position: relative;
     height: 90vh;
     left: 20px;
@@ -1118,6 +1112,7 @@ footer .logo {
   line-height: 1.25rem;
   border-radius: 8px;
   font-weight: 600;
+  text-decoration: none;
 }
 
 #menu ul ul li a {
@@ -1131,7 +1126,7 @@ footer .logo {
 
 #menu ul a,
 #menu ul a:visited {
-  color: var(--font-color);
+  color: var(--font-color-darker);
   text-decoration: none;
 }
 
@@ -1348,7 +1343,7 @@ footer .logo {
 .stats-table td,
 .stats-table th {
   text-align: center;
-  border-right: 1px solid var(--separator-color);
+  border-right: 1px solid var(--border-color-ligh);
 }
 
 .stats-table td:last-child,
@@ -1730,7 +1725,7 @@ pre.arguments > div {
 }
 
 #dataTags a {
-  color: #9D9C9A;
+  color: var(--font-color-darker);
   font-size: 14px;
   line-height: 20px;
 }
