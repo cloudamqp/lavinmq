@@ -11,7 +11,6 @@ module LavinMQ
   module MQTT
     class Broker
       getter vhost, sessions
-
       # The Broker class acts as an intermediary between the MQTT client and the Vhost & Server,
       # It is initialized when starting a connection and it manages a clients connections,
       # sessions, and message exchange.
