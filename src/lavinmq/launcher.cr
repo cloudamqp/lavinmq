@@ -109,6 +109,10 @@ module LavinMQ
     end
 
     private def listen # ameba:disable Metrics/CyclomaticComplexity
+      if clustering_bind = @config.clustering_bind
+        spawn @amqp_server.listen_clustering(clustering_bind, @config.clustering_port), name: "Clustering listener"
+      end
+
       if @config.amqp_port > 0
         spawn @amqp_server.listen(@config.amqp_bind, @config.amqp_port, Server::Protocol::AMQP),
           name: "AMQP listening on #{@config.amqp_port}"
@@ -119,10 +123,6 @@ module LavinMQ
           spawn @amqp_server.listen_tls(@config.amqp_bind, @config.amqps_port, ctx, Server::Protocol::AMQP),
             name: "AMQPS listening on #{@config.amqps_port}"
         end
-      end
-
-      if clustering_bind = @config.clustering_bind
-        spawn @amqp_server.listen_clustering(clustering_bind, @config.clustering_port), name: "Clustering listener"
       end
 
       unless @config.unix_path.empty?
@@ -157,8 +157,8 @@ module LavinMQ
             name: "MQTTS listening on #{@config.mqtts_port}"
         end
       end
-      unless @config.unix_path.empty?
-        spawn @amqp_server.listen_unix(@config.mqtt_unix_path, Server::Protocol::MQTT), name: "MQTT listening at #{@config.unix_path}"
+      unless @config.mqtt_unix_path.empty?
+        spawn @amqp_server.listen_unix(@config.mqtt_unix_path, Server::Protocol::MQTT), name: "MQTT listening at #{@config.mqtt_unix_path}"
       end
     end
 

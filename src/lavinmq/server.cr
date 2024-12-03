@@ -93,7 +93,7 @@ module LavinMQ
 
     def listen(s : TCPServer, protocol : Protocol)
       @listeners[s] = protocol
-      Log.info { "Listening on #{s.local_address}" }
+      Log.info { "Listening for #{protocol} on #{s.local_address}" }
       loop do
         client = s.accept? || break
         next client.close if @closed
@@ -139,7 +139,7 @@ module LavinMQ
 
     def listen(s : UNIXServer, protocol : Protocol)
       @listeners[s] = protocol
-      Log.info { "Listening on #{s.local_address}" }
+      Log.info { "Listening for #{protocol} on #{s.local_address}" }
       loop do # do not try to use while
         client = s.accept? || break
         next client.close if @closed
@@ -171,7 +171,7 @@ module LavinMQ
 
     def listen_tls(s : TCPServer, context, protocol : Protocol)
       @listeners[s] = protocol
-      Log.info { "Listening on #{s.local_address} (TLS)" }
+      Log.info { "Listening for #{protocol} on #{s.local_address} (TLS)" }
       loop do # do not try to use while
         client = s.accept? || break
         next client.close if @closed
