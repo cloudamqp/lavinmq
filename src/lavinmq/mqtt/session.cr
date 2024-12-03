@@ -34,7 +34,10 @@ module LavinMQ
         loop do
           break if @closed
           if @msg_store.empty? || @consumers.empty?
-            Channel.receive_first(@msg_store.empty_change, @consumers_empty_change)
+            select
+            when @msg_store.empty_change.receive?
+            when @consumers_empty_change.receive?
+            end
             next
           end
           consumer = consumers.first.as(MQTT::Consumer)
