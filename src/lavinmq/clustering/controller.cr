@@ -45,12 +45,14 @@ class LavinMQ::Clustering::Controller
   # Listens for leader change events
   private def follow_leader
     repli_client = nil
+    Log.info { "Listening for leader changes..." }
     @etcd.elect_listen("#{@config.clustering_etcd_prefix}/leader") do |uri|
+      Log.debug { "Leader event: #{uri}" }
       next if repli_client.try &.follows?(uri) # if lost connection to etcd we continue follow the leader as is
       repli_client.try &.close
       if uri == @advertised_uri # if this instance has become leader
         Log.debug { "Is leader, don't replicate from self" }
-        return
+        next
       end
       Log.info { "Leader: #{uri}" }
       key = "#{@config.clustering_etcd_prefix}/clustering_secret"
