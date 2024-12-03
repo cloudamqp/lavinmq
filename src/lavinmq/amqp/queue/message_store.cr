@@ -62,7 +62,7 @@ module LavinMQ
         notify_empty(false) if was_empty
       end
 
-      def first? : Envelope?
+      def first? : Envelope? # ameba:disable Metrics/CyclomaticComplexity
         raise ClosedError.new if @closed
         if sp = @requeued.first?
           seg = @segments[sp.segment]
