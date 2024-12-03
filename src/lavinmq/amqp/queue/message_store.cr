@@ -347,6 +347,9 @@ module LavinMQ
                 @segments.delete seg
                 next
               end
+            rescue ex
+              Log.error { "Closing message store: invalid SchemaVersion in #{path}" }
+              close
             end
           end
           file.pos = 4
@@ -377,7 +380,8 @@ module LavinMQ
           rescue ex : IO::EOFError
             break
           rescue ex : OverflowError | AMQ::Protocol::Error::FrameDecode
-            raise Error.new(mfile, cause: ex)
+            Log.error { "Closing message store: Failed to read segment #{seg} at pos #{mfile.pos}, #{ex}" }
+            close
           end
           mfile.pos = 4
           mfile.unmap # will be mmap on demand

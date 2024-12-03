@@ -802,6 +802,7 @@ module LavinMQ::AMQP
         expire_msg(sp, :rejected)
       end
     rescue ex : MessageStore::Error
+      @log.error(ex) { "Queue closed due to error" }
       close
       raise ex
     end
