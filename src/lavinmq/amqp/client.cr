@@ -97,7 +97,7 @@ module LavinMQ
       end
 
       private def read_loop
-        received_bytes = 0_i32
+        received_bytes = 0_u32
         socket = @socket
         loop do
           AMQP::Frame.from_io(socket) do |frame|
