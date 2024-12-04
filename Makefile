@@ -164,3 +164,4 @@ rpm:
 .PHONY: clean
 clean:
 	$(RM) $(BINS) $(DOCS) $(JS) $(MANPAGES) $(VIEW_TARGETS)
+
