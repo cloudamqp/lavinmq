@@ -62,7 +62,7 @@ module LavinMQ
         notify_empty(false) if was_empty
       end
 
-      def first? : Envelope?
+      def first? : Envelope? # ameba:disable Metrics/CyclomaticComplexity
         raise ClosedError.new if @closed
         if sp = @requeued.first?
           seg = @segments[sp.segment]
@@ -90,6 +90,11 @@ module LavinMQ
           msg = BytesMessage.from_bytes(rfile.to_slice + pos)
           sp = SegmentPosition.make(seg, pos, msg)
           return Envelope.new(sp, msg, redelivered: false)
+        rescue ex : IndexError
+          @log.warn { "Msg file size does not match expected value, moving on to next segment" }
+          select_next_read_segment && next
+          return if @size.zero?
+          raise Error.new(@rfile, cause: ex)
         rescue ex
           raise Error.new(@rfile, cause: ex)
         end

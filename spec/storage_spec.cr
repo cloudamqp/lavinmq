@@ -99,7 +99,7 @@ describe LavinMQ::AMQP::DurableQueue do
     end
   end
 
-  it "handles files with few extra bytes" do
+  it "shift? handles files with few extra bytes" do
     queue_name = Random::Secure.hex(10)
     with_amqp_server do |s|
       vhost = s.vhosts.create("test_vhost")
@@ -125,6 +125,41 @@ describe LavinMQ::AMQP::DurableQueue do
         # read messages, should not raise any error
         q.subscribe(tag: "tag", no_ack: false, &.ack)
         should_eventually(be_true) { queue.empty? }
+      end
+    end
+  end
+
+  it "first? handles files with few extra bytes" do
+    queue_name = Random::Secure.hex(10)
+    with_amqp_server do |s|
+      vhost = s.vhosts.create("test_vhost")
+      with_channel(s, vhost: vhost.name) do |ch|
+        q = ch.queue(queue_name)
+        queue = vhost.queues[queue_name].as(LavinMQ::AMQP::DurableQueue)
+        mfile = queue.@msg_store.@segments.first_value
+
+        # fill up one segment
+        message_size = 41
+        while mfile.size < (LavinMQ::Config.instance.segment_size - message_size*2)
+          q.publish_confirm "a"
+        end
+        remaining_size = LavinMQ::Config.instance.segment_size - mfile.size - message_size
+        q.publish_confirm "a" * remaining_size
+
+        # publish one more message to create a new segment
+        q.publish_confirm "a"
+
+        # resize first segment to LavinMQ::Config.instance.segment_size
+        mfile.resize(LavinMQ::Config.instance.segment_size)
+
+        store = LavinMQ::Queue::MessageStore.new(queue.@msg_store.@queue_data_dir, nil)
+        mfile = store.@segments.first_value
+        mfile.pos = mfile.size - 2
+        if msg = store.first?
+          msg.@segment_position.@segment.should eq 2
+        else
+          fail "no message"
+        end
       end
     end
   end
