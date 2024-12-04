@@ -348,7 +348,7 @@ module LavinMQ
                 next
               end
             rescue ex
-              Log.error { "Closing message store: invalid SchemaVersion in #{path}" }
+              @log.error { "Closing message store: invalid SchemaVersion in #{path}" }
               close
             end
           end
