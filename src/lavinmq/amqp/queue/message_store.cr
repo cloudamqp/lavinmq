@@ -348,7 +348,7 @@ module LavinMQ
                 next
               end
             rescue ex
-              @log.error { "Closing message store: invalid SchemaVersion in #{path}" }
+              @log.error { "Could not initialize segment, closing message store: #{ex.message}" }
               close
             end
           end
@@ -380,7 +380,7 @@ module LavinMQ
           rescue ex : IO::EOFError
             break
           rescue ex : OverflowError | AMQ::Protocol::Error::FrameDecode
-            @log.error { "Closing message store: Failed to read segment #{seg} at pos #{mfile.pos}, #{ex}" }
+            @log.error { "Could not initialize segment, closing message store: Failed to read segment #{seg} at pos #{mfile.pos}. #{ex}" }
             close
           end
           mfile.pos = 4
