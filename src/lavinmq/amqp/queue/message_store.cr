@@ -380,7 +380,7 @@ module LavinMQ
           rescue ex : IO::EOFError
             break
           rescue ex : OverflowError | AMQ::Protocol::Error::FrameDecode
-            Log.error { "Closing message store: Failed to read segment #{seg} at pos #{mfile.pos}, #{ex}" }
+            @log.error { "Closing message store: Failed to read segment #{seg} at pos #{mfile.pos}, #{ex}" }
             close
           end
           mfile.pos = 4
