@@ -14,6 +14,7 @@ require "./schema"
 require "./event_type"
 require "./stats"
 require "./queue_factory"
+require "./mqtt/session"
 
 module LavinMQ
   class VHost

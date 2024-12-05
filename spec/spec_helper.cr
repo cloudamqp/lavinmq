@@ -29,6 +29,13 @@ end
 
 def with_channel(s : LavinMQ::Server, file = __FILE__, line = __LINE__, **args, &)
   name = "lavinmq-spec-#{file}:#{line}"
+  s.@listeners
+    .select { |k, v| k.is_a?(TCPServer) && v.amqp? }
+    .keys
+    .select(TCPServer)
+    .first
+    .local_address
+    .port
   args = {port: amqp_port(s), name: name}.merge(args)
   conn = AMQP::Client.new(**args).connect
   ch = conn.channel
@@ -80,9 +87,9 @@ def with_amqp_server(tls = false, replicator = LavinMQ::Clustering::NoopServer.n
       ctx = OpenSSL::SSL::Context::Server.new
       ctx.certificate_chain = "spec/resources/server_certificate.pem"
       ctx.private_key = "spec/resources/server_key.pem"
-      spawn(name: "amqp tls listen") { s.listen_tls(tcp_server, ctx) }
+      spawn(name: "amqp tls listen") { s.listen_tls(tcp_server, ctx, LavinMQ::Server::Protocol::AMQP) }
     else
-      spawn(name: "amqp tcp listen") { s.listen(tcp_server) }
+      spawn(name: "amqp tcp listen") { s.listen(tcp_server, LavinMQ::Server::Protocol::AMQP) }
     end
     Fiber.yield
     yield s
