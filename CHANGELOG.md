@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Queues will no longer be closed if file size is incorrect. Fixes [#669](https://github.com/cloudamqp/lavinmq/issues/669)
+- Dont redeclare exchange in java client test [#860](https://github.com/cloudamqp/lavinmq/pull/860)
 
 ## [2.0.2] - 2024-11-25
 
