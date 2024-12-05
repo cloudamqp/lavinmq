@@ -126,6 +126,18 @@ module LavinMQ::AMQP
           sp = SegmentPosition.new(consumer.segment, consumer.pos, msg.bytesize.to_u32)
           consumer.pos += sp.bytesize
           consumer.offset += 1
+          if consumer_filter = consumer.filter # can be array of strings
+            matched = false
+            if (msg_filters = filter_values_from_headers(msg.properties.headers))
+              # can msg_filters be array of strings?
+              consumer_filter.split(",").each do |filter|
+                matched = true if msg_filters == filter
+              end
+            #else
+            # matched = true if x-stream-match-unfiltered
+            end
+            return unless matched
+          end
           Envelope.new(sp, msg, redelivered: false)
         rescue ex
           raise Error.new(rfile, cause: ex)
@@ -234,6 +246,14 @@ module LavinMQ::AMQP
 
       private def offset_from_headers(headers) : Int64
         headers.not_nil!("Message lacks headers")["x-stream-offset"].as(Int64)
+      end
+
+      private def filter_values_from_headers(headers) : String?
+        if filters = headers.not_nil!("Message lacks headers")["x-stream-filter-value"]?
+          filters.to_s
+        else
+          nil
+        end
       end
 
       private def build_segment_indexes
