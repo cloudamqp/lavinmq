@@ -60,7 +60,7 @@ module LavinMQ
     property consumer_timeout : UInt64? = nil
     property consumer_timeout_loop_interval = 60 # seconds
     property default_consumer_prefetch = UInt16::MAX
-    property yield_each_received_bytes = 131_072 # max number of bytes to read from a client connection without letting other tasks in the server do any work
+    property yield_each_received_bytes = 131_072    # max number of bytes to read from a client connection without letting other tasks in the server do any work
     property yield_each_delivered_bytes = 1_048_576 # max number of bytes sent to a client without tending to other tasks in the server
     @@instance : Config = self.new
 
