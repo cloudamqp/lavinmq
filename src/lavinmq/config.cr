@@ -170,7 +170,7 @@ module LavinMQ
         when "amqp"         then parse_amqp(settings)
         when "mgmt", "http" then parse_mgmt(settings)
         when "clustering"   then parse_clustering(settings)
-        when "advanced"     then parse_advanced(settings)
+        when "experimental" then parse_experimental(settings)
         when "replication"  then abort("#{file}: [replication] is deprecated and replaced with [clustering], see the README for more information")
         else
           raise "Unrecognized config section: #{section}"
@@ -295,13 +295,13 @@ module LavinMQ
       end
     end
 
-    private def parse_advanced(settings)
+    private def parse_experimental(settings)
       settings.each do |config, v|
         case config
         when "yield_each_delivered_bytes" then @yield_each_delivered_bytes = v.to_i32
         when "yield_each_received_bytes"  then @yield_each_received_bytes = v.to_i32
         else
-          STDERR.puts "WARNING: Unrecognized configuration 'advanced/#{config}'"
+          STDERR.puts "WARNING: Unrecognized configuration 'experimental/#{config}'"
         end
       end
     end
