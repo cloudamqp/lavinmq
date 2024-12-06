@@ -22,6 +22,7 @@ module LavinMQ
       @segment_msg_count = Hash(UInt32, UInt32).new(0u32)
       @requeued = Deque(SegmentPosition).new
       @closed = false
+      getter closed
       getter bytesize = 0u64
       getter size = 0u32
       getter empty_change = Channel(Bool).new
@@ -352,6 +353,9 @@ module LavinMQ
                 @segments.delete seg
                 next
               end
+            rescue ex
+              @log.error { "Could not initialize segment, closing message store: #{ex.message}" }
+              close
             end
           end
           file.pos = 4
@@ -382,7 +386,8 @@ module LavinMQ
           rescue ex : IO::EOFError
             break
           rescue ex : OverflowError | AMQ::Protocol::Error::FrameDecode
-            raise Error.new(mfile, cause: ex)
+            @log.error { "Could not initialize segment, closing message store: Failed to read segment #{seg} at pos #{mfile.pos}. #{ex}" }
+            close
           end
           mfile.pos = 4
           mfile.unmap # will be mmap on demand
