@@ -22,6 +22,7 @@ module LavinMQ
       @segment_msg_count = Hash(UInt32, UInt32).new(0u32)
       @requeued = Deque(SegmentPosition).new
       @closed = false
+      getter closed
       getter bytesize = 0u64
       getter size = 0u32
       getter empty_change = Channel(Bool).new
