@@ -226,8 +226,9 @@ module LavinMQ
       end
 
       private def refuse_unless_management(context, user, vhost = nil)
-        unless user.tags.any? { |t| t.administrator? || t.monitoring? ||
-               t.policy_maker? || t.management? }
+        unless user.tags.any? do |t|
+                 t.administrator? || t.monitoring? || t.policy_maker? || t.management?
+               end
           Log.warn { "user=#{user.name} does not have management access on vhost=#{vhost}" }
           access_refused(context)
         end
