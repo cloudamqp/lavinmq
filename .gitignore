@@ -18,3 +18,4 @@ package-lock.json
 /playwright/
 /playwright-report/
 /static/views/
+.DS_Store

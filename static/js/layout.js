@@ -33,3 +33,11 @@ document.getElementById('signoutLink').onclick = () => {
   document.cookie = 'm=; max-age=0'
   window.location.assign('login')
 }
+
+const usermenuButton = document.getElementById('usermenu-button')
+const usermenuContent = document.getElementById('user-menu')
+
+usermenuButton.onclick = (e) => {
+  usermenuButton.classList.toggle('open-menu')
+  usermenuContent.classList.toggle('visible')
+}
