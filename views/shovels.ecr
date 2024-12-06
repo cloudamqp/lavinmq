@@ -7,129 +7,125 @@
   </head>
   <body>
     <% render "partials/header" %>
-    <div class="grid-content">
-      <main>
-        <div id="breadcrumbs" class="cols-12">
-            <h2 class="page-title"><span><%=pagename%></span><div class="tiny-badge" id="pagename-label"></div></h2>
+    <main class="main-grid">
+      <div id="breadcrumbs" class="cols-12">
+          <h2 class="page-title"><span><%=pagename%></span><div class="tiny-badge" id="pagename-label"></div></h2>
+      </div>
+      <section class="card regular-card">
+        <div class="table-wrapper">
+          <div id="table-error"></div>
+          <table id="table" class="table">
+            <thead>
+              <tr>
+                <td colspan="2"></td>
+                <td colspan="3" class="table-multihead">Source</td>
+                <td colspan="2" class="table-multihead">Destination</td>
+                <td colspan="5"></td>
+              </tr>
+              <tr>
+                <th>Virtual host</th>
+                <th class="left" data-sort-key="name">Name</th>
+                <th class="left">Uri</th>
+                <th class="left">Endpoint</th>
+                <th class="left table-multihead">Prefetch</th>
+                <th class="left">Uri</th>
+                <th class="left table-multihead">Endpoint</th>
+                <th>Reconnect delay</th>
+                <th>Ack mode</th>
+                <th>Delete after</th>
+                <th>State</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
         </div>
-        <section class="card regular-card">
-          <div class="table-wrapper">
-            <div id="table-error"></div>
-            <table id="table" class="table">
-              <thead>
-                <tr>
-                  <td colspan="2"></td>
-                  <td colspan="3" class="table-multihead">Source</td>
-                  <td colspan="2" class="table-multihead">Destination</td>
-                  <td colspan="5"></td>
-                </tr>
-                <tr>
-                  <th>Virtual host</th>
-                  <th class="left" data-sort-key="name">Name</th>
-                  <th class="left">Uri</th>
-                  <th class="left">Endpoint</th>
-                  <th class="left table-multihead">Prefetch</th>
-                  <th class="left">Uri</th>
-                  <th class="left table-multihead">Endpoint</th>
-                  <th>Reconnect delay</th>
-                  <th>Ack mode</th>
-                  <th>Delete after</th>
-                  <th>State</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody></tbody>
-            </table>
-          </div>
-        </section>
-        <form method="put" id="createShovel" class="form card regular-card">
-          <h3 class="title-m">
-            <span class="when-create">Add a new shovel</span>
-            <span class="when-edit">Edit shovel</span>
-          </h3>
-          <div class="py-4">
-            <label class="when-create mb-4">
-              <span class="field-label">Virtual host</span>
-              <select class="dropdown" name="vhost" required></select>
-            </label>
-            <label class="mb-4">
-              <span class="field-label">Name</span>
-              <input class="regular-text" type="text" name="name" required data-primary-key="">
-            </label>
-            <fieldset class="inline">
-              <legend class="field-label">Source</legend>
-              <label class="mb-4">
-                <span class="field-label">URI</span>
-                <input class="regular-text" type="text" name="src-uri" required value="amqp://">
-              </label>
-              <label class="mb-4">
-                <span class="field-label">Type</span>
-                <select class="dropdown" name="src-type" required>
-                  <option value="queue">Queue</option>
-                  <option value="exchange">Exchange</option>
-                </select>
-              </label>
-              <label class="mb-4">
-                <span class="field-label">Endpoint</span>
-                <input class="regular-text" type="text" name="src-endpoint" required list="shovel-src-list">
-                <datalist id="shovel-src-list"></datalist>
-              </label>
-              <label id="srcRoutingKey" class="hide mb-4">
-                <span class="field-label">Routing key</span>
-                <input class="regular-text" type="text" name="src-exchange-key">
-              </label>
-              <label class="mb-4">
-                <span class="field-label">Prefetch</span>
-                <input class="regular-text" type="number" name="src-prefetch-count" value="1000">
-              </label>
-              <label class="mb-4">
-                <span class="field-label">Auto delete</span>
-                <select class="dropdown" name="src-delete-after" required>
-                  <option value="never">Never</option>
-                  <option value="queue-length">Queue length</option>
-                </select>
-              </label>
-            </fieldset>
-            <fieldset class="inline">
-              <legend class="field-label">Destination</legend>
-              <label class="mb-4">
-                <span class="field-label">URI</span>
-                <input class="regular-text" type="text" name="dest-uri" required value="amqp://">
-              </label>
-              <label class="amqp-dest-field mb-4">
-                <span class="field-label">Type</span>
-                <select class="dropdown" name="dest-type" required>
-                  <option value="queue">Queue</option>
-                  <option value="exchange">Exchange</option>
-                </select>
-              </label>
-              <label class="amqp-dest-field mb-4">
-                <span class="field-label">Endpoint</span>
-                <input class="regular-text" type="text" name="dest-endpoint" list="shovel-dest-list">
-                <datalist id="shovel-dest-list"></datalist>
-              </label>
-            </fieldset>
-            <label class="mb-4">
-              <span class="field-label">Reconnect delay</span>
-              <input class="regular-text" type="number" name="reconnect-delay" value="5">
-            </label>
-            <label class="mb-4">
-              <span class="field-label">Ack mode</span>
-              <select class="dropdown" name="ack-mode" required>
-                <option value="on-confirm" selected>On confirm</option>
-                <option value="on-publish">On publish</option>
-                <option value="no-ack">No ack</option>
-              </select>
-            </label>
-            <button type="submit" class="btn btn-green when-create">Add shovel</button>
-            <div class="when-edit flex gap-2">
-              <button type="submit" class="btn btn-green">Update</button>
-              <button type="reset" class="btn btn-outlined cancel">Cancel</button>
-            </div>
-          </div>
-        </form>
-      </main>
-      <% render "partials/footer" %>
-    </div>
+      </section>
+      <form method="put" id="createShovel" class="form card regular-card">
+        <h3>
+          <span class="when-create">Add a new shovel</span>
+          <span class="when-edit">Edit shovel</span>
+        </h3>
+        <label class="when-create">
+          <span>Virtual host</span>
+          <select class="dropdown" name="vhost" required></select>
+        </label>
+        <label>
+          <span>Name</span>
+          <input type="text" name="name" required data-primary-key="">
+        </label>
+        <fieldset class="inline">
+          <legend>Source</legend>
+          <label>
+            <span>URI</span>
+            <input type="text" name="src-uri" required value="amqp://">
+          </label>
+          <label>
+            <span>Type</span>
+            <select class="dropdown" name="src-type" required>
+              <option value="queue">Queue</option>
+              <option value="exchange">Exchange</option>
+            </select>
+          </label>
+          <label>
+            <span>Endpoint</span>
+            <input type="text" name="src-endpoint" required list="shovel-src-list">
+            <datalist id="shovel-src-list"></datalist>
+          </label>
+          <label id="srcRoutingKey" class="hide">
+            <span>Routing key</span>
+            <input type="text" name="src-exchange-key">
+          </label>
+          <label>
+            <span class="field-label">Prefetch</span>
+            <input type="number" name="src-prefetch-count" value="1000">
+          </label>
+          <label>
+            <span>Auto delete</span>
+            <select class="dropdown" name="src-delete-after" required>
+              <option value="never">Never</option>
+              <option value="queue-length">Queue length</option>
+            </select>
+          </label>
+        </fieldset>
+        <fieldset class="inline">
+          <legend>Destination</legend>
+          <label>
+            <span>URI</span>
+            <input type="text" name="dest-uri" required value="amqp://">
+          </label>
+          <label class="amqp-dest-field">
+            <span>Type</span>
+            <select class="dropdown" name="dest-type" required>
+              <option value="queue">Queue</option>
+              <option value="exchange">Exchange</option>
+            </select>
+          </label>
+          <label class="amqp-dest-field">
+            <span>Endpoint</span>
+            <input type="text" name="dest-endpoint" list="shovel-dest-list">
+            <datalist id="shovel-dest-list"></datalist>
+          </label>
+        </fieldset>
+        <label>
+          <span>Reconnect delay</span>
+          <input type="number" name="reconnect-delay" value="5">
+        </label>
+        <label>
+          <span>Ack mode</span>
+          <select class="dropdown" name="ack-mode" required>
+            <option value="on-confirm" selected>On confirm</option>
+            <option value="on-publish">On publish</option>
+            <option value="no-ack">No ack</option>
+          </select>
+        </label>
+        <button type="submit" class="btn btn-green when-create">Add shovel</button>
+        <div class="when-edit flex gap-2">
+          <button type="submit" class="btn btn-green">Update</button>
+          <button type="reset" class="btn btn-outlined cancel">Cancel</button>
+        </div>
+      </form>
+    </main>
+    <% render "partials/footer" %>
   </body>
 </html>

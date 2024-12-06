@@ -41,6 +41,11 @@
   border-color: #e5e7eb; /* 2 */
 }
 
+body,
+html {
+  min-height: 100%;
+}
+
 body {
   background-color: #181818;
   color: var(--font-color-darker);
@@ -65,6 +70,10 @@ a:hover {
 /* Base end */
 
 /* Form */
+.form label {
+  margin-bottom: 1rem;
+}
+
 .field-label {
   color: var(--font-color-light);
 }
@@ -105,6 +114,16 @@ input.regular-text {
   color: #f7f5f2;
 }
 
+input[type="text"], input[type="number"] {
+  padding: 0.75rem 1rem;
+  border-radius: 0.375rem;
+  border: none;
+  box-shadow: none;
+  background: #2D2C2C;
+  border: 1px solid #414040;
+  color: #f7f5f2;
+}
+
 textarea.regular-textarea {
   border-radius: 0.375rem;
   background: #2D2C2C;
@@ -119,7 +138,6 @@ select.dropdown {
   background-size: 1.5em 1.5em;
   padding-right: 2.5rem;
   -webkit-print-color-adjust: exact;
-  print-color-adjust: exact;
   -webkit-appearance: none;
   -moz-appearance: none;
   appearance: none;
@@ -158,6 +176,20 @@ main {
   justify-self: center;
   margin-bottom: 20px;
   position: relative;
+}
+
+main.main-grid {
+  padding-left: 320px;
+  padding-top: 64px;
+  margin-bottom: 0;
+  grid-auto-rows: max-content;
+  min-height: calc(100vh - 140px);
+  margin-bottom: 80px;
+
+  footer {
+    grid-column: 1 / span 12;
+    margin: 0;
+  }
 }
 /* Grid end */
 
@@ -373,7 +405,7 @@ header h2 {
   color: #f7f5f2;
 
   &:hover {
-    background: #2D2C2C;
+    background-color: #2D2C2C;
   }
 }
 
@@ -510,6 +542,12 @@ body.login main {
   position: relative;
 }
 
+.chart-card {
+  padding: 1rem 1.5rem 1.5rem;
+  border-radius: 0.75rem;
+  background-color: var(--bg-color-dark);
+}
+
 .regular-card {
   padding: 1rem 1.5rem 1.5rem;
   border-radius: 0.75rem;
@@ -544,11 +582,28 @@ body.login main {
   margin-left: 0.5rem;
 }
 
-.title-m {
+.card h3 {
   color: var(--font-color-light);
   font-size: 1.125rem;
   line-height: 1.75rem;
   font-weight: 600;
+  margin-bottom: 2rem;
+
+  &.form-card-title {
+    font-size: 1rem;
+    line-height: 1.25rem;
+    padding: 1rem 1.5rem;
+    border-bottom: 1px solid var(--border-color-light);
+    margin-bottom: 0;
+  }
+}
+
+.form-card-inner {
+  padding: 1rem 1.5rem;
+}
+
+.chart-card h3 {
+  margin-bottom: 1rem;
 }
 
 .title-m.has-badge {
@@ -559,6 +614,8 @@ body.login main {
 
 .card-desc {
   color: var(--font-color-darker);
+  font-size: 0.875rem;
+  line-height: 1.25rem;
 }
 
 .form-card-title {
@@ -709,15 +766,12 @@ body.login main {
 }
 
 footer {
-  margin: 0 40px;
-  border-top-left-radius: 12px;
-  border-top-right-radius: 12px;
-  box-shadow: 0 1px 15px 1px rgba(39, 39, 39, 0.1);
+  margin: 0;
   background-color: var(--bg-color-dark);
   color: var(--font-color-darker);
-  padding: 20px;
+  padding: 20px 40px;
   grid-row: 4;
-  text-align: center;
+  text-align: right;
 }
 
 footer .logo {
@@ -732,7 +786,7 @@ footer .logo {
   font-size: 14px;
   line-height: 24px;
   border-radius: 0.75rem;
-  padding: 1.75rem 1.5rem;
+  padding: 2rem 1.5rem;
   align-items: center;
   background-color: var(--bg-color-dark);
 }
@@ -778,6 +832,10 @@ footer .logo {
 }
 
 @media (max-width: 1000px) {
+  main.main-grid {
+    padding-left: 24px;
+  }
+
   .show-menu {
     display: block !important;
     opacity: 1 !important;
@@ -1067,6 +1125,7 @@ footer .logo {
 
 .sm-label {
   font-size: 0.75rem;
+  color: var(--font-color-darker);
 }
 
 #user-menu a:hover {
@@ -1400,6 +1459,7 @@ a[data-tag] {
   padding-top: 8px;
   padding-right: 5px;
   vertical-align: top;
+  color: var(--font-color-light);
 }
 
 .form input:not([type="radio"]):not([type="checkbox"]),
@@ -1420,6 +1480,7 @@ a[data-tag] {
   margin-bottom: 20px;
   padding: 0 0.25rem;
   font-weight: 600;
+  color: var(--font-color-light);
 }
 
 .form button[type="submit"]:not(.btn-inline),
@@ -1663,6 +1724,10 @@ fieldset.inline {
   overflow: visible;
   z-index: 99;
   color: #f7f5f2;
+}
+
+.tooltip label {
+  margin: 0.5rem 0;
 }
 
 .tooltip .close {
