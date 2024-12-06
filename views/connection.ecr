@@ -7,108 +7,104 @@
   </head>
   <body>
     <% render "partials/header" %>
-    <div class="grid-content">
-      <main>
-        <div id="breadcrumbs" class="cols-12">
-            <h2 class="page-title"><%=pagename%><div id="pagename-label" class="subpage-title"></div></h2>
+    <main class="main-grid">
+      <div id="breadcrumbs" class="cols-12">
+          <h2 class="page-title"><%=pagename%><div id="pagename-label" class="subpage-title"></div></h2>
+      </div>
+      <section class="card cols-6 regular-card">
+        <h3 class="title-m">Details</h3>
+        <table class="details-table">
+          <tr>
+            <th>Username</th>
+            <td id="conn-username"></td>
+            <th>State</th>
+            <td id="state"></td>
+          </tr>
+          <tr>
+            <th>Connected at</th>
+            <td id="connected_at"></td>
+            <th>Heartbeat</th>
+            <td id="heartbeat"></td>
+          </tr>
+          <tr>
+            <th>Authentication</th>
+            <td id="authentication"></td>
+            <th>Channel max</th>
+            <td id="channel_max"></td>
+          </tr>
+          <tr>
+            <th>Frame max</th>
+            <td id="frame_max"></td>
+            <th>TLS version</th>
+            <td id="tls_version"></td>
+          </tr>
+          <tr>
+            <th>Cipher</th>
+            <td id="cipher"></td>
+          </tr>
+        </table>
+      </section>
+      <section class="card cols-6 regular-card">
+        <h3>Client properties</h3>
+        <table class="details-table">
+          <tr>
+            <th>Client name</th>
+            <td><pre id="cp-name"></pre></td>
+          </tr>
+          <tr>
+            <th>Capabilities</th>
+            <td><pre id="cp-capabilities"></pre></td>
+          </tr>
+          <tr>
+            <th>Product</th>
+            <td id="cp-product"></td>
+          </tr>
+          <tr>
+            <th>Platform</th>
+            <td id="cp-platform"></td>
+          </tr>
+          <tr>
+            <th>Information</th>
+            <td id="cp-information"></td>
+          </tr>
+        </table>
+      </section>
+      <section class="card chart-card regular-card">
+        <h3>Rates</h3>
+        <div class="chart-container" id="chart"></div>
+      </section>
+      <section class="card regular-card">
+        <h3 class="title-m has-badge">
+          Channels
+          <small class="tiny-badge" id="table-count"></small>
+        </h3>
+        <div class="table-wrapper">
+          <div id="table-error"></div>
+          <table id="table" class="table">
+            <thead>
+              <tr>
+                <th data-sort-key="name">Name</th>
+                <th data-sort-key="vhost" class="left">Virtual Host</th>
+                <th data-sort-key="username" class="left">Username</th>
+                <th>Mode</th>
+                <th data-sort-key="consumer_count">Consumers</th>
+                <th data-sort-key="prefetch_count">Prefetch limit</th>
+                <th data-sort-key="messages_unacknowledged">Unacked messages</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
         </div>
-        <section class="card cols-6 regular-card">
-          <h3 class="title-m">Details</h3>
-          <table class="details-table">
-            <tr>
-              <th>Username</th>
-              <td id="conn-username"></td>
-              <th>State</th>
-              <td id="state"></td>
-            </tr>
-            <tr>
-              <th>Connected at</th>
-              <td id="connected_at"></td>
-              <th>Heartbeat</th>
-              <td id="heartbeat"></td>
-            </tr>
-            <tr>
-              <th>Authentication</th>
-              <td id="authentication"></td>
-              <th>Channel max</th>
-              <td id="channel_max"></td>
-            </tr>
-            <tr>
-              <th>Frame max</th>
-              <td id="frame_max"></td>
-              <th>TLS version</th>
-              <td id="tls_version"></td>
-            </tr>
-            <tr>
-              <th>Cipher</th>
-              <td id="cipher"></td>
-            </tr>
-          </table>
-        </section>
-        <section class="card cols-6 regular-card">
-          <h3 class="title-m">Client properties</h3>
-          <table class="details-table">
-            <tr>
-              <th>Client name</th>
-              <td><pre id="cp-name"></pre></td>
-            </tr>
-            <tr>
-              <th>Capabilities</th>
-              <td><pre id="cp-capabilities"></pre></td>
-            </tr>
-            <tr>
-              <th>Product</th>
-              <td id="cp-product"></td>
-            </tr>
-            <tr>
-              <th>Platform</th>
-              <td id="cp-platform"></td>
-            </tr>
-            <tr>
-              <th>Information</th>
-              <td id="cp-information"></td>
-            </tr>
-          </table>
-        </section>
-        <section class="card regular-card">
-          <h3 class="title-m">Rates</h3>
-          <div class="chart-container" id="chart"></div>
-        </section>
-        <section class="card regular-card">
-          <h3 class="title-m has-badge">
-            Channels
-            <small class="tiny-badge" id="table-count"></small>
-          </h3>
-          <div class="table-wrapper">
-            <div id="table-error"></div>
-            <table id="table" class="table">
-              <thead>
-                <tr>
-                  <th data-sort-key="name">Name</th>
-                  <th data-sort-key="vhost" class="left">Virtual Host</th>
-                  <th data-sort-key="username" class="left">Username</th>
-                  <th>Mode</th>
-                  <th data-sort-key="consumer_count">Consumers</th>
-                  <th data-sort-key="prefetch_count">Prefetch limit</th>
-                  <th data-sort-key="messages_unacknowledged">Unacked messages</th>
-                </tr>
-              </thead>
-              <tbody></tbody>
-            </table>
-          </div>
-        </section>
-        <form method="delete" id="closeConnection" class="form card regular-card">
-          <h3 class="title-m">Close connection</h3>
-          <div class="py-4">
-            <label class="mb-4">
-              <span class="field-label">Reason</span>
-              <input class="regular-text" type="text" name="reason" value="Closed via Web management">
-            </label>
-            <button type="submit" class="btn btn-outlined"><span>Close</span><img src="img/icon-cross.svg" /></button>
-          </div>
-        </form>
-      </main>
-      <% render "partials/footer" %>
-    </div>
+      </section>
+      <form method="delete" id="closeConnection" class="form card regular-card">
+        <h3>Close connection</h3>
+        <label>
+          <span>Reason</span>
+          <input type="text" name="reason" value="Closed via Web management">
+        </label>
+        <button type="submit" class="btn btn-outlined"><span>Close</span><img src="img/icon-cross.svg" /></button>
+      </form>
+    </main>
+    <% render "partials/footer" %>
   </body>
 </html>
