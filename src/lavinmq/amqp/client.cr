@@ -97,15 +97,15 @@ module LavinMQ
       end
 
       private def read_loop
-        i = 0
+        received_bytes = 0_u32
         socket = @socket
         loop do
           AMQP::Frame.from_io(socket) do |frame|
             {% unless flag?(:release) %}
               @log.trace { "Received #{frame.inspect}" }
             {% end %}
-            if (i += 1) == 8192
-              i = 0
+            if (received_bytes &+= frame.bytesize) > Config.instance.yield_each_received_bytes
+              received_bytes = 0_u32
               Fiber.yield
             end
             frame_size_ok?(frame) || return
