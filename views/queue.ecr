@@ -7,318 +7,312 @@
   </head>
   <body>
     <% render "partials/header" %>
-    <div class="grid-content">
-      <main class="queue-main">
-        <div id="breadcrumbs" class="cols-12">
-            <h2 class="page-title"><%=pagename%><div id="pagename-label" class="subpage-title"></div></h2>
+    <main class="queue-main main-grid">
+      <div id="breadcrumbs" class="cols-12">
+          <h2 class="page-title"><%=pagename%><div id="pagename-label" class="subpage-title"></div></h2>
+      </div>
+      <section class="card cols-4">
+        <h3>Details</h3>
+        <table class="details-table">
+          <tr>
+            <th>Features</th>
+            <td id="q-features"></td>
+          </tr>
+          <tr>
+            <th>State</th>
+            <td id="q-state"></td>
+          </tr>
+          <tr>
+            <th>Consumers</th>
+            <td id="q-consumers"></td>
+          </tr>
+          <tr>
+            <th>Policy</th>
+            <td id="q-policy"></td>
+          </tr>
+          <tr>
+            <th>Operator policy</th>
+            <td id="q-operator-policy"></td>
+          </tr>
+          <tr>
+            <th>Effective policy definition</th>
+            <td id="q-effective-policy-definition"></td>
+          </tr>
+        </table>
+      </section>
+      <section class="card cols-4">
+        <h3>Messages</h3>
+        <table class="details-table">
+          <tr>
+            <th></th>
+            <th>Count</th>
+            <th>Bytesize</th>
+            <th>Average</th>
+          </tr>
+          <tr>
+            <th>Total</th>
+            <td id="q-total"></td>
+            <td id="q-total-bytes"></td>
+            <td id="q-total-avg-bytes"></td>
+          </tr>
+          <tr>
+            <th>Ready</th>
+            <td id="q-ready"></td>
+            <td id="q-ready-bytes"></td>
+            <td id="q-ready-avg-bytes"></td>
+          </tr>
+          <tr>
+            <th><a id="unacked-link" href="">Unacked</a></th>
+            <td id="q-unacked"></td>
+            <td id="q-unacked-bytes"></td>
+            <td id="q-unacked-avg-bytes"></td>
+          </tr>
+        </table>
+      </section>
+      <section class="card cols-4">
+        <h3>Arguments</h3>
+        <pre class="arguments" id="q-arguments"></pre>
+      </section>
+      <section class="card">
+        <h3>Rates</h3>
+        <div class="chart-container" id="chart"></div>
+      </section>
+      <section class="card">
+        <h3 class="has-badge">
+          Consumers
+          <small class="tiny-badge counter-pill" id="consumer-count"></small>
+        </h3>
+        <div class="table-wrapper">
+          <div id="table-error"></div>
+          <table id="table" class="table">
+            <thead>
+              <tr>
+                <th class="left">Channel</th>
+                <th class="left">Consumer tag</th>
+                <th>Ack required</th>
+                <th>Exclusive</th>
+                <th class="right">Prefetch count</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
         </div>
-        <section class="card cols-4 regular-card">
-          <h3 class="title-m">Details</h3>
-          <table class="details-table">
-            <tr>
-              <th>Features</th>
-              <td id="q-features"></td>
-            </tr>
-            <tr>
-              <th>State</th>
-              <td id="q-state"></td>
-            </tr>
-            <tr>
-              <th>Consumers</th>
-              <td id="q-consumers"></td>
-            </tr>
-            <tr>
-              <th>Policy</th>
-              <td id="q-policy"></td>
-            </tr>
-            <tr>
-              <th>Operator policy</th>
-              <td id="q-operator-policy"></td>
-            </tr>
-            <tr>
-              <th>Effective policy definition</th>
-              <td id="q-effective-policy-definition"></td>
-            </tr>
+        <button class="load-more" id="load-more-consumers"></button>
+      </section>
+      <section class="card">
+        <h3 class="has-badge">
+          Bindings
+          <small class="tiny-badge counter-pill" id="bindings-count"></small>
+        </h3>
+        <div class="table-wrapper">
+          <div id="bindings-table-error"></div>
+          <table id="bindings-table" class="table">
+            <thead>
+              <tr>
+                <th class="left">From</th>
+                <th class="left">Routing key</th>
+                <th class="left">Arguments</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody></tbody>
           </table>
-        </section>
-        <section class="card cols-4 regular-card">
-          <h3 class="title-m">Messages</h3>
-          <table class="details-table">
-            <tr>
-              <th></th>
-              <th>Count</th>
-              <th>Bytesize</th>
-              <th>Average</th>
-            </tr>
-            <tr>
-              <th>Total</th>
-              <td id="q-total"></td>
-              <td id="q-total-bytes"></td>
-              <td id="q-total-avg-bytes"></td>
-            </tr>
-            <tr>
-              <th>Ready</th>
-              <td id="q-ready"></td>
-              <td id="q-ready-bytes"></td>
-              <td id="q-ready-avg-bytes"></td>
-            </tr>
-            <tr>
-              <th><a id="unacked-link" href="">Unacked</a></th>
-              <td id="q-unacked"></td>
-              <td id="q-unacked-bytes"></td>
-              <td id="q-unacked-avg-bytes"></td>
-            </tr>
-          </table>
-        </section>
-        <section class="card cols-4 regular-card">
-          <h3 class="title-m">Arguments</h3>
-          <pre class="arguments" id="q-arguments"></pre>
-        </section>
-        <section class="card regular-card">
-          <h3 class="title-m">Rates</h3>
-          <div class="chart-container" id="chart"></div>
-        </section>
-        <section class="card regular-card">
-          <h3 class="title-m has-badge">
-            Consumers
-            <small class="tiny-badge counter-pill" id="consumer-count"></small>
-          </h3>
-          <div class="table-wrapper">
-            <div id="table-error"></div>
-            <table id="table" class="table">
-              <thead>
-                <tr>
-                  <th class="left">Channel</th>
-                  <th class="left">Consumer tag</th>
-                  <th>Ack required</th>
-                  <th>Exclusive</th>
-                  <th class="right">Prefetch count</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody></tbody>
-            </table>
+        </div>
+      </section>
+      <form method="post" id="addBinding" class="form card cols-6">
+        <h3>Add a binding to this queue</h3>
+        <label>
+          <span>From exchange</span>
+          <input name="source" type="text" required list="exchange-list">
+          <datalist id="exchange-list"></datalist>
+        </label>
+        <label>
+          <span>Routing key</span>
+          <input name="routing_key" type="text">
+        </label>
+        <label>
+          <span>Arguments</span>
+          <textarea name="arguments" placeholder='{ "key": value }'></textarea>
+        </label>
+        <button type="submit" class="btn btn-outlined">Bind</button>
+      </form>
+      <form method="post" id="publishMessage" class="form card cols-6">
+        <h3 class="with-desc">Publish message</h3>
+        <p class="card-desc pre-form">
+          Message will be published to the default exchange with routing key <span class="queue"></span>, routing it to
+          this queue.
+        </p>
+        <label class="mb-4">
+          <span class="field-label">Delivery mode</span>
+          <select class="dropdown" name="delivery_mode">
+            <option value="2">Persistent</option>
+          </select>
+        </label>
+        <label class="mb-4">
+          <span class="field-label">Headers</span>
+          <textarea class="regular-textarea" name="headers" placeholder='{ "key": value }'></textarea>
+        </label>
+        <label class="mb-4">
+          <span class="field-label">Properties</span>
+          <textarea class="regular-textarea" name="properties" placeholder='{ "key": value }'></textarea>
+          <div id="dataTags" class="label">
+            <a class="arg-tooltip" data-tag="content_type" data-value="&quot;application/json&quot;">Content Type
+              <span class="tooltiptext">Type of the content used by application. Default set to 'application/json'</span>
+            </a> |
+            <a class="arg-tooltip" data-tag="content_encoding">Content Encoding
+              <span class="tooltiptext">Encoding of the content used by application.</span>
+            </a> |
+            <a class="arg-tooltip" data-tag="expiration" data-value="0">Message TTL
+              <span class="tooltiptext">How long a message published to a queue can live before it is discarded
+                (milliseconds).</span>
+            </a> |
+            <a class="arg-tooltip" data-tag="priority" data-value="1">Priority
+              <span class="tooltiptext">Priority of the message in the queue.</span>
+            </a> |
+            <a class="arg-tooltip" data-tag="message_id">Message ID
+              <span class="tooltiptext">Message identifier of the message used by application.</span>
+            </a> |
+            <a class="arg-tooltip" data-tag="timestamp">Timestamp
+              <span class="tooltiptext">Timestamp of the message used by application.</span>
+            </a> |
+            <a class="arg-tooltip" data-tag="type">Type
+              <span class="tooltiptext">Type of the message used by application.</span>
+            </a> |
+            <a class="arg-tooltip" data-tag="user_id">User ID
+              <span class="tooltiptext">User identifier when impersonate another user.</span>
+            </a> |
+            <a class="arg-tooltip" data-tag="app_id">App ID
+              <span class="tooltiptext">Application identifier.</span>
+            </a> |
+            <a class="arg-tooltip" data-tag="correlation_id">Correlation ID
+              <span class="tooltiptext">Correlation identifier for RPC</span>
+            </a> |
+            <a class="arg-tooltip" data-tag="reply_to">Reply To
+              <span class="tooltiptext">Reply to queue for RPC</span>
+            </a>
           </div>
-          <button class="load-more" id="load-more-consumers"></button>
-        </section>
-        <section class="card regular-card">
-          <h3 class="title-m has-badge">
-            Bindings
-            <small class="tiny-badge counter-pill" id="bindings-count"></small>
-          </h3>
-          <div class="table-wrapper">
-            <div id="bindings-table-error"></div>
-            <table id="bindings-table" class="table">
-              <thead>
-                <tr>
-                  <th class="left">From</th>
-                  <th class="left">Routing key</th>
-                  <th class="left">Arguments</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody></tbody>
-            </table>
-          </div>
-        </section>
-        <form method="post" id="addBinding" class="form card cols-6 regular-card">
-          <h3 class="title-m">Add a binding to this queue</h3>
+        </label>
+        <label class="mb-4">
+          <span class="field-label">Payload</span>
+          <textarea class="regular-textarea" name="payload"></textarea>
+        </label>
+        <label class="mb-4">
+          <span class="field-label">Payload encoding</span>
+          <select class="dropdown" name="payload_encoding">
+            <option value="string">String</option>
+            <option value="base64">Base64</option>
+          </select>
+        </label>
+        <button type="submit" class="btn btn-outlined">Publish message</button>
+      </form>
+      <section class="card cols-6 regular-card">
+        <form method="post" id="getMessages" class="form">
+          <h3 class="title-m">Get messages</h3>
           <div class="py-4">
             <label class="mb-4">
-              <span class="field-label">From exchange</span>
-              <input class="regular-text" name="source" type="text" required list="exchange-list">
-              <datalist id="exchange-list"></datalist>
-            </label>
-            <label class="mb-4">
-              <span class="field-label">Routing key</span>
-              <input class="regular-text" name="routing_key" type="text">
-            </label>
-            <label class="mb-4">
-              <span class="field-label">Arguments</span>
-              <textarea class="regular-textarea" name="arguments" placeholder='{ "key": value }'></textarea>
-            </label>
-            <button type="submit" class="btn btn-outlined">Bind</button>
-          </div>
-        </form>
-        <form method="post" id="publishMessage" class="form card cols-6 regular-card">
-          <h3 class="title-m">Publish message</h3>
-          <p class="card-desc">
-            Message will be published to the default exchange with routing key <span class="queue"></span>, routing it to
-            this queue.
-          </p>
-          <div class="py-4">
-            <label class="mb-4">
-              <span class="field-label">Delivery mode</span>
-              <select class="dropdown" name="delivery_mode">
-                <option value="2">Persistent</option>
+              <span class="field-label">Mode</span>
+              <select class="dropdown" name="mode">
+                <option value="get">Get Ack</option>
+                <option value="reject_requeue_true" selected>Reject and Requeue</option>
+                <option value="reject_requeue_false">Reject</option>
               </select>
             </label>
             <label class="mb-4">
-              <span class="field-label">Headers</span>
-              <textarea class="regular-textarea" name="headers" placeholder='{ "key": value }'></textarea>
-            </label>
-            <label class="mb-4">
-              <span class="field-label">Properties</span>
-              <textarea class="regular-textarea" name="properties" placeholder='{ "key": value }'></textarea>
-              <div id="dataTags" class="label">
-                <a class="arg-tooltip" data-tag="content_type" data-value="&quot;application/json&quot;">Content Type
-                  <span class="tooltiptext">Type of the content used by application. Default set to 'application/json'</span>
-                </a> |
-                <a class="arg-tooltip" data-tag="content_encoding">Content Encoding
-                  <span class="tooltiptext">Encoding of the content used by application.</span>
-                </a> |
-                <a class="arg-tooltip" data-tag="expiration" data-value="0">Message TTL
-                  <span class="tooltiptext">How long a message published to a queue can live before it is discarded
-                    (milliseconds).</span>
-                </a> |
-                <a class="arg-tooltip" data-tag="priority" data-value="1">Priority
-                  <span class="tooltiptext">Priority of the message in the queue.</span>
-                </a> |
-                <a class="arg-tooltip" data-tag="message_id">Message ID
-                  <span class="tooltiptext">Message identifier of the message used by application.</span>
-                </a> |
-                <a class="arg-tooltip" data-tag="timestamp">Timestamp
-                  <span class="tooltiptext">Timestamp of the message used by application.</span>
-                </a> |
-                <a class="arg-tooltip" data-tag="type">Type
-                  <span class="tooltiptext">Type of the message used by application.</span>
-                </a> |
-                <a class="arg-tooltip" data-tag="user_id">User ID
-                  <span class="tooltiptext">User identifier when impersonate another user.</span>
-                </a> |
-                <a class="arg-tooltip" data-tag="app_id">App ID
-                  <span class="tooltiptext">Application identifier.</span>
-                </a> |
-                <a class="arg-tooltip" data-tag="correlation_id">Correlation ID
-                  <span class="tooltiptext">Correlation identifier for RPC</span>
-                </a> |
-                <a class="arg-tooltip" data-tag="reply_to">Reply To
-                  <span class="tooltiptext">Reply to queue for RPC</span>
-                </a>
-              </div>
-            </label>
-            <label class="mb-4">
-              <span class="field-label">Payload</span>
-              <textarea class="regular-textarea" name="payload"></textarea>
-            </label>
-            <label class="mb-4">
-              <span class="field-label">Payload encoding</span>
-              <select class="dropdown" name="payload_encoding">
-                <option value="string">String</option>
+              <span class="field-label">Encoding</span>
+              <select class="dropdown" name="encoding">
+                <option value="auto">Auto string/base64</option>
                 <option value="base64">Base64</option>
               </select>
             </label>
-            <button type="submit" class="btn btn-outlined">Publish message</button>
-          </div>
-        </form>
-        <section class="card cols-6 regular-card">
-          <form method="post" id="getMessages" class="form">
-            <h3 class="title-m">Get messages</h3>
-            <div class="py-4">
-              <label class="mb-4">
-                <span class="field-label">Mode</span>
-                <select class="dropdown" name="mode">
-                  <option value="get">Get Ack</option>
-                  <option value="reject_requeue_true" selected>Reject and Requeue</option>
-                  <option value="reject_requeue_false">Reject</option>
-                </select>
-              </label>
-              <label class="mb-4">
-                <span class="field-label">Encoding</span>
-                <select class="dropdown" name="encoding">
-                  <option value="auto">Auto string/base64</option>
-                  <option value="base64">Base64</option>
-                </select>
-              </label>
-              <label class="mb-4">
-                <span class="field-label">Messages</span>
-                <input class="regular-text" type="number" name="messages" value=1>
-              </label>
-              <button type="submit" class="btn btn-outlined">Get message(s)</button>
-            </div>
-          </form>
-        </section>
-        <form method="post" id="moveMessages" class="form card cols-6 regular-card">
-          <h3 class="title-m">Move messages</h3>
-          <div class="py-4">
             <label class="mb-4">
-              <span class="field-label">Destination queue</span>
-              <input class="regular-text" type="text" name="shovel-destination" list="queue-list">
-              <datalist id="queue-list">
-              </datalist>
+              <span class="field-label">Messages</span>
+              <input class="regular-text" type="number" name="messages" value=1>
             </label>
-            <button type="submit" class="btn btn-outlined">Move messages</button>
+            <button type="submit" class="btn btn-outlined">Get message(s)</button>
           </div>
         </form>
-        <div id="message-template" class="hide message card">
-          <h4 class="message-header">Message <span class="message-number"></span></h4>
-          <p>The server reported <span class="messages-remaining"></span> messages remaining.</p>
-          <table>
-            <tr>
-              <th>Exchange</th>
-              <td class="message-exchange"></td>
-            </tr>
-            <tr>
-              <th>Routing key</th>
-              <td class="message-routing-key"></td>
-            </tr>
-            <tr>
-              <th>Redelivered</th>
-              <td class="message-redelivered"></td>
-            </tr>
-            <tr>
-              <th>Properties</th>
-              <td>
-                <pre class="message-properties"></pre>
-              </td>
-            </tr>
-            <tr>
-              <th>
-                Payload
-                <div><small><span class="message-size"></span> bytes</small></div>
-                <div><small>Encoding: <span class="message-encoding"></span></small></div>
-              </th>
-              <td>
-                <pre class="message-payload"></pre>
-              </td>
-            </tr>
-          </table>
-        </div>
-        <div id="messages" class="cols-12"></div>
-        <section class="card cols-4 regular-card">
-          <h3 class="title-m">Pause Queue</h3>
-          <form method="put" id="pauseQueue" class="form">
-            <label>
-              <button type="submit" class="btn btn-yellow ml-0">Pause queue</button>
-            </label>
-          </form>
-          <form method="put" id="resumeQueue" class="form hide">
-            <label>
-              <button type="submit" class="btn btn-yellow ml-0">Resume queue</button>
-            </label>
-          </form>
-          <p class="card-desc mt-4">Pausing a queue will stop deliveries to all consumers.</p>
-        </section>
-        <form method="delete" id="purgeQueue" class="form card cols-4 regular-card">
-          <h3 class="title-m">Purge queue</h3>
+      </section>
+      <form method="post" id="moveMessages" class="form card cols-6 regular-card">
+        <h3 class="title-m">Move messages</h3>
+        <div class="py-4">
           <label class="mb-4">
-            <span class="field-label">Number of messages</span>
-            <input class="regular-text" type="number" name="count" min="1" placeholder="All">
+            <span class="field-label">Destination queue</span>
+            <input class="regular-text" type="text" name="shovel-destination" list="queue-list">
+            <datalist id="queue-list">
+            </datalist>
           </label>
+          <button type="submit" class="btn btn-outlined">Move messages</button>
+        </div>
+      </form>
+      <div id="message-template" class="hide message card">
+        <h4 class="message-header">Message <span class="message-number"></span></h4>
+        <p>The server reported <span class="messages-remaining"></span> messages remaining.</p>
+        <table>
+          <tr>
+            <th>Exchange</th>
+            <td class="message-exchange"></td>
+          </tr>
+          <tr>
+            <th>Routing key</th>
+            <td class="message-routing-key"></td>
+          </tr>
+          <tr>
+            <th>Redelivered</th>
+            <td class="message-redelivered"></td>
+          </tr>
+          <tr>
+            <th>Properties</th>
+            <td>
+              <pre class="message-properties"></pre>
+            </td>
+          </tr>
+          <tr>
+            <th>
+              Payload
+              <div><small><span class="message-size"></span> bytes</small></div>
+              <div><small>Encoding: <span class="message-encoding"></span></small></div>
+            </th>
+            <td>
+              <pre class="message-payload"></pre>
+            </td>
+          </tr>
+        </table>
+      </div>
+      <div id="messages" class="cols-12"></div>
+      <section class="card cols-4 regular-card">
+        <h3 class="title-m">Pause Queue</h3>
+        <form method="put" id="pauseQueue" class="form">
           <label>
-            <button type="submit" class="btn btn-red ml-0">Purge queue</button>
+            <button type="submit" class="btn btn-yellow ml-0">Pause queue</button>
           </label>
         </form>
-        <section class="card cols-4 regular-card">
-          <h3 class="title-m">Delete queue</h3>
-          <form method="delete" id="deleteQueue" class="form">
-            <label>
-              <button type="submit" class="btn btn-red ml-0">Delete queue</button>
-            </label>
-          </form>
-        </section>
-      </main>
-      <% render "partials/footer" %>
-    </div>
+        <form method="put" id="resumeQueue" class="form hide">
+          <label>
+            <button type="submit" class="btn btn-yellow ml-0">Resume queue</button>
+          </label>
+        </form>
+        <p class="card-desc mt-4">Pausing a queue will stop deliveries to all consumers.</p>
+      </section>
+      <form method="delete" id="purgeQueue" class="form card cols-4 regular-card">
+        <h3 class="title-m">Purge queue</h3>
+        <label class="mb-4">
+          <span class="field-label">Number of messages</span>
+          <input class="regular-text" type="number" name="count" min="1" placeholder="All">
+        </label>
+        <label>
+          <button type="submit" class="btn btn-red ml-0">Purge queue</button>
+        </label>
+      </form>
+      <section class="card cols-4 regular-card">
+        <h3 class="title-m">Delete queue</h3>
+        <form method="delete" id="deleteQueue" class="form">
+          <label>
+            <button type="submit" class="btn btn-red ml-0">Delete queue</button>
+          </label>
+        </form>
+      </section>
+    </main>
+    <% render "partials/footer" %>
   </body>
 </html>

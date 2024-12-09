@@ -7,93 +7,89 @@
   </head>
   <body>
     <% render "partials/header" %>
-    <div class="grid-content">
-      <main>
-        <div id="breadcrumbs">
-            <h2 class="page-title"><%=pagename%><div class="tiny-badge" id="pagename-label"></div></h2>
+    <main class="main-grid">
+      <div id="breadcrumbs">
+          <h2 class="page-title"><%=pagename%><div class="tiny-badge" id="pagename-label"></div></h2>
+      </div>
+      <section class="card">
+        <div class="table-wrapper">
+          <div id="table-error"></div>
+          <table id="table" class="table">
+            <thead>
+              <tr>
+                <th data-sort-key="vhost" class="text-left">Virtual host</th>
+                <th data-sort-key="name" class="left">Name</th>
+                <th data-sort-key="type" class="left">Type</th>
+                <th>Features</th>
+                <th data-sort-key="policy">Policy</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
         </div>
-        <section class="card regular-card">
-          <div class="table-wrapper">
-            <div id="table-error"></div>
-            <table id="table" class="table">
-              <thead>
-                <tr>
-                  <th data-sort-key="vhost" class="text-left">Virtual host</th>
-                  <th data-sort-key="name" class="left">Name</th>
-                  <th data-sort-key="type" class="left">Type</th>
-                  <th>Features</th>
-                  <th data-sort-key="policy">Policy</th>
-                </tr>
-              </thead>
-              <tbody></tbody>
-            </table>
+      </section>
+      <form method="put" id="addExchange" class="form card">
+        <h3>Add exchange</h3>
+        <label>
+          <span>Virtual host</span>
+          <select class="dropdown" name="vhost" required></select>
+        </label>
+        <label>
+          <span>Name</span>
+          <input type="text" name="name" required>
+        </label>
+        <label>
+          <span>Type</span>
+          <select class="dropdown" name="type" required></select>
+        </label>
+        <label>
+          <span>
+            <a class="prop-tooltip" data-tag="alternate-exchange">Durable<span class="tooltip-icon">?</span>
+              <span class="prop-tooltiptext">"Durable" exchanges persist even when the server restarts,
+                ensuring their availability and preventing data loss.</span>
+            </a>
+          </span>
+          <input type="checkbox" name="durable" value="1" checked>
+        </label>
+        <label>
+          <span>
+          <a class="prop-tooltip" data-tag="alternate-exchange">Auto-delete<span class="tooltip-icon">?</span>
+          <span class="prop-tooltiptext">"Auto-delete" exchanges are automatically removed when they
+          are no longer in use, freeing up system resources.</span>
+          </a>
+          </span>
+          <input type="checkbox" name="auto_delete" value="1">
+        </label>
+        <label>
+          <span>
+          <a class="prop-tooltip" data-tag="alternate-exchange">Internal<span class="tooltip-icon">?</span>
+          <span class="prop-tooltiptext"> "Internal" exchanges are specifically designed for internal
+          use within the messaging system and are not intended for direct interaction with external components.</span>
+          </a>
+          </span>
+          <input type="checkbox" name="internal" value="1">
+        </label>
+        <label>
+          <span>
+          <a class="prop-tooltip" data-tag="alternate-exchange">Delayed<span class="tooltip-icon">?</span>
+          <span class="prop-tooltiptext">"Delayed" exchanges introduce a delay before delivering
+          messages, allowing for delayed processing or scheduling of tasks.</span>
+          </a>
+          </span>
+          <input type="checkbox" name="delayed" value="1">
+        </label>
+        <label>
+          <span>Arguments</span>
+          <textarea name="arguments" placeholder='{ "key": value }'></textarea>
+          <div id="dataTags" class="label">
+            <a class="arg-tooltip" data-tag="x-alternate-exchange">Alternate Exchange
+              <span class="tooltiptext">If messages to this exchange cannot otherwise be routed, send them to the alternate exchange named here.</span>
+            </a>
           </div>
-        </section>
-        <form method="put" id="addExchange" class="form card regular-card">
-          <h3 class="title-m">Add exchange</h3>
-          <div class="py-4">
-            <label class="mb-4">
-              <span class="field-label">Virtual host</span>
-              <select class="dropdown" name="vhost" required></select>
-            </label>
-            <label class="mb-4">
-              <span class="field-label">Name</span>
-              <input class="regular-text" type="text" name="name" required>
-            </label>
-            <label class="mb-4">
-              <span class="field-label">Type</span>
-              <select class="dropdown" name="type" required></select>
-            </label>
-            <label>
-              <span>
-                <a class="prop-tooltip" data-tag="alternate-exchange">Durable<span class="tooltip-icon">?</span>
-                  <span class="prop-tooltiptext">"Durable" exchanges persist even when the server restarts,
-                    ensuring their availability and preventing data loss.</span>
-                </a>
-              </span>
-              <input type="checkbox" name="durable" value="1" checked>
-            </label>
-            <label>
-              <span>
-              <a class="prop-tooltip" data-tag="alternate-exchange">Auto-delete<span class="tooltip-icon">?</span>
-              <span class="prop-tooltiptext">"Auto-delete" exchanges are automatically removed when they
-              are no longer in use, freeing up system resources.</span>
-              </a>
-              </span>
-              <input type="checkbox" name="auto_delete" value="1">
-            </label>
-            <label>
-              <span>
-              <a class="prop-tooltip" data-tag="alternate-exchange">Internal<span class="tooltip-icon">?</span>
-              <span class="prop-tooltiptext"> "Internal" exchanges are specifically designed for internal
-              use within the messaging system and are not intended for direct interaction with external components.</span>
-              </a>
-              </span>
-              <input type="checkbox" name="internal" value="1">
-            </label>
-            <label>
-              <span>
-              <a class="prop-tooltip" data-tag="alternate-exchange">Delayed<span class="tooltip-icon">?</span>
-              <span class="prop-tooltiptext">"Delayed" exchanges introduce a delay before delivering
-              messages, allowing for delayed processing or scheduling of tasks.</span>
-              </a>
-              </span>
-              <input type="checkbox" name="delayed" value="1">
-            </label>
-            <label class="mt-4 mb-4">
-              <span class="field-label">Arguments</span>
-              <textarea class="regular-textarea" name="arguments" placeholder='{ "key": value }'></textarea>
-              <div id="dataTags" class="label">
-                <a class="arg-tooltip" data-tag="x-alternate-exchange">Alternate Exchange
-                  <span class="tooltiptext">If messages to this exchange cannot otherwise be routed, send them to the alternate exchange named here.</span>
-                </a>
-              </div>
-            </label>
-            <button type="submit" class="btn btn-green">Add exchange</button>
-          </div>
-        </form>
-      </main>
-      <% render "partials/footer" %>
-    </div>
+        </label>
+        <button type="submit" class="btn btn-green">Add exchange</button>
+      </form>
+    </main>
+    <% render "partials/footer" %>
   </body>
 </html>
