@@ -78,9 +78,9 @@ module LavinMQ
     end
 
     # Campaign for an election
-    # Returns a Channel when elected leader,
-    # when the channel is closed the leadership is lost
-    def elect(name, value, ttl = 10) : Channel(Nil)
+    # Returns when elected leader
+    # Returns a `Leadership` instance
+    def elect(name, value, ttl = 10) : Leadership
       channel = Channel(Nil).new
       lease_id, ttl = lease_grant(ttl)
       wg = WaitGroup.new(1)
@@ -103,7 +103,31 @@ module LavinMQ
       end
       election_campaign(name, value, lease_id)
       wg.wait
-      channel
+      Leadership.new(self, lease_id, channel)
+    end
+
+    # Represents a holding a Leadership
+    # Can be revoked or wait until lost
+    class Leadership
+      def initialize(@etcd : Etcd, @lease_id : Int64, @lost_leadership_channel : Channel(Nil))
+      end
+
+      # Force release leadership
+      def release
+        @etcd.lease_revoke(@lease_id)
+      end
+
+      # Wait until looses leadership
+      def wait(timeout : Time::Span, &) : Nil
+        loop do
+          select
+          when @lost_leadership_channel.receive?
+            break
+          when timeout(timeout)
+            yield
+          end
+        end
+      end
     end
 
     def elect_listen(name, &)
