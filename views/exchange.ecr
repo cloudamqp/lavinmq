@@ -7,151 +7,154 @@
   </head>
   <body>
   <% render "partials/header" %>
-    <main>
-      <section class="card cols-4">
-        <h3>Details</h3>
-        <table class="details-table">
-          <tr>
-            <th>Type</th>
-            <td id="e-type"></td>
-          </tr>
-          <tr>
-            <th>Features</th>
-            <td id="e-features"></td>
-          </tr>
-          <tr>
-            <th>Arguments</th>
-            <td id="e-arguments"></td>
-          </tr>
-          <tr>
-            <th>Policy</th>
-            <td id="e-policy"></td>
-          </tr>
+  <main class="main-grid">
+    <div id="breadcrumbs" class="cols-12">
+        <h2 class="page-title"><%=pagename%><small class="tiny-badge" id="pagename-label"></small></h2>
+    </div>
+    <section class="card cols-4">
+      <h3 class="title-m">Details</h3>
+      <table class="details-table">
+        <tr>
+          <th>Type</th>
+          <td id="e-type"></td>
+        </tr>
+        <tr>
+          <th>Features</th>
+          <td id="e-features"></td>
+        </tr>
+        <tr>
+          <th>Arguments</th>
+          <td id="e-arguments"></td>
+        </tr>
+        <tr>
+          <th>Policy</th>
+          <td id="e-policy"></td>
+        </tr>
+      </table>
+    </section>
+    <section class="card cols-8">
+      <h3 class="title-m">Rates</h3>
+      <div class="chart-container" id="chart"></div>
+    </section>
+    <section class="card">
+      <h3 class="has-badge">
+        Bindings
+        <small class="tiny-badge counter-pill" id="bindings-table-count"></small>
+      </h3>
+      <div class="table-wrapper">
+        <div id="bindings-table-error"></div>
+        <table id="bindings-table" class="table">
+          <thead>
+            <tr>
+              <th class="left">Type</th>
+              <th class="left">To</th>
+              <th class="left">Routing key</th>
+              <th class="left">Arguments</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody></tbody>
         </table>
-      </section>
-      <section class="card cols-8">
-        <h3>Rates</h3>
-        <div class="chart-container" id="chart"></div>
-      </section>
-      <section class="card">
-        <h3>
-          Bindings
-          <small id="bindings-table-count"></small>
-        </h3>
-        <div class="table-wrapper">
-          <div id="bindings-table-error"></div>
-          <table id="bindings-table" class="table">
-            <thead>
-              <tr>
-                <th class="left">Type</th>
-                <th class="left">To</th>
-                <th class="left">Routing key</th>
-                <th class="left">Arguments</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
+      </div>
+    </section>
+    <form method="post" id="addBinding" class="form card cols-6">
+      <h3>Add a binding from this exchange</h3>
+      <label>
+        <select class="dropdown" id="dest-type" name="dest-type" required>
+          <option value="q">To queue</option>
+          <option value="e">To exchange</option>
+        </select>
+        <input name="destination" type="text" required list="exchange-dest-list">
+        <datalist id="exchange-dest-list"></datalist>
+      </label>
+      <label>
+        <span>Routing key</span>
+        <input name="routing_key" type="text">
+      </label>
+      <label>
+        <span>Arguments</span>
+        <textarea name="arguments" placeholder='{ "key": value }'></textarea>
+      </label>
+      <button type="submit" class="btn btn-green">Bind</button>
+    </form>
+    <form method="post" id="publishMessage" class="form card cols-6">
+      <h3>Publish message</h3>
+      <label>
+        <span>Routing key</span>
+        <input name="routing_key" type="text">
+      </label>
+      <label>
+        <span>Delivery mode</span>
+        <select class="dropdown" name="delivery_mode">
+          <option value="2">Persistent</option>
+        </select>
+      </label>
+      <label>
+        <span>Headers</span>
+        <textarea name="headers" placeholder='{ "key": value }'></textarea>
+      </label>
+      <label>
+        <span>Properties</span>
+        <textarea name="properties" placeholder='{ "key": value }'></textarea>
+        <div id="dataTags" class="label">
+          <a class="arg-tooltip" data-tag="content_type" data-value="&quot;application/json&quot;">Content Type
+            <span class="tooltiptext">Type of the content used by application. Default set to 'application/json'</span>
+          </a> |
+          <a class="arg-tooltip" data-tag="content_encoding">Content Encoding
+            <span class="tooltiptext">Encoding of the content used by application.</span>
+          </a> |
+          <a class="arg-tooltip" data-tag="expiration" data-value="0">Message TTL
+            <span class="tooltiptext">How long a message published to a queue can live before it is discarded
+              (milliseconds).</span>
+          </a> |
+          <a class="arg-tooltip" data-tag="priority" data-value="0">Priority
+            <span class="tooltiptext">Priority of the message in the queue.</span>
+          </a> |
+          <a class="arg-tooltip" data-tag="message_id">Message ID
+            <span class="tooltiptext">Message identifier of the message used by application.</span>
+          </a> |
+          <a class="arg-tooltip" data-tag="timestamp" data-value="0">Timestamp
+            <span class="tooltiptext">Timestamp of the message used by application.</span>
+          </a> |
+          <a class="arg-tooltip" data-tag="type">Type
+            <span class="tooltiptext">Type of the message used by application.</span>
+          </a> |
+          <a class="arg-tooltip" data-tag="user_id">User ID
+            <span class="tooltiptext">User identifier when impersonating another user.</span>
+          </a> |
+          <a class="arg-tooltip" data-tag="app_id">App ID
+            <span class="tooltiptext">Application identifier.</span>
+          </a> |
+          <a class="arg-tooltip" data-tag="correlation_id">Correlation ID
+            <span class="tooltiptext">Correlation identifier for RPC</span>
+          </a> |
+          <a class="arg-tooltip" data-tag="reply_to">Reply To
+            <span class="tooltiptext">Reply to queue for RPC</span>
+          </a>
         </div>
-      </section>
-      <form method="post" id="addBinding" class="form card cols-6">
-        <h3>Add a binding from this exchange</h3>
+      </label>
+      <label>
+        <span>Payload</span>
+        <textarea name="payload"></textarea>
+      </label>
+      <label>
+        <span>Payload encoding</span>
+        <select class="dropdown" name="payload_encoding">
+          <option value="string">String</option>
+          <option value="base64">Base64</option>
+        </select>
+      </label>
+      <button type="submit" class="btn btn-green">Publish message</button>
+    </form>
+    <section class="card cols-4">
+      <h3>Danger zone</h3>
+      <form method="delete" id="deleteExchange" class="form">
         <label>
-          <select id="dest-type" name="dest-type" required>
-            <option value="q">To queue</option>
-            <option value="e">To exchange</option>
-          </select>
-          <input name="destination" type="text" required list="exchange-dest-list">
-          <datalist id="exchange-dest-list"></datalist>
+          <button type="submit" class="btn btn-outlined"><span>Delete exchange</span><img src="img/icon-cross.svg" /></button>
         </label>
-        <label>
-          <span>Routing key</span>
-          <input name="routing_key" type="text">
-        </label>
-        <label>
-          <span>Arguments</span>
-          <textarea name="arguments" placeholder='{ "key": value }'></textarea>
-        </label>
-        <button type="submit" class="btn-primary">Bind</button>
       </form>
-      <form method="post" id="publishMessage" class="form card cols-6">
-        <h3>Publish message</h3>
-        <label>
-          <span>Routing key</span>
-          <input name="routing_key" type="text">
-        </label>
-        <label>
-          <span>Delivery mode</span>
-          <select name="delivery_mode">
-            <option value="2">Persistent</option>
-          </select>
-        </label>
-        <label>
-          <span>Headers</span>
-          <textarea name="headers" placeholder='{ "key": value }'></textarea>
-        </label>
-        <label>
-          <span>Properties</span>
-          <textarea name="properties" placeholder='{ "key": value }'></textarea>
-          <div id="dataTags" class="label">
-            <a class="arg-tooltip" data-tag="content_type" data-value="&quot;application/json&quot;">Content Type
-              <span class="tooltiptext">Type of the content used by application. Default set to 'application/json'</span>
-            </a> |
-            <a class="arg-tooltip" data-tag="content_encoding">Content Encoding
-              <span class="tooltiptext">Encoding of the content used by application.</span>
-            </a> |
-            <a class="arg-tooltip" data-tag="expiration" data-value="0">Message TTL
-              <span class="tooltiptext">How long a message published to a queue can live before it is discarded
-                (milliseconds).</span>
-            </a> |
-            <a class="arg-tooltip" data-tag="priority" data-value="0">Priority
-              <span class="tooltiptext">Priority of the message in the queue.</span>
-            </a> |
-            <a class="arg-tooltip" data-tag="message_id">Message ID
-              <span class="tooltiptext">Message identifier of the message used by application.</span>
-            </a> |
-            <a class="arg-tooltip" data-tag="timestamp" data-value="0">Timestamp
-              <span class="tooltiptext">Timestamp of the message used by application.</span>
-            </a> |
-            <a class="arg-tooltip" data-tag="type">Type
-              <span class="tooltiptext">Type of the message used by application.</span>
-            </a> |
-            <a class="arg-tooltip" data-tag="user_id">User ID
-              <span class="tooltiptext">User identifier when impersonating another user.</span>
-            </a> |
-            <a class="arg-tooltip" data-tag="app_id">App ID
-              <span class="tooltiptext">Application identifier.</span>
-            </a> |
-            <a class="arg-tooltip" data-tag="correlation_id">Correlation ID
-              <span class="tooltiptext">Correlation identifier for RPC</span>
-            </a> |
-            <a class="arg-tooltip" data-tag="reply_to">Reply To
-              <span class="tooltiptext">Reply to queue for RPC</span>
-            </a>
-          </div>
-        </label>
-        <label>
-          <span>Payload</span>
-          <textarea name="payload"></textarea>
-        </label>
-        <label>
-          <span>Payload encoding</span>
-          <select name="payload_encoding">
-            <option value="string">String</option>
-            <option value="base64">Base64</option>
-          </select>
-        </label>
-        <button type="submit" class="btn-primary">Publish message</button>
-      </form>
-      <section class="card cols-4">
-        <h3>Danger zone</h3>
-        <form method="delete" id="deleteExchange" class="form">
-          <label>
-            <button type="submit" class="btn-danger">Delete exchange</button>
-          </label>
-        </form>
-      </section>
-    </main>
-    <% render "partials/footer" %>
+    </section>
+  </main>
+  <% render "partials/footer" %>
   </body>
 </html>

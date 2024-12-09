@@ -7,8 +7,11 @@
   </head>
   <body>
     <% render "partials/header" %>
-    <main>
-      <section class="card cols-6">
+    <main class="main-grid">
+      <div id="breadcrumbs" class="cols-12">
+          <h2 class="page-title"><%=pagename%><div id="pagename-label" class="subpage-title"></div></h2>
+      </div>
+      <section class="card cols-6 regular-card">
         <h3>Details</h3>
         <table class="details-table">
           <tr>
@@ -41,7 +44,7 @@
           </tr>
         </table>
       </section>
-      <section class="card cols-6">
+      <section class="card cols-6 regular-card">
         <h3>Client properties</h3>
         <table class="details-table">
           <tr>
@@ -70,10 +73,10 @@
         <h3>Rates</h3>
         <div class="chart-container" id="chart"></div>
       </section>
-      <section class="card">
-        <h3>
+      <section class="card regular-card">
+        <h3 class="has-badge">
           Channels
-          <small id="table-count"></small>
+          <small class="tiny-badge" id="table-count"></small>
         </h3>
         <div class="table-wrapper">
           <div id="table-error"></div>
@@ -93,13 +96,13 @@
           </table>
         </div>
       </section>
-      <form method="delete" id="closeConnection" class="form card">
+      <form method="delete" id="closeConnection" class="form card regular-card">
         <h3>Close connection</h3>
         <label>
           <span>Reason</span>
           <input type="text" name="reason" value="Closed via Web management">
         </label>
-        <button type="submit" class="btn-secondary">Close</button>
+        <button type="submit" class="btn btn-outlined"><span>Close</span><img src="img/icon-cross.svg" /></button>
       </form>
     </main>
     <% render "partials/footer" %>
