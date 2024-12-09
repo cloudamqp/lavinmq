@@ -138,6 +138,9 @@ module LavinMQ::AMQP
       File.open(File.join(@data_dir, ".queue"), "w") { |f| f.sync = true; f.print @name }
       @state = QueueState::Paused if File.exists?(File.join(@data_dir, ".paused"))
       @msg_store = init_msg_store(@data_dir)
+      if @msg_store.closed
+        close
+      end
       @empty_change = @msg_store.empty_change
       handle_arguments
       spawn queue_expire_loop, name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}" if @expires
@@ -802,6 +805,7 @@ module LavinMQ::AMQP
         expire_msg(sp, :rejected)
       end
     rescue ex : MessageStore::Error
+      @log.error(ex) { "Queue closed due to error" }
       close
       raise ex
     end
