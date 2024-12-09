@@ -7,32 +7,30 @@
   </head>
   <body>
     <% render "partials/header" %>
-    <div class="grid-content">
-      <main>
-        <div id="breadcrumbs">
-            <h2 class="page-title"><%=pagename%><div class="tiny-badge" id="pagename-label"></div></h2>
+    <main class="main-grid">
+      <div id="breadcrumbs">
+          <h2 class="page-title"><%=pagename%><div class="tiny-badge" id="pagename-label"></div></h2>
+      </div>
+      <section class="card regular-card">
+        <div class="table-wrapper">
+          <div id="table-error"></div>
+          <table id="table" class="table">
+            <thead>
+              <tr>
+                <th data-sort-key="name">Name</th>
+                <th data-sort-key="vhost" class="left">Virtual host</th>
+                <th data-sort-key="username" class="left">User</th>
+                <th>Mode</th>
+                <th data-sort-key="consumer_count">Consumers</th>
+                <th data-sort-key="prefetch_count">Prefetch limit</th>
+                <th data-sort-key="messages_unacknowledged">Unacked messages</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
         </div>
-        <section class="card regular-card">
-          <div class="table-wrapper">
-            <div id="table-error"></div>
-            <table id="table" class="table">
-              <thead>
-                <tr>
-                  <th data-sort-key="name">Name</th>
-                  <th data-sort-key="vhost" class="left">Virtual host</th>
-                  <th data-sort-key="username" class="left">User</th>
-                  <th>Mode</th>
-                  <th data-sort-key="consumer_count">Consumers</th>
-                  <th data-sort-key="prefetch_count">Prefetch limit</th>
-                  <th data-sort-key="messages_unacknowledged">Unacked messages</th>
-                </tr>
-              </thead>
-              <tbody></tbody>
-            </table>
-          </div>
-        </section>
-      </main>
-      <% render "partials/footer" %>
-    </div>
+      </section>
+    </main>
+    <% render "partials/footer" %>
   </body>
 </html>
