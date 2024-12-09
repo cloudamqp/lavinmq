@@ -77,7 +77,7 @@ describe LavinMQ::Etcd do
       key = "foo/#{rand}"
       lease = etcd.elect(key, "bar", 1)
       etcds.first(2).each &.terminate(graceful: false)
-      lease.wait(15.seconds) do
+      unless lease.wait(15.seconds)
         fail "should lose the leadership"
       end
     end
@@ -90,7 +90,7 @@ describe LavinMQ::Etcd do
       key = "foo/#{rand}"
       lease = etcd.elect(key, "bar", 1)
       etcds.sample.terminate(graceful: false)
-      lease.wait(6.seconds) do
+      unless lease.wait(6.seconds)
         fail "should not lose the leadership"
       end
     end

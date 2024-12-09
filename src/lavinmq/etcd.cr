@@ -1,6 +1,7 @@
 require "http/client"
 require "wait_group"
 require "json"
+require "./logger"
 
 module LavinMQ
   class Etcd
@@ -118,14 +119,13 @@ module LavinMQ
       end
 
       # Wait until looses leadership
-      def wait(timeout : Time::Span, &) : Nil
-        loop do
-          select
-          when @lost_leadership_channel.receive?
-            break
-          when timeout(timeout)
-            yield
-          end
+      # Returns true when lost leadership, false when timeout occured
+      def wait(timeout : Time::Span) : Bool
+        select
+        when @lost_leadership_channel.receive?
+          return true
+        when timeout(timeout)
+          return false
         end
       end
     end

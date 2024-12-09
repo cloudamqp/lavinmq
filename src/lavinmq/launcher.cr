@@ -41,16 +41,17 @@ module LavinMQ
     def run
       listen
       SystemD.notify_ready
-      if leadership = @leadership
-        leadership.wait(30.seconds) do
-          @data_dir_lock.try &.poll
-          GC.collect
-        end
-        Log.warn { "Lost leadership" }
-        stop
-        exit 1
-      else
-        loop do
+      loop do
+        if leadership = @leadership
+          if leadership.wait(30.seconds)
+            Log.warn { "Lost leadership" }
+            stop
+            exit 1
+          else
+            @data_dir_lock.try &.poll
+            GC.collect
+          end
+        else
           sleep 30.seconds
           @data_dir_lock.try &.poll
           GC.collect
