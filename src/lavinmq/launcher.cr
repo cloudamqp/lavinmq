@@ -45,7 +45,10 @@ module LavinMQ
         if lease = @lease
           select
           when lease.receive?
-            break unless @running
+            unless @running
+              Fiber.yield
+              break
+            end
             Log.warn { "Lost leadership lease" }
             stop
             exit 1
