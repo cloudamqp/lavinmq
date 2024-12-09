@@ -104,8 +104,10 @@ module LavinMQ
               @amqp_server.vhosts[vhost].unbind_queue(q.name, e.name,
                 binding.routing_key, arguments)
               found = true
-              Log.debug { "exchange '#{e.name}' unbound from queue '#{q.name}' with " \
-                          " key '#{binding.routing_key}'" }
+              Log.debug do
+                "exchange '#{e.name}' unbound from queue '#{q.name}' with " \
+                " key '#{binding.routing_key}'"
+              end
               break
             end
             context.response.status_code = found ? 204 : 404
