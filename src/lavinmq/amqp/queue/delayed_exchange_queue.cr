@@ -1,5 +1,4 @@
-"./queue"
-require "./durable_queue"
+require "./queue"
 
 module LavinMQ::AMQP
   class DelayedExchangeQueue < Queue
