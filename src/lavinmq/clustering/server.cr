@@ -41,6 +41,10 @@ module LavinMQ
         @password = password
       end
 
+      def etcd : Etcd
+        @etcd
+      end
+
       def clear
         @files.clear
       end
@@ -238,6 +242,10 @@ module LavinMQ
 
       def password : String
         ""
+      end
+
+      def etcd : Etcd?
+        nil
       end
     end
   end
