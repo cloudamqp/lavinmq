@@ -422,7 +422,6 @@ module LavinMQ
             end
             mfile.delete(raise_on_missing: false).close
             @replicator.try &.delete_file(mfile.path)
-            true
           end
           Fiber.yield
         end

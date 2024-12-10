@@ -66,7 +66,6 @@ module LavinMQ
 
     def lease_revoke(id) : Nil
       post("/v3/lease/revoke", body: %({"ID":"#{id}"}))
-      true
     end
 
     # Leader election campaign
