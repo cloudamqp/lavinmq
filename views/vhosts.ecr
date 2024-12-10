@@ -7,40 +7,36 @@
   </head>
   <body>
     <% render "partials/header" %>
-    <div class="grid-content">
-      <main>
-        <div id="breadcrumbs" class="cols-12">
-            <h2 class="page-title"><span><%=pagename%></span><div class="tiny-badge" id="pagename-label"></div></h2>
+    <main class="main-grid">
+      <div id="breadcrumbs" class="cols-12">
+          <h2 class="page-title"><span><%=pagename%></span><div class="tiny-badge" id="pagename-label"></div></h2>
+      </div>
+      <section class="card">
+        <div id="table-error"></div>
+        <div class="table-wrapper">
+          <table id="table" class="table">
+            <thead>
+              <tr>
+                <th data-sort-key="name" class="left">Name</th>
+                <th class="left">Users</th>
+                <th data-sort-key="ready">Ready</th>
+                <th data-sort-key="unacked">Unacked</th>
+                <th data-sort-key="total">Total</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
         </div>
-        <section class="card regular-card">
-          <div id="table-error"></div>
-          <div class="table-wrapper">
-            <table id="table" class="table">
-              <thead>
-                <tr>
-                  <th data-sort-key="name" class="left">Name</th>
-                  <th class="left">Users</th>
-                  <th data-sort-key="ready">Ready</th>
-                  <th data-sort-key="unacked">Unacked</th>
-                  <th data-sort-key="total">Total</th>
-                </tr>
-              </thead>
-              <tbody></tbody>
-            </table>
-          </div>
-        </section>
-        <form method="put" id="createVhost" class="form card regular-card">
-          <h3 class="title-m">Add virtual host</h3>
-          <div class="py-4">
-            <label class="mb-4">
-              <span class="field-label">Name</span>
-              <input class="regular-text" type="text" name="name" required>
-            </label>
-            <button type="submit" class="btn btn-green">Add virtual host</button>
-          </div>
-        </form>
-      </main>
-      <% render "partials/footer" %>
-    </div>
+      </section>
+      <form method="put" id="createVhost" class="form card">
+        <h3>Add virtual host</h3>
+        <label>
+          <span>Name</span>
+          <input type="text" name="name" required>
+        </label>
+        <button type="submit" class="btn btn-green">Add virtual host</button>
+      </form>
+    </main>
+    <% render "partials/footer" %>
   </body>
 </html>

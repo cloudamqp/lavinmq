@@ -7,134 +7,130 @@
   </head>
   <body>
     <% render "partials/header" %>
-    <div class="grid-content">
-      <main>
-        <div id="breadcrumbs" class="cols-12">
-            <h2 class="page-title"><span><%=pagename%></span><div class="tiny-badge" id="pagename-label"></div></h2>
+    <main class="main-grid">
+      <div id="breadcrumbs" class="cols-12">
+          <h2 class="page-title"><span><%=pagename%></span><div class="tiny-badge" id="pagename-label"></div></h2>
+      </div>
+      <section class="card">
+        <div class="table-wrapper">
+          <div id="upstreamTable-error"></div>
+          <table id="upstreamTable" class="table">
+            <thead>
+              <tr>
+                <th>Virtual host</th>
+                <th data-sort-key="name">Name</th>
+                <th>URI</th>
+                <th>Prefetch</th>
+                <th>Reconnect delay</th>
+                <th>Ack mode</th>
+                <th>Exchange</th>
+                <!-- <td>Max hops</td> -->
+                <th>Expiry</th>
+                <th>Message TTL</th>
+                <th>Queue</th>
+                <th>Consumer Tag</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
         </div>
-        <section class="card regular-card">
-          <div class="table-wrapper">
-            <div id="upstreamTable-error"></div>
-            <table id="upstreamTable" class="table">
-              <thead>
-                <tr>
-                  <th>Virtual host</th>
-                  <th data-sort-key="name">Name</th>
-                  <th>URI</th>
-                  <th>Prefetch</th>
-                  <th>Reconnect delay</th>
-                  <th>Ack mode</th>
-                  <th>Exchange</th>
-                  <!-- <td>Max hops</td> -->
-                  <th>Expiry</th>
-                  <th>Message TTL</th>
-                  <th>Queue</th>
-                  <th>Consumer Tag</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody></tbody>
-            </table>
-          </div>
-        </section>
-        <div id="breadcrumbs" class="cols-12">
-            <h2 class="page-title"><span>Federation links</span><div class="tiny-badge" id="links-count"></div></h2>
+      </section>
+      <div id="breadcrumbs" class="cols-12">
+          <h2 class="page-title"><span>Federation links</span><div class="tiny-badge" id="links-count"></div></h2>
+      </div>
+      <section class="card">
+        <div class="table-wrapper">
+          <div id="linksTable-error"></div>
+          <table id="linksTable" class="table">
+            <thead>
+              <tr>
+                <th>Virtual host</th>
+                <th data-sort-key="name">Upstream</th>
+                <th>URI</th>
+                <th>Resource</th>
+                <th>Connected at</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
         </div>
-        <section class="card regular-card">
-          <div class="table-wrapper">
-            <div id="linksTable-error"></div>
-            <table id="linksTable" class="table">
-              <thead>
-                <tr>
-                  <th>Virtual host</th>
-                  <th data-sort-key="name">Upstream</th>
-                  <th>URI</th>
-                  <th>Resource</th>
-                  <th>Connected at</th>
-                </tr>
-              </thead>
-              <tbody></tbody>
-            </table>
-          </div>
-        </section>
-        <form method="put" id="createUpstream" class="form card regular-card">
-          <h3 class="title-m">
-            <span class="when-create">Add a new upstream</span>
-            <span class="when-edit">Edit upstream</span>
-          </h3>
-          <div class="py-4">
-            <fieldset>
-              <legend class="field-label">General paramenters</legend>
-              <label class="when-create mb-4">
-                <span class="field-label">Virtual host</span>
-                <select class="dropdown" name="vhost" required></select>
-              </label>
-              <label class="mb-4">
-                <span class="field-label">Name</span>
-                <input class="regular-text" type="text" name="name" required data-primary-key="">
-              </label>
-              <label class="mb-4">
-                <span class="field-label">URI</span>
-                <input class="regular-text" type="text" name="uri" required value="amqp://">
-              </label>
-              <label class="mb-4">
-                <span class="field-label">Prefetch</span>
-                <input class="regular-text" type="number" name="prefetch-count" value="1000">
-              </label>
-              <label class="mb-4">
-                <span class="field-label">Reconnect delay</span>
-                <input class="regular-text" type="number" name="reconnect-delay" value="5">
-              </label>
-              <label class="mb-4">
-                <span class="field-label">Ack mode</span>
-                <select class="dropdown" name="ack-mode" required>
-                  <option value="on-confirm" selected>On confirm</option>
-                  <option value="on-publish">On publish</option>
-                  <option value="no-ack">No ack</option>
-                </select>
-              </label>
-            </fieldset>
-            <fieldset>
-              <legend class="field-label">Federated exchange parameters</legend>
-              <label class="mb-4">
-                <span class="field-label">Exchange</span>
-                <input class="regular-text" type="text" name="exchange" list="exchange-datalist">
-                <datalist id="exchange-datalist"></datalist>
-              </label>
-              <!-- <label>
-                <span>Max hops</span>
-                <input type="number" name="max-hops">
-              </label> -->
-              <label class="mb-4">
-                <span class="field-label">Expires</span>
-                <input class="regular-text" type="number" name="expires">
-              </label>
-              <label class="mb-4">
-                <span class="field-label">Message TTL</span>
-                <input class="regular-text" type="number" name="message-ttl">
-              </label>
-            </fieldset>
-            <fieldset>
-              <legend class="field-label">Federated queue parameters</legend>
-              <label class="mb-4">
-                <span class="field-label">Queue</span>
-                <input class="regular-text" type="text" name="queue" list="queue-datalist">
-                <datalist id="queue-datalist"></datalist>
-              </label>
-              <label class="mb-4">
-                <span class="field-label">Consumer tag</span>
-                <input class="regular-text" type="text" name="consumer-tag">
-              </label>
-            </fieldset>
-            <button type="submit" class="btn btn-green when-create">Add upstream</button>
-            <div class="when-edit flex gap-2">
-              <button type="submit" class="btn btn-green">Update</button>
-              <button type="reset" class="btn btn-outlined cancel">Cancel</button>
-            </div>
-          </div>
-        </form>
-      </main>
-      <% render "partials/footer" %>
-    </div>
+      </section>
+      <form method="put" id="createUpstream" class="form card">
+        <h3>
+          <span class="when-create">Add a new upstream</span>
+          <span class="when-edit">Edit upstream</span>
+        </h3>
+        <fieldset>
+          <legend>General paramenters</legend>
+          <label class="when-create">
+            <span>Virtual host</span>
+            <select class="dropdown" name="vhost" required></select>
+          </label>
+          <label>
+            <span>Name</span>
+            <input type="text" name="name" required data-primary-key="">
+          </label>
+          <label>
+            <span>URI</span>
+            <input type="text" name="uri" required value="amqp://">
+          </label>
+          <label>
+            <span>Prefetch</span>
+            <input type="number" name="prefetch-count" value="1000">
+          </label>
+          <label>
+            <span>Reconnect delay</span>
+            <input type="number" name="reconnect-delay" value="5">
+          </label>
+          <label>
+            <span>Ack mode</span>
+            <select class="dropdown" name="ack-mode" required>
+              <option value="on-confirm" selected>On confirm</option>
+              <option value="on-publish">On publish</option>
+              <option value="no-ack">No ack</option>
+            </select>
+          </label>
+        </fieldset>
+        <fieldset>
+          <legend>Federated exchange parameters</legend>
+          <label>
+            <span>Exchange</span>
+            <input type="text" name="exchange" list="exchange-datalist">
+            <datalist id="exchange-datalist"></datalist>
+          </label>
+          <!-- <label>
+            <span>Max hops</span>
+            <input type="number" name="max-hops">
+          </label> -->
+          <label>
+            <span>Expires</span>
+            <input type="number" name="expires">
+          </label>
+          <label>
+            <span>Message TTL</span>
+            <input type="number" name="message-ttl">
+          </label>
+        </fieldset>
+        <fieldset>
+          <legend>Federated queue parameters</legend>
+          <label>
+            <span>Queue</span>
+            <input type="text" name="queue" list="queue-datalist">
+            <datalist id="queue-datalist"></datalist>
+          </label>
+          <label>
+            <span>Consumer tag</span>
+            <input type="text" name="consumer-tag">
+          </label>
+        </fieldset>
+        <button type="submit" class="btn btn-green when-create">Add upstream</button>
+        <div class="when-edit flex gap-2">
+          <button type="submit" class="btn btn-green">Update</button>
+          <button type="reset" class="btn btn-outlined cancel">Cancel</button>
+        </div>
+      </form>
+    </main>
+    <% render "partials/footer" %>
   </body>
 </html>

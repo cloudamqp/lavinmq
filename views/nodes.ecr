@@ -7,100 +7,98 @@
   </head>
   <body>
     <% render "partials/header" %>
-    <div class="grid-content">
-      <main>
-        <div id="breadcrumbs" class="cols-12">
-            <h2 class="page-title"><span><%=pagename%></span></h2>
+    <main class="main-grid">
+      <div id="breadcrumbs" class="cols-12">
+          <h2 class="page-title"><span><%=pagename%></span></h2>
+      </div>
+      <section class="card cols-6">
+        <h3>Details</h3>
+        <table class="details-table">
+          <tr>
+            <th>Name</th>
+            <td id="tr-name"></td>
+          </tr>
+          <tr>
+            <th>Uptime</th>
+            <td id="tr-uptime"></td>
+          </tr>
+          <tr>
+            <th>vCPU</th>
+            <td id="tr-vcpu"></td>
+          </tr>
+          <tr>
+            <th>
+              <a class="prop-tooltip" data-tag="alternate-exchange">Memory usage<span class="tooltip-icon">?</span>
+              <span class="prop-tooltiptext">The amount of memory LavinMQ uses relative to the available system space</span>
+              </a>
+            </th>
+            <td id="tr-memory"></td>
+          </tr>
+          <tr>
+            <th>
+              <a class="prop-tooltip" data-tag="alternate-exchange">Disk usage<span class="tooltip-icon">?</span>
+              <span class="prop-tooltiptext">The amount of disk memory the system uses relative to the available system space</span>
+              </a>
+            </th>
+            <td id="tr-disk"></td>
+          </tr>
+          <tr>
+            <th>CPU Usage</th>
+            <td id="tr-cpu"></td>
+          </tr>
+        </table>
+      </section>
+      <section class="card cols-6">
+        <h3>Stats</h3>
+        <table id="stats-table" class="details-table">
+        </table>
+      </section>
+      <section class="card cols-4 cols-6-md">
+        <h3>Memory usage</h3>
+        <div class="chart-container" id="memoryChart"></div>
+      </section>
+      <section class="card cols-4 cols-6-md">
+        <h3>IO</h3>
+        <div class="chart-container" id="ioChart"></div>
+      </section>
+      <section class="card cols-4 cols-6-md">
+        <h3>CPU usage</h3>
+        <div class="chart-container" id="cpuChart"></div>
+      </section>
+      <section class="card cols-4 cols-6-md">
+        <h3>Connection churn</h3>
+        <div class="chart-container" id="connectionChurnChart"></div>
+      </section>
+      <section class="card cols-4 cols-6-md">
+        <h3>Channel churn</h3>
+        <div class="chart-container" id="channelChurnChart"></div>
+      </section>
+      <section class="card cols-4 cols-6-md">
+        <h3>Queue churn</h3>
+        <div class="chart-container" id="queueChurnChart"></div>
+      </section>
+      <section class="card">
+        <h3 class="has-badge">
+          Followers
+          <small class="tiny-badge" id="followers-count"></small>
+        </h3>
+        <div class="table-wrapper">
+          <div id="followers-error"></div>
+          <table id="followers" class="table">
+            <thead>
+              <tr>
+                <th class="left">ID</th>
+                <th class="left">Remote address</th>
+                <th class="right">Sent bytes</th>
+                <th class="right">Acked bytes</th>
+                <th class="right">Lag</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
         </div>
-        <section class="card cols-6 regular-card">
-          <h3 class="title-m">Details</h3>
-          <table class="details-table">
-            <tr>
-              <th>Name</th>
-              <td id="tr-name"></td>
-            </tr>
-            <tr>
-              <th>Uptime</th>
-              <td id="tr-uptime"></td>
-            </tr>
-            <tr>
-              <th>vCPU</th>
-              <td id="tr-vcpu"></td>
-            </tr>
-            <tr>
-              <th>
-                <a class="prop-tooltip" data-tag="alternate-exchange">Memory usage<span class="tooltip-icon">?</span>
-                <span class="prop-tooltiptext">The amount of memory LavinMQ uses relative to the available system space</span>
-                </a>
-              </th>
-              <td id="tr-memory"></td>
-            </tr>
-            <tr>
-              <th>
-                <a class="prop-tooltip" data-tag="alternate-exchange">Disk usage<span class="tooltip-icon">?</span>
-                <span class="prop-tooltiptext">The amount of disk memory the system uses relative to the available system space</span>
-                </a>
-              </th>
-              <td id="tr-disk"></td>
-            </tr>
-            <tr>
-              <th>CPU Usage</th>
-              <td id="tr-cpu"></td>
-            </tr>
-          </table>
-        </section>
-        <section class="card cols-6 regular-card">
-          <h3 class="title-m">Stats</h3>
-          <table id="stats-table" class="details-table">
-          </table>
-        </section>
-        <section class="card cols-4 cols-6-md regular-card">
-          <h3 class="title-m">Memory usage</h3>
-          <div class="chart-container" id="memoryChart"></div>
-        </section>
-        <section class="card cols-4 cols-6-md regular-card">
-          <h3 class="title-m">IO</h3>
-          <div class="chart-container" id="ioChart"></div>
-        </section>
-        <section class="card cols-4 cols-6-md regular-card">
-          <h3 class="title-m">CPU usage</h3>
-          <div class="chart-container" id="cpuChart"></div>
-        </section>
-        <section class="card cols-4 cols-6-md regular-card">
-          <h3 class="title-m">Connection churn</h3>
-          <div class="chart-container" id="connectionChurnChart"></div>
-        </section>
-        <section class="card cols-4 cols-6-md regular-card">
-          <h3 class="title-m">Channel churn</h3>
-          <div class="chart-container" id="channelChurnChart"></div>
-        </section>
-        <section class="card cols-4 cols-6-md regular-card">
-          <h3 class="title-m">Queue churn</h3>
-          <div class="chart-container" id="queueChurnChart"></div>
-        </section>
-        <section class="card regular-card">
-          <h3 class="title-m flex flex-row items-center">
-            Followers
-            <small class="tiny-badge" id="followers-count"></small>
-          </h3>
-          <div class="table-wrapper">
-            <div id="followers-error"></div>
-            <table id="followers" class="table">
-              <thead>
-                <tr>
-                  <th class="left">ID</th>
-                  <th class="left">Remote address</th>
-                  <th class="right">Sent bytes</th>
-                  <th class="right">Acked bytes</th>
-                  <th class="right">Lag</th>
-                </tr>
-              </thead>
-              <tbody></tbody>
-            </table>
-          </div>
-        </section>
-      </main>
-      <% render "partials/footer" %>
-    </div>
+      </section>
+    </main>
+    <% render "partials/footer" %>
   </body>
 </html>

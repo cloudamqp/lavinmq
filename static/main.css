@@ -30,6 +30,7 @@
   --bg-color-dark: #1D1D1D;
   --border-color-light: rgb(247 245 242 / 0.1);
   --bg-green-dark: #54BE7E;
+  scrollbar-width: thin;
 }
 
 *,
@@ -72,6 +73,10 @@ a:hover {
 /* Form */
 .form label {
   margin-bottom: 1rem;
+
+  &.has-tags {
+    margin-bottom: 0;
+  }
 }
 
 textarea {
@@ -738,6 +743,8 @@ body.login main {
   overflow: auto;
   padding-top: 4rem;
   z-index: 9998;
+  scrollbar-color: rgba(255, 255, 255, 0.4) rgba(29, 29, 29, 1);
+  scrollbar-width: thin;
 }
 
 footer {
@@ -1189,6 +1196,8 @@ footer .logo {
 
 .table-wrapper {
   overflow: auto;
+  scrollbar-color: rgba(255, 255, 255, 0.4) rgba(29, 29, 29, 1);
+  scrollbar-width: thin;
 }
 
 .filter-table {
@@ -1636,6 +1645,7 @@ fieldset.inline {
 
 .message {
   margin-top: 10px;
+  color: var(--font-color-light);
 }
 
 .message-header {

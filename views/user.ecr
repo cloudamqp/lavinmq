@@ -7,110 +7,104 @@
   </head>
   <body>
     <% render "partials/header" %>
-    <div class="grid-content">
-      <main>
-        <div id="breadcrumbs" class="cols-12">
-            <h2 class="page-title"><%=pagename%><div id="pagename-label" class="subpage-title"></div></h2>
-        </div>
-        <section class="card cols-4 regular-card">
-          <h3 class="title-m">Details</h3>
-          <table class="details-table">
-            <tr>
-              <th>Tags</th>
-              <td id="tags"></td>
-            </tr>
-            <tr>
-              <th>Has password</th>
-              <td id="hasPassword"></td>
-            </tr>
+    <main class="main-grid">
+      <div id="breadcrumbs" class="cols-12">
+          <h2 class="page-title"><%=pagename%><div id="pagename-label" class="subpage-title"></div></h2>
+      </div>
+      <section class="card cols-4">
+        <h3>Details</h3>
+        <table class="details-table">
+          <tr>
+            <th>Tags</th>
+            <td id="tags"></td>
+          </tr>
+          <tr>
+            <th>Has password</th>
+            <td id="hasPassword"></td>
+          </tr>
+        </table>
+      </section>
+      <section class="card">
+        <h3 class="has-badge">
+          Permissions
+          <small class="tiny-badge" id="permissions-count"></small>
+        </h3>
+        <div class="table-wrapper">
+          <div id="permissions-error"></div>
+          <table id="permissions" class="table">
+            <thead>
+              <tr>
+                <th>Virtual host</th>
+                <th class="left">Configure regexp</th>
+                <th class="left">Write regexp</th>
+                <th class="left">Read regexp</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody></tbody>
           </table>
-        </section>
-        <section class="card regular-card">
-          <h3 class="title-m has-badge">
-            Permissions
-            <small class="tiny-badge" id="permissions-count"></small>
-          </h3>
-          <div class="table-wrapper">
-            <div id="permissions-error"></div>
-            <table id="permissions" class="table">
-              <thead>
-                <tr>
-                  <th>Virtual host</th>
-                  <th class="left">Configure regexp</th>
-                  <th class="left">Write regexp</th>
-                  <th class="left">Read regexp</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody></tbody>
-            </table>
-          </div>
-        </section>
-        <form method="put" id="setPermission" class="form card cols-6 regular-card">
-          <h3 class="title-m">
-            <span class="when-create">Set permission</span>
-            <span class="when-edit">Edit permission</span>
-          </h3>
-          <div class="py-4">
-            <label class="mb-4">
-              <span class="field-label">Virtual host</span>
-              <select class="dropdown" name="vhost" required data-primary-key=""></select>
-            </label>
-            <label class="mb-4">
-              <span class="field-label">Configure regexp</span>
-              <input class="regular-text" type="text" name="configure" required value=".*">
-            </label>
-            <label class="mb-4">
-              <span class="field-label">Write regexp</span>
-              <input class="regular-text" type="text" name="write" required value=".*">
-            </label>
-            <label class="mb-4">
-              <span class="field-label">Read regexp</span>
-              <input class="regular-text" type="text" name="read" required value=".*">
-            </label>
-            <button type="submit" class="btn btn-green when-create">Set permission</button>
-            <div class="when-edit flex flex-row">
-              <button type="submit" class="btn btn-green">Update</button>
-              <button type="reset" class="btn btn-outlined ml-2 cancel">Cancel</button>
-            </div>
-          </div>
+        </div>
+      </section>
+      <form method="put" id="setPermission" class="form card cols-6">
+        <h3>
+          <span class="when-create">Set permission</span>
+          <span class="when-edit">Edit permission</span>
+        </h3>
+        <label>
+          <span>Virtual host</span>
+          <select class="dropdown" name="vhost" required data-primary-key=""></select>
+        </label>
+        <label>
+          <span>Configure regexp</span>
+          <input type="text" name="configure" required value=".*">
+        </label>
+        <label>
+          <span>Write regexp</span>
+          <input type="text" name="write" required value=".*">
+        </label>
+        <label>
+          <span>Read regexp</span>
+          <input type="text" name="read" required value=".*">
+        </label>
+        <button type="submit" class="btn btn-green when-create">Set permission</button>
+        <div class="when-edit flex flex-row">
+          <button type="submit" class="btn btn-green">Update</button>
+          <button type="reset" class="btn btn-outlined ml-2 cancel">Cancel</button>
+        </div>
+      </form>
+      <form method="put" id="updateUser" class="form card cols-6">
+        <h3>Update user</h3>
+        <label>
+          <span>Remove password</span>
+          <input type="checkbox" name="remove_password">
+        </label>
+        <label>
+          <span>Password</span>
+          <input type="password" name="password" placeholder="Leave empty to only update tags">
+        </label>
+        <label class="has-tags">
+          <span>Tags</span>
+          <input type="text" name="tags">
+        </label>
+        <div id="dataTags" class="label">
+          <a data-tag="administrator">Administrator</a> |
+          <a data-tag="policymaker">Policymaker</a> |
+          <a data-tag="monitoring">Monitoring</a> |
+          <a data-tag="management">Management</a> |
+          <a data-tag="impersonator">Impersonator</a> |
+          <a data-tag="">None</a>
+        </div>
+        <button type="submit" class="btn btn-green">Update user</button>
+      </form>
+      <section class="card cols-4">
+        <h3>Danger zone</h3>
+        <form method="delete" id="deleteUser" class="form">
+          <label>
+            <button type="submit" class="btn btn-red">Delete user</button>
+          </label>
         </form>
-        <form method="put" id="updateUser" class="form card cols-6 regular-card">
-          <h3 class="title-m">Update user</h3>
-          <div class="py-4">
-            <label class="mb-4">
-              <span class="field-label">Remove password</span>
-              <input type="checkbox" name="remove_password">
-            </label>
-            <label class="mb-4">
-              <span class="field-label">Password</span>
-              <input class="regular-text" type="password" name="password" placeholder="Leave empty to only update tags">
-            </label>
-            <label>
-              <span class="field-label">Tags</span>
-              <input class="regular-text" type="text" name="tags">
-            </label>
-            <div id="dataTags" class="label">
-              <a data-tag="administrator">Administrator</a> |
-              <a data-tag="policymaker">Policymaker</a> |
-              <a data-tag="monitoring">Monitoring</a> |
-              <a data-tag="management">Management</a> |
-              <a data-tag="impersonator">Impersonator</a> |
-              <a data-tag="">None</a>
-            </div>
-            <button type="submit" class="btn btn-green">Update user</button>
-          </div>
-        </form>
-        <section class="card cols-4 regular-card">
-          <h3 class="title-m">Danger zone</h3>
-          <form method="delete" id="deleteUser" class="form">
-            <label>
-              <button type="submit" class="btn btn-red ml-0">Delete user</button>
-            </label>
-          </form>
-        </section>
-      </main>
-      <% render "partials/footer" %>
-    </div>
+      </section>
+    </main>
+    <% render "partials/footer" %>
   </body>
 </html>

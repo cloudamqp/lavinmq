@@ -7,33 +7,31 @@
   </head>
   <body>
     <% render "partials/header" %>
-    <div class="grid-content">
-      <main class="unacked-main">
-        <div id="breadcrumbs" class="cols-12">
-            <h2 class="page-title"><%=pagename%><div id="pagename-label" class="subpage-title"></div></h2>
+    <main class="unacked-main main-grid">
+      <div id="breadcrumbs" class="cols-12">
+          <h2 class="page-title"><%=pagename%><div id="pagename-label" class="subpage-title"></div></h2>
+      </div>
+      <section class="card">
+        <h3 class="has-badge">
+          <a href="" id="queue-link"></a>
+          <small class="tiny-badge counter-pill" id="unacked-count"></small>
+        </h3>
+        <div class="table-wrapper">
+          <div id="table-error"></div>
+          <table id="table" class="table">
+            <thead>
+              <tr>
+                <th class="left">Message tag</th>
+                <th class="left">Consumer tag</th>
+                <th class="left">Channel</th>
+                <th class="right">Seconds unacked</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
         </div>
-        <section class="card regular-card">
-          <h3 class="title-m has-badge">
-            <a href="" id="queue-link"></a>
-            <small class="tiny-badge counter-pill" id="unacked-count"></small>
-          </h3>
-          <div class="table-wrapper">
-            <div id="table-error"></div>
-            <table id="table" class="table">
-              <thead>
-                <tr>
-                  <th class="left">Message tag</th>
-                  <th class="left">Consumer tag</th>
-                  <th class="left">Channel</th>
-                  <th class="right">Seconds unacked</th>
-                </tr>
-              </thead>
-              <tbody></tbody>
-            </table>
-          </div>
-        </section>
-      </main>
-      <% render "partials/footer" %>
-    </div>
+      </section>
+    </main>
+    <% render "partials/footer" %>
   </body>
 </html>

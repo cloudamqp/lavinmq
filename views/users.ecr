@@ -7,53 +7,49 @@
   </head>
   <body>
     <% render "partials/header" %>
-    <div class="grid-content">
-      <main>
-        <div id="breadcrumbs" class="cols-12">
-            <h2 class="page-title"><span><%=pagename%></span><div class="tiny-badge" id="pagename-label"></div></h2>
+    <main class="main-grid">
+      <div id="breadcrumbs" class="cols-12">
+          <h2 class="page-title"><span><%=pagename%></span><div class="tiny-badge" id="pagename-label"></div></h2>
+      </div>
+      <section class="card">
+        <div id="users-error"></div>
+        <table id="users" class="table">
+          <thead>
+            <tr>
+              <th data-sort-key="name" class="left">Name</th>
+              <th data-sort-key="tags" class="left">Tags</th>
+              <th class="left">Can access virtual hosts</th>
+              <th>Has password</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
+      <form method="put" id="createUser" class="form card">
+        <h3>Add user</h3>
+        <label>
+          <span>Username</span>
+          <input type="text" name="username" required>
+        </label>
+        <label>
+          <span>Password</span>
+          <input type="password" name="password">
+        </label>
+        <label class="has-tags">
+          <span>Tags</span>
+          <input type="text" name="tags">
+        </label>
+        <div id="dataTags" class="label">
+          <a data-tag="administrator">Administrator</a> |
+          <a data-tag="policymaker">Policymaker</a> |
+          <a data-tag="monitoring">Monitoring</a> |
+          <a data-tag="management">Management</a> |
+          <a data-tag="impersonator">Impersonator</a> |
+          <a data-tag="">None</a>
         </div>
-        <section class="card regular-card">
-          <div id="users-error"></div>
-          <table id="users" class="table">
-            <thead>
-              <tr>
-                <th data-sort-key="name" class="left">Name</th>
-                <th data-sort-key="tags" class="left">Tags</th>
-                <th class="left">Can access virtual hosts</th>
-                <th>Has password</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-        </section>
-        <form method="put" id="createUser" class="form card regular-card">
-          <h3 class="title-m">Add user</h3>
-          <div class="py-4">
-            <label class="mb-4">
-              <span class="field-label">Username</span>
-              <input class="regular-text" type="text" name="username" required>
-            </label>
-            <label class="mb-4">
-              <span class="field-label">Password</span>
-              <input class="regular-text" type="password" name="password">
-            </label>
-            <label>
-              <span class="field-label">Tags</span>
-              <input class="regular-text" type="text" name="tags">
-            </label>
-            <div id="dataTags" class="label">
-              <a data-tag="administrator">Administrator</a> |
-              <a data-tag="policymaker">Policymaker</a> |
-              <a data-tag="monitoring">Monitoring</a> |
-              <a data-tag="management">Management</a> |
-              <a data-tag="impersonator">Impersonator</a> |
-              <a data-tag="">None</a>
-            </div>
-            <button type="submit" class="btn btn-green">Add user</button>
-          </div>
-        </form>
-      </main>
-      <% render "partials/footer" %>
-    </div>
+        <button type="submit" class="btn btn-green">Add user</button>
+      </form>
+    </main>
+    <% render "partials/footer" %>
   </body>
 </html>
