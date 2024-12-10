@@ -156,6 +156,29 @@ module LavinMQ
         )
       end
 
+      def apply_policy(policy : Policy?, operator_policy : OperatorPolicy?) # ameba:disable Metrics/CyclomaticComplexity
+        clear_policy
+        Policy.merge_definitions(policy, operator_policy).each do |k, v|
+          @log.debug { "Applying policy #{k}: #{v}" }
+          case k
+          when "max-length"
+            unless @max_length.try &.< v.as_i64
+              @max_length = v.as_i64
+              drop_overflow
+            end
+          when "max-length-bytes"
+            unless @max_length_bytes.try &.< v.as_i64
+              @max_length_bytes = v.as_i64
+              drop_overflow
+            end
+          when "overflow"
+            @reject_on_overflow ||= v.as_s == "reject-publish"
+          end
+        end
+        @policy = policy
+        @operator_policy = operator_policy
+      end
+
       def ack(packet : MQTT::PubAck) : Nil
         # TODO: maybe risky to not have lock around this
         id = packet.packet_id
