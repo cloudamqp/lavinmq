@@ -7,28 +7,26 @@
   </head>
   <body>
     <% render "partials/header" %>
-    <div class="grid-content">
-      <main>
-        <div id="breadcrumbs" class="cols-12">
-            <h2 class="page-title"><span><%=pagename%></span></h2>
-        </div>
-        <section id="livelog" class="card livelog regular-card">
-          <button id="download-logs" class="btn btn-green mb-4"><a download href="api/logs">Download logs</a></button>
-          <div id="table-error"></div>
-          <table id="table" class="table">
-            <thead>
-              <tr>
-                <th class="livelog-timestamp">Timestamp</th>
-                <th class="livelog-severity">Severity</th>
-                <th class="livelog-source">Source</th>
-                <th class="livelog-message">Message</th>
-              </tr>
-            </thead>
-            <tbody id="livelog-body"></tbody>
-          </table>
-        </section>
-      </main>
-      <% render "partials/footer" %>
-    </div>
+    <main class="main-grid">
+      <div id="breadcrumbs" class="cols-12">
+          <h2 class="page-title"><span><%=pagename%></span></h2>
+      </div>
+      <section id="livelog" class="card livelog">
+        <button id="download-logs" class="btn btn-green mb-4"><a download href="api/logs">Download logs</a></button>
+        <div id="table-error"></div>
+        <table id="table" class="table">
+          <thead>
+            <tr>
+              <th class="livelog-timestamp">Timestamp</th>
+              <th class="livelog-severity">Severity</th>
+              <th class="livelog-source">Source</th>
+              <th class="livelog-message">Message</th>
+            </tr>
+          </thead>
+          <tbody id="livelog-body"></tbody>
+        </table>
+      </section>
+    </main>
+    <% render "partials/footer" %>
   </body>
 </html>

@@ -143,19 +143,19 @@
           Message will be published to the default exchange with routing key <span class="queue"></span>, routing it to
           this queue.
         </p>
-        <label class="mb-4">
-          <span class="field-label">Delivery mode</span>
+        <label>
+          <span>Delivery mode</span>
           <select class="dropdown" name="delivery_mode">
             <option value="2">Persistent</option>
           </select>
         </label>
-        <label class="mb-4">
-          <span class="field-label">Headers</span>
+        <label>
+          <span>Headers</span>
           <textarea class="regular-textarea" name="headers" placeholder='{ "key": value }'></textarea>
         </label>
-        <label class="mb-4">
-          <span class="field-label">Properties</span>
-          <textarea class="regular-textarea" name="properties" placeholder='{ "key": value }'></textarea>
+        <label>
+          <span>Properties</span>
+          <textarea name="properties" placeholder='{ "key": value }'></textarea>
           <div id="dataTags" class="label">
             <a class="arg-tooltip" data-tag="content_type" data-value="&quot;application/json&quot;">Content Type
               <span class="tooltiptext">Type of the content used by application. Default set to 'application/json'</span>
@@ -193,12 +193,12 @@
             </a>
           </div>
         </label>
-        <label class="mb-4">
-          <span class="field-label">Payload</span>
-          <textarea class="regular-textarea" name="payload"></textarea>
+        <label>
+          <span>Payload</span>
+          <textarea name="payload"></textarea>
         </label>
-        <label class="mb-4">
-          <span class="field-label">Payload encoding</span>
+        <label>
+          <span>Payload encoding</span>
           <select class="dropdown" name="payload_encoding">
             <option value="string">String</option>
             <option value="base64">Base64</option>
@@ -206,44 +206,40 @@
         </label>
         <button type="submit" class="btn btn-outlined">Publish message</button>
       </form>
-      <section class="card cols-6 regular-card">
+      <section class="card cols-6">
         <form method="post" id="getMessages" class="form">
-          <h3 class="title-m">Get messages</h3>
-          <div class="py-4">
-            <label class="mb-4">
-              <span class="field-label">Mode</span>
-              <select class="dropdown" name="mode">
-                <option value="get">Get Ack</option>
-                <option value="reject_requeue_true" selected>Reject and Requeue</option>
-                <option value="reject_requeue_false">Reject</option>
-              </select>
-            </label>
-            <label class="mb-4">
-              <span class="field-label">Encoding</span>
-              <select class="dropdown" name="encoding">
-                <option value="auto">Auto string/base64</option>
-                <option value="base64">Base64</option>
-              </select>
-            </label>
-            <label class="mb-4">
-              <span class="field-label">Messages</span>
-              <input class="regular-text" type="number" name="messages" value=1>
-            </label>
-            <button type="submit" class="btn btn-outlined">Get message(s)</button>
-          </div>
+          <h3>Get messages</h3>
+          <label>
+            <span>Mode</span>
+            <select class="dropdown" name="mode">
+              <option value="get">Get Ack</option>
+              <option value="reject_requeue_true" selected>Reject and Requeue</option>
+              <option value="reject_requeue_false">Reject</option>
+            </select>
+          </label>
+          <label>
+            <span>Encoding</span>
+            <select class="dropdown" name="encoding">
+              <option value="auto">Auto string/base64</option>
+              <option value="base64">Base64</option>
+            </select>
+          </label>
+          <label>
+            <span>Messages</span>
+            <input type="number" name="messages" value=1>
+          </label>
+          <button type="submit" class="btn btn-outlined">Get message(s)</button>
         </form>
       </section>
-      <form method="post" id="moveMessages" class="form card cols-6 regular-card">
-        <h3 class="title-m">Move messages</h3>
-        <div class="py-4">
-          <label class="mb-4">
-            <span class="field-label">Destination queue</span>
-            <input class="regular-text" type="text" name="shovel-destination" list="queue-list">
-            <datalist id="queue-list">
-            </datalist>
-          </label>
-          <button type="submit" class="btn btn-outlined">Move messages</button>
-        </div>
+      <form method="post" id="moveMessages" class="form card cols-6">
+        <h3>Move messages</h3>
+        <label>
+          <span>Destination queue</span>
+          <input type="text" name="shovel-destination" list="queue-list">
+          <datalist id="queue-list">
+          </datalist>
+        </label>
+        <button type="submit" class="btn btn-outlined">Move messages</button>
       </form>
       <div id="message-template" class="hide message card">
         <h4 class="message-header">Message <span class="message-number"></span></h4>
@@ -280,35 +276,35 @@
         </table>
       </div>
       <div id="messages" class="cols-12"></div>
-      <section class="card cols-4 regular-card">
-        <h3 class="title-m">Pause Queue</h3>
+      <section class="card cols-4">
+        <h3>Pause Queue</h3>
         <form method="put" id="pauseQueue" class="form">
           <label>
-            <button type="submit" class="btn btn-yellow ml-0">Pause queue</button>
+            <button type="submit" class="btn btn-yellow">Pause queue</button>
           </label>
         </form>
         <form method="put" id="resumeQueue" class="form hide">
           <label>
-            <button type="submit" class="btn btn-yellow ml-0">Resume queue</button>
+            <button type="submit" class="btn btn-yellow">Resume queue</button>
           </label>
         </form>
-        <p class="card-desc mt-4">Pausing a queue will stop deliveries to all consumers.</p>
+        <p class="card-desc">Pausing a queue will stop deliveries to all consumers.</p>
       </section>
-      <form method="delete" id="purgeQueue" class="form card cols-4 regular-card">
-        <h3 class="title-m">Purge queue</h3>
-        <label class="mb-4">
-          <span class="field-label">Number of messages</span>
-          <input class="regular-text" type="number" name="count" min="1" placeholder="All">
+      <form method="delete" id="purgeQueue" class="form card cols-4">
+        <h3>Purge queue</h3>
+        <label>
+          <span>Number of messages</span>
+          <input type="number" name="count" min="1" placeholder="All">
         </label>
         <label>
-          <button type="submit" class="btn btn-red ml-0">Purge queue</button>
+          <button type="submit" class="btn btn-red">Purge queue</button>
         </label>
       </form>
-      <section class="card cols-4 regular-card">
-        <h3 class="title-m">Delete queue</h3>
+      <section class="card cols-4">
+        <h3>Delete queue</h3>
         <form method="delete" id="deleteQueue" class="form">
           <label>
-            <button type="submit" class="btn btn-red ml-0">Delete queue</button>
+            <button type="submit" class="btn btn-red">Delete queue</button>
           </label>
         </form>
       </section>

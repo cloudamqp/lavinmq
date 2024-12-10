@@ -7,99 +7,95 @@
   </head>
   <body>
     <% render "partials/header" %>
-    <div class="grid-content">
-      <main>
-        <div id="breadcrumbs" class="cols-12">
-            <h2 class="page-title"><span><%=pagename%></span><div class="tiny-badge" id="pagename-label"></div></h2>
+    <main class="main-grid">
+      <div id="breadcrumbs" class="cols-12">
+          <h2 class="page-title"><span><%=pagename%></span><div class="tiny-badge" id="pagename-label"></div></h2>
+      </div>
+      <section class="card">
+        <div class="table-wrapper">
+          <div id="table-error"></div>
+          <table id="table" class="table">
+            <thead>
+              <tr>
+                <th>Virtual host</th>
+                <th data-sort-key="name" class="left">Name</th>
+                <th class="left">Pattern</th>
+                <th class="left">Apply to</th>
+                <th class="left">Definition</th>
+                <th class="left">Priority</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
         </div>
-        <section class="card regular-card">
-          <div class="table-wrapper">
-            <div id="table-error"></div>
-            <table id="table" class="table">
-              <thead>
-                <tr>
-                  <th>Virtual host</th>
-                  <th data-sort-key="name" class="left">Name</th>
-                  <th class="left">Pattern</th>
-                  <th class="left">Apply to</th>
-                  <th class="left">Definition</th>
-                  <th class="left">Priority</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody></tbody>
-            </table>
+      </section>
+      <form method="put" id="createPolicy" class="form card">
+        <h3>
+          <span class="when-create">Add operator policy</span>
+          <span class="when-edit">Edit operator policy</span>
+        </h3>
+        <label class="when-create">
+          <span>Virtual host</span>
+          <select class="dropdown" id="addPolicyVhost" name="vhost" required></select>
+        </label>
+        <label>
+          <span>Name</span>
+          <input type="text" name="name" required data-primary-key="">
+        </label>
+        <label>
+          <span>Pattern</span>
+          <input type="text" name="pattern" required>
+        </label>
+        <label>
+          <span>Apply to</span>
+          <select class="dropdown" id="addPolicyApplyTo" name="apply-to" required>
+            <option value="all">Exchanges &amp; Queues</option>
+            <option value="exchanges">Exchanges</option>
+            <option value="queues">Queues</option>
+          </select>
+        </label>
+        <label>
+          <span>Definition</span>
+          <textarea name="definition" placeholder='{ "key": value }'></textarea>
+          <div id="dataTags" class="label">
+            <a class="arg-tooltip" data-tag="max-length">Max length
+              <span class="tooltiptext">How many (ready) messages a queue can contain before it starts dropping them.
+                Dropping strategy decided by overflow arg.</span>
+            </a> |
+            <a class="arg-tooltip" data-tag="max-length-bytes">Max length bytes
+              <span class="tooltiptext">The max length of a queue in bytes.</span>
+            </a> |
+            <a class="arg-tooltip" data-tag="message-ttl">Message TTL
+              <span class="tooltiptext">How long a message published to a queue can live before it is discarded
+                (milliseconds).</span>
+            </a> |
+            <a class="arg-tooltip" data-tag="expires">Auto expire
+              <span class="tooltiptext">How long a queue can be unused for before it is automatically deleted
+                (milliseconds).</span>
+            </a> |
+            <a class="arg-tooltip" data-tag="delivery-limit">Delivery limit
+              <span class="tooltiptext">The number of times a message can be redelivered before dropped or
+                dead-lettered</span>
+            </a> |
+            <a class="arg-tooltip" data-tag="max-age" data-value="1M">Max age
+              <span class="tooltiptext">Stream queue segments will be deleted when all messages in the segmented is older than this.
+                Valid units are Y(ear), M(onth), D(ays), h(ours), m(inutes), s(seconds).
+                Segments are only deleted when new messages are published to the stream queue.</span>
+            </a>
           </div>
-        </section>
-        <form method="put" id="createPolicy" class="form card regular-card">
-          <h3 class="title-m">
-            <span class="when-create">Add operator policy</span>
-            <span class="when-edit">Edit operator policy</span>
-          </h3>
-          <div class="py-4">
-            <label class="when-create mb-4">
-              <span class="field-label">Virtual host</span>
-              <select class="dropdown" id="addPolicyVhost" name="vhost" required></select>
-            </label>
-            <label class="mb-4">
-              <span class="field-label">Name</span>
-              <input class="regular-text" type="text" name="name" required data-primary-key="">
-            </label>
-            <label class="mb-4">
-              <span class="field-label">Pattern</span>
-              <input class="regular-text" type="text" name="pattern" required>
-            </label>
-            <label class="mb-4">
-              <span class="field-label">Apply to</span>
-              <select class="dropdown" id="addPolicyApplyTo" name="apply-to" required>
-                <option value="all">Exchanges &amp; Queues</option>
-                <option value="exchanges">Exchanges</option>
-                <option value="queues">Queues</option>
-              </select>
-            </label>
-            <label class="mb-4">
-              <span class="field-label">Definition</span>
-              <textarea class="regular-textarea" name="definition" placeholder='{ "key": value }'></textarea>
-              <div id="dataTags" class="label">
-                <a class="arg-tooltip" data-tag="max-length">Max length
-                  <span class="tooltiptext">How many (ready) messages a queue can contain before it starts dropping them.
-                    Dropping strategy decided by overflow arg.</span>
-                </a> |
-                <a class="arg-tooltip" data-tag="max-length-bytes">Max length bytes
-                  <span class="tooltiptext">The max length of a queue in bytes.</span>
-                </a> |
-                <a class="arg-tooltip" data-tag="message-ttl">Message TTL
-                  <span class="tooltiptext">How long a message published to a queue can live before it is discarded
-                    (milliseconds).</span>
-                </a> |
-                <a class="arg-tooltip" data-tag="expires">Auto expire
-                  <span class="tooltiptext">How long a queue can be unused for before it is automatically deleted
-                    (milliseconds).</span>
-                </a> |
-                <a class="arg-tooltip" data-tag="delivery-limit">Delivery limit
-                  <span class="tooltiptext">The number of times a message can be redelivered before dropped or
-                    dead-lettered</span>
-                </a> |
-                <a class="arg-tooltip" data-tag="max-age" data-value="1M">Max age
-                  <span class="tooltiptext">Stream queue segments will be deleted when all messages in the segmented is older than this.
-                    Valid units are Y(ear), M(onth), D(ays), h(ours), m(inutes), s(seconds).
-                    Segments are only deleted when new messages are published to the stream queue.</span>
-                </a>
-              </div>
-            </label>
-            <label class="mb-4">
-              <span class="field-label">Priority</span>
-              <input class="regular-text" type="number" name="priority" value="0" max="10" min="-10" step="1" required>
-            </label>
-            <button type="submit" class="btn btn-green when-create">Add operator policy</button>
-            <div class="when-edit flex gap-2">
-              <button type="submit" class="btn btn-green">Update</button>
-              <button type="reset" class="btn btn-outlined cancel">Cancel</button>
-            </div>
-          </div>
-        </form>
-      </main>
-      <% render "partials/footer" %>
-    </div>
+        </label>
+        <label>
+          <span>Priority</span>
+          <input type="number" name="priority" value="0" max="10" min="-10" step="1" required>
+        </label>
+        <button type="submit" class="btn btn-green when-create">Add operator policy</button>
+        <div class="when-edit flex gap-2">
+          <button type="submit" class="btn btn-green">Update</button>
+          <button type="reset" class="btn btn-outlined cancel">Cancel</button>
+        </div>
+      </form>
+    </main>
+    <% render "partials/footer" %>
   </body>
 </html>

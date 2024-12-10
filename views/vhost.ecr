@@ -7,118 +7,112 @@
   </head>
   <body>
     <% render "partials/header" %>
-    <div class="grid-content">
-      <main>
-        <div id="breadcrumbs" class="cols-12">
-            <h2 class="page-title"><%=pagename%><div id="pagename-label" class="subpage-title"></div></h2>
+    <main class="main-grid">
+      <div id="breadcrumbs" class="cols-12">
+          <h2 class="page-title"><%=pagename%><div id="pagename-label" class="subpage-title"></div></h2>
+      </div>
+      <section class="card cols-6">
+        <h3>
+          Message stats
+        </h3>
+        <table id="msg-table" class="details-table">
+          <tr>
+            <th>Ready</th>
+            <td id="ready"></td>
+          </tr>
+          <tr>
+            <th>Unacked</th>
+            <td id="unacked"></td>
+          </tr>
+          <tr>
+            <th>Total</th>
+            <td id="total"></td>
+          </tr>
+        </table>
+      </section>
+      <section class="card cols-6">
+        <h3>
+          Limits
+        </h3>
+        <table id="limits-table" class="details-table">
+          <tr>
+            <th>Max connections</th>
+            <td id="max-connections"></td>
+          </tr>
+          <tr>
+            <th>Max queues</th>
+            <td id="max-queues"></td>
+          </tr>
+        </table>
+      </section>
+      <section class="card">
+        <h3 class="has-badge">
+          Permissions
+          <small class="tiny-badge" id="permissions-count"></small>
+        </h3>
+        <div class="table-wrapper">
+          <div id="permissions-error"></div>
+          <table id="permissions" class="table">
+            <thead>
+              <tr>
+                <th>User</th>
+                <th>Configure regexp</th>
+                <th>Write regexp</th>
+                <th>Read regexp</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
         </div>
-        <section class="card cols-6 regular-card">
-          <h3 class="title-m">
-            Message stats
-          </h3>
-          <table id="msg-table" class="details-table">
-            <tr>
-              <th>Ready</th>
-              <td id="ready"></td>
-            </tr>
-            <tr>
-              <th>Unacked</th>
-              <td id="unacked"></td>
-            </tr>
-            <tr>
-              <th>Total</th>
-              <td id="total"></td>
-            </tr>
-          </table>
-        </section>
-        <section class="card cols-6 regular-card">
-          <h3 class="title-m">
-            Limits
-          </h3>
-          <table id="limits-table" class="details-table">
-            <tr>
-              <th>Max connections</th>
-              <td id="max-connections"></td>
-            </tr>
-            <tr>
-              <th>Max queues</th>
-              <td id="max-queues"></td>
-            </tr>
-          </table>
-        </section>
-        <section class="card regular-card">
-          <h3 class="title-m has-badge">
-            Permissions
-            <small class="tiny-badge" id="permissions-count"></small>
-          </h3>
-          <div class="table-wrapper">
-            <div id="permissions-error"></div>
-            <table id="permissions" class="table">
-              <thead>
-                <tr>
-                  <th>User</th>
-                  <th>Configure regexp</th>
-                  <th>Write regexp</th>
-                  <th>Read regexp</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody></tbody>
-            </table>
-          </div>
-        </section>
-        <form method="put" id="setPermission" class="form card cols-6 regular-card">
-          <h3 class="title-m">Set permission</h3>
-          <div class="py-4">
-            <label class="mb-4">
-              <span class="field-label">User</span>
-              <select class="dropdown" name="user" required></select>
-            </label>
-            <label class="mb-4">
-              <span class="field-label">Configure regexp</span>
-              <input class="regular-text" type="text" name="configure" required value=".*">
-            </label>
-            <label class="mb-4">
-              <span class="field-label">Write regexp</span>
-              <input class="regular-text" type="text" name="write" required value=".*">
-            </label>
-            <label class="mb-4">
-              <span class="field-label">Read regexp</span>
-              <input class="regular-text" type="text" name="read" required value=".*">
-            </label>
-            <button type="submit" class="btn btn-outlined">Set permission</button>
-          </div>
+      </section>
+      <form method="put" id="setPermission" class="form card cols-6">
+        <h3>Set permission</h3>
+        <label>
+          <span>User</span>
+          <select class="dropdown" name="user" required></select>
+        </label>
+        <label>
+          <span>Configure regexp</span>
+          <input type="text" name="configure" required value=".*">
+        </label>
+        <label>
+          <span>Write regexp</span>
+          <input type="text" name="write" required value=".*">
+        </label>
+        <label>
+          <span>Read regexp</span>
+          <input type="text" name="read" required value=".*">
+        </label>
+        <button type="submit" class="btn btn-outlined">Set permission</button>
+      </form>
+      <form method="put" id="setLimits" class="form card cols-6">
+        <h3>Set limits</h3>
+        <label>
+          <span>Max connections</span>
+          <input type="number" name="max-connections" class="right">
+        </label>
+        <label>
+          <span>Max queues</span>
+          <input type="number" name="max-queues" class="right">
+        </label>
+        <button type="submit" class="btn btn-green">Set limits</button>
+      </form>
+      <section class="card cols-4">
+        <h3>Danger zone</h3>
+        <form method="post" id="resetVhost" class="form">
+          <label>
+            <button title="Will purge all queues and close the consumers" type="submit" class="btn btn-red ml-0">Reset vhost</button>
+          </label>
         </form>
-        <form method="put" id="setLimits" class="form card cols-6 regular-card">
-          <h3 class="title-m">Set limits</h3>
-          <div class="py-4">
-            <label class="mb-4">
-              <span class="field-label">Max connections</span>
-              <input class="regular-text" type="number" name="max-connections" class="right">
-            </label>
-            <label class="mb-4">
-              <span class="field-label">Max queues</span>
-              <input class="regular-text" type="number" name="max-queues" class="right">
-            </label>
-            <button type="submit" class="btn btn-green">Set limits</button>
-          </div>
+        <br />
+        <form method="delete" id="deleteVhost" class="form">
+          <label>
+            <button type="submit" class="btn btn-red ml-0">Delete vhost</button>
+          </label>
         </form>
-        <section class="card cols-4 regular-card">
-          <h3 class="title-m">Danger zone</h3>
-          <form method="post" id="resetVhost" class="form">
-            <label>
-              <button title="Will purge all queues and close the consumers" type="submit" class="btn btn-red ml-0">Reset vhost</button>
-            </label>
-          </form>
-          <br />
-          <form method="delete" id="deleteVhost" class="form">
-            <label>
-              <button type="submit" class="btn btn-red ml-0">Delete vhost</button>
-            </label>
-          </form>
-        </section>
-      </main>
-      <% render "partials/footer" %>
-    </div>
+      </section>
+    </main>
+    <% render "partials/footer" %>
   </body>
 </html>
