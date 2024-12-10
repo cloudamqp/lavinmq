@@ -120,6 +120,15 @@ module LavinMQ
       def unbind(destination : Destination, routing_key, headers = nil) : Bool
         raise LavinMQ::Exchange::AccessRefused.new(self)
       end
+
+      def apply_policy(policy : Policy?, operator_policy : OperatorPolicy?)
+      end
+
+      def clear_policy
+      end
+
+      def handle_arguments
+      end
     end
   end
 end
