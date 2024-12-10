@@ -42,16 +42,11 @@ jobs:
     continue-on-error: true
     container: 84codes/crystal:latest-ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - name: Checkout ameba
+      - name: Checkout
         uses: actions/checkout@v4
-        with:
-          repository: crystal-ameba/ameba
-          path: ameba
-      - name: Build ameba
-        run: make -C ameba
+      - run: shards install
       - name: Run ameba
-        run: ameba/bin/ameba src spec
+        run: bin/ameba src spec
 
   lint-js:
     name: Lint javascript
