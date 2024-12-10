@@ -5,6 +5,7 @@ require "../sortable_json"
 require "../observable"
 require "./event"
 require "../amqp/queue"
+require "../deduplication"
 
 module LavinMQ
   alias Destination = Queue | Exchange
@@ -34,9 +35,10 @@ module LavinMQ
     @alternate_exchange : String?
     @delayed_queue : Queue?
     @deleted = false
+    @deduper : Deduplication::Deduper?
 
-    rate_stats({"publish_in", "publish_out", "unroutable"})
-    property publish_in_count, publish_out_count, unroutable_count
+    rate_stats({"publish_in", "publish_out", "unroutable", "dedup"})
+    property publish_in_count, publish_out_count, unroutable_count, dedup_count
 
     def initialize(@vhost : VHost, @name : String, @durable = false,
                    @auto_delete = false, @internal = false,
@@ -75,6 +77,20 @@ module LavinMQ
       if @arguments["x-delayed-exchange"]?.try &.as?(Bool)
         @delayed = true
         init_delayed_queue
+      end
+      if @arguments["x-message-deduplication"]?.try &.as?(Bool)
+        ttl = parse_header("x-cache-ttl", Int).try(&.to_u32)
+        size = parse_header("x-cache-size", Int).try(&.to_u32)
+        raise LavinMQ::Error::PreconditionFailed.new("Invalid x-cache-size for message deduplication") unless size
+        header_key = parse_header("x-deduplication-header", String)
+        cache = Deduplication::MemoryCache(AMQ::Protocol::Field).new(size)
+        @deduper = Deduplication::Deduper.new(cache, ttl, header_key)
+      end
+    end
+
+    private macro parse_header(header, type)
+      if value = @arguments["{{ header.id }}"]?
+        value.as?({{ type }}) || raise LavinMQ::Error::PreconditionFailed.new("{{ header.id }} header not a {{ type.id }}")
       end
     end
 
@@ -133,8 +149,6 @@ module LavinMQ
       @vhost.queues[q_name] = @delayed_queue.as(Queue)
     end
 
-    REPUBLISH_HEADERS = {"x-head", "x-tail", "x-from"}
-
     protected def delete
       return if @deleted
       @deleted = true
@@ -152,6 +166,13 @@ module LavinMQ
                 queues : Set(Queue) = Set(Queue).new,
                 exchanges : Set(Exchange) = Set(Exchange).new) : Int32
       @publish_in_count += 1
+      if d = @deduper
+        if d.duplicate?(msg)
+          @dedup_count += 1
+          return 0
+        end
+        d.add(msg)
+      end
       count = do_publish(msg, immediate, queues, exchanges)
       @unroutable_count += 1 if count.zero?
       @publish_out_count += count
