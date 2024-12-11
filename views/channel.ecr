@@ -7,7 +7,10 @@
   </head>
   <body>
     <% render "partials/header" %>
-    <main>
+    <main class="main-grid">
+      <div id="breadcrumbs" class="cols-12">
+          <h2 class="page-title"><%=pagename%><div id="pagename-label" class="subpage-title"></div></h2>
+      </div>
       <section class="card cols-6">
         <h3>Details</h3>
         <table class="details-table">
@@ -51,9 +54,9 @@
         <div class="chart-container" id="chart"></div>
       </section>
       <section class="card">
-        <h3>
+        <h3 class="has-badge">
           Consumers
-          <small id="consumer-count"></small>
+          <small class="tiny-badge" id="consumer-count"></small>
         </h3>
         <div class="table-wrapper">
           <div id="table-error"></div>

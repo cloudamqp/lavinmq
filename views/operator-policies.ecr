@@ -7,7 +7,10 @@
   </head>
   <body>
     <% render "partials/header" %>
-    <main>
+    <main class="main-grid">
+      <div id="breadcrumbs" class="cols-12">
+          <h2 class="page-title"><span><%=pagename%></span><div class="tiny-badge" id="pagename-label"></div></h2>
+      </div>
       <section class="card">
         <div class="table-wrapper">
           <div id="table-error"></div>
@@ -34,7 +37,7 @@
         </h3>
         <label class="when-create">
           <span>Virtual host</span>
-          <select id="addPolicyVhost" name="vhost" required></select>
+          <select class="dropdown" id="addPolicyVhost" name="vhost" required></select>
         </label>
         <label>
           <span>Name</span>
@@ -46,7 +49,7 @@
         </label>
         <label>
           <span>Apply to</span>
-          <select id="addPolicyApplyTo" name="apply-to" required>
+          <select class="dropdown" id="addPolicyApplyTo" name="apply-to" required>
             <option value="all">Exchanges &amp; Queues</option>
             <option value="exchanges">Exchanges</option>
             <option value="queues">Queues</option>
@@ -86,10 +89,10 @@
           <span>Priority</span>
           <input type="number" name="priority" value="0" max="10" min="-10" step="1" required>
         </label>
-        <button type="submit" class="btn-primary when-create">Add operator policy</button>
-        <div class="when-edit">
-          <button type="submit" class="btn-primary">Update</button>
-          <button type="reset" class="btn-danger cancel">Cancel</button>
+        <button type="submit" class="btn btn-green when-create">Add operator policy</button>
+        <div class="when-edit flex gap-2">
+          <button type="submit" class="btn btn-green">Update</button>
+          <button type="reset" class="btn btn-outlined cancel">Cancel</button>
         </div>
       </form>
     </main>
