@@ -169,7 +169,6 @@ module LavinMQ
       private def send_action(action : Action) : Int64
         lag_size = action.lag_size
         @sent_bytes += lag_size
-        STDOUT.write "Follower #{@remote_address} sent bytes: #{lag_size} acked_bytes=#{@acked_bytes} sent_bytes=#{@sent_bytes}\n".to_slice
         @actions.send action
         lag_size
       end

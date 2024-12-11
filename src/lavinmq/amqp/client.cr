@@ -690,6 +690,10 @@ module LavinMQ
           send_access_refused(frame, "User doesn't have read permissions to exchange '#{frame.exchange_name}'")
         elsif !@user.can_write?(@vhost.name, frame.queue_name)
           send_access_refused(frame, "User doesn't have write permissions to queue '#{frame.queue_name}'")
+        elsif q.is_a?(LavinMQ::MQTT::Session)
+          send_access_refused(frame, "Not allowed to bind to an MQTT Session")
+        elsif @vhost.exchanges[frame.exchange_name].is_a?(LavinMQ::MQTT::Exchange)
+          send_access_refused(frame, "Not allowed to bind to an MQTT Exchange")
         elsif queue_exclusive_to_other_client?(q)
           send_resource_locked(frame, "Exclusive queue")
         else
@@ -753,8 +757,8 @@ module LavinMQ
           send_access_refused(frame, "User doesn't have read permissions to exchange '#{frame.source}'")
         elsif !@user.can_write?(@vhost.name, frame.destination)
           send_access_refused(frame, "User doesn't have write permissions to exchange '#{frame.destination}'")
-        elsif frame.source.empty? || frame.destination.empty?
-          send_access_refused(frame, "Not allowed to bind to the default exchange")
+        elsif source.is_a?(LavinMQ::MQTT::Exchange) || destination.is_a?(LavinMQ::MQTT::Exchange)
+          send_access_refused(frame, "Not allowed to bind to an MQTT Exchange")
         else
           @vhost.apply(frame)
           send AMQP::Frame::Exchange::BindOk.new(frame.channel) unless frame.no_wait
