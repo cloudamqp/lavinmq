@@ -44,9 +44,8 @@ module LavinMQ
       loop do
         if leadership = @leadership
           if leadership.wait(30.seconds)
-            Log.warn { "Lost leadership" }
-            stop
-            exit 1
+            Log.fatal { "Lost cluster leadership" }
+            exit 3 # 3rd character in the alphabet is C(lustering)
           else
             @data_dir_lock.try &.poll
             GC.collect
