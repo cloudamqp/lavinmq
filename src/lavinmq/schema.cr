@@ -94,13 +94,14 @@ module LavinMQ
         end
 
         def migrate
-          vhost_segments = Hash(UInt32, MFile).new { |h, k| h[k] = MFile.new("#{@vhost_dir}/msgs.#{k.to_s.rjust(10, '0')}") }
+          vhost_segments = Hash(UInt32, MFile).new { |h, k| h[k] = MFile.new("#{@vhost_dir}/msgs.#{k.to_s.rjust(10, '0')}").borrow }
           queues.each do |queue|
             queue_dir = File.join(@vhost_dir, Digest::SHA1.hexdigest queue)
             QueueMigrator.new(queue_dir, vhost_segments).migrate
           end
           vhost_segments.each_value &.delete
           vhost_segments.each_value &.close
+          vhost_segments.each_value &.unborrow
         end
 
         private def queues : Array(String)

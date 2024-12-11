@@ -76,9 +76,9 @@ module LavinMQ
         hash = Bytes.new(sha1.digest_size)
         @files.each do |path, mfile|
           if mfile
-            was_unmapped = mfile.unmapped?
-            sha1.update mfile.to_slice
-            mfile.unmap if was_unmapped
+            mfile.borrow do
+              sha1.update mfile.to_slice
+            end
           else
             sha1.file path
           end
@@ -92,7 +92,9 @@ module LavinMQ
         path = File.join(@data_dir, filename)
         if @files.has_key? path
           if mfile = @files[path]
-            yield mfile
+            mfile.borrow do
+              yield mfile
+            end
           else
             File.open(path) do |f|
               f.read_buffering = false

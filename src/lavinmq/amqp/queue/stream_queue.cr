@@ -154,20 +154,10 @@ module LavinMQ::AMQP
     private def unmap_and_remove_segments_loop
       until closed?
         sleep 60.seconds
-        unmap_and_remove_segments
-      end
-    end
-
-    private def unmap_and_remove_segments
-      used_segments = Set(UInt32).new
-      @consumers_lock.synchronize do
-        @consumers.each do |consumer|
-          used_segments << consumer.as(AMQP::StreamConsumer).segment
+        break if closed?
+        @msg_store_lock.synchronize do
+          stream_queue_msg_store.drop_overflow
         end
-      end
-      @msg_store_lock.synchronize do
-        stream_queue_msg_store.drop_overflow
-        stream_queue_msg_store.unmap_segments(except: used_segments)
       end
     end
   end

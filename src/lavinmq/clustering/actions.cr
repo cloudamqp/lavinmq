@@ -14,6 +14,7 @@ module LavinMQ
 
       abstract def lag_size : Int64
       abstract def send(socket : IO, log = Log) : Int64
+      abstract def done
 
       getter filename
 
@@ -25,6 +26,7 @@ module LavinMQ
 
     struct AddAction < Action
       def initialize(@data_dir : String, @filename : String, @mfile : MFile? = nil)
+        @mfile.try &.borrow
       end
 
       def lag_size : Int64
@@ -43,7 +45,7 @@ module LavinMQ
         if mfile = @mfile
           size = mfile.size.to_i64
           socket.write_bytes size, IO::ByteFormat::LittleEndian
-          mfile.copy_to(socket, size)
+          socket.write mfile.to_slice
           size
         else
           File.open(File.join(@data_dir, @filename)) do |f|
@@ -53,11 +55,20 @@ module LavinMQ
             size
           end
         end
+      ensure
+        done
+      end
+
+      def done
+        @mfile.try &.unborrow
       end
     end
 
     struct AppendAction < Action
       def initialize(@data_dir : String, @filename : String, @obj : Bytes | FileRange | UInt32 | Int32)
+        if range = @obj.as?(FileRange)
+          range.mfile.borrow
+        end
       end
 
       def lag_size : Int64
@@ -92,6 +103,14 @@ module LavinMQ
         end
         log.debug { "Append #{len} bytes to #{@filename}" }
         len
+      ensure
+        done
+      end
+
+      def done
+        if fr = @obj.as?(FileRange)
+          fr.mfile.unborrow
+        end
       end
     end
 
@@ -108,6 +127,9 @@ module LavinMQ
         send_filename(socket)
         socket.write_bytes 0i64
         0i64
+      end
+
+      def done
       end
     end
   end

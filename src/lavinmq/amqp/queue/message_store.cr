@@ -35,9 +35,9 @@ module LavinMQ
         load_stats_from_segments
         delete_unused_segments
         @wfile_id = @segments.last_key
-        @wfile = @segments.last_value
+        @wfile = @segments.last_value.borrow
         @rfile_id = @segments.first_key
-        @rfile = @segments.first_value
+        @rfile = @segments.first_value.borrow
       end
 
       def push(msg) : SegmentPosition
@@ -67,11 +67,14 @@ module LavinMQ
         raise ClosedError.new if @closed
         if sp = @requeued.first?
           seg = @segments[sp.segment]
+          seg.borrow
           begin
             msg = BytesMessage.from_bytes(seg.to_slice + sp.position)
             return Envelope.new(sp, msg, redelivered: true)
           rescue ex
             raise Error.new(seg, cause: ex)
+          ensure
+            seg.unborrow
           end
         end
 
@@ -105,6 +108,7 @@ module LavinMQ
         raise ClosedError.new if @closed
         if sp = @requeued.shift?
           segment = @segments[sp.segment]
+          segment.borrow
           begin
             msg = BytesMessage.from_bytes(segment.to_slice + sp.position)
             @bytesize -= sp.bytesize
@@ -113,6 +117,8 @@ module LavinMQ
             return Envelope.new(sp, msg, redelivered: true)
           rescue ex
             raise Error.new(segment, cause: ex)
+          ensure
+            segment.unborrow
           end
         end
 
@@ -148,11 +154,13 @@ module LavinMQ
 
       def [](sp : SegmentPosition) : BytesMessage
         raise ClosedError.new if @closed
-        segment = @segments[sp.segment]
+        segment = @segments[sp.segment].borrow
         begin
           BytesMessage.from_bytes(segment.to_slice + sp.position)
         rescue ex
           raise Error.new(segment, cause: ex)
+        ensure
+          segment.unborrow
         end
       end
 
@@ -171,11 +179,11 @@ module LavinMQ
             @log.debug { "Deleting segment #{sp.segment}" }
             select_next_read_segment if sp.segment == @rfile_id
             if a = @acks.delete(sp.segment)
-              a.delete(raise_on_missing: false).close
+              a.unborrow.delete(raise_on_missing: false).close
               @replicator.try &.delete_file(a.path)
             end
             if seg = @segments.delete(sp.segment)
-              seg.delete(raise_on_missing: false).close
+              seg.unborrow.delete(raise_on_missing: false).close
               @replicator.try &.delete_file(seg.path)
             end
             @segment_msg_count.delete(sp.segment)
@@ -228,19 +236,12 @@ module LavinMQ
         (@bytesize / @size).to_u32
       end
 
-      def unmap_segments(except : Enumerable(UInt32) = StaticArray(UInt32, 0).new(0u32))
-        @segments.each do |seg_id, mfile|
-          next if mfile == @wfile
-          next if except.includes? seg_id
-          mfile.unmap
-        end
-      end
-
       private def select_next_read_segment : MFile?
         # Expect @segments to be ordered
         if id = @segments.each_key.find { |sid| sid > @rfile_id }
+          @rfile.unborrow
           @rfile_id = id
-          @rfile = @segments[id]
+          @rfile = @segments[id].borrow
         end
       end
 
@@ -258,25 +259,26 @@ module LavinMQ
       end
 
       private def open_new_segment(next_msg_size = 0) : MFile
-        @wfile.unmap unless @wfile == @rfile
+        @wfile.unborrow
         next_id = @wfile_id + 1
         path = File.join(@queue_data_dir, "msgs.#{next_id.to_s.rjust(10, '0')}")
         capacity = Math.max(Config.instance.segment_size, next_msg_size + 4)
         delete_unused_segments
         wfile = MFile.new(path, capacity)
+        wfile.borrow
         wfile.write_bytes Schema::VERSION
         wfile.pos = 4
         @replicator.try &.register_file wfile
         @replicator.try &.append path, Schema::VERSION
         @wfile_id = next_id
         @wfile = @segments[next_id] = wfile
-        wfile
       end
 
       private def open_ack_file(id) : MFile
         path = File.join(@queue_data_dir, "acks.#{id.to_s.rjust(10, '0')}")
         capacity = Config.instance.segment_size // BytesMessage::MIN_BYTESIZE * 4 + 4
         mfile = MFile.new(path, capacity, writeonly: true)
+        mfile.borrow
         @replicator.try &.register_file mfile
         mfile
       end
@@ -335,8 +337,10 @@ module LavinMQ
                  end
           @replicator.try &.register_file file
           if was_empty
-            file.write_bytes Schema::VERSION
-            @replicator.try &.append path, Schema::VERSION
+            file.borrow do
+              file.write_bytes Schema::VERSION
+              @replicator.try &.append path, Schema::VERSION
+            end
           else
             begin
               SchemaVersion.verify(file, :message)
@@ -347,8 +351,10 @@ module LavinMQ
               @replicator.try &.delete_file(path)
               if idx == 0 # Recreate the file if it's the first segment because we need at least one segment to exist
                 file = MFile.new(path, Config.instance.segment_size)
-                file.write_bytes Schema::VERSION
-                @replicator.try &.append path, Schema::VERSION
+                file.borrow do
+                  file.write_bytes Schema::VERSION
+                  @replicator.try &.append path, Schema::VERSION
+                end
               else
                 @segments.delete seg
                 next
@@ -375,22 +381,26 @@ module LavinMQ
         end
         @segments.each do |seg, mfile|
           count = 0u32
-          loop do
-            pos = mfile.pos
-            ts = IO::ByteFormat::SystemEndian.decode(Int64, mfile.to_slice(pos, 8))
-            break mfile.resize(pos) if ts.zero? # This means that the rest of the file is zero, so resize it
-            bytesize = BytesMessage.skip(mfile)
-            count += 1
-            next if deleted?(seg, pos)
-            update_stats_per_msg(seg, ts, bytesize)
-          rescue ex : IO::EOFError
-            break
-          rescue ex : OverflowError | AMQ::Protocol::Error::FrameDecode
-            @log.error { "Could not initialize segment, closing message store: Failed to read segment #{seg} at pos #{mfile.pos}. #{ex}" }
-            close
+          mfile.borrow
+          begin
+            loop do
+              pos = mfile.pos
+              ts = IO::ByteFormat::SystemEndian.decode(Int64, mfile.to_slice(pos, 8))
+              break mfile.resize(pos) if ts.zero? # This means that the rest of the file is zero, so resize it
+              bytesize = BytesMessage.skip(mfile)
+              count += 1
+              next if deleted?(seg, pos)
+              update_stats_per_msg(seg, ts, bytesize)
+            rescue ex : IO::EOFError
+              break
+            rescue ex : OverflowError | AMQ::Protocol::Error::FrameDecode
+              @log.error { "Could not initialize segment, closing message store: Failed to read segment #{seg} at pos #{mfile.pos}. #{ex}" }
+              close
+            end
+          ensure
+            mfile.unborrow
           end
           mfile.pos = 4
-          mfile.unmap # will be mmap on demand
           if is_long_queue
             @log.info { "Loaded #{counter}/#{@segments.size} segments, #{@size} messages" } if (counter &+= 1) % 128 == 0
           else
@@ -417,7 +427,7 @@ module LavinMQ
             @segment_msg_count.delete seg
             @deleted.delete seg
             if ack = @acks.delete(seg)
-              ack.delete(raise_on_missing: false).close
+              ack.unborrow.delete(raise_on_missing: false).close
               @replicator.try &.delete_file(ack.path)
             end
             mfile.delete(raise_on_missing: false).close

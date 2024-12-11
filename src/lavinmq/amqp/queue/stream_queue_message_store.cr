@@ -54,10 +54,11 @@ module LavinMQ::AMQP
 
       private def offset_at(seg, pos) : Tuple(Int64, UInt32, UInt32)
         return {@last_offset, seg, pos} if @size.zero?
-        mfile = @segments[seg]
-        msg = BytesMessage.from_bytes(mfile.to_slice + pos)
-        offset = offset_from_headers(msg.properties.headers)
-        {offset, seg, pos}
+        @segments[seg].borrow do |mfile|
+          msg = BytesMessage.from_bytes(mfile.to_slice + pos)
+          offset = offset_from_headers(msg.properties.headers)
+          {offset, seg, pos}
+        end
       end
 
       private def last_offset_seg_pos
@@ -78,13 +79,18 @@ module LavinMQ::AMQP
               return last_offset_seg_pos
             end
           end
-          msg = BytesMessage.from_bytes(rfile.to_slice + pos)
-          msg_offset = offset_from_headers(msg.properties.headers)
-          case offset
-          in Int  then break if offset <= msg_offset
-          in Time then break if offset <= Time.unix_ms(msg.timestamp)
+          rfile.borrow
+          begin
+            msg = BytesMessage.from_bytes(rfile.to_slice + pos)
+            msg_offset = offset_from_headers(msg.properties.headers)
+            case offset
+            in Int  then break if offset <= msg_offset
+            in Time then break if offset <= Time.unix_ms(msg.timestamp)
+            end
+            pos += msg.bytesize
+          ensure
+            rfile.unborrow
           end
-          pos += msg.bytesize
         rescue ex
           raise rfile ? Error.new(rfile, cause: ex) : ex
         end
@@ -146,10 +152,11 @@ module LavinMQ::AMQP
       end
 
       private def next_segment(consumer) : MFile?
+        @segments[consumer.segment].unborrow
         if seg_id = @segments.each_key.find { |sid| sid > consumer.segment }
           consumer.segment = seg_id
           consumer.pos = 4u32
-          @segments[seg_id]
+          @segments[seg_id].borrow
         end
       end
 
@@ -238,9 +245,11 @@ module LavinMQ::AMQP
 
       private def build_segment_indexes
         @segments.each do |seg_id, mfile|
-          msg = BytesMessage.from_bytes(mfile.to_slice + 4u32)
-          @offset_index[seg_id] = offset_from_headers(msg.properties.headers)
-          @timestamp_index[seg_id] = msg.timestamp
+          mfile.borrow do
+            msg = BytesMessage.from_bytes(mfile.to_slice + 4u32)
+            @offset_index[seg_id] = offset_from_headers(msg.properties.headers)
+            @timestamp_index[seg_id] = msg.timestamp
+          end
         rescue IndexError
           @offset_index[seg_id] = @last_offset
           @timestamp_index[seg_id] = RoughTime.unix_ms
