@@ -115,7 +115,7 @@ module LavinMQ
         p.on("--raise-gc-warn", "Raise on GC warnings") { @raise_gc_warn = true }
         p.on("--no-data-dir-lock", "Don't put a file lock in the data directory (default true)") { @data_dir_lock = false }
         p.on("-d", "--debug", "Verbose logging") { @log_level = ::Log::Severity::Debug }
-        p.on("-h", "--help", "Show this help") { puts p; exit 1 }
+        p.on("-h", "--help", "Show this help") { puts p; exit 0 }
         p.on("-v", "--version", "Show version") { puts LavinMQ::VERSION; exit 0 }
         p.on("--build-info", "Show build information") { puts LavinMQ::BUILD_INFO; exit 0 }
         p.on("--guest-only-loopback=BOOL", "Limit guest user to only connect from loopback address") do |v|
