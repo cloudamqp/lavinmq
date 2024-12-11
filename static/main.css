@@ -65,7 +65,6 @@ button {
 
 a:hover {
   cursor: pointer;
-  color: #6a5855;
   color: rgba(247, 254, 242, .6);
 }
 /* Base end */
@@ -220,50 +219,8 @@ header h2 {
 /* Navigation end */
 
 /* Utility classes */
-.text-center {
-  text-align: center;
-}
-
-.text-left {
-  text-align: left;
-}
-
 .font-semibold {
   font-weight: 600;
-}
-
-.mb-4 {
-  margin-bottom: 1rem;
-}
-
-.mt-4 {
-  margin-top: 1rem;
-}
-
-.ml-0 {
-  margin-left: 0;
-}
-
-.ml-2 {
-  margin-left: 0.5rem;
-}
-
-.pt-4 {
-  padding-top: 1rem;
-}
-
-.pb-6 {
-  padding-bottom: 1.5rem;
-}
-
-.px-6 {
-  padding-left: 1.5rem;
-  padding-right: 1.5rem;
-}
-
-.py-4 {
-  padding-top: 1rem;
-  padding-bottom: 1rem;
 }
 
 .flex {
