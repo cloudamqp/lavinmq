@@ -21,7 +21,7 @@ module LavinMQ
         Log.info { "Lock acquired" }
       end
       @lock.truncate
-      @lock.print System.hostname
+      @lock.print "PID #{Process.pid} @ #{System.hostname}"
       @lock.fsync
     end
 
