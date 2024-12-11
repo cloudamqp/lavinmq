@@ -2,6 +2,7 @@ require "./actions"
 require "./file_index"
 require "../config"
 require "socket"
+require "wait_group"
 
 module LavinMQ
   module Clustering
@@ -11,7 +12,7 @@ module LavinMQ
       @acked_bytes = 0_i64
       @sent_bytes = 0_i64
       @actions = Channel(Action).new(Config.instance.clustering_max_unsynced_actions)
-      @closed = false
+      @running = WaitGroup.new
       getter id = -1
       getter remote_address
 
@@ -46,6 +47,7 @@ module LavinMQ
       end
 
       def action_loop(lz4 = @lz4)
+        @running.add
         while action = @actions.receive?
           action.send(lz4, Log)
           sent_bytes = action.lag_size.to_i64
@@ -57,12 +59,7 @@ module LavinMQ
           sync(sent_bytes)
         end
       ensure
-        begin
-          @lz4.close
-          @socket.close
-        rescue IO::Error
-          # ignore connection errors while closing
-        end
+        @running.done
       end
 
       private def sync(bytes, socket = @socket) : Nil
@@ -74,9 +71,6 @@ module LavinMQ
       private def read_ack(socket = @socket) : Int64
         len = socket.read_bytes(Int64, IO::ByteFormat::LittleEndian)
         @acked_bytes += len
-        if @closed && lag_in_bytes.zero?
-          @closed_and_in_sync.close
-        end
         len
       end
 
@@ -171,18 +165,20 @@ module LavinMQ
         lag_size
       end
 
-      @closed_and_in_sync = Channel(Nil).new
-
-      def close(timeout : Time::Span = 30.seconds)
-        @closed = true
+      def close
         @actions.close
-        if lag_in_bytes > 0
-          Log.info { "Waiting for follower to be in sync" }
-          select
-          when @closed_and_in_sync.receive?
-          when timeout(timeout)
-            Log.warn { "Timeout waiting for follower to be in sync" }
-          end
+        @running.wait # let action_loop finish
+
+        # abort remaining actions (unmap pending files)
+        while action = @actions.receive?
+          action.done
+        end
+
+        begin
+          @lz4.close
+          @socket.close
+        rescue IO::Error
+          # ignore connection errors while closing
         end
       end
 
