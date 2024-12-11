@@ -11,6 +11,7 @@ module LavinMQ
       @lock.read_buffering = false
     end
 
+    # See `man 2 flock`
     def acquire
       begin
         @lock.flock_exclusive(blocking: false)
@@ -21,7 +22,7 @@ module LavinMQ
         Log.info { "Lock acquired" }
       end
       @lock.truncate
-      @lock.print System.hostname
+      @lock.print "PID #{Process.pid} @ #{System.hostname}"
       @lock.fsync
     end
 
@@ -31,7 +32,7 @@ module LavinMQ
       @lock.flock_unlock
     end
 
-    # Read from the lock file to detect lost lock
+    # Read from the lock file to detect lost lock on networked filesystems (NFS/SMB)
     # See "Lost locks" in `man 2 fcntl`
     def poll
       @lock.read_at(0, 1, &.read_byte) || raise IO::EOFError.new

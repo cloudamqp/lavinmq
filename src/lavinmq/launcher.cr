@@ -46,9 +46,8 @@ module LavinMQ
           select
           when lease.receive?
             break unless @running
-            Log.warn { "Lost leadership lease" }
-            stop
-            exit 1
+            Log.fatal { "Lost cluster leadership" }
+            exit 3 # 3rd character in the alphabet is C(lustering)
           when timeout(30.seconds)
             @data_dir_lock.try &.poll
             GC.collect
