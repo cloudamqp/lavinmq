@@ -66,7 +66,7 @@ describe LavinMQ::Etcd do
         fail "should not lose the leadership to #{new}"
       when timeout(2.seconds)
       end
-      lease.close
+      lease.release
     end
   end
 
@@ -75,13 +75,9 @@ describe LavinMQ::Etcd do
     cluster.run do |etcds|
       etcd = LavinMQ::Etcd.new(cluster.endpoints)
       key = "foo/#{rand}"
-      lease = etcd.elect(key, "bar", 1)
+      lease = etcd.elect(key, "bar", ttl: 1)
       etcds.first(2).each &.terminate(graceful: false)
-      select
-      when lease.receive?
-      when timeout(15.seconds)
-        fail "should lose the leadership"
-      end
+      lease.wait(15.seconds).should be_true, "should lose the leadership"
     end
   end
 
@@ -90,13 +86,9 @@ describe LavinMQ::Etcd do
     cluster.run do |etcds|
       etcd = LavinMQ::Etcd.new(cluster.endpoints)
       key = "foo/#{rand}"
-      lease = etcd.elect(key, "bar", 1)
+      lease = etcd.elect(key, "bar", ttl: 1)
       etcds.sample.terminate(graceful: false)
-      select
-      when lease.receive?
-        fail "should not lose the leadership"
-      when timeout(6.seconds)
-      end
+      lease.wait(6.seconds).should be_false, "should not lose the leadership"
     end
   end
 
