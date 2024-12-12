@@ -5,6 +5,7 @@ require "../sortable_json"
 require "../observable"
 require "./event"
 require "../amqp/queue"
+require "../mqtt/session"
 
 module LavinMQ
   alias Destination = Queue | Exchange
