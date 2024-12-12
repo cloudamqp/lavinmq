@@ -6,6 +6,7 @@ require "./server"
 require "./http/http_server"
 require "./in_memory_backend"
 require "./data_dir_lock"
+require "./etcd"
 
 module LavinMQ
   class Launcher
@@ -13,10 +14,10 @@ module LavinMQ
     @tls_context : OpenSSL::SSL::Context::Server?
     @first_shutdown_attempt = true
     @data_dir_lock : DataDirLock?
-    @lease : Channel(Nil)?
-    @running = false
+    @closed = false
+    @leadership : Etcd::Leadership?
 
-    def initialize(@config : Config, replicator = Clustering::NoopServer.new, @lease = nil)
+    def initialize(@config : Config, replicator = Clustering::NoopServer.new, @leadership = nil)
       print_environment_info
       print_max_map_count
       fd_limit = System.maximize_fd_limit
@@ -38,18 +39,15 @@ module LavinMQ
     end
 
     def run
-      @running = true
       listen
       SystemD.notify_ready
       loop do
-        if lease = @lease
-          select
-          when lease.receive?
-            break unless @running
-            Log.warn { "Lost leadership lease" }
+        if leadership = @leadership
+          if leadership.wait(30.seconds)
+            Log.warn { "Lost leadership" }
             stop
             exit 1
-          when timeout(30.seconds)
+          else
             @data_dir_lock.try &.poll
             GC.collect
           end
@@ -62,14 +60,14 @@ module LavinMQ
     end
 
     def stop
-      return unless @running
-      @running = false
+      return if @closed
+      @closed = true
       Log.warn { "Stopping" }
       SystemD.notify_stopping
       @http_server.close rescue nil
       @amqp_server.close rescue nil
       @data_dir_lock.try &.release
-      @lease.try &.close
+      @leadership.try &.release
     end
 
     private def print_environment_info
