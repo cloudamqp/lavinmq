@@ -1,7 +1,7 @@
 require "../../amqp"
 require "../../binding_key"
 require "../../binding_details"
-require "../../destination"
+require "../destination"
 require "../../error"
 require "../../exchange"
 require "../../observable"
@@ -137,9 +137,13 @@ module LavinMQ
         notify_observers(ExchangeEvent::Deleted)
       end
 
+      def bind(destination : LavinMQ::Destination, routing_key, headers = nil) : Bool
+        raise AccessRefused.new(self)
+      end
+
       abstract def type : String
-      abstract def bind(destination : Destination, routing_key : String, headers : AMQP::Table?)
-      abstract def unbind(destination : Destination, routing_key : String, headers : AMQP::Table?)
+      abstract def bind(destination : AMQP::Destination, routing_key : String, headers : AMQP::Table?)
+      abstract def unbind(destination : AMQP::Destination, routing_key : String, headers : AMQP::Table?)
       abstract def bindings_details : Iterator(BindingDetails)
 
       def publish(msg : Message, immediate : Bool,

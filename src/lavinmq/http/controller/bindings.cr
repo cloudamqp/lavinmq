@@ -50,10 +50,6 @@ module LavinMQ
             user = user(context)
             if !user.can_read?(vhost, e.name)
               access_refused(context, "User doesn't have read permissions to exchange '#{e.name}'")
-            elsif q.is_a?(LavinMQ::MQTT::Session)
-              access_refused(context, "Not allowed to bind to an MQTT session")
-            elsif e.is_a?(LavinMQ::MQTT::Exchange)
-              access_refused(context, "Not allowed to bind to the default MQTT exchange")
             elsif !user.can_write?(vhost, q.name)
               access_refused(context, "User doesn't have write permissions to queue '#{q.name}'")
             elsif e.name.empty?
@@ -136,8 +132,6 @@ module LavinMQ
             user = user(context)
             if !user.can_read?(vhost, source.name)
               access_refused(context, "User doesn't have read permissions to exchange '#{source.name}'")
-            elsif destination.is_a?(LavinMQ::MQTT::Exchange) || source.is_a?(LavinMQ::MQTT::Exchange)
-              access_refused(context, "Not allowed to bind to the default MQTT exchange")
             elsif !user.can_write?(vhost, destination.name)
               access_refused(context, "User doesn't have write permissions to exchange '#{destination.name}'")
             elsif source.name.empty? || destination.name.empty?

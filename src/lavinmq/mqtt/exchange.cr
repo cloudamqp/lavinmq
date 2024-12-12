@@ -1,5 +1,6 @@
 require "../amqp/exchange"
 require "./consts"
+require "../destination"
 require "./subscription_tree"
 require "./session"
 require "./retain_store"
@@ -83,8 +84,8 @@ module LavinMQ
       end
 
       # Only here to make superclass happy
-      protected def bindings(routing_key, headers) : Iterator(Destination)
-        Iterator(Destination).empty
+      protected def bindings(routing_key, headers) : Iterator(LavinMQ::Destination)
+        Iterator(LavinMQ::Destination).empty
       end
 
       def bind(destination : MQTT::Session, routing_key : String, headers = nil) : Bool
