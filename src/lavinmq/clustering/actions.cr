@@ -14,6 +14,7 @@ module LavinMQ
 
       abstract def lag_size : Int64
       abstract def send(socket : IO, log = Log) : Int64
+      abstract def abort
 
       getter filename
 
@@ -54,6 +55,12 @@ module LavinMQ
             IO.copy(f, socket, size) == size || raise IO::EOFError.new
             size
           end
+        end
+      end
+
+      def abort
+        if mfile = @mfile
+          mfile.unreserve
         end
       end
     end
@@ -99,6 +106,12 @@ module LavinMQ
         log.debug { "Append #{len} bytes to #{@filename}" }
         len
       end
+
+      def abort
+        if fr = @obj.as?(FileRange)
+          fr.mfile.unreserve
+        end
+      end
     end
 
     struct DeleteAction < Action
@@ -114,6 +127,9 @@ module LavinMQ
         send_filename(socket)
         socket.write_bytes 0i64
         0i64
+      end
+
+      def abort
       end
     end
   end
