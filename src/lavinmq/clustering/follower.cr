@@ -59,7 +59,7 @@ module LavinMQ
         end
       ensure
         begin
-          @lz4.close
+          lz4.close unless lz4.closed?
           @socket.close
         rescue IO::Error
           # ignore connection errors while closing
@@ -186,6 +186,9 @@ module LavinMQ
             Log.warn { "Timeout waiting for follower to be in sync" }
           end
         end
+      ensure
+        @lz4.close unless @lz4.closed?
+        @socket.close
       end
 
       def to_json(json : JSON::Builder)
