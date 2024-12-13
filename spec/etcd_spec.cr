@@ -1,6 +1,7 @@
 require "spec"
 require "../src/lavinmq/etcd"
 require "file_utils"
+require "http/client"
 
 describe LavinMQ::Etcd do
   it "can put and get" do
