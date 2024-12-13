@@ -35,7 +35,7 @@ module LavinMQ
 
     def watch(key, &)
       body = %({"create_request":{"key":"#{Base64.strict_encode key}"}})
-      post_stream("/v3/watch", body) do |json|
+      stream("/v3/watch", body) do |json|
         next if json.dig?("result", "created") == true # "watch created" is first event
 
         if value = json.dig?("result", "events", 0, "kv", "value")
@@ -130,7 +130,7 @@ module LavinMQ
     end
 
     def elect_listen(name, &)
-      post_stream("/v3/election/observe", %({"name":"#{Base64.strict_encode name}"})) do |json|
+      stream("/v3/election/observe", %({"name":"#{Base64.strict_encode name}"})) do |json|
         if value = json.dig?("result", "kv", "value")
           yield Base64.decode_string(value.as_s)
         else
@@ -153,31 +153,37 @@ module LavinMQ
         chunks = read_chunks(tcp)
         parse_json! chunks
       else
-        body = tcp.read_string(content_length)
+        body = read_string(tcp, content_length)
         parse_json! body
       end
     end
 
-    private def post_stream(path, body, & : JSON::Any -> _)
+    private def stream(path, body, & : JSON::Any -> _)
       with_tcp do |tcp, address|
-        send_request(tcp, address, path, body)
-        content_length = read_headers(tcp)
-        if content_length == -1 # Chunked response
-          read_chunks(tcp) do |chunk|
-            yield parse_json! chunk
-          end
-        else
-          body = tcp.read_string(content_length)
-          yield parse_json! body
+        post_stream(tcp, address, path, body) do |chunk|
+          yield chunk
         end
+      end
+    end
+
+    private def post_stream(tcp, address, path, body, & : JSON::Any -> _)
+      send_request(tcp, address, path, body)
+      content_length = read_headers(tcp)
+      if content_length == -1 # Chunked response
+        read_chunks(tcp) do |chunk|
+          yield parse_json! chunk
+        end
+      else
+        body = read_string(tcp, content_length)
+        yield parse_json! body
       end
     end
 
     private def read_chunks(tcp, & : String -> _) : Nil
       response_finished = false
       loop do
-        bytesize = tcp.read_line.to_i(16)
-        chunk = tcp.read_string(bytesize)
+        bytesize = read_chunk_size(tcp)
+        chunk = read_string(tcp, bytesize)
         tcp.skip(2) # each chunk ends with \r\n
         break if bytesize.zero?
         yield chunk
@@ -196,6 +202,20 @@ module LavinMQ
           break if bytesize.zero?
         end
       end
+    rescue ex : IO::Error
+      raise Error.new("Read chunked response error", cause: ex)
+    end
+
+    def read_string(tcp, content_length) : String
+      tcp.read_string(content_length)
+    rescue ex : IO::Error
+      raise Error.new("Read response error", cause: ex)
+    end
+
+    def read_chunk_size(tcp) : Int32
+      tcp.read_line.to_i(16)
+    rescue ex : IO::Error
+      raise Error.new("Read response error", cause: ex)
     end
 
     private def send_request(tcp : IO, address : String, path : String, body : String)
@@ -205,6 +225,8 @@ module LavinMQ
       tcp << "\r\n"
       tcp << body
       tcp.flush
+    rescue ex : IO::Error
+      raise Error.new("Send request error", cause: ex)
     end
 
     # Parse response headers, return Content-Length (-1 implies chunked response)
@@ -233,6 +255,8 @@ module LavinMQ
         end
       end
       content_length
+    rescue ex : IO::Error
+      raise Error.new("Read response error", cause: ex)
     end
 
     @connections = Deque(Tuple(TCPSocket, String)).new
@@ -246,10 +270,6 @@ module LavinMQ
           raise ex # don't retry when leader is missing
         rescue ex : Error
           Log.warn { "Service Unavailable at #{address}, #{ex.message}, retrying" }
-          socket.close rescue nil
-          sleep 0.1.seconds
-        rescue IO::Error
-          Log.warn { "Lost connection to #{address}, retrying" }
           socket.close rescue nil
           sleep 0.1.seconds
         ensure
