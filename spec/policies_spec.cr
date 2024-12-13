@@ -268,17 +268,17 @@ describe LavinMQ::VHost do
   describe "together with arguments" do
     it "arguments should have priority for non numeric arguments" do
       PoliciesSpec.with_vhost do |vhost|
-        vhost.exchanges["no-ae"] = LavinMQ::AMQP::DirectExchange.new(vhost, "no-ae")
-        vhost.exchanges["x-with-ae"] = LavinMQ::AMQP::DirectExchange.new(vhost, "x-with-ae",
+        no_ae_ex = vhost.exchanges["no-ae"] = LavinMQ::AMQP::DirectExchange.new(vhost, "no-ae")
+        ae_ex = vhost.exchanges["x-with-ae"] = LavinMQ::AMQP::DirectExchange.new(vhost, "x-with-ae",
           arguments: AMQ::Protocol::Table.new({"x-alternate-exchange": "ae2"}))
         vhost.add_policy("test", ".*", "all", definitions, 100_i8)
         sleep 10.milliseconds
-        vhost.exchanges["no-ae"].@alternate_exchange.should eq "dead-letters"
-        vhost.exchanges["x-with-ae"].@alternate_exchange.should eq "ae2"
+        no_ae_ex.@alternate_exchange.should eq "dead-letters"
+        ae_ex.@alternate_exchange.should eq "ae2"
         vhost.delete_policy("test")
         sleep 10.milliseconds
-        vhost.exchanges["no-ae"].@alternate_exchange.should be_nil
-        vhost.exchanges["x-with-ae"].@alternate_exchange.should eq "ae2"
+        no_ae_ex.@alternate_exchange.should be_nil
+        ae_ex.@alternate_exchange.should eq "ae2"
       end
     end
 
