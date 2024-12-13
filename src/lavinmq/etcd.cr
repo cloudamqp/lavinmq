@@ -96,6 +96,8 @@ module LavinMQ
             ttl = lease_keepalive(lease_id)
           end
         rescue ex
+          # FIXME: this can happen before the node has become leader
+          # then we should retry.
           Log.warn { "Lost leadership of #{name}: #{ex}" }
           channel.close
           break
