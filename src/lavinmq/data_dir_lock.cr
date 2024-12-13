@@ -21,6 +21,7 @@ module LavinMQ
         @lock.flock_exclusive(blocking: true)
         Log.info { "Lock acquired" }
       end
+      Log.debug { "Data directory lock aquired" }
       @lock.truncate
       @lock.print "PID #{Process.pid} @ #{System.hostname}"
       @lock.fsync
