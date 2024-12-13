@@ -26,7 +26,6 @@ module LavinMQ
         validate_header!
         authenticate!(password)
         @id = @socket.read_bytes Int32, IO::ByteFormat::LittleEndian
-        @socket.read_timeout = nil
         @socket.tcp_nodelay = true
         @socket.read_buffering = false
         @socket.sync = true # Use buffering in lz4
