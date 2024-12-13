@@ -146,7 +146,7 @@ module LavinMQ
       end
 
       def close(reason = "")
-        @log.trace { "Client#close" }
+        @log.debug { "Client#close" }
         @closed = true
         @socket.close
       end
