@@ -143,7 +143,6 @@ module LavinMQ
             block.call(topic, read(file_name))
           end
         end
-        nil
       end
 
       private def read(file_name : String) : Bytes
@@ -164,9 +163,9 @@ module LavinMQ
 
       def make_file_name(topic : String) : String
         @hasher.update topic.to_slice
-        hash = @hasher.hexfinal
+        "#{@hasher.hexfinal}#{MESSAGE_FILE_SUFFIX}"
+      ensure
         @hasher.reset
-        "#{hash}#{MESSAGE_FILE_SUFFIX}"
       end
     end
   end
