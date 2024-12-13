@@ -90,25 +90,15 @@ module LavinMQ
     def elect(name, value, requested_ttl = 10) : Leadership
       lease_id, _ttl = lease_grant(requested_ttl)
       election_campaign(name, value, lease_id)
-      lost_leadership = Channel(Nil).new
-      spawn(name: "Etcd lease keepalive #{lease_id}") do
-        ttl = lease_ttl(lease_id)
-        loop do
-          sleep ttl.seconds
-          ttl = lease_keepalive(lease_id)
-        end
-      rescue ex
-        Log.error(exception: ex) { "Lost leadership #{name}" }
-      ensure
-        lost_leadership.close
-      end
-      Leadership.new(self, lease_id, lost_leadership)
+      Leadership.new(self, lease_id)
     end
 
-    # Represents a holding a Leadership
+    # Represents holding a Leadership
     # Can be revoked or wait until lost
     class Leadership
-      def initialize(@etcd : Etcd, @lease_id : Int64, @lost_leadership : Channel(Nil))
+      def initialize(@etcd : Etcd, @lease_id : Int64)
+        @lost_leadership = Channel(Nil).new
+        spawn(keepalive_loop, name: "Etcd lease keepalive #{@lease_id}")
       end
 
       # Force release leadership
@@ -125,6 +115,18 @@ module LavinMQ
         when timeout(timeout)
           false
         end
+      end
+
+      private def keepalive_loop
+        ttl = @etcd.lease_ttl(@lease_id)
+        loop do
+          sleep ttl.seconds
+          ttl = @etcd.lease_keepalive(@lease_id)
+        end
+      rescue ex
+        Log.error(exception: ex) { "Lost leadership" }
+      ensure
+        @lost_leadership.close
       end
     end
 
