@@ -1,5 +1,5 @@
 require "./exchange"
-require "../consistent_hasher.cr"
+require "../../consistent_hasher.cr"
 
 module LavinMQ
   module AMQP
