@@ -37,7 +37,8 @@ module LavinMQ
     def poll
       @lock.read_at(0, 1, &.read_byte) || raise IO::EOFError.new
     rescue ex : IO::Error | ArgumentError
-      abort "ERROR: Lost data directory lock! #{ex.inspect}"
+      Log.fatal(exception: ex) { "Lost data dir lock" }
+      exit 4 # 4 for D(dataDir)
     end
   end
 end

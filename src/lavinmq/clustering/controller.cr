@@ -66,6 +66,9 @@ class LavinMQ::Clustering::Controller
       spawn r.follow(uri), name: "Clustering client #{uri}"
       SystemD.notify_ready
     end
+  rescue ex
+    Log.fatal(exception: ex) { "Unhandled exception while following leader" }
+    exit 36 # 36 for CF (Cluster Follower)
   end
 
   def wait_to_be_insync
