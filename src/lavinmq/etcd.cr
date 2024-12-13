@@ -120,7 +120,7 @@ module LavinMQ
       private def keepalive_loop
         ttl = @etcd.lease_ttl(@lease_id)
         loop do
-          sleep ttl.seconds
+          sleep (ttl * 0.7).seconds
           ttl = @etcd.lease_keepalive(@lease_id)
         end
       rescue ex
