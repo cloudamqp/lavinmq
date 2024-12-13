@@ -126,8 +126,9 @@ describe "Delayed Message Exchange" do
         x = ch.exchange(x_name, "topic", args: x_args)
         q = ch.queue(q_name)
         q.bind(x.name, "#")
+        ex = s.vhosts["/"].exchanges[x_name].as(LavinMQ::AMQP::Exchange)
 
-        delayed_q_name = s.vhosts["/"].exchanges[x_name].@delayed_queue.try &.name || raise "No delay queue?"
+        delayed_q_name = ex.@delayed_queue.try &.name || raise "No delay queue?"
 
         msgs = Channel(AMQP::Client::DeliverMessage).new
         q.subscribe { |msg| msgs.send msg }

@@ -1,7 +1,9 @@
 require "../../amqp"
 require "../../binding_key"
 require "../../binding_details"
+require "../../destination"
 require "../../error"
+require "../../exchange"
 require "../../observable"
 require "../../policy"
 require "../../stats"
@@ -11,7 +13,7 @@ require "./event"
 
 module LavinMQ
   module AMQP
-    abstract class Exchange
+    abstract class Exchange < LavinMQ::Exchange
       include PolicyTarget
       include Stats
       include SortableJSON
@@ -237,16 +239,6 @@ module LavinMQ
           end
         end
       end
-
-      class AccessRefused < Error
-        def initialize(@exchange : Exchange)
-          super("Access refused to #{@exchange.name}")
-        end
-      end
     end
   end
-
-  # Temporary alias for compatibility
-  alias Exchange = AMQP::Exchange
-  alias Destination = Queue | Exchange
 end
