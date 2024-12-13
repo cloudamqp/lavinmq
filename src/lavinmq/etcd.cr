@@ -1,4 +1,4 @@
-require "http/client"
+require "socket"
 require "wait_group"
 require "json"
 require "./logger"
@@ -35,7 +35,7 @@ module LavinMQ
 
     def watch(key, &)
       body = %({"create_request":{"key":"#{Base64.strict_encode key}"}})
-      post_stream("/v3/watch", body) do |json|
+      stream("/v3/watch", body) do |json|
         next if json.dig?("result", "created") == true # "watch created" is first event
 
         if value = json.dig?("result", "events", 0, "kv", "value")
@@ -61,8 +61,15 @@ module LavinMQ
       if ttl = json.dig?("result", "TTL")
         ttl.as_s.to_i
       else
-        raise Error.new("Lost lease #{id}")
+        raise Error.new("Lease #{id} expired")
       end
+    end
+
+    def lease_ttl(id) : Int32
+      json = post("/v3/lease/timetolive", body: %({"ID":"#{id}"}))
+      ttl = json["TTL"].as_s.to_i
+      raise Error.new("Lease #{id} expired") if ttl < 0
+      ttl
     end
 
     def lease_revoke(id) : Nil
@@ -81,56 +88,51 @@ module LavinMQ
     # Returns when elected leader
     # Returns a `Leadership` instance
     def elect(name, value, ttl = 10) : Leadership
-      channel = Channel(Nil).new
-      lease_id, ttl = lease_grant(ttl)
-      wg = WaitGroup.new(1)
-      spawn(name: "Etcd lease keepalive #{lease_id}") do
-        wg.done
-        loop do
-          select
-          when channel.receive?
-            lease_revoke(lease_id)
-            channel.close
-            break
-          when timeout((ttl * 0.7).seconds)
-            ttl = lease_keepalive(lease_id)
-          end
-        rescue ex
-          Log.warn { "Lost leadership of #{name}: #{ex}" }
-          channel.close
-          break
-        end
-      end
+      lease_id, _ttl = lease_grant(ttl)
       election_campaign(name, value, lease_id)
-      wg.wait
-      Leadership.new(self, lease_id, channel)
+      Leadership.new(self, lease_id)
     end
 
-    # Represents a holding a Leadership
+    # Represents holding a Leadership
     # Can be revoked or wait until lost
     class Leadership
-      def initialize(@etcd : Etcd, @lease_id : Int64, @lost_leadership_channel : Channel(Nil))
+      def initialize(@etcd : Etcd, @lease_id : Int64)
+        @lost_leadership = Channel(Nil).new
+        spawn(keepalive_loop, name: "Etcd lease keepalive #{@lease_id}")
       end
 
       # Force release leadership
       def release
         @etcd.lease_revoke(@lease_id)
+        @lost_leadership.close
       end
 
       # Wait until looses leadership
       # Returns true when lost leadership, false when timeout occured
       def wait(timeout : Time::Span) : Bool
         select
-        when @lost_leadership_channel.receive?
-          return true
+        when @lost_leadership.receive?
+          true
         when timeout(timeout)
-          return false
+          false
         end
+      end
+
+      private def keepalive_loop
+        ttl = @etcd.lease_ttl(@lease_id)
+        loop do
+          sleep (ttl * 0.7).seconds
+          ttl = @etcd.lease_keepalive(@lease_id)
+        end
+      rescue ex
+        Log.error(exception: ex) { "Lost leadership" } unless @lost_leadership.closed?
+      ensure
+        @lost_leadership.close
       end
     end
 
     def elect_listen(name, &)
-      post_stream("/v3/election/observe", %({"name":"#{Base64.strict_encode name}"})) do |json|
+      stream("/v3/election/observe", %({"name":"#{Base64.strict_encode name}"})) do |json|
         if value = json.dig?("result", "kv", "value")
           yield Base64.decode_string(value.as_s)
         else
@@ -153,31 +155,37 @@ module LavinMQ
         chunks = read_chunks(tcp)
         parse_json! chunks
       else
-        body = tcp.read_string(content_length)
+        body = read_string(tcp, content_length)
         parse_json! body
       end
     end
 
-    private def post_stream(path, body, & : JSON::Any -> _)
+    private def stream(path, body, & : JSON::Any -> _)
       with_tcp do |tcp, address|
-        send_request(tcp, address, path, body)
-        content_length = read_headers(tcp)
-        if content_length == -1 # Chunked response
-          read_chunks(tcp) do |chunk|
-            yield parse_json! chunk
-          end
-        else
-          body = tcp.read_string(content_length)
-          yield parse_json! body
+        post_stream(tcp, address, path, body) do |chunk|
+          yield chunk
         end
+      end
+    end
+
+    private def post_stream(tcp, address, path, body, & : JSON::Any -> _)
+      send_request(tcp, address, path, body)
+      content_length = read_headers(tcp)
+      if content_length == -1 # Chunked response
+        read_chunks(tcp) do |chunk|
+          yield parse_json! chunk
+        end
+      else
+        body = read_string(tcp, content_length)
+        yield parse_json! body
       end
     end
 
     private def read_chunks(tcp, & : String -> _) : Nil
       response_finished = false
       loop do
-        bytesize = tcp.read_line.to_i(16)
-        chunk = tcp.read_string(bytesize)
+        bytesize = read_chunk_size(tcp)
+        chunk = read_string(tcp, bytesize)
         tcp.skip(2) # each chunk ends with \r\n
         break if bytesize.zero?
         yield chunk
@@ -196,6 +204,20 @@ module LavinMQ
           break if bytesize.zero?
         end
       end
+    rescue ex : IO::Error
+      raise Error.new("Read chunked response error", cause: ex)
+    end
+
+    def read_string(tcp, content_length) : String
+      tcp.read_string(content_length)
+    rescue ex : IO::Error
+      raise Error.new("Read response error", cause: ex)
+    end
+
+    def read_chunk_size(tcp) : Int32
+      tcp.read_line.to_i(16)
+    rescue ex : IO::Error
+      raise Error.new("Read response error", cause: ex)
     end
 
     private def send_request(tcp : IO, address : String, path : String, body : String)
@@ -205,6 +227,8 @@ module LavinMQ
       tcp << "\r\n"
       tcp << body
       tcp.flush
+    rescue ex : IO::Error
+      raise Error.new("Send request error", cause: ex)
     end
 
     # Parse response headers, return Content-Length (-1 implies chunked response)
@@ -233,6 +257,8 @@ module LavinMQ
         end
       end
       content_length
+    rescue ex : IO::Error
+      raise Error.new("Read response error", cause: ex)
     end
 
     @connections = Deque(Tuple(TCPSocket, String)).new
@@ -246,10 +272,6 @@ module LavinMQ
           raise ex # don't retry when leader is missing
         rescue ex : Error
           Log.warn { "Service Unavailable at #{address}, #{ex.message}, retrying" }
-          socket.close rescue nil
-          sleep 0.1.seconds
-        rescue IO::Error
-          Log.warn { "Lost connection to #{address}, retrying" }
           socket.close rescue nil
           sleep 0.1.seconds
         ensure
@@ -313,18 +335,19 @@ module LavinMQ
     private def raise_if_error(json)
       if error = json["error"]?
         Log.debug { "etcd error: #{error}" }
-        if errorh = error.as_h?
-          error_msg = errorh["message"].as_s
-          case error_msg
-          when "error reading from server: EOF"
-            raise IO::EOFError.new(error_msg)
-          when "etcdserver: no leader"
-            raise NoLeader.new(error_msg)
+        error_msg =
+          if errorh = error.as_h?
+            errorh["message"].as_s
           else
-            raise Error.new error_msg
+            error.as_s
           end
+        case error_msg
+        when "error reading from server: EOF"
+          raise IO::EOFError.new(error_msg)
+        when "etcdserver: no leader"
+          raise NoLeader.new(error_msg)
         else
-          raise Error.new error.as_s
+          raise Error.new error_msg
         end
       end
     end

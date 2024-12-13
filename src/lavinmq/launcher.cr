@@ -6,7 +6,6 @@ require "./server"
 require "./http/http_server"
 require "./in_memory_backend"
 require "./data_dir_lock"
-require "./etcd"
 
 module LavinMQ
   class Launcher
@@ -15,9 +14,8 @@ module LavinMQ
     @first_shutdown_attempt = true
     @data_dir_lock : DataDirLock?
     @closed = false
-    @leadership : Etcd::Leadership?
 
-    def initialize(@config : Config, replicator = Clustering::NoopServer.new, @leadership = nil)
+    def initialize(@config : Config, replicator = Clustering::NoopServer.new)
       print_environment_info
       print_max_map_count
       fd_limit = System.maximize_fd_limit
@@ -38,23 +36,17 @@ module LavinMQ
       setup_log_exchange
     end
 
-    def run
+    def start : self
       listen
       SystemD.notify_ready
+      self
+    end
+
+    def run
+      start
       loop do
-        if leadership = @leadership
-          if leadership.wait(30.seconds)
-            Log.fatal { "Lost cluster leadership" }
-            exit 3 # 3rd character in the alphabet is C(lustering)
-          else
-            @data_dir_lock.try &.poll
-            GC.collect
-          end
-        else
-          sleep 30.seconds
-          @data_dir_lock.try &.poll
-          GC.collect
-        end
+        sleep 30.seconds
+        GC.collect
       end
     end
 
@@ -66,7 +58,6 @@ module LavinMQ
       @http_server.close rescue nil
       @amqp_server.close rescue nil
       @data_dir_lock.try &.release
-      @leadership.try &.release
     end
 
     private def print_environment_info

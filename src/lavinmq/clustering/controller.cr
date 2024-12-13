@@ -17,14 +17,27 @@ class LavinMQ::Clustering::Controller
   def run
     spawn(follow_leader, name: "Follower monitor")
     wait_to_be_insync
-    lease = @etcd.elect("#{@config.clustering_etcd_prefix}/leader", @advertised_uri) # blocks until becoming leader
+    @lease = lease = @etcd.elect("#{@config.clustering_etcd_prefix}/leader", @advertised_uri) # blocks until becoming leader
+    # TODO: make sure we still are in the ISR set
     replicator = Clustering::Server.new(@config, @etcd)
-    @launcher = l = Launcher.new(@config, replicator, lease)
-    l.run
+    @launcher = Launcher.new(@config, replicator).start
+    loop do
+      if lease.wait(30.seconds)
+        break if @stopped
+        Log.fatal { "Lost cluster leadership" }
+        exit 3
+      else
+        GC.collect
+      end
+    end
   end
 
+  @stopped = false
+
   def stop
+    @stopped = true
     @launcher.try &.stop
+    @lease.try &.release
   end
 
   # Each node in a cluster has an unique id, for tracking ISR
@@ -66,6 +79,9 @@ class LavinMQ::Clustering::Controller
       spawn r.follow(uri), name: "Clustering client #{uri}"
       SystemD.notify_ready
     end
+  rescue ex
+    Log.fatal(exception: ex) { "Unhandled exception while following leader" }
+    exit 36 # 36 for CF (Cluster Follower)
   end
 
   def wait_to_be_insync
