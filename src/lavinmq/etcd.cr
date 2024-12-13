@@ -61,8 +61,15 @@ module LavinMQ
       if ttl = json.dig?("result", "TTL")
         ttl.as_s.to_i
       else
-        raise Error.new("Lost lease #{id}")
+        raise Error.new("Lease #{id} expired")
       end
+    end
+
+    def lease_ttl(id) : Int32
+      json = post("/v3/lease/timetolive", body: %({"ID":"#{id}"}))
+      ttl = json["TTL"].as_s.to_i
+      raise Error.new("Lease #{id} expired") if ttl < 0
+      ttl
     end
 
     def lease_revoke(id) : Nil
@@ -80,38 +87,28 @@ module LavinMQ
     # Campaign for an election
     # Returns when elected leader
     # Returns a `Leadership` instance
-    def elect(name, value, ttl = 10) : Leadership
-      channel = Channel(Nil).new
-      lease_id, ttl = lease_grant(ttl)
-      wg = WaitGroup.new(1)
-      spawn(name: "Etcd lease keepalive #{lease_id}") do
-        wg.done
-        loop do
-          select
-          when channel.receive?
-            lease_revoke(lease_id)
-            channel.close
-            break
-          when timeout((ttl * 0.7).seconds)
-            ttl = lease_keepalive(lease_id)
-          end
-        rescue ex
-          # FIXME: this can happen before the node has become leader
-          # then we should retry.
-          Log.warn { "Lost leadership of #{name}: #{ex}" }
-          channel.close
-          break
-        end
-      end
+    def elect(name, value, requested_ttl = 10) : Leadership
+      lease_id, _ttl = lease_grant(requested_ttl)
       election_campaign(name, value, lease_id)
-      wg.wait
-      Leadership.new(self, lease_id, channel)
+      lost_leadership = Channel(Nil).new
+      spawn(name: "Etcd lease keepalive #{lease_id}") do
+        ttl = lease_ttl(lease_id)
+        loop do
+          sleep ttl.seconds
+          ttl = lease_keepalive(lease_id)
+        end
+      rescue ex
+        Log.error(exception: ex) { "Lost leadership #{name}" }
+      ensure
+        lost_leadership.close
+      end
+      Leadership.new(self, lease_id, lost_leadership)
     end
 
     # Represents a holding a Leadership
     # Can be revoked or wait until lost
     class Leadership
-      def initialize(@etcd : Etcd, @lease_id : Int64, @lost_leadership_channel : Channel(Nil))
+      def initialize(@etcd : Etcd, @lease_id : Int64, @lost_leadership : Channel(Nil))
       end
 
       # Force release leadership
@@ -123,10 +120,10 @@ module LavinMQ
       # Returns true when lost leadership, false when timeout occured
       def wait(timeout : Time::Span) : Bool
         select
-        when @lost_leadership_channel.receive?
-          return true
+        when @lost_leadership.receive?
+          true
         when timeout(timeout)
-          return false
+          false
         end
       end
     end
