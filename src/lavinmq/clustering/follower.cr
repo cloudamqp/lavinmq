@@ -166,13 +166,13 @@ module LavinMQ
         lag_size
       end
 
-      def close(timeout : Time::Span = 30.seconds)
+      def close
         @actions.close
         @running.wait # let action_loop finish
 
         # abort remaining actions (unmap pending files)
         while action = @actions.receive?
-          action.abort
+          action.done
         end
 
         begin
