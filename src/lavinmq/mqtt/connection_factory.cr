@@ -11,8 +11,8 @@ module LavinMQ
     class ConnectionFactory < LavinMQ::ConnectionFactory
       def initialize(@users : UserStore,
                      @vhosts : VHostStore,
+                     @brokers : Brokers,
                      replicator : Clustering::Replicator)
-        @brokers = Brokers.new(@vhosts, replicator)
       end
 
       def start(socket : ::IO, connection_info : ConnectionInfo)

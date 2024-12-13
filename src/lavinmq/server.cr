@@ -43,9 +43,10 @@ module LavinMQ
       Schema.migrate(@data_dir, @replicator)
       @users = UserStore.new(@data_dir, @replicator)
       @vhosts = VHostStore.new(@data_dir, @users, @replicator)
+      @brokers = MQTT::Brokers.new(@vhosts, @replicator)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator)
       @connection_factories[Protocol::AMQP] = AMQP::ConnectionFactory.new(@users, @vhosts)
-      @connection_factories[Protocol::MQTT] = MQTT::ConnectionFactory.new(@users, @vhosts, @replicator)
+      @connection_factories[Protocol::MQTT] = MQTT::ConnectionFactory.new(@users, @vhosts, @brokers, @replicator)
       apply_parameter
       spawn stats_loop, name: "Server#stats_loop"
     end
