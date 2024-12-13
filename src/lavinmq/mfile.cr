@@ -150,8 +150,10 @@ class MFile < IO
 
   # unload the memory mapping, will be remapped on demand
   def unmap : Nil
-    munmap
+    b = @buffer
+    c = @capacity
     @buffer = Pointer(UInt8).null
+    munmap(b, c)
   end
 
   def unmapped? : Bool
