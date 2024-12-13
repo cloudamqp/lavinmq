@@ -1,13 +1,13 @@
-require "../binding_key"
-require "../binding_details"
-require "../error"
-require "../policy"
-require "../stats"
-require "../amqp"
-require "../sortable_json"
-require "../observable"
+require "../../amqp"
+require "../../binding_key"
+require "../../binding_details"
+require "../../error"
+require "../../observable"
+require "../../policy"
+require "../../stats"
+require "../../sortable_json"
+require "../queue"
 require "./event"
-require "../amqp/queue"
 
 module LavinMQ
   module AMQP

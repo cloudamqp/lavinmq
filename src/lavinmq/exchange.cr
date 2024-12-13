@@ -1,1 +1,1 @@
-require "./exchange/*"
+require "./amqp/exchange/*"
