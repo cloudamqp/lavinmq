@@ -14,15 +14,15 @@ module LavinMQ
   end
 end
 
-describe LavinMQ::DirectExchange do
+describe LavinMQ::AMQP::DirectExchange do
   it "matches exact rk" do
     with_amqp_server do |s|
       vhost = s.vhosts.create("x")
       q1 = LavinMQ::AMQP::Queue.new(vhost, "q1")
-      x = LavinMQ::DirectExchange.new(vhost, "")
+      x = LavinMQ::AMQP::DirectExchange.new(vhost, "")
       x.bind(q1, "q1", LavinMQ::AMQP::Table.new)
       found_queues = Set(LavinMQ::Queue).new
-      x.find_queues("q1", nil, found_queues, Set(LavinMQ::Exchange).new)
+      x.find_queues("q1", nil, found_queues, Set(LavinMQ::AMQP::Exchange).new)
       found_queues.should eq(Set{q1})
     end
   end
@@ -30,25 +30,25 @@ describe LavinMQ::DirectExchange do
   it "matches no rk" do
     with_amqp_server do |s|
       vhost = s.vhosts.create("x")
-      x = LavinMQ::DirectExchange.new(vhost, "")
+      x = LavinMQ::AMQP::DirectExchange.new(vhost, "")
 
       found_queues = Set(LavinMQ::Queue).new
-      x.find_queues("q1", nil, found_queues, Set(LavinMQ::Exchange).new)
+      x.find_queues("q1", nil, found_queues, Set(LavinMQ::AMQP::Exchange).new)
       found_queues.should be_empty
     end
   end
 end
 
-describe LavinMQ::FanoutExchange do
+describe LavinMQ::AMQP::FanoutExchange do
   it "matches any rk" do
     with_amqp_server do |s|
       vhost = s.vhosts.create("x")
       q1 = LavinMQ::AMQP::Queue.new(vhost, "q1")
-      x = LavinMQ::FanoutExchange.new(vhost, "")
+      x = LavinMQ::AMQP::FanoutExchange.new(vhost, "")
       x.bind(q1, "")
 
       found_queues = Set(LavinMQ::Queue).new
-      x.find_queues("q1", nil, found_queues, Set(LavinMQ::Exchange).new)
+      x.find_queues("q1", nil, found_queues, Set(LavinMQ::AMQP::Exchange).new)
       found_queues.should eq(Set{q1})
     end
   end
@@ -56,18 +56,18 @@ describe LavinMQ::FanoutExchange do
   it "matches no rk" do
     with_amqp_server do |s|
       vhost = s.vhosts.create("x")
-      x = LavinMQ::FanoutExchange.new(vhost, "")
+      x = LavinMQ::AMQP::FanoutExchange.new(vhost, "")
       found_queues = Set(LavinMQ::Queue).new
-      x.find_queues("q1", nil, found_queues, Set(LavinMQ::Exchange).new)
+      x.find_queues("q1", nil, found_queues, Set(LavinMQ::AMQP::Exchange).new)
       found_queues.should be_empty
     end
   end
 end
 
-describe LavinMQ::TopicExchange do
+describe LavinMQ::AMQP::TopicExchange do
   with_amqp_server do |s|
     vhost = s.vhosts.create("x")
-    x = LavinMQ::TopicExchange.new(vhost, "t", false, false, true)
+    x = LavinMQ::AMQP::TopicExchange.new(vhost, "t", false, false, true)
 
     it "matches prefixed star-wildcard" do
       q1 = LavinMQ::AMQP::Queue.new(vhost, "q1")
@@ -121,7 +121,7 @@ describe LavinMQ::TopicExchange do
     it "should match multiple bindings" do
       q6 = LavinMQ::AMQP::Queue.new(vhost, "q6")
       q7 = LavinMQ::AMQP::Queue.new(vhost, "q7")
-      ex = LavinMQ::TopicExchange.new(vhost, "t55", false, false, true)
+      ex = LavinMQ::AMQP::TopicExchange.new(vhost, "t55", false, false, true)
       ex.bind(q6, "rk")
       ex.bind(q7, "rk")
       ex.matches("rk").should eq(Set{q6, q7})
@@ -131,7 +131,7 @@ describe LavinMQ::TopicExchange do
 
     it "should not get index out of bound when matching routing keys" do
       q8 = LavinMQ::AMQP::Queue.new(vhost, "q63")
-      ex = LavinMQ::TopicExchange.new(vhost, "t63", false, false, true)
+      ex = LavinMQ::AMQP::TopicExchange.new(vhost, "t63", false, false, true)
       ex.bind(q8, "rk63.rk63")
       ex.matches("rk63").should be_empty
       ex.unbind(q8, "rk63.rk63")
@@ -188,14 +188,14 @@ describe LavinMQ::TopicExchange do
   end
 end
 
-describe LavinMQ::HeadersExchange do
+describe LavinMQ::AMQP::HeadersExchange do
   with_amqp_server do |s|
     vhost = s.vhosts.create("x")
 
-    x = LavinMQ::HeadersExchange.new(vhost, "h", false, false, true)
+    x = LavinMQ::AMQP::HeadersExchange.new(vhost, "h", false, false, true)
     before_each do
       vhost = s.vhosts.create("x")
-      x = LavinMQ::HeadersExchange.new(vhost, "h", false, false, true)
+      x = LavinMQ::AMQP::HeadersExchange.new(vhost, "h", false, false, true)
     end
 
     hdrs_all = LavinMQ::AMQP::Table.new({
@@ -211,14 +211,14 @@ describe LavinMQ::HeadersExchange do
 
     describe "match all" do
       it "should match if same args" do
-        x = LavinMQ::HeadersExchange.new(vhost, "h", false, false, true)
+        x = LavinMQ::AMQP::HeadersExchange.new(vhost, "h", false, false, true)
         q6 = LavinMQ::AMQP::Queue.new(vhost, "q6")
         x.bind(q6, "", hdrs_all)
         x.matches("", hdrs_all).should eq(Set{q6})
       end
 
       it "should not match if not all args are the same" do
-        x = LavinMQ::HeadersExchange.new(vhost, "h", false, false, true)
+        x = LavinMQ::AMQP::HeadersExchange.new(vhost, "h", false, false, true)
         q7 = LavinMQ::AMQP::Queue.new(vhost, "q7")
         x.bind(q7, "", hdrs_all)
         msg_hdrs = hdrs_all.dup
@@ -230,7 +230,7 @@ describe LavinMQ::HeadersExchange do
 
     describe "match any" do
       it "should match if any args are the same" do
-        x = LavinMQ::HeadersExchange.new(vhost, "h", false, false, true)
+        x = LavinMQ::AMQP::HeadersExchange.new(vhost, "h", false, false, true)
         q8 = LavinMQ::AMQP::Queue.new(vhost, "q8")
         x.bind(q8, "", hdrs_any)
         msg_hdrs = hdrs_any.dup
@@ -240,7 +240,7 @@ describe LavinMQ::HeadersExchange do
       end
 
       it "should not match if no args are the same" do
-        x = LavinMQ::HeadersExchange.new(vhost, "h", false, false, true)
+        x = LavinMQ::AMQP::HeadersExchange.new(vhost, "h", false, false, true)
         q9 = LavinMQ::AMQP::Queue.new(vhost, "q9")
         x.bind(q9, "", hdrs_any)
         msg_hdrs = hdrs_any.dup
@@ -251,7 +251,7 @@ describe LavinMQ::HeadersExchange do
       end
 
       it "should match nestled amq-protocol tables" do
-        x = LavinMQ::HeadersExchange.new(vhost, "h", false, false, true)
+        x = LavinMQ::AMQP::HeadersExchange.new(vhost, "h", false, false, true)
         q10 = LavinMQ::AMQP::Queue.new(vhost, "q10")
         bind_hdrs = LavinMQ::AMQP::Table.new({
           "x-match" => "any",
@@ -266,7 +266,7 @@ describe LavinMQ::HeadersExchange do
 
     it "should handle multiple bindings" do
       q10 = LavinMQ::AMQP::Queue.new(vhost, "q10")
-      x = LavinMQ::HeadersExchange.new(vhost, "h", false, false, true)
+      x = LavinMQ::AMQP::HeadersExchange.new(vhost, "h", false, false, true)
       hdrs1 = LavinMQ::AMQP::Table.new({"x-match" => "any", "org" => "84codes", "user" => "test"})
       hdrs2 = LavinMQ::AMQP::Table.new({"x-match" => "all", "org" => "google", "user" => "test"})
 
@@ -280,7 +280,7 @@ describe LavinMQ::HeadersExchange do
 
     it "should handle all Field types" do
       q11 = LavinMQ::AMQP::Queue.new(vhost, "q11")
-      x = LavinMQ::HeadersExchange.new(vhost, "h", false, false, true)
+      x = LavinMQ::AMQP::HeadersExchange.new(vhost, "h", false, false, true)
       hsh = {"k" => "v"} of String => LavinMQ::AMQP::Field
       arrf = [1] of LavinMQ::AMQP::Field
       arru = [1_u8] of LavinMQ::AMQP::Field
@@ -297,7 +297,7 @@ describe LavinMQ::HeadersExchange do
 
     it "should handle unbind" do
       q12 = LavinMQ::AMQP::Queue.new(vhost, "q12")
-      x = LavinMQ::HeadersExchange.new(vhost, "h", false, false, true)
+      x = LavinMQ::AMQP::HeadersExchange.new(vhost, "h", false, false, true)
       hdrs1 = LavinMQ::AMQP::Table.new({
         "x-match" => "any", "org" => "84codes", "user" => "test",
       })
@@ -311,7 +311,7 @@ describe LavinMQ::HeadersExchange do
 
     describe "match empty" do
       it "should match if both args and headers are empty" do
-        x = LavinMQ::HeadersExchange.new(vhost, "h", false, false, true)
+        x = LavinMQ::AMQP::HeadersExchange.new(vhost, "h", false, false, true)
         q13 = LavinMQ::AMQP::Queue.new(vhost, "q13")
         x.bind(q13, "", nil)
         x.matches("", nil).size.should eq 1
@@ -320,13 +320,13 @@ describe LavinMQ::HeadersExchange do
   end
 end
 
-describe LavinMQ::Exchange do
+describe LavinMQ::AMQP::Exchange do
   it "should handle CC in header" do
     with_amqp_server do |s|
       vhost = s.vhosts.create("x")
       q1 = LavinMQ::AMQP::Queue.new(vhost, "q1")
       q2 = LavinMQ::AMQP::Queue.new(vhost, "q2")
-      x = LavinMQ::DirectExchange.new(vhost, "")
+      x = LavinMQ::AMQP::DirectExchange.new(vhost, "")
       x.bind(q1, "q1", LavinMQ::AMQP::Table.new)
       x.bind(q2, "q2", LavinMQ::AMQP::Table.new)
       found_queues = Set(LavinMQ::Queue).new
@@ -341,7 +341,7 @@ describe LavinMQ::Exchange do
       vhost = s.vhosts.create("x")
       q1 = LavinMQ::AMQP::Queue.new(vhost, "q1")
       q2 = LavinMQ::AMQP::Queue.new(vhost, "q2")
-      x = LavinMQ::DirectExchange.new(vhost, "")
+      x = LavinMQ::AMQP::DirectExchange.new(vhost, "")
       x.bind(q1, "q1", LavinMQ::AMQP::Table.new)
       x.bind(q2, "q2", LavinMQ::AMQP::Table.new)
       found_queues = Set(LavinMQ::Queue).new
@@ -358,7 +358,7 @@ describe LavinMQ::Exchange do
       vhost = s.vhosts.create("x")
       q1 = LavinMQ::AMQP::Queue.new(vhost, "q1")
       q2 = LavinMQ::AMQP::Queue.new(vhost, "q2")
-      x = LavinMQ::DirectExchange.new(vhost, "")
+      x = LavinMQ::AMQP::DirectExchange.new(vhost, "")
       x.bind(q1, "q1", LavinMQ::AMQP::Table.new)
       x.bind(q2, "q2", LavinMQ::AMQP::Table.new)
       found_queues = Set(LavinMQ::Queue).new
@@ -374,7 +374,7 @@ describe LavinMQ::Exchange do
       vhost = s.vhosts.create("x")
       q1 = LavinMQ::AMQP::Queue.new(vhost, "q1")
       q2 = LavinMQ::AMQP::Queue.new(vhost, "q2")
-      x = LavinMQ::DirectExchange.new(vhost, "")
+      x = LavinMQ::AMQP::DirectExchange.new(vhost, "")
       x.bind(q1, "q1", LavinMQ::AMQP::Table.new)
       x.bind(q2, "q2", LavinMQ::AMQP::Table.new)
       found_queues = Set(LavinMQ::Queue).new
@@ -391,7 +391,7 @@ describe LavinMQ::Exchange do
       vhost = s.vhosts.create("x")
       q1 = LavinMQ::AMQP::Queue.new(vhost, "q1")
       q2 = LavinMQ::AMQP::Queue.new(vhost, "q2")
-      x = LavinMQ::DirectExchange.new(vhost, "")
+      x = LavinMQ::AMQP::DirectExchange.new(vhost, "")
       x.bind(q1, "q1", LavinMQ::AMQP::Table.new)
       x.bind(q2, "q2", LavinMQ::AMQP::Table.new)
       found_queues = Set(LavinMQ::Queue).new
@@ -408,7 +408,7 @@ describe LavinMQ::Exchange do
       q1 = LavinMQ::AMQP::Queue.new(vhost, "q1")
       q2 = LavinMQ::AMQP::Queue.new(vhost, "q2")
       q3 = LavinMQ::AMQP::Queue.new(vhost, "q3")
-      x = LavinMQ::DirectExchange.new(vhost, "")
+      x = LavinMQ::AMQP::DirectExchange.new(vhost, "")
       x.bind(q1, "q1", LavinMQ::AMQP::Table.new)
       x.bind(q2, "q2", LavinMQ::AMQP::Table.new)
       x.bind(q3, "q3", LavinMQ::AMQP::Table.new)

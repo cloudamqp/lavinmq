@@ -120,7 +120,7 @@ module LavinMQ
     # The position of the msg.body_io should be at the start of the body
     # When this method finishes, the position will be the same, start of the body
     def publish(msg : Message, immediate = false,
-                visited = Set(Exchange).new, found_queues = Set(Queue).new) : Bool
+                visited = Set(LavinMQ::Exchange).new, found_queues = Set(LavinMQ::Queue).new) : Bool
       ex = @exchanges[msg.exchange_name]? || return false
       published_queue_count = ex.publish(msg, immediate, found_queues, visited)
       !published_queue_count.zero?
@@ -555,12 +555,12 @@ module LavinMQ
 
     private def load_default_definitions
       @log.info { "Loading default definitions" }
-      @exchanges[""] = DefaultExchange.new(self, "", true, false, false)
-      @exchanges["amq.direct"] = DirectExchange.new(self, "amq.direct", true, false, false)
-      @exchanges["amq.fanout"] = FanoutExchange.new(self, "amq.fanout", true, false, false)
-      @exchanges["amq.topic"] = TopicExchange.new(self, "amq.topic", true, false, false)
-      @exchanges["amq.headers"] = HeadersExchange.new(self, "amq.headers", true, false, false)
-      @exchanges["amq.match"] = HeadersExchange.new(self, "amq.match", true, false, false)
+      @exchanges[""] = AMQP::DefaultExchange.new(self, "", true, false, false)
+      @exchanges["amq.direct"] = AMQP::DirectExchange.new(self, "amq.direct", true, false, false)
+      @exchanges["amq.fanout"] = AMQP::FanoutExchange.new(self, "amq.fanout", true, false, false)
+      @exchanges["amq.topic"] = AMQP::TopicExchange.new(self, "amq.topic", true, false, false)
+      @exchanges["amq.headers"] = AMQP::HeadersExchange.new(self, "amq.headers", true, false, false)
+      @exchanges["amq.match"] = AMQP::HeadersExchange.new(self, "amq.match", true, false, false)
     end
 
     private def compact!
@@ -621,16 +621,16 @@ module LavinMQ
       case type
       when "direct"
         if name.empty?
-          DefaultExchange.new(vhost, name, durable, auto_delete, internal, arguments)
+          AMQP::DefaultExchange.new(vhost, name, durable, auto_delete, internal, arguments)
         else
-          DirectExchange.new(vhost, name, durable, auto_delete, internal, arguments)
+          AMQP::DirectExchange.new(vhost, name, durable, auto_delete, internal, arguments)
         end
       when "fanout"
-        FanoutExchange.new(vhost, name, durable, auto_delete, internal, arguments)
+        AMQP::FanoutExchange.new(vhost, name, durable, auto_delete, internal, arguments)
       when "topic"
-        TopicExchange.new(vhost, name, durable, auto_delete, internal, arguments)
+        AMQP::TopicExchange.new(vhost, name, durable, auto_delete, internal, arguments)
       when "headers"
-        HeadersExchange.new(vhost, name, durable, auto_delete, internal, arguments)
+        AMQP::HeadersExchange.new(vhost, name, durable, auto_delete, internal, arguments)
       when "x-delayed-message", "x-delayed-exchange"
         arguments = arguments.clone
         type = arguments.delete("x-delayed-type")
@@ -638,9 +638,9 @@ module LavinMQ
         arguments["x-delayed-exchange"] = true
         make_exchange(vhost, name, type, durable, auto_delete, internal, arguments)
       when "x-federation-upstream"
-        FederationExchange.new(vhost, name, arguments)
+        AMQP::FederationExchange.new(vhost, name, arguments)
       when "x-consistent-hash"
-        ConsistentHashExchange.new(vhost, name, durable, auto_delete, internal, arguments)
+        AMQP::ConsistentHashExchange.new(vhost, name, durable, auto_delete, internal, arguments)
       else raise Error::ExchangeTypeError.new("invalid exchange type '#{type}'")
       end
     end
