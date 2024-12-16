@@ -244,10 +244,6 @@ module LavinMQ
                       value: @amqp_server.user_time,
                       type:  "gauge",
                       help:  "Total CPU user time"})
-        writer.write({name:  "rss_bytes",
-                      type:  "gauge",
-                      value: @amqp_server.rss,
-                      help:  "Memory RSS in bytes"})
         writer.write({name:  "stats_collection_duration_seconds_total",
                       value: @amqp_server.stats_collection_duration_seconds_total.to_f,
                       type:  "gauge",
