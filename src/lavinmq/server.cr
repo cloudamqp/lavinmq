@@ -46,8 +46,10 @@ module LavinMQ
       @vhosts = VHostStore.new(@data_dir, @users, @replicator)
       @brokers = MQTT::Brokers.new(@vhosts, @replicator)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator)
-      @connection_factories[Protocol::AMQP] = AMQP::ConnectionFactory.new(@users, @vhosts)
-      @connection_factories[Protocol::MQTT] = MQTT::ConnectionFactory.new(@users, @vhosts, @brokers, @replicator)
+      @connection_factories = {
+        Protocol::AMQP => AMQP::ConnectionFactory.new(@users, @vhosts),
+        Protocol::MQTT => MQTT::ConnectionFactory.new(@users, @brokers)
+      }
       apply_parameter
       spawn stats_loop, name: "Server#stats_loop"
     end
@@ -58,7 +60,7 @@ module LavinMQ
 
     def amqp_url
       addr = @listeners
-        .select { |k, v| k.is_a?(TCPServer) && v.amqp? }
+        .select { |k, v| v.amqp? }
         .keys
         .select(TCPServer)
         .first

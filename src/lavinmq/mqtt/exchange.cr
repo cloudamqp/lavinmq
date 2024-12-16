@@ -44,12 +44,10 @@ module LavinMQ
       def publish(packet : MQTT::Publish) : Int32
         @publish_in_count += 1
 
-        headers = AMQP::Table.new.tap do |h|
-          h[RETAIN_HEADER] = true if packet.retain?
-        end
-        properties = AMQP::Properties.new(headers: headers).tap do |p|
-          p.delivery_mode = packet.qos if packet.responds_to?(:qos)
-        end
+        headers = AMQP::Table.new
+        headers[RETAIN_HEADER] = true if packet.retain?
+        properties = AMQP::Properties.new(headers: headers)
+        properties.delivery_mode = packet.qos if packet.responds_to?(:qos)
 
         timestamp = RoughTime.unix_ms
         bodysize = packet.payload.size.to_u64
@@ -57,9 +55,11 @@ module LavinMQ
         body.write(packet.payload)
         body.rewind
 
-        @retain_store.retain(packet.topic, body, bodysize) if packet.retain?
+        if packet.retain?
+          @retain_store.retain(packet.topic, body, bodysize)
+          body.rewind
+        end
 
-        body.rewind
         msg = Message.new(timestamp, EXCHANGE, packet.topic, properties, bodysize, body)
 
         count = 0
@@ -67,7 +67,7 @@ module LavinMQ
           msg.properties.delivery_mode = qos
           if queue.publish(msg)
             count += 1
-            msg.body_io.seek(-msg.bodysize.to_i64, ::IO::Seek::Current) # rewind
+            msg.body_io.rewind
           end
         end
         @unroutable_count += 1 if count.zero?
