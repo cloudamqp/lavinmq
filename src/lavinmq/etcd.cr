@@ -275,7 +275,8 @@ module LavinMQ
         Log.debug { "Could not connect to #{address}: #{ex}" }
         next
       end
-      raise Error.new("No endpoint responded")
+      Log.fatal { "No etcd endpoint responded" }
+      exit 5 # 5th character in the alphabet is E(etcd)
     end
 
     private def update_endpoints(tcp, address)
