@@ -1,14 +1,22 @@
 <header>
-  <h2><%=pagename%><small id="pagename-label"></small>
-  </h2>
+  <div id="menu-header">
+    <a class="lavinmq-logo" href="/"><img alt="LavinMQ logo" id="logo" src="img/logo-lavinmq-all-white.svg" width="120" height="24"></a>
+    <span class="version-tab" id="version"><%= LavinMQ::VERSION %></span>
+  </div>
+  <button id="usermenu-button"></button>
   <nav id="user-menu">
     <ul>
-      <li><span id="username"></span></li>
-      <li>
+      <li class="flex flex-row items-center">
+        <div class="flex flex-col">
+          <span class="sm-label">User</span>
+          <span class="font-semibold" id="username"></span>
+        </div>
+      </li>
+      <li class="flex flex-row items-center">
         <form id="user-vhost">
           <label>
             <span>vhost:</span>
-            <select id="userMenuVhost" name="vhost"></select>
+            <select class="dropdown" id="userMenuVhost" name="vhost"></select>
           </label>
         </form>
       </li>
@@ -19,12 +27,9 @@
       </li>
     </ul>
   </nav>
+  <div class="r-c"><div class="r-c-inner"></div></div>
 </header>
 <nav id="menu">
-  <h1 id="menu-header">
-    <a href="/"><img alt="LavinMQ logo" id="logo" src="img/logo-lavinmq-white.svg" width="222" height="45"></a>
-    <small id="version"><%= LavinMQ::VERSION %></small>
-  </h1>
   <button id="menu-button"></button>
   <ul id="menu-content">
     <% {

@@ -7,27 +7,32 @@
   </head>
   <body>
     <% render "partials/header" %>
-    <main>
+    <main class="main-grid">
+      <div id="breadcrumbs" class="cols-12">
+          <h2 class="page-title"><%=pagename%><div class="tiny-badge" id="pagename-label"></div></h2>
+      </div>
       <section class="card">
-        <div id="table-error"></div>
-        <table id="table" class="table">
-          <thead>
-            <tr>
-              <th data-sort-key="vhost">Virtual host</th>
-              <th data-sort-key="name" class="left">Name</th>
-              <th data-sort-key="type" class="left">Type</th>
-              <th>Features</th>
-              <th data-sort-key="policy">Policy</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
+        <div class="table-wrapper">
+          <div id="table-error"></div>
+          <table id="table" class="table">
+            <thead>
+              <tr>
+                <th data-sort-key="vhost" class="left">Virtual host</th>
+                <th data-sort-key="name" class="left">Name</th>
+                <th data-sort-key="type" class="left">Type</th>
+                <th>Features</th>
+                <th data-sort-key="policy">Policy</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
       </section>
       <form method="put" id="addExchange" class="form card">
         <h3>Add exchange</h3>
         <label>
           <span>Virtual host</span>
-          <select name="vhost" required></select>
+          <select class="dropdown" name="vhost" required></select>
         </label>
         <label>
           <span>Name</span>
@@ -35,11 +40,11 @@
         </label>
         <label>
           <span>Type</span>
-          <select name="type" required></select>
+          <select class="dropdown" name="type" required></select>
         </label>
         <label>
           <span>
-            <a class="prop-tooltip" data-tag="alternate-exchange">Durable
+            <a class="prop-tooltip" data-tag="alternate-exchange">Durable<span class="tooltip-icon">?</span>
               <span class="prop-tooltiptext">"Durable" exchanges persist even when the server restarts,
                 ensuring their availability and preventing data loss.</span>
             </a>
@@ -48,7 +53,7 @@
         </label>
         <label>
           <span>
-          <a class="prop-tooltip" data-tag="alternate-exchange">Auto-delete
+          <a class="prop-tooltip" data-tag="alternate-exchange">Auto-delete<span class="tooltip-icon">?</span>
           <span class="prop-tooltiptext">"Auto-delete" exchanges are automatically removed when they
           are no longer in use, freeing up system resources.</span>
           </a>
@@ -57,7 +62,7 @@
         </label>
         <label>
           <span>
-          <a class="prop-tooltip" data-tag="alternate-exchange">Internal
+          <a class="prop-tooltip" data-tag="alternate-exchange">Internal<span class="tooltip-icon">?</span>
           <span class="prop-tooltiptext"> "Internal" exchanges are specifically designed for internal
           use within the messaging system and are not intended for direct interaction with external components.</span>
           </a>
@@ -66,7 +71,7 @@
         </label>
         <label>
           <span>
-          <a class="prop-tooltip" data-tag="alternate-exchange">Delayed
+          <a class="prop-tooltip" data-tag="alternate-exchange">Delayed<span class="tooltip-icon">?</span>
           <span class="prop-tooltiptext">"Delayed" exchanges introduce a delay before delivering
           messages, allowing for delayed processing or scheduling of tasks.</span>
           </a>
@@ -82,7 +87,7 @@
             </a>
           </div>
         </label>
-        <button type="submit" class="btn-primary">Add exchange</button>
+        <button type="submit" class="btn btn-green">Add exchange</button>
       </form>
     </main>
     <% render "partials/footer" %>

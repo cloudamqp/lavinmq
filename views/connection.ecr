@@ -7,7 +7,10 @@
   </head>
   <body>
     <% render "partials/header" %>
-    <main>
+    <main class="main-grid">
+      <div id="breadcrumbs" class="cols-12">
+          <h2 class="page-title"><%=pagename%><div id="pagename-label" class="subpage-title"></div></h2>
+      </div>
       <section class="card cols-6">
         <h3>Details</h3>
         <table class="details-table">
@@ -71,9 +74,9 @@
         <div class="chart-container" id="chart"></div>
       </section>
       <section class="card">
-        <h3>
+        <h3 class="has-badge">
           Channels
-          <small id="table-count"></small>
+          <small class="tiny-badge" id="table-count"></small>
         </h3>
         <div class="table-wrapper">
           <div id="table-error"></div>
@@ -99,7 +102,7 @@
           <span>Reason</span>
           <input type="text" name="reason" value="Closed via Web management">
         </label>
-        <button type="submit" class="btn-secondary">Close</button>
+        <button type="submit" class="btn btn-outlined"><span>Close</span><img src="img/icon-cross.svg" /></button>
       </form>
     </main>
     <% render "partials/footer" %>

@@ -7,7 +7,10 @@
   </head>
   <body>
     <% render "partials/header" %>
-    <main>
+    <main class="main-grid">
+      <div id="breadcrumbs" class="cols-12">
+          <h2 class="page-title"><span><%=pagename%></span><div class="tiny-badge" id="pagename-label"></div></h2>
+      </div>
       <section class="card">
         <div class="table-wrapper">
           <div id="table-error"></div>
@@ -45,7 +48,7 @@
         </h3>
         <label class="when-create">
           <span>Virtual host</span>
-          <select name="vhost" required></select>
+          <select class="dropdown" name="vhost" required></select>
         </label>
         <label>
           <span>Name</span>
@@ -59,7 +62,7 @@
           </label>
           <label>
             <span>Type</span>
-            <select name="src-type" required>
+            <select class="dropdown" name="src-type" required>
               <option value="queue">Queue</option>
               <option value="exchange">Exchange</option>
             </select>
@@ -79,7 +82,7 @@
           </label>
           <label>
             <span>Auto delete</span>
-            <select name="src-delete-after" required>
+            <select class="dropdown" name="src-delete-after" required>
               <option value="never">Never</option>
               <option value="queue-length">Queue length</option>
             </select>
@@ -93,7 +96,7 @@
           </label>
           <label class="amqp-dest-field">
             <span>Type</span>
-            <select name="dest-type" required>
+            <select class="dropdown" name="dest-type" required>
               <option value="queue">Queue</option>
               <option value="exchange">Exchange</option>
             </select>
@@ -110,16 +113,16 @@
         </label>
         <label>
           <span>Ack mode</span>
-          <select name="ack-mode" required>
+          <select class="dropdown" name="ack-mode" required>
             <option value="on-confirm" selected>On confirm</option>
             <option value="on-publish">On publish</option>
             <option value="no-ack">No ack</option>
           </select>
         </label>
-        <button type="submit" class="btn-primary when-create">Add shovel</button>
-        <div class="when-edit">
-          <button type="submit" class="btn-primary">Update</button>
-          <button type="reset" class="btn-danger cancel">Cancel</button>
+        <button type="submit" class="btn btn-green when-create">Add shovel</button>
+        <div class="when-edit flex gap-2">
+          <button type="submit" class="btn btn-green">Update</button>
+          <button type="reset" class="btn btn-outlined cancel">Cancel</button>
         </div>
       </form>
     </main>

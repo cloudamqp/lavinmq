@@ -7,7 +7,10 @@
   </head>
   <body>
     <% render "partials/header" %>
-    <main>
+    <main class="main-grid">
+      <div id="breadcrumbs" class="cols-12">
+          <h2 class="page-title"><%=pagename%><div id="pagename-label" class="subpage-title"></div></h2>
+      </div>
       <section class="card cols-6">
         <h3>
           Message stats
@@ -43,9 +46,9 @@
         </table>
       </section>
       <section class="card">
-        <h3>
+        <h3 class="has-badge">
           Permissions
-          <small id="permissions-count"></small>
+          <small class="tiny-badge" id="permissions-count"></small>
         </h3>
         <div class="table-wrapper">
           <div id="permissions-error"></div>
@@ -67,7 +70,7 @@
         <h3>Set permission</h3>
         <label>
           <span>User</span>
-          <select name="user" required></select>
+          <select class="dropdown" name="user" required></select>
         </label>
         <label>
           <span>Configure regexp</span>
@@ -81,7 +84,7 @@
           <span>Read regexp</span>
           <input type="text" name="read" required value=".*">
         </label>
-        <button type="submit" class="btn-primary">Set permission</button>
+        <button type="submit" class="btn btn-outlined">Set permission</button>
       </form>
       <form method="put" id="setLimits" class="form card cols-6">
         <h3>Set limits</h3>
@@ -93,19 +96,19 @@
           <span>Max queues</span>
           <input type="number" name="max-queues" class="right">
         </label>
-        <button type="submit" class="btn-primary">Set limits</button>
+        <button type="submit" class="btn btn-green">Set limits</button>
       </form>
       <section class="card cols-4">
         <h3>Danger zone</h3>
         <form method="post" id="resetVhost" class="form">
           <label>
-            <button title="Will purge all queues and close the consumers" type="submit" class="btn-danger">Reset vhost</button>
+            <button title="Will purge all queues and close the consumers" type="submit" class="btn btn-red">Reset vhost</button>
           </label>
         </form>
         <br />
         <form method="delete" id="deleteVhost" class="form">
           <label>
-            <button type="submit" class="btn-danger">Delete vhost</button>
+            <button type="submit" class="btn btn-red">Delete vhost</button>
           </label>
         </form>
       </section>

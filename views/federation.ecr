@@ -7,47 +7,49 @@
   </head>
   <body>
     <% render "partials/header" %>
-    <main>
+    <main class="main-grid">
+      <div id="breadcrumbs" class="cols-12">
+          <h2 class="page-title"><span><%=pagename%></span><div class="tiny-badge" id="pagename-label"></div></h2>
+      </div>
       <section class="card">
         <div class="table-wrapper">
           <div id="upstreamTable-error"></div>
           <table id="upstreamTable" class="table">
             <thead>
               <tr>
-                <td>Virtual host</td>
-                <td data-sort-key="name">Name</td>
-                <td>URI</td>
-                <td>Prefetch</td>
-                <td>Reconnect delay</td>
-                <td>Ack mode</td>
-                <td>Exchange</td>
+                <th>Virtual host</th>
+                <th data-sort-key="name">Name</th>
+                <th>URI</th>
+                <th>Prefetch</th>
+                <th>Reconnect delay</th>
+                <th>Ack mode</th>
+                <th>Exchange</th>
                 <!-- <td>Max hops</td> -->
-                <td>Expiry</td>
-                <td>Message TTL</td>
-                <td>Queue</td>
-                <td>Consumer Tag</td>
-                <td></td>
+                <th>Expiry</th>
+                <th>Message TTL</th>
+                <th>Queue</th>
+                <th>Consumer Tag</th>
+                <th></th>
               </tr>
             </thead>
             <tbody></tbody>
           </table>
         </div>
       </section>
+      <div id="breadcrumbs" class="cols-12">
+          <h2 class="page-title"><span>Federation links</span><div class="tiny-badge" id="links-count"></div></h2>
+      </div>
       <section class="card">
-        <h3>
-          Federation Links
-          <small id="links-count"></small>
-        </h3>
         <div class="table-wrapper">
           <div id="linksTable-error"></div>
           <table id="linksTable" class="table">
             <thead>
               <tr>
-                <td>Virtual host</td>
-                <td data-sort-key="name">Upstream</td>
-                <td>URI</td>
-                <td>Resource</td>
-                <td>Connected at</td>
+                <th>Virtual host</th>
+                <th data-sort-key="name">Upstream</th>
+                <th>URI</th>
+                <th>Resource</th>
+                <th>Connected at</th>
               </tr>
             </thead>
             <tbody></tbody>
@@ -63,7 +65,7 @@
           <legend>General paramenters</legend>
           <label class="when-create">
             <span>Virtual host</span>
-            <select name="vhost" required></select>
+            <select class="dropdown" name="vhost" required></select>
           </label>
           <label>
             <span>Name</span>
@@ -83,7 +85,7 @@
           </label>
           <label>
             <span>Ack mode</span>
-            <select name="ack-mode" required>
+            <select class="dropdown" name="ack-mode" required>
               <option value="on-confirm" selected>On confirm</option>
               <option value="on-publish">On publish</option>
               <option value="no-ack">No ack</option>
@@ -122,12 +124,11 @@
             <input type="text" name="consumer-tag">
           </label>
         </fieldset>
-        <button type="submit" class="btn-primary when-create">Add upstream</button>
-        <div class="when-edit">
-          <button type="submit" class="btn-primary">Update</button>
-          <button type="reset" class="btn-danger cancel">Cancel</button>
+        <button type="submit" class="btn btn-green when-create">Add upstream</button>
+        <div class="when-edit flex gap-2">
+          <button type="submit" class="btn btn-green">Update</button>
+          <button type="reset" class="btn btn-outlined cancel">Cancel</button>
         </div>
-
       </form>
     </main>
     <% render "partials/footer" %>

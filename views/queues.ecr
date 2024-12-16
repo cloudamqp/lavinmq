@@ -7,7 +7,10 @@
   </head>
   <body>
     <% render "partials/header" %>
-    <main>
+    <main class="main-grid">
+      <div id="breadcrumbs" class="cols-12">
+          <h2 class="page-title"><%=pagename%><div class="tiny-badge" id="pagename-label"></div></h2>
+      </div>
       <section class="card">
         <div id="multiselect-controls" class="popup-card hide">
           <a class="popup-close" href="#">&#x2715</a>
@@ -45,7 +48,7 @@
         <h3>Add queue</h3>
         <label>
           <span>Virtual host</span>
-          <select name="vhost" required></select>
+          <select class="dropdown" name="vhost" required></select>
         </label>
         <label>
           <span>Name</span>
@@ -53,7 +56,7 @@
         </label>
         <label>
           <span>
-          <a class="prop-tooltip" data-tag="alternate-exchange">Durable
+          <a class="prop-tooltip" data-tag="alternate-exchange">Durable<span class="tooltip-icon">?</span>
           <span class="prop-tooltiptext">"Durable" queues persist even when the server restarts,
           ensuring their availability and preventing data loss.</span>
           </a>
@@ -62,7 +65,7 @@
         </label>
         <label>
           <span>
-          <a class="prop-tooltip" data-tag="alternate-exchange">Auto-delete
+          <a class="prop-tooltip" data-tag="alternate-exchange">Auto-delete<span class="tooltip-icon">?</span>
           <span class="prop-tooltiptext">"Auto-delete" queues are automatically removed when the
           last consumer disconnects, freeing up system resources.</span>
           </a>
@@ -114,7 +117,7 @@
             </a>
           </div>
         </label>
-        <button type="submit" class="btn-primary">Add queue</button>
+        <button type="submit" class="btn btn-green">Add queue</button>
       </form>
     </main>
     <% render "partials/footer" %>
