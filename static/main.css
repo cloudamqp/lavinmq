@@ -253,6 +253,10 @@ header h2 {
 /* Utility classes end */
 
 /* Buttons */
+button {
+  cursor: pointer;
+}
+
 .btn-small {
   font-size: 0.75rem;
   line-height: 1rem;
@@ -1091,6 +1095,23 @@ footer .logo {
   max-width: 160px;
   text-overflow: ellipsis;
   padding-right: 1.8rem;
+  padding-left: 0.5rem;
+  height: 42px;
+  padding-bottom: 0;
+}
+
+#user-vhost {
+  label {
+    position: relative;
+  }
+
+  span {
+    position: absolute;
+    font-size: 12px;
+    opacity: .6;
+    left: 0.5rem;
+    top: 0.3rem;
+  }
 }
 
 #user-menu li {
