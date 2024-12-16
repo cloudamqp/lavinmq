@@ -7,7 +7,10 @@
   </head>
   <body>
     <% render "partials/header" %>
-    <main>
+    <main class="main-grid">
+      <div id="breadcrumbs" class="cols-12">
+          <h2 class="page-title"><%=pagename%><div id="pagename-label" class="subpage-title"></div></h2>
+      </div>
       <section class="card cols-4">
         <h3>Details</h3>
         <table class="details-table">
@@ -22,9 +25,9 @@
         </table>
       </section>
       <section class="card">
-        <h3>
+        <h3 class="has-badge">
           Permissions
-          <small id="permissions-count"></small>
+          <small class="tiny-badge" id="permissions-count"></small>
         </h3>
         <div class="table-wrapper">
           <div id="permissions-error"></div>
@@ -49,7 +52,7 @@
         </h3>
         <label>
           <span>Virtual host</span>
-          <select name="vhost" required data-primary-key=""></select>
+          <select class="dropdown" name="vhost" required data-primary-key=""></select>
         </label>
         <label>
           <span>Configure regexp</span>
@@ -63,10 +66,10 @@
           <span>Read regexp</span>
           <input type="text" name="read" required value=".*">
         </label>
-        <button type="submit" class="btn-primary when-create">Set permission</button>
-        <div class="when-edit">
-          <button type="submit" class="btn-primary">Update</button>
-          <button type="reset" class="btn-danger cancel">Cancel</button>
+        <button type="submit" class="btn btn-green when-create">Set permission</button>
+        <div class="when-edit flex gap-2 flex-row">
+          <button type="submit" class="btn btn-green">Update</button>
+          <button type="reset" class="btn btn-outlined cancel">Cancel</button>
         </div>
       </form>
       <form method="put" id="updateUser" class="form card cols-6">
@@ -79,7 +82,7 @@
           <span>Password</span>
           <input type="password" name="password" placeholder="Leave empty to only update tags">
         </label>
-        <label>
+        <label class="has-tags">
           <span>Tags</span>
           <input type="text" name="tags">
         </label>
@@ -91,13 +94,13 @@
           <a data-tag="impersonator">Impersonator</a> |
           <a data-tag="">None</a>
         </div>
-        <button type="submit" class="btn-primary">Update user</button>
+        <button type="submit" class="btn btn-green">Update user</button>
       </form>
       <section class="card cols-4">
         <h3>Danger zone</h3>
         <form method="delete" id="deleteUser" class="form">
           <label>
-            <button type="submit" class="btn-danger">Delete user</button>
+            <button type="submit" class="btn btn-red">Delete user</button>
           </label>
         </form>
       </section>
