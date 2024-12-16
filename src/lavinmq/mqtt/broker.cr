@@ -12,22 +12,21 @@ module LavinMQ
     class Broker
       getter vhost, sessions
 
-      # The Broker class acts as an intermediary between the MQTT client and the Vhost & Server,
-      # It is initialized when starting a connection and it manages a clients connections,
-      # sessions, and message exchange.
-      # The broker is responsible for:
+      # The `Broker` class acts as an intermediary between the `Server` and MQTT connections.
+      # It is initialized by the `Server` and manages client connections, sessions, and message exchange.
+      # Responsibilities include:
       # - Handling client connections and disconnections
-      # - Managing client sessions, including clean and persistent sessions
+      # - Managing client sessions (clean and persistent)
       # - Publishing messages to the exchange
       # - Subscribing and unsubscribing clients to/from topics
-      # - Handling the retain_store
-      # - Interfacing with the virtual host (vhost) and the exchange to route messages.
-      # The Broker class helps keep the MQTT Client concise and focused on the protocol.
+      # - Handling the retain store
+      # - Interfacing with the virtual host (vhost) and the exchange to route messages
+      # The `Broker` class helps keep the MQTT client concise and focused on the protocol.
 
       def initialize(@vhost : VHost, @replicator : Clustering::Replicator)
         @sessions = Sessions.new(@vhost)
         @clients = Hash(String, Client).new
-        @retain_store = RetainStore.new(Path[@vhost.data_dir].join("mqtt_reatined_store").to_s, @replicator)
+        @retain_store = RetainStore.new(File.join(@vhost.data_dir, "mqtt_reatined_store"), @replicator)
         @exchange = MQTT::Exchange.new(@vhost, EXCHANGE, @retain_store)
         @vhost.exchanges[EXCHANGE] = @exchange
       end
