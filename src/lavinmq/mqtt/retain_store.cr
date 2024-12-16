@@ -14,24 +14,16 @@ module LavinMQ
       def initialize(@dir : String, @replicator : Clustering::Replicator, @index = IndexTree.new)
         Dir.mkdir_p @dir
         @files = Hash(String, File).new do |files, file_name|
-          file_path = File.join(@dir, file_name)
-          unless File.exists?(file_path)
-            File.open(file_path, "w").close
-          end
-          f = files[file_name] = File.new(file_path, "r+")
-          f.sync = true
-          f
+          files[file_name] = File.open(File.join(@dir, file_name), "W").tap &.sync = true
         end
         @index_file_name = File.join(@dir, INDEX_FILE_NAME)
         @index_file = File.new(@index_file_name, "a+")
         @replicator.register_file(@index_file)
         @lock = Mutex.new
-        @lock.synchronize do
-          if @index.empty?
-            restore_index(@index, @index_file)
-            write_index
-            @index_file = File.new(@index_file_name, "a+")
-          end
+        if @index.empty?
+          restore_index(@index, @index_file)
+          write_index
+          @index_file = File.new(@index_file_name, "a+")
         end
       end
 
@@ -44,7 +36,7 @@ module LavinMQ
       private def restore_index(index : IndexTree, index_file : ::IO)
         Log.info { "restoring index" }
         dir = @dir
-        msg_count = 0
+        msg_count = 0u64
         msg_file_segments = Set(String).new(
           Dir[Path[dir, "*#{MESSAGE_FILE_SUFFIX}"]].compact_map do |fname|
             File.basename(fname)
@@ -95,7 +87,7 @@ module LavinMQ
           final_file_path = File.join(@dir, msg_file_name)
           File.rename(tmp_file, final_file_path)
           @files.delete(final_file_path)
-          @files[final_file_path] = File.new(final_file_path, "r+")
+          @files[msg_file_name] = File.new(final_file_path, "r+")
           @replicator.replace_file(final_file_path)
         ensure
           FileUtils.rm_rf tmp_file unless tmp_file.nil?
@@ -103,33 +95,28 @@ module LavinMQ
       end
 
       private def write_index
-        tmp_file = File.join(@dir, "#{INDEX_FILE_NAME}.next")
-        File.open(tmp_file, "w+") do |f|
-          @index.each do |topic, _filename|
+        File.open("#{@index_file_name}.tmp", "w") do |f|
+          @index.each do |topic|
             f.puts topic
           end
+          f.rename @index_file_name
         end
-        File.rename tmp_file, @index_file_name
         @replicator.replace_file(@index_file_name)
-      ensure
-        FileUtils.rm_rf tmp_file unless tmp_file.nil?
+      rescue ex
+        FileUtils.rm_rf File.join(@dir, "#{INDEX_FILE_NAME}.tmp")
+        raise ex
       end
 
       private def add_to_index(topic : String, file_name : String) : Nil
         @index.insert topic, file_name
         @index_file.puts topic
-        @index_file.flush
-        bytes = Bytes.new(topic.bytesize + 1)
-        bytes.copy_from(topic.to_slice)
-        bytes[-1] = 10u8
-        @replicator.append(@index_file_name, bytes)
+        @replicator.append(@index_file_name, "#{topic}\n".to_slice)
       end
 
       private def delete_from_index(topic : String) : Nil
         if file_name = @index.delete topic
           Log.trace { "deleted '#{topic}' from index, deleting file #{file_name}" }
-          if file = @files[file_name]
-            @files.delete(file)
+          if file = @files.delete(file_name)
             file.close
             file.delete
           end
