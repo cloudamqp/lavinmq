@@ -160,6 +160,8 @@ main {
   justify-self: center;
   margin-bottom: 20px;
   position: relative;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 main.main-grid {
