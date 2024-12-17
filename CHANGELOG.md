@@ -7,10 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- New UI for management interface [#821](https://github.com/cloudamqp/lavinmq/pull/821)
+- Use sent/received bytes instead of messages to trigger when other tasks can run [#863](https://github.com/cloudamqp/lavinmq/pull/863)
+
 ### Fixed
 
 - Queues will no longer be closed if file size is incorrect. Fixes [#669](https://github.com/cloudamqp/lavinmq/issues/669)
 - Dont redeclare exchange in java client test [#860](https://github.com/cloudamqp/lavinmq/pull/860)
+- Removed duplicate metric rss_bytes [#881](https://github.com/cloudamqp/lavinmq/pull/881)
+- Release leadership on graceful shutdown [#871](https://github.com/cloudamqp/lavinmq/pull/871)
+- Rescue more exceptions while reading msg store on startup [#865](https://github.com/cloudamqp/lavinmq/pull/865)
 
 ### Added
 
