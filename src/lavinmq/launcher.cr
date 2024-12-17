@@ -38,6 +38,8 @@ module LavinMQ
       setup_log_exchange
     end
 
+    class LostLeadership < Exception; end
+
     def run
       listen
       SystemD.notify_ready
@@ -45,7 +47,7 @@ module LavinMQ
         if leadership = @leadership
           if leadership.wait(30.seconds)
             Log.fatal { "Lost cluster leadership" }
-            exit 3 # 3rd character in the alphabet is C(lustering)
+            raise LostLeadership.new
           else
             @data_dir_lock.try &.poll
             GC.collect
