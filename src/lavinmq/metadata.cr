@@ -84,6 +84,31 @@ module LavinMQ
     end
 
     private def fetch(path : Symbol | String, &default : -> Value)
+      # The macto will generate a case statement that matches "paths" to values in
+      # the wrapped namedtuple structure.
+      # For NamedTupleMetaData.new({a: {b: 1, c: "foo"}}) the generated
+      # statement will look like:
+      #
+      # case path
+      # when "a", :"a"
+      #   if value = @data[:a]
+      #     return Value.new(value)
+      #   end
+      #   return Value.nil
+      # when "a.b", :"a.b"
+      #   if value = @data[:a][:b]
+      #     return Value.new(value)
+      #   end
+      #   return Value.nil
+      # when "a.b.c", :"a.b.c"
+      #   if value = @data[:a][:b][:c]
+      #     return Value.new(value)
+      #   end
+      #   return Value.nil
+      # else
+      #   yield
+      # end
+      #
       {% begin %}
         {%
           paths = [] of Array(String)
