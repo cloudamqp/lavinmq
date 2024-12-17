@@ -132,7 +132,7 @@ module LavinMQ
           when MFile
             size = f.size.to_i64
             @lz4.write_bytes size, IO::ByteFormat::LittleEndian
-            f.copy_to(@lz4, size)
+            @lz4.write f.to_slice
           when File
             size = f.size.to_i64
             @lz4.write_bytes size, IO::ByteFormat::LittleEndian
