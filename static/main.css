@@ -852,6 +852,13 @@ footer .logo {
     grid-column: none !important;
     margin-left: 0;
     margin-right: 0;
+    width: 100%;
+    padding: 0 24px;
+  }
+
+  footer p {
+    flex-direction: column;
+    gap: 4px;
   }
 
   header {
