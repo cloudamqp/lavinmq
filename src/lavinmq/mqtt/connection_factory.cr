@@ -9,14 +9,19 @@ require "../client/connection_factory"
 module LavinMQ
   module MQTT
     class ConnectionFactory < LavinMQ::ConnectionFactory
+      Log = LavinMQ::Log.for "mqtt.connection_factory"
+
       def initialize(@users : UserStore,
                      @brokers : Brokers)
       end
 
       def start(socket : ::IO, connection_info : ConnectionInfo)
+        remote_address = connection_info.src
+        metadata = ::Log::Metadata.build({address: remote_address.to_s})
+        logger = Logger.new(Log, metadata)
         io = MQTT::IO.new(socket)
         if packet = Packet.from_io(socket).as?(Connect)
-          Log.trace { "recv #{packet.inspect}" }
+          logger.trace { "recv #{packet.inspect}" }
           if user_and_broker = authenticate(io, packet)
             user, broker = user_and_broker
             packet = assign_client_id(packet) if packet.client_id.empty?
@@ -24,18 +29,18 @@ module LavinMQ
             connack io, session_present, Connack::ReturnCode::Accepted
             return broker.connect_client(socket, connection_info, user, packet)
           else
-            Log.warn { "Authentication failure for user \"#{packet.username}\"" }
+            logger.warn { "Authentication failure for user \"#{packet.username}\"" }
             connack io, false, Connack::ReturnCode::NotAuthorized
           end
         end
       rescue ex : MQTT::Error::Connect
-        Log.warn { "Connect error #{ex.inspect}" }
+        (logger || Log).warn { "Connect error #{ex.inspect}" }
         if io
           connack io, false, Connack::ReturnCode.new(ex.return_code)
         end
         socket.close
       rescue ex
-        Log.warn { "Recieved invalid Connect packet: #{ex.inspect}" }
+        (logger || Log).warn { "Recieved invalid Connect packet: #{ex.inspect}" }
         socket.close
       end
 
