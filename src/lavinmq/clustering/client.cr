@@ -16,6 +16,7 @@ module LavinMQ
       @unix_http_proxy : Proxy?
       @unix_mqtt_proxy : Proxy?
       @socket : TCPSocket?
+      @streamed_bytes = 0_u64
 
       def initialize(@config : Config, @id : Int32, @password : String, proxy = true)
         System.maximize_fd_limit
@@ -219,6 +220,7 @@ module LavinMQ
       private def stream_changes(socket, lz4)
         acks = Channel(Int64).new(@config.clustering_max_unsynced_actions)
         spawn send_ack_loop(acks, socket), name: "Send ack loop"
+        spawn log_streamed_bytes_loop, name: "Log streamed bytes loop"
         loop do
           filename_len = lz4.read_bytes Int32, IO::ByteFormat::LittleEndian
           next if filename_len.zero?
@@ -246,6 +248,7 @@ module LavinMQ
             @files.delete("#{filename}.tmp").try &.close
           end
           ack_bytes = len.abs + sizeof(Int64) + filename_len + sizeof(Int32)
+          @streamed_bytes &+= ack_bytes
           acks.send(ack_bytes)
         end
       ensure
@@ -264,6 +267,13 @@ module LavinMQ
       rescue Channel::ClosedError
       rescue IO::Error
         socket.close rescue nil
+      end
+
+      private def log_streamed_bytes_loop
+        loop do
+          sleep 30.seconds
+          Log.info { "Total streamed bytes: #{@streamed_bytes}" }
+        end
       end
 
       private def authenticate(socket)
