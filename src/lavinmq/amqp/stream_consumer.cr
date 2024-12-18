@@ -10,7 +10,7 @@ module LavinMQ
       property pos : UInt32
       getter requeued = Deque(SegmentPosition).new
       getter filter : String?
-      getter match_unfiltered : Bool = false
+      getter? match_unfiltered : Bool = false
 
       def initialize(@channel : Client::Channel, @queue : StreamQueue, frame : AMQP::Frame::Basic::Consume)
         validate_preconditions(frame)

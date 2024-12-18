@@ -108,7 +108,7 @@ module LavinMQ::AMQP
         seg
       end
 
-      def shift?(consumer : AMQP::StreamConsumer) : Envelope?
+      def shift?(consumer : AMQP::StreamConsumer) : Envelope? # ameba:disable Metrics/CyclomaticComplexity
         raise ClosedError.new if @closed
 
         if env = shift_requeued(consumer.requeued)
@@ -127,7 +127,7 @@ module LavinMQ::AMQP
           consumer.pos += sp.bytesize
           consumer.offset += 1
           if consumer_filter = consumer.filter # can be a string or an array of comma-separated strings
-            return unless matching?(msg.properties.headers, consumer_filter, consumer.match_unfiltered)
+            return unless matching?(msg.properties.headers, consumer_filter, consumer.match_unfiltered?)
           end
           Envelope.new(sp, msg, redelivered: false)
         rescue ex
@@ -136,7 +136,7 @@ module LavinMQ::AMQP
       end
 
       private def matching?(msg_headers, consumer_filter, match_unfiltered) : Bool
-        if (msg_filters = filter_values_from_headers(msg_headers))
+        if msg_filters = filter_values_from_headers(msg_headers)
           consumer_filter.split(",").each do |filter|
             return true if msg_filters == filter
           end
