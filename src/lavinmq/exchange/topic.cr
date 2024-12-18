@@ -27,6 +27,10 @@ module LavinMQ
       true
     end
 
+    def bind(destination : MQTT::Session, routing_key : String, headers = nil) : Bool
+      raise LavinMQ::Exchange::AccessRefused.new(self)
+    end
+
     def unbind(destination : Destination, routing_key, headers = nil)
       rks = routing_key.split(".")
       bds = @bindings[routing_key.split(".")]
