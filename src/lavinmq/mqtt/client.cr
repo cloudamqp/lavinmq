@@ -16,7 +16,7 @@ module LavinMQ
       @channels = Hash(UInt16, Client::Channel).new
       @session : MQTT::Session?
       rate_stats({"send_oct", "recv_oct"})
-      Log = ::Log.for "mqtt.client"
+      Log = LavinMQ::Log.for "mqtt.client"
 
       def initialize(@socket : ::IO,
                      @connection_info : ConnectionInfo,
