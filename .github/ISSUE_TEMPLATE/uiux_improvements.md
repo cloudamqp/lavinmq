@@ -5,15 +5,20 @@ title: ''
 labels: 'UI/UX'
 assignees: ''
 ---
-**Summary**
+**Summary**  
 Provide a brief description of the issue or improvement.
-**Current Behavior**
+
+**Current Behavior**  
 Describe how the feature or UI element currently works.
-**Desired Behavior**
+
+**Desired Behavior**  
 Explain what the ideal experience should be.
-**Steps to Reproduce (if reporting an issue)**
+
+**Steps to Reproduce (if reporting an issue)**  
 List the steps required to replicate the problem.
-**Proposed Solution (for improvements)**
+
+**Proposed Solution (for improvements)**  
 Suggest how to resolve the issue or implement the improvement.
-**Screenshots/Mockups**
+
+**Screenshots/Mockups**  
 Add visuals to clarify the issue or illustrate your suggestion.
