@@ -41,7 +41,7 @@ module LavinMQ
             next
           end
           consumer = consumers.first.as(MQTT::Consumer)
-          get_packet(false) do |pub_packet|
+          get_packet do |pub_packet|
             consumer.deliver(pub_packet)
           end
           Fiber.yield if (i &+= 1) % 32768 == 0
@@ -109,7 +109,7 @@ module LavinMQ
         @vhost.unbind_queue(@name, EXCHANGE, rk, arguments || AMQP::Table.new)
       end
 
-      private def get_packet(no_ack : Bool, & : MQTT::Publish -> Nil) : Bool
+      private def get_packet(& : MQTT::Publish -> Nil) : Bool
         raise ClosedError.new if @closed
         loop do
           env = @msg_store_lock.synchronize { @msg_store.shift? } || break
