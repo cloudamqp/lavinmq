@@ -126,22 +126,24 @@ module LavinMQ::AMQP
           sp = SegmentPosition.new(consumer.segment, consumer.pos, msg.bytesize.to_u32)
           consumer.pos += sp.bytesize
           consumer.offset += 1
-          if consumer_filter = consumer.filter # can be array of strings
-            matched = false
-            if (msg_filters = filter_values_from_headers(msg.properties.headers))
-              # can msg_filters be array of strings?
-              consumer_filter.split(",").each do |filter|
-                matched = true if msg_filters == filter
-              end
-            #else
-            # matched = true if x-stream-match-unfiltered
-            end
-            return unless matched
+          if consumer_filter = consumer.filter # can be a string or an array of comma-separated strings
+            return unless matching?(msg.properties.headers, consumer_filter, consumer.match_unfiltered)
           end
           Envelope.new(sp, msg, redelivered: false)
         rescue ex
           raise Error.new(rfile, cause: ex)
         end
+      end
+
+      private def matching?(msg_headers, consumer_filter, match_unfiltered) : Bool
+        if (msg_filters = filter_values_from_headers(msg_headers))
+          consumer_filter.split(",").each do |filter|
+            return true if msg_filters == filter
+          end
+        else
+          return true if match_unfiltered
+        end
+        false
       end
 
       private def shift_requeued(requeued) : Envelope?
