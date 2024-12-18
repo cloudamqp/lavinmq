@@ -146,12 +146,8 @@ module LavinMQ
         msg = env.message
         retained = msg.properties.try &.headers.try &.["mqtt.retain"]? == true
 
-        qos = case msg.properties.delivery_mode
-              when 2u8
-                1u8
-              else
-                msg.properties.delivery_mode || 0u8
-              end
+        qos = msg.properties.delivery_mode || 0u8
+        qos = 1u8 if qos > 1
         MQTT::Publish.new(
           packet_id: packet_id,
           payload: msg.body,
