@@ -278,4 +278,4 @@ Copyright 2018-2024 84codes AB
 LavinMQ is a trademark of 84codes AB
 
 ## Contact Us
-Do you want to learn more? [Talk with our product experts](https://webforms.pipedrive.com/f/c5ap34s5NE0YPfuGNzVjiOhY6CBzwryS4ePh6HBMAsFQ6cd47UdPQpL0ezi1toy4X9).
+Do you want to learn more? [Talk with our product experts](https://webforms.pipedrive.com/f/64JnLsqIMAdF2BDQ06ioKLhC2NuNmkwNplNhRxtIqlm0nFnuIeX97eb7fZKej0vFHZ).
