@@ -258,6 +258,8 @@ module LavinMQ
       end
     end
 
+    class NoEtcdEndpoint < Exception; end
+
     private def connect : Tuple(TCPSocket, String)
       @endpoints.shuffle!.each do |address|
         host, port = address.split(':', 2)
@@ -275,7 +277,8 @@ module LavinMQ
         Log.debug { "Could not connect to #{address}: #{ex}" }
         next
       end
-      raise Error.new("No endpoint responded")
+      Log.fatal { "No etcd endpoint responded" }
+      raise NoEtcdEndpoint.new
     end
 
     private def update_endpoints(tcp, address)
