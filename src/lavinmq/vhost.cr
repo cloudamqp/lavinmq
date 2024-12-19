@@ -482,10 +482,12 @@ module LavinMQ
       io = @definitions_file
       if io.size.zero?
         load_default_definitions
-        compact!
         return
       end
-
+      if etcd = @replicator.etcd
+        load_definitions_from_etcd(etcd)
+        return
+      end
       @log.info { "Loading definitions" }
       @definitions_lock.synchronize do
         @log.debug { "Verifying schema" }
@@ -555,12 +557,49 @@ module LavinMQ
 
     private def load_default_definitions
       @log.info { "Loading default definitions" }
-      @exchanges[""] = DefaultExchange.new(self, "", true, false, false)
-      @exchanges["amq.direct"] = DirectExchange.new(self, "amq.direct", true, false, false)
-      @exchanges["amq.fanout"] = FanoutExchange.new(self, "amq.fanout", true, false, false)
-      @exchanges["amq.topic"] = TopicExchange.new(self, "amq.topic", true, false, false)
-      @exchanges["amq.headers"] = HeadersExchange.new(self, "amq.headers", true, false, false)
-      @exchanges["amq.match"] = HeadersExchange.new(self, "amq.match", true, false, false)
+      declare_exchange("", "direct", true, false)
+      declare_exchange("amq.direct", "direct", true, false)
+      declare_exchange("amq.fanout", "fanout", true, false)
+      declare_exchange("amq.topic", "topic", true, false)
+      declare_exchange("amq.headers", "headers", true, false)
+      declare_exchange("amq.match", "headers", true, false)
+    end
+
+    private def load_definitions_from_etcd(etcd : Etcd)
+      etcd.get_prefix(etcd_path("queues")).each do |key, value|
+        queue_name = ""
+        key.split('/') { |s| queue_name = URI.decode_www_form(s) } # get last split value without allocation
+        json = JSON.parse(value)
+        @queues[queue_name] = QueueFactory.make(self, json)
+      end
+
+      etcd.get_prefix(etcd_path("exchanges")).each do |key, value|
+        exchange_name = ""
+        key.split('/') { |s| exchange_name = URI.decode_www_form(s) } # get last split value without allocation
+        json = JSON.parse(value)
+        @exchanges[exchange_name] =
+          make_exchange(self, exchange_name, json["type"].as_s, true, json["auto_delete"].as_bool, json["internal"].as_bool, json["arguments"].as_h)
+      end
+
+      etcd.get_prefix(etcd_path("queue-bindings")).each do |key, value|
+        _, _, _, queue_name, exchange_name, routing_key, _ = split_etcd_path(key)
+        json = JSON.parse(value)
+        x = @exchanges[exchange_name]
+        q = @queues[queue_name]
+        x.bind(q, routing_key, json["arguments"].to_h)
+      end
+
+      etcd.get_prefix(etcd_path("exchange-bindings")).each do |key, value|
+        _, _, _, destination, source, routing_key, _ = split_etcd_path(key)
+        json = JSON.parse(value)
+        src = @exchanges[source]
+        dst = @queues[destination]
+        src.bind(dst, routing_key, json["arguments"].to_h)
+      end
+    end
+
+    private def split_etcd_path(path) : Array(String)
+      path.split('/').map! { |p| URI.decode_www_form p }
     end
 
     private def compact!
@@ -608,11 +647,66 @@ module LavinMQ
       bytes = frame.to_slice
       @definitions_file.write bytes
       @replicator.append @definitions_file_path, bytes
-      @definitions_file.fsync
+      if etcd = @replicator.etcd
+        store_definition_in_etcd(frame, etcd)
+      else
+        @definitions_file.fsync
+      end
       if dirty
         if (@definitions_deletes += 1) >= Config.instance.max_deleted_definitions
           compact!
           @definitions_deletes = 0
+        end
+      end
+    end
+
+    private def store_definition_in_etcd(f, etcd)
+      case f
+      when AMQP::Frame::Exchange::Declare
+        etcd.put(etcd_path("exchanges", f.exchange_name), {
+          type:        f.exchange_type,
+          auto_delete: f.auto_delete,
+          internal:    f.internal,
+          arguments:   f.arguments,
+        }.to_json)
+      when AMQP::Frame::Exchange::Delete
+        etcd.del(etcd_path("exchanges", f.exchange_name))
+        etcd.del_prefix(etcd_path("exchange-bindings", f.exchange_name))
+      when AMQP::Frame::Exchange::Bind
+        args_hash = f.arguments.hash(Crystal::Hasher.new(0, 0)).result
+        etcd.put(etcd_path("exchanges", f.destination, "bindings", f.source, f.routing_key, args_hash),
+          {arguments: f.arguments}.to_json)
+      when AMQP::Frame::Exchange::Unbind
+        args_hash = f.arguments.hash(Crystal::Hasher.new(0, 0)).result
+        etcd.del(etcd_path("exchanges", f.destination, "bindings", f.source, f.routing_key, args_hash))
+      when AMQP::Frame::Queue::Declare
+        etcd.put(etcd_path("queues", f.queue_name), {
+          arguments: f.arguments,
+        }.to_json)
+      when AMQP::Frame::Queue::Delete
+        etcd.del(etcd_path("queues", f.queue_name))
+        etcd.del_prefix(etcd_path("queue-bindings", f.queue_name))
+      when AMQP::Frame::Queue::Bind
+        args_hash = f.arguments.hash(Crystal::Hasher.new(0, 0)).result
+        etcd.put(etcd_path("queues", f.queue_name, "bindings", f.exchange_name, f.routing_key, args_hash),
+          {
+            arguments: f.arguments,
+          }.to_json)
+      when AMQP::Frame::Queue::Unbind
+        args_hash = f.arguments.hash(Crystal::Hasher.new(0, 0)).result
+        etcd.del(etcd_path("queues", f.queue_name, "bindings", f.exchange_name, f.routing_key, args_hash))
+      else raise "Cannot apply frame #{f.class} in vhost #{@name}"
+      end
+    end
+
+    private def etcd_path(*args)
+      String.build do |str|
+        str << Config.instance.clustering_etcd_prefix
+        str << "/vhosts/"
+        URI.encode_www_form @name, str
+        args.each do |a|
+          str << "/"
+          URI.encode_www_form a.to_s, str
         end
       end
     end

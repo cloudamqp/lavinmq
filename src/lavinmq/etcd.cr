@@ -20,6 +20,27 @@ module LavinMQ
       end
     end
 
+    # Get all keys with a prefix
+    def get_prefix(prefix) : Hash(String, String)
+      range_end = prefix.to_slice.dup
+      len = range_end.bytesize
+      (len - 1).downto(0) do |i|
+        (range_end[i] &+= 1).zero? || break # continue if wrapped around
+        len = i
+      end
+      range_end = len.zero? ? Bytes[0] : range_end[0, len] # drop ending null values
+      json = post("/v3/kv/range", %({"key":"#{Base64.strict_encode prefix}","range_end":"#{Base64.strict_encode range_end}","limit":0,"serializable":true}))
+      result = Hash(String, String).new
+      if kvs = json["kvs"]?
+        kvs.as_a.each do |kv|
+          key = Base64.decode_string kv["key"].as_s
+          value = Base64.decode_string kv["value"].as_s
+          result[key] = value
+        end
+      end
+      result
+    end
+
     def put(key, value) : String?
       body = %({"key":"#{Base64.strict_encode key}","value":"#{Base64.strict_encode value}","prev_kv":true})
       json = post("/v3/kv/put", body)
@@ -28,9 +49,23 @@ module LavinMQ
       end
     end
 
+    # Delete a key
     def del(key) : Int32
       json = post("/v3/kv/deleterange", %({"key":"#{Base64.strict_encode key}"}))
       json.dig?("deleted").try(&.as_s.to_i) || 0
+    end
+
+    # Delete all keys with a prefix
+    def del_prefix(prefix) : Int32
+      range_end = prefix.to_slice.dup
+      len = range_end.bytesize
+      (len - 1).downto(0) do |i|
+        (range_end[i] &+= 1).zero? || break # continue if wrapped around
+        len = i
+      end
+      range_end = len.zero? ? Bytes[0] : range_end[0, len] # drop ending null values
+      json = post("/v3/kv/deleterange", %({"key":"#{Base64.strict_encode prefix}","range_end":"#{Base64.strict_encode range_end}"}))
+      json["deleted"].as_s.to_i
     end
 
     def watch(key, &)
@@ -244,10 +279,6 @@ module LavinMQ
           return yield({socket, address})
         rescue ex : NoLeader
           raise ex # don't retry when leader is missing
-        rescue ex : Error
-          Log.warn { "Service Unavailable at #{address}, #{ex.message}, retrying" }
-          socket.close rescue nil
-          sleep 0.1.seconds
         rescue IO::Error
           Log.warn { "Lost connection to #{address}, retrying" }
           socket.close rescue nil
