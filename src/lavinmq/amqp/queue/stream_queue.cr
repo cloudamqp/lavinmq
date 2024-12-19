@@ -152,6 +152,7 @@ module LavinMQ::AMQP
     end
 
     private def unmap_and_remove_segments_loop
+      sleep rand(60).seconds
       until closed?
         sleep 60.seconds
         unmap_and_remove_segments

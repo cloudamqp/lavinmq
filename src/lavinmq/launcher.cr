@@ -38,6 +38,8 @@ module LavinMQ
       setup_log_exchange
     end
 
+    class LostLeadership < Exception; end
+
     def run
       listen
       SystemD.notify_ready
@@ -45,7 +47,7 @@ module LavinMQ
         if leadership = @leadership
           if leadership.wait(30.seconds)
             Log.fatal { "Lost cluster leadership" }
-            exit 3 # 3rd character in the alphabet is C(lustering)
+            raise LostLeadership.new
           else
             @data_dir_lock.try &.poll
             GC.collect
@@ -173,17 +175,6 @@ module LavinMQ
     end
 
     private def run_gc
-      STDOUT.puts "Unmapping all segments"
-      STDOUT.flush
-      @amqp_server.vhosts.each_value do |vhost|
-        vhost.queues.each_value do |q|
-          if q = q.as(LavinMQ::AMQP::Queue)
-            msg_store = q.@msg_store
-            msg_store.@segments.each_value &.unmap
-            msg_store.@acks.each_value &.unmap
-          end
-        end
-      end
       STDOUT.puts "Garbage collecting"
       STDOUT.flush
       GC.collect

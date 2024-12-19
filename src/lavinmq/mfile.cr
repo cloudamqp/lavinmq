@@ -1,3 +1,5 @@
+require "wait_group"
+
 lib LibC
   MS_ASYNC       = 1
   MREMAP_MAYMOVE = 1
@@ -31,6 +33,7 @@ class MFile < IO
   getter fd : Int32
   @buffer = Pointer(UInt8).null
   @deleted = false
+  @wg = WaitGroup.new
 
   # Map a file, if no capacity is given the file must exists and
   # the file will be mapped as readonly
@@ -100,12 +103,29 @@ class MFile < IO
     self
   end
 
+  def reserve
+    @wg.add
+  end
+
+  def unreserve
+    @wg.done
+  end
+
   # The file will be truncated to the current position unless readonly or deleted
   def close(truncate_to_size = true)
-    # unmap occurs on finalize
     if truncate_to_size && !@readonly && !@deleted && @fd > 0
       code = LibC.ftruncate(@fd, @size)
       raise File::Error.from_errno("Error truncating file", file: @path) if code < 0
+    end
+
+    # unmap if non has reserved the file, race condition prone?
+    if @wg.@counter.get(:acquire).zero?
+      unmap
+    else
+      spawn(name: "munmap #{@path}") do
+        @wg.wait
+        unmap
+      end
     end
   ensure
     unless @fd == -1
@@ -130,8 +150,10 @@ class MFile < IO
 
   # unload the memory mapping, will be remapped on demand
   def unmap : Nil
-    munmap
+    b = @buffer
+    c = @capacity
     @buffer = Pointer(UInt8).null
+    munmap(b, c)
   end
 
   def unmapped? : Bool
@@ -168,11 +190,6 @@ class MFile < IO
     return if len.zero?
     code = LibC.msync(addr, len, flag)
     raise RuntimeError.from_errno("msync") if code < 0
-  end
-
-  def finalize
-    LibC.close(@fd) if @fd > -1
-    LibC.munmap(@buffer, @capacity) unless @buffer.null?
   end
 
   def write(slice : Bytes) : Nil
