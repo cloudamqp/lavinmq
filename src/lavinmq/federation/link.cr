@@ -3,7 +3,7 @@ require "amqp-client"
 require "../logger"
 require "../sortable_json"
 require "../amqp/queue/event"
-require "../exchange/event"
+require "../amqp/exchange/event"
 
 module LavinMQ
   module Federation
