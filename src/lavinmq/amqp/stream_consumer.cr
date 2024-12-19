@@ -9,6 +9,8 @@ module LavinMQ
       property segment : UInt32
       property pos : UInt32
       getter requeued = Deque(SegmentPosition).new
+      getter filter : String?
+      getter? match_unfiltered : Bool = false
 
       def initialize(@channel : Client::Channel, @queue : StreamQueue, frame : AMQP::Frame::Basic::Consume)
         validate_preconditions(frame)
@@ -36,6 +38,18 @@ module LavinMQ
         case frame.arguments["x-stream-offset"]?
         when Nil, Int, Time, "first", "next", "last"
         else raise LavinMQ::Error::PreconditionFailed.new("x-stream-offset must be an integer, a timestamp, 'first', 'next' or 'last'")
+        end
+        case frame.arguments["x-stream-filter-value"]?
+        when String
+          @filter = frame.arguments["x-stream-filter-value"].to_s
+        when Nil
+        else raise LavinMQ::Error::PreconditionFailed.new("x-stream-filter-value must be a string")
+        end
+        case frame.arguments["x-stream-match-unfiltered"]?
+        when Bool
+          @match_unfiltered = frame.arguments["x-stream-match-unfiltered"].as(Bool)
+        when Nil
+        else raise LavinMQ::Error::PreconditionFailed.new("x-stream-match-unfiltered must be a boolean")
         end
       end
 
