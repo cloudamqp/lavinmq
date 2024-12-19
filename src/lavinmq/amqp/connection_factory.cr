@@ -47,7 +47,10 @@ module LavinMQ
         elsif proto != AMQP::PROTOCOL_START_0_9_1 && proto != AMQP::PROTOCOL_START_0_9
           socket.write AMQP::PROTOCOL_START_0_9_1.to_slice
           socket.flush
-          log.warn { "Unexpected protocol '#{String.new(proto.to_slice)}', closing socket" }
+          log.warn {
+            bad_protocol = String.new(proto.to_slice).gsub(/\n/, "\\n")
+            "Unexpected protocol '#{bad_protocol}', closing socket"
+            }
           false
         else
           true
