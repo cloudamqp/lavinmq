@@ -17,8 +17,12 @@ config.parse # both ARGV and config file
 require "./lavinmq/launcher"
 require "./lavinmq/clustering/controller"
 
-if config.clustering?
-  LavinMQ::Clustering::Controller.new(config).run
-else
-  LavinMQ::Launcher.new(config).run
+begin
+  if config.clustering?
+    LavinMQ::Clustering::Controller.new(config).run
+  else
+    LavinMQ::Launcher.new(config).run
+  end
+rescue LavinMQ::Etcd::NoEtcdEndpoint
+  exit 5 # 5th character in the alphabet is E(etcd)
 end
