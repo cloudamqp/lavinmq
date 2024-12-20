@@ -21,6 +21,7 @@ module LavinMQ
         @lock.flock_exclusive(blocking: true)
         Log.info { "Lock acquired" }
       end
+      Log.debug { "Data directory lock aquired" }
       @lock.truncate
       @lock.print "PID #{Process.pid} @ #{System.hostname}"
       @lock.fsync
@@ -37,7 +38,8 @@ module LavinMQ
     def poll
       @lock.read_at(0, 1, &.read_byte) || raise IO::EOFError.new
     rescue ex : IO::Error | ArgumentError
-      abort "ERROR: Lost data directory lock! #{ex.inspect}"
+      Log.fatal(exception: ex) { "Lost data dir lock" }
+      exit 4 # 4 for D(dataDir)
     end
   end
 end

@@ -57,6 +57,7 @@ module LavinMQ
       end
 
       def follow(host : String, port : Int32)
+        Log.info { "Following #{host}:#{port}" }
         @host = host
         @port = port
         if amqp_proxy = @amqp_proxy
