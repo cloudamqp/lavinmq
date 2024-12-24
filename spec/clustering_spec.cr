@@ -13,9 +13,12 @@ describe LavinMQ::Clustering::Client do
       "--log-level=error",
       "--unsafe-no-fsync=true",
       "--force-new-cluster=true",
+      "--listen-peer-urls=http://127.0.0.1:12380",
+      "--listen-client-urls=http://127.0.0.1:12379",
+      "--advertise-client-urls=http://127.0.0.1:12379",
     }, output: STDOUT, error: STDERR)
 
-    client = HTTP::Client.new("127.0.0.1", 2379)
+    client = HTTP::Client.new("127.0.0.1", 12379)
     i = 0
     loop do
       sleep 0.02.seconds
@@ -26,7 +29,7 @@ describe LavinMQ::Clustering::Client do
       end
     rescue e : Socket::ConnectError
       i += 1
-      raise "Cant connect to etcd on port 2379. Giving up after 100 tries. (#{e.message})" if i >= 100
+      raise "Cant connect to etcd on port 12379. Giving up after 100 tries. (#{e.message})" if i >= 100
       next
     end
     client.close
@@ -40,7 +43,7 @@ describe LavinMQ::Clustering::Client do
   end
 
   it "can stream changes" do
-    replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Etcd.new, 0)
+    replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Etcd.new("localhost:12379"), 0)
     tcp_server = TCPServer.new("localhost", 0)
     spawn(replicator.listen(tcp_server), name: "repli server spec")
     config = LavinMQ::Config.new.tap &.data_dir = follower_data_dir
@@ -73,7 +76,7 @@ describe LavinMQ::Clustering::Client do
   end
 
   it "can stream full file" do
-    replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Etcd.new, 0)
+    replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Etcd.new("localhost:12379"), 0)
     tcp_server = TCPServer.new("localhost", 0)
     spawn(replicator.listen(tcp_server), name: "repli server spec")
     config = LavinMQ::Config.new.tap &.data_dir = follower_data_dir
@@ -102,6 +105,7 @@ describe LavinMQ::Clustering::Client do
   it "will failover" do
     config1 = LavinMQ::Config.new
     config1.data_dir = "/tmp/failover1"
+    config1.clustering_etcd_endpoints = "localhost:12379"
     config1.clustering_advertised_uri = "tcp://localhost:5681"
     config1.clustering_port = 5681
     config1.amqp_port = 5671
@@ -110,6 +114,7 @@ describe LavinMQ::Clustering::Client do
 
     config2 = LavinMQ::Config.new
     config2.data_dir = "/tmp/failover2"
+    config2.clustering_etcd_endpoints = "localhost:12379"
     config2.clustering_advertised_uri = "tcp://localhost:5682"
     config2.clustering_port = 5682
     config2.amqp_port = 5672
@@ -118,7 +123,7 @@ describe LavinMQ::Clustering::Client do
 
     listen = Channel(String).new
     spawn(name: "etcd elect leader spec") do
-      etcd = LavinMQ::Etcd.new
+      etcd = LavinMQ::Etcd.new("localhost:12379")
       etcd.elect_listen("lavinmq/leader") do |value|
         listen.send value
       end
