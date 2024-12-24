@@ -14,7 +14,7 @@ module LavinMQ
     # When a follower connects:
     # It sends a static header (wrong header disconnects the client)
     # It sends its password (servers closes the connection if the password is wrong)
-    # Server sends a list of files in its data directory and the sha1 hash of those files
+    # Server sends a list of files in its data directory and the crc32 hash of those files
     # Client requests files that is missing or has mismatching checksums of
     # In the meantime the server queues up changes (all publishes/consumes are paused)
     # When client doesn't request more files starts to stream changes
@@ -72,12 +72,12 @@ module LavinMQ
       end
 
       def files_with_hash(& : Tuple(String, Bytes) -> Nil)
-        sha1 = Digest::SHA1.new
-        hash = Bytes.new(sha1.digest_size)
-        @files.each_key do |path|
-          sha1.file path
-          sha1.final hash
-          sha1.reset
+        crc32 = Digest::CRC32.new
+        hash = Bytes.new(crc32.digest_size)
+        @files.each do |path, mfile|
+          crc32.file path
+          crc32.final hash
+          crc32.reset
           yield({path, hash})
         end
       end

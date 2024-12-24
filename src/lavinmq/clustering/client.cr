@@ -125,9 +125,9 @@ module LavinMQ
 
       private def sync_files(socket, lz4)
         Log.info { "Waiting for list of files" }
-        sha1 = Digest::SHA1.new
-        remote_hash = Bytes.new(sha1.digest_size)
-        local_hash = Bytes.new(sha1.digest_size)
+        crc32 = Digest::CRC32.new
+        remote_hash = Bytes.new(crc32.digest_size)
+        local_hash = Bytes.new(crc32.digest_size)
         files_to_delete = ls_r(@data_dir)
         missing_files = Array(String).new
         loop do
@@ -139,9 +139,9 @@ module LavinMQ
           path = File.join(@data_dir, filename)
           files_to_delete.delete(path)
           if File.exists? path
-            sha1.file(path)
-            sha1.final(local_hash)
-            sha1.reset
+            crc32.file(path)
+            crc32.final(local_hash)
+            crc32.reset
             if local_hash != remote_hash
               Log.info { "Mismatching hash: #{path}" }
               move_to_backup path
