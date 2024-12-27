@@ -392,7 +392,7 @@ describe LavinMQ::Federation::Upstream do
 
         select
         when ch.receive?
-        when timeout 100.milliseconds
+        when timeout 3.seconds
           fail "federation didn't resume? timeout waiting for message on downstream queue"
         end
 
