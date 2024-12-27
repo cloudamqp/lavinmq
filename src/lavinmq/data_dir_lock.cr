@@ -24,12 +24,10 @@ module LavinMQ
       Log.debug { "Data directory lock aquired" }
       @lock.truncate
       @lock.print "PID #{Process.pid} @ #{System.hostname}"
-      @lock.fsync
     end
 
     def release
       @lock.truncate
-      @lock.fsync
       @lock.flock_unlock
     end
 
