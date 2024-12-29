@@ -73,6 +73,8 @@ describe LavinMQ::Clustering::Client do
     ensure
       server.close
     end
+  ensure
+    replicator.try &.close
   end
 
   it "can stream full file" do

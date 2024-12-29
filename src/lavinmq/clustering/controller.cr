@@ -19,8 +19,7 @@ class LavinMQ::Clustering::Controller
     wait_to_be_insync
     @lease = lease = @etcd.elect("#{@config.clustering_etcd_prefix}/leader", @advertised_uri) # blocks until becoming leader
     # TODO: make sure we still are in the ISR set
-    replicator = Clustering::Server.new(@config, @etcd)
-    @launcher = Launcher.new(@config, replicator).start
+    @launcher = Launcher.new(@config, @etcd).start
     loop do
       if lease.wait(30.seconds)
         break if @stopped
