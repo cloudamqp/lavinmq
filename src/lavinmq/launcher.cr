@@ -6,6 +6,7 @@ require "./server"
 require "./http/http_server"
 require "./in_memory_backend"
 require "./data_dir_lock"
+require "./etcd"
 
 module LavinMQ
   class Launcher
@@ -15,7 +16,7 @@ module LavinMQ
     @data_dir_lock : DataDirLock?
     @closed = false
 
-    def initialize(@config : Config, replicator = Clustering::NoopServer.new)
+    def initialize(@config : Config, etcd : Etcd? = nil)
       print_environment_info
       print_max_map_count
       fd_limit = System.maximize_fd_limit
@@ -28,6 +29,7 @@ module LavinMQ
       if @config.data_dir_lock?
         @data_dir_lock = DataDirLock.new(@config.data_dir).tap &.acquire
       end
+      @replicator = replicator = etcd ? Clustering::Server.new(@config, etcd) : Clustering::NoopServer.new
       @amqp_server = LavinMQ::Server.new(@config, replicator)
       @http_server = LavinMQ::HTTP::Server.new(@amqp_server)
       @tls_context = create_tls_context if @config.tls_configured?
@@ -58,6 +60,7 @@ module LavinMQ
       @http_server.close rescue nil
       @amqp_server.close rescue nil
       @data_dir_lock.try &.release
+      @replicator.close
     end
 
     private def print_environment_info

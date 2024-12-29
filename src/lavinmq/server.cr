@@ -206,7 +206,6 @@ module LavinMQ
       @listeners.each_key &.close
       Log.debug { "Closing vhosts" }
       @vhosts.close
-      @replicator.close
     end
 
     def add_parameter(parameter : Parameter)
