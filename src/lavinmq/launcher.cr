@@ -28,7 +28,7 @@ module LavinMQ
       if @config.data_dir_lock?
         @data_dir_lock = DataDirLock.new(@config.data_dir).tap &.acquire
       end
-      @amqp_server = LavinMQ::Server.new(@config.data_dir, replicator)
+      @amqp_server = LavinMQ::Server.new(@config, replicator)
       @http_server = LavinMQ::HTTP::Server.new(@amqp_server)
       @tls_context = create_tls_context if @config.tls_configured?
       reload_tls_context
