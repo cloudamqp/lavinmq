@@ -30,7 +30,8 @@ module LavinMQ
     @replicator : Clustering::Replicator
     Log = LavinMQ::Log.for "server"
 
-    def initialize(@data_dir : String, @replicator = Clustering::NoopServer.new)
+    def initialize(@config : Config, @replicator = Clustering::NoopServer.new)
+      @data_dir = @config.data_dir
       Dir.mkdir_p @data_dir
       Schema.migrate(@data_dir, @replicator)
       @users = UserStore.new(@data_dir, @replicator)
@@ -99,17 +100,17 @@ module LavinMQ
 
     private def extract_conn_info(client) : ConnectionInfo
       remote_address = client.remote_address
-      case Config.instance.tcp_proxy_protocol
+      case @config.tcp_proxy_protocol
       when 1 then ProxyProtocol::V1.parse(client)
       when 2 then ProxyProtocol::V2.parse(client)
       else
         # Allow proxy connection from followers
-        if Config.instance.clustering? &&
+        if @config.clustering? &&
            client.peek[0, 5]? == "PROXY".to_slice &&
            followers.any? { |f| f.remote_address.address == remote_address.address }
           # Expect PROXY protocol header if remote address is a follower
           ProxyProtocol::V1.parse(client)
-        elsif Config.instance.clustering? &&
+        elsif @config.clustering? &&
               client.peek[0, 8]? == ProxyProtocol::V2::Signature.to_slice[0, 8] &&
               followers.any? { |f| f.remote_address.address == remote_address.address }
           # Expect PROXY protocol header if remote address is a follower
@@ -130,7 +131,7 @@ module LavinMQ
           remote_address = client.remote_address
           set_buffer_size(client)
           conn_info =
-            case Config.instance.unix_proxy_protocol
+            case @config.unix_proxy_protocol
             when 1 then ProxyProtocol::V1.parse(client)
             when 2 then ProxyProtocol::V2.parse(client)
             else        ConnectionInfo.local # TODO: use unix socket address, don't fake local
@@ -252,21 +253,21 @@ module LavinMQ
 
     private def set_socket_options(socket)
       unless socket.remote_address.loopback?
-        if keepalive = Config.instance.tcp_keepalive
+        if keepalive = @config.tcp_keepalive
           socket.keepalive = true
           socket.tcp_keepalive_idle = keepalive[0]
           socket.tcp_keepalive_interval = keepalive[1]
           socket.tcp_keepalive_count = keepalive[2]
         end
       end
-      socket.tcp_nodelay = true if Config.instance.tcp_nodelay?
-      Config.instance.tcp_recv_buffer_size.try { |v| socket.recv_buffer_size = v }
-      Config.instance.tcp_send_buffer_size.try { |v| socket.send_buffer_size = v }
+      socket.tcp_nodelay = true if @config.tcp_nodelay?
+      @config.tcp_recv_buffer_size.try { |v| socket.recv_buffer_size = v }
+      @config.tcp_send_buffer_size.try { |v| socket.send_buffer_size = v }
     end
 
     private def set_buffer_size(socket)
-      if Config.instance.socket_buffer_size.positive?
-        socket.buffer_size = Config.instance.socket_buffer_size
+      if @config.socket_buffer_size.positive?
+        socket.buffer_size = @config.socket_buffer_size
         socket.sync = false
         socket.read_buffering = true
       else
@@ -288,8 +289,8 @@ module LavinMQ
     end
 
     def update_system_metrics(statm)
-      interval = Config.instance.stats_interval.milliseconds.to_i
-      log_size = Config.instance.stats_log_size
+      interval = @config.stats_interval.milliseconds.to_i
+      log_size = @config.stats_log_size
       rusage = System.resource_usage
 
       {% for m in METRICS %}
@@ -353,7 +354,7 @@ module LavinMQ
         end
 
         control_flow!
-        sleep Config.instance.stats_interval.milliseconds
+        sleep @config.stats_interval.milliseconds
       end
     ensure
       statm.try &.close
@@ -435,11 +436,11 @@ module LavinMQ
     end
 
     def disk_full?
-      @disk_free < 3_i64 * Config.instance.segment_size || @disk_free < Config.instance.free_disk_min
+      @disk_free < 3_i64 * @config.segment_size || @disk_free < @config.free_disk_min
     end
 
     def disk_usage_over_warning_level?
-      @disk_free < 6_i64 * Config.instance.segment_size || @disk_free < Config.instance.free_disk_warn
+      @disk_free < 6_i64 * @config.segment_size || @disk_free < @config.free_disk_warn
     end
 
     def flow(active : Bool)

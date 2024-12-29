@@ -74,7 +74,7 @@ end
 
 def with_amqp_server(tls = false, replicator = LavinMQ::Clustering::NoopServer.new, & : LavinMQ::Server -> Nil)
   tcp_server = TCPServer.new("localhost", 0)
-  s = LavinMQ::Server.new(LavinMQ::Config.instance.data_dir, replicator)
+  s = LavinMQ::Server.new(LavinMQ::Config.instance, replicator)
   begin
     if tls
       ctx = OpenSSL::SSL::Context::Server.new

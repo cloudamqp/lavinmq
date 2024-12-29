@@ -11,7 +11,8 @@ describe LavinMQ::AMQP::DurableQueue do
     end
 
     it "should succefully convert queue index" do
-      server = LavinMQ::Server.new("/tmp/lavinmq-spec-index-v2")
+      config = LavinMQ::Config.new.tap &.data_dir = "/tmp/lavinmq-spec-index-v2"
+      server = LavinMQ::Server.new(config)
       begin
         q = server.vhosts["/"].queues["queue"].as(LavinMQ::AMQP::DurableQueue)
         q.basic_get(true) do |env|

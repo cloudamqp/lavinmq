@@ -63,7 +63,7 @@ describe LavinMQ::Clustering::Client do
       done.receive
     end
 
-    server = LavinMQ::Server.new(follower_data_dir)
+    server = LavinMQ::Server.new(config)
     begin
       q = server.vhosts["/"].queues["repli"].as(LavinMQ::AMQP::DurableQueue)
       q.message_count.should eq 1
@@ -94,7 +94,7 @@ describe LavinMQ::Clustering::Client do
       done.receive
     end
 
-    server = LavinMQ::Server.new(follower_data_dir)
+    server = LavinMQ::Server.new(config)
     begin
       server.users["u1"].should_not be_nil
     ensure
