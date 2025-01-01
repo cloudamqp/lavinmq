@@ -185,11 +185,10 @@ class MFile < IO
 
   def read(slice : Bytes)
     pos = @pos
-    new_pos = pos + slice.size
-    raise IO::EOFError.new if new_pos > @size
-    slice.copy_from(buffer + pos, slice.size)
-    @pos = new_pos
-    slice.size
+    len = Math.min(slice.size, @size - pos)
+    slice.copy_from(buffer + pos, len)
+    @pos = pos + len
+    len
   end
 
   def rewind
