@@ -1,3 +1,5 @@
+require "wait_group"
+
 lib LibC
   MS_ASYNC       = 1
   MREMAP_MAYMOVE = 1
@@ -31,6 +33,7 @@ class MFile < IO
   getter fd : Int32
   @buffer = Pointer(UInt8).null
   @deleted = false
+  @wg = WaitGroup.new
 
   # Map a file, if no capacity is given the file must exists and
   # the file will be mapped as readonly
@@ -48,11 +51,13 @@ class MFile < IO
   end
 
   # Opens an existing file in readonly mode
-  def self.open(path, & : self -> _)
-    mfile = self.new(path)
+  def self.open(path, capacity : Int? = nil, & : self -> _)
+    mfile = self.new(path, capacity)
     begin
+      mfile.borrow
       yield mfile
     ensure
+      mfile.unborrow
       mfile.close
     end
   end
@@ -87,7 +92,7 @@ class MFile < IO
     raise RuntimeError.from_errno("mmap") if ptr == LibC::MAP_FAILED
     addr = ptr.as(UInt8*)
     advise(MFile::Advice::Sequential, addr, 0, length) unless @writeonly
-    addr
+    @buffer = addr
   end
 
   def delete(*, raise_on_missing = true) : self
@@ -100,9 +105,41 @@ class MFile < IO
     self
   end
 
+  @counter = 0
+  @counter_lock = Mutex.new(:reentrant)
+
+  def borrow : self
+    @counter_lock.synchronize do
+      counter = @counter
+      if counter.zero?
+        STDERR.puts "mmap #{@path}"
+        mmap
+      end
+      @counter = counter + 1
+    end
+    self
+  end
+
+  def unborrow : self
+    @counter_lock.synchronize do
+      counter = @counter -= 1
+      if counter.zero?
+        STDERR.puts "unmap #{@path}"
+        unmap
+      end
+    end
+    self
+  end
+
+  def borrow(& : self -> _)
+    borrow
+    yield self
+  ensure
+    unborrow
+  end
+
   # The file will be truncated to the current position unless readonly or deleted
   def close(truncate_to_size = true)
-    # unmap occurs on finalize
     if truncate_to_size && !@readonly && !@deleted && @fd > 0
       code = LibC.ftruncate(@fd, @size)
       raise File::Error.from_errno("Error truncating file", file: @path) if code < 0
@@ -116,11 +153,11 @@ class MFile < IO
   end
 
   def flush
-    msync(buffer, @size, LibC::MS_ASYNC)
+    msync(@buffer, @size, LibC::MS_ASYNC)
   end
 
   def msync
-    msync(buffer, @size, LibC::MS_SYNC)
+    msync(@buffer, @size, LibC::MS_SYNC)
   end
 
   def fsync : Nil
@@ -129,33 +166,11 @@ class MFile < IO
   end
 
   # unload the memory mapping, will be remapped on demand
-  def unmap : Nil
-    munmap
+  private def unmap : Nil
+    b = @buffer
+    c = @capacity
     @buffer = Pointer(UInt8).null
-  end
-
-  def unmapped? : Bool
-    @buffer.null?
-  end
-
-  # Copies the file to another IO
-  # Won't mmap the file if it's unmapped already
-  def copy_to(output : IO, size = @size) : Int64
-    if unmapped? # don't remap unmapped files
-      raise ClosedError.new if @fd < 0
-      io = IO::FileDescriptor.new(@fd, blocking: true, close_on_finalize: false)
-      io.rewind
-      IO.copy(io, output, size) == size || raise IO::EOFError.new
-    else
-      output.write to_slice(0, size)
-    end
-    size.to_i64
-  end
-
-  # mmap on demand
-  private def buffer : Pointer(UInt8)
-    return @buffer unless @buffer.null?
-    @buffer = mmap
+    munmap(b, c)
   end
 
   private def munmap(buffer = @buffer, length = @capacity)
@@ -170,23 +185,20 @@ class MFile < IO
     raise RuntimeError.from_errno("msync") if code < 0
   end
 
-  def finalize
-    LibC.close(@fd) if @fd > -1
-    LibC.munmap(@buffer, @capacity) unless @buffer.null?
-  end
-
   def write(slice : Bytes) : Nil
+    # raise IO::Error.new("not memory mapped") if @buffer.null?
     size = @size
     new_size = size + slice.size
     raise IO::EOFError.new if new_size > @capacity
-    slice.copy_to(buffer + size, slice.size)
+    slice.copy_to(@buffer + size, slice.size)
     @size = new_size
   end
 
   def read(slice : Bytes)
+    # raise IO::Error.new("not memory mapped") if @buffer.null?
     pos = @pos
     len = Math.min(slice.size, @size - pos)
-    slice.copy_from(buffer + pos, len)
+    slice.copy_from(@buffer + pos, len)
     @pos = pos + len
     len
   end
@@ -224,19 +236,19 @@ class MFile < IO
   end
 
   def to_unsafe
-    buffer
+    @buffer
   end
 
   def to_slice
-    Bytes.new(buffer, @size, read_only: true)
+    Bytes.new(@buffer, @size, read_only: true)
   end
 
   def to_slice(pos, size)
     raise IO::EOFError.new if pos + size > @size
-    Bytes.new(buffer + pos, size, read_only: true)
+    Bytes.new(@buffer + pos, size, read_only: true)
   end
 
-  def advise(advice : Advice, addr = buffer, offset = 0, length = @capacity) : Nil
+  def advise(advice : Advice, addr = @buffer, offset = 0, length = @capacity) : Nil
     if LibC.madvise(addr + offset, length, advice) != 0
       raise IO::Error.from_errno("madvise")
     end

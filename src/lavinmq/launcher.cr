@@ -167,17 +167,6 @@ module LavinMQ
     end
 
     private def run_gc
-      STDOUT.puts "Unmapping all segments"
-      STDOUT.flush
-      @amqp_server.vhosts.each_value do |vhost|
-        vhost.queues.each_value do |q|
-          if q = q.as(LavinMQ::AMQP::Queue)
-            msg_store = q.@msg_store
-            msg_store.@segments.each_value &.unmap
-            msg_store.@acks.each_value &.unmap
-          end
-        end
-      end
       STDOUT.puts "Garbage collecting"
       STDOUT.flush
       GC.collect
