@@ -269,21 +269,6 @@ Stream queues are like append-only logs and can be consumed multiple times. Each
 
 Messages are only deleted when `max-length`, `max-length-bytes` or `max-age` are applied, either as queue arguments or as policies. The limits are checked only when new messages are published to the queue, and only act on whole segments (which by default are 8MiB), so the limits aren't necessarily exact. So even if a `max-age` limit is set, but no messages are published to the queue, messages might still be available in the stream queue that is way older that the limit specified.
 
-## Contributors
-
-- [Carl Hörberg](mailto:carl@84codes.com)
-- [Anders Bälter](mailto:anders@84codes.com)
-- [Magnus Landerblom](mailto:mange@cloudamqp.com)
-- [Magnus Hörberg](mailto:magnus@cloudamqp.com)
-- [Johan Eckerström](mailto:johan.e@cloudamqp.com)
-- [Anton Dalgren](mailto:anton@cloudamqp.com)
-- [Patrik Ragnarsson](mailto:patrik@84codes.com)
-- [Oskar Gustafsson](mailto:oskar@84codes.com)
-- [Tobias Brodén](mailto:tobias@84codes.com)
-- [Christina Dahlén](mailto:christina@84codes.com)
-- [Erica Weistrand](mailto:erica@84codes.com)
-- [Viktor Erlingsson](mailto:viktor@84codes.com)
-
 ## License
 
 The software is licensed under the [Apache License 2.0](LICENSE).
@@ -291,3 +276,6 @@ The software is licensed under the [Apache License 2.0](LICENSE).
 Copyright 2018-2024 84codes AB
 
 LavinMQ is a trademark of 84codes AB
+
+## Contact Us
+Do you want to learn more? [Talk with our product experts](https://webforms.pipedrive.com/f/64JnLsqIMAdF2BDQ06ioKLhC2NuNmkwNplNhRxtIqlm0nFnuIeX97eb7fZKej0vFHZ).
