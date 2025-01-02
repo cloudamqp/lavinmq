@@ -157,7 +157,7 @@ module LavinMQ
         )
       end
 
-      def apply_policy(policy : Policy?, operator_policy : OperatorPolicy?) # ameba:disable Metrics/CyclomaticComplexity
+      def apply_policy(policy : Policy?, operator_policy : OperatorPolicy?)
         clear_policy
         Policy.merge_definitions(policy, operator_policy).each do |k, v|
           @log.debug { "Applying policy #{k}: #{v}" }

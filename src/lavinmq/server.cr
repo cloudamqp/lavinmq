@@ -60,7 +60,7 @@ module LavinMQ
 
     def amqp_url
       addr = @listeners
-        .select { |k, v| v.amqp? }
+        .select { |_, v| v.amqp? }
         .keys
         .select(TCPServer)
         .first
