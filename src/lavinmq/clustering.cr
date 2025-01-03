@@ -4,7 +4,8 @@ require "digest/sha1"
 
 module LavinMQ
   module Clustering
-    Start = Bytes['R'.ord, 'E'.ord, 'P'.ord, 'L'.ord, 'I'.ord, 1, 0, 0]
+    Start100 = Bytes['R'.ord, 'E'.ord, 'P'.ord, 'L'.ord, 'I'.ord, 1, 0, 0]
+    Start    = Bytes['R'.ord, 'E'.ord, 'P'.ord, 'L'.ord, 'I'.ord, 1, 0, 1]
 
     class Error < Exception; end
 
