@@ -2,12 +2,12 @@ require "../spec_helper"
 require "lz4"
 
 module FollowerSpec
-  def self.sha1(str : String)
-    sha1 = Digest::SHA1.new
-    hash = Bytes.new(sha1.digest_size)
-    sha1.update str.to_slice
-    sha1.final hash
-    sha1.reset
+  def self.checksum(str : String)
+    algo = Digest::CRC32.new
+    hash = Bytes.new(algo.digest_size)
+    algo.update str.to_slice
+    algo.final hash
+    algo.reset
     hash
   end
 
@@ -23,13 +23,13 @@ module FollowerSpec
     def initialize(data_dir : String, files_with_hash : Hash(String, Bytes)? = nil,
                    @with_file : Hash(String, FileType) = DEFAULT_WITH_FILE)
       @files_with_hash = files_with_hash || Hash(String, Bytes){
-        File.join(data_dir, "file1") => FollowerSpec.sha1("hash1"),
-        File.join(data_dir, "file2") => FollowerSpec.sha1("hash2"),
-        File.join(data_dir, "file3") => FollowerSpec.sha1("hash3"),
+        File.join(data_dir, "file1") => FollowerSpec.checksum("hash1"),
+        File.join(data_dir, "file2") => FollowerSpec.checksum("hash2"),
+        File.join(data_dir, "file3") => FollowerSpec.checksum("hash3"),
       }
     end
 
-    def files_with_hash(& : Tuple(String, Bytes) -> Nil)
+    def files_with_hash(algo : Digest, & : Tuple(String, Bytes) -> Nil)
       @files_with_hash.each do |values|
         yield values
       end
@@ -132,7 +132,7 @@ module FollowerSpec
           loop do
             len = client_lz4.read_bytes Int32, IO::ByteFormat::LittleEndian
             break if len == 0
-            hash = Bytes.new(20)
+            hash = Bytes.new(4)
             path = client_lz4.read_string len
             client_lz4.read_fully hash
             file_list[path] = hash

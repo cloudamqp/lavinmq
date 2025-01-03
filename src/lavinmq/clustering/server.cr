@@ -71,19 +71,12 @@ module LavinMQ
         each_follower &.delete(path)
       end
 
-      def files_with_hash(& : Tuple(String, Bytes) -> Nil)
-        crc32 = Digest::CRC32.new
-        hash = Bytes.new(crc32.digest_size)
-        @files.each do |path, mfile|
-          if mfile
-            was_unmapped = mfile.unmapped?
-            crc32.update mfile.to_slice
-            mfile.unmap if was_unmapped
-          else
-            crc32.file path
-          end
-          crc32.final hash
-          crc32.reset
+      def files_with_hash(algo : Digest, & : Tuple(String, Bytes) -> Nil)
+        hash = Bytes.new(algo.digest_size)
+        @files.each_key do |path|
+          algo.file path
+          algo.final hash
+          algo.reset
           yield({path, hash})
         end
       end
