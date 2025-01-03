@@ -231,9 +231,9 @@ class MFile < IO
     Bytes.new(buffer, @size, read_only: true)
   end
 
-  def to_slice(pos, size)
+  def to_slice(pos, size, read_only = true)
     raise IO::EOFError.new if pos + size > @size
-    Bytes.new(buffer + pos, size, read_only: true)
+    Bytes.new(buffer + pos, size, read_only: read_only)
   end
 
   def advise(advice : Advice, addr = buffer, offset = 0, length = @capacity) : Nil
@@ -262,5 +262,10 @@ class MFile < IO
     cnt = LibC.pread(@fd, bytes, bytes.bytesize, pos)
     raise IO::Error.from_errno("pread") if cnt == -1
     cnt
+  end
+
+  def rename(new_path : String) : Nil
+    File.rename @path, new_path
+    @path = new_path
   end
 end
