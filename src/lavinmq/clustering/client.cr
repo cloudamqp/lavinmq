@@ -15,6 +15,7 @@ module LavinMQ
       @unix_http_proxy : Proxy?
       @socket : TCPSocket?
       @streamed_bytes = 0_u64
+      @version : Bytes = Start
 
       def initialize(@config : Config, @id : Int32, @password : String, proxy = true)
         System.maximize_fd_limit
@@ -76,16 +77,24 @@ module LavinMQ
           @socket = socket = TCPSocket.new(host, port)
           socket.sync = true
           socket.read_buffering = false
+          Log.info { "Connected" }
+          authenticate(socket)
+          Log.info { "Authenticated" }
+          set_socket_opts(socket)
           lz4 = Compress::LZ4::Reader.new(socket)
           sync(socket, lz4)
           Log.info { "Streaming changes" }
           stream_changes(socket, lz4)
+        rescue ex : ProtocolVersionError
+          Log.info { "Leader is running an older replication protocol: #{String.new(ex.version).dump}" }
+          @version = ex.version
         rescue ex : IO::Error
-          lz4.try &.close
-          socket.try &.close
           break if @closed
           Log.info { "Disconnected from server #{host}:#{port} (#{ex}), retrying..." }
           sleep 1.seconds
+        ensure
+          lz4.try &.close
+          socket.try &.close
         end
       end
 
@@ -104,10 +113,6 @@ module LavinMQ
       end
 
       private def sync(socket, lz4)
-        Log.info { "Connected" }
-        authenticate(socket)
-        Log.info { "Authenticated" }
-        set_socket_opts(socket)
         sync_files(socket, lz4)
         Log.info { "Bulk synchronised" }
         sync_files(socket, lz4)
@@ -125,9 +130,9 @@ module LavinMQ
 
       private def sync_files(socket, lz4)
         Log.info { "Waiting for list of files" }
-        crc32 = Digest::CRC32.new
-        remote_hash = Bytes.new(crc32.digest_size)
-        local_hash = Bytes.new(crc32.digest_size)
+        checksum_algo = @version == Start ? Digest::CRC32.new : Digest::SHA1.new
+        remote_hash = Bytes.new(checksum_algo.digest_size)
+        local_hash = Bytes.new(checksum_algo.digest_size)
         files_to_delete = ls_r(@data_dir)
         missing_files = Array(String).new
         loop do
@@ -139,9 +144,9 @@ module LavinMQ
           path = File.join(@data_dir, filename)
           files_to_delete.delete(path)
           if File.exists? path
-            crc32.file(path)
-            crc32.final(local_hash)
-            crc32.reset
+            checksum_algo.file(path)
+            checksum_algo.final(local_hash)
+            checksum_algo.reset
             if local_hash != remote_hash
               Log.info { "Mismatching hash: #{path}" }
               move_to_backup path
@@ -268,13 +273,21 @@ module LavinMQ
       end
 
       private def authenticate(socket)
-        socket.write Start
+        socket.write @version
         socket.write_bytes @password.bytesize.to_u8, IO::ByteFormat::LittleEndian
         socket.write @password.to_slice
         case socket.read_byte
         when 0 # ok
         when 1   then raise AuthenticationError.new
         when nil then raise IO::EOFError.new
+        when 'R'.ord
+          buf = uninitialized UInt8[7]
+          socket.read(buf.to_slice)
+          if buf == Start100[1, -1]
+            raise ProtocolVersionError.new(Start100)
+          else
+            raise Error.new("Unknown response from authentication: #{String.new(buf.to_slice).dump}")
+          end
         else
           raise Error.new("Unknown response from authentication")
         end
@@ -297,6 +310,14 @@ module LavinMQ
       class AuthenticationError < Error
         def initialize
           super("Authentication error")
+        end
+      end
+
+      class ProtocolVersionError < Error
+        getter version
+
+        def initialize(@version : Bytes)
+          super("Protocol version: #{String.new(@version).dump}")
         end
       end
     end

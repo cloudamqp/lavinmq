@@ -3,6 +3,9 @@ require "./file_index"
 require "../config"
 require "socket"
 require "wait_group"
+require "lz4"
+require "digest/crc32"
+require "digest/sha1"
 
 module LavinMQ
   module Clustering
@@ -23,8 +26,10 @@ module LavinMQ
         @lz4 = Compress::LZ4::Writer.new(@socket, Compress::LZ4::CompressOptions.new(auto_flush: false, block_mode_linked: true))
       end
 
+      @checksum_algo : Digest = Digest::CRC32.new
+
       def negotiate!(password) : Nil
-        validate_header!
+        @checksum_algo = validate_header!
         authenticate!(password)
         @id = @socket.read_bytes Int32, IO::ByteFormat::LittleEndian
         @socket.tcp_nodelay = true
@@ -74,11 +79,16 @@ module LavinMQ
         len
       end
 
-      private def validate_header! : Nil
+      private def validate_header! : Digest
         buf = uninitialized UInt8[8]
         slice = buf.to_slice
         @socket.read_fully(slice)
-        if slice != Start
+        case slice
+        when Start
+          Digest::CRC32.new
+        when Start100
+          Digest::SHA1.new
+        else
           @socket.write(Start)
           raise InvalidStartHeaderError.new(slice)
         end
@@ -99,7 +109,7 @@ module LavinMQ
 
       private def send_file_list(socket = @lz4)
         count = 0
-        @file_index.files_with_hash do |path, hash|
+        @file_index.files_with_hash(@checksum_algo) do |path, hash|
           count &+= 1
           path = path[@data_dir.bytesize + 1..]
           socket.write_bytes path.bytesize.to_i32, IO::ByteFormat::LittleEndian
