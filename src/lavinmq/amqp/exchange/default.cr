@@ -11,11 +11,11 @@ module LavinMQ
         Iterator(BindingDetails).empty
       end
 
-      protected def bindings(routing_key, headers) : Iterator(Destination)
+      protected def bindings(routing_key, headers) : Iterator(LavinMQ::Destination)
         if q = @vhost.queues[routing_key]?
-          Tuple(Destination).new(q).each
+          Tuple(LavinMQ::Destination).new(q).each
         else
-          Iterator(Destination).empty
+          Iterator(LavinMQ::Destination).empty
         end
       end
 
