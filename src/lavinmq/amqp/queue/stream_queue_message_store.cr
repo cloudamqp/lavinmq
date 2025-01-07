@@ -136,12 +136,12 @@ module LavinMQ::AMQP
       end
 
       private def matching?(msg_headers, consumer_filter, match_unfiltered) : Bool
-        if msg_filters = filter_values_from_headers(msg_headers)
+        if msg_filter = filter_value_from_headers(msg_headers)
           consumer_filter.split(",").each do |filter|
-            return true if msg_filters == filter
+            return true if msg_filter == filter
           end
         else
-          return true if match_unfiltered
+          return match_unfiltered
         end
         false
       end
@@ -250,9 +250,9 @@ module LavinMQ::AMQP
         headers.not_nil!("Message lacks headers")["x-stream-offset"].as(Int64)
       end
 
-      private def filter_values_from_headers(headers) : String?
-        if filters = headers.not_nil!("Message lacks headers")["x-stream-filter-value"]?
-          filters.to_s
+      private def filter_value_from_headers(headers) : String?
+        if filter = headers.not_nil!("Message lacks headers")["x-stream-filter-value"]?
+          filter.to_s
         else
           nil
         end
