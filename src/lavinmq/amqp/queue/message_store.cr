@@ -382,7 +382,8 @@ module LavinMQ
             bytesize = BytesMessage.skip(mfile)
             count += 1
             next if deleted?(seg, pos)
-            update_stats_per_msg(seg, ts, bytesize)
+            @bytesize += bytesize
+            @size += 1
           rescue ex : IO::EOFError
             break
           rescue ex : OverflowError | AMQ::Protocol::Error::FrameDecode
@@ -400,11 +401,6 @@ module LavinMQ
           @segment_msg_count[seg] = count
         end
         @log.info { "Loaded #{counter} segments, #{@size} messages" }
-      end
-
-      private def update_stats_per_msg(seg, ts, bytesize)
-        @bytesize += bytesize
-        @size += 1
       end
 
       private def delete_unused_segments : Nil
