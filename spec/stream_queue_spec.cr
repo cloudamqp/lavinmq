@@ -307,5 +307,28 @@ describe LavinMQ::AMQP::StreamQueue do
         end
       end
     end
+
+    it "should respect offset values while filtering" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          ch.prefetch 1
+          q = ch.queue("stream_filter_5", args: stream_queue_args)
+          hdrs = AMQP::Client::Arguments.new({"x-stream-filter-value" => "foo"})
+          q.publish("msg with filter 1", props: AMQP::Client::Properties.new(headers: hdrs))
+          q.publish("msg with filter 2", props: AMQP::Client::Properties.new(headers: hdrs))
+          q.publish("msg without filter")
+
+          msgs = Channel(AMQP::Client::DeliverMessage).new
+          args = AMQP::Client::Arguments.new({"x-stream-filter-value": "foo", "x-stream-offset": 2})
+          q.subscribe(no_ack: false, args: args) do |msg|
+            msgs.send msg
+            msg.ack
+          end
+          msg = msgs.receive
+          msg.body_io.to_s.should eq "msg with filter 2"
+        end
+      end
+    end
+
   end
 end
