@@ -74,14 +74,8 @@ module LavinMQ
       def files_with_hash(& : Tuple(String, Bytes) -> Nil)
         sha1 = Digest::SHA1.new
         hash = Bytes.new(sha1.digest_size)
-        @files.each do |path, mfile|
-          if mfile
-            was_unmapped = mfile.unmapped?
-            sha1.update mfile.to_slice
-            mfile.unmap if was_unmapped
-          else
-            sha1.file path
-          end
+        @files.each_key do |path|
+          sha1.file path
           sha1.final hash
           sha1.reset
           yield({path, hash})
