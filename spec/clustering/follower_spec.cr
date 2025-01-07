@@ -113,6 +113,9 @@ module FollowerSpec
           response.should eq 0u8
         end
       end
+
+      it "can negotiate older protocol version" do
+      end
     end
   end
 
