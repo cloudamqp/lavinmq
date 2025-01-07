@@ -329,6 +329,5 @@ describe LavinMQ::AMQP::StreamQueue do
         end
       end
     end
-
   end
 end
