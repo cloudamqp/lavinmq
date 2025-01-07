@@ -118,15 +118,7 @@ class MFile < IO
       raise File::Error.from_errno("Error truncating file", file: @path) if code < 0
     end
 
-    # unmap if non has reserved the file, race condition prone?
-    if @wg.@counter.get(:acquire).zero?
-      unmap
-    else
-      spawn(name: "munmap #{@path}") do
-        @wg.wait
-        unmap
-      end
-    end
+    unmap
   ensure
     unless @fd == -1
       code = LibC.close(@fd)
@@ -150,6 +142,18 @@ class MFile < IO
 
   # unload the memory mapping, will be remapped on demand
   def unmap : Nil
+    # unmap if non has reserved the file, race condition prone?
+    if @wg.@counter.get(:acquire).zero?
+      unsafe_unmap
+    else
+      spawn(name: "munmap #{@path}") do
+        @wg.wait
+        unsafe_unmap
+      end
+    end
+  end
+
+  private def unsafe_unmap : Nil
     b = @buffer
     c = @capacity
     @buffer = Pointer(UInt8).null
