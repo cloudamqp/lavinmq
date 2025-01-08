@@ -4,6 +4,8 @@ require "./lavinmq/definitions_generator"
 require "http/client"
 require "json"
 require "option_parser"
+require "digest/sha1"
+require "file_utils"
 
 class LavinMQCtl
   @options = {} of String => String
@@ -41,6 +43,7 @@ class LavinMQCtl
     {"delete_exchange", "Delete exchange", "<name>"},
     {"set_vhost_limits", "Set VHost limits (max-connections, max-queues)", "<json>"},
     {"set_permissions", "Set permissions for a user", "<username> <configure> <write> <read>"},
+    {"cleanup_datadir", "Cleans up the datadir, removing orphaned files", "<datadir> <vhost>"},
   }
 
   def initialize
@@ -178,6 +181,7 @@ class LavinMQCtl
     when "set_vhost_limits"      then set_vhost_limits
     when "set_permissions"       then set_permissions
     when "definitions"           then definitions
+    when "cleanup_datadir"       then cleanup_datadir
     when "stop_app"
     when "start_app"
     else
@@ -680,6 +684,56 @@ class LavinMQCtl
   private def definitions
     data_dir = ARGV.shift? || abort "definitions <datadir>"
     DefinitionsGenerator.new(data_dir).generate(STDOUT)
+  end
+
+  private def cleanup_datadir
+    data_dir = ARGV.shift? || abort "cleanup_datadir <datadir>"
+    vhost = ARGV.shift?
+
+    vhosts = [vhost]
+    unless vhost # no vhost specified, get all vhosts
+      resp = http.get "/api/vhosts", @headers
+      handle_response(resp, 200)
+      if vhost_list = JSON.parse(resp.body).as_a?
+        vhosts = vhost_list.map do |u|
+          next unless v = u.as_h?
+          v["name"].to_s
+        end
+      end
+    end
+
+    vhosts.compact.each do |current_vhost|
+      resp = http.get "/api/queues/#{URI.encode_www_form(current_vhost)}", @headers
+      handle_response(resp, 200)
+      queue_list = [] of String
+      if queues = JSON.parse(resp.body).as_a?
+        queue_list = queues.map do |q|
+          next unless v = q.as_h?
+          Digest::SHA1.hexdigest(v["name"].to_s)
+        end
+      end
+      vhost_data_dir = File.join(data_dir, Digest::SHA1.hexdigest(current_vhost))
+      begin
+        Dir.each_child(vhost_data_dir) do |child|
+          child_dir = File.join(vhost_data_dir, child)
+          next unless should_cleanup_dir?(child, child_dir, queue_list)
+          FileUtils.rm_rf child_dir
+        end
+        Dir.each_child(File.join(vhost_data_dir, "transient")) do |child|
+          child_dir = File.join(vhost_data_dir, "transient", child)
+          next unless should_cleanup_dir?(child, child_dir, queue_list)
+          FileUtils.rm_rf child_dir
+        end
+      rescue e : File::NotFoundError
+      end
+    end
+  end
+
+  private def should_cleanup_dir?(dir_name, dir_path, queue_list)
+    return false unless File.directory? dir_path
+    return false if dir_name == "transient" || dir_name.in?(queue_list)
+    puts "Removing orphaned dir #{dir_path}" unless quiet?
+    true
   end
 end
 
