@@ -276,10 +276,11 @@ describe LavinMQ::AMQP::Queue do
         q = ch.queue "transient", durable: false
         q.publish_confirm "foobar"
         data_dir = s.vhosts["/"].queues["transient"].as(LavinMQ::AMQP::Queue).@msg_store.@queue_data_dir
-        FileUtils.cp_r data_dir, "#{data_dir}.copy"
+        FileUtils.cp_r data_dir, "#{s.vhosts["/"].data_dir}.copy"
       end
       s.stop
-      FileUtils.cp_r "#{data_dir}.copy", data_dir
+      Dir.mkdir_p data_dir
+      FileUtils.cp_r "#{s.vhosts["/"].data_dir}.copy", data_dir
       s.restart
       with_channel(s) do |ch|
         q = ch.queue_declare "transient", durable: false
