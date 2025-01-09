@@ -251,7 +251,7 @@ module LavinMQ::AMQP
       end
 
       private def filter_value_from_headers(headers) : String?
-        if filter = headers.not_nil!("Message lacks headers")["x-stream-filter-value"]?
+        if filter = headers.try &.["x-stream-filter-value"]?
           filter.to_s
         else
           nil
