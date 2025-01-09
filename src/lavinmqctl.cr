@@ -306,6 +306,23 @@ class LavinMQCtl
     URI.encode_www_form(@options["vhost"])
   end
 
+  MAX_PAGE_SIZE = 10_000
+
+  private def get(url, page = 1, items = [] of JSON::Any)
+    resp = http.get("#{url}?page=#{page}&page_size=#{MAX_PAGE_SIZE}", @headers)
+    handle_response(resp, 200)
+    if data = JSON.parse(resp.body).as_h?
+      items += data["items"].as_a
+      page = data["page"].as_i
+      if page < data["page_count"].as_i
+        return get(url, page + 1, items)
+      end
+    else
+      abort "invalid data"
+    end
+    items
+  end
+
   private def import_definitions
     file = ARGV.shift? || ""
     resp = if file == "-"
@@ -330,16 +347,12 @@ class LavinMQCtl
   end
 
   private def list_users
-    resp = http.get "/api/users", @headers
-    handle_response(resp, 200)
     puts "Listing users ..." unless quiet?
-    if users = JSON.parse(resp.body).as_a?
-      uu = users.map do |u|
-        next unless user = u.as_h?
-        {name: user["name"].to_s, tags: user["tags"].to_s}
-      end
-      output uu
+    uu = get("/api/users").map do |u|
+      next unless user = u.as_h?
+      {name: user["name"].to_s, tags: user["tags"].to_s}
     end
+    output uu
   end
 
   private def add_user
@@ -375,18 +388,12 @@ class LavinMQCtl
 
   private def list_queues
     vhost = @options["vhost"]? || "/"
-    resp = http.get "/api/queues/#{URI.encode_www_form(vhost)}", @headers
     puts "Listing queues for vhost #{vhost} ..." unless quiet?
-    handle_response(resp, 200)
-    if queues = JSON.parse(resp.body).as_a?
-      qq = queues.map do |u|
-        next unless q = u.as_h?
-        {name: q["name"].to_s, messages: q["messages"].to_s}
-      end
-      output qq
-    else
-      abort "invalid data"
+    qq = get("/api/queues/#{URI.encode_www_form(vhost)}").map do |u|
+      next unless q = u.as_h?
+      {name: q["name"].to_s, messages: q["messages"].to_s}
     end
+    output qq
   end
 
   private def purge_queue
@@ -416,35 +423,31 @@ class LavinMQCtl
   private def list_connections
     columns = ARGV
     columns = ["user", "peer_host", "peer_port", "state"] if columns.empty?
-    resp = http.get "/api/connections", @headers
+    conns = get("/api/connections")
     puts "Listing connections ..." unless quiet?
-    handle_response(resp, 200)
-    if conns = JSON.parse(resp.body).as_a?
-      if @options["format"]? == "json"
-        cc = conns.map do |u|
-          next unless conn = u.as_h?
-          conn.select { |k, _v| columns.includes? k }
-        end
-        output cc
-      else
-        puts columns.join(STDOUT, "\t")
-        conns.each do |u|
-          if conn = u.as_h?
-            columns.each_with_index do |c, i|
-              case c
-              when "client_properties"
-                print_erlang_terms(conn[c].as_h)
-              else
-                print conn[c]
-              end
-              print "\t" unless i == columns.size - 1
+
+    if @options["format"]? == "json"
+      cc = conns.map do |u|
+        next unless conn = u.as_h?
+        conn.select { |k, _v| columns.includes? k }
+      end
+      output cc
+    else
+      puts columns.join(STDOUT, "\t")
+      conns.each do |u|
+        if conn = u.as_h?
+          columns.each_with_index do |c, i|
+            case c
+            when "client_properties"
+              print_erlang_terms(conn[c].as_h)
+            else
+              print conn[c]
             end
-            puts
+            print "\t" unless i == columns.size - 1
           end
+          puts
         end
       end
-    else
-      abort "invalid data"
     end
   end
 
@@ -474,37 +477,26 @@ class LavinMQCtl
   end
 
   private def close_all_connections
-    resp = http.get "/api/connections", @headers
-    handle_response(resp, 200)
+    conns = get("/api/connections")
     closed_conns = [] of NamedTuple(name: String)
-    if conns = JSON.parse(resp.body).as_a?
-      @headers["X-Reason"] = ARGV.shift? || "Closed via lavinmqctl"
-      conns.each do |u|
-        next unless conn = u.as_h?
-        name = conn["name"].to_s
-        puts "Closing connection #{name} ..." unless quiet?
-        http.delete "/api/connections/#{URI.encode_path(name)}", @headers
-        closed_conns << {name: name}
-      end
-    else
-      abort "invalid data"
+    @headers["X-Reason"] = ARGV.shift? || "Closed via lavinmqctl"
+    conns.each do |u|
+      next unless conn = u.as_h?
+      name = conn["name"].to_s
+      puts "Closing connection #{name} ..." unless quiet?
+      http.delete "/api/connections/#{URI.encode_path(name)}", @headers
+      closed_conns << {name: name}
     end
     output closed_conns, ["closed_connections"]
   end
 
   private def list_vhosts
-    resp = http.get "/api/vhosts", @headers
     puts "Listing vhosts ..." unless quiet?
-    handle_response(resp, 200)
-    if vhosts = JSON.parse(resp.body).as_a?
-      vv = vhosts.map do |u|
-        next unless v = u.as_h?
-        {name: v["name"].to_s}
-      end
-      output vv
-    else
-      abort "invalid data"
+    vv = get("/api/vhosts").map do |u|
+      next unless v = u.as_h?
+      {name: v["name"].to_s}
     end
+    output vv
   end
 
   private def add_vhost
@@ -531,14 +523,8 @@ class LavinMQCtl
 
   private def list_policies
     vhost = @options["vhost"]? || "/"
-    resp = http.get "/api/policies/#{URI.encode_www_form(vhost)}", @headers
     puts "Listing policies for vhost #{vhost} ..." unless quiet?
-    handle_response(resp, 200)
-    if policies = JSON.parse(resp.body).as_a?
-      output policies
-    else
-      abort "invalid data"
-    end
+    output get("/api/policies/#{URI.encode_www_form(vhost)}")
   end
 
   private def set_policy
@@ -582,21 +568,16 @@ class LavinMQCtl
 
   private def list_exchanges
     vhost = @options["vhost"]? || "/"
-    resp = http.get "/api/exchanges/#{URI.encode_www_form(vhost)}", @headers
     puts "Listing exchanges for vhost #{vhost} ..." unless quiet?
-    handle_response(resp, 200)
-    if exchanges = JSON.parse(resp.body).as_a?
-      ee = exchanges.map do |u|
-        next unless e = u.as_h?
-        {
-          name: e["name"].to_s,
-          type: e["type"].to_s,
-        }
-      end
-      output ee
-    else
-      abort "invalid data"
+
+    ee = get("/api/exchanges/#{URI.encode_www_form(vhost)}").map do |u|
+      next unless e = u.as_h?
+      {
+        name: e["name"].to_s,
+        type: e["type"].to_s,
+      }
     end
+    output ee
   end
 
   private def create_exchange
