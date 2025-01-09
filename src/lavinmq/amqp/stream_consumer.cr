@@ -9,7 +9,7 @@ module LavinMQ
       property segment : UInt32
       property pos : UInt32
       getter requeued = Deque(SegmentPosition).new
-      getter filter : String?
+      getter filter : Array(String)? = nil
       getter? match_unfiltered : Bool = false
 
       def initialize(@channel : Client::Channel, @queue : StreamQueue, frame : AMQP::Frame::Basic::Consume)
@@ -41,7 +41,7 @@ module LavinMQ
         end
         case frame.arguments["x-stream-filter-value"]?
         when String
-          @filter = frame.arguments["x-stream-filter-value"].to_s
+          @filter = frame.arguments["x-stream-filter-value"].to_s.split(",")
         when Nil
         else raise LavinMQ::Error::PreconditionFailed.new("x-stream-filter-value must be a string")
         end
