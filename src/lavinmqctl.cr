@@ -703,37 +703,35 @@ class LavinMQCtl
     end
 
     vhosts.compact.each do |current_vhost|
-      resp = http.get "/api/queues/#{URI.encode_www_form(current_vhost)}", @headers
-      handle_response(resp, 200)
-      queue_list = [] of String
-      if queues = JSON.parse(resp.body).as_a?
-        queue_list = queues.map do |q|
-          next unless v = q.as_h?
-          Digest::SHA1.hexdigest(v["name"].to_s)
-        end
-      end
+      queue_dirs = [] of String
       vhost_data_dir = File.join(data_dir, Digest::SHA1.hexdigest(current_vhost))
       begin
         Dir.each_child(vhost_data_dir) do |child|
-          child_dir = File.join(vhost_data_dir, child)
-          next unless should_cleanup_dir?(child, child_dir, queue_list)
-          FileUtils.rm_rf child_dir
+          next unless File.directory? File.join(vhost_data_dir, child)
+          next if child == "transient"
+          queue_dirs << File.join(vhost_data_dir, child)
         end
         Dir.each_child(File.join(vhost_data_dir, "transient")) do |child|
-          child_dir = File.join(vhost_data_dir, "transient", child)
-          next unless should_cleanup_dir?(child, child_dir, queue_list)
-          FileUtils.rm_rf child_dir
+          next unless File.directory? File.join(vhost_data_dir, child)
+          queue_dirs << File.join(vhost_data_dir, "transient", child)
         end
       rescue e : File::NotFoundError
       end
-    end
-  end
 
-  private def should_cleanup_dir?(dir_name, dir_path, queue_list)
-    return false unless File.directory? dir_path
-    return false if dir_name == "transient" || dir_name.in?(queue_list)
-    puts "Removing orphaned dir #{dir_path}" unless quiet?
-    true
+      resp = http.get "/api/queues/#{URI.encode_www_form(current_vhost)}", @headers
+      handle_response(resp, 200)
+      if queues = JSON.parse(resp.body).as_a?
+        queues.each do |q|
+          next unless v = q.as_h?
+          queue_dirs.reject! { |path| path.includes?(Digest::SHA1.hexdigest(v["name"].to_s)) }
+        end
+      end
+
+      queue_dirs.each do |dir|
+        puts "Removing orphaned dir #{dir}" unless quiet?
+        FileUtils.rm_rf dir
+      end
+    end
   end
 end
 
