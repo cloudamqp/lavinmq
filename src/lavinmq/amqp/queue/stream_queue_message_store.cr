@@ -141,7 +141,6 @@ module LavinMQ::AMQP
         else
           return match_unfiltered
         end
-        false
       end
 
       private def shift_requeued(requeued) : Envelope?
