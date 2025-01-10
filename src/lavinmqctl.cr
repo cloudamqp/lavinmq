@@ -316,7 +316,7 @@ class LavinMQCtl
         return get(url, page + 1, items)
       end
     else
-      abort "invalid data"
+      abort "Unexpected response from #{url}\n#{resp.body}"
     end
     items
   end
