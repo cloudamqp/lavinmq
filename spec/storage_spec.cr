@@ -177,7 +177,7 @@ describe LavinMQ::VHost do
       overhead = 21
       body = Bytes.new(msg_size)
 
-      segments = ->{ Dir.new(vhost.data_dir).children.select!(/^msgs\./) }
+      segments = -> { Dir.new(vhost.data_dir).children.select!(/^msgs\./) }
 
       size_of_current_segment = File.size(File.join(vhost.data_dir, segments.call.last))
 
