@@ -43,12 +43,14 @@ module LavinMQ
         when String
           @filter = frame.arguments["x-stream-filter-value"].to_s.split(",")
         when Nil
+          # noop
         else raise LavinMQ::Error::PreconditionFailed.new("x-stream-filter-value must be a string")
         end
         case frame.arguments["x-stream-match-unfiltered"]?
         when Bool
           @match_unfiltered = frame.arguments["x-stream-match-unfiltered"].as(Bool)
         when Nil
+          # noop
         else raise LavinMQ::Error::PreconditionFailed.new("x-stream-match-unfiltered must be a boolean")
         end
       end
