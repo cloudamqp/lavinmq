@@ -32,15 +32,13 @@ module LavinMQ
         value[:name]? || value["name"]?
       end
 
-      MAX_PAGE_SIZE = 10_000
-
       private def page(context, iterator : Iterator(SortableJSON))
         params = context.request.query_params
         page = params["page"]?.try(&.to_i) || 1
         page_size = params["page_size"]?.try(&.to_i) || 100
         if page_size > MAX_PAGE_SIZE
           context.response.status_code = 413
-          {error: "payload_too_large", reason: "Max allowed page_size 10000"}.to_json(context.response)
+          {error: "payload_too_large", reason: "Max allowed page_size #{MAX_PAGE_SIZE}"}.to_json(context.response)
           return context
         end
         iterator = iterator.map do |i|

@@ -306,10 +306,8 @@ class LavinMQCtl
     URI.encode_www_form(@options["vhost"])
   end
 
-  MAX_PAGE_SIZE = 10_000
-
-  private def get(url, page = 1, items = [] of JSON::Any)
-    resp = http.get("#{url}?page=#{page}&page_size=#{MAX_PAGE_SIZE}", @headers)
+  private def get(url, page = 1, items = Array(JSON::Any).new)
+    resp = http.get("#{url}?page=#{page}&page_size=#{LavinMQ::HTTP::MAX_PAGE_SIZE}", @headers)
     handle_response(resp, 200)
     if data = JSON.parse(resp.body).as_h?
       items += data["items"].as_a
