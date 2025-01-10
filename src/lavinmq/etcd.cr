@@ -90,8 +90,9 @@ module LavinMQ
     # Returns a `Leadership` instance
     def elect(name, value, ttl = 10) : Leadership
       lease_id, _ttl = lease_grant(ttl)
+      leadership = Leadership.new(self, lease_id)
       election_campaign(name, value, lease_id)
-      Leadership.new(self, lease_id)
+      leadership
     end
 
     def elect_listen(name, &)
