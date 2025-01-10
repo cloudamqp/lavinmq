@@ -717,10 +717,10 @@ class LavinMQCtl
       rescue e : File::NotFoundError
       end
 
-      queues = get("/api/queues/#{URI.encode_www_form(current_vhost)}","name")
+      queues = get("/api/queues/#{URI.encode_www_form(current_vhost)}", "name")
 
       Dir.glob("#{vhost_data_dir}/*/.queue").each do |dir|
-        queues.delete({ "name"=> File.read(dir) })
+        queues.delete({"name" => File.read(dir)})
         queue_dirs.delete(dir[0..-8])
       end
 
