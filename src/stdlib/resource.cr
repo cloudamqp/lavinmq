@@ -1,20 +1,4 @@
 lib LibC
-  {% if flag?(:linux) || flag?(:bsd) %}
-    alias RlimT = ULongLong
-
-    struct Rlimit
-      rlim_cur : RlimT
-      rlim_max : RlimT
-    end
-  {% end %}
-
-  {% if flag?(:linux) || flag?(:darwin) %}
-    RLIMIT_NOFILE = 7
-  {% elsif flag?(:bsd) %}
-    RLIMIT_NOFILE = 8
-  {% end %}
-
-  fun getrlimit(Int, Rlimit*) : Int
   fun setrlimit(Int, Rlimit*) : Int
 end
 
