@@ -126,7 +126,7 @@ module LavinMQ::AMQP
           sp = SegmentPosition.new(consumer.segment, consumer.pos, msg.bytesize.to_u32)
           consumer.pos += sp.bytesize
           consumer.offset += 1
-          if consumer_filter = consumer.filter # can be a string or an array of comma-separated strings
+          if consumer_filter = consumer.filter
             return unless matching?(msg.properties.headers, consumer_filter, consumer.match_unfiltered?)
           end
           Envelope.new(sp, msg, redelivered: false)
