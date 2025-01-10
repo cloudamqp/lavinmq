@@ -154,9 +154,10 @@ module LavinMQ::AMQP
     end
 
     private def make_data_dir : String
-      data_dir = File.join(@vhost.data_dir, Digest::SHA1.hexdigest @name)
-      unless durable?
-        data_dir = File.join(@vhost.data_dir, "transient", Digest::SHA1.hexdigest @name)
+      data_dir = if durable?
+        File.join(@vhost.data_dir, Digest::SHA1.hexdigest @name)
+      else
+        File.join(@vhost.data_dir, "transient", Digest::SHA1.hexdigest @name)
       end
       if Dir.exists? data_dir
         # delete left over files from transient queues
