@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - New UI for management interface [#821](https://github.com/cloudamqp/lavinmq/pull/821)
 - Use sent/received bytes instead of messages to trigger when other tasks can run [#863](https://github.com/cloudamqp/lavinmq/pull/863)
+- Spread out stream queues GC-loop over time [#876](https://github.com/cloudamqp/lavinmq/pull/876)
+- Don't unmap files on USR2 or when last consumer disconnects [#876](https://github.com/cloudamqp/lavinmq/pull/876)
+- Unmap files when they are no longer in use [#876](https://github.com/cloudamqp/lavinmq/pull/876)
 
 ### Fixed
 
@@ -19,6 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed duplicate metric rss_bytes [#881](https://github.com/cloudamqp/lavinmq/pull/881)
 - Release leadership on graceful shutdown [#871](https://github.com/cloudamqp/lavinmq/pull/871)
 - Rescue more exceptions while reading msg store on startup [#865](https://github.com/cloudamqp/lavinmq/pull/865)
+- Crystal 1.15 support [#905](https://github.com/cloudamqp/lavinmq/pull/905)
+- lavinmqctl now handles pagination of large result sets [#904](https://github.com/cloudamqp/lavinmq/pull/904)
+- Make clustering more reliable [#879](https://github.com/cloudamqp/lavinmq/pull/879)
+- Strip newlines from logs [#896](https://github.com/cloudamqp/lavinmq/pull/896)
 
 ### Added
 
