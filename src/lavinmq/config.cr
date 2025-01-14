@@ -62,6 +62,9 @@ module LavinMQ
     property default_consumer_prefetch = UInt16::MAX
     property yield_each_received_bytes = 131_072    # max number of bytes to read from a client connection without letting other tasks in the server do any work
     property yield_each_delivered_bytes = 1_048_576 # max number of bytes sent to a client without tending to other tasks in the server
+    property http_auth_url : String? = ""
+    property oauth_url : String? = ""
+    property auth_backends = [] of String
     @@instance : Config = self.new
 
     def self.instance : LavinMQ::Config
@@ -145,6 +148,12 @@ module LavinMQ
         p.on("--default-consumer-prefetch=NUMBER", "Default consumer prefetch (default 65535)") do |v|
           @default_consumer_prefetch = v.to_u16
         end
+        # p.on("--http_auth_url=URL", "URL to authenticate HTTP clients") do |v|
+        #   @http_auth_url = v
+        # end
+        # p.on("--oauth_url=URL", "URL to authenticate OAuth2 clients") do |v|
+        #   @oauth_url = v
+        # end
         p.invalid_option { |arg| abort "Invalid argument: #{arg}" }
       end
       parser.parse(ARGV.dup) # only parse args to get config_file
@@ -291,6 +300,18 @@ module LavinMQ
         when "systemd_socket_name" then @http_systemd_socket_name = v
         else
           STDERR.puts "WARNING: Unrecognized configuration 'mgmt/#{config}'"
+        end
+      end
+    end
+
+    private def parse_auth(settings)
+      settings.each do |config, v|
+        case config
+        when "http" then @http_auth_url = v
+        when "oauth" then @oauth_url = v
+        when "auth_backends" then @auth_backends = v.split(",")
+        else
+          STDERR.puts "WARNING: Unrecognized configuration 'auth/#{config}'"
         end
       end
     end
