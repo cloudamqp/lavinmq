@@ -1,25 +1,31 @@
-require "../launcher"
 require "../etcd"
 require "./client"
 
 class LavinMQ::Clustering::Controller
   Log = LavinMQ::Log.for "clustering.controller"
 
-  @id : Int32
+  getter id : Int32
 
-  def initialize(@config = Config.instance)
-    @etcd = Etcd.new(@config.clustering_etcd_endpoints)
+  @repli_client : Client? = nil
+
+  def self.new(config : Config)
+    etcd = Etcd.new(config.clustering_etcd_endpoints)
+    new(config, etcd)
+  end
+
+  def initialize(@config : Config, @etcd : Etcd)
     @id = clustering_id
     @advertised_uri = @config.clustering_advertised_uri ||
                       "tcp://#{System.hostname}:#{@config.clustering_port}"
   end
 
-  def run
+  def run(&)
     spawn(follow_leader, name: "Follower monitor")
     wait_to_be_insync
     @lease = lease = @etcd.elect("#{@config.clustering_etcd_prefix}/leader", @advertised_uri) # blocks until becoming leader
+    @repli_client.try &.close
     # TODO: make sure we still are in the ISR set
-    @launcher = Launcher.new(@config, @etcd).start
+    yield
     loop do
       if lease.wait(30.seconds)
         break if @stopped
@@ -35,7 +41,7 @@ class LavinMQ::Clustering::Controller
 
   def stop
     @stopped = true
-    @launcher.try &.stop
+    @repli_client.try &.close
     @lease.try &.release
   end
 
@@ -74,7 +80,7 @@ class LavinMQ::Clustering::Controller
           break
         end
       end
-      repli_client = r = Clustering::Client.new(@config, @id, secret)
+      @repli_client = repli_client = r = Clustering::Client.new(@config, @id, secret)
       spawn r.follow(uri), name: "Clustering client #{uri}"
       SystemD.notify_ready
     end

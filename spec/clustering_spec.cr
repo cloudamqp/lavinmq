@@ -134,10 +134,10 @@ describe LavinMQ::Clustering::Client do
     end
     sleep 0.5.seconds
     spawn(name: "failover1") do
-      controller1.run
+      controller1.run { }
     end
     spawn(name: "failover2") do
-      controller2.run
+      controller2.run { }
     end
     sleep 0.1.seconds
     leader = listen.receive

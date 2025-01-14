@@ -7,8 +7,22 @@ require "./http/http_server"
 require "./in_memory_backend"
 require "./data_dir_lock"
 require "./etcd"
+require "./clustering/controller"
 
 module LavinMQ
+  struct DefaultRunner
+    def run(&)
+      yield
+      loop do
+        sleep 30.seconds
+        GC.collect
+      end
+    end
+
+    def stop
+    end
+  end
+
   class Launcher
     Log = LavinMQ::Log.for "launcher"
     @tls_context : OpenSSL::SSL::Context::Server?
@@ -16,7 +30,7 @@ module LavinMQ
     @data_dir_lock : DataDirLock?
     @closed = false
 
-    def initialize(@config : Config, etcd : Etcd? = nil)
+    def initialize(@config : Config)
       print_environment_info
       print_max_map_count
       fd_limit = System.maximize_fd_limit
@@ -27,28 +41,36 @@ module LavinMQ
       end
       Dir.mkdir_p @config.data_dir
       if @config.data_dir_lock?
-        @data_dir_lock = DataDirLock.new(@config.data_dir).tap &.acquire
+        @data_dir_lock = DataDirLock.new(@config.data_dir)
       end
-      @replicator = replicator = etcd ? Clustering::Server.new(@config, etcd) : Clustering::NoopServer.new
-      @amqp_server = LavinMQ::Server.new(@config, replicator)
-      @http_server = LavinMQ::HTTP::Server.new(@amqp_server)
+
+      if @config.clustering?
+        etcd = Etcd.new(@config.clustering_etcd_endpoints)
+        @runner = controller = Clustering::Controller.new(@config, etcd)
+        @replicator = Clustering::Server.new(@config, etcd, controller.id)
+      else
+        @replicator = Clustering::NoopServer.new
+        @runner = DefaultRunner.new
+      end
+
       @tls_context = create_tls_context if @config.tls_configured?
       reload_tls_context
       setup_signal_traps
-      setup_log_exchange
     end
 
-    def start : self
-      listen
+    private def start : self
+      @data_dir_lock.try &.acquire
+      @amqp_server = amqp_server = LavinMQ::Server.new(@config, @replicator)
+      @http_server = http_server = LavinMQ::HTTP::Server.new(amqp_server)
+      setup_log_exchange(amqp_server)
+      start_listeners(amqp_server, http_server)
       SystemD.notify_ready
       self
     end
 
     def run
-      start
-      loop do
-        sleep 30.seconds
-        GC.collect
+      @runner.run do
+        start
       end
     end
 
@@ -57,10 +79,11 @@ module LavinMQ
       @closed = true
       Log.warn { "Stopping" }
       SystemD.notify_stopping
-      @http_server.close rescue nil
-      @amqp_server.close rescue nil
-      @data_dir_lock.try &.release
+      @http_server.try &.close rescue nil
+      @amqp_server.try &.close rescue nil
+      @runner.stop
       @replicator.close
+      @data_dir_lock.try &.release
     end
 
     private def print_environment_info
@@ -90,10 +113,10 @@ module LavinMQ
       {% end %}
     end
 
-    private def setup_log_exchange
+    private def setup_log_exchange(amqp_server)
       return unless @config.log_exchange?
       exchange_name = "amq.lavinmq.log"
-      vhost = @amqp_server.vhosts["/"]
+      vhost = amqp_server.vhosts["/"]
       vhost.declare_exchange(exchange_name, "topic", true, false, true)
       spawn(name: "Log Exchange") do
         log_channel = ::Log::InMemoryBackend.instance.add_channel
@@ -108,42 +131,42 @@ module LavinMQ
       end
     end
 
-    private def listen
+    private def start_listeners(amqp_server, http_server)
       if @config.amqp_port > 0
-        spawn @amqp_server.listen(@config.amqp_bind, @config.amqp_port),
+        spawn amqp_server.listen(@config.amqp_bind, @config.amqp_port),
           name: "AMQP listening on #{@config.amqp_port}"
       end
 
       if @config.amqps_port > 0
         if ctx = @tls_context
-          spawn @amqp_server.listen_tls(@config.amqp_bind, @config.amqps_port, ctx),
+          spawn amqp_server.listen_tls(@config.amqp_bind, @config.amqps_port, ctx),
             name: "AMQPS listening on #{@config.amqps_port}"
         end
       end
 
       if clustering_bind = @config.clustering_bind
-        spawn @amqp_server.listen_clustering(clustering_bind, @config.clustering_port), name: "Clustering listener"
+        spawn amqp_server.listen_clustering(clustering_bind, @config.clustering_port), name: "Clustering listener"
       end
 
       unless @config.unix_path.empty?
-        spawn @amqp_server.listen_unix(@config.unix_path), name: "AMQP listening at #{@config.unix_path}"
+        spawn amqp_server.listen_unix(@config.unix_path), name: "AMQP listening at #{@config.unix_path}"
       end
 
       if @config.http_port > 0
-        @http_server.bind_tcp(@config.http_bind, @config.http_port)
+        http_server.bind_tcp(@config.http_bind, @config.http_port)
       end
       if @config.https_port > 0
         if ctx = @tls_context
-          @http_server.bind_tls(@config.http_bind, @config.https_port, ctx)
+          http_server.bind_tls(@config.http_bind, @config.https_port, ctx)
         end
       end
       unless @config.http_unix_path.empty?
-        @http_server.bind_unix(@config.http_unix_path)
+        http_server.bind_unix(@config.http_unix_path)
       end
 
-      @http_server.bind_internal_unix
+      http_server.bind_internal_unix
       spawn(name: "HTTP listener") do
-        @http_server.not_nil!.listen
+        http_server.listen
       end
     end
 
