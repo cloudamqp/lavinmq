@@ -10,7 +10,7 @@ require "./etcd"
 require "./clustering/controller"
 
 module LavinMQ
-  struct DefaultRunner
+  struct StandaloneRunner
     def run(&)
       yield
       loop do
