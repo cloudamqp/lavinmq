@@ -140,6 +140,13 @@ def create_ttl_and_dl_queues(channel, queue_ttl = 1)
   {q, dlq}
 end
 
+def exit(reason = nil)
+  raise SpecExit.new("LavinMQ exited with reason: #{reason.to_s}")
+end
+
+class SpecExit < Exception
+end
+
 module LavinMQ
   # Allow creating new Config object without using the singleton
   class Config
