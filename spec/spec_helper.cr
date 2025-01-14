@@ -140,11 +140,16 @@ def create_ttl_and_dl_queues(channel, queue_ttl = 1)
   {q, dlq}
 end
 
-def exit(reason = nil)
-  raise SpecExit.new("LavinMQ exited with reason: #{reason.to_s}")
+def exit(code = 0)
+  raise SpecExit.new(code)
 end
 
 class SpecExit < Exception
+  getter code : Int32
+
+  def initialize(@code)
+    super "Exiting with code #{@code}"
+  end
 end
 
 module LavinMQ
