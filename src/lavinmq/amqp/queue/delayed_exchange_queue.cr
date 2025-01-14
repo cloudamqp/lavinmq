@@ -13,7 +13,7 @@ module LavinMQ::AMQP
 
     private def init_msg_store(data_dir)
       replicator = durable? ? @vhost.@replicator : nil
-      DelayedMessageStore.new(data_dir, replicator, metadata: @metadata)
+      DelayedMessageStore.new(data_dir, replicator, durable?, metadata: @metadata)
     end
 
     private def expire_at(msg : BytesMessage) : Int64?
