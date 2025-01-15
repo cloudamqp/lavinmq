@@ -4,7 +4,7 @@ require "./client"
 require "../client/connection_factory"
 require "../auth/handlers/basic_auth"
 require "../auth/handlers/oauth2"
-require "../auth/handlers/http_auth"
+require "../auth/handlers/http"
 
 module LavinMQ
   module AMQP

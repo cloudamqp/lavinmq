@@ -38,7 +38,7 @@ module LavinMQ
       @users = UserStore.new(@data_dir, @replicator)
       @vhosts = VHostStore.new(@data_dir, @users, @replicator)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator)
-      @auth_chain = LavinMQ::AuthChain.new
+      @auth_chain = LavinMQ::AuthChain.new(@users)
       @amqp_connection_factory = LavinMQ::AMQP::ConnectionFactory.new
       apply_parameter
       spawn stats_loop, name: "Server#stats_loop"
