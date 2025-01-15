@@ -11,10 +11,10 @@ module LavinMQ
     def authenticate(username : String, password : String)
       # TODO: implement the HTTP authentication logic and permissions parser here
       if password.starts_with?("http")
-        puts "http authentication successful"
+        puts "HTTP authentication successful"
         return @users[username]
       else
-        puts "OAuth2 authentication failed"
+        puts "HTTP authentication failed"
         return try_next(username, password)
       end
     end
