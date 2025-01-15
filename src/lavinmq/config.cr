@@ -307,8 +307,8 @@ module LavinMQ
     private def parse_auth(settings)
       settings.each do |config, v|
         case config
-        when "http" then @http_auth_url = v
-        when "oauth" then @oauth_url = v
+        when "http"          then @http_auth_url = v
+        when "oauth"         then @oauth_url = v
         when "auth_backends" then @auth_backends = v.split(",")
         else
           STDERR.puts "WARNING: Unrecognized configuration 'auth/#{config}'"
