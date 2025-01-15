@@ -2,10 +2,10 @@ module LavinMQ
   class AuthChain
     @first_handler : AuthHandler?
 
-    def initialize
+    def initialize(users : UserStore)
       backends = Config.instance.auth_backends
       if backends.empty?
-        add_handler(BasicAuthHandler.new)
+        add_handler(BasicAuthHandler.new(users))
       else
         # need to add initializers to these in order to only send in username & password in auth
         backends.each do |backend|
@@ -15,7 +15,7 @@ module LavinMQ
           when "http"
             add_handler(HTTPAuthHandler.new)
           when "basic"
-            add_handler(BasicAuthHandler.new)
+            add_handler(BasicAuthHandler.new(users))
           else
             raise "Unsupported authentication backend: #{backend}"
           end
@@ -30,7 +30,7 @@ module LavinMQ
         while next_handler = current.@successor
           current = next_handler
         end
-        current.then(handler)
+        current.set_next(handler)
       else
         @first_handler = handler
       end

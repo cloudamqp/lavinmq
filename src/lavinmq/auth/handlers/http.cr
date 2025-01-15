@@ -4,6 +4,11 @@ require "../auth_handler"
 
 module LavinMQ
   class HTTPAuthHandler < AuthHandler
+
+    def initialize(successor : AuthHandler? = nil)
+      @successor = successor
+    end
+
     def authenticate(username : String, password : String)
       payload = {
         "username" => username,
