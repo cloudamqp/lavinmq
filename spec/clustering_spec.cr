@@ -168,7 +168,7 @@ describe LavinMQ::Clustering::Client do
     election_done = Channel(Nil).new
     etcd = LavinMQ::Etcd.new(config.clustering_etcd_endpoints)
     spawn do
-      etcd.elect_listen("lavinmq/leader") { |v| election_done.close }
+      etcd.elect_listen("lavinmq/leader") { election_done.close }
     end
 
     spawn { launcher.run }
