@@ -19,6 +19,10 @@ class LavinMQ::Clustering::Controller
                       "tcp://#{System.hostname}:#{@config.clustering_port}"
   end
 
+  # This method is called by the Launcher#run.
+  # The block will be yielded when the controller's prerequisites for a leader
+  # to start are met, i.e when the current node has been elected leader.
+  # The method is blocking.
   def run(&)
     spawn(follow_leader, name: "Follower monitor")
     wait_to_be_insync

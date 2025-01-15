@@ -11,6 +11,9 @@ require "./clustering/controller"
 
 module LavinMQ
   struct StandaloneRunner
+    # The block will be yielded when the runner's prerequisites for a leader
+    # to start are met. For the standalone runner, this is immediately.
+    # The method is blocking.
     def run(&)
       yield
       loop do
