@@ -53,7 +53,7 @@ module LavinMQ
         @replicator = Clustering::Server.new(@config, etcd, controller.id)
       else
         @replicator = Clustering::NoopServer.new
-        @runner = DefaultRunner.new
+        @runner = StandaloneRunner.new
       end
 
       @tls_context = create_tls_context if @config.tls_configured?
