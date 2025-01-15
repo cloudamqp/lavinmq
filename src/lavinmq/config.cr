@@ -64,7 +64,7 @@ module LavinMQ
     property yield_each_delivered_bytes = 1_048_576 # max number of bytes sent to a client without tending to other tasks in the server
     property http_auth_url : String? = ""
     property oauth_url : String? = ""
-    property auth_backends = [] of String
+    property auth_backends = ["basic", "oauth", "http"]
     @@instance : Config = self.new
 
     def self.instance : LavinMQ::Config

@@ -7,13 +7,13 @@ module LavinMQ
       if backends.empty?
         add_handler(BasicAuthHandler.new(users))
       else
-        # need to add initializers to these in order to only send in username & password in auth
+        # TODO: gather config for http and oauth and send into handlers
         backends.each do |backend|
           case backend
           when "oauth"
-            add_handler(OAuth2Handler.new)
+            add_handler(OAuth2Handler.new(users))
           when "http"
-            add_handler(HTTPAuthHandler.new)
+            add_handler(HTTPAuthHandler.new(users))
           when "basic"
             add_handler(BasicAuthHandler.new(users))
           else
@@ -24,13 +24,12 @@ module LavinMQ
     end
 
     def add_handler(handler : AuthHandler)
-      pp "Adding handler #{handler}"
       if first = @first_handler
         current = first
         while next_handler = current.@successor
           current = next_handler
         end
-        current.set_next(handler)
+        current.set_successor(handler)
       else
         @first_handler = handler
       end
@@ -38,9 +37,7 @@ module LavinMQ
     end
 
     def authenticate(username : String, password : String)
-      pp "hello #{username} #{password}"
-      pp @first_handler
-
+      # TODO: Cache the authorized users, and call authenticate from cache class
       @first_handler.try &.authenticate(username, password)
     end
   end

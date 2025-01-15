@@ -105,8 +105,8 @@ module LavinMQ
 
       def authenticate(socket, remote_address, users, start_ok, log, auth_chain)
         username, password = credentials(start_ok)
-        # TODO: only initialize handler for the configured auth methods
-        return auth_chain.authenticate(username, password) #(username, password, users, remote_address)
+        user = users[username]?
+        return user if user && auth_chain.authenticate(username, password) && guest_only_loopback?(remote_address, user)
         props = start_ok.client_properties
         if capabilities = props["capabilities"]?.try &.as?(AMQP::Table)
           if capabilities["authentication_failure_close"]?.try &.as?(Bool)
@@ -176,6 +176,12 @@ module LavinMQ
           socket.flush
         end
         nil
+      end
+
+      private def guest_only_loopback?(remote_address, user) : Bool
+        return true unless user.name == "guest"
+        return true unless Config.instance.guest_only_loopback?
+        remote_address.loopback?
       end
     end
   end

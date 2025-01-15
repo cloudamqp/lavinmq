@@ -2,19 +2,18 @@ module LavinMQ
   abstract class AuthHandler
     property successor : AuthHandler?
 
+    abstract def authenticate(username : String, password : String)
 
-    # abstract def authenticate?(username : String, password : String) : Bool
-
-    def set_next(service : AuthHandler) : AuthHandler
+    def set_successor(service : AuthHandler) : AuthHandler
       @successor = service
       service
     end
 
-    protected def try_next(username : String, password : String)
-      if next_service = @next_service
-        next_service.authenticate(username, password)
+    def try_next(username : String, password : String)
+      if successor = @successor
+        successor.authenticate(username, password)
       else
-        false
+        nil
       end
     end
   end
