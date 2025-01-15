@@ -119,17 +119,20 @@ module LavinMQ
           @replicator.register_file f
         end
       else
-        tags = [Tag::Administrator]
         Log.debug { "Loading default users" }
-        create("guest", "guest", tags, save: false)
-        add_permission("guest", "/", /.*/, /.*/, /.*/)
-        save!
+        create_default_user
       end
       create_direct_user
       Log.debug { "#{size} users loaded" }
     rescue ex
       Log.error(exception: ex) { "Failed to load users" }
       raise ex
+    end
+
+    private def create_default_user
+      create(Config.instance.default_user, Config.instance.default_password, [Tag::Administrator], save: false)
+      add_permission(Config.instance.default_user, "/", /.*/, /.*/, /.*/)
+      save!
     end
 
     private def create_direct_user
