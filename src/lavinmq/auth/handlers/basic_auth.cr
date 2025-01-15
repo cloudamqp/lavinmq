@@ -3,7 +3,6 @@ require "../../server"
 
 module LavinMQ
   class BasicAuthHandler < LavinMQ::AuthHandler
-
     def initialize(@users : UserStore)
     end
 

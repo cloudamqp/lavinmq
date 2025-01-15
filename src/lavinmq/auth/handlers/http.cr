@@ -4,7 +4,6 @@ require "../auth_handler"
 
 module LavinMQ
   class HTTPAuthHandler < AuthHandler
-
     def initialize(@users : UserStore)
     end
 

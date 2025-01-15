@@ -2,7 +2,6 @@ require "../auth_handler"
 
 module LavinMQ
   class OAuth2Handler < LavinMQ::AuthHandler
-
     def initialize(@users : UserStore)
     end
 
