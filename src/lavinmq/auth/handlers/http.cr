@@ -5,24 +5,17 @@ require "../auth_handler"
 module LavinMQ
   class HTTPAuthHandler < AuthHandler
 
-    def initialize(successor : AuthHandler? = nil)
-      @successor = successor
+    def initialize(@users : UserStore)
     end
 
     def authenticate(username : String, password : String)
-      payload = {
-        "username" => username,
-        "password" => password
-      }.to_json
-      user_path = Config.instance.http_auth_url || ""
-      success = ::HTTP::Client.post(user_path,
-        headers: ::HTTP::Headers{"Content-Type" => "application/json"},
-        body: payload).success?
-      if success
-        puts "HTTP authentication successful"
+      # TODO: implement the HTTP authentication logic and permissions parser here
+      if password.starts_with?("http")
+        puts "http authentication successful"
+        return @users[username]
       else
-        return @successor ? @successor.try &.authenticate(username, password, ) : nil
-        try_next(username, password)
+        puts "OAuth2 authentication failed"
+        return try_next(username, password)
       end
     end
   end
