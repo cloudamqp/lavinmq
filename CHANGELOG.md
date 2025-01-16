@@ -24,7 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Rescue more exceptions while reading msg store on startup [#865](https://github.com/cloudamqp/lavinmq/pull/865)
 - Crystal 1.15 support [#905](https://github.com/cloudamqp/lavinmq/pull/905)
 - lavinmqctl now handles pagination of large result sets [#904](https://github.com/cloudamqp/lavinmq/pull/904)
-- Make clustering more reliable [#879](https://github.com/cloudamqp/lavinmq/pull/879)
+- Make clustering more reliable [#879](https://github.com/cloudamqp/lavinmq/pull/879), [#909](https://github.com/cloudamqp/lavinmq/pull/909), [#906](https://github.com/cloudamqp/lavinmq/pull/906)
 - Strip newlines from logs [#896](https://github.com/cloudamqp/lavinmq/pull/896)
 
 ### Added

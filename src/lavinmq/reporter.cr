@@ -1,6 +1,10 @@
 module LavinMQ
   class Reporter
     def self.report(s)
+      if s.nil?
+        puts "No server instance to report"
+        return
+      end
       puts_size_capacity s.@users
       s.users.each do |name, user|
         puts "User #{name}"

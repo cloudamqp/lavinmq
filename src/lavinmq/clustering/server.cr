@@ -34,7 +34,7 @@ module LavinMQ
       @id : Int32
       @config : Config
 
-      def initialize(config : Config, @etcd : Etcd, @id = File.read(File.join(config.data_dir, ".clustering_id")).to_i(36))
+      def initialize(config : Config, @etcd : Etcd, @id : Int32)
         Log.info { "ID: #{@id.to_s(36)}" }
         @config = config
         @data_dir = @config.data_dir

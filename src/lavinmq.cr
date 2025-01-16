@@ -15,10 +15,4 @@ config.parse # both ARGV and config file
 
 # config has to be loaded before we require vhost/queue, byte_format is a constant
 require "./lavinmq/launcher"
-require "./lavinmq/clustering/controller"
-
-if config.clustering?
-  LavinMQ::Clustering::Controller.new(config).run
-else
-  LavinMQ::Launcher.new(config).run
-end
+LavinMQ::Launcher.new(config).run
