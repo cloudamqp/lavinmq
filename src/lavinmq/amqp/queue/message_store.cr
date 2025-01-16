@@ -27,8 +27,9 @@ module LavinMQ
       getter size = 0u32
       getter empty_change = Channel(Bool).new
 
-      def initialize(@queue_data_dir : String, @replicator : Clustering::Replicator?, metadata : ::Log::Metadata = ::Log::Metadata.empty)
+      def initialize(@queue_data_dir : String, @replicator : Clustering::Replicator?, durable : Bool = true, metadata : ::Log::Metadata = ::Log::Metadata.empty)
         @log = Logger.new(Log, metadata)
+        @durable = durable
         @acks = Hash(UInt32, MFile).new { |acks, seg| acks[seg] = open_ack_file(seg) }
         load_segments_from_disk
         load_deleted_from_disk
@@ -270,6 +271,7 @@ module LavinMQ
         @replicator.try &.append path, Schema::VERSION
         @wfile_id = next_id
         @wfile = @segments[next_id] = wfile
+        @wfile.delete unless @durable # mark as deleted if non-durable
         wfile
       end
 
@@ -277,6 +279,7 @@ module LavinMQ
         path = File.join(@queue_data_dir, "acks.#{id.to_s.rjust(10, '0')}")
         capacity = Config.instance.segment_size // BytesMessage::MIN_BYTESIZE * 4 + 4
         mfile = MFile.new(path, capacity, writeonly: true)
+        mfile.delete unless @durable # mark as deleted if non-durable
         @replicator.try &.register_file mfile
         mfile
       end
@@ -334,6 +337,8 @@ module LavinMQ
                    MFile.new(path)
                  end
           @replicator.try &.register_file file
+          file.delete unless @durable # mark files for non-durable queues for deletion
+
           if was_empty
             file.write_bytes Schema::VERSION
             @replicator.try &.append path, Schema::VERSION

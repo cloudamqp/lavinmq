@@ -269,6 +269,17 @@ describe LavinMQ::AMQP::Queue do
     end
   end
 
+  it "should delete transient queues segments on creation" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        ch.queue "transient", durable: false
+      end
+      data_dir = s.vhosts["/"].queues["transient"].as(LavinMQ::AMQP::Queue).@msg_store.@queue_data_dir
+      Dir.exists?(data_dir).should be_true
+      File.exists?("#{data_dir}/msgs.0000000001").should be_false
+    end
+  end
+
   it "should delete left over transient queue data on Server start" do
     with_amqp_server do |s|
       data_dir = ""
@@ -276,10 +287,11 @@ describe LavinMQ::AMQP::Queue do
         q = ch.queue "transient", durable: false
         q.publish_confirm "foobar"
         data_dir = s.vhosts["/"].queues["transient"].as(LavinMQ::AMQP::Queue).@msg_store.@queue_data_dir
-        FileUtils.cp_r data_dir, "#{data_dir}.copy"
+        FileUtils.cp_r data_dir, "#{s.vhosts["/"].data_dir}.copy"
       end
       s.stop
-      FileUtils.cp_r "#{data_dir}.copy", data_dir
+      Dir.mkdir_p data_dir
+      FileUtils.cp_r "#{s.vhosts["/"].data_dir}.copy", data_dir
       s.restart
       with_channel(s) do |ch|
         q = ch.queue_declare "transient", durable: false

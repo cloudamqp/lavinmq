@@ -48,6 +48,7 @@ module LavinMQ
       @dir = Digest::SHA1.hexdigest(@name)
       @data_dir = File.join(@server_data_dir, @dir)
       Dir.mkdir_p File.join(@data_dir)
+      FileUtils.rm_rf File.join(@data_dir, "transient")
       @definitions_file_path = File.join(@data_dir, "definitions.amqp")
       @definitions_file = File.open(@definitions_file_path, "a+")
       @replicator.register_file(@definitions_file)
@@ -421,6 +422,7 @@ module LavinMQ
       @queues.each_value &.close
       Fiber.yield
       @definitions_file.close
+      FileUtils.rm_rf File.join(@data_dir, "transient")
     end
 
     def delete

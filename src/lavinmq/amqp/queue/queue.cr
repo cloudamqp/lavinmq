@@ -150,11 +150,15 @@ module LavinMQ::AMQP
     # own method so that it can be overriden in other queue implementations
     private def init_msg_store(data_dir)
       replicator = durable? ? @vhost.@replicator : nil
-      MessageStore.new(data_dir, replicator, metadata: @metadata)
+      MessageStore.new(data_dir, replicator, durable?, metadata: @metadata)
     end
 
     private def make_data_dir : String
-      data_dir = File.join(@vhost.data_dir, Digest::SHA1.hexdigest @name)
+      data_dir = if durable?
+                   File.join(@vhost.data_dir, Digest::SHA1.hexdigest @name)
+                 else
+                   File.join(@vhost.data_dir, "transient", Digest::SHA1.hexdigest @name)
+                 end
       if Dir.exists? data_dir
         # delete left over files from transient queues
         unless durable?
