@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Spread out stream queues GC-loop over time [#876](https://github.com/cloudamqp/lavinmq/pull/876)
 - Don't unmap files on USR2 or when last consumer disconnects [#876](https://github.com/cloudamqp/lavinmq/pull/876)
 - Unmap files when they are no longer in use [#876](https://github.com/cloudamqp/lavinmq/pull/876)
+- Store non-durable queues in a separate dir that is removed on startup and shutdown [#900](https://github.com/cloudamqp/lavinmq/pull/900)
 
 ### Fixed
 
