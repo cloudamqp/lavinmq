@@ -1,3 +1,6 @@
+{% if flag?(:gc_none) %}
+  require "immix"
+{% end %}
 require "./lavinmq/version"
 require "./lavinmq/http/constants"
 require "./lavinmq/definitions_generator"
