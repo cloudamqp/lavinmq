@@ -254,6 +254,7 @@ module LavinMQ
       private def log_streamed_bytes_loop
         loop do
           sleep 30.seconds
+          break if @closed
           Log.info { "Total streamed bytes: #{@streamed_bytes}" }
         end
       end
