@@ -17,6 +17,22 @@ class LavinMQ::Clustering::Controller
     @id = clustering_id
     @advertised_uri = @config.clustering_advertised_uri ||
                       "tcp://#{System.hostname}:#{@config.clustering_port}"
+    @isr_key = "#{@config.clustering_etcd_prefix}/isr"
+  end
+
+  def password : String
+    key = "#{@config.clustering_etcd_prefix}/clustering_secret"
+    @etcd.get(key) ||
+      begin
+        Log.info { "Generating new clustering secret" }
+        secret = Random::Secure.base64(32)
+        @etcd.put(key, secret)
+        secret
+      end
+  end
+
+  def update_isr(value)
+    @etcd.put(@isr_key, value)
   end
 
   # This method is called by the Launcher#run.

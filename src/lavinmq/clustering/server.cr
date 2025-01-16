@@ -7,7 +7,7 @@ require "../message"
 require "../mfile"
 require "crypto/subtle"
 require "lz4"
-require "../etcd"
+require "./controller"
 
 module LavinMQ
   module Clustering
@@ -34,11 +34,12 @@ module LavinMQ
       @id : Int32
       @config : Config
 
-      def initialize(config : Config, @etcd : Etcd, @id : Int32)
+      def initialize(config : Config, @controller : Controller)
+        @id = @controller.id
         Log.info { "ID: #{@id.to_s(36)}" }
         @config = config
         @data_dir = @config.data_dir
-        @password = password
+        @password = @controller.password
       end
 
       def clear
@@ -104,17 +105,6 @@ module LavinMQ
         end
       end
 
-      def password : String
-        key = "#{@config.clustering_etcd_prefix}/clustering_secret"
-        @etcd.get(key) ||
-          begin
-            Log.info { "Generating new clustering secret" }
-            secret = Random::Secure.base64(32)
-            @etcd.put(key, secret)
-            secret
-          end
-      end
-
       @listeners = Array(TCPServer).new(1)
 
       def listen(server : TCPServer)
@@ -165,13 +155,15 @@ module LavinMQ
       end
 
       private def update_isr
-        isr_key = "#{@config.clustering_etcd_prefix}/isr"
-        ids = String.build do |str|
-          @followers.each { |f| f.id.to_s(str, 36); str << "," }
-          @id.to_s(str, 36)
+        isr = String.build do |str|
+          @followers.each do |follower|
+            follower.id.to_s(str, 36)
+            str << ","
+          end
+          @controller.id.to_s(str, 36)
         end
-        Log.info { "In-sync replicas: #{ids}" }
-        @etcd.put(isr_key, ids)
+        @controller.update_isr isr
+        Log.info { "ISR updated: #{isr}" }
         @dirty_isr = false
       end
 
@@ -228,10 +220,6 @@ module LavinMQ
       end
 
       def clear
-      end
-
-      def password : String
-        ""
       end
     end
   end
