@@ -7,21 +7,26 @@ module LavinMQ
 
     class MemoryCache(T) < Cache(T)
       def initialize(@size : UInt32)
-        @store = Hash(T, Int64?).new
+        @store = Hash(T, Time::Span?).new
       end
 
       def contains?(key : T) : Bool
         return false unless @store.has_key?(key)
         ttd = @store[key]
         return true unless ttd
-        return true if ttd > RoughTime.unix_ms
+        return true if ttd > RoughTime.monotonic
         @store.delete(key)
         false
       end
 
       def insert(key : T, ttl : UInt32? = nil)
         @store.shift if @store.size >= @size
-        @store[key] = ttl ? RoughTime.unix_ms + ttl : nil
+        val = if ttl
+                RoughTime.monotonic + Time::Span.new(nanoseconds: ttl * 1_000_000)
+              else
+                nil
+              end
+        @store[key] = val
       end
     end
 
