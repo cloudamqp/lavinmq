@@ -13,6 +13,7 @@ require "./state"
 require "./event"
 require "./message_store"
 require "../../unacked_message"
+require "../../deduplication"
 
 module LavinMQ::AMQP
   class Queue < LavinMQ::Queue
@@ -111,8 +112,8 @@ module LavinMQ::AMQP
 
     # Creates @[x]_count and @[x]_rate and @[y]_log
     rate_stats(
-      {"ack", "deliver", "deliver_get", "confirm", "get", "get_no_ack", "publish", "redeliver", "reject", "return_unroutable"},
-      {"message_count", "unacked_count", "dedup"})
+      {"ack", "deliver", "deliver_get", "confirm", "get", "get_no_ack", "publish", "redeliver", "reject", "return_unroutable", "dedup"},
+      {"message_count", "unacked_count"})
 
     getter name, arguments, vhost, consumers, last_get_time
     getter? auto_delete, exclusive
