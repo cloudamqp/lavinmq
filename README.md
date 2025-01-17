@@ -226,6 +226,7 @@ For questions or suggestions:
 - Replication
 - Stream queues
 - Automatic leader election in clusters via etcd
+- Message deduplication
 
 ### Known differences to other AMQP servers
 
