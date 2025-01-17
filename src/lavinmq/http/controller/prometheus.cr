@@ -11,7 +11,8 @@ module LavinMQ
                            NamedTuple(name: String) |
                            NamedTuple(channel: String) |
                            NamedTuple(id: String) |
-                           NamedTuple(queue: String, vhost: String)
+                           NamedTuple(queue: String, vhost: String) |
+                           NamedTuple(exchange: String, vhost: String)
       alias Metric = NamedTuple(name: String, value: MetricValue) |
                      NamedTuple(name: String, value: MetricValue, labels: MetricLabels) |
                      NamedTuple(name: String, value: MetricValue, help: String) |
@@ -97,6 +98,8 @@ module LavinMQ
                 detailed_connection_coarse_metrics(vhosts, writer)
               when "channel_metrics"
                 detailed_channel_metrics(vhosts, writer)
+              when "exchange_metrics"
+                detailed_exchange_metrics(vhosts, writer)
               end
             end
           end
@@ -347,6 +350,11 @@ module LavinMQ
                           type:   "gauge",
                           labels: labels,
                           help:   "Sum of ready and unacknowledged messages - total queue depth"})
+            writer.write({name:   "detailed_queue_deduplication",
+                          value:  q.dedup_count,
+                          type:   "count",
+                          labels: labels,
+                          help:   "Number of deduplicated messages for this queue"})
           end
         end
       end
@@ -360,6 +368,19 @@ module LavinMQ
                           type:   "gauge",
                           labels: labels,
                           help:   "Consumers on a queue"})
+          end
+        end
+      end
+
+      private def detailed_exchange_metrics(vhosts, writer)
+        vhosts.each do |vhost|
+          vhost.exchanges.each_value do |e|
+            labels = {exchange: e.name, vhost: vhost.name}
+            writer.write({name:   "detailed_queue_deduplication",
+                          value:  e.dedup_count,
+                          type:   "count",
+                          labels: labels,
+                          help:   "Number of deduplicated messages for this queue"})
           end
         end
       end
