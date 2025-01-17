@@ -65,6 +65,11 @@ module LavinMQ
     property http_auth_url : String? = ""
     property oauth_url : String? = ""
     property auth_backends = ["basic", "oauth", "http"]
+    #this will be fetched from an jwks endpoint
+    property public_key = ""
+    # this will come from the connect packet
+    property token = ""
+
     @@instance : Config = self.new
 
     def self.instance : LavinMQ::Config
