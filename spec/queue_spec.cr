@@ -424,4 +424,25 @@ describe LavinMQ::AMQP::Queue do
       FileUtils.rm_rf tmpdir if tmpdir
     end
   end
+
+  describe "deduplication" do
+    it "should not except message if it's a duplicate" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          queue_name = "dedup-queue"
+          q1 = ch.queue(queue_name, args: AMQP::Client::Arguments.new({
+            "x-message-deduplication" => true,
+            "x-cache-size"            => 10,
+          }))
+          props = LavinMQ::AMQP::Properties.new(headers: LavinMQ::AMQP::Table.new({
+            "x-deduplication-header" => "msg1",
+          }))
+          ch.default_exchange.publish_confirm("body", queue_name, props: props)
+          ch.default_exchange.publish_confirm("body", queue_name, props: props)
+          q1.get(no_ack: false).not_nil!.body_io.to_s.should eq "body"
+          q1.get(no_ack: false).should be_nil
+        end
+      end
+    end
+  end
 end

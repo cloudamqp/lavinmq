@@ -170,4 +170,64 @@ describe LavinMQ::Exchange do
       end
     end
   end
+  describe "message deduplication" do
+    it "should handle message deduplication" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          args = AMQP::Client::Arguments.new({
+            "x-message-deduplication" => true,
+            "x-cache-size"            => 10,
+          })
+          ch.exchange("test", "topic", args: args)
+          ch.queue.bind("test", "#")
+          ex = s.vhosts["/"].exchanges["test"]
+          q = s.vhosts["/"].queues.first_value
+          props = LavinMQ::AMQP::Properties.new(headers: LavinMQ::AMQP::Table.new({
+            "x-deduplication-header" => "msg1",
+          }))
+          msg = LavinMQ::Message.new("ex", "rk", "body", props)
+          ex.publish(msg, false).should eq 1
+          ex.dedup_count.should eq 0
+          props = LavinMQ::AMQP::Properties.new(headers: LavinMQ::AMQP::Table.new({
+            "x-deduplication-header" => "msg1",
+          }))
+          msg = LavinMQ::Message.new("ex", "rk", "body", props)
+          ex.publish(msg, false).should eq 0
+          ex.dedup_count.should eq 1
+
+          q.message_count.should eq 1
+        end
+      end
+    end
+
+    it "should handle message deduplication, on custom header" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          args = AMQP::Client::Arguments.new({
+            "x-message-deduplication" => true,
+            "x-cache-size"            => 10,
+            "x-deduplication-header"  => "custom",
+          })
+          ch.exchange("test", "topic", args: args)
+          ch.queue.bind("test", "#")
+          ex = s.vhosts["/"].exchanges["test"]
+          q = s.vhosts["/"].queues.first_value
+          props = LavinMQ::AMQP::Properties.new(headers: LavinMQ::AMQP::Table.new({
+            "custom" => "msg1",
+          }))
+          msg = LavinMQ::Message.new("ex", "rk", "body", props)
+          ex.publish(msg, false).should eq 1
+          ex.dedup_count.should eq 0
+          props = LavinMQ::AMQP::Properties.new(headers: LavinMQ::AMQP::Table.new({
+            "custom" => "msg1",
+          }))
+          msg = LavinMQ::Message.new("ex", "rk", "body", props)
+          ex.publish(msg, false).should eq 0
+          ex.dedup_count.should eq 1
+
+          q.message_count.should eq 1
+        end
+      end
+    end
+  end
 end
