@@ -7,7 +7,7 @@ module LavinMQ
 
     class MemoryCache(T) < Cache(T)
       def initialize(@size : UInt32)
-        @store = Hash(T, Time::Span?).new
+        @store = Hash(T, Time::Span?).new(initial_capacity: @size)
       end
 
       def contains?(key : T) : Bool
@@ -21,11 +21,7 @@ module LavinMQ
 
       def insert(key : T, ttl : UInt32? = nil)
         @store.shift if @store.size >= @size
-        val = if ttl
-                RoughTime.monotonic + Time::Span.new(nanoseconds: ttl * 1_000_000)
-              else
-                nil
-              end
+        val = ttl.try { |v| RoughTime.monotonic + v.milliseconds }
         @store[key] = val
       end
     end
