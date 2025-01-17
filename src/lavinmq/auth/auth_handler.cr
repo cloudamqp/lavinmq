@@ -1,6 +1,8 @@
 module LavinMQ
   abstract class AuthHandler
+    Log = LavinMQ::Log.for "auth.handler"
     property successor : AuthHandler?
+    @log = Logger.new(Log)
 
     abstract def authenticate(username : String, password : String)
 
