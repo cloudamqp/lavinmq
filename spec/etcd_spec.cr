@@ -27,7 +27,7 @@ describe LavinMQ::Etcd do
         etcd.watch("foo") do |val|
           w.send val
         end
-      rescue LavinMQ::Etcd::Error
+      rescue SpecExit
         # expect this when etcd nodes are terminated
       end
       w.receive # sync
@@ -51,7 +51,7 @@ describe LavinMQ::Etcd do
         etcd.elect_listen(key) do |value|
           leader.send value
         end
-      rescue LavinMQ::Etcd::Error
+      rescue SpecExit
         # expect this when etcd nodes are terminated
       end
       lease = etcd.elect(key, "bar", 1)
@@ -59,7 +59,7 @@ describe LavinMQ::Etcd do
       spawn(name: "elect other leader spec") do
         begin
           etcd.elect(key, "bar2", 1)
-        rescue LavinMQ::Etcd::Error
+        rescue SpecExit
           # expect this when etcd nodes are terminated
         end
       end
