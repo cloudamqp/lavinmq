@@ -39,9 +39,9 @@ module LavinMQ
         when Nil, Int, Time, "first", "next", "last"
         else raise LavinMQ::Error::PreconditionFailed.new("x-stream-offset must be an integer, a timestamp, 'first', 'next' or 'last'")
         end
-        case frame.arguments["x-stream-filter-value"]?
+        case filter = frame.arguments["x-stream-filter-value"]?
         when String
-          @filter = frame.arguments["x-stream-filter-value"].to_s.split(",")
+          @filter = filter.split(',').sort!
         when Nil
           # noop
         else raise LavinMQ::Error::PreconditionFailed.new("x-stream-filter-value must be a string")
