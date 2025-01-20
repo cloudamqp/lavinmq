@@ -9,7 +9,7 @@ module LavinMQ
       property segment : UInt32
       property pos : UInt32
       getter requeued = Deque(SegmentPosition).new
-      @filter : Array(String)? = nil
+      @filter : Array(String) = Array(String).new
       @match_unfiltered : Bool = false
 
       def initialize(@channel : Client::Channel, @queue : StreamQueue, frame : AMQP::Frame::Basic::Consume)
@@ -107,14 +107,11 @@ module LavinMQ
       end
 
       def filter_match?(msg_headers) : Bool
-        if filter = @filter
-          if filter_value = filter_value_from_msg_headers(msg_headers)
-            filter.bsearch { |f| f >= filter_value } == filter_value
-          else
-            @match_unfiltered
-          end
+        return true if @filter.empty?
+        if filter_value = filter_value_from_msg_headers(msg_headers)
+          @filter.bsearch { |f| f >= filter_value } == filter_value
         else
-          true
+          @match_unfiltered
         end
       end
 
