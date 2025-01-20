@@ -108,7 +108,7 @@ module LavinMQ::AMQP
         seg
       end
 
-      def shift?(consumer : AMQP::StreamConsumer) : Envelope? # ameba:disable Metrics/CyclomaticComplexity
+      def shift?(consumer : AMQP::StreamConsumer) : Envelope?
         raise ClosedError.new if @closed
 
         if env = shift_requeued(consumer.requeued)
@@ -126,20 +126,10 @@ module LavinMQ::AMQP
           sp = SegmentPosition.new(consumer.segment, consumer.pos, msg.bytesize.to_u32)
           consumer.pos += sp.bytesize
           consumer.offset += 1
-          if consumer_filter = consumer.filter
-            return unless matching?(msg.properties.headers, consumer_filter, consumer.match_unfiltered?)
-          end
+          return unless consumer.filter_match?(msg.properties.headers)
           Envelope.new(sp, msg, redelivered: false)
         rescue ex
           raise Error.new(rfile, cause: ex)
-        end
-      end
-
-      private def matching?(msg_headers, consumer_filter, match_unfiltered) : Bool
-        if filter_value = filter_value_from_headers(msg_headers)
-          consumer_filter.bsearch { |f| f >= filter_value } == filter_value
-        else
-          match_unfiltered
         end
       end
 
@@ -245,14 +235,6 @@ module LavinMQ::AMQP
 
       private def offset_from_headers(headers) : Int64
         headers.not_nil!("Message lacks headers")["x-stream-offset"].as(Int64)
-      end
-
-      private def filter_value_from_headers(headers) : String?
-        if filter = headers.try &.["x-stream-filter-value"]?
-          filter.to_s
-        else
-          nil
-        end
       end
 
       private def build_segment_indexes

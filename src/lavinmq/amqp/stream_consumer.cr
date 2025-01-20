@@ -9,8 +9,8 @@ module LavinMQ
       property segment : UInt32
       property pos : UInt32
       getter requeued = Deque(SegmentPosition).new
-      getter filter : Array(String)? = nil
-      getter? match_unfiltered : Bool = false
+      @filter : Array(String)? = nil
+      @match_unfiltered : Bool = false
 
       def initialize(@channel : Client::Channel, @queue : StreamQueue, frame : AMQP::Frame::Basic::Consume)
         validate_preconditions(frame)
@@ -104,6 +104,22 @@ module LavinMQ
           @requeued.push(sp)
           @has_requeued.try_send? nil if @requeued.size == 1
         end
+      end
+
+      def filter_match?(msg_headers) : Bool
+        if filter = @filter
+          if filter_value = filter_value_from_msg_headers(msg_headers)
+            filter.bsearch { |f| f >= filter_value } == filter_value
+          else
+            @match_unfiltered
+          end
+        else
+          true
+        end
+      end
+
+      private def filter_value_from_msg_headers(msg_headers) : String?
+        msg_headers.try &.fetch("x-stream-filter-value", nil).try &.to_s
       end
     end
   end
