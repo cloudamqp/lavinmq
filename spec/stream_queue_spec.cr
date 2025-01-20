@@ -216,7 +216,7 @@ describe LavinMQ::AMQP::StreamQueue do
           q.publish("msg without filter")
 
           msgs = Channel(AMQP::Client::DeliverMessage).new
-          q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-filter-value": "foo"})) do |msg|
+          q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-filter": "foo"})) do |msg|
             msgs.send msg
             msg.ack
           end
@@ -239,7 +239,7 @@ describe LavinMQ::AMQP::StreamQueue do
           q.publish("msg without filter")
 
           msgs = Channel(AMQP::Client::DeliverMessage).new
-          q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-filter-value": "bar"})) do |msg|
+          q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-filter": "bar"})) do |msg|
             msgs.send msg
             msg.ack
           end
@@ -266,7 +266,7 @@ describe LavinMQ::AMQP::StreamQueue do
           msgs = Channel(AMQP::Client::DeliverMessage).new
           filters = "foo,bar"
           q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new(
-            {"x-stream-filter-value": filters}
+            {"x-stream-filter": filters}
           )) do |msg|
             msgs.send msg
             msg.ack
@@ -293,7 +293,7 @@ describe LavinMQ::AMQP::StreamQueue do
           msgs = Channel(AMQP::Client::DeliverMessage).new
           q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new(
             {
-              "x-stream-filter-value":     "foo",
+              "x-stream-filter":           "foo",
               "x-stream-match-unfiltered": true,
             }
           )) do |msg|
@@ -319,7 +319,7 @@ describe LavinMQ::AMQP::StreamQueue do
           q.publish("msg without filter")
 
           msgs = Channel(AMQP::Client::DeliverMessage).new
-          args = AMQP::Client::Arguments.new({"x-stream-filter-value": "foo", "x-stream-offset": 2})
+          args = AMQP::Client::Arguments.new({"x-stream-filter": "foo", "x-stream-offset": 2})
           q.subscribe(no_ack: false, args: args) do |msg|
             msgs.send msg
             msg.ack
