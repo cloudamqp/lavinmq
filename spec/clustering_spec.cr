@@ -130,7 +130,7 @@ describe LavinMQ::Clustering::Client do
       etcd.elect_listen("lavinmq/leader") do |value|
         listen.send value
       end
-    rescue LavinMQ::Etcd::Error
+    rescue SpecExit
       # expect this when etcd nodes are terminated
     end
     sleep 0.5.seconds
