@@ -136,8 +136,8 @@ module LavinMQ::AMQP
       end
 
       private def matching?(msg_headers, consumer_filter, match_unfiltered) : Bool
-        if msg_filter = filter_value_from_headers(msg_headers)
-          return consumer_filter.includes? msg_filter
+        if filter_value = filter_value_from_headers(msg_headers)
+          return consumer_filter.bsearch { |f| f >= filter_value } == filter_value
         else
           return match_unfiltered
         end
