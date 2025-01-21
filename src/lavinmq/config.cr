@@ -62,14 +62,31 @@ module LavinMQ
     property default_consumer_prefetch = UInt16::MAX
     property yield_each_received_bytes = 131_072    # max number of bytes to read from a client connection without letting other tasks in the server do any work
     property yield_each_delivered_bytes = 1_048_576 # max number of bytes sent to a client without tending to other tasks in the server
-    property http_auth_url : String? = ""
-    property oauth_url : String? = ""
-    property auth_backends = ["basic", "oauth", "http"]
-    #this will be fetched from an jwks endpoint
-    property public_key = ""
-    # this will come from the connect packet
-    property token = ""
+    property auth_cache_ttl = 1.hour
+    property jwks_uri : String = "https://demos-test.criipto.id/.well-known/jwks"
+    property iss : String? = ""
+    property aud : String? = ""
+    property sub : String? = ""
+    property algorithm : JWT::Algorithm? = JWT::Algorithm::RS256
+    property token_expiration_tolerance : Int32 = 60
+    property token_cache_duration : Int32 = 60
+    property auth_backends : Array(String)? = ["basic", "oauth", "http"]
 
+    # ---- FOR TESTING PURPOSES ONLY ----
+    #this will be fetched from an jwks endpoint
+    property public_key = "-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAi63Nh2tY0KZOvy1wEknC
+1iUC75g+kuAueaph4TH4BXOdIspCmM6z47G5aCEMY6esTdq/skR9LwgwF6jHkwsj
+PPE0wBv8AFprD8ib2u4VIdm4Sy94wruZnDVzE0YcIadptp9MD2sFLHmwF3wJ5rmw
+CSWRBWqcpFCYha40C2qHokudzMusHV2AMQHzuAnk0WxgO+OCtyHzPBRq4DbuGSBM
+9vqP0mvPCtM3pWnTO0LIJzUwbhNd3bWSKe3ItlhfLu9GXaZqYYwhw9hjvlkmEZsR
+aB+LOn//FBtJhDmrrA/zmHwA39oALdynhU6BCXzEG/z/4JdA4gC7Ad64dVuN+bHQ
+uQIDAQAB
+-----END PUBLIC KEY-----
+"
+    # this will come from the connect packet
+    property token = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6Im9hdXRoIiwicGVybWlzc2lvbnMiOnsidXNlciI6InUxIiwidmhvc3QiOiIvIiwiY29uZmlndXJlIjoiYyIsIndyaXRlIjoidyIsInJlYWQiOiJyIn0sImlhdCI6MTczNzExNjI1NSwiZXhwIjoxNzM3MTE5ODU1fQ.POlh6o99cDQgfliDpOWAS-BNvTXtWI1myp7sVA9Y25lqlUCx4M5LkA1wuPSlENTU43bi2aAGOaSyH_dHRF2XVsMIn9t2UX735PMCgWSciv0pypAH56ake1kLkbM-JnzcHyAtbAo3sK5rzDtvI2Gj23jtSn8LkiSASa1Xs3DLQVGwDYeBgQfdYr5fjhBHTK8wv8KYW1cHH0A_s-oUeCDI0ps-rNNGTOyBqn55WDAfs_eOCJ3TeLymntndBf6ySdFumi2y04N7MVBAAngtKo6c7ej-J_MoOdwwm9UXNyIgsQogiVtr9QuM4a1fNPaj5T2PC-bqg9Jlce7T2EW7JWNs6Q"
+    # ---- FOR TESTING PURPOSES ONLY ----
     @@instance : Config = self.new
 
     def self.instance : LavinMQ::Config

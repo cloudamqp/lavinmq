@@ -3,6 +3,7 @@ require "./password"
 require "./sortable_json"
 
 module LavinMQ
+  # needs to be extracted to own file (steg 1)
   enum Tag
     Administrator
     Monitoring
@@ -15,6 +16,7 @@ module LavinMQ
     end
   end
 
+ # maybe have multiple types of users, let User be absracts and inherit
   class User
     include SortableJSON
     getter name, password, permissions
