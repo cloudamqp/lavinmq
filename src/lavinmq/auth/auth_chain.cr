@@ -1,10 +1,12 @@
+require "./auth_cache"
+
 module LavinMQ
   class AuthChain
     @first_handler : AuthHandler?
 
     def initialize(users : UserStore)
       backends = Config.instance.auth_backends
-      if backends.empty?
+      if backends.nil? || backends.size == 0
         add_handler(BasicAuthHandler.new(users))
       else
         # TODO: gather config for http and oauth and send into handlers
@@ -38,6 +40,9 @@ module LavinMQ
 
     def authenticate(username : String, password : String)
       # TODO: Cache the authorized users, and call authenticate from cache class
+      # if authorized = @auth_cache.get?(username)
+      #   return authorized
+      # end
       @first_handler.try &.authenticate(username, password)
     end
   end
