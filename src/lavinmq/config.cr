@@ -177,7 +177,7 @@ module LavinMQ
     @[EnvOpt("LAVINMQ_CLUSTERING_ETCD_ENDPOINTS")]
     property clustering_etcd_endpoints = "localhost:2379"
 
-    @[CliOpt("","--clustering-advertised-uri=URI", "Advertised URI for the clustering server", v)]
+    @[CliOpt("", "--clustering-advertised-uri=URI", "Advertised URI for the clustering server", v)]
     @[IniOpt(section: "clustering", transform: v)]
     @[EnvOpt("LAVINMQ_CLUSTERING_ADVERTISED_URI", v)]
     property clustering_advertised_uri : String? = nil
@@ -306,13 +306,13 @@ module LavinMQ
         when "main"
           parse_section("main", settings)
         when "amqp"
-          parse_section("amqp",settings)
+          parse_section("amqp", settings)
         when "mgmt"
-          parse_section("mgmt",settings)
+          parse_section("mgmt", settings)
         when "clustering"
-          parse_section("clustering",settings)
+          parse_section("clustering", settings)
         when "experimental"
-          parse_section("experimental",settings)
+          parse_section("experimental", settings)
         else
           raise "Unknown configuration section: #{section}"
         end
@@ -329,8 +329,8 @@ module LavinMQ
         # This is just to get simpler objects to work with
         .map do |ivar|
           {
-            var_name: ivar.name,
-            ini_name: ivar.annotation(IniOpt)[:ini_name] || ivar.name,
+            var_name:  ivar.name,
+            ini_name:  ivar.annotation(IniOpt)[:ini_name] || ivar.name,
             transform: ivar.annotation(IniOpt)[:transform] || ivar.type,
           }
         end
