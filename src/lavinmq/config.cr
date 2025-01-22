@@ -23,14 +23,14 @@ module LavinMQ
     @[EnvOpt("LAVINMQ_CONFIGURATION_DIRECTORY")]
     property config_file = ""
 
-    @[IniOpt(section: "main", transform: v)]
+    @[IniOpt(section: "main")]
     property log_file : String? = nil
 
-    @[CliOpt("-l LEVEL", "--log-level=LEVEL", "Log level (Default: info)", parse_cli_log_level(v))]
-    @[IniOpt(section: "main", transform: parse_cli_log_level(v))]
+    @[CliOpt("-l LEVEL", "--log-level=LEVEL", "Log level (Default: info)", ->::Log::Severity.parse(String))]
+    @[IniOpt(section: "main", transform: ->::Log::Severity.parse(String))]
     property log_level : ::Log::Severity = DEFAULT_LOG_LEVEL
 
-    @[CliOpt("-b BIND", "--bind=BIND", "IP address that both the AMQP and HTTP servers will listen on (default: 127.0.0.1)", parse_bind(v))]
+    @[CliOpt("-b BIND", "--bind=BIND", "IP address that both the AMQP and HTTP servers will listen on (default: 127.0.0.1)", ->parse_bind(String))]
     property bind = "127.0.0.1"
 
     @[CliOpt("", "--amqp-bind=BIND", "IP address that the AMQP server will listen on (default: 127.0.0.1)")]
@@ -137,13 +137,13 @@ module LavinMQ
     @[IniOpt(section: "main")]
     property? data_dir_lock : Bool = true
 
-    @[IniOpt(section: "main", transform: tcp_keepalive?(v))]
+    @[IniOpt(section: "main", transform: ->tcp_keepalive?(String))]
     property tcp_keepalive : Tuple(Int32, Int32, Int32)? = {60, 10, 3} # idle, interval, probes/count
 
-    @[IniOpt(section: "main", transform: (v ? Int32.new(v) : nil))]
+    @[IniOpt(section: "main")]
     property tcp_recv_buffer_size : Int32? = nil
 
-    @[IniOpt(section: "main", transform: (v ? Int32.new(v) : nil))]
+    @[IniOpt(section: "main")]
     property tcp_send_buffer_size : Int32? = nil
 
     @[CliOpt("", "--guest-only-loopback=BOOL", "Limit guest user to only connect from loopback address")]
@@ -177,9 +177,9 @@ module LavinMQ
     @[EnvOpt("LAVINMQ_CLUSTERING_ETCD_ENDPOINTS")]
     property clustering_etcd_endpoints = "localhost:2379"
 
-    @[CliOpt("", "--clustering-advertised-uri=URI", "Advertised URI for the clustering server", v)]
-    @[IniOpt(section: "clustering", transform: v)]
-    @[EnvOpt("LAVINMQ_CLUSTERING_ADVERTISED_URI", v)]
+    @[CliOpt("", "--clustering-advertised-uri=URI", "Advertised URI for the clustering server")]
+    @[IniOpt(section: "clustering")]
+    @[EnvOpt("LAVINMQ_CLUSTERING_ADVERTISED_URI")]
     property clustering_advertised_uri : String? = nil
 
     @[CliOpt("", "--clustering-bind=BIND", "Listen for clustering followers on this address (default: localhost)")]
@@ -200,7 +200,7 @@ module LavinMQ
     @[IniOpt(section: "main")]
     property max_deleted_definitions = 8192 # number of deleted queues, unbinds etc that compacts the definitions file
 
-    @[IniOpt(section: "main", transform: (v ? UInt64.new(v) : nil))]
+    @[IniOpt(section: "main")]
     property consumer_timeout : UInt64? = nil
 
     @[IniOpt(section: "main")]
@@ -261,35 +261,45 @@ module LavinMQ
       parser.parse(ARGV.dup)
     end
 
-    private macro parse_value(value, transform_or_type = nil)
-      {% if transform_or_type.is_a?(Path) %}
-        parse_type({{value}}, {{transform_or_type}})
-      {% else %}
-        parse_transform({{transform_or_type}})
-      {% end %}
+    # Generate parse_value methods for all Int and UInt
+    {% for int in [Int8, Int16, Int32, Int64] %}
+          # IntX
+          private def parse_value(value, type : {{int}}.class)
+            {{int}}.new(value)
+          end
+
+          private def parse_value(value, type : {{int}}?.class)
+            if v = value
+              {{int}}.new(v)
+            end
+          end
+
+          # UIntX
+          private def parse_value(value, type : U{{int}}.class)
+            U{{int}}.new(value)
+          end
+
+          private def parse_value(value, type : U{{int}}?.class)
+            if v = value
+              U{{int}}.new(v)
+            end
+          end
+        {% end %}
+
+    private def parse_value(value, type : URI.class)
+      URI.parse value
     end
 
-    private macro parse_transform(transform)
-      {{transform}}
+    private def parse_value(value, type : String.class | String?.class)
+      value
     end
 
-    private macro parse_type(value, type)
-      {% type = type.resolve %}
-      {% if type <= Int || type.is_a?(Float) %}
-        {{type}}.new({{value}})
-      {% elsif type == Bool %}
-        %w[on yes true 1].includes?({{value}}.downcase)
-      {% elsif type == URI %}
-        URI.parse({{value}})
-      {% elsif type == String %}
-        {{value}}
-      {% else %}
-        {% raise "Config#parse_type needs to be implemented for type #{type}" %}
-      {% end %}
+    private def parse_value(value, type : Bool.class)
+      %w[on yes true 1].includes?(value.downcase)
     end
 
-    private def parse_cli_log_level(value)
-      ::Log::Severity.parse(value.strip)
+    private def parse_value(value, type : Proc)
+      type.call(value)
     end
 
     private def parse_bind(value)
