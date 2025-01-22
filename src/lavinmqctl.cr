@@ -4,6 +4,7 @@ require "./lavinmq/definitions_generator"
 require "http/client"
 require "json"
 require "option_parser"
+require "./lavinmq/user"
 
 class LavinMQCtl
   @options = {} of String => String
@@ -41,6 +42,8 @@ class LavinMQCtl
     {"delete_exchange", "Delete exchange", "<name>"},
     {"set_vhost_limits", "Set VHost limits (max-connections, max-queues)", "<json>"},
     {"set_permissions", "Set permissions for a user", "<username> <configure> <write> <read>"},
+    {"hash_password", "Hash a password", "<password>"},
+
   }
 
   def initialize
@@ -178,6 +181,7 @@ class LavinMQCtl
     when "set_vhost_limits"      then set_vhost_limits
     when "set_permissions"       then set_permissions
     when "definitions"           then definitions
+    when "hash_password"         then hash_password
     when "stop_app"
     when "start_app"
     else
@@ -678,6 +682,12 @@ class LavinMQCtl
   private def definitions
     data_dir = ARGV.shift? || abort "definitions <datadir>"
     DefinitionsGenerator.new(data_dir).generate(STDOUT)
+  end
+
+  private def hash_password
+    password = ARGV.shift?
+    abort @banner unless password
+    output LavinMQ::User.hash_password(password, "SHA256")
   end
 end
 
