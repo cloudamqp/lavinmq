@@ -9,6 +9,7 @@ require "./in_memory_backend"
 module LavinMQ
   class Config
     DEFAULT_LOG_LEVEL = ::Log::Severity::Info
+    DEFAULT_PASSWORD_HASH = "+pHuxkR9fCyrrwXjOD4BP4XbzO3l8LJr8YkThMgJ0yVHFRE+" # Hash of 'guest'
 
     property data_dir : String = ENV.fetch("STATE_DIRECTORY", "/var/lib/lavinmq")
     property config_file = File.exists?(File.join(ENV.fetch("CONFIGURATION_DIRECTORY", "/etc/lavinmq"), "lavinmq.ini")) ? File.join(ENV.fetch("CONFIGURATION_DIRECTORY", "/etc/lavinmq"), "lavinmq.ini") : ""
@@ -70,7 +71,7 @@ module LavinMQ
     property yield_each_delivered_bytes = 1_048_576 # max number of bytes sent to a client without tending to other tasks in the server
     property auth_backends : Array(String) = ["basic"]
     property default_user : String = ENV.fetch("LAVINMQ_DEFAULT_USER", "guest")
-    property default_password : String = ENV.fetch("LAVINMQ_DEFAULT_PASSWORD", "guest")
+    property default_password : String = ENV.fetch("LAVINMQ_DEFAULT_PASSWORD", DEFAULT_PASSWORD_HASH) # Hashed password for default user
     @@instance : Config = self.new
 
     def self.instance : LavinMQ::Config
@@ -166,7 +167,7 @@ module LavinMQ
         p.on("--default-user=USER", "Default user (default: guest)") do |v|
           @default_user = v
         end
-        p.on("--default-password=PASSWORD", "Default password (default: guest)") do |v|
+        p.on("--default-password=PASSWORD", "Hashed password for default user (default: '+pHuxkR9fCyrrwXjOD4BP4XbzO3l8LJr8YkThMgJ0yVHFRE+' (guest))") do |v|
           @default_password = v
         end
         p.invalid_option { |arg| abort "Invalid argument: #{arg}" }
