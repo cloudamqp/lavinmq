@@ -276,32 +276,28 @@ describe LavinMQ::Server do
 
   it "allows changing default user" do
     LavinMQ::Config.instance.default_user = "spec"
-    LavinMQ::Config.instance.default_password = "spec"
-    with_amqp_server do |s|
-      with_channel(s, user: "spec", password: "spec") { }
-    end
-  end
-
-  it "allows changing default user with env variables" do
-    ENV["LAVINMQ_DEFAULT_USER"] = "spec"
-    ENV["LAVINMQ_DEFAULT_PASSWORD"] = "spec"
+    LavinMQ::Config.instance.default_password = LavinMQ::User.hash_password("spec", "SHA256").to_s
     with_amqp_server do |s|
       with_channel(s, user: "spec", password: "spec") { }
     end
   ensure
-    ENV.delete("LAVINMQ_DEFAULT_USER")
-    ENV.delete("LAVINMQ_DEFAULT_PASSWORD")
+    LavinMQ::Config.instance.default_user = "guest"
+    LavinMQ::Config.instance.default_password = LavinMQ::User.hash_password("guest", "SHA256").to_s
   end
 
   it "disallows 'guest' if default user is changed" do
     LavinMQ::Config.instance.default_user = "spec"
-    LavinMQ::Config.instance.default_password = "spec"
+    LavinMQ::Config.instance.default_password = LavinMQ::User.hash_password("spec", "SHA256").to_s
     with_amqp_server do |s|
       expect_raises(AMQP::Client::Connection::ClosedException) do
         with_channel(s, user: "guest", password: "guest") { }
       end
     end
+  ensure
+    LavinMQ::Config.instance.default_user = "guest"
+    LavinMQ::Config.instance.default_password = LavinMQ::User.hash_password("guest", "SHA256").to_s
   end
+
 end
 
 describe LavinMQ::Tag do
