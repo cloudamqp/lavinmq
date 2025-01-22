@@ -1,20 +1,9 @@
 require "json"
 require "./password"
 require "./sortable_json"
+require "./tag"
 
 module LavinMQ
-  enum Tag
-    Administrator
-    Monitoring
-    Management
-    PolicyMaker
-    Impersonator
-
-    def self.parse_list(list : String) : Array(Tag)
-      list.split(",").compact_map { |t| Tag.parse?(t.strip) }
-    end
-  end
-
   class User
     include SortableJSON
     getter name, password, permissions
