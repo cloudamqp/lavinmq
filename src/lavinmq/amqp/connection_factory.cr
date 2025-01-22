@@ -2,6 +2,7 @@ require "../version"
 require "../logger"
 require "./client"
 require "../client/connection_factory"
+require "../auth/chain"
 
 module LavinMQ
   module AMQP
@@ -12,6 +13,7 @@ module LavinMQ
       end
 
       def start(socket, connection_info, auth_chain) : Client?
+        @auth_chain = LavinMQ::Auth::Chain.new(users)
         remote_address = connection_info.src
         socket.read_timeout = 15.seconds
         metadata = ::Log::Metadata.build({address: remote_address.to_s})

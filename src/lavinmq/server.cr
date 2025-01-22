@@ -16,7 +16,6 @@ require "./client/client"
 require "./client/connection_factory"
 require "./amqp/connection_factory"
 require "./stats"
-require "./auth/chain"
 
 module LavinMQ
   class Server
@@ -39,7 +38,6 @@ module LavinMQ
       @vhosts = VHostStore.new(@data_dir, @users, @replicator)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator)
       @amqp_connection_factory = LavinMQ::AMQP::ConnectionFactory.new(@users, @vhosts)
-      @auth_chain = LavinMQ::Auth::Chain.new(@users)
       apply_parameter
       spawn stats_loop, name: "Server#stats_loop"
     end
