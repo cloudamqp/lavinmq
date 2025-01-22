@@ -262,33 +262,18 @@ module LavinMQ
     end
 
     # Generate parse_value methods for all Int and UInt
-    {% for int in [Int8, Int16, Int32, Int64] %}
-          # IntX
-          private def parse_value(value, type : {{int}}.class)
-            {{int}}.new(value)
-          end
+    {% for int in [Int8, Int16, Int32, Int64, UInt8, UInt16, UInt32, UInt64] %}
+      # IntX
+      private def parse_value(value, type : {{int}}.class)
+        {{int}}.new(value)
+      end
 
-          private def parse_value(value, type : {{int}}?.class)
-            if v = value
-              {{int}}.new(v)
-            end
-          end
-
-          # UIntX
-          private def parse_value(value, type : U{{int}}.class)
-            U{{int}}.new(value)
-          end
-
-          private def parse_value(value, type : U{{int}}?.class)
-            if v = value
-              U{{int}}.new(v)
-            end
-          end
-        {% end %}
-
-    private def parse_value(value, type : URI.class)
-      URI.parse value
-    end
+      private def parse_value(value, type : {{int}}?.class)
+        if v = value
+          {{int}}.new(v)
+        end
+      end
+    {% end %}
 
     private def parse_value(value, type : String.class | String?.class)
       value
