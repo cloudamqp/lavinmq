@@ -297,7 +297,6 @@ describe LavinMQ::Server do
     LavinMQ::Config.instance.default_user = "guest"
     LavinMQ::Config.instance.default_password = LavinMQ::User.hash_password("guest", "SHA256").to_s
   end
-
 end
 
 describe LavinMQ::Tag do
