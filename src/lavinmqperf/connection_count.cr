@@ -56,7 +56,7 @@ module LavinMQPerf
           slice.each do |i|
             spawn connect(i)
           end
-          slice.each do |i|
+          slice.each do |_i|
             @done.receive
             print '.'
           end
