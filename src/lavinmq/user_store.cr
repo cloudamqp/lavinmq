@@ -130,7 +130,7 @@ module LavinMQ
     end
 
     private def create_default_user
-      create(Config.instance.default_user, Config.instance.default_password, [Tag::Administrator], save: false)
+      add(Config.instance.default_user, Config.instance.default_password, "SHA256", tags: [Tag::Administrator], save: false)
       add_permission(Config.instance.default_user, "/", /.*/, /.*/, /.*/)
       save!
     end
