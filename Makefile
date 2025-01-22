@@ -1,5 +1,6 @@
 BINS := bin/lavinmq bin/lavinmqctl bin/lavinmqperf
 SOURCES := $(shell find src/lavinmq src/stdlib -name '*.cr' 2> /dev/null)
+PERF_SOURCES := $(shell find src/lavinmqperf -name '*.cr' 2> /dev/null)
 VIEW_SOURCES := $(wildcard views/*.ecr)
 VIEW_TARGETS := $(patsubst views/%.ecr,static/views/%.html,$(VIEW_SOURCES))
 VIEW_PARTIALS := $(wildcard views/partials/*.ecr)
@@ -50,7 +51,7 @@ bin/%: src/%.cr $(SOURCES) lib $(JS) $(DOCS) | bin
 bin/%-debug: src/%.cr $(SOURCES) lib $(JS) $(DOCS) | bin
 	crystal build $< -o $@ --debug $(CRYSTAL_FLAGS)
 
-bin/lavinmqperf: src/lavinmqperf.cr lib | bin
+bin/lavinmqperf: src/lavinmqperf.cr $(PERF_SOURCES) lib | bin
 	crystal build $< -o $@ -Dpreview_mt $(CRYSTAL_FLAGS)
 
 bin/lavinmqctl: src/lavinmqctl.cr lib | bin
