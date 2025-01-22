@@ -123,7 +123,7 @@ module LavinMQ
         put "/api/auth/hash_password/:password" do |context, params|
           password = params["password"]
           hash = User.hash_password(password, "SHA256")
-          { password_hash: hash.to_s }.to_json(context.response)
+          {password_hash: hash.to_s}.to_json(context.response)
           context
         end
       end
