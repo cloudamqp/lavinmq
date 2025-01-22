@@ -2,20 +2,23 @@ require "../version"
 require "../logger"
 require "./client"
 require "../client/connection_factory"
+require "../auth/handlers/basic_auth"
+require "../auth/handlers/oauth2"
+require "../auth/handlers/http"
 
 module LavinMQ
   module AMQP
     class ConnectionFactory < LavinMQ::ConnectionFactory
       Log = LavinMQ::Log.for "amqp.connection_factory"
 
-      def start(socket, connection_info, vhosts, users) : Client?
+      def start(socket, connection_info, vhosts, users, auth_chain) : Client?
         remote_address = connection_info.src
         socket.read_timeout = 15.seconds
         metadata = ::Log::Metadata.build({address: remote_address.to_s})
         logger = Logger.new(Log, metadata)
         if confirm_header(socket, logger)
           if start_ok = start(socket, logger)
-            if user = authenticate(socket, remote_address, users, start_ok, logger)
+            if user = authenticate(socket, remote_address, users, start_ok, logger, auth_chain)
               if tune_ok = tune(socket, logger)
                 if vhost = open(socket, vhosts, user, logger)
                   socket.read_timeout = heartbeat_timeout(tune_ok)
@@ -47,7 +50,7 @@ module LavinMQ
         elsif proto != AMQP::PROTOCOL_START_0_9_1 && proto != AMQP::PROTOCOL_START_0_9
           socket.write AMQP::PROTOCOL_START_0_9_1.to_slice
           socket.flush
-          log.warn { "Unexpected protocol #{String.new(proto.to_unsafe, count).inspect}, closing socket" }
+          log.warn { "Unexpected protocol '#{String.new(proto.to_slice)}', closing socket" }
           false
         else
           true
@@ -100,17 +103,10 @@ module LavinMQ
         end
       end
 
-      def authenticate(socket, remote_address, users, start_ok, log)
+      def authenticate(socket, remote_address, users, start_ok, log, auth_chain)
         username, password = credentials(start_ok)
         user = users[username]?
-        return user if user && user.password && user.password.not_nil!.verify(password) &&
-                       guest_only_loopback?(remote_address, user)
-
-        if user.nil?
-          log.warn { "User \"#{username}\" not found" }
-        else
-          log.warn { "Authentication failure for user \"#{username}\"" }
-        end
+        return user if user && auth_chain.authenticate(username, password) && guest_only_loopback?(remote_address, user)
         props = start_ok.client_properties
         if capabilities = props["capabilities"]?.try &.as?(AMQP::Table)
           if capabilities["authentication_failure_close"]?.try &.as?(Bool)
