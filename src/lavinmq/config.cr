@@ -8,7 +8,7 @@ require "./in_memory_backend"
 
 module LavinMQ
   class Config
-    DEFAULT_LOG_LEVEL = ::Log::Severity::Info
+    DEFAULT_LOG_LEVEL     = ::Log::Severity::Info
     DEFAULT_PASSWORD_HASH = "+pHuxkR9fCyrrwXjOD4BP4XbzO3l8LJr8YkThMgJ0yVHFRE+" # Hash of 'guest'
 
     property data_dir : String = ENV.fetch("STATE_DIRECTORY", "/var/lib/lavinmq")
