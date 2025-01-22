@@ -1,4 +1,5 @@
 require "amqp-client"
+require "benchmark"
 require "./perf"
 
 module LavinMQPerf

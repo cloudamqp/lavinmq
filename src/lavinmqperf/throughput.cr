@@ -1,4 +1,6 @@
 require "amqp-client"
+require "json"
+require "wait_group"
 require "./perf"
 
 module LavinMQPerf

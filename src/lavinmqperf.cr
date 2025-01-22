@@ -1,8 +1,4 @@
-require "amqp-client"
-require "benchmark"
-require "json"
 require "log"
-require "wait_group"
 require "./lavinmq/version"
 require "./lavinmqperf/*"
 require "./stdlib/resource"
