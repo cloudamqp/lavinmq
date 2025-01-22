@@ -11,14 +11,14 @@ module LavinMQ
       def initialize(@users : UserStore, @vhosts : VHostStore)
       end
 
-      def start(socket, connection_info) : Client?
+      def start(socket, connection_info, auth_chain) : Client?
         remote_address = connection_info.src
         socket.read_timeout = 15.seconds
         metadata = ::Log::Metadata.build({address: remote_address.to_s})
         logger = Logger.new(Log, metadata)
         if confirm_header(socket, logger)
           if start_ok = start(socket, logger)
-            if user = authenticate(socket, remote_address, start_ok, logger)
+            if user = authenticate(socket, remote_address, start_ok, logger, auth_chain)
               if tune_ok = tune(socket, logger)
                 if vhost = open(socket, user, logger)
                   socket.read_timeout = heartbeat_timeout(tune_ok)
@@ -103,10 +103,10 @@ module LavinMQ
         end
       end
 
-      def authenticate(socket, remote_address, start_ok, log)
+      def authenticate(socket, remote_address, start_ok, log, auth_chain)
         username, password = credentials(start_ok)
         user = @users[username]?
-        return user if user && user.password && user.password.not_nil!.verify(password) &&
+        return user if user && auth_chain.authenticate(username, password) &&
                        guest_only_loopback?(remote_address, user)
 
         if user.nil?
