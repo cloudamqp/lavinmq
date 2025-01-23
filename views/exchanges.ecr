@@ -85,6 +85,18 @@
             <a class="arg-tooltip" data-tag="x-alternate-exchange">Alternate Exchange
               <span class="tooltiptext">If messages to this exchange cannot otherwise be routed, send them to the alternate exchange named here.</span>
             </a>
+            <a class="arg-tooltip" data-tag="x-message-deduplication" data-value="true">Message deduplication
+              <span class="tooltiptext">Enable deduplication for this exchange</span>
+            </a> | 
+            <a class="arg-tooltip" data-tag="x-cache-size" data-value="100">Deduplication cache size
+              <span class="tooltiptext">Deduplication cache size, in number of entries</span>
+            </a> | 
+            <a class="arg-tooltip" data-tag="x-cache-ttl" data-value="1000">Deduplication cache ttl
+              <span class="tooltiptext">How long an entry lives in the deduplication cache, in milliseconds</span>
+            </a> | 
+            <a class="arg-tooltip" data-tag="x-deduplication-header">Deduplication header
+              <span class="tooltiptext">Which header to check for deduplication, defaults to x-deduplication-header</span>
+            </a>
           </div>
         </label>
         <button type="submit" class="btn btn-green">Add exchange</button>
