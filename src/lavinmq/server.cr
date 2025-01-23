@@ -66,6 +66,7 @@ module LavinMQ
       @users = UserStore.new(@data_dir, @replicator)
       @vhosts = VHostStore.new(@data_dir, @users, @replicator)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator)
+      @amqp_connection_factory = LavinMQ::AMQP::ConnectionFactory.new(@users, @vhosts)
       apply_parameter
       @closed = false
       Fiber.yield
