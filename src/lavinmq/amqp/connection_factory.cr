@@ -10,17 +10,17 @@ module LavinMQ
       Log = LavinMQ::Log.for "amqp.connection_factory"
 
       def initialize(@users : UserStore, @vhosts : VHostStore)
+        @auth_chain = LavinMQ::Auth::Chain.new(@users)
       end
 
-      def start(socket, connection_info, auth_chain) : Client?
-        @auth_chain = LavinMQ::Auth::Chain.new(users)
+      def start(socket, connection_info) : Client?
         remote_address = connection_info.src
         socket.read_timeout = 15.seconds
         metadata = ::Log::Metadata.build({address: remote_address.to_s})
         logger = Logger.new(Log, metadata)
         if confirm_header(socket, logger)
           if start_ok = start(socket, logger)
-            if user = authenticate(socket, remote_address, start_ok, logger, auth_chain)
+            if user = authenticate(socket, remote_address, start_ok, logger, @auth_chain)
               if tune_ok = tune(socket, logger)
                 if vhost = open(socket, user, logger)
                   socket.read_timeout = heartbeat_timeout(tune_ok)
