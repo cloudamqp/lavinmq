@@ -126,6 +126,7 @@ module LavinMQ::AMQP
           sp = SegmentPosition.new(consumer.segment, consumer.pos, msg.bytesize.to_u32)
           consumer.pos += sp.bytesize
           consumer.offset += 1
+          return unless consumer.filter_match?(msg.properties.headers)
           Envelope.new(sp, msg, redelivered: false)
         rescue ex
           raise Error.new(rfile, cause: ex)
