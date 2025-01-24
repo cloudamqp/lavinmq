@@ -3,18 +3,19 @@ require "./authenticators/basic"
 
 module LavinMQ
   module Auth
-    class Chain
-      @first : Authenticator?
+    class Chain < Authenticator
+      @backends : Array(Authenticator)
 
       def initialize(users : UserStore)
+        @backends = [] of Authenticator
         backends = Config.instance.auth_backends
         if backends.nil? || backends.size == 0
-          add_handler(BasicAuthenticator.new(users))
+          @backends << BasicAuthenticator.new(users)
         else
           backends.each do |backend|
             case backend
             when "basic"
-              add_handler(BasicAuthenticator.new(users))
+              @backends << BasicAuthenticator.new(users)
             else
               raise "Unsupported authentication backend: #{backend}"
             end
@@ -22,21 +23,13 @@ module LavinMQ
         end
       end
 
-      def add_handler(auth : Authenticator)
-        if first = @first
-          current = first
-          while successor = current.@successor
-            current = successor
-          end
-          current.set_successor(auth)
-        else
-          @first = auth
-        end
-        self
-      end
-
       def authenticate(username : String, password : String)
-        @first.try &.authenticate(username, password)
+        @backends.each do |backend|
+          if user = backend.authenticate(username, password)
+            return user
+          end
+        end
+        nil
       end
     end
   end
