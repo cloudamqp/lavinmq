@@ -50,6 +50,7 @@ module LavinMQ::AMQP
     getter consumer_timeout : UInt64? = Config.instance.consumer_timeout
 
     @consumers_empty_change = ::Channel(Bool).new
+    @queue_expiration_ttl_change = ::Channel(Nil).new
 
     private def queue_expire_loop
       loop do
@@ -334,19 +335,6 @@ module LavinMQ::AMQP
       while @paused_change.try_send? false
       end
       File.delete(File.join(@data_dir, ".paused"))
-    end
-
-    @queue_expiration_ttl_change = ::Channel(Nil).new
-
-    private def queue_expiration_ttl : Time::Span?
-      if e = @expires
-        expires_in = e.milliseconds
-        if expires_in > Time::Span.zero
-          expires_in
-        else
-          Time::Span.zero
-        end
-      end
     end
 
     def close : Bool
