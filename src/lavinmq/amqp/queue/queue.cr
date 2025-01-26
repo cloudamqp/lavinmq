@@ -53,13 +53,13 @@ module LavinMQ::AMQP
 
     private def queue_expire_loop
       loop do
-        break unless @expires
-        if @consumers.empty? && (ttl = queue_expiration_ttl)
+        break unless ttl = @expires
+        if @consumers.empty?
           @log.debug { "Queue expires in #{ttl}" }
           select
           when @queue_expiration_ttl_change.receive
           when @consumers_empty_change.receive
-          when timeout ttl
+          when timeout ttl.milliseconds
             expire_queue
             close
             break
@@ -115,7 +115,7 @@ module LavinMQ::AMQP
       {"ack", "deliver", "deliver_get", "confirm", "get", "get_no_ack", "publish", "redeliver", "reject", "return_unroutable", "dedup"},
       {"message_count", "unacked_count"})
 
-    getter name, arguments, vhost, consumers, last_get_time
+    getter name, arguments, vhost, consumers
     getter? auto_delete, exclusive
     getter policy : Policy?
     getter operator_policy : OperatorPolicy?
@@ -133,7 +133,6 @@ module LavinMQ::AMQP
     def initialize(@vhost : VHost, @name : String,
                    @exclusive = false, @auto_delete = false,
                    @arguments = AMQP::Table.new)
-      @last_get_time = RoughTime.monotonic
       @data_dir = make_data_dir
       @metadata = ::Log::Metadata.new(nil, {queue: @name, vhost: @vhost.name})
       @log = Logger.new(Log, @metadata)
@@ -186,7 +185,6 @@ module LavinMQ::AMQP
     end
 
     def redeclare
-      @last_get_time = RoughTime.monotonic
       @queue_expiration_ttl_change.try_send? nil
     end
 
@@ -217,7 +215,6 @@ module LavinMQ::AMQP
         when "expires"
           unless @expires.try &.< v.as_i64
             @expires = v.as_i64
-            @last_get_time = RoughTime.monotonic
             spawn queue_expire_loop, name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}"
             @queue_expiration_ttl_change.try_send? nil
           end
@@ -343,7 +340,7 @@ module LavinMQ::AMQP
 
     private def queue_expiration_ttl : Time::Span?
       if e = @expires
-        expires_in = @last_get_time + e.milliseconds - RoughTime.monotonic
+        expires_in = e.milliseconds
         if expires_in > Time::Span.zero
           expires_in
         else
@@ -688,7 +685,6 @@ module LavinMQ::AMQP
 
     def basic_get(no_ack, force = false, & : Envelope -> Nil) : Bool
       return false if !@state.running? && (@state.paused? && !force)
-      @last_get_time = RoughTime.monotonic
       @queue_expiration_ttl_change.try_send? nil
       @get_count += 1
       @deliver_get_count += 1
@@ -833,7 +829,6 @@ module LavinMQ::AMQP
 
     def add_consumer(consumer : Client::Channel::Consumer)
       return if @closed
-      @last_get_time = RoughTime.monotonic
       @consumers_lock.synchronize do
         was_empty = @consumers.empty?
         @consumers << consumer

@@ -124,18 +124,17 @@ describe LavinMQ::VHost do
     end
   end
 
-  it "should refresh queue last_get_time when expire policy applied" do
+  it "should update queue expiration" do
     with_amqp_server do |s|
-      defs = {"expires" => JSON::Any.new(50_i64)} of String => JSON::Any
       with_channel(s) do |ch|
-        ch.queue("qttl")
+        ch.queue("qttl", args: AMQP::Client::Arguments.new({"x-expires" => 100}))
         queue = s.vhosts["/"].queues["qttl"]
-        first = queue.last_get_time
         sleep 0.1.seconds
-        s.vhosts["/"].add_policy("qttl", "^.*$", "all", defs, 12_i8)
+        s.vhosts["/"].add_policy("qttl", "^.*$", "all", {"expires" => JSON::Any.new(200)}, 2_i8)
         sleep 0.1.seconds
-        last = queue.last_get_time
-        last.should be > first
+        queue.closed?.should be_false
+        sleep 0.2.seconds
+        queue.closed?.should be_true
       end
     end
   end
