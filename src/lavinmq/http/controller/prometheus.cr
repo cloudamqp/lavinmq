@@ -71,7 +71,14 @@ module LavinMQ
           report(context.response) do
             writer = PrometheusWriter.new(context.response, prefix)
             overview_broker_metrics(vhosts, writer)
+            io_metrics(writer)
+            auth_metrics(writer)
             overview_queue_metrics(vhosts, writer)
+            channel_metrics(writer)
+            connection_metrics(writer)
+            queue_delivery_metrics(writer)
+            exchange_metrics(writer)
+            global_metrics(writer)
             custom_metrics(vhosts, writer)
           end
           context
@@ -133,8 +140,19 @@ module LavinMQ
                       value:  1,
                       help:   "System information",
                       labels: {
+                        "#{writer.prefix}_node"                 => System.hostname,
+                        "#{writer.prefix}_cluster"              => System.hostname,
+                        "#{writer.prefix}_cluster_permanent_id" => System.hostname,
+                      }})
+        writer.write({name:   "build_info",
+                      type:   "gauge",
+                      value:  1,
+                      help:   "Build information",
+                      labels: { # TODO
                         "#{writer.prefix}_version" => LavinMQ::VERSION,
-                        "#{writer.prefix}_cluster" => System.hostname,
+                        "crystal_version"          => Crystal::VERSION,
+                        "llvm_version"             => Crystal::LLVM_VERSION,
+                        "build_target"             => Crystal::TARGET_TRIPLE,
                       }})
 
         writer.write({name:  "connections_opened_total",
@@ -157,6 +175,10 @@ module LavinMQ
                       value: stats[:queue_declared],
                       type:  "counter",
                       help:  "Total number of queues declared"})
+        writer.write({name:  "queues_created_total",
+                      value: 0, # ?
+                      type:  "counter",
+                      help:  "Total number of queues created"})
         writer.write({name:  "queues_deleted_total",
                       value: stats[:queue_deleted],
                       type:  "counter",
@@ -185,6 +207,151 @@ module LavinMQ
                       value: @amqp_server.mem_limit,
                       type:  "gauge",
                       help:  "Memory high watermark in bytes"})
+        writer.write({name:  "alarms_file_descriptor_limit", # ?
+                      value: 0,
+                      type:  "gauge",
+                      help:  ""})                                # TODO
+        writer.write({name:  "alarms_free_disk_space_watermark", # ?
+                      value: 0,
+                      type:  "gauge",
+                      help:  ""})                            # TODO
+        writer.write({name:  "alarms_memory_used_watermark", # ?
+                      value: 0,
+                      type:  "gauge",
+                      help:  ""}) # TODO
+      end
+
+      private def global_metrics(writer)
+        ["queue", "stream"].each do |queue_type|
+          writer.write({name:   "global_messages_delivered_total",
+                        value:  0,
+                        type:   "counter",
+                        help:   "",
+                        labels: {"queue_type" => queue_type}})
+          writer.write({name:   "global_messages_delivered_consume_manual_ack_total",
+                        value:  0,
+                        type:   "counter",
+                        help:   "Total number of messages delivered to consumers using basic.consume with manual acknowledgment",
+                        labels: {"queue_type" => queue_type}})
+          writer.write({name:   "global_messages_delivered_consume_auto_ack_total",
+                        value:  0,
+                        type:   "counter",
+                        help:   "Total number of messages delivered to consumers using basic.consume with automatic acknowledgment",
+                        labels: {"queue_type" => queue_type}})
+          writer.write({name:   "global_messages_delivered_get_manual_ack_total",
+                        value:  0,
+                        type:   "counter",
+                        help:   "Total number of messages delivered to consumers using basic.get with manual acknowledgment",
+                        labels: {"queue_type" => queue_type}})
+          writer.write({name:   "global_messages_delivered_get_auto_ack_total",
+                        value:  0,
+                        type:   "counter",
+                        help:   "Total number of messages delivered to consumers using basic.get with automatic acknowledgment",
+                        labels: {"queue_type" => queue_type}})
+          writer.write({name:   "global_messages_get_empty_total",
+                        value:  0,
+                        type:   "counter",
+                        help:   "Total number of messages delivered to consumers",
+                        labels: {"queue_type" => queue_type}})
+          writer.write({name:   "global_messages_redelivered_total",
+                        value:  0,
+                        type:   "counter",
+                        help:   "Total number of messages redelivered to consumers",
+                        labels: {"queue_type" => queue_type}})
+          writer.write({name:   "global_messages_acknowledged_total",
+                        value:  0,
+                        type:   "counter",
+                        help:   "Total number of messages acknowledged by consumers",
+                        labels: {"queue_type" => queue_type}})
+        end
+
+        writer.write({name:  "global_messages_received_total",
+                      value: 0,
+                      type:  "counter",
+                      help:  "Total number of messages received from publishers"})
+        writer.write({name:  "global_messages_received_confirm_total",
+                      value: 0,
+                      type:  "counter",
+                      help:  "Total number of messages received from publishers expecting confirmations"})
+        writer.write({name:  "global_messages_routed_total",
+                      value: 0,
+                      type:  "counter",
+                      help:  "Total number of messages routed to queues or streams"})
+        writer.write({name:  "global_messages_unroutable_dropped_total",
+                      value: 0,
+                      type:  "counter",
+                      help:  "Total number of messages published as non-mandatory into an exchange and dropped as unroutable"})
+        writer.write({name:  "global_messages_unroutable_returned_total",
+                      value: 0,
+                      type:  "counter",
+                      help:  "Total number of messages published as mandatory into an exchange and returned to the publisher as unroutable"})
+        writer.write({name:  "global_messages_confirmed_total",
+                      value: 0,
+                      type:  "counter",
+                      help:  "Total number of messages confirmed to publishers"})
+        writer.write({name:  "global_publishers",
+                      value: 0,
+                      type:  "gauge",
+                      help:  "Publishers currently connected"})
+        writer.write({name:  "global_consumers",
+                      value: 0,
+                      type:  "gauge",
+                      help:  "Consumers currently connected"})
+      end
+
+      private def io_metrics(writer)
+        # /proc/<procid>/io
+        gather_io_metrics
+        writer.write({name:  "io_read_ops_total", # syscr ?
+                      value: 0,
+                      type:  "counter",
+                      help:  "Total number of I/O read operations"})
+        writer.write({name:  "io_read_bytes_total", # read_bytes ?
+                      value: 0,
+                      type:  "counter",
+                      help:  "Total number of I/O bytes read"})
+        writer.write({name:  "io_write_ops_total", # syscw ?
+                      value: 0,
+                      type:  "counter",
+                      help:  "Total number of I/O write operations"})
+        writer.write({name:  "io_write_bytes_total", # write_bytes ?
+                      value: 0,
+                      type:  "counter",
+                      help:  "Total number of I/O bytes written"})
+        writer.write({name:  "io_sync_ops_total", # ?
+                      value: 0,
+                      type:  "counter",
+                      help:  "Total number of I/O sync operations"})
+        writer.write({name:  "io_seek_ops_total", # ?
+                      value: 0,
+                      type:  "counter",
+                      help:  "Total number of I/O seek operations"})
+        writer.write({name:  "io_reopen_ops_total", # ?
+                      value: 0,
+                      type:  "counter",
+                      help:  "Total number of times files have been reopened"})
+      end
+
+      private def gather_io_metrics
+        if File.exists?("/proc/self/io")
+          io = File.open("/proc/self/io").tap &.read_buffering = false
+          puts io
+        end
+      end
+
+      private def auth_metrics(writer)
+        writer.write({name:  "auth_attempts_total", #  ?
+                      value: 0,
+                      type:  "counter",
+                      help:  "Total number of authentication attempts"})
+        writer.write({name:  "auth_attempts_succeeded_total", #  ?
+                      value: 0,
+                      type:  "counter",
+                      help:  "Total number of successful authentication attempts"})
+        writer.write({name:  "auth_attempts_failed_total", #  ?
+                      value: 0,
+                      type:  "counter",
+                      help:  "Total number of failed authentication attempts"})
       end
 
       private def overview_queue_metrics(vhosts, writer)
@@ -230,6 +397,194 @@ module LavinMQ
                       value: ready + unacked,
                       type:  "gauge",
                       help:  "Sum of ready and unacknowledged messages - total queue depth"})
+        writer.write({name:  "queue_consumers", # ?
+                      value: 0,
+                      type:  "gauge",
+                      help:  "Consumers on a queue"})
+        writer.write({name:  "queue_consumer_utilisation", # ?
+                      value: 0,
+                      type:  "gauge",
+                      help:  "Consumer utilisation"})
+        writer.write({name:  "queue_messages_persistent", # ?
+                      value: 0,
+                      type:  "gauge",
+                      help:  "Persistent messages"})
+        writer.write({name:  "queue_messages_bytes", # ?
+                      value: 0,
+                      type:  "gauge",
+                      help:  "Size in bytes of ready and unacknowledged messages"})
+        writer.write({name:  "queue_messages_ready_bytes", # ?
+                      value: 0,
+                      type:  "gauge",
+                      help:  "Size in bytes of ready messages"})
+        writer.write({name:  "queue_messages_unacked_bytes", # ?
+                      value: 0,
+                      type:  "gauge",
+                      help:  "Size in bytes of all unacknowledged messages"})
+        writer.write({name:  "stream_segments", # ?
+                      value: 0,
+                      type:  "gauge",
+                      help:  ""})
+        writer.write({name:  "queue_messages_published_total", # ?
+                      value: 0,
+                      type:  "counter",
+                      help:  "Total number of messages published to queues"})
+      end
+
+      private def queue_delivery_metrics(writer)
+        writer.write({name:  "queue_get_ack_total", # ?
+                      value: 0,
+                      type:  "counter",
+                      help:  "Total number of messages fetched from a queue with basic.get in manual acknowledgement mode"})
+        writer.write({name:  "queue_get_total", # ?
+                      value: 0,
+                      type:  "counter",
+                      help:  "Total number of messages fetched from a queue with basic.get in automatic acknowledgement mode"})
+        writer.write({name:  "queue_messages_delivered_ack_total", # ?
+                      value: 0,
+                      type:  "counter",
+                      help:  "Total number of messages delivered from a queue to consumers in manual acknowledgement mode"})
+        writer.write({name:  "queue_messages_delivered_total", # ?
+                      value: 0,
+                      type:  "counter",
+                      help:  "Total number of messages delivered from a queue to consumers in automatic acknowledgement mode"})
+        writer.write({name:  "queue_messages_redelivered_total", # ?
+                      value: 0,
+                      type:  "counter",
+                      help:  "Total number of messages redelivered from a queue to consumers"})
+        writer.write({name:  "queue_messages_acked_total", # ?
+                      value: 0,
+                      type:  "counter",
+                      help:  "Total number of messages acknowledged by consumers on a queue"})
+        writer.write({name:  "queue_get_empty_total", # ?
+                      value: 0,
+                      type:  "counter",
+                      help:  "Total number of times basic.get operations fetched no message on a queue"})
+        writer.write({name:  "queue_exchange_messages_published_total", # ?
+                      value: 0,
+                      type:  "counter",
+                      help:  "Total number of messages published into a queue through an exchange"})
+      end
+
+      private def exchange_metrics(writer)
+        writer.write({name:  "exchange_messages_published_total", # ?
+                      value: 0,
+                      type:  "counter",
+                      help:  "Total number of messages published into an exchange"})
+        writer.write({name:  "exchange_messages_confirmed_total", # ?
+                      value: 0,
+                      type:  "counter",
+                      help:  "Total number of messages published into an exchange and confirmed"})
+        writer.write({name:  "exchange_messages_unroutable_returned_total", # ?
+                      value: 0,
+                      type:  "counter",
+                      help:  "Total number of messages published as mandatory into an exchange and returned to the publisher as unroutable"})
+        writer.write({name:  "exchange_messages_unroutable_dropped_total", # ?
+                      value: 0,
+                      type:  "counter",
+                      help:  "Total number of messages published as non-mandatory into an exchange and dropped as unroutable"})
+      end
+
+      private def channel_metrics(writer)
+        writer.write({name:  "channel_consumers", # ?
+                      value: 0,
+                      type:  "gauge",
+                      help:  "Consumers on a channel"})
+        writer.write({name:  "channel_messages_unacked", # ?
+                      value: 0,
+                      type:  "gauge",
+                      help:  "Delivered but not yet acknowledged messages"})
+        writer.write({name:  "channel_messages_unconfirmed", # ?
+                      value: 0,
+                      type:  "gauge",
+                      help:  "Published but not yet confirmed messages"})
+        writer.write({name:  "channel_messages_uncommited", # ?
+                      value: 0,
+                      type:  "gauge",
+                      help:  "Messages received in a transaction but not yet committed"})
+        writer.write({name:  "channel_acks_uncommitted", # ?
+                      value: 0,
+                      type:  "gauge",
+                      help:  "Message acknowledgements in a transaction not yet committed"})
+        writer.write({name:  "channel_prefetch", # ?
+                      value: 0,
+                      type:  "gauge",
+                      help:  "Limit of unacknowledged messages for each channel"})
+        writer.write({name:  "consumer_prefetch", # ?
+                      value: 0,
+                      type:  "gauge",
+                      help:  "Limit of unacknowledged messages for each consumer"})
+        writer.write({name:  "channel_messages_published_total", # ?
+                      value: 0,
+                      type:  "counter",
+                      help:  "Total number of messages published into an exchange on a channel"})
+        writer.write({name:  "channel_messages_confirmed_total", # ?
+                      value: 0,
+                      type:  "counter",
+                      help:  "Total number of messages published into an exchange and confirmed on the channel"})
+        writer.write({name:  "channel_messages_unroutable_returned_total", # ?
+                      value: 0,
+                      type:  "counter",
+                      help:  "Total number of messages published as mandatory into an exchange and returned to the publisher as unroutable"})
+        writer.write({name:  "channel_messages_unroutable_dropped_total", # ?
+                      value: 0,
+                      type:  "counter",
+                      help:  "Total number of messages published as non-mandatory into an exchange and dropped as unroutable"})
+        writer.write({name:  "channel_get_ack_total", # ?
+                      value: 0,
+                      type:  "counter",
+                      help:  "Total number of messages fetched with basic.get in manual acknowledgement mode"})
+        writer.write({name:  "channel_get_total", # ?
+                      value: 0,
+                      type:  "counter",
+                      help:  "Total number of messages fetched with basic.get in automatic acknowledgement mode"})
+        writer.write({name:  "channel_messages_delivered_ack_total", # ?
+                      value: 0,
+                      type:  "counter",
+                      help:  "Total number of messages delivered to consumers in manual acknowledgement mode"})
+        writer.write({name:  "channel_messages_delivered_total", # ?
+                      value: 0,
+                      type:  "counter",
+                      help:  "Total number of messages delivered to consumers in automatic acknowledgement mode"})
+        writer.write({name:  "channel_messages_redelivered_total", # ?
+                      value: 0,
+                      type:  "counter",
+                      help:  "Total number of messages redelivered to consumers"})
+        writer.write({name:  "channel_messages_acked_total", # ?
+                      value: 0,
+                      type:  "counter",
+                      help:  "Total number of messages acknowledged by consumers"})
+        writer.write({name:  "channel_get_empty_total", # ?
+                      value: 0,
+                      type:  "counter",
+                      help:  "Total number of times basic.get operations fetched no message"})
+      end
+
+      private def connection_metrics(writer)
+        writer.write({name:  "connection_incoming_bytes_total", # ?
+                      value: 0,
+                      type:  "counter",
+                      help:  "Total number of bytes received on a connection"})
+        writer.write({name:  "connection_outgoing_bytes_total", # ?
+                      value: 0,
+                      type:  "counter",
+                      help:  "Total number of bytes sent on a connection"})
+        writer.write({name:  "connection_incoming_packets_total", # ?
+                      value: 0,
+                      type:  "counter",
+                      help:  "Total number of packets received on a connection"})
+        writer.write({name:  "connection_outgoing_packets_total", # ?
+                      value: 0,
+                      type:  "counter",
+                      help:  "Total number of packets sent on a connection"})
+        writer.write({name:  "connection_pending_packets", # ?
+                      value: 0,
+                      type:  "gauge",
+                      help:  "Number of packets waiting to be sent on a connection"})
+        writer.write({name:  "connection_channels", # ?
+                      value: 0,
+                      type:  "gauge",
+                      help:  "Channels on a connection"})
       end
 
       private def custom_metrics(vhosts, writer)
