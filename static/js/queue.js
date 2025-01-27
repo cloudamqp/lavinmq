@@ -111,10 +111,10 @@ function updateQueue (all) {
       }
       if (all) {
         let features = ''
-        features += item.durable ? ' D' : ''
-        features += item.auto_delete ? ' AD' : ''
-        features += item.exclusive ? ' E' : ''
-        document.getElementById('q-features').textContent = features
+        features += item.durable ? ' <span title="Durable">D</span>' : ''
+        features += item.auto_delete ? ' <span title="Auto delete">AD</span>' : ''
+        features += item.exclusive ? ' <span title="Exclusive">E</span>' : ''
+        document.getElementById('q-features').innerHTML = features
         document.querySelector('#pagename-label').textContent = queue + ' in virtual host ' + item.vhost
         document.querySelector('.queue').textContent = queue
         if (item.policy) {
