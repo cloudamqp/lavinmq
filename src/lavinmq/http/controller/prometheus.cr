@@ -301,55 +301,49 @@ module LavinMQ
 
       private def io_metrics(writer)
         # /proc/<procid>/io
-        gather_io_metrics
-        writer.write({name:  "io_read_ops_total", # syscr ?
-                      value: 0,
-                      type:  "counter",
-                      help:  "Total number of I/O read operations"})
-        writer.write({name:  "io_read_bytes_total", # read_bytes ?
-                      value: 0,
-                      type:  "counter",
-                      help:  "Total number of I/O bytes read"})
-        writer.write({name:  "io_write_ops_total", # syscw ?
-                      value: 0,
-                      type:  "counter",
-                      help:  "Total number of I/O write operations"})
-        writer.write({name:  "io_write_bytes_total", # write_bytes ?
-                      value: 0,
-                      type:  "counter",
-                      help:  "Total number of I/O bytes written"})
-        writer.write({name:  "io_sync_ops_total", # ?
-                      value: 0,
-                      type:  "counter",
-                      help:  "Total number of I/O sync operations"})
-        writer.write({name:  "io_seek_ops_total", # ?
-                      value: 0,
-                      type:  "counter",
-                      help:  "Total number of I/O seek operations"})
-        writer.write({name:  "io_reopen_ops_total", # ?
-                      value: 0,
-                      type:  "counter",
-                      help:  "Total number of times files have been reopened"})
-      end
-
-      private def gather_io_metrics
-        if File.exists?("/proc/self/io")
-          io = File.open("/proc/self/io").tap &.read_buffering = false
-          puts io
+        if metrics = @amqp_server.io_metrics
+          writer.write({name:  "io_read_ops_total", # syscr ?
+                        value: metrics["syscr"],
+                        type:  "counter",
+                        help:  "Total number of I/O read operations"})
+          writer.write({name:  "io_read_bytes_total", # read_bytes ?
+                        value: metrics["read_bytes"],
+                        type:  "counter",
+                        help:  "Total number of I/O bytes read"})
+          writer.write({name:  "io_write_ops_total", # syscw ?
+                        value: metrics["syscw"],
+                        type:  "counter",
+                        help:  "Total number of I/O write operations"})
+          writer.write({name:  "io_write_bytes_total", # write_bytes ?
+                        value: metrics["write_bytes"],
+                        type:  "counter",
+                        help:  "Total number of I/O bytes written"})
+          writer.write({name:  "io_sync_ops_total", # ?
+                        value: 0,
+                        type:  "counter",
+                        help:  "Total number of I/O sync operations"})
+          writer.write({name:  "io_seek_ops_total", # ?
+                        value: 0,
+                        type:  "counter",
+                        help:  "Total number of I/O seek operations"})
+          writer.write({name:  "io_reopen_ops_total", # ?
+                        value: 0,
+                        type:  "counter",
+                        help:  "Total number of times files have been reopened"})
         end
       end
 
       private def auth_metrics(writer)
         writer.write({name:  "auth_attempts_total", #  ?
-                      value: 0,
+                      value: @amqp_server.successful_auths + @amqp_server.failed_auths,
                       type:  "counter",
                       help:  "Total number of authentication attempts"})
         writer.write({name:  "auth_attempts_succeeded_total", #  ?
-                      value: 0,
+                      value: @amqp_server.successful_auths,
                       type:  "counter",
                       help:  "Total number of successful authentication attempts"})
         writer.write({name:  "auth_attempts_failed_total", #  ?
-                      value: 0,
+                      value: @amqp_server.failed_auths,
                       type:  "counter",
                       help:  "Total number of failed authentication attempts"})
       end
