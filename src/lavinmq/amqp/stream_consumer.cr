@@ -73,9 +73,6 @@ module LavinMQ
         end
       end
 
-      private def validate_offset_tracking(arg)
-      end
-
       private def deliver_loop
         i = 0
         loop do
