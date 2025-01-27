@@ -504,19 +504,38 @@ describe LavinMQ::AMQP::StreamQueue do
     it "should use saved offset if x-stream-offset & x-stream-automatic-offset-tracking is set" do
       queue_name = Random::Secure.hex
       consumer_tag = Random::Secure.hex
-      c_args = AMQP::Client::Arguments.new({"x-stream-offset": 0, "x-stream-automatic-offset-tracking": true})
+      c_args = AMQP::Client::Arguments.new({"x-stream-offset": 0, "x-stream-automatic-offset-tracking": "true"})
 
       with_amqp_server do |s|
         StreamQueueSpecHelpers.publish(s, queue_name, 2)
 
-        # get message without x-stream-offset, tracks offset
+        # tracks offset
         msg = StreamQueueSpecHelpers.consume_one(s, queue_name, consumer_tag, c_args)
         StreamQueueSpecHelpers.offset_from_headers(msg.properties.headers).should eq 1
         sleep 0.1.seconds
 
-        # consume with x-stream-offset set, should consume the same message again
-        msg_2 = StreamQueueSpecHelpers.consume_one(s, queue_name, consumer_tag, c_args)
-        StreamQueueSpecHelpers.offset_from_headers(msg_2.properties.headers).should eq 2
+        # should continue from tracked offset
+        msg = StreamQueueSpecHelpers.consume_one(s, queue_name, consumer_tag, c_args)
+        StreamQueueSpecHelpers.offset_from_headers(msg.properties.headers).should eq 2
+      end
+    end
+
+    it "should not use saved offset if x-stream-automatic-offset-tracking is false" do
+      queue_name = Random::Secure.hex
+      consumer_tag = Random::Secure.hex
+      c_args = AMQP::Client::Arguments.new({"x-stream-offset": 0, "x-stream-automatic-offset-tracking": "false"})
+
+      with_amqp_server do |s|
+        StreamQueueSpecHelpers.publish(s, queue_name, 2)
+
+        # does not track offset
+        msg = StreamQueueSpecHelpers.consume_one(s, queue_name, consumer_tag, c_args)
+        StreamQueueSpecHelpers.offset_from_headers(msg.properties.headers).should eq 1
+        sleep 0.1.seconds
+
+        # should consume the same message again, no tracked offset
+        msg = StreamQueueSpecHelpers.consume_one(s, queue_name, consumer_tag, c_args)
+        StreamQueueSpecHelpers.offset_from_headers(msg.properties.headers).should eq 1
       end
     end
 

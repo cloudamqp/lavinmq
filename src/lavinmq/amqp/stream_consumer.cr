@@ -37,20 +37,8 @@ module LavinMQ
         if frame.arguments.has_key? "x-priority"
           raise LavinMQ::Error::PreconditionFailed.new("x-priority not supported on stream queues")
         end
-        case frame.arguments["x-stream-offset"]?
-        when Nil
-          @track_offset = true unless @tag.starts_with?("amq.ctag-")
-        when Int, Time, "first", "next", "last"
-          @track_offset = true if frame.arguments["x-stream-automatic-offset-tracking"]?
-        else raise LavinMQ::Error::PreconditionFailed.new("x-stream-offset must be an integer, a timestamp, 'first', 'next' or 'last'")
-        end
-        case filter = frame.arguments["x-stream-filter"]?
-        when String
-          @filter = filter.split(',').sort!
-        when Nil
-          # noop
-        else raise LavinMQ::Error::PreconditionFailed.new("x-stream-filter-value must be a string")
-        end
+        validate_stream_offset(frame)
+        validate_stream_filter(frame.arguments["x-stream-filter"]?)
         case match_unfiltered = frame.arguments["x-stream-match-unfiltered"]?
         when Bool
           @match_unfiltered = match_unfiltered
@@ -58,6 +46,34 @@ module LavinMQ
           # noop
         else raise LavinMQ::Error::PreconditionFailed.new("x-stream-match-unfiltered must be a boolean")
         end
+      end
+
+      private def validate_stream_offset(frame)
+        case frame.arguments["x-stream-offset"]?
+        when Nil
+          @track_offset = true unless @tag.starts_with?("amq.ctag-")
+        when Int, Time, "first", "next", "last"
+          case frame.arguments["x-stream-automatic-offset-tracking"]?
+          when Bool
+            @track_offset = frame.arguments["x-stream-automatic-offset-tracking"]?.as(Bool)
+          when String
+            @track_offset = frame.arguments["x-stream-automatic-offset-tracking"]? == "true"
+          end
+        else raise LavinMQ::Error::PreconditionFailed.new("x-stream-offset must be an integer, a timestamp, 'first', 'next' or 'last'")
+        end
+      end
+
+      private def validate_stream_filter(arg)
+        case arg
+        when String
+          @filter = arg.split(',').sort!
+        when Nil
+          # noop
+        else raise LavinMQ::Error::PreconditionFailed.new("x-stream-filter-value must be a string")
+        end
+      end
+
+      private def validate_offset_tracking(arg)
       end
 
       private def deliver_loop
