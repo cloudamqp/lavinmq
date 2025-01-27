@@ -360,6 +360,8 @@ describe LavinMQ::AMQP::StreamQueue do
           msg.body_io.to_s.should eq "msg with filter 2"
         end
       end
+    end
+  end
   describe "Automatic consumer offset tracking" do
     it "resumes from last offset on reconnect" do
       queue_name = Random::Secure.hex
