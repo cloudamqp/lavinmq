@@ -17,6 +17,10 @@ module LavinMQ
     property amqp_bind = "127.0.0.1"
     property amqp_port = 5672
     property amqps_port = -1
+    property mqtt_bind = "127.0.0.1"
+    property mqtt_port = 1883
+    property mqtts_port = -1
+    property mqtt_unix_path = ""
     property unix_path = ""
     property unix_proxy_protocol = 1_u8 # PROXY protocol version on unix domain socket connections
     property tcp_proxy_protocol = 0_u8  # PROXY protocol version on amqp tcp connections
@@ -30,15 +34,17 @@ module LavinMQ
     property http_unix_path = ""
     property http_systemd_socket_name = "lavinmq-http.socket"
     property amqp_systemd_socket_name = "lavinmq-amqp.socket"
-    property heartbeat = 300_u16                # second
-    property frame_max = 131_072_u32            # bytes
-    property channel_max = 2048_u16             # number
-    property stats_interval = 5000              # millisecond
-    property stats_log_size = 120               # 10 mins at 5s interval
-    property? set_timestamp = false             # in message headers when receive
-    property socket_buffer_size = 16384         # bytes
-    property? tcp_nodelay = false               # bool
-    property segment_size : Int32 = 8 * 1024**2 # bytes
+    property heartbeat = 300_u16                     # second
+    property frame_max = 131_072_u32                 # bytes
+    property channel_max = 2048_u16                  # number
+    property stats_interval = 5000                   # millisecond
+    property stats_log_size = 120                    # 10 mins at 5s interval
+    property? set_timestamp = false                  # in message headers when receive
+    property socket_buffer_size = 16384              # bytes
+    property? tcp_nodelay = false                    # bool
+    property segment_size : Int32 = 8 * 1024**2      # bytes
+    property max_inflight_messages : UInt16 = 65_535 # mqtt messages
+    property default_mqtt_vhost = "/"
     property? raise_gc_warn : Bool = false
     property? data_dir_lock : Bool = true
     property tcp_keepalive : Tuple(Int32, Int32, Int32)? = {60, 10, 3} # idle, interval, probes/count
@@ -90,6 +96,12 @@ module LavinMQ
         p.on("--amqp-bind=BIND", "IP address that the AMQP server will listen on (default: 127.0.0.1)") do |v|
           @amqp_bind = v
         end
+        p.on("--mqtt-port=PORT", "MQTT port to listen on (default: 1883)") do |v|
+          @mqtt_port = v.to_i
+        end
+        p.on("--mqtts-port=PORT", "MQTTS port to listen on (default: 8883)") do |v|
+          @mqtts_port = v.to_i
+        end
         p.on("--http-port=PORT", "HTTP port to listen on (default: 15672)") do |v|
           @http_port = v.to_i
         end
@@ -104,6 +116,9 @@ module LavinMQ
         end
         p.on("--http-unix-path=PATH", "HTTP UNIX path to listen to") do |v|
           @http_unix_path = v
+        end
+        p.on("--mqtt-unix-path=PATH", "MQTT UNIX path to listen to") do |v|
+          @mqtt_unix_path = v
         end
         p.on("--cert FILE", "TLS certificate (including chain)") { |v| @tls_cert_path = v }
         p.on("--key FILE", "Private key for the TLS certificate") { |v| @tls_key_path = v }
@@ -169,6 +184,7 @@ module LavinMQ
         case section
         when "main"         then parse_main(settings)
         when "amqp"         then parse_amqp(settings)
+        when "mqtt"         then parse_mqtt(settings)
         when "mgmt", "http" then parse_mgmt(settings)
         when "clustering"   then parse_clustering(settings)
         when "experimental" then parse_experimental(settings)
@@ -276,6 +292,22 @@ module LavinMQ
         when "tcp_proxy_protocol"  then @tcp_proxy_protocol = true?(v) ? 1u8 : v.to_u8? || 0u8
         else
           STDERR.puts "WARNING: Unrecognized configuration 'amqp/#{config}'"
+        end
+      end
+    end
+
+    private def parse_mqtt(settings)
+      settings.each do |config, v|
+        case config
+        when "bind"                  then @mqtt_bind = v
+        when "port"                  then @mqtt_port = v.to_i32
+        when "tls_port"              then @mqtts_port = v.to_i32
+        when "tls_cert"              then @tls_cert_path = v
+        when "tls_key"               then @tls_key_path = v
+        when "mqtt_unix_path"        then @mqtt_unix_path = v
+        when "max_inflight_messages" then @max_inflight_messages = v.to_u16
+        else
+          STDERR.puts "WARNING: Unrecognized configuration 'mqtt/#{config}'"
         end
       end
     end

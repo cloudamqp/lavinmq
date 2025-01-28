@@ -1,10 +1,11 @@
+require "../destination"
 require "./exchange"
 require "../../consistent_hasher.cr"
 
 module LavinMQ
   module AMQP
     class ConsistentHashExchange < Exchange
-      @hasher = ConsistentHasher(Destination).new
+      @hasher = ConsistentHasher(AMQP::Destination).new
       @bindings = Hash(Destination, String).new
 
       def type : String

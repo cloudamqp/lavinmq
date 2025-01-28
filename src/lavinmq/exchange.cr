@@ -1,3 +1,4 @@
+require "./destination"
 require "./error"
 require "./sortable_json"
 
