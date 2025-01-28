@@ -85,7 +85,6 @@ module LavinMQ
       @connection_factories[Protocol::AMQP] = AMQP::ConnectionFactory.new(@users, @vhosts)
       @connection_factories[Protocol::MQTT] = MQTT::ConnectionFactory.new(@users, mqtt_brokers)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator)
-      @amqp_connection_factory = LavinMQ::AMQP::ConnectionFactory.new(@users, @vhosts)
       apply_parameter
       @closed = false
       Fiber.yield
