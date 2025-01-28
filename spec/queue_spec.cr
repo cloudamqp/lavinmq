@@ -2,6 +2,23 @@ require "./spec_helper"
 require "./../src/lavinmq/amqp/queue"
 
 describe LavinMQ::AMQP::Queue do
+  it "should expire it self after last consumer disconnects" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("qexpires", args: AMQP::Client::Arguments.new({"x-expires" => 100}))
+        queue = s.vhosts["/"].queues["qexpires"]
+        tag = q.subscribe { }
+        sleep 100.milliseconds
+        queue.closed?.should be_false
+        ch.basic_cancel(tag)
+        sleep 100.milliseconds
+        queue.closed?.should be_false
+        sleep 100.milliseconds
+        queue.closed?.should be_true
+      end
+    end
+  end
+
   it "Should dead letter expired messages" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
