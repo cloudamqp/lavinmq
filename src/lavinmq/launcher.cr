@@ -134,6 +134,7 @@ module LavinMQ
       end
     end
 
+    # ameba:disable Metrics/CyclomaticComplexity
     private def start_listeners(amqp_server, http_server)
       if @config.amqp_port > 0
         spawn amqp_server.listen(@config.amqp_bind, @config.amqp_port, Server::Protocol::AMQP),

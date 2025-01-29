@@ -145,7 +145,7 @@ module LavinMQ
 
       private def publish_will
         if will = @will
-          packet = @broker.publish MQTT::Publish.new(
+          @broker.publish MQTT::Publish.new(
             topic: will.topic,
             payload: will.payload,
             packet_id: nil,

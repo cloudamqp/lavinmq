@@ -38,7 +38,6 @@ module LavinMQ
           end
           consumer = consumers.first.as(MQTT::Consumer)
           get_packet do |pub_packet|
-            pp pub_packet
             consumer.deliver(pub_packet)
           end
           Fiber.yield if (i &+= 1) % 32768 == 0
@@ -144,7 +143,6 @@ module LavinMQ
 
       def build_packet(env, packet_id) : MQTT::Publish
         msg = env.message
-        pp msg
         retained = msg.properties.try &.headers.try &.["mqtt.retain"]? == true
         qos = msg.properties.delivery_mode || 0u8
         qos = 1u8 if qos > 1
