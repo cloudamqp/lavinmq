@@ -438,10 +438,10 @@ describe LavinMQ::MQTT::Exchange do
     end
   end
 
-  it "publish messages to queues with it's own publish method" do
+  it "should not publish if there is no consumers on the Session" do
     with_amqp_server do |s|
       vhost = s.vhosts.create("x")
-      s1 = LavinMQ::MQTT::Session.new(vhost, "session 1")
+      s1 = LavinMQ::MQTT::Session.new(vhost, "session")
       index = LavinMQ::MQTT::TopicTree(String).new
       store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", LavinMQ::Clustering::NoopServer.new, index)
       x = LavinMQ::MQTT::Exchange.new(vhost, "mqtt.default", store)
@@ -456,7 +456,7 @@ describe LavinMQ::MQTT::Exchange do
       }
       msg = MQTT::Protocol::Publish.new(**pub_args)
       x.publish(msg)
-      s1.message_count.should eq 1
+      s1.message_count.should eq 0
     end
   end
 end
