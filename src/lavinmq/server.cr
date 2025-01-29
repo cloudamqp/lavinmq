@@ -44,11 +44,11 @@ module LavinMQ
       Schema.migrate(@data_dir, @replicator)
       @users = UserStore.new(@data_dir, @replicator)
       @vhosts = VHostStore.new(@data_dir, @users, @replicator)
-      mqtt_brokers = MQTT::Brokers.new(@vhosts, @replicator)
+      @mqtt_brokers = MQTT::Brokers.new(@vhosts, @replicator)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator)
       @connection_factories = {
         Protocol::AMQP => AMQP::ConnectionFactory.new(@users, @vhosts),
-        Protocol::MQTT => MQTT::ConnectionFactory.new(@users, mqtt_brokers, @config),
+        Protocol::MQTT => MQTT::ConnectionFactory.new(@users, @mqtt_brokers, @config),
       }
       apply_parameter
       spawn stats_loop, name: "Server#stats_loop"
@@ -83,7 +83,7 @@ module LavinMQ
       @users = UserStore.new(@data_dir, @replicator)
       @vhosts = VHostStore.new(@data_dir, @users, @replicator)
       @connection_factories[Protocol::AMQP] = AMQP::ConnectionFactory.new(@users, @vhosts)
-      @connection_factories[Protocol::MQTT] = MQTT::ConnectionFactory.new(@users, mqtt_brokers)
+      @connection_factories[Protocol::MQTT] = MQTT::ConnectionFactory.new(@users, @mqtt_brokers, @config)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator)
       apply_parameter
       @closed = false

@@ -97,6 +97,7 @@ module MqttSpecs
           subscribe(io, topic_filters: topic_filters)
 
           pub = read_packet(io).should be_a(MQTT::Protocol::Publish)
+          pp pub
           pub.payload.should eq("dead".to_slice)
           pub.topic.should eq("will/t")
           pub.retain?.should eq(true)

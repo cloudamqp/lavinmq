@@ -76,20 +76,17 @@ module LavinMQ
       def subscribe(client, topics)
         session = sessions[client.client_id]? || sessions.declare(client)
         session.client = client
-        qos = Array(MQTT::SubAck::ReturnCode).new(topics.size)
-        topics.each do |tf|
-          qos << MQTT::SubAck::ReturnCode.from_int(tf.qos)
+        topics.map do |tf|
           session.subscribe(tf.topic, tf.qos)
           @retain_store.each(tf.topic) do |topic, body|
-            headers = AMQP::Table.new
-            headers[RETAIN_HEADER] = true
+            headers = AMQP::Table.new({RETAIN_HEADER => true})
             msg = Message.new(EXCHANGE, topic, String.new(body),
               AMQP::Properties.new(headers: headers,
                 delivery_mode: tf.qos))
             session.publish(msg)
           end
+          MQTT::SubAck::ReturnCode.from_int(tf.qos)
         end
-        qos
       end
 
       def unsubscribe(client_id, topics)

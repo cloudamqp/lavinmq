@@ -243,8 +243,6 @@ module LavinMQ
       def flow(active : Bool)
       end
 
-
-
       def ack(sp)
       end
 
