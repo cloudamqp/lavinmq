@@ -10,9 +10,6 @@ module LavinMQ
       Deleted
       Closed
     end
-  end
-
-  class VHostStore
     include Enumerable({String, VHost})
     include Observable(Event)
 
