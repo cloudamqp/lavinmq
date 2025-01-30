@@ -261,7 +261,7 @@ module MqttSpecs
       end
     end
 
-    it "should not enqueue messages with QoS 0 if no client is subscribed to the session" do
+    it "should not enqueue messages with QoS 0 if no client is connected to the session" do
       with_server do |server|
         with_client_io(server) do |io|
           connect(io)
