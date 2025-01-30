@@ -41,7 +41,7 @@ module LavinMQ
         true
       end
 
-      protected def bindings(routing_key, headers, &)
+      protected def each_destination(routing_key : String, _headers : AMQP::Table?, & : Destination ->)
         @bindings[routing_key].each do |destination|
           yield destination
         end

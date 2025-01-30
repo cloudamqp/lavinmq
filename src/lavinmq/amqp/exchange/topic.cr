@@ -42,14 +42,8 @@ module LavinMQ
         true
       end
 
-      protected def bindings(routing_key : String, headers : AMQP::Table?, &)
-        select_matches(routing_key) do |destination|
-          yield destination
-        end
-      end
-
       # ameba:disable Metrics/CyclomaticComplexity
-      private def select_matches(routing_key, &)
+      protected def each_destination(routing_key : String, headers : AMQP::Table?, & : Destination ->)
         binding_keys = @bindings
 
         return if binding_keys.empty?

@@ -11,7 +11,7 @@ module LavinMQ
         Iterator(BindingDetails).empty
       end
 
-      protected def bindings(routing_key, headers, &)
+      protected def each_destination(routing_key : String, _headers : AMQP::Table?, & : Destination ->)
         if q = @vhost.queues[routing_key]?
           yield q
         end

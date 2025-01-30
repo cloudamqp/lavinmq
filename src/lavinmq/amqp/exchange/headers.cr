@@ -51,12 +51,6 @@ module LavinMQ
         true
       end
 
-      protected def bindings(routing_key, headers, &)
-        matches(headers) do |destination|
-          yield destination
-        end
-      end
-
       private def validate!(headers) : Nil
         if h = headers
           if match = h["x-match"]?
@@ -67,7 +61,7 @@ module LavinMQ
         end
       end
 
-      private def matches(headers, &)
+      protected def each_destination(_routing_key : String, headers : AMQP::Table?, & : Destination ->)
         @bindings.each do |args, destinations|
           if headers.nil? || headers.empty?
             next unless args.empty?
