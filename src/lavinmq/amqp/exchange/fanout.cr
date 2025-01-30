@@ -33,8 +33,10 @@ module LavinMQ
         true
       end
 
-      protected def bindings(routing_key, headers) : Iterator(Destination)
-        @bindings.each
+      protected def bindings(routing_key, headers, &)
+        @bindings.each do |destination|
+          yield destination
+        end
       end
     end
   end

@@ -232,7 +232,7 @@ module LavinMQ
                       queues : Set(LavinMQ::Queue) = Set(LavinMQ::Queue).new,
                       exchanges : Set(LavinMQ::Exchange) = Set(LavinMQ::Exchange).new) : Nil
         return unless exchanges.add? self
-        bindings(routing_key, headers).each do |d|
+        bindings(routing_key, headers) do |d|
           case d
           in LavinMQ::Queue
             queues.add(d)
