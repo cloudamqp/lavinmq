@@ -6,21 +6,25 @@ module LavinMQ
     class Chain < Authenticator
       @backends : Array(Authenticator)
 
-      def initialize(users : UserStore)
-        @backends = [] of Authenticator
+      def initialize(backends : Array(Authenticator))
+        @backends = backends
+      end
+
+      def self.create(users : UserStore) : Chain
         backends = Config.instance.auth_backends
-        if backends.nil? || backends.size == 0
-          @backends << BasicAuthenticator.new(users)
+        authenticators = if backends.nil? || backends.empty?
+          [BasicAuthenticator.new(users)]
         else
-          backends.each do |backend|
+          backends.map do |backend|
             case backend
             when "basic"
-              @backends << BasicAuthenticator.new(users)
+              BasicAuthenticator.new(users)
             else
               raise "Unsupported authentication backend: #{backend}"
             end
           end
         end
+        self.new(authenticators)
       end
 
       def authenticate(username : String, password : String)
