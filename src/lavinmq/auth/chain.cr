@@ -12,13 +12,14 @@ module LavinMQ
 
       def self.create(users : UserStore) : Chain
         backends = Config.instance.auth_backends
-        authenticators = if backends.nil? || backends.empty?
-          [BasicAuthenticator.new(users)]
+        authenticators =  Array(Authenticator).new 
+        if backends.nil? || backends.empty?
+          authenticators << BasicAuthenticator.new(users)
         else
-          backends.map do |backend|
+          backends.each do |backend|
             case backend
             when "basic"
-              BasicAuthenticator.new(users)
+              authenticators << BasicAuthenticator.new(users)
             else
               raise "Unsupported authentication backend: #{backend}"
             end
