@@ -10,7 +10,7 @@ module LavinMQ
       Log = LavinMQ::Log.for "amqp.connection_factory"
 
       def initialize(@users : UserStore, @vhosts : VHostStore)
-        @auth_chain = LavinMQ::Auth::Chain.create(@users)
+        @auth_chain = LavinMQ::Auth::Chain.create(Config.instance, @users)
       end
 
       def start(socket, connection_info) : Client?
