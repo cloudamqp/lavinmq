@@ -7,7 +7,7 @@ class NameValidator
     PREFIX_LIST.any? { |prefix| name.starts_with? prefix }
   end
 
-  def self.valid_entity_name(name) : Bool
+  def self.valid_entity_name?(name) : Bool
     return true if name.empty?
     name.matches?(/\A[ -~]*\z/)
   end
