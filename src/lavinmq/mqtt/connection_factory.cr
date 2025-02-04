@@ -65,7 +65,7 @@ module LavinMQ
         return unless user.password && user.password.try(&.verify(String.new(password)))
         has_vhost_permissions = user.try &.permissions.has_key?(@config.default_mqtt_vhost)
         return unless has_vhost_permissions
-        broker = @brokers[@config.default_mqtt_vhost]?
+        broker = @brokers[vhost]?
         return unless broker
 
         {user, broker}
