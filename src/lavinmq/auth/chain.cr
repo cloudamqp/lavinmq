@@ -10,8 +10,8 @@ module LavinMQ
         @backends = backends
       end
 
-      def self.create(users : UserStore) : Chain
-        backends = Config.instance.auth_backends
+      def self.create(config : Config, users : UserStore) : Chain
+        backends = config.auth_backends
         authenticators = Array(Authenticator).new
         if backends.nil? || backends.empty?
           authenticators << BasicAuthenticator.new(users)
