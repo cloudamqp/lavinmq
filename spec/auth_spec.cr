@@ -9,7 +9,7 @@ describe LavinMQ::Auth::Chain do
      with_amqp_server do |s|
       chain = LavinMQ::Auth::Chain.create(s.@users)
 
-      chain.@backends.is_a?(Array(LavinMQ::Auth::Authenticator)).should be_true
+      chain.@backends.should be_a Array(LavinMQ::Auth::Authenticator)
       chain.@backends.size.should eq 1
      end
   end
