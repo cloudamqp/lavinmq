@@ -20,7 +20,7 @@ module LavinMQ
         logger = Logger.new(Log, metadata)
         if confirm_header(socket, logger)
           if start_ok = start(socket, logger)
-            if user = authenticate(socket, remote_address, start_ok, logger, @auth_chain)
+            if user = authenticate(socket, remote_address, start_ok, logger)
               if tune_ok = tune(socket, logger)
                 if vhost = open(socket, user, logger)
                   socket.read_timeout = heartbeat_timeout(tune_ok)
@@ -105,10 +105,10 @@ module LavinMQ
         end
       end
 
-      def authenticate(socket, remote_address, start_ok, log, auth_chain)
+      def authenticate(socket, remote_address, start_ok, log)
         username, password = credentials(start_ok)
         user = @users[username]?
-        return user if user && auth_chain.authenticate(username, password) &&
+        return user if user && @auth_chain.authenticate(username, password) &&
                        guest_only_loopback?(remote_address, user)
 
         if user.nil?
