@@ -127,6 +127,9 @@ module LavinMQ
       end
       create_direct_user
       Log.debug { "#{size} users loaded" }
+    rescue ex
+      Log.error(exception: ex) { "Failed to load users" }
+      raise ex
     end
 
     private def create_direct_user
