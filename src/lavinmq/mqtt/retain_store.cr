@@ -122,20 +122,20 @@ module LavinMQ
         end
       end
 
-      def each(subscription : String, &block : String, Bytes -> Nil) : Nil
+      def each(subscription : String, &block : String, ::IO, UInt64 -> Nil) : Nil
         @lock.synchronize do
           @index.each(subscription) do |topic, file_name|
-            block.call(topic, read(file_name))
+            io = ::IO::Memory.new(read(file_name))
+            block.call(topic, io, io.bytesize.to_u64)
           end
         end
       end
 
       private def read(file_name : String) : Bytes
-        File.open(File.join(@dir, file_name), "r") do |f|
-          body = Bytes.new(f.size)
-          f.read_fully(body)
-          body
-        end
+        f = @files[file_name]
+        body = Bytes.new(f.size)
+        f.read_fully(body)
+        body
       end
 
       def retained_messages

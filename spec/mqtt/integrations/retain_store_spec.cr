@@ -51,8 +51,10 @@ module MqttSpecs
         store.retain("b", msg.body_io, msg.bodysize)
 
         called = [] of Tuple(String, Bytes)
-        store.each("a") do |topic, bytes|
-          called << {topic, bytes}
+        store.each("a") do |topic, body_io, body_bytesize|
+          body = Bytes.new(body_bytesize)
+          body_io.read(body)
+          called << {topic, body}
         end
 
         called.size.should eq(1)
@@ -70,11 +72,15 @@ module MqttSpecs
         store.retain("b", msg2.body_io, msg2.bodysize)
 
         called = [] of Tuple(String, Bytes)
-        store.each("a") do |topic, bytes|
-          called << {topic, bytes}
+        store.each("a") do |topic, body_io, body_bytesize|
+          body = Bytes.new(body_bytesize)
+          body_io.read(body)
+          called << {topic, body}
         end
-        store.each("b") do |topic, bytes|
-          called << {topic, bytes}
+        store.each("b") do |topic, body_io, body_bytesize|
+          body = Bytes.new(body_bytesize)
+          body_io.read(body)
+          called << {topic, body}
         end
 
         called.size.should eq(2)
