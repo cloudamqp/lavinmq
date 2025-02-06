@@ -81,7 +81,6 @@ module MqttHelpers
   def mk_topic_filters(*args) : Array(MQTT::Protocol::Subscribe::TopicFilter)
     ret = Array(MQTT::Protocol::Subscribe::TopicFilter).new
     args.each { |topic, qos| ret << subtopic(topic, qos) }
-    pp ret
     ret
   end
 
