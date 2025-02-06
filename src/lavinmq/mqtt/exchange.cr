@@ -44,8 +44,7 @@ module LavinMQ
 
       def publish(packet : MQTT::Publish) : Int32
         @publish_in_count += 1
-        headers = AMQP::Table.new({RETAIN_HEADER: true}) if packet.retain?
-        properties = AMQP::Properties.new(headers: headers)
+        properties = AMQP::Properties.new(headers: AMQP::Table.new)
         properties.delivery_mode = packet.qos
 
         timestamp = RoughTime.unix_ms
