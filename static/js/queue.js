@@ -94,7 +94,7 @@ function updateQueue (all) {
       document.getElementById('q-unacked-bytes').textContent = Helpers.nFormatter(item.unacked_bytes) + 'B'
       document.getElementById('q-unacked-avg-bytes').textContent = Helpers.nFormatter(item.unacked_avg_bytes) + 'B'
       document.getElementById('q-total').textContent = Helpers.formatNumber(item.messages)
-      document.getElementById('q-total-bytes').textContent = Helpers.nFormatter(item.unacked_bytes + item.ready_bytes) + 'B'
+      document.getElementById('q-total-bytes').textContent = Helpers.nFormatter(item.total_bytes) + 'B'
       const totalAvgBytes = item.messages !== 0 ? (item.unacked_bytes + item.ready_bytes) / item.messages : 0
       document.getElementById('q-total-avg-bytes').textContent = Helpers.nFormatter(totalAvgBytes) + 'B'
       document.getElementById('q-ready').textContent = Helpers.formatNumber(item.ready)

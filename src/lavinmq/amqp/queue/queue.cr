@@ -388,6 +388,7 @@ module LavinMQ::AMQP
         consumers:                   @consumers.size,
         vhost:                       @vhost.name,
         messages:                    @msg_store.size + @unacked_count,
+        total_bytes:                 @msg_store.bytesize + @unacked_bytesize,
         messages_persistent:         durable? ? @msg_store.size + @unacked_count : 0,
         ready:                       @msg_store.size,
         ready_bytes:                 @msg_store.bytesize,
