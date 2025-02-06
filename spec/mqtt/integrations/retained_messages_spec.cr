@@ -26,18 +26,16 @@ module MqttSpecs
     it "retain flag is 0 if there is an established subscription [MQTT-3.3.1-9]" do
       with_server do |server|
         wg = WaitGroup.new(1)
-        with_client_io(server) do |io|
-          spawn do
-            with_client_io(server) do |io|
-              connect(io, client_id: "subscriber")
-              subscribe(io, topic_filters: [subtopic("a/b", 1u8)])
-              pub = read_packet(io).as(MQTT::Protocol::Publish)
-              pub.retain?.should eq(true)
-              wg.done
-              pub = read_packet(io).as(MQTT::Protocol::Publish)
-              pub.retain?.should eq(false)
-              wg.done
-            end
+        spawn do
+          with_client_io(server) do |io|
+            connect(io, client_id: "subscriber")
+            subscribe(io, topic_filters: [subtopic("a/b", 1u8)])
+            pub = read_packet(io).as(MQTT::Protocol::Publish)
+            pub.retain?.should eq(true)
+            wg.done
+            pub = read_packet(io).as(MQTT::Protocol::Publish)
+            pub.retain?.should eq(false)
+            wg.done
           end
         end
 
