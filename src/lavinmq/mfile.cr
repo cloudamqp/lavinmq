@@ -271,9 +271,17 @@ class MFile < IO
   end
 
   def resize(new_size : Int) : Nil
-    raise ArgumentError.new("Can't expand file larger than capacity, use truncate") if new_size > @capacity
-    @size = new_size.to_i64
-    @pos = new_size.to_i64 if @pos > new_size
+    if new_size > @capacity
+      raise File::Error.new("Can't resize readonly file", file: @path) if @readonly
+      unsafe_unmap
+      @capacity = new_size.to_i64
+      code = LibC.ftruncate(@fd, @capacity)
+      raise File::Error.from_errno("Error truncating file", file: @path) if code < 0
+      @buffer = mmap
+    else
+      @size = new_size.to_i64
+      @pos = new_size.to_i64 if @pos > new_size
+    end
   end
 
   # Read from a specific position in the file

@@ -29,4 +29,26 @@ describe MFile do
       file.delete
     end
   end
+
+  describe "#resize" do
+    it "can increase size" do
+      file = File.tempfile "mfile_spec"
+      file.print "hello world"
+      file.flush
+      data = "foo"
+      initial_size = file.size
+      MFile.open(file.path, initial_size) do |mfile|
+        mfile.capacity.should eq initial_size
+        expect_raises(IO::EOFError) { mfile.write data.to_slice }
+        mfile.resize(mfile.size + data.bytesize)
+        mfile.write data.to_slice
+        mfile.capacity.should eq(initial_size + data.bytesize)
+      end
+      file.size.should eq(initial_size + data.bytesize)
+      data = File.read(file.path)
+      data.should eq "hello worldfoo"
+    ensure
+      file.try &.delete
+    end
+  end
 end
