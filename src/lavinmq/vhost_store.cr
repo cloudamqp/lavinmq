@@ -77,6 +77,9 @@ module LavinMQ
         create("/")
       end
       Log.debug { "#{size} vhosts loaded" }
+    rescue ex
+      Log.error(exception: ex) { "Failed to load vhosts" }
+      raise ex
     end
 
     private def save!
