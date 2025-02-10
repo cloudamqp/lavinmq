@@ -253,7 +253,6 @@ module LavinMQ
         when "tls_key"                    then @tls_key_path = v
         when "tls_ciphers"                then @tls_ciphers = v
         when "tls_min_version"            then @tls_min_version = v
-        when "default_user_only_loopback" then @default_user_only_loopback = true?(v)
         when "log_exchange"               then @log_exchange = true?(v)
         when "free_disk_min"              then @free_disk_min = v.to_i64
         when "free_disk_warn"             then @free_disk_warn = v.to_i64
@@ -262,6 +261,10 @@ module LavinMQ
         when "default_consumer_prefetch"  then @default_consumer_prefetch = v.to_u16
         when "default_user"               then @default_user = v
         when "default_password"           then @default_password = v
+        when "default_user_only_loopback" then @default_user_only_loopback = true?(v)
+        when "guest_only_loopback"
+          STDERR.puts "WARNING: 'guest_only_loopback' is deprecated, use 'default_user_only_loopback' instead"
+          @default_user_only_loopback = true?(v)
         else
           STDERR.puts "WARNING: Unrecognized configuration 'main/#{config}'"
         end
