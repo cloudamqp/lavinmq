@@ -30,7 +30,7 @@ module LavinMQ
 
       def authenticate(username : String, password : String) : User?
         @backends.find_value do |backend|
-          user = backend.authenticate(username, password)
+          backend.authenticate(username, password)
         end
       end
     end
