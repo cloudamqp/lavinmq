@@ -2,6 +2,7 @@ require "../version"
 require "../logger"
 require "./client"
 require "../client/connection_factory"
+require "../auth/chain"
 
 module LavinMQ
   module AMQP
@@ -9,6 +10,7 @@ module LavinMQ
       Log = LavinMQ::Log.for "amqp.connection_factory"
 
       def initialize(@users : UserStore, @vhosts : VHostStore)
+        @auth_chain = LavinMQ::Auth::Chain.create(Config.instance, @users)
       end
 
       def start(socket, connection_info) : Client?
@@ -106,7 +108,7 @@ module LavinMQ
       def authenticate(socket, remote_address, start_ok, log)
         username, password = credentials(start_ok)
         user = @users[username]?
-        return user if user && user.password && user.password.not_nil!.verify(password) &&
+        return user if user && @auth_chain.authenticate(username, password) &&
                        guest_only_loopback?(remote_address, user)
 
         if user.nil?
