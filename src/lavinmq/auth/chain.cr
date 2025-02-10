@@ -28,13 +28,10 @@ module LavinMQ
         self.new(authenticators)
       end
 
-      def authenticate(username : String, password : String)
-        @backends.each do |backend|
-          if user = backend.authenticate(username, password)
-            return user
-          end
+      def authenticate(username : String, password : String) : User?
+        @backends.find_value do |backend|
+          user = backend.authenticate(username, password)
         end
-        nil
       end
     end
   end
