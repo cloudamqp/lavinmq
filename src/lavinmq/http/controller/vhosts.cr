@@ -53,7 +53,10 @@ module LavinMQ
         delete "/api/vhosts/:name" do |context, params|
           refuse_unless_administrator(context, user(context))
           with_vhost(context, params, "name") do |vhost|
-            @amqp_server.vhosts.delete(vhost)
+            # @amqp_server.update_global_counters(vhost) # send actual vhost
+            @amqp_server.vhosts.delete(vhost) do |v|
+              @amqp_server.update_global_counters(v)
+            end
             context.response.status_code = 204
           end
         end

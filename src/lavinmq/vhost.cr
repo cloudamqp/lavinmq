@@ -22,7 +22,7 @@ module LavinMQ
 
     rate_stats({"channel_closed", "channel_created", "connection_closed", "connection_created",
                 "queue_declared", "queue_deleted", "ack", "deliver", "deliver_get", "get", "publish", "confirm",
-                "redeliver", "reject", "consumer_added", "consumer_removed"})
+                "redeliver", "reject", "consumer_added", "consumer_removed", "get_manual_ack", "get_auto_ack", "get_empty"})
 
     getter name, exchanges, queues, data_dir, operator_policies, policies, parameters, shovels,
       direct_reply_consumers, connections, dir, users
@@ -144,6 +144,7 @@ module LavinMQ
     def message_details
       ready = unacked = 0_u64
       ack = confirm = deliver = get = get_no_ack = publish = redeliver = return_unroutable = deliver_get = 0_u64
+      get_empty = get_auto_ack = get_manual_ack = 0_u64
       @queues.each_value do |q|
         ready += q.message_count
         unacked += q.unacked_count
@@ -156,6 +157,9 @@ module LavinMQ
         publish += q.publish_count
         redeliver += q.redeliver_count
         return_unroutable += q.return_unroutable_count
+        get_empty += q.get_empty_count
+        get_auto_ack += q.get_auto_ack_count
+        get_manual_ack += q.get_manual_ack_count
       end
       {
         messages:                ready + unacked,
@@ -171,6 +175,9 @@ module LavinMQ
           publish:           publish,
           redeliver:         redeliver,
           return_unroutable: return_unroutable,
+          get_empty:         get_empty,
+          get_auto_ack:      get_auto_ack,
+          get_manual_ack:    get_manual_ack,
         },
       }
     end
@@ -425,7 +432,13 @@ module LavinMQ
       FileUtils.rm_rf File.join(@data_dir, "transient")
     end
 
+    def update_metrics_on_close
+      # @amqp_server.
+    end
+
     def delete
+      # update global counters
+
       close(reason: "VHost deleted")
       Fiber.yield
       FileUtils.rm_rf @data_dir

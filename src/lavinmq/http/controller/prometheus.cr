@@ -222,48 +222,41 @@ module LavinMQ
       end
 
       private def global_metrics(writer)
-        ["queue", "stream"].each do |queue_type|
-          writer.write({name:   "global_messages_delivered_total",
-                        value:  0,
-                        type:   "counter",
-                        help:   "",
-                        labels: {"queue_type" => queue_type}})
-          writer.write({name:   "global_messages_delivered_consume_manual_ack_total",
-                        value:  0,
-                        type:   "counter",
-                        help:   "Total number of messages delivered to consumers using basic.consume with manual acknowledgment",
-                        labels: {"queue_type" => queue_type}})
-          writer.write({name:   "global_messages_delivered_consume_auto_ack_total",
-                        value:  0,
-                        type:   "counter",
-                        help:   "Total number of messages delivered to consumers using basic.consume with automatic acknowledgment",
-                        labels: {"queue_type" => queue_type}})
-          writer.write({name:   "global_messages_delivered_get_manual_ack_total",
-                        value:  0,
-                        type:   "counter",
-                        help:   "Total number of messages delivered to consumers using basic.get with manual acknowledgment",
-                        labels: {"queue_type" => queue_type}})
-          writer.write({name:   "global_messages_delivered_get_auto_ack_total",
-                        value:  0,
-                        type:   "counter",
-                        help:   "Total number of messages delivered to consumers using basic.get with automatic acknowledgment",
-                        labels: {"queue_type" => queue_type}})
-          writer.write({name:   "global_messages_get_empty_total",
-                        value:  0,
-                        type:   "counter",
-                        help:   "Total number of messages delivered to consumers",
-                        labels: {"queue_type" => queue_type}})
-          writer.write({name:   "global_messages_redelivered_total",
-                        value:  0,
-                        type:   "counter",
-                        help:   "Total number of messages redelivered to consumers",
-                        labels: {"queue_type" => queue_type}})
-          writer.write({name:   "global_messages_acknowledged_total",
-                        value:  0,
-                        type:   "counter",
-                        help:   "Total number of messages acknowledged by consumers",
-                        labels: {"queue_type" => queue_type}})
-        end
+        # vhost.message_details[:message_stats][:deliver]
+        # @amqp_server.vhosts.sum { |_, v| v[:message_stats][:deliver] }
+
+        writer.write({name:  "global_messages_delivered_total",
+                      value: @amqp_server.vhosts.sum { |_, v| v.message_details[:message_stats][:deliver] } + @amqp_server.global_messages_delivered_total,
+                      type:  "counter",
+                      help:  ""})
+        writer.write({name:  "global_messages_delivered_consume_manual_ack_total",
+                      value: 0,
+                      type:  "counter",
+                      help:  "Total number of messages delivered to consumers using basic.consume with manual acknowledgment"})
+        writer.write({name:  "global_messages_delivered_consume_auto_ack_total",
+                      value: 0,
+                      type:  "counter",
+                      help:  "Total number of messages delivered to consumers using basic.consume with automatic acknowledgment"})
+        writer.write({name:  "global_messages_delivered_get_manual_ack_total",
+                      value: @amqp_server.vhosts.sum { |_, v| v.message_details[:message_stats][:get_manual_ack] } + @amqp_server.global_messages_delivered_get_manual_ack_total,
+                      type:  "counter",
+                      help:  "Total number of messages delivered to consumers using basic.get with manual acknowledgment"})
+        writer.write({name:  "global_messages_delivered_get_auto_ack_total",
+                      value: @amqp_server.vhosts.sum { |_, v| v.message_details[:message_stats][:get_auto_ack] } + @amqp_server.global_messages_delivered_get_auto_ack_total,
+                      type:  "counter",
+                      help:  "Total number of messages delivered to consumers using basic.get with automatic acknowledgment"})
+        writer.write({name:  "global_messages_get_empty_total",
+                      value: @amqp_server.vhosts.sum { |_, v| v.message_details[:message_stats][:get_empty] } + @amqp_server.global_messages_get_empty_total,
+                      type:  "counter",
+                      help:  "Total number of messages delivered to consumers"})
+        writer.write({name:  "global_messages_redelivered_total",
+                      value: @amqp_server.vhosts.sum { |_, v| v.message_details[:message_stats][:redeliver] } + @amqp_server.global_messages_redelivered_total,
+                      type:  "counter",
+                      help:  "Total number of messages redelivered to consumers"})
+        writer.write({name:  "global_messages_acknowledged_total",
+                      value: @amqp_server.vhosts.sum { |_, v| v.message_details[:message_stats][:ack] } + @amqp_server.global_messages_acknowledged_total,
+                      type:  "counter",
+                      help:  "Total number of messages acknowledged by consumers"})
 
         writer.write({name:  "global_messages_received_total",
                       value: 0,
@@ -282,11 +275,11 @@ module LavinMQ
                       type:  "counter",
                       help:  "Total number of messages published as non-mandatory into an exchange and dropped as unroutable"})
         writer.write({name:  "global_messages_unroutable_returned_total",
-                      value: 0,
+                      value: @amqp_server.vhosts.sum { |_, v| v.message_details[:message_stats][:return_unroutable] } + @amqp_server.global_messages_unroutable_returned_total,
                       type:  "counter",
                       help:  "Total number of messages published as mandatory into an exchange and returned to the publisher as unroutable"})
         writer.write({name:  "global_messages_confirmed_total",
-                      value: 0,
+                      value: @amqp_server.vhosts.sum { |_, v| v.message_details[:message_stats][:confirm] } + @amqp_server.global_messages_confirmed_total,
                       type:  "counter",
                       help:  "Total number of messages confirmed to publishers"})
         writer.write({name:  "global_publishers",

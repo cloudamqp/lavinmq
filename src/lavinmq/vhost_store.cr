@@ -33,8 +33,9 @@ module LavinMQ
       vhost
     end
 
-    def delete(name) : Nil
+    def delete(name, &) : Nil
       if vhost = @vhosts.delete name
+        yield vhost
         Log.info { "Deleted vhost #{name}" }
         @users.rm_vhost_permissions_for_all(name)
         vhost.delete

@@ -38,7 +38,7 @@ module LavinMQ
       @tx = false
       @next_msg_body_tmp = IO::Memory.new
 
-      rate_stats({"ack", "get", "publish", "deliver", "deliver_get", "redeliver", "reject", "confirm", "return_unroutable"})
+      rate_stats({"ack", "get", "publish", "deliver", "deliver_get", "redeliver", "reject", "confirm", "return_unroutable", "get_manual_ack", "get_auto_ack", "get_empty"})
 
       Log = LavinMQ::Log.for "amqp.channel"
 
@@ -390,15 +390,21 @@ module LavinMQ
             @client.vhost.event_tick(EventType::ClientGet)
             ok = q.basic_get(frame.no_ack) do |env|
               delivery_tag = next_delivery_tag(q, env.segment_position, frame.no_ack, nil)
-              unless frame.no_ack # track unacked messages
+              unless frame.no_ack          # track unacked messages
+                @get_manual_ack_count += 1 # Stats
                 q.basic_get_unacked << UnackedMessage.new(self, delivery_tag, RoughTime.monotonic)
+              else
+                @get_auto_ack_count += 1 # Stats
               end
               get_ok = AMQP::Frame::Basic::GetOk.new(frame.channel, delivery_tag,
                 env.redelivered, env.message.exchange_name,
                 env.message.routing_key, q.message_count)
               deliver(get_ok, env.message, env.redelivered)
             end
-            send AMQP::Frame::Basic::GetEmpty.new(frame.channel) unless ok
+            unless ok
+              @get_empty_count += 1 # Stats
+              send AMQP::Frame::Basic::GetEmpty.new(frame.channel)
+            end
           end
         else
           @client.send_not_found(frame, "No queue '#{frame.queue}' in vhost '#{@client.vhost.name}'")

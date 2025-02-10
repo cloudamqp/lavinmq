@@ -16,14 +16,14 @@ require "./client/client"
 require "./client/connection_factory"
 require "./amqp/connection_factory"
 require "./stats"
+require "./global_counters"
 
 module LavinMQ
   class Server
     getter vhosts, users, data_dir, parameters
     getter? closed, flow
-    property successful_auths = 0
-    property failed_auths = 0
     include ParameterTarget
+    include GlobalCounters
 
     @start = Time.monotonic
     @closed = false
