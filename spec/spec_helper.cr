@@ -15,9 +15,26 @@ require "../src/lavinmq/http/http_server"
 require "http/client"
 require "amqp-client"
 
-LavinMQ::Config.instance.data_dir = "/tmp/lavinmq-spec"
-LavinMQ::Config.instance.segment_size = 512 * 1024
-LavinMQ::Config.instance.consumer_timeout_loop_interval = 1
+def init_config(config = LavinMQ::Config.instance)
+  config.data_dir = "/tmp/lavinmq-spec"
+  config.segment_size = 512 * 1024
+  config.consumer_timeout_loop_interval = 1
+  config
+end
+
+init_config
+
+# Allow creating custom config objects for specs
+module LavinMQ
+  class Config
+    def initialize
+    end
+
+    def self.set_instance(instance)
+      @@instance = instance
+    end
+  end
+end
 
 def with_datadir(&)
   data_dir = File.tempname("lavinmq", "spec")
@@ -79,9 +96,11 @@ def test_headers(headers = nil)
   req_hdrs
 end
 
-def with_amqp_server(tls = false, replicator = LavinMQ::Clustering::NoopServer.new, & : LavinMQ::Server -> Nil)
+def with_amqp_server(tls = false, replicator = LavinMQ::Clustering::NoopServer.new,
+                     config = LavinMQ::Config.instance, & : LavinMQ::Server -> Nil)
+  LavinMQ::Config.set_instance(init_config(config))
   tcp_server = TCPServer.new("localhost", 0)
-  s = LavinMQ::Server.new(LavinMQ::Config.instance, replicator)
+  s = LavinMQ::Server.new(config, replicator)
   begin
     if tls
       ctx = OpenSSL::SSL::Context::Server.new
@@ -95,7 +114,8 @@ def with_amqp_server(tls = false, replicator = LavinMQ::Clustering::NoopServer.n
     yield s
   ensure
     s.close
-    FileUtils.rm_rf(LavinMQ::Config.instance.data_dir)
+    FileUtils.rm_rf(config.data_dir)
+    LavinMQ::Config.set_instance(init_config(LavinMQ::Config.new))
   end
 end
 
