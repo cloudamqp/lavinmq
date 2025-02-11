@@ -30,7 +30,7 @@ module LavinMQ
     def initialize
     end
 
-    def self.set_instance(instance)
+    def self.instance=(instance)
       @@instance = instance
     end
   end
@@ -98,7 +98,7 @@ end
 
 def with_amqp_server(tls = false, replicator = LavinMQ::Clustering::NoopServer.new,
                      config = LavinMQ::Config.instance, & : LavinMQ::Server -> Nil)
-  LavinMQ::Config.set_instance(init_config(config))
+  LavinMQ::Config.instance = init_config(config)
   tcp_server = TCPServer.new("localhost", 0)
   s = LavinMQ::Server.new(config, replicator)
   begin
@@ -115,7 +115,7 @@ def with_amqp_server(tls = false, replicator = LavinMQ::Clustering::NoopServer.n
   ensure
     s.close
     FileUtils.rm_rf(config.data_dir)
-    LavinMQ::Config.set_instance(init_config(LavinMQ::Config.new))
+    LavinMQ::Config.instance = init_config(LavinMQ::Config.new)
   end
 end
 
