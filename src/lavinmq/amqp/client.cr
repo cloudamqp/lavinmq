@@ -308,14 +308,14 @@ module LavinMQ
             frame.body.skip(frame.body_size)
           else
             @log.error { "Channel #{frame.channel} not open while processing #{frame.class.name}" }
-            close_connection(frame, 504_u16, "CHANNEL_ERROR - Channel #{frame.channel} not open")
+            close_connection(frame, ConnectionReplyCode::CHANNEL_ERROR, "Channel #{frame.channel} not open")
           end
         end
       end
 
       private def open_channel(frame)
         if @channels.has_key? frame.channel
-          close_connection(frame, 504_u16, "CHANNEL_ERROR - second 'channel.open' seen")
+          close_connection(frame, ConnectionReplyCode::CHANNEL_ERROR, "second 'channel.open' seen")
         else
           @channels[frame.channel] = AMQP::Channel.new(self, frame.channel)
           @vhost.event_tick(EventType::ChannelCreated)
@@ -399,7 +399,7 @@ module LavinMQ
         end
       rescue ex : LavinMQ::Error::UnexpectedFrame
         @log.error { ex.inspect }
-        close_channel(ex.frame, 505_u16, "UNEXPECTED_FRAME - #{ex.frame.class.name}")
+        close_channel(ex.frame, ChannelReplyCode::UNEXPECTED_FRAME, ex.frame.class.name)
       end
 
       private def cleanup
@@ -428,7 +428,8 @@ module LavinMQ
           socket.read_timeout = timeout
         end
 
-        send AMQP::Frame::Connection::Close.new(320_u16, "CONNECTION_FORCED - #{reason}", 0_u16, 0_u16)
+        code = ConnectionReplyCode::CONNECTION_FORCED
+        send AMQP::Frame::Connection::Close.new(code.value, "#{code} - #{reason}", 0_u16, 0_u16)
         @running = false
       end
 
@@ -440,24 +441,60 @@ module LavinMQ
         !@running
       end
 
-      def close_channel(frame : AMQ::Protocol::Frame, code, text)
-        return close_connection(frame, code, text) if frame.channel.zero?
+      enum ChannelReplyCode : UInt16
+        CONTENT_TOO_LARGE   = 311
+        NO_CONSUMERS        = 313
+        ACCESS_REFUSED      = 403
+        NOT_FOUND           = 404
+        RESOURCE_LOCKED     = 405
+        PRECONDITION_FAILED = 406
+        # 540 is marked as connection level reply-code at
+        # but also mentioned in text "MUST raise a channel exception with reply code 540 (not implemented)"
+        # indicating it's ok to use as channel close reply code as well
+        NOT_IMPLEMENTED = 540
+        # TODO: Is this reply code ok to use on channel close? Does not look like that from the spec
+        UNEXPECTED_FRAME = 505
+      end
+
+      def close_channel(frame : AMQ::Protocol::Frame, code : ChannelReplyCode, text)
+        if frame.channel.zero?
+          return close_connection(frame, ConnectionReplyCode::UNEXPECTED_FRAME, text)
+        end
+        text = "#{code} - #{text}"
         case frame
         when AMQ::Protocol::Frame::Method
-          send AMQP::Frame::Channel::Close.new(frame.channel, code, text, frame.class_id, frame.method_id)
+          send AMQP::Frame::Channel::Close.new(frame.channel, code.value, text, frame.class_id, frame.method_id)
         else
-          send AMQP::Frame::Channel::Close.new(frame.channel, code, text, 0, 0)
+          send AMQP::Frame::Channel::Close.new(frame.channel, code.value, text, 0, 0)
         end
         @channels.delete(frame.channel).try &.close
       end
 
-      def close_connection(frame : AMQ::Protocol::Frame?, code, text)
+      enum ConnectionReplyCode : UInt16
+        CONNECTION_FORCED = 320
+        INVALID_PATH      = 402
+        # 403 is marked as channel level reply-code at but ok to use as connection close reply code as well
+        # for example for the authentication_failure_close feature
+        ACCESS_REFUSED   = 403
+        FRAME_ERROR      = 501
+        SYNTAX_ERROR     = 502
+        COMMAND_INVALID  = 503
+        CHANNEL_ERROR    = 504
+        UNEXPECTED_FRAME = 505
+        RESOURCE_ERROR   = 506
+        NOT_ALLOWED      = 530
+        NOT_IMPLEMENTED  = 540
+        INTERNAL_ERROR   = 541
+      end
+
+      def close_connection(frame : AMQ::Protocol::Frame?, code : ConnectionReplyCode, text)
+        text = "#{code} - #{text}"
         @log.info { "Closing, #{text}" }
         case frame
         when AMQ::Protocol::Frame::Method
-          send AMQP::Frame::Connection::Close.new(code, text, frame.class_id, frame.method_id)
+          send AMQP::Frame::Connection::Close.new(code.value, text, frame.class_id, frame.method_id)
         else
-          send AMQP::Frame::Connection::Close.new(code, text, 0_u16, 0_u16)
+          send AMQP::Frame::Connection::Close.new(code.value, text, 0_u16, 0_u16)
         end
         @log.info { "Connection=#{@name} disconnected" }
       ensure
@@ -466,46 +503,46 @@ module LavinMQ
 
       def send_access_refused(frame, text)
         @log.warn { "Access refused channel=#{frame.channel} reason=\"#{text}\"" }
-        close_channel(frame, 403_u16, "ACCESS_REFUSED - #{text}")
+        close_channel(frame, ChannelReplyCode::ACCESS_REFUSED, text)
       end
 
       def send_not_found(frame, text = "")
         @log.warn { "Not found channel=#{frame.channel} reason=\"#{text}\"" }
-        close_channel(frame, 404_u16, "NOT_FOUND - #{text}")
+        close_channel(frame, ChannelReplyCode::NOT_FOUND, text)
       end
 
       def send_resource_locked(frame, text)
         @log.warn { "Resource locked channel=#{frame.channel} reason=\"#{text}\"" }
-        close_channel(frame, 405_u16, "RESOURCE_LOCKED - #{text}")
+        close_channel(frame, ChannelReplyCode::RESOURCE_LOCKED, text)
       end
 
       def send_precondition_failed(frame, text)
         @log.warn { "Precondition failed channel=#{frame.channel} reason=\"#{text}\"" }
-        close_channel(frame, 406_u16, "PRECONDITION_FAILED - #{text}")
+        close_channel(frame, ChannelReplyCode::PRECONDITION_FAILED, text)
       end
 
       def send_not_implemented(frame, text = nil)
         @log.error { "#{frame.inspect}, not implemented reason=\"#{text}\"" }
-        close_channel(frame, 540_u16, "NOT_IMPLEMENTED - #{text}")
+        close_channel(frame, ChannelReplyCode::NOT_IMPLEMENTED, text)
       end
 
       def send_not_implemented(ex : AMQ::Protocol::Error::NotImplemented)
-        text = "NOT_IMPLEMENTED"
+        code = ConnectionReplyCode::NOT_IMPLEMENTED
         if ex.channel.zero?
-          send AMQP::Frame::Connection::Close.new(540, text, ex.class_id, ex.method_id)
+          send AMQP::Frame::Connection::Close.new(code.value, code.to_s, ex.class_id, ex.method_id)
           @running = false
         else
-          send AMQP::Frame::Channel::Close.new(ex.channel, 540, text, ex.class_id, ex.method_id)
+          send AMQP::Frame::Channel::Close.new(ex.channel, code.value, code.to_s, ex.class_id, ex.method_id)
           @channels.delete(ex.channel).try &.close
         end
       end
 
       def send_internal_error(message)
-        close_connection(nil, 541_u16, "INTERNAL_ERROR - Unexpected error, please report")
+        close_connection(nil, ConnectionReplyCode::INTERNAL_ERROR, "Unexpected error, please report")
       end
 
       def send_frame_error(message = nil)
-        close_connection(nil, 501_u16, "FRAME_ERROR - #{message}")
+        close_connection(nil, ConnectionReplyCode::FRAME_ERROR, message)
       end
 
       private def declare_exchange(frame)
