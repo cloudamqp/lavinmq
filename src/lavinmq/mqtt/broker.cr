@@ -76,11 +76,11 @@ module LavinMQ
       def subscribe(client, topics)
         session = sessions[client.client_id]? || sessions.declare(client)
         session.client = client
+        headers = AMQP::Table.new({RETAIN_HEADER => true})
         topics.map do |tf|
           session.subscribe(tf.topic, tf.qos)
           ts = RoughTime.unix_ms
           @retain_store.each(tf.topic) do |topic, body_io, body_bytesize|
-            headers = AMQP::Table.new({RETAIN_HEADER => true})
             msg = Message.new(ts, EXCHANGE, topic,
               AMQP::Properties.new(headers: headers,
                 delivery_mode: tf.qos),

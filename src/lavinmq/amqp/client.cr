@@ -549,7 +549,7 @@ module LavinMQ
         if !NameValidator.valid_entity_name?(frame.exchange_name)
           send_precondition_failed(frame, "Exchange name isn't valid")
         elsif frame.exchange_name.empty?
-          send_access_refused(frame, "Prefix #{NameValidator::PREFIX_LIST} forbidden, please choose another name")
+          send_access_refused(frame, "Not allowed to delete the default exchange")
         elsif NameValidator.reserved_prefix?(frame.exchange_name)
           send_access_refused(frame, "Prefix #{NameValidator::PREFIX_LIST} forbidden, please choose another name")
         elsif !@vhost.exchanges.has_key? frame.exchange_name
