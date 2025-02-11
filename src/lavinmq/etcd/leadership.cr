@@ -5,13 +5,17 @@ module LavinMQ
     class Leadership
       def initialize(@etcd : Etcd, @lease_id : Int64)
         @lost_leadership = Channel(Nil).new
-        spawn(keepalive_loop, name: "Etcd lease keepalive #{@lease_id}")
+        etcdctl_path = Process.find_executable("etcdctl") || raise("etcdctl not found")
+        etcdctl_args = {"lease", "keep-alive", @lease_id.to_s(16), "--endpoints", @etcd.endpoints.join(',')}
+        @keepalive_process = Process.new(etcdctl_path, etcdctl_args, error: Process::Redirect::Inherit)
+        spawn(keepalive_process_wait, name: "Etcd lease keepalive #{@lease_id}")
       end
 
       # Force release leadership
       def release
         @etcd.lease_revoke(@lease_id)
         @lost_leadership.close
+        @keepalive_process.terminate
       end
 
       # Wait until looses leadership
@@ -33,6 +37,13 @@ module LavinMQ
         end
       rescue ex
         Log.error(exception: ex) { "Lost leadership" } unless @lost_leadership.closed?
+      ensure
+        @lost_leadership.close
+      end
+
+      private def keepalive_process_wait
+        @keepalive_process.wait
+        Log.error { "Lost leadership" } unless @lost_leadership.closed?
       ensure
         @lost_leadership.close
       end
