@@ -4,15 +4,14 @@ require "./client"
 require "../user_store"
 require "../vhost_store"
 require "../client/connection_factory"
-require "../auth/chain"
+require "../auth/authenticator"
 
 module LavinMQ
   module AMQP
     class ConnectionFactory < LavinMQ::ConnectionFactory
       Log = LavinMQ::Log.for "amqp.connection_factory"
 
-      def initialize(@users : UserStore, @vhosts : VHostStore)
-        @auth_chain = LavinMQ::Auth::Chain.create(Config.instance, @users)
+      def initialize(@authenticator : Auth::Authenticator, @vhosts : VHostStore)
       end
 
       def start(socket, connection_info) : Client?
@@ -109,10 +108,8 @@ module LavinMQ
 
       def authenticate(socket, remote_address, start_ok, log)
         username, password = credentials(start_ok)
-        user = @users[username]?
-        return user if user && @auth_chain.authenticate(username, password) &&
-                       guest_only_loopback?(remote_address, user)
-
+        user = @authenticator.authenticate(username, password)
+        return user if user && guest_only_loopback?(remote_address, user)
         if user.nil?
           log.warn { "User \"#{username}\" not found" }
         else

@@ -5,13 +5,14 @@ require "./client"
 require "./brokers"
 require "../user"
 require "../client/connection_factory"
+require "../auth/authenticator"
 
 module LavinMQ
   module MQTT
     class ConnectionFactory < LavinMQ::ConnectionFactory
       Log = LavinMQ::Log.for "mqtt.connection_factory"
 
-      def initialize(@users : UserStore,
+      def initialize(@authenticator : Auth::Authenticator,
                      @brokers : Brokers, @config : Config)
       end
 
@@ -60,9 +61,8 @@ module LavinMQ
           username = username[split_pos + 1..]
         end
 
-        user = @users[username]?
+        user = @authenticator.authenticate(username, password)
         return unless user
-        return unless user.password && user.password.try(&.verify(String.new(password)))
         has_vhost_permissions = user.try &.permissions.has_key?(vhost)
         return unless has_vhost_permissions
         broker = @brokers[vhost]?

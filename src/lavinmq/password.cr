@@ -5,6 +5,11 @@ module LavinMQ
   class User
     module Password
       abstract def hash_algorithm : String
+      abstract def verify(password : Bytes) : Bool
+
+      def verify(password : String) : Bool
+        verify(password.to_slice)
+      end
     end
 
     class BcryptPassword < Crypto::Bcrypt::Password
@@ -12,6 +17,14 @@ module LavinMQ
 
       def hash_algorithm : String
         "lavinmq_bcrypt"
+      end
+
+      def verify(password : Bytes) : Bool
+        saltb = Crypto::Bcrypt::Base64.decode(salt, Crypto::Bcrypt::SALT_SIZE)
+        passwordb = password.to_unsafe.to_slice(password.bytesize + 1).clone # include leading 0
+        hashed_password = Crypto::Bcrypt.new(passwordb, saltb, cost)
+        hashed_password_digest = Crypto::Bcrypt::Base64.encode(hashed_password.digest, hashed_password.digest.size - 1)
+        Crypto::Subtle.constant_time_compare(@digest, hashed_password_digest)
       end
     end
 
