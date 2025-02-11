@@ -137,19 +137,26 @@ module LavinMQ
         tune_ok = AMQP::Frame.from_io(socket) do |frame|
           case frame
           when AMQP::Frame::Connection::TuneOk
-            if frame.frame_max < 4096
+            if LOW_FRAME_MAX_RANGE.includes? frame.frame_max
               log.warn { "Suggested Frame max (#{frame.frame_max}) too low, closing connection" }
-              return
+              reply_text = "failed to negotiate connection parameters: negotiated frame_max = #{frame.frame_max} is lower than the minimum allowed value (#{MIN_FRAME_MAX})"
+              return close_connection(socket, Client::ConnectionReplyCode::NOT_ALLOWED, reply_text, frame)
+            end
+            if too_high?(frame.frame_max, Config.instance.frame_max)
+              log.warn { "Suggested Frame max (#{frame.frame_max}) too high, closing connection" }
+              reply_text = "failed to negotiate connection parameters: negotiated frame_max = #{frame.frame_max} is higher than the maximum allowed value (#{Config.instance.frame_max})"
+              return close_connection(socket, Client::ConnectionReplyCode::NOT_ALLOWED, reply_text, frame)
+            end
+            if too_high?(frame.channel_max, Config.instance.channel_max)
+              log.warn { "Suggested Channel max (#{frame.channel_max}) too high, closing connection" }
+              reply_text = "failed to negotiate connection parameters: negotiated channel_max = #{frame.channel_max} is higher than the maximum allowed value (#{Config.instance.channel_max})"
+              return close_connection(socket, Client::ConnectionReplyCode::NOT_ALLOWED, reply_text, frame)
             end
             frame
           else
             log.warn { "Expected TuneOk Frame got #{frame.inspect}" }
             return
           end
-        end
-        if tune_ok.frame_max < 4096
-          log.warn { "Suggested Frame max (#{tune_ok.frame_max}) too low, closing connection" }
-          return
         end
         tune_ok
       end
@@ -196,6 +203,12 @@ module LavinMQ
           IO::ByteFormat::NetworkEndian)
         socket.flush
         nil
+      end
+
+      # zero is unlimited
+      private def too_high?(client_value, server_value)
+        (client_value.zero? && server_value.positive?) ||
+          (server_value.positive? && client_value > server_value)
       end
     end
   end
