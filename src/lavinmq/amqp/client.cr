@@ -316,6 +316,10 @@ module LavinMQ
       private def open_channel(frame)
         if @channels.has_key? frame.channel
           close_connection(frame, ConnectionReplyCode::CHANNEL_ERROR, "second 'channel.open' seen")
+        elsif @channels.size >= @channel_max
+          reply_text = "number of channels opened (#{@channels.size})" \
+                       " has reached the negotiated channel_max (#{@channel_max})"
+          close_connection(frame, ConnectionReplyCode::NOT_ALLOWED, reply_text)
         else
           @channels[frame.channel] = AMQP::Channel.new(self, frame.channel)
           @vhost.event_tick(EventType::ChannelCreated)
