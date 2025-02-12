@@ -11,7 +11,7 @@ module LavinMQ
                          Socket::IPAddress.new("127.0.0.1", 0) # Fake when UNIXAddress
         connection_info = ConnectionInfo.new(remote_address, local_address)
         io = WebSocketIO.new(ws)
-        spawn amqp_server.handle_connection(io, connection_info), name: "HandleWSconnection #{remote_address}"
+        spawn amqp_server.handle_connection(io, connection_info, Server::Protocol::AMQP), name: "HandleWSconnection #{remote_address}"
       end
     end
   end
