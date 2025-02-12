@@ -49,7 +49,7 @@ module LavinMQ
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator)
       authenticator = Auth::Chain.create(@config, @users)
       @connection_factories = {
-        Protocol::AMQP => AMQP::ConnectionFactory.new(authenticator,  @vhosts),
+        Protocol::AMQP => AMQP::ConnectionFactory.new(authenticator, @vhosts),
         Protocol::MQTT => MQTT::ConnectionFactory.new(authenticator, @mqtt_brokers, @config),
       }
       apply_parameter
