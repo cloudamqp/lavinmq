@@ -81,7 +81,7 @@ describe LavinMQ::Server do
       config = LavinMQ::Config.new
       config.channel_max = 0
       with_amqp_server(config: config) do |s|
-        AMQP::Client::UnsafeClient.new(port: amqp_port(s), channel_max: 0).connect_unsafe
+        AMQP::Client.new(port: amqp_port(s), channel_max: 0).connect
         s.connections.first.as(LavinMQ::AMQP::Client).channel_max.should eq 0
       end
     end
@@ -100,9 +100,11 @@ describe LavinMQ::Server do
       config = LavinMQ::Config.new
       config.channel_max = 0
       with_amqp_server(config: config) do |s|
-        conn = AMQP::Client.new(port: amqp_port(s)).connect
+        conn = AMQP::Client.new(port: amqp_port(s), channel_max: 0).connect
         conn.channel
         conn.channel
+        s.connections.first.channels.size.should eq 2
+        s.connections.first.as(LavinMQ::AMQP::Client).channel_max.should eq 0
       end
     end
   end
@@ -130,7 +132,7 @@ describe LavinMQ::Server do
       config = LavinMQ::Config.new
       config.frame_max = 0
       with_amqp_server(config: config) do |s|
-        AMQP::Client::UnsafeClient.new(port: amqp_port(s), frame_max: 0).connect_unsafe
+        AMQP::Client.new(port: amqp_port(s), frame_max: 0).connect
         s.connections.first.as(LavinMQ::AMQP::Client).max_frame_size.should eq 0
       end
     end
