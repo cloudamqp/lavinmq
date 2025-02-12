@@ -8,6 +8,10 @@ require "./retain_store"
 module LavinMQ
   module MQTT
     class Exchange < AMQP::Exchange
+      # In MQTT only topic/routing key is used in routing, but arguments is used to
+      # store QoS level for each subscription. To make @bingings treat the same subscription
+      # with different QoS as the same subscription this "custom" BindingKey is used which
+      # only includes the routing key in the hash.
       struct BindingKey
         def initialize(routing_key : String, arguments : AMQP::Table? = nil)
           @binding_key = LavinMQ::BindingKey.new(routing_key, arguments)
