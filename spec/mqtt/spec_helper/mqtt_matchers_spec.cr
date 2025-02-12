@@ -1,3 +1,5 @@
+require "./mqtt_helpers_spec"
+
 module MqttMatchers
   struct ClosedExpectation
     include MqttHelpers
