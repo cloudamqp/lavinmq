@@ -81,7 +81,7 @@ describe LavinMQ::Clustering::Client do
   end
 
   it "replicates and streams retained messages to followers" do
-    replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Etcd.new, 0)
+    replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Etcd.new("localhost:12379"), 0)
     tcp_server = TCPServer.new("localhost", 0)
 
     spawn(replicator.listen(tcp_server), name: "repli server spec")
