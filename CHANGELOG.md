@@ -7,12 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added 
+### Added
 
 - MQTT 3.1.1 Support [#766](https://github.com/cloudamqp/lavinmq/pull/766)
 - Support for message deduplication on exchanges and queues [#854](https://github.com/cloudamqp/lavinmq/pull/854)
 - Added filtering for streams [#893](https://github.com/cloudamqp/lavinmq/pull/893)
 
+### Changed
+
+- channel_max negotiation is respected and 0 is treated as unlimited
 
 ## [2.1.0] - 2025-01-16
 
@@ -119,16 +122,16 @@ With the release of 2.0.0 we introduce High Availablility for LavinMQ in the for
 
 ## [2.0.0-rc.5] - 2024-10-28
 
-See https://github.com/cloudamqp/lavinmq/releases/tag/v2.0.0-rc.5 for changes in this pre-release
+See <https://github.com/cloudamqp/lavinmq/releases/tag/v2.0.0-rc.5> for changes in this pre-release
 
 ## [1.3.1] - 2024-08-29
 
 ### Fixed
 
 - Don't shovel messages after initial queue length [#734](https://github.com/cloudamqp/lavinmq/pull/734)
-   - Shovels that were set up to stop after the initial queue length will now stop. For high ingress queues a race condition could trigger these shovels to send more messages than the initial queue length.
+  - Shovels that were set up to stop after the initial queue length will now stop. For high ingress queues a race condition could trigger these shovels to send more messages than the initial queue length.
 - Memory leak in Crystal's Hash implementation fixed [#14862](https://github.com/crystal-lang/crystal/pull/14862)
-   - This release is using Crystal `1.13.2`
+  - This release is using Crystal `1.13.2`
 - Bindings are now sorted properly in the web interface [#726](https://github.com/cloudamqp/lavinmq/pull/726)
 - Shovel AMQP source didn't reconnect on network failures [#758](https://github.com/cloudamqp/lavinmq/pull/758)
   - Update `amqp-client.cr` to get a necessary fix for reconnecting shovel sources
@@ -139,7 +142,7 @@ See https://github.com/cloudamqp/lavinmq/releases/tag/v2.0.0-rc.5 for changes in
 
 ## [2.0.0-rc.4] - 2024-08-21
 
-See https://github.com/cloudamqp/lavinmq/releases/tag/v2.0.0-rc.4 for changes in this pre-release
+See <https://github.com/cloudamqp/lavinmq/releases/tag/v2.0.0-rc.4> for changes in this pre-release
 
 ## [1.3.0] - 2024-07-17
 
@@ -172,15 +175,15 @@ See https://github.com/cloudamqp/lavinmq/releases/tag/v2.0.0-rc.4 for changes in
 
 ## [2.0.0-rc.3] - 2024-07-12
 
-See https://github.com/cloudamqp/lavinmq/releases/tag/v2.0.0-rc.3 for changes in this pre-release
+See <https://github.com/cloudamqp/lavinmq/releases/tag/v2.0.0-rc.3> for changes in this pre-release
 
 ## [2.0.0-rc.2] - 2024-07-05
 
-See https://github.com/cloudamqp/lavinmq/releases/tag/v2.0.0-rc.2 for changes in this pre-release
+See <https://github.com/cloudamqp/lavinmq/releases/tag/v2.0.0-rc.2> for changes in this pre-release
 
 ## [2.0.0-rc.1] - 2024-06-25
 
-See https://github.com/cloudamqp/lavinmq/releases/tag/v2.0.0-rc.1 for changes in this pre-release
+See <https://github.com/cloudamqp/lavinmq/releases/tag/v2.0.0-rc.1> for changes in this pre-release
 
 ## [1.2.14] - 2024-06-15
 
@@ -209,11 +212,13 @@ See https://github.com/cloudamqp/lavinmq/releases/tag/v2.0.0-rc.1 for changes in
 ## [1.2.12] - 2024-05-24
 
 ### Changed
+
 - Follower lag is now based on bytes written to action queue instead of socket [#652](https://github.com/cloudamqp/lavinmq/pull/652)
 - Change how delayed exchanges are exported with definitions [#663](https://github.com/cloudamqp/lavinmq/pull/663)
 - Force 4096 bytes frame_max for WebSocket connections [#681](https://github.com/cloudamqp/lavinmq/pull/681)
 
 ### Fixed
+
 - Federated queues now only transfers messages if there is a consumer on the downstream queue [#637](https://github.com/cloudamqp/lavinmq/pull/637)
 - Handle proxied WebSocket connections [#680](https://github.com/cloudamqp/lavinmq/pull/680)
 
@@ -227,11 +232,13 @@ See https://github.com/cloudamqp/lavinmq/releases/tag/v2.0.0-rc.1 for changes in
 - Bugfix: Make sure shovels reconnect after destination disconnects [#667](https://github.com/cloudamqp/lavinmq/pull/667)
 
 ### Changed
+
 - LavinMQ now waits for any followers to be in sync before shutting down [#645](https://github.com/cloudamqp/lavinmq/pull/645)
 - UI: Creating queues and exchanges in the UI now defaults to durable [#656](https://github.com/cloudamqp/lavinmq/pull/656)
 - Rename config.ini -> lavinmq.ini [#664](https://github.com/cloudamqp/lavinmq/pull/664)
 
 ### Added
+
 - Replication lag is now exported in metrics [#646](https://github.com/cloudamqp/lavinmq/pull/646)
 
 ## [1.2.10] - 2024-03-25
