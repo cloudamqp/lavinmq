@@ -135,6 +135,7 @@ module LavinMQ
         f = @files[file_name]
         body = Bytes.new(f.size)
         f.read_fully(body)
+        f.rewind
         body
       end
 
