@@ -94,6 +94,17 @@ describe LavinMQ::Server do
         end
       end
     end
+
+    # TODO: needs new amqp-client release, current version does not support 0 = unlimited
+    pending "should allow client to create 'unlimited' channels if the server has no limit" do
+      config = LavinMQ::Config.new
+      config.channel_max = 0
+      with_amqp_server(config: config) do |s|
+        conn = AMQP::Client::UnsafeClient.new(port: amqp_port(s), channel_max: 1).connect_unsafe
+        conn.channel
+        conn.channel
+      end
+    end
   end
 
   describe "frame_max" do
