@@ -8,6 +8,7 @@ require "../exchange"
 require "../amqp"
 require "../stats"
 require "../sortable_json"
+require "./channel_reply_code"
 
 module LavinMQ
   module AMQP
@@ -251,7 +252,7 @@ module LavinMQ
           basic_return(msg, @next_publish_mandatory, @next_publish_immediate) unless ok
         rescue e : LavinMQ::Error::PreconditionFailed
           msg.body_io.skip(msg.bodysize)
-          code = Client::ChannelReplyCode::PRECONDITION_FAILED
+          code = ChannelReplyCode::PRECONDITION_FAILED
           send AMQP::Frame::Channel::Close.new(@id, code.value, "#{code} - #{e.message}", 60_u16, 40_u16)
         end
       rescue Queue::RejectOverFlow
@@ -671,7 +672,7 @@ module LavinMQ
               if timeout = unack.queue.consumer_timeout
                 unacked_ms = RoughTime.monotonic - unack.delivered_at
                 if unacked_ms > timeout.milliseconds
-                  code = Client::ChannelReplyCode::PRECONDITION_FAILED
+                  code = ChannelReplyCode::PRECONDITION_FAILED
                   send AMQP::Frame::Channel::Close.new(@id, code.value, "#{code} - consumer timeout", 60_u16, 20_u16)
                   break
                 end
