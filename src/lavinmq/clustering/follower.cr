@@ -57,6 +57,7 @@ module LavinMQ
           sync(sent_bytes)
         end
       ensure
+        @actions.close
         @running.done
       end
 
