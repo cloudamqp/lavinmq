@@ -42,6 +42,21 @@ module MqttSpecs
     end
 
     describe "each" do
+      it "can be called multiple times" do
+        index = IndexTree.new
+        store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", LavinMQ::Clustering::NoopServer.new, index)
+        props = LavinMQ::AMQP::Properties.new
+        msg = LavinMQ::Message.new(100, "test", "rk", props, 10, IO::Memory.new("body"))
+        store.retain("a", msg.body_io, msg.bodysize)
+        10.times do
+          store.each("a") do |_topic, body_io, body_bytesize|
+            body = Bytes.new(body_bytesize)
+            body_io.read(body)
+            body.should eq "body".to_slice
+          end
+        end
+      end
+
       it "calls block with correct arguments" do
         index = IndexTree.new
         store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", LavinMQ::Clustering::NoopServer.new, index)
@@ -106,6 +121,26 @@ module MqttSpecs
 
         new_index.size.should eq(1)
         new_index.@leafs.has_key?("a").should be_true
+      end
+    end
+
+    it "survives a restart" do
+      index = IndexTree.new
+      store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", LavinMQ::Clustering::NoopServer.new, index)
+      props = LavinMQ::AMQP::Properties.new
+      msg = LavinMQ::Message.new(100, "test", "topic", props, 10, IO::Memory.new("body"))
+
+      store.retain("topic", msg.body_io, msg.bodysize)
+      store.close
+
+      # Reopen
+      index = IndexTree.new
+      store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", LavinMQ::Clustering::NoopServer.new, index)
+      store.each("topic") do |topic, body_io, body_bytesize|
+        body = Bytes.new(body_bytesize)
+        body_io.read(body)
+        body.should eq "body".to_slice
+        topic.should eq "topic"
       end
     end
   end
