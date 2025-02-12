@@ -204,10 +204,13 @@ describe LavinMQ::Clustering::Client do
     spawn(replicator.listen(tcp_server), name: "repli server spec")
 
     client_io = TCPSocket.new("localhost", tcp_server.local_address.port)
+    # This is raw clustering negotiation
     client_io.write LavinMQ::Clustering::Start
     client_io.write_bytes replicator.password.bytesize.to_u8, IO::ByteFormat::LittleEndian
     client_io.write replicator.password.to_slice
+    # Read the password accepted byte (we assume it's correct)
     client_io.read_byte
+    # Send the follower id
     client_io.write_bytes 2i32, IO::ByteFormat::LittleEndian
     client_io.flush
     client_lz4 = Compress::LZ4::Reader.new(client_io)
@@ -220,6 +223,7 @@ describe LavinMQ::Clustering::Client do
         client_lz4.skip filename_len
         client_lz4.skip sha1_size
       end
+      # 0 means we're done requesting files for this full sync
       client_io.write_bytes 0i32
       client_io.flush
     end
