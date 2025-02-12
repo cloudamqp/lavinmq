@@ -5,6 +5,7 @@ require "../user_store"
 require "../vhost_store"
 require "../client/connection_factory"
 require "../auth/authenticator"
+require "./connection_reply_code"
 
 module LavinMQ
   module AMQP
@@ -118,7 +119,7 @@ module LavinMQ
         props = start_ok.client_properties
         if capabilities = props["capabilities"]?.try &.as?(AMQP::Table)
           if capabilities["authentication_failure_close"]?.try &.as?(Bool)
-            close_connection(socket, Client::ConnectionReplyCode::ACCESS_REFUSED, "", start_ok)
+            close_connection(socket, ConnectionReplyCode::ACCESS_REFUSED, "", start_ok)
           end
         end
         nil
@@ -140,17 +141,17 @@ module LavinMQ
             if LOW_FRAME_MAX_RANGE.includes? frame.frame_max
               log.warn { "Suggested Frame max (#{frame.frame_max}) too low, closing connection" }
               reply_text = "failed to negotiate connection parameters: negotiated frame_max = #{frame.frame_max} is lower than the minimum allowed value (#{MIN_FRAME_MAX})"
-              return close_connection(socket, Client::ConnectionReplyCode::NOT_ALLOWED, reply_text, frame)
+              return close_connection(socket, ConnectionReplyCode::NOT_ALLOWED, reply_text, frame)
             end
             if too_high?(frame.frame_max, Config.instance.frame_max)
               log.warn { "Suggested Frame max (#{frame.frame_max}) too high, closing connection" }
               reply_text = "failed to negotiate connection parameters: negotiated frame_max = #{frame.frame_max} is higher than the maximum allowed value (#{Config.instance.frame_max})"
-              return close_connection(socket, Client::ConnectionReplyCode::NOT_ALLOWED, reply_text, frame)
+              return close_connection(socket, ConnectionReplyCode::NOT_ALLOWED, reply_text, frame)
             end
             if too_high?(frame.channel_max, Config.instance.channel_max)
               log.warn { "Suggested Channel max (#{frame.channel_max}) too high, closing connection" }
               reply_text = "failed to negotiate connection parameters: negotiated channel_max = #{frame.channel_max} is higher than the maximum allowed value (#{Config.instance.channel_max})"
-              return close_connection(socket, Client::ConnectionReplyCode::NOT_ALLOWED, reply_text, frame)
+              return close_connection(socket, ConnectionReplyCode::NOT_ALLOWED, reply_text, frame)
             end
             frame
           else
@@ -169,7 +170,7 @@ module LavinMQ
             if vhost.max_connections.try { |max| vhost.connections.size >= max }
               log.warn { "Max connections (#{vhost.max_connections}) reached for vhost #{vhost_name}" }
               reply_text = "access to vhost '#{vhost_name}' refused: connection limit (#{vhost.max_connections}) is reached"
-              return close_connection(socket, Client::ConnectionReplyCode::NOT_ALLOWED, reply_text, open)
+              return close_connection(socket, ConnectionReplyCode::NOT_ALLOWED, reply_text, open)
             end
             socket.write_bytes AMQP::Frame::Connection::OpenOk.new, IO::ByteFormat::NetworkEndian
             socket.flush
@@ -177,11 +178,11 @@ module LavinMQ
           else
             log.warn { "Access denied for user \"#{user.name}\" to vhost \"#{vhost_name}\"" }
             reply_text = "'#{user.name}' doesn't have access to '#{vhost.name}'"
-            close_connection(socket, Client::ConnectionReplyCode::NOT_ALLOWED, reply_text, open)
+            close_connection(socket, ConnectionReplyCode::NOT_ALLOWED, reply_text, open)
           end
         else
           log.warn { "VHost \"#{vhost_name}\" not found" }
-          close_connection(socket, Client::ConnectionReplyCode::NOT_ALLOWED, "vhost not found", open)
+          close_connection(socket, ConnectionReplyCode::NOT_ALLOWED, "vhost not found", open)
         end
         nil
       end
@@ -192,7 +193,7 @@ module LavinMQ
         remote_address.loopback?
       end
 
-      private def close_connection(socket, code : Client::ConnectionReplyCode, text, frame)
+      private def close_connection(socket, code : ConnectionReplyCode, text, frame)
         text = "#{code} - #{text}"
         socket.write_bytes(
           AMQP::Frame::Connection::Close.new(

@@ -4,7 +4,9 @@ require "./channel"
 require "../client"
 require "../error"
 require "../logger"
-require "../name_validator.cr"
+require "../name_validator"
+require "./channel_reply_code"
+require "./connection_reply_code"
 
 module LavinMQ
   module AMQP
@@ -445,21 +447,6 @@ module LavinMQ
         !@running
       end
 
-      enum ChannelReplyCode : UInt16
-        CONTENT_TOO_LARGE   = 311
-        NO_CONSUMERS        = 313
-        ACCESS_REFUSED      = 403
-        NOT_FOUND           = 404
-        RESOURCE_LOCKED     = 405
-        PRECONDITION_FAILED = 406
-        # 540 is marked as connection level reply-code at
-        # but also mentioned in text "MUST raise a channel exception with reply code 540 (not implemented)"
-        # indicating it's ok to use as channel close reply code as well
-        NOT_IMPLEMENTED = 540
-        # TODO: Is this reply code ok to use on channel close? Does not look like that from the spec
-        UNEXPECTED_FRAME = 505
-      end
-
       def close_channel(frame : AMQ::Protocol::Frame, code : ChannelReplyCode, text)
         if frame.channel.zero?
           return close_connection(frame, ConnectionReplyCode::UNEXPECTED_FRAME, text)
@@ -472,23 +459,6 @@ module LavinMQ
           send AMQP::Frame::Channel::Close.new(frame.channel, code.value, text, 0, 0)
         end
         @channels.delete(frame.channel).try &.close
-      end
-
-      enum ConnectionReplyCode : UInt16
-        CONNECTION_FORCED = 320
-        INVALID_PATH      = 402
-        # 403 is marked as channel level reply-code at but ok to use as connection close reply code as well
-        # for example for the authentication_failure_close feature
-        ACCESS_REFUSED   = 403
-        FRAME_ERROR      = 501
-        SYNTAX_ERROR     = 502
-        COMMAND_INVALID  = 503
-        CHANNEL_ERROR    = 504
-        UNEXPECTED_FRAME = 505
-        RESOURCE_ERROR   = 506
-        NOT_ALLOWED      = 530
-        NOT_IMPLEMENTED  = 540
-        INTERNAL_ERROR   = 541
       end
 
       def close_connection(frame : AMQ::Protocol::Frame?, code : ConnectionReplyCode, text)
