@@ -27,14 +27,16 @@ class AMQP::Client::UnsafeConnection < AMQP::Client::Connection
     ch = nil
     @channels_lock.synchronize do
       if id
-        # raise "channel_max reached" if id > @channel_max
+        # raise "channel_max reached" if @channel_max.positive? && id > @channel_max
         if ch = @channels.fetch(id, nil)
           return ch
         else
           ch = @channels[id] = Channel.new(self, id)
         end
       end
-      (1_u16..).each do |i| # (1.up_to(@channel_max)) in safe implementation
+      # range = @channel_max.zero? ? (1_u16..UInt16::MAX) : (1_u16..@channel_max)
+      range = (1_u16..UInt16::MAX)
+      range.each do |i|
         next if @channels.has_key? i
         ch = @channels[i] = Channel.new(self, i)
         break
@@ -84,8 +86,7 @@ describe LavinMQ::Server do
       end
     end
 
-    # TODO: needs new amqp-client release, current version deadlocks
-    pending "should not allow client to create more channels than the negotiated max" do
+    it "should not allow client to create more channels than the negotiated max" do
       with_amqp_server do |s|
         conn = AMQP::Client::UnsafeClient.new(port: amqp_port(s), channel_max: 1).connect_unsafe
         conn.channel
@@ -95,12 +96,11 @@ describe LavinMQ::Server do
       end
     end
 
-    # TODO: needs new amqp-client release, current version does not support 0 = unlimited
-    pending "should allow client to create 'unlimited' channels if the server has no limit" do
+    it "should allow client to create 'unlimited' channels if the server has no limit" do
       config = LavinMQ::Config.new
       config.channel_max = 0
       with_amqp_server(config: config) do |s|
-        conn = AMQP::Client::UnsafeClient.new(port: amqp_port(s), channel_max: 1).connect_unsafe
+        conn = AMQP::Client.new(port: amqp_port(s)).connect
         conn.channel
         conn.channel
       end
@@ -135,8 +135,7 @@ describe LavinMQ::Server do
       end
     end
 
-    # TODO: needs new amqp-client release, current version deadlocks
-    pending "should not allow client to send a frame larger than the negotiated frame_max" do
+    it "should not allow client to send a frame larger than the negotiated frame_max" do
       with_amqp_server do |s|
         conn = AMQP::Client.new(port: amqp_port(s)).connect
         ch = conn.channel
