@@ -3,13 +3,44 @@ require "log"
 module LavinMQ
   struct JournalLogFormat < ::Log::StaticFormatter
     def run
-      @io << '<' << severity_to_priority << '>' << ' '
+      severity
       source
       context(before: '[', after: ']')
       data(before: '[', after: ']')
       string ' '
       message
       exception
+    end
+
+    private def severity : Nil
+      @io << '<' << severity_to_priority << '>' << ' '
+    end
+
+    private def exception(*, before = '\n', after = nil) : Nil
+      if ex = @entry.exception
+        @io << '\n'
+        inspect_with_backtrace(ex)
+        @io << after
+      end
+    end
+
+    private def inspect_with_backtrace(ex : Exception) : Nil
+      severity
+      @io << message << " (" << ex.class << ")\n"
+
+      ex.backtrace?.try &.each do |frame|
+        severity
+        @io.print "  from "
+        @io.puts frame
+      end
+
+      if cause = ex.cause
+        severity
+        @io << "Caused by: "
+        inspect_with_backtrace(cause)
+      end
+
+      @io.flush
     end
 
     private def severity_to_priority
