@@ -32,7 +32,7 @@ module LavinMQ
       end
 
       def size
-        @file.try &.size || File.size(@path)
+        @file.size
       end
 
       def rename(new_filename)
@@ -50,11 +50,37 @@ module LavinMQ
         @last_access = Time.monotonic
         @file.close
       end
+    end
 
-      private def with_file(&)
-        @last_access = Time.monotonic
-        yield (@file ||= MFile.new(@path, @capacity))
+    class ReplicatedFiles
+      OPEN_FILES_THRESHOLD = ENV.fetch("LAVINMQ_OPEN_FILES_THRESHOLD", 2048).to_i
+
+      def initialize(@data_dir : String)
+        @files = Hash(String, ReplicatedFile).new do |h, k|
+          path = File.join(@data_dir, k)
+          Dir.mkdir_p File.dirname(path)
+          h[k] = ReplicatedFile.new(path, Config.instance.segment_size)
+          h[k]
+        end
       end
+
+      def [](path : String) : ReplicatedFile
+        return @files[path] if @files.has_key? path
+        i = @files.size
+        @files.reject! do |_, f|
+          break false if i <= OPEN_FILES_THRESHOLD
+          if f.last_access < (Time.monotonic - 10.seconds)
+            i &-= 1
+            f.close
+            true
+          else
+            false
+          end
+        end
+        @files[path]
+      end
+
+      forward_missing_to @files
     end
 
     class Client
@@ -71,22 +97,10 @@ module LavinMQ
       def initialize(@config : Config, @id : Int32, @password : String, proxy = true)
         System.maximize_fd_limit
         @data_dir = config.data_dir
-        @files = Hash(String, ReplicatedFile).new do |h, k|
-          path = File.join(@data_dir, k)
-          Dir.mkdir_p File.dirname(path)
-          h[k] = ReplicatedFile.new(path, Config.instance.segment_size)
-          h.reject! do |_, f|
-            if f.last_access < (Time.monotonic - 10.seconds)
-              f.close
-              true
-            end
-            false
-          end
-          h[k]
-        end
         Dir.mkdir_p @data_dir
         @data_dir_lock = DataDirLock.new(@data_dir).tap &.acquire
         @backup_dir = File.join(@data_dir, "backups", Time.utc.to_rfc3339)
+        @files = ReplicatedFiles.new(@data_dir)
 
         if proxy
           @amqp_proxy = Proxy.new(@config.amqp_bind, @config.amqp_port)
