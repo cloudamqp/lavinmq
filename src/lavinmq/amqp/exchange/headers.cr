@@ -61,7 +61,7 @@ module LavinMQ
         end
       end
 
-      protected def each_destination(_routing_key : String, headers : AMQP::Table?, & : Destination ->)
+      protected def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
         @bindings.each do |args, destinations|
           if headers.nil? || headers.empty?
             next unless args.empty?

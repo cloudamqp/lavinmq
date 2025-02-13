@@ -3,8 +3,8 @@ require "./exchange"
 module LavinMQ
   module AMQP
     class TopicExchange < Exchange
-      @bindings = Hash(Array(String), Set(LavinMQ::Destination)).new do |h, k|
-        h[k] = Set(LavinMQ::Destination).new
+      @bindings = Hash(Array(String), Set(AMQP::Destination)).new do |h, k|
+        h[k] = Set(AMQP::Destination).new
       end
 
       def type : String
@@ -43,7 +43,7 @@ module LavinMQ
       end
 
       # ameba:disable Metrics/CyclomaticComplexity
-      protected def each_destination(routing_key : String, headers : AMQP::Table?, & : Destination ->)
+      protected def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
         binding_keys = @bindings
 
         return if binding_keys.empty?

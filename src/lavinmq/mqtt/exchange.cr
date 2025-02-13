@@ -85,7 +85,7 @@ module LavinMQ
       end
 
       # Only here to make superclass happy
-      protected def bindings(routing_key, headers, &)
+      protected def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
       end
 
       def bind(destination : MQTT::Session, routing_key : String, headers = nil) : Bool
