@@ -410,7 +410,11 @@ module LavinMQ
 
       private def cleanup
         @running = false
-        @channels.each_value &.close
+        i = 0u32
+        @channels.each_value do |ch|
+          ch.close
+          Fiber.yield if (i &+= 1) % 512 == 0
+        end
         @channels.clear
         @exclusive_queues.each(&.close)
         @exclusive_queues.clear
