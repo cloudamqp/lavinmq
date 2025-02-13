@@ -636,7 +636,10 @@ module LavinMQ
 
       def close
         @running = false
-        @consumers.each &.close
+        @consumers.each_with_index(1) do |consumer, i|
+          consumer.close
+          Fiber.yield if (i % 128) == 0
+        end
         @consumers.clear
         if drc = @direct_reply_consumer
           @client.vhost.direct_reply_consumers.delete(drc)
