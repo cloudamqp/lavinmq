@@ -184,6 +184,7 @@ module LavinMQ
       abstract def bind(destination : AMQP::Destination, routing_key : String, headers : AMQP::Table?)
       abstract def unbind(destination : AMQP::Destination, routing_key : String, headers : AMQP::Table?)
       abstract def bindings_details : Iterator(BindingDetails)
+      abstract def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
 
       def publish(msg : Message, immediate : Bool,
                   queues : Set(LavinMQ::Queue) = Set(LavinMQ::Queue).new,
@@ -232,7 +233,7 @@ module LavinMQ
                       queues : Set(LavinMQ::Queue) = Set(LavinMQ::Queue).new,
                       exchanges : Set(LavinMQ::Exchange) = Set(LavinMQ::Exchange).new) : Nil
         return unless exchanges.add? self
-        bindings(routing_key, headers).each do |d|
+        each_destination(routing_key, headers) do |d|
           case d
           in LavinMQ::Queue
             queues.add(d)

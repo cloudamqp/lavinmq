@@ -3,8 +3,8 @@ require "./exchange"
 module LavinMQ
   module AMQP
     class TopicExchange < Exchange
-      @bindings = Hash(Array(String), Set(LavinMQ::Destination)).new do |h, k|
-        h[k] = Set(LavinMQ::Destination).new
+      @bindings = Hash(Array(String), Set(AMQP::Destination)).new do |h, k|
+        h[k] = Set(AMQP::Destination).new
       end
 
       def type : String
@@ -42,28 +42,26 @@ module LavinMQ
         true
       end
 
-      protected def bindings(routing_key, headers) : Iterator(LavinMQ::Destination)
-        select_matches(routing_key).each
-      end
-
       # ameba:disable Metrics/CyclomaticComplexity
-      private def select_matches(routing_key) : Iterator(LavinMQ::Destination)
+      protected def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
         binding_keys = @bindings
 
-        return Iterator(LavinMQ::Destination).empty if binding_keys.empty?
+        return if binding_keys.empty?
 
         # optimize the case where the only binding key is '#'
         if binding_keys.size == 1
           bk, qs = binding_keys.first
           if bk.size == 1
             if bk.first == "#"
-              return qs.each
+              qs.each do |q|
+                yield q
+              end
             end
           end
         end
 
         rk_parts = routing_key.split(".")
-        binding_keys.each.select do |bks, _|
+        binding_keys.each do |bks, destinations|
           ok = false
           prev_hash = false
           size = bks.size # binding keys can max be 256 chars long anyway
@@ -120,8 +118,12 @@ module LavinMQ
             break unless ok
             i += 1
           end
-          ok
-        end.flat_map { |_, v| v.each }
+          if ok
+            destinations.each do |destination|
+              yield destination
+            end
+          end
+        end
       end
     end
   end

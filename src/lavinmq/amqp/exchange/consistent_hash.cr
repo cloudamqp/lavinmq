@@ -43,12 +43,10 @@ module LavinMQ
         true
       end
 
-      protected def bindings(routing_key, headers) : Iterator(Destination)
+      def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
         key = hash_key(routing_key, headers)
         if d = @hasher.get(key)
-          {d}.each
-        else
-          Iterator(Destination).empty
+          yield d
         end
       end
 
