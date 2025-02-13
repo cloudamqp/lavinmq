@@ -36,7 +36,7 @@ module LavinMQ
       end
 
       def initialize(vhost : VHost, name : String, @retain_store : MQTT::RetainStore)
-        super(vhost, name, true, false, true)
+        super(vhost, name, false, false, true)
         @body = ::IO::Memory.new
       end
 
