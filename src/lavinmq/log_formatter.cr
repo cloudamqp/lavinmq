@@ -3,7 +3,7 @@ require "log"
 module LavinMQ
   struct JournalLogFormat < ::Log::StaticFormatter
     def run
-      string "<#{severity_to_priority}> "
+      @io << '<' << severity_to_priority << '>' << ' '
       source
       context(before: '[', after: ']')
       data(before: '[', after: ']')
