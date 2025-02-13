@@ -184,7 +184,7 @@ module LavinMQ
             name: "MQTTS listening on #{@config.mqtts_port}"
         end
       end
-      unless @config.unix_path.empty?
+      unless @config.mqtt_unix_path.empty?
         spawn amqp_server.listen_unix(@config.mqtt_unix_path, Server::Protocol::MQTT), name: "MQTT listening at #{@config.unix_path}"
       end
     end
