@@ -145,7 +145,7 @@ module LavinMQ
           ssl:               @connection_info.ssl?,
           tls_version:       @connection_info.ssl_version,
           cipher:            @connection_info.ssl_cipher,
-          client_properties: AMQP::Table.new,
+          client_properties: NamedTuple.new,
         }.merge(stats_details)
       end
 
