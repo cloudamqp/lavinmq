@@ -33,7 +33,6 @@ Table.renderTable('table', tableOptions, function (tr, item, all) {
     Table.renderCell(tr, 9, item.channel_max, 'right')
     Table.renderCell(tr, 10, item.timeout, 'right')
     const clientDiv = document.createElement('span')
-    console.log(item.client_properties)
     if (item.client_properties.product) {
       clientDiv.textContent = `${item.client_properties.product || ''} / ${item.client_properties.platform || ''}`
     } else {
