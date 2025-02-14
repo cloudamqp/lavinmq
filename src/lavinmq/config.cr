@@ -5,6 +5,7 @@ require "ini"
 require "./version"
 require "./log_formatter"
 require "./in_memory_backend"
+require "./journal_error_writer"
 
 module LavinMQ
   class Config
@@ -217,6 +218,10 @@ module LavinMQ
       ::Log.setup(@log_level, broadcast_backend)
       target = (path = @log_file) ? path : "stdout"
       Log.info &.emit("Logger settings", level: @log_level.to_s, target: target)
+
+      if ENV.has_key?("JOURNAL_STREAM")
+        STDERR.reopen(JournalErrorWriter.new)
+      end
     end
 
     def tls_configured?
