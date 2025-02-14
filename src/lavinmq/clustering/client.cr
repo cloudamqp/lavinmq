@@ -55,8 +55,10 @@ module LavinMQ
     end
 
     class Client
-      OPEN_FILES_THRESHOLD = ENV.fetch("LAVINMQ_OPEN_FILES_THRESHOLD", 2048).to_i
-      Log                  = LavinMQ::Log.for "clustering.client"
+      OPEN_FILES_THRESHOLD    = ENV.fetch("LAVINMQ_OPEN_FILES_THRESHOLD", 2048).to_i
+      OPEN_FILES_IDLE_TIMEOUT = ENV.fetch("LAVINMQ_OPEN_FILES_IDLE_TIMEOUT", 10).to_i.seconds
+
+      Log = LavinMQ::Log.for "clustering.client"
       @data_dir_lock : DataDirLock
       @closed = false
       @amqp_proxy : Proxy?
@@ -72,14 +74,13 @@ module LavinMQ
         Dir.mkdir_p @data_dir
         @data_dir_lock = DataDirLock.new(@data_dir).tap &.acquire
         @backup_dir = File.join(@data_dir, "backups", Time.utc.to_rfc3339)
-        #        @files = ReplicatedFiles.new(@data_dir)
         @files = Hash(String, ReplicatedFile).new do |h, k|
           # If a file is to be opened, first close files that haven't been used
           # for a while but only if we have "too many" open.
           i = h.size
           h.reject! do |_, f|
             break false if i <= OPEN_FILES_THRESHOLD
-            if f.last_access < (Time.monotonic - 10.seconds)
+            if f.last_access < (Time.monotonic - LAVINMQ_OPEN_FILES_IDLE_TIMEOUT)
               i &-= 1
               f.close
               true
