@@ -19,6 +19,7 @@ module LavinMQPerf
   when "channel-churn"    then ChannelChurn.new.run
   when "consumer-churn"   then ConsumerChurn.new.run
   when "connection-count" then ConnectionCount.new.run
+  when "queue-count"      then QueueCount.new.run
   when /^.+$/             then Perf.new.run([mode.not_nil!])
   else                         abort Perf.new.banner
   end
