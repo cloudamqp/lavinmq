@@ -88,7 +88,8 @@ module LavinMQ
             writer = PrometheusWriter.new(context.response, prefix)
             overview_broker_metrics(vhosts, writer)
             overview_queue_metrics(vhosts, writer)
-            custom_metrics(vhosts, writer)
+            custom_metrics(writer)
+            gc_metrics(writer)
           end
           context
         end
@@ -250,7 +251,7 @@ module LavinMQ
                       help:  "Sum of ready and unacknowledged messages - total queue depth"})
       end
 
-      private def custom_metrics(vhosts, writer)
+      private def custom_metrics(writer)
         writer.write({name: "uptime", value: @amqp_server.uptime.to_i,
                       type: "counter",
                       help: "Server uptime in seconds"})
@@ -285,6 +286,47 @@ module LavinMQ
                         type:   "gauge",
                         help:   "Bytes that hasn't been synchronized with the follower yet"})
         end
+      end
+
+      private def gc_metrics(writer)
+        gc_stats = @amqp_server.gc_stats
+
+        writer.write({name: "gc_heap_size", value: gc_stats.heap_size,
+                      type: "gauge",
+                      help: "Heap size in bytes (including the area unmapped to OS)"})
+        writer.write({name: "gc_free_bytes", value: gc_stats.free_bytes,
+                      type: "gauge",
+                      help: "Total bytes contained in free and unmapped blocks"})
+        writer.write({name: "gc_unmapped_bytes", value: gc_stats.unmapped_bytes,
+                      type: "gauge",
+                      help: "Amount of memory unmapped to OS"})
+        writer.write({name: "gc_bytes_since_gc", value: gc_stats.bytes_since_gc,
+                      type: "counter",
+                      help: "Number of bytes allocated since the recent GC"})
+        writer.write({name: "gc_bytes_before_gc", value: gc_stats.bytes_before_gc,
+                      type: "gauge",
+                      help: "Number of bytes allocated before the recent GC (value may wrap)"})
+        writer.write({name: "gc_non_gc_bytes", value: gc_stats.non_gc_bytes,
+                      type: "gauge",
+                      help: "Number of bytes not considered candidates for GC"})
+        writer.write({name: "gc_no", value: gc_stats.gc_no,
+                      type: "counter",
+                      help: "Garbage collection cycle number (value may wrap)"})
+        writer.write({name: "gc_markers_m1", value: gc_stats.markers_m1,
+                      type: "gauge",
+                      help: "Number of marker threads (excluding the initiating one)"})
+        writer.write({name: "gc_bytes_reclaimed_since_gc", value: gc_stats.bytes_reclaimed_since_gc,
+                      type: "gauge",
+                      help: "Approximate number of reclaimed bytes after recent GC"})
+        writer.write({name: "gc_reclaimed_bytes_before_gc", value: gc_stats.reclaimed_bytes_before_gc,
+                      type: "counter",
+                      help: "Approximate number of bytes reclaimed before the recent GC (value may wrap)"})
+        writer.write({name: "gc_expl_freed_bytes_since_gc", value: gc_stats.expl_freed_bytes_since_gc,
+                      type: "counter",
+                      help: "Number of bytes freed explicitly since the recent GC"})
+        writer.write({name: "gc_obtained_from_os_bytes", value: gc_stats.obtained_from_os_bytes,
+                      type: "counter",
+                      help: "Total amount of memory obtained from OS, in bytes"})
       end
 
       SERVER_METRICS = {:connection_created, :connection_closed, :channel_created, :channel_closed,
