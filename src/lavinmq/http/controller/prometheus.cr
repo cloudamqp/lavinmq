@@ -39,7 +39,8 @@ module LavinMQ
       def write(m : Metric)
         return if m[:value].nil?
         io = @io
-        name = "#{@prefix}_#{m[:name]}"
+
+        name = name_writer(m)
         if t = m[:type]?
           io << "# TYPE " << name << " " << t << "\n"
         end
@@ -51,6 +52,19 @@ module LavinMQ
           write_labels(io, l)
         end
         io << " " << m[:value] << "\n"
+      end
+
+      struct NameWriter
+        def initialize(@prefix : String, @name : String)
+        end
+
+        def to_s(io : IO) : IO
+          io << @prefix << "_" << @name
+        end
+      end
+
+      private def name_writer(m : Metric)
+        NameWriter.new(@prefix, m[:name])
       end
     end
 
