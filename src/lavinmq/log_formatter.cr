@@ -52,6 +52,7 @@ module LavinMQ
       in ::Log::Severity::Warn   then 4
       in ::Log::Severity::Error  then 3
       in ::Log::Severity::Fatal  then 2
+      in ::Log::Severity::None   then 6
       end
     end
   end
