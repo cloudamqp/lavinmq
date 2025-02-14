@@ -135,11 +135,17 @@ module LavinMQ
 
       def details_tuple
         {
-          vhost:        @broker.vhost.name,
-          user:         @user.name,
-          protocol:     "MQTT",
-          client_id:    @client_id,
-          connected_at: @connected_at,
+          vhost:             @broker.vhost.name,
+          user:              @user.name,
+          protocol:          "MQTT 3.1.1",
+          client_id:         @client_id,
+          name:              @name,
+          connected_at:      @connected_at,
+          state:             state,
+          ssl:               @connection_info.ssl?,
+          tls_version:       @connection_info.ssl_version,
+          cipher:            @connection_info.ssl_cipher,
+          client_properties: NamedTuple.new,
         }.merge(stats_details)
       end
 
@@ -165,6 +171,10 @@ module LavinMQ
         @closed = true
         close_socket
         @waitgroup.wait
+      end
+
+      def state
+        @closed ? "closed" : (@broker.vhost.flow? ? "running" : "flow")
       end
 
       def force_close
