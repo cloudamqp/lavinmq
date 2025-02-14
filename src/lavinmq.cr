@@ -1,3 +1,8 @@
+require "./lavinmq/journal_error_writer"
+if ENV.has_key?("JOURNAL_STREAM")
+  STDERR.reopen(LavinMQ::JournalErrorWriter.new)
+end
+
 require "./lavinmq/version"
 require "./stdlib/*"
 require "./lavinmq/config"
