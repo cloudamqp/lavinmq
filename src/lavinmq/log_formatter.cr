@@ -45,14 +45,13 @@ module LavinMQ
 
     private def severity_to_priority
       case @entry.severity
-      when ::Log::Severity::Trace  then 7 # journald doesn't have trace
-      when ::Log::Severity::Debug  then 7
-      when ::Log::Severity::Info   then 6
-      when ::Log::Severity::Notice then 5
-      when ::Log::Severity::Warn   then 4
-      when ::Log::Severity::Error  then 3
-      when ::Log::Severity::Fatal  then 2
-      else                              6 # Default to "info"
+      in ::Log::Severity::Trace  then 7 # journald doesn't have trace
+      in ::Log::Severity::Debug  then 7
+      in ::Log::Severity::Info   then 6
+      in ::Log::Severity::Notice then 5
+      in ::Log::Severity::Warn   then 4
+      in ::Log::Severity::Error  then 3
+      in ::Log::Severity::Fatal  then 2
       end
     end
   end
