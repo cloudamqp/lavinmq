@@ -13,14 +13,14 @@ module LavinMQPerf
     end
 
     def run
-     super 
+     super
      count = 0
      c = client.connect
      ch = c.channel
-     loop do   
+     loop do
         @queues.times.each_slice(100) do |slice|
-          slice.each do |i| 
-            queue = ch.queue("lavinmqperf-queue-#{Random::DEFAULT.hex(8)}", durable: false, auto_delete: true, exclusive: true)
+          slice.each do
+            ch.queue("lavinmqperf-queue-#{Random::DEFAULT.hex(8)}", durable: false, auto_delete: true, exclusive: true)
           end
         end
         puts
@@ -32,7 +32,7 @@ module LavinMQPerf
     end
 
     private def client : AMQP::Client
-      client = @client ||= AMQP::Client.new(@uri)
+      @client ||= AMQP::Client.new(@uri)
     end
 
     private def rss
