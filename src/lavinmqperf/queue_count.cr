@@ -13,11 +13,11 @@ module LavinMQPerf
     end
 
     def run
-     super
-     count = 0
-     c = client.connect
-     ch = c.channel
-     loop do
+      super
+      count = 0
+      c = client.connect
+      ch = c.channel
+      loop do
         @queues.times.each_slice(100) do |slice|
           slice.each do
             ch.queue("lavinmqperf-queue-#{Random::DEFAULT.hex(8)}", durable: false, auto_delete: true, exclusive: true)
