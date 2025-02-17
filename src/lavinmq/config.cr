@@ -69,6 +69,7 @@ module LavinMQ
     property yield_each_received_bytes = 131_072    # max number of bytes to read from a client connection without letting other tasks in the server do any work
     property yield_each_delivered_bytes = 1_048_576 # max number of bytes sent to a client without tending to other tasks in the server
     property auth_backends : Array(String) = ["basic"]
+    property auth_http_user_path : String = "localhost:8080/users"
     @@instance : Config = self.new
 
     def self.instance : LavinMQ::Config
@@ -251,6 +252,8 @@ module LavinMQ
         when "max_deleted_definitions"   then @max_deleted_definitions = v.to_i
         when "consumer_timeout"          then @consumer_timeout = v.to_u64
         when "default_consumer_prefetch" then @default_consumer_prefetch = v.to_u16
+        when "auth_backends"             then @auth_backends = v.split(',')
+        when "auth_http_user_path"       then @auth_http_user_path = v
         else
           STDERR.puts "WARNING: Unrecognized configuration 'main/#{config}'"
         end
