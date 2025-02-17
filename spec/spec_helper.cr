@@ -133,6 +133,103 @@ def with_http_server(&)
   end
 end
 
+def with_http_auth_backend(&)
+  ab = AuthBackend.new
+  begin
+    spawn(name: "Http auth backend listen") { ab.listen }
+    Fiber.yield
+    yield ab
+  ensure
+    ab.close
+  end
+end
+
+class AuthBackend
+  getter? running : Bool
+
+  # Structure pour représenter une requête d'authentification
+  struct AuthRequest
+    include JSON::Serializable
+    property username : String
+    property password : String
+  end
+
+  # Simule une base de données d'utilisateurs
+  USERS = {
+    "admin" => "secret",
+    "user1" => "password123",
+  }
+
+  def initialize(@address : String = "0.0.0.0", @port : Int32 = 8081)
+    @server = HTTP::Server.new do |context|
+      handle_request(context)
+    end
+    @running = false
+  end
+
+  def listen
+    if @running
+      return
+    end
+
+    @running = true
+    spawn do
+      @server.listen(@address, @port)
+    rescue ex : Exception
+      @running = false
+    end
+  end
+
+  def close
+    if !@running
+      puts "Server is not running."
+      return
+    end
+
+    puts "Stopping server..."
+    @server.close
+    @running = false
+    puts "Server stopped."
+  end
+
+  private def handle_request(context : HTTP::Server::Context)
+    request = context.request
+    response = context.response
+
+    case request.path
+    when "/auth/user"
+      handle_user_auth(request, response)
+    else
+      response.status_code = 404
+      response.print("Not Found")
+    end
+  end
+
+  private def handle_user_auth(request : HTTP::Request, response : HTTP::Server::Response)
+    if body = request.body
+      auth_request = AuthRequest.from_json(body)
+
+      if USERS[auth_request.username] == auth_request.password
+        allow_response(response)
+      else
+        deny_response(response)
+      end
+    else
+      deny_response(response)
+    end
+  end
+
+  private def allow_response(response)
+    response.status_code = 200
+    response.print "allow"
+  end
+
+  private def deny_response(response)
+    response.status_code = 403
+    response.print "deny"
+  end
+end
+
 struct HTTPSpecHelper
   def initialize(@addr : String)
   end

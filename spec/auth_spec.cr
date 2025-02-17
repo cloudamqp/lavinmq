@@ -32,7 +32,7 @@ describe LavinMQ::Auth::Chain do
       file.print <<-CONFIG
         [main]
         auth_backends = http,basic
-        auth_http_user_path = localhost:8888
+        auth_http_user_path = localhost:8081/auth/user
         [mgmt]
         [amqp]
       CONFIG
