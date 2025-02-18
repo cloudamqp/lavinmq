@@ -1,4 +1,5 @@
 lib LibC
+  fun setrlimit(Int, Rlimit*) : Int
   {% if flag?(:windows) %}
     fun _setmaxstdio(max : Int) : Int
   {% end %}

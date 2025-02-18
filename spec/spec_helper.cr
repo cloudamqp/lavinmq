@@ -15,7 +15,6 @@ require "../src/lavinmq/http/http_server"
 require "http/client"
 require "amqp-client"
 
-<<<<<<< HEAD
 def init_config(config = LavinMQ::Config.instance)
   config.data_dir = "/tmp/lavinmq-spec"
   config.segment_size = 512 * 1024
@@ -36,7 +35,6 @@ module LavinMQ
     end
   end
 end
-=======
 {% if flag?(:windows) %}
   LavinMQ::Config.instance.data_dir = "C:\\tmp\\lavinmq-spec"
 {% else %}
@@ -45,7 +43,6 @@ end
 
 LavinMQ::Config.instance.segment_size = 512 * 1024
 LavinMQ::Config.instance.consumer_timeout_loop_interval = 1
->>>>>>> c7cbd18a (use mfile_windows instead of mfile on windows)
 
 def with_datadir(&)
   FileUtils.rm_rf data_dir if data_dir

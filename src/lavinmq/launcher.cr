@@ -169,7 +169,7 @@ module LavinMQ
       end
 
       {% unless flag?(:windows) %}
-        @http_server.bind_internal_unix
+        http_server.bind_internal_unix
       {% end %}
       spawn(name: "HTTP listener") do
         http_server.listen

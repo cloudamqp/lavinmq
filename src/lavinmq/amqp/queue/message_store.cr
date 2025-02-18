@@ -1,9 +1,9 @@
 {% if flag?(:windows) %}
-  require "../mfile_windows"
+  require "../../mfile_windows"
 {% else %}
-  require "../mfile"
+  require "../../mfile"
 {% end %}
-require "../segment_position"
+require "../../segment_position"
 require "log"
 require "file_utils"
 require "../../clustering/server"
