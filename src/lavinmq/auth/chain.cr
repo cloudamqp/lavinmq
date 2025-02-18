@@ -22,7 +22,7 @@ module LavinMQ
             when "basic"
               authenticators << BasicAuthenticator.new(users)
             when "http"
-              authenticators << RabbitHttpAuthenticator.new(users)
+              authenticators << RabbitBackendAuthenticator.new(users)
             else
               raise "Unsupported authentication backend: #{backend}"
             end

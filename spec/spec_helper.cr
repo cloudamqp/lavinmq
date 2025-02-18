@@ -147,15 +147,14 @@ end
 class AuthBackend
   getter? running : Bool
 
-  # Structure pour représenter une requête d'authentification
   struct AuthRequest
     include JSON::Serializable
     property username : String
     property password : String
   end
 
-  # Simule une base de données d'utilisateurs
   USERS = {
+    "guest" => "http_secret",
     "admin" => "secret",
     "user1" => "password123",
   }
