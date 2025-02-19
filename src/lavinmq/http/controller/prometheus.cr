@@ -319,7 +319,7 @@ module LavinMQ
                       type: "counter",
                       help: "Garbage collection cycle number (value may wrap)"})
 
-        writer.write({name: "gc_marker_threads_total", value: gc_stats.markers_m1,
+        writer.write({name: "gc_marker_threads", value: gc_stats.markers_m1,
                       type: "gauge",
                       help: "Number of marker threads (excluding the initiating one)"})
 
