@@ -334,7 +334,7 @@ module LavinMQ
         writer.write({name: "gc_since_last_collection_explicitly_freed_bytes", value: gc_stats.expl_freed_bytes_since_gc,
                       type: "counter",
                       help: "Number of bytes freed explicitly since the recent GC"})
-        k
+
         writer.write({name: "gc_from_os_obtained_bytes_total", value: gc_stats.obtained_from_os_bytes,
                       type: "counter",
                       help: "Total amount of memory obtained from OS, in bytes"})
