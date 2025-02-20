@@ -1,5 +1,3 @@
-# .github/workflows/rerun.yml
-
 name: Rerun Failed Workflow
 
 on:
@@ -12,8 +10,11 @@ jobs:
   rerun:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
       - name: Rerun failed jobs
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh run rerun ${{ inputs.run_id }} --failed
+          gh run rerun ${{ github.event.inputs.run_id }} --failed
