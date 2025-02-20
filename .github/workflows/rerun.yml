@@ -1,0 +1,19 @@
+# .github/workflows/rerun.yml
+
+name: Rerun Failed Workflow
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        required: true
+
+jobs:
+  rerun:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Rerun failed jobs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh run rerun ${{ inputs.run_id }} --failed
