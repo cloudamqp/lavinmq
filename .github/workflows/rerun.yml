@@ -11,12 +11,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
-
-      - name: Navigate to repository
-        run: cd ${{ github.workspace }}
+        uses: actions/checkout@v4
 
       - name: Rerun workflow
-        run: gh workflow run rerun.yml -f run_id=${{ github.event.workflow_run.id }}
+        run: gh workflow run rerun.yml -f run_id=${{ github.run_id }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
