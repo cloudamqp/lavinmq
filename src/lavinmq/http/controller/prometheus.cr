@@ -323,7 +323,7 @@ module LavinMQ
                       type: "gauge",
                       help: "Number of marker threads (excluding the initiating one)"})
 
-        writer.write({name: "gc_since_last_collection_reclaimed_bytes", value: gc_stats.bytes_reclaimed_since_gc,
+        writer.write({name: "gc_since_recent_collection_reclaimed_bytes", value: gc_stats.bytes_reclaimed_since_gc,
                       type: "gauge",
                       help: "Approximate number of reclaimed bytes after recent GC"})
 
@@ -331,7 +331,7 @@ module LavinMQ
                       type: "counter",
                       help: "Approximate number of bytes reclaimed before the recent GC (value may wrap)"})
 
-        writer.write({name: "gc_since_last_collection_explicitly_freed_bytes", value: gc_stats.expl_freed_bytes_since_gc,
+        writer.write({name: "gc_since_recent_collection_explicitly_freed_bytes", value: gc_stats.expl_freed_bytes_since_gc,
                       type: "counter",
                       help: "Number of bytes freed explicitly since the recent GC"})
 
