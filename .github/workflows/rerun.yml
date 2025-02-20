@@ -16,6 +16,6 @@ jobs:
           fetch-depth: 0  # Ensure full clone
 
       - name: Rerun workflow
-        run: gh workflow run rerun.yml -f run_id=${{ github.run_id }} --repo ${{ github.repository }}
+        run: gh workflow run deb.yml -f run_id=${{ github.run_id }} --repo ${{ github.repository }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
