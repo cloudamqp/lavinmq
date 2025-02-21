@@ -278,13 +278,13 @@ jobs:
           repository: ruby-amqp/bunny
           path: bunny
           fetch-depth: 0
-          ref: "2.17.0"
+          ref: 6cb314c4fd6fc5e41839c587f026185a2fe93487
 
       - name: Setup ruby
         uses: ruby/setup-ruby@v1
         with:
           working-directory: bunny
-          ruby-version: 2.7.2
+          ruby-version: 3.3.5
           bundler-cache: true
 
       - name: Run specs
