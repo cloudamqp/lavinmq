@@ -38,6 +38,8 @@ dependencies:
 development_dependencies:
   ameba:
     github: crystal-ameba/ameba
+  perf_tools:
+    github: crystal-lang/perf-tools
 
 crystal: 1.15.0
 
