@@ -1,4 +1,5 @@
 require "./stream_queue"
+require "../stream_consumer"
 
 module LavinMQ::AMQP
   class StreamQueue < DurableQueue
@@ -11,11 +12,16 @@ module LavinMQ::AMQP
       @segment_last_ts = Hash(UInt32, Int64).new(0i64) # used for max-age
       @offset_index = Hash(UInt32, Int64).new          # segment_id => offset of first msg
       @timestamp_index = Hash(UInt32, Int64).new       # segment_id => ts of first msg
+      @consumer_offsets : MFile
+      @consumer_offset_positions = Hash(String, Int64).new # used for consumer offsets
 
       def initialize(*args, **kwargs)
         super
         @last_offset = get_last_offset
         build_segment_indexes
+        @consumer_offsets = MFile.new(File.join(@queue_data_dir, "consumer_offsets"), Config.instance.segment_size)
+        @replicator.try &.register_file @consumer_offsets
+        @consumer_offset_positions = restore_consumer_offset_positions
         drop_overflow
       end
 
@@ -35,13 +41,22 @@ module LavinMQ::AMQP
       # Used once when a consumer is started
       # Populates `segment` and `position` by iterating through segments
       # until `offset` is found
-      def find_offset(offset) : Tuple(Int64, UInt32, UInt32)
+      # ameba:disable Metrics/CyclomaticComplexity
+      def find_offset(offset, tag = nil, track_offset = false) : Tuple(Int64, UInt32, UInt32)
         raise ClosedError.new if @closed
+        if track_offset
+          consumer_last_offset = last_offset_by_consumer_tag(tag)
+          return find_offset_in_segments(consumer_last_offset) if consumer_last_offset
+        end
+
         case offset
-        when "first", nil then offset_at(@segments.first_key, 4u32)
-        when "last"       then offset_at(@segments.last_key, 4u32)
-        when "next"       then last_offset_seg_pos
-        when Time         then find_offset_in_segments(offset)
+        when "first" then offset_at(@segments.first_key, 4u32)
+        when "last"  then offset_at(@segments.last_key, 4u32)
+        when "next"  then last_offset_seg_pos
+        when Time    then find_offset_in_segments(offset)
+        when nil
+          consumer_last_offset = last_offset_by_consumer_tag(tag) || 0
+          find_offset_in_segments(consumer_last_offset)
         when Int
           if offset > @last_offset
             last_offset_seg_pos
@@ -52,12 +67,15 @@ module LavinMQ::AMQP
         end
       end
 
-      private def offset_at(seg, pos) : Tuple(Int64, UInt32, UInt32)
+      private def offset_at(seg, pos, retried = false) : Tuple(Int64, UInt32, UInt32)
         return {@last_offset, seg, pos} if @size.zero?
         mfile = @segments[seg]
         msg = BytesMessage.from_bytes(mfile.to_slice + pos)
         offset = offset_from_headers(msg.properties.headers)
         {offset, seg, pos}
+      rescue ex : IndexError # first segment can be empty if message size >= segment size
+        return offset_at(seg + 1, 4_u32, true) unless retried
+        raise ex
       end
 
       private def last_offset_seg_pos
@@ -106,6 +124,71 @@ module LavinMQ::AMQP
           end
         end
         seg
+      end
+
+      def last_offset_by_consumer_tag(consumer_tag)
+        if pos = @consumer_offset_positions[consumer_tag]?
+          tx = @consumer_offsets.to_slice(pos, 8)
+          return IO::ByteFormat::LittleEndian.decode(Int64, tx)
+        end
+      end
+
+      private def restore_consumer_offset_positions : Hash(String, Int64)
+        positions = Hash(String, Int64).new
+        return positions if @consumer_offsets.size.zero?
+
+        loop do
+          ctag = AMQ::Protocol::ShortString.from_io(@consumer_offsets)
+          break if ctag.empty?
+          positions[ctag] = @consumer_offsets.pos
+          @consumer_offsets.skip(8)
+        rescue IO::EOFError
+          break
+        end
+        @consumer_offsets.pos = 0 if @consumer_offsets.pos == 1
+        @consumer_offsets.resize(@consumer_offsets.pos)
+        positions
+      end
+
+      def store_consumer_offset(consumer_tag : String, new_offset : Int64)
+        cleanup_consumer_offsets if consumer_offset_file_full?(consumer_tag)
+        @consumer_offsets.write_bytes AMQ::Protocol::ShortString.new(consumer_tag)
+        @consumer_offset_positions[consumer_tag] = @consumer_offsets.size
+        @consumer_offsets.write_bytes new_offset
+        @replicator.try &.append(@consumer_offsets.path, (@consumer_offsets.size - consumer_tag.bytesize - 1 - 8).to_i32)
+      end
+
+      def consumer_offset_file_full?(consumer_tag)
+        (@consumer_offsets.size + 1 + consumer_tag.bytesize + 8) >= @consumer_offsets.capacity
+      end
+
+      def cleanup_consumer_offsets
+        return if @consumer_offsets.size.zero?
+
+        offsets_to_save = Hash(String, Int64).new
+        lowest_offset_in_stream, _seg, _pos = offset_at(@segments.first_key, 4u32)
+        capacity = 0
+        @consumer_offset_positions.each do |ctag, _pos|
+          if offset = last_offset_by_consumer_tag(ctag)
+            offsets_to_save[ctag] = offset if offset >= lowest_offset_in_stream
+            capacity += ctag.bytesize + 1 + 8
+          end
+        end
+        @consumer_offset_positions = Hash(String, Int64).new
+        replace_offsets_file(capacity * 1000) do
+          offsets_to_save.each do |ctag, offset|
+            store_consumer_offset(ctag, offset)
+          end
+        end
+      end
+
+      def replace_offsets_file(capacity : Int, &)
+        old_consumer_offsets = @consumer_offsets
+        @consumer_offsets = MFile.new("#{old_consumer_offsets.path}.tmp", capacity)
+        yield # fill the new file with correct data in this block
+        @consumer_offsets.rename(old_consumer_offsets.path)
+        old_consumer_offsets.close(truncate_to_size: false)
+        @replicator.try &.replace_file @consumer_offsets.path
       end
 
       def shift?(consumer : AMQP::StreamConsumer) : Envelope?
@@ -191,6 +274,7 @@ module LavinMQ::AMQP
             Time.unix_ms(last_ts) < min_ts
           end
         end
+        cleanup_consumer_offsets
       end
 
       private def drop_segments_while(& : UInt32 -> Bool)
