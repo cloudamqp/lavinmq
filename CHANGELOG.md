@@ -7,15 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.0-rc.1] - 2025-01-16
+
 ### Added
 
 - MQTT 3.1.1 Support [#766](https://github.com/cloudamqp/lavinmq/pull/766)
 - Support for message deduplication on exchanges and queues [#854](https://github.com/cloudamqp/lavinmq/pull/854)
 - Added filtering for streams [#893](https://github.com/cloudamqp/lavinmq/pull/893)
+- Add priority on journald log format [#950](https://github.com/cloudamqp/lavinmq/pull/950)
+- Add GC metrics to prometheus endpoints [#954](https://github.com/cloudamqp/lavinmq/pull/954)
+- Streams filters [#893](https://github.com/cloudamqp/lavinmq/pull/893)
+- Add message reates to exchanges view [#929](https://github.com/cloudamqp/lavinmq/pull/929)
+- Add disk space used to /queues [#930](https://github.com/cloudamqp/lavinmq/pull/930)
+
 
 ### Changed
 
 - channel_max negotiation is respected and 0 is treated as unlimited
+- log and re-raise error if load unexpectedly fails [#933](https://github.com/cloudamqp/lavinmq/pull/933)
+
+### Fixed
+
+- Queue should expire TTL milliseconds after last consumer left [#924](https://github.com/cloudamqp/lavinmq/pull/924)
+- Prevent lavinmq from freezing when closing consumers and channels [#947](https://github.com/cloudamqp/lavinmq/pull/947)
 
 ## [2.1.0] - 2025-01-16
 
