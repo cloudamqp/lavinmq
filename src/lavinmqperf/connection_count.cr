@@ -78,15 +78,5 @@ module LavinMQPerf
       client.host = "127.0.#{Random.rand(UInt8)}.#{Random.rand(UInt8)}" if @random_localhost
       client
     end
-
-    private def rss
-      File.read("/proc/self/statm").split[1].to_i64 * 4096
-    rescue File::NotFoundError
-      if ps_rss = `ps -o rss= -p $PPID`.to_i64?
-        ps_rss * 1024
-      else
-        0
-      end
-    end
   end
 end

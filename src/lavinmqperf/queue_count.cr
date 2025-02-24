@@ -34,15 +34,5 @@ module LavinMQPerf
     private def client : AMQP::Client
       @client ||= AMQP::Client.new(@uri)
     end
-
-    private def rss
-      File.read("/proc/self/statm").split[1].to_i64 * 4096
-    rescue File::NotFoundError
-      if ps_rss = `ps -o rss= -p $PPID`.to_i64?
-        ps_rss * 1024
-      else
-        0
-      end
-    end
   end
 end
