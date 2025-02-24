@@ -16,8 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added filtering for streams [#893](https://github.com/cloudamqp/lavinmq/pull/893)
 - Add priority on journald log format [#950](https://github.com/cloudamqp/lavinmq/pull/950)
 - Add GC metrics to prometheus endpoints [#954](https://github.com/cloudamqp/lavinmq/pull/954)
-- Streams filters [#893](https://github.com/cloudamqp/lavinmq/pull/893)
-- Add message reates to exchanges view [#929](https://github.com/cloudamqp/lavinmq/pull/929)
+- Add message rates to exchanges view [#929](https://github.com/cloudamqp/lavinmq/pull/929)
 - Add disk space used to /queues [#930](https://github.com/cloudamqp/lavinmq/pull/930)
 
 
