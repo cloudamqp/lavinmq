@@ -21,6 +21,5 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Rerun workflow
-        run: gh workflow run rerun.yml -f run_id=${{ github.event.inputs.run_id }} --repo ${{ github.repository }} --ref auto-rerun-failed-deb-workflows
-        env:
+        run: gh workflow run deb.yml -f run_id=${{ github.event.inputs.run_id }} --repo ${{ github.repository }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
