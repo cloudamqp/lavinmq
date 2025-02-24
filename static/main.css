@@ -1368,6 +1368,10 @@ footer .logo {
   color: #CDCBC9;
 }
 
+#q-features span {
+  cursor: help;
+}
+
 .small-table {
   width: 50%;
   max-width: 600px;
