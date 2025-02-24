@@ -8,7 +8,7 @@ module LavinMQPerf
 
     def initialize
       @parser = OptionParser.new
-      @banner = "Usage: #{PROGRAM_NAME} [throughput | bind-churn | queue-churn | connection-churn | connection-count] [arguments]"
+      @banner = "Usage: #{PROGRAM_NAME} [throughput | bind-churn | queue-churn | connection-churn | connection-count | queue-count] [arguments]"
       @parser.banner = @banner
       @parser.on("-h", "--help", "Show this help") { puts @parser; exit 0 }
       @parser.on("-v", "--version", "Show version") { puts LavinMQ::VERSION; exit 0 }
@@ -33,6 +33,16 @@ module LavinMQPerf
         flags << "--Dmt" if flag?(:mt)
       %}
       {{flags.join(" ")}}
+    end
+
+    def rss
+      File.read("/proc/self/statm").split[1].to_i64 * 4096
+    rescue File::NotFoundError
+      if ps_rss = `ps -o rss= -p $PPID`.to_i64?
+        ps_rss * 1024
+      else
+        0
+      end
     end
 
     BUILD_INFO = <<-INFO
