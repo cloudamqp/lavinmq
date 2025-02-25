@@ -117,6 +117,10 @@ jobs:
     if: failure() && github.run_attempt < 3
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Trigger rerun workflow
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
