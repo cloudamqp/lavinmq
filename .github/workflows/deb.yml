@@ -28,7 +28,6 @@ on:
       - views/**
       - openapi/**
       - debian/**
-
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
