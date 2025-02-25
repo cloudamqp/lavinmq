@@ -49,6 +49,11 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: try to fail
+        run: |
+          invalid_command_to_fail_step
+          echo github.run_id
+
       - name: Generate version string
         run: |
           git_describe=$(git describe --tags)
