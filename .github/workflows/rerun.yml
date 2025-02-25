@@ -1,11 +1,9 @@
 name: Rerun Failed Workflow
-
 on:
   workflow_dispatch:
     inputs:
       run_id:
         required: true
-
 jobs:
   rerun_on_failure:
     runs-on: ubuntu-latest
