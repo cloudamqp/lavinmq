@@ -373,6 +373,7 @@ module LavinMQ
             update_system_metrics(statm)
           end
         end
+        @gc_stats = GC.prof_stats
 
         control_flow!
         sleep @config.stats_interval.milliseconds
@@ -441,6 +442,7 @@ module LavinMQ
     getter stats_collection_duration_seconds_total = Time::Span.new
     getter stats_rates_collection_duration_seconds = Time::Span.new
     getter stats_system_collection_duration_seconds = Time::Span.new
+    getter gc_stats = GC.prof_stats
 
     private def control_flow!
       if disk_full?

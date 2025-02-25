@@ -79,6 +79,10 @@ module LavinMQ::AMQP
       end
     end
 
+    def store_consumer_offset(consumer_tag : String, offset : Int64) : Nil
+      stream_queue_msg_store.store_consumer_offset(consumer_tag, offset)
+    end
+
     # yield the next message in the ready queue
     # returns true if a message was deliviered, false otherwise
     # if we encouncer an unrecoverable ReadError, close queue
