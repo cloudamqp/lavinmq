@@ -108,3 +108,17 @@ jobs:
               https://packagecloud.io/api/v1/repos/${{ github.repository }}-head/packages.json
           done
         if: github.event_name != 'pull_request'
+  rerun_on_failure:
+    needs: build_deb
+    if: failure() && github.run_attempt < 3
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Trigger rerun workflow
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run rerun.yml -r ${{ github.head_ref || github.ref_name }} -F run_id=${{ github.run_id }}
