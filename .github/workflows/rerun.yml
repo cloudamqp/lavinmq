@@ -21,5 +21,5 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Rerun workflow
-        run: gh workflow run deb.yml -f run_id=${{ github.event.inputs.run_id }} --repo ${{ github.repository }}
+        run: gh run rerun ${{ inputs.run_id }} --failed
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
