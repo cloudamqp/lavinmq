@@ -16,5 +16,7 @@ jobs:
           fetch-depth: 0
 
       - name: Rerun workflow
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh run rerun ${{ inputs.run_id }} --failed
