@@ -21,5 +21,6 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Rerun workflow
-        run: gh run rerun ${{ inputs.run_id }} --failed
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh run watch ${{ inputs.run_id }} > /dev/null 2>&1
+          gh run rerun ${{ inputs.run_id }} --failed
