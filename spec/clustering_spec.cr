@@ -1,4 +1,5 @@
 require "./spec_helper"
+require "./clustering/spec_helper"
 require "../src/lavinmq/launcher"
 require "../src/lavinmq/clustering/client"
 require "../src/lavinmq/clustering/controller"
@@ -7,43 +8,13 @@ alias IndexTree = LavinMQ::MQTT::TopicTree(String)
 
 describe LavinMQ::Clustering::Client do
   follower_data_dir = "/tmp/lavinmq-follower"
-
   around_each do |spec|
     FileUtils.rm_rf follower_data_dir
-    p = Process.new("etcd", {
-      "--data-dir=/tmp/clustering-spec.etcd",
-      "--logger=zap",
-      "--log-level=error",
-      "--unsafe-no-fsync=true",
-      "--force-new-cluster=true",
-      "--listen-peer-urls=http://127.0.0.1:12380",
-      "--listen-client-urls=http://127.0.0.1:12379",
-      "--advertise-client-urls=http://127.0.0.1:12379",
-    }, output: STDOUT, error: STDERR)
-
-    client = HTTP::Client.new("127.0.0.1", 12379)
-    i = 0
-    loop do
-      sleep 0.02.seconds
-      response = client.get("/version")
-      if response.status.ok?
-        next if response.body.includes? "not_decided"
-        break
-      end
-    rescue e : Socket::ConnectError
-      i += 1
-      raise "Cant connect to etcd on port 12379. Giving up after 100 tries. (#{e.message})" if i >= 100
-      next
-    end
-    client.close
-    begin
-      spec.run
-    ensure
-      p.terminate(graceful: false) rescue nil
-      FileUtils.rm_rf "/tmp/clustering-spec.etcd"
-      FileUtils.rm_rf follower_data_dir
-    end
+    spec.run
+  ensure
+    FileUtils.rm_rf follower_data_dir
   end
+  add_etcd_around_each
 
   it "can stream changes" do
     replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Etcd.new("localhost:12379"), 0)
