@@ -117,7 +117,6 @@ module LavinMQ
         loop do
           filename_len = socket.read_bytes Int32, IO::ByteFormat::LittleEndian
           break if filename_len.zero?
-
           filename = socket.read_string(filename_len)
           send_requested_file(filename)
           @lz4.flush
