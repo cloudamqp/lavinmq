@@ -71,6 +71,15 @@ jobs:
           name: deb-packages-${{ matrix.os }}
           path: builds
 
+      - name: Determine if pre-release
+        id: determine-prerelease
+        run: |
+          if [[ "${{ github.ref }}" == *"-rc"* ]]; then
+            echo "is_prerelease=true" >> $GITHUB_ENV
+          else
+            echo "is_prerelease=false" >> $GITHUB_ENV
+          fi
+
       - name: Upload to Packagecloud
         run: |
           set -eux
@@ -88,7 +97,7 @@ jobs:
               -F "package[package_file]=@${PKG_FILE}" \
               https://packagecloud.io/api/v1/repos/${{ github.repository }}/packages.json
           done
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') && env.is_prerelease == 'false'
 
       - name: Upload to Packagecloud head repo
         run: |
@@ -108,6 +117,26 @@ jobs:
               https://packagecloud.io/api/v1/repos/${{ github.repository }}-head/packages.json
           done
         if: github.event_name != 'pull_request'
+
+      - name: Upload to Packagecloud pre-release repo
+        run: |
+          set -eux
+          ID=$(cut -d- -f1 <<< ${{ matrix.os }})
+          VERSION_ID=$(cut -d- -f2 <<< ${{ matrix.os }})
+          if [ "$ID" = "debian" ]
+          then VERSION_ID=${VERSION_ID}.0
+          fi
+          curl -fsSO -u "${{ secrets.packagecloud_token }}:" https://packagecloud.io/api/v1/distributions.json
+          DIST_ID=$(jq ".deb[] | select(.index_name == \"${ID}\").versions[] | select(.version_number == \"${VERSION_ID}\").id" distributions.json)
+          for f in $(find builds -name "*.ddeb"); do mv -- "$f" "${f%.ddeb}.deb"; done
+          for PKG_FILE in $(find builds -name "*.deb")
+          do curl -u "${{ secrets.packagecloud_token }}:" -XPOST --no-progress-meter \
+              -F "package[distro_version_id]=${DIST_ID}" \
+              -F "package[package_file]=@${PKG_FILE}" \
+              https://packagecloud.io/api/v1/repos/${{ github.repository }}-prerelease/packages.json
+          done
+        if: startsWith(github.ref, 'refs/tags/v') && env.is_prerelease == 'true'
+
   rerun_on_failure:
     needs: build_deb
     if: failure() && github.run_attempt < 3
