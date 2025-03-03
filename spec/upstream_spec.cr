@@ -373,8 +373,8 @@ describe LavinMQ::Federation::Upstream do
       wg = WaitGroup.new(1)
       spawn do
         until ds_queue.@consumers_empty_change.receive? == true
-          wg.done
         end
+        wg.done
       end
       Fiber.yield
 
