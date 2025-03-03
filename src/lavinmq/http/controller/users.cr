@@ -120,11 +120,15 @@ module LavinMQ
           context
         end
 
-        put "/api/auth/hash_password/:password" do |context, params|
-          password = params["password"]
-          hash = User.hash_password(password, "SHA256")
-          {password_hash: hash.to_s}.to_json(context.response)
-          context
+        put "/api/auth/hash_password" do |context, params|
+          body = parse_body(context)
+          if password = body["password"]?.try &.as_s?
+            hash = User.hash_password(password, "SHA256")
+            {password_hash: hash.to_s}.to_json(context.response)
+            context
+          else
+            bad_request(context, "Field 'password' is required")
+          end
         end
       end
     end
