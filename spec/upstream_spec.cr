@@ -372,17 +372,20 @@ describe LavinMQ::Federation::Upstream do
 
       wg = WaitGroup.new(1)
       spawn do
-        until ds_queue.@consumers_empty_change.receive? == true
-        end
+        # Wait for queue to receive one consumer (subscribe)
+        ds_queue.@consumers_empty_change.receive?.should eq false
+        # Wait for queue to lose consumer (unsubscribe)
+        ds_queue.@consumers_empty_change.receive?.should eq true
         wg.done
       end
-      Fiber.yield
+      Fiber.yield # yield so our receive? above is called
 
       # consume 1 message from downstream queue
       with_channel(s, vhost: ds_vhost.name) do |downstream_ch|
         downstream_ch.prefetch(1)
         downstream_q = downstream_ch.queue(ds_queue_name)
         downstream_q.subscribe(tag: "c", no_ack: false, block: true) do |msg|
+          Fiber.yield # to let the sync fiber above run to call receive? a second time
           msg.ack
           downstream_q.unsubscribe("c")
         end
