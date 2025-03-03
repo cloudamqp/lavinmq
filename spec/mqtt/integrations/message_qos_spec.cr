@@ -127,14 +127,10 @@ module MqttSpecs
             disconnect(publisher_io)
           end
 
-          pubs = Array(MQTT::Protocol::Publish).new(9)
-          # Read all but one
-          9.times do
-            pubs << read_packet(io).as(MQTT::Protocol::Publish)
+          pubs = Array(MQTT::Protocol::Publish).new(9) do
+            read_packet(io).as(MQTT::Protocol::Publish)
           end
-          [1, 3, 4, 0, 2, 7, 5, 6, 8].each do |i|
-            puback(io, pubs[i].packet_id)
-          end
+          pubs.shuffle.each { |packet| puback(io, packet.packet_id) }
           disconnect(io)
         end
         with_client_io(server) do |io|
