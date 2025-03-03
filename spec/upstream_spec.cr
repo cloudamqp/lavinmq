@@ -370,6 +370,14 @@ describe LavinMQ::Federation::Upstream do
 
       us_queue.message_count.should eq message_count
 
+      wg = WaitGroup.new(1)
+      spawn do
+        until ds_queue.@consumers_empty_change.receive? == true
+          wg.done
+        end
+      end
+      Fiber.yield
+
       # consume 1 message from downstream queue
       with_channel(s, vhost: ds_vhost.name) do |downstream_ch|
         downstream_ch.prefetch(1)
@@ -379,6 +387,8 @@ describe LavinMQ::Federation::Upstream do
           downstream_q.unsubscribe("c")
         end
       end
+
+      wg.wait
 
       # One message has been transferred?
       us_queue.message_count.should eq 1
