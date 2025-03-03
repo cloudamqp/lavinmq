@@ -372,23 +372,26 @@ describe LavinMQ::Federation::Upstream do
 
       # consume 1 message from downstream queue
       with_channel(s, vhost: ds_vhost.name) do |downstream_ch|
+        downstream_ch.prefetch(1)
         downstream_q = downstream_ch.queue(ds_queue_name)
-
-        downstream_q.subscribe(tag: "c") { downstream_q.unsubscribe("c") }
-
-        # Wait until consumer has been removed before we continue
-        until ds_queue.consumers.empty?
-          ds_queue.@consumers_empty_change.receive?
+        downstream_q.subscribe(tag: "c", no_ack: false, block: true) do |msg|
+          msg.ack
+          downstream_q.unsubscribe("c")
         end
       end
 
-      # One message hsa been transferred?
+      # One message has been transferred?
       us_queue.message_count.should eq 1
 
       # resume consuming on downstream, federation should start again
       with_channel(s, vhost: ds_vhost.name) do |downstream_ch|
         ch = Channel(Nil).new
-        downstream_ch.queue(ds_queue_name).subscribe(tag: "c2") { ch.close }
+        downstream_q = downstream_ch.queue(ds_queue_name)
+        downstream_q.subscribe(tag: "c2", no_ack: false) do |msg|
+          msg.ack
+          downstream_q.unsubscribe("c2")
+          ch.close
+        end
 
         select
         when ch.receive?
