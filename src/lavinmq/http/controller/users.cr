@@ -120,7 +120,7 @@ module LavinMQ
           context
         end
 
-        put "/api/auth/hash_password" do |context, params|
+        put "/api/auth/hash_password" do |context, _params|
           body = parse_body(context)
           if password = body["password"]?.try &.as_s?
             hash = User.hash_password(password, "SHA256")

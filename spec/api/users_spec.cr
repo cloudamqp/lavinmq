@@ -215,7 +215,7 @@ describe LavinMQ::HTTP::UsersController do
 
   describe "PUT /api/auth/hash_password" do
     it "should return hashed password" do
-      with_http_server do |http, s|
+      with_http_server do |http, _s|
         body = %({
         "password": "a_pasword_to_hash"
       })
