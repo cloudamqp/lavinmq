@@ -130,9 +130,11 @@ module MqttSpecs
           pubs = Array(MQTT::Protocol::Publish).new(9) do
             read_packet(io).as(MQTT::Protocol::Publish)
           end
-          pubs.shuffle.each { |packet| puback(io, packet.packet_id) }
+          pubs.shuffle!
+          pubs.each { |packet| puback(io, packet.packet_id) }
           disconnect(io)
         end
+
         with_client_io(server) do |io|
           connect(io)
           pub = read_packet(io).as(MQTT::Protocol::Publish)

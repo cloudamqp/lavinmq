@@ -23,7 +23,7 @@ module MqttHelpers
     socket.tcp_keepalive_count = 3
     socket.tcp_keepalive_interval = 10
     socket.sync = true
-    socket.read_buffering = true
+    socket.read_buffering = false
     socket.buffer_size = 16384
     socket.read_timeout = 1.seconds
     socket
@@ -33,6 +33,8 @@ module MqttHelpers
     socket = with_client_socket(server)
     yield socket
   ensure
+    # Ensure fibers reading the socket are done
+    5.times { Fiber.yield }
     socket.try &.close
   end
 
