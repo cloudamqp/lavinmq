@@ -392,6 +392,7 @@ describe LavinMQ::Federation::Upstream do
       end
 
       wg.wait
+      Fiber.yield # let things happen?
 
       # One message has been transferred?
       us_queue.message_count.should eq 1
