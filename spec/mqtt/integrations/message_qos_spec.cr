@@ -89,6 +89,7 @@ module MqttSpecs
             connect(publisher_io, client_id: "publisher")
             publish(publisher_io, topic: "a/b", payload: "1".to_slice, qos: 0u8)
             publish(publisher_io, topic: "a/b", payload: "2".to_slice, qos: 0u8)
+            pingpong(publisher_io)
             disconnect(publisher_io)
           end
 
@@ -96,7 +97,10 @@ module MqttSpecs
           if pub = pkt.as?(MQTT::Protocol::Publish)
             pub.payload.should eq("1".to_slice)
             puback(io, pub.packet_id)
+          else
+            fail "Expected a publish packet"
           end
+          pingpong(io)
           disconnect(io)
         end
 
@@ -106,6 +110,8 @@ module MqttSpecs
           if pub = pkt.as?(MQTT::Protocol::Publish)
             pub.payload.should eq("2".to_slice)
             puback(io, pub.packet_id)
+          else
+            fail "Expected a publish packet"
           end
           disconnect(io)
         end
@@ -124,6 +130,7 @@ module MqttSpecs
             10.times do |i|
               publish(publisher_io, topic: "a/b", payload: "#{i}".to_slice, qos: 0u8)
             end
+            pingpong(publisher_io)
             disconnect(publisher_io)
           end
 
@@ -132,6 +139,7 @@ module MqttSpecs
           end
           pubs.shuffle!
           pubs.each { |packet| puback(io, packet.packet_id) }
+          pingpong(io)
           disconnect(io)
         end
 
@@ -140,6 +148,7 @@ module MqttSpecs
           pub = read_packet(io).as(MQTT::Protocol::Publish)
           pub.dup?.should be_true
           pub.payload.should eq("9".to_slice)
+          pingpong(io)
           disconnect(io)
         end
       end

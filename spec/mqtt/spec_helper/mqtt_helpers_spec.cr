@@ -33,8 +33,6 @@ module MqttHelpers
     socket = with_client_socket(server)
     yield socket
   ensure
-    # Ensure fibers reading the socket are done
-    5.times { Fiber.yield }
     socket.try &.close
   end
 
@@ -119,6 +117,15 @@ module MqttHelpers
 
   def ping(io)
     MQTT::Protocol::PingReq.new.to_io(io)
+  end
+
+  def pingpong(io)
+    MQTT::Protocol::PingReq.new.to_io(io)
+    loop do
+      if pkt = MQTT::Protocol::Packet.from_io(io).as?(MQTT::Protocol::PingResp)
+        return pkt
+      end
+    end
   end
 
   def read_packet(io)
