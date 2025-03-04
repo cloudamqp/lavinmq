@@ -93,21 +93,6 @@ jobs:
           done
         if: startsWith(github.ref, 'refs/tags/v') && env.is_prerelease == 'false'
 
-      - name: Upload to Packagecloud head repo
-        run: |
-          set -eux
-          curl -fsSO -u "${{ secrets.packagecloud_token }}:" https://packagecloud.io/api/v1/distributions.json
-          ID=$(cut -d- -f1 <<< ${{ matrix.os }})
-          VERSION_ID=$(cut -d- -f2 <<< ${{ matrix.os }})
-          DIST_ID=$(jq ".rpm[] | select(.index_name == \"${ID}\").versions[] | select(.index_name == \"${VERSION_ID}\").id" distributions.json)
-          for PKG_FILE in $(find RPMS -name "*.rpm" | sort -u -t/ -k3)
-          do curl -fsS -u "${{ secrets.packagecloud_token }}:" -XPOST \
-                  -F "package[distro_version_id]=${DIST_ID}" \
-                  -F "package[package_file]=@${PKG_FILE}" \
-                  https://packagecloud.io/api/v1/repos/${{ github.repository }}-head/packages.json
-          done
-        if: github.event_name != 'pull_request'
-
       - name: Upload to Packagecloud pre-release repo
         run: |
           set -eux
