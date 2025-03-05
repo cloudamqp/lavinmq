@@ -247,6 +247,36 @@ describe LavinMQ::HTTP::ExchangesController do
       end
     end
 
+    it "should require expiration to be a number" do
+      with_http_server do |http, _|
+        body = %({
+        "properties": { "expiration": "foo" },
+        "routing_key": "rk",
+        "payload": "test",
+        "payload_encoding": "string"
+      })
+        response = http.post("/api/exchanges/%2f/amq.direct/publish", body: body)
+        response.status_code.should eq 400
+        body = JSON.parse(response.body)
+        body["reason"].as_s.should eq "Expiration not a number"
+      end
+    end
+
+    it "should require expiration to be a non-negative number" do
+      with_http_server do |http, _|
+        body = %({
+        "properties": { "expiration": -100 },
+        "routing_key": "rk",
+        "payload": "test",
+        "payload_encoding": "string"
+      })
+        response = http.post("/api/exchanges/%2f/amq.direct/publish", body: body)
+        response.status_code.should eq 400
+        body = JSON.parse(response.body)
+        body["reason"].as_s.should eq "Negative expiration not allowed"
+      end
+    end
+
     it "should require all args" do
       with_http_server do |http, s|
         s.vhosts["/"].declare_exchange("spechange", "topic", false, false)

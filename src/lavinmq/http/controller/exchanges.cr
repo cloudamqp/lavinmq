@@ -138,6 +138,15 @@ module LavinMQ
             unless properties && routing_key && payload && payload_encoding
               bad_request(context, "Fields 'properties', 'routing_key', 'payload' and 'payload_encoding' are required")
             end
+            if exp = properties["expiration"]?
+              if exp = (exp.as_i? || exp.as_s?.try(&.to_i?))
+                if exp.negative?
+                  bad_request(context, "Negative expiration not allowed")
+                end
+              else
+                bad_request(context, "Expiration not a number")
+              end
+            end
             case payload_encoding
             when "string"
               content = payload
