@@ -127,14 +127,21 @@ describe LavinMQ::VHost do
   it "should update queue expiration" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
-        ch.queue("qttl", args: AMQP::Client::Arguments.new({"x-expires" => 100}))
-        queue = s.vhosts["/"].queues["qttl"]
-        sleep 0.1.seconds
-        s.vhosts["/"].add_policy("qttl", "^.*$", "all", {"expires" => JSON::Any.new(200)}, 2_i8)
-        sleep 0.1.seconds
-        queue.closed?.should be_false
-        sleep 0.2.seconds
-        queue.closed?.should be_true
+        ch.queue("qttl", args: AMQP::Client::Arguments.new({"x-expires" => 1000}))
+        queue = s.vhosts["/"].queues["qttl"].as(LavinMQ::AMQP::Queue)
+        Fiber.yield
+        expire_before = queue.@expires
+        expire_before.should eq 1000
+        s.vhosts["/"].add_policy("qttl", "^.*$", "all", {"expires" => JSON::Any.new(100)}, 2_i8)
+        Fiber.yield
+        expire_after = queue.@expires
+        expire_after.should eq 100
+        select
+        when queue.@paused_change.receive?
+          fail "queue state not closed?" unless queue.closed?
+        when timeout 500.milliseconds
+          fail "queue not closed, probably not expired on time?"
+        end
       end
     end
   end

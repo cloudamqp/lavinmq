@@ -23,7 +23,7 @@ module MqttHelpers
     socket.tcp_keepalive_count = 3
     socket.tcp_keepalive_interval = 10
     socket.sync = true
-    socket.read_buffering = true
+    socket.read_buffering = false
     socket.buffer_size = 16384
     socket.read_timeout = 1.seconds
     socket
@@ -117,6 +117,15 @@ module MqttHelpers
 
   def ping(io)
     MQTT::Protocol::PingReq.new.to_io(io)
+  end
+
+  def pingpong(io)
+    MQTT::Protocol::PingReq.new.to_io(io)
+    loop do
+      if pkt = MQTT::Protocol::Packet.from_io(io).as?(MQTT::Protocol::PingResp)
+        return pkt
+      end
+    end
   end
 
   def read_packet(io)
