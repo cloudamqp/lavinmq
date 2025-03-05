@@ -82,7 +82,7 @@ jobs:
         run: crystal -v
 
       - name: Install dependencies
-        run: apt-get update && apt-get install -y liblz4-dev etcd-server
+        run: apt-get update && apt-get install -y liblz4-dev etcd-server etcd-client
 
       - name: Checkout
         uses: actions/checkout@v4
