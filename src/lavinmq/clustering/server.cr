@@ -75,6 +75,7 @@ module LavinMQ
         sha1 = Digest::SHA1.new
         hash = Bytes.new(sha1.digest_size)
         @files.each do |path, mfile|
+          sha1.reset
           if file = mfile
             begin
               file.reserve
@@ -83,10 +84,10 @@ module LavinMQ
               file.unreserve
             end
           else
+            next unless File.exists? path
             sha1.file path
           end
           sha1.final hash
-          sha1.reset
           yield({path, hash})
         end
       end
@@ -97,9 +98,13 @@ module LavinMQ
           if mfile = @files[path]
             yield mfile
           else
-            File.open(path) do |f|
-              f.read_buffering = false
-              yield f
+            if File.exists? path
+              File.open(path) do |f|
+                f.read_buffering = false
+                yield f
+              end
+            else
+              yield nil
             end
           end
         else
@@ -168,7 +173,7 @@ module LavinMQ
       rescue ex : IO::EOFError
         Log.info { "Follower disconnected" }
       rescue ex : IO::Error
-        Log.warn { "Follower disonnected: #{ex.message}" }
+        Log.warn(exception: ex) { "Follower disonnected: #{ex.message}" }
       ensure
         follower.try &.close
       end
