@@ -279,6 +279,10 @@ module LavinMQ
                       value: @amqp_server.followers.size,
                       type:  "gauge",
                       help:  "Amount of follower nodes connected"})
+        writer.write({name:  "clustering_max_lag",
+                      value: Config.instance.clustering_max_lag,
+                      type:  "gauge",
+                      help:  "Maximum allowed unsynced replicated messages"})
         @amqp_server.followers.each do |f|
           writer.write({name:   "follower_lag_in_bytes",
                         labels: {id: f.id.to_s(36)},
