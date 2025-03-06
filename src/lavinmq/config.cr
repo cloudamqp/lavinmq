@@ -140,6 +140,11 @@ module LavinMQ
         p.on("--default-user-only-loopback=BOOL", "Limit default user to only connect from loopback address") do |v|
           @default_user_only_loopback = {"true", "yes", "y", "1"}.includes? v.to_s
         end
+        p.on("--guest-only-loopback=BOOL", "(Deprecated) Limit default user to only connect from loopback address") do |v|
+          # TODO: guest-only-loopback was deprecated in 2.2.x, remove in 3.0
+          STDERR.puts "WARNING: 'guest_only_loopback' is deprecated, use '--default-user-only-loopback' instead"
+          @default_user_only_loopback = {"true", "yes", "y", "1"}.includes? v.to_s
+        end
         p.on("--clustering", "Enable clustering") do
           @clustering = true
         end
@@ -262,7 +267,7 @@ module LavinMQ
         when "default_user"               then @default_user = v
         when "default_password"           then @default_password = v
         when "default_user_only_loopback" then @default_user_only_loopback = true?(v)
-        when "guest_only_loopback"
+        when "guest_only_loopback" # TODO: guest_only_loopback was deprecated in 2.2.x, remove in 3.0
           STDERR.puts "WARNING: 'guest_only_loopback' is deprecated, use 'default_user_only_loopback' instead"
           @default_user_only_loopback = true?(v)
         else
