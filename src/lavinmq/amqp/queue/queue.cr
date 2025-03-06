@@ -775,7 +775,8 @@ module LavinMQ::AMQP
           expire_msg(env, :delivery_limit)
           return nil
         end
-        headers["x-delivery-count"] = @deliveries[sp] = delivery_count + 1
+        headers["x-delivery-count"] = delivery_count if delivery_count > 0 # x-delivery-count not included in first delivery
+        @deliveries[sp] = delivery_count + 1
         env.message.properties.headers = headers
       end
       env
