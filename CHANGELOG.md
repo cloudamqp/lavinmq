@@ -10,6 +10,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - x-delivery-count is no longer included in the first delivery of a message, and the count is equal to number of delivery attempts before current delivery [#977](https://github.com/cloudamqp/lavinmq/pull/977)
 
+### Changed
+- guest_only_loopback has been deprecated and replaced by default_user_only_loopback. guest_only_loopback will be removed in the next major release [#919](https://github.com/cloudamqp/lavinmq/pull/919)
+
+### Added
+- default_user and default_password is now configurable. They can be set in the config, as command-line arguments or as environment variables [#919](https://github.com/cloudamqp/lavinmq/pull/919)
+- Added the `/api/auth/hash_password` endpoint and `lavinmqctl hash_password` command to generate password hashes  [#919](https://github.com/cloudamqp/lavinmq/pull/919) 
+
 ## [2.2.0-rc.1] - 2025-01-16
 
 ### Added
