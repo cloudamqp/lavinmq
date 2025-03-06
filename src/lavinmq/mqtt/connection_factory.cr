@@ -55,7 +55,7 @@ module LavinMQ
       def authenticate(io, packet)
         return unless (username = packet.username) && (password = packet.password)
 
-        vhost = @config.default_mqtt_vhost
+        vhost = @config.@default_mqtt_vhost
         if split_pos = username.index(':')
           vhost = username[0, split_pos]
           username = username[split_pos + 1..]
