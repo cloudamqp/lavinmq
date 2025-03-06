@@ -302,8 +302,6 @@ module LavinMQ
         when "bind"                  then @mqtt_bind = v
         when "port"                  then @mqtt_port = v.to_i32
         when "tls_port"              then @mqtts_port = v.to_i32
-        when "tls_cert"              then @tls_cert_path = v
-        when "tls_key"               then @tls_key_path = v
         when "mqtt_unix_path"        then @mqtt_unix_path = v
         when "max_inflight_messages" then @max_inflight_messages = v.to_u16
         else
