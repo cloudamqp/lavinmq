@@ -212,4 +212,17 @@ describe LavinMQ::HTTP::UsersController do
       end
     end
   end
+
+  describe "PUT /api/auth/hash_password" do
+    it "should return hashed password" do
+      with_http_server do |http, _s|
+        body = %({
+        "password": "a_pasword_to_hash"
+      })
+        response = http.put("/api/auth/hash_password", body: body)
+        response.status_code.should eq 200
+        JSON.parse(response.body)["password_hash"].as_s.size.should eq 48
+      end
+    end
+  end
 end
