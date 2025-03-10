@@ -19,6 +19,7 @@ require "./amqp/connection_factory"
 require "./mqtt/connection_factory"
 require "./stats"
 require "./auth/chain"
+require "./global_counters"
 
 module LavinMQ
   class Server
@@ -30,6 +31,7 @@ module LavinMQ
     getter vhosts, users, data_dir, parameters
     getter? closed, flow
     include ParameterTarget
+    include GlobalCounters
 
     @start = Time.monotonic
     @closed = false

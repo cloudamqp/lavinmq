@@ -88,6 +88,7 @@ module LavinMQ
             writer = PrometheusWriter.new(context.response, prefix)
             overview_broker_metrics(vhosts, writer)
             overview_queue_metrics(vhosts, writer)
+            global_metrics(writer)
             custom_metrics(writer)
             gc_metrics(writer)
           end
@@ -152,8 +153,19 @@ module LavinMQ
                       value:  1,
                       help:   "System information",
                       labels: {
+                        "#{writer.prefix}_node"                 => System.hostname,
+                        "#{writer.prefix}_cluster"              => System.hostname,
+                        "#{writer.prefix}_cluster_permanent_id" => System.hostname,
+                      }})
+        writer.write({name:   "build_info",
+                      type:   "gauge",
+                      value:  1,
+                      help:   "Build information",
+                      labels: { # TODO
                         "#{writer.prefix}_version" => LavinMQ::VERSION,
-                        "#{writer.prefix}_cluster" => System.hostname,
+                        "crystal_version"          => Crystal::VERSION,
+                        "llvm_version"             => Crystal::LLVM_VERSION,
+                        "build_target"             => Crystal::TARGET_TRIPLE,
                       }})
 
         writer.write({name:  "connections_opened_total",
@@ -204,6 +216,25 @@ module LavinMQ
                       value: @amqp_server.mem_limit,
                       type:  "gauge",
                       help:  "Memory high watermark in bytes"})
+      end
+
+      private def global_metrics(writer)
+        writer.write({name:  "global_messages_delivered_total",
+                      value: @amqp_server.vhosts.sum { |_, v| v.message_details[:message_stats][:deliver] } + @amqp_server.global_messages_delivered_total,
+                      type:  "counter",
+                      help:  ""})
+        writer.write({name:  "global_messages_redelivered_total",
+                      value: @amqp_server.vhosts.sum { |_, v| v.message_details[:message_stats][:redeliver] } + @amqp_server.global_messages_redelivered_total,
+                      type:  "counter",
+                      help:  "Total number of messages redelivered to consumers"})
+        writer.write({name:  "global_messages_acknowledged_total",
+                      value: @amqp_server.vhosts.sum { |_, v| v.message_details[:message_stats][:ack] } + @amqp_server.global_messages_acknowledged_total,
+                      type:  "counter",
+                      help:  "Total number of messages acknowledged by consumers"})
+        writer.write({name:  "global_messages_confirmed_total",
+                      value: @amqp_server.vhosts.sum { |_, v| v.message_details[:message_stats][:confirm] } + @amqp_server.global_messages_confirmed_total,
+                      type:  "counter",
+                      help:  "Total number of messages confirmed to publishers"})
       end
 
       private def overview_queue_metrics(vhosts, writer)
