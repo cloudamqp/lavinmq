@@ -50,7 +50,7 @@ module LavinMQ
       if @config.clustering?
         etcd = Etcd.new(@config.clustering_etcd_endpoints)
         @runner = controller = Clustering::Controller.new(@config, etcd)
-        @replicator = Clustering::Server.new(@config, etcd, controller.id)
+        @replicator = Clustering::Server.new(@config, controller)
       else
         @replicator = Clustering::NoopServer.new
         @runner = StandaloneRunner.new

@@ -17,11 +17,14 @@ describe LavinMQ::Clustering::Client do
   add_etcd_around_each
 
   it "can stream changes" do
-    replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Etcd.new("localhost:12379"), 0)
+    controller = LavinMQ::Clustering::Controller.new(
+      LavinMQ::Config.instance,
+      LavinMQ::Etcd.new("localhost:12379"))
+    replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, controller)
     tcp_server = TCPServer.new("localhost", 0)
     spawn(replicator.listen(tcp_server), name: "repli server spec")
     config = LavinMQ::Config.new.tap &.data_dir = follower_data_dir
-    repli = LavinMQ::Clustering::Client.new(config, 1, replicator.password, proxy: false)
+    repli = LavinMQ::Clustering::Client.new(config, 1, controller.password, proxy: false)
     done = Channel(Nil).new
     spawn(name: "follow spec") do
       repli.follow("localhost", tcp_server.local_address.port)
@@ -94,11 +97,14 @@ describe LavinMQ::Clustering::Client do
   end
 
   it "can stream full file" do
-    replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Etcd.new("localhost:12379"), 0)
+    controller = LavinMQ::Clustering::Controller.new(
+      LavinMQ::Config.instance,
+      LavinMQ::Etcd.new("localhost:12379"))
+    replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, controller)
     tcp_server = TCPServer.new("localhost", 0)
     spawn(replicator.listen(tcp_server), name: "repli server spec")
     config = LavinMQ::Config.new.tap &.data_dir = follower_data_dir
-    repli = LavinMQ::Clustering::Client.new(config, 1, replicator.password, proxy: false)
+    repli = LavinMQ::Clustering::Client.new(config, 1, controller.password, proxy: false)
     done = Channel(Nil).new
     spawn(name: "follow spec") do
       repli.follow("localhost", tcp_server.local_address.port)
@@ -128,7 +134,9 @@ describe LavinMQ::Clustering::Client do
     config1.clustering_port = 5681
     config1.amqp_port = 5671
     config1.http_port = 15671
-    controller1 = LavinMQ::Clustering::Controller.new(config1)
+    controller1 = LavinMQ::Clustering::Controller.new(
+      config1,
+      LavinMQ::Etcd.new(config1.clustering_etcd_endpoints))
 
     config2 = LavinMQ::Config.new
     config2.data_dir = "/tmp/failover2"
@@ -137,7 +145,9 @@ describe LavinMQ::Clustering::Client do
     config2.clustering_port = 5682
     config2.amqp_port = 5672
     config2.http_port = 15672
-    controller2 = LavinMQ::Clustering::Controller.new(config2)
+    controller2 = LavinMQ::Clustering::Controller.new(
+      config2,
+      LavinMQ::Etcd.new(config2.clustering_etcd_endpoints))
 
     listen = Channel(String).new
     spawn(name: "etcd elect leader spec") do
