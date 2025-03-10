@@ -18,7 +18,6 @@ module LavinMQ
         if auth = cookie_auth(context) || basic_auth(context)
           username, password = auth
           if valid_auth?(username, password, context.request.remote_address)
-            @server.successful_auths &+= 1
             context.authenticated_username = username
             return call_next(context)
           end
@@ -78,7 +77,6 @@ module LavinMQ
       end
 
       private def unauthenticated(context)
-        @server.failed_auths &+= 1
         context.response.status_code = 401
       end
 

@@ -428,17 +428,6 @@ module LavinMQ
       end
     end
 
-    def io_metrics
-      if File.exists?("/proc/self/io")
-        io = File.open("/proc/self/io").tap &.read_buffering = false
-        metrics = Hash(String, Int64).new
-        while kv = io.gets.try &.split(":")
-          metrics[kv[0].strip] = kv[1].strip.to_i
-        end
-        metrics
-      end
-    end
-
     METRICS = {:user_time, :sys_time, :blocks_out, :blocks_in}
 
     {% for m in METRICS %}

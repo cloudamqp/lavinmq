@@ -1,7 +1,5 @@
 module LavinMQ
   module GlobalCounters
-    property successful_auths = 0
-    property failed_auths = 0
     property global_messages_delivered_total = 0
     property global_messages_redelivered_total = 0
     property global_messages_acknowledged_total = 0
