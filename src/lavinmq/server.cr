@@ -19,6 +19,7 @@ require "./amqp/connection_factory"
 require "./mqtt/connection_factory"
 require "./stats"
 require "./auth/chain"
+require "./global_counters"
 
 module LavinMQ
   class Server
@@ -30,6 +31,7 @@ module LavinMQ
     getter vhosts, users, data_dir, parameters
     getter? closed, flow
     include ParameterTarget
+    include GlobalCounters
 
     @start = Time.monotonic
     @closed = false
@@ -423,6 +425,17 @@ module LavinMQ
         return nil if l == "9223372036854771712\n" # Max in cgroup v1
         return l.to_i64?
       rescue File::NotFoundError
+      end
+    end
+
+    def io_metrics
+      if File.exists?("/proc/self/io")
+        io = File.open("/proc/self/io").tap &.read_buffering = false
+        metrics = Hash(String, Int64).new
+        while kv = io.gets.try &.split(":")
+          metrics[kv[0].strip] = kv[1].strip.to_i
+        end
+        metrics
       end
     end
 

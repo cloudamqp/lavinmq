@@ -87,7 +87,10 @@ module LavinMQ
           report(context.response) do
             writer = PrometheusWriter.new(context.response, prefix)
             overview_broker_metrics(vhosts, writer)
+            io_metrics(writer)
+            auth_metrics(writer)
             overview_queue_metrics(vhosts, writer)
+            global_metrics(writer)
             custom_metrics(writer)
             gc_metrics(writer)
           end
@@ -152,8 +155,19 @@ module LavinMQ
                       value:  1,
                       help:   "System information",
                       labels: {
+                        "#{writer.prefix}_node"                 => System.hostname,
+                        "#{writer.prefix}_cluster"              => System.hostname,
+                        "#{writer.prefix}_cluster_permanent_id" => System.hostname,
+                      }})
+        writer.write({name:   "build_info",
+                      type:   "gauge",
+                      value:  1,
+                      help:   "Build information",
+                      labels: { # TODO
                         "#{writer.prefix}_version" => LavinMQ::VERSION,
-                        "#{writer.prefix}_cluster" => System.hostname,
+                        "crystal_version"          => Crystal::VERSION,
+                        "llvm_version"             => Crystal::LLVM_VERSION,
+                        "build_target"             => Crystal::TARGET_TRIPLE,
                       }})
 
         writer.write({name:  "connections_opened_total",
@@ -204,6 +218,75 @@ module LavinMQ
                       value: @amqp_server.mem_limit,
                       type:  "gauge",
                       help:  "Memory high watermark in bytes"})
+      end
+
+      private def global_metrics(writer)
+        writer.write({name:  "global_messages_delivered_total",
+                      value: @amqp_server.vhosts.sum { |_, v| v.message_details[:message_stats][:deliver] } + @amqp_server.global_messages_delivered_total,
+                      type:  "counter",
+                      help:  ""})
+        writer.write({name:  "global_messages_redelivered_total",
+                      value: @amqp_server.vhosts.sum { |_, v| v.message_details[:message_stats][:redeliver] } + @amqp_server.global_messages_redelivered_total,
+                      type:  "counter",
+                      help:  "Total number of messages redelivered to consumers"})
+        writer.write({name:  "global_messages_acknowledged_total",
+                      value: @amqp_server.vhosts.sum { |_, v| v.message_details[:message_stats][:ack] } + @amqp_server.global_messages_acknowledged_total,
+                      type:  "counter",
+                      help:  "Total number of messages acknowledged by consumers"})
+        writer.write({name:  "global_messages_confirmed_total",
+                      value: @amqp_server.vhosts.sum { |_, v| v.message_details[:message_stats][:confirm] } + @amqp_server.global_messages_confirmed_total,
+                      type:  "counter",
+                      help:  "Total number of messages confirmed to publishers"})
+
+      end
+
+      private def io_metrics(writer)
+        # /proc/<procid>/io
+        if metrics = @amqp_server.io_metrics
+          writer.write({name:  "io_read_ops_total", # syscr ?
+                        value: metrics["syscr"],
+                        type:  "counter",
+                        help:  "Total number of I/O read operations"})
+          writer.write({name:  "io_read_bytes_total", # read_bytes ?
+                        value: metrics["read_bytes"],
+                        type:  "counter",
+                        help:  "Total number of I/O bytes read"})
+          writer.write({name:  "io_write_ops_total", # syscw ?
+                        value: metrics["syscw"],
+                        type:  "counter",
+                        help:  "Total number of I/O write operations"})
+          writer.write({name:  "io_write_bytes_total", # write_bytes ?
+                        value: metrics["write_bytes"],
+                        type:  "counter",
+                        help:  "Total number of I/O bytes written"})
+          writer.write({name:  "io_sync_ops_total", # ?
+                        value: 0,
+                        type:  "counter",
+                        help:  "Total number of I/O sync operations"})
+          writer.write({name:  "io_seek_ops_total", # ?
+                        value: 0,
+                        type:  "counter",
+                        help:  "Total number of I/O seek operations"})
+          writer.write({name:  "io_reopen_ops_total", # ?
+                        value: 0,
+                        type:  "counter",
+                        help:  "Total number of times files have been reopened"})
+        end
+      end
+
+      private def auth_metrics(writer)
+        writer.write({name:  "auth_attempts_total", #  ?
+                      value: @amqp_server.successful_auths + @amqp_server.failed_auths,
+                      type:  "counter",
+                      help:  "Total number of authentication attempts"})
+        writer.write({name:  "auth_attempts_succeeded_total", #  ?
+                      value: @amqp_server.successful_auths,
+                      type:  "counter",
+                      help:  "Total number of successful authentication attempts"})
+        writer.write({name:  "auth_attempts_failed_total", #  ?
+                      value: @amqp_server.failed_auths,
+                      type:  "counter",
+                      help:  "Total number of failed authentication attempts"})
       end
 
       private def overview_queue_metrics(vhosts, writer)
