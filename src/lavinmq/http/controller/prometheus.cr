@@ -237,7 +237,6 @@ module LavinMQ
                       value: @amqp_server.vhosts.sum { |_, v| v.message_details[:message_stats][:confirm] } + @amqp_server.global_messages_confirmed_total,
                       type:  "counter",
                       help:  "Total number of messages confirmed to publishers"})
-
       end
 
       private def io_metrics(writer)
