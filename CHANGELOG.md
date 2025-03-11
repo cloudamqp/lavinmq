@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- x-delivery-count is no longer included in the first delivery of a message, and the count is equal to number of delivery attempts before current delivery [#977](https://github.com/cloudamqp/lavinmq/pull/977)
+
 ## [2.2.0-rc.1] - 2025-01-16
 
 ### Added
