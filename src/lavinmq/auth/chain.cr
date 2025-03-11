@@ -1,5 +1,6 @@
 require "./authenticator"
 require "./authenticators/basic"
+require "./authenticators/rabbit_http_auth"
 
 module LavinMQ
   module Auth
@@ -20,6 +21,8 @@ module LavinMQ
             case backend
             when "basic"
               authenticators << BasicAuthenticator.new(users)
+            when "http"
+              authenticators << RabbitBackendAuthenticator.new(users)
             else
               raise "Unsupported authentication backend: #{backend}"
             end
