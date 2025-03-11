@@ -816,6 +816,11 @@ module LavinMQ::AMQP
         if has_expired?(sp, requeue: true) # guarantee to not deliver expired messages
           expire_msg(sp, :expired)
         else
+          if delivery_limit = @delivery_limit
+            if @deliveries.fetch(sp, 0) >= delivery_limit
+              return expire_msg(sp, :delivery_limit)
+            end
+          end
           @msg_store_lock.synchronize do
             @msg_store.requeue(sp)
           end

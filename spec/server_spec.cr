@@ -969,7 +969,6 @@ describe LavinMQ::Server do
         msg.properties.headers.not_nil!["x-delivery-count"].as(Int32).should eq 1
         msg.reject(requeue: true)
         Fiber.yield
-        q.get(no_ack: false).should be_nil
         s.vhosts["/"].queues["delivery_limit"].empty?.should be_true
       end
     end
