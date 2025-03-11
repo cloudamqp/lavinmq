@@ -110,7 +110,8 @@ module LavinMQ
       def authenticate(socket, remote_address, start_ok, log)
         username, password = credentials(start_ok)
         user = @authenticator.authenticate(username, password)
-        return user if user && guest_only_loopback?(remote_address, user)
+        return user if user && default_user_only_loopback?(remote_address, user)
+
         if user.nil?
           log.warn { "User \"#{username}\" not found" }
         else
@@ -187,9 +188,9 @@ module LavinMQ
         nil
       end
 
-      private def guest_only_loopback?(remote_address, user) : Bool
-        return true unless user.name == "guest"
-        return true unless Config.instance.guest_only_loopback?
+      private def default_user_only_loopback?(remote_address, user) : Bool
+        return true unless user.name == Config.instance.default_user
+        return true unless Config.instance.default_user_only_loopback?
         remote_address.loopback?
       end
 
