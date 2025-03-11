@@ -963,10 +963,10 @@ describe LavinMQ::Server do
         q = ch.queue("delivery_limit", args: args)
         q.publish "m1"
         msg = q.get(no_ack: false).not_nil!
-        msg.properties.headers.not_nil!["x-delivery-count"].as(Int32).should eq 1
+        msg.properties.headers.not_nil!.has_key?("x-delivery-count").should be_false # x-delivery-count is not set on first delivery
         msg.reject(requeue: true)
         msg = q.get(no_ack: false).not_nil!
-        msg.properties.headers.not_nil!["x-delivery-count"].as(Int32).should eq 2
+        msg.properties.headers.not_nil!["x-delivery-count"].as(Int32).should eq 1
         msg.reject(requeue: true)
         Fiber.yield
         q.get(no_ack: false).should be_nil
