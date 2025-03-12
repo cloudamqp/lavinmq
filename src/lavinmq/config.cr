@@ -323,6 +323,7 @@ module LavinMQ
         when "tls_port"              then @mqtts_port = v.to_i32
         when "mqtt_unix_path"        then @mqtt_unix_path = v
         when "max_inflight_messages" then @max_inflight_messages = v.to_u16
+        when "default_mqtt_vhost"    then @default_mqtt_vhost = v
         else
           STDERR.puts "WARNING: Unrecognized configuration 'mqtt/#{config}'"
         end
