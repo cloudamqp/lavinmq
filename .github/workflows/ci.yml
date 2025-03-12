@@ -284,7 +284,7 @@ jobs:
         uses: ruby/setup-ruby@v1
         with:
           working-directory: bunny
-          ruby-version: 3.3.5
+          ruby-version: ruby
 
       - name: Run specs
         run: |
