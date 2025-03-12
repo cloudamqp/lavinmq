@@ -285,11 +285,13 @@ jobs:
         with:
           working-directory: bunny
           ruby-version: 3.3.5
-          bundler-cache: true
 
       - name: Run specs
         run: |
           cd bunny
+          sed -i /rabbitmq_http_api_client/d Gemfile
+          bundle add rabbitmq_http_api_client --version=">= 3" --group=test --require=rabbitmq/http/client
+          bundle install
           bundle exec rspec \
             --pattern "spec/*/integration/*_spec.rb, spec/issues/*_spec.rb" \
             --exclude-pattern "**/*/tls_*, **/*/connection_recovery_*, **/*/default_queue_type*"
