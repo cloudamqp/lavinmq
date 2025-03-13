@@ -420,7 +420,7 @@ module LavinMQ
                           help:   "Sum of ready and unacknowledged messages - total queue depth"})
             writer.write({name:   "detailed_queue_deduplication",
                           value:  q.dedup_count,
-                          type:   "count",
+                          type:   "counter",
                           labels: labels,
                           help:   "Number of deduplicated messages for this queue"})
           end
@@ -444,9 +444,9 @@ module LavinMQ
         vhosts.each do |vhost|
           vhost.exchanges.each_value do |e|
             labels = {exchange: e.name, vhost: vhost.name}
-            writer.write({name:   "detailed_queue_deduplication",
+            writer.write({name:   "detailed_exchange_deduplication",
                           value:  e.dedup_count,
-                          type:   "count",
+                          type:   "counter",
                           labels: labels,
                           help:   "Number of deduplicated messages for this queue"})
           end
