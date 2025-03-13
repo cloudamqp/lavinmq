@@ -1,7 +1,7 @@
 ---
 openapi: 3.0.3
 info:
-  version: v2.2.0-rc.1
+  version: v2.2.0
   title: LavinMQ HTTP API
   description: HTTP API to programmatically manage all aspects of LavinMQ.
   contact:

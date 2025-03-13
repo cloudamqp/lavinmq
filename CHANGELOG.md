@@ -7,38 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-- x-delivery-count is no longer included in the first delivery of a message, and the count is equal to number of delivery attempts before current delivery [#977](https://github.com/cloudamqp/lavinmq/pull/977)
-
-### Changed
-- guest_only_loopback has been deprecated and replaced by default_user_only_loopback. guest_only_loopback will be removed in the next major release [#919](https://github.com/cloudamqp/lavinmq/pull/919)
+## [2.2.0] - 2025-03-13
 
 ### Added
-- default_user and default_password is now configurable. They can be set in the config, as command-line arguments or as environment variables [#919](https://github.com/cloudamqp/lavinmq/pull/919)
-- Added the `/api/auth/hash_password` endpoint and `lavinmqctl hash_password` command to generate password hashes  [#919](https://github.com/cloudamqp/lavinmq/pull/919) 
-
-## [2.2.0-rc.1] - 2025-01-16
-
-### Added
-
-- MQTT 3.1.1 Support [#766](https://github.com/cloudamqp/lavinmq/pull/766)
-- Support for message deduplication on exchanges and queues [#854](https://github.com/cloudamqp/lavinmq/pull/854)
-- Added filtering for streams [#893](https://github.com/cloudamqp/lavinmq/pull/893)
-- Add priority on journald log format [#950](https://github.com/cloudamqp/lavinmq/pull/950)
-- Add GC metrics to prometheus endpoints [#954](https://github.com/cloudamqp/lavinmq/pull/954)
-- Add message rates to exchanges view [#929](https://github.com/cloudamqp/lavinmq/pull/929)
-- Add disk space used to /queues [#930](https://github.com/cloudamqp/lavinmq/pull/930)
-
+- Implemented support for MQTT 3.1.1. [#766](https://github.com/cloudamqp/lavinmq/pull/766)
+- Introduced message deduplication on exchanges and queues. [#854](https://github.com/cloudamqp/lavinmq/pull/854)
+- Added filtering capabilities for streams. [#893](https://github.com/cloudamqp/lavinmq/pull/893)
+- Added garbage collection (GC) metrics to Prometheus endpoints. [#954](https://github.com/cloudamqp/lavinmq/pull/954)
+- Incorporated message rates into the exchanges view. [#929](https://github.com/cloudamqp/lavinmq/pull/929)
+- Displayed disk space usage in the `/queues` endpoint. [#930](https://github.com/cloudamqp/lavinmq/pull/930)
+- Introduced configurability for `default_user` and `default_password`. These can now be set in the configuration file, as command-line arguments, or as environment variables. [#919](https://github.com/cloudamqp/lavinmq/pull/919)
+- Added the `/api/auth/hash_password` endpoint and the `lavinmqctl hash_password` command to facilitate password hash generation. [#919](https://github.com/cloudamqp/lavinmq/pull/919)
+- Enhanced `lavinmqperf` with a new queue-count test scenario. [#955](https://github.com/cloudamqp/lavinmq/pull/955)
+- Added tooltips for the details table to improve user experience. [#925](https://github.com/cloudamqp/lavinmq/pull/925)
 
 ### Changed
-
-- channel_max negotiation is respected and 0 is treated as unlimited
-- log and re-raise error if load unexpectedly fails [#933](https://github.com/cloudamqp/lavinmq/pull/933)
+- Ensured that `channel_max` negotiation is respected, treating a value of 0 as unlimited.
+- Implemented logging and re-raising of errors if loading unexpectedly fails. [#933](https://github.com/cloudamqp/lavinmq/pull/933)
+- Included priority settings in the journald log format. [#950](https://github.com/cloudamqp/lavinmq/pull/950)
+- Deprecated `guest_only_loopback` in favor of `default_user_only_loopback`; `guest_only_loopback` will be removed in the next major release. [#919](https://github.com/cloudamqp/lavinmq/pull/919)
 
 ### Fixed
+- Queues now expire `TTL` milliseconds after the last consumer disconnects. [#924](https://github.com/cloudamqp/lavinmq/pull/924)
+- Prevented LavinMQ from freezing when closing consumers and channels. [#947](https://github.com/cloudamqp/lavinmq/pull/947)
+- `x-delivery-count` is now excluded from the initial delivery of a message; the count accurately reflects the number of delivery attempts prior to the current delivery. [#977](https://github.com/cloudamqp/lavinmq/pull/977)
+- Resolved an issue where follower nodes unnecessarily resynchronized identical files during full syncs due to mismatched hash calculations. [#963](https://github.com/cloudamqp/lavinmq/pull/963)
+- Validated that the `expiration` parameter is a non-negative number when publishing via the HTTP API. [#969](https://github.com/cloudamqp/lavinmq/pull/969)
+- Implemented handling for missing files during follower synchronization. [#968](https://github.com/cloudamqp/lavinmq/pull/968)
 
-- Queue should expire TTL milliseconds after last consumer left [#924](https://github.com/cloudamqp/lavinmq/pull/924)
-- Prevent lavinmq from freezing when closing consumers and channels [#947](https://github.com/cloudamqp/lavinmq/pull/947)
+## [2.2.0-rc.1] - 2025-02-21
+
+See [v2.2.0-rc.1 Release Notes](https://github.com/cloudamqp/lavinmq/releases/tag/v2.2.0-rc.1) for changes in this pre-release
 
 ## [2.1.0] - 2025-01-16
 
