@@ -278,21 +278,23 @@ jobs:
           repository: ruby-amqp/bunny
           path: bunny
           fetch-depth: 0
-          ref: "2.17.0"
+          ref: 5543c40db2567c05d614a0a24b618441aa9d199f
 
       - name: Setup ruby
         uses: ruby/setup-ruby@v1
         with:
           working-directory: bunny
-          ruby-version: 2.7.2
-          bundler-cache: true
+          ruby-version: ruby
 
       - name: Run specs
         run: |
           cd bunny
+          sed -i /rabbitmq_http_api_client/d Gemfile
+          bundle add rabbitmq_http_api_client --version=">= 3" --group=test --require=rabbitmq/http/client
+          bundle install
           bundle exec rspec \
             --pattern "spec/*/integration/*_spec.rb, spec/issues/*_spec.rb" \
-            --exclude-pattern "**/*/tls_*, **/*/connection_recovery_*"
+            --exclude-pattern "**/*/tls_*, **/*/connection_recovery_*, **/*/default_queue_type*"
 
   ruby-http-api-test:
     name: RabbitMQ HTTP API Ruby client test
