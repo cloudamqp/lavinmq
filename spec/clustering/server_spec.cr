@@ -5,6 +5,18 @@ require "../../src/lavinmq/clustering/server"
 describe LavinMQ::Clustering::Server do
   add_etcd_around_each
 
+  describe "#password" do
+    it "should always be read from etcd" do
+      etcd = LavinMQ::Etcd.new("localhost:12379")
+      server = LavinMQ::Clustering::Server.new(
+        LavinMQ::Config.instance, etcd, 0)
+      etcd.put(server.secret_key, "foo")
+      server.password.should eq "foo"
+      etcd.put(server.secret_key, "bar")
+      server.password.should eq "bar"
+    end
+  end
+
   describe "#files_with_hash" do
     describe "for MFile" do
       it "should use mfile buffer when calculating hash" do

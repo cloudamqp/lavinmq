@@ -28,7 +28,6 @@ module LavinMQ
 
       @lock = Mutex.new(:unchecked)
       @followers = Array(Follower).new(4)
-      @password : String
       @files = Hash(String, MFile?).new
       @dirty_isr = true
       @id : Int32
@@ -38,7 +37,7 @@ module LavinMQ
         Log.info { "ID: #{@id.to_s(36)}" }
         @config = config
         @data_dir = @config.data_dir
-        @password = password
+        password # generate and set password
       end
 
       def clear
@@ -118,15 +117,17 @@ module LavinMQ
         end
       end
 
+      def secret_key
+        "#{@config.clustering_etcd_prefix}/clustering_secret"
+      end
+
       def password : String
-        key = "#{@config.clustering_etcd_prefix}/clustering_secret"
-        @etcd.get(key) ||
-          begin
-            Log.info { "Generating new clustering secret" }
-            secret = Random::Secure.base64(32)
-            @etcd.put(key, secret)
-            secret
-          end
+        @etcd.get(secret_key) || begin
+          Log.info { "Generating new clustering secret" }
+          secret = Random::Secure.base64(32)
+          @etcd.put(secret_key, secret)
+          secret
+        end
       end
 
       @listeners = Array(TCPServer).new(1)
@@ -143,7 +144,7 @@ module LavinMQ
       private def handle_socket(socket : TCPSocket)
         Log.context.set(follower: socket.remote_address.to_s)
         follower = Follower.new(socket, @data_dir, self)
-        follower.negotiate!(@password)
+        follower.negotiate!(password)
         if follower.id == @id
           Log.error { "Disconnecting follower with the clustering id of the leader" }
           return
