@@ -140,6 +140,7 @@ module LavinMQ
           protocol:          "MQTT 3.1.1",
           client_id:         @client_id,
           name:              @name,
+          timeout:           @keepalive,
           connected_at:      @connected_at,
           state:             state,
           ssl:               @connection_info.ssl?,
