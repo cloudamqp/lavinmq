@@ -105,6 +105,16 @@ module LavinMQ
           @socket.flush
           @send_oct_count += packet.bytesize
         end
+        case packet
+        when MQTT::Publish
+          if packet.dup?
+            vhost.event_tick(EventType::ClientRedeliver)
+          else
+            vhost.event_tick(EventType::ClientDeliver)
+          end
+        when MQTT::PubAck
+          vhost.event_tick(EventType::ClientPublishConfirm)
+        end
       end
 
       def receive_pingreq(packet : MQTT::PingReq)
@@ -113,6 +123,7 @@ module LavinMQ
 
       def recieve_publish(packet : MQTT::Publish)
         @broker.publish(packet)
+        vhost.event_tick(EventType::ClientPublish)
         # Ok to not send anything if qos = 0 (fire and forget)
         if packet.qos > 0 && (packet_id = packet.packet_id)
           send(MQTT::PubAck.new(packet_id))
@@ -121,6 +132,7 @@ module LavinMQ
 
       def recieve_puback(packet : MQTT::PubAck)
         @broker.sessions[@client_id].ack(packet)
+        vhost.event_tick(EventType::ClientAck)
       end
 
       def recieve_subscribe(packet : MQTT::Subscribe)
