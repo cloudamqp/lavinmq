@@ -86,7 +86,7 @@ module LavinMQ
         p.banner = "Usage: #{PROGRAM_NAME} [arguments]"
         p.on("-c CONF", "--config=CONF", "Config file (INI format)") { |v| @config_file = v }
         p.on("-D DATADIR", "--data-dir=DATADIR", "Data directory") { |v| @data_dir = v }
-        p.on("-b BIND", "--bind=BIND", "IP address that both the AMQP and HTTP servers will listen on (default: 127.0.0.1)") do |v|
+        p.on("-b BIND", "--bind=BIND", "IP address that the AMQP, MQTT and HTTP servers will listen on (default: 127.0.0.1)") do |v|
           @amqp_bind = v
           @http_bind = v
           @mqtt_bind = v
