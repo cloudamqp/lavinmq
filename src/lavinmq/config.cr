@@ -89,6 +89,7 @@ module LavinMQ
         p.on("-b BIND", "--bind=BIND", "IP address that both the AMQP and HTTP servers will listen on (default: 127.0.0.1)") do |v|
           @amqp_bind = v
           @http_bind = v
+          @mqtt_bind = v
         end
         p.on("-p PORT", "--amqp-port=PORT", "AMQP port to listen on (default: 5672)") do |v|
           @amqp_port = v.to_i
