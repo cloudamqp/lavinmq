@@ -106,6 +106,9 @@ module LavinMQ
         p.on("--mqtts-port=PORT", "MQTTS port to listen on (default: 8883)") do |v|
           @mqtts_port = v.to_i
         end
+        p.on("--mqtt-bind=BIND", "IP address that the MQTT server will listen on (default: 127.0.0.1)") do |v|
+          @mqtt_bind = v
+        end
         p.on("--http-port=PORT", "HTTP port to listen on (default: 15672)") do |v|
           @http_port = v.to_i
         end
