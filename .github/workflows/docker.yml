@@ -12,8 +12,6 @@ on:
       - views/**
       - openapi/**
   push:
-    branches:
-      - main
     tags:
       - 'v*'
     paths:
@@ -30,6 +28,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   main:
+    if: "!contains(github.ref, '-rc')" # Skip the job if the tag includes '-rc'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -44,8 +43,7 @@ jobs:
         with:
           images: cloudamqp/lavinmq
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=semver,pattern={{version}}
+            type=semver,pattern={{version}},value=latest
             type=ref,event=pr
 
       - name: Set up Depot CLI
