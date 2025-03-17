@@ -14,6 +14,24 @@ module LavinMQ
 
     getter endpoints
 
+    # Sets value if key doesn't exist
+    # Return the value that was set or the value that was already stored
+    def put_or_get(key, value) : String
+      compare = %({"target":"CREATE","key":"#{Base64.strict_encode key}","create_revision":"0"})
+      put = %({"requestPut":{"key":"#{Base64.strict_encode key}","value":"#{Base64.strict_encode value}"}})
+      get = %{{"requestRange":{"key":"#{Base64.strict_encode key}"}}}
+      request = %({"compare":[#{compare}],"success":[#{put}],"failure":[#{get}]})
+      json = post("/v3/kv/txn", request)
+
+      if stored_value = json.dig?("responses", 0, "response_range", "kvs", 0, "value").try &.as_s
+        return Base64.decode_string stored_value
+      elsif json.dig("responses", 0, "response_put")
+        return value
+      end
+
+      raise Error.new("key #{key} not set")
+    end
+
     def get(key) : String?
       json = post("/v3/kv/range", %({"key":"#{Base64.strict_encode key}"}))
       if value = json.dig?("kvs", 0, "value").try(&.as_s)

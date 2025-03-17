@@ -16,6 +16,28 @@ describe LavinMQ::Etcd do
     end
   end
 
+  describe "#put_or_get" do
+    it "should set and return value if key is non-existent" do
+      cluster = EtcdCluster.new(1)
+      cluster.run do
+        etcd = LavinMQ::Etcd.new(cluster.endpoints)
+        etcd.del("foo")
+        etcd.put_or_get("foo", "bar").should eq "bar"
+        etcd.get("foo").should eq "bar"
+      end
+    end
+
+    it "should get existing value if key exists" do
+      cluster = EtcdCluster.new(1)
+      cluster.run do
+        etcd = LavinMQ::Etcd.new(cluster.endpoints)
+        etcd.put("foo", "bar")
+        etcd.put_or_get("foo", "baz").should eq "bar"
+        etcd.get("foo").should eq "bar"
+      end
+    end
+  end
+
   it "can watch" do
     cluster = EtcdCluster.new(1)
     cluster.run do
