@@ -86,9 +86,10 @@ module LavinMQ
         p.banner = "Usage: #{PROGRAM_NAME} [arguments]"
         p.on("-c CONF", "--config=CONF", "Config file (INI format)") { |v| @config_file = v }
         p.on("-D DATADIR", "--data-dir=DATADIR", "Data directory") { |v| @data_dir = v }
-        p.on("-b BIND", "--bind=BIND", "IP address that both the AMQP and HTTP servers will listen on (default: 127.0.0.1)") do |v|
+        p.on("-b BIND", "--bind=BIND", "IP address that the AMQP, MQTT and HTTP servers will listen on (default: 127.0.0.1)") do |v|
           @amqp_bind = v
           @http_bind = v
+          @mqtt_bind = v
         end
         p.on("-p PORT", "--amqp-port=PORT", "AMQP port to listen on (default: 5672)") do |v|
           @amqp_port = v.to_i
@@ -104,6 +105,9 @@ module LavinMQ
         end
         p.on("--mqtts-port=PORT", "MQTTS port to listen on (default: 8883)") do |v|
           @mqtts_port = v.to_i
+        end
+        p.on("--mqtt-bind=BIND", "IP address that the MQTT server will listen on (default: 127.0.0.1)") do |v|
+          @mqtt_bind = v
         end
         p.on("--http-port=PORT", "HTTP port to listen on (default: 15672)") do |v|
           @http_port = v.to_i
