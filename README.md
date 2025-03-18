@@ -60,6 +60,16 @@ EOF
 sudo dnf install lavinmq
 ```
 
+### Archlinux
+
+The package is available on [AUR](https://aur.archlinux.org/packages/lavinmq).
+
+```sh
+yay -S lavinmq
+```
+
+Then use systemctl to start/stop/enable/disable it, e.g. `systemctl start lavinmq`.
+
 ## Usage
 
 LavinMQ only requires one argument, and it's a path to a data directory.
