@@ -14,6 +14,7 @@ describe LavinMQ::VHost do
     "max-length"         => JSON::Any.new(10_i64),
     "alternate-exchange" => JSON::Any.new("dead-letters"),
     "unsupported"        => JSON::Any.new("unsupported"),
+    "delivery-limit"     => JSON::Any.new(10_i64),
   }
 
   it "should be able to add policy" do
@@ -300,6 +301,24 @@ describe LavinMQ::VHost do
         sleep 10.milliseconds
         vhost.queues["test1"].as(LavinMQ::AMQP::Queue).@max_length.should eq 1
         vhost.queues["test2"].as(LavinMQ::AMQP::Queue).@max_length.should eq 11
+      end
+    end
+
+    it "should use the lowest value for delivery-limit" do
+      PoliciesSpec.with_vhost do |vhost|
+        vhost.queues["test1"] = LavinMQ::AMQP::Queue.new(vhost, "test1", arguments: LavinMQ::AMQP::Table.new({"x-delivery-limit" => 1_i64}))
+        vhost.queues["test2"] = LavinMQ::AMQP::Queue.new(vhost, "test2", arguments: LavinMQ::AMQP::Table.new({"x-delivery-limit" => 11_i64}))
+        vhost.queues["test3"] = LavinMQ::AMQP::Queue.new(vhost, "test3")
+        vhost.add_policy("test", ".*", "all", definitions, 100_i8)
+        sleep 10.milliseconds
+        vhost.queues["test1"].as(LavinMQ::AMQP::Queue).@delivery_limit.should eq 1
+        vhost.queues["test2"].as(LavinMQ::AMQP::Queue).@delivery_limit.should eq 10
+        vhost.queues["test3"].as(LavinMQ::AMQP::Queue).@delivery_limit.should eq 10
+        vhost.delete_policy("test")
+        sleep 10.milliseconds
+        vhost.queues["test1"].as(LavinMQ::AMQP::Queue).@delivery_limit.should eq 1
+        vhost.queues["test2"].as(LavinMQ::AMQP::Queue).@delivery_limit.should eq 11
+        vhost.queues["test3"].as(LavinMQ::AMQP::Queue).@delivery_limit.should eq nil
       end
     end
   end
