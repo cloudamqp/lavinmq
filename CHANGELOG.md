@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Multiple nodes could generate and set clustering secret, causing the leader to use another secret than the followers. [#998](https://github.com/cloudamqp/lavinmq/pull/998)
+
 ## [2.2.0] - 2025-03-13
 
 ### Added

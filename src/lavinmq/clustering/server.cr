@@ -120,13 +120,12 @@ module LavinMQ
 
       def password : String
         key = "#{@config.clustering_etcd_prefix}/clustering_secret"
-        @etcd.get(key) ||
-          begin
-            Log.info { "Generating new clustering secret" }
-            secret = Random::Secure.base64(32)
-            @etcd.put(key, secret)
-            secret
-          end
+        secret = Random::Secure.base64(32)
+        stored_secret = @etcd.put_or_get(key, secret)
+        if stored_secret == secret
+          Log.info { "Generated new clustering secret" }
+        end
+        stored_secret
       end
 
       @listeners = Array(TCPServer).new(1)
