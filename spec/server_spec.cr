@@ -959,7 +959,7 @@ describe LavinMQ::Server do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         args = AMQP::Client::Arguments.new
-        args["x-delivery-limit"] = 2
+        args["x-delivery-limit"] = 1
         q = ch.queue("delivery_limit", args: args)
         q.publish "m1"
         msg = q.get(no_ack: false).not_nil!
