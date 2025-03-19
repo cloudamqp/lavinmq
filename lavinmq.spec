@@ -3,7 +3,7 @@ Summary: Message queue server that implements the AMQP 0-9-1 protocol
 Version: 2.0.0
 Release: 1%{?dist}
 
-License: ASL 2.0
+License: Apache 2.0
 BuildRequires: systemd-rpm-macros crystal curl help2man lz4-devel openssl-devel
 Requires(pre): shadow-utils
 Suggests: etcd
