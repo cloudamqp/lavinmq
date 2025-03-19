@@ -789,7 +789,7 @@ module LavinMQ::AMQP
     end
 
     private def with_delivery_count_header(env) : Envelope?
-      if limit = @delivery_limit
+      if @delivery_limit
         sp = env.segment_position
         headers = env.message.properties.headers || AMQP::Table.new
         delivery_count = @deliveries.fetch(sp, 0)
