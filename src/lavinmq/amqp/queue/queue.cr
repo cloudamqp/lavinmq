@@ -226,7 +226,9 @@ module LavinMQ::AMQP
         when "dead-letter-routing-key"
           @dlrk ||= v.as_s
         when "delivery-limit"
-          @delivery_limit ||= v.as_i64
+          unless @delivery_limit.try &.< v.as_i64
+            @delivery_limit = v.as_i64
+          end
         when "federation-upstream"
           @vhost.upstreams.try &.link(v.as_s, self)
         when "federation-upstream-set"
