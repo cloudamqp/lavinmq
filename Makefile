@@ -154,8 +154,7 @@ uninstall:
 	$(RM) $(DESTDIR)$(MANDIR)/man1/lavinmq{,ctl,perf}.1
 	$(RM) $(DESTDIR)$(SYSCONFDIR)/lavinmq/lavinmq.ini
 	$(RM) $(DESTDIR)$(UNITDIR)/lavinmq.service
-	$(RM) $(DESTDIR)$(DOCDIR)/{lavinmq,README.md,CHANGELOG.md,NOTICE}
-	$(RM) $(DESTDIR)$(SHAREDSTATEDIR)/lavinmq
+	$(RM) -r $(DESTDIR)$(DOCDIR)/lavinmq
 
 .PHONY: rpm
 rpm:
