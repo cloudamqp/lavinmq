@@ -25,9 +25,7 @@ make
 make install DESTDIR=%{buildroot} UNITDIR=%{_unitdir}
 
 %pre
-getent group %{name} >/dev/null || groupadd -r %{name}
-getent passwd %{name} >/dev/null || \
-    useradd -r -g %{name} -d /nonexistent -s /sbin/nologin %{name}
+useradd --system --user-group --home %{_sharedstatedir}/%{name} %{name}
 exit 0
 
 %post
