@@ -20,6 +20,10 @@ shards:
     git: https://github.com/84codes/mqtt-protocol.cr.git
     version: 0.2.0+git.commit.3f82ee85d029e6d0505cbe261b108e156df4e598
 
+  perf_tools:
+    git: https://github.com/crystal-lang/perf-tools.git
+    version: 0.1.0+git.commit.bf884bc85431f8b446ae3b50e250d9a5cca262ac
+
   systemd:
     git: https://github.com/84codes/systemd.cr.git
     version: 2.0.0
