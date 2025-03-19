@@ -145,8 +145,8 @@ install: $(BINS) $(MANPAGES) extras/lavinmq.ini extras/lavinmq.service README.md
 	install -D -m 0644 extras/lavinmq.service $(DESTDIR)$(UNITDIR)/lavinmq.service
 	install -D -m 0644 -t $(DESTDIR)$(DOCDIR)/lavinmq README.md NOTICE
 	install -D -m 0644 CHANGELOG.md $(DESTDIR)$(DOCDIR)/lavinmq/changelog
-	install -d -m 0755 $(DESTDIR)$(SHAREDSTATEDIR)/lavinmq
-	-useradd --system --user-group --home $(SHAREDSTATEDIR)/lavinmq lavinmq
+	getent passwd lavinmq >/dev/null || useradd --system --user-group --home $(SHAREDSTATEDIR)/lavinmq lavinmq
+	install -d -m 0750 -o lavinmq -g lavinmq $(DESTDIR)$(SHAREDSTATEDIR)/lavinmq
 
 .PHONY: uninstall
 uninstall:
