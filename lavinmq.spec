@@ -25,8 +25,8 @@ make
 make install DESTDIR=%{buildroot} UNITDIR=%{_unitdir}
 
 %pre
-useradd --system --user-group --home %{_sharedstatedir}/%{name} %{name}
-exit 0
+getent passwd %{name} >/dev/null || \
+    useradd --system --user-group --home %{_sharedstatedir}/%{name} %{name}
 
 %post
 %systemd_post %{name}.service
