@@ -5,8 +5,9 @@ VIEW_SOURCES := $(wildcard views/*.ecr)
 VIEW_TARGETS := $(patsubst views/%.ecr,static/views/%.html,$(VIEW_SOURCES))
 VIEW_PARTIALS := $(wildcard views/partials/*.ecr)
 JS := static/js/lib/chunks/helpers.segment.js static/js/lib/chart.js static/js/lib/amqp-websocket-client.mjs static/js/lib/amqp-websocket-client.mjs.map static/js/lib/luxon.js static/js/lib/chartjs-adapter-luxon.esm.js static/js/lib/elements-8.2.0.js static/js/lib/elements-8.2.0.css
+LDFLAGS ?= -pie
 CRYSTAL_FLAGS := --release --stats
-override CRYSTAL_FLAGS += --error-on-warnings --link-flags=-pie
+override CRYSTAL_FLAGS += --error-on-warnings --link-flags="$(LDFLAGS)"
 
 .DEFAULT_GOAL := all
 
@@ -144,7 +145,8 @@ install: $(BINS) $(MANPAGES) extras/lavinmq.ini extras/lavinmq.service README.md
 	install -D -m 0644 extras/lavinmq.service $(DESTDIR)$(UNITDIR)/lavinmq.service
 	install -D -m 0644 -t $(DESTDIR)$(DOCDIR)/lavinmq README.md NOTICE
 	install -D -m 0644 CHANGELOG.md $(DESTDIR)$(DOCDIR)/lavinmq/changelog
-	install -d -m 0755 $(DESTDIR)$(SHAREDSTATEDIR)/lavinmq
+	getent passwd lavinmq >/dev/null || useradd --system --user-group --home $(SHAREDSTATEDIR)/lavinmq lavinmq
+	install -d -m 0750 -o lavinmq -g lavinmq $(DESTDIR)$(SHAREDSTATEDIR)/lavinmq
 
 .PHONY: uninstall
 uninstall:
@@ -152,8 +154,7 @@ uninstall:
 	$(RM) $(DESTDIR)$(MANDIR)/man1/lavinmq{,ctl,perf}.1
 	$(RM) $(DESTDIR)$(SYSCONFDIR)/lavinmq/lavinmq.ini
 	$(RM) $(DESTDIR)$(UNITDIR)/lavinmq.service
-	$(RM) $(DESTDIR)$(DOCDIR)/{lavinmq,README.md,CHANGELOG.md,NOTICE}
-	$(RM) $(DESTDIR)$(SHAREDSTATEDIR)/lavinmq
+	$(RM) -r $(DESTDIR)$(DOCDIR)/lavinmq
 
 .PHONY: rpm
 rpm:

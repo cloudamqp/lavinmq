@@ -18,7 +18,6 @@ RuntimeDirectory=lavinmq
 StateDirectory=lavinmq
 ConfigurationDirectory=lavinmq
 ProtectSystem=full
-FileDescriptorStoreMax=1048576
 NoNewPrivileges=true
 Nice=-1
 OOMScoreAdjust=-250
