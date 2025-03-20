@@ -12,10 +12,8 @@ on:
       - views/**
       - openapi/**
   push:
-    branches:
-      - main
     tags:
-      - 'v*'
+      - 'v[0-9]+\.[0-9]+\.[0-9]+$'
     paths:
       - .github/workflows/docker.yml
       - Makefile
@@ -45,7 +43,7 @@ jobs:
           images: cloudamqp/lavinmq
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
-            type=semver,pattern={{version}}
+            type=semver,pattern={{version}},value=latest
             type=ref,event=pr
 
       - name: Set up Depot CLI
