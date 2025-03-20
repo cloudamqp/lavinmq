@@ -1,8 +1,11 @@
 require "../../server"
 
 module LavinMQ
-  class AMQPWebsocket
-    def self.new(amqp_server : Server)
+  # Acts as a proxy between websocket clients and the normal TCP servers
+  class WebsocketProxy
+    MQTTProtocolStart = Bytes[0x00, 0x04, 0x4d, 0x51, 0x54, 0x54, 0x04, 0x00]
+
+    def self.new(server : Server)
       ::HTTP::WebSocketHandler.new do |ws, ctx|
         req = ctx.request
         local_address = req.local_address.as?(Socket::IPAddress) ||
@@ -11,7 +14,12 @@ module LavinMQ
                          Socket::IPAddress.new("127.0.0.1", 0) # Fake when UNIXAddress
         connection_info = ConnectionInfo.new(remote_address, local_address)
         io = WebSocketIO.new(ws)
-        spawn amqp_server.handle_connection(io, connection_info, Server::Protocol::AMQP), name: "HandleWSconnection #{remote_address}"
+        case req.path
+        when "/mqtt", "/ws/mqtt"
+          spawn server.handle_connection(io, connection_info, Server::Protocol::MQTT), name: "HandleWSconnection MQTT #{remote_address}"
+        else
+          spawn server.handle_connection(io, connection_info, Server::Protocol::AMQP), name: "HandleWSconnection AMQP #{remote_address}"
+        end
       end
     end
   end
