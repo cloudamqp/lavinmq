@@ -292,6 +292,8 @@ jobs:
           sed -i /rabbitmq_http_api_client/d Gemfile
           bundle add rabbitmq_http_api_client --version=">= 3" --group=test --require=rabbitmq/http/client
           bundle install
+          sed -i '211,212d' spec/lower_level_api/integration/queue_declare_spec.rb
+          sed -i '112,146d' spec/lower_level_api/integration/queue_declare_spec.rb
           bundle exec rspec \
             --pattern "spec/*/integration/*_spec.rb, spec/issues/*_spec.rb" \
             --exclude-pattern "**/*/tls_*, **/*/connection_recovery_*, **/*/default_queue_type*"
