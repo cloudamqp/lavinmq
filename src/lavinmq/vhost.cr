@@ -554,7 +554,6 @@ module LavinMQ
       apply frame, loading: true
     rescue ex : LavinMQ::Error
       @log.error(exception: ex) { "Failed to apply frame #{frame.inspect}" }
-      raise Error::InvalidDefinitions.new("Invalid frame: in definitions file")
     end
 
     private def load_default_definitions
