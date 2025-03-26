@@ -16,7 +16,7 @@
       const submit = document.getElementById("submit")
 
       // Create a client instance
-      const client = new Paho.Client(location.hostname, Number(location.port), "clientId");
+      const client = new Paho.Client(location.hostname, Number(location.port), `clientId-${Math.round(Math.random() * 100000)}`);
 
       // set callback handlers
       client.onConnectionLost = onConnectionLost;
@@ -30,7 +30,7 @@
       function onConnect() {
         // Once a connection has been made, make a subscription and send a message.
         console.log("onConnect");
-        client.subscribe("foobar");
+        client.subscribe("ws-mqtt");
         attachPublish()
       }
 
@@ -51,9 +51,7 @@
         document.forms[0].onsubmit = (e) => {
           e.preventDefault()
           try {
-            const message = new Paho.Message(input.value);
-            message.destinationName = "foobar";
-            client.send(message);
+            client.publish("ws-mqtt", input.value);
           } catch (err) {
             console.error("Could not publish", err)
           }

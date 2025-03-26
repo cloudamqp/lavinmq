@@ -3,8 +3,6 @@ require "../../server"
 module LavinMQ
   # Acts as a proxy between websocket clients and the normal TCP servers
   class WebsocketProxy
-    MQTTProtocolStart = Bytes[0x00, 0x04, 0x4d, 0x51, 0x54, 0x54, 0x04, 0x00]
-
     def self.new(server : Server)
       ::HTTP::WebSocketHandler.new do |ws, ctx|
         req = ctx.request
