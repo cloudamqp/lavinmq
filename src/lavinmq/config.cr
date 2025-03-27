@@ -84,8 +84,35 @@ module LavinMQ
     def parse
       parser = OptionParser.new do |p|
         p.banner = "Usage: #{PROGRAM_NAME} [arguments]"
+        p.separator("\nOptions:")
         p.on("-c CONF", "--config=CONF", "Config file (INI format)") { |v| @config_file = v }
         p.on("-D DATADIR", "--data-dir=DATADIR", "Data directory") { |v| @data_dir = v }
+        p.on("-l", "--log-level=LEVEL", "Log level (Default: info)") do |v|
+          level = ::Log::Severity.parse?(v.to_s)
+          @log_level = level if level
+        end
+        p.on("-d", "--debug", "Verbose logging") { @log_level = ::Log::Severity::Debug }
+        p.on("--default-user-only-loopback=BOOL", "Limit default user to only connect from loopback address") do |v|
+          @default_user_only_loopback = {"true", "yes", "y", "1"}.includes? v.to_s
+        end
+        p.on("--guest-only-loopback=BOOL", "(Deprecated) Limit default user to only connect from loopback address") do |v|
+          # TODO: guest-only-loopback was deprecated in 2.2.x, remove in 3.0
+          STDERR.puts "WARNING: 'guest_only_loopback' is deprecated, use '--default-user-only-loopback' instead"
+          @default_user_only_loopback = {"true", "yes", "y", "1"}.includes? v.to_s
+        end
+        p.on("--default-consumer-prefetch=NUMBER", "Default consumer prefetch (default: 65535)") do |v|
+          @default_consumer_prefetch = v.to_u16
+        end
+        p.on("--default-user=USER", "Default user (default: guest)") do |v|
+          @default_user = v
+        end
+        p.on("--default-password=PASSWORD", "Hashed password for default user (default: '+pHuxkR9fCyrrwXjOD4BP4XbzO3l8LJr8YkThMgJ0yVHFRE+' (guest))") do |v|
+          @default_password = v
+        end
+        p.on("--no-data-dir-lock", "Don't put a file lock in the data directory (default: true)") { @data_dir_lock = false }
+        p.on("--raise-gc-warn", "Raise on GC warnings (default: false)") { @raise_gc_warn = true }
+
+        p.separator("\nBindings & TLS:")
         p.on("-b BIND", "--bind=BIND", "IP address that the AMQP, MQTT and HTTP servers will listen on (default: 127.0.0.1)") do |v|
           @amqp_bind = v
           @http_bind = v
@@ -131,24 +158,8 @@ module LavinMQ
         p.on("--key FILE", "Private key for the TLS certificate") { |v| @tls_key_path = v }
         p.on("--ciphers CIPHERS", "List of TLS ciphers to allow") { |v| @tls_ciphers = v }
         p.on("--tls-min-version=VERSION", "Mininum allowed TLS version (default 1.2)") { |v| @tls_min_version = v }
-        p.on("-l", "--log-level=LEVEL", "Log level (Default: info)") do |v|
-          level = ::Log::Severity.parse?(v.to_s)
-          @log_level = level if level
-        end
-        p.on("--raise-gc-warn", "Raise on GC warnings") { @raise_gc_warn = true }
-        p.on("--no-data-dir-lock", "Don't put a file lock in the data directory (default true)") { @data_dir_lock = false }
-        p.on("-d", "--debug", "Verbose logging") { @log_level = ::Log::Severity::Debug }
-        p.on("-h", "--help", "Show this help") { puts p; exit 0 }
-        p.on("-v", "--version", "Show version") { puts LavinMQ::VERSION; exit 0 }
-        p.on("--build-info", "Show build information") { puts LavinMQ::BUILD_INFO; exit 0 }
-        p.on("--default-user-only-loopback=BOOL", "Limit default user to only connect from loopback address") do |v|
-          @default_user_only_loopback = {"true", "yes", "y", "1"}.includes? v.to_s
-        end
-        p.on("--guest-only-loopback=BOOL", "(Deprecated) Limit default user to only connect from loopback address") do |v|
-          # TODO: guest-only-loopback was deprecated in 2.2.x, remove in 3.0
-          STDERR.puts "WARNING: 'guest_only_loopback' is deprecated, use '--default-user-only-loopback' instead"
-          @default_user_only_loopback = {"true", "yes", "y", "1"}.includes? v.to_s
-        end
+
+        p.separator("\nClustering:")
         p.on("--clustering", "Enable clustering") do
           @clustering = true
         end
@@ -170,15 +181,11 @@ module LavinMQ
         p.on("--clustering-etcd-endpoints=URIs", "Comma separeted host/port pairs (default: 127.0.0.1:2379)") do |v|
           @clustering_etcd_endpoints = v
         end
-        p.on("--default-consumer-prefetch=NUMBER", "Default consumer prefetch (default 65535)") do |v|
-          @default_consumer_prefetch = v.to_u16
-        end
-        p.on("--default-user=USER", "Default user (default: guest)") do |v|
-          @default_user = v
-        end
-        p.on("--default-password=PASSWORD", "Hashed password for default user (default: '+pHuxkR9fCyrrwXjOD4BP4XbzO3l8LJr8YkThMgJ0yVHFRE+' (guest))") do |v|
-          @default_password = v
-        end
+
+        p.separator("\nCommands:")
+        p.on("-v", "--version", "Show version") { puts LavinMQ::VERSION; exit 0 }
+        p.on("--build-info", "Show build information") { puts LavinMQ::BUILD_INFO; exit 0 }
+        p.on("-h", "--help", "Show this help") { puts p; exit 0 }
         p.invalid_option { |arg| abort "Invalid argument: #{arg}" }
       end
       parser.parse(ARGV.dup) # only parse args to get config_file
