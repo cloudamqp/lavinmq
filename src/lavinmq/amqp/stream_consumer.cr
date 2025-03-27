@@ -131,15 +131,18 @@ module LavinMQ
 
       def filter_match?(msg_headers) : Bool
         return true if @filter.empty?
-        if filter_value = filter_value_from_msg_headers(msg_headers)
-          @filter.bsearch { |f| f >= filter_value } == filter_value
+        if msg_filters = filter_value_from_msg_headers(msg_headers)
+          @filter.each do |consumer_filter|
+            return false unless msg_filters.bsearch { |f| f >= consumer_filter } == consumer_filter
+          end
+          true
         else
           @match_unfiltered
         end
       end
 
-      private def filter_value_from_msg_headers(msg_headers) : String?
-        msg_headers.try &.fetch("x-stream-filter-value", nil).try &.to_s
+      private def filter_value_from_msg_headers(msg_headers) : Array(String)?
+        msg_headers.try &.fetch("x-stream-filter-value", nil).try &.to_s.split(',').sort!
       end
     end
   end
