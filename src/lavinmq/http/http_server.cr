@@ -19,7 +19,7 @@ module LavinMQ
       def initialize(@amqp_server : LavinMQ::Server)
         handlers = [
           StrictTransportSecurity.new,
-          AMQPWebsocket.new(@amqp_server),
+          WebsocketProxy.new(@amqp_server),
           StaticController.new,
           ViewsController.new,
           ApiErrorHandler.new,
