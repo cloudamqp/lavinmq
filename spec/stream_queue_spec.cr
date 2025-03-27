@@ -286,15 +286,15 @@ describe LavinMQ::AMQP::StreamQueue do
         with_channel(s) do |ch|
           ch.prefetch 1
           q = ch.queue("stream_filter_3", args: stream_queue_args)
-          hdrs = AMQP::Client::Arguments.new({"x-stream-filter-value" => "foo"})
           q.publish("msg without filter")
+          hdrs = AMQP::Client::Arguments.new({"x-stream-filter-value" => "foo"})
           q.publish("msg with filter: foo", props: AMQP::Client::Properties.new(headers: hdrs))
-          hdrs = AMQP::Client::Arguments.new({"x-stream-filter-value" => "xyz"})
-          q.publish("msg with filter: xyz", props: AMQP::Client::Properties.new(headers: hdrs))
           hdrs = AMQP::Client::Arguments.new({"x-stream-filter-value" => "bar"})
           q.publish("msg with filter: bar", props: AMQP::Client::Properties.new(headers: hdrs))
-          q.publish("msg without filter")
-
+          hdrs = AMQP::Client::Arguments.new({"x-stream-filter-value" => "bar,foo"})
+          q.publish("msg with filter: bar,foo", props: AMQP::Client::Properties.new(headers: hdrs))
+          hdrs = AMQP::Client::Arguments.new({"x-stream-filter-value" => "foo,bar"})
+          q.publish("msg with filter: foo,bar", props: AMQP::Client::Properties.new(headers: hdrs))
           msgs = Channel(AMQP::Client::DeliverMessage).new
           filters = "foo,bar"
           q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new(
@@ -304,9 +304,9 @@ describe LavinMQ::AMQP::StreamQueue do
             msg.ack
           end
           msg = msgs.receive
-          msg.body_io.to_s.should eq "msg with filter: foo"
+          msg.body_io.to_s.should eq "msg with filter: bar,foo"
           msg = msgs.receive
-          msg.body_io.to_s.should eq "msg with filter: bar"
+          msg.body_io.to_s.should eq "msg with filter: foo,bar"
         end
       end
     end
