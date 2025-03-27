@@ -52,6 +52,7 @@ class LavinMQCtl
       @options["host"] = host
     end
     global_options
+    @parser.separator("\nCommands:")
     COMPAT_CMDS.each do |cmd|
       @parser.on(cmd[0], cmd[1]) do
         @cmd = cmd[0]
@@ -217,6 +218,7 @@ class LavinMQCtl
   end
 
   private def global_options
+    @parser.separator("\nGlobal options:")
     @parser.on("-p vhost", "--vhost=vhost", "Specify vhost") do |v|
       @options["vhost"] = v
     end
