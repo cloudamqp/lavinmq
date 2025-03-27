@@ -6,7 +6,7 @@ module LavinMQ
     end
 
     class MemoryCache(T) < Cache(T)
-      def initialize(@size : UInt32)
+      def initialize(@size : UInt32? = nil)
         @lock = Mutex.new
         @store = Hash(T, Time::Span?).new(initial_capacity: @size)
       end
@@ -24,7 +24,9 @@ module LavinMQ
 
       def insert(key : T, ttl : UInt32? = nil)
         @lock.synchronize do
-          @store.shift if @store.size >= @size
+          if size = @size
+            @store.shift if @store.size >= size
+          end
           val = ttl.try { |v| RoughTime.monotonic + v.milliseconds }
           @store[key] = val
         end

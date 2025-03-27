@@ -275,7 +275,6 @@ module LavinMQ::AMQP
       validate_positive("x-consumer-timeout", @consumer_timeout)
       if parse_header("x-message-deduplication", Bool)
         size = parse_header("x-cache-size", Int).try(&.to_u32)
-        raise LavinMQ::Error::PreconditionFailed.new("Invalid x-cache-size for message deduplication") unless size
         ttl = parse_header("x-cache-ttl", Int).try(&.to_u32)
         header_key = parse_header("x-deduplication-header", String)
         cache = Deduplication::MemoryCache(AMQ::Protocol::Field).new(size)

@@ -449,7 +449,6 @@ describe LavinMQ::AMQP::Queue do
           queue_name = "dedup-queue"
           q1 = ch.queue(queue_name, args: AMQP::Client::Arguments.new({
             "x-message-deduplication" => true,
-            "x-cache-size"            => 10,
           }))
           props = LavinMQ::AMQP::Properties.new(headers: LavinMQ::AMQP::Table.new({
             "x-deduplication-header" => "msg1",

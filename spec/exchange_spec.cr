@@ -176,7 +176,6 @@ describe LavinMQ::Exchange do
         with_channel(s) do |ch|
           args = AMQP::Client::Arguments.new({
             "x-message-deduplication" => true,
-            "x-cache-size"            => 10,
           })
           ch.exchange("test", "topic", args: args)
           ch.queue.bind("test", "#")
@@ -205,7 +204,6 @@ describe LavinMQ::Exchange do
         with_channel(s) do |ch|
           args = AMQP::Client::Arguments.new({
             "x-message-deduplication" => true,
-            "x-cache-size"            => 10,
             "x-deduplication-header"  => "custom",
           })
           ch.exchange("test", "topic", args: args)
