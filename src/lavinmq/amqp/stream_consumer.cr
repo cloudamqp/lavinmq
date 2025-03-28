@@ -143,7 +143,7 @@ module LavinMQ
       end
 
       private def filter_value_from_msg_headers(msg_headers) : Array(String)?
-        msg_headers.try &.fetch("x-stream-filter-value", nil).try &.to_s.split(',').sort!
+        msg_headers.try &.fetch("x-stream-filter-value", nil).try &.to_s.split(',')
       end
     end
   end
