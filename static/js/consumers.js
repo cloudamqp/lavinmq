@@ -16,9 +16,23 @@ const tableOptions = {
   columnSelector: true,
   search: true
 }
+function debounceCount (func, start, timeout = 300) {
+  let timer
+  const bounce = () => {
+    clearTimeout(timer)
+    timer = setTimeout(() => { func.apply(this, [start]) }, 500)
+  }
+  const inc = (e) => { e.preventDefault(); start += 10; bounce() }
+  const dec = (e) => { e.preventDefault(); start -= 10; bounce() }
+  return [inc, dec]
+}
 
-Table.renderTable('table', tableOptions, function (tr, item, firstRender) {
-  if (!firstRender) return
+const consumerTable = Table.renderTable('table', tableOptions, function (tr, item) {
+  const urlEncodedVhost = encodeURIComponent(item.queue.vhost)
+  const urlEncodedConsumerTag = encodeURIComponent(item.consumer_tag)
+  const conn = encodeURIComponent(item.channel_details.connection_name)
+  const ch = encodeURIComponent(item.channel_details.number)
+  const actionPath = `api/consumers/${urlEncodedVhost}/${conn}/${ch}/${urlEncodedConsumerTag}`
   const channelLink = document.createElement('a')
   channelLink.href = 'channel#name=' + encodeURIComponent(item.channel_details.name)
   channelLink.textContent = item.channel_details.name
@@ -30,12 +44,24 @@ Table.renderTable('table', tableOptions, function (tr, item, firstRender) {
   btn.type = 'submit'
   btn.textContent = 'Cancel'
 
+  const submitPrefetch = (prefetch) => {
+    HTTP.request('PUT', actionPath, { body: { prefetch } })
+      .then(() => {
+        consumerTable.reload()
+      })
+  }
+
+  const [inc, dec] = debounceCount(submitPrefetch, item.prefetch_count)
+  const prefetch = document.createElement('div')
+  const prefetchDec = document.createElement('span')
+  prefetchDec.textContent = '-'
+  prefetchDec.addEventListener('click', dec)
+  const prefetchInc = document.createElement('span')
+  prefetchInc.textContent = '+'
+  prefetchInc.addEventListener('click', inc)
+  prefetch.append(prefetchDec, ' ' + item.prefetch_count + ' ', prefetchInc)
+
   cancelForm.appendChild(btn)
-  const urlEncodedVhost = encodeURIComponent(item.queue.vhost)
-  const urlEncodedConsumerTag = encodeURIComponent(item.consumer_tag)
-  const conn = encodeURIComponent(item.channel_details.connection_name)
-  const ch = encodeURIComponent(item.channel_details.number)
-  const actionPath = `api/consumers/${urlEncodedVhost}/${conn}/${ch}/${urlEncodedConsumerTag}`
   cancelForm.addEventListener('submit', function (evt) {
     evt.preventDefault()
     if (!window.confirm('Are you sure?')) return false
@@ -51,6 +77,6 @@ Table.renderTable('table', tableOptions, function (tr, item, firstRender) {
   Table.renderCell(tr, 3, item.consumer_tag)
   Table.renderCell(tr, 4, ack, 'center')
   Table.renderCell(tr, 5, exclusive, 'center')
-  Table.renderCell(tr, 6, item.prefetch_count, 'right')
+  Table.renderCell(tr, 6, prefetch, 'right')
   Table.renderCell(tr, 7, cancelForm, 'center')
 })
