@@ -107,4 +107,35 @@ describe LavinMQ::HTTP::ConsumersController do
       end
     end
   end
+
+  describe "PUT /api/consumers/vhost/connection/channel/consumer" do
+    it "should allow to update the prefetch" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          ch.prefetch(5)
+          q = ch.queue("")
+          consumer = q.subscribe { }
+          sleep 10.milliseconds
+
+          response = http.get("/api/consumers")
+          response.status_code.should eq 200
+          body = JSON.parse(response.body)
+          body.as_a.first["prefetch_count"].should eq 5
+
+          conn = s.connections.to_a.last.name
+          body = {
+            "prefetch" => 10,
+          }
+          url = "/api/consumers/%2f/#{URI.encode_path(conn)}/#{ch.id}/#{consumer}"
+          response = http.put(url, body: body.to_json)
+          response.status_code.should eq 204
+
+          response = http.get("/api/consumers")
+          response.status_code.should eq 200
+          body = JSON.parse(response.body)
+          body.as_a.first["prefetch_count"].should eq 10
+        end
+      end
+    end
+  end
 end
