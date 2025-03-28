@@ -133,7 +133,7 @@ module LavinMQ
         return true if @filter.empty?
         if msg_filters = filter_value_from_msg_headers(msg_headers)
           @filter.each do |consumer_filter|
-            return false unless msg_filters.bsearch { |f| f >= consumer_filter } == consumer_filter
+            return false unless msg_filters.find { |f| f == consumer_filter }
           end
           true
         else
@@ -142,7 +142,7 @@ module LavinMQ
       end
 
       private def filter_value_from_msg_headers(msg_headers) : Array(String)?
-        msg_headers.try &.fetch("x-stream-filter-value", nil).try &.to_s.split(',').sort!
+        msg_headers.try &.fetch("x-stream-filter-value", nil).try &.to_s.split(',')
       end
     end
   end
