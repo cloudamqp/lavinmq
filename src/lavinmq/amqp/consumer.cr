@@ -1,4 +1,6 @@
 require "log"
+require "wait_group"
+require "../amqp"
 require "../client/channel/consumer"
 require "../logger"
 
