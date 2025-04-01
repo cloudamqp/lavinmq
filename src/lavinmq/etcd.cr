@@ -2,7 +2,7 @@ require "socket"
 require "wait_group"
 require "json"
 require "./logger"
-require "./etcd/leadership"
+require "./etcd/lease"
 
 module LavinMQ
   class Etcd
@@ -39,6 +39,20 @@ module LavinMQ
       end
     end
 
+    def get_prefix(key) : Hash(String, String)
+      range_end = key.to_slice.dup
+      range_end.update(-1) { |v| v + 1 }
+      json = post("/v3/kv/range", %({"key":"#{Base64.strict_encode key}","range_end":"#{Base64.strict_encode range_end}"}))
+      kvs = json["kvs"].as_a
+      h = Hash(String, String).new(initial_capacity: kvs.size)
+      kvs.each do |kv|
+        key = Base64.decode_string kv["key"].as_s
+        value = Base64.decode_string kv["value"].as_s
+        h[key] = value
+      end
+      h
+    end
+
     def put(key, value) : String?
       body = %({"key":"#{Base64.strict_encode key}","value":"#{Base64.strict_encode value}","prev_kv":true})
       json = post("/v3/kv/put", body)
@@ -68,11 +82,18 @@ module LavinMQ
     end
 
     # Returns {ID, TTL}
-    def lease_grant(ttl = 10) : Tuple(Int64, Int32)
-      json = post("/v3/lease/grant", body: %({"TTL":"#{ttl}"}))
+    def lease_grant(ttl = 10, id = 0) : Lease
+      begin
+        json = post("/v3/lease/grant", body: %({"TTL":"#{ttl}","ID":#{id}}))
+      rescue LeaseAlreadyExists
+        expires_in = lease_ttl(id) + 1
+        Log.warn { "Cluster ID #{id.to_s(36)} already leased, waits #{expires_in}s for it to expire" }
+        sleep expires_in.seconds
+        json = post("/v3/lease/grant", body: %({"TTL":"#{ttl}","ID":#{id}}))
+      end
       ttl = json.dig("TTL").as_s.to_i
       id = json.dig("ID").as_s.to_i64
-      {id, ttl}
+      Lease.new(self, id, ttl)
     end
 
     def lease_keepalive(id) : Int32
@@ -86,9 +107,11 @@ module LavinMQ
 
     def lease_ttl(id) : Int32
       json = post("/v3/lease/timetolive", body: %({"ID":"#{id}"}))
-      ttl = json["TTL"].as_s.to_i
-      raise Error.new("Lease #{id} expired") if ttl < 0
-      ttl
+      if ttl = json["TTL"]?
+        ttl.as_s.to_i
+      else
+        raise Error.new("Lease #{id} expired")
+      end
     end
 
     def lease_revoke(id) : Nil
@@ -105,20 +128,23 @@ module LavinMQ
 
     # Campaign for an election
     # Returns when elected leader
-    # Returns a `Leadership` instance
-    def elect(name, value, ttl = 10) : Leadership
-      lease_id, _ttl = lease_grant(ttl)
-      leadership = Leadership.new(self, lease_id)
-      election_campaign(name, value, lease_id)
-      leadership
+    # Returns a `Lease` instance
+    def elect(name, value, ttl = 10, id = 0) : Lease
+      lease = lease_grant(ttl, id)
+      election_campaign(name, value, lease.id)
+      lease
     end
 
     def elect_listen(name, &)
       stream("/v3/election/observe", %({"name":"#{Base64.strict_encode name}"})) do |json|
-        if value = json.dig?("result", "kv", "value")
-          yield Base64.decode_string(value.as_s)
+        if kv = json.dig?("result", "kv")
+          if value = kv.dig?("value")
+            yield Base64.decode_string(value.as_s)
+          else
+            yield nil
+          end
         else
-          raise Error.new(json.to_s)
+          raise Error.new("Unexpected election response: '#{json}'")
         end
       end
     end
@@ -250,6 +276,8 @@ module LavinMQ
         socket, address = @connections.shift? || connect
         begin
           return yield({socket, address})
+        rescue ex : LeaseAlreadyExists
+          raise ex # don't retry
         rescue ex : NoLeader
           raise ex # don't retry when leader is missing
         rescue ex : Error
@@ -329,6 +357,8 @@ module LavinMQ
           raise IO::EOFError.new(error_msg)
         when "etcdserver: no leader"
           raise NoLeader.new(error_msg)
+        when "etcdserver: lease already exists"
+          raise LeaseAlreadyExists.new
         else
           raise Error.new error_msg
         end
@@ -338,5 +368,7 @@ module LavinMQ
     class Error < Exception; end
 
     class NoLeader < Error; end
+
+    class LeaseAlreadyExists < Error; end
   end
 end
