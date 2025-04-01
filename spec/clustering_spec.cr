@@ -139,7 +139,7 @@ describe LavinMQ::Clustering::Client do
     config2.http_port = 15672
     controller2 = LavinMQ::Clustering::Controller.new(config2)
 
-    listen = Channel(String).new
+    listen = Channel(String?).new
     spawn(name: "etcd elect leader spec") do
       etcd = LavinMQ::Etcd.new("localhost:12379")
       etcd.elect_listen("lavinmq/leader") do |value|
@@ -192,7 +192,7 @@ describe LavinMQ::Clustering::Client do
     election_done.receive?
 
     # The spec gets a lease to use in an election campaign
-    lease_id, _ttl = etcd.lease_grant(5)
+    lease = etcd.lease_grant(5)
 
     # graceful stop...
     spawn { launcher.stop }
@@ -200,7 +200,7 @@ describe LavinMQ::Clustering::Client do
     # Let the spec campaign for leadership...
     elected = Channel(Nil).new
     spawn do
-      etcd.election_campaign("lavinmq/leader", "spec", lease_id)
+      etcd.election_campaign("lavinmq/leader", "spec", lease.id)
       elected.close
     end
 
