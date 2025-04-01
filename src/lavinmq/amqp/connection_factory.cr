@@ -32,7 +32,7 @@ module LavinMQ
             end
           end
         end
-      rescue ex : IO::TimeoutError | IO::Error | OpenSSL::SSL::Error | AMQP::Error::FrameDecode
+      rescue ex : IO::TimeoutError | IO::Error | OpenSSL::SSL::Error | AMQ::Protocol::Error::FrameDecode
         Log.warn { "#{ex} when #{remote_address} tried to establish connection" }
         nil
       rescue ex
