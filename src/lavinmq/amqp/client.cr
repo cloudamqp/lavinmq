@@ -145,10 +145,10 @@ module LavinMQ
           end
         rescue IO::TimeoutError
           send_heartbeat || break
-        rescue ex : AMQP::Error::NotImplemented
+        rescue ex : AMQ::Protocol::Error::NotImplemented
           @log.error { ex.inspect }
           send_not_implemented(ex)
-        rescue ex : AMQP::Error::FrameDecode
+        rescue ex : AMQ::Protocol::Error::FrameDecode
           @log.error { ex.inspect_with_backtrace }
           send_frame_error(ex.message)
           break
