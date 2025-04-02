@@ -1,6 +1,6 @@
 # Base layer
 FROM 84codes/crystal:latest-ubuntu-24.04 AS base
-RUN apt-get update && apt-get install -y liblz4-dev
+RUN apt-get update && apt-get install -y liblz4-dev dpkg-dev
 WORKDIR /tmp
 COPY shard.yml shard.lock .
 RUN shards install --production
@@ -27,7 +27,7 @@ FROM base AS builder
 COPY Makefile .
 RUN make js lib
 ARG MAKEFLAGS=-j2
-RUN make all bin/lavinmq-debug
+RUN eval "$(dpkg-buildflags --export=sh)" && make all bin/lavinmq-debug
 
 # Resulting image with minimal layers
 FROM ubuntu:24.04
