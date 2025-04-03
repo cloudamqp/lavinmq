@@ -182,7 +182,7 @@ module LavinMQ
           @clustering_etcd_endpoints = v
         end
 
-        p.separator("\nCommands:")
+        p.separator("\nMiscellaneous:")
         p.on("-v", "--version", "Show version") { puts LavinMQ::VERSION; exit 0 }
         p.on("--build-info", "Show build information") { puts LavinMQ::BUILD_INFO; exit 0 }
         p.on("-h", "--help", "Show this help") { puts p; exit 0 }
