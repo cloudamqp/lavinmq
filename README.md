@@ -268,6 +268,25 @@ lavinmq --data-dir /var/lib/lavinmq --clustering --clustering-bind :: --clusteri
 
 Stream queues are like append-only logs and can be consumed multiple times. Each consumer can start to read from anywhere in the queue (using the `x-stream-offset` consumer argument) over and over again.  Stream queues are different from normal queues in that messages are not deleted (see #retention) when a consumer acknowledge them.
 
+## MQTT
+
+LavinMQ natively supports the MQTT 3.1.1 protocol, facilitating seamless integration with IoT devices, sensors, and mobile applications. Each MQTT session is backed by an AMQP queue, ensuring consistent and reliable message storage. Messages within these sessions are persistently stored on disk. 
+
+For retained messages, LavinMQ maintains a dedicated storage system that maps topics to their respective retained messages. These retained messages are also persistently stored, ensuring that new subscribers immediately receive the latest retained message upon subscribing, including those using wildcard topic filters. In clustered environments, the retained message store is replicated across nodes. 
+
+Please note that Quality of Service (QoS) level 2 is not supported in LavinMQ; messages published with QoS 2 will be downgraded to QoS 1.
+
+### MQTT Configuration
+```ini
+[MQTT]
+bind = "127.0.0.1"
+port = 1883
+tls_port = 8883
+unix_path = ""
+max_inflight_messages = 65535
+default_vhost = "/"
+```
+
 ### Retention
 
 Messages are only deleted when `max-length`, `max-length-bytes` or `max-age` are applied, either as queue arguments or as policies. The limits are checked only when new messages are published to the queue, and only act on whole segments (which by default are 8MiB), so the limits aren't necessarily exact. So even if a `max-age` limit is set, but no messages are published to the queue, messages might still be available in the stream queue that is way older that the limit specified.
