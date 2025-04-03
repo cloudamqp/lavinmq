@@ -28,6 +28,7 @@ module LavinMQ
         end
       end
 
+      # Can be overridden in sub controllers
       protected def match_value(value)
         value[:name]? || value["name"]?
       end
