@@ -7,7 +7,7 @@ module LavinMQ
 
     class MemoryCache(T) < Cache(T)
       def initialize(size : UInt32? = nil)
-        @size = size || 128
+        @size = size || 128_u32
         @lock = Mutex.new
         @store = Hash(T, Time::Span?).new(initial_capacity: @size)
       end
