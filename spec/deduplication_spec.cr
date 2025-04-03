@@ -3,14 +3,16 @@ require "../src/lavinmq/deduplication.cr"
 
 describe LavinMQ::Deduplication do
   describe LavinMQ::Deduplication::MemoryCache do
-    it "should default to infinite cache size" do
+    it "should default cache size" do
       cache = LavinMQ::Deduplication::MemoryCache(String).new
-      cache.insert("item1")
-      cache.insert("item2")
-      cache.insert("item3")
-      cache.contains?("item1").should be_true
-      cache.contains?("item2").should be_true
-      cache.contains?("item3").should be_true
+      (cache.@size + 1).times do |n|
+        cache.insert("#{n}")
+      end
+      cache.contains?("0").should be_false
+      cache.contains?("1").should be_true
+      cache.contains?("#{cache.@size}").should be_true
+      cache.contains?("#{cache.@size + 1}").should be_false
+      cache.@store.@size.should eq cache.@size
     end
 
     it "should have max size as optional setting" do
