@@ -3,7 +3,7 @@
 
 # ![LavinMQ](static/img/banner-lavinmq.svg)
 
-A message queue & streaming server that implements the AMQP 0-9-1 protocol.
+A message queue & streaming server that implements the AMQP 0-9-1 and MQTT 3.1.1 protocol.
 Written in [Crystal](https://crystal-lang.org/).
 
 Aims to be very fast, has low RAM requirements, handles very long queues,
@@ -199,7 +199,8 @@ For questions or suggestions:
 
 ## Features
 
-- AMQP 0-9-1 compatible
+- AMQP 0-9-1 protocol support
+- MQTT 3.1.1 protocol support
 - AMQPS (TLS)
 - HTTP API
 - Publisher confirm
@@ -221,7 +222,8 @@ For questions or suggestions:
 - Importing/export definitions
 - Priority queues
 - Delayed exchanges
-- AMQP WebSocket
+- AMQP over websockets
+- MQTT over websockets
 - Single active consumer
 - Replication
 - Stream queues
