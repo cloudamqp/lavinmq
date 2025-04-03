@@ -102,23 +102,6 @@ module LavinMQ
           end
         end
 
-        get "/api/exchanges/:vhost/:name/bindings/source" do |context, params|
-          with_vhost(context, params) do |vhost|
-            refuse_unless_management(context, user(context), vhost)
-            e = exchange(context, params, vhost)
-            page(context, e.bindings_details.each)
-          end
-        end
-
-        get "/api/exchanges/:vhost/:name/bindings/destination" do |context, params|
-          with_vhost(context, params) do |vhost|
-            refuse_unless_management(context, user(context), vhost)
-            e = exchange(context, params, vhost)
-            itr = bindings(e.vhost).select { |b| b.destination.name == e.name }
-            page(context, itr)
-          end
-        end
-
         post "/api/exchanges/:vhost/:name/publish" do |context, params|
           with_vhost(context, params) do |vhost|
             user = user(context)

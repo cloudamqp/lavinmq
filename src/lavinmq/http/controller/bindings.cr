@@ -12,6 +12,10 @@ module LavinMQ
       include QueueHelpers
       include ExchangeHelpers
 
+      protected def match_value(value)
+        "#{value[:routing_key]? || value["routing_key"]?} #{value[:destination]? || value["destination"]?}"
+      end
+
       # ameba:disable Metrics/CyclomaticComplexity
       private def register_routes
         get "/api/bindings" do |context, _params|
@@ -191,6 +195,23 @@ module LavinMQ
               break
             end
             context.response.status_code = found ? 204 : 404
+          end
+        end
+
+        get "/api/exchanges/:vhost/:name/bindings/source" do |context, params|
+          with_vhost(context, params) do |vhost|
+            refuse_unless_management(context, user(context), vhost)
+            e = exchange(context, params, vhost)
+            page(context, e.bindings_details.each)
+          end
+        end
+
+        get "/api/exchanges/:vhost/:name/bindings/destination" do |context, params|
+          with_vhost(context, params) do |vhost|
+            refuse_unless_management(context, user(context), vhost)
+            e = exchange(context, params, vhost)
+            itr = bindings(e.vhost).select { |b| b.destination.name == e.name }
+            page(context, itr)
           end
         end
       end
