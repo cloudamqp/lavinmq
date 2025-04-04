@@ -42,7 +42,8 @@ const prefetchForm = (cb) => {
   button.textContent = 'Save'
   button.classList.add('btn-outlined')
   const form = document.createElement('form')
-  form.addEventListener('submit', () => {
+  form.addEventListener('submit', (event) => {
+    event.preventDefault()
     const prefetch = parseInt(input.value)
     HTTP.request('PUT', channelUrl, { body: { prefetch } })
       .then((r) => {
