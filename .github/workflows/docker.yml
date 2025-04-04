@@ -12,8 +12,10 @@ on:
       - views/**
       - openapi/**
   push:
+    branches:
+      - main
     tags:
-      - 'v[0-9]+\.[0-9]+\.[0-9]+$'
+      - v*
     paths:
       - .github/workflows/docker.yml
       - Makefile
@@ -42,7 +44,8 @@ jobs:
         with:
           images: cloudamqp/lavinmq
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest,enable={{matches(github.ref, '^refs/tags/v[\d\.]+$')}
+            type=raw,value=main,enable={{is_default_branch}}
             type=semver,pattern={{version}}
             type=ref,event=pr
 
