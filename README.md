@@ -60,6 +60,21 @@ EOF
 sudo dnf install lavinmq
 ```
 
+### OS X
+
+Install LavinMQ with `brew`: 
+
+```
+brew install cloudamqp/cloudamqp/lavinmq
+```
+ 
+or
+
+```
+brew tap cloudamqp/cloudamqp
+brew install lavinmq
+```
+
 ## Usage
 
 LavinMQ only requires one argument, and it's a path to a data directory.
