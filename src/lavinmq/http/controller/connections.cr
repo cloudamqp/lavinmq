@@ -20,6 +20,8 @@ module LavinMQ
       protected def match_value(value)
         if client_properties = (value[:client_properties]? || value["client_properties"]?)
           "#{value[:name]? || value["name"]?} #{client_properties["connection_name"]?} #{value[:user]? || value["user"]?}"
+        else
+          "#{value[:name]? || value["name"]?} #{value[:user]? || value["user"]?}"
         end
       end
 
