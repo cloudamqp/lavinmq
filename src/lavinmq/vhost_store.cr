@@ -42,13 +42,14 @@ module LavinMQ
       vhost
     end
 
-    def delete(name) : Nil
+    def delete(name) : VHost?
       if vhost = @vhosts.delete name
         @users.rm_vhost_permissions_for_all(name)
         vhost.delete
         notify_observers(Event::Deleted, name)
         Log.info { "Deleted vhost #{name}" }
         save!
+        vhost
       end
     end
 
