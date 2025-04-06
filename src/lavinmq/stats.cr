@@ -39,14 +39,6 @@ module LavinMQ
         }
       end
 
-      def reset_stats
-        {% for name in stats_keys %}
-          @{{name.id}}_count = 0_u64
-          @{{name.id}}_count_prev = 0_u64
-          @{{name.id}}_rate = 0_f64
-        {% end %}
-      end
-
       def update_rates : Nil
         interval = Config.instance.stats_interval // 1000
         log_size = Config.instance.stats_log_size
