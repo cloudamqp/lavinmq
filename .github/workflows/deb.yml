@@ -71,15 +71,6 @@ jobs:
           name: deb-packages-${{ matrix.os }}
           path: builds
 
-      - name: Determine if pre-release
-        id: determine-prerelease
-        run: |
-          if [[ "${{ github.ref }}" == *"-rc"* ]]; then
-            echo "is_prerelease=true" >> $GITHUB_ENV
-          else
-            echo "is_prerelease=false" >> $GITHUB_ENV
-          fi
-
       - name: Upload to Packagecloud
         run: |
           set -eux
@@ -97,7 +88,7 @@ jobs:
               -F "package[package_file]=@${PKG_FILE}" \
               https://packagecloud.io/api/v1/repos/${{ github.repository }}/packages.json
           done
-        if: startsWith(github.ref, 'refs/tags/v') && env.is_prerelease == 'false'
+        if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-rc')
 
       - name: Upload to Packagecloud pre-release repo
         run: |
@@ -116,7 +107,7 @@ jobs:
               -F "package[package_file]=@${PKG_FILE}" \
               https://packagecloud.io/api/v1/repos/${{ github.repository }}-prerelease/packages.json
           done
-        if: startsWith(github.ref, 'refs/tags/v') && env.is_prerelease == 'true'
+        if: startsWith(github.ref, 'refs/tags/v') && contains(github.ref, '-rc')
 
   rerun_on_failure:
     needs: build_deb
