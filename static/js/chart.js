@@ -1,3 +1,60 @@
+import uPlot from './lib/uPlot.esm.js';
+
+function render (id, unit, options = {}, stacked = false) {
+  // --- Helper Functions (Time Formatting) ---
+  // Helper for formatting time (using browser's local timezone)
+  const localTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const timeFormatter = new Intl.DateTimeFormat(undefined, {
+    timeZone: localTimezone,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  });
+  const tzDate = ts => uPlot.tzDate(new Date(ts * 1000), localTimezone);
+  const opts = {
+    width: 800,
+    height: 600,
+    title: "hello world",
+    scales: {
+      x: { auto: true, time: true },
+      y: { auto: true },
+    },
+    tzDate,
+    series: [
+      {}, // x-axis
+      { 
+        label: unit,
+        stroke: "#FFF",
+        width: 2,
+        points: { show: true, size: 8 }
+      }
+    ],
+    axes: [
+      {
+        scale: "x",
+        label: "Time"
+      },
+      {
+        scale: "y",
+        label: "Value",
+      }
+    ]
+  }
+  const nowSec = Math.floor(Date.now() / 1000); // Get current time in seconds
+  const data = [
+    Array.from({length: 120}, (_, i) => nowSec - 600 + i * 5), // 10min time window, 5s interval
+    Array.from({length: 120}, (_, i) => i * 5), // 10min time window, 5s interval
+  ]
+  const uplot = new uPlot(opts, data, document.getElementById(id))
+  return uplot
+}
+
+function update (chart, data, filled = false) {
+  console.log(data)
+}
+
+/*
 import * as helpers from './helpers.js'
 import { Chart, TimeScale, LinearScale, LineController, PointElement, LineElement, Legend, Tooltip, Title, Filler } from './lib/chart.js'
 import './lib/chartjs-adapter-luxon.esm.js'
@@ -183,6 +240,7 @@ function update (chart, data, filled = false) {
   }
   chart.update()
 }
+*/
 
 export {
   render, update
