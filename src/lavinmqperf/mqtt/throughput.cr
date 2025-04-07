@@ -38,7 +38,7 @@ module LavinMQPerf
         @parser.on("-V", "--verify", "Verify the message body") do
           @verify = true
         end
-        @parser.on("-q qos", "--qos=level", "QoS level (0, 1, or 2)") do |v|
+        @parser.on("-q qos", "--qos=level", "QoS level (0 or 1)") do |v|
           @qos = v.to_i
         end
         @parser.on("-t topic", "--topic=name", "Topic name (default perf-test)") do |v|
