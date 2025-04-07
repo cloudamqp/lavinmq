@@ -1,187 +1,89 @@
-import * as helpers from './helpers.js'
-import { Chart, TimeScale, LinearScale, LineController, PointElement, LineElement, Legend, Tooltip, Title, Filler } from './lib/chart.js'
-import './lib/chartjs-adapter-luxon.esm.js'
-Chart.register(TimeScale)
-Chart.register(LinearScale)
-Chart.register(LineController)
-Chart.register(PointElement)
-Chart.register(LineElement)
-Chart.register(Legend)
-Chart.register(Tooltip)
-Chart.register(Title)
-Chart.register(Filler)
-
-const chartColors = ['#54be7e', '#4589ff', '#d12771', '#d2a106', '#08bdba', '#bae6ff', '#ba4e00',
-  '#d4bbff', '#8a3ffc', '#33b1ff', '#007d79']
-
-const POLLING_RATE = 5000
-const X_AXIS_LENGTH = 600000 // 10 min
-const MAX_TICKS = X_AXIS_LENGTH / POLLING_RATE
+import uPlot from './lib/uPlot.esm.js';
 
 function render (id, unit, options = {}, stacked = false) {
-  const el = document.getElementById(id)
-  const graphContainer = document.createElement('div')
-  graphContainer.classList.add('graph')
-  const ctx = document.createElement('canvas')
-  graphContainer.append(ctx)
-  el.append(graphContainer)
-
-  const chart = new Chart(ctx, {
-    type: 'line',
-    data: {
-      datasets: [],
-      labels: []
+  // --- Helper Functions (Time Formatting) ---
+  // Helper for formatting time (using browser's local timezone)
+  const localTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const timeFormatter = new Intl.DateTimeFormat(undefined, {
+    timeZone: localTimezone,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  });
+  const tzDate = ts => uPlot.tzDate(new Date(ts * 1000), localTimezone);
+  const opts = {
+    width: "800",
+    height: "500",
+    scales: {
+      x: { auto: true, time: true },
+      y: { auto: true },
     },
-    options: Object.assign({
-      responsive: true,
-      maintainAspectRatio: false,
-      aspectRatio: 1.3,
-      tooltips: {
-        mode: 'x',
-        intersect: false,
-        position: 'nearest',
-        callbacks: {
-          label: function (tooltipItem, data) {
-            let label = data.datasets[tooltipItem.datasetIndex].label || ''
-            label += ': ' + helpers.formatNumber(tooltipItem.yLabel)
-            return label
-          }
-        }
-      },
-      hover: {
-        mode: 'x',
-        intersect: false
-      },
-      scales: {
-        x: {
-          type: 'time',
-          distribution: 'series',
-          gridLines: {
-            display: false
-          },
-          grid: {
-            color: '#2D2C2C'
-          },
-          border: {
-            dash: [2, 4]
-          },
-          time: {
-            unit: 'second',
-            displayFormats: {
-              second: 'HH:mm:ss'
-            }
-          }
+    tzDate,
+    series: [
+      {} // x-axis
+    ],
+    axes: [
+      {
+        scale: "x",
+        stroke: "#FFFFFF",
+        ticks: {
+          stroke: "#FFFFFF",
         },
-        y: {
-          title: {
-            display: true,
-            text: unit,
-            fontsize: 14
-          },
-          grid: {
-            color: '#2D2C2C'
-          },
-          border: {
-            dash: [2, 4]
-          },
-          ticks: {
-            beginAtZero: true,
-            min: 0,
-            suggestedMax: 10,
-            callback: helpers.nFormatter
-          },
-          stacked: false,
-          beginAtZero: true
-        }
+        grid: {
+          stroke: "rgba(255,255,255,0.1)",
+        },
+      },
+      {
+        scale: "y",
+        label: unit,
+        stroke: "#FFFFFF",
+        ticks: {
+          stroke: "#FFFFFF",
+        },
+        grid: {
+          stroke: "rgba(255,255,255,0.1)",
+        },
       }
-    }, options)
-  })
-  return chart
-}
-function formatLabel (key) {
-  const label = key.replace(/_/g, ' ').replace(/(rate|details|messages)/ig, '').trim()
-    .replace(/^\w/, c => c.toUpperCase())
-  return label || 'Total'
-}
-
-function value (data) {
-  return (data.rate === undefined) ? data : data.rate
-}
-
-function createDataset (key, color, fill) {
-  const label = formatLabel(key)
-  return {
-    key,
-    label,
-    fill,
-    type: 'line',
-    steppedLine: false,
-    lineTension: 0.3,
-    pointRadius: 0,
-    pointStyle: 'line',
-    data: [],
-    backgroundColor: color,
-    borderColor: color
+    ]
   }
-}
-
-function addToDataset (dataset, data, date) {
-  const point = {
-    x: date,
-    y: value(data)
-  }
-  if (dataset.data.length >= MAX_TICKS) {
-    dataset.data.shift()
-  }
-  dataset.data.push(point)
-  fillDatasetVoids(dataset)
-  fixDatasetLength(dataset)
-}
-
-function fillDatasetVoids (dataset) {
-  let prevPoint = dataset.data[0]
-  let moreIter = false
-  dataset.data.forEach((point, i) => {
-    const timeDiff = point.x.getTime() - prevPoint.x.getTime()
-    if (timeDiff >= POLLING_RATE * 2) {
-      dataset.data.splice(i, 0, { x: new Date(point.x.getTime() - POLLING_RATE), y: null })
-      moreIter = timeDiff >= POLLING_RATE * 3
-    }
-    prevPoint = point
-  })
-  moreIter && fillDatasetVoids(dataset)
-}
-
-function fixDatasetLength (dataset) {
-  const now = new Date()
-  dataset.data.forEach((point) => {
-    now > point.x.getTime() + X_AXIS_LENGTH && dataset.data.shift()
-  })
+  return new uPlot(opts, [], document.getElementById(id))
 }
 
 function update (chart, data, filled = false) {
-  const date = new Date()
+  const nowSec = Math.floor(Date.now() / 1000); // Get current time in seconds
+  const values = [
+    Array.from({length: 120}, (_, i) => nowSec - 600 + i * 5), // 10min time window, 5s interval
+  ]
   let keys = Object.keys(data)
   const hasDetails = keys.find(key => key.match(/_details$/))
   if (hasDetails) { keys = keys.filter(key => key.match(/_details$/)) }
   for (const key in data) {
     if (key.match(/_log$/)) continue
     if (hasDetails && !key.match(/_details$/)) continue
-    let dataset = chart.data.datasets.find(dataset => dataset.key === key)
-    const i = keys.indexOf(key)
-    if (dataset === undefined) {
-      const color = chartColors[i % chartColors.length]
-      dataset = createDataset(key, color, filled)
-      chart.data.datasets.push(dataset)
-      const log = data[`${key}_log`] || data[key].log || []
-      log.forEach((p, i) => {
-        const pDate = new Date(date.getTime() - POLLING_RATE * (log.length - i))
-        addToDataset(dataset, p, pDate)
+    let log = data[`${key}_log`] || data[key].log || []
+    if (log.length > 0 && log[0].rate) log = log.map(v => v.rate)
+    values.push(log)
+    // Add series for each metric
+    const label = formatLabel(key)
+    if (!chart.series.some(s => s.label === label)) {
+      chart.addSeries({
+        label: label,
+        stroke: chartColors[chart.series.length - 1 % chartColors.length],
+        width: 1,
+        points: { show: true, size: 3 }
       })
     }
-    addToDataset(dataset, data[key], date)
   }
-  chart.update()
+  chart.setData(values)
+}
+
+const chartColors = ['#54be7e', '#4589ff', '#d12771', '#d2a106', '#08bdba', '#bae6ff', '#ba4e00', '#d4bbff', '#8a3ffc', '#33b1ff', '#007d79']
+
+function formatLabel (key) {
+  const label = key.replace(/_/g, ' ').replace(/(rate|details|messages)/ig, '').trim()
+    .replace(/^\w/, c => c.toUpperCase())
+  return label || 'Total'
 }
 
 export {

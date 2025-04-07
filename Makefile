@@ -4,7 +4,7 @@ PERF_SOURCES := $(shell find src/lavinmqperf -name '*.cr' 2> /dev/null)
 VIEW_SOURCES := $(wildcard views/*.ecr)
 VIEW_TARGETS := $(patsubst views/%.ecr,static/views/%.html,$(VIEW_SOURCES))
 VIEW_PARTIALS := $(wildcard views/partials/*.ecr)
-JS := static/js/lib/chunks/helpers.segment.js static/js/lib/chart.js static/js/lib/amqp-websocket-client.mjs static/js/lib/amqp-websocket-client.mjs.map static/js/lib/luxon.js static/js/lib/chartjs-adapter-luxon.esm.js static/js/lib/elements-8.2.0.js static/js/lib/elements-8.2.0.css static/js/lib/paho-mqtt.js
+JS := static/js/lib/uPlot.esm.js static/js/lib/uPlot.min.css static/js/lib/amqp-websocket-client.mjs static/js/lib/amqp-websocket-client.mjs.map static/js/lib/elements-8.2.0.js static/js/lib/elements-8.2.0.css static/js/lib/paho-mqtt.js
 LDFLAGS := $(shell (dpkg-buildflags --get LDFLAGS || rpm -E "%{build_ldflags}" || echo "-pie") 2>/dev/null)
 CRYSTAL_FLAGS := --release --stats
 override CRYSTAL_FLAGS += --error-on-warnings --link-flags="$(LDFLAGS)"
@@ -67,20 +67,9 @@ bin static/js/lib man1 static/js/lib/chunks:
 static/js/lib/%: | static/js/lib
 	curl --retry 5 -sLo $@ https://github.com/cloudamqp/amqp-client.js/releases/download/v3.1.1/$(@F)
 
-static/js/lib/chart.js: | static/js/lib
-	curl --retry 5 -sL https://github.com/chartjs/Chart.js/releases/download/v4.0.1/chart.js-4.0.1.tgz | \
-		tar -zxOf- package/dist/chart.js > $@
-
-static/js/lib/chunks/helpers.segment.js: | static/js/lib/chunks
-	curl --retry 5 -sL https://github.com/chartjs/Chart.js/releases/download/v4.0.1/chart.js-4.0.1.tgz | \
-		tar -zxOf- package/dist/chunks/helpers.segment.js > $@
-
-static/js/lib/luxon.js: | static/js/lib
-	curl --retry 5 -sLo $@ https://moment.github.io/luxon/es6/luxon.js
-
-static/js/lib/chartjs-adapter-luxon.esm.js: | static/js/lib
-	curl --retry 5 -sLo $@ https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.esm.js
-	sed -i'' -e "s|\(import { _adapters } from\).*|\1 './chart.js'|; s|\(import { DateTime } from\).*|\1 './luxon.js'|" $@
+static/js/lib/uPlot.esm.js static/js/lib/uPlot.min.css: | static/js/lib
+	curl --retry 5 -sL https://github.com/leeoniya/uPlot/archive/refs/tags/1.6.32.tar.gz | \
+		tar -zxOf- uPlot-1.6.32/dist/$(@F) > $@
 
 static/js/lib/elements-8.2.0.js: | static/js/lib
 	curl --retry 5 -sLo $@ https://unpkg.com/@stoplight/elements@8.2.0/web-components.min.js
