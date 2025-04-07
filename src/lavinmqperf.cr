@@ -30,7 +30,7 @@ module LavinMQPerf
   when "mqtt"
     mode = ARGV.shift?
     case mode
-    when "throughput"       then pp "no mqtt throughput yet"
+    when "throughput"       then MQTT::Throughput.new.run
     else                         abort Perf.new.banner
     end
   else abort Perf.new.banner
