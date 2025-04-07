@@ -11,7 +11,7 @@ require "./stdlib/resource"
 Log.setup_from_env
 
 module LavinMQPerf
-   protocol = ARGV.shift? || "amqp"
+  protocol = ARGV.shift? || "amqp"
   case protocol
   when "amqp"
     mode = ARGV.shift?
@@ -30,8 +30,8 @@ module LavinMQPerf
   when "mqtt"
     mode = ARGV.shift?
     case mode
-    when "throughput"       then MQTT::Throughput.new.run
-    else                         abort Perf.new.banner
+    when "throughput" then MQTT::Throughput.new.run
+    else                   abort Perf.new.banner
     end
   else abort Perf.new.banner
   end
