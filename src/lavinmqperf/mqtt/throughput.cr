@@ -22,6 +22,8 @@ module LavinMQPerf
       @random_bodies = false
       @retain = false
       @clean_session = false
+      @uri = URI.parse("mqtt://localhost:1883")
+      @keep_alive = 60
 
       def initialize
         super
@@ -73,12 +75,32 @@ module LavinMQPerf
         @parser.on("--clean-session", "Use clean session") do
           @clean_session = true
         end
+        @parser.on("-u uri", "--uri=uri", "MQTT broker URI (default mqtt://localhost:1883)") do |v|
+          @uri = URI.parse(v)
+        end
+        @parser.on("--keep-alive=seconds", "Keep alive interval in seconds (default 60)") do |v|
+          @keep_alive = v.to_i
+        end
       end
 
       @pubs = 0_u64
       @consumes = 0_u64
       @stopped = false
       @start_time = Time.monotonic
+
+      private def create_client(id : Int32, role : String) : ::MQTT::Client
+        host = @uri.host || "localhost"
+        port = @uri.port || 1883
+        user = @uri.user || "guest"
+        password = @uri.password || "guest"
+
+        ::MQTT::Client.new(host, port,
+          client_id: "#{role}-#{id}",
+          clean_session: @clean_session,
+          user: user,
+          password: password,
+          keepalive: @keep_alive.to_u16)
+      end
 
       def run
         super
@@ -155,11 +177,7 @@ module LavinMQPerf
       end
 
       private def pub(id : Int32)
-        client = ::MQTT::Client.new("localhost", 1883,
-          user: "guest",
-          password: "guest",
-          client_id: "publisher-#{id}",
-          clean_session: @clean_session)
+        client = create_client(id, "publisher")
 
         data = Bytes.new(@size) { |i| ((i % 27 + 64)).to_u8 }
         Random::DEFAULT.random_bytes(data) if @random_bodies
@@ -178,11 +196,7 @@ module LavinMQPerf
       end
 
       private def consume(id : Int32)
-        client = ::MQTT::Client.new("localhost", 1883,
-          user: "guest",
-          password: "guest",
-          client_id: "consumer-#{id}",
-          clean_session: @clean_session)
+        client = create_client(id, "consumer")
 
         data = Bytes.new(@size) { |i| ((i % 27 + 64)).to_u8 }
         Random::DEFAULT.random_bytes(data) if @random_bodies
