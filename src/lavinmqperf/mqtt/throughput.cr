@@ -23,7 +23,6 @@ module LavinMQPerf
       @retain = false
       @clean_session = false
       @uri = URI.parse("mqtt://localhost:1883")
-      @keep_alive = 60
 
       def initialize
         super
@@ -78,9 +77,6 @@ module LavinMQPerf
         @parser.on("-u uri", "--uri=uri", "MQTT broker URI (default mqtt://localhost:1883)") do |v|
           @uri = URI.parse(v)
         end
-        @parser.on("--keep-alive=seconds", "Keep alive interval in seconds (default 60)") do |v|
-          @keep_alive = v.to_i
-        end
       end
 
       @pubs = 0_u64
@@ -98,8 +94,7 @@ module LavinMQPerf
           client_id: "#{role}-#{id}",
           clean_session: @clean_session,
           user: user,
-          password: password,
-          keepalive: @keep_alive.to_u16)
+          password: password)
       end
 
       def run
