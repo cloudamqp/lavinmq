@@ -595,8 +595,8 @@ module LavinMQ
       end
 
       def prefetch_count=(value)
-        @prefetch_count = value
         @consumers.each(&.prefetch_count = value)
+        @prefetch_count = value
       end
 
       def basic_recover(frame) : Nil

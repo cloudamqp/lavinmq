@@ -6,6 +6,7 @@ import { DataSource } from './datasource.js'
 
 const channel = new URLSearchParams(window.location.hash.substring(1)).get('name')
 const urlEncodedChannel = encodeURIComponent(channel)
+const channelUrl = 'api/channels/' + urlEncodedChannel
 const chart = Chart.render('chart', 'msgs/s')
 let vhost = null
 document.title = channel + ' | LavinMQ'
@@ -97,7 +98,6 @@ const prefetchHandler = () => {
   return { el, update }
 }
 
-const channelUrl = 'api/channels/' + urlEncodedChannel
 const prefetch = prefetchHandler()
 document.getElementById('ch-prefetch').appendChild(prefetch.el)
 function updateChannel () {
