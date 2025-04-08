@@ -37,11 +37,19 @@ Table.renderTable('table', consumerTableOpts, function (tr, item) {
 const prefetchForm = (cb) => {
   const input = document.createElement('input')
   input.type = 'number'
-  const button = document.createElement('button')
-  button.type = 'submit'
-  button.textContent = 'Save'
-  button.classList.add('btn-outlined')
+
+  const save = document.createElement('button')
+  save.type = 'submit'
+  save.title = 'Save'
+  save.classList.add('btn-icon', 'btn-submit')
+
+  const reset = document.createElement('button')
+  reset.type = 'reset'
+  reset.title = 'Reset'
+  reset.classList.add('btn-icon', 'btn-reset')
+
   const form = document.createElement('form')
+  form.classList.add('prefetch-form')
   form.addEventListener('submit', (event) => {
     event.preventDefault()
     const prefetch = parseInt(input.value)
@@ -52,7 +60,7 @@ const prefetchForm = (cb) => {
         }
       })
   })
-  form.append(input, button)
+  form.append(input, save, reset)
   const updateForm = (value) => { input.value = value }
   return { form, updateForm }
 }
