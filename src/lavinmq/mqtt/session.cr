@@ -43,8 +43,10 @@ module LavinMQ
           Fiber.yield if (i &+= 1) % 32768 == 0
         rescue ::IO::Error
           @log.error { "deliver loop exited due to IO error" }
+          break
         rescue ArgumentError
           @log.error { "deliver loop exited due to argument error" }
+          break
         rescue ex
           @log.error(exception: ex) { "Unexpected error in deliver loop" }
         end
