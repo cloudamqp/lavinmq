@@ -222,7 +222,7 @@ module LavinMQ
           },
           consumer_tag:    @tag,
           exclusive:       exclusive?,
-          ack_required:    !no_ack,
+          ack_required:    !no_ack?,
           prefetch_count:  @prefetch_count,
           priority:        priority,
           channel_details: {
@@ -249,6 +249,7 @@ module LavinMQ
       end
 
       def deliver(msg, sp, redelivered = false, recover = false)
+        raise NotImplementedError.new("MQTT Consumer can't deliver AMQP messages")
       end
 
       def exclusive?
@@ -268,12 +269,15 @@ module LavinMQ
       end
 
       def flow(active : Bool)
+        raise NotImplementedError.new("MQTT Consumer doesn't support flow")
       end
 
       def ack(sp)
+        raise NotImplementedError.new("MQTT Consumer doesn't support ack")
       end
 
       def reject(sp, requeue = false)
+        raise NotImplementedError.new("MQTT Consumer doesn't support reject")
       end
 
       def priority
