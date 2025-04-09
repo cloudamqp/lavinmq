@@ -52,7 +52,7 @@ module LavinMQ
       private def read_loop
         socket = @socket
         if socket.responds_to?(:"read_timeout=")
-          socket.read_timeout = (@keepalive * 1.5).seconds # 1.5 according to [MQTT-3.1.2-24].
+          socket.read_timeout = @keepalive.zero? ? nil : (@keepalive * 1.5).seconds
         end
         loop do
           @log.trace { "waiting for packet" }
