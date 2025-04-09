@@ -49,6 +49,7 @@ module LavinMQ
           break
         rescue ex
           @log.error(exception: ex) { "Unexpected error in deliver loop" }
+          break
         end
       rescue ex :  ::Channel::ClosedError
         @log.debug(exception: ex) { "deliver loop exited due to channel closed" }
