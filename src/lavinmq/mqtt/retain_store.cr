@@ -34,7 +34,7 @@ module LavinMQ
       end
 
       private def restore_index(index : IndexTree, index_file : ::IO)
-        Log.info { "restoring index" }
+        Log.trace { "restoring index" }
         dir = @dir
         msg_count = 0u64
         msg_file_segments = Set(String).new(
@@ -60,7 +60,7 @@ module LavinMQ
             File.delete? File.join(dir, file_name)
           end
         end
-        Log.info { "restoring index done, msg_count = #{msg_count}" }
+        Log.trace { "restoring index done, msg_count = #{msg_count}" }
       end
 
       def retain(topic : String, body_io : ::IO, size : UInt64) : Nil
