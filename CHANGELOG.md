@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Cleaner CLI output with separators [#1018](https://github.com/cloudamqp/lavinmq/pull/1018)
 - Default limit of 128 items in deduplication cache [#1019](https://github.com/cloudamqp/lavinmq/pull/1019)
+- Messages in stream queues now support multiple filter values [#1022](https://github.com/cloudamqp/lavinmq/pull/1022)
+- Filtering on stream queues now requires all filters on a consumer to match [#1022](https://github.com/cloudamqp/lavinmq/pull/1022)
 
 ## [2.2.0] - 2025-03-13
 
