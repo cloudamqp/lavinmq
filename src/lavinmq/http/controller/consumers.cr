@@ -7,8 +7,8 @@ module LavinMQ
     class ConsumersController < Controller
       include ConnectionsHelper
 
-      protected def match_value(value)
-        value[:consumer_tag]? || value["consumer_tag"]?
+      protected def match_value(value : NamedTuple) : String
+        value[:consumer_tag]
       end
 
       private def register_routes

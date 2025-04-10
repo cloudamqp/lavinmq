@@ -22,30 +22,30 @@ module LavinMQ
         return iterator unless raw_name = params["name"]?
         term = URI.decode_www_form(raw_name)
         if params["use_regex"]?.try { |v| v == "true" }
-          iterator.select { |v| match_value(v).to_s =~ /#{term}/ }
+          iterator.select { |v| match_value(v) =~ /#{term}/ }
         else
-          iterator.select { |v| match_value(v).to_s.includes?(term) }
+          iterator.select { |v| match_value(v).includes?(term) }
         end
       end
 
       # Can be overridden in sub controllers
-      protected def match_value(value)
-        value[:name]? || value["name"]?
+      protected def match_value(value : NamedTuple) : String
+        value[:name]? || ""
       end
 
-      private def page(context, iterator : Iterator(SortableJSON))
+      private def page(context, itr : Iterator(SortableJSON))
         params = context.request.query_params
-        page = params["page"]?.try(&.to_i) || 1
         page_size = params["page_size"]?.try(&.to_i) || 100
         if page_size > MAX_PAGE_SIZE
           context.response.status_code = 413
           {error: "payload_too_large", reason: "Max allowed page_size #{MAX_PAGE_SIZE}"}.to_json(context.response)
           return context
         end
-        iterator = iterator.map do |i|
+        iterator = itr.compact_map do |i|
           i.details_tuple
-        rescue e
-          {error: e.message}
+        rescue ex
+          Log.warn(exception: ex) { "Could not list all items" }
+          next
         end
         all_items = filter_values(params, iterator)
         if sort_by = params.fetch("sort", nil).try &.split(".")
@@ -69,28 +69,26 @@ module LavinMQ
           all_items = sorted_items.each
         end
         columns = params["columns"]?.try(&.split(','))
-        unless params.has_key?("page")
-          JSON.build(context.response) do |json|
+        JSON.build(context.response) do |json|
+          if page = params["page"]?.try(&.to_i)
+            json.object do
+              item_count, total_count = json.field("items") do
+                start = (page - 1) * page_size
+                array_iterator_to_json(json, all_items, columns, start, page_size)
+              end
+              filtered_count ||= total_count
+              json.field("filtered_count", filtered_count)
+              json.field("item_count", item_count)
+              json.field("page", page)
+              json.field("page_count", ((total_count + page_size - 1) / page_size).to_i)
+              json.field("page_size", page_size)
+              json.field("total_count", total_count)
+            end
+          else
             items, total = array_iterator_to_json(json, all_items, columns, 0, MAX_PAGE_SIZE)
             if total > MAX_PAGE_SIZE
               Log.warn { "Result set truncated: #{items}/#{total}" }
             end
-          end
-          return context
-        end
-        JSON.build(context.response) do |json|
-          json.object do
-            item_count, total_count = json.field("items") do
-              start = (page - 1) * page_size
-              array_iterator_to_json(json, all_items, columns, start, page_size)
-            end
-            filtered_count ||= total_count
-            json.field("filtered_count", filtered_count)
-            json.field("item_count", item_count)
-            json.field("page", page)
-            json.field("page_count", ((total_count + page_size - 1) / page_size).to_i)
-            json.field("page_size", page_size)
-            json.field("total_count", total_count)
           end
         end
         context
