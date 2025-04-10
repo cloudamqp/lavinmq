@@ -49,6 +49,7 @@ module LavinMQ
         end
         all_items = filter_values(params, iterator)
         if sort_by = params.fetch("sort", nil).try &.split(".")
+          puts "sort_by=#{sort_by}"
           sorted_items = all_items.to_a
           filtered_count = sorted_items.size
           if first_element = sorted_items.first?
@@ -59,7 +60,7 @@ module LavinMQ
                   sorted_items.sort_by! { |i| dig(i, sort_by).as({{k.id}}) }
                 {% end %}
               else
-                sorted_items.sort_by! { |i| dig(i, sort_by).to_s.downcase }
+                sorted_items.sort_by! { |i| p(dig(i, sort_by)).to_s.downcase }
               end
             {% end %}
           end
