@@ -49,20 +49,21 @@ module LavinMQ
         end
         all_items = filter_values(params, iterator)
         if sort_by = params.fetch("sort", nil).try &.split(".")
-          puts "sort_by=#{sort_by}"
           sorted_items = all_items.to_a
           filtered_count = sorted_items.size
-          if first_element = sorted_items.first?
-            {% begin %}
-              case dig(first_element, sort_by)
-                {% for k in {Int32, UInt16, UInt32, UInt64, Float64} %}
-                when {{k.id}}
-                  sorted_items.sort_by! { |i| dig(i, sort_by).as({{k.id}}) }
-                {% end %}
+          begin
+            if first_element = sorted_items.first?
+              case v = dig(first_element, sort_by)
+              when Number
+                sorted_items.sort_by! { |i| dig(i, sort_by).as(Number) }
+              when String
+                sorted_items.sort_by! { |i| dig(i, sort_by).as(String).downcase }
               else
-                sorted_items.sort_by! { |i| p(dig(i, sort_by)).to_s.downcase }
+                bad_request(context, "Can't sort on type #{v.class}")
               end
-            {% end %}
+            end
+          rescue KeyError | TypeCastError
+            bad_request(context, "Sort key #{sort_by} is not valid")
           end
           sorted_items.reverse! if params["sort_reverse"]?.try { |s| !(s =~ /^false$/i) }
           all_items = sorted_items.each
@@ -95,12 +96,12 @@ module LavinMQ
         context
       end
 
-      private def dig(i : NamedTuple, keys : Array(String))
+      private def dig(tuple : NamedTuple, keys : Array(String))
         if keys.size > 1
-          nt = i[keys.first].as?(NamedTuple) || return
+          nt = tuple[keys.first].as?(NamedTuple) || raise KeyError.new("'#{keys.first}' is not a nested tuple")
           dig(nt, keys[1..])
         else
-          i[keys.first]? || 0
+          tuple[keys.first] || 0
         end
       end
 
