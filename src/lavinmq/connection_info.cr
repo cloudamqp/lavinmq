@@ -2,8 +2,8 @@ require "socket"
 
 module LavinMQ
   class ConnectionInfo
-    getter src : IPAddress
-    getter dst : IPAddress
+    getter remote_address : IPAddress
+    getter local_address : IPAddress
     property? ssl : Bool = false
     property? ssl_verify : Bool = false
     property ssl_version : String?
@@ -12,9 +12,10 @@ module LavinMQ
     property ssl_sig_alg : String?
     property ssl_cn : String?
 
-    def initialize(src, dst)
-      @src = IPAddress.new(src)
-      @dst = IPAddress.new(dst)
+    # Remote and local addresses from the server's perspective
+    def initialize(remote_address, local_address)
+      @remote_address = IPAddress.new(remote_address)
+      @local_address = IPAddress.new(local_address)
     end
 
     def self.local
@@ -23,16 +24,8 @@ module LavinMQ
       new(src, dst)
     end
 
-    def remote_address # from the server's perspective
-      @src             # from the client's perspective
-    end
-
-    def local_address # from the server's perspective
-      @dst            # from the client's perspective
-    end
-
     # Suspecting memory problem with Socket::IPAddress in Crystal 1.15.0
-    class IPAddress
+    struct IPAddress
       getter address : String
       getter port : UInt16
 

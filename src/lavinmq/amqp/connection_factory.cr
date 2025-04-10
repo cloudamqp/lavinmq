@@ -16,13 +16,12 @@ module LavinMQ
       end
 
       def start(socket, connection_info) : Client?
-        remote_address = connection_info.src
         socket.read_timeout = 15.seconds
-        metadata = ::Log::Metadata.build({address: remote_address.to_s})
+        metadata = ::Log::Metadata.build({address: connection_info.remote_address.to_s})
         logger = Logger.new(Log, metadata)
         if confirm_header(socket, logger)
           if start_ok = start(socket, logger)
-            if user = authenticate(socket, remote_address, start_ok, logger)
+            if user = authenticate(socket, connection_info.remote_address, start_ok, logger)
               if tune_ok = tune(socket, logger)
                 if vhost = open(socket, user, logger)
                   socket.read_timeout = heartbeat_timeout(tune_ok)
@@ -33,10 +32,10 @@ module LavinMQ
           end
         end
       rescue ex : IO::TimeoutError | IO::Error | OpenSSL::SSL::Error | AMQ::Protocol::Error::FrameDecode
-        Log.warn { "#{ex} when #{remote_address} tried to establish connection" }
+        Log.warn { "#{ex} when #{connection_info.remote_address} tried to establish connection" }
         nil
       rescue ex
-        Log.error(exception: ex) { "Error while #{remote_address} tried to establish connection" }
+        Log.error(exception: ex) { "Error while #{connection_info.remote_address} tried to establish connection" }
         nil
       end
 
