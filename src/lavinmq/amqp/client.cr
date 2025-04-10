@@ -7,6 +7,7 @@ require "../logger"
 require "../name_validator"
 require "./channel_reply_code"
 require "./connection_reply_code"
+require "../rough_time"
 
 module LavinMQ
   module AMQP
