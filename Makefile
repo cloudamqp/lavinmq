@@ -169,3 +169,7 @@ rpm:
 .PHONY: clean
 clean:
 	$(RM) $(BINS) $(DOCS) $(JS) $(MANPAGES) $(VIEW_TARGETS)
+
+.PHONY: watch
+watch:
+	while true; do inotifywait -qqr -e modify -e create -e delete src/ && $(MAKE); done
