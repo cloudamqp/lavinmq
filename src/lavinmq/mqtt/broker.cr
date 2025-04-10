@@ -57,6 +57,7 @@ module LavinMQ
           end
         end
         @clients[packet.client_id] = client
+        @vhost.add_connection client
       end
 
       def remove_client(client)
@@ -66,7 +67,7 @@ module LavinMQ
           sessions.delete(client_id) if session.clean_session?
         end
         @clients.delete client_id
-        vhost.rm_connection(client)
+        @vhost.rm_connection(client)
       end
 
       def publish(packet : MQTT::Publish)
