@@ -283,6 +283,25 @@ lavinmq --data-dir /var/lib/lavinmq --clustering --clustering-bind :: --clusteri
 
 Stream queues are like append-only logs and can be consumed multiple times. Each consumer can start to read from anywhere in the queue (using the `x-stream-offset` consumer argument) over and over again.  Stream queues are different from normal queues in that messages are not deleted (see #retention) when a consumer acknowledge them.
 
+### Stream Queue Filtering
+
+Stream queues support message filtering, allowing consumers to receive only messages that match specific criteria. This is useful for consuming a subset of messages without creating multiple queues.
+
+#### How Filtering Works
+- A consumer with filter values will only receive messages that contain ALL the filter values it has specified.
+- A consumer with filter values will not receive messages without filter values unless they have set `x-stream-match-unfiltered` to true.
+- Consumers without any filter values will receive all messages.
+
+#### Publishing Filtered Messages
+When publishing messages that should be filtered, include the `x-stream-filter-value` header. `x-stream-filter-value` should be a string of comma-separated values.
+
+#### Consuming Filtered Messages
+
+To enable filtering on the consumer, set the following arguments when creating a consumer:
+
+- `x-stream-filter`: A comma-separated string of filter values the consumer is interested in
+- `x-stream-match-unfiltered`: A boolean (default: `false`) that determines whether to receive messages that don't have any filter values
+
 ## MQTT
 
 LavinMQ natively supports the MQTT 3.1.1 protocol, facilitating seamless integration with IoT devices, sensors, and mobile applications. Each MQTT session is backed by an AMQP queue, ensuring consistent and reliable message storage. Messages within these sessions are persistently stored on disk. 
