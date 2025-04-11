@@ -12,7 +12,7 @@ module LavinMQ
       include Stats
       include SortableJSON
 
-      getter channels, log, name, user, client_id, socket, remote_address, connection_info
+      getter channels, log, name, user, client_id, socket, connection_info
       getter? clean_session
       @connected_at = RoughTime.unix_ms
       @channels = Hash(UInt16, Client::Channel).new
@@ -35,14 +35,11 @@ module LavinMQ
         @io = MQTT::IO.new(@socket)
         @lock = Mutex.new
         @waitgroup = WaitGroup.new(1)
-        @remote_address = @connection_info.src
-        local_address = @connection_info.dst
-        @name = "#{@remote_address} -> #{local_address}"
-        metadata = ::Log::Metadata.new(nil, {vhost: @broker.vhost.name, address: @remote_address.to_s, client_id: client_id})
+        @name = "#{@connection_info.remote_address} -> #{@connection_info.local_address}"
+        metadata = ::Log::Metadata.new(nil, {vhost: @broker.vhost.name, address: @connection_info.remote_address.to_s, client_id: client_id})
         @log = Logger.new(Log, metadata)
-        @broker.vhost.add_connection(self)
         @log.info { "Connection established for user=#{@user.name}" }
-        spawn read_loop
+        spawn read_loop, name: "MQTT read_loop #{@connection_info.remote_address}"
       end
 
       def client_name
@@ -60,7 +57,7 @@ module LavinMQ
           # The disconnect packet has been handled and the socket has been closed.
           # If we dont breakt the loop here we'll get a IO/Error on next read.
           if packet.is_a?(MQTT::Disconnect)
-            @log.debug { "Recieved disconnect" }
+            @log.debug { "Received disconnect" }
             break
           end
         end
@@ -206,11 +203,12 @@ module LavinMQ
 
     class Consumer < LavinMQ::Client::Channel::Consumer
       getter unacked = 0_u32
-      getter tag : String = "mqtt"
+      getter tag : String
       getter has_capacity = ::Channel(Bool).new
-      property prefetch_count = 1
+      property prefetch_count = 0_u16
 
       def initialize(@client : Client, @session : MQTT::Session)
+        @tag = "mqtt.#{@client.client_id}"
       end
 
       def details_tuple
@@ -219,16 +217,19 @@ module LavinMQ
             name:  "mqtt.#{@client.client_id}",
             vhost: @client.vhost.name,
           },
+          consumer_tag:    @tag,
+          exclusive:       exclusive?,
+          ack_required:    !no_ack?,
+          prefetch_count:  @prefetch_count,
+          priority:        priority,
           channel_details: {
-            peer_host:       "#{@client.remote_address}",
-            peer_port:       "#{@client.connection_info.src}",
-            connection_name: "mqtt.#{@client.client_id}",
-            user:            "#{@client.user}",
-            number:          "",
-            name:            "mqtt.#{@client.client_id}",
+            peer_host:       @client.connection_info.remote_address.address,
+            peer_port:       @client.connection_info.remote_address.port,
+            connection_name: @client.name,
+            user:            @client.user,
+            number:          0_u16,
+            name:            "#{@client.connection_info.remote_address}[0]",
           },
-          prefetch_count: prefetch_count,
-          consumer_tag:   @client.client_id,
         }
       end
 
@@ -245,6 +246,7 @@ module LavinMQ
       end
 
       def deliver(msg, sp, redelivered = false, recover = false)
+        raise NotImplementedError.new("MQTT Consumer can't deliver AMQP messages")
       end
 
       def exclusive?
@@ -264,12 +266,15 @@ module LavinMQ
       end
 
       def flow(active : Bool)
+        raise NotImplementedError.new("MQTT Consumer doesn't support flow")
       end
 
       def ack(sp)
+        raise NotImplementedError.new("MQTT Consumer doesn't support ack")
       end
 
       def reject(sp, requeue = false)
+        raise NotImplementedError.new("MQTT Consumer doesn't support reject")
       end
 
       def priority

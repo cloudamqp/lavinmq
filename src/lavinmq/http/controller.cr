@@ -22,84 +22,79 @@ module LavinMQ
         return iterator unless raw_name = params["name"]?
         term = URI.decode_www_form(raw_name)
         if params["use_regex"]?.try { |v| v == "true" }
-          iterator.select { |v| match_value(v).to_s =~ /#{term}/ }
+          iterator.select { |v| match_value(v) =~ /#{term}/ }
         else
-          iterator.select { |v| match_value(v).to_s.includes?(term) }
+          iterator.select { |v| match_value(v).includes?(term) }
         end
       end
 
       # Can be overridden in sub controllers
-      protected def match_value(value)
-        value[:name]? || value["name"]?
+      protected def match_value(value : NamedTuple) : String
+        value[:name]? || ""
       end
 
-      private def page(context, iterator : Iterator(SortableJSON))
+      private def page(context, itr : Iterator(SortableJSON))
         params = context.request.query_params
-        page = params["page"]?.try(&.to_i) || 1
-        page_size = params["page_size"]?.try(&.to_i) || 100
-        if page_size > MAX_PAGE_SIZE
-          context.response.status_code = 413
-          {error: "payload_too_large", reason: "Max allowed page_size #{MAX_PAGE_SIZE}"}.to_json(context.response)
-          return context
-        end
-        iterator = iterator.map do |i|
+        page_size = extract_page_size(context)
+        iterator = itr.compact_map do |i|
           i.details_tuple
-        rescue e
-          {error: e.message}
+        rescue ex
+          Log.warn(exception: ex) { "Could not list all items" }
+          next
         end
         all_items = filter_values(params, iterator)
         if sort_by = params.fetch("sort", nil).try &.split(".")
           sorted_items = all_items.to_a
           filtered_count = sorted_items.size
-          if first_element = sorted_items.first?
-            {% begin %}
-              case dig(first_element, sort_by)
-                {% for k in {Int32, UInt16, UInt32, UInt64, Float64} %}
-                when {{k.id}}
-                  sorted_items.sort_by! { |i| dig(i, sort_by).as({{k.id}}) }
-                {% end %}
+          begin
+            if first_element = sorted_items.first?
+              case v = dig(first_element, sort_by)
+              when Number
+                sorted_items.sort_by! { |i| dig(i, sort_by).as(Number) }
+              when String
+                sorted_items.sort_by! { |i| dig(i, sort_by).as(String).downcase }
               else
-                sorted_items.sort_by! { |i| dig(i, sort_by).to_s.downcase }
+                bad_request(context, "Can't sort on type #{v.class}")
               end
-            {% end %}
+            end
+          rescue KeyError | TypeCastError
+            bad_request(context, "Sort key #{sort_by} is not valid")
           end
           sorted_items.reverse! if params["sort_reverse"]?.try { |s| !(s =~ /^false$/i) }
           all_items = sorted_items.each
         end
         columns = params["columns"]?.try(&.split(','))
-        unless params.has_key?("page")
-          JSON.build(context.response) do |json|
+        JSON.build(context.response) do |json|
+          if page = params["page"]?.try(&.to_i)
+            json.object do
+              item_count, total_count = json.field("items") do
+                start = (page - 1) * page_size
+                array_iterator_to_json(json, all_items, columns, start, page_size)
+              end
+              filtered_count ||= total_count
+              json.field("filtered_count", filtered_count)
+              json.field("item_count", item_count)
+              json.field("page", page)
+              json.field("page_count", ((total_count + page_size - 1) / page_size).to_i)
+              json.field("page_size", page_size)
+              json.field("total_count", total_count)
+            end
+          else
             items, total = array_iterator_to_json(json, all_items, columns, 0, MAX_PAGE_SIZE)
             if total > MAX_PAGE_SIZE
               Log.warn { "Result set truncated: #{items}/#{total}" }
             end
           end
-          return context
-        end
-        JSON.build(context.response) do |json|
-          json.object do
-            item_count, total_count = json.field("items") do
-              start = (page - 1) * page_size
-              array_iterator_to_json(json, all_items, columns, start, page_size)
-            end
-            filtered_count ||= total_count
-            json.field("filtered_count", filtered_count)
-            json.field("item_count", item_count)
-            json.field("page", page)
-            json.field("page_count", ((total_count + page_size - 1) / page_size).to_i)
-            json.field("page_size", page_size)
-            json.field("total_count", total_count)
-          end
         end
         context
       end
 
-      private def dig(i : NamedTuple, keys : Array(String))
+      private def dig(tuple : NamedTuple, keys : Array(String))
         if keys.size > 1
-          nt = i[keys.first].as?(NamedTuple) || return
+          nt = tuple[keys.first].as?(NamedTuple) || raise KeyError.new("'#{keys.first}' is not a nested tuple")
           dig(nt, keys[1..])
         else
-          i[keys.first]? || 0
+          tuple[keys.first] || 0
         end
       end
 
@@ -125,6 +120,14 @@ module LavinMQ
           end
         end
         {size, total}
+      end
+
+      private def extract_page_size(context) : Int32
+        page_size = context.request.query_params["page_size"]?.try(&.to_i) || 100
+        if page_size > MAX_PAGE_SIZE
+          halt(context, 413, {error: "payload_too_large", reason: "Max allowed page_size #{MAX_PAGE_SIZE}"})
+        end
+        page_size
       end
 
       private def redirect_back(context)

@@ -44,7 +44,7 @@ module LavinMQ
       Log = LavinMQ::Log.for "amqp.channel"
 
       def initialize(@client : Client, @id : UInt16)
-        @metadata = ::Log::Metadata.new(nil, {client: @client.remote_address.to_s, channel: @id.to_i})
+        @metadata = ::Log::Metadata.new(nil, {client: @client.connection_info.remote_address.to_s, channel: @id.to_i})
         @name = "#{@client.channel_name_prefix}[#{@id}]"
         @log = Logger.new(Log, @metadata)
       end
@@ -61,12 +61,12 @@ module LavinMQ
           number:                  @id,
           name:                    @name,
           vhost:                   @client.vhost.name,
-          user:                    @client.user.try(&.name),
+          user:                    @client.user.name,
           consumer_count:          @consumers.size,
           prefetch_count:          @prefetch_count,
           global_prefetch_count:   @global_prefetch_count,
           confirm:                 @confirm,
-          transactional:           false,
+          transactional:           @tx,
           messages_unacknowledged: @unacked.size,
           connection_details:      @client.connection_details,
           state:                   state,
