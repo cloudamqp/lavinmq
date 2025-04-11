@@ -456,6 +456,12 @@ module LavinMQ
     getter stats_system_collection_duration_seconds = Time::Span.new
     getter gc_stats = GC.prof_stats
 
+    # Message stats for deleted vhosts, required to keep accurate global counters
+    property deleted_vhosts_messages_delivered_total = 0_u64
+    property deleted_vhosts_messages_redelivered_total = 0_u64
+    property deleted_vhosts_messages_acknowledged_total = 0_u64
+    property deleted_vhosts_messages_confirmed_total = 0_u64
+
     private def control_flow!
       if disk_full?
         if flow?

@@ -90,6 +90,7 @@ module LavinMQ
             overview_queue_metrics(vhosts, writer)
             custom_metrics(writer)
             gc_metrics(writer)
+            global_metrics(writer)
           end
           context
         end
@@ -204,6 +205,29 @@ module LavinMQ
                       value: @amqp_server.mem_limit,
                       type:  "gauge",
                       help:  "Memory high watermark in bytes"})
+      end
+
+      private def global_metrics(writer)
+        writer.write({name:  "global_messages_delivered_total",
+                      value: @amqp_server.deleted_vhosts_messages_delivered_total +
+                             @amqp_server.vhosts.sum { |_, v| v.message_details[:message_stats][:deliver] },
+                      type: "counter",
+                      help: "Total number of messaged delivered to consumers"})
+        writer.write({name:  "global_messages_redelivered_total",
+                      value: @amqp_server.deleted_vhosts_messages_redelivered_total +
+                             @amqp_server.vhosts.sum { |_, v| v.message_details[:message_stats][:redeliver] },
+                      type: "counter",
+                      help: "Total number of messages redelivered to consumers"})
+        writer.write({name:  "global_messages_acknowledged_total",
+                      value: @amqp_server.deleted_vhosts_messages_acknowledged_total +
+                             @amqp_server.vhosts.sum { |_, v| v.message_details[:message_stats][:ack] },
+                      type: "counter",
+                      help: "Total number of messages acknowledged by consumers"})
+        writer.write({name:  "global_messages_confirmed_total",
+                      value: @amqp_server.deleted_vhosts_messages_confirmed_total +
+                             @amqp_server.vhosts.sum { |_, v| v.message_details[:message_stats][:confirm] },
+                      type: "counter",
+                      help: "Total number of messages confirmed to publishers"})
       end
 
       private def overview_queue_metrics(vhosts, writer)
