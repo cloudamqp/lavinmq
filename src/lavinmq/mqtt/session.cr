@@ -55,6 +55,10 @@ module LavinMQ
         @log.debug(exception: ex) { "deliver loop exited due to channel closed" }
       rescue ex
         @log.error(exception: ex) { "deliver loop exited unexpectedly" }
+      ensure
+        consumers.each do |c|
+          c.try &.close
+        end
       end
 
       def client=(client : MQTT::Client?)
