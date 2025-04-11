@@ -41,17 +41,24 @@ module LavinMQ
             consumer.deliver(pub_packet)
           end
           Fiber.yield if (i &+= 1) % 32768 == 0
-        rescue ::IO::Error
-          @log.error { "deliver loop exited due to IO error" }
-        rescue ArgumentError
-          @log.error { "deliver loop exited due to argument error" }
+        rescue ex : ::IO::Error
+          @log.debug(exception: ex) { "deliver loop exited due to IO error" }
+          break
+        rescue ex : ArgumentError
+          @log.error(exception: ex) { "deliver loop exited due to argument error" }
+          break
         rescue ex
           @log.error(exception: ex) { "Unexpected error in deliver loop" }
+          break
         end
-      rescue ::Channel::ClosedError
-        @log.debug { "deliver loop exited due to channel closed" }
+      rescue ex :  ::Channel::ClosedError
+        @log.debug(exception: ex) { "deliver loop exited due to channel closed" }
       rescue ex
         @log.error(exception: ex) { "deliver loop exited unexpectedly" }
+      ensure
+        consumers.each do |c|
+          c.try &.close
+        end
       end
 
       def client=(client : MQTT::Client?)
