@@ -589,10 +589,14 @@ module LavinMQ
             notify_has_capacity(frame.prefetch_count.to_i - unacked_by_consumers)
           end
         else
-          @prefetch_count = frame.prefetch_count
-          @consumers.each(&.prefetch_count = frame.prefetch_count)
+          self.prefetch_count = frame.prefetch_count
         end
         send AMQP::Frame::Basic::QosOk.new(frame.channel)
+      end
+
+      def prefetch_count=(value)
+        @consumers.each(&.prefetch_count = value)
+        @prefetch_count = value
       end
 
       def basic_recover(frame) : Nil

@@ -1954,3 +1954,41 @@ pre.arguments > div {
     right: 0;
   }
 }
+
+.btn-icon {
+  background: transparent;
+  border: 1px solid rgb(247 245 242 / 0.1);
+  display: flex;
+  width: 45px;
+  height: 45px;
+  padding: 6px 8px;
+  justify-content: center;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  border-radius: 8px;
+
+  &:hover {
+    background-color: #2D2C2C;
+  }
+
+  &.btn-reset {
+    background-image: url(img/icon-x.svg);
+    background-repeat: no-repeat;
+    background-position: center center;
+  }
+
+  &.btn-submit {
+    background-image: url(img/icon-checkbox.svg);
+    background-repeat: no-repeat;
+    background-position: center center;
+  }
+}
+.prefetch-form {
+  display: flex;
+  gap: 4px;
+
+  input[type=number] {
+    width: 124px;
+  }
+}
