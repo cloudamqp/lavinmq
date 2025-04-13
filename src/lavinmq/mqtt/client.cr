@@ -38,7 +38,6 @@ module LavinMQ
         @name = "#{@connection_info.remote_address} -> #{@connection_info.local_address}"
         metadata = ::Log::Metadata.new(nil, {vhost: @broker.vhost.name, address: @connection_info.remote_address.to_s, client_id: client_id})
         @log = Logger.new(Log, metadata)
-        @broker.vhost.add_connection(self)
         @log.info { "Connection established for user=#{@user.name}" }
         spawn read_loop, name: "MQTT read_loop #{@connection_info.remote_address}"
       end
@@ -59,7 +58,7 @@ module LavinMQ
           # The disconnect packet has been handled and the socket has been closed.
           # If we dont breakt the loop here we'll get a IO/Error on next read.
           if packet.is_a?(MQTT::Disconnect)
-            @log.debug { "Recieved disconnect" }
+            @log.debug { "Received disconnect" }
             break
           end
         end
