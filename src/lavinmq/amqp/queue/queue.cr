@@ -399,9 +399,9 @@ module LavinMQ::AMQP
         unacked_avg_bytes:           unacked_avg_bytes,
         operator_policy:             @operator_policy.try &.name,
         policy:                      @policy.try &.name,
-        exclusive_consumer_tag:      @exclusive ? @consumers_lock.synchronize { @consumers.first?.try(&.tag) } : nil,
+        exclusive_consumer_tag:      @exclusive ? @consumers.first?.try(&.tag) : nil,
         single_active_consumer_tag:  @single_active_consumer.try &.tag,
-        state:                       @state.to_s,
+        state:                       @state,
         effective_policy_definition: Policy.merge_definitions(@policy, @operator_policy),
         message_stats:               current_stats_details,
       }
@@ -912,8 +912,15 @@ module LavinMQ::AMQP
 
     def to_json(json : JSON::Builder, consumer_limit : Int32 = -1)
       json.object do
-        details_tuple.merge(message_stats: stats_details).each do |k, v|
+        details_tuple.each do |k, v|
           json.field(k, v) unless v.nil?
+        end
+        json.field("message_stats") do
+          json.object do
+            stats_details.each do |k, v|
+              json.field(k, v) unless v.nil?
+            end
+          end
         end
         json.field("consumer_details") do
           json.array do
