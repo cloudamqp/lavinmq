@@ -49,6 +49,14 @@ module LavinMQ
           }
         end
 
+        def search_match?(value : String) : Bool
+          @upstream.name.includes? value
+        end
+
+        def search_match?(value : Regex) : Bool
+          value === @upstream.name
+        end
+
         def run
           @log.info { "Starting" }
           spawn(run_loop, name: "Federation link #{@upstream.vhost.name}/#{name}")

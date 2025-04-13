@@ -5,8 +5,10 @@ module LavinMQ
   module HTTP
     struct VHostView
       include SortableJSON
+      @name : String
 
       def initialize(@vhost : VHost)
+        @name = @vhost.name
       end
 
       def details_tuple

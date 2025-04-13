@@ -5,6 +5,7 @@ module LavinMQ
     abstract class Channel
       abstract class Consumer
         include SortableJSON
+        @name = ""
       end
     end
   end

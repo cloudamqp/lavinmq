@@ -29,5 +29,15 @@ module LavinMQ
         properties_key:   @binding_key.properties_key,
       }
     end
+
+    def search_match?(value : String) : Bool
+      @destination.name.includes?(value) ||
+        @binding_key.routing_key.includes?(value)
+    end
+
+    def search_match?(value : Regex) : Bool
+      value === @destination.name ||
+        value === @binding_key.routing_key
+    end
   end
 end

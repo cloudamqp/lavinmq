@@ -83,6 +83,14 @@ module LavinMQ
             value: value,
           }
         end
+
+        def search_match?(value : String) : Bool
+          @vhost.name.includes? value
+        end
+
+        def search_match?(value : Regex) : Bool
+          value === @vhost.name
+        end
       end
     end
   end
