@@ -71,12 +71,12 @@ module LavinMQ
         end
 
         def details_tuple
-          value = Hash(String, Int32).new
+          value = NamedTuple.new
           if max = @vhost.max_connections
-            value["max-connections"] = max
+            value = value.merge({"max-connections": max})
           end
           if max = @vhost.max_queues
-            value["max-queues"] = max
+            value = value.merge({"max-queues": max})
           end
           {
             vhost: @vhost.name,
