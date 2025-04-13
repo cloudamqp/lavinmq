@@ -44,7 +44,7 @@ module LavinMQ
       Log = LavinMQ::Log.for "amqp.channel"
 
       def initialize(@client : Client, @id : UInt16)
-        @metadata = ::Log::Metadata.new(nil, {client: @client.remote_address.to_s, channel: @id.to_i})
+        @metadata = ::Log::Metadata.new(nil, {client: @client.connection_info.remote_address.to_s, channel: @id.to_i})
         @name = "#{@client.channel_name_prefix}[#{@id}]"
         @log = Logger.new(Log, @metadata)
       end
