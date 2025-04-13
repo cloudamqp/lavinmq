@@ -7,6 +7,8 @@ require "../logger"
 require "../name_validator"
 require "./channel_reply_code"
 require "./connection_reply_code"
+require "../rough_time"
+require "../connection_info"
 
 module LavinMQ
   module AMQP
@@ -21,14 +23,13 @@ module LavinMQ
       getter heartbeat_timeout : UInt16
       getter auth_mechanism : String
       getter client_properties : AMQP::Table
-      getter remote_address : Socket::IPAddress
+      getter connection_info : ConnectionInfo
 
       @connected_at = RoughTime.unix_ms
       @channels = Hash(UInt16, Client::Channel).new
       @actual_channel_max : UInt16
       @exclusive_queues = Array(Queue).new
       @heartbeat_interval_ms : Int64?
-      @local_address : Socket::IPAddress
       @running = true
       @last_recv_frame = RoughTime.monotonic
       @last_sent_frame = RoughTime.monotonic
@@ -42,9 +43,6 @@ module LavinMQ
                      @user : User,
                      tune_ok,
                      start_ok)
-        @remote_address = @connection_info.src
-        @local_address = @connection_info.dst
-
         @max_frame_size = tune_ok.frame_max
 
         # keep 0 = unlimited in ui/api for consistency with the spec
@@ -55,19 +53,19 @@ module LavinMQ
         @heartbeat_timeout = tune_ok.heartbeat
         @heartbeat_interval_ms = tune_ok.heartbeat.zero? ? nil : ((tune_ok.heartbeat / 2) * 1000).to_i64
         @auth_mechanism = start_ok.mechanism
-        @name = "#{@remote_address} -> #{@local_address}"
+        @name = "#{@connection_info.remote_address} -> #{@connection_info.local_address}"
         @client_properties = start_ok.client_properties
         connection_name = @client_properties["connection_name"]?.try(&.as?(String))
         @metadata =
           if connection_name
-            ::Log::Metadata.new(nil, {vhost: @vhost.name, address: @remote_address.to_s, name: connection_name})
+            ::Log::Metadata.new(nil, {vhost: @vhost.name, address: @connection_info.remote_address.to_s, name: connection_name})
           else
-            ::Log::Metadata.new(nil, {vhost: @vhost.name, address: @remote_address.to_s})
+            ::Log::Metadata.new(nil, {vhost: @vhost.name, address: @connection_info.remote_address.to_s})
           end
         @log = Logger.new(Log, @metadata)
         @vhost.add_connection(self)
         @log.info { "Connection established for user=#{@user.name}" }
-        spawn read_loop, name: "Client#read_loop #{@remote_address}"
+        spawn read_loop, name: "Client#read_loop #{@connection_info.remote_address}"
       end
 
       # Returns client provided connection name if set, else server generated name
@@ -76,7 +74,7 @@ module LavinMQ
       end
 
       def channel_name_prefix
-        @remote_address.to_s
+        @connection_info.remote_address.to_s
       end
 
       def details_tuple
@@ -92,10 +90,10 @@ module LavinMQ
           user:              @user.name,
           protocol:          "AMQP 0-9-1",
           auth_mechanism:    @auth_mechanism,
-          host:              @local_address.address,
-          port:              @local_address.port,
-          peer_host:         @remote_address.address,
-          peer_port:         @remote_address.port,
+          host:              @connection_info.local_address.address,
+          port:              @connection_info.local_address.port,
+          peer_host:         @connection_info.remote_address.address,
+          peer_port:         @connection_info.remote_address.port,
           name:              @name,
           pid:               @name,
           ssl:               @connection_info.ssl?,
@@ -223,8 +221,8 @@ module LavinMQ
 
       def connection_details
         {
-          peer_host: @remote_address.address,
-          peer_port: @remote_address.port,
+          peer_host: @connection_info.remote_address.address,
+          peer_port: @connection_info.remote_address.port,
           name:      @name,
         }
       end

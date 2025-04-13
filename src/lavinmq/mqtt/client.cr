@@ -12,7 +12,7 @@ module LavinMQ
       include Stats
       include SortableJSON
 
-      getter channels, log, name, user, client_id, socket, remote_address, connection_info
+      getter channels, log, name, user, client_id, socket, connection_info
       getter? clean_session
       @connected_at = RoughTime.unix_ms
       @channels = Hash(UInt16, Client::Channel).new
@@ -35,14 +35,12 @@ module LavinMQ
         @io = MQTT::IO.new(@socket)
         @lock = Mutex.new
         @waitgroup = WaitGroup.new(1)
-        @remote_address = @connection_info.src
-        local_address = @connection_info.dst
-        @name = "#{@remote_address} -> #{local_address}"
-        metadata = ::Log::Metadata.new(nil, {vhost: @broker.vhost.name, address: @remote_address.to_s, client_id: client_id})
+        @name = "#{@connection_info.remote_address} -> #{@connection_info.local_address}"
+        metadata = ::Log::Metadata.new(nil, {vhost: @broker.vhost.name, address: @connection_info.remote_address.to_s, client_id: client_id})
         @log = Logger.new(Log, metadata)
         @broker.vhost.add_connection(self)
         @log.info { "Connection established for user=#{@user.name}" }
-        spawn read_loop
+        spawn read_loop, name: "MQTT read_loop #{@connection_info.remote_address}"
       end
 
       def client_name
