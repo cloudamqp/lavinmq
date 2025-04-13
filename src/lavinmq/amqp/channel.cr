@@ -1,3 +1,4 @@
+require "../stats"
 require "./client"
 require "./consumer"
 require "./stream_consumer"
@@ -6,7 +7,6 @@ require "../logger"
 require "./queue"
 require "../exchange"
 require "../amqp"
-require "../stats"
 require "../sortable_json"
 require "./channel_reply_code"
 
@@ -61,12 +61,12 @@ module LavinMQ
           number:                  @id,
           name:                    @name,
           vhost:                   @client.vhost.name,
-          user:                    @client.user.try(&.name),
+          user:                    @client.user.name,
           consumer_count:          @consumers.size,
           prefetch_count:          @prefetch_count,
           global_prefetch_count:   @global_prefetch_count,
           confirm:                 @confirm,
-          transactional:           false,
+          transactional:           @tx,
           messages_unacknowledged: @unacked.size,
           connection_details:      @client.connection_details,
           state:                   state,
