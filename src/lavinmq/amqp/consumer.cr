@@ -260,8 +260,8 @@ module LavinMQ
           prefetch_count:  @prefetch_count,
           priority:        @priority,
           channel_details: {
-            peer_host:       channel_details[:connection_details][:peer_host]?,
-            peer_port:       channel_details[:connection_details][:peer_port]?,
+            peer_host:       channel_details[:connection_details][:peer_host],
+            peer_port:       channel_details[:connection_details][:peer_port],
             connection_name: channel_details[:connection_details][:name],
             user:            channel_details[:user],
             number:          channel_details[:number],

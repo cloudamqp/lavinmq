@@ -11,6 +11,14 @@ module LavinMQ
       def details_tuple
         @user.user_details
       end
+
+      def search_match?(value : String) : Bool
+        @user.name.includes? value
+      end
+
+      def search_match?(value : Regex) : Bool
+        value === @user.name
+      end
     end
 
     module UserHelpers

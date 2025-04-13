@@ -103,6 +103,18 @@ module LavinMQ
         }.merge(stats_details)
       end
 
+      def search_match?(value : String) : Bool
+        @name.includes?(value) ||
+          @user.name.includes?(value) ||
+          @client_properties["connection_name"]?.try(&.to_s.includes?(value)) || false
+      end
+
+      def search_match?(value : Regex) : Bool
+        value === @name ||
+          value === @user.name ||
+          value === @client_properties["connection_name"]?
+      end
+
       private def read_loop
         received_bytes = 0_u32
         socket = @socket

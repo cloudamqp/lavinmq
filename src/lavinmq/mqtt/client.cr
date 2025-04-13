@@ -160,6 +160,16 @@ module LavinMQ
         }.merge(stats_details)
       end
 
+      def search_match?(value : String) : Bool
+        @name.includes?(value) ||
+          @user.name.includes?(value)
+      end
+
+      def search_match?(value : Regex) : Bool
+        value === @name ||
+          value === @user.name
+      end
+
       private def publish_will
         if will = @will
           @broker.publish MQTT::Publish.new(

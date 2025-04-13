@@ -17,5 +17,13 @@ module LavinMQ
         channel_name:        @channel.name,
       }
     end
+
+    def search_match?(value : String) : Bool
+      @delivery_tag.to_s == value
+    end
+
+    def search_match?(value : Regex) : Bool
+      value === @delivery_tag.to_s
+    end
   end
 end

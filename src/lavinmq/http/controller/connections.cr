@@ -17,14 +17,6 @@ module LavinMQ
     class ConnectionsController < Controller
       include ConnectionsHelper
 
-      protected def match_value(value)
-        if client_properties = (value[:client_properties]? || value["client_properties"]?)
-          "#{value[:name]? || value["name"]?} #{client_properties["connection_name"]?} #{value[:user]? || value["user"]?}"
-        else
-          "#{value[:name]? || value["name"]?} #{value[:user]? || value["user"]?}"
-        end
-      end
-
       private def register_routes
         get "/api/connections" do |context, _params|
           page(context, connections(user(context)).each)

@@ -12,10 +12,6 @@ module LavinMQ
       include QueueHelpers
       include ExchangeHelpers
 
-      protected def match_value(value)
-        "#{value[:routing_key]? || value["routing_key"]?} #{value[:destination]? || value["destination"]?}"
-      end
-
       # ameba:disable Metrics/CyclomaticComplexity
       private def register_routes
         get "/api/bindings" do |context, _params|
@@ -36,7 +32,7 @@ module LavinMQ
             refuse_unless_management(context, user(context), vhost)
             e = exchange(context, params, vhost)
             q = queue(context, params, vhost, "queue")
-            itr = e.bindings_details.select { |db| db.destination == q }
+            itr = Iterator(BindingDetails).chain({e.bindings_details.select { |db| db.destination == q }})
             if e.name.empty?
               binding_key = BindingKey.new(q.name)
               default_binding = BindingDetails.new("", q.vhost.name, binding_key, q)
@@ -124,7 +120,8 @@ module LavinMQ
             source = exchange(context, params, vhost)
             destination = exchange(context, params, vhost, "destination")
             bindings = source.bindings_details.select { |bd| bd.destination == destination }
-            page(context, bindings)
+            itr = Iterator(BindingDetails).chain({bindings})
+            page(context, itr)
           end
         end
 
@@ -202,7 +199,8 @@ module LavinMQ
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
             e = exchange(context, params, vhost)
-            page(context, e.bindings_details.each)
+            itr = Iterator(BindingDetails).chain({e.bindings_details})
+            page(context, itr)
           end
         end
 
