@@ -47,6 +47,18 @@ module LavinMQ
           # noop
         else raise LavinMQ::Error::PreconditionFailed.new("x-stream-match-unfiltered must be a boolean")
         end
+        case filter_match_type = frame.arguments["x-filter-match-type"]? # TO-DO Is this name correct?
+        when String
+          filter_match_type = filter_match_type.downcase
+          if filter_match_type == "any" || filter_match_type == "all"
+            @filter_match_type = filter_match_type
+          else
+            raise LavinMQ::Error::PreconditionFailed.new("x-filter-match-type must be 'any' or 'all'")
+          end
+        when Nil
+          # noop
+        else raise LavinMQ::Error::PreconditionFailed.new("x-filter-match-type must be 'any' or 'all'")
+        end
       end
 
       private def validate_stream_offset(frame)
@@ -68,18 +80,25 @@ module LavinMQ
         case arg
         when String
           arg.split(',').each do |f|
-            @consumer_filters << {"x-stream-filter-value" => f.strip}
+            @consumer_filters << {"x-stream-filter" => f.strip}
           end
         when AMQ::Protocol::Table
           arg.each do |k, v|
-            puts "k: #{k}"
-            puts "v: #{v}"
-            @consumer_filters << {k.to_s => v.to_s} # handle operator and numbers? (less than/greater than)
+            if k.to_s == "x-stream-filter"
+              v.to_s.split(',').each do |f|
+                @consumer_filters << {k.to_s => f.strip}
+              end
+            else
+              @consumer_filters << {k.to_s => v.to_s} # handle operator and numbers? (less than/greater than)
+            end
           end
-          pp arg
+        when Array
+          arg.each do |f|
+            validate_stream_filter(f)
+          end
         when Nil
           # noop
-        else raise LavinMQ::Error::PreconditionFailed.new("x-stream-filter-value must be a string")
+        else raise LavinMQ::Error::PreconditionFailed.new("x-stream-filter must be a string, table, or array")
         end
       end
 
@@ -140,57 +159,35 @@ module LavinMQ
       end
 
       def filter_match?(msg_headers) : Bool
-        return true if @consumer_filters.empty?
-        #if msg_filter_values = filter_value_from_msg_headers(msg_headers)
-        #  matched_filters = 0
-        #  msg_filter_values.split(',') do |msg_filter_value|
-        #    matched_filters &+= 1 if @consumer_filters.includes?(msg_filter_value)
-        #  end
-        #  matched_filters == @consumer_filters.size
-        #else
-        #  @match_unfiltered
-        filter_headers_match?(msg_headers)
-
-      end
-
-      def filter_headers_match?(msg_headers) : Bool
-        return true if @consumer_filters.empty?
-        matched = true
-        @consumer_filters.each do |header_filter|
-          consumer_matched = false
-          key = header_filter.keys.first
-          value = header_filter.values.first
-          consumer_matched = match_header_filter?(key, value, msg_headers)
-
-          if @filter_match_type == "ANY"
-            return true if consumer_matched 
-          elsif @filter_match_type == "ALL"
-            return false unless consumer_matched
-          end
-          matched = false unless consumer_matched
+        return true if @consumer_filters.empty? # No consumer filters, always match
+        if @match_unfiltered
+          return true unless msg_headers.try &.has_key?("x-stream-filter-value")
         end
-        return matched
+        return false unless headers = msg_headers
+
+        case @filter_match_type
+        when "any" # ANY: Return true on first match
+          @consumer_filters.each do |header_filter|
+            return true if match_header_filter?(header_filter.keys.first, header_filter.values.first, headers)
+          end
+          return false
+        else # ALL: Return false on first non-match
+          @consumer_filters.each do |header_filter|
+            return false unless match_header_filter?(header_filter.keys.first, header_filter.values.first, headers)
+          end
+          return true
+        end
       end
 
       private def match_header_filter?(key, value, msg_headers) : Bool
-        if headers = msg_headers
-          if key == "x-stream-filter-value"
-            if msg_filter_values = filter_value_from_msg_headers(msg_headers)
-              msg_filter_values.split(',') do |msg_filter_value|
-                if msg_filter_value == value
-                  return true
-                end
-              end
-            end
-          elsif headers[key]?
-            return headers[key]? == value
+        return msg_headers[key]? == value if key != "x-stream-filter"
+
+        if msg_filter_values = msg_headers.try &.fetch("x-stream-filter-value", nil).try &.to_s
+          msg_filter_values.split(',') do |msg_filter_value|
+            return true if msg_filter_value == value
           end
         end
         false
-      end
-
-      private def filter_value_from_msg_headers(msg_headers) : String?
-        msg_headers.try &.fetch("x-stream-filter-value", nil).try &.to_s
       end
     end
   end
