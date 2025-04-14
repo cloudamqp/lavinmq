@@ -10,7 +10,7 @@ module LavinMQ
       property pos : UInt32
       getter requeued = Deque(SegmentPosition).new
       @consumer_filters = Array(Hash(String, String)).new
-      @filter_match_type = "ALL" # ALL/ANY
+      @filter_match_type = "all" # all/any
       @match_unfiltered = false
       @track_offset = false
 
