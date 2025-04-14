@@ -47,6 +47,7 @@ module LavinMQ
       end
 
       private def read_loop
+        received_bytes = 0_u32
         socket = @socket
         if socket.responds_to?(:"read_timeout=")
           # 50% grace period according to [MQTT-3.1.2-24]
@@ -55,6 +56,10 @@ module LavinMQ
         loop do
           @log.trace { "waiting for packet" }
           packet = read_and_handle_packet
+          if (received_bytes &+= packet.bytesize) > Config.instance.yield_each_received_bytes
+            received_bytes = 0_u32
+            Fiber.yield
+          end
           # The disconnect packet has been handled and the socket has been closed.
           # If we dont breakt the loop here we'll get a IO/Error on next read.
           if packet.is_a?(MQTT::Disconnect)
