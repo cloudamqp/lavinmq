@@ -8,6 +8,7 @@ require "./stdlib/resource"
   STDERR.puts "WARNING: #{PROGRAM_NAME} not built in release mode"
 {% end %}
 
+Signal::SEGV.reset # Let the OS generate a coredump
 Log.setup_from_env
 
 module LavinMQPerf
