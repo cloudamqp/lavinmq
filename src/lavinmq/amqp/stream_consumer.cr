@@ -40,24 +40,13 @@ module LavinMQ
         end
         validate_stream_offset(frame)
         validate_stream_filter(frame.arguments["x-stream-filter"]?)
+        validate_filter_match_type(frame)
         case match_unfiltered = frame.arguments["x-stream-match-unfiltered"]?
         when Bool
           @match_unfiltered = match_unfiltered
         when Nil
           # noop
         else raise LavinMQ::Error::PreconditionFailed.new("x-stream-match-unfiltered must be a boolean")
-        end
-        case filter_match_type = frame.arguments["x-filter-match-type"]? # TO-DO Is this name correct?
-        when String
-          filter_match_type = filter_match_type.downcase
-          if filter_match_type == "any" || filter_match_type == "all"
-            @filter_match_type = filter_match_type
-          else
-            raise LavinMQ::Error::PreconditionFailed.new("x-filter-match-type must be 'any' or 'all'")
-          end
-        when Nil
-          # noop
-        else raise LavinMQ::Error::PreconditionFailed.new("x-filter-match-type must be 'any' or 'all'")
         end
       end
 
@@ -89,7 +78,7 @@ module LavinMQ
                 @consumer_filters << {k.to_s => f.strip}
               end
             else
-              @consumer_filters << {k.to_s => v.to_s} # handle operator and numbers? (less than/greater than)
+              @consumer_filters << {k.to_s => v.to_s}
             end
           end
         when Array
@@ -99,6 +88,21 @@ module LavinMQ
         when Nil
           # noop
         else raise LavinMQ::Error::PreconditionFailed.new("x-stream-filter must be a string, table, or array")
+        end
+      end
+
+      private def validate_filter_match_type(frame)
+        case filter_match_type = frame.arguments["x-filter-match-type"]?
+        when String
+          filter_match_type = filter_match_type.downcase
+          if filter_match_type == "any" || filter_match_type == "all"
+            @filter_match_type = filter_match_type
+          else
+            raise LavinMQ::Error::PreconditionFailed.new("x-filter-match-type must be 'any' or 'all'")
+          end
+        when Nil
+          # noop
+        else raise LavinMQ::Error::PreconditionFailed.new("x-filter-match-type must be 'any' or 'all'")
         end
       end
 
@@ -170,12 +174,12 @@ module LavinMQ
           @consumer_filters.each do |header_filter|
             return true if match_header_filter?(header_filter.keys.first, header_filter.values.first, headers)
           end
-          return false
+          false
         else # ALL: Return false on first non-match
           @consumer_filters.each do |header_filter|
             return false unless match_header_filter?(header_filter.keys.first, header_filter.values.first, headers)
           end
-          return true
+          true
         end
       end
 
