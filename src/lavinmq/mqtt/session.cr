@@ -114,12 +114,7 @@ module LavinMQ
           no_ack = env.message.properties.delivery_mode == 0
           if no_ack
             packet = build_packet(env, nil)
-            begin
-              yield packet
-            rescue ex
-              @msg_store_lock.synchronize { @msg_store.requeue(sp) }
-              raise ex
-            end
+            yield packet
             delete_message(sp)
           else
             id = next_id
