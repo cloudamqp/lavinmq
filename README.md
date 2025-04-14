@@ -212,7 +212,7 @@ Each consumer can start reading from anywhere in the queue using the `x-stream-o
 
 #### Stream Queue Filtering
 
-Stream queues support message filtering, allowing consumers to receive only messages that match specific criteria. This is useful for consuming a subset of messages without creating multiple queues. For more information on filtering, see the [documentation](https://lavinmq.com/documentation/streams#stream-filtering).
+Stream queues support message filtering, allowing consumers to receive only messages that match specific criteria. This is useful for consuming a subset of messages without creating multiple queues. 
 
 ### MQTT Support
 
