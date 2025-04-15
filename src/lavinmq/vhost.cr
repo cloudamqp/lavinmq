@@ -184,7 +184,7 @@ module LavinMQ
 
     def delete_queue(name)
       apply AMQP::Frame::Queue::Delete.new(0_u16, 0_u16, name, false, false, false)
-      @log.info { "Deleted queue: #{name}" }
+      @log.debug { "Deleted queue: #{name}" }
     end
 
     def declare_exchange(name, type, durable, auto_delete, internal = false,
