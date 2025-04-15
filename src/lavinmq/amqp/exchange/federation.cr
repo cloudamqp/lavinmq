@@ -10,7 +10,7 @@ module LavinMQ
       def initialize(vhost, name, arguments)
         arguments["x-internal-purpose"] = "federation"
         arguments["x-max-hops"] ||= 1
-        super(vhost, name, true, true, true, arguments)
+        super(vhost, name, durable: true, auto_delete: true, internal: true, arguments: arguments)
       end
     end
   end
