@@ -52,6 +52,10 @@ class LavinMQCtl
       @options["host"] = host
     end
     global_options
+    parse_cmd
+  end
+
+  def parse_cmd
     @parser.separator("\nCommands:")
     COMPAT_CMDS.each do |cmd|
       @parser.on(cmd[0], cmd[1]) do
@@ -199,10 +203,16 @@ class LavinMQCtl
 
   private def connect
     if host = @options["host"]?
-      uri = URI.parse(host)
-      c = HTTP::Client.new(uri)
-      c.basic_auth(uri.user, uri.password) if uri.user
-      c
+      validate_connection_args("host")
+      client_from_uri(host)
+    elsif uri = @options["uri"]?
+      validate_connection_args("uri")
+      client_from_uri(uri)
+    elsif hostname = @options["hostname"]?
+      scheme = @options["scheme"]? || "http"
+      port = @options["port"]?.try &.to_i? || 15672
+      uri = URI.new(scheme, hostname, port)
+      client_from_uri(uri)
     else
       begin
         socket = UNIXSocket.new(LavinMQ::HTTP::INTERNAL_UNIX_SOCKET)
@@ -211,6 +221,28 @@ class LavinMQCtl
         abort "LavinMQ is not running, socket not found: #{LavinMQ::HTTP::INTERNAL_UNIX_SOCKET}"
       end
     end
+  end
+
+  private def client_from_uri(uri : String)
+    client_from_uri(URI.parse(uri))
+  rescue ex : ArgumentError
+    abort "Invalid URI. #{ex.message}"
+  end
+
+  private def client_from_uri(uri : URI)
+    c = HTTP::Client.new(uri)
+    uri.user = @options["user"] if @options["user"]?
+    uri.password = @options["password"] if @options["password"]?
+    c.basic_auth(uri.user, uri.password) if uri.user
+    c
+  end
+
+  private def validate_connection_args(input_arg : String)
+    invalid_args = Array(String).new
+    invalid_args << "hostname" if @options["hostname"]?
+    invalid_args << "port" if @options["port"]?
+    invalid_args << "scheme" if @options["scheme"]?
+    abort "invalid args when using #{input_arg}: #{invalid_args.join(", ")}" unless invalid_args.empty?
   end
 
   private def http
@@ -222,8 +254,26 @@ class LavinMQCtl
     @parser.on("-p vhost", "--vhost=vhost", "Specify vhost") do |v|
       @options["vhost"] = v
     end
-    @parser.on("-H host", "--host=host", "Specify host") do |v|
+    @parser.on("-H URI", "--host=URI", "Specify URI (Deprecated, use --uri or --hostname)") do |v|
       @options["host"] = v
+    end
+    @parser.on("-U URI", "--uri=URI", "Specify URI") do |v|
+      @options["uri"] = v
+    end
+    @parser.on("--hostname=hostname", "Specify hostname") do |v|
+      @options["hostname"] = v
+    end
+    @parser.on("--user=user", "Specify user") do |v|
+      @options["user"] = v
+    end
+    @parser.on("--password=password", "Specify password") do |v|
+      @options["password"] = v
+    end
+    @parser.on("-P port", "--port=port", "Specify port (15672)") do |v|
+      @options["port"] = v
+    end
+    @parser.on("--scheme=scheme", "Specify scheme (http)") do |v|
+      @options["scheme"] = v
     end
     @parser.on("-n node", "--node=node", "Specify node") do |v|
       # Only used by tests in cloudamqp/rabbitmq-java-client
