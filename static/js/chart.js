@@ -19,7 +19,12 @@ function render (id, unit, options = {}, stacked = false) {
       x: { auto: true, time: true },
       y: { auto: true },
     },
-    tzDate,
+    legend: {
+      live: true
+    },
+    cursor: {
+      show: true,
+    },
     series: [
       {} // x-axis
     ],
@@ -50,7 +55,7 @@ function render (id, unit, options = {}, stacked = false) {
   return new uPlot(opts, [], document.getElementById(id))
 }
 
-function update (chart, data, filled = false) {
+function update (chart, data) {
   const nowSec = Math.floor(Date.now() / 1000); // Get current time in seconds
   const values = [
     Array.from({length: 120}, (_, i) => nowSec - 600 + i * 5), // 10min time window, 5s interval
@@ -60,10 +65,9 @@ function update (chart, data, filled = false) {
   if (hasDetails) { keys = keys.filter(key => key.match(/_details$/)) }
   for (const key in data) {
     if (key.match(/_log$/)) continue
-    if (hasDetails && !key.match(/_details$/)) continue
     let log = data[`${key}_log`] || data[key].log || []
     if (log.length > 0 && log[0].rate) log = log.map(v => v.rate)
-    values.push(log)
+    values.push(padArray(log))
     // Add series for each metric
     const label = formatLabel(key)
     if (!chart.series.some(s => s.label === label)) {
@@ -71,11 +75,28 @@ function update (chart, data, filled = false) {
         label: label,
         stroke: chartColors[chart.series.length - 1 % chartColors.length],
         width: 1,
-        points: { show: true, size: 3 }
+        min: 0,
+        points: { show: true, size: 5, one: true }
       })
     }
   }
   chart.setData(values)
+}
+
+function padArray(array) {
+  // Check if the array already has more than 120 elements
+  if (array.length > 120) {
+    // If so, return only the last 120 elements
+    return array.slice(array.length - 120);
+  }
+
+  // Calculate how many zeros we need to add
+  const nullsNeeded = 120 - array.length;
+
+  // Create an array of null and concatenate with the original array
+  const zeros = Array(nullsNeeded).fill(null);
+  // Return the padded array
+  return zeros.concat(array)
 }
 
 const chartColors = ['#54be7e', '#4589ff', '#d12771', '#d2a106', '#08bdba', '#bae6ff', '#ba4e00', '#d4bbff', '#8a3ffc', '#33b1ff', '#007d79']
