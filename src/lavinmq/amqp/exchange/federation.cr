@@ -1,8 +1,8 @@
-require "./topic"
+require "./fanout"
 
 module LavinMQ
   module AMQP
-    class FederationExchange < TopicExchange
+    class FederationExchange < FanoutExchange
       def type
         "x-federation-upstream"
       end
