@@ -238,7 +238,7 @@ default_vhost = "/"
 
 ## Implementation Details
 
-LavinMQ is built in Crystal and uses a disk-first approach to message storage, letting the OS handle caching. For full details on implementation, storage architecture, and message flows, see [IMPLEMENTATION.md](IMPLEMENTATION.md).
+LavinMQ is built in Crystal and uses a disk-first approach to message storage, letting the OS handle caching. For full details on implementation, storage architecture, and message flows, see the [Implementation details section in CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Compatibility Notes
 
