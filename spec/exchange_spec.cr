@@ -227,5 +227,23 @@ describe LavinMQ::Exchange do
         end
       end
     end
+
+    describe "#apply_policy" do
+      describe "without federation-upstream" do
+        it "stop existing link" do
+          with_amqp_server do |s|
+            downstream_vhost = s.vhosts.create("downstream")
+            config = {"uri": JSON::Any.new("#{s.amqp_url}/upstream")}
+            downstream_vhost.upstreams.create_upstream("upstream", config)
+            definition = {"federation-upstream" => JSON::Any.new("upstream")}
+            downstream_vhost.add_policy("fed", "^amq.topic", "exchanges", definition, 1i8)
+            wait_for(100.milliseconds) { downstream_vhost.upstreams.@upstreams["upstream"]?.try &.links.present? }
+
+            downstream_vhost.delete_policy("fed")
+            wait_for(100.milliseconds) { downstream_vhost.upstreams.@upstreams["upstream"]?.try &.links.empty? }
+          end
+        end
+      end
+    end
   end
 end
