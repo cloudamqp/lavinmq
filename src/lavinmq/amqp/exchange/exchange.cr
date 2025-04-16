@@ -49,9 +49,9 @@ module LavinMQ
             @delayed ||= v.as?(Bool) == true
             init_delayed_queue if @delayed
           when "federation-upstream"
-            @vhost.upstreams.try &.link(v.as_s, self)
+            @vhost.upstreams.try &.link(v.as_s, self) unless internal?
           when "federation-upstream-set"
-            @vhost.upstreams.try &.link_set(v.as_s, self)
+            @vhost.upstreams.try &.link_set(v.as_s, self) unless internal?
           else nil
           end
         end
