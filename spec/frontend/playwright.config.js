@@ -1,6 +1,6 @@
 // @ts-check
 import { defineConfig, devices, expect } from '@playwright/test'
-import './spec/frontend/expect_extensions.js'
+import './expect_extensions.js'
 
 /**
  * @see https://playwright.dev/docs/test-configuration
