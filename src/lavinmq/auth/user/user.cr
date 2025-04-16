@@ -1,7 +1,7 @@
 require "json"
-require "./password"
-require "./sortable_json"
-require "./tag"
+require "../password"
+require "../../sortable_json"
+require "../../tag"
 
 module LavinMQ
   class User
