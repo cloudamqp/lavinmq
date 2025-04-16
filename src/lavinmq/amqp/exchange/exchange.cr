@@ -63,6 +63,7 @@ module LavinMQ
         handle_arguments
         @policy = nil
         @operator_policy = nil
+        @vhost.upstreams.try &.stop_link(self)
       end
 
       def handle_arguments
