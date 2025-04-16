@@ -32,23 +32,13 @@ module MessageRoutingSpec
     it "matches any rk" do
       with_amqp_server do |s|
         vhost = s.vhosts.create("x")
+        x = LavinMQ::AMQP::FanoutExchange.new(vhost, "")
         q1 = LavinMQ::AMQP::Queue.new(vhost, "q1")
-        x = LavinMQ::AMQP::FanoutExchange.new(vhost, "")
         x.bind(q1, "")
-
-        found_queues = Set(LavinMQ::Queue).new
-        x.find_queues("q1", nil, found_queues, Set(LavinMQ::AMQP::Exchange).new)
-        found_queues.should eq(Set{q1})
-      end
-    end
-
-    it "matches no rk" do
-      with_amqp_server do |s|
-        vhost = s.vhosts.create("x")
-        x = LavinMQ::AMQP::FanoutExchange.new(vhost, "")
-        found_queues = Set(LavinMQ::Queue).new
-        x.find_queues("q1", nil, found_queues, Set(LavinMQ::AMQP::Exchange).new)
-        found_queues.should be_empty
+        q2 = LavinMQ::AMQP::Queue.new(vhost, "q2")
+        x.bind(q2, "")
+        matches(x, "q1").should eq(Set{q1, q2})
+        matches(x, "").should eq(Set{q1, q2})
       end
     end
   end
@@ -327,11 +317,9 @@ module MessageRoutingSpec
         x = LavinMQ::AMQP::DirectExchange.new(vhost, "")
         x.bind(q1, "q1", LavinMQ::AMQP::Table.new)
         x.bind(q2, "q2", LavinMQ::AMQP::Table.new)
-        found_queues = Set(LavinMQ::Queue).new
         headers = LavinMQ::AMQP::Table.new
         headers["CC"] = ["q2"]
-        x.find_queues("q1", headers, found_queues)
-        found_queues.should eq(Set{q1, q2})
+        matches(x, "q1", headers).should eq(Set{q1, q2})
       end
     end
     it "should raise if CC header isn't array" do
@@ -342,11 +330,10 @@ module MessageRoutingSpec
         x = LavinMQ::AMQP::DirectExchange.new(vhost, "")
         x.bind(q1, "q1", LavinMQ::AMQP::Table.new)
         x.bind(q2, "q2", LavinMQ::AMQP::Table.new)
-        found_queues = Set(LavinMQ::Queue).new
         headers = LavinMQ::AMQP::Table.new
         headers["CC"] = "q2"
         expect_raises(LavinMQ::Error::PreconditionFailed) do
-          x.find_queues("q1", headers, found_queues)
+          x.find_queues("q1", headers, Set(LavinMQ::Queue).new)
         end
       end
     end
@@ -359,11 +346,9 @@ module MessageRoutingSpec
         x = LavinMQ::AMQP::DirectExchange.new(vhost, "")
         x.bind(q1, "q1", LavinMQ::AMQP::Table.new)
         x.bind(q2, "q2", LavinMQ::AMQP::Table.new)
-        found_queues = Set(LavinMQ::Queue).new
         headers = LavinMQ::AMQP::Table.new
         headers["BCC"] = ["q2"]
-        x.find_queues("q1", headers, found_queues)
-        found_queues.should eq(Set{q1, q2})
+        matches(x, "q1", headers).should eq(Set{q1, q2})
       end
     end
 
@@ -375,11 +360,10 @@ module MessageRoutingSpec
         x = LavinMQ::AMQP::DirectExchange.new(vhost, "")
         x.bind(q1, "q1", LavinMQ::AMQP::Table.new)
         x.bind(q2, "q2", LavinMQ::AMQP::Table.new)
-        found_queues = Set(LavinMQ::Queue).new
         headers = LavinMQ::AMQP::Table.new
         headers["BCC"] = "q2"
         expect_raises(LavinMQ::Error::PreconditionFailed) do
-          x.find_queues("q1", headers, found_queues)
+          x.find_queues("q1", headers, Set(LavinMQ::Queue).new)
         end
       end
     end
@@ -392,10 +376,9 @@ module MessageRoutingSpec
         x = LavinMQ::AMQP::DirectExchange.new(vhost, "")
         x.bind(q1, "q1", LavinMQ::AMQP::Table.new)
         x.bind(q2, "q2", LavinMQ::AMQP::Table.new)
-        found_queues = Set(LavinMQ::Queue).new
         headers = LavinMQ::AMQP::Table.new
         headers["BCC"] = ["q2"]
-        x.find_queues("q1", headers, found_queues)
+        x.find_queues("q1", headers, Set(LavinMQ::Queue).new)
         headers["BCC"]?.should be_nil
       end
     end
@@ -410,12 +393,10 @@ module MessageRoutingSpec
         x.bind(q1, "q1", LavinMQ::AMQP::Table.new)
         x.bind(q2, "q2", LavinMQ::AMQP::Table.new)
         x.bind(q3, "q3", LavinMQ::AMQP::Table.new)
-        found_queues = Set(LavinMQ::Queue).new
         headers = LavinMQ::AMQP::Table.new
         headers["CC"] = ["q2"]
         headers["BCC"] = ["q3"]
-        x.find_queues("q1", headers, found_queues)
-        found_queues.should eq(Set{q1, q2, q3})
+        matches(x, "q1", headers).should eq(Set{q1, q2, q3})
       end
     end
   end
