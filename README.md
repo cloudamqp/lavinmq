@@ -1,38 +1,25 @@
 [![Build Status](https://github.com/cloudamqp/lavinmq/workflows/CI/badge.svg)](https://github.com/cloudamqp/lavinmq/actions)
 [![Build Status](https://api.cirrus-ci.com/github/cloudamqp/lavinmq.svg)](https://cirrus-ci.com/github/cloudamqp/lavinmq)
+[![License](https://img.shields.io/github/license/cloudamqp/lavinmq)](https://github.com/cloudamqp/lavinmq/blob/master/LICENSE)
+[![GitHub release](https://img.shields.io/github/v/release/cloudamqp/lavinmq)](https://github.com/cloudamqp/lavinmq/releases)
 
 # ![LavinMQ](static/img/banner-lavinmq.svg)
 
-A message queue & streaming server that implements the AMQP 0-9-1 and MQTT 3.1.1 protocol.
-Written in [Crystal](https://crystal-lang.org/).
+LavinMQ is a high-performance message queue & streaming server implementing the AMQP 0-9-1 and MQTT 3.1.1 protocols.
+Built with [Crystal](https://crystal-lang.org/) for optimal efficiency.
 
-Aims to be very fast, has low RAM requirements, handles very long queues,
-many connections, and requires minimal configuration.
+<img src="static/img/lavinmq-ui.png" alt="LavinMQ GUI" height="500">
 
-Read more at [LavinMQ.com](https://lavinmq.com)
+- **Lightning Fast**: Exceptional throughput performance
+- **Resource Efficient**: Minimal RAM requirements
+- **Highly Scalable**: Handles very long queues and numerous connections
+- **Simple Setup**: Requires minimal configuration to get started
+
+Discover more at [LavinMQ.com](https://lavinmq.com)
 
 ## Installation
 
-### From source
-
-Begin with installing Crystal. Refer to
-[Crystal's installation documentation](https://crystal-lang.org/install/)
-on how to install Crystal.
-
-Clone the git repository and build the project.
-
-```sh
-git clone git@github.com:cloudamqp/lavinmq.git
-cd lavinmq
-make
-sudo make install # optional
-```
-
-Now, LavinMQ is ready to be used. You can check the version with:
-
-```sh
-lavinmq -v
-```
+See [Installation guide](https://lavinmq.com/documentation/installation-guide) for more information on installing LavinMQ. 
 
 ### Debian/Ubuntu
 
@@ -43,8 +30,6 @@ echo "deb [signed-by=/usr/share/keyrings/lavinmq.gpg] https://packagecloud.io/cl
 sudo apt-get update
 sudo apt-get install lavinmq
 ```
-If you need to install a specific version of LavinMQ, do so using the following command: 
-`sudo apt install lavinmq=<version>`. This works for both upgrades and downgrades. 
 
 ### Fedora
 
@@ -60,207 +45,147 @@ EOF
 sudo dnf install lavinmq
 ```
 
-### OS X
+### macOS
 
 Install LavinMQ with `brew`: 
 
-```
+```sh
 brew install cloudamqp/cloudamqp/lavinmq
 ```
- 
-or
 
-```
-brew tap cloudamqp/cloudamqp
-brew install lavinmq
-```
-
-## Usage
-
-LavinMQ only requires one argument, and it's a path to a data directory.
-
-Run LavinMQ with:
-`lavinmq -D /var/lib/lavinmq`
-
-More configuration options can be viewed with `-h`,
-and you can specify a configuration file too, see [extras/lavinmq.ini](extras/lavinmq.ini)
-for an example.
-
-## Docker
+### Docker
 
 Docker images are published to [Docker Hub](https://hub.docker.com/r/cloudamqp/lavinmq).
 Fetch and run the latest version with:
 
-    docker run --rm -it -p 5672:5672 -p 15672:15672 -v /tmp/amqp:/var/lib/lavinmq cloudamqp/lavinmq
-
-You are then able to visit the management UI at [http://localhost:15672](http://localhost:15672) and
-start publishing/consuming messages to `amqp://guest:guest@localhost`.
-
-## Debugging
-
-In Linux, `perf` is the tool of choice when tracing and measuring performance.
-
-To see which syscalls that are made use:
-
 ```sh
-perf trace -p $(pidof lavinmq)
+docker run --rm -it -p 5672:5672 -p 15672:15672 -v /tmp/amqp:/var/lib/lavinmq cloudamqp/lavinmq
 ```
 
-To get a live analysis of the mostly called functions, run:
+#### Docker Compose
+Minimal example on how to run LavinMQ with Docker compose.
+
+```yaml
+services:
+  lavinmq:
+    image: "cloudamqp/lavinmq:latest"
+    ports:
+      - 15672:15672 # HTTP
+      - 5672:5672   # AMQP
+```
+Start the container by running `docker compose up`
+
+### From Source
+
+Begin with installing Crystal. Refer to
+[Crystal's installation documentation](https://crystal-lang.org/install/)
+on how to install Crystal.
+
+Clone the git repository and build the project.
 
 ```sh
-perf top -p $(pidof lavinmq)
+git clone git@github.com:cloudamqp/lavinmq.git
+cd lavinmq
+make
+sudo make install # optional
 ```
 
-A more [detailed tutorial on `perf` is available here](https://perf.wiki.kernel.org/index.php/Tutorial).
+## Using LavinMQ
 
-In OS X the app, [`Instruments` that's bundled with Xcode can be used for tracing](https://help.apple.com/instruments/mac/current/).
+### Getting Started
 
-Memory garbage collection can be diagnosed with [boehm-gc environment variables](https://github.com/ivmai/bdwgc/blob/master/docs/README.environment).
+For a quick start guide on using LavinMQ, see the [getting started documentation](https://lavinmq.com/documentation/getting-started).
 
-## Contributing
-Kindly read our [contributing guide](CONTRIBUTING.md)
+### Running LavinMQ
 
-## LavinMQ with various plattforms
-All AMQP client libraries work with LavinMQ and there are AMQP client libraries for almost every platform on the market. Here are  guides for a couple of common plattforms.
+LavinMQ only requires one argument: a path to a data directory.
 
-1. [Ruby](https://lavinmq.com/documentation/ruby-sample-code)
-2. [Node.js](https://lavinmq.com/documentation/nodejs-sample-code)
-3. [Java](https://lavinmq.com/documentation/java-sample-code)
-4. [Python](https://lavinmq.com/documentation/python-sample-code)
-5. [PHP](https://lavinmq.com/documentation/php-sample-code)
-6. [Crystal](https://lavinmq.com/documentation/crystal-sample-code)
+```sh
+lavinmq -D /var/lib/lavinmq
+```
+
+More configuration options can be viewed with `-h`,
+and you can specify a configuration file too, see [extras/lavinmq.ini](extras/lavinmq.ini)
+for an example, or see the section on [config files in the documentation](https://lavinmq.com/documentation/configuration-files).
+
+### Client Libraries
+
+All AMQP client libraries work with LavinMQ, and there are AMQP client libraries for almost every platform. The LavinMQ website has guides for many common platforms:
+
+- [Ruby](https://lavinmq.com/documentation/ruby-sample-code)
+- [Node.js](https://lavinmq.com/documentation/nodejs-sample-code)
+- [Java](https://lavinmq.com/documentation/java-sample-code)
+- [Python](https://lavinmq.com/documentation/python-sample-code)
+- [PHP](https://lavinmq.com/documentation/php-sample-code)
+- [Crystal](https://lavinmq.com/documentation/crystal-sample-code)
+- [Go](https://lavinmq.com/documentation/go-sample-code)
+- [.NET](https://lavinmq.com/documentation/dot-net-sample-code)
 
 ## Performance
 
-A single m6g.large EC2 instance, with a GP3 EBS drive (XFS formatted),
-can sustain about 700.000 messages/s (16 byte msg body, single queue, single producer,
-single consumer). A single producer can push 1.600.000 msgs/s and if there's no producers
-auto-ack consumers can receive 1.200.000 msgs/s.
+A single c8g.large EC2 instance with a GP3 EBS drive (XFS formatted)
+can sustain about 820,000 messages/s (16 byte message body, single queue, single producer,
+single consumer). A single producer can push 1,600,000 msgs/s and if there are no producers,
+auto-ack consumers can receive 1,200,000 msgs/s.
 
-Enqueueing 100M messages only uses 25 MB RAM. 8000
-connection uses only about 400 MB RAM. Declaring 100.000 queues uses about 100
-MB RAM. About 1.600 bindings per second can be made to non-durable queues,
-and about 1000 bindings/second to durable queues.
+Enqueueing 100M messages only uses 25 MB RAM. 8,000
+connections use only about 400 MB RAM. Declaring 100,000 queues uses about 100
+MB RAM. About 1,600 bindings per second can be made to non-durable queues,
+and about 1,000 bindings/second to durable queues.
 
-## Implementation
-
-LavinMQ is written in [Crystal](https://crystal-lang.org/), a modern
-language built on the LLVM, with a Ruby-like syntax. It uses an event loop
-library for IO, is garbage collected, adopts a CSP-like [concurrency
-model](https://crystal-lang.org/docs/guides/concurrency.html) and compiles down
-to a single binary. You can liken it to Go, but with a nicer syntax.
-
-Instead of trying to cache messages in RAM, we write all messages as fast as we can to
-disk and let the OS cache do the caching.
-
-Each queues is backed by a message store on disk, which is just a series of files (segments),
-by default 8MB each. Message segments are memory-mapped files allocated using the mmap syscall.
-However, to prevent unnecessary memory usage, we unmap these files and free up the allocated
-memory when they are not in use. When a file needs to be written or read, we re-map it
-and use only the memory needed for that specific segment. Each incoming message
-is appended to the last segment, prefixed with a timestamp, its exchange name, routing key
-and message headers.
-
-When a message is being consumed it reads sequentially from the segments.
-Each acknowledged (or rejected) message position in the segment is written to an "ack" file
-(per segment). If a message is requeued its position is added to a in memory queue.
-On boot all acked message positions are read from the "ack" files and then
-when deliviering messages skip those when reading sequentially from the message segments.
-Segments are deleted when all message in them are acknowledged.
-
-Declarations of queues, exchanges and bindings are written to a definitions
-file (if the target is durable), encoded as the AMQP frame they came in as.
-Periodically this file is compacted/garbage-collected
-by writing only the current in-memory state to the file (getting rid
-of all delete events). This file is read on boot to restore all definitions.
-
-All non-AMQP objects like users, vhosts, policies, etc. are stored in
-JSON files. Most often these type of objects does not have a high
-turnover rate, so we believe that JSON in this case makes it easy for
-operators to modify things when the server is not running, if ever needed.
-
-In the data directory we store `users.json` and `vhosts.json` as mentioned earlier,
-and each vhost has a directory in which we store `definitions.amqp`
-(encoded as AMQP frames), `policies.json` and the messages named such as `msgs.0000000124`.
-Each vhost directory is named after the sha1 hash of its real name. The same goes
-for the queue directories in the vhost directory. The queue directories only has two files,
-`ack` and `enq`, also described earlier.
-
-### Flows
-
-Here is an architectural description of the different flows in the server.
-
-#### Publish
-
-`Client#read_loop` reads from the socket, it calls `Channel#start_publish` for the Basic.Publish frame
-and `Channel#add_content` for Body frames. When all content has been received
-(and appended to an `IO::Memory` object) it calls `VHost#publish` with a `Message` struct.
-`VHost#publish` finds all matching queues, writes the message to the message store and then
-calls `Queue#publish` with the segment position. `Queue#publish` writes to the message store.
-
-#### Consume
-
-When `Client#read_loop` receives a Basic.Consume frame it will create a `Consumer` class and add it to
-the queue's list of consumers. Each consumer has a `deliver_loop` fiber that will be notified
-by an internal `Channel` when new messages are available in the queue.
-
-## Getting help
-
-For questions or suggestions:
-- We are on [Slack](https://join.slack.com/t/lavinmq/shared_invite/zt-1v28sxova-wOyhOvDEKYVQMQpLePNUrg).
-- You can also use the [lavinmq tag](https://stackoverflow.com/questions/tagged/lavinmq) on Stackoverflow
-- If you use LavinMQ via [CloudAMQP](https://www.cloudamqp.com) then reach out to [support@cloudamqp.com]
+You can use [lavinnmqperf](https://lavinmq.com/documentation/lavinmqperf) to verify these results for yourself.
 
 ## Features
 
+### Core Protocols
 - AMQP 0-9-1 protocol support
 - MQTT 3.1.1 protocol support
 - AMQPS (TLS)
-- HTTP API
+- AMQP over websockets
+- MQTT over websockets
+
+### Messaging Capabilities
 - Publisher confirm
 - Transactions
-- Policies
-- Shovels
-- Queue federation
-- Exchange federation
 - Dead-lettering
 - TTL support on queue, message, and policy level
 - CC/BCC
 - Alternative exchange
 - Exchange to exchange bindings
 - Direct-reply-to RPC
-- Users and ACL rules
-- VHost separation
-- Consumer cancellation
 - Queue max-length
-- Importing/export definitions
 - Priority queues
 - Delayed exchanges
-- AMQP over websockets
-- MQTT over websockets
-- Single active consumer
-- Replication
-- Stream queues
-- Automatic leader election in clusters via etcd
 - Message deduplication
 
-### Known differences to other AMQP servers
+### Management
+- HTTP API
+- Users and ACL rules
+- VHost separation
+- Policies
+- Importing/export definitions
+- Consumer cancellation
 
-There are a few edge-cases that are handled a bit differently in LavinMQ compared to other AMQP servers.
+### High Availability
+- Replication
+- Automatic leader election in clusters via etcd
 
-- When comparing queue/exchange/binding arguments all number types (e.g. 10 and 10.0) are considered equivalent
-- When comparing queue/exchange/binding arguments non-effective parameters are also considered, and not ignored
-- TTL of queues and messages are correct to the 0.1 second, not to the millisecond
-- Newlines are not removed from Queue or Exchange names, they are forbidden
+### Other Functionality
+- Shovels
+- Queue & Exchange federation
+- Single active consumer
+- Stream queues
 
-## Clustering
+## Feature Highlights
+### Clustering
 
 LavinMQ can be fully clustered with multiple other LavinMQ nodes. One node is always the leader and the others stream all changes in real-time. Failover happens instantly when the leader is unavailable.
 
 [etcd](https://etcd.io/) is used for leader election and maintaining the In-Sync-Replica (ISR) set. LavinMQ then uses a custom replication protocol between the nodes. When a follower disconnects it will fall out of the ISR set, and will then not be eligible to be a new leader.
 
-### Clustering configuration
+See [Setting up Clustering with LavinMQ](https://lavinmq.com/documentation/clustering) for more information on Clustering in LavinMQ.
+
+#### Clustering Configuration
 
 Enable clustering with the following config:
 
@@ -279,38 +204,28 @@ or start LavinMQ with:
 lavinmq --data-dir /var/lib/lavinmq --clustering --clustering-bind :: --clustering-advertised-uri=tcp://my-ip:5679
 ```
 
-## Stream queues
+### Stream Queues
 
-Stream queues are like append-only logs and can be consumed multiple times. Each consumer can start to read from anywhere in the queue (using the `x-stream-offset` consumer argument) over and over again.  Stream queues are different from normal queues in that messages are not deleted (see #retention) when a consumer acknowledge them.
+Stream queues provide an append-only log structure that allows multiple consumers to read the same messages independently. Unlike standard queues, messages in stream queues aren't deleted when consumed, making them ideal for event sourcing patterns and multi-consumer scenarios.
 
-### Stream Queue Filtering
+Each consumer can start reading from anywhere in the queue using the `x-stream-offset` consumer argument and can process messages at their own pace. See [Stream Queues](https://lavinmq.com/documentation/streams) in the documentation for more information on using Stream Queues. 
 
-Stream queues support message filtering, allowing consumers to receive only messages that match specific criteria. This is useful for consuming a subset of messages without creating multiple queues.
+#### Stream Queue Filtering
 
-#### How Filtering Works
-- A consumer with filter values will only receive messages that contain ALL the filter values it has specified.
-- A consumer with filter values will not receive messages without filter values unless they have set `x-stream-match-unfiltered` to true.
-- Consumers without any filter values will receive all messages.
+Stream queues support message filtering, allowing consumers to receive only messages that match specific criteria. This is useful for consuming a subset of messages without creating multiple queues. For more information on filtering, see the [documentation](https://lavinmq.com/documentation/streams#stream-filtering).
 
-#### Publishing Filtered Messages
-When publishing messages that should be filtered, include the `x-stream-filter-value` header. `x-stream-filter-value` should be a string of comma-separated values.
+### MQTT Support
 
-#### Consuming Filtered Messages
+LavinMQ natively supports the MQTT 3.1.1 protocol, facilitating seamless integration with IoT devices, sensors, and mobile applications. Each MQTT session is backed by an AMQP queue, ensuring consistent and reliable message storage. Messages within these sessions are persistently stored on disk.
 
-To enable filtering on the consumer, set the following arguments when creating a consumer:
-
-- `x-stream-filter`: A comma-separated string of filter values the consumer is interested in
-- `x-stream-match-unfiltered`: A boolean (default: `false`) that determines whether to receive messages that don't have any filter values
-
-## MQTT
-
-LavinMQ natively supports the MQTT 3.1.1 protocol, facilitating seamless integration with IoT devices, sensors, and mobile applications. Each MQTT session is backed by an AMQP queue, ensuring consistent and reliable message storage. Messages within these sessions are persistently stored on disk. 
-
-For retained messages, LavinMQ maintains a dedicated storage system that maps topics to their respective retained messages. These retained messages are also persistently stored, ensuring that new subscribers immediately receive the latest retained message upon subscribing, including those using wildcard topic filters. In clustered environments, the retained message store is replicated across nodes. 
+For retained messages, LavinMQ maintains a dedicated storage system that maps topics to their respective retained messages. These retained messages are also persistently stored, ensuring that new subscribers immediately receive the latest retained message upon subscribing, including those using wildcard topic filters. In a clustered environments, the retained message store is replicated across nodes.
 
 Please note that Quality of Service (QoS) level 2 is not supported in LavinMQ; messages published with QoS 2 will be downgraded to QoS 1.
 
-### MQTT Configuration
+See [MQTT in LavinMQ](https://lavinmq.com/documentation/mqtt-in-lavinmq) for more information on using MQTT.
+
+#### MQTT Configuration
+
 ```ini
 [MQTT]
 bind = "127.0.0.1"
@@ -321,9 +236,30 @@ max_inflight_messages = 65535
 default_vhost = "/"
 ```
 
-### Retention
+## Implementation Details
 
-Messages are only deleted when `max-length`, `max-length-bytes` or `max-age` are applied, either as queue arguments or as policies. The limits are checked only when new messages are published to the queue, and only act on whole segments (which by default are 8MiB), so the limits aren't necessarily exact. So even if a `max-age` limit is set, but no messages are published to the queue, messages might still be available in the stream queue that is way older that the limit specified.
+LavinMQ is built in Crystal and uses a disk-first approach to message storage, letting the OS handle caching. For full details on implementation, storage architecture, and message flows, see the [Implementation details section in CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Compatibility Notes
+
+There are a few edge-cases that are handled a bit differently in LavinMQ compared to other AMQP servers:
+
+- When comparing queue/exchange/binding arguments all number types (e.g. 10 and 10.0) are considered equivalent
+- When comparing queue/exchange/binding arguments non-effective parameters are also considered, and not ignored
+- TTL of queues and messages are accurate to 0.1 second, not to the millisecond
+- Newlines are not removed from Queue or Exchange names, they are forbidden
+
+## Getting Help
+
+For questions or suggestions:
+- Join our [Slack community](https://join.slack.com/t/lavinmq/shared_invite/zt-1v28sxova-wOyhOvDEKYVQMQpLePNUrg)
+- Use the [lavinmq tag](https://stackoverflow.com/questions/tagged/lavinmq) on Stack Overflow
+- If you use LavinMQ via [CloudAMQP](https://www.cloudamqp.com), contact [support@cloudamqp.com](mailto:support@cloudamqp.com)
+- Want to learn more? [Talk with our product experts](https://webforms.pipedrive.com/f/64JnLsqIMAdF2BDQ06ioKLhC2NuNmkwNplNhRxtIqlm0nFnuIeX97eb7fZKej0vFHZ)
+
+## Contributing
+
+Please read our [contributing guide](CONTRIBUTING.md) if you'd like to help improve LavinMQ.
 
 ## License
 
@@ -332,6 +268,3 @@ The software is licensed under the [Apache License 2.0](LICENSE).
 Copyright 2018-2025 84codes AB
 
 LavinMQ is a trademark of 84codes AB
-
-## Contact Us
-Do you want to learn more? [Talk with our product experts](https://webforms.pipedrive.com/f/64JnLsqIMAdF2BDQ06ioKLhC2NuNmkwNplNhRxtIqlm0nFnuIeX97eb7fZKej0vFHZ).
