@@ -113,9 +113,9 @@ module LavinMQ
           sp = env.segment_position
           no_ack = env.message.properties.delivery_mode == 0
           if no_ack
+            delete_message(sp)
             packet = build_packet(env, nil)
             yield packet
-            delete_message(sp)
           else
             id = next_id
             return false unless id
@@ -139,10 +139,11 @@ module LavinMQ
         retained = msg.properties.try &.headers.try &.["mqtt.retain"]? == true
         qos = msg.properties.delivery_mode || 0u8
         qos = 1u8 if qos > 1
+        dup = qos.zero? ? false : env.redelivered
         MQTT::Publish.new(
           packet_id: packet_id,
           payload: msg.body,
-          dup: env.redelivered,
+          dup: dup,
           qos: qos,
           retain: retained,
           topic: msg.routing_key
