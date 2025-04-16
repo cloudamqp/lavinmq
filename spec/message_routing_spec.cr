@@ -14,23 +14,16 @@ module MessageRoutingSpec
     it "matches exact rk" do
       with_amqp_server do |s|
         vhost = s.vhosts.create("x")
+        x = LavinMQ::AMQP::DirectExchange.new(vhost, "")
         q1 = LavinMQ::AMQP::Queue.new(vhost, "q1")
-        x = LavinMQ::AMQP::DirectExchange.new(vhost, "")
         x.bind(q1, "q1", LavinMQ::AMQP::Table.new)
-        found_queues = Set(LavinMQ::Queue).new
-        x.find_queues("q1", nil, found_queues, Set(LavinMQ::AMQP::Exchange).new)
-        found_queues.should eq(Set{q1})
-      end
-    end
-
-    it "matches no rk" do
-      with_amqp_server do |s|
-        vhost = s.vhosts.create("x")
-        x = LavinMQ::AMQP::DirectExchange.new(vhost, "")
-
-        found_queues = Set(LavinMQ::Queue).new
-        x.find_queues("q1", nil, found_queues, Set(LavinMQ::AMQP::Exchange).new)
-        found_queues.should be_empty
+        x.bind(q1, "a", LavinMQ::AMQP::Table.new)
+        q2 = LavinMQ::AMQP::Queue.new(vhost, "q2")
+        x.bind(q2, "q2", LavinMQ::AMQP::Table.new)
+        x.bind(q2, "a", LavinMQ::AMQP::Table.new)
+        matches(x, "q1").should eq(Set{q1})
+        matches(x, "a").should eq(Set{q1, q2})
+        matches(x, "foo").should be_empty
       end
     end
   end
