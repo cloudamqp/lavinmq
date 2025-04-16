@@ -55,8 +55,15 @@ module MessageRoutingSpec
 
   describe LavinMQ::AMQP::TopicExchange do
     with_amqp_server do |s|
-      vhost = s.vhosts.create("x")
-      x = LavinMQ::AMQP::TopicExchange.new(vhost, "t", false, false, true)
+      vhost = uninitialized LavinMQ::VHost
+      x = uninitialized LavinMQ::AMQP::TopicExchange
+
+      around_each do |example|
+        vhost = s.vhosts.create("x")
+        x = LavinMQ::AMQP::TopicExchange.new(vhost, "t", false, false, true)
+        example.run
+        s.vhosts.delete("x")
+      end
 
       it "matches prefixed star-wildcard" do
         q1 = LavinMQ::AMQP::Queue.new(vhost, "q1")
@@ -179,12 +186,14 @@ module MessageRoutingSpec
 
   describe LavinMQ::AMQP::HeadersExchange do
     with_amqp_server do |s|
-      vhost = s.vhosts.create("x")
+      vhost = uninitialized LavinMQ::VHost
+      x = uninitialized LavinMQ::AMQP::HeadersExchange
 
-      x = LavinMQ::AMQP::HeadersExchange.new(vhost, "h", false, false, true)
-      before_each do
+      around_each do |example|
         vhost = s.vhosts.create("x")
         x = LavinMQ::AMQP::HeadersExchange.new(vhost, "h", false, false, true)
+        example.run
+        s.vhosts.delete("x")
       end
 
       hdrs_all = LavinMQ::AMQP::Table.new({
