@@ -238,7 +238,7 @@ describe LavinMQ::Exchange do
           downstream_vhost.upstreams.create_upstream("upstream", config)
           definition = {"federation-upstream" => JSON::Any.new("upstream")}
           downstream_vhost.add_policy("fed", "^amq.topic", "exchanges", definition, 1i8)
-          wait_for(100.milliseconds) { downstream_vhost.upstreams.present? }
+          wait_for(100.milliseconds) { downstream_vhost.upstreams.@upstreams["upstream"]?.try &.links.present? }
         end
       end
 
