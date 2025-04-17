@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add Prometheus metrics for `global_message_*` counters [#1010](https://github.com/cloudamqp/lavinmq/pull/1010)
 - Add filtering for bindings on exchange [#1032](https://github.com/cloudamqp/lavinmq/pull/1032)
 - Make it possible to filter on connection_name and user from /connections [#1031](https://github.com/cloudamqp/lavinmq/pull/1031)
+- Log total startup time [#1056](https://github.com/cloudamqp/lavinmq/pull/1056)
 
 ### Fixed
 - Multiple nodes could generate and set clustering secret, causing the leader to use another secret than the followers. [#998](https://github.com/cloudamqp/lavinmq/pull/998)
