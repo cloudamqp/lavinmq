@@ -18,7 +18,6 @@ on:
       - Makefile
       - 'src/**'
       - 'spec/**'
-      - 'playwright.config.js'
       - 'shard.*'
       - 'static/**'
       - 'views/**'
@@ -190,7 +189,7 @@ jobs:
         run: npx playwright install --with-deps
 
       - name: Run tests
-        run: npx playwright test --reporter=list
+        run: npx playwright test --reporter=list --config ./spec/frontend/playwright.config.js
 
   java-client-test:
     name: RabbitMQ java client test

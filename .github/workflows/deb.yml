@@ -7,14 +7,13 @@ on:
       - v*
     paths:
       - .github/workflows/deb.yml
-      - Dockerfile.deb
       - Makefile
       - shard.lock
       - src/**
       - static/**
       - views/**
       - openapi/**
-      - debian/**
+      - packaging/debian/**
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -43,7 +42,7 @@ jobs:
       - uses: depot/setup-action@v1
       - uses: depot/build-push-action@v1
         with:
-          file: Dockerfile.deb
+          file: packaging/debian/Dockerfile
           platforms: linux/amd64,linux/arm64
           pull: true
           build-args: |

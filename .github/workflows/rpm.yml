@@ -8,13 +8,12 @@ on:
     paths:
       - .github/workflows/rpm.yml
       - Makefile
-      - Dockerfile.rpm
       - shard.lock
       - src/**
       - static/**
       - views/**
       - openapi/**
-      - lavinmq.spec
+      - packaging/rpm/**
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -36,12 +35,12 @@ jobs:
           fetch-depth: 0
 
       - name: Generate version string
-        run: echo "version=$(./rpm-version)" >> $GITHUB_ENV
+        run: echo "version=$(./packaging/rpm/rpm-version)" >> $GITHUB_ENV
 
       - uses: depot/setup-action@v1
       - uses: depot/build-push-action@v1
         with:
-          file: Dockerfile.rpm
+          file: packaging/rpm/Dockerfile
           platforms: linux/amd64,linux/arm64
           pull: true
           build-args: |
