@@ -373,9 +373,6 @@ module LavinMQ::AMQP
       @vhost.delete_queue(@name)
       @log.info { "(messages=#{message_count}) Deleted" }
       notify_observers(QueueEvent::Deleted)
-      @vhost.users.each do |_, user|
-        user.remove_queue_from_acl_caches(@vhost.name, @name)
-      end
       true
     end
 
