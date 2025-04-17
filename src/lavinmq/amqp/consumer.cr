@@ -30,7 +30,7 @@ module LavinMQ
         @flow = @channel.flow?
         @metadata = @channel.@metadata.extend({consumer: @tag})
         @log = Logger.new(Log, @metadata)
-        spawn deliver_loop, name: "Consumer deliver loop", same_thread: true
+        spawn deliver_loop, name: "Consumer deliver loop"
       end
 
       def close
