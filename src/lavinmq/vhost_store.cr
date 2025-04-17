@@ -1,6 +1,6 @@
 require "json"
 require "./vhost"
-require "./user"
+require "./auth/user"
 require "./observable"
 
 module LavinMQ
