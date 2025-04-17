@@ -270,10 +270,11 @@ module LavinMQ
     end
 
     @connections = Deque(Tuple(TCPSocket, String)).new
+    @lock = Mutex.new
 
     private def with_tcp(& : Tuple(TCPSocket, String) -> _)
       loop do
-        socket, address = @connections.shift? || connect
+        socket, address = @lock.synchronize { @connections.shift? } || connect
         begin
           return yield({socket, address})
         rescue ex : LeaseAlreadyExists
@@ -285,13 +286,13 @@ module LavinMQ
           socket.close rescue nil
           sleep 0.1.seconds
         ensure
-          @connections.push({socket, address}) unless socket.closed?
+          @lock.synchronize { @connections.push({socket, address}) } unless socket.closed?
         end
       end
     end
 
     private def connect : Tuple(TCPSocket, String)
-      @endpoints.shuffle!.each do |address|
+      @endpoints.shuffle.each do |address|
         host, port = address.split(':', 2)
         socket = TCPSocket.new(host, port, connect_timeout: 1.seconds)
         socket.sync = false
