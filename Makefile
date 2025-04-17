@@ -52,9 +52,6 @@ bin/%: src/%.cr $(SOURCES) lib $(JS) $(DOCS) | bin
 bin/%-debug: src/%.cr $(SOURCES) lib $(JS) $(DOCS) | bin
 	crystal build $< -o $@ --debug $(CRYSTAL_FLAGS)
 
-bin/lavinmqperf: src/lavinmqperf.cr $(PERF_SOURCES) lib | bin
-	crystal build $< -o $@ -Dpreview_mt $(CRYSTAL_FLAGS)
-
 bin/lavinmqctl: src/lavinmqctl.cr lib | bin
 	crystal build $< -o $@ -Dgc_none $(CRYSTAL_FLAGS)
 
