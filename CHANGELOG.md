@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A policy with delivery-limit is now properly applied to a queue if the value is lower than the existing argument. [#1000](https://github.com/cloudamqp/lavinmq/pull/1000)
 - Fix cluster ID and advertised URI collision handling, preventing confusing behavior when multiple nodes have the same identity [#1023](https://github.com/cloudamqp/lavinmq/pull/1023)
 - Close MQTT client socket and exit deliver loop on errors [#1043](https://github.com/cloudamqp/lavinmq/pull/1043)
+- Don't federate internal exchanges [#1058](https://github.com/cloudamqp/lavinmq/pull/1058)
+- Stop existing federation links when applying a new policy [#1059](https://github.com/cloudamqp/lavinmq/pull/1059)
 
 ### Changed
 - Cleaner CLI output with separators [#1018](https://github.com/cloudamqp/lavinmq/pull/1018)
@@ -30,6 +32,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Command line arguments for mqtt_bind [#992](https://github.com/cloudamqp/lavinmq/pull/992)
 - Show MQTT client keepalive in management UI [#989](https://github.com/cloudamqp/lavinmq/pull/989)
 - Count MQTT messages in vhosts message stats [#988](https://github.com/cloudamqp/lavinmq/pull/988)
+- Build RPM packages for Fedora 42 [391f79be](https://github.com/cloudamqp/lavinmq/commit/391f79be)
+- README overhaul with improved structure and visual elements [#1052](https://github.com/cloudamqp/lavinmq/pull/1052)
+- Don't build lavinmqperf with MT
 
 ## [2.2.0] - 2025-03-13
 
