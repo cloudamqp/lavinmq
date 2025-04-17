@@ -7,13 +7,15 @@ module LavinMQ
 
       def initialize(@etcd : Etcd, @id : Int64, ttl : Int32)
         @lost_leadership = Channel(Nil).new
-        spawn(keepalive_loop(ttl), name: "Etcd lease keepalive #{@id}")
+        Fiber::ExecutionContext::Isolated.new("Etcd lease #{@id}") do
+          keepalive_loop(ttl)
+        end
       end
 
       # Force release leadership
       def release
-        @etcd.lease_revoke(@id)
         @lost_leadership.close
+        @etcd.lease_revoke(@id)
       end
 
       # Wait until looses leadership
