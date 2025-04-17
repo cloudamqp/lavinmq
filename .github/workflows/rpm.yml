@@ -40,7 +40,7 @@ jobs:
       - uses: depot/setup-action@v1
       - uses: depot/build-push-action@v1
         with:
-          file: packaging/rpm/Dockerfile.rpm
+          file: packaging/rpm/Dockerfile
           platforms: linux/amd64,linux/arm64
           pull: true
           build-args: |
