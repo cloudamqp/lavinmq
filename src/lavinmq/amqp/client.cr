@@ -553,7 +553,7 @@ module LavinMQ
         else
           ae = frame.arguments["x-alternate-exchange"]?.try &.as?(String)
           ae_ok = ae.nil? || (@user.can_write?(@vhost.name, ae) && @user.can_read?(@vhost.name, frame.exchange_name))
-          unless @user.can_config?(@vhost.name, frame.exchange_name) && ae_ok
+          unless ae_ok && @user.can_config?(@vhost.name, frame.exchange_name)
             send_access_refused(frame, "User doesn't have permissions to declare exchange '#{frame.exchange_name}'")
             return
           end
@@ -687,7 +687,7 @@ module LavinMQ
         end
         dlx = frame.arguments["x-dead-letter-exchange"]?.try &.as?(String)
         dlx_ok = dlx.nil? || (@user.can_write?(@vhost.name, dlx) && @user.can_read?(@vhost.name, name))
-        unless @user.can_config?(@vhost.name, frame.queue_name) && dlx_ok
+        unless dlx_ok && @user.can_config?(@vhost.name, frame.queue_name)
           send_access_refused(frame, "User doesn't have permissions to queue '#{frame.queue_name}'")
           return
         end
@@ -835,12 +835,19 @@ module LavinMQ
         end
       end
 
+      @acl_cache = Hash({String, String}, Bool).new
+
       private def start_publish(frame)
-        unless @user.can_write?(@vhost.name, frame.exchange)
-          send_access_refused(frame, "User not allowed to publish to exchange '#{frame.exchange}'")
-          return
+        cache_key = {@vhost.name, frame.exchange}
+        allowed = @acl_cache[cache_key]?
+        if allowed.nil?
+          allowed = @acl_cache[cache_key] = @user.can_write?(*cache_key)
         end
-        with_channel frame, &.start_publish(frame)
+        if allowed
+          with_channel frame, &.start_publish(frame)
+        else
+          send_access_refused(frame, "User not allowed to publish to exchange '#{frame.exchange}'")
+        end
       end
 
       private def consume(frame)
