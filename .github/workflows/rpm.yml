@@ -1,17 +1,5 @@
 name: RPM
 on:
-  pull_request:
-    paths:
-      - .github/workflows/rpm.yml
-      - Makefile
-      - packaging/rpm/Dockerfile.rpm
-      - build/lavinmq.spec
-      - shard.lock
-      - src/**
-      - static/**
-      - views/**
-      - openapi/**
-      - packaging/rpm/lavinmq.spec
   push:
     branches:
       - main
@@ -20,14 +8,12 @@ on:
     paths:
       - .github/workflows/rpm.yml
       - Makefile
-      - packaging/rpm/Dockerfile.rpm
-      - build/lavinmq.spec
       - shard.lock
       - src/**
       - static/**
       - views/**
       - openapi/**
-      - packaging/rpm/lavinmq.spec
+      - packaging/rpm/**
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -36,7 +22,7 @@ jobs:
     name: Build RPM
     strategy:
       matrix:
-        os: ['fedora-41', 'fedora-40', 'el-9']
+        os: ['fedora-42','fedora-41', 'fedora-40', 'el-9']
     runs-on: ubuntu-latest
     # Set permissions if you're using OIDC token authentication
     permissions:

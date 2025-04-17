@@ -1,17 +1,5 @@
 name: Debian packages
 on:
-  pull_request:
-    paths:
-      - .github/workflows/deb.yml
-      - Makefile
-      - packaging/debian/Dockerfile.deb
-      - build/deb
-      - shard.lock
-      - src/**
-      - static/**
-      - views/**
-      - openapi/**
-      - packaging/debian/**
   push:
     branches:
       - main
@@ -19,9 +7,7 @@ on:
       - v*
     paths:
       - .github/workflows/deb.yml
-      - packaging/debian/Dockerfile.deb
       - Makefile
-      - build/deb
       - shard.lock
       - src/**
       - static/**
