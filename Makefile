@@ -154,8 +154,7 @@ uninstall:
 rpm:
 	rpmdev-setuptree
 	git archive --prefix lavinmq/ --output ~/rpmbuild/SOURCES/lavinmq.tar.gz HEAD
-	sed -E "s/^(Version:).*/\1 $(shell ./packaging/rpm/rpm-version)/" packaging/rpm/lavinmq.spec > ~/rpmbuild/SPECS/lavinmq.spec
-	rpmbuild -bb ~/rpmbuild/SPECS/lavinmq.spec
+	env version="$(shell ./packaging/rpm/rpm-version)" rpmbuild -bb packaging/rpm/lavinmq.spec
 
 .PHONY: clean
 clean:

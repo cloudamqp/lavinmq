@@ -1,6 +1,6 @@
 Name:    lavinmq
 Summary: Message queue server that implements the AMQP 0-9-1 protocol
-Version: 2.0.0
+Version: %{getenv:version}
 Release: 1%{?dist}
 
 License: Apache 2.0
