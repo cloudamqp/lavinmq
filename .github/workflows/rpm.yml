@@ -1,17 +1,5 @@
 name: RPM
 on:
-  pull_request:
-    paths:
-      - .github/workflows/rpm.yml
-      - Makefile
-      - Dockerfile.rpm
-      - build/lavinmq.spec
-      - shard.lock
-      - src/**
-      - static/**
-      - views/**
-      - openapi/**
-      - lavinmq.spec
   push:
     branches:
       - main
@@ -21,7 +9,6 @@ on:
       - .github/workflows/rpm.yml
       - Makefile
       - Dockerfile.rpm
-      - build/lavinmq.spec
       - shard.lock
       - src/**
       - static/**
