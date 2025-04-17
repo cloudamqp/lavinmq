@@ -4,7 +4,7 @@ FROM $build_image AS builder
 RUN dnf install -y --nodocs --setopt=install_weak_deps=False \
     rpmdevtools rpmlint systemd-rpm-macros make help2man lz4-devel
 RUN rpmdev-setuptree
-COPY platforms/rpm/lavinmq.spec /root/rpmbuild/SPECS/
+COPY lavinmq.spec /root/rpmbuild/SPECS/
 ARG version
 RUN sed -i -E "s/^(Version:).*/\1 $version/" /root/rpmbuild/SPECS/lavinmq.spec
 RUN rpmlint /root/rpmbuild/SPECS/lavinmq.spec

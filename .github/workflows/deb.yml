@@ -4,14 +4,14 @@ on:
     paths:
       - .github/workflows/deb.yml
       - Makefile
-      - Dockerfile.deb
+      - packaging/debian/Dockerfile.deb
       - build/deb
       - shard.lock
       - src/**
       - static/**
       - views/**
       - openapi/**
-      - platforms/debian/**
+      - packaging/debian/**
   push:
     branches:
       - main
@@ -19,7 +19,7 @@ on:
       - v*
     paths:
       - .github/workflows/deb.yml
-      - Dockerfile.deb
+      - packaging/debian/Dockerfile.deb
       - Makefile
       - build/deb
       - shard.lock
@@ -27,7 +27,7 @@ on:
       - static/**
       - views/**
       - openapi/**
-      - platforms/debian/**
+      - packaging/debian/**
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -56,7 +56,7 @@ jobs:
       - uses: depot/setup-action@v1
       - uses: depot/build-push-action@v1
         with:
-          file: Dockerfile.deb
+          file: packaging/debian/Dockerfile.deb
           platforms: linux/amd64,linux/arm64
           pull: true
           build-args: |

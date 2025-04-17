@@ -4,14 +4,14 @@ on:
     paths:
       - .github/workflows/rpm.yml
       - Makefile
-      - Dockerfile.rpm
+      - packaging/rpm/Dockerfile.rpm
       - build/lavinmq.spec
       - shard.lock
       - src/**
       - static/**
       - views/**
       - openapi/**
-      - platforms/rpm/lavinmq.spec
+      - packaging/rpm/lavinmq.spec
   push:
     branches:
       - main
@@ -20,14 +20,14 @@ on:
     paths:
       - .github/workflows/rpm.yml
       - Makefile
-      - Dockerfile.rpm
+      - packaging/rpm/Dockerfile.rpm
       - build/lavinmq.spec
       - shard.lock
       - src/**
       - static/**
       - views/**
       - openapi/**
-      - platforms/rpm/lavinmq.spec
+      - packaging/rpm/lavinmq.spec
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -49,12 +49,12 @@ jobs:
           fetch-depth: 0
 
       - name: Generate version string
-        run: echo "version=$(./platforms/rpm/rpm-version)" >> $GITHUB_ENV
+        run: echo "version=$(./packaging/rpm/rpm-version)" >> $GITHUB_ENV
 
       - uses: depot/setup-action@v1
       - uses: depot/build-push-action@v1
         with:
-          file: Dockerfile.rpm
+          file: packaging/rpm/Dockerfile.rpm
           platforms: linux/amd64,linux/arm64
           pull: true
           build-args: |
