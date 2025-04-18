@@ -183,7 +183,7 @@ module LavinMQ
       listen(s, protocol)
     end
 
-    def listen_tls(s : TCPServer, context, protocol : Protocol)
+    def listen_tls(s : TCPServer, context : OpenSSL::SSL::Context::Server, protocol : Protocol)
       @listeners[s] = protocol
       Log.info { "Listening for #{protocol} on #{s.local_address} (TLS)" }
       loop do # do not try to use while
@@ -215,7 +215,7 @@ module LavinMQ
       end
     end
 
-    def listen_tls(bind, port, context, protocol : Protocol = :amqp)
+    def listen_tls(bind, port, context : OpenSSL::SSL::Context::Server, protocol : Protocol = :amqp)
       listen_tls(TCPServer.new(bind, port), context, protocol)
     end
 
