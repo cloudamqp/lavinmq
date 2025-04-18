@@ -148,7 +148,7 @@ module LavinMQ
       end
 
       if @config.amqps_port > 0
-        mt.spawn("Listener AMQPS") do
+        mt.spawn(name: "Listener AMQPS") do
           if ctx = @tls_context
             amqp_server.listen_tls(@config.amqp_bind, @config.amqps_port, ctx, Server::Protocol::AMQP)
           end
