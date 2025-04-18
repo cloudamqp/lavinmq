@@ -2,6 +2,7 @@ require "json"
 require "./password"
 require "./sortable_json"
 require "./tag"
+require "./sync"
 
 module LavinMQ
   class User
@@ -129,7 +130,7 @@ module LavinMQ
       }
     end
 
-    @acl_write_cache = Hash({String, String}, Bool).new
+    @acl_write_cache = SyncHash({String, String}, Bool).new
 
     def can_write?(vhost, name)
       cache_key = {vhost, name}
@@ -140,7 +141,7 @@ module LavinMQ
       @acl_write_cache[cache_key]
     end
 
-    @acl_read_cache = Hash({String, String}, Bool).new
+    @acl_read_cache = SyncHash({String, String}, Bool).new
 
     def can_read?(vhost, name)
       cache_key = {vhost, name}
@@ -151,7 +152,7 @@ module LavinMQ
       @acl_read_cache[cache_key]
     end
 
-    @acl_config_cache = Hash({String, String}, Bool).new
+    @acl_config_cache = SyncHash({String, String}, Bool).new
 
     def can_config?(vhost, name)
       cache_key = {vhost, name}

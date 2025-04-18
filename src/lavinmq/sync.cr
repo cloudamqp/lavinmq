@@ -294,6 +294,10 @@ class SyncHash(K, V)
   def inspect(io : IO) : Nil
     to_s(io)
   end
+
+  def capacity
+    @hash.capacity
+  end
 end
 
 # Example usage:
