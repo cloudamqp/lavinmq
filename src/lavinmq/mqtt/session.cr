@@ -18,7 +18,7 @@ module LavinMQ
         super(@vhost, @name, false, @auto_delete, arguments)
 
         @log = Logger.new(Log, @metadata)
-        spawn deliver_loop, name: "Session#deliver_loop", same_thread: true
+        spawn deliver_loop, name: "Session#deliver_loop"
       end
 
       def clean_session?

@@ -139,15 +139,19 @@ module LavinMQ
 
     # ameba:disable Metrics/CyclomaticComplexity
     private def start_listeners(amqp_server, http_server)
+      mt = Fiber::ExecutionContext::MultiThreaded.new("AMQP", maximum: 20)
+
       if @config.amqp_port > 0
-        spawn amqp_server.listen(@config.amqp_bind, @config.amqp_port, Server::Protocol::AMQP),
-          name: "AMQP listening on #{@config.amqp_port}"
+        mt.spawn(name: "Listener") do
+          amqp_server.listen(@config.amqp_bind, @config.amqp_port, Server::Protocol::AMQP)
+        end
       end
 
       if @config.amqps_port > 0
-        if ctx = @tls_context
-          spawn amqp_server.listen_tls(@config.amqp_bind, @config.amqps_port, ctx, Server::Protocol::AMQP),
-            name: "AMQPS listening on #{@config.amqps_port}"
+        mt.spawn(name: "Listener AMQPS") do
+          if ctx = @tls_context
+            amqp_server.listen_tls(@config.amqp_bind, @config.amqps_port, ctx, Server::Protocol::AMQP)
+          end
         end
       end
 
