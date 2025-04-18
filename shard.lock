@@ -1,4 +1,3 @@
-# NOTICE: This lockfile contains some overrides from shard.override.yml
 version: 2.0
 shards:
   ameba:
@@ -9,9 +8,9 @@ shards:
     git: https://github.com/cloudamqp/amq-protocol.cr.git
     version: 1.1.14
 
-  amqp-client: # Overridden
-    path: ../amqp-client.cr
-    version: 1.3.0
+  amqp-client:
+    git: https://github.com/cloudamqp/amqp-client.cr.git
+    version: 1.3.1
 
   lz4:
     git: https://github.com/84codes/lz4.cr.git
