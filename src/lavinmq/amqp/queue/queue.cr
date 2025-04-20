@@ -430,7 +430,7 @@ module LavinMQ::AMQP
         @msg_store.push(msg)
         @publish_count += 1
       end
-      drop_overflow unless immediate_delivery?
+      drop_overflow_if_no_immediate_delivery
       true
     rescue ex : MessageStore::Error
       @log.error(ex) { "Queue closed due to error" }
@@ -453,6 +453,10 @@ module LavinMQ::AMQP
           raise RejectOverFlow.new
         end
       end
+    end
+
+    private def drop_overflow_if_no_immediate_delivery : Nil
+      drop_overflow if (@max_length || @max_length_bytes) && !immediate_delivery?
     end
 
     private def drop_overflow : Nil
@@ -819,7 +823,7 @@ module LavinMQ::AMQP
           @msg_store_lock.synchronize do
             @msg_store.requeue(sp)
           end
-          drop_overflow unless immediate_delivery?
+          drop_overflow_if_no_immediate_delivery
         end
       else
         expire_msg(sp, :rejected)
