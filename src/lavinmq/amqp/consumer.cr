@@ -15,11 +15,11 @@ module LavinMQ
       getter? no_ack : Bool
       getter channel, queue
       getter prefetch_count : UInt16
-      getter unacked = 0_u32
       getter? closed = false
       @flow : Bool
       @metadata : ::Log::Metadata
       @deliver_wg = WaitGroup.new
+      @unacked = Atomic(UInt32).new(0_u32)
 
       def initialize(@channel : AMQP::Channel, @queue : Queue, frame : AMQP::Frame::Basic::Consume)
         @tag = frame.consumer_tag
@@ -52,7 +52,11 @@ module LavinMQ
 
       def prefetch_count=(prefetch_count : UInt16)
         @prefetch_count = prefetch_count
-        notify_has_capacity(@prefetch_count > @unacked)
+        notify_has_capacity(@prefetch_count > @unacked.get)
+      end
+
+      def unacked
+        @unacked.get
       end
 
       private def deliver_loop
@@ -171,7 +175,7 @@ module LavinMQ
       # blocks until the consumer can accept more messages
       private def wait_for_capacity : Nil
         if @prefetch_count > 0
-          until @unacked < @prefetch_count
+          until @unacked.get < @prefetch_count
             @log.debug { "Waiting for prefetch capacity" }
             @has_capacity.receive
           end
@@ -180,7 +184,7 @@ module LavinMQ
 
       def accepts? : Bool
         return false unless @flow
-        return false if @prefetch_count > 0 && @unacked >= @prefetch_count
+        return false if @prefetch_count > 0 && @unacked.get >= @prefetch_count
         return false if @channel.global_prefetch_count > 0 && @channel.consumers.sum(&.unacked) >= @channel.global_prefetch_count
         true
       end
@@ -194,8 +198,8 @@ module LavinMQ
 
       def deliver(msg, sp, redelivered = false, recover = false)
         unless @no_ack || recover
-          @unacked += 1
-          notify_has_capacity(false) if @unacked == @prefetch_count
+          unacked = @unacked.add(1)
+          notify_has_capacity(false) if (unacked + 1) == @prefetch_count
         end
         delivery_tag = @channel.next_delivery_tag(@queue, sp, @no_ack, self)
         deliver = AMQP::Frame::Basic::Deliver.new(@channel.id, @tag,
@@ -211,15 +215,13 @@ module LavinMQ
       end
 
       def ack(sp)
-        was_full = @unacked == @prefetch_count
-        @unacked -= 1
-        notify_has_capacity(true) if was_full
+        unacked = @unacked.sub(1)
+        notify_has_capacity(true) if unacked == @prefetch_count
       end
 
       def reject(sp, requeue = false)
-        was_full = @unacked == @prefetch_count
-        @unacked -= 1
-        notify_has_capacity(true) if was_full
+        unacked = @unacked.sub(1)
+        notify_has_capacity(true) if unacked == @prefetch_count
       end
 
       def cancel
