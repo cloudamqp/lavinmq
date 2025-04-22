@@ -685,8 +685,8 @@ module LavinMQ::AMQP
     end
 
     # If nil is returned it means that the delivery limit is reached
-    def consume_get(consumer, & : Envelope -> Nil) : Bool
-      get(consumer.no_ack?) do |env|
+    def consume_get(no_ack, & : Envelope -> Nil) : Bool
+      get(no_ack) do |env|
         yield env
         if env.redelivered
           @redeliver_count += 1
