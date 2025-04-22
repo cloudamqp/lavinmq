@@ -4,7 +4,7 @@ require "./lavinmq/definitions_generator"
 require "http/client"
 require "json"
 require "option_parser"
-require "./lavinmq/user"
+require "./lavinmq/auth/user"
 
 class LavinMQCtl
   @options = {} of String => String
