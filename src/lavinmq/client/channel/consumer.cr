@@ -1,4 +1,5 @@
 require "../../sortable_json"
+require "../../bool_channel"
 
 module LavinMQ
   abstract class Client

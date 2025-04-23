@@ -29,13 +29,8 @@ module LavinMQ
         i = 0
         loop do
           break if @closed
-          if @msg_store.empty? || @consumers.empty?
-            select
-            when @msg_store.empty_change.receive?
-            when @consumers_empty_change.receive?
-            end
-            next
-          end
+          next @msg_store.empty.when_false.receive? if @msg_store.empty?
+          next @consumers_empty.when_false.receive? if @consumers.empty?
           consumer = @consumers.first.as(MQTT::Consumer)
           get_packet do |pub_packet|
             consumer.deliver(pub_packet)
