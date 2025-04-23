@@ -3,6 +3,7 @@ require "wait_group"
 require "../amqp"
 require "../client/channel/consumer"
 require "../logger"
+require "../bool_channel"
 
 module LavinMQ
   module AMQP
@@ -20,6 +21,7 @@ module LavinMQ
       @metadata : ::Log::Metadata
       @deliver_wg = WaitGroup.new
       @unacked = Atomic(UInt32).new(0_u32)
+      getter has_capacity = BoolChannel.new(true)
 
       def initialize(@channel : AMQP::Channel, @queue : Queue, frame : AMQP::Frame::Basic::Consume)
         @tag = frame.consumer_tag
@@ -28,6 +30,7 @@ module LavinMQ
         @priority = consumer_priority(frame) # Must be before ConsumeOk, can close channel
         @prefetch_count = @channel.prefetch_count
         @flow = @channel.flow?
+        @flow_change = BoolChannel.new(@flow)
         @metadata = @channel.@metadata.extend({consumer: @tag})
         @log = Logger.new(Log, @metadata)
         spawn deliver_loop, name: "Consumer deliver loop"
@@ -43,16 +46,15 @@ module LavinMQ
       end
 
       @notify_closed = ::Channel(Nil).new
-      @flow_change = ::Channel(Bool).new
 
       def flow(active : Bool)
         @flow = active
-        @flow_change.try_send? active
+        @flow_change.set(active)
       end
 
       def prefetch_count=(prefetch_count : UInt16)
         @prefetch_count = prefetch_count
-        notify_has_capacity(@prefetch_count > @unacked.get)
+        @has_capacity.set(@prefetch_count > @unacked.get)
       end
 
       def unacked
@@ -95,7 +97,7 @@ module LavinMQ
         return if ch.has_capacity?
         @log.debug { "Waiting for global prefetch capacity" }
         select
-        when ch.has_capacity.receive
+        when ch.has_capacity.when_true.receive
         when @notify_closed.receive
         end
         true
@@ -128,14 +130,18 @@ module LavinMQ
       private def wait_for_priority_consumers
         # single active consumer queues can't have priority consumers
         if @queue.has_priority_consumers? && @queue.single_active_consumer.nil?
-          if @queue.consumers.any? { |c| c.priority > @priority && c.accepts? }
-            @log.debug { "Waiting for higher priority consumers to not have capacity" }
-            begin
-              ::Channel.receive_first(@queue.consumers.map(&.has_capacity))
-            rescue ::Channel::ClosedError
-            end
-            return true
+          @log.debug { "Waiting for higher priority consumers to not have capacity" }
+          higher_prio_consumers = @queue.consumers.select { |c| c.priority > @priority }
+          return false unless higher_prio_consumers.any? &.accepts?
+          loop do
+            ::Channel.receive_first(higher_prio_consumers.map(&.has_capacity.when_false))
+            break
+          rescue ::Channel::ClosedError
+            higher_prio_consumers = @queue.consumers.select { |c| c.priority > @priority }
+            break if higher_prio_consumers.empty?
+            next
           end
+          return true
         end
       end
 
@@ -143,8 +149,7 @@ module LavinMQ
         if @queue.empty?
           @log.debug { "Waiting for queue not to be empty" }
           select
-          when is_empty = @queue.empty_change.receive
-            @log.debug { "Queue is #{is_empty ? "" : "not"} empty" }
+          when @queue.empty.when_false.receive
           when @notify_closed.receive
           end
           return true
@@ -152,11 +157,11 @@ module LavinMQ
       end
 
       private def wait_for_paused_queue
-        if @queue.paused?
+        if @queue.state.paused?
           @log.debug { "Waiting for queue not to be paused" }
           select
-          when is_paused = @queue.paused_change.receive
-            @log.debug { "Queue is #{is_paused ? "" : "not"} paused" }
+          when @queue.paused.when_false.receive
+            @log.debug { "Queue is not paused" }
           when @notify_closed.receive
           end
           return true
@@ -166,8 +171,8 @@ module LavinMQ
       private def wait_for_flow
         unless @flow
           @log.debug { "Waiting for flow" }
-          is_flow = @flow_change.receive
-          @log.debug { "Channel flow=#{is_flow}" }
+          @flow_change.when_true.receive
+          @log.debug { "Channel flow=true" }
           return true
         end
       end
@@ -177,7 +182,7 @@ module LavinMQ
         if @prefetch_count > 0
           until @unacked.get < @prefetch_count
             @log.debug { "Waiting for prefetch capacity" }
-            @has_capacity.receive
+            @has_capacity.when_true.receive
           end
         end
       end
@@ -189,17 +194,10 @@ module LavinMQ
         true
       end
 
-      getter has_capacity = ::Channel(Bool).new
-
-      private def notify_has_capacity(value)
-        while @has_capacity.try_send? value
-        end
-      end
-
       def deliver(msg, sp, redelivered = false, recover = false)
         unless @no_ack || recover
           unacked = @unacked.add(1)
-          notify_has_capacity(false) if (unacked + 1) == @prefetch_count
+          @has_capacity.set(false) if (unacked + 1) == @prefetch_count
         end
         delivery_tag = @channel.next_delivery_tag(@queue, sp, @no_ack, self)
         deliver = AMQP::Frame::Basic::Deliver.new(@channel.id, @tag,
@@ -216,12 +214,12 @@ module LavinMQ
 
       def ack(sp)
         unacked = @unacked.sub(1)
-        notify_has_capacity(true) if unacked == @prefetch_count
+        @has_capacity.set(true) if unacked == @prefetch_count
       end
 
       def reject(sp, requeue = false)
         unacked = @unacked.sub(1)
-        notify_has_capacity(true) if unacked == @prefetch_count
+        @has_capacity.set(true) if unacked == @prefetch_count
       end
 
       def cancel
