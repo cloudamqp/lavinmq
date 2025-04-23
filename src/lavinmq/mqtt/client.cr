@@ -5,6 +5,7 @@ require "../error"
 require "../rough_time"
 require "./session"
 require "./protocol"
+require "../state_channel"
 
 module LavinMQ
   module MQTT
@@ -220,7 +221,7 @@ module LavinMQ
     class Consumer < LavinMQ::Client::Channel::Consumer
       getter unacked = 0_u32
       getter tag : String
-      getter has_capacity = ::Channel(Bool).new
+      getter has_capacity : BoolChannel = BoolChannel.new(true)
       property prefetch_count = 0_u16
 
       def initialize(@client : Client, @session : MQTT::Session)

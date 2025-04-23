@@ -373,9 +373,9 @@ describe LavinMQ::Federation::Upstream do
       wg = WaitGroup.new(1)
       spawn do
         # Wait for queue to receive one consumer (subscribe)
-        ds_queue.@consumers_empty_change.receive?.should eq false
+        ds_queue.consumers_empty.when_false.receive
         # Wait for queue to lose consumer (unsubscribe)
-        ds_queue.@consumers_empty_change.receive?.should eq true
+        ds_queue.consumers_empty.when_true.receive
         wg.done
       end
       Fiber.yield # yield so our receive? above is called

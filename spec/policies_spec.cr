@@ -138,7 +138,7 @@ describe LavinMQ::VHost do
         expire_after = queue.@expires
         expire_after.should eq 100
         select
-        when queue.@paused_change.receive?
+        when queue.@paused.when_true.receive?
           fail "queue state not closed?" unless queue.closed?
         when timeout 500.milliseconds
           fail "queue not closed, probably not expired on time?"

@@ -3,6 +3,7 @@ require "../../segment_position"
 require "log"
 require "file_utils"
 require "../../clustering/server"
+require "../../state_channel"
 
 module LavinMQ
   class Queue
@@ -25,7 +26,7 @@ module LavinMQ
       getter closed
       getter bytesize = 0u64
       getter size = 0u32
-      getter empty_change = Channel(Bool).new
+      getter empty = BoolChannel.new(true)
 
       def initialize(@queue_data_dir : String, @replicator : Clustering::Replicator?, durable : Bool = true, metadata : ::Log::Metadata = ::Log::Metadata.empty)
         @log = Logger.new(Log, metadata)
@@ -39,6 +40,7 @@ module LavinMQ
         @wfile = @segments.last_value
         @rfile_id = @segments.first_key
         @rfile = @segments.first_value
+        @empty.set empty?
       end
 
       def push(msg) : SegmentPosition
@@ -47,7 +49,7 @@ module LavinMQ
         was_empty = @size.zero?
         @bytesize += sp.bytesize
         @size += 1
-        notify_empty(false) if was_empty
+        @empty.set false if was_empty
         sp
       end
 
@@ -61,7 +63,7 @@ module LavinMQ
         was_empty = @size.zero?
         @bytesize += sp.bytesize
         @size += 1
-        notify_empty(false) if was_empty
+        @empty.set false if was_empty
       end
 
       def first? : Envelope? # ameba:disable Metrics/CyclomaticComplexity
@@ -110,7 +112,7 @@ module LavinMQ
             msg = BytesMessage.from_bytes(segment.to_slice + sp.position)
             @bytesize -= sp.bytesize
             @size -= 1
-            notify_empty(true) if @size.zero?
+            @empty.set true if @size.zero?
             return Envelope.new(sp, msg, redelivered: true)
           rescue ex
             raise Error.new(segment, cause: ex)
@@ -135,7 +137,7 @@ module LavinMQ
           rfile.seek(sp.bytesize, IO::Seek::Current)
           @bytesize -= sp.bytesize
           @size -= 1
-          notify_empty(true) if @size.zero?
+          @empty.set true if @size.zero?
           return Envelope.new(sp, msg, redelivered: false)
         rescue ex : IndexError
           @log.warn { "Msg file size does not match expected value, moving on to next segment" }
@@ -219,7 +221,7 @@ module LavinMQ
 
       def close : Nil
         @closed = true
-        @empty_change.close
+        @empty.close
         @segments.each_value &.close
         @acks.each_value &.close
       end
@@ -433,11 +435,6 @@ module LavinMQ
           del.bsearch { |dpos| dpos >= pos } == pos
         else
           false
-        end
-      end
-
-      private def notify_empty(is_empty)
-        while @empty_change.try_send? is_empty
         end
       end
 

@@ -14,6 +14,7 @@ require "./event"
 require "./message_store"
 require "../../unacked_message"
 require "../../deduplication"
+require "../../state_channel"
 
 module LavinMQ::AMQP
   class Queue < LavinMQ::Queue
@@ -44,71 +45,58 @@ module LavinMQ::AMQP
     @msg_store_lock = Mutex.new(:reentrant)
     @msg_store : MessageStore
 
-    getter? paused = false
-    getter paused_change = ::Channel(Bool).new
+    getter paused = BoolChannel.new(false)
 
     getter consumer_timeout : UInt64? = Config.instance.consumer_timeout
 
-    @consumers_empty_change = ::Channel(Bool).new
+    getter consumers_empty = BoolChannel.new(true)
     @queue_expiration_ttl_change = ::Channel(Nil).new
 
     private def queue_expire_loop
       loop do
+        break unless @expires
+        @consumers_empty.when_true.receive
         break unless ttl = @expires
-        if @consumers.empty?
-          @log.debug { "Queue expires in #{ttl}" }
-          select
-          when @queue_expiration_ttl_change.receive
-          when @consumers_empty_change.receive
-          when timeout ttl.milliseconds
-            expire_queue
-            close
-            break
-          end
-        else
-          select
-          when @queue_expiration_ttl_change.receive
-          when @consumers_empty_change.receive
-          end
+        @log.debug { "Queue expires in #{ttl}ms" }
+        select
+        when @queue_expiration_ttl_change.receive
+        when @consumers_empty.when_false.receive
+        when timeout ttl.milliseconds
+          expire_queue
+          close
+          break
         end
-      rescue ::Channel::ClosedError
-        break
       end
+    rescue ::Channel::ClosedError
     end
 
     private def message_expire_loop
       loop do
-        if @msg_store.empty?
-          @msg_store.empty_change.receive
+        @consumers_empty.when_true.receive
+        @msg_store.empty.when_false.receive
+        next unless @consumers.empty? # thread safety issue, might change from there until the next select
+        if ttl = time_to_message_expiration
+          select
+          when @message_ttl_change.receive
+          when @msg_store.empty.when_true.receive # might be empty now (from basic get)
+          when @consumers_empty.when_false.receive
+          when timeout ttl
+            expire_messages
+          end
         else
-          if @consumers.empty?
-            if ttl = time_to_message_expiration
-              select
-              when @message_ttl_change.receive
-              when @msg_store.empty_change.receive # might be empty now (from basic get)
-              when @consumers_empty_change.receive
-              when timeout ttl
-                expire_messages
-              end
-            else
-              # first message in queue should not be expired
-              # wait for empty queue or TTL change
-              select
-              when @message_ttl_change.receive
-              when @msg_store.empty_change.receive
-              end
-            end
-          else
-            @consumers_empty_change.receive
+          # first message in queue should not be expired
+          # wait for empty queue or TTL change
+          select
+          when @message_ttl_change.receive
+          when @msg_store.empty.when_true.receive
           end
         end
-      rescue ::Channel::ClosedError
-        break
       end
     rescue ex : MessageStore::Error
       @log.error(ex) { "Queue closed due to error" }
       close
       raise ex
+    rescue ::Channel::ClosedError
     end
 
     # Creates @[x]_count and @[x]_rate and @[y]_log
@@ -122,7 +110,7 @@ module LavinMQ::AMQP
     getter operator_policy : OperatorPolicy?
     getter? closed = false
     getter state = QueueState::Running
-    getter empty_change : ::Channel(Bool)
+    getter empty : BoolChannel
     getter single_active_consumer : Client::Channel::Consumer? = nil
     getter single_active_consumer_change = ::Channel(Client::Channel::Consumer).new
     @single_active_consumer_queue = false
@@ -138,12 +126,15 @@ module LavinMQ::AMQP
       @metadata = ::Log::Metadata.new(nil, {queue: @name, vhost: @vhost.name})
       @log = Logger.new(Log, @metadata)
       File.open(File.join(@data_dir, ".queue"), "w") { |f| f.sync = true; f.print @name }
-      @state = QueueState::Paused if File.exists?(File.join(@data_dir, ".paused"))
+      if File.exists?(File.join(@data_dir, ".paused"))
+        @state = QueueState::Paused
+        @paused.set(true)
+      end
       @msg_store = init_msg_store(@data_dir)
       if @msg_store.closed
         close
       end
-      @empty_change = @msg_store.empty_change
+      @empty = @msg_store.empty
       handle_arguments
       spawn queue_expire_loop, name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}" if @expires
       spawn message_expire_loop, name: "Queue#message_expire_loop #{@vhost.name}/#{@name}"
@@ -322,9 +313,7 @@ module LavinMQ::AMQP
       return unless @state.running?
       @state = QueueState::Paused
       @log.debug { "Paused" }
-      @paused = true
-      while @paused_change.try_send? true
-      end
+      @paused.set(true)
       File.touch(File.join(@data_dir, ".paused"))
     end
 
@@ -332,9 +321,7 @@ module LavinMQ::AMQP
       return unless @state.paused?
       @state = QueueState::Running
       @log.debug { "Resuming" }
-      @paused = false
-      while @paused_change.try_send? false
-      end
+      @paused.set(false)
       File.delete(File.join(@data_dir, ".paused"))
     end
 
@@ -344,8 +331,8 @@ module LavinMQ::AMQP
       @state = QueueState::Closed
       @queue_expiration_ttl_change.close
       @message_ttl_change.close
-      @paused_change.close
-      @consumers_empty_change.close
+      @paused.close
+      @consumers_empty.close
       @consumers_lock.synchronize do
         @consumers.each &.cancel
         @consumers.clear
@@ -879,8 +866,7 @@ module LavinMQ::AMQP
     end
 
     private def notify_consumers_empty(is_empty)
-      while @consumers_empty_change.try_send? is_empty
-      end
+      @consumers_empty.set(is_empty)
     end
 
     def purge(max_count : Int = UInt32::MAX) : UInt32

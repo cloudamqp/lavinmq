@@ -9,6 +9,7 @@ require "../exchange"
 require "../amqp"
 require "../sortable_json"
 require "./channel_reply_code"
+require "../state_channel"
 
 module LavinMQ
   module AMQP
@@ -22,7 +23,7 @@ module LavinMQ
       getter consumers = Array(Consumer).new
       getter prefetch_count : UInt16 = Config.instance.default_consumer_prefetch
       getter global_prefetch_count = 0_u16
-      getter has_capacity = ::Channel(Nil).new
+      getter has_capacity = BoolChannel.new(true)
       getter unacked = Deque(Unack).new
       @confirm = false
       @confirm_total = 0_u64
@@ -582,8 +583,7 @@ module LavinMQ
         if frame.global
           @global_prefetch_count = frame.prefetch_count
           if frame.prefetch_count.zero?
-            while @has_capacity.try_send?(nil)
-            end
+            @has_capacity.set(true)
           else
             unacked_by_consumers = @unack_lock.synchronize { @unacked.count(&.consumer) }
             notify_has_capacity(frame.prefetch_count.to_i - unacked_by_consumers)
@@ -624,6 +624,7 @@ module LavinMQ
               end
             end
           end
+          @has_capacity.set(true)
         end
         send AMQP::Frame::Basic::RecoverOk.new(frame.channel)
       end
@@ -697,18 +698,20 @@ module LavinMQ
           @unacked.each do |unack|
             next if unack.consumer.nil? # only count consumer unacked against limit
             count += 1
-            return false if count >= prefetch_limit
+            if count >= prefetch_limit
+              @has_capacity.set(false)
+              return false
+            end
           end
-          true
+          @has_capacity.set(true)
+          return true
         end
       end
 
       private def notify_has_capacity(capacity = Int32::MAX)
         return if @global_prefetch_count.zero?
         return if capacity.negative?
-        capacity.times do
-          @has_capacity.try_send?(nil) || break
-        end
+        @has_capacity.set(true) if capacity > 0
       end
 
       def cancel_consumer(frame)
