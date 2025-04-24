@@ -3,7 +3,7 @@ require "./exchange"
 module LavinMQ
   module AMQP
     class FanoutExchange < Exchange
-      @bindings = Set(Destination).new
+      @bindings = Array(Destination).new
 
       def type : String
         "fanout"
@@ -17,7 +17,8 @@ module LavinMQ
       end
 
       def bind(destination : Destination, routing_key, headers = nil)
-        return false unless @bindings.add? destination
+        return false if @bindings.includes? destination
+        @bindings.push destination
         binding_key = BindingKey.new("")
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
         notify_observers(ExchangeEvent::Bind, data)
