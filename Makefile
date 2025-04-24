@@ -4,7 +4,7 @@ PERF_SOURCES := $(shell find src/lavinmqperf -name '*.cr' 2> /dev/null)
 VIEW_SOURCES := $(wildcard views/*.ecr)
 VIEW_TARGETS := $(patsubst views/%.ecr,static/views/%.html,$(VIEW_SOURCES))
 VIEW_PARTIALS := $(wildcard views/partials/*.ecr)
-JS := static/js/lib/chunks/helpers.segment.js static/js/lib/chart.js static/js/lib/amqp-websocket-client.mjs static/js/lib/amqp-websocket-client.mjs.map static/js/lib/luxon.js static/js/lib/chartjs-adapter-luxon.esm.js static/js/lib/elements-8.2.0.js static/js/lib/elements-8.2.0.css static/js/lib/paho-mqtt.js
+JS := static/js/lib/chunks/helpers.segment.js static/js/lib/chart.js static/js/lib/amqp-websocket-client.mjs.map static/js/lib/luxon.js static/js/lib/chartjs-adapter-luxon.esm.js static/js/lib/elements-8.2.0.js static/js/lib/elements-8.2.0.css
 LDFLAGS := $(shell (dpkg-buildflags --get LDFLAGS || rpm -E "%{build_ldflags}" || echo "-pie") 2>/dev/null)
 CRYSTAL_FLAGS := --release --stats
 override CRYSTAL_FLAGS += --error-on-warnings --link-flags="$(LDFLAGS)"
@@ -61,9 +61,6 @@ lib: shard.yml shard.lock
 bin static/js/lib man1 static/js/lib/chunks:
 	mkdir -p $@
 
-static/js/lib/%: | static/js/lib
-	curl --retry 5 -sLo $@ https://github.com/cloudamqp/amqp-client.js/releases/download/v3.1.1/$(@F)
-
 static/js/lib/chart.js: | static/js/lib
 	curl --retry 5 -sL https://github.com/chartjs/Chart.js/releases/download/v4.0.1/chart.js-4.0.1.tgz | \
 		tar -zxOf- package/dist/chart.js > $@
@@ -84,9 +81,6 @@ static/js/lib/elements-8.2.0.js: | static/js/lib
 
 static/js/lib/elements-8.2.0.css: | static/js/lib
 	curl --retry 5 -sLo $@ https://unpkg.com/@stoplight/elements@8.2.0/styles.min.css
-
-static/js/lib/paho-mqtt.js: | static/js/lib
-	curl --retry 5 -sLo $@ https://raw.githubusercontent.com/eclipse-paho/paho.mqtt.javascript/refs/heads/master/src/paho-mqtt.js
 
 man1/lavinmq.1: bin/lavinmq | man1
 	help2man -Nn "fast and advanced message queue server" $< -o $@
