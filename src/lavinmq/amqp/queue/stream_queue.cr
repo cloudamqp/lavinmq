@@ -109,6 +109,7 @@ module LavinMQ::AMQP
 
     private def handle_arguments
       super
+      @effective_args << "x-queue-type"
       if @dlx
         raise LavinMQ::Error::PreconditionFailed.new("x-dead-letter-exchange not allowed for stream queues")
       end

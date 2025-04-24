@@ -51,6 +51,7 @@ module LavinMQ::AMQP
 
     @consumers_empty_change = ::Channel(Bool).new
     @queue_expiration_ttl_change = ::Channel(Nil).new
+    @effective_args = Array(String).new
 
     private def queue_expire_loop
       loop do
@@ -252,34 +253,52 @@ module LavinMQ::AMQP
     end
 
     private def handle_arguments
+      @effective_args = Array(String).new
       @dlx = parse_header("x-dead-letter-exchange", String)
+      @effective_args << "x-dead-letter-exchange" if @dlx
       @dlrk = parse_header("x-dead-letter-routing-key", String)
+      @effective_args << "x-dead-letter-routing-key" if @dlrk
       if @dlrk && @dlx.nil?
         raise LavinMQ::Error::PreconditionFailed.new("x-dead-letter-exchange required if x-dead-letter-routing-key is defined")
       end
       @expires = parse_header("x-expires", Int).try &.to_i64
-      validate_gt_zero("x-expires", @expires)
+      validate_int("x-expires", @expires, 1)
       @queue_expiration_ttl_change.try_send? nil
       @max_length = parse_header("x-max-length", Int).try &.to_i64
-      validate_positive("x-max-length", @max_length)
+      validate_int("x-max-length", @max_length)
       @max_length_bytes = parse_header("x-max-length-bytes", Int).try &.to_i64
-      validate_positive("x-max-length-bytes", @max_length_bytes)
+      validate_int("x-max-length-bytes", @max_length_bytes)
       @message_ttl = parse_header("x-message-ttl", Int).try &.to_i64
-      validate_positive("x-message-ttl", @message_ttl)
+      validate_int("x-message-ttl", @message_ttl)
       @message_ttl_change.try_send? nil
       @delivery_limit = parse_header("x-delivery-limit", Int).try &.to_i64
-      validate_positive("x-delivery-limit", @delivery_limit)
+      validate_int("x-delivery-limit", @delivery_limit)
       @reject_on_overflow = parse_header("x-overflow", String) == "reject-publish"
+      @effective_args << "x-overflow" if @reject_on_overflow
       @single_active_consumer_queue = parse_header("x-single-active-consumer", Bool) == true
+      @effective_args << "x-single-active-consumer" if @single_active_consumer_queue
       @consumer_timeout = parse_header("x-consumer-timeout", Int).try &.to_u64
-      validate_positive("x-consumer-timeout", @consumer_timeout)
+      validate_int("x-consumer-timeout", @consumer_timeout)
       if parse_header("x-message-deduplication", Bool)
+        @effective_args << "x-message-deduplication"
         size = parse_header("x-cache-size", Int).try(&.to_u32)
+        @effective_args << "x-cache-size" if size
         ttl = parse_header("x-cache-ttl", Int).try(&.to_u32)
+        @effective_args << "x-cache-ttl" if ttl
         header_key = parse_header("x-deduplication-header", String)
+        @effective_args << "x-deduplication-header" if header_key
         cache = Deduplication::MemoryCache(AMQ::Protocol::Field).new(size)
         @deduper = Deduplication::Deduper.new(cache, ttl, header_key)
       end
+    end
+
+    private def validate_int(header, value, min_value = 0)
+      if min_value == 0
+        validate_positive(header, value)
+      else
+        validate_gt_zero(header, value)
+      end
+      @effective_args << header
     end
 
     private macro parse_header(header, type)
@@ -404,6 +423,7 @@ module LavinMQ::AMQP
         state:                       @state,
         effective_policy_definition: Policy.merge_definitions(@policy, @operator_policy),
         message_stats:               current_stats_details,
+        effective_arguments:         @effective_args.join(','),
       }
     end
 

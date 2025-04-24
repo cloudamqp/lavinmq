@@ -1772,7 +1772,14 @@ pre.arguments > div {
 }
 
 .arguments {
+  color: var(--font-color-darker);
+}
+.arguments .arg-tooltip {
+  display: block;
+}
+.arguments .active-argument {
   color: var(--font-color-light);
+  font-weight: bold;
 }
 
 #dataTags {
