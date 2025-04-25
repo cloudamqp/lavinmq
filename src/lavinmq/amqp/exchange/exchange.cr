@@ -29,6 +29,7 @@ module LavinMQ
       @delayed_queue : Queue?
       @deleted = false
       @deduper : Deduplication::Deduper?
+      @effective_args = Array(String).new
 
       rate_stats({"publish_in", "publish_out", "unroutable", "dedup"})
       property publish_in_count, publish_out_count, unroutable_count, dedup_count
@@ -67,15 +68,22 @@ module LavinMQ
       end
 
       def handle_arguments
+        @effective_args = Array(String).new
         @alternate_exchange = (@arguments["x-alternate-exchange"]? || @arguments["alternate-exchange"]?).try &.to_s
+        @effective_args << "x-alternate-exchange" if @alternate_exchange
         if @arguments["x-delayed-exchange"]?.try &.as?(Bool)
           @delayed = true
           init_delayed_queue
+          @effective_args << "x-delayed-exchange"
         end
         if @arguments["x-message-deduplication"]?.try(&.as?(Bool))
+          @effective_args << "x-message-deduplication"
           ttl = parse_header("x-cache-ttl", Int).try(&.to_u32)
+          @effective_args << "x-cache-ttl" if ttl
           size = parse_header("x-cache-size", Int).try(&.to_u32)
+          @effective_args << "x-cache-size" if size
           header_key = parse_header("x-deduplication-header", String)
+          @effective_args << "x-deduplication-header" if header_key
           cache = Deduplication::MemoryCache(AMQ::Protocol::Field).new(size)
           @deduper = Deduplication::Deduper.new(cache, ttl, header_key)
         end
@@ -95,6 +103,7 @@ module LavinMQ
           operator_policy: @operator_policy.try &.name,
           effective_policy_definition: Policy.merge_definitions(@policy, @operator_policy),
           message_stats: current_stats_details,
+          effective_arguments: @effective_args,
         }
       end
 
