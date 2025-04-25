@@ -198,6 +198,11 @@ module LavinMQ
         @count = next_id
         next_id
       end
+
+      private def handle_arguments
+        super
+        @effective_args << "x-queue-type"
+      end
     end
   end
 end
