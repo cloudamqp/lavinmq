@@ -136,7 +136,6 @@ function updateQueue (all) {
         for (const arg in item.arguments) {
           let div = document.createElement('div')
           div.textContent = `${arg}: ${item.arguments[arg]}`
-          div.classList.add('arg-tooltip');
           if (item.effective_arguments.includes(arg)) {
             div.classList.add('active-argument');
             div.title = 'Active argument'

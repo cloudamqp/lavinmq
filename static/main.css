@@ -1769,17 +1769,21 @@ fieldset.inline {
 pre.arguments > div {
   padding-left: 1em;
   text-indent: -1em;
+  padding-top: 2px;
 }
-
-.arguments {
-  color: var(--font-color-darker);
-}
-.arguments .arg-tooltip {
-  display: block;
-}
-.arguments .active-argument {
+pre.arguments .active-argument {
   color: var(--font-color-light);
-  font-weight: bold;
+}
+pre.arguments .active-argument:before,
+pre.arguments .inactive-argument:before {
+  padding-right: 5px;
+}
+pre.arguments .active-argument:before {
+  content: "●";
+  color: #44FC70;
+}
+pre.arguments .inactive-argument:before {
+  content: "○";
 }
 
 #dataTags {
