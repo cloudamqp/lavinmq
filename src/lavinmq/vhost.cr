@@ -31,6 +31,7 @@ module LavinMQ
     getter? closed = false
     property max_connections : Int32?
     property max_queues : Int32?
+    getter execution_context
 
     @exchanges = Hash(String, Exchange).new
     @queues = Hash(String, Queue).new
@@ -44,7 +45,7 @@ module LavinMQ
     @definitions_deletes = 0
     Log = LavinMQ::Log.for "vhost"
 
-    def initialize(@name : String, @server_data_dir : String, @users : UserStore, @replicator : Clustering::Replicator, @description = "", @tags = Array(String).new(0))
+    def initialize(@execution_context : Fiber::ExecutionContext, @name : String, @server_data_dir : String, @users : UserStore, @replicator : Clustering::Replicator, @description = "", @tags = Array(String).new(0))
       @log = Logger.new(Log, vhost: @name)
       @dir = Digest::SHA1.hexdigest(@name)
       @data_dir = File.join(@server_data_dir, @dir)
@@ -61,7 +62,7 @@ module LavinMQ
       @shovels = ShovelStore.new(self)
       @upstreams = Federation::UpstreamStore.new(self)
       load!
-      spawn check_consumer_timeouts_loop, name: "Consumer timeouts loop"
+      @execution_context.spawn check_consumer_timeouts_loop, name: "Consumer timeouts loop"
     end
 
     private def check_consumer_timeouts_loop
@@ -466,7 +467,7 @@ module LavinMQ
 
     private def load!
       load_definitions!
-      spawn(name: "Load parameters") do
+      @execution_context.spawn(name: "Load parameters") do
         sleep 10.milliseconds
         next if @closed
         apply_parameters

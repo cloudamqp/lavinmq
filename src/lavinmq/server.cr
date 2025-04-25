@@ -35,7 +35,7 @@ module LavinMQ
     @closed = false
     @flow = true
     @listeners = Hash(Socket::Server, Protocol).new # Socket => protocol
-    @connection_factories = Hash(Protocol, ConnectionFactory).new
+    @connection_factories : Hash(Protocol, ConnectionFactory)
     @replicator : Clustering::Replicator
     Log = LavinMQ::Log.for "server"
 
