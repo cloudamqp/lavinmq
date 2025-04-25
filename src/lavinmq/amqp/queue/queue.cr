@@ -73,14 +73,21 @@ module LavinMQ::AMQP
     private def message_expire_loop
       loop do
         @consumers_empty.when_true.receive
+        @log.debug { "Consumers empty" }
         @msg_store.empty.when_false.receive
-        next unless @consumers.empty? # thread safety issue, might change from there until the next select
+        @log.debug { "Message store not empty" }
+        next unless @consumers.empty?
         if ttl = time_to_message_expiration
+          @log.debug { "Next message TTL: #{ttl}" }
           select
           when @message_ttl_change.receive
+            @log.debug { "Message TTL changed" }
           when @msg_store.empty.when_true.receive # might be empty now (from basic get)
+            @log.debug { "Message store is empty" }
           when @consumers_empty.when_false.receive
+            @log.debug { "Got consumers" }
           when timeout ttl
+            @log.debug { "Message TTL reached" }
             expire_messages
           end
         else
@@ -88,7 +95,9 @@ module LavinMQ::AMQP
           # wait for empty queue or TTL change
           select
           when @message_ttl_change.receive
+            @log.debug { "Message TTL changed" }
           when @msg_store.empty.when_true.receive
+            @log.debug { "Msg store is empty" }
           end
         end
       end
