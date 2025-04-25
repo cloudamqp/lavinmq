@@ -258,27 +258,18 @@ module LavinMQ::AMQP
       @effective_args << "x-dead-letter-exchange" if @dlx
       @dlrk = parse_header("x-dead-letter-routing-key", String)
       @effective_args << "x-dead-letter-routing-key" if @dlrk
-      if @dlrk && @dlx.nil?
-        raise LavinMQ::Error::PreconditionFailed.new("x-dead-letter-exchange required if x-dead-letter-routing-key is defined")
-      end
       @expires = parse_header("x-expires", Int).try &.to_i64
-      validate_int("x-expires", @expires, 1)
       @queue_expiration_ttl_change.try_send? nil
       @max_length = parse_header("x-max-length", Int).try &.to_i64
-      validate_int("x-max-length", @max_length)
       @max_length_bytes = parse_header("x-max-length-bytes", Int).try &.to_i64
-      validate_int("x-max-length-bytes", @max_length_bytes)
       @message_ttl = parse_header("x-message-ttl", Int).try &.to_i64
-      validate_int("x-message-ttl", @message_ttl)
       @message_ttl_change.try_send? nil
       @delivery_limit = parse_header("x-delivery-limit", Int).try &.to_i64
-      validate_int("x-delivery-limit", @delivery_limit)
       @reject_on_overflow = parse_header("x-overflow", String) == "reject-publish"
       @effective_args << "x-overflow" if @reject_on_overflow
       @single_active_consumer_queue = parse_header("x-single-active-consumer", Bool) == true
       @effective_args << "x-single-active-consumer" if @single_active_consumer_queue
       @consumer_timeout = parse_header("x-consumer-timeout", Int).try &.to_u64
-      validate_int("x-consumer-timeout", @consumer_timeout)
       if parse_header("x-message-deduplication", Bool)
         @effective_args << "x-message-deduplication"
         size = parse_header("x-cache-size", Int).try(&.to_u32)
@@ -290,9 +281,22 @@ module LavinMQ::AMQP
         cache = Deduplication::MemoryCache(AMQ::Protocol::Field).new(size)
         @deduper = Deduplication::Deduper.new(cache, ttl, header_key)
       end
+      validate_arguments
     end
 
-    private def validate_int(header, value, min_value = 0)
+    private def validate_arguments
+      if @dlrk && @dlx.nil?
+        raise LavinMQ::Error::PreconditionFailed.new("x-dead-letter-exchange required if x-dead-letter-routing-key is defined")
+      end
+      validate_number("x-expires", @expires, 1)
+      validate_number("x-max-length", @max_length)
+      validate_number("x-max-length-bytes", @max_length_bytes)
+      validate_number("x-message-ttl", @message_ttl)
+      validate_number("x-delivery-limit", @delivery_limit)
+      validate_number("x-consumer-timeout", @consumer_timeout)
+    end
+
+    private def validate_number(header, value, min_value = 0)
       if min_value == 0
         validate_positive(header, value)
       else
