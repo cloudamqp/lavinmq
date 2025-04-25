@@ -134,6 +134,7 @@ module LavinMQ
           higher_prio_consumers = @queue.consumers.select { |c| c.priority > @priority }
           return false unless higher_prio_consumers.any? &.accepts?
           loop do
+            # FIXME: doesnt take into account that new higher prio consumer might connect
             ::Channel.receive_first(higher_prio_consumers.map(&.has_capacity.when_false))
             break
           rescue ::Channel::ClosedError
