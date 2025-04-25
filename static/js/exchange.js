@@ -33,10 +33,10 @@ function updateExchange () {
       }
       const el = document.createElement('div')
       el.textContent = key + ' = ' + item.arguments[key]
-      if (item.effective_arguments.includes(key)){
+      if (item.effective_arguments.includes(key)) {
         el.classList.add('active-argument')
         el.title = 'Active argument'
-      }else{
+      } else {
         el.classList.add('inactive-argument')
         el.title = 'Inactive argument'
       }
