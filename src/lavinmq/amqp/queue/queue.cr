@@ -111,8 +111,7 @@ module LavinMQ::AMQP
     getter? closed = false
     getter state = QueueState::Running
     getter empty : BoolChannel
-    getter single_active_consumer : Client::Channel::Consumer? = nil
-    getter single_active_consumer_change = ::Channel(Client::Channel::Consumer).new
+    getter single_active_consumer = StateChannel(Client::Channel::Consumer?).new(nil)
     @single_active_consumer_queue = false
     @data_dir : String
     Log = LavinMQ::Log.for "queue"
@@ -384,7 +383,7 @@ module LavinMQ::AMQP
         operator_policy:             @operator_policy.try &.name,
         policy:                      @policy.try &.name,
         exclusive_consumer_tag:      @exclusive ? @consumers.first?.try(&.tag) : nil,
-        single_active_consumer_tag:  @single_active_consumer.try &.tag,
+        single_active_consumer_tag:  @single_active_consumer.value.try &.tag,
         state:                       @state,
         effective_policy_definition: Policy.merge_definitions(@policy, @operator_policy),
         message_stats:               current_stats_details,
@@ -824,8 +823,8 @@ module LavinMQ::AMQP
         was_empty = @consumers.empty?
         @consumers << consumer
         if was_empty
-          @single_active_consumer = consumer if @single_active_consumer_queue
-          notify_consumers_empty(false)
+          @single_active_consumer.set(consumer) if @single_active_consumer_queue
+          @consumers_empty.set(false)
         end
       end
       @exclusive_consumer = true if consumer.exclusive?
@@ -845,12 +844,8 @@ module LavinMQ::AMQP
         if deleted
           @exclusive_consumer = false if consumer.exclusive?
           @log.debug { "Removing consumer with #{consumer.unacked} unacked messages (#{@consumers.size} consumers left)" }
-          if @single_active_consumer == consumer
-            @single_active_consumer = @consumers.first?
-            if new_consumer = @single_active_consumer
-              while @single_active_consumer_change.try_send? new_consumer
-              end
-            end
+          if @single_active_consumer.value == consumer
+            @single_active_consumer.set @consumers.first?
           end
           @vhost.event_tick(EventType::ConsumerRemoved)
           notify_observers(QueueEvent::ConsumerRemoved, consumer)
@@ -860,13 +855,9 @@ module LavinMQ::AMQP
         if @auto_delete
           delete
         else
-          notify_consumers_empty(true)
+          @consumers_empty.set(true)
         end
       end
-    end
-
-    private def notify_consumers_empty(is_empty)
-      @consumers_empty.set(is_empty)
     end
 
     def purge(max_count : Int = UInt32::MAX) : UInt32

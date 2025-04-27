@@ -44,9 +44,9 @@ class StateChannel(T)
     end
   end
 
-  def set(value : Bool)
-    @value = value
+  def set(value : T)
     @new_value.send value
+    @value = value
   end
 
   def close
@@ -54,7 +54,7 @@ class StateChannel(T)
     @new_value.close
   end
 
-  private def send_loop(value)
+  private def send_loop(value : T)
     loop do
       select
       when @change.send value
