@@ -56,7 +56,7 @@ bin/lavinmqctl: src/lavinmqctl.cr lib | bin
 	crystal build $< -o $@ -Dgc_none $(CRYSTAL_FLAGS)
 
 lib: shard.yml shard.lock
-	shards install --production $(if $(nocolor),--no-color)
+	shards install --production
 
 bin static/js/lib man1 static/js/lib/chunks:
 	mkdir -p $@
@@ -116,7 +116,7 @@ lint-openapi:
 
 .PHONY: test
 test: lib
-	crystal spec --order random $(if $(nocolor),--no-color) --verbose -Dpreview_mt -Dexecution_context
+	crystal spec --order random --verbose -Dpreview_mt -Dexecution_context
 
 .PHONY: format
 format:
