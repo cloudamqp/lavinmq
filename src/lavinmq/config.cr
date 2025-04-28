@@ -5,6 +5,7 @@ require "ini"
 require "./version"
 require "./log_formatter"
 require "./in_memory_backend"
+require "./auth/password"
 
 module LavinMQ
   class Config
@@ -197,8 +198,15 @@ module LavinMQ
         exit 2
       end
       reload_logger
+      verify_default_password
     rescue ex
       abort ex.message
+    end
+
+    private def verify_default_password
+      User::SHA256Password.new(@default_password)
+    rescue
+      abort "Failed to decode default_password hash. Please see documentation for usage."
     end
 
     private def parse(file)
