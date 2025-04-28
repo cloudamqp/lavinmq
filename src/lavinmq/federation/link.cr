@@ -142,9 +142,9 @@ module LavinMQ
         end
 
         private def received_from_header(msg)
-          headers = msg.properties.headers || ::AMQP::Client::Arguments.new
-          received_from = headers["x-received-from"]?.try(&.as?(Array(::AMQP::Client::Arguments)))
-          received_from ||= Array(::AMQP::Client::Arguments).new(1)
+          headers = msg.properties.headers || AMQP::Table.new
+          received_from = headers["x-received-from"]?.try(&.as?(Array(AMQP::Field)))
+          received_from ||= Array(AMQP::Table).new
           {headers, received_from}
         end
 
