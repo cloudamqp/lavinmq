@@ -508,4 +508,81 @@ describe LavinMQ::Federation::Upstream do
       end
     end
   end
+
+  describe "QueueLink" do
+    it "set x-received-from" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        upstream = LavinMQ::Federation::Upstream.new(vhost, "qf x-received-from", s.amqp_url, exchange: nil, queue: "federation_q1")
+
+        with_channel(s) do |ch|
+          x, q2 = UpstreamSpecHelpers.setup_qs ch
+          x.publish "foo", "federation_q1"
+          upstream.link(vhost.queues["federation_q2"])
+          msgs = [] of AMQP::Client::DeliverMessage
+          wg = WaitGroup.new(1)
+          q2.subscribe do |msg|
+            msgs << msg
+            wg.done
+          end
+          wg.wait
+          headers = msgs.first.properties.headers.should_not be_nil
+          headers["x-received-from"].as(Array(AMQ::Protocol::Field)).should_not be_nil
+        end
+      end
+    end
+
+    it "append to x-received-from" do
+      # Sets up a "federation chain"
+      with_amqp_server do |s|
+        vhost1 = s.vhosts.create("one")
+        vhost2 = s.vhosts.create("two")
+        vhost3 = s.vhosts.create("three")
+
+        vhost1.declare_queue("q1", durable: true, auto_delete: false)
+        vhost2.declare_queue("q2", durable: true, auto_delete: false)
+        vhost3.declare_queue("q3", durable: true, auto_delete: false)
+
+        vhost1.queues["q1"]
+        q2 = vhost2.queues["q2"]
+        q3 = vhost3.queues["q3"]
+
+        url = URI.parse(s.amqp_url)
+
+        vhost1_url = url.dup
+        vhost1_url.path = vhost1.name
+        upstream_q1_to_q2 = LavinMQ::Federation::Upstream.new(
+          vhost2, "upstream q1 to q2", vhost1_url.to_s,
+          exchange: nil, queue: "q1", max_hops: 100i64)
+        link_q2 = upstream_q1_to_q2.link(q2)
+
+        vhost2_url = url.dup
+        vhost2_url.path = vhost2.name
+        upstream_q2_to_q3 = LavinMQ::Federation::Upstream.new(
+          vhost3, "upstream q2 to q3", vhost2_url.to_s,
+          exchange: nil, queue: "q2", max_hops: 100i64)
+        link_q3 = upstream_q2_to_q3.link(q3)
+
+        wait_for { link_q2.state.running? && link_q3.state.running? }
+
+        with_channel(s, vhost: "three") do |ch|
+          ch_q3 = ch.queue("q3")
+
+          wg = WaitGroup.new(1)
+          ch_q3.subscribe do |msg|
+            wg.done
+            headers = msg.properties.headers.should_not be_nil
+            x_received_from = headers["x-received-from"].should be_a Array(AMQ::Protocol::Field)
+            x_received_from.size.should eq 2
+          end
+
+          with_channel(s, vhost: "one") do |ch_pub|
+            ch_pub.queue("q1").publish "foo"
+          end
+
+          wg.wait
+        end
+      end
+    end
+  end
 end
