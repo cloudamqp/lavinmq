@@ -217,7 +217,7 @@ module LavinMQ
       end
 
       private def finish_publish(body_io)
-        @publish_count += 1
+        @publish_count.add(1)
         @client.vhost.event_tick(EventType::ClientPublish)
         props = @next_msg_props.not_nil!
         props.timestamp = RoughTime.utc if props.timestamp.nil? && Config.instance.set_timestamp?
@@ -286,13 +286,13 @@ module LavinMQ
 
       private def confirm_ack(msgid, multiple = false)
         @client.vhost.event_tick(EventType::ClientPublishConfirm)
-        @confirm_count += 1 # Stats
+        @confirm_count.add(1)
         send AMQP::Frame::Basic::Ack.new(@id, msgid, multiple)
       end
 
       private def confirm_nack(msgid, multiple = false)
         @client.vhost.event_tick(EventType::ClientPublishConfirm)
-        @confirm_count += 1 # Stats
+        @confirm_count.add(1)
         send AMQP::Frame::Basic::Nack.new(@id, msgid, multiple, requeue: false)
       end
 
@@ -314,7 +314,7 @@ module LavinMQ
       end
 
       private def basic_return(msg : Message, mandatory : Bool, immediate : Bool)
-        @return_unroutable_count += 1
+        @return_unroutable_count.add(1)
         if immediate
           retrn = AMQP::Frame::Basic::Return.new(@id, 313_u16, "NO_CONSUMERS", msg.exchange_name, msg.routing_key)
           deliver(retrn, msg)
@@ -330,11 +330,11 @@ module LavinMQ
         raise ClosedError.new("Channel is closed") unless @running
         @client.deliver(frame, msg)
         if redelivered
-          @redeliver_count += 1
+          @redeliver_count.add(1)
           @client.vhost.event_tick(EventType::ClientRedeliver)
         else
-          @deliver_count += 1
-          @deliver_get_count += 1
+          @deliver_count.add(1)
+          @deliver_get_count.add(1)
           @client.vhost.event_tick(EventType::ClientDeliver)
         end
       end
@@ -388,8 +388,8 @@ module LavinMQ
           elsif q.is_a? StreamQueue
             @client.send_not_implemented(frame, "Stream queues does not support basic_get")
           else
-            @get_count += 1
-            @deliver_get_count += 1
+            @get_count.add(1)
+            @deliver_get_count.add(1)
             @client.vhost.event_tick(EventType::ClientGet)
             ok = q.basic_get(frame.no_ack) do |env|
               delivery_tag = next_delivery_tag(q, env.segment_position, frame.no_ack, nil)
@@ -496,7 +496,7 @@ module LavinMQ
         unack.queue.ack(unack.sp)
         unack.queue.basic_get_unacked.reject! { |u| u.channel == self && u.delivery_tag == unack.tag }
         @client.vhost.event_tick(EventType::ClientAck)
-        @ack_count += 1
+        @ack_count.add(1)
       end
 
       def basic_reject(frame)
@@ -574,7 +574,7 @@ module LavinMQ
         end
         unack.queue.reject(unack.sp, requeue)
         unack.queue.basic_get_unacked.reject! { |u| u.channel == self && u.delivery_tag == unack.tag }
-        @reject_count += 1
+        @reject_count.add(1)
         @client.vhost.event_tick(EventType::ClientReject)
       end
 
