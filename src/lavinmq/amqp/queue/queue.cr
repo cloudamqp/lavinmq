@@ -418,7 +418,7 @@ module LavinMQ::AMQP
       return false if @deleted || @state.closed?
       if d = @deduper
         if d.duplicate?(msg)
-          @dedup_count += 1
+          @dedup_count.add(1)
           return false
         end
         d.add(msg)
@@ -426,8 +426,8 @@ module LavinMQ::AMQP
       reject_on_overflow(msg)
       @msg_store_lock.synchronize do
         @msg_store.push(msg)
-        @publish_count += 1
       end
+      @publish_count.add(1)
       drop_overflow_if_no_immediate_delivery
       true
     rescue ex : MessageStore::Error
@@ -678,8 +678,8 @@ module LavinMQ::AMQP
     def basic_get(no_ack, force = false, & : Envelope -> Nil) : Bool
       return false if !@state.running? && (@state.paused? && !force)
       @queue_expiration_ttl_change.try_send? nil
-      @get_count += 1
-      @deliver_get_count += 1
+      @get_count.add(1)
+      @deliver_get_count.add(1)
       get(no_ack) do |env|
         yield env
       end
@@ -690,10 +690,10 @@ module LavinMQ::AMQP
       get(no_ack) do |env|
         yield env
         if env.redelivered
-          @redeliver_count += 1
+          @redeliver_count.add(1)
         else
-          @deliver_count += 1
-          @deliver_get_count += 1
+          @deliver_count.add(1)
+          @deliver_get_count.add(1)
         end
       end
     end
@@ -784,7 +784,7 @@ module LavinMQ::AMQP
     def ack(sp : SegmentPosition) : Nil
       return if @deleted
       @log.debug { "Acking #{sp}" }
-      @ack_count += 1
+      @ack_count.add(1)
       @unacked_count.sub(1)
       @unacked_bytesize.sub(sp.bytesize)
       delete_message(sp)
@@ -803,7 +803,7 @@ module LavinMQ::AMQP
     def reject(sp : SegmentPosition, requeue : Bool)
       return if @deleted || @closed
       @log.debug { "Rejecting #{sp}, requeue: #{requeue}" }
-      @reject_count += 1
+      @reject_count.add(1)
       @unacked_count.sub(1)
       @unacked_bytesize.sub(sp.bytesize)
       if requeue
