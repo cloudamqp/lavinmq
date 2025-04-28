@@ -75,8 +75,7 @@ module LavinMQ
       end
 
       def subscribe(client, topics)
-        session = sessions[client.client_id]? || sessions.declare(client)
-        session.client = client
+        session = sessions.declare(client)
         headers = AMQP::Table.new({RETAIN_HEADER => true})
         topics.map do |tf|
           session.subscribe(tf.topic, tf.qos)
