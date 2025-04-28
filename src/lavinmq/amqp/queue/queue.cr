@@ -38,9 +38,16 @@ module LavinMQ::AMQP
     @message_ttl_change = ::Channel(Nil).new
 
     getter basic_get_unacked = Deque(UnackedMessage).new
-    getter unacked_count = 0u32
-    getter unacked_bytesize = 0u64
-    @unacked_lock = Mutex.new(:unchecked)
+    @unacked_count = Atomic(UInt32).new(0u32)
+    @unacked_bytesize = Atomic(UInt64).new(0u64)
+
+    def unacked_count
+      @unacked_count.get
+    end
+
+    def unacked_bytesize
+      @unacked_count.get
+    end
 
     @msg_store_lock = Mutex.new(:reentrant)
     @msg_store : MessageStore
@@ -373,6 +380,9 @@ module LavinMQ::AMQP
     end
 
     def details_tuple
+      unacked_count = unacked_count()
+      unacked_bytesize = unacked_bytesize()
+      unacked_avg_bytes = unacked_count.zero? ? 0u64 : unacked_bytesize//unacked_count
       {
         name:                        @name,
         durable:                     durable?,
@@ -381,14 +391,14 @@ module LavinMQ::AMQP
         arguments:                   @arguments,
         consumers:                   @consumers.size,
         vhost:                       @vhost.name,
-        messages:                    @msg_store.size + @unacked_count,
-        total_bytes:                 @msg_store.bytesize + @unacked_bytesize,
-        messages_persistent:         durable? ? @msg_store.size + @unacked_count : 0,
+        messages:                    @msg_store.size + unacked_count,
+        total_bytes:                 @msg_store.bytesize + unacked_bytesize,
+        messages_persistent:         durable? ? @msg_store.size + unacked_count : 0,
         ready:                       @msg_store.size,
         ready_bytes:                 @msg_store.bytesize,
         ready_avg_bytes:             @msg_store.avg_bytesize,
-        unacked:                     @unacked_count,
-        unacked_bytes:               @unacked_bytesize,
+        unacked:                     unacked_count,
+        unacked_bytes:               unacked_bytesize,
         unacked_avg_bytes:           unacked_avg_bytes,
         operator_policy:             @operator_policy.try &.name,
         policy:                      @policy.try &.name,
@@ -398,11 +408,6 @@ module LavinMQ::AMQP
         effective_policy_definition: Policy.merge_definitions(@policy, @operator_policy),
         message_stats:               current_stats_details,
       }
-    end
-
-    private def unacked_avg_bytes : UInt64
-      return 0u64 if @unacked_count.zero?
-      @unacked_bytesize // @unacked_count
     end
 
     class RejectOverFlow < Exception; end
@@ -732,10 +737,8 @@ module LavinMQ::AMQP
 
     private def mark_unacked(sp, &)
       @log.debug { "Counting as unacked: #{sp}" }
-      @unacked_lock.synchronize do
-        @unacked_count += 1
-        @unacked_bytesize += sp.bytesize
-      end
+      @unacked_count.add(1)
+      @unacked_bytesize.add(sp.bytesize)
       begin
         yield
       rescue ex
@@ -743,10 +746,8 @@ module LavinMQ::AMQP
         @msg_store_lock.synchronize do
           @msg_store.requeue(sp)
         end
-        @unacked_lock.synchronize do
-          @unacked_count -= 1
-          @unacked_bytesize -= sp.bytesize
-        end
+        @unacked_count.sub(1)
+        @unacked_bytesize.sub(sp.bytesize)
         raise ex
       end
     end
@@ -783,11 +784,9 @@ module LavinMQ::AMQP
     def ack(sp : SegmentPosition) : Nil
       return if @deleted
       @log.debug { "Acking #{sp}" }
-      @unacked_lock.synchronize do
-        @ack_count += 1
-        @unacked_count -= 1
-        @unacked_bytesize -= sp.bytesize
-      end
+      @ack_count += 1
+      @unacked_count.sub(1)
+      @unacked_bytesize.sub(sp.bytesize)
       delete_message(sp)
     end
 
@@ -804,11 +803,9 @@ module LavinMQ::AMQP
     def reject(sp : SegmentPosition, requeue : Bool)
       return if @deleted || @closed
       @log.debug { "Rejecting #{sp}, requeue: #{requeue}" }
-      @unacked_lock.synchronize do
-        @reject_count += 1
-        @unacked_count -= 1
-        @unacked_bytesize -= sp.bytesize
-      end
+      @reject_count += 1
+      @unacked_count.sub(1)
+      @unacked_bytesize.sub(sp.bytesize)
       if requeue
         if has_expired?(sp, requeue: true) # guarantee to not deliver expired messages
           expire_msg(sp, :expired)
