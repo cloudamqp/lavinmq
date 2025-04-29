@@ -10,7 +10,7 @@ module LavinMQ
       property pos : UInt32
       getter requeued = Deque(SegmentPosition).new
       @consumer_filters = Array(Hash(String, String)).new
-      @filter_match_type = "all" # all/any
+      @filter_match_all = true
       @match_unfiltered = false
       @track_offset = false
 
@@ -94,9 +94,10 @@ module LavinMQ
       private def validate_filter_match_type(frame)
         case filter_match_type = frame.arguments["x-filter-match-type"]?
         when String
-          filter_match_type = filter_match_type.downcase
-          if filter_match_type == "any" || filter_match_type == "all"
-            @filter_match_type = filter_match_type
+          if filter_match_type.downcase == "all"
+            @filter_match_all = true
+          elsif filter_match_type.downcase == "any"
+            @filter_match_all = false
           else
             raise LavinMQ::Error::PreconditionFailed.new("x-filter-match-type must be 'any' or 'all'")
           end
@@ -169,8 +170,8 @@ module LavinMQ
         end
         return false unless headers = msg_headers
 
-        case @filter_match_type
-        when "any" # ANY: Return true on first match
+        case @filter_match_all
+        when false # ANY: Return true on first match
           @consumer_filters.each do |header_filter|
             return true if match_header_filter?(header_filter.keys.first, header_filter.values.first, headers)
           end
