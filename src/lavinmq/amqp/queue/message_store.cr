@@ -201,12 +201,10 @@ module LavinMQ
       end
 
       def purge_all
-        while f = @segments.shift?
-          delete_file(f[1])
-        end
-        while f = @acks.shift?
-          delete_file(f[1])
-        end
+        @segments.each_value { |f| delete_file(f) }
+        @segments.clear
+        @acks.each_value { |f| delete_file(f) }
+        @acks.clear
         @deleted.clear
         @segment_msg_count.clear
         @requeued.clear
