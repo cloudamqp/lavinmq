@@ -9,7 +9,7 @@ module LavinMQ
       property segment : UInt32
       property pos : UInt32
       getter requeued = Deque(SegmentPosition).new
-      @consumer_filters = Array(Hash(String, String)).new
+      @consumer_filters = Array(Tuple(String, String)).new
       @filter_match_all = true
       @match_unfiltered = false
       @track_offset = false
@@ -69,16 +69,16 @@ module LavinMQ
         case arg
         when String
           arg.split(',').each do |f|
-            @consumer_filters << {"x-stream-filter" => f.strip}
+            @consumer_filters << {"x-stream-filter", f.strip}
           end
         when AMQ::Protocol::Table
           arg.each do |k, v|
             if k.to_s == "x-stream-filter"
               v.to_s.split(',').each do |f|
-                @consumer_filters << {k.to_s => f.strip}
+                @consumer_filters << {k.to_s, f.strip}
               end
             else
-              @consumer_filters << {k.to_s => v.to_s}
+              @consumer_filters << {k.to_s, v.to_s}
             end
           end
         when Array
@@ -172,13 +172,13 @@ module LavinMQ
 
         case @filter_match_all
         when false # ANY: Return true on first match
-          @consumer_filters.each do |header_filter|
-            return true if match_header_filter?(header_filter.keys.first, header_filter.values.first, headers)
+          @consumer_filters.each do |key, value|
+            return true if match_header_filter?(key, value, headers)
           end
           false
         else # ALL: Return false on first non-match
-          @consumer_filters.each do |header_filter|
-            return false unless match_header_filter?(header_filter.keys.first, header_filter.values.first, headers)
+          @consumer_filters.each do |key, value|
+            return false unless match_header_filter?(key, value, headers)
           end
           true
         end
