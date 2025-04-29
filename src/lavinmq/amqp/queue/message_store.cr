@@ -203,20 +203,21 @@ module LavinMQ
       end
 
       def purge_all
-        @segments.each_value { |f| delete_file(f) }
+        @segments.each_value { |f| delete_file(f); f.close }
         @segments = Hash(UInt32, MFile).new
-        @acks.each_value { |f| delete_file(f) }
-        @acks = Hash(UInt32, MFile).new
+        @acks.each_value { |f| delete_file(f); f.close }
+        @acks = Hash(UInt32, MFile).new { |acks, seg| acks[seg] = open_ack_file(seg) }
         @deleted = Hash(UInt32, Array(UInt32)).new
         @segment_msg_count = Hash(UInt32, UInt32).new(0u32)
         @requeued = Deque(SegmentPosition).new
         @bytesize = 0_u64
         @size = 0_u32
+        @wfile_id = 0_u32
 
-        open_new_segment
-        @wfile_id = @rfile_id = @segments.first_key
-        @wfile = @rfile = @segments.first_value
-        notify_empty(true)
+        open_new_segment # sets @wfile and @wfile_id
+        @rfile_id = @segments.first_key
+        @rfile = @segments.first_value
+        @empty.set true
       end
 
       def delete
