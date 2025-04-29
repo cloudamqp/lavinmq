@@ -200,6 +200,25 @@ module LavinMQ
         count
       end
 
+      def purge_all
+        while f = @segments.shift?
+          delete_file(f[1])
+        end
+        while f = @acks.shift?
+          delete_file(f[1])
+        end
+        @deleted.clear
+        @segment_msg_count.clear
+        @requeued.clear
+        @bytesize = 0_u64
+        @size = 0_u32
+
+        open_new_segment
+        @wfile_id = @rfile_id = @segments.first_key
+        @wfile = @rfile = @segments.first_value
+        notify_empty(true)
+      end
+
       def delete
         close
         @segments.each_value { |f| delete_file(f) }
@@ -409,6 +428,7 @@ module LavinMQ
       end
 
       private def delete_unused_segments : Nil
+        return if @segments.empty?
         current_seg = @segments.last_key
         @segments.reject! do |seg, mfile|
           next if seg == current_seg # don't the delete the segment still being written to
