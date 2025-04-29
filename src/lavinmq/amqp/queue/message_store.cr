@@ -202,12 +202,12 @@ module LavinMQ
 
       def purge_all
         @segments.each_value { |f| delete_file(f) }
-        @segments.clear
+        @segments = Hash(UInt32, MFile).new
         @acks.each_value { |f| delete_file(f) }
-        @acks.clear
-        @deleted.clear
-        @segment_msg_count.clear
-        @requeued.clear
+        @acks = Hash(UInt32, MFile).new
+        @deleted = Hash(UInt32, Array(UInt32)).new
+        @segment_msg_count = Hash(UInt32, UInt32).new(0u32)
+        @requeued = Deque(SegmentPosition).new
         @bytesize = 0_u64
         @size = 0_u32
 
