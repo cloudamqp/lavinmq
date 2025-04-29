@@ -415,6 +415,7 @@ jobs:
         run: ./extras/static_requests.sh
 
   freebsd-test:
+    if: false # Crystal is outdated in FreeBSD
     name: Spec FreeBSD
     runs-on: ubuntu-latest
     timeout-minutes: 10
