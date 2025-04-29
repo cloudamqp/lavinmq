@@ -36,15 +36,11 @@ module LavinMQ
             consumer.deliver(pub_packet)
           end
           Fiber.yield if (i &+= 1) % 32768 == 0
+        rescue ex
+          @log.error(exception: ex) { "Failed to deliver message in deliver_loop" }
+          @consumers.each &.close
+          client = nil
         end
-      rescue ex : ::IO::Error
-        @log.debug(exception: ex) { "deliver loop exited due to IO error" }
-      rescue ex : ::Channel::ClosedError
-        @log.debug(exception: ex) { "deliver loop exited due to channel closed" }
-      rescue ex
-        @log.error(exception: ex) { "deliver loop exited unexpectedly" }
-      ensure
-        @consumers.each &.close
       end
 
       def client=(client : MQTT::Client?)
@@ -108,9 +104,12 @@ module LavinMQ
           sp = env.segment_position
           no_ack = env.message.properties.delivery_mode == 0
           if no_ack
-            delete_message(sp)
-            packet = build_packet(env, nil)
-            yield packet
+            begin
+              packet = build_packet(env, nil)
+              yield packet
+            ensure
+              delete_message(sp)
+            end
           else
             id = next_id
             return false unless id
