@@ -6,8 +6,8 @@ VIEW_TARGETS := $(patsubst views/%.ecr,static/views/%.html,$(VIEW_SOURCES))
 VIEW_PARTIALS := $(wildcard views/partials/*.ecr)
 JS := static/js/lib/chunks/helpers.segment.js static/js/lib/chart.js static/js/lib/luxon.js static/js/lib/chartjs-adapter-luxon.esm.js static/js/lib/elements-8.2.0.js static/js/lib/elements-8.2.0.css
 LDFLAGS := $(shell (dpkg-buildflags --get LDFLAGS || rpm -E "%{build_ldflags}" || echo "-pie") 2>/dev/null)
-CRYSTAL_FLAGS := --release --stats
-override CRYSTAL_FLAGS += --error-on-warnings --link-flags="$(LDFLAGS)"
+CRYSTAL_FLAGS := --release
+override CRYSTAL_FLAGS += --stats --error-on-warnings -Dpreview_mt -Dexecution_context --link-flags="$(LDFLAGS)"
 
 .DEFAULT_GOAL := all
 
@@ -56,7 +56,7 @@ bin/lavinmqctl: src/lavinmqctl.cr lib | bin
 	crystal build $< -o $@ -Dgc_none $(CRYSTAL_FLAGS)
 
 lib: shard.yml shard.lock
-	shards install --production $(if $(nocolor),--no-color)
+	shards install --production
 
 bin static/js/lib man1 static/js/lib/chunks:
 	mkdir -p $@
@@ -116,7 +116,7 @@ lint-openapi:
 
 .PHONY: test
 test: lib
-	crystal spec --order random $(if $(nocolor),--no-color) --verbose
+	crystal spec --order random --verbose -Dpreview_mt -Dexecution_context
 
 .PHONY: format
 format:
@@ -154,8 +154,7 @@ uninstall:
 rpm:
 	rpmdev-setuptree
 	git archive --prefix lavinmq/ --output ~/rpmbuild/SOURCES/lavinmq.tar.gz HEAD
-	sed -E "s/^(Version:).*/\1 $(shell ./packaging/rpm/rpm-version)/" packaging/rpm/lavinmq.spec > ~/rpmbuild/SPECS/lavinmq.spec
-	rpmbuild -bb ~/rpmbuild/SPECS/lavinmq.spec
+	env version="$(shell ./packaging/rpm/rpm-version)" rpmbuild -bb packaging/rpm/lavinmq.spec
 
 .PHONY: clean
 clean:

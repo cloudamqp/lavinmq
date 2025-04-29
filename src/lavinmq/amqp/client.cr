@@ -212,7 +212,7 @@ module LavinMQ
           s.flush
         end
         @last_sent_frame = RoughTime.monotonic
-        @send_oct_count += 8_u64 + frame.bytesize
+        @send_oct_count.add(8_u64 + frame.bytesize)
         if frame.is_a?(AMQP::Frame::Connection::CloseOk)
           return false
         end
@@ -251,14 +251,14 @@ module LavinMQ
           {% end %}
           socket.write_bytes frame, ::IO::ByteFormat::NetworkEndian
           socket.flush if websocket
-          @send_oct_count += 8_u64 + frame.bytesize
+          @send_oct_count.add(8_u64 + frame.bytesize)
           header = AMQP::Frame::Header.new(frame.channel, 60_u16, 0_u16, msg.bodysize, msg.properties)
           {% unless flag?(:release) %}
             @log.trace { "Send #{header.inspect}" }
           {% end %}
           socket.write_bytes header, ::IO::ByteFormat::NetworkEndian
           socket.flush if websocket
-          @send_oct_count += 8_u64 + header.bytesize
+          @send_oct_count.add(8_u64 + header.bytesize)
           pos = 0
           while pos < msg.bodysize
             length = Math.min(msg.bodysize - pos, @max_frame_size - 8).to_u32
@@ -273,7 +273,7 @@ module LavinMQ
                    end
             socket.write_bytes body, ::IO::ByteFormat::NetworkEndian
             socket.flush if websocket
-            @send_oct_count += 8_u64 + body.bytesize
+            @send_oct_count.add(8_u64 + body.bytesize)
             pos += length
           end
           socket.flush unless websocket # Websockets need to send one frame per WS frame
@@ -348,7 +348,7 @@ module LavinMQ
       # ameba:disable Metrics/CyclomaticComplexity
       private def process_frame(frame) : Nil
         @last_recv_frame = RoughTime.monotonic
-        @recv_oct_count += 8_u64 + frame.bytesize
+        @recv_oct_count.add(8_u64 + frame.bytesize)
         case frame
         when AMQP::Frame::Channel::Open
           open_channel(frame)
@@ -553,7 +553,7 @@ module LavinMQ
         else
           ae = frame.arguments["x-alternate-exchange"]?.try &.as?(String)
           ae_ok = ae.nil? || (@user.can_write?(@vhost.name, ae) && @user.can_read?(@vhost.name, frame.exchange_name))
-          unless @user.can_config?(@vhost.name, frame.exchange_name) && ae_ok
+          unless ae_ok && @user.can_config?(@vhost.name, frame.exchange_name)
             send_access_refused(frame, "User doesn't have permissions to declare exchange '#{frame.exchange_name}'")
             return
           end
@@ -687,7 +687,7 @@ module LavinMQ
         end
         dlx = frame.arguments["x-dead-letter-exchange"]?.try &.as?(String)
         dlx_ok = dlx.nil? || (@user.can_write?(@vhost.name, dlx) && @user.can_read?(@vhost.name, name))
-        unless @user.can_config?(@vhost.name, frame.queue_name) && dlx_ok
+        unless dlx_ok && @user.can_config?(@vhost.name, frame.queue_name)
           send_access_refused(frame, "User doesn't have permissions to queue '#{frame.queue_name}'")
           return
         end
@@ -835,12 +835,19 @@ module LavinMQ
         end
       end
 
+      @acl_cache = Hash({String, String}, Bool).new
+
       private def start_publish(frame)
-        unless @user.can_write?(@vhost.name, frame.exchange)
-          send_access_refused(frame, "User not allowed to publish to exchange '#{frame.exchange}'")
-          return
+        cache_key = {@vhost.name, frame.exchange}
+        allowed = @acl_cache[cache_key]?
+        if allowed.nil?
+          allowed = @acl_cache[cache_key] = @user.can_write?(*cache_key)
         end
-        with_channel frame, &.start_publish(frame)
+        if allowed
+          with_channel frame, &.start_publish(frame)
+        else
+          send_access_refused(frame, "User not allowed to publish to exchange '#{frame.exchange}'")
+        end
       end
 
       private def consume(frame)

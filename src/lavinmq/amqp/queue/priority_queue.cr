@@ -46,7 +46,7 @@ module LavinMQ::AMQP
         was_empty = @size.zero?
         @bytesize += sp.bytesize
         @size += 1
-        notify_empty(false) if was_empty
+        @empty.set false if was_empty
       end
     end
   end

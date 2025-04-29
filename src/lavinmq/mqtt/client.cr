@@ -5,6 +5,7 @@ require "../error"
 require "../rough_time"
 require "./session"
 require "./protocol"
+require "../bool_channel"
 
 module LavinMQ
   module MQTT
@@ -88,7 +89,7 @@ module LavinMQ
       def read_and_handle_packet
         packet : MQTT::Packet = MQTT::Packet.from_io(@io)
         @log.trace { "Recieved packet:  #{packet.inspect}" }
-        @recv_oct_count += packet.bytesize
+        @recv_oct_count.add(packet.bytesize)
 
         case packet
         when MQTT::Publish     then recieve_publish(packet)
@@ -106,7 +107,7 @@ module LavinMQ
         @lock.synchronize do
           packet.to_io(@io)
           @socket.flush
-          @send_oct_count += packet.bytesize
+          @send_oct_count.add(packet.bytesize)
         end
         case packet
         when MQTT::Publish
@@ -220,7 +221,7 @@ module LavinMQ
     class Consumer < LavinMQ::Client::Channel::Consumer
       getter unacked = 0_u32
       getter tag : String
-      getter has_capacity = ::Channel(Bool).new
+      getter has_capacity = BoolChannel.new(true)
       property prefetch_count = 0_u16
 
       def initialize(@client : Client, @session : MQTT::Session)

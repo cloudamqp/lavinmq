@@ -118,17 +118,18 @@ module LavinMQPerf
     def run
       super
 
+      mt = Fiber::ExecutionContext::MultiThreaded.new("Clients", maximum: System.cpu_count.to_i)
       done = WaitGroup.new(@consumers + @publishers)
       @consumers.times do
         if @poll
-          spawn { reconnect_on_disconnect(done) { poll_consume } }
+          mt.spawn { reconnect_on_disconnect(done) { poll_consume } }
         else
-          spawn { reconnect_on_disconnect(done) { consume } }
+          mt.spawn { reconnect_on_disconnect(done) { consume } }
         end
       end
 
       @publishers.times do
-        spawn { reconnect_on_disconnect(done) { pub } }
+        mt.spawn { reconnect_on_disconnect(done) { pub } }
       end
 
       if @timeout != Time::Span.zero

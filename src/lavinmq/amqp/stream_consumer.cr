@@ -102,7 +102,7 @@ module LavinMQ
           select
           when stream_queue.new_messages.receive
             @log.debug { "Queue is not empty" }
-          when @has_requeued.receive
+          when @has_requeued.when_true.receive
             @log.debug { "Got a requeued message" }
           when @notify_closed.receive
           end
@@ -110,7 +110,11 @@ module LavinMQ
         end
       end
 
-      @has_requeued = ::Channel(Nil).new
+      @has_requeued = BoolChannel.new(false)
+
+      def has_capacity : BoolChannel
+        super
+      end
 
       private def stream_queue : StreamQueue
         @queue.as(StreamQueue)
@@ -125,7 +129,7 @@ module LavinMQ
         super
         if requeue
           @requeued.push(sp)
-          @has_requeued.try_send? nil if @requeued.size == 1
+          @has_requeued.set(true) if @requeued.size == 1
         end
       end
 
