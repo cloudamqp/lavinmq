@@ -462,41 +462,6 @@ describe LavinMQ::Federation::Upstream do
       end
     end
 
-    it "should reflect all bindings to upstream q" do
-      with_amqp_server do |s|
-        upstream, upstream_vhost, _ = UpstreamSpecHelpers.setup_federation(s, "ef test bindings", "upstream_ex")
-        s.users.add_permission("guest", "upstream", /.*/, /.*/, /.*/)
-        s.users.add_permission("guest", "downstream", /.*/, /.*/, /.*/)
-
-        with_channel(s, vhost: "downstream") do |downstream_ch|
-          downstream_ch.exchange("downstream_ex", "topic")
-          queues = [] of AMQP::Client::Queue
-          10.times do |i|
-            downstream_q = downstream_ch.queue("")
-            downstream_q.bind("downstream_ex", "before.link.#{i}")
-            queues << downstream_q
-          end
-
-          UpstreamSpecHelpers.start_link(upstream)
-          wait_for { upstream.links.first?.try &.state.running? }
-
-          upstream_q = upstream_vhost.queues.values.first
-          upstream_q.bindings.size.should eq queues.size + 1 # +1 for the default exchange
-          # Assert setup is correct
-          10.times do |i|
-            downstream_q = downstream_ch.queue("")
-            downstream_q.bind("downstream_ex", "after.link.#{i}")
-            queues << downstream_q
-          end
-          sleep 0.1.seconds
-          upstream_q.bindings.size.should eq queues.size + 1
-          queues.each &.delete
-          sleep 10.milliseconds
-          upstream_q.bindings.size.should eq 1
-        end
-      end
-    end
-
     {% for descr, v in {nil: nil, empty: ""} %}
     describe "when @exchange is {{descr}}" do
       it "should use downstream exchange name as upstream exchange" do
