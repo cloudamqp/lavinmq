@@ -202,6 +202,24 @@ module LavinMQ
         count
       end
 
+      def purge_all
+        @segments.each_value { |f| delete_file(f); f.close }
+        @segments = Hash(UInt32, MFile).new
+        @acks.each_value { |f| delete_file(f); f.close }
+        @acks = Hash(UInt32, MFile).new { |acks, seg| acks[seg] = open_ack_file(seg) }
+        @deleted = Hash(UInt32, Array(UInt32)).new
+        @segment_msg_count = Hash(UInt32, UInt32).new(0u32)
+        @requeued = Deque(SegmentPosition).new
+        @bytesize = 0_u64
+        @size = 0_u32
+        @wfile_id = 0_u32
+
+        open_new_segment # sets @wfile and @wfile_id
+        @rfile_id = @segments.first_key
+        @rfile = @segments.first_value
+        @empty.set true
+      end
+
       def delete
         close
         @segments.each_value { |f| delete_file(f) }
@@ -265,7 +283,6 @@ module LavinMQ
         next_id = @wfile_id + 1
         path = File.join(@queue_data_dir, "msgs.#{next_id.to_s.rjust(10, '0')}")
         capacity = Math.max(Config.instance.segment_size, next_msg_size + 4)
-        delete_unused_segments
         wfile = MFile.new(path, capacity)
         wfile.write_bytes Schema::VERSION
         wfile.pos = 4
@@ -273,6 +290,7 @@ module LavinMQ
         @replicator.try &.append path, Schema::VERSION
         @wfile_id = next_id
         @wfile = @segments[next_id] = wfile
+        delete_unused_segments
         @wfile.delete unless @durable # mark as deleted if non-durable
         wfile
       end
