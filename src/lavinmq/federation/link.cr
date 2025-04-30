@@ -362,7 +362,7 @@ module LavinMQ
             q_args["x-message-ttl"] = msg_ttl
           end
           ch, _ = try_passive(upstream_client, ch) do |uch, passive|
-            q = uch.queue(@upstream_q, args: q_args, passive: passive)
+            uch.queue(@upstream_q, args: q_args, passive: passive)
           end
           ch, consumer_ex = try_passive(upstream_client, ch) do |uch, passive|
             ex = uch.exchange(@upstream_q, type: "x-federation-upstream",
