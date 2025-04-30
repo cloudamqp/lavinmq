@@ -58,6 +58,7 @@ module LavinMQ::AMQP
 
     getter consumers_empty = BoolChannel.new(true)
     @queue_expiration_ttl_change = ::Channel(Nil).new
+    @effective_args = Array(String).new
 
     private def queue_expire_loop
       loop do
@@ -259,34 +260,56 @@ module LavinMQ::AMQP
     end
 
     private def handle_arguments
+      @effective_args = Array(String).new
       @dlx = parse_header("x-dead-letter-exchange", String)
+      @effective_args << "x-dead-letter-exchange" if @dlx
       @dlrk = parse_header("x-dead-letter-routing-key", String)
-      if @dlrk && @dlx.nil?
-        raise LavinMQ::Error::PreconditionFailed.new("x-dead-letter-exchange required if x-dead-letter-routing-key is defined")
-      end
+      @effective_args << "x-dead-letter-routing-key" if @dlrk
       @expires = parse_header("x-expires", Int).try &.to_i64
-      validate_gt_zero("x-expires", @expires)
       @queue_expiration_ttl_change.try_send? nil
       @max_length = parse_header("x-max-length", Int).try &.to_i64
-      validate_positive("x-max-length", @max_length)
       @max_length_bytes = parse_header("x-max-length-bytes", Int).try &.to_i64
-      validate_positive("x-max-length-bytes", @max_length_bytes)
       @message_ttl = parse_header("x-message-ttl", Int).try &.to_i64
-      validate_positive("x-message-ttl", @message_ttl)
       @message_ttl_change.try_send? nil
       @delivery_limit = parse_header("x-delivery-limit", Int).try &.to_i64
-      validate_positive("x-delivery-limit", @delivery_limit)
       @reject_on_overflow = parse_header("x-overflow", String) == "reject-publish"
+      @effective_args << "x-overflow" if @reject_on_overflow
       @single_active_consumer_queue = parse_header("x-single-active-consumer", Bool) == true
+      @effective_args << "x-single-active-consumer" if @single_active_consumer_queue
       @consumer_timeout = parse_header("x-consumer-timeout", Int).try &.to_u64
-      validate_positive("x-consumer-timeout", @consumer_timeout)
       if parse_header("x-message-deduplication", Bool)
+        @effective_args << "x-message-deduplication"
         size = parse_header("x-cache-size", Int).try(&.to_u32)
+        @effective_args << "x-cache-size" if size
         ttl = parse_header("x-cache-ttl", Int).try(&.to_u32)
+        @effective_args << "x-cache-ttl" if ttl
         header_key = parse_header("x-deduplication-header", String)
+        @effective_args << "x-deduplication-header" if header_key
         cache = Deduplication::MemoryCache(AMQ::Protocol::Field).new(size)
         @deduper = Deduplication::Deduper.new(cache, ttl, header_key)
       end
+      validate_arguments
+    end
+
+    private def validate_arguments
+      if @dlrk && @dlx.nil?
+        raise LavinMQ::Error::PreconditionFailed.new("x-dead-letter-exchange required if x-dead-letter-routing-key is defined")
+      end
+      validate_number("x-expires", @expires, 1)
+      validate_number("x-max-length", @max_length)
+      validate_number("x-max-length-bytes", @max_length_bytes)
+      validate_number("x-message-ttl", @message_ttl)
+      validate_number("x-delivery-limit", @delivery_limit)
+      validate_number("x-consumer-timeout", @consumer_timeout)
+    end
+
+    private def validate_number(header, value, min_value = 0)
+      if min_value == 0
+        validate_positive(header, value)
+      else
+        validate_gt_zero(header, value)
+      end
+      @effective_args << header
     end
 
     private macro parse_header(header, type)
@@ -407,6 +430,7 @@ module LavinMQ::AMQP
         state:                       @state,
         effective_policy_definition: Policy.merge_definitions(@policy, @operator_policy),
         message_stats:               current_stats_details,
+        effective_arguments:         @effective_args,
       }
     end
 
@@ -876,7 +900,13 @@ module LavinMQ::AMQP
     end
 
     def purge(max_count : Int = UInt32::MAX) : UInt32
-      delete_count = @msg_store_lock.synchronize { @msg_store.purge(max_count) }
+      if unacked_count == 0 && max_count >= message_count
+        # If there's no unacked and we're purging all messages, we can purge faster by deleting files
+        delete_count = message_count
+        @msg_store_lock.synchronize { @msg_store.purge_all }
+      else
+        delete_count = @msg_store_lock.synchronize { @msg_store.purge(max_count) }
+      end
       @log.info { "Purged #{delete_count} messages" }
       delete_count
     rescue ex : MessageStore::Error

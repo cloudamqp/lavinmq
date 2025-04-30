@@ -116,7 +116,7 @@ lint-openapi:
 
 .PHONY: test
 test: lib
-	crystal spec --order random --verbose -Dpreview_mt -Dexecution_context
+	crystal spec --order random --verbose -Dpreview_mt -Dexecution_context $(SPEC)
 
 .PHONY: format
 format:

@@ -2,6 +2,11 @@ require "./durable_queue"
 
 module LavinMQ::AMQP
   class PriorityQueue < Queue
+    private def handle_arguments
+      super
+      @effective_args << "x-max-priority"
+    end
+
     private def init_msg_store(data_dir)
       replicator = durable? ? @vhost.@replicator : nil
       PriorityMessageStore.new(data_dir, replicator, metadata: @metadata)

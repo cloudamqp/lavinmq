@@ -9,7 +9,8 @@ module LavinMQ
       property segment : UInt32
       property pos : UInt32
       getter requeued = Deque(SegmentPosition).new
-      @consumer_filters = Array(String).new
+      @consumer_filters = Array(Tuple(String, String)).new
+      @filter_match_all = true
       @match_unfiltered = false
       @track_offset = false
 
@@ -39,6 +40,7 @@ module LavinMQ
         end
         validate_stream_offset(frame)
         validate_stream_filter(frame.arguments["x-stream-filter"]?)
+        validate_filter_match_type(frame)
         case match_unfiltered = frame.arguments["x-stream-match-unfiltered"]?
         when Bool
           @match_unfiltered = match_unfiltered
@@ -66,10 +68,42 @@ module LavinMQ
       private def validate_stream_filter(arg)
         case arg
         when String
-          @consumer_filters = arg.split(',')
+          arg.split(',').each do |f|
+            @consumer_filters << {"x-stream-filter", f.strip}
+          end
+        when AMQ::Protocol::Table
+          arg.each do |k, v|
+            if k.to_s == "x-stream-filter"
+              v.to_s.split(',').each do |f|
+                @consumer_filters << {k.to_s, f.strip}
+              end
+            else
+              @consumer_filters << {k.to_s, v.to_s}
+            end
+          end
+        when Array
+          arg.each do |f|
+            validate_stream_filter(f)
+          end
         when Nil
           # noop
-        else raise LavinMQ::Error::PreconditionFailed.new("x-stream-filter-value must be a string")
+        else raise LavinMQ::Error::PreconditionFailed.new("x-stream-filter must be a string, table, or array")
+        end
+      end
+
+      private def validate_filter_match_type(frame)
+        case filter_match_type = frame.arguments["x-filter-match-type"]?
+        when String
+          if filter_match_type.downcase == "all"
+            @filter_match_all = true
+          elsif filter_match_type.downcase == "any"
+            @filter_match_all = false
+          else
+            raise LavinMQ::Error::PreconditionFailed.new("x-filter-match-type must be 'any' or 'all'")
+          end
+        when Nil
+          # noop
+        else raise LavinMQ::Error::PreconditionFailed.new("x-filter-match-type must be 'any' or 'all'")
         end
       end
 
@@ -134,20 +168,35 @@ module LavinMQ
       end
 
       def filter_match?(msg_headers) : Bool
-        return true if @consumer_filters.empty?
-        if msg_filter_values = filter_value_from_msg_headers(msg_headers)
-          matched_filters = 0
-          msg_filter_values.split(',') do |msg_filter_value|
-            matched_filters &+= 1 if @consumer_filters.includes?(msg_filter_value)
+        return true if @consumer_filters.empty? # No consumer filters, always match
+        if @match_unfiltered
+          return true unless msg_headers.try &.has_key?("x-stream-filter-value")
+        end
+        return false unless headers = msg_headers
+
+        case @filter_match_all
+        when false # ANY: Return true on first match
+          @consumer_filters.each do |key, value|
+            return true if match_header_filter?(key, value, headers)
           end
-          matched_filters == @consumer_filters.size
-        else
-          @match_unfiltered
+          false
+        else # ALL: Return false on first non-match
+          @consumer_filters.each do |key, value|
+            return false unless match_header_filter?(key, value, headers)
+          end
+          true
         end
       end
 
-      private def filter_value_from_msg_headers(msg_headers) : String?
-        msg_headers.try &.fetch("x-stream-filter-value", nil).try &.to_s
+      private def match_header_filter?(key, value, msg_headers) : Bool
+        return msg_headers[key]? == value if key != "x-stream-filter"
+
+        if msg_filter_values = msg_headers.try &.fetch("x-stream-filter-value", nil).try &.to_s
+          msg_filter_values.split(',') do |msg_filter_value|
+            return true if msg_filter_value == value
+          end
+        end
+        false
       end
     end
   end

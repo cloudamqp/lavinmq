@@ -100,7 +100,7 @@ def with_amqp_server(tls = false, replicator = LavinMQ::Clustering::NoopServer.n
                      config = LavinMQ::Config.instance, & : LavinMQ::Server -> Nil)
   LavinMQ::Config.instance = init_config(config)
   FileUtils.rm_rf(config.data_dir)
-  tcp_server = TCPServer.new("localhost", 0)
+  tcp_server = TCPServer.new("localhost", ENV.has_key?("NATIVE_PORTS") ? 5672 : 0)
   s = LavinMQ::Server.new(config, replicator)
   begin
     if tls
@@ -124,7 +124,7 @@ def with_http_server(&)
   with_amqp_server do |s|
     h = LavinMQ::HTTP::Server.new(s)
     begin
-      addr = h.bind_tcp("::1", 0)
+      addr = h.bind_tcp("::1", ENV.has_key?("NATIVE_PORTS") ? 15672 : 0)
       spawn(name: "http listen") { h.listen }
       Fiber.yield
       yield({HTTPSpecHelper.new(addr.to_s), s})

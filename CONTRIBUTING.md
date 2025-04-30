@@ -124,16 +124,27 @@ Each consumer can start reading from anywhere in the queue using the `x-stream-o
 Stream queues support message filtering, allowing consumers to receive only messages that match specific criteria. This is useful for consuming a subset of messages without creating multiple queues. 
 
 #### How Filtering Works
-- A consumer with filter values will only receive messages that contain ALL the filter values it has specified.
-- A consumer with filter values will not receive messages without filter values unless they have set `x-stream-match-unfiltered` to true.
-- Consumers without any filter values will receive all messages.
+- Consumers can filter messages based on message headers
+- Two matching strategies are supported:
+  - "all" (default): A message must match ALL filter conditions to be delivered
+  - "any": A message matching ANY filter condition will be delivered
+- Messages without filter values won't be delivered to consumers with filters unless `x-stream-match-unfiltered` is set to `true`
+- Consumers without any filter conditions will receive all messages
 
 #### Publishing Filtered Messages
-When publishing messages that should be filtered, include the `x-stream-filter-value` header. `x-stream-filter-value` should be a string of comma-separated values.
+When publishing messages that should be filtered, include header values that can be matched against:
+- The `x-stream-filter-value` header (a comma-separated string of values)
+- Any custom headers for more advanced filtering scenarios
 
 #### Consuming Filtered Messages
 
 To enable filtering on the consumer, set the following arguments when creating a consumer:
 
-- `x-stream-filter`: A comma-separated string of filter values the consumer is interested in
-- `x-stream-match-unfiltered`: A boolean (default: `false`) that determines whether to receive messages that don't have any filter values
+- `x-stream-filter`: Supports multiple formats:
+  - String: A comma-separated list of values to match against `x-stream-filter-value` headers
+  - Table: Key-value pairs where both the header name and value must match
+  - Array: A collection of filter conditions in either string or table format
+- `x-filter-match-type`: Determines the matching strategy:
+  - "all" (default): All filter conditions must match
+  - "any": At least one filter condition must match
+- `x-stream-match-unfiltered`: Boolean (default: `false`) that determines whether to receive messages without filter values

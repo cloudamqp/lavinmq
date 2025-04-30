@@ -109,6 +109,7 @@ module LavinMQ::AMQP
 
     private def handle_arguments
       super
+      @effective_args << "x-queue-type"
       if @dlx
         raise LavinMQ::Error::PreconditionFailed.new("x-dead-letter-exchange not allowed for stream queues")
       end
@@ -153,6 +154,16 @@ module LavinMQ::AMQP
       else
         raise LavinMQ::Error::PreconditionFailed.new("max-age must be a string")
       end
+    end
+
+    def purge(max_count : Int = UInt32::MAX) : UInt32
+      delete_count = @msg_store_lock.synchronize { @msg_store.purge(max_count) }
+      @log.info { "Purged #{delete_count} messages" }
+      delete_count
+    rescue ex : MessageStore::Error
+      @log.error(ex) { "Queue closed due to error" }
+      close
+      raise ex
     end
 
     private def unmap_and_remove_segments_loop
