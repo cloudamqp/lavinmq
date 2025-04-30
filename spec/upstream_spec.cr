@@ -585,4 +585,104 @@ describe LavinMQ::Federation::Upstream do
       end
     end
   end
+
+  describe "ExchangeLink" do
+    it "set x-received-from" do
+      with_amqp_server do |s|
+        vhost1 = s.vhosts.create("one")
+        vhost2 = s.vhosts.create("two")
+
+        vhost1.declare_exchange("upstream_ex", "topic", durable: true, auto_delete: false)
+        vhost2.declare_exchange("downstream_ex", "topic", durable: true, auto_delete: false)
+        vhost2.declare_queue("downstream_q", durable: true, auto_delete: false)
+
+        downstream_ex = vhost2.exchanges["downstream_ex"]
+        downstream_q = vhost2.queues["downstream_q"]
+        downstream_ex.bind(downstream_q, "#")
+
+        url = URI.parse(s.amqp_url)
+        url.path = vhost1.name
+        upstream = LavinMQ::Federation::Upstream.new(vhost2, "ef x-received-from", url.to_s, exchange: "upstream_ex", queue: nil)
+
+        with_channel(s, vhost: "two") do |ch|
+          link = upstream.link(downstream_ex)
+
+          wait_for { link.state.running? }
+
+          wg = WaitGroup.new(1)
+          q = ch.queue("downstream_q", passive: true)
+          q.subscribe(tag: "downstream_q_consumer") do |msg|
+            headers = msg.properties.headers.should_not be_nil
+            headers["x-received-from"].as(Array(AMQ::Protocol::Field)).should_not be_nil
+            wg.done
+          end
+
+          with_channel(s, vhost: "one") do |ch_pub|
+            ch_pub.exchange("upstream_ex", "topic").publish "foo", "routing.key"
+          end
+
+          wg.wait
+        end
+      end
+    end
+
+    it "append to x-received-from" do
+      # Sets up a "federation chain"
+      with_amqp_server do |s|
+        vhost1 = s.vhosts.create("one")
+        vhost2 = s.vhosts.create("two")
+        vhost3 = s.vhosts.create("three")
+
+        vhost1.declare_exchange("ex1", "topic", durable: true, auto_delete: false)
+        vhost2.declare_exchange("ex2", "topic", durable: true, auto_delete: false)
+        vhost3.declare_exchange("ex3", "topic", durable: true, auto_delete: false)
+
+        ex1 = vhost1.exchanges["ex1"]
+        ex2 = vhost2.exchanges["ex2"]
+        ex3 = vhost3.exchanges["ex3"]
+
+        vhost3.declare_queue("q3", durable: true, auto_delete: false)
+        downstream_q = vhost3.queues["q3"]
+        downstream_ex = vhost3.exchanges["ex3"]
+
+        url = URI.parse(s.amqp_url)
+
+        vhost1_url = url.dup
+        vhost1_url.path = vhost1.name
+        upstream_ex1_to_ex2 = LavinMQ::Federation::Upstream.new(
+          vhost2, "upstream ex1 to ex2", vhost1_url.to_s,
+          exchange: "ex1", queue: nil, max_hops: 100i64)
+
+        vhost2_url = url.dup
+        vhost2_url.path = vhost2.name
+        upstream_ex2_to_ex3 = LavinMQ::Federation::Upstream.new(
+          vhost3, "upstream ex2 to ex3", vhost2_url.to_s,
+          exchange: "ex2", queue: nil, max_hops: 100i64)
+
+        link_ex3 = upstream_ex2_to_ex3.link(ex3)
+        link_ex2 = upstream_ex1_to_ex2.link(ex2)
+        wait_for { link_ex2.state.running? && link_ex3.state.running? }
+
+        downstream_ex.bind(downstream_q, "#")
+        with_channel(s, vhost: "three") do |ch|
+          ch_q3 = ch.queue("q3")
+
+          wg = WaitGroup.new(1)
+          ch_q3.subscribe do |msg|
+            puts "GOT MESSAGE"
+            wg.done
+            headers = msg.properties.headers.should_not be_nil
+            x_received_from = headers["x-received-from"].should be_a Array(AMQ::Protocol::Field)
+            x_received_from.size.should eq 2
+          end
+
+          with_channel(s, vhost: "one") do |ch_pub|
+            ch_pub.exchange("ex1", "topic").publish "foo", "routing.key"
+          end
+
+          wg.wait
+        end
+      end
+    end
+  end
 end
