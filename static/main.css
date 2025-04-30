@@ -30,6 +30,7 @@
   --bg-color-dark: #1D1D1D;
   --border-color-light: rgb(247 245 242 / 0.1);
   --bg-green-dark: #54BE7E;
+  --trafficlight-green: #44FC70;
   scrollbar-width: thin;
 }
 
@@ -358,7 +359,7 @@ button {
   color: #141414;
 
   &:hover {
-    background-color: #44FC70;
+    background-color: var(--trafficlight-green);
   }
 }
 
@@ -1562,7 +1563,7 @@ a:visited {
 
 .state-running:after {
   content: "●";
-  color: #44FC70;
+  color: var(--trafficlight-green);
 }
 
 .state-flow:after {
@@ -1780,7 +1781,7 @@ pre.arguments .inactive-argument:before {
 }
 pre.arguments .active-argument:before {
   content: "●";
-  color: #44FC70;
+  color: var(--trafficlight-green);
 }
 pre.arguments .inactive-argument:before {
   content: "○";
