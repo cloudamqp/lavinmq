@@ -99,7 +99,7 @@ end
 def with_amqp_server(tls = false, replicator = LavinMQ::Clustering::NoopServer.new,
                      config = LavinMQ::Config.instance, & : LavinMQ::Server -> Nil)
   LavinMQ::Config.instance = init_config(config)
-  tcp_server = TCPServer.new("localhost", 0)
+  tcp_server = TCPServer.new("localhost", ENV.fetch("AMQP_PORT", "0").to_u16)
   s = LavinMQ::Server.new(config, replicator)
   begin
     if tls
