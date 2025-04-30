@@ -427,7 +427,7 @@ module LavinMQ::AMQP
         state:                       @state,
         effective_policy_definition: Policy.merge_definitions(@policy, @operator_policy),
         message_stats:               current_stats_details,
-        effective_arguments:         @effective_args.join(','),
+        effective_arguments:         @effective_args,
       }
     end
 
