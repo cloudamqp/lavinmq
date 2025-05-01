@@ -50,7 +50,7 @@ describe "Dead lettering" do
       v.publish msg
 
       select
-      when v.queues["q2"].empty_change.receive
+      when v.queues["q2"].empty.when_false.receive
       when timeout(1.second)
         fail "timeout: message not dead lettered?"
       end

@@ -53,6 +53,8 @@ const exchangeTable = Table.renderTable('table', tableOptions, function (tr, ite
     policyLink.textContent = item.policy
   }
   Table.renderCell(tr, 4, policyLink, 'center')
+  Table.renderCell(tr, 5, item.message_stats.publish_in_details.rate, 'center')
+  Table.renderCell(tr, 6, item.message_stats.publish_out_details.rate, 'center')
 })
 
 document.querySelector('#addExchange').addEventListener('submit', function (evt) {

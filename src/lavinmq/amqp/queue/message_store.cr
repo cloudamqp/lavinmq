@@ -3,6 +3,7 @@ require "../../segment_position"
 require "log"
 require "file_utils"
 require "../../clustering/server"
+require "../../bool_channel"
 
 module LavinMQ
   class Queue
@@ -25,10 +26,11 @@ module LavinMQ
       getter closed
       getter bytesize = 0u64
       getter size = 0u32
-      getter empty_change = Channel(Bool).new
+      getter empty = BoolChannel.new(true)
 
-      def initialize(@queue_data_dir : String, @replicator : Clustering::Replicator?, metadata : ::Log::Metadata = ::Log::Metadata.empty)
+      def initialize(@queue_data_dir : String, @replicator : Clustering::Replicator?, durable : Bool = true, metadata : ::Log::Metadata = ::Log::Metadata.empty)
         @log = Logger.new(Log, metadata)
+        @durable = durable
         @acks = Hash(UInt32, MFile).new { |acks, seg| acks[seg] = open_ack_file(seg) }
         load_segments_from_disk
         load_deleted_from_disk
@@ -38,6 +40,7 @@ module LavinMQ
         @wfile = @segments.last_value
         @rfile_id = @segments.first_key
         @rfile = @segments.first_value
+        @empty.set empty?
       end
 
       def push(msg) : SegmentPosition
@@ -46,7 +49,7 @@ module LavinMQ
         was_empty = @size.zero?
         @bytesize += sp.bytesize
         @size += 1
-        notify_empty(false) if was_empty
+        @empty.set false if was_empty
         sp
       end
 
@@ -60,7 +63,7 @@ module LavinMQ
         was_empty = @size.zero?
         @bytesize += sp.bytesize
         @size += 1
-        notify_empty(false) if was_empty
+        @empty.set false if was_empty
       end
 
       def first? : Envelope? # ameba:disable Metrics/CyclomaticComplexity
@@ -109,7 +112,7 @@ module LavinMQ
             msg = BytesMessage.from_bytes(segment.to_slice + sp.position)
             @bytesize -= sp.bytesize
             @size -= 1
-            notify_empty(true) if @size.zero?
+            @empty.set true if @size.zero?
             return Envelope.new(sp, msg, redelivered: true)
           rescue ex
             raise Error.new(segment, cause: ex)
@@ -134,7 +137,7 @@ module LavinMQ
           rfile.seek(sp.bytesize, IO::Seek::Current)
           @bytesize -= sp.bytesize
           @size -= 1
-          notify_empty(true) if @size.zero?
+          @empty.set true if @size.zero?
           return Envelope.new(sp, msg, redelivered: false)
         rescue ex : IndexError
           @log.warn { "Msg file size does not match expected value, moving on to next segment" }
@@ -199,6 +202,24 @@ module LavinMQ
         count
       end
 
+      def purge_all
+        @segments.each_value { |f| delete_file(f); f.close }
+        @segments = Hash(UInt32, MFile).new
+        @acks.each_value { |f| delete_file(f); f.close }
+        @acks = Hash(UInt32, MFile).new { |acks, seg| acks[seg] = open_ack_file(seg) }
+        @deleted = Hash(UInt32, Array(UInt32)).new
+        @segment_msg_count = Hash(UInt32, UInt32).new(0u32)
+        @requeued = Deque(SegmentPosition).new
+        @bytesize = 0_u64
+        @size = 0_u32
+        @wfile_id = 0_u32
+
+        open_new_segment # sets @wfile and @wfile_id
+        @rfile_id = @segments.first_key
+        @rfile = @segments.first_value
+        @empty.set true
+      end
+
       def delete
         close
         @segments.each_value { |f| delete_file(f) }
@@ -218,7 +239,7 @@ module LavinMQ
 
       def close : Nil
         @closed = true
-        @empty_change.close
+        @empty.close
         @segments.each_value &.close
         @acks.each_value &.close
       end
@@ -262,7 +283,6 @@ module LavinMQ
         next_id = @wfile_id + 1
         path = File.join(@queue_data_dir, "msgs.#{next_id.to_s.rjust(10, '0')}")
         capacity = Math.max(Config.instance.segment_size, next_msg_size + 4)
-        delete_unused_segments
         wfile = MFile.new(path, capacity)
         wfile.write_bytes Schema::VERSION
         wfile.pos = 4
@@ -270,6 +290,8 @@ module LavinMQ
         @replicator.try &.append path, Schema::VERSION
         @wfile_id = next_id
         @wfile = @segments[next_id] = wfile
+        delete_unused_segments
+        @wfile.delete unless @durable # mark as deleted if non-durable
         wfile
       end
 
@@ -277,6 +299,7 @@ module LavinMQ
         path = File.join(@queue_data_dir, "acks.#{id.to_s.rjust(10, '0')}")
         capacity = Config.instance.segment_size // BytesMessage::MIN_BYTESIZE * 4 + 4
         mfile = MFile.new(path, capacity, writeonly: true)
+        mfile.delete unless @durable # mark as deleted if non-durable
         @replicator.try &.register_file mfile
         mfile
       end
@@ -334,6 +357,8 @@ module LavinMQ
                    MFile.new(path)
                  end
           @replicator.try &.register_file file
+          file.delete unless @durable # mark files for non-durable queues for deletion
+
           if was_empty
             file.write_bytes Schema::VERSION
             @replicator.try &.append path, Schema::VERSION
@@ -428,11 +453,6 @@ module LavinMQ
           del.bsearch { |dpos| dpos >= pos } == pos
         else
           false
-        end
-      end
-
-      private def notify_empty(is_empty)
-        while @empty_change.try_send? is_empty
         end
       end
 

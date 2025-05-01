@@ -8,7 +8,8 @@ require "./in_memory_backend"
 
 module LavinMQ
   class Config
-    DEFAULT_LOG_LEVEL = ::Log::Severity::Info
+    DEFAULT_LOG_LEVEL     = ::Log::Severity::Info
+    DEFAULT_PASSWORD_HASH = "+pHuxkR9fCyrrwXjOD4BP4XbzO3l8LJr8YkThMgJ0yVHFRE+" # Hash of 'guest'
 
     property data_dir : String = ENV.fetch("STATE_DIRECTORY", "/var/lib/lavinmq")
     property config_file = File.exists?(File.join(ENV.fetch("CONFIGURATION_DIRECTORY", "/etc/lavinmq"), "lavinmq.ini")) ? File.join(ENV.fetch("CONFIGURATION_DIRECTORY", "/etc/lavinmq"), "lavinmq.ini") : ""
@@ -17,6 +18,10 @@ module LavinMQ
     property amqp_bind = "127.0.0.1"
     property amqp_port = 5672
     property amqps_port = -1
+    property mqtt_bind = "127.0.0.1"
+    property mqtt_port = 1883
+    property mqtts_port = -1
+    property mqtt_unix_path = ""
     property unix_path = ""
     property unix_proxy_protocol = 1_u8 # PROXY protocol version on unix domain socket connections
     property tcp_proxy_protocol = 0_u8  # PROXY protocol version on amqp tcp connections
@@ -30,21 +35,23 @@ module LavinMQ
     property http_unix_path = ""
     property http_systemd_socket_name = "lavinmq-http.socket"
     property amqp_systemd_socket_name = "lavinmq-amqp.socket"
-    property heartbeat = 300_u16                # second
-    property frame_max = 131_072_u32            # bytes
-    property channel_max = 2048_u16             # number
-    property stats_interval = 5000              # millisecond
-    property stats_log_size = 120               # 10 mins at 5s interval
-    property? set_timestamp = false             # in message headers when receive
-    property socket_buffer_size = 16384         # bytes
-    property? tcp_nodelay = false               # bool
-    property segment_size : Int32 = 8 * 1024**2 # bytes
+    property heartbeat = 300_u16                     # second
+    property frame_max = 131_072_u32                 # bytes
+    property channel_max = 2048_u16                  # number
+    property stats_interval = 5000                   # millisecond
+    property stats_log_size = 120                    # 10 mins at 5s interval
+    property? set_timestamp = false                  # in message headers when receive
+    property socket_buffer_size = 16384              # bytes
+    property? tcp_nodelay = false                    # bool
+    property segment_size : Int32 = 8 * 1024**2      # bytes
+    property max_inflight_messages : UInt16 = 65_535 # mqtt messages
+    property default_mqtt_vhost = "/"
     property? raise_gc_warn : Bool = false
     property? data_dir_lock : Bool = true
     property tcp_keepalive : Tuple(Int32, Int32, Int32)? = {60, 10, 3} # idle, interval, probes/count
     property tcp_recv_buffer_size : Int32? = nil
     property tcp_send_buffer_size : Int32? = nil
-    property? guest_only_loopback : Bool = true
+    property? default_user_only_loopback : Bool = true
     property max_message_size = 128 * 1024**2
     property? log_exchange : Bool = false
     property free_disk_min : Int64 = 0  # bytes
@@ -62,6 +69,9 @@ module LavinMQ
     property default_consumer_prefetch = UInt16::MAX
     property yield_each_received_bytes = 131_072    # max number of bytes to read from a client connection without letting other tasks in the server do any work
     property yield_each_delivered_bytes = 1_048_576 # max number of bytes sent to a client without tending to other tasks in the server
+    property auth_backends : Array(String) = ["basic"]
+    property default_user : String = ENV.fetch("LAVINMQ_DEFAULT_USER", "guest")
+    property default_password : String = ENV.fetch("LAVINMQ_DEFAULT_PASSWORD", DEFAULT_PASSWORD_HASH) # Hashed password for default user
     @@instance : Config = self.new
 
     def self.instance : LavinMQ::Config
@@ -74,11 +84,39 @@ module LavinMQ
     def parse
       parser = OptionParser.new do |p|
         p.banner = "Usage: #{PROGRAM_NAME} [arguments]"
+        p.separator("\nOptions:")
         p.on("-c CONF", "--config=CONF", "Config file (INI format)") { |v| @config_file = v }
         p.on("-D DATADIR", "--data-dir=DATADIR", "Data directory") { |v| @data_dir = v }
-        p.on("-b BIND", "--bind=BIND", "IP address that both the AMQP and HTTP servers will listen on (default: 127.0.0.1)") do |v|
+        p.on("-l", "--log-level=LEVEL", "Log level (Default: info)") do |v|
+          level = ::Log::Severity.parse?(v.to_s)
+          @log_level = level if level
+        end
+        p.on("-d", "--debug", "Verbose logging") { @log_level = ::Log::Severity::Debug }
+        p.on("--default-user-only-loopback=BOOL", "Limit default user to only connect from loopback address") do |v|
+          @default_user_only_loopback = {"true", "yes", "y", "1"}.includes? v.to_s
+        end
+        p.on("--guest-only-loopback=BOOL", "(Deprecated) Limit default user to only connect from loopback address") do |v|
+          # TODO: guest-only-loopback was deprecated in 2.2.x, remove in 3.0
+          STDERR.puts "WARNING: 'guest_only_loopback' is deprecated, use '--default-user-only-loopback' instead"
+          @default_user_only_loopback = {"true", "yes", "y", "1"}.includes? v.to_s
+        end
+        p.on("--default-consumer-prefetch=NUMBER", "Default consumer prefetch (default: 65535)") do |v|
+          @default_consumer_prefetch = v.to_u16
+        end
+        p.on("--default-user=USER", "Default user (default: guest)") do |v|
+          @default_user = v
+        end
+        p.on("--default-password=PASSWORD", "Hashed password for default user (default: '+pHuxkR9fCyrrwXjOD4BP4XbzO3l8LJr8YkThMgJ0yVHFRE+' (guest))") do |v|
+          @default_password = v
+        end
+        p.on("--no-data-dir-lock", "Don't put a file lock in the data directory (default: true)") { @data_dir_lock = false }
+        p.on("--raise-gc-warn", "Raise on GC warnings (default: false)") { @raise_gc_warn = true }
+
+        p.separator("\nBindings & TLS:")
+        p.on("-b BIND", "--bind=BIND", "IP address that the AMQP, MQTT and HTTP servers will listen on (default: 127.0.0.1)") do |v|
           @amqp_bind = v
           @http_bind = v
+          @mqtt_bind = v
         end
         p.on("-p PORT", "--amqp-port=PORT", "AMQP port to listen on (default: 5672)") do |v|
           @amqp_port = v.to_i
@@ -88,6 +126,15 @@ module LavinMQ
         end
         p.on("--amqp-bind=BIND", "IP address that the AMQP server will listen on (default: 127.0.0.1)") do |v|
           @amqp_bind = v
+        end
+        p.on("--mqtt-port=PORT", "MQTT port to listen on (default: 1883)") do |v|
+          @mqtt_port = v.to_i
+        end
+        p.on("--mqtts-port=PORT", "MQTTS port to listen on (default: 8883)") do |v|
+          @mqtts_port = v.to_i
+        end
+        p.on("--mqtt-bind=BIND", "IP address that the MQTT server will listen on (default: 127.0.0.1)") do |v|
+          @mqtt_bind = v
         end
         p.on("--http-port=PORT", "HTTP port to listen on (default: 15672)") do |v|
           @http_port = v.to_i
@@ -104,23 +151,15 @@ module LavinMQ
         p.on("--http-unix-path=PATH", "HTTP UNIX path to listen to") do |v|
           @http_unix_path = v
         end
+        p.on("--mqtt-unix-path=PATH", "MQTT UNIX path to listen to") do |v|
+          @mqtt_unix_path = v
+        end
         p.on("--cert FILE", "TLS certificate (including chain)") { |v| @tls_cert_path = v }
         p.on("--key FILE", "Private key for the TLS certificate") { |v| @tls_key_path = v }
         p.on("--ciphers CIPHERS", "List of TLS ciphers to allow") { |v| @tls_ciphers = v }
         p.on("--tls-min-version=VERSION", "Mininum allowed TLS version (default 1.2)") { |v| @tls_min_version = v }
-        p.on("-l", "--log-level=LEVEL", "Log level (Default: info)") do |v|
-          level = ::Log::Severity.parse?(v.to_s)
-          @log_level = level if level
-        end
-        p.on("--raise-gc-warn", "Raise on GC warnings") { @raise_gc_warn = true }
-        p.on("--no-data-dir-lock", "Don't put a file lock in the data directory (default true)") { @data_dir_lock = false }
-        p.on("-d", "--debug", "Verbose logging") { @log_level = ::Log::Severity::Debug }
-        p.on("-h", "--help", "Show this help") { puts p; exit 0 }
-        p.on("-v", "--version", "Show version") { puts LavinMQ::VERSION; exit 0 }
-        p.on("--build-info", "Show build information") { puts LavinMQ::BUILD_INFO; exit 0 }
-        p.on("--guest-only-loopback=BOOL", "Limit guest user to only connect from loopback address") do |v|
-          @guest_only_loopback = {"true", "yes", "y", "1"}.includes? v.to_s
-        end
+
+        p.separator("\nClustering:")
         p.on("--clustering", "Enable clustering") do
           @clustering = true
         end
@@ -142,9 +181,11 @@ module LavinMQ
         p.on("--clustering-etcd-endpoints=URIs", "Comma separeted host/port pairs (default: 127.0.0.1:2379)") do |v|
           @clustering_etcd_endpoints = v
         end
-        p.on("--default-consumer-prefetch=NUMBER", "Default consumer prefetch (default 65535)") do |v|
-          @default_consumer_prefetch = v.to_u16
-        end
+
+        p.separator("\nMiscellaneous:")
+        p.on("-v", "--version", "Show version") { puts LavinMQ::VERSION; exit 0 }
+        p.on("--build-info", "Show build information") { puts LavinMQ::BUILD_INFO; exit 0 }
+        p.on("-h", "--help", "Show this help") { puts p; exit 0 }
         p.invalid_option { |arg| abort "Invalid argument: #{arg}" }
       end
       parser.parse(ARGV.dup) # only parse args to get config_file
@@ -168,6 +209,7 @@ module LavinMQ
         case section
         when "main"         then parse_main(settings)
         when "amqp"         then parse_amqp(settings)
+        when "mqtt"         then parse_mqtt(settings)
         when "mgmt", "http" then parse_mgmt(settings)
         when "clustering"   then parse_clustering(settings)
         when "experimental" then parse_experimental(settings)
@@ -187,9 +229,9 @@ module LavinMQ
       log_file = (path = @log_file) ? File.open(path, "a") : STDOUT
       broadcast_backend = ::Log::BroadcastBackend.new
       backend = if ENV.has_key?("JOURNAL_STREAM")
-                  ::Log::IOBackend.new(io: log_file, formatter: JournalLogFormat, dispatcher: ::Log::DirectDispatcher)
+                  ::Log::IOBackend.new(io: log_file, formatter: JournalLogFormat)
                 else
-                  ::Log::IOBackend.new(io: log_file, formatter: StdoutLogFormat, dispatcher: ::Log::DirectDispatcher)
+                  ::Log::IOBackend.new(io: log_file, formatter: StdoutLogFormat)
                 end
 
       broadcast_backend.append(backend, @log_level)
@@ -210,30 +252,35 @@ module LavinMQ
     private def parse_main(settings)
       settings.each do |config, v|
         case config
-        when "data_dir"                  then @data_dir = v
-        when "data_dir_lock"             then @data_dir_lock = true?(v)
-        when "log_level"                 then @log_level = ::Log::Severity.parse(v)
-        when "log_file"                  then @log_file = v
-        when "stats_interval"            then @stats_interval = v.to_i32
-        when "stats_log_size"            then @stats_log_size = v.to_i32
-        when "segment_size"              then @segment_size = v.to_i32
-        when "set_timestamp"             then @set_timestamp = true?(v)
-        when "socket_buffer_size"        then @socket_buffer_size = v.to_i32
-        when "tcp_nodelay"               then @tcp_nodelay = true?(v)
-        when "tcp_keepalive"             then @tcp_keepalive = tcp_keepalive?(v)
-        when "tcp_recv_buffer_size"      then @tcp_recv_buffer_size = v.to_i32?
-        when "tcp_send_buffer_size"      then @tcp_send_buffer_size = v.to_i32?
-        when "tls_cert"                  then @tls_cert_path = v
-        when "tls_key"                   then @tls_key_path = v
-        when "tls_ciphers"               then @tls_ciphers = v
-        when "tls_min_version"           then @tls_min_version = v
-        when "guest_only_loopback"       then @guest_only_loopback = true?(v)
-        when "log_exchange"              then @log_exchange = true?(v)
-        when "free_disk_min"             then @free_disk_min = v.to_i64
-        when "free_disk_warn"            then @free_disk_warn = v.to_i64
-        when "max_deleted_definitions"   then @max_deleted_definitions = v.to_i
-        when "consumer_timeout"          then @consumer_timeout = v.to_u64
-        when "default_consumer_prefetch" then @default_consumer_prefetch = v.to_u16
+        when "data_dir"                   then @data_dir = v
+        when "data_dir_lock"              then @data_dir_lock = true?(v)
+        when "log_level"                  then @log_level = ::Log::Severity.parse(v)
+        when "log_file"                   then @log_file = v
+        when "stats_interval"             then @stats_interval = v.to_i32
+        when "stats_log_size"             then @stats_log_size = v.to_i32
+        when "segment_size"               then @segment_size = v.to_i32
+        when "set_timestamp"              then @set_timestamp = true?(v)
+        when "socket_buffer_size"         then @socket_buffer_size = v.to_i32
+        when "tcp_nodelay"                then @tcp_nodelay = true?(v)
+        when "tcp_keepalive"              then @tcp_keepalive = tcp_keepalive?(v)
+        when "tcp_recv_buffer_size"       then @tcp_recv_buffer_size = v.to_i32?
+        when "tcp_send_buffer_size"       then @tcp_send_buffer_size = v.to_i32?
+        when "tls_cert"                   then @tls_cert_path = v
+        when "tls_key"                    then @tls_key_path = v
+        when "tls_ciphers"                then @tls_ciphers = v
+        when "tls_min_version"            then @tls_min_version = v
+        when "log_exchange"               then @log_exchange = true?(v)
+        when "free_disk_min"              then @free_disk_min = v.to_i64
+        when "free_disk_warn"             then @free_disk_warn = v.to_i64
+        when "max_deleted_definitions"    then @max_deleted_definitions = v.to_i
+        when "consumer_timeout"           then @consumer_timeout = v.to_u64
+        when "default_consumer_prefetch"  then @default_consumer_prefetch = v.to_u16
+        when "default_user"               then @default_user = v
+        when "default_password"           then @default_password = v
+        when "default_user_only_loopback" then @default_user_only_loopback = true?(v)
+        when "guest_only_loopback" # TODO: guest_only_loopback was deprecated in 2.2.x, remove in 3.0
+          STDERR.puts "WARNING: 'guest_only_loopback' is deprecated, use 'default_user_only_loopback' instead"
+          @default_user_only_loopback = true?(v)
         else
           STDERR.puts "WARNING: Unrecognized configuration 'main/#{config}'"
         end
@@ -275,6 +322,21 @@ module LavinMQ
         when "tcp_proxy_protocol"  then @tcp_proxy_protocol = true?(v) ? 1u8 : v.to_u8? || 0u8
         else
           STDERR.puts "WARNING: Unrecognized configuration 'amqp/#{config}'"
+        end
+      end
+    end
+
+    private def parse_mqtt(settings)
+      settings.each do |config, v|
+        case config
+        when "bind"                  then @mqtt_bind = v
+        when "port"                  then @mqtt_port = v.to_i32
+        when "tls_port"              then @mqtts_port = v.to_i32
+        when "unix_path"             then @mqtt_unix_path = v
+        when "max_inflight_messages" then @max_inflight_messages = v.to_u16
+        when "default_vhost"         then @default_mqtt_vhost = v
+        else
+          STDERR.puts "WARNING: Unrecognized configuration 'mqtt/#{config}'"
         end
       end
     end

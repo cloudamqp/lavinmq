@@ -61,4 +61,43 @@ describe LavinMQ::HTTP::ChannelsController do
       end
     end
   end
+
+  describe "PUT /api/channels/:channel" do
+    it "should allow to update the prefetch" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          ch.prefetch(5)
+          q = ch.queue("")
+          q.subscribe { }
+          sleep 10.milliseconds
+
+          response = http.get("/api/channels")
+          response.status_code.should eq 200
+          body = JSON.parse(response.body)
+          channel = body.as_a.first
+          channel["prefetch_count"].should eq 5
+
+          response = http.get("/api/consumers")
+          response.status_code.should eq 200
+          body = JSON.parse(response.body)
+          body.as_a.first["prefetch_count"].should eq 5
+
+          body = {"prefetch" => 10}
+          url = "/api/channels/#{URI.encode_path(channel["name"].to_s)}"
+          response = http.put(url, body: body.to_json)
+          response.status_code.should eq 204
+
+          response = http.get(url)
+          response.status_code.should eq 200
+          body = JSON.parse(response.body)
+          body["prefetch_count"].should eq 10
+
+          response = http.get("/api/consumers")
+          response.status_code.should eq 200
+          body = JSON.parse(response.body)
+          body.as_a.first["prefetch_count"].should eq 10
+        end
+      end
+    end
+  end
 end

@@ -30,6 +30,7 @@
   --bg-color-dark: #1D1D1D;
   --border-color-light: rgb(247 245 242 / 0.1);
   --bg-green-dark: #54BE7E;
+  --trafficlight-green: #44FC70;
   scrollbar-width: thin;
 }
 
@@ -115,7 +116,7 @@ input[type="text"], input[type="number"], input[type="password"] {
 }
 
 select.dropdown {
-  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%23f7f5f2' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+  background-image: url(img/arrow-down.svg);
   background-position: right .5rem center;
   background-repeat: no-repeat;
   background-size: 1.5em 1.5em;
@@ -358,7 +359,7 @@ button {
   color: #141414;
 
   &:hover {
-    background-color: #44FC70;
+    background-color: var(--trafficlight-green);
   }
 }
 
@@ -1368,6 +1369,10 @@ footer .logo {
   color: #CDCBC9;
 }
 
+#q-features span {
+  cursor: help;
+}
+
 .small-table {
   width: 50%;
   max-width: 600px;
@@ -1558,7 +1563,7 @@ a:visited {
 
 .state-running:after {
   content: "●";
-  color: #44FC70;
+  color: var(--trafficlight-green);
 }
 
 .state-flow:after {
@@ -1765,10 +1770,21 @@ fieldset.inline {
 pre.arguments > div {
   padding-left: 1em;
   text-indent: -1em;
+  padding-top: 2px;
 }
-
-.arguments {
+pre.arguments .active-argument {
   color: var(--font-color-light);
+}
+pre.arguments .active-argument:before,
+pre.arguments .inactive-argument:before {
+  padding-right: 5px;
+}
+pre.arguments .active-argument:before {
+  content: "●";
+  color: var(--trafficlight-green);
+}
+pre.arguments .inactive-argument:before {
+  content: "○";
 }
 
 #dataTags {
@@ -1916,7 +1932,7 @@ pre.arguments > div {
 }
 
 #usermenu-button::before {
-  content: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none'%3E%3Cpath d='M20 21V19C20 17.9391 19.5786 16.9217 18.8284 16.1716C18.0783 15.4214 17.0609 15 16 15H8C6.93913 15 5.92172 15.4214 5.17157 16.1716C4.42143 16.9217 4 17.9391 4 19V21' stroke='%23F7F5F2' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M12 11C14.2091 11 16 9.20914 16 7C16 4.79086 14.2091 3 12 3C9.79086 3 8 4.79086 8 7C8 9.20914 9.79086 11 12 11Z' stroke='%23F7F5F2' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  content: url(img/usermenu-button.svg);
   color: #f7f5f2;
   font-weight: 600;
   width: 24px;
@@ -1948,5 +1964,43 @@ pre.arguments > div {
     display: block;
     position: absolute;
     right: 0;
+  }
+}
+
+.btn-icon {
+  background: transparent;
+  border: 1px solid rgb(247 245 242 / 0.1);
+  display: flex;
+  width: 45px;
+  height: 45px;
+  padding: 6px 8px;
+  justify-content: center;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  border-radius: 8px;
+
+  &:hover {
+    background-color: #2D2C2C;
+  }
+
+  &.btn-reset {
+    background-image: url(img/icon-x.svg);
+    background-repeat: no-repeat;
+    background-position: center center;
+  }
+
+  &.btn-submit {
+    background-image: url(img/icon-checkbox.svg);
+    background-repeat: no-repeat;
+    background-position: center center;
+  }
+}
+.prefetch-form {
+  display: flex;
+  gap: 4px;
+
+  input[type=number] {
+    width: 124px;
   }
 }

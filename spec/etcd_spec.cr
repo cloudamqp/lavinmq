@@ -16,6 +16,28 @@ describe LavinMQ::Etcd do
     end
   end
 
+  describe "#put_or_get" do
+    it "should set and return value if key is non-existent" do
+      cluster = EtcdCluster.new(1)
+      cluster.run do
+        etcd = LavinMQ::Etcd.new(cluster.endpoints)
+        etcd.del("foo")
+        etcd.put_or_get("foo", "bar").should eq "bar"
+        etcd.get("foo").should eq "bar"
+      end
+    end
+
+    it "should get existing value if key exists" do
+      cluster = EtcdCluster.new(1)
+      cluster.run do
+        etcd = LavinMQ::Etcd.new(cluster.endpoints)
+        etcd.put("foo", "bar")
+        etcd.put_or_get("foo", "baz").should eq "bar"
+        etcd.get("foo").should eq "bar"
+      end
+    end
+  end
+
   it "can watch" do
     cluster = EtcdCluster.new(1)
     cluster.run do
@@ -27,7 +49,7 @@ describe LavinMQ::Etcd do
         etcd.watch("foo") do |val|
           w.send val
         end
-      rescue LavinMQ::Etcd::Error
+      rescue SpecExit
         # expect this when etcd nodes are terminated
       end
       w.receive # sync
@@ -45,13 +67,13 @@ describe LavinMQ::Etcd do
     cluster = EtcdCluster.new(1)
     cluster.run do
       etcd = LavinMQ::Etcd.new(cluster.endpoints)
-      leader = Channel(String).new
+      leader = Channel(String?).new
       key = "foo/#{rand}"
       spawn(name: "etcd elect leader spec") do
         etcd.elect_listen(key) do |value|
           leader.send value
         end
-      rescue LavinMQ::Etcd::Error
+      rescue SpecExit
         # expect this when etcd nodes are terminated
       end
       lease = etcd.elect(key, "bar", 1)
@@ -59,7 +81,7 @@ describe LavinMQ::Etcd do
       spawn(name: "elect other leader spec") do
         begin
           etcd.elect(key, "bar2", 1)
-        rescue LavinMQ::Etcd::Error
+        rescue SpecExit
           # expect this when etcd nodes are terminated
         end
       end
@@ -79,7 +101,10 @@ describe LavinMQ::Etcd do
       key = "foo/#{rand}"
       lease = etcd.elect(key, "bar", ttl: 1)
       etcds.first(2).each &.terminate(graceful: false)
-      lease.wait(15.seconds).should be_true, "should lose the leadership"
+
+      expect_raises(LavinMQ::Etcd::Lease::Lost) do
+        lease.wait(15.seconds)
+      end
     end
   end
 
@@ -90,7 +115,8 @@ describe LavinMQ::Etcd do
       key = "foo/#{rand}"
       lease = etcd.elect(key, "bar", ttl: 1)
       etcds.sample.terminate(graceful: false)
-      lease.wait(6.seconds).should be_false, "should not lose the leadership"
+
+      lease.wait(6.seconds) # should not lose the leadership
     end
   end
 

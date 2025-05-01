@@ -13,7 +13,7 @@ module LavinMQ::AMQP
 
     private def init_msg_store(data_dir)
       replicator = durable? ? @vhost.@replicator : nil
-      DelayedMessageStore.new(data_dir, replicator, metadata: @metadata)
+      DelayedMessageStore.new(data_dir, replicator, durable?, metadata: @metadata)
     end
 
     private def expire_at(msg : BytesMessage) : Int64?
@@ -29,16 +29,15 @@ module LavinMQ::AMQP
       loop do
         if ttl = time_to_message_expiration
           select
-          when @msg_store.empty_change.receive # there's a new "first" message
+          when @msg_store.empty.when_true.receive # there's a new "first" message
           when timeout ttl
             expire_messages
           end
         else
-          @msg_store.empty_change.receive
+          @msg_store.empty.when_false.receive
         end
-      rescue ::Channel::ClosedError
-        break
       end
+    rescue ::Channel::ClosedError
     end
 
     # Overload to not ruin DLX header
@@ -86,7 +85,7 @@ module LavinMQ::AMQP
         if idx
           @requeued.insert(idx, sp)
           if idx.zero?
-            notify_empty(false)
+            @empty.set false
           end
         else
           @requeued.push(sp)
@@ -110,7 +109,7 @@ module LavinMQ::AMQP
         was_empty = @size.zero?
         @bytesize += sp.bytesize
         @size += 1
-        notify_empty(false) if was_empty
+        @empty.set false if was_empty
       end
     end
   end

@@ -19,13 +19,9 @@ Table.renderTable('table', tableOptions, function (tr, item, all) {
   if (all) {
     const connectionLink = document.createElement('a')
     connectionLink.href = `connection#name=${encodeURIComponent(item.name)}`
-    if (item.client_properties.connection_name) {
-      connectionLink.appendChild(document.createElement('span')).textContent = item.name
-      connectionLink.appendChild(document.createElement('br'))
-      connectionLink.appendChild(document.createElement('small')).textContent = item.client_properties.connection_name
-    } else {
-      connectionLink.textContent = item.name
-    }
+    connectionLink.appendChild(document.createElement('span')).textContent = item.name
+    connectionLink.appendChild(document.createElement('br'))
+    connectionLink.appendChild(document.createElement('small')).textContent = item.client_properties.connection_name
     Table.renderCell(tr, 0, item.vhost)
     Table.renderCell(tr, 1, connectionLink)
     Table.renderCell(tr, 2, item.user)
@@ -33,11 +29,15 @@ Table.renderTable('table', tableOptions, function (tr, item, all) {
     Table.renderCell(tr, 5, item.tls_version, 'center')
     Table.renderCell(tr, 6, item.cipher, 'center')
     Table.renderCell(tr, 7, item.protocol, 'center')
+    Table.renderCell(tr, 8, item.auth_mechanism)
     Table.renderCell(tr, 9, item.channel_max, 'right')
     Table.renderCell(tr, 10, item.timeout, 'right')
-    // Table.renderCell(tr, 8, item.auth_mechanism)
     const clientDiv = document.createElement('span')
-    clientDiv.textContent = `${item.client_properties.product} / ${item.client_properties.platform || ''}`
+    if (item.client_properties.product) {
+      clientDiv.textContent = `${item.client_properties.product || ''} / ${item.client_properties.platform || ''}`
+    } else {
+      clientDiv.textContent = item.client_properties.platform || ''
+    }
     clientDiv.appendChild(document.createElement('br'))
     clientDiv.appendChild(document.createElement('small')).textContent = item.client_properties.version
     Table.renderCell(tr, 11, clientDiv)

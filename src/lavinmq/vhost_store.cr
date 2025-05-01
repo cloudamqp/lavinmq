@@ -1,10 +1,18 @@
 require "json"
 require "./vhost"
-require "./user"
+require "./auth/user"
+require "./observable"
 
 module LavinMQ
   class VHostStore
+    enum Event
+      Added
+      Deleted
+      Closed
+    end
     include Enumerable({String, VHost})
+    include Observable(Event)
+
     Log = LavinMQ::Log.for "vhost_store"
 
     def initialize(@data_dir : String, @users : UserStore, @replicator : Clustering::Replicator)
@@ -30,22 +38,28 @@ module LavinMQ
       @users.add_permission(UserStore::DIRECT_USER, name, /.*/, /.*/, /.*/)
       @vhosts[name] = vhost
       save! if save
+      notify_observers(Event::Added, name)
       vhost
     end
 
-    def delete(name) : Nil
+    def delete(name) : VHost?
       if vhost = @vhosts.delete name
-        Log.info { "Deleted vhost #{name}" }
         @users.rm_vhost_permissions_for_all(name)
         vhost.delete
+        notify_observers(Event::Deleted, name)
+        Log.info { "Deleted vhost #{name}" }
         save!
+        vhost
       end
     end
 
     def close
       WaitGroup.wait do |wg|
         @vhosts.each_value do |vhost|
-          wg.spawn &->vhost.close
+          wg.spawn do
+            vhost.close
+            notify_observers(Event::Closed, vhost.name)
+          end
         end
       end
     end
@@ -77,6 +91,9 @@ module LavinMQ
         create("/")
       end
       Log.debug { "#{size} vhosts loaded" }
+    rescue ex
+      Log.error(exception: ex) { "Failed to load vhosts" }
+      raise ex
     end
 
     private def save!

@@ -11,7 +11,8 @@ module LavinMQ
                            NamedTuple(name: String) |
                            NamedTuple(channel: String) |
                            NamedTuple(id: String) |
-                           NamedTuple(queue: String, vhost: String)
+                           NamedTuple(queue: String, vhost: String) |
+                           NamedTuple(exchange: String, vhost: String)
       alias Metric = NamedTuple(name: String, value: MetricValue) |
                      NamedTuple(name: String, value: MetricValue, labels: MetricLabels) |
                      NamedTuple(name: String, value: MetricValue, help: String) |
@@ -38,7 +39,8 @@ module LavinMQ
       def write(m : Metric)
         return if m[:value].nil?
         io = @io
-        name = "#{@prefix}_#{m[:name]}"
+
+        name = name_writer(m)
         if t = m[:type]?
           io << "# TYPE " << name << " " << t << "\n"
         end
@@ -51,6 +53,19 @@ module LavinMQ
         end
         io << " " << m[:value] << "\n"
       end
+
+      struct NameWriter
+        def initialize(@prefix : String, @name : String)
+        end
+
+        def to_s(io : IO) : IO
+          io << @prefix << "_" << @name
+        end
+      end
+
+      private def name_writer(m : Metric)
+        NameWriter.new(@prefix, m[:name])
+      end
     end
 
     class PrometheusController < Controller
@@ -62,6 +77,7 @@ module LavinMQ
         vhosts.to_a
       end
 
+      # ameba:disable Metrics/CyclomaticComplexity
       private def register_routes
         get "/metrics" do |context, _|
           context.response.content_type = "text/plain"
@@ -72,7 +88,9 @@ module LavinMQ
             writer = PrometheusWriter.new(context.response, prefix)
             overview_broker_metrics(vhosts, writer)
             overview_queue_metrics(vhosts, writer)
-            custom_metrics(vhosts, writer)
+            custom_metrics(writer)
+            gc_metrics(writer)
+            global_metrics(writer)
           end
           context
         end
@@ -97,6 +115,8 @@ module LavinMQ
                 detailed_connection_coarse_metrics(vhosts, writer)
               when "channel_metrics"
                 detailed_channel_metrics(vhosts, writer)
+              when "exchange_metrics"
+                detailed_exchange_metrics(vhosts, writer)
               end
             end
           end
@@ -187,6 +207,29 @@ module LavinMQ
                       help:  "Memory high watermark in bytes"})
       end
 
+      private def global_metrics(writer)
+        writer.write({name:  "global_messages_delivered_total",
+                      value: @amqp_server.deleted_vhosts_messages_delivered_total +
+                             @amqp_server.vhosts.sum { |_, v| v.message_details[:message_stats][:deliver] },
+                      type: "counter",
+                      help: "Total number of messaged delivered to consumers"})
+        writer.write({name:  "global_messages_redelivered_total",
+                      value: @amqp_server.deleted_vhosts_messages_redelivered_total +
+                             @amqp_server.vhosts.sum { |_, v| v.message_details[:message_stats][:redeliver] },
+                      type: "counter",
+                      help: "Total number of messages redelivered to consumers"})
+        writer.write({name:  "global_messages_acknowledged_total",
+                      value: @amqp_server.deleted_vhosts_messages_acknowledged_total +
+                             @amqp_server.vhosts.sum { |_, v| v.message_details[:message_stats][:ack] },
+                      type: "counter",
+                      help: "Total number of messages acknowledged by consumers"})
+        writer.write({name:  "global_messages_confirmed_total",
+                      value: @amqp_server.deleted_vhosts_messages_confirmed_total +
+                             @amqp_server.vhosts.sum { |_, v| v.message_details[:message_stats][:confirm] },
+                      type: "counter",
+                      help: "Total number of messages confirmed to publishers"})
+      end
+
       private def overview_queue_metrics(vhosts, writer)
         ready = unacked = connections = channels = consumers = queues = 0_u64
         vhosts.each do |vhost|
@@ -232,7 +275,7 @@ module LavinMQ
                       help:  "Sum of ready and unacknowledged messages - total queue depth"})
       end
 
-      private def custom_metrics(vhosts, writer)
+      private def custom_metrics(writer)
         writer.write({name: "uptime", value: @amqp_server.uptime.to_i,
                       type: "counter",
                       help: "Server uptime in seconds"})
@@ -267,6 +310,58 @@ module LavinMQ
                         type:   "gauge",
                         help:   "Bytes that hasn't been synchronized with the follower yet"})
         end
+      end
+
+      private def gc_metrics(writer)
+        gc_stats = @amqp_server.gc_stats
+
+        writer.write({name: "gc_heap_size_bytes", value: gc_stats.heap_size,
+                      type: "gauge",
+                      help: "Heap size in bytes (including the area unmapped to OS)"})
+
+        writer.write({name: "gc_free_bytes", value: gc_stats.free_bytes,
+                      type: "gauge",
+                      help: "Total bytes contained in free and unmapped blocks"})
+
+        writer.write({name: "gc_unmapped_bytes", value: gc_stats.unmapped_bytes,
+                      type: "gauge",
+                      help: "Amount of memory unmapped to OS"})
+
+        writer.write({name: "gc_since_recent_collection_allocated_bytes", value: gc_stats.bytes_since_gc,
+                      type: "gauge",
+                      help: "Number of bytes allocated since the recent GC"})
+
+        writer.write({name: "gc_before_recent_collection_allocated_bytes_total", value: gc_stats.bytes_before_gc,
+                      type: "counter",
+                      help: "Number of bytes allocated before the recent GC (value may wrap)"})
+
+        writer.write({name: "gc_non_candidate_bytes", value: gc_stats.non_gc_bytes,
+                      type: "gauge",
+                      help: "Number of bytes not considered candidates for GC"})
+
+        writer.write({name: "gc_cycles_total", value: gc_stats.gc_no,
+                      type: "counter",
+                      help: "Garbage collection cycle number (value may wrap)"})
+
+        writer.write({name: "gc_marker_threads", value: gc_stats.markers_m1,
+                      type: "gauge",
+                      help: "Number of marker threads (excluding the initiating one)"})
+
+        writer.write({name: "gc_since_recent_collection_reclaimed_bytes", value: gc_stats.bytes_reclaimed_since_gc,
+                      type: "gauge",
+                      help: "Approximate number of reclaimed bytes after recent GC"})
+
+        writer.write({name: "gc_before_recent_collection_reclaimed_bytes_total", value: gc_stats.reclaimed_bytes_before_gc,
+                      type: "counter",
+                      help: "Approximate number of bytes reclaimed before the recent GC (value may wrap)"})
+
+        writer.write({name: "gc_since_recent_collection_explicitly_freed_bytes", value: gc_stats.expl_freed_bytes_since_gc,
+                      type: "counter",
+                      help: "Number of bytes freed explicitly since the recent GC"})
+
+        writer.write({name: "gc_from_os_obtained_bytes_total", value: gc_stats.obtained_from_os_bytes,
+                      type: "counter",
+                      help: "Total amount of memory obtained from OS, in bytes"})
       end
 
       SERVER_METRICS = {:connection_created, :connection_closed, :channel_created, :channel_closed,
@@ -347,6 +442,11 @@ module LavinMQ
                           type:   "gauge",
                           labels: labels,
                           help:   "Sum of ready and unacknowledged messages - total queue depth"})
+            writer.write({name:   "detailed_queue_deduplication",
+                          value:  q.dedup_count,
+                          type:   "counter",
+                          labels: labels,
+                          help:   "Number of deduplicated messages for this queue"})
           end
         end
       end
@@ -360,6 +460,19 @@ module LavinMQ
                           type:   "gauge",
                           labels: labels,
                           help:   "Consumers on a queue"})
+          end
+        end
+      end
+
+      private def detailed_exchange_metrics(vhosts, writer)
+        vhosts.each do |vhost|
+          vhost.exchanges.each_value do |e|
+            labels = {exchange: e.name, vhost: vhost.name}
+            writer.write({name:   "detailed_exchange_deduplication",
+                          value:  e.dedup_count,
+                          type:   "counter",
+                          labels: labels,
+                          help:   "Number of deduplicated messages for this queue"})
           end
         end
       end

@@ -94,7 +94,7 @@ function updateQueue (all) {
       document.getElementById('q-unacked-bytes').textContent = Helpers.nFormatter(item.unacked_bytes) + 'B'
       document.getElementById('q-unacked-avg-bytes').textContent = Helpers.nFormatter(item.unacked_avg_bytes) + 'B'
       document.getElementById('q-total').textContent = Helpers.formatNumber(item.messages)
-      document.getElementById('q-total-bytes').textContent = Helpers.nFormatter(item.unacked_bytes + item.ready_bytes) + 'B'
+      document.getElementById('q-total-bytes').textContent = Helpers.nFormatter(item.total_bytes) + 'B'
       const totalAvgBytes = item.messages !== 0 ? (item.unacked_bytes + item.ready_bytes) / item.messages : 0
       document.getElementById('q-total-avg-bytes').textContent = Helpers.nFormatter(totalAvgBytes) + 'B'
       document.getElementById('q-ready').textContent = Helpers.formatNumber(item.ready)
@@ -111,10 +111,10 @@ function updateQueue (all) {
       }
       if (all) {
         let features = ''
-        features += item.durable ? ' D' : ''
-        features += item.auto_delete ? ' AD' : ''
-        features += item.exclusive ? ' E' : ''
-        document.getElementById('q-features').textContent = features
+        features += item.durable ? ' <span title="Durable">D</span>' : ''
+        features += item.auto_delete ? ' <span title="Auto delete">AD</span>' : ''
+        features += item.exclusive ? ' <span title="Exclusive">E</span>' : ''
+        document.getElementById('q-features').innerHTML = features
         document.querySelector('#pagename-label').textContent = queue + ' in virtual host ' + item.vhost
         document.querySelector('.queue').textContent = queue
         if (item.policy) {
@@ -134,7 +134,16 @@ function updateQueue (all) {
         }
         const qArgs = document.getElementById('q-arguments')
         for (const arg in item.arguments) {
-          qArgs.appendChild(document.createElement('div')).textContent = `${arg}: ${item.arguments[arg]}`
+          const div = document.createElement('div')
+          div.textContent = `${arg}: ${item.arguments[arg]}`
+          if (item.effective_arguments.includes(arg)) {
+            div.classList.add('active-argument')
+            div.title = 'Active argument'
+          } else {
+            div.classList.add('inactive-argument')
+            div.title = 'Passive argument'
+          }
+          qArgs.appendChild(div)
         }
       }
     })

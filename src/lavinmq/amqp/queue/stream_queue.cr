@@ -53,7 +53,7 @@ module LavinMQ::AMQP
       return false if @state.closed?
       @msg_store_lock.synchronize do
         @msg_store.push(msg)
-        @publish_count += 1
+        @publish_count.add(1)
       end
       true
     rescue ex : MessageStore::Error
@@ -71,12 +71,16 @@ module LavinMQ::AMQP
       get(consumer) do |env|
         yield env
         if env.redelivered
-          @redeliver_count += 1
+          @redeliver_count.add(1)
         else
-          @deliver_count += 1
-          @deliver_get_count += 1
+          @deliver_count.add(1)
+          @deliver_get_count.add(1)
         end
       end
+    end
+
+    def store_consumer_offset(consumer_tag : String, offset : Int64) : Nil
+      stream_queue_msg_store.store_consumer_offset(consumer_tag, offset)
     end
 
     # yield the next message in the ready queue
@@ -105,6 +109,7 @@ module LavinMQ::AMQP
 
     private def handle_arguments
       super
+      @effective_args << "x-queue-type"
       if @dlx
         raise LavinMQ::Error::PreconditionFailed.new("x-dead-letter-exchange not allowed for stream queues")
       end
@@ -149,6 +154,16 @@ module LavinMQ::AMQP
       else
         raise LavinMQ::Error::PreconditionFailed.new("max-age must be a string")
       end
+    end
+
+    def purge(max_count : Int = UInt32::MAX) : UInt32
+      delete_count = @msg_store_lock.synchronize { @msg_store.purge(max_count) }
+      @log.info { "Purged #{delete_count} messages" }
+      delete_count
+    rescue ex : MessageStore::Error
+      @log.error(ex) { "Queue closed due to error" }
+      close
+      raise ex
     end
 
     private def unmap_and_remove_segments_loop

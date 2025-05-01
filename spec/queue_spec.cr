@@ -2,6 +2,23 @@ require "./spec_helper"
 require "./../src/lavinmq/amqp/queue"
 
 describe LavinMQ::AMQP::Queue do
+  it "should expire it self after last consumer disconnects" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("qexpires", args: AMQP::Client::Arguments.new({"x-expires" => 100}))
+        queue = s.vhosts["/"].queues["qexpires"]
+        tag = q.subscribe { }
+        sleep 100.milliseconds
+        queue.closed?.should be_false
+        ch.basic_cancel(tag)
+        sleep 100.milliseconds
+        queue.closed?.should be_false
+        sleep 100.milliseconds
+        queue.closed?.should be_true
+      end
+    end
+  end
+
   it "Should dead letter expired messages" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
@@ -269,6 +286,17 @@ describe LavinMQ::AMQP::Queue do
     end
   end
 
+  it "should delete transient queues segments on creation" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        ch.queue "transient", durable: false
+      end
+      data_dir = s.vhosts["/"].queues["transient"].as(LavinMQ::AMQP::Queue).@msg_store.@queue_data_dir
+      Dir.exists?(data_dir).should be_true
+      File.exists?("#{data_dir}/msgs.0000000001").should be_false
+    end
+  end
+
   it "should delete left over transient queue data on Server start" do
     with_amqp_server do |s|
       data_dir = ""
@@ -276,10 +304,11 @@ describe LavinMQ::AMQP::Queue do
         q = ch.queue "transient", durable: false
         q.publish_confirm "foobar"
         data_dir = s.vhosts["/"].queues["transient"].as(LavinMQ::AMQP::Queue).@msg_store.@queue_data_dir
-        FileUtils.cp_r data_dir, "#{data_dir}.copy"
+        FileUtils.cp_r data_dir, "#{s.vhosts["/"].data_dir}.copy"
       end
       s.stop
-      FileUtils.cp_r "#{data_dir}.copy", data_dir
+      Dir.mkdir_p data_dir
+      FileUtils.cp_r "#{s.vhosts["/"].data_dir}.copy", data_dir
       s.restart
       with_channel(s) do |ch|
         q = ch.queue_declare "transient", durable: false
@@ -410,6 +439,26 @@ describe LavinMQ::AMQP::Queue do
       store.purge
     ensure
       FileUtils.rm_rf tmpdir if tmpdir
+    end
+  end
+
+  describe "deduplication" do
+    it "should not except message if it's a duplicate" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          queue_name = "dedup-queue"
+          q1 = ch.queue(queue_name, args: AMQP::Client::Arguments.new({
+            "x-message-deduplication" => true,
+          }))
+          props = LavinMQ::AMQP::Properties.new(headers: LavinMQ::AMQP::Table.new({
+            "x-deduplication-header" => "msg1",
+          }))
+          ch.default_exchange.publish_confirm("body", queue_name, props: props)
+          ch.default_exchange.publish_confirm("body", queue_name, props: props)
+          q1.get(no_ack: false).not_nil!.body_io.to_s.should eq "body"
+          q1.get(no_ack: false).should be_nil
+        end
+      end
     end
   end
 end

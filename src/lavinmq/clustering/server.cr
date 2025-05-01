@@ -34,7 +34,7 @@ module LavinMQ
       @id : Int32
       @config : Config
 
-      def initialize(config : Config, @etcd : Etcd, @id = File.read(File.join(config.data_dir, ".clustering_id")).to_i(36))
+      def initialize(config : Config, @etcd : Etcd, @id : Int32)
         Log.info { "ID: #{@id.to_s(36)}" }
         @config = config
         @data_dir = @config.data_dir
@@ -73,10 +73,19 @@ module LavinMQ
 
       def files_with_hash(algo : Digest, & : Tuple(String, Bytes) -> Nil)
         hash = Bytes.new(algo.digest_size)
-        @files.each_key do |path|
-          algo.file path
-          algo.final hash
+        @files.each do |path, mfile|
           algo.reset
+          if file = mfile
+            begin
+              file.reserve
+              algo.update file.to_slice
+            ensure
+              file.unreserve
+            end
+          else
+            algo.file path
+          end
+          algo.final hash
           yield({path, hash})
         end
       end
@@ -87,9 +96,13 @@ module LavinMQ
           if mfile = @files[path]
             yield mfile
           else
-            File.open(path) do |f|
-              f.read_buffering = false
-              yield f
+            if File.exists? path
+              File.open(path) do |f|
+                f.read_buffering = false
+                yield f
+              end
+            else
+              yield nil
             end
           end
         else
@@ -105,13 +118,12 @@ module LavinMQ
 
       def password : String
         key = "#{@config.clustering_etcd_prefix}/clustering_secret"
-        @etcd.get(key) ||
-          begin
-            Log.info { "Generating new clustering secret" }
-            secret = Random::Secure.base64(32)
-            @etcd.put(key, secret)
-            secret
-          end
+        secret = Random::Secure.base64(32)
+        stored_secret = @etcd.put_or_get(key, secret)
+        if stored_secret == secret
+          Log.info { "Generated new clustering secret" }
+        end
+        stored_secret
       end
 
       @listeners = Array(TCPServer).new(1)
@@ -158,7 +170,7 @@ module LavinMQ
       rescue ex : IO::EOFError
         Log.info { "Follower disconnected" }
       rescue ex : IO::Error
-        Log.warn { "Follower disonnected: #{ex.message}" }
+        Log.warn(exception: ex) { "Follower disonnected: #{ex.message}" }
       ensure
         follower.try &.close
       end

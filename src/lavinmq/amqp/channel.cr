@@ -1,3 +1,4 @@
+require "../stats"
 require "./client"
 require "./consumer"
 require "./stream_consumer"
@@ -6,8 +7,9 @@ require "../logger"
 require "./queue"
 require "../exchange"
 require "../amqp"
-require "../stats"
 require "../sortable_json"
+require "./channel_reply_code"
+require "../bool_channel"
 
 module LavinMQ
   module AMQP
@@ -21,7 +23,7 @@ module LavinMQ
       getter consumers = Array(Consumer).new
       getter prefetch_count : UInt16 = Config.instance.default_consumer_prefetch
       getter global_prefetch_count = 0_u16
-      getter has_capacity = ::Channel(Nil).new
+      getter has_capacity = BoolChannel.new(true)
       getter unacked = Deque(Unack).new
       @confirm = false
       @confirm_total = 0_u64
@@ -43,7 +45,7 @@ module LavinMQ
       Log = LavinMQ::Log.for "amqp.channel"
 
       def initialize(@client : Client, @id : UInt16)
-        @metadata = ::Log::Metadata.new(nil, {client: @client.remote_address.to_s, channel: @id.to_i})
+        @metadata = ::Log::Metadata.new(nil, {client: @client.connection_info.remote_address.to_s, channel: @id.to_i})
         @name = "#{@client.channel_name_prefix}[#{@id}]"
         @log = Logger.new(Log, @metadata)
       end
@@ -60,12 +62,12 @@ module LavinMQ
           number:                  @id,
           name:                    @name,
           vhost:                   @client.vhost.name,
-          user:                    @client.user.try(&.name),
+          user:                    @client.user.name,
           consumer_count:          @consumers.size,
           prefetch_count:          @prefetch_count,
           global_prefetch_count:   @global_prefetch_count,
           confirm:                 @confirm,
-          transactional:           false,
+          transactional:           @tx,
           messages_unacknowledged: @unacked.size,
           connection_details:      @client.connection_details,
           state:                   state,
@@ -215,7 +217,7 @@ module LavinMQ
       end
 
       private def finish_publish(body_io)
-        @publish_count += 1
+        @publish_count.add(1)
         @client.vhost.event_tick(EventType::ClientPublish)
         props = @next_msg_props.not_nil!
         props.timestamp = RoughTime.utc if props.timestamp.nil? && Config.instance.set_timestamp?
@@ -251,7 +253,8 @@ module LavinMQ
           basic_return(msg, @next_publish_mandatory, @next_publish_immediate) unless ok
         rescue e : LavinMQ::Error::PreconditionFailed
           msg.body_io.skip(msg.bodysize)
-          send AMQP::Frame::Channel::Close.new(@id, 406_u16, "PRECONDITION_FAILED - #{e.message}", 60_u16, 40_u16)
+          code = ChannelReplyCode::PRECONDITION_FAILED
+          send AMQP::Frame::Channel::Close.new(@id, code.value, "#{code} - #{e.message}", 60_u16, 40_u16)
         end
       rescue Queue::RejectOverFlow
         # nack but then do nothing
@@ -283,13 +286,13 @@ module LavinMQ
 
       private def confirm_ack(msgid, multiple = false)
         @client.vhost.event_tick(EventType::ClientPublishConfirm)
-        @confirm_count += 1 # Stats
+        @confirm_count.add(1)
         send AMQP::Frame::Basic::Ack.new(@id, msgid, multiple)
       end
 
       private def confirm_nack(msgid, multiple = false)
         @client.vhost.event_tick(EventType::ClientPublishConfirm)
-        @confirm_count += 1 # Stats
+        @confirm_count.add(1)
         send AMQP::Frame::Basic::Nack.new(@id, msgid, multiple, requeue: false)
       end
 
@@ -311,7 +314,7 @@ module LavinMQ
       end
 
       private def basic_return(msg : Message, mandatory : Bool, immediate : Bool)
-        @return_unroutable_count += 1
+        @return_unroutable_count.add(1)
         if immediate
           retrn = AMQP::Frame::Basic::Return.new(@id, 313_u16, "NO_CONSUMERS", msg.exchange_name, msg.routing_key)
           deliver(retrn, msg)
@@ -327,11 +330,11 @@ module LavinMQ
         raise ClosedError.new("Channel is closed") unless @running
         @client.deliver(frame, msg)
         if redelivered
-          @redeliver_count += 1
+          @redeliver_count.add(1)
           @client.vhost.event_tick(EventType::ClientRedeliver)
         else
-          @deliver_count += 1
-          @deliver_get_count += 1
+          @deliver_count.add(1)
+          @deliver_get_count.add(1)
           @client.vhost.event_tick(EventType::ClientDeliver)
         end
       end
@@ -385,8 +388,8 @@ module LavinMQ
           elsif q.is_a? StreamQueue
             @client.send_not_implemented(frame, "Stream queues does not support basic_get")
           else
-            @get_count += 1
-            @deliver_get_count += 1
+            @get_count.add(1)
+            @deliver_get_count.add(1)
             @client.vhost.event_tick(EventType::ClientGet)
             ok = q.basic_get(frame.no_ack) do |env|
               delivery_tag = next_delivery_tag(q, env.segment_position, frame.no_ack, nil)
@@ -493,7 +496,7 @@ module LavinMQ
         unack.queue.ack(unack.sp)
         unack.queue.basic_get_unacked.reject! { |u| u.channel == self && u.delivery_tag == unack.tag }
         @client.vhost.event_tick(EventType::ClientAck)
-        @ack_count += 1
+        @ack_count.add(1)
       end
 
       def basic_reject(frame)
@@ -571,7 +574,7 @@ module LavinMQ
         end
         unack.queue.reject(unack.sp, requeue)
         unack.queue.basic_get_unacked.reject! { |u| u.channel == self && u.delivery_tag == unack.tag }
-        @reject_count += 1
+        @reject_count.add(1)
         @client.vhost.event_tick(EventType::ClientReject)
       end
 
@@ -580,17 +583,20 @@ module LavinMQ
         if frame.global
           @global_prefetch_count = frame.prefetch_count
           if frame.prefetch_count.zero?
-            while @has_capacity.try_send?(nil)
-            end
+            @has_capacity.set(true)
           else
             unacked_by_consumers = @unack_lock.synchronize { @unacked.count(&.consumer) }
             notify_has_capacity(frame.prefetch_count.to_i - unacked_by_consumers)
           end
         else
-          @prefetch_count = frame.prefetch_count
-          @consumers.each(&.prefetch_count = frame.prefetch_count)
+          self.prefetch_count = frame.prefetch_count
         end
         send AMQP::Frame::Basic::QosOk.new(frame.channel)
+      end
+
+      def prefetch_count=(value)
+        @consumers.each(&.prefetch_count = value)
+        @prefetch_count = value
       end
 
       def basic_recover(frame) : Nil
@@ -618,6 +624,7 @@ module LavinMQ
               end
             end
           end
+          @has_capacity.set(true)
         end
         send AMQP::Frame::Basic::RecoverOk.new(frame.channel)
       end
@@ -634,7 +641,10 @@ module LavinMQ
 
       def close
         @running = false
-        @consumers.each &.close
+        @consumers.each_with_index(1) do |consumer, i|
+          consumer.close
+          Fiber.yield if (i % 128) == 0
+        end
         @consumers.clear
         if drc = @direct_reply_consumer
           @client.vhost.direct_reply_consumers.delete(drc)
@@ -670,7 +680,8 @@ module LavinMQ
               if timeout = unack.queue.consumer_timeout
                 unacked_ms = RoughTime.monotonic - unack.delivered_at
                 if unacked_ms > timeout.milliseconds
-                  send AMQP::Frame::Channel::Close.new(@id, 406_u16, "PRECONDITION_FAILED - consumer timeout", 60_u16, 20_u16)
+                  code = ChannelReplyCode::PRECONDITION_FAILED
+                  send AMQP::Frame::Channel::Close.new(@id, code.value, "#{code} - consumer timeout", 60_u16, 20_u16)
                   break
                 end
               end
@@ -687,18 +698,20 @@ module LavinMQ
           @unacked.each do |unack|
             next if unack.consumer.nil? # only count consumer unacked against limit
             count += 1
-            return false if count >= prefetch_limit
+            if count >= prefetch_limit
+              @has_capacity.set(false)
+              return false
+            end
           end
-          true
+          @has_capacity.set(true)
+          return true
         end
       end
 
       private def notify_has_capacity(capacity = Int32::MAX)
         return if @global_prefetch_count.zero?
         return if capacity.negative?
-        capacity.times do
-          @has_capacity.try_send?(nil) || break
-        end
+        @has_capacity.set(true) if capacity > 0
       end
 
       def cancel_consumer(frame)

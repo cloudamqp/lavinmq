@@ -51,10 +51,6 @@ module LavinMQ
         true
       end
 
-      protected def bindings(routing_key, headers) : Iterator(Destination)
-        matches(headers).each
-      end
-
       private def validate!(headers) : Nil
         if h = headers
           if match = h["x-match"]?
@@ -65,19 +61,26 @@ module LavinMQ
         end
       end
 
-      private def matches(headers) : Iterator(Destination)
-        @bindings.each.select do |args, _|
+      protected def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
+        @bindings.each do |args, destinations|
           if headers.nil? || headers.empty?
-            args.empty?
+            next unless args.empty?
+            destinations.each do |destination|
+              yield destination
+            end
           else
-            case args["x-match"]?
-            when "any"
-              args.any? { |k, v| !k.starts_with?("x-") && (headers.has_key?(k) && headers[k] == v) }
-            else
-              args.all? { |k, v| k.starts_with?("x-") || (headers.has_key?(k) && headers[k] == v) }
+            is_match = case args["x-match"]?
+                       when "any"
+                         args.any? { |k, v| !k.starts_with?("x-") && (headers.has_key?(k) && headers[k] == v) }
+                       else
+                         args.all? { |k, v| k.starts_with?("x-") || (headers.has_key?(k) && headers[k] == v) }
+                       end
+            next unless is_match
+            destinations.each do |destination|
+              yield destination
             end
           end
-        end.flat_map { |_, v| v.each }
+        end
       end
     end
   end

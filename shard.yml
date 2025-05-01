@@ -1,5 +1,5 @@
 name: lavinmq
-version: 2.0.2
+version: 2.3.0
 
 authors:
   - Carl Hörberg <carl@cloudamqp.com>
@@ -32,11 +32,13 @@ dependencies:
     github: 84codes/systemd.cr
   lz4:
     github: 84codes/lz4.cr
+  mqtt-protocol:
+    github: 84codes/mqtt-protocol.cr
 
 development_dependencies:
   ameba:
     github: crystal-ameba/ameba
 
-crystal: 1.13.2
+crystal: 1.16.1
 
 license: Apache-2.0

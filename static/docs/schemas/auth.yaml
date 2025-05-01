@@ -1,0 +1,14 @@
+---
+PutHashPasswordRequestBody:
+  allOf:
+  - type: object
+    properties:
+      password:
+        type: string
+        description: The password to be hashed.
+PasswordHash:
+  type: object
+  properties:
+    password_hash:
+      type: string
+      description:  The hashed password.

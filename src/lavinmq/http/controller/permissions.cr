@@ -13,6 +13,14 @@ module LavinMQ
       def details_tuple
         @user.permissions_details(@vhost, @p)
       end
+
+      def search_match?(value : String) : Bool
+        @user.name.includes? value
+      end
+
+      def search_match?(value : Regex) : Bool
+        value === @user.name
+      end
     end
 
     class PermissionsController < Controller

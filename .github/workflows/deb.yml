@@ -1,17 +1,5 @@
 name: Debian packages
 on:
-  pull_request:
-    paths:
-      - .github/workflows/deb.yml
-      - Makefile
-      - Dockerfile.deb
-      - build/deb
-      - shard.lock
-      - src/**
-      - static/**
-      - views/**
-      - openapi/**
-      - debian/**
   push:
     branches:
       - main
@@ -19,15 +7,13 @@ on:
       - v*
     paths:
       - .github/workflows/deb.yml
-      - Dockerfile.deb
       - Makefile
-      - build/deb
       - shard.lock
       - src/**
       - static/**
       - views/**
       - openapi/**
-      - debian/**
+      - packaging/debian/**
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -56,7 +42,7 @@ jobs:
       - uses: depot/setup-action@v1
       - uses: depot/build-push-action@v1
         with:
-          file: Dockerfile.deb
+          file: packaging/debian/Dockerfile
           platforms: linux/amd64,linux/arm64
           pull: true
           build-args: |
@@ -88,9 +74,9 @@ jobs:
               -F "package[package_file]=@${PKG_FILE}" \
               https://packagecloud.io/api/v1/repos/${{ github.repository }}/packages.json
           done
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-rc')
 
-      - name: Upload to Packagecloud head repo
+      - name: Upload to Packagecloud pre-release repo
         run: |
           set -eux
           ID=$(cut -d- -f1 <<< ${{ matrix.os }})
@@ -105,6 +91,21 @@ jobs:
           do curl -u "${{ secrets.packagecloud_token }}:" -XPOST --no-progress-meter \
               -F "package[distro_version_id]=${DIST_ID}" \
               -F "package[package_file]=@${PKG_FILE}" \
-              https://packagecloud.io/api/v1/repos/${{ github.repository }}-head/packages.json
+              https://packagecloud.io/api/v1/repos/${{ github.repository }}-prerelease/packages.json
           done
-        if: github.event_name != 'pull_request'
+        if: startsWith(github.ref, 'refs/tags/v') && contains(github.ref, '-rc')
+
+  rerun_on_failure:
+    needs: build_deb
+    if: failure() && github.run_attempt < 3
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Trigger rerun workflow
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run rerun.yml -r ${{ github.head_ref || github.ref_name }} -F run_id=${{ github.run_id }}

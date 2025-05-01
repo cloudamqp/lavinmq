@@ -15,9 +15,26 @@ require "../src/lavinmq/http/http_server"
 require "http/client"
 require "amqp-client"
 
-LavinMQ::Config.instance.data_dir = "/tmp/lavinmq-spec"
-LavinMQ::Config.instance.segment_size = 512 * 1024
-LavinMQ::Config.instance.consumer_timeout_loop_interval = 1
+def init_config(config = LavinMQ::Config.instance)
+  config.data_dir = "/tmp/lavinmq-spec"
+  config.segment_size = 512 * 1024
+  config.consumer_timeout_loop_interval = 1
+  config
+end
+
+init_config
+
+# Allow creating custom config objects for specs
+module LavinMQ
+  class Config
+    def initialize
+    end
+
+    def self.instance=(instance)
+      @@instance = instance
+    end
+  end
+end
 
 def with_datadir(&)
   data_dir = File.tempname("lavinmq", "spec")
@@ -29,6 +46,13 @@ end
 
 def with_channel(s : LavinMQ::Server, file = __FILE__, line = __LINE__, **args, &)
   name = "lavinmq-spec-#{file}:#{line}"
+  s.@listeners
+    .select { |k, v| k.is_a?(TCPServer) && v.amqp? }
+    .keys
+    .select(TCPServer)
+    .first
+    .local_address
+    .port
   args = {port: amqp_port(s), name: name}.merge(args)
   conn = AMQP::Client.new(**args).connect
   ch = conn.channel
@@ -72,23 +96,26 @@ def test_headers(headers = nil)
   req_hdrs
 end
 
-def with_amqp_server(tls = false, replicator = LavinMQ::Clustering::NoopServer.new, & : LavinMQ::Server -> Nil)
-  tcp_server = TCPServer.new("localhost", 0)
-  s = LavinMQ::Server.new(LavinMQ::Config.instance, replicator)
+def with_amqp_server(tls = false, replicator = LavinMQ::Clustering::NoopServer.new,
+                     config = LavinMQ::Config.instance, & : LavinMQ::Server -> Nil)
+  LavinMQ::Config.instance = init_config(config)
+  tcp_server = TCPServer.new("localhost", ENV.has_key?("NATIVE_PORTS") ? 5672 : 0)
+  s = LavinMQ::Server.new(config, replicator)
   begin
     if tls
       ctx = OpenSSL::SSL::Context::Server.new
       ctx.certificate_chain = "spec/resources/server_certificate.pem"
       ctx.private_key = "spec/resources/server_key.pem"
-      spawn(name: "amqp tls listen") { s.listen_tls(tcp_server, ctx) }
+      spawn(name: "amqp tls listen") { s.listen_tls(tcp_server, ctx, LavinMQ::Server::Protocol::AMQP) }
     else
-      spawn(name: "amqp tcp listen") { s.listen(tcp_server) }
+      spawn(name: "amqp tcp listen") { s.listen(tcp_server, LavinMQ::Server::Protocol::AMQP) }
     end
     Fiber.yield
     yield s
   ensure
     s.close
-    FileUtils.rm_rf(LavinMQ::Config.instance.data_dir)
+    FileUtils.rm_rf(config.data_dir)
+    LavinMQ::Config.instance = init_config(LavinMQ::Config.new)
   end
 end
 
@@ -96,7 +123,7 @@ def with_http_server(&)
   with_amqp_server do |s|
     h = LavinMQ::HTTP::Server.new(s)
     begin
-      addr = h.bind_tcp("::1", 0)
+      addr = h.bind_tcp("::1", ENV.has_key?("NATIVE_PORTS") ? 15672 : 0)
       spawn(name: "http listen") { h.listen }
       Fiber.yield
       yield({HTTPSpecHelper.new(addr.to_s), s})

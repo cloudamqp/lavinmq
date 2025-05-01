@@ -1,11 +1,13 @@
 BINS := bin/lavinmq bin/lavinmqctl bin/lavinmqperf
 SOURCES := $(shell find src/lavinmq src/stdlib -name '*.cr' 2> /dev/null)
+PERF_SOURCES := $(shell find src/lavinmqperf -name '*.cr' 2> /dev/null)
 VIEW_SOURCES := $(wildcard views/*.ecr)
 VIEW_TARGETS := $(patsubst views/%.ecr,static/views/%.html,$(VIEW_SOURCES))
 VIEW_PARTIALS := $(wildcard views/partials/*.ecr)
-JS := static/js/lib/chunks/helpers.segment.js static/js/lib/chart.js static/js/lib/amqp-websocket-client.mjs static/js/lib/amqp-websocket-client.mjs.map static/js/lib/luxon.js static/js/lib/chartjs-adapter-luxon.esm.js static/js/lib/elements-8.2.0.js static/js/lib/elements-8.2.0.css
-CRYSTAL_FLAGS := --release --stats
-override CRYSTAL_FLAGS += --error-on-warnings --link-flags=-pie
+JS := static/js/lib/chunks/helpers.segment.js static/js/lib/chart.js static/js/lib/luxon.js static/js/lib/chartjs-adapter-luxon.esm.js static/js/lib/elements-8.2.0.js static/js/lib/elements-8.2.0.css
+LDFLAGS := $(shell (dpkg-buildflags --get LDFLAGS || rpm -E "%{build_ldflags}" || echo "-pie") 2>/dev/null)
+CRYSTAL_FLAGS := --release
+override CRYSTAL_FLAGS += --stats --error-on-warnings -Dpreview_mt -Dexecution_context --link-flags="$(LDFLAGS)"
 
 .DEFAULT_GOAL := all
 
@@ -50,20 +52,14 @@ bin/%: src/%.cr $(SOURCES) lib $(JS) $(DOCS) | bin
 bin/%-debug: src/%.cr $(SOURCES) lib $(JS) $(DOCS) | bin
 	crystal build $< -o $@ --debug $(CRYSTAL_FLAGS)
 
-bin/lavinmqperf: src/lavinmqperf.cr lib | bin
-	crystal build $< -o $@ -Dpreview_mt $(CRYSTAL_FLAGS)
-
 bin/lavinmqctl: src/lavinmqctl.cr lib | bin
 	crystal build $< -o $@ -Dgc_none $(CRYSTAL_FLAGS)
 
 lib: shard.yml shard.lock
-	shards install --production $(if $(nocolor),--no-color)
+	shards install --production
 
 bin static/js/lib man1 static/js/lib/chunks:
 	mkdir -p $@
-
-static/js/lib/%: | static/js/lib
-	curl --retry 5 -sLo $@ https://github.com/cloudamqp/amqp-client.js/releases/download/v3.1.1/$(@F)
 
 static/js/lib/chart.js: | static/js/lib
 	curl --retry 5 -sL https://github.com/chartjs/Chart.js/releases/download/v4.0.1/chart.js-4.0.1.tgz | \
@@ -120,7 +116,7 @@ lint-openapi:
 
 .PHONY: test
 test: lib
-	crystal spec --order random $(if $(nocolor),--no-color) --verbose
+	crystal spec --order random --verbose -Dpreview_mt -Dexecution_context $(SPEC)
 
 .PHONY: format
 format:
@@ -143,7 +139,8 @@ install: $(BINS) $(MANPAGES) extras/lavinmq.ini extras/lavinmq.service README.md
 	install -D -m 0644 extras/lavinmq.service $(DESTDIR)$(UNITDIR)/lavinmq.service
 	install -D -m 0644 -t $(DESTDIR)$(DOCDIR)/lavinmq README.md NOTICE
 	install -D -m 0644 CHANGELOG.md $(DESTDIR)$(DOCDIR)/lavinmq/changelog
-	install -d -m 0755 $(DESTDIR)$(SHAREDSTATEDIR)/lavinmq
+	getent passwd lavinmq >/dev/null || useradd --system --user-group --home $(SHAREDSTATEDIR)/lavinmq lavinmq
+	install -d -m 0750 -o lavinmq -g lavinmq $(DESTDIR)$(SHAREDSTATEDIR)/lavinmq
 
 .PHONY: uninstall
 uninstall:
@@ -151,16 +148,18 @@ uninstall:
 	$(RM) $(DESTDIR)$(MANDIR)/man1/lavinmq{,ctl,perf}.1
 	$(RM) $(DESTDIR)$(SYSCONFDIR)/lavinmq/lavinmq.ini
 	$(RM) $(DESTDIR)$(UNITDIR)/lavinmq.service
-	$(RM) $(DESTDIR)$(DOCDIR)/{lavinmq,README.md,CHANGELOG.md,NOTICE}
-	$(RM) $(DESTDIR)$(SHAREDSTATEDIR)/lavinmq
+	$(RM) -r $(DESTDIR)$(DOCDIR)/lavinmq
 
 .PHONY: rpm
 rpm:
 	rpmdev-setuptree
 	git archive --prefix lavinmq/ --output ~/rpmbuild/SOURCES/lavinmq.tar.gz HEAD
-	sed -E "s/^(Version:).*/\1 $(shell ./rpm-version)/" lavinmq.spec > ~/rpmbuild/SPECS/lavinmq.spec
-	rpmbuild -bb ~/rpmbuild/SPECS/lavinmq.spec
+	env version="$(shell ./packaging/rpm/rpm-version)" rpmbuild -bb packaging/rpm/lavinmq.spec
 
 .PHONY: clean
 clean:
 	$(RM) $(BINS) $(DOCS) $(JS) $(MANPAGES) $(VIEW_TARGETS)
+
+.PHONY: watch
+watch:
+	while true; do inotifywait -qqr -e modify -e create -e delete src/ && $(MAKE); done

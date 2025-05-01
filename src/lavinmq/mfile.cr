@@ -283,4 +283,9 @@ class MFile < IO
     raise IO::Error.from_errno("pread") if cnt == -1
     cnt
   end
+
+  def rename(new_path : String) : Nil
+    File.rename @path, new_path
+    @path = new_path
+  end
 end

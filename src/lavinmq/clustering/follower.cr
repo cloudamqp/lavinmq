@@ -45,9 +45,7 @@ module LavinMQ
       end
 
       def full_sync : Nil
-        Log.info { "Calculating hashes" }
-        count = send_file_list
-        Log.info { "File list sent (#{count} files}" }
+        send_file_list
         send_requested_files
       end
 
@@ -64,6 +62,7 @@ module LavinMQ
           sync(sent_bytes)
         end
       ensure
+        @actions.close
         @running.done
       end
 
@@ -108,6 +107,7 @@ module LavinMQ
       end
 
       private def send_file_list(socket = @lz4)
+        Log.info { "Calculating hashes" }
         count = 0
         @file_index.files_with_hash(@checksum_algo) do |path, hash|
           count &+= 1
@@ -117,8 +117,9 @@ module LavinMQ
           socket.write hash
           Fiber.yield
         end
-        socket.write_bytes 0i32
+        socket.write_bytes 0i32 # 0 means end of file list
         socket.flush
+        Log.info { "File list sent (#{count} files}" }
         count
       end
 
@@ -126,7 +127,6 @@ module LavinMQ
         loop do
           filename_len = socket.read_bytes Int32, IO::ByteFormat::LittleEndian
           break if filename_len.zero?
-
           filename = socket.read_string(filename_len)
           send_requested_file(filename)
           @lz4.flush

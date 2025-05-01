@@ -11,6 +11,14 @@ module LavinMQ
       def details_tuple
         @user.user_details
       end
+
+      def search_match?(value : String) : Bool
+        @user.name.includes? value
+      end
+
+      def search_match?(value : Regex) : Bool
+        value === @user.name
+      end
     end
 
     module UserHelpers
@@ -118,6 +126,17 @@ module LavinMQ
             u.permissions_details.to_json(context.response)
           end
           context
+        end
+
+        put "/api/auth/hash_password" do |context, _params|
+          body = parse_body(context)
+          if password = body["password"]?.try &.as_s?
+            hash = User.hash_password(password, "SHA256")
+            {password_hash: hash.to_s}.to_json(context.response)
+            context
+          else
+            bad_request(context, "Field 'password' is required")
+          end
         end
       end
     end

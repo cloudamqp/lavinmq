@@ -18,6 +18,10 @@ module LavinMQ
         Log.info { "method=#{context.request.method} path=#{context.request.path} status=#{context.response.status_code} message=\"#{ex.message}\"" }
       rescue ex : IO::Error | ::HTTP::Server::ClientError
         Log.info { "method=#{context.request.method} path=#{context.request.path} error=\"#{ex.inspect}\"" }
+      rescue ex : LavinMQ::Exchange::AccessRefused
+        Log.error { "method=#{context.request.method} path=#{context.request.path} status=403 error=#{ex.inspect_with_backtrace}" }
+        context.response.status_code = 403
+        {error: "access_refused", reason: "Access Refused"}.to_json(context.response)
       rescue ex : Exception
         Log.error { "method=#{context.request.method} path=#{context.request.path} status=500 error=#{ex.inspect_with_backtrace}" }
         context.response.status_code = 500

@@ -111,6 +111,7 @@ const queuesTable = Table.renderTable('table', tableOptions, function (tr, item,
   Table.renderCell(tr, 11, Helpers.formatNumber(item.message_stats.deliver_details.rate), 'right')
   Table.renderCell(tr, 12, Helpers.formatNumber(item.message_stats.redeliver_details.rate), 'right')
   Table.renderCell(tr, 13, Helpers.formatNumber(item.message_stats.ack_details.rate), 'right')
+  Table.renderCell(tr, 14, Helpers.nFormatter(item.total_bytes) + 'B', 'right')
 })
 
 document.querySelector('#declare').addEventListener('submit', function (evt) {
