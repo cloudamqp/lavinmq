@@ -1,6 +1,7 @@
-require "../clustering"
-require "../clustering/proxy"
 require "../data_dir_lock"
+require "../clustering"
+require "./checksums"
+require "./proxy"
 require "lz4"
 
 module LavinMQ
@@ -29,6 +30,8 @@ module LavinMQ
         Dir.mkdir_p @data_dir
         @data_dir_lock = DataDirLock.new(@data_dir).tap &.acquire
         @backup_dir = File.join(@data_dir, "backups", Time.utc.to_rfc3339)
+        @checksums = Checksums.new(@data_dir)
+        @checksums.restore
 
         if proxy
           @amqp_proxy = Proxy.new(@config.amqp_bind, @config.amqp_port)
@@ -132,7 +135,6 @@ module LavinMQ
         Log.info { "Waiting for list of files" }
         sha1 = Digest::SHA1.new
         remote_hash = Bytes.new(sha1.digest_size)
-        local_hash = Bytes.new(sha1.digest_size)
         files_to_delete = ls_r(@data_dir)
         missing_files = Array(String).new
         loop do
@@ -144,9 +146,14 @@ module LavinMQ
           path = File.join(@data_dir, filename)
           files_to_delete.delete(path)
           if File.exists? path
-            sha1.file(path)
-            sha1.final(local_hash)
-            sha1.reset
+            unless local_hash = @checksums[filename]?
+              Log.info { "Calculating checksum for #{filename}" }
+              sha1.file(path)
+              local_hash = sha1.final
+              @checksums[filename] = local_hash
+              sha1.reset
+              Fiber.yield # CPU bound, so allow other fibers to run
+            end
             if local_hash != remote_hash
               Log.info { "Mismatching hash: #{path}" }
               move_to_backup path
@@ -208,9 +215,19 @@ module LavinMQ
         Dir.mkdir_p File.dirname(path)
         length = lz4.read_bytes Int64, IO::ByteFormat::LittleEndian
         File.open(path, "w") do |f|
-          IO.copy(lz4, f, length) == length || raise IO::EOFError.new
+          buffer = uninitialized UInt8[65536]
+          remaining = length
+          sha1 = Digest::SHA1.new
+          while (len = lz4.read(buffer.to_slice[0, Math.min(buffer.size, Math.max(remaining, 0))])) > 0
+            bytes = buffer.to_slice[0, len]
+            f.write bytes
+            sha1.update bytes
+            remaining &-= len
+          end
+          remaining.zero? || raise IO::EOFError.new
+          @checksums[filename] = sha1.final
         end
-        Log.info { "Received #{filename}, #{length} bytes" }
+        Log.info { "Received #{filename}, #{length.humanize_bytes}" }
       end
 
       private def stream_changes(socket, lz4)
@@ -296,6 +313,7 @@ module LavinMQ
         @unix_http_proxy.try &.close
         @unix_mqtt_proxy.try &.close
         @files.each_value &.close
+        @checksums.store
         @data_dir_lock.release
         @socket.try &.close
       end

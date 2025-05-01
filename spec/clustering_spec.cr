@@ -47,8 +47,6 @@ describe LavinMQ::Clustering::Client do
     ensure
       server.close
     end
-  ensure
-    replicator.try &.close
   end
 
   it "replicates and streams retained messages to followers" do
@@ -247,7 +245,7 @@ describe LavinMQ::Clustering::Client do
     spawn do
       # Fill the action queue
       loop do
-        replicator.append("path", 1)
+        replicator.append("#{LavinMQ::Config.instance.data_dir}/path", 1)
         appended.send true
       rescue Channel::ClosedError
         break
@@ -280,6 +278,7 @@ describe LavinMQ::Clustering::Client do
       fail "deadlock detected"
     end
   ensure
+    FileUtils.mkdir_p LavinMQ::Config.instance.data_dir
     replicator.try &.close
   end
 end
