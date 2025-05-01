@@ -101,7 +101,6 @@ module LavinMQ
         count = 0
         @file_index.files_with_hash do |path, hash|
           count &+= 1
-          path = path[@data_dir.bytesize + 1..]
           socket.write_bytes path.bytesize.to_i32, IO::ByteFormat::LittleEndian
           socket.write path.to_slice
           socket.write hash
@@ -109,7 +108,7 @@ module LavinMQ
         end
         socket.write_bytes 0i32 # 0 means end of file list
         socket.flush
-        Log.info { "File list sent (#{count} files}" }
+        Log.info { "File list sent (#{count} files)" }
         count
       end
 
@@ -144,17 +143,14 @@ module LavinMQ
       end
 
       def add(path, mfile : MFile? = nil) : Int64
-        path = path[(@data_dir.size + 1)..] if Path[path].absolute?
         send_action AddAction.new(@data_dir, path, mfile)
       end
 
       def append(path, obj) : Int64
-        path = path[(@data_dir.size + 1)..] if Path[path].absolute?
         send_action AppendAction.new(@data_dir, path, obj)
       end
 
       def delete(path) : Int64
-        path = path[(@data_dir.size + 1)..] if Path[path].absolute?
         send_action DeleteAction.new(@data_dir, path)
       end
 

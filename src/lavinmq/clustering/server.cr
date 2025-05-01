@@ -2,6 +2,7 @@ require "../clustering"
 require "./file_index"
 require "./replicator"
 require "./follower"
+require "./checksums"
 require "../config"
 require "../message"
 require "../mfile"
@@ -39,22 +40,28 @@ module LavinMQ
         @config = config
         @data_dir = @config.data_dir
         @password = password
+        @checksums = Checksums.new(@data_dir)
       end
 
       def clear
         @files.clear
+        @checksums.clear
       end
 
       def register_file(file : File)
-        @files[file.path] = nil
+        path = strip_datadir file.path
+        @files[path] = nil
       end
 
       def register_file(mfile : MFile)
-        @files[mfile.path] = mfile
+        path = strip_datadir mfile.path
+        @files[path] = mfile
       end
 
       def replace_file(path : String) # only non mfiles are ever replaced
+        path = strip_datadir path
         @files[path] = nil
+        @checksums.delete(path)
         each_follower &.add(path)
       end
 
@@ -63,41 +70,49 @@ module LavinMQ
       end
 
       def append(path : String, obj)
+        path = strip_datadir path
+        @checksums.delete(path)
         each_follower &.append(path, obj)
       end
 
       def delete_file(path : String)
+        path = strip_datadir path
         @files.delete(path)
+        @checksums.delete(path)
         each_follower &.delete(path)
       end
 
       def files_with_hash(& : Tuple(String, Bytes) -> Nil)
         sha1 = Digest::SHA1.new
-        hash = Bytes.new(sha1.digest_size)
         @files.each do |path, mfile|
-          sha1.reset
-          if file = mfile
-            begin
-              file.reserve
-              sha1.update file.to_slice
-            ensure
-              file.unreserve
-            end
+          if calculated_hash = @checksums[path]?
+            yield({path, calculated_hash})
           else
-            next unless File.exists? path
-            sha1.file path
+            sha1.reset
+            if file = mfile
+              begin
+                file.reserve
+                sha1.update file.to_slice
+              ensure
+                file.unreserve
+              end
+            else
+              next unless File.exists? path
+              sha1.file path
+            end
+            hash = sha1.final
+            @checksums[path] = hash
+            yield({path, hash})
           end
-          sha1.final hash
-          yield({path, hash})
         end
       end
 
-      def with_file(filename, & : MFile | File | Nil -> Nil) : Nil
-        path = File.join(@data_dir, filename)
-        if @files.has_key? path
-          if mfile = @files[path]
+      def with_file(filename, & : MFile | File | Nil -> _)
+        if @files.has_key? filename
+          if mfile = @files[filename]
             yield mfile
           else
+            path = File.join(@data_dir, filename)
             if File.exists? path
               File.open(path) do |f|
                 f.read_buffering = false
@@ -132,6 +147,7 @@ module LavinMQ
 
       def listen(server : TCPServer)
         server.listen
+        @checksums.restore
         Log.info { "Listening on #{server.local_address}" }
         @listeners << server
         while socket = server.accept?
@@ -195,6 +211,7 @@ module LavinMQ
           @followers.clear
         end
         Fiber.yield # required for follower/listener fibers to actually finish
+        @checksums.store
       end
 
       private def each_follower(& : Follower -> Nil) : Nil
@@ -206,6 +223,10 @@ module LavinMQ
             Fiber.yield # Allow other fiber to run to remove the follower from array
           end
         end
+      end
+
+      private def strip_datadir(path : String) : String
+        path[@data_dir.bytesize + 1..]
       end
     end
 
