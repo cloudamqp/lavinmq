@@ -119,7 +119,9 @@ module LavinMQ
           break if filename_len.zero?
           filename = socket.read_string(filename_len)
           requested_files << filename
+          Log.info { "#{filename} requested" }
         end
+        Log.info { "#{requested_files.size} files requested" }
         total_requested_bytes = requested_files.sum { |p| File.size File.join(@data_dir, p) }
         sent_bytes = 0i64
         start = Time.monotonic

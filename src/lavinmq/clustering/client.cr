@@ -136,7 +136,7 @@ module LavinMQ
         sha1 = Digest::SHA1.new
         remote_hash = Bytes.new(sha1.digest_size)
         files_to_delete = ls_r(@data_dir)
-        missing_files = Array(String).new
+        requested_files = Array(String).new
         loop do
           filename_len = lz4.read_bytes Int32, IO::ByteFormat::LittleEndian
           break if filename_len.zero?
@@ -157,19 +157,21 @@ module LavinMQ
             if local_hash != remote_hash
               Log.info { "Mismatching hash: #{path}" }
               move_to_backup path
-              missing_files << filename
+              requested_files << filename
+              request_file(filename, socket)
             end
           else
-            missing_files << filename
+            requested_files << filename
+            request_file(filename, socket)
           end
         end
+        end_of_file_list(socket)
         Log.info { "List of files received" }
         files_to_delete.each do |path|
           Log.info { "File not on leader: #{path}" }
           move_to_backup path
         end
-        spawn(request_missing_files(missing_files, socket), name: "Request missing files")
-        missing_files.each do |filename|
+        requested_files.each do |filename|
           file_from_socket(filename, lz4)
         end
       end
@@ -201,13 +203,14 @@ module LavinMQ
         end
       end
 
-      private def request_missing_files(missing_files, socket)
-        missing_files.each do |filename|
-          Log.info { "Requesting #{filename}" }
-          socket.write_bytes filename.bytesize, IO::ByteFormat::LittleEndian
-          socket.write filename.to_slice
-        end
-        socket.write_bytes 0i32
+      private def request_file(filename, socket)
+        Log.info { "Requesting #{filename}" }
+        socket.write_bytes filename.bytesize, IO::ByteFormat::LittleEndian
+        socket.write filename.to_slice
+      end
+
+      private def end_of_file_list(socket)
+        socket.write_bytes 0, IO::ByteFormat::LittleEndian
       end
 
       private def file_from_socket(filename, lz4)
