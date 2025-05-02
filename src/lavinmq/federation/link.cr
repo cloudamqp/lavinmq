@@ -292,10 +292,15 @@ module LavinMQ
           in .deleted?
             @upstream.stop_link(@federated_ex)
           in .bind?
-            with_consumer_ex do |ex|
-              b = data_as_binding_details(data)
-              args = b.arguments || ::AMQP::Client::Arguments.new
-              ex.bind(@upstream_exchange, b.routing_key, args: args)
+            b = data_as_binding_details(data)
+            # Must clone args here, else we'll add stuff to
+            # the arguments to the source exchange's binding
+            args = b.arguments.clone || ::AMQP::Client::Arguments.new
+            updated, args = update_bound_from?(args)
+            if updated
+              with_consumer_ex do |ex|
+                ex.bind(@upstream_exchange, b.routing_key, args: args)
+              end
             end
           in .unbind?
             with_consumer_ex do |ex|
@@ -372,8 +377,13 @@ module LavinMQ
           end
           @federated_ex.register_observer(self)
           @federated_ex.bindings_details.each do |binding|
-            args = binding.arguments || ::AMQP::Client::Arguments.new
-            consumer_ex.bind(@upstream_exchange, binding.routing_key, args: args)
+            # Must clone args here, else we'll add stuff to
+            # the arguments to the source exchange's binding
+            args = binding.arguments.clone || ::AMQP::Client::Arguments.new
+            updated, args = update_bound_from?(args)
+            if updated
+              consumer_ex.bind(@upstream_exchange, binding.routing_key, args: args)
+            end
           end
           {ch, consumer_ex}
         end
@@ -399,6 +409,30 @@ module LavinMQ
           ensure
             @consumer_ex = nil
           end
+        end
+
+        private def update_bound_from?(arguments : ::AMQP::Client::Arguments)
+          bound_from = arguments["x-bound-from"]?.try(&.as?(Array(AMQP::Field)))
+          bound_from ||= Array(AMQP::Field).new
+          hops = get_binding_hops(bound_from)
+          return {false, arguments} if hops == 0
+          bound_from.unshift AMQP::Table.new({
+            "cluster-name": "dunno",
+            "vhost":        @upstream.vhost.name,
+            "exchange":     @federated_ex.name,
+            "hops":         hops,
+          })
+          arguments["x-bound-from"] = bound_from
+          {true, arguments}
+        end
+
+        private def get_binding_hops(x_bound_from)
+          if prev = x_bound_from.first?.try(&.as?(AMQP::Table))
+            if hops = prev["hops"]?.try(&.as?(Int64))
+              return {hops - 1, @upstream.max_hops}.min
+            end
+          end
+          @upstream.max_hops
         end
       end
     end
