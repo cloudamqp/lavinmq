@@ -1,6 +1,29 @@
 require "./spec_helper"
 
 describe LavinMQ::Exchange do
+  describe "binding arguments" do
+    {
+      {"x-consistent-hash", "1"},
+      {"direct", "routing.key"},
+      {"fanout", "routing.key"},
+      {"headers", "routing.key"},
+      {"topic", "routing.key"},
+    }.each do |exchange_type, routing_key|
+      it "type=#{exchange_type} saves arguments" do
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            x = ch.exchange("test", exchange_type)
+            q = ch.queue("q")
+            q.bind(x.name, routing_key, args: LavinMQ::AMQP::Table.new({"x-foo": "bar"}))
+            ex = s.vhosts["/"].exchanges["test"]
+            q = s.vhosts["/"].queues["q"]
+            bd = ex.bindings_details.find { |b| b.destination == q }.should_not be_nil
+            bd.binding_key.arguments.should eq LavinMQ::AMQP::Table.new({"x-foo": "bar"})
+          end
+        end
+      end
+    end
+  end
   describe "Exchange => Exchange binding" do
     it "should allow multiple e2e bindings" do
       with_amqp_server do |s|
