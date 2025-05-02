@@ -99,6 +99,7 @@ end
 def with_amqp_server(tls = false, replicator = LavinMQ::Clustering::NoopServer.new,
                      config = LavinMQ::Config.instance, & : LavinMQ::Server -> Nil)
   LavinMQ::Config.instance = init_config(config)
+  FileUtils.rm_rf(config.data_dir)
   tcp_server = TCPServer.new("localhost", ENV.has_key?("NATIVE_PORTS") ? 5672 : 0)
   s = LavinMQ::Server.new(config, replicator)
   begin
