@@ -17,8 +17,8 @@ module LavinMQ
       getter remote_address
 
       def initialize(@socket : TCPSocket, @data_dir : String, @file_index : FileIndex)
-        @socket.write_timeout = 5.seconds
-        @socket.read_timeout = 5.seconds
+        @socket.write_timeout = 60.seconds
+        @socket.read_timeout = 60.seconds
         @remote_address = @socket.remote_address
         @lz4 = Compress::LZ4::Writer.new(@socket, Compress::LZ4::CompressOptions.new(auto_flush: false, block_mode_linked: true))
       end
