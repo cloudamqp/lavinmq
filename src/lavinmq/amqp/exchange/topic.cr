@@ -3,8 +3,8 @@ require "./exchange"
 module LavinMQ
   module AMQP
     class TopicExchange < Exchange
-      @bindings = Hash(Array(String), Set(AMQP::Destination)).new do |h, k|
-        h[k] = Set(AMQP::Destination).new
+      @bindings = Hash(Array(String), Set({AMQP::Destination, AMQP::Table?})).new do |h, k|
+        h[k] = Set({AMQP::Destination, AMQP::Table?}).new
       end
 
       def type : String
@@ -13,28 +13,28 @@ module LavinMQ
 
       def bindings_details : Iterator(BindingDetails)
         @bindings.each.flat_map do |rk, ds|
-          ds.each.map do |d|
-            binding_key = BindingKey.new(rk.join("."))
+          ds.each.map do |d, arguments|
+            binding_key = BindingKey.new(rk.join("."), arguments)
             BindingDetails.new(name, vhost.name, binding_key, d)
           end
         end
       end
 
-      def bind(destination : AMQP::Destination, routing_key, headers = nil)
-        return false unless @bindings[routing_key.split(".")].add? destination
-        binding_key = BindingKey.new(routing_key)
+      def bind(destination : AMQP::Destination, routing_key, arguments = nil)
+        return false unless @bindings[routing_key.split(".")].add?({destination, arguments})
+        binding_key = BindingKey.new(routing_key, arguments)
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
         notify_observers(ExchangeEvent::Bind, data)
         true
       end
 
-      def unbind(destination : AMQP::Destination, routing_key, headers = nil)
+      def unbind(destination : AMQP::Destination, routing_key, arguments = nil)
         rks = routing_key.split(".")
         bds = @bindings[routing_key.split(".")]
-        return false unless bds.delete destination
+        return false unless bds.delete({destination, arguments})
         @bindings.delete(rks) if bds.empty?
 
-        binding_key = BindingKey.new(routing_key)
+        binding_key = BindingKey.new(routing_key, arguments)
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
         notify_observers(ExchangeEvent::Unbind, data)
 
@@ -53,7 +53,7 @@ module LavinMQ
           bk, qs = binding_keys.first
           if bk.size == 1
             if bk.first == "#"
-              qs.each do |q|
+              qs.each do |q, _h|
                 yield q
               end
             end
@@ -119,7 +119,7 @@ module LavinMQ
             i += 1
           end
           if ok
-            destinations.each do |destination|
+            destinations.each do |destination, _arguments|
               yield destination
             end
           end

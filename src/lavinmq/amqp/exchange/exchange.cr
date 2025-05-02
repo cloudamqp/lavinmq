@@ -184,13 +184,13 @@ module LavinMQ
         {% end %}
       end
 
-      def bind(destination : LavinMQ::Destination, routing_key, headers = nil) : Bool
+      def bind(destination : LavinMQ::Destination, routing_key, arguments = nil) : Bool
         raise AccessRefused.new(self)
       end
 
       abstract def type : String
-      abstract def bind(destination : AMQP::Destination, routing_key : String, headers : AMQP::Table?)
-      abstract def unbind(destination : AMQP::Destination, routing_key : String, headers : AMQP::Table?)
+      abstract def bind(destination : AMQP::Destination, routing_key : String, arguments : AMQP::Table?)
+      abstract def unbind(destination : AMQP::Destination, routing_key : String, arguments : AMQP::Table?)
       abstract def bindings_details : Iterator(BindingDetails)
       abstract def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
 
