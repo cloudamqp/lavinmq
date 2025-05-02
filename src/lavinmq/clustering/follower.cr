@@ -36,7 +36,7 @@ module LavinMQ
           @socket.tcp_keepalive_interval = keepalive[1]
           @socket.tcp_keepalive_count = keepalive[2]
         end
-        Log.info { "Accepted ID #{@id}" }
+        Log.info { "Accepted ID #{@id.to_s(36)}" }
       end
 
       def full_sync : Nil
