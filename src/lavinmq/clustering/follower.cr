@@ -113,30 +113,47 @@ module LavinMQ
       end
 
       private def send_requested_files(socket = @socket)
+        requested_files = Array(String).new
         loop do
           filename_len = socket.read_bytes Int32, IO::ByteFormat::LittleEndian
           break if filename_len.zero?
           filename = socket.read_string(filename_len)
-          send_requested_file(filename)
+          requested_files << filename
+        end
+        total_requested_bytes = requested_files.sum { |p| File.size File.join(@data_dir, p) }
+        sent_bytes = 0i64
+        start = Time.monotonic
+        requested_files.each do |filename|
+          file_size = send_requested_file(filename)
           @lz4.flush
+
+          sent_bytes += file_size
+          total_requested_bytes -= file_size
+          total_time_taken = (Time.monotonic - start).total_seconds
+          bps = (sent_bytes / total_time_taken).round.to_u64
+          time_left = (total_requested_bytes / bps).round(1)
+          Log.info { "Uploaded #{filename} in #{bps.humanize_bytes}/s" }
+          Log.info { "#{total_requested_bytes.humanize_bytes} left, expected #{time_left}s left" }
           Fiber.yield
         end
       end
 
-      private def send_requested_file(filename)
-        Log.info { "#{filename} requested" }
+      private def send_requested_file(filename) : Int
         @file_index.with_file(filename) do |f|
           case f
           when MFile
             size = f.size.to_i64
             @lz4.write_bytes size, IO::ByteFormat::LittleEndian
             f.copy_to(@lz4, size)
+            size
           when File
             size = f.size.to_i64
             @lz4.write_bytes size, IO::ByteFormat::LittleEndian
             IO.copy(f, @lz4, size) == size || raise IO::EOFError.new
+            size
           when nil
             @lz4.write_bytes 0i64
+            0
           else raise "unexpected file type #{f.class}"
           end
         end
