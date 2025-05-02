@@ -685,5 +685,36 @@ describe LavinMQ::Federation::Upstream do
         end
       end
     end
+
+    it "set x-bound-from" do
+      with_http_server do |http, s|
+        vhost1 = s.vhosts.create("one")
+        vhost2 = s.vhosts.create("two")
+
+        vhost1.declare_exchange("upstream_ex", "topic", durable: true, auto_delete: false)
+        vhost2.declare_exchange("downstream_ex", "topic", durable: true, auto_delete: false)
+        vhost2.declare_queue("downstream_q", durable: true, auto_delete: false)
+
+        downstream_ex = vhost2.exchanges["downstream_ex"]
+        downstream_q = vhost2.queues["downstream_q"]
+        downstream_ex.bind(downstream_q, "federation.link.rk")
+
+        upstream_ex = vhost1.exchanges["upstream_ex"]
+
+        url = URI.parse(s.amqp_url)
+        url.path = vhost1.name
+        upstream = LavinMQ::Federation::Upstream.new(vhost2, "ef x-bound-from", url.to_s, exchange: "upstream_ex", queue: nil)
+
+        link = upstream.link(downstream_ex)
+
+        wait_for { link.state.running? }
+        wait_for { upstream_ex.bindings_details.size == 1 }
+
+        sleep 120.seconds
+        binding_details = upstream_ex.bindings_details.find { |x| x.routing_key == "federation.link.rk" }.should_not be_nil
+        arguments = binding_details.arguments.should_not be_nil
+        arguments["x-bound-from"].should be_a Array(AMQ::Protocol::Field)
+      end
+    end
   end
 end
