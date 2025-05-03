@@ -17,6 +17,8 @@ module LavinMQ
       getter remote_address
 
       def initialize(@socket : TCPSocket, @data_dir : String, @file_index : FileIndex)
+        @socket.sync = true # Use buffering in lz4
+        @socket.read_buffering = true
         @socket.write_timeout = 60.seconds
         @socket.read_timeout = 60.seconds
         @remote_address = @socket.remote_address
@@ -27,9 +29,6 @@ module LavinMQ
         validate_header!
         authenticate!(password)
         @id = @socket.read_bytes Int32, IO::ByteFormat::LittleEndian
-        @socket.tcp_nodelay = true
-        @socket.read_buffering = false
-        @socket.sync = true # Use buffering in lz4
         if keepalive = Config.instance.tcp_keepalive
           @socket.keepalive = true
           @socket.tcp_keepalive_idle = keepalive[0]
@@ -45,6 +44,7 @@ module LavinMQ
       end
 
       def action_loop(lz4 = @lz4)
+        @socket.tcp_nodelay = true
         @running.add
         while action = @actions.receive?
           action.send(lz4, Log)
@@ -92,8 +92,6 @@ module LavinMQ
           @socket.write_byte 1u8
           raise AuthenticationError.new
         end
-      ensure
-        @socket.flush
       end
 
       private def send_file_list(socket = @lz4)
