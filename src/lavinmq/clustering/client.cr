@@ -245,23 +245,11 @@ module LavinMQ
           len = lz4.read_bytes Int64, IO::ByteFormat::LittleEndian
           case len
           when .negative? # append bytes to file
-            Log.debug { "Appending #{len.abs} bytes to #{filename}" }
-            f = @files[filename]
-            IO.copy(lz4, f, len.abs) == len.abs || raise IO::EOFError.new("Full append not received")
+            append(filename, len, lz4)
           when .zero? # file is deleted
-            Log.debug { "Deleting #{filename}" }
-            if f = @files.delete(filename)
-              f.delete
-              f.close
-            else
-              File.delete? File.join(@data_dir, filename)
-            end
+            delete(filename)
           when .positive? # replace file
-            Log.debug { "Replacing file #{filename} (#{len} bytes)" }
-            f = @files["#{filename}.tmp"]
-            IO.copy(lz4, f, len) == len || raise IO::EOFError.new("Full file not received")
-            f.rename f.path[0..-5]
-            @files.delete("#{filename}.tmp").try &.close
+            replace(filename, len, lz4)
           end
           ack_bytes = len.abs + sizeof(Int64) + filename_len + sizeof(Int32)
           @streamed_bytes &+= ack_bytes
@@ -269,6 +257,30 @@ module LavinMQ
         end
       ensure
         acks.try &.close
+      end
+
+      private def append(filename, len, lz4)
+        Log.debug { "Appending #{len.abs} bytes to #{filename}" }
+        f = @files[filename]
+        IO.copy(lz4, f, len.abs) == len.abs || raise IO::EOFError.new("Full append not received")
+      end
+
+      private def delete(filename)
+        Log.debug { "Deleting #{filename}" }
+        if f = @files.delete(filename)
+          f.delete
+          f.close
+        else
+          File.delete? File.join(@data_dir, filename)
+        end
+      end
+
+      private def replace(filename, len, lz4)
+        Log.debug { "Replacing file #{filename} (#{len} bytes)" }
+        f = @files["#{filename}.tmp"]
+        IO.copy(lz4, f, len) == len || raise IO::EOFError.new("Full file not received")
+        f.rename f.path[0..-5]
+        @files.delete("#{filename}.tmp").try &.close
       end
 
       # Concatenate as many acks as possible to generate few TCP packets
