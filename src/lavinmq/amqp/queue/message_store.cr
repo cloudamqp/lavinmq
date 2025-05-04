@@ -279,11 +279,13 @@ module LavinMQ
       end
 
       private def open_new_segment(next_msg_size = 0) : MFile
-        append_msg_count(@wfile, @segment_msg_count[@wfile_id])
-        @wfile.read_only = true
-        @wfile.truncate(@wfile.size)
+        unless @wfile_id.zero?
+          append_msg_count(@wfile, @segment_msg_count[@wfile_id])
+          @wfile.read_only = true
+          @wfile.truncate(@wfile.size)
 
-        @wfile.unmap unless @wfile == @rfile
+          @wfile.unmap unless @wfile == @rfile
+        end
         next_id = @wfile_id + 1
         path = File.join(@queue_data_dir, "msgs.#{next_id.to_s.rjust(10, '0')}")
         capacity = Math.max(Config.instance.segment_size, next_msg_size + 4 + 20)
