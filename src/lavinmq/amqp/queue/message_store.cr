@@ -459,8 +459,10 @@ module LavinMQ
         end
         @segment_msg_count[seg] = count
 
-        File.open(mfile.path, "a") do |f|
-          append_msg_count(f, count)
+        unless seg == @segments.last_key # don't append stats to last segment (currently writing to)
+          File.open(mfile.path, "a") do |f|
+            append_msg_count(f, count)
+          end
         end
       end
 
