@@ -88,7 +88,6 @@ module LavinMQ
           if calculated_hash = @checksums[path]?
             yield({path, calculated_hash})
           else
-            sha1.reset
             if file = mfile
               begin
                 file.reserve
@@ -102,6 +101,8 @@ module LavinMQ
             end
             hash = sha1.final
             @checksums[path] = hash
+            sha1.reset
+            Fiber.yield # CPU bound so allow other fibers to run here
             yield({path, hash})
           end
         end

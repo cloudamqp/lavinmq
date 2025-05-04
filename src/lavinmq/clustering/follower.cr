@@ -95,18 +95,17 @@ module LavinMQ
         end
       end
 
-      private def send_file_list(socket = @lz4)
+      private def send_file_list(lz4 = @lz4)
         Log.info { "Calculating hashes" }
         count = 0
         @file_index.files_with_hash do |path, hash|
           count &+= 1
-          socket.write_bytes path.bytesize.to_i32, IO::ByteFormat::LittleEndian
-          socket.write path.to_slice
-          socket.write hash
-          Fiber.yield
+          lz4.write_bytes path.bytesize.to_i32, IO::ByteFormat::LittleEndian
+          lz4.write path.to_slice
+          lz4.write hash
         end
-        socket.write_bytes 0i32 # 0 means end of file list
-        socket.flush
+        lz4.write_bytes 0i32 # 0 means end of file list
+        lz4.flush
         Log.info { "File list sent (#{count} files)" }
         count
       end
