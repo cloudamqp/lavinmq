@@ -286,7 +286,7 @@ module LavinMQ
         @wfile.unmap unless @wfile == @rfile
         next_id = @wfile_id + 1
         path = File.join(@queue_data_dir, "msgs.#{next_id.to_s.rjust(10, '0')}")
-        capacity = Math.max(Config.instance.segment_size, next_msg_size + 4)
+        capacity = Math.max(Config.instance.segment_size, next_msg_size + 4 + 20)
         wfile = MFile.new(path, capacity)
         wfile.write_bytes Schema::VERSION
         wfile.pos = 4
