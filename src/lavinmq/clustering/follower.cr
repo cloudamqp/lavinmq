@@ -19,13 +19,12 @@ module LavinMQ
       def initialize(@socket : TCPSocket, @data_dir : String, @file_index : FileIndex)
         @socket.sync = true # Use buffering in lz4
         @socket.read_buffering = true
-        @socket.write_timeout = 60.seconds
-        @socket.read_timeout = 60.seconds
         @remote_address = @socket.remote_address
         @lz4 = Compress::LZ4::Writer.new(@socket, Compress::LZ4::CompressOptions.new(auto_flush: false, block_mode_linked: true))
       end
 
       def negotiate!(password) : Nil
+        @socket.read_timeout = 5.seconds # prevent idling non-authed sockets
         validate_header!
         authenticate!(password)
         @id = @socket.read_bytes Int32, IO::ByteFormat::LittleEndian
@@ -35,6 +34,7 @@ module LavinMQ
           @socket.tcp_keepalive_interval = keepalive[1]
           @socket.tcp_keepalive_count = keepalive[2]
         end
+        @socket.read_timeout = nil # assumed authed followers are well behaving
         Log.info { "Accepted ID #{@id.to_s(36)}" }
       end
 
@@ -45,6 +45,7 @@ module LavinMQ
 
       def action_loop(lz4 = @lz4)
         @socket.tcp_nodelay = true
+        @socket.read_buffering = false
         @running.add
         while action = @actions.receive?
           action.send(lz4, Log)
