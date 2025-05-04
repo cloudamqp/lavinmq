@@ -79,7 +79,7 @@ module LavinMQ
         loop do
           @socket = socket = TCPSocket.new(host, port)
           socket.sync = true
-          socket.read_buffering = false
+          socket.read_buffering = false # use lz4 buffering
           lz4 = Compress::LZ4::Reader.new(socket)
           sync(socket, lz4)
           Log.info { "Streaming changes" }
