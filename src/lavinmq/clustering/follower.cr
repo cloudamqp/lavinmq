@@ -125,7 +125,6 @@ module LavinMQ
         start = Time.monotonic
         requested_files.each do |filename|
           file_size = send_requested_file(filename)
-          @lz4.flush
 
           sent_bytes += file_size
           total_requested_bytes -= file_size
@@ -136,6 +135,7 @@ module LavinMQ
           Log.info { "#{total_requested_bytes.humanize_bytes} left, expected #{time_left}s left" }
           Fiber.yield
         end
+        @lz4.flush
       end
 
       private def send_requested_file(filename) : Int
