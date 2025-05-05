@@ -9,16 +9,36 @@ describe LavinMQ::Exchange do
       {"headers", "routing.key"},
       {"topic", "routing.key"},
     }.each do |exchange_type, routing_key|
-      it "type=#{exchange_type} saves arguments" do
-        with_amqp_server do |s|
-          with_channel(s) do |ch|
-            x = ch.exchange("test", exchange_type)
-            q = ch.queue("q")
-            q.bind(x.name, routing_key, args: LavinMQ::AMQP::Table.new({"x-foo": "bar"}))
-            ex = s.vhosts["/"].exchanges["test"]
-            q = s.vhosts["/"].queues["q"]
-            bd = ex.bindings_details.find { |b| b.destination == q }.should_not be_nil
-            bd.binding_key.arguments.should eq LavinMQ::AMQP::Table.new({"x-foo": "bar"})
+      describe "exchange #{exchange_type}" do
+        it "are saved" do
+          with_amqp_server do |s|
+            with_channel(s) do |ch|
+              x = ch.exchange("test", exchange_type)
+              q = ch.queue("q")
+              q.bind(x.name, routing_key, args: LavinMQ::AMQP::Table.new({"x-foo": "bar"}))
+              ex = s.vhosts["/"].exchanges["test"]
+              q = s.vhosts["/"].queues["q"]
+              bd = ex.bindings_details.find { |b| b.destination == q }.should_not be_nil
+              bd.binding_key.arguments.should eq LavinMQ::AMQP::Table.new({"x-foo": "bar"})
+            end
+          end
+        end
+
+        it "arguments must match when unbinding" do
+          with_amqp_server do |s|
+            with_channel(s) do |ch|
+              x = ch.exchange("test", exchange_type)
+              ch_q = ch.queue("q")
+              bd_args = LavinMQ::AMQP::Table.new({"x-foo": "bar"})
+              ch_q.bind(x.name, routing_key, args: bd_args)
+              ex = s.vhosts["/"].exchanges["test"]
+              q = s.vhosts["/"].queues["q"]
+              ex.bindings_details.find { |b| b.destination == q }.should_not be_nil
+              ch_q.unbind(x.name, routing_key)
+              ex.bindings_details.find { |b| b.destination == q }.should_not be_nil
+              ch_q.unbind(x.name, routing_key, args: bd_args)
+              ex.bindings_details.find { |b| b.destination == q }.should be_nil
+            end
           end
         end
       end
