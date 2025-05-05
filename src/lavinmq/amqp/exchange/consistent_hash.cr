@@ -6,15 +6,14 @@ module LavinMQ
   module AMQP
     class ConsistentHashExchange < Exchange
       @hasher = ConsistentHasher(AMQP::Destination).new
-      @bindings = Hash(Destination, {String, AMQP::Table?}).new
+      @bindings = Hash(Destination, {String, BindingKey}).new
 
       def type : String
         "x-consistent-hash"
       end
 
       def bindings_details : Iterator(BindingDetails)
-        @bindings.each.map do |destination, (routing_key, arguments)|
-          binding_key = BindingKey.new(routing_key, arguments)
+        @bindings.each.map do |destination, (routing_key, binding_key)|
           BindingDetails.new(name, vhost.name, binding_key, destination)
         end
       end
@@ -22,9 +21,9 @@ module LavinMQ
       def bind(destination : Destination, routing_key : String, arguments : AMQP::Table?)
         w = weight(routing_key)
         return false if @bindings.has_key? destination
-        @bindings[destination] = {routing_key, arguments}
-        @hasher.add(destination.name, w, destination)
         binding_key = BindingKey.new(routing_key, arguments)
+        @bindings[destination] = {routing_key, binding_key}
+        @hasher.add(destination.name, w, destination)
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
         notify_observers(ExchangeEvent::Bind, data)
         true
@@ -34,7 +33,6 @@ module LavinMQ
         w = weight(routing_key)
         return false unless @bindings.delete destination
         @hasher.remove(destination.name, w)
-
         binding_key = BindingKey.new(routing_key, arguments)
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
         notify_observers(ExchangeEvent::Unbind, data)
