@@ -450,8 +450,7 @@ module LavinMQ
           ts = IO::ByteFormat::SystemEndian.decode(Int64, mfile.to_slice(pos, 8))
           if ts.zero?
             # This means that the rest of the file is zero
-            # so resize it to this size plus the stats ending
-            mfile.truncate(pos)
+            mfile.resize(pos)
             break
           end
           bytesize = BytesMessage.skip(mfile)
@@ -469,6 +468,7 @@ module LavinMQ
 
         unless seg == @segments.last_key # don't append stats to last segment (currently writing to)
           File.open(mfile.path, "a") do |f|
+            f.truncate(mfile.pos) # delete all potential zeros
             append_msg_count(f, count)
           end
         end
