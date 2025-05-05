@@ -268,7 +268,13 @@ module LavinMQ
       private def write_to_disk(msg) : SegmentPosition
         wfile = @wfile
         if wfile.capacity < wfile.size + msg.bytesize + 20
-          wfile = open_new_segment(msg.bytesize)
+          if wfile.size == 4 # no msg in it yet, then expand it
+            Log.debug { "Expanding current empty segment" }
+            wfile.truncate(4 + msg.bytesize + 20)
+          else
+            Log.debug { "Opening a new segment because previous was full" }
+            wfile = open_new_segment(msg.bytesize)
+          end
         end
         wfile_id = @wfile_id
         sp = SegmentPosition.make(wfile_id, wfile.size.to_u32, msg)

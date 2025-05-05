@@ -1,10 +1,12 @@
 require "wait_group"
 
 lib LibC
-  MS_ASYNC       = 1
-  MREMAP_MAYMOVE = 1
+  MS_ASYNC = 1
   {% if flag?(:linux) %}
-    MS_SYNC = 0x0004
+    MS_SYNC          = 0x0004
+    MREMAP_MAYMOVE   =      1
+    MREMAP_FIXED     =      2
+    MREMAP_DONTUNMAP =      4
     fun mremap(addr : Void*, old_len : SizeT, new_len : SizeT, flags : Int) : Void*
   {% else %}
     MS_SYNC = 0x0010
@@ -126,13 +128,26 @@ class MFile < IO
     end
   end
 
-  def truncate(size = @size) : Nil
-    @size = size.to_i64
-    @pos = size.to_i64 if @pos > size
+  def truncate(new_capacity) : Nil
+    old_capacity = @capacity
+    code = LibC.ftruncate(@fd, new_capacity)
+    raise File::Error.from_errno("Error truncating file, fd=#{@fd}, new_size=#{new_capacity}", file: @path) if code < 0
+    remap(old_capacity, new_capacity)
+    @size = new_capacity.to_i64 if @size > new_capacity
+    @pos = new_capacity.to_i64 if @pos > new_capacity
+    @capacity = new_capacity.to_i64
+  end
 
-    @capacity = size.to_i64
-    code = LibC.ftruncate(@fd, size)
-    raise File::Error.from_errno("Error truncating file", file: @path) if code < 0
+  def remap(old_capacity, new_capacity)
+    return if unmapped?
+    {% if flag?(:linux) %}
+      ptr = LibC.mremap(@buffer, old_capacity, new_capacity, LibC::MREMAP_MAYMOVE)
+      raise RuntimeError.from_errno("mmap") if ptr == LibC::MAP_FAILED
+      @buffer = ptr.as(UInt8*)
+    {% else %}
+      unmap
+      # let it be mmap:ed on demand
+    {% end %}
   end
 
   def flush
