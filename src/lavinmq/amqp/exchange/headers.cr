@@ -3,8 +3,8 @@ require "./exchange"
 module LavinMQ
   module AMQP
     class HeadersExchange < Exchange
-      @bindings = Hash(AMQP::Table, Set(Destination)).new do |h, k|
-        h[k] = Set(Destination).new
+      @bindings = Hash(AMQP::Table, Set({Destination, BindingKey})).new do |h, k|
+        h[k] = Set({Destination, BindingKey}).new
       end
 
       def initialize(@vhost : VHost, @name : String, @durable = false,
@@ -19,9 +19,8 @@ module LavinMQ
       end
 
       def bindings_details : Iterator(BindingDetails)
-        @bindings.each.flat_map do |args, ds|
-          ds.map do |d|
-            binding_key = BindingKey.new("", args)
+        @bindings.each.flat_map do |_args, ds|
+          ds.map do |d, binding_key|
             BindingDetails.new(name, vhost.name, binding_key, d)
           end
         end
@@ -30,21 +29,20 @@ module LavinMQ
       def bind(destination : Destination, routing_key, arguments)
         validate!(arguments)
         arguments ||= AMQP::Table.new
-        return false unless @bindings[arguments].add? destination
         binding_key = BindingKey.new(routing_key, arguments)
+        return false unless @bindings[arguments].add?({destination, binding_key})
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
         notify_observers(ExchangeEvent::Bind, data)
         true
       end
 
       def unbind(destination : Destination, routing_key, arguments)
-        # args = arguments ? @arguments.clone.merge!(arguments) : @arguments
         arguments ||= AMQP::Table.new
-        bds = @bindings[arguments]
-        return false unless bds.delete(destination)
-        @bindings.delete(routing_key) if bds.empty?
-
         binding_key = BindingKey.new(routing_key, arguments)
+        bds = @bindings[arguments]
+        return false unless bds.delete({destination, binding_key})
+        @bindings.delete(arguments) if bds.empty?
+
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
         notify_observers(ExchangeEvent::Unbind, data)
 
@@ -67,7 +65,7 @@ module LavinMQ
         @bindings.each do |args, destinations|
           if headers.nil? || headers.empty?
             next unless args.empty?
-            destinations.each do |destination|
+            destinations.each do |destination, _binding_key|
               yield destination
             end
           else
@@ -79,7 +77,7 @@ module LavinMQ
                          args.all? { |k, v| k.starts_with?("x-") || (headers.has_key?(k) && headers[k] == v) }
                        end
             next unless is_match
-            destinations.each do |destination|
+            destinations.each do |destination, _binding_key|
               yield destination
             end
           end
