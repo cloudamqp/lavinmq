@@ -60,7 +60,7 @@ module LavinMQ
         end
 
         rk_parts = routing_key.split(".")
-        bindings.each do |bks, destinations|
+        bindings.each do |bks, dests|
           ok = false
           prev_hash = false
           size = bks.size # binding keys can max be 256 chars long anyway
@@ -118,7 +118,7 @@ module LavinMQ
             i += 1
           end
           if ok
-            destinations.each do |destination, _binding_key|
+            dests.each do |destination, _binding_key|
               yield destination
             end
           end
