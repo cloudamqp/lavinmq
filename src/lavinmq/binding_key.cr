@@ -9,12 +9,17 @@ module LavinMQ
     end
 
     def properties_key
-      if arguments.nil? || arguments.try(&.empty?)
-        routing_key.empty? ? "~" : routing_key
-      else
-        hsh = Base64.urlsafe_encode(arguments.to_s)
-        "#{routing_key}~#{hsh}"
+      if (args = arguments) && !args.empty?
+        @hsh ||= begin
+          hsh = args.to_h
+          Base64.urlsafe_encode(hsh.keys.sort!.map { |k| "#{k}:#{hsh[k]}" }.join(","))
+        end
+        return "#{routing_key}~#{@hsh}"
       end
+      return "~" if routing_key.empty?
+      "#{routing_key}"
     end
+
+    def_hash properties_key
   end
 end
