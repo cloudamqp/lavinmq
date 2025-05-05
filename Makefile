@@ -9,8 +9,10 @@ LDFLAGS := $(shell (dpkg-buildflags --get LDFLAGS || rpm -E "%{build_ldflags}" |
 .DEFAULT_GOAL := all
 
 # Set --release flag as default only for builds
-ifneq ($(filter bin/%, $(MAKECMDGOALS)),)
-  CRYSTAL_FLAGS ?= --release
+ifneq ($(filter run/%, $(MAKECMDGOALS)),)
+  CRYSTAL_FLAGS ?=
+else
+	CRYSTAL_FLAGS ?= --release
 endif
 override CRYSTAL_FLAGS += --stats --error-on-warnings -Dpreview_mt -Dexecution_context --link-flags="$(LDFLAGS)"
 
