@@ -176,7 +176,7 @@ describe LavinMQ::AMQP::DurableQueue do
         queue = vhost.queues[rk].as(LavinMQ::AMQP::DurableQueue)
         q.publish_confirm "a"
         store = LavinMQ::Queue::MessageStore.new(queue.@msg_store.@queue_data_dir, nil)
-        
+
         if env = store.shift?
           if msg = env.message
             msg.routing_key.should eq rk
