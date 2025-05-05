@@ -236,6 +236,7 @@ module LavinMQ::AMQP
         when "delivery-limit"
           unless @delivery_limit.try &.< v.as_i64
             @delivery_limit = v.as_i64
+            drop_redelivered
           end
         when "federation-upstream"
           @vhost.upstreams.try &.link(v.as_s, self)
@@ -504,6 +505,27 @@ module LavinMQ::AMQP
             env = @msg_store.shift? || break
             @log.debug { "Overflow drop head sp=#{env.segment_position}" }
             expire_msg(env, :maxlenbytes)
+            counter &+= 1
+            if counter >= 16 * 1024
+              Fiber.yield
+              counter = 0
+            end
+          end
+        end
+      end
+    end
+
+    private def drop_redelivered : Nil
+      counter = 0
+      if limit = @delivery_limit
+        @msg_store_lock.synchronize do
+          loop do
+            env = @msg_store.first? || break
+            delivery_count = @deliveries.fetch(env.segment_position, 0) || break
+            break unless delivery_count > limit
+            env = @msg_store.shift? || break
+            @log.debug { "Over delivery limit, drop sp=#{env.segment_position}" }
+            expire_msg(env, :delivery_limit)
             counter &+= 1
             if counter >= 16 * 1024
               Fiber.yield
@@ -789,15 +811,10 @@ module LavinMQ::AMQP
     end
 
     private def with_delivery_count_header(env) : Envelope?
-      if limit = @delivery_limit
+      if @delivery_limit
         sp = env.segment_position
         headers = env.message.properties.headers || AMQP::Table.new
         delivery_count = @deliveries.fetch(sp, 0)
-        # @log.debug { "Delivery count: #{delivery_count} Delivery limit: #{@delivery_limit}" }
-        if delivery_count >= limit
-          expire_msg(env, :delivery_limit)
-          return nil
-        end
         headers["x-delivery-count"] = delivery_count if delivery_count > 0 # x-delivery-count not included in first delivery
         @deliveries[sp] = delivery_count + 1
         env.message.properties.headers = headers
@@ -834,6 +851,11 @@ module LavinMQ::AMQP
         if has_expired?(sp, requeue: true) # guarantee to not deliver expired messages
           expire_msg(sp, :expired)
         else
+          if delivery_limit = @delivery_limit
+            if @deliveries.fetch(sp, 0) > delivery_limit
+              return expire_msg(sp, :delivery_limit)
+            end
+          end
           @msg_store_lock.synchronize do
             @msg_store.requeue(sp)
           end

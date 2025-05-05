@@ -204,6 +204,25 @@ describe LavinMQ::VHost do
     end
   end
 
+  it "should drop messages if above delivery-limit" do
+    with_amqp_server do |s|
+      defs = {"delivery-limit" => JSON::Any.new(0_i64)} of String => JSON::Any
+      with_channel(s) do |ch|
+        args = AMQP::Client::Arguments.new
+        args["x-delivery-limit"] = 5
+        q = ch.queue("delivery-limit", exclusive: true, args: args)
+        q.publish_confirm "m1"
+        q.publish_confirm "m2"
+        q.get(no_ack: false).not_nil!.reject(requeue: true)
+        ch.queue_declare("delivery-limit", passive: true)[:message_count].should eq 2
+        s.vhosts["/"].add_policy("delivery-limit", "^.*$", "all", defs, 12_i8)
+        sleep 10.milliseconds
+        ch.queue_declare("delivery-limit", passive: true)[:message_count].should eq 1
+        s.vhosts["/"].delete_policy("delivery-limit")
+      end
+    end
+  end
+
   describe "with max-length-bytes policy applied" do
     it "should replace with max-length" do
       with_amqp_server do |s|
