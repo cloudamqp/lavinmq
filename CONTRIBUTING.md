@@ -14,8 +14,10 @@ The first step to making a code contribution, is starting a conversation around 
 
 ### Develop
 
-1. Run specs with `crystal spec`
-1. Compile and run locally with `crystal run src/lavinmq.cr -- -D /tmp/amqp`
+1. Run specs with `make test`
+1. Run a specific spec file with `make test SPEC=spec/storage_spec.cr`
+1. Compile and run locally with `make run/lavinmq ARGS="-D /tmp/amqp"`
+1. To run in release mode locally, use `make run/lavinmq CRYSTAL_FLAGS="--release" ARGS="-D /tmp/amqp"`
 1. Pull js dependencies with `make js`
 1. Build API docs with `make docs` (requires `npx`)
 1. Build with `shards build`
