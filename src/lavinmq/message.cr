@@ -37,11 +37,9 @@ module LavinMQ
 
     def self.skip(io, format = IO::ByteFormat::SystemEndian) : UInt64
       skipped = 0_u64
-      skipped += io.skip(sizeof(UInt64))                         # ts
-      skipped += io.skip(io.read_byte || raise IO::EOFError.new) # ex
-      skipped += 1                                               # next pos
-      skipped += io.skip(io.read_byte || raise IO::EOFError.new) # rk
-      skipped += 1                                               # next pos
+      skipped += io.skip(sizeof(UInt64))                             # ts
+      skipped += 1 + io.skip(io.read_byte || raise IO::EOFError.new) # ex
+      skipped += 1 + io.skip(io.read_byte || raise IO::EOFError.new) # rk
       skipped += AMQ::Protocol::Properties.skip(io, format)
       skipped += io.skip(UInt64.from_io io, format) + sizeof(UInt64)
       skipped
