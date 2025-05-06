@@ -33,6 +33,13 @@ function updateExchange () {
       }
       const el = document.createElement('div')
       el.textContent = key + ' = ' + item.arguments[key]
+      if (item.effective_arguments.includes(key)) {
+        el.classList.add('active-argument')
+        el.title = 'Active argument'
+      } else {
+        el.classList.add('inactive-argument')
+        el.title = 'Inactive argument'
+      }
       argList.appendChild(el)
     })
     document.getElementById('e-arguments').appendChild(argList)
@@ -49,7 +56,9 @@ updateExchange()
 const tableOptions = {
   dataSource: new UrlDataSource(exchangeUrl + '/bindings/source', { useQueryState: false }),
   pagination: true,
-  keyColumns: ['destination', 'properties_key']
+  keyColumns: ['destination', 'properties_key'],
+  search: true,
+  countId: 'bindings-table-count'
 }
 const bindingsTable = Table.renderTable('bindings-table', tableOptions, function (tr, item, all) {
   if (!all) return

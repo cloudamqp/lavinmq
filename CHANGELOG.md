@@ -5,7 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.3.0] - 2025-04-17
+
+### Added
+- MQTT websocket support [#1007](https://github.com/cloudamqp/lavinmq/pull/1007)
+- Ability to change channel prefetch in UI/API [#1033](https://github.com/cloudamqp/lavinmq/pull/1033)
+- Add Prometheus metrics for `global_message_*` counters [#1010](https://github.com/cloudamqp/lavinmq/pull/1010)
+- Add filtering for bindings on exchange [#1032](https://github.com/cloudamqp/lavinmq/pull/1032)
+- Make it possible to filter on connection_name and user from /connections [#1031](https://github.com/cloudamqp/lavinmq/pull/1031)
+- Log total startup time [#1056](https://github.com/cloudamqp/lavinmq/pull/1056)
+
+### Fixed
+- Multiple nodes could generate and set clustering secret, causing the leader to use another secret than the followers. [#998](https://github.com/cloudamqp/lavinmq/pull/998)
+- A policy with delivery-limit is now properly applied to a queue if the value is lower than the existing argument. [#1000](https://github.com/cloudamqp/lavinmq/pull/1000)
+- Fix cluster ID and advertised URI collision handling, preventing confusing behavior when multiple nodes have the same identity [#1023](https://github.com/cloudamqp/lavinmq/pull/1023)
+- Close MQTT client socket and exit deliver loop on errors [#1043](https://github.com/cloudamqp/lavinmq/pull/1043)
+- Don't federate internal exchanges [#1058](https://github.com/cloudamqp/lavinmq/pull/1058)
+- Stop existing federation links when applying a new policy [#1059](https://github.com/cloudamqp/lavinmq/pull/1059)
+
+### Changed
+- Cleaner CLI output with separators [#1018](https://github.com/cloudamqp/lavinmq/pull/1018)
+- Default limit of 128 items in deduplication cache [#1019](https://github.com/cloudamqp/lavinmq/pull/1019)
+- Messages in stream queues now support multiple filter values [#1022](https://github.com/cloudamqp/lavinmq/pull/1022)
+- Filtering on stream queues now requires all filters on a consumer to match [#1022](https://github.com/cloudamqp/lavinmq/pull/1022)
+- Make it possible to filter on connection_name and user from /connections [#1031](https://github.com/cloudamqp/lavinmq/pull/1031)
+- Add BasicAuth section to HTTP API docs [#1030](https://github.com/cloudamqp/lavinmq/pull/1030)
+- Command line arguments for mqtt_bind [#992](https://github.com/cloudamqp/lavinmq/pull/992)
+- Show MQTT client keepalive in management UI [#989](https://github.com/cloudamqp/lavinmq/pull/989)
+- Count MQTT messages in vhosts message stats [#988](https://github.com/cloudamqp/lavinmq/pull/988)
+- Build RPM packages for Fedora 42 [391f79be](https://github.com/cloudamqp/lavinmq/commit/391f79be)
+- README overhaul with improved structure and visual elements [#1052](https://github.com/cloudamqp/lavinmq/pull/1052)
+- Don't build lavinmqperf with MT
 
 ## [2.2.0] - 2025-03-13
 

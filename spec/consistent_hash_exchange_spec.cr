@@ -1,78 +1,35 @@
 require "./spec_helper"
 require "../src/lavinmq/consistent_hasher.cr"
 
-describe "Consistent Hash Exchange" do
-  describe "Hasher" do
-    # weight/replicas = binding key as INT
-    # hash on queue name
-    it "should return nil if empty" do
-      ch = ConsistentHasher(String).new
-      ch.get("1").should be_nil
+describe LavinMQ::AMQP::ConsistentHashExchange do
+  describe "#bind" do
+    it "raises on invalid weight (routing key)" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        vhost.declare_exchange "con-hash", "x-consistent-hash", durable: true, auto_delete: false
+        vhost.declare_queue "my-queue", durable: true, auto_delete: false
+        exchange = vhost.exchanges["con-hash"].should be_a(LavinMQ::AMQP::ConsistentHashExchange)
+        queue = vhost.queues["my-queue"].as(LavinMQ::AMQP::Queue)
+        expect_raises(LavinMQ::Error::PreconditionFailed) do
+          exchange.bind(queue, "non-numeric", nil)
+        end
+        exchange.bindings_details.should be_empty
+      end
     end
+  end
 
-    it "should return first value is ring size is 1" do
-      ch = ConsistentHasher(String).new
-      ch.add("first", 1, "first")
-      ch.get("any key").should eq "first"
-    end
-
-    it "should be consistent (test 1)" do
-      ch = ConsistentHasher(String).new
-      ch.add("1", 3, "first")
-      key = "q1"
-      v = ch.get(key)
-      ch.add("2", 3, "second")
-      ch.get(key).should eq v
-      ch.add("3", 3, "third")
-      ch.get(key).should eq v
-    end
-
-    it "should be consistent (test 2)" do
-      # Since replias for this test is 3, each entry get three hashes
-      # So 9 Hashes will be stored on the ring
-      # Here its listed in alphabetical order and which entry they point to
-      #   423 104 025 => 1
-      #   448 584 311 => 3
-      #   461 287 488 => 2
-      # 2 150 719 395 => 1
-      # 2 188 894 714 => 2
-      # 2 209 713 101 => 3
-      # 4 105 354 075 => 3
-      # 4 117 811 564 => 2
-      # 4 147 539 765 => 1
-
-      # routing keys
-      # r1 =>   219 023 793
-      # r2 => 2 483 509 259
-      # r3 => 3 808 454 813
-
-      ch = ConsistentHasher(String).new
-      ch.add("1", 3, "first")
-      ch.add("2", 3, "second")
-      ch.add("3", 3, "third")
-
-      # 1. Look up the hash for r1
-      # 2. Find the hash in the ring that is the closes above in value
-      ch.get("r1").should eq "first"
-      ch.get("r2").should eq "third"
-      ch.get("r3").should eq "third"
-    end
-
-    it "should be consistent after delete" do
-      ch = ConsistentHasher(String).new
-      ch.add("1", 3, "first")
-      ch.add("2", 3, "second")
-      ch.add("3", 3, "third")
-
-      ch.get("r1").should eq "first"
-      ch.get("r2").should eq "third"
-      ch.get("r3").should eq "third"
-
-      ch.remove("2", 3)
-
-      ch.get("r1").should eq "first"
-      ch.get("r2").should eq "third"
-      ch.get("r3").should eq "third"
+  describe "#unbind" do
+    it "raises on invalid weight (routing key)" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        vhost.declare_exchange "con-hash", "x-consistent-hash", durable: true, auto_delete: false
+        vhost.declare_queue "my-queue", durable: true, auto_delete: false
+        exchange = vhost.exchanges["con-hash"].should be_a(LavinMQ::AMQP::ConsistentHashExchange)
+        queue = vhost.queues["my-queue"].as(LavinMQ::AMQP::Queue)
+        expect_raises(LavinMQ::Error::PreconditionFailed) do
+          exchange.unbind(queue, "non-numeric", nil)
+        end
+      end
     end
   end
 
@@ -296,6 +253,81 @@ describe "Consistent Hash Exchange" do
             .should eq("test message")
         end
       end
+    end
+  end
+end
+describe ConsistentHasher do
+  describe "Hasher" do
+    # weight/replicas = binding key as INT
+    # hash on queue name
+    it "should return nil if empty" do
+      ch = ConsistentHasher(String).new
+      ch.get("1").should be_nil
+    end
+
+    it "should return first value is ring size is 1" do
+      ch = ConsistentHasher(String).new
+      ch.add("first", 1, "first")
+      ch.get("any key").should eq "first"
+    end
+
+    it "should be consistent (test 1)" do
+      ch = ConsistentHasher(String).new
+      ch.add("1", 3, "first")
+      key = "q1"
+      v = ch.get(key)
+      ch.add("2", 3, "second")
+      ch.get(key).should eq v
+      ch.add("3", 3, "third")
+      ch.get(key).should eq v
+    end
+
+    it "should be consistent (test 2)" do
+      # Since replias for this test is 3, each entry get three hashes
+      # So 9 Hashes will be stored on the ring
+      # Here its listed in alphabetical order and which entry they point to
+      #   423 104 025 => 1
+      #   448 584 311 => 3
+      #   461 287 488 => 2
+      # 2 150 719 395 => 1
+      # 2 188 894 714 => 2
+      # 2 209 713 101 => 3
+      # 4 105 354 075 => 3
+      # 4 117 811 564 => 2
+      # 4 147 539 765 => 1
+
+      # routing keys
+      # r1 =>   219 023 793
+      # r2 => 2 483 509 259
+      # r3 => 3 808 454 813
+
+      ch = ConsistentHasher(String).new
+      ch.add("1", 3, "first")
+      ch.add("2", 3, "second")
+      ch.add("3", 3, "third")
+
+      # 1. Look up the hash for r1
+      # 2. Find the hash in the ring that is the closes above in value
+      ch.get("r1").should eq "first"
+      ch.get("r2").should eq "third"
+      ch.get("r3").should eq "third"
+    end
+
+    it "should be consistent after delete" do
+      ch = ConsistentHasher(String).new
+      ch.add("1", 3, "first")
+      ch.add("2", 3, "second")
+      ch.add("3", 3, "third")
+
+      ch.get("r1").should eq "first"
+      ch.get("r2").should eq "third"
+      ch.get("r3").should eq "third"
+
+      ch.remove("2", 3)
+
+      ch.get("r1").should eq "first"
+      ch.get("r2").should eq "third"
+      ch.get("r3").should eq "third"
     end
   end
 end

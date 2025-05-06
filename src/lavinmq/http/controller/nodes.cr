@@ -1,4 +1,5 @@
 require "../controller"
+require "../stats_helper"
 
 module LavinMQ
   module HTTP

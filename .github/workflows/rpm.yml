@@ -1,17 +1,5 @@
 name: RPM
 on:
-  pull_request:
-    paths:
-      - .github/workflows/rpm.yml
-      - Makefile
-      - Dockerfile.rpm
-      - build/lavinmq.spec
-      - shard.lock
-      - src/**
-      - static/**
-      - views/**
-      - openapi/**
-      - lavinmq.spec
   push:
     branches:
       - main
@@ -20,14 +8,12 @@ on:
     paths:
       - .github/workflows/rpm.yml
       - Makefile
-      - Dockerfile.rpm
-      - build/lavinmq.spec
       - shard.lock
       - src/**
       - static/**
       - views/**
       - openapi/**
-      - lavinmq.spec
+      - packaging/rpm/**
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -36,7 +22,7 @@ jobs:
     name: Build RPM
     strategy:
       matrix:
-        os: ['fedora-41', 'fedora-40', 'el-9']
+        os: ['fedora-42','fedora-41', 'fedora-40', 'el-9']
     runs-on: ubuntu-latest
     # Set permissions if you're using OIDC token authentication
     permissions:
@@ -49,12 +35,12 @@ jobs:
           fetch-depth: 0
 
       - name: Generate version string
-        run: echo "version=$(./rpm-version)" >> $GITHUB_ENV
+        run: echo "version=$(./packaging/rpm/rpm-version)" >> $GITHUB_ENV
 
       - uses: depot/setup-action@v1
       - uses: depot/build-push-action@v1
         with:
-          file: Dockerfile.rpm
+          file: packaging/rpm/Dockerfile
           platforms: linux/amd64,linux/arm64
           pull: true
           build-args: |
@@ -69,15 +55,6 @@ jobs:
           name: rpm-packages-${{ matrix.os }}
           path: RPMS
 
-      - name: Determine if pre-release
-        id: determine-prerelease
-        run: |
-          if [[ "${{ github.ref }}" == *"-rc"* ]]; then
-            echo "is_prerelease=true" >> $GITHUB_ENV
-          else
-            echo "is_prerelease=false" >> $GITHUB_ENV
-          fi
-
       - name: Upload to Packagecloud
         run: |
           set -eux
@@ -91,7 +68,7 @@ jobs:
                   -F "package[package_file]=@${PKG_FILE}" \
                   https://packagecloud.io/api/v1/repos/${{ github.repository }}/packages.json
           done
-        if: startsWith(github.ref, 'refs/tags/v') && env.is_prerelease == 'false'
+        if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-rc')
 
       - name: Upload to Packagecloud pre-release repo
         run: |
@@ -106,4 +83,4 @@ jobs:
                   -F "package[package_file]=@${PKG_FILE}" \
                   https://packagecloud.io/api/v1/repos/${{ github.repository }}-prerelease/packages.json
           done
-        if: startsWith(github.ref, 'refs/tags/v') && env.is_prerelease == 'true'
+        if: startsWith(github.ref, 'refs/tags/v') && contains(github.ref, '-rc')

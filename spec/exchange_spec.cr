@@ -176,7 +176,6 @@ describe LavinMQ::Exchange do
         with_channel(s) do |ch|
           args = AMQP::Client::Arguments.new({
             "x-message-deduplication" => true,
-            "x-cache-size"            => 10,
           })
           ch.exchange("test", "topic", args: args)
           ch.queue.bind("test", "#")
@@ -205,7 +204,6 @@ describe LavinMQ::Exchange do
         with_channel(s) do |ch|
           args = AMQP::Client::Arguments.new({
             "x-message-deduplication" => true,
-            "x-cache-size"            => 10,
             "x-deduplication-header"  => "custom",
           })
           ch.exchange("test", "topic", args: args)
@@ -226,6 +224,52 @@ describe LavinMQ::Exchange do
           ex.dedup_count.should eq 1
 
           q.message_count.should eq 1
+        end
+      end
+    end
+
+    describe "#apply_policy" do
+      describe "without federation-upstream" do
+        it "stop existing link" do
+          with_amqp_server do |s|
+            downstream_vhost = s.vhosts.create("downstream")
+            config = {"uri": JSON::Any.new("#{s.amqp_url}/upstream")}
+            downstream_vhost.upstreams.create_upstream("upstream", config)
+            definition = {"federation-upstream" => JSON::Any.new("upstream")}
+            downstream_vhost.add_policy("fed", "^amq.topic", "exchanges", definition, 1i8)
+            wait_for(100.milliseconds) { downstream_vhost.upstreams.@upstreams["upstream"]?.try &.links.present? }
+
+            downstream_vhost.delete_policy("fed")
+            wait_for(100.milliseconds) { downstream_vhost.upstreams.@upstreams["upstream"]?.try &.links.empty? }
+          end
+        end
+      end
+    end
+
+    describe "with federation-upstream" do
+      it "will start link" do
+        with_amqp_server do |s|
+          downstream_vhost = s.vhosts.create("downstream")
+          config = {"uri": JSON::Any.new("#{s.amqp_url}/upstream")}
+          downstream_vhost.upstreams.create_upstream("upstream", config)
+          definition = {"federation-upstream" => JSON::Any.new("upstream")}
+          downstream_vhost.add_policy("fed", "^amq.topic", "exchanges", definition, 1i8)
+          wait_for(100.milliseconds) { downstream_vhost.upstreams.@upstreams["upstream"]?.try &.links.present? }
+        end
+      end
+
+      describe "when exchange is internal" do
+        it "won't start link" do
+          with_amqp_server do |s|
+            downstream_vhost = s.vhosts.create("downstream")
+            config = {"uri": JSON::Any.new("#{s.amqp_url}/upstream")}
+            downstream_vhost.upstreams.create_upstream("upstream", config)
+            definition = {"federation-upstream" => JSON::Any.new("upstream")}
+            downstream_vhost.add_policy("fed", "^fed", "exchanges", definition, 1i8)
+            downstream_vhost.declare_exchange("fed.internal", "topic", durable: true, auto_delete: false, internal: true)
+            wait_for(100.milliseconds) { downstream_vhost.exchanges["fed.internal"].policy.try &.name == "fed" }
+            downstream_vhost.upstreams.@upstreams["upstream"].links.empty?.should be_true
+          end
         end
       end
     end
