@@ -107,7 +107,7 @@ module LavinMQ
             begin
               packet = build_packet(env, nil)
               yield packet
-            rescue ex   # requeue failed delivery
+            rescue ex # requeue failed delivery
               @msg_store_lock.synchronize { @msg_store.requeue(sp) }
               raise ex
             end
