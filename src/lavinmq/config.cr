@@ -207,10 +207,10 @@ module LavinMQ
       abort ex.message
     end
 
-    private def verify_default_password
+    def verify_default_password
       User::SHA256Password.new(@default_password)
     rescue
-      abort "Failed to decode default_password hash. Please see documentation for usage."
+      raise ArgumentError.new("Failed to decode default_password hash. Please see documentation for usage.")
     end
 
     private def parse(file)
