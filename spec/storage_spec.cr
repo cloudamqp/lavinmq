@@ -121,7 +121,7 @@ describe LavinMQ::AMQP::DurableQueue do
         q.publish_confirm "a"
 
         # resize first segment to LavinMQ::Config.instance.segment_size
-        mfile.resize(LavinMQ::Config.instance.segment_size)
+        mfile.truncate(LavinMQ::Config.instance.segment_size)
 
         # read messages, should not raise any error
         q.subscribe(tag: "tag", no_ack: false, &.ack)
@@ -151,7 +151,7 @@ describe LavinMQ::AMQP::DurableQueue do
         q.publish_confirm "a"
 
         # resize first segment to LavinMQ::Config.instance.segment_size
-        mfile.resize(LavinMQ::Config.instance.segment_size)
+        mfile.truncate(LavinMQ::Config.instance.segment_size)
 
         store = LavinMQ::Queue::MessageStore.new(queue.@msg_store.@queue_data_dir, nil)
         mfile = store.@segments.first_value

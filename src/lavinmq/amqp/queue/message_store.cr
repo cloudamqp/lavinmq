@@ -95,7 +95,7 @@ module LavinMQ
           sp = SegmentPosition.make(seg, pos, msg)
           return Envelope.new(sp, msg, redelivered: false)
         rescue ex : IndexError
-          @log.warn { "Msg file size does not match expected value, moving on to next segment" }
+          @log.warn(exception: ex) { "Msg file size does not match expected value, moving on to next segment" }
           select_next_read_segment && next
           return if @size.zero?
           raise Error.new(@rfile, cause: ex)
@@ -140,7 +140,7 @@ module LavinMQ
           @empty.set true if @size.zero?
           return Envelope.new(sp, msg, redelivered: false)
         rescue ex : IndexError
-          @log.warn { "Msg file size does not match expected value, moving on to next segment" }
+          @log.warn(exception: ex) { "Msg file size does not match expected value, moving on to next segment" }
           select_next_read_segment && next
           return if @size.zero?
           raise Error.new(@rfile, cause: ex)
@@ -267,8 +267,14 @@ module LavinMQ
 
       private def write_to_disk(msg) : SegmentPosition
         wfile = @wfile
-        if wfile.capacity < wfile.size + msg.bytesize
-          wfile = open_new_segment(msg.bytesize)
+        if wfile.capacity < wfile.size + msg.bytesize + 20
+          if wfile.size == 4 # no msg in it yet, then expand it
+            Log.debug { "Expanding current empty segment" }
+            wfile.truncate(4 + msg.bytesize + 20)
+          else
+            Log.debug { "Opening a new segment because previous was full" }
+            wfile = open_new_segment(msg.bytesize)
+          end
         end
         wfile_id = @wfile_id
         sp = SegmentPosition.make(wfile_id, wfile.size.to_u32, msg)
@@ -279,10 +285,16 @@ module LavinMQ
       end
 
       private def open_new_segment(next_msg_size = 0) : MFile
-        @wfile.unmap unless @wfile == @rfile
+        unless @wfile_id.zero?
+          append_msg_count(@wfile, @segment_msg_count[@wfile_id])
+          @wfile.read_only = true
+          @wfile.truncate(@wfile.size)
+
+          @wfile.unmap unless @wfile == @rfile
+        end
         next_id = @wfile_id + 1
         path = File.join(@queue_data_dir, "msgs.#{next_id.to_s.rjust(10, '0')}")
-        capacity = Math.max(Config.instance.segment_size, next_msg_size + 4)
+        capacity = Math.max(Config.instance.segment_size, next_msg_size + 4 + 20)
         wfile = MFile.new(path, capacity)
         wfile.write_bytes Schema::VERSION
         wfile.pos = 4
@@ -298,7 +310,7 @@ module LavinMQ
       private def open_ack_file(id) : MFile
         path = File.join(@queue_data_dir, "acks.#{id.to_s.rjust(10, '0')}")
         capacity = Config.instance.segment_size // BytesMessage::MIN_BYTESIZE * 4 + 4
-        mfile = MFile.new(path, capacity, writeonly: true)
+        mfile = MFile.new(path, capacity, write_only: true)
         mfile.delete unless @durable # mark as deleted if non-durable
         @replicator.try &.register_file mfile
         mfile
@@ -389,6 +401,8 @@ module LavinMQ
         end
       end
 
+      MAGIC = 1902996483
+
       # Populate bytesize, size and segment_msg_count
       private def load_stats_from_segments : Nil
         counter = 0
@@ -399,33 +413,88 @@ module LavinMQ
           @log.debug { "Loading #{@segments.size} segments" }
         end
         @segments.each do |seg, mfile|
-          count = 0u32
-          loop do
-            pos = mfile.pos
-            ts = IO::ByteFormat::SystemEndian.decode(Int64, mfile.to_slice(pos, 8))
-            break mfile.resize(pos) if ts.zero? # This means that the rest of the file is zero, so resize it
-            bytesize = BytesMessage.skip(mfile)
-            count += 1
-            next if deleted?(seg, pos)
+          next if mfile.size <= 4 # only got the schema version
+          # check if message count in segment is appended to the end
+          begin
+            count = read_msg_count(mfile)
+            @segment_msg_count[seg] = count
+            bytesize = mfile.size - 4 # minus schema version
+            acked = 0
+            if deleted = @deleted[seg]?
+              acked = deleted.size
+              deleted.each do |pos|
+                mfile.pos = pos
+                bytesize -= BytesMessage.skip(mfile)
+              end
+            end
             @bytesize += bytesize
-            @size += 1
-          rescue ex : IO::EOFError
-            break
-          rescue ex : OverflowError | AMQ::Protocol::Error::FrameDecode
-            @log.error { "Could not initialize segment, closing message store: Failed to read segment #{seg} at pos #{mfile.pos}. #{ex}" }
-            close
+            @size += count - acked
+          rescue NoMsgCountError
+            scan_segment(seg, mfile)
           end
+
           mfile.pos = 4
           mfile.unmap # will be mmap on demand
+
+          counter &+= 1
+          # Log some progress for long queues
           if is_long_queue
-            @log.info { "Loaded #{counter}/#{@segments.size} segments, #{@size} messages" } if (counter &+= 1) % 128 == 0
-          else
-            @log.debug { "Loaded #{counter}/#{@segments.size} segments, #{@size} messages" } if (counter &+= 1) % 128 == 0
+            @log.info { "Loaded #{counter}/#{@segments.size} segments, #{@size} messages" } if counter % 128 == 0
           end
-          Fiber.yield
-          @segment_msg_count[seg] = count
         end
         @log.info { "Loaded #{counter} segments, #{@size} messages" }
+      end
+
+      private def scan_segment(seg, mfile)
+        mfile.pos = 4
+        count = 0u32
+        loop do
+          pos = mfile.pos
+          ts = IO::ByteFormat::SystemEndian.decode(Int64, mfile.to_slice(pos, 8))
+          if ts.zero?
+            # This means that the rest of the file is zero
+            mfile.resize(pos)
+            break
+          end
+          bytesize = BytesMessage.skip(mfile)
+          count += 1
+          next if deleted?(seg, pos)
+          @bytesize += bytesize
+          @size += 1
+        rescue ex : IO::EOFError
+          break
+        rescue ex : OverflowError | AMQ::Protocol::Error::FrameDecode
+          @log.error { "Could not initialize segment, closing message store: Failed to read segment #{mfile.path} at pos #{mfile.pos}. #{ex}" }
+          close
+        end
+        @segment_msg_count[seg] = count
+
+        unless seg == @segments.last_key # don't append stats to last segment (currently writing to)
+          File.open(mfile.path, "a") do |f|
+            f.truncate(mfile.pos) # delete all potential zeros
+            append_msg_count(f, count)
+          end
+        end
+      end
+
+      private def append_msg_count(file, count)
+        file.write_bytes 0i64 # ts zero
+        file.write_bytes MAGIC
+        file.write_bytes count.to_u32
+        file.write_bytes 0u32 # reserved
+      end
+
+      private def read_msg_count(mfile) : UInt32
+        mfile.seek(-20, IO::Seek::End) do
+          ts = mfile.read_bytes Int64
+          raise NoMsgCountError.new("ts=#{ts}") unless ts.zero?
+          magic = mfile.read_bytes Int32
+          raise NoMsgCountError.new("magic=#{magic}") unless magic == MAGIC
+          count = mfile.read_bytes UInt32
+          reserved = mfile.read_bytes UInt32
+          raise NoMsgCountError.new("reserved=#{reserved}") unless reserved.zero?
+          count
+        end
       end
 
       private def delete_unused_segments : Nil
@@ -463,6 +532,8 @@ module LavinMQ
           super("path=#{mfile.path} pos=#{mfile.pos} size=#{mfile.size}", cause: cause)
         end
       end
+
+      class NoMsgCountError < Exception; end
     end
   end
 end
