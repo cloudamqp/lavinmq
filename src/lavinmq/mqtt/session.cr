@@ -39,7 +39,7 @@ module LavinMQ
         rescue ex
           @log.error(exception: ex) { "Failed to deliver message in deliver_loop" }
           @consumers.each &.close
-          client = nil
+          self.client = nil
         end
       end
 
