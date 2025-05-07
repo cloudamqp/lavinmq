@@ -435,8 +435,11 @@ module LavinMQ
 
           mfile.pos = 4
           mfile.unmap # will be mmap on demand
+
+          counter &+= 1
+          # Log some progress for long queues
           if is_long_queue
-            @log.info { "Loaded #{counter}/#{@segments.size} segments, #{@size} messages" } if (counter &+= 1) % 128 == 0
+            @log.info { "Loaded #{counter}/#{@segments.size} segments, #{@size} messages" } if counter % 128 == 0
           end
           @log.info { "Loaded #{counter} segments, #{@size} messages" }
         end
