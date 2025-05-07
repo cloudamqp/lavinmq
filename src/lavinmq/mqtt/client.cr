@@ -88,7 +88,7 @@ module LavinMQ
 
       def read_and_handle_packet
         packet : MQTT::Packet = MQTT::Packet.from_io(@io)
-        @log.trace { "Recieved packet:  #{packet.inspect}" }
+        @log.trace { "Received packet:  #{packet.inspect}" }
         @recv_oct_count.add(packet.bytesize)
 
         case packet

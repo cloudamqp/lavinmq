@@ -41,7 +41,7 @@ module LavinMQ
           end
           socket.close
         rescue ex
-          logger.warn { "Recieved invalid Connect packet: #{ex.inspect}" }
+          logger.warn { "Received invalid Connect packet: #{ex.inspect}" }
           socket.close
         end
       end
