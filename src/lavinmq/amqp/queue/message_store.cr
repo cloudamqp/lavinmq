@@ -441,8 +441,8 @@ module LavinMQ
           if is_long_queue
             @log.info { "Loaded #{counter}/#{@segments.size} segments, #{@size} messages" } if counter % 128 == 0
           end
-          @log.info { "Loaded #{counter} segments, #{@size} messages" }
         end
+        @log.info { "Loaded #{counter} segments, #{@size} messages" }
       end
 
       private def scan_segment(seg, mfile)
