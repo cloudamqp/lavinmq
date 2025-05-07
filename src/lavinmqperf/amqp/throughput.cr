@@ -1,35 +1,36 @@
 require "amqp-client"
 require "json"
 require "wait_group"
-require "./perf"
+require "../perf"
 
 module LavinMQPerf
-  class Throughput < Perf
-    @publishers = 1
-    @consumers = 1
-    @size = 16
-    @verify = false
-    @exchange = ""
-    @queue = "perf-test"
-    @routing_key = "perf-test"
-    @ack = 0
-    @rate = 0
-    @consume_rate = 0
-    @max_unconfirm = 0
-    @persistent = false
-    @prefetch : UInt16? = nil
-    @quiet = false
-    @poll = false
-    @json_output = false
-    @timeout = Time::Span.zero
-    @pmessages = 0
-    @cmessages = 0
-    @queue_args = AMQP::Client::Arguments.new
-    @consumer_args = AMQP::Client::Arguments.new
-    @properties = AMQ::Protocol::Properties.new
-    @pub_in_transaction = 0
-    @ack_in_transaction = 0
-    @random_bodies = false
+  module AMQP
+    class Throughput < Perf
+      @publishers = 1
+      @consumers = 1
+      @size = 16
+      @verify = false
+      @exchange = ""
+      @queue = "perf-test"
+      @routing_key = "perf-test"
+      @ack = 0
+      @rate = 0
+      @consume_rate = 0
+      @max_unconfirm = 0
+      @persistent = false
+      @prefetch : UInt16? = nil
+      @quiet = false
+      @poll = false
+      @json_output = false
+      @timeout = Time::Span.zero
+      @pmessages = 0
+      @cmessages = 0
+      @queue_args = ::AMQP::Client::Arguments.new
+      @consumer_args = ::AMQP::Client::Arguments.new
+      @properties = AMQ::Protocol::Properties.new
+      @pub_in_transaction = 0
+      @ack_in_transaction = 0
+      @random_bodies = false
 
     def initialize
       super
@@ -133,12 +134,10 @@ module LavinMQPerf
         mt.spawn { reconnect_on_disconnect(done) { pub(connected) } }
       end
 
-      if @timeout != Time::Span.zero
         spawn do
-          sleep @timeout
+          done.wait
           @stopped = true
         end
-      end
 
       connected.wait # wait for all clients to connect
       start = Time.monotonic
@@ -293,30 +292,162 @@ module LavinMQPerf
             msg.ack(multiple: true) if @ack > 0 && (consumes + 1) % @ack == 0
             break if @stopped || (consumes + 1) == @cmessages
           end
-          unless @consume_rate.zero?
-            consumes_this_second += 1
-            if consumes_this_second >= @consume_rate
-              until_next_second = (start + 1.seconds) - Time.monotonic
-              if until_next_second > Time::Span.zero
-                sleep until_next_second
+        end
+        summary(start)
+      end
+
+      private def summary(start : Time::Span)
+        stop = Time.monotonic
+        elapsed = (stop - start).total_seconds
+        avg_pub = (@pubs / elapsed).round(1)
+        avg_consume = (@consumes / elapsed).round(1)
+        puts
+        if @json_output
+          JSON.build(STDOUT) do |json|
+            json.object do
+              json.field "elapsed_seconds", elapsed
+              json.field "avg_pub_rate", avg_pub
+              json.field "avg_consume_rate", avg_consume
+            end
+          end
+          puts
+        else
+          puts "Summary:"
+          puts "Average publish rate: #{avg_pub} msgs/s"
+          puts "Average consume rate: #{avg_consume} msgs/s"
+        end
+      end
+
+      private def pub # ameba:disable Metrics/CyclomaticComplexity
+        data = Bytes.new(@size) { |i| ((i % 27 + 64)).to_u8 }
+        props = @properties
+        props.delivery_mode = 2u8 if @persistent
+        unconfirmed = ::Channel(Nil).new(@max_unconfirm)
+        ::AMQP::Client.start(@uri) do |a|
+          ch = a.channel
+          ch.tx_select if @pub_in_transaction > 0
+          ch.confirm_select if @max_unconfirm > 0
+          Fiber.yield
+          start = Time.monotonic
+          pubs_this_second = 0
+          until @stopped
+            Random::DEFAULT.random_bytes(data) if @random_bodies
+            if @max_unconfirm > 0
+              unconfirmed.send nil
+              ch.basic_publish(data, @exchange, @routing_key, props: props) do
+                unconfirmed.receive
               end
-              start = Time.monotonic
-              consumes_this_second = 0
+            else
+              ch.basic_publish(data, @exchange, @routing_key, props: props)
+            end
+            ch.tx_commit if @pub_in_transaction > 0 && (@pubs % @pub_in_transaction) == 0
+            @pubs += 1
+            break if @pubs == @pmessages
+            unless @rate.zero?
+              pubs_this_second += 1
+              if pubs_this_second >= @rate
+                until_next_second = (start + 1.seconds) - Time.monotonic
+                if until_next_second > Time::Span.zero
+                  sleep until_next_second
+                end
+                start = Time.monotonic
+                pubs_this_second = 0
+              end
             end
           end
         end
       end
-    end
 
-    private def reconnect_on_disconnect(done, &)
-      loop do
-        break yield
-      rescue ex : AMQP::Client::Error | IO::Error
-        puts ex.message
-        sleep 1.seconds
+      private def consume # ameba:disable Metrics/CyclomaticComplexity
+        data = Bytes.new(@size) { |i| ((i % 27 + 64)).to_u8 }
+        ::AMQP::Client.start(@uri) do |a|
+          ch = a.channel
+          q = begin
+            ch.queue @queue, durable: !@queue.empty?, auto_delete: @queue.empty?, args: @queue_args
+          rescue
+            ch = a.channel
+            ch.queue(@queue, passive: true)
+          end
+          ch.tx_select if @ack_in_transaction > 0
+          if prefetch = @prefetch
+            ch.prefetch prefetch
+          end
+          q.bind(@exchange, @routing_key) unless @exchange.empty?
+          Fiber.yield
+          consumes_this_second = 0
+          start = Time.monotonic
+          q.subscribe(tag: "c", no_ack: @ack.zero?, block: true, args: @consumer_args) do |m|
+            @consumes += 1
+            raise "Invalid data: #{m.body_io.to_slice}" if @verify && m.body_io.to_slice != data
+            m.ack(multiple: true) if @ack > 0 && @consumes % @ack == 0
+            ch.tx_commit if @ack_in_transaction > 0 && (@consumes % @ack_in_transaction) == 0
+            if @stopped || @consumes == @cmessages
+              ch.close
+            end
+            if @consume_rate.zero?
+              Fiber.yield if @consumes % 128*1024 == 0
+            else
+              consumes_this_second += 1
+              if consumes_this_second >= @consume_rate
+                until_next_second = (start + 1.seconds) - Time.monotonic
+                if until_next_second > Time::Span.zero
+                  sleep until_next_second
+                end
+                start = Time.monotonic
+                consumes_this_second = 0
+              end
+            end
+          end
+        end
       end
-    ensure
-      done.done
+
+      private def poll_consume
+        ::AMQP::Client.start(@uri) do |a|
+          ch = a.channel
+          q = begin
+            ch.queue @queue
+          rescue
+            ch = a.channel
+            ch.queue(@queue, passive: true)
+          end
+          if prefetch = @prefetch
+            ch.prefetch prefetch
+          end
+          q.bind(@exchange, @routing_key) unless @exchange.empty?
+          Fiber.yield
+          consumes_this_second = 0
+          start = Time.monotonic
+          loop do
+            if msg = q.get(no_ack: @ack.zero?)
+              @consumes += 1
+              msg.ack(multiple: true) if @ack > 0 && @consumes % @ack == 0
+              break if @stopped || @consumes == @cmessages
+            end
+            unless @consume_rate.zero?
+              consumes_this_second += 1
+              if consumes_this_second >= @consume_rate
+                until_next_second = (start + 1.seconds) - Time.monotonic
+                if until_next_second > Time::Span.zero
+                  sleep until_next_second
+                end
+                start = Time.monotonic
+                consumes_this_second = 0
+              end
+            end
+          end
+        end
+      end
+
+      private def rerun_on_exception(done, &)
+        loop do
+          break yield
+        rescue ex : ::AMQP::Client::Error | IO::Error
+          puts ex.message
+          sleep 1.seconds
+        end
+      ensure
+        done.done
+      end
     end
 
     # Announce that the client is connected
