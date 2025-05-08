@@ -1,11 +1,63 @@
 require "../clustering"
 require "../clustering/proxy"
 require "../data_dir_lock"
+require "../mfile"
 require "lz4"
 
 module LavinMQ
   module Clustering
+    # Wraps an MFile and keep tracks of access time and adds logic
+    # to resize the file if needed.
+    class ReplicatedFile
+      getter last_access = Time.monotonic
+      getter path : String
+
+      @file : MFile
+
+      def initialize(@path : String, @capacity : Int64)
+        # Ensure the file exists
+        @file = MFile.new(@path, @capacity)
+      end
+
+      def write(data : Bytes)
+        @last_access = Time.monotonic
+        resize_to_fit(data.size)
+        @file.write data
+      end
+
+      def resize_to_fit(bytes_to_fit)
+        new_capacity = size + bytes_to_fit
+        if new_capacity > @capacity
+          @file.resize new_capacity
+          @capacity = new_capacity
+        end
+      end
+
+      def size
+        @file.size
+      end
+
+      def rename(new_filename)
+        @last_access = Time.monotonic
+        File.rename @path, new_filename
+        @path = new_filename
+      end
+
+      def delete
+        @last_access = Time.monotonic
+        File.delete @path
+      end
+
+      def close
+        @last_access = Time.monotonic
+        @file.close
+      end
+    end
+
     class Client
+      OPEN_FILES_THRESHOLD    = ENV.fetch("LAVINMQ_OPEN_FILES_THRESHOLD", 2048).to_i
+      OPEN_FILES_IDLE_TIMEOUT = ENV.fetch("LAVINMQ_OPEN_FILES_IDLE_TIMEOUT", 10).to_i.seconds
+
       Log = LavinMQ::Log.for "clustering.client"
       @data_dir_lock : DataDirLock
       @closed = false
@@ -21,14 +73,28 @@ module LavinMQ
       def initialize(@config : Config, @id : Int32, @password : String, proxy = true)
         System.maximize_fd_limit
         @data_dir = config.data_dir
-        @files = Hash(String, File).new do |h, k|
-          path = File.join(@data_dir, k)
-          Dir.mkdir_p File.dirname(path)
-          h[k] = File.open(path, "a").tap &.sync = true
-        end
         Dir.mkdir_p @data_dir
         @data_dir_lock = DataDirLock.new(@data_dir).tap &.acquire
         @backup_dir = File.join(@data_dir, "backups", Time.utc.to_rfc3339)
+        @files = Hash(String, ReplicatedFile).new do |h, k|
+          # If a file is to be opened, first close files that haven't been used
+          # for a while but only if we have "too many" open.
+          i = h.size
+          h.reject! do |_, f|
+            break false if i <= OPEN_FILES_THRESHOLD
+            if f.last_access < (Time.monotonic - LAVINMQ_OPEN_FILES_IDLE_TIMEOUT)
+              i &-= 1
+              f.close
+              true
+            else
+              false
+            end
+          end
+          path = File.join(@data_dir, k)
+          Dir.mkdir_p File.dirname(path)
+          h[k] = ReplicatedFile.new(path, Config.instance.segment_size)
+          h[k]
+        end
 
         if proxy
           @amqp_proxy = Proxy.new(@config.amqp_bind, @config.amqp_port)
@@ -227,6 +293,7 @@ module LavinMQ
           when .negative? # append bytes to file
             Log.debug { "Appending #{len.abs} bytes to #{filename}" }
             f = @files[filename]
+            f.resize_to_fit(len.abs)
             IO.copy(lz4, f, len.abs) == len.abs || raise IO::EOFError.new("Full append not received")
           when .zero? # file is deleted
             Log.debug { "Deleting #{filename}" }
@@ -239,6 +306,7 @@ module LavinMQ
           when .positive? # replace file
             Log.debug { "Replacing file #{filename} (#{len} bytes)" }
             f = @files["#{filename}.tmp"]
+            f.resize_to_fit(len)
             IO.copy(lz4, f, len) == len || raise IO::EOFError.new("Full file not received")
             f.rename f.path[0..-5]
             @files.delete("#{filename}.tmp").try &.close
