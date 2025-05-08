@@ -17,26 +17,25 @@ module LavinMQ
       getter remote_address
 
       def initialize(@socket : TCPSocket, @data_dir : String, @file_index : FileIndex)
-        @socket.write_timeout = 5.seconds
-        @socket.read_timeout = 5.seconds
+        @socket.sync = true # Use buffering in lz4
+        @socket.read_buffering = true
         @remote_address = @socket.remote_address
         @lz4 = Compress::LZ4::Writer.new(@socket, Compress::LZ4::CompressOptions.new(auto_flush: false, block_mode_linked: true))
       end
 
       def negotiate!(password) : Nil
+        @socket.read_timeout = 5.seconds # prevent idling non-authed sockets
         validate_header!
         authenticate!(password)
         @id = @socket.read_bytes Int32, IO::ByteFormat::LittleEndian
-        @socket.tcp_nodelay = true
-        @socket.read_buffering = false
-        @socket.sync = true # Use buffering in lz4
         if keepalive = Config.instance.tcp_keepalive
           @socket.keepalive = true
           @socket.tcp_keepalive_idle = keepalive[0]
           @socket.tcp_keepalive_interval = keepalive[1]
           @socket.tcp_keepalive_count = keepalive[2]
         end
-        Log.info { "Accepted ID #{@id}" }
+        @socket.read_timeout = nil # assumed authed followers are well behaving
+        Log.info { "Accepted ID #{@id.to_s(36)}" }
       end
 
       def full_sync : Nil
@@ -45,6 +44,8 @@ module LavinMQ
       end
 
       def action_loop(lz4 = @lz4)
+        @socket.tcp_nodelay = true
+        @socket.read_buffering = false
         @running.add
         while action = @actions.receive?
           action.send(lz4, Log)
@@ -92,69 +93,81 @@ module LavinMQ
           @socket.write_byte 1u8
           raise AuthenticationError.new
         end
-      ensure
-        @socket.flush
       end
 
-      private def send_file_list(socket = @lz4)
+      private def send_file_list(lz4 = @lz4)
         Log.info { "Calculating hashes" }
         count = 0
         @file_index.files_with_hash do |path, hash|
           count &+= 1
-          path = path[@data_dir.bytesize + 1..]
-          socket.write_bytes path.bytesize.to_i32, IO::ByteFormat::LittleEndian
-          socket.write path.to_slice
-          socket.write hash
-          Fiber.yield
+          lz4.write_bytes path.bytesize.to_i32, IO::ByteFormat::LittleEndian
+          lz4.write path.to_slice
+          lz4.write hash
         end
-        socket.write_bytes 0i32 # 0 means end of file list
-        socket.flush
-        Log.info { "File list sent (#{count} files}" }
+        lz4.write_bytes 0i32 # 0 means end of file list
+        lz4.flush
+        Log.info { "File list sent (#{count} files)" }
         count
       end
 
       private def send_requested_files(socket = @socket)
+        requested_files = Array(String).new
         loop do
           filename_len = socket.read_bytes Int32, IO::ByteFormat::LittleEndian
           break if filename_len.zero?
           filename = socket.read_string(filename_len)
-          send_requested_file(filename)
-          @lz4.flush
+          requested_files << filename
+          Log.info { "#{filename} requested" }
+        end
+        Log.info { "#{requested_files.size} files requested" }
+        total_requested_bytes = requested_files.sum { |p| File.size File.join(@data_dir, p) }
+        sent_bytes = 0i64
+        start = Time.monotonic
+        requested_files.each do |filename|
+          file_size = send_requested_file(filename)
+
+          sent_bytes += file_size
+          total_requested_bytes -= file_size
+          total_time_taken = (Time.monotonic - start).total_seconds
+          bps = (sent_bytes / total_time_taken).round.to_u64
+          time_left = (total_requested_bytes / bps).round(1)
+          Log.info { "Uploaded #{filename} in #{bps.humanize_bytes}/s" }
+          Log.info { "#{total_requested_bytes.humanize_bytes} left, expected #{time_left}s left" }
           Fiber.yield
         end
+        @lz4.flush
       end
 
-      private def send_requested_file(filename)
-        Log.info { "#{filename} requested" }
+      private def send_requested_file(filename) : Int
         @file_index.with_file(filename) do |f|
           case f
           when MFile
             size = f.size.to_i64
             @lz4.write_bytes size, IO::ByteFormat::LittleEndian
             f.copy_to(@lz4, size)
+            size
           when File
             size = f.size.to_i64
             @lz4.write_bytes size, IO::ByteFormat::LittleEndian
             IO.copy(f, @lz4, size) == size || raise IO::EOFError.new
+            size
           when nil
             @lz4.write_bytes 0i64
+            0
           else raise "unexpected file type #{f.class}"
           end
         end
       end
 
       def add(path, mfile : MFile? = nil) : Int64
-        path = path[(@data_dir.size + 1)..] if Path[path].absolute?
         send_action AddAction.new(@data_dir, path, mfile)
       end
 
       def append(path, obj) : Int64
-        path = path[(@data_dir.size + 1)..] if Path[path].absolute?
         send_action AppendAction.new(@data_dir, path, obj)
       end
 
       def delete(path) : Int64
-        path = path[(@data_dir.size + 1)..] if Path[path].absolute?
         send_action DeleteAction.new(@data_dir, path)
       end
 

@@ -78,6 +78,8 @@ module LavinMQ
       @runner.run do
         start
       end
+      @replicator.close
+      @data_dir_lock.try &.release
     end
 
     def stop
@@ -88,8 +90,6 @@ module LavinMQ
       @http_server.try &.close rescue nil
       @amqp_server.try &.close rescue nil
       @runner.stop
-      @replicator.close
-      @data_dir_lock.try &.release
     end
 
     private def print_environment_info
