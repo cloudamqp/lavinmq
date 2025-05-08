@@ -19,4 +19,18 @@ describe LavinMQ::Config do
     config.data_dir.should eq "/tmp/lavinmq-spec"
     config.log_level.to_s.should eq "Fatal"
   end
+
+  it "raises on non-hashed default_password" do
+    config = LavinMQ::Config.new
+    config.default_password = "abc"
+    expect_raises(ArgumentError) do
+      config.verify_default_password
+    end
+  end
+
+  it "handles hashed default_password" do
+    config = LavinMQ::Config.new
+    config.default_password = "+pHuxkR9fCyrrwXjOD4BP4XbzO3l8LJr8YkThMgJ0yVHFRE+"
+    config.verify_default_password
+  end
 end
