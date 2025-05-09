@@ -472,8 +472,7 @@ module LavinMQ
       end
 
       private def append_msg_count(file, count)
-        raw_buff = uninitialized UInt8[20]
-        buff = raw_buff.to_slice
+        buff = Bytes.new(20)
         format = IO::ByteFormat::SystemEndian
         format.encode(0i64, buff[0, 8])
         format.encode(MAGIC, buff[8, 4])
@@ -481,6 +480,7 @@ module LavinMQ
         crc = Digest::CRC32.checksum(buff[0, 16])
         format.encode(crc, buff[16, 4])
         file.write buff
+        @replicator.try &.append file.path, buff
       end
 
       private def read_msg_count(mfile) : UInt32
