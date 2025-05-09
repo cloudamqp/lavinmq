@@ -489,7 +489,7 @@ module LavinMQ
           buff = raw_buff.to_slice
           mfile.read_fully buff
           format = IO::ByteFormat::SystemEndian
-          crc = format.decode(Int32, buff[16, 4])
+          crc = format.decode(UInt32, buff[16, 4])
           calc_crc = Digest::CRC32.checksum(buff[0, 16])
           raise NoMsgCountError.new("Invalid CRC crc=#{crc} calc_crc=#{calc_crc}") unless crc == calc_crc
           ts = format.decode(Int64, buff[0, 8])
