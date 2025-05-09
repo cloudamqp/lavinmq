@@ -412,7 +412,7 @@ module LavinMQ
           begin
             count = read_msg_count(mfile)
             @segment_msg_count[seg] = count
-            bytesize = mfile.size - 4 # minus schema version
+            bytesize = mfile.size - 4 - 20 # minus schema version and msg count
             acked = 0
             if deleted = @deleted[seg]?
               acked = deleted.size
