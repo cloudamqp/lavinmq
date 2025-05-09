@@ -163,3 +163,6 @@ clean:
 .PHONY: watch
 watch:
 	while true; do inotifywait -qqr -e modify -e create -e delete src/ && $(MAKE); done
+
+run-dev:
+	crystal run -Dpreview_mt -Dexecution_context src/lavinmq.cr -- -D /tmp/amqp

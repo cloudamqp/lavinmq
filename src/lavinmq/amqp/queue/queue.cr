@@ -726,6 +726,7 @@ module LavinMQ::AMQP
       @queue_expiration_ttl_change.try_send? nil
       @get_count.add(1)
       @deliver_get_count.add(1)
+      @get_no_ack_count.add(1) if no_ack
       get(no_ack) do |env|
         yield env
       end
