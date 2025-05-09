@@ -209,7 +209,7 @@ module MessageRoutingSpec
           x = LavinMQ::AMQP::HeadersExchange.new(vhost, "h", false, false, true)
           q7 = LavinMQ::AMQP::Queue.new(vhost, "q7")
           x.bind(q7, "", hdrs_all)
-          msg_hdrs = hdrs_all.dup
+          msg_hdrs = hdrs_all.clone
           msg_hdrs.delete "x-match"
           msg_hdrs["org"] = "google"
           matches(x, "", msg_hdrs).size.should eq 0
@@ -221,7 +221,7 @@ module MessageRoutingSpec
           x = LavinMQ::AMQP::HeadersExchange.new(vhost, "h", false, false, true)
           q8 = LavinMQ::AMQP::Queue.new(vhost, "q8")
           x.bind(q8, "", hdrs_any)
-          msg_hdrs = hdrs_any.dup
+          msg_hdrs = hdrs_any.clone
           msg_hdrs.delete "x-match"
           msg_hdrs["org"] = "google"
           matches(x, "", msg_hdrs).should eq(Set{q8})
@@ -231,7 +231,7 @@ module MessageRoutingSpec
           x = LavinMQ::AMQP::HeadersExchange.new(vhost, "h", false, false, true)
           q9 = LavinMQ::AMQP::Queue.new(vhost, "q9")
           x.bind(q9, "", hdrs_any)
-          msg_hdrs = hdrs_any.dup
+          msg_hdrs = hdrs_any.clone
           msg_hdrs.delete "x-match"
           msg_hdrs["org"] = "google"
           msg_hdrs["user"] = "hest"

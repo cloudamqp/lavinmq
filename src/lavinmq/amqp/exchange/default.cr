@@ -17,11 +17,11 @@ module LavinMQ
         end
       end
 
-      def bind(destination, routing_key, headers = nil)
+      def bind(destination, routing_key, arguments = nil)
         raise LavinMQ::Exchange::AccessRefused.new(self)
       end
 
-      def unbind(destination, routing_key, headers = nil)
+      def unbind(destination, routing_key, arguments = nil)
         raise LavinMQ::Exchange::AccessRefused.new(self)
       end
     end
