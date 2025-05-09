@@ -347,49 +347,73 @@ describe LavinMQ::AMQP::Queue do
   end
 
   describe "MessageStore" do
+    #
+    # Setup and teardown for each example
+    #
+    data_dir = uninitialized String
+    store = uninitialized LavinMQ::Queue::MessageStore
+
+    around_each do |example|
+      data_dir = File.tempname
+      Dir.mkdir_p data_dir
+      LavinMQ::Config.instance.segment_size = 10*128
+      store = LavinMQ::Queue::MessageStore.new(data_dir, nil)
+      example.run
+    ensure
+      store.close if store
+      FileUtils.rm_rf data_dir if data_dir
+    end
+    #
+    # setup end...
+    #
+
+    it "should append msg count to end of file" do
+      body = IO::Memory.new(Random::DEFAULT.random_bytes(LavinMQ::Config.instance.segment_size//10), writeable: false)
+      msg = LavinMQ::Message.new(0i64, "amq.topic", "rk", AMQ::Protocol::Properties.new, body.size.to_u64, body)
+      until store.@segments.size > 1
+        store.push msg
+      end
+      segment_msg_count = store.@segment_msg_count.first_value
+      File.open File.join(data_dir, "msgs.0000000001") do |f|
+        f.seek(-20, IO::Seek::End)
+        buffer = Bytes.new(20)
+        f.read_fully(buffer)
+        format = IO::ByteFormat::SystemEndian
+        magic = format.decode(Int32, buffer[8, 4])
+        magic.should eq LavinMQ::Queue::MessageStore::MAGIC
+        count = format.decode(UInt32, buffer[12, 4])
+        count.should eq segment_msg_count
+        crc = format.decode(UInt32, buffer[16, 4])
+        crc.should eq Digest::CRC32.checksum(buffer[0, 16])
+      end
+    end
+
     # Delete unused segments bug
     # https://github.com/cloudamqp/lavinmq/pull/565
     it "should remove unused segments after being consumed" do
-      data_dir = File.join(LavinMQ::Config.instance.data_dir, "msgstore")
-      Dir.mkdir_p data_dir
-      begin
-        store = LavinMQ::Queue::MessageStore.new(data_dir, nil)
-        body = IO::Memory.new(Random::DEFAULT.random_bytes(LavinMQ::Config.instance.segment_size), writeable: false)
-        msg = LavinMQ::Message.new(0i64, "amq.topic", "rk", AMQ::Protocol::Properties.new, body.size.to_u64, body)
-        sps = Array(LavinMQ::SegmentPosition).new(10) { store.push msg }
-        sps.each { |sp| store.delete sp }
-        Fiber.yield
-        store.@segments.size.should be <= 2
-      ensure
-        FileUtils.rm_rf data_dir
-      end
+      body = IO::Memory.new(Random::DEFAULT.random_bytes(LavinMQ::Config.instance.segment_size), writeable: false)
+      msg = LavinMQ::Message.new(0i64, "amq.topic", "rk", AMQ::Protocol::Properties.new, body.size.to_u64, body)
+      sps = Array(LavinMQ::SegmentPosition).new(10) { store.push msg }
+      sps.each { |sp| store.delete sp }
+      Fiber.yield
+      store.@segments.size.should be <= 2
     end
 
     it "should not create ack files when cleaning up segments" do
       # This spec verifies a bugfix where one ack file per segment was created
-      data_dir = File.join(LavinMQ::Config.instance.data_dir, "msgstore2")
-      Dir.mkdir_p data_dir
-      begin
-        body = IO::Memory.new(Random::DEFAULT.random_bytes(LavinMQ::Config.instance.segment_size), writeable: false)
-        msg = LavinMQ::Message.new(0i64, "amq.topic", "rk", AMQ::Protocol::Properties.new, body.size.to_u64, body)
+      body = IO::Memory.new(Random::DEFAULT.random_bytes(LavinMQ::Config.instance.segment_size), writeable: false)
+      msg = LavinMQ::Message.new(0i64, "amq.topic", "rk", AMQ::Protocol::Properties.new, body.size.to_u64, body)
 
-        store = LavinMQ::Queue::MessageStore.new(data_dir, nil)
-        2.times { store.push msg }
-        store.close
+      store = LavinMQ::Queue::MessageStore.new(data_dir, nil)
+      2.times { store.push msg }
+      store.close
 
-        # recreate store to let it read the segments and cleanup
-        LavinMQ::Queue::MessageStore.new(data_dir, nil)
-        Dir.glob(File.join(data_dir, "acks.*")).should eq [] of String
-      ensure
-        FileUtils.rm_rf data_dir
-      end
+      # recreate store to let it read the segments and cleanup
+      store = LavinMQ::Queue::MessageStore.new(data_dir, nil)
+      Dir.glob(File.join(data_dir, "acks.*")).should be_empty
     end
 
     it "should yield fiber while purging" do
-      tmpdir = File.tempname "lavin", ".spec"
-      Dir.mkdir_p tmpdir
-      store = LavinMQ::Queue::MessageStore.new(tmpdir, nil)
-
       (LavinMQ::Queue::MessageStore::PURGE_YIELD_INTERVAL * 2 + 1).times do
         store.push(LavinMQ::Message.new(0i64, "a", "b", AMQ::Protocol::Properties.new, 0u64, IO::Memory.new(0)))
       end
@@ -415,14 +439,9 @@ describe LavinMQ::AMQP::Queue do
       done.receive
 
       yields.should eq 2
-    ensure
-      FileUtils.rm_rf tmpdir if tmpdir
     end
 
     it "should not raise NotFoundError if segment is gone when deleting" do
-      tmpdir = File.tempname "lavin", ".spec"
-      Dir.mkdir_p tmpdir
-      store = LavinMQ::Queue::MessageStore.new(tmpdir, nil)
       data = Random::Secure.hex(512)
       io = IO::Memory.new(data.to_slice)
 
@@ -432,13 +451,12 @@ describe LavinMQ::AMQP::Queue do
         store.push(LavinMQ::Message.new(0i64, "a", "b", AMQ::Protocol::Properties.new, data.bytesize.to_u64, io))
       end
 
-      Dir.glob(File.join(tmpdir, "msgs.*")).each do |f|
+      Dir.glob(File.join(data_dir, "msgs.*")).each do |f|
         File.delete(f)
       end
 
+      # Should not raise:
       store.purge
-    ensure
-      FileUtils.rm_rf tmpdir if tmpdir
     end
   end
 
