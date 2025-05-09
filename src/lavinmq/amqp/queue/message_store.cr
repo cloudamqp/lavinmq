@@ -472,21 +472,31 @@ module LavinMQ
       end
 
       private def append_msg_count(file, count)
-        file.write_bytes 0i64 # ts zero
-        file.write_bytes MAGIC
-        file.write_bytes count.to_u32
-        file.write_bytes 0u32 # reserved
+        raw_buff = uninitialized UInt8[20]
+        buff = raw_buff.to_slice
+        format = IO::ByteFormat::SystemEndian
+        format.encode(0i64, buff[0, 8])
+        format.encode(MAGIC, buff[8, 4])
+        format.encode(count.to_u32, buff[12, 4])
+        crc = Digest::CRC32.checksum(buff[0, 16])
+        format.encode(crc, buff[16, 4])
+        file.write buff
       end
 
       private def read_msg_count(mfile) : UInt32
         mfile.seek(-20, IO::Seek::End) do
-          ts = mfile.read_bytes Int64
+          raw_buff = uninitialized UInt8[20]
+          buff = raw_buff.to_slice
+          mfile.read_fully buff
+          format = IO::ByteFormat::SystemEndian
+          crc = format.decode(Int32, buff[16, 4])
+          calc_crc = Digest::CRC32.checksum(buff[0, 16])
+          raise NoMsgCountError.new("Invalid CRC crc=#{crc} calc_crc=#{calc_crc}") unless crc == calc_crc
+          ts = format.decode(Int64, buff[0, 8])
           raise NoMsgCountError.new("ts=#{ts}") unless ts.zero?
-          magic = mfile.read_bytes Int32
+          magic = format.decode(Int32, buff[8, 4])
           raise NoMsgCountError.new("magic=#{magic}") unless magic == MAGIC
-          count = mfile.read_bytes UInt32
-          reserved = mfile.read_bytes UInt32
-          raise NoMsgCountError.new("reserved=#{reserved}") unless reserved.zero?
+          count = format.decode(UInt32, buff[12, 4])
           count
         end
       end
