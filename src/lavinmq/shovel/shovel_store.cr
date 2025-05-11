@@ -15,9 +15,27 @@ module LavinMQ
       end
     end
 
-    def create(name, config)
-      #TODO 911 review this - feels like we could have an update method here
-      @shovels[name]?.try &.terminate
+    def upsert(name, config)
+      shovel = @shovels[name]?
+      return upsert0(name, config) unless shovel
+      case {shovel.state, config["state"]}
+      when {Shovel::State::Running, "paused"}
+        shovel.pause
+      when {Shovel::State::Paused, "running"}
+        spawn(shovel.resume, name: "Shovel name=#{name} vhost=#{@vhost.name}")
+      end
+      shovel.terminate
+      return upsert0(name, config)
+    end
+
+    def delete(name)
+      if shovel = @shovels.delete name
+        shovel.terminate
+        shovel
+      end
+    end
+
+    private def upsert0(name, config)
       delete_after_str = config["src-delete-after"]?.try(&.as_s.delete("-")).to_s
       delete_after = Shovel::DeleteAfter.parse?(delete_after_str) || Shovel::DEFAULT_DELETE_AFTER
       ack_mode_str = config["ack-mode"]?.try(&.as_s.delete("-")).to_s
@@ -40,13 +58,6 @@ module LavinMQ
       shovel
     rescue KeyError
       raise JSON::Error.new("Fields 'src-uri' and 'dest-uri' are required")
-    end
-
-    def delete(name)
-      if shovel = @shovels.delete name
-        shovel.terminate
-        shovel
-      end
     end
 
     private def destination(name, config, ack_mode)

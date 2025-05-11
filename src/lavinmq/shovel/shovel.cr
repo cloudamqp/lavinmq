@@ -444,8 +444,8 @@ module LavinMQ
         }
       end
 
+      #TODO 911 review this - I don't think we need this - we can just call `run`
       def resume
-        @state = State::Running
         run
         Log.info &.emit("Resumed", name: @name, vhost: @vhost.name)
       end
