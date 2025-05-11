@@ -600,6 +600,48 @@ describe LavinMQ::Shovel do
         end
       end
     end
+
+    it "should pause and resume shovel" do
+      with_amqp_server do |s|
+        vhost = s.vhosts.create("pause:resume:vhost")
+        queue_name = "shovel:pause:resume"
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "#{queue_name}q1",
+          [URI.parse(s.amqp_url)],
+          "#{queue_name}q1",
+          delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
+          direct_user: s.users.direct_user
+        )
+        dest = LavinMQ::Shovel::AMQPDestination.new(
+          "#{queue_name}q2",
+          URI.parse(s.amqp_url),
+          "#{queue_name}q2",
+          direct_user: s.users.direct_user
+        )
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "pause:resume:shovel", vhost)
+        with_channel(s) do |ch|
+          q1, q2 = ShovelSpecHelpers.setup_qs ch, queue_name
+          q1.publish_confirm "shovel me 1", "#{queue_name}q1"
+          q1.publish_confirm "shovel me 2", "#{queue_name}q1"
+          shovel.run
+          q2.get(no_ack: true).try(&.body_io.to_s).should eq "shovel me 1"
+          q2.get(no_ack: true).try(&.body_io.to_s).should eq "shovel me 2"
+          shovel.pause
+          shovel.paused?.should eq true
+
+          q1.publish_confirm "shovel me 3", "#{queue_name}q1"
+          q1.publish_confirm "shovel me 4", "#{queue_name}q1"
+          q2.get(no_ack: true).try(&.body_io.to_s).should eq nil
+
+          spawn shovel.resume
+          wait_for { shovel.running? } # Ensure it gets back to Running state
+          wait_for { shovel.terminated? }
+          q2.get(no_ack: true).try(&.body_io.to_s).should eq "shovel me 3"
+          q2.get(no_ack: true).try(&.body_io.to_s).should eq "shovel me 4"
+          s.vhosts["/"].shovels.empty?.should be_true
+        end
+      end
+    end
   end
 
   describe "HTTP" do
