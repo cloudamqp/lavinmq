@@ -126,7 +126,7 @@ Table.renderTable('table', tableOptions, (tr, item, all) => {
     const vhost = encodeURIComponent(item.vhost)
     const url = 'api/parameters/shovel/' + vhost + '/' + name
     if (window.confirm('Are you sure?')) {
-      HTTP.request('PUT', url) //TODO 911 review this
+      HTTP.request('PUT', url, {body: {value: {state: 'paused'}}}) //TODO 911 review this
         .then(() => {
           DOM.toast(`Shovel ${item.name} paused`)
         })
