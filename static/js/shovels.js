@@ -117,7 +117,22 @@ Table.renderTable('table', tableOptions, (tr, item, all) => {
       'dest-endpoint': (item) => item.value['dest-queue'] || item.value['dest-exchange']
     })
   }
-  btns.append(editBtn, deleteBtn)
+
+  const pauseBtn = document.createElement('button')
+  pauseBtn.classList.add('btn-warn')
+  pauseBtn.textContent = 'Pause'
+  pauseBtn.onclick = function () {
+    const name = encodeURIComponent(item.name)
+    const vhost = encodeURIComponent(item.vhost)
+    const url = 'api/parameters/shovel/' + vhost + '/' + name
+    if (window.confirm('Are you sure?')) {
+      HTTP.request('PUT', url) //TODO 911 review this
+        .then(() => {
+          DOM.toast(`Shovel ${item.name} paused`)
+        })
+    }
+  }
+  btns.append(editBtn, pauseBtn, deleteBtn)
   Table.renderCell(tr, 11, btns, 'right')
 })
 
