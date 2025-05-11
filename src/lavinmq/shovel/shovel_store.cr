@@ -16,6 +16,7 @@ module LavinMQ
     end
 
     def create(name, config)
+      #TODO 911 review this - feels like we could have an update method here
       @shovels[name]?.try &.terminate
       delete_after_str = config["src-delete-after"]?.try(&.as_s.delete("-")).to_s
       delete_after = Shovel::DeleteAfter.parse?(delete_after_str) || Shovel::DEFAULT_DELETE_AFTER
