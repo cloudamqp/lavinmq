@@ -46,9 +46,6 @@ module LavinMQ
       def client=(client : MQTT::Client?)
         return if @closed
         @last_get_time = RoughTime.monotonic
-        @consumers.each do |c|
-          rm_consumer c
-        end
 
         @msg_store_lock.synchronize do
           @unacked.values.each do |sp|
@@ -56,6 +53,10 @@ module LavinMQ
           end
         end
         @unacked.clear
+
+        @consumers.each do |c|
+          rm_consumer c
+        end
 
         if c = client
           add_consumer MQTT::Consumer.new(c, self)
