@@ -239,6 +239,7 @@ module LavinMQ
 
       def close : Nil
         @closed = true
+        # TODO: refactor so we can append_msg_count to current wfile
         @empty.close
         @segments.each_value &.close
         @acks.each_value &.close

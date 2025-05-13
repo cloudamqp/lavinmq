@@ -367,6 +367,9 @@ describe LavinMQ::AMQP::Queue do
     # setup end...
     #
 
+    # msg count is only written to the current wfile when it's being
+    # close because it's full, not on message store close, therefore
+    # we must make sure we have a second segment
     it "should append msg count to end of file" do
       body = IO::Memory.new(Random::DEFAULT.random_bytes(LavinMQ::Config.instance.segment_size//10), writeable: false)
       msg = LavinMQ::Message.new(0i64, "amq.topic", "rk", AMQ::Protocol::Properties.new, body.size.to_u64, body)
