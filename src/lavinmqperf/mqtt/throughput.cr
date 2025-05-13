@@ -104,7 +104,7 @@ module LavinMQPerf
         connect_packet = LavinMQ::MQTT::Connect.new(
           client_id: client_id,
           clean_session: @clean_session,
-          keepalive: 30_u16,
+          keepalive: 0,
           username: user,
           password: password.to_slice,
           will: nil
@@ -125,7 +125,8 @@ module LavinMQPerf
 
       def run
         super
-        mt = Fiber::ExecutionContext::MultiThreaded.new("Clients", maximum: System.cpu_count.to_i)
+        mt = Fiber::ExecutionContext::MultiThreaded.new("Consumer", maximum: System.cpu_count.to_i)
+        mt2 = Fiber::ExecutionContext::MultiThreaded.new("Publisher", maximum: System.cpu_count.to_i)
         done = WaitGroup.new(@consumers + @publishers)
         @consumers.times do |i|
           mt.spawn { rerun_on_exception(done) { consume(i) } }
@@ -134,7 +135,7 @@ module LavinMQPerf
         sleep 1.second # Give consumers time to connect
 
         @publishers.times do |i|
-          mt.spawn { rerun_on_exception(done) { pub(i) } }
+          mt2.spawn { rerun_on_exception(done) { pub(i) } }
         end
 
         if @timeout != Time::Span.zero
@@ -160,11 +161,11 @@ module LavinMQPerf
 
         loop do
           break if @stopped
-          pubs_last = @pubs
-          consumes_last = @consumes
+          pubs_last = @pubs.get
+          consumes_last = @consumes.get
           sleep 1.seconds
           unless @quiet
-            puts "Publish rate: #{@pubs.get - pubs_last.get} msgs/s Consume rate: #{@consumes.get - consumes_last.get} msgs/s"
+            puts "Publish rate: #{@pubs.get - pubs_last} msgs/s Consume rate: #{@consumes.get - consumes_last} msgs/s"
           end
         end
         summary(start)
@@ -228,8 +229,8 @@ module LavinMQPerf
             end
           end
 
-          @pubs.add(1)
-          break if @pmessages > 0 && @pubs.get >= @pmessages
+          pubs = @pubs.add(1) + 1
+          break if @pmessages > 0 && pubs >= @pmessages
 
           if !@rate.zero?
             pubs_this_second += 1
@@ -262,27 +263,25 @@ module LavinMQPerf
         unless suback.is_a?(LavinMQ::MQTT::SubAck)
           raise "Expected SUBACK but got #{suback.inspect}"
         end
-
-        done_channel = Channel(Nil).new(1)
+        individual_consumes = 0
         until @stopped
           begin
             packet = LavinMQ::MQTT::Packet.from_io(io)
             case packet
             when LavinMQ::MQTT::Publish
-              publish = packet.as(LavinMQ::MQTT::Publish)
 
-              @consumes.add(1)
+              consumes = @consumes.add(1) + 1
+              individual_consumes += 1
 
               if @verify
-                raise "Invalid data: #{publish.payload}" if publish.payload != data
+                raise "Invalid data: #{packet.payload}" if packet.payload != data
               end
 
-              if publish.qos > 0 && (packet_id = publish.packet_id)
+              if packet.qos > 0 && (packet_id = packet.packet_id)
                 LavinMQ::MQTT::PubAck.new(packet_id).to_io(io)
               end
 
-              if @cmessages > 0 && @consumes.get >= @cmessages
-                done_channel.send(nil)
+              if @cmessages > 0 && consumes >= @cmessages
                 break
               end
 
@@ -297,16 +296,16 @@ module LavinMQPerf
                   consumes_this_second = 0
                 end
               else
-                Fiber.yield if @consumes.get % (128 * 1024) == 0
+                Fiber.yield if individual_consumes % (128 * 1024) == 0
               end
             when LavinMQ::MQTT::PingReq
               LavinMQ::MQTT::PingResp.new.to_io(io)
             end
           rescue ex : IO::TimeoutError
+            puts ex
             next
           end
         end
-        done_channel.receive
         LavinMQ::MQTT::Disconnect.new.to_io(io) if socket && !socket.closed?
       end
 
