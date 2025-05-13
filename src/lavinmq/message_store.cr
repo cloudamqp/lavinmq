@@ -1,9 +1,9 @@
-require "../../mfile"
-require "../../segment_position"
+require "./mfile"
+require "./segment_position"
 require "log"
 require "file_utils"
-require "../../clustering/server"
-require "../../bool_channel"
+require "./clustering/server"
+require "./bool_channel"
 
 module LavinMQ
   class Queue
@@ -28,7 +28,7 @@ module LavinMQ
       getter size = 0u32
       getter empty = BoolChannel.new(true)
 
-      def initialize(@queue_data_dir : String, @replicator : Clustering::Replicator?, durable : Bool = true, metadata : ::Log::Metadata = ::Log::Metadata.empty)
+      def initialize(@msg_dir : String, @replicator : Clustering::Replicator?, durable : Bool = true, metadata : ::Log::Metadata = ::Log::Metadata.empty)
         @log = Logger.new(Log, metadata)
         @durable = durable
         @acks = Hash(UInt32, MFile).new { |acks, seg| acks[seg] = open_ack_file(seg) }
@@ -224,7 +224,7 @@ module LavinMQ
         close
         @segments.each_value { |f| delete_file(f) }
         @acks.each_value { |f| delete_file(f) }
-        FileUtils.rm_rf @queue_data_dir
+        FileUtils.rm_rf @msg_dir
       end
 
       def delete_file(file)
@@ -288,7 +288,7 @@ module LavinMQ
           @wfile.unmap unless @wfile == @rfile
         end
         next_id = @wfile_id + 1
-        path = File.join(@queue_data_dir, "msgs.#{next_id.to_s.rjust(10, '0')}")
+        path = File.join(@msg_dir, "msgs.#{next_id.to_s.rjust(10, '0')}")
         capacity = Math.max(Config.instance.segment_size, next_msg_size + 4 + 20)
         wfile = MFile.new(path, capacity)
         wfile.write_bytes Schema::VERSION
@@ -303,7 +303,7 @@ module LavinMQ
       end
 
       private def open_ack_file(id) : MFile
-        path = File.join(@queue_data_dir, "acks.#{id.to_s.rjust(10, '0')}")
+        path = File.join(@msg_dir, "acks.#{id.to_s.rjust(10, '0')}")
         capacity = Config.instance.segment_size // BytesMessage::MIN_BYTESIZE * 4 + 4
         mfile = MFile.new(path, capacity, write_only: true)
         mfile.delete unless @durable # mark as deleted if non-durable
@@ -314,16 +314,16 @@ module LavinMQ
       private def load_deleted_from_disk
         count = 0u32
         ack_files = 0u32
-        Dir.each(@queue_data_dir) do |f|
+        Dir.each(@msg_dir) do |f|
           ack_files += 1 if f.starts_with? "acks."
         end
 
         @log.debug { "Loading #{ack_files} ack files" }
-        Dir.each_child(@queue_data_dir) do |child|
+        Dir.each_child(@msg_dir) do |child|
           next unless child.starts_with? "acks."
           seg = child[5, 10].to_u32
           acked = Array(UInt32).new
-          File.open(File.join(@queue_data_dir, child), "a+") do |file|
+          File.open(File.join(@msg_dir, child), "a+") do |file|
             loop do
               pos = UInt32.from_io(file, IO::ByteFormat::SystemEndian)
               if pos.zero? # pos 0 doesn't exists (first valid is 4), must be a sparse file
@@ -345,7 +345,7 @@ module LavinMQ
 
       private def load_segments_from_disk : Nil
         ids = Array(UInt32).new
-        Dir.each_child(@queue_data_dir) do |f|
+        Dir.each_child(@msg_dir) do |f|
           if f.starts_with? "msgs."
             ids << f[5, 10].to_u32
           end
@@ -356,7 +356,7 @@ module LavinMQ
         last_idx = ids.size - 1
         ids.each_with_index do |seg, idx|
           filename = "msgs.#{seg.to_s.rjust(10, '0')}"
-          path = File.join(@queue_data_dir, filename)
+          path = File.join(@msg_dir, filename)
           file = if idx == last_idx
                    # expand the last segment
                    MFile.new(path, Config.instance.segment_size)

@@ -245,9 +245,7 @@ describe LavinMQ::Exchange do
         end
       end
     end
-  end
 
-  describe "#apply_policy" do
     describe "with federation-upstream" do
       it "will start link" do
         with_amqp_server do |s|

@@ -100,7 +100,7 @@ module LavinMQ
         end
 
         private def federate(msg, upstream_ch, exchange, routing_key, immediate = false)
-          @log.debug { "Federating routing_key=#{routing_key}" }
+          @log.debug { "Federating routing_key=#{routing_key} exchange=#{exchange}" }
           status = @upstream.vhost.publish(
             Message.new(
               RoughTime.unix_ms, exchange, routing_key, msg.properties,
@@ -142,9 +142,9 @@ module LavinMQ
         end
 
         private def received_from_header(msg)
-          headers = msg.properties.headers || ::AMQP::Client::Arguments.new
-          received_from = headers["x-received-from"]?.try(&.as?(Array(::AMQP::Client::Arguments)))
-          received_from ||= Array(::AMQP::Client::Arguments).new(1)
+          headers = msg.properties.headers || AMQP::Table.new
+          received_from = headers["x-received-from"]?.try(&.as?(Array(AMQP::Field)))
+          received_from ||= Array(AMQP::Table).new
           {headers, received_from}
         end
 
@@ -273,7 +273,7 @@ module LavinMQ
 
       class ExchangeLink < Link
         include Observer(ExchangeEvent)
-        @consumer_q : ::AMQP::Client::Queue?
+        @consumer_ex : ::AMQP::Client::Exchange?
 
         def initialize(@upstream : Upstream, @federated_ex : Exchange, @upstream_q : String,
                        @upstream_exchange : String)
@@ -292,16 +292,16 @@ module LavinMQ
           in .deleted?
             @upstream.stop_link(@federated_ex)
           in .bind?
-            with_consumer_q do |q|
+            with_consumer_ex do |ex|
               b = data_as_binding_details(data)
               args = b.arguments || ::AMQP::Client::Arguments.new
-              q.bind(@upstream_exchange, b.routing_key, args: args)
+              ex.bind(@upstream_exchange, b.routing_key, args: args)
             end
           in .unbind?
-            with_consumer_q do |q|
+            with_consumer_ex do |ex|
               b = data_as_binding_details(data)
               args = b.arguments || ::AMQP::Client::Arguments.new
-              q.unbind(@upstream_exchange, b.routing_key, args: args)
+              ex.unbind(@upstream_exchange, b.routing_key, args: args)
             end
           end
         rescue e
@@ -314,9 +314,9 @@ module LavinMQ
           b
         end
 
-        private def with_consumer_q(&)
-          if q = @consumer_q
-            yield q
+        private def with_consumer_ex(&)
+          if ex = @consumer_ex
+            yield ex
           else
             @log.warn { "No upstream connection for exchange event" }
           end
@@ -354,10 +354,6 @@ module LavinMQ
             "x-internal-purpose" => "federation",
             "x-max-hops"         => @upstream.max_hops,
           })
-          ch, _ = try_passive(upstream_client, ch) do |uch, passive|
-            uch.exchange(@upstream_q, type: "x-federation-upstream",
-              args: args2, passive: passive)
-          end
           q_args = ::AMQP::Client::Arguments.new({"x-internal-purpose" => "federation"})
           if expires = @upstream.expires
             q_args["x-expires"] = expires
@@ -365,20 +361,26 @@ module LavinMQ
           if msg_ttl = @upstream.msg_ttl
             q_args["x-message-ttl"] = msg_ttl
           end
-          ch, q = try_passive(upstream_client, ch) do |uch, passive|
+          ch, _ = try_passive(upstream_client, ch) do |uch, passive|
             uch.queue(@upstream_q, args: q_args, passive: passive)
+          end
+          ch, consumer_ex = try_passive(upstream_client, ch) do |uch, passive|
+            ex = uch.exchange(@upstream_q, type: "x-federation-upstream",
+              args: args2, passive: passive)
+            ch.queue_bind(@upstream_q, @upstream_q, routing_key: "")
+            ex
           end
           @federated_ex.register_observer(self)
           @federated_ex.bindings_details.each do |binding|
             args = binding.arguments || ::AMQP::Client::Arguments.new
-            q.bind(@upstream_exchange, binding.routing_key, args: args)
+            consumer_ex.bind(@upstream_exchange, binding.routing_key, args: args)
           end
-          {ch, q}
+          {ch, consumer_ex}
         end
 
         private def start_link
           setup_connection do |upstream_connection|
-            upstream_channel, @consumer_q = setup(upstream_connection)
+            upstream_channel, @consumer_ex = setup(upstream_connection)
             upstream_channel.prefetch(count: @upstream.prefetch)
             no_ack = @upstream.ack_mode.no_ack?
             state(State::Running)
@@ -395,7 +397,7 @@ module LavinMQ
               federate(msg, upstream_channel.not_nil!, @federated_ex.name, msg.routing_key)
             end
           ensure
-            @consumer_q = nil
+            @consumer_ex = nil
           end
         end
       end

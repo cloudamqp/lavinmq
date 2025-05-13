@@ -19,7 +19,7 @@ module LavinMQ::AMQP
         super
         @last_offset = get_last_offset
         build_segment_indexes
-        @consumer_offsets = MFile.new(File.join(@queue_data_dir, "consumer_offsets"), Config.instance.segment_size)
+        @consumer_offsets = MFile.new(File.join(@msg_dir, "consumer_offsets"), Config.instance.segment_size)
         @replicator.try &.register_file @consumer_offsets
         @consumer_offset_positions = restore_consumer_offset_positions
         drop_overflow
