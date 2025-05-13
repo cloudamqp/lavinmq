@@ -391,7 +391,6 @@ module LavinMQ
           elsif q.is_a? StreamQueue
             @client.send_not_implemented(frame, "Stream queues does not support basic_get")
           else
-            #TODO 824 check frame for `frame.no_ack` to emit proper event
             case frame.no_ack
             when true
               @get_no_ack_count.add(1)
