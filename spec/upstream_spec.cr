@@ -671,7 +671,6 @@ describe LavinMQ::Federation::Upstream do
 
           wg = WaitGroup.new(1)
           ch_q3.subscribe do |msg|
-            puts "GOT MESSAGE"
             wg.done
             headers = msg.properties.headers.should_not be_nil
             x_received_from = headers["x-received-from"].should be_a Array(AMQ::Protocol::Field)
