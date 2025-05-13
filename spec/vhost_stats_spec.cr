@@ -65,5 +65,18 @@ describe LavinMQ::VHost do
         vhost.connection_closed_count.should eq(initial_connections_closed + 1)
       end
     end
+
+    it "should count get_no_ack" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("q1", false, false)
+        s.update_stats_rates
+        vhost.get_no_ack_count.should eq(0)
+
+        vhost.queues["q1"].basic_get(true) do |_|
+          vhost.get_no_ack_count.should eq(1)
+        end
+      end
+    end
   end
 end
