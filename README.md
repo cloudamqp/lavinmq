@@ -84,6 +84,8 @@ services:
 ```
 Start the container by running `docker compose up`
 
+For an example on setting up a multi-node LavinMQ cluster with Docker Compose, see [Setting up a LavinMQ cluster with Docker Compose](https://lavinmq.com/documentation/docker-compose-cluster)
+
 ### From Source
 
 Begin with installing Crystal. Refer to
