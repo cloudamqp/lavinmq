@@ -74,6 +74,7 @@ describe LavinMQ::HTTP::QueuesController do
         body["message_stats"]["get"].should eq 2
         body["message_stats"]["deliver"].should eq 1
         body["message_stats"]["deliver_get"].should eq 3
+        body["message_stats"]["get_no_ack"].should eq 1
       end
     end
 

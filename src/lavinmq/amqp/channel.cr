@@ -40,7 +40,7 @@ module LavinMQ
       @tx = false
       @next_msg_body_tmp = IO::Memory.new
 
-      rate_stats({"ack", "get", "publish", "deliver", "deliver_get", "redeliver", "reject", "confirm", "return_unroutable"})
+      rate_stats({"ack", "get", "get_no_ack", "publish", "deliver", "deliver_get", "redeliver", "reject", "confirm", "return_unroutable"})
 
       Log = LavinMQ::Log.for "amqp.channel"
 
@@ -391,9 +391,16 @@ module LavinMQ
           elsif q.is_a? StreamQueue
             @client.send_not_implemented(frame, "Stream queues does not support basic_get")
           else
-            @get_count.add(1)
-            @deliver_get_count.add(1)
-            @client.vhost.event_tick(EventType::ClientGet)
+            #TODO 824 check frame for `frame.no_ack` to emit proper event
+            case frame.no_ack
+            when true
+              @get_no_ack_count.add(1)
+              @client.vhost.event_tick(EventType::ClientGetNoAck)
+            when false
+              @get_count.add(1)
+              @deliver_get_count.add(1)
+              @client.vhost.event_tick(EventType::ClientGet)
+            end
             ok = q.basic_get(frame.no_ack) do |env|
               delivery_tag = next_delivery_tag(q, env.segment_position, frame.no_ack, nil)
               unless frame.no_ack # track unacked messages
