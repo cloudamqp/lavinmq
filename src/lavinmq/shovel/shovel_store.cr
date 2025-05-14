@@ -16,16 +16,19 @@ module LavinMQ
     end
 
     def upsert(name, config)
-      shovel = @shovels[name]?
-      return upsert0(name, config) unless shovel
-      case {shovel.state, config["state"]}
-      when {Shovel::State::Running, "paused"}
-        shovel.pause
-      when {Shovel::State::Paused, "running"}
-        spawn(shovel.resume, name: "Shovel name=#{name} vhost=#{@vhost.name}")
-      end
-      shovel.terminate
-      upsert0(name, config)
+      shovel = @shovels[name]?.try { |s| 
+        case {s.state, config["state"]}
+        when {Shovel::State::Running, "paused"}
+          s.pause
+          return s
+        when {Shovel::State::Paused, "running"}
+          spawn(s.resume, name: "Shovel name=#{name} vhost=#{@vhost.name}")
+          return s
+        end
+        s.terminate
+        create(name, config)
+      }
+      shovel
     end
 
     def delete(name)
@@ -35,7 +38,7 @@ module LavinMQ
       end
     end
 
-    private def upsert0(name, config)
+    private def create(name, config)
       delete_after_str = config["src-delete-after"]?.try(&.as_s.delete("-")).to_s
       delete_after = Shovel::DeleteAfter.parse?(delete_after_str) || Shovel::DEFAULT_DELETE_AFTER
       ack_mode_str = config["ack-mode"]?.try(&.as_s.delete("-")).to_s
