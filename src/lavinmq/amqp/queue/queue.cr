@@ -725,6 +725,7 @@ module LavinMQ::AMQP
       return false if !@state.running? && (@state.paused? && !force)
       @queue_expiration_ttl_change.try_send? nil
       @deliver_get_count.add(1)
+      no_ack ? @get_no_ack_count.add(1) : @get_count.add(1)
       get(no_ack) do |env|
         yield env
       end
@@ -747,12 +748,6 @@ module LavinMQ::AMQP
     # returns true if a message was deliviered, false otherwise
     # if we encouncer an unrecoverable ReadError, close queue
     private def get(no_ack : Bool, & : Envelope -> Nil) : Bool
-      case no_ack
-      when true
-        @get_no_ack_count.add(1)
-      when false
-        @get_count.add(1)
-      end
       raise ClosedError.new if @closed
       loop do # retry if msg expired or deliver limit hit
         env = @msg_store_lock.synchronize { @msg_store.shift? } || break

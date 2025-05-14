@@ -75,8 +75,11 @@ describe LavinMQ::HTTP::ChannelsController do
             response = http.get("/api/channels/#{name}")
             response.status_code.should eq 200
             body = JSON.parse(response.body)
-            message_stats = body["message_stats"].not_nil!
-            message_stats["get_no_ack"].should eq(1)
+            if message_stats = body["message_stats"]?
+              message_stats["get_no_ack"].should eq(1)
+            else
+              fail "message_stats is nil"
+            end
           end
         end
       end
