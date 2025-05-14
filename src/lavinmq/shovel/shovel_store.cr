@@ -25,7 +25,7 @@ module LavinMQ
         spawn(shovel.resume, name: "Shovel name=#{name} vhost=#{@vhost.name}")
       end
       shovel.terminate
-      return upsert0(name, config)
+      upsert0(name, config)
     end
 
     def delete(name)
