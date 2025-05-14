@@ -384,7 +384,7 @@ module LavinMQ
       def run
         Log.context.set(name: @name, vhost: @vhost.name)
         loop do
-          break if shouldStopLoop?
+          break if should_stop_loop?
           @state = State::Starting
           unless @source.started?
             if @source.last_unacked
@@ -394,7 +394,7 @@ module LavinMQ
           end
           @destination.start unless @destination.started?
 
-          break if shouldStopLoop?
+          break if should_stop_loop?
           Log.info { "started" }
           @state = State::Running
           @retries = 0
@@ -405,7 +405,7 @@ module LavinMQ
           @vhost.delete_parameter("shovel", @name) if @source.delete_after.queue_length?
           break
         rescue ex : ::AMQP::Client::Connection::ClosedException | ::AMQP::Client::Channel::ClosedException | Socket::ConnectError
-          break if shouldStopLoop?
+          break if should_stop_loop?
           @state = State::Error
           # Shoveled queue was deleted
           if ex.message.to_s.starts_with?("404")
@@ -415,7 +415,7 @@ module LavinMQ
           @error = ex.message
           exponential_reconnect_delay
         rescue ex
-          break if shouldStopLoop?
+          break if should_stop_loop?
           @state = State::Error
           Log.warn { ex.message }
           @error = ex.message
@@ -446,6 +446,7 @@ module LavinMQ
 
       #TODO 911 review this - I don't think we need this - we can just call `run`
       def resume
+        @state = State::Starting
         run
         Log.info &.emit("Resumed", name: @name, vhost: @vhost.name)
       end
@@ -466,7 +467,7 @@ module LavinMQ
         Log.info &.emit("Terminated", name: @name, vhost: @vhost.name)
       end
 
-      def shouldStopLoop?
+      def should_stop_loop?
         terminated? || paused?
       end
 
