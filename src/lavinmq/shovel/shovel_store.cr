@@ -16,18 +16,22 @@ module LavinMQ
     end
 
     def upsert(name, config)
-      shovel = @shovels[name]?.try { |s| 
-        case {s.state, config["state"]}
-        when {Shovel::State::Running, "paused"}
-          s.pause
-          return s
-        when {Shovel::State::Paused, "running"}
-          spawn(s.resume, name: "Shovel name=#{name} vhost=#{@vhost.name}")
-          return s
-        end
-        s.terminate
-        create(name, config)
-      }
+      shovel = @shovels[name]?.try { |s| upsert0(s, config) }
+      # Issue is - it expecting the call `create` after terminate either way
+      shovel ||= create(name, config)
+      shovel
+    end
+
+    private def upsert0(shovel, config)
+      case {shovel.state, config["state"]}
+      when {Shovel::State::Running, "paused"}
+        shovel.pause
+        return shovel
+      when {Shovel::State::Paused, "running"}
+        spawn(shovel.resume, name: "Shovel name=#{shovel.name} vhost=#{@vhost.name}")
+        return shovel
+      end
+      shovel.terminate
       shovel
     end
 
