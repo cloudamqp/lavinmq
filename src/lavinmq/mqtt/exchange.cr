@@ -13,7 +13,7 @@ module LavinMQ
       # with different QoS as the same subscription this "custom" BindingKey is used which
       # only includes the routing key in the hash.
       struct BindingKey
-        def initialize(routing_key : String, arguments : AMQP::Table? = nil)
+        def initialize(routing_key : String, arguments : BindingArguments? = nil)
           @binding_key = LavinMQ::BindingKey.new(routing_key, arguments)
         end
 

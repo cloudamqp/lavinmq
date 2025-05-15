@@ -294,13 +294,13 @@ module LavinMQ
           in .bind?
             with_consumer_ex do |ex|
               b = data_as_binding_details(data)
-              args = b.arguments || ::AMQP::Client::Arguments.new
+              args = ::AMQP::Client::Arguments.new(b.arguments)
               ex.bind(@upstream_exchange, b.routing_key, args: args)
             end
           in .unbind?
             with_consumer_ex do |ex|
               b = data_as_binding_details(data)
-              args = b.arguments || ::AMQP::Client::Arguments.new
+              args = ::AMQP::Client::Arguments.new(b.arguments)
               ex.unbind(@upstream_exchange, b.routing_key, args: args)
             end
           end
@@ -347,7 +347,8 @@ module LavinMQ
         private def setup(upstream_client)
           ch, _ = try_passive(upstream_client) do |uch, passive|
             uch.exchange(@upstream_exchange, type: @federated_ex.type,
-              args: @federated_ex.arguments, passive: passive)
+              args: ::AMQP::Client::Arguments.new(@federated_ex.arguments),
+              passive: passive)
           end
           args2 = ::AMQP::Client::Arguments.new({
             "x-downstream-name"  => System.hostname,
@@ -372,7 +373,7 @@ module LavinMQ
           end
           @federated_ex.register_observer(self)
           @federated_ex.bindings_details.each do |binding|
-            args = binding.arguments || ::AMQP::Client::Arguments.new
+            args = ::AMQP::Client::Arguments.new(binding.arguments)
             consumer_ex.bind(@upstream_exchange, binding.routing_key, args: args)
           end
           {ch, consumer_ex}

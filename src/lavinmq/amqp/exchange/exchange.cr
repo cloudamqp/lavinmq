@@ -35,7 +35,7 @@ module LavinMQ
 
       def initialize(@vhost : VHost, @name : String, @durable = false,
                      @auto_delete = false, @internal = false,
-                     @arguments = AMQP::Table.new)
+                     @arguments = BindingArguments.new)
         handle_arguments
       end
 
@@ -189,10 +189,18 @@ module LavinMQ
       end
 
       abstract def type : String
-      abstract def bind(destination : AMQP::Destination, routing_key : String, headers : AMQP::Table?)
-      abstract def unbind(destination : AMQP::Destination, routing_key : String, headers : AMQP::Table?)
+      abstract def bind(destination : AMQP::Destination, routing_key : String, headers : BindingArguments?) : Bool
+      abstract def unbind(destination : AMQP::Destination, routing_key : String, headers : BindingArguments?)
       abstract def bindings_details : Iterator(BindingDetails)
       abstract def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
+
+      def bind(destination : AMQP::Destination, routing_key : String, headers : AMQP::Table?) : Bool
+        bind destination, routing_key, headers.try &.to_h
+      end
+
+      def unbind(destination : AMQP::Destination, routing_key : String, headers : AMQP::Table?)
+        unbind destination, routing_key, headers.try &.to_h
+      end
 
       def publish(msg : Message, immediate : Bool,
                   queues : Set(LavinMQ::Queue) = Set(LavinMQ::Queue).new,

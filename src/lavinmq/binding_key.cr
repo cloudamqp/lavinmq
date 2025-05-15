@@ -1,11 +1,16 @@
 require "./amqp"
+require "./binding_arguments"
 
 module LavinMQ
   struct BindingKey
     getter routing_key : String
-    getter arguments : AMQP::Table? = nil
+    getter arguments : BindingArguments?
 
-    def initialize(@routing_key : String, @arguments : AMQP::Table? = nil)
+    def self.new(routing_key : String, arguments : AMQP::Table? = nil)
+      new routing_key, arguments.try &.to_h
+    end
+
+    def initialize(@routing_key : String, @arguments : BindingArguments? = nil)
     end
 
     def properties_key

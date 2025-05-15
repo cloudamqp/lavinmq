@@ -3,13 +3,14 @@ require "./exchange"
 module LavinMQ
   module AMQP
     class HeadersExchange < Exchange
-      @bindings = Hash(AMQP::Table, Set(Destination)).new do |h, k|
+      @bindings = Hash(BindingArguments, Set(Destination)).new do |h, k|
         h[k] = Set(Destination).new
       end
 
       def initialize(@vhost : VHost, @name : String, @durable = false,
                      @auto_delete = false, @internal = false,
-                     @arguments = AMQP::Table.new)
+                     arguments = AMQP::Table.new)
+        @arguments = arguments.to_h
         validate!(@arguments)
         super
       end
@@ -20,7 +21,7 @@ module LavinMQ
 
       def bindings_details : Iterator(BindingDetails)
         @bindings.each.flat_map do |args, ds|
-          ds.map do |d|
+          ds.each.map do |d|
             binding_key = BindingKey.new("", args)
             BindingDetails.new(name, vhost.name, binding_key, d)
           end
@@ -28,8 +29,9 @@ module LavinMQ
       end
 
       def bind(destination : Destination, routing_key, headers)
+        headers ||= BindingArguments.new
         validate!(headers)
-        args = headers ? @arguments.clone.merge!(headers) : @arguments
+        args = @arguments.merge(headers)
         return false unless @bindings[args].add? destination
         binding_key = BindingKey.new(routing_key, args)
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
@@ -38,7 +40,8 @@ module LavinMQ
       end
 
       def unbind(destination : Destination, routing_key, headers)
-        args = headers ? @arguments.clone.merge!(headers) : @arguments
+        headers ||= BindingArguments.new
+        args = @arguments.merge(headers)
         bds = @bindings[args]
         return false unless bds.delete(destination)
         @bindings.delete(routing_key) if bds.empty?

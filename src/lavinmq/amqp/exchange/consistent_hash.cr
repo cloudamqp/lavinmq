@@ -19,7 +19,7 @@ module LavinMQ
         end
       end
 
-      def bind(destination : Destination, routing_key : String, headers : AMQP::Table?)
+      def bind(destination : Destination, routing_key : String, headers : BindingArguments?)
         w = weight(routing_key)
         return false if @bindings.has_key? destination
         @bindings[destination] = routing_key
@@ -30,7 +30,7 @@ module LavinMQ
         true
       end
 
-      def unbind(destination : Destination, routing_key : String, headers : AMQP::Table?)
+      def unbind(destination : Destination, routing_key : String, headers : BindingArguments?)
         w = weight(routing_key)
         return false unless @bindings.delete destination
         @hasher.remove(destination.name, w)
