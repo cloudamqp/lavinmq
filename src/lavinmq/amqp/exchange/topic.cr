@@ -3,8 +3,8 @@ require "./exchange"
 module LavinMQ
   module AMQP
     class TopicExchange < Exchange
-      @bindings = Hash(Array(String), Set(AMQP::Destination)).new do |h, k|
-        h[k] = Set(AMQP::Destination).new
+      @bindings = Hash(Array(String), Set({AMQP::Destination, BindingKey})).new do |h, k|
+        h[k] = Set({AMQP::Destination, BindingKey}).new
       end
 
       def type : String
@@ -12,29 +12,28 @@ module LavinMQ
       end
 
       def bindings_details : Iterator(BindingDetails)
-        @bindings.each.flat_map do |rk, ds|
-          ds.each.map do |d|
-            binding_key = BindingKey.new(rk.join("."))
+        @bindings.each.flat_map do |_rk, ds|
+          ds.each.map do |d, binding_key|
             BindingDetails.new(name, vhost.name, binding_key, d)
           end
         end
       end
 
-      def bind(destination : AMQP::Destination, routing_key, headers = nil)
-        return false unless @bindings[routing_key.split(".")].add? destination
-        binding_key = BindingKey.new(routing_key)
+      def bind(destination : AMQP::Destination, routing_key, arguments = nil)
+        binding_key = BindingKey.new(routing_key, arguments)
+        return false unless @bindings[routing_key.split(".")].add?({destination, binding_key})
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
         notify_observers(ExchangeEvent::Bind, data)
         true
       end
 
-      def unbind(destination : AMQP::Destination, routing_key, headers = nil)
+      def unbind(destination : AMQP::Destination, routing_key, arguments = nil)
         rks = routing_key.split(".")
         bds = @bindings[routing_key.split(".")]
-        return false unless bds.delete destination
+        binding_key = BindingKey.new(routing_key, arguments)
+        return false unless bds.delete({destination, binding_key})
         @bindings.delete(rks) if bds.empty?
 
-        binding_key = BindingKey.new(routing_key)
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
         notify_observers(ExchangeEvent::Unbind, data)
 
@@ -44,24 +43,24 @@ module LavinMQ
 
       # ameba:disable Metrics/CyclomaticComplexity
       protected def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
-        binding_keys = @bindings
+        bindings = @bindings
 
-        return if binding_keys.empty?
+        return if bindings.empty?
 
         # optimize the case where the only binding key is '#'
-        if binding_keys.size == 1
-          bk, qs = binding_keys.first
+        if bindings.size == 1
+          bk, destinations = bindings.first
           if bk.size == 1
             if bk.first == "#"
-              qs.each do |q|
-                yield q
+              destinations.each do |destination, _binding_key|
+                yield destination
               end
             end
           end
         end
 
         rk_parts = routing_key.split(".")
-        binding_keys.each do |bks, destinations|
+        bindings.each do |bks, dests|
           ok = false
           prev_hash = false
           size = bks.size # binding keys can max be 256 chars long anyway
@@ -119,7 +118,7 @@ module LavinMQ
             i += 1
           end
           if ok
-            destinations.each do |destination|
+            dests.each do |destination, _binding_key|
               yield destination
             end
           end

@@ -86,9 +86,9 @@ module LavinMQ
       protected def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
       end
 
-      def bind(destination : MQTT::Session, routing_key : String, headers = nil) : Bool
-        qos = headers.try { |h| h[QOS_HEADER]?.try(&.as(UInt8)) } || 0u8
-        binding_key = BindingKey.new(routing_key, headers)
+      def bind(destination : MQTT::Session, routing_key : String, arguments = nil) : Bool
+        qos = arguments.try { |h| h[QOS_HEADER]?.try(&.as(UInt8)) } || 0u8
+        binding_key = BindingKey.new(routing_key, arguments)
         @bindings[binding_key].add destination
         @tree.subscribe(routing_key, destination, qos)
 
@@ -97,8 +97,8 @@ module LavinMQ
         true
       end
 
-      def unbind(destination : MQTT::Session, routing_key, headers = nil) : Bool
-        binding_key = BindingKey.new(routing_key, headers)
+      def unbind(destination : MQTT::Session, routing_key, arguments = nil) : Bool
+        binding_key = BindingKey.new(routing_key, arguments)
         rk_bindings = @bindings[binding_key]
         rk_bindings.delete destination
         @bindings.delete binding_key if rk_bindings.empty?
@@ -112,11 +112,11 @@ module LavinMQ
         true
       end
 
-      def bind(destination : Destination, routing_key : String, headers = nil) : Bool
+      def bind(destination : Destination, routing_key : String, arguments = nil) : Bool
         raise LavinMQ::Exchange::AccessRefused.new(self)
       end
 
-      def unbind(destination : Destination, routing_key, headers = nil) : Bool
+      def unbind(destination : Destination, routing_key, arguments = nil) : Bool
         raise LavinMQ::Exchange::AccessRefused.new(self)
       end
 
