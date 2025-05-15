@@ -16,14 +16,13 @@ module LavinMQ
     end
 
     def upsert(name, config)
-      shovel = @shovels[name]?.try { |s| upsert0(s, config) }
-      # Issue is - it expecting the call `create` after terminate either way
+      shovel = @shovels[name]?.try { |s| update_status_or_terminate(s, config) }
       shovel ||= create(name, config)
       shovel
     end
 
-    private def upsert0(shovel, config)
-      case {shovel.state, config["state"]}
+    private def update_status_or_terminate(shovel, config)
+      case {shovel.state, config["state"]?.try &.as_s}
       when {Shovel::State::Running, "paused"}
         shovel.pause
         return shovel
@@ -32,7 +31,7 @@ module LavinMQ
         return shovel
       end
       shovel.terminate
-      shovel
+      nil
     end
 
     def delete(name)
