@@ -185,7 +185,6 @@ describe LavinMQ::HTTP::Server do
           shovels = s.vhosts["/"].shovels.not_nil!
           shovels.each_value.all? &.running?
         end
-        
         s.vhosts["/"].parameters.any? { |_, p| p.parameter_name == "import_shovel_param" }
           .should be_true
       end
