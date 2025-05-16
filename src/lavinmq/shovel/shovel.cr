@@ -447,11 +447,12 @@ module LavinMQ
       #TODO 911 review this - I don't think we need this - we can just call `run`
       def resume
         @state = State::Starting
+        Log.info { "Resuming shovel #{@name} vhost=#{@vhost.name}" }
         run
-        Log.info &.emit("Resumed", name: @name, vhost: @vhost.name)
       end
 
       def pause
+        Log.info { "Pausing shovel #{@name} vhost=#{@vhost.name}" }
         @state = State::Paused
         @source.stop
         @destination.stop

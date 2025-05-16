@@ -23,10 +23,10 @@ module LavinMQ
 
     private def update_status_or_terminate(shovel, config)
       case {shovel.state, config["state"]?.try &.as_s}
-      when {Shovel::State::Running, "paused"}
+      when {"Running", "Paused"}
         shovel.pause
         return shovel
-      when {Shovel::State::Paused, "running"}
+      when {"Paused", "Running"}
         spawn(shovel.resume, name: "Shovel name=#{shovel.name} vhost=#{@vhost.name}")
         return shovel
       end
