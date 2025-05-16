@@ -29,9 +29,9 @@ module LavinMQ
       @delayed_queue : Queue?
       @deleted = false
       @deduper : Deduplication::Deduper?
+      @effective_args = Array(String).new
 
       rate_stats({"publish_in", "publish_out", "unroutable", "dedup"})
-      property publish_in_count, publish_out_count, unroutable_count, dedup_count
 
       def initialize(@vhost : VHost, @name : String, @durable = false,
                      @auto_delete = false, @internal = false,
@@ -49,9 +49,9 @@ module LavinMQ
             @delayed ||= v.as?(Bool) == true
             init_delayed_queue if @delayed
           when "federation-upstream"
-            @vhost.upstreams.try &.link(v.as_s, self)
+            @vhost.upstreams.try &.link(v.as_s, self) unless internal?
           when "federation-upstream-set"
-            @vhost.upstreams.try &.link_set(v.as_s, self)
+            @vhost.upstreams.try &.link_set(v.as_s, self) unless internal?
           else nil
           end
         end
@@ -63,19 +63,26 @@ module LavinMQ
         handle_arguments
         @policy = nil
         @operator_policy = nil
+        @vhost.upstreams.try &.stop_link(self)
       end
 
       def handle_arguments
+        @effective_args = Array(String).new
         @alternate_exchange = (@arguments["x-alternate-exchange"]? || @arguments["alternate-exchange"]?).try &.to_s
+        @effective_args << "x-alternate-exchange" if @alternate_exchange
         if @arguments["x-delayed-exchange"]?.try &.as?(Bool)
           @delayed = true
           init_delayed_queue
+          @effective_args << "x-delayed-exchange"
         end
         if @arguments["x-message-deduplication"]?.try(&.as?(Bool))
+          @effective_args << "x-message-deduplication"
           ttl = parse_header("x-cache-ttl", Int).try(&.to_u32)
+          @effective_args << "x-cache-ttl" if ttl
           size = parse_header("x-cache-size", Int).try(&.to_u32)
-          raise LavinMQ::Error::PreconditionFailed.new("Invalid x-cache-size for message deduplication") unless size
+          @effective_args << "x-cache-size" if size
           header_key = parse_header("x-deduplication-header", String)
+          @effective_args << "x-deduplication-header" if header_key
           cache = Deduplication::MemoryCache(AMQ::Protocol::Field).new(size)
           @deduper = Deduplication::Deduper.new(cache, ttl, header_key)
         end
@@ -95,6 +102,7 @@ module LavinMQ
           operator_policy: @operator_policy.try &.name,
           effective_policy_definition: Policy.merge_definitions(@policy, @operator_policy),
           message_stats: current_stats_details,
+          effective_arguments: @effective_args,
         }
       end
 
@@ -188,41 +196,39 @@ module LavinMQ
 
       def publish(msg : Message, immediate : Bool,
                   queues : Set(LavinMQ::Queue) = Set(LavinMQ::Queue).new,
-                  exchanges : Set(LavinMQ::Exchange) = Set(LavinMQ::Exchange).new) : Int32
-        @publish_in_count += 1
+                  exchanges : Set(LavinMQ::Exchange) = Set(LavinMQ::Exchange).new) : UInt32
+        @publish_in_count.add(1)
         if d = @deduper
           if d.duplicate?(msg)
-            @dedup_count += 1
-            return 0
+            @dedup_count.add(1)
+            return 0u32
           end
           d.add(msg)
         end
         count = do_publish(msg, immediate, queues, exchanges)
-        @unroutable_count += 1 if count.zero?
-        @publish_out_count += count
+        @unroutable_count.add(1) if count.zero?
+        @publish_out_count.add(count)
         count
       end
 
-      def do_publish(msg : Message, immediate : Bool,
-                     queues : Set(LavinMQ::Queue) = Set(LavinMQ::Queue).new,
-                     exchanges : Set(LavinMQ::Exchange) = Set(LavinMQ::Exchange).new) : Int32
+      private def do_publish(msg : Message, immediate : Bool, queues : Set(LavinMQ::Queue), exchanges : Set(LavinMQ::Exchange)) : UInt32
         headers = msg.properties.headers
         if should_delay_message?(headers)
           if q = @delayed_queue
             q.publish(msg)
-            return 1
+            return 1u32
           else
-            return 0
+            return 0u32
           end
         end
         find_queues(msg.routing_key, headers, queues, exchanges)
-        return 0 if queues.empty?
-        return 0 if immediate && !queues.any? &.immediate_delivery?
+        return 0u32 if queues.empty?
+        return 0u32 if immediate && !queues.any? &.immediate_delivery?
 
-        count = 0
+        count = 0u32
         queues.each do |queue|
           if queue.publish(msg)
-            count += 1
+            count += 1u32
             msg.body_io.seek(-msg.bodysize.to_i64, IO::Seek::Current) # rewind
           end
         end

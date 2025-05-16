@@ -153,11 +153,36 @@ describe LavinMQ::AMQP::DurableQueue do
         # resize first segment to LavinMQ::Config.instance.segment_size
         mfile.resize(LavinMQ::Config.instance.segment_size)
 
-        store = LavinMQ::Queue::MessageStore.new(queue.@msg_store.@queue_data_dir, nil)
+        store = LavinMQ::Queue::MessageStore.new(queue.@msg_store.@msg_dir, nil)
         mfile = store.@segments.first_value
         mfile.pos = mfile.size - 2
         if msg = store.first?
           msg.@segment_position.@segment.should eq 2
+        else
+          fail "no message"
+        end
+      end
+    end
+  end
+
+  # ArithmeticOverflow error when routing key length = 255
+  # https://github.com/cloudamqp/lavinmq/issues/1093
+  it "should handle routing key length = 255" do
+    rk = "a" * 255
+    with_amqp_server do |s|
+      vhost = s.vhosts.create("test_vhost")
+      with_channel(s, vhost: vhost.name) do |ch|
+        q = ch.queue(rk, durable: true)
+        queue = vhost.queues[rk].as(LavinMQ::AMQP::DurableQueue)
+        q.publish_confirm "a"
+        store = LavinMQ::Queue::MessageStore.new(queue.@msg_store.@msg_dir, nil)
+
+        if env = store.shift?
+          if msg = env.message
+            msg.routing_key.should eq rk
+          else
+            fail "no message"
+          end
         else
           fail "no message"
         end

@@ -40,14 +40,12 @@ module LavinMQ
         @body = ::IO::Memory.new
       end
 
-      def publish(msg : Message, immediate : Bool,
-                  queues : Set(Queue) = Set(Queue).new,
-                  exchanges : Set(Exchange) = Set(Exchange).new) : Int32
+      def publish(msg : Message, immediate : Bool, queues : Set(Queue), exchanges : Set(Exchange)) : UInt32
         raise LavinMQ::Exchange::AccessRefused.new(self)
       end
 
-      def publish(packet : MQTT::Publish) : Int32
-        @publish_in_count += 1
+      def publish(packet : MQTT::Publish) : UInt32
+        @publish_in_count.add(1)
         properties = AMQP::Properties.new(headers: AMQP::Table.new)
         properties.delivery_mode = packet.qos
 
@@ -63,7 +61,7 @@ module LavinMQ
         end
 
         msg = Message.new(timestamp, EXCHANGE, packet.topic, properties, bodysize, @body)
-        count = 0
+        count = 0u32
         @tree.each_entry(packet.topic) do |queue, qos|
           msg.properties.delivery_mode = qos
           if queue.publish(msg)
@@ -71,8 +69,8 @@ module LavinMQ
             msg.body_io.rewind
           end
         end
-        @unroutable_count += 1 if count.zero?
-        @publish_out_count += count
+        @unroutable_count.add(1) if count.zero?
+        @publish_out_count.add(count)
         count
       end
 

@@ -90,6 +90,10 @@ module LavinMQ
         end
       end
 
+      def follows?(_nil : Nil) : Bool
+        false
+      end
+
       def follows?(uri : String) : Bool
         follows? URI.parse(uri)
       end

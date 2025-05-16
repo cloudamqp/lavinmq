@@ -959,7 +959,7 @@ describe LavinMQ::Server do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         args = AMQP::Client::Arguments.new
-        args["x-delivery-limit"] = 2
+        args["x-delivery-limit"] = 1
         q = ch.queue("delivery_limit", args: args)
         q.publish "m1"
         msg = q.get(no_ack: false).not_nil!
@@ -969,7 +969,6 @@ describe LavinMQ::Server do
         msg.properties.headers.not_nil!["x-delivery-count"].as(Int32).should eq 1
         msg.reject(requeue: true)
         Fiber.yield
-        q.get(no_ack: false).should be_nil
         s.vhosts["/"].queues["delivery_limit"].empty?.should be_true
       end
     end

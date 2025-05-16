@@ -17,6 +17,14 @@ module LavinMQ
           vhost:     @vhost,
         }
       end
+
+      def search_match?(value : String) : Bool
+        @p.parameter_name.includes? value
+      end
+
+      def search_match?(value : Regex) : Bool
+        value === @p.parameter_name
+      end
     end
 
     class ParametersController < Controller

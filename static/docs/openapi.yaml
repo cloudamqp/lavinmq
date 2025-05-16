@@ -10,7 +10,13 @@ info:
     email: contact@lavinmq.com
 servers:
 - url: /api
+security:
+- BasicAuth: []
 components:
+  securitySchemes:
+    BasicAuth:
+      type: http
+      scheme: basic
   schemas:
     ErrorResponse:
       type: object
@@ -123,6 +129,10 @@ components:
       "$ref": "./schemas/vhosts.yaml#/vhost"
     vhosts:
       "$ref": "./schemas/vhosts.yaml#/vhosts"
+    auth-PutHashPasswordRequestBody:
+      "$ref": "./schemas/auth.yaml#/PutHashPasswordRequestBody"
+    auth-PasswordHash:
+      "$ref": "./schemas/auth.yaml#/PasswordHash"
 paths:
   "/bindings":
     "$ref": "./paths/bindings.yaml#/~1bindings"
@@ -254,6 +264,8 @@ paths:
     "$ref": "./paths/vhosts.yaml#/~1vhosts~1{name}"
   "/vhosts/{name}/permissions":
     "$ref": "./paths/vhosts.yaml#/~1vhosts~1{name}~1permissions"
+  "/auth/hash_password":
+    "$ref": "./paths/auth.yaml#/~1auth~1hash_password"
 tags:
 - name: bindings
   description: Manage bindings.
@@ -283,3 +295,5 @@ tags:
   description: Manage users.
 - name: vhosts
   description: Manage vhosts.
+- name: auth
+  description: Hash a password.

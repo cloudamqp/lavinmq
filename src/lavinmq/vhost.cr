@@ -184,7 +184,7 @@ module LavinMQ
 
     def delete_queue(name)
       apply AMQP::Frame::Queue::Delete.new(0_u16, 0_u16, name, false, false, false)
-      @log.info { "Deleted queue: #{name}" }
+      @log.debug { "Deleted queue: #{name}" }
     end
 
     def declare_exchange(name, type, durable, auto_delete, internal = false,
@@ -554,7 +554,6 @@ module LavinMQ
       apply frame, loading: true
     rescue ex : LavinMQ::Error
       @log.error(exception: ex) { "Failed to apply frame #{frame.inspect}" }
-      raise Error::InvalidDefinitions.new("Invalid frame: in definitions file")
     end
 
     private def load_default_definitions
@@ -659,23 +658,23 @@ module LavinMQ
 
     def event_tick(event_type)
       case event_type
-      in EventType::ChannelClosed        then @channel_closed_count += 1
-      in EventType::ChannelCreated       then @channel_created_count += 1
-      in EventType::ConnectionClosed     then @connection_closed_count += 1
-      in EventType::ConnectionCreated    then @connection_created_count += 1
-      in EventType::QueueDeclared        then @queue_declared_count += 1
-      in EventType::QueueDeleted         then @queue_deleted_count += 1
-      in EventType::ClientAck            then @ack_count += 1
-      in EventType::ClientPublish        then @publish_count += 1
-      in EventType::ClientPublishConfirm then @confirm_count += 1
-      in EventType::ClientRedeliver      then @redeliver_count += 1
-      in EventType::ClientReject         then @reject_count += 1
-      in EventType::ConsumerAdded        then @consumer_added_count += 1
-      in EventType::ConsumerRemoved      then @consumer_removed_count += 1
-      in EventType::ClientGet            then @get_count += 1
+      in EventType::ChannelClosed        then @channel_closed_count.add(1)
+      in EventType::ChannelCreated       then @channel_created_count.add(1)
+      in EventType::ConnectionClosed     then @connection_closed_count.add(1)
+      in EventType::ConnectionCreated    then @connection_created_count.add(1)
+      in EventType::QueueDeclared        then @queue_declared_count.add(1)
+      in EventType::QueueDeleted         then @queue_deleted_count.add(1)
+      in EventType::ClientAck            then @ack_count.add(1)
+      in EventType::ClientPublish        then @publish_count.add(1)
+      in EventType::ClientPublishConfirm then @confirm_count.add(1)
+      in EventType::ClientRedeliver      then @redeliver_count.add(1)
+      in EventType::ClientReject         then @reject_count.add(1)
+      in EventType::ConsumerAdded        then @consumer_added_count.add(1)
+      in EventType::ConsumerRemoved      then @consumer_removed_count.add(1)
+      in EventType::ClientGet            then @get_count.add(1)
       in EventType::ClientDeliver
-        @deliver_count += 1
-        @deliver_get_count += 1
+        @deliver_count.add(1)
+        @deliver_get_count.add(1)
       end
     end
 

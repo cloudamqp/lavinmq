@@ -3,8 +3,6 @@ import * as HTTP from './http.js'
 import * as Helpers from './helpers.js'
 
 const numFormatter = new Intl.NumberFormat()
-let data = null
-
 const msgChart = Chart.render('msgChart', 'msgs', true)
 const dataChart = Chart.render('dataChart', 'bytes/s')
 const rateChart = Chart.render('rateChart', 'msgs/s')
@@ -69,13 +67,12 @@ document.querySelector('#exportDefinitions').addEventListener('submit', function
 const raw = window.sessionStorage.getItem(cacheKey())
 if (raw) {
   try {
-    data = JSON.parse(raw)
+    const data = JSON.parse(raw)
+    render(data)
   } catch (e) {
     window.sessionStorage.removeItem(cacheKey())
     console.error('Error parsing data from sessionStorage', e)
   }
-} else {
-  update(render(data))
 }
 
 function cacheKey () {
@@ -90,7 +87,6 @@ function update (cb) {
     headers.append('x-vhost', vhost)
   }
   HTTP.request('GET', 'api/overview', { headers }).then(function (response) {
-    data = response
     try {
       window.sessionStorage.setItem(cacheKey(), JSON.stringify(response))
     } catch (e) {

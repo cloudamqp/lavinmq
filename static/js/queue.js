@@ -134,7 +134,16 @@ function updateQueue (all) {
         }
         const qArgs = document.getElementById('q-arguments')
         for (const arg in item.arguments) {
-          qArgs.appendChild(document.createElement('div')).textContent = `${arg}: ${item.arguments[arg]}`
+          const div = document.createElement('div')
+          div.textContent = `${arg}: ${item.arguments[arg]}`
+          if (item.effective_arguments.includes(arg)) {
+            div.classList.add('active-argument')
+            div.title = 'Active argument'
+          } else {
+            div.classList.add('inactive-argument')
+            div.title = 'Passive argument'
+          }
+          qArgs.appendChild(div)
         }
       }
     })

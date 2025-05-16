@@ -1,17 +1,5 @@
 name: Debian packages
 on:
-  pull_request:
-    paths:
-      - .github/workflows/deb.yml
-      - Makefile
-      - Dockerfile.deb
-      - build/deb
-      - shard.lock
-      - src/**
-      - static/**
-      - views/**
-      - openapi/**
-      - debian/**
   push:
     branches:
       - main
@@ -19,15 +7,13 @@ on:
       - v*
     paths:
       - .github/workflows/deb.yml
-      - Dockerfile.deb
       - Makefile
-      - build/deb
       - shard.lock
       - src/**
       - static/**
       - views/**
       - openapi/**
-      - debian/**
+      - packaging/debian/**
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -56,7 +42,7 @@ jobs:
       - uses: depot/setup-action@v1
       - uses: depot/build-push-action@v1
         with:
-          file: Dockerfile.deb
+          file: packaging/debian/Dockerfile
           platforms: linux/amd64,linux/arm64
           pull: true
           build-args: |
@@ -70,15 +56,6 @@ jobs:
         with:
           name: deb-packages-${{ matrix.os }}
           path: builds
-
-      - name: Determine if pre-release
-        id: determine-prerelease
-        run: |
-          if [[ "${{ github.ref }}" == *"-rc"* ]]; then
-            echo "is_prerelease=true" >> $GITHUB_ENV
-          else
-            echo "is_prerelease=false" >> $GITHUB_ENV
-          fi
 
       - name: Upload to Packagecloud
         run: |
@@ -97,7 +74,7 @@ jobs:
               -F "package[package_file]=@${PKG_FILE}" \
               https://packagecloud.io/api/v1/repos/${{ github.repository }}/packages.json
           done
-        if: startsWith(github.ref, 'refs/tags/v') && env.is_prerelease == 'false'
+        if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-rc')
 
       - name: Upload to Packagecloud pre-release repo
         run: |
@@ -116,7 +93,7 @@ jobs:
               -F "package[package_file]=@${PKG_FILE}" \
               https://packagecloud.io/api/v1/repos/${{ github.repository }}-prerelease/packages.json
           done
-        if: startsWith(github.ref, 'refs/tags/v') && env.is_prerelease == 'true'
+        if: startsWith(github.ref, 'refs/tags/v') && contains(github.ref, '-rc')
 
   rerun_on_failure:
     needs: build_deb

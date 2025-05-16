@@ -7,6 +7,8 @@ require "../logger"
 require "../name_validator"
 require "./channel_reply_code"
 require "./connection_reply_code"
+require "../rough_time"
+require "../connection_info"
 
 module LavinMQ
   module AMQP
@@ -21,14 +23,13 @@ module LavinMQ
       getter heartbeat_timeout : UInt16
       getter auth_mechanism : String
       getter client_properties : AMQP::Table
-      getter remote_address : Socket::IPAddress
+      getter connection_info : ConnectionInfo
 
       @connected_at = RoughTime.unix_ms
       @channels = Hash(UInt16, Client::Channel).new
       @actual_channel_max : UInt16
       @exclusive_queues = Array(Queue).new
       @heartbeat_interval_ms : Int64?
-      @local_address : Socket::IPAddress
       @running = true
       @last_recv_frame = RoughTime.monotonic
       @last_sent_frame = RoughTime.monotonic
@@ -42,9 +43,6 @@ module LavinMQ
                      @user : User,
                      tune_ok,
                      start_ok)
-        @remote_address = @connection_info.src
-        @local_address = @connection_info.dst
-
         @max_frame_size = tune_ok.frame_max
 
         # keep 0 = unlimited in ui/api for consistency with the spec
@@ -55,19 +53,19 @@ module LavinMQ
         @heartbeat_timeout = tune_ok.heartbeat
         @heartbeat_interval_ms = tune_ok.heartbeat.zero? ? nil : ((tune_ok.heartbeat / 2) * 1000).to_i64
         @auth_mechanism = start_ok.mechanism
-        @name = "#{@remote_address} -> #{@local_address}"
+        @name = "#{@connection_info.remote_address} -> #{@connection_info.local_address}"
         @client_properties = start_ok.client_properties
         connection_name = @client_properties["connection_name"]?.try(&.as?(String))
         @metadata =
           if connection_name
-            ::Log::Metadata.new(nil, {vhost: @vhost.name, address: @remote_address.to_s, name: connection_name})
+            ::Log::Metadata.new(nil, {vhost: @vhost.name, address: @connection_info.remote_address.to_s, name: connection_name})
           else
-            ::Log::Metadata.new(nil, {vhost: @vhost.name, address: @remote_address.to_s})
+            ::Log::Metadata.new(nil, {vhost: @vhost.name, address: @connection_info.remote_address.to_s})
           end
         @log = Logger.new(Log, @metadata)
         @vhost.add_connection(self)
         @log.info { "Connection established for user=#{@user.name}" }
-        spawn read_loop, name: "Client#read_loop #{@remote_address}"
+        spawn read_loop, name: "Client#read_loop #{@connection_info.remote_address}"
       end
 
       # Returns client provided connection name if set, else server generated name
@@ -76,7 +74,7 @@ module LavinMQ
       end
 
       def channel_name_prefix
-        @remote_address.to_s
+        @connection_info.remote_address.to_s
       end
 
       def details_tuple
@@ -92,10 +90,10 @@ module LavinMQ
           user:              @user.name,
           protocol:          "AMQP 0-9-1",
           auth_mechanism:    @auth_mechanism,
-          host:              @local_address.address,
-          port:              @local_address.port,
-          peer_host:         @remote_address.address,
-          peer_port:         @remote_address.port,
+          host:              @connection_info.local_address.address,
+          port:              @connection_info.local_address.port,
+          peer_host:         @connection_info.remote_address.address,
+          peer_port:         @connection_info.remote_address.port,
           name:              @name,
           pid:               @name,
           ssl:               @connection_info.ssl?,
@@ -103,6 +101,18 @@ module LavinMQ
           cipher:            @connection_info.ssl_cipher,
           state:             state,
         }.merge(stats_details)
+      end
+
+      def search_match?(value : String) : Bool
+        @name.includes?(value) ||
+          @user.name.includes?(value) ||
+          @client_properties["connection_name"]?.try(&.to_s.includes?(value)) || false
+      end
+
+      def search_match?(value : Regex) : Bool
+        value === @name ||
+          value === @user.name ||
+          value === @client_properties["connection_name"]?
       end
 
       private def read_loop
@@ -120,7 +130,7 @@ module LavinMQ
             frame_size_ok?(frame) || return
             case frame
             when AMQP::Frame::Connection::Close
-              @log.info { "Client disconnected: #{frame.reply_text}" } unless frame.reply_text.empty?
+              @log.debug { "Client disconnected: #{frame.reply_text}" } unless frame.reply_text.empty?
               send AMQP::Frame::Connection::CloseOk.new
               @running = false
               next
@@ -145,10 +155,10 @@ module LavinMQ
           end
         rescue IO::TimeoutError
           send_heartbeat || break
-        rescue ex : AMQP::Error::NotImplemented
+        rescue ex : AMQ::Protocol::Error::NotImplemented
           @log.error { ex.inspect }
           send_not_implemented(ex)
-        rescue ex : AMQP::Error::FrameDecode
+        rescue ex : AMQ::Protocol::Error::FrameDecode
           @log.error { ex.inspect_with_backtrace }
           send_frame_error(ex.message)
           break
@@ -202,7 +212,7 @@ module LavinMQ
           s.flush
         end
         @last_sent_frame = RoughTime.monotonic
-        @send_oct_count += 8_u64 + frame.bytesize
+        @send_oct_count.add(8_u64 + frame.bytesize)
         if frame.is_a?(AMQP::Frame::Connection::CloseOk)
           return false
         end
@@ -223,8 +233,8 @@ module LavinMQ
 
       def connection_details
         {
-          peer_host: @remote_address.address,
-          peer_port: @remote_address.port,
+          peer_host: @connection_info.remote_address.address,
+          peer_port: @connection_info.remote_address.port,
           name:      @name,
         }
       end
@@ -241,14 +251,14 @@ module LavinMQ
           {% end %}
           socket.write_bytes frame, ::IO::ByteFormat::NetworkEndian
           socket.flush if websocket
-          @send_oct_count += 8_u64 + frame.bytesize
+          @send_oct_count.add(8_u64 + frame.bytesize)
           header = AMQP::Frame::Header.new(frame.channel, 60_u16, 0_u16, msg.bodysize, msg.properties)
           {% unless flag?(:release) %}
             @log.trace { "Send #{header.inspect}" }
           {% end %}
           socket.write_bytes header, ::IO::ByteFormat::NetworkEndian
           socket.flush if websocket
-          @send_oct_count += 8_u64 + header.bytesize
+          @send_oct_count.add(8_u64 + header.bytesize)
           pos = 0
           while pos < msg.bodysize
             length = Math.min(msg.bodysize - pos, @max_frame_size - 8).to_u32
@@ -263,7 +273,7 @@ module LavinMQ
                    end
             socket.write_bytes body, ::IO::ByteFormat::NetworkEndian
             socket.flush if websocket
-            @send_oct_count += 8_u64 + body.bytesize
+            @send_oct_count.add(8_u64 + body.bytesize)
             pos += length
           end
           socket.flush unless websocket # Websockets need to send one frame per WS frame
@@ -338,7 +348,7 @@ module LavinMQ
       # ameba:disable Metrics/CyclomaticComplexity
       private def process_frame(frame) : Nil
         @last_recv_frame = RoughTime.monotonic
-        @recv_oct_count += 8_u64 + frame.bytesize
+        @recv_oct_count.add(8_u64 + frame.bytesize)
         case frame
         when AMQP::Frame::Channel::Open
           open_channel(frame)
@@ -543,7 +553,7 @@ module LavinMQ
         else
           ae = frame.arguments["x-alternate-exchange"]?.try &.as?(String)
           ae_ok = ae.nil? || (@user.can_write?(@vhost.name, ae) && @user.can_read?(@vhost.name, frame.exchange_name))
-          unless @user.can_config?(@vhost.name, frame.exchange_name) && ae_ok
+          unless ae_ok && @user.can_config?(@vhost.name, frame.exchange_name)
             send_access_refused(frame, "User doesn't have permissions to declare exchange '#{frame.exchange_name}'")
             return
           end
@@ -677,7 +687,7 @@ module LavinMQ
         end
         dlx = frame.arguments["x-dead-letter-exchange"]?.try &.as?(String)
         dlx_ok = dlx.nil? || (@user.can_write?(@vhost.name, dlx) && @user.can_read?(@vhost.name, name))
-        unless @user.can_config?(@vhost.name, frame.queue_name) && dlx_ok
+        unless dlx_ok && @user.can_config?(@vhost.name, frame.queue_name)
           send_access_refused(frame, "User doesn't have permissions to queue '#{frame.queue_name}'")
           return
         end
@@ -825,12 +835,19 @@ module LavinMQ
         end
       end
 
+      @acl_cache = Hash({String, String}, Bool).new
+
       private def start_publish(frame)
-        unless @user.can_write?(@vhost.name, frame.exchange)
-          send_access_refused(frame, "User not allowed to publish to exchange '#{frame.exchange}'")
-          return
+        cache_key = {@vhost.name, frame.exchange}
+        allowed = @acl_cache[cache_key]?
+        if allowed.nil?
+          allowed = @acl_cache[cache_key] = @user.can_write?(*cache_key)
         end
-        with_channel frame, &.start_publish(frame)
+        if allowed
+          with_channel frame, &.start_publish(frame)
+        else
+          send_access_refused(frame, "User not allowed to publish to exchange '#{frame.exchange}'")
+        end
       end
 
       private def consume(frame)

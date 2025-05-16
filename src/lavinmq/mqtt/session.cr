@@ -18,7 +18,7 @@ module LavinMQ
         super(@vhost, @name, false, @auto_delete, arguments)
 
         @log = Logger.new(Log, @metadata)
-        spawn deliver_loop, name: "Session#deliver_loop", same_thread: true
+        spawn deliver_loop, name: "Session#deliver_loop"
       end
 
       def clean_session?
@@ -29,35 +29,24 @@ module LavinMQ
         i = 0
         loop do
           break if @closed
-          if @msg_store.empty? || @consumers.empty?
-            select
-            when @msg_store.empty_change.receive?
-            when @consumers_empty_change.receive?
-            end
-            next
-          end
-          consumer = consumers.first.as(MQTT::Consumer)
+          next @msg_store.empty.when_false.receive? if @msg_store.empty?
+          next @consumers_empty.when_false.receive? if @consumers.empty?
+          consumer = @consumers.first.as(MQTT::Consumer)
           get_packet do |pub_packet|
             consumer.deliver(pub_packet)
           end
           Fiber.yield if (i &+= 1) % 32768 == 0
-        rescue ::IO::Error
-          @log.error { "deliver loop exited due to IO error" }
-        rescue ArgumentError
-          @log.error { "deliver loop exited due to argument error" }
         rescue ex
-          @log.error(exception: ex) { "Unexpected error in deliver loop" }
+          @log.error(exception: ex) { "Failed to deliver message in deliver_loop" }
+          @consumers.each &.close
+          self.client = nil
         end
-      rescue ::Channel::ClosedError
-        @log.debug { "deliver loop exited due to channel closed" }
-      rescue ex
-        @log.error(exception: ex) { "deliver loop exited unexpectedly" }
       end
 
       def client=(client : MQTT::Client?)
         return if @closed
         @last_get_time = RoughTime.monotonic
-        consumers.each do |c|
+        @consumers.each do |c|
           rm_consumer c
         end
 
@@ -115,10 +104,10 @@ module LavinMQ
           sp = env.segment_position
           no_ack = env.message.properties.delivery_mode == 0
           if no_ack
-            packet = build_packet(env, nil)
             begin
+              packet = build_packet(env, nil)
               yield packet
-            rescue ex
+            rescue ex # requeue failed delivery
               @msg_store_lock.synchronize { @msg_store.requeue(sp) }
               raise ex
             end
@@ -146,10 +135,11 @@ module LavinMQ
         retained = msg.properties.try &.headers.try &.["mqtt.retain"]? == true
         qos = msg.properties.delivery_mode || 0u8
         qos = 1u8 if qos > 1
+        dup = qos.zero? ? false : env.redelivered
         MQTT::Publish.new(
           packet_id: packet_id,
           payload: msg.body,
-          dup: env.redelivered,
+          dup: dup,
           qos: qos,
           retain: retained,
           topic: msg.routing_key
@@ -203,6 +193,11 @@ module LavinMQ
         end
         @count = next_id
         next_id
+      end
+
+      private def handle_arguments
+        super
+        @effective_args << "x-queue-type"
       end
     end
   end

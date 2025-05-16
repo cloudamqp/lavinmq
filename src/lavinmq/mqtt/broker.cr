@@ -39,7 +39,7 @@ module LavinMQ
 
       def add_client(socket, connection_info, user, packet)
         if prev_client = @clients[packet.client_id]?
-          prev_client.close("New client #{connection_info.src} (username=#{packet.username}) connected as #{packet.client_id}")
+          prev_client.close("New client #{connection_info.remote_address} (username=#{packet.username}) connected as #{packet.client_id}")
         end
         client = MQTT::Client.new(socket,
           connection_info,
@@ -57,6 +57,7 @@ module LavinMQ
           end
         end
         @clients[packet.client_id] = client
+        @vhost.add_connection client
       end
 
       def remove_client(client)
@@ -66,7 +67,7 @@ module LavinMQ
           sessions.delete(client_id) if session.clean_session?
         end
         @clients.delete client_id
-        vhost.rm_connection(client)
+        @vhost.rm_connection(client)
       end
 
       def publish(packet : MQTT::Publish)
@@ -74,8 +75,7 @@ module LavinMQ
       end
 
       def subscribe(client, topics)
-        session = sessions[client.client_id]? || sessions.declare(client)
-        session.client = client
+        session = sessions.declare(client)
         headers = AMQP::Table.new({RETAIN_HEADER => true})
         topics.map do |tf|
           session.subscribe(tf.topic, tf.qos)

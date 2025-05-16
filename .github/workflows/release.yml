@@ -17,7 +17,7 @@ jobs:
           fetch-depth: 0
 
       - name: Create Release
-        run: gh release create "${{ github.ref }}" --notes "$(./generate-release-notes)"
+        run: gh release create "${{ github.ref }}" --notes "$(./.github/generate-release-notes)"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

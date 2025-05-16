@@ -3,7 +3,7 @@ module RoughTime
   @@unix_ms : Int64 = @@utc.to_unix_ms // 100 * 100
   @@monotonic = Time.monotonic
 
-  spawn(name: "RoughTime") do
+  Fiber::ExecutionContext::Isolated.new("RoughTime") do
     loop do
       sleep 0.1.seconds
       @@utc = Time.utc

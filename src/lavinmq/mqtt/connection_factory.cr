@@ -3,7 +3,7 @@ require "socket"
 require "./protocol"
 require "./client"
 require "./brokers"
-require "../user"
+require "../auth/user"
 require "../client/connection_factory"
 require "../auth/authenticator"
 
@@ -17,8 +17,7 @@ module LavinMQ
       end
 
       def start(socket : ::IO, connection_info : ConnectionInfo)
-        remote_address = connection_info.src
-        metadata = ::Log::Metadata.build({address: remote_address.to_s})
+        metadata = ::Log::Metadata.build({address: connection_info.remote_address.to_s})
         logger = Logger.new(Log, metadata)
         begin
           io = MQTT::IO.new(socket)
@@ -42,7 +41,7 @@ module LavinMQ
           end
           socket.close
         rescue ex
-          logger.warn { "Recieved invalid Connect packet: #{ex.inspect}" }
+          logger.warn { "Received invalid Connect packet: #{ex.inspect}" }
           socket.close
         end
       end

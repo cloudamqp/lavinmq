@@ -94,8 +94,8 @@
                 dead-lettered</span>
             </a> |
             <a class="arg-tooltip" data-tag="x-overflow">Overflow behaviour
-              <span class="tooltiptext">This determines what happens to messages when the maximum length of a queue is
-                reached. Valid value are reject-publish.</span>
+              <span class="tooltiptext">Determines what happens to messages when the maximum length of a queue is
+                reached. Valid value are drop-head (default) and reject-publish.</span>
             </a> |
             <a class="arg-tooltip" data-tag="x-dead-letter-exchange">Dead letter exchange
               <span class="tooltiptext">Optional name of an exchange to which messages will be republished if they are
@@ -115,7 +115,7 @@
               <span class="tooltiptext">Stream queue segments will be deleted when all messages in the segmented is older than this.
                 Valid units are Y(ear), M(onth), D(ays), h(ours), m(inutes), s(seconds).
                 Segments are only deleted when new messages are published to the stream queue.</span>
-            </a>
+            </a> |
              <a class="arg-tooltip" data-tag="x-message-deduplication" data-value="true">Message deduplication
               <span class="tooltiptext">Enable deduplication for this exchange</span>
             </a> |

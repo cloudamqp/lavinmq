@@ -1,9 +1,9 @@
 Name:    lavinmq
 Summary: Message queue server that implements the AMQP 0-9-1 protocol
-Version: 2.0.0
+Version: %{getenv:version}
 Release: 1%{?dist}
 
-License: ASL 2.0
+License: Apache 2.0
 BuildRequires: systemd-rpm-macros crystal curl help2man lz4-devel openssl-devel
 Requires(pre): shadow-utils
 Suggests: etcd
@@ -25,10 +25,8 @@ make
 make install DESTDIR=%{buildroot} UNITDIR=%{_unitdir}
 
 %pre
-getent group %{name} >/dev/null || groupadd -r %{name}
 getent passwd %{name} >/dev/null || \
-    useradd -r -g %{name} -d /nonexistent -s /sbin/nologin %{name}
-exit 0
+    useradd --system --user-group --home %{_sharedstatedir}/%{name} %{name}
 
 %post
 %systemd_post %{name}.service
