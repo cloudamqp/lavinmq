@@ -238,4 +238,36 @@ class UrlDataSource extends DataSource {
   }
 }
 
-export { DataSource, UrlDataSource }
+class LogDataSource extends DataSource {
+  constructor (dataArray, opts) {
+    super(opts)
+    this._items = dataArray
+    let cachedState
+    if (this._opts.useQueryState) {
+      cachedState = window.sessionStorage.getItem(this._cacheKey)
+      if (cachedState) {
+        try {
+          cachedState = JSON.parse(cachedState)
+          this._setState(cachedState)
+        } catch (e) {
+          console.error(`Failed to load cached query state: ${e}`, cachedState)
+        }
+      }
+      this._setStateFromHash()
+      window.addEventListener('hashchange', evt => {
+        this._setStateFromHash()
+        this.reload({ updateState: false })
+      })
+    }
+  }
+
+  set items (dataArray) {
+    this._items = dataArray
+  }
+
+  _reload (opts = {}) {
+    return this._items
+  }
+}
+
+export { DataSource, UrlDataSource, LogDataSource }

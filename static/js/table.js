@@ -101,7 +101,7 @@ function renderTable (id, options = {}, renderRow) {
     keyColumns.forEach(key => { tr.dataset[key] = JSON.stringify(item[key]) })
   }
 
-  function renderSearch (conatiner, dataSource) {
+  function renderSearch (container, dataSource) {
     const form = document.createElement('form')
     form.classList.add('form')
     form.addEventListener('submit', (e) => { e.preventDefault() })
@@ -127,6 +127,90 @@ function renderTable (id, options = {}, renderRow) {
   }
 
   return { updateTable, reload, on }
+}
+
+function renderLiveTable (id, options = {}, renderRow) {
+  const countId = options.countId ?? 'pagename-label'
+  const dataSource = options.dataSource
+  const table = document.getElementById(id)
+  const container = table.parentElement
+  const keyColumns = options.keyColumns
+  const events = new EventTarget()
+  if (options.columnSelector) {
+    renderColumnSelector(table)
+  }
+
+  if (options.search) {
+    renderSearch(container, dataSource)
+  }
+
+  if (options.pagination) {
+    const paginationCell = table.createTFoot().insertRow().insertCell()
+    const paginationContainer = document.createElement('div')
+    paginationCell.colSpan = table.tHead.rows[0].children.length
+    paginationCell.appendChild(paginationContainer)
+    paginationContainer.classList.add('pagination')
+    Pagination.create(paginationContainer, dataSource)
+    
+  }
+  if (table.querySelector('th[data-sort-key]')) {
+    TableHeaderSort.create(table, dataSource)
+  }
+
+  dataSource.on('update', updateTable)
+  dataSource.on('error', error => {
+    console.log(error)
+    toggleDisplayError(id, 'Error fetching data: ' + error.detail)
+  })
+
+  function on (event, args) {
+    events.addEventListener(event, args)
+  }
+
+
+  function updateTable () {
+    const items = dataSource.items
+    const totalCount = dataSource.totalCount
+    document.getElementById(countId).textContent = totalCount
+    const table = document.getElementById(id)
+    const t = table.tBodies[0]
+    if (!Array.isArray(items) || items.length === 0) {
+      t.textContent = ''
+      const tr = t.appendChild(document.createElement('tr'))
+      const td = tr.appendChild(document.createElement('td'))
+      td.colSpan = Array.from(table.tHead.rows[0].children).reduce((sum, item) => sum + item.colSpan, 0)
+      td.classList.add('center')
+      td.textContent = 'Nope, nothing to see here.'
+      return
+    }
+  }
+
+  function renderSearch (container, dataSource) {
+    const form = document.createElement('form')
+    form.classList.add('form')
+    form.addEventListener('submit', (e) => { e.preventDefault() })
+    const filterInput = document.createElement('input')
+    filterInput.classList.add('filter-table')
+    filterInput.placeholder = 'Filter regex'
+    filterInput.value = dataSource.searchTerm ?? ''
+    form.appendChild(filterInput)
+    container.insertBefore(form, container.children[0])
+    container.addEventListener('keyup', e => {
+      if (!e.target.classList.contains('filter-table')) return true
+      if (e.key === 'Enter') {
+        dataSource.searchTerm = e.target.value
+        dataSource.page = 1
+        reload()
+      }
+    })
+    dataSource.on('update', _ => {
+      if (filterInput !== document.activeElement) {
+        filterInput.value = dataSource.searchTerm
+      }
+    })
+  }
+
+  return { updateTable, on}
 }
 
 function renderCell (tr, column, value, classList = '') {
@@ -250,4 +334,4 @@ function toggleDisplayError (tableID, message = null) {
   }
 }
 
-export { renderCell, renderTable, toggleDisplayError }
+export { renderCell, renderTable, renderLiveTable, toggleDisplayError}
