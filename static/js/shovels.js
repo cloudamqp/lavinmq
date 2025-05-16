@@ -120,15 +120,21 @@ Table.renderTable('table', tableOptions, (tr, item, all) => {
 
   const pauseBtn = document.createElement('button')
   pauseBtn.classList.add('btn-warn')
-  pauseBtn.textContent = 'Pause'
+  pauseBtn.textContent = item.value.state === 'Paused' ? 'Resume' : 'Pause'
   pauseBtn.onclick = function () {
     const name = encodeURIComponent(item.name)
     const vhost = encodeURIComponent(item.vhost)
     const url = 'api/parameters/shovel/' + vhost + '/' + name
     if (window.confirm('Are you sure?')) {
-      HTTP.request('PUT', url, {body: {value: {state: 'paused'}}}) //TODO 911 review this
+      const newItem = JSON.parse(JSON.stringify(item))
+      const isPaused = newItem.value.state === 'Paused'
+      newItem.value.state = isPaused ? 'Running' : 'Paused'
+      newItem.state = isPaused ? 'Running' : 'Paused'
+      console.log(newItem)
+      HTTP.request('PUT', url, {body: newItem }) //TODO 911 review this
         .then(() => {
-          DOM.toast(`Shovel ${item.name} paused`)
+          dataSource.reload()
+          DOM.toast(`Shovel ${item.name} ${isPaused ? 'resumed' : 'paused'}`)
         })
     }
   }
