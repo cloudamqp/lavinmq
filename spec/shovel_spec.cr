@@ -601,6 +601,7 @@ describe LavinMQ::Shovel do
       end
     end
 
+    #TODO 911 move this to API layer - better, how can we scope this to API layer + unit(?) like the current approach
     it "should pause and resume shovel" do
       with_amqp_server do |s|
         vhost = s.vhosts.create("pause:resume:vhost")
