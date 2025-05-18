@@ -7,6 +7,7 @@ module LavinMQ
       NOT_FOUND           = 404
       RESOURCE_LOCKED     = 405
       PRECONDITION_FAILED = 406
+      NOT_ALLOWED = 530
       # 540 is marked as connection level reply-code at
       # but also mentioned in text "MUST raise a channel exception with reply code 540 (not implemented)"
       # indicating it's ok to use as channel close reply code as well
