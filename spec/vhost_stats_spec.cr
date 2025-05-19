@@ -68,13 +68,18 @@ describe LavinMQ::VHost do
 
     it "should count get_no_ack" do
       with_amqp_server do |s|
-        vhost = s.vhosts["/"]
-        vhost.declare_queue("q1", false, false)
-        s.update_stats_rates
-        vhost.get_no_ack_count.should eq(0)
+        with_channel(s) do |c|
+          vhost = s.vhosts["/"]
+          s.update_stats_rates
+          vhost.get_no_ack_count.should eq(0)
+          q = c.queue("q1")
+          q.publish "not acked message"
 
-        vhost.queues["q1"].basic_get(true) do |_|
+          q.get(true).not_nil!
+          s.update_stats_rates
           vhost.get_no_ack_count.should eq(1)
+          vhost.deliver_get_count.should eq(1)
+          vhost.get_count.should eq(0)
         end
       end
     end
