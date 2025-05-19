@@ -17,7 +17,7 @@ module LavinMQ
         return "#{routing_key}~#{@hsh}"
       end
       return "~" if routing_key.empty?
-      "#{routing_key}"
+      routing_key
     end
 
     def_hash properties_key
