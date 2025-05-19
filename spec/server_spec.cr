@@ -434,10 +434,10 @@ describe LavinMQ::Server do
         q = ch.queue
         hdrs = AMQP::Client::Arguments.new
         hdrs["x-match"] = "all"
+        x = ch.exchange("asdasdasd", "headers", passive: false, args: hdrs)
         hdrs["org"] = "84codes"
         hdrs["user"] = "test"
-        x = ch.exchange("asdasdasd", "headers", passive: false, args: hdrs)
-        q.bind(x.name, "")
+        q.bind(x.name, "", args: hdrs)
         x.publish_confirm "m1", q.name, props: AMQP::Client::Properties.new(headers: hdrs)
         hdrs["user"] = "hest"
         x.publish_confirm "m2", q.name, props: AMQP::Client::Properties.new(headers: hdrs)

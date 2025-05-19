@@ -3,7 +3,7 @@ require "./exchange"
 module LavinMQ
   module AMQP
     class HeadersExchange < Exchange
-      @bindings = Hash(AMQP::Table, Set(Destination)).new do |h, k|
+      @bindings = Hash(Hash(String, AMQP::Field), Set(Destination)).new do |h, k|
         h[k] = Set(Destination).new
       end
 
@@ -21,16 +21,16 @@ module LavinMQ
       def bindings_details : Iterator(BindingDetails)
         @bindings.each.flat_map do |args, ds|
           ds.map do |d|
-            binding_key = BindingKey.new("", args)
+            binding_key = BindingKey.new("", AMQP::Table.new(args))
             BindingDetails.new(name, vhost.name, binding_key, d)
           end
         end
       end
 
       def bind(destination : Destination, routing_key, headers)
-        validate!(headers)
-        args = headers ? @arguments.clone.merge!(headers) : @arguments
-        return false unless @bindings[args].add? destination
+        args = headers || AMQP::Table.new
+        validate!(args)
+        return false unless @bindings[args.to_h].add? destination
         binding_key = BindingKey.new(routing_key, args)
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
         notify_observers(ExchangeEvent::Bind, data)
@@ -38,8 +38,8 @@ module LavinMQ
       end
 
       def unbind(destination : Destination, routing_key, headers)
-        args = headers ? @arguments.clone.merge!(headers) : @arguments
-        bds = @bindings[args]
+        args = headers || AMQP::Table.new
+        bds = @bindings[args.to_h]
         return false unless bds.delete(destination)
         @bindings.delete(routing_key) if bds.empty?
 
@@ -69,7 +69,8 @@ module LavinMQ
               yield destination
             end
           else
-            is_match = case args["x-match"]?
+            x_match = args["x-match"]? || @arguments["x-match"]?
+            is_match = case x_match
                        when "any"
                          args.any? { |k, v| !k.starts_with?("x-") && (headers.has_key?(k) && headers[k] == v) }
                        else
