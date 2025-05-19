@@ -69,18 +69,23 @@ module LavinMQ
               yield destination
             end
           else
-            x_match = args["x-match"]? || @arguments["x-match"]?
-            is_match = case x_match
-                       when "any"
-                         args.any? { |k, v| !k.starts_with?("x-") && (headers.has_key?(k) && headers[k] == v) }
-                       else
-                         args.all? { |k, v| k.starts_with?("x-") || (headers.has_key?(k) && headers[k] == v) }
-                       end
-            next unless is_match
+            x_match = (args["x-match"]? || @arguments["x-match"]?) == "any" ? :any : :all
+            next unless deep_match?(args, headers, x_match)
             destinations.each do |destination|
               yield destination
             end
           end
+        end
+      end
+
+      # Custom method to do deep comparison of Hash and/or Table
+      protected def deep_match?(left, right, x_match : Symbol = :all)
+        return left == right unless left.is_a? Hash || left.is_a? AMQP::Table
+        return false unless right.is_a? Hash || right.is_a? AMQP::Table
+        if x_match == :any
+          left.any? { |k, v| !k.starts_with?("x-") && deep_match?(v, right[k], x_match) }
+        else
+          left.all? { |k, v| k.starts_with?("x-") || deep_match?(v, right[k], x_match) }
         end
       end
     end
