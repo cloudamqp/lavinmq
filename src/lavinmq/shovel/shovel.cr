@@ -422,6 +422,10 @@ module LavinMQ
           exponential_reconnect_delay
         end
       ensure
+        terminate_if_needed
+      end
+
+      private def terminate_if_needed
         terminate if !paused?
       end
 
@@ -444,7 +448,7 @@ module LavinMQ
         }
       end
 
-      #TODO 911 review this - I don't think we need this - we can just call `run`
+      # TODO 911 review this - I don't think we need this - we can just call `run`
       def resume
         @state = State::Starting
         Log.info { "Resuming shovel #{@name} vhost=#{@vhost.name}" }
