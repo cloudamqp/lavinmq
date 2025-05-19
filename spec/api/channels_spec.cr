@@ -87,7 +87,14 @@ describe LavinMQ::HTTP::ChannelsController do
 
     it "should return get_no_ack count 1" do
       with_http_server do |http, s|
-        with_channel(s) do
+        with_channel(s) do |c|
+          vh_name = "/"
+          q = c.queue
+          q.publish "get_no_ack_message"
+          message = q.get(true)
+          if message = nil
+            fail "No message returned"
+          end
           response = http.get("/api/channels")
           response.status_code.should eq 200
 
@@ -102,6 +109,14 @@ describe LavinMQ::HTTP::ChannelsController do
             message_stats = body["message_stats"].not_nil!
             message_stats["get_no_ack"].should eq(1)
          end
+          body = JSON.parse(response.body)[0]
+          if message_stats = body["message_stats"]?
+            message_stats["get_no_ack"].should eq(1)
+            message_stats["get"].should eq(0)
+            message_stats["deliver_get"].should eq(1)
+          else
+            fail "message_stats is nil"
+          end
         end
       end
     end
