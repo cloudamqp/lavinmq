@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Parts of LavinMQ is now multi threaded, many structures are not thread safe
+- Streams - Fltering on any header [#1053](https://github.com/cloudamqp/lavinmq/pull/1053)
+- Purgeing a queue without unacked messages is now instant [#1083](https://github.com/cloudamqp/lavinmq/pull/1083)
+- Show active arguments on queues & exchanges [#1072](https://github.com/cloudamqp/lavinmq/pull/1072)
+- Install instructions for Archlinux [#1001](https://github.com/cloudamqp/lavinmq/pull/1001)
+
+### Changed
+- Requires Crystal 1.16 and `-Dpreview_mt -Dexecution_context` to run
+- Run etcd lease keepalive in a separate thread
+- `lavinmqperf throughput` is multithreaded
+- Drop global ACL caches and keep one write cache only per Client
+- Remove ws.html and ws-mqtt.html
+
+### Fixed
+- Allow requeuing of MQTT messages when delivery fails [#1081](https://github.com/cloudamqp/lavinmq/pull/1081)
+- Fixed routing_key or exchange with length 255 causing an ArithmeticOverflow [#1094](https://github.com/cloudamqp/lavinmq/pull/1094)
+- Append to x-received-from instead of replacing [#1084](https://github.com/cloudamqp/lavinmq/pull/1084)
+- Don't allow invalid binding arguments to ConsitentHashExchange [#1089](https://github.com/cloudamqp/lavinmq/pull/1089)
+- Drop msg on requeue if above delivery_limit [#996](https://github.com/cloudamqp/lavinmq/pull/996)
+
 ## [2.3.0] - 2025-04-17
 
 ### Added
