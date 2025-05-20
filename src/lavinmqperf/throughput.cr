@@ -111,8 +111,8 @@ module LavinMQPerf
       end
     end
 
-    @pubs = 0_u64
-    @consumes = 0_u64
+    @pubs = Atomic(UInt64).new(0_u64)
+    @consumes = Atomic(UInt64).new(0_u64)
     @stopped = false
 
     def run
@@ -155,11 +155,11 @@ module LavinMQPerf
 
       loop do
         break if @stopped
-        pubs_last = @pubs
-        consumes_last = @consumes
+        pubs_last = @pubs.get
+        consumes_last = @consumes.get
         sleep 1.seconds
         unless @quiet
-          puts "Publish rate: #{@pubs - pubs_last} msgs/s Consume rate: #{@consumes - consumes_last} msgs/s"
+          puts "Publish rate: #{@pubs.get - pubs_last} msgs/s Consume rate: #{@consumes.get - consumes_last} msgs/s"
         end
       end
       summary(start)
@@ -168,8 +168,8 @@ module LavinMQPerf
     private def summary(start : Time::Span)
       stop = Time.monotonic
       elapsed = (stop - start).total_seconds
-      avg_pub = (@pubs / elapsed).round(1)
-      avg_consume = (@consumes / elapsed).round(1)
+      avg_pub = (@pubs.get / elapsed).round(1)
+      avg_consume = (@consumes.get / elapsed).round(1)
       puts
       if @json_output
         JSON.build(STDOUT) do |json|
@@ -209,9 +209,9 @@ module LavinMQPerf
           else
             ch.basic_publish(data, @exchange, @routing_key, props: props)
           end
-          ch.tx_commit if @pub_in_transaction > 0 && (@pubs % @pub_in_transaction) == 0
-          @pubs += 1
-          break if @pubs == @pmessages
+          pubs = @pubs.add(1)
+          ch.tx_commit if @pub_in_transaction > 0 && (pubs % @pub_in_transaction) == 0
+          break if (pubs + 1) == @pmessages
           unless @rate.zero?
             pubs_this_second += 1
             if pubs_this_second >= @rate
@@ -246,15 +246,15 @@ module LavinMQPerf
         consumes_this_second = 0
         start = Time.monotonic
         q.subscribe(tag: "c", no_ack: @ack.zero?, block: true, args: @consumer_args) do |m|
-          @consumes += 1
+          consumes = @consumes.add(1)
           raise "Invalid data: #{m.body_io.to_slice}" if @verify && m.body_io.to_slice != data
-          m.ack(multiple: true) if @ack > 0 && @consumes % @ack == 0
-          ch.tx_commit if @ack_in_transaction > 0 && (@consumes % @ack_in_transaction) == 0
-          if @stopped || @consumes == @cmessages
+          m.ack(multiple: true) if @ack > 0 && (consumes + 1) % @ack == 0
+          ch.tx_commit if @ack_in_transaction > 0 && ((consumes + 1) % @ack_in_transaction) == 0
+          if @stopped || (consumes + 1) == @cmessages
             ch.close
           end
           if @consume_rate.zero?
-            Fiber.yield if @consumes % 128*1024 == 0
+            Fiber.yield if consumes % 128*1024 == 0
           else
             consumes_this_second += 1
             if consumes_this_second >= @consume_rate
@@ -288,9 +288,9 @@ module LavinMQPerf
         start = Time.monotonic
         loop do
           if msg = q.get(no_ack: @ack.zero?)
-            @consumes += 1
-            msg.ack(multiple: true) if @ack > 0 && @consumes % @ack == 0
-            break if @stopped || @consumes == @cmessages
+            consumes = @consumes.add(1)
+            msg.ack(multiple: true) if @ack > 0 && (consumes + 1) % @ack == 0
+            break if @stopped || (consumes + 1) == @cmessages
           end
           unless @consume_rate.zero?
             consumes_this_second += 1
