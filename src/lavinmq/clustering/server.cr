@@ -96,8 +96,9 @@ module LavinMQ
                 file.unreserve
               end
             else
-              next unless File.exists? path
-              sha1.file path
+              filename = File.join(@data_dir, path)
+              next unless File.exists? filename
+              sha1.file filename
             end
             hash = sha1.final
             @checksums[path] = hash
