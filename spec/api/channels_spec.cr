@@ -87,14 +87,10 @@ describe LavinMQ::HTTP::ChannelsController do
 
     it "should return get_no_ack count 1" do
       with_http_server do |http, s|
-        with_channel(s) do |c|
-          vh_name = "/"
-          q = c.queue
+        with_channel(s) do |ch|
+          q = ch.queue
           q.publish "get_no_ack_message"
-          message = q.get(true)
-          if message = nil
-            fail "No message returned"
-          end
+          q.get(true)
           response = http.get("/api/channels")
           response.status_code.should eq 200
 
