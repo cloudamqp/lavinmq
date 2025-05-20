@@ -62,6 +62,7 @@ module LavinMQ
       end
 
       protected def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
+        default_x_match = @arguments["x-match"]?
         @bindings.each do |args, destinations|
           if headers.nil? || headers.empty?
             next unless args.empty?
@@ -69,7 +70,7 @@ module LavinMQ
               yield destination
             end
           else
-            x_match = (args["x-match"]? || @arguments["x-match"]?) == "any" ? :any : :all
+            x_match = (args["x-match"]? || default_x_match) == "any" ? :any : :all
             next unless deep_match?(args, headers, x_match)
             destinations.each do |destination|
               yield destination
