@@ -1,7 +1,7 @@
 # Base layer
-FROM 84codes/crystal:latest-ubuntu-24.04 AS base
+FROM 84codes/crystal:latest-debian-12 AS base
 RUN apt-get update && apt-get install -y liblz4-dev dpkg-dev
-WORKDIR /tmp
+WORKDIR /usr/src/lavinmq
 COPY shard.yml shard.lock .
 RUN shards install --production
 COPY ./static ./static
@@ -28,13 +28,16 @@ COPY Makefile .
 RUN make js lib
 ARG MAKEFLAGS=-j2
 RUN make all
+# Use ldd to find all shared libraries and copy them maintaining their original paths
+RUN for lib in $(ldd bin/* | grep "=> /" | awk '{print $3}' | sort -u | grep -E "lib(lz4|pcre2|z.so)" ); do \
+    mkdir -p /tmp/deps$(dirname $lib); \
+    cp -L $lib /tmp/deps$(dirname $lib)/; \
+    done
 
 # Resulting image with minimal layers
-FROM ubuntu:24.04
-RUN apt-get update && \
-    apt-get install -y libssl3 ca-certificates liblz4-1 && \
-    rm -rf /var/lib/apt/lists/* /var/cache/debconf/* /var/log/*
-COPY --from=builder /tmp/bin/* /usr/bin/
+FROM gcr.io/distroless/cc-debian12
+COPY --from=builder /usr/src/lavinmq/bin/* /usr/bin/
+COPY --from=builder /tmp/deps/ /
 EXPOSE 5672 15672
 VOLUME /var/lib/lavinmq
 WORKDIR /var/lib/lavinmq
