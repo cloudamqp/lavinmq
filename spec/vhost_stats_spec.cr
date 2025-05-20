@@ -75,7 +75,7 @@ describe LavinMQ::VHost do
           q = c.queue("q1")
           q.publish "not acked message"
 
-          q.get(true).not_nil!
+          q.get(true)
           s.update_stats_rates
           vhost.get_no_ack_count.should eq(1)
           vhost.deliver_get_count.should eq(1)
