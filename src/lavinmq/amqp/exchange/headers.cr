@@ -28,8 +28,8 @@ module LavinMQ
       end
 
       def bind(destination : Destination, routing_key, headers)
-        validate!(headers)
-        args = headers ? @arguments.clone.merge!(headers) : @arguments
+        args = headers || AMQP::Table.new
+        validate!(args)
         return false unless @bindings[args].add? destination
         binding_key = BindingKey.new(routing_key, args)
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
@@ -38,7 +38,7 @@ module LavinMQ
       end
 
       def unbind(destination : Destination, routing_key, headers)
-        args = headers ? @arguments.clone.merge!(headers) : @arguments
+        args = headers || AMQP::Table.new
         bds = @bindings[args]
         return false unless bds.delete(destination)
         @bindings.delete(routing_key) if bds.empty?
