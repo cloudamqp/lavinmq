@@ -8,14 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [2.4.0-rc.1] - 2025-05-20
 
 ### Added
-- Parts of LavinMQ is now multi threaded, many structures are not thread safe
-- Streams - Fltering on any header [#1053](https://github.com/cloudamqp/lavinmq/pull/1053)
-- Purgeing a queue without unacked messages is now instant [#1083](https://github.com/cloudamqp/lavinmq/pull/1083)
+- Streams - Filtering on any header [#1053](https://github.com/cloudamqp/lavinmq/pull/1053)
 - Show active arguments on queues & exchanges [#1072](https://github.com/cloudamqp/lavinmq/pull/1072)
 - Install instructions for Archlinux [#1001](https://github.com/cloudamqp/lavinmq/pull/1001)
 
 ### Changed
+- Parts of LavinMQ is now multi threaded, many structures are now thread safe
 - Requires Crystal 1.16 and `-Dpreview_mt -Dexecution_context` to run
+- Purgeing a queue without unacked messages is now instant [#1083](https://github.com/cloudamqp/lavinmq/pull/1083)
 - Run etcd lease keepalive in a separate thread
 - `lavinmqperf throughput` is multithreaded
 - Drop global ACL caches and keep one write cache only per Client
