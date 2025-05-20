@@ -83,9 +83,9 @@ module LavinMQ
         return left == right unless left.is_a? Hash || left.is_a? AMQP::Table
         return false unless right.is_a? Hash || right.is_a? AMQP::Table
         if x_match == :any
-          left.any? { |k, v| !k.starts_with?("x-") && deep_match?(v, right[k], x_match) }
+          left.any? { |k, v| !k.starts_with?("x-") && deep_match?(v, right[k]?, x_match) }
         else
-          left.all? { |k, v| k.starts_with?("x-") || deep_match?(v, right[k], x_match) }
+          left.all? { |k, v| k.starts_with?("x-") || deep_match?(v, right[k]?, x_match) }
         end
       end
     end

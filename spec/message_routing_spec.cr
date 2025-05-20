@@ -252,7 +252,16 @@ module MessageRoutingSpec
           msg_hdrs = hdrs_all.dup
           msg_hdrs.delete "x-match"
           msg_hdrs["org"] = "google"
-          matches(x, "", msg_hdrs).size.should eq 0
+          matches(x, "", msg_hdrs).should be_empty
+        end
+
+        it "should not match if args are missing" do
+          q = LavinMQ::AMQP::Queue.new(vhost, "q")
+          bind_hdrs = hdrs_all.clone.merge!({
+            "missing": "header",
+          })
+          x.bind(q, "", bind_hdrs)
+          matches(x, "", hdrs_all).should be_empty
         end
       end
 
@@ -273,7 +282,7 @@ module MessageRoutingSpec
           msg_hdrs.delete "x-match"
           msg_hdrs["org"] = "google"
           msg_hdrs["user"] = "hest"
-          matches(x, "", msg_hdrs).size.should eq 0
+          matches(x, "", msg_hdrs).should be_empty
         end
 
         it "should match nestled amq-protocol tables" do
@@ -328,7 +337,7 @@ module MessageRoutingSpec
         })
         x.bind(q12, "", hdrs1)
         x.unbind(q12, "", hdrs2)
-        matches(x, "", hdrs1).size.should eq 0
+        matches(x, "", hdrs1).should be_empty
       end
 
       describe "match empty" do
