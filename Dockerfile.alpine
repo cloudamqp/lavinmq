@@ -1,5 +1,4 @@
-# Base layer
-FROM 84codes/crystal:latest-alpine AS base
+FROM 84codes/crystal:latest-alpine AS builder
 RUN apk add lz4-dev
 WORKDIR /tmp
 COPY shard.yml shard.lock .
@@ -7,29 +6,10 @@ RUN shards install --production
 COPY ./static ./static
 COPY ./views ./views
 COPY ./src ./src
-
-# Run specs on build platform
-FROM base AS spec
-RUN apk add etcd
-COPY ./spec ./spec
-ARG spec_args="--order random"
-RUN crystal spec ${spec_args}
-
-# Lint in another layer
-FROM base AS lint
-RUN shards install # install ameba only in this layer
-COPY .ameba.yml .
-RUN bin/ameba
-RUN crystal tool format --check
-
-# Build
-FROM base AS builder
 COPY Makefile .
-RUN make js lib
 ARG MAKEFLAGS=-j2
 RUN make all
 
-# Resulting image with minimal layers
 FROM alpine:latest
 RUN apk add openssl lz4-libs pcre2 libgcc
 COPY --from=builder /tmp/bin/* /usr/bin/
@@ -37,6 +17,5 @@ EXPOSE 5672 15672
 VOLUME /var/lib/lavinmq
 WORKDIR /var/lib/lavinmq
 ENV GC_UNMAP_THRESHOLD=1
-ENV CRYSTAL_LOAD_DEBUG_INFO=1
 HEALTHCHECK CMD ["/usr/bin/lavinmqctl", "status"]
 ENTRYPOINT ["/usr/bin/lavinmq", "-b", "0.0.0.0", "--guest-only-loopback=false"]
