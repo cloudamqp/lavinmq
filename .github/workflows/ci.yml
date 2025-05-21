@@ -161,7 +161,7 @@ jobs:
       - name: Install LavinMQ dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y make libevent-2.1-7 liblz4-1
+          sudo apt-get install -y make liblz4-1
 
       - name: Download lavinmq
         uses: actions/download-artifact@v4
@@ -201,7 +201,7 @@ jobs:
       - name: Install LavinMQ dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y make libevent-2.1-7 openjdk-21-jre-headless liblz4-1
+          sudo apt-get install -y make openjdk-21-jre-headless liblz4-1
 
       - uses: actions/download-artifact@v4
         with:
@@ -251,7 +251,7 @@ jobs:
       - name: Install LavinMQ dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libevent-2.1-7 liblz4-1
+          sudo apt-get install -y liblz4-1
 
       - name: Checkout LavinMQ for bunny_definitions.json
         uses: actions/checkout@v4
@@ -307,7 +307,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libevent-2.1-7 liblz4-1
+          sudo apt-get install -y liblz4-1
 
       - uses: actions/download-artifact@v4
         with:
@@ -348,7 +348,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libevent-2.1-7 liblz4-1
+          sudo apt-get install -y liblz4-1
 
       - uses: actions/download-artifact@v4
         with:
@@ -396,7 +396,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libevent-2.1-7 liblz4-1
+          sudo apt-get install -y liblz4-1
 
       - name: Checkout
         uses: actions/checkout@v4
