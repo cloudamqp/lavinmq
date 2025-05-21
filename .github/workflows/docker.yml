@@ -64,6 +64,8 @@ jobs:
           platforms: linux/amd64,linux/arm64
           pull: true
           push: true
+          sbom: true
+          provenance: mode=max
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
