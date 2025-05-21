@@ -47,7 +47,7 @@ module LavinMQ
         return if @closed
         @last_get_time = RoughTime.monotonic
 
-        if !clean_session?
+        unless clean_session?
           @msg_store_lock.synchronize do
             @unacked.values.each do |sp|
               @msg_store.requeue(sp)
