@@ -104,7 +104,7 @@ deps: js lib
 
 .PHONY: lint
 lint: lib
-	lib/ameba/bin/ameba src/
+	lib/ameba/bin/ameba src/ spec/
 
 .PHONY: lint-js
 lint-js:

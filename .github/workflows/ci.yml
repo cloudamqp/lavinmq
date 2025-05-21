@@ -44,8 +44,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
       - run: shards install
-      - name: Run ameba
-        run: bin/ameba src spec
+      - run: make lint
 
   lint-js:
     name: Lint javascript
