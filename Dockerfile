@@ -27,7 +27,7 @@ FROM base AS builder
 COPY Makefile .
 RUN make js lib
 ARG MAKEFLAGS=-j2
-RUN make all bin/lavinmq-debug
+RUN make all
 
 # Resulting image with minimal layers
 FROM ubuntu:24.04
