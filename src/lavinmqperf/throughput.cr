@@ -119,17 +119,18 @@ module LavinMQPerf
       super
 
       mt = Fiber::ExecutionContext::MultiThreaded.new("Clients", maximum: System.cpu_count.to_i)
+      connected = WaitGroup.new(@consumers + @publishers)
       done = WaitGroup.new(@consumers + @publishers)
       @consumers.times do
         if @poll
-          mt.spawn { reconnect_on_disconnect(done) { poll_consume } }
+          mt.spawn { reconnect_on_disconnect(done) { poll_consume(connected) } }
         else
-          mt.spawn { reconnect_on_disconnect(done) { consume } }
+          mt.spawn { reconnect_on_disconnect(done) { consume(connected) } }
         end
       end
 
       @publishers.times do
-        mt.spawn { reconnect_on_disconnect(done) { pub } }
+        mt.spawn { reconnect_on_disconnect(done) { pub(connected) } }
       end
 
       if @timeout != Time::Span.zero
@@ -139,7 +140,7 @@ module LavinMQPerf
         end
       end
 
-      Fiber.yield # wait for all clients to connect
+      connected.wait # wait for all clients to connect
       start = Time.monotonic
       Signal::INT.trap do
         abort "Aborting" if @stopped
@@ -187,7 +188,7 @@ module LavinMQPerf
       end
     end
 
-    private def pub # ameba:disable Metrics/CyclomaticComplexity
+    private def pub(connected) # ameba:disable Metrics/CyclomaticComplexity
       data = Bytes.new(@size) { |i| ((i % 27 + 64)).to_u8 }
       props = @properties
       props.delivery_mode = 2u8 if @persistent
@@ -196,7 +197,7 @@ module LavinMQPerf
         ch = a.channel
         ch.tx_select if @pub_in_transaction > 0
         ch.confirm_select if @max_unconfirm > 0
-        Fiber.yield
+        wait_until_all_are_connected(connected)
         start = Time.monotonic
         pubs_this_second = 0
         until @stopped
@@ -227,7 +228,7 @@ module LavinMQPerf
       end
     end
 
-    private def consume # ameba:disable Metrics/CyclomaticComplexity
+    private def consume(connected) # ameba:disable Metrics/CyclomaticComplexity
       data = Bytes.new(@size) { |i| ((i % 27 + 64)).to_u8 }
       AMQP::Client.start(@uri) do |a|
         ch = a.channel
@@ -242,7 +243,7 @@ module LavinMQPerf
           ch.prefetch prefetch
         end
         q.bind(@exchange, @routing_key) unless @exchange.empty?
-        Fiber.yield
+        wait_until_all_are_connected(connected)
         consumes_this_second = 0
         start = Time.monotonic
         q.subscribe(tag: "c", no_ack: @ack.zero?, block: true, args: @consumer_args) do |m|
@@ -270,7 +271,7 @@ module LavinMQPerf
       end
     end
 
-    private def poll_consume
+    private def poll_consume(connected)
       AMQP::Client.start(@uri) do |a|
         ch = a.channel
         q = begin
@@ -283,7 +284,7 @@ module LavinMQPerf
           ch.prefetch prefetch
         end
         q.bind(@exchange, @routing_key) unless @exchange.empty?
-        Fiber.yield
+        wait_until_all_are_connected(connected)
         consumes_this_second = 0
         start = Time.monotonic
         loop do
@@ -316,6 +317,13 @@ module LavinMQPerf
       end
     ensure
       done.done
+    end
+
+    # Announce that the client is connected
+    # and then wait for all other clients to be connected too
+    private def wait_until_all_are_connected(connected)
+      connected.done rescue nil
+      connected.wait
     end
   end
 end

@@ -1,5 +1,5 @@
 BINS := bin/lavinmq bin/lavinmqctl bin/lavinmqperf
-SOURCES := $(shell find src/lavinmq src/stdlib -name '*.cr' 2> /dev/null)
+SOURCES := $(shell find src/ -name '*.cr' 2> /dev/null)
 PERF_SOURCES := $(shell find src/lavinmqperf -name '*.cr' 2> /dev/null)
 VIEW_SOURCES := $(wildcard views/*.ecr)
 VIEW_TARGETS := $(patsubst views/%.ecr,static/views/%.html,$(VIEW_SOURCES))
