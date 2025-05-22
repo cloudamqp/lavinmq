@@ -535,6 +535,11 @@ module LavinMQ
         close_connection(nil, ConnectionReplyCode::INTERNAL_ERROR, "Unexpected error, please report")
       end
 
+      def send_resource_error(frame, message)
+        @log.warn { "Resource error channel=#{frame.channel} reason=\"#{message}\"" }
+        close_channel(frame, ChannelReplyCode::RESOURCE_ERROR, message)
+      end
+
       def send_frame_error(message = nil)
         close_connection(nil, ConnectionReplyCode::FRAME_ERROR, message)
       end

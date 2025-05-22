@@ -340,6 +340,10 @@ module LavinMQ
       end
 
       def consume(frame)
+        if @consumers.size >= Config.instance.consumer_max_per_channel
+          @client.send_resource_error(frame, "Max #{Config.instance.consumer_max_per_channel} consumers per channel reached")
+          return
+        end
         if frame.consumer_tag.empty?
           frame.consumer_tag = "amq.ctag-#{Random::Secure.urlsafe_base64(24)}"
         end
