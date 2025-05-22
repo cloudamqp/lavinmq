@@ -60,6 +60,30 @@ describe LavinMQ::HTTP::ChannelsController do
         end
       end
     end
+
+    it "should return message_stats" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("channel_message_stats")
+          2.times { q.publish "msg" }
+          ch.prefetch(1)
+
+          ch.basic_get(q.name, no_ack: false)
+          q.subscribe {}
+
+          response = http.get("/api/channels")
+          response.status_code.should eq 200
+          body = JSON.parse(response.body)
+          if message_stats = body[0]["message_stats"]?
+            message_stats["get"].should eq(1)
+            message_stats["deliver"].should eq(1)
+            message_stats["deliver_get"].should eq(2)
+          else
+            fail "No channel"
+          end
+        end
+      end
+    end
   end
 
   describe "PUT /api/channels/:channel" do
