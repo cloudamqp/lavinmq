@@ -197,8 +197,7 @@ module LavinMQPerf
         ch = a.channel
         ch.tx_select if @pub_in_transaction > 0
         ch.confirm_select if @max_unconfirm > 0
-        connected.done rescue nil
-        connected.wait
+        wait_until_all_are_connected(connected)
         start = Time.monotonic
         pubs_this_second = 0
         until @stopped
@@ -244,8 +243,7 @@ module LavinMQPerf
           ch.prefetch prefetch
         end
         q.bind(@exchange, @routing_key) unless @exchange.empty?
-        connected.done rescue nil
-        connected.wait
+        wait_until_all_are_connected(connected)
         consumes_this_second = 0
         start = Time.monotonic
         q.subscribe(tag: "c", no_ack: @ack.zero?, block: true, args: @consumer_args) do |m|
@@ -286,8 +284,7 @@ module LavinMQPerf
           ch.prefetch prefetch
         end
         q.bind(@exchange, @routing_key) unless @exchange.empty?
-        connected.done rescue nil
-        connected.wait
+        wait_until_all_are_connected(connected)
         consumes_this_second = 0
         start = Time.monotonic
         loop do
@@ -320,6 +317,13 @@ module LavinMQPerf
       end
     ensure
       done.done
+    end
+
+    # Announce that the client is connected
+    # and then wait for all other clients to be connected too
+    private def wait_until_all_are_connected(connected)
+      connected.done rescue nil
+      connected.wait
     end
   end
 end
