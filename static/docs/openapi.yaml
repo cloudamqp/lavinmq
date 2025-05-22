@@ -303,3 +303,5 @@ tags:
   description: Manage vhosts.
 - name: auth
   description: Hash a password.
+- name: vhost-limits
+  description: Manage vhost limits.
