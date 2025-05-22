@@ -9,7 +9,11 @@ module LavinMQ
 
       def authenticate(username : String, password : Bytes) : User?
         if user = @users[username]?
-          return user if user.password && user.password.not_nil!.verify(password)
+          if passwd = user.password
+            if passwd.verify(password)
+              return user
+            end
+          end
         end
       rescue ex : Exception
         Log.error { "Basic authentication failed: #{ex.message}" }
