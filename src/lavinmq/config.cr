@@ -5,6 +5,7 @@ require "ini"
 require "./version"
 require "./log_formatter"
 require "./in_memory_backend"
+require "./auth/password"
 
 module LavinMQ
   class Config
@@ -106,7 +107,11 @@ module LavinMQ
         p.on("--default-user=USER", "Default user (default: guest)") do |v|
           @default_user = v
         end
-        p.on("--default-password=PASSWORD", "Hashed password for default user (default: '+pHuxkR9fCyrrwXjOD4BP4XbzO3l8LJr8YkThMgJ0yVHFRE+' (guest))") do |v|
+        p.on("--default-password-hash=PASSWORD-HASH", "Hashed password for default user (default: '+pHuxkR9fCyrrwXjOD4BP4XbzO3l8LJr8YkThMgJ0yVHFRE+' (guest))") do |v|
+          @default_password = v
+        end
+        p.on("--default-password=PASSWORD-HASH", "(Deprecated) Hashed password for default user (default: '+pHuxkR9fCyrrwXjOD4BP4XbzO3l8LJr8YkThMgJ0yVHFRE+' (guest))") do |v|
+          STDERR.puts "WARNING: 'default-password' is deprecated, use '--default-password-hash' instead"
           @default_password = v
         end
         p.on("--no-data-dir-lock", "Don't put a file lock in the data directory (default: true)") { @data_dir_lock = false }
@@ -197,8 +202,15 @@ module LavinMQ
         exit 2
       end
       reload_logger
+      verify_default_password
     rescue ex
       abort ex.message
+    end
+
+    def verify_default_password
+      User::SHA256Password.new(@default_password)
+    rescue
+      raise ArgumentError.new("Failed to decode default_password hash. Please see documentation for usage.")
     end
 
     private def parse(file)
@@ -252,31 +264,34 @@ module LavinMQ
     private def parse_main(settings)
       settings.each do |config, v|
         case config
-        when "data_dir"                   then @data_dir = v
-        when "data_dir_lock"              then @data_dir_lock = true?(v)
-        when "log_level"                  then @log_level = ::Log::Severity.parse(v)
-        when "log_file"                   then @log_file = v
-        when "stats_interval"             then @stats_interval = v.to_i32
-        when "stats_log_size"             then @stats_log_size = v.to_i32
-        when "segment_size"               then @segment_size = v.to_i32
-        when "set_timestamp"              then @set_timestamp = true?(v)
-        when "socket_buffer_size"         then @socket_buffer_size = v.to_i32
-        when "tcp_nodelay"                then @tcp_nodelay = true?(v)
-        when "tcp_keepalive"              then @tcp_keepalive = tcp_keepalive?(v)
-        when "tcp_recv_buffer_size"       then @tcp_recv_buffer_size = v.to_i32?
-        when "tcp_send_buffer_size"       then @tcp_send_buffer_size = v.to_i32?
-        when "tls_cert"                   then @tls_cert_path = v
-        when "tls_key"                    then @tls_key_path = v
-        when "tls_ciphers"                then @tls_ciphers = v
-        when "tls_min_version"            then @tls_min_version = v
-        when "log_exchange"               then @log_exchange = true?(v)
-        when "free_disk_min"              then @free_disk_min = v.to_i64
-        when "free_disk_warn"             then @free_disk_warn = v.to_i64
-        when "max_deleted_definitions"    then @max_deleted_definitions = v.to_i
-        when "consumer_timeout"           then @consumer_timeout = v.to_u64
-        when "default_consumer_prefetch"  then @default_consumer_prefetch = v.to_u16
-        when "default_user"               then @default_user = v
-        when "default_password"           then @default_password = v
+        when "data_dir"                  then @data_dir = v
+        when "data_dir_lock"             then @data_dir_lock = true?(v)
+        when "log_level"                 then @log_level = ::Log::Severity.parse(v)
+        when "log_file"                  then @log_file = v
+        when "stats_interval"            then @stats_interval = v.to_i32
+        when "stats_log_size"            then @stats_log_size = v.to_i32
+        when "segment_size"              then @segment_size = v.to_i32
+        when "set_timestamp"             then @set_timestamp = true?(v)
+        when "socket_buffer_size"        then @socket_buffer_size = v.to_i32
+        when "tcp_nodelay"               then @tcp_nodelay = true?(v)
+        when "tcp_keepalive"             then @tcp_keepalive = tcp_keepalive?(v)
+        when "tcp_recv_buffer_size"      then @tcp_recv_buffer_size = v.to_i32?
+        when "tcp_send_buffer_size"      then @tcp_send_buffer_size = v.to_i32?
+        when "tls_cert"                  then @tls_cert_path = v
+        when "tls_key"                   then @tls_key_path = v
+        when "tls_ciphers"               then @tls_ciphers = v
+        when "tls_min_version"           then @tls_min_version = v
+        when "log_exchange"              then @log_exchange = true?(v)
+        when "free_disk_min"             then @free_disk_min = v.to_i64
+        when "free_disk_warn"            then @free_disk_warn = v.to_i64
+        when "max_deleted_definitions"   then @max_deleted_definitions = v.to_i
+        when "consumer_timeout"          then @consumer_timeout = v.to_u64
+        when "default_consumer_prefetch" then @default_consumer_prefetch = v.to_u16
+        when "default_user"              then @default_user = v
+        when "default_password_hash"     then @default_password = v
+        when "default_password"
+          STDERR.puts "WARNING: 'default_password' is deprecated, use 'default_password_hash' instead"
+          @default_password = v
         when "default_user_only_loopback" then @default_user_only_loopback = true?(v)
         when "guest_only_loopback" # TODO: guest_only_loopback was deprecated in 2.2.x, remove in 3.0
           STDERR.puts "WARNING: 'guest_only_loopback' is deprecated, use 'default_user_only_loopback' instead"
