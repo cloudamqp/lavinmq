@@ -4,12 +4,13 @@ require "uri"
 module LavinMQPerf
   class Perf
     @uri = URI.parse "amqp://guest:guest@localhost"
-    getter banner
+    getter mqtt_banner
+    getter amqp_banner
 
     def initialize
       @parser = OptionParser.new
-      @banner = "Usage: #{PROGRAM_NAME} [throughput | bind-churn | queue-churn | connection-churn | connection-count | queue-count] [arguments]"
-      @parser.banner = @banner
+      @amqp_banner = "Usage: #{PROGRAM_NAME} [protocol] [throughput | bind-churn | queue-churn | connection-churn | connection-count | queue-count] [arguments]"
+      @mqtt_banner = "Usage: #{PROGRAM_NAME} [protocol] [throughput]"
       @parser.on("-h", "--help", "Show this help") { puts @parser; exit 0 }
       @parser.on("-v", "--version", "Show version") { puts LavinMQ::VERSION; exit 0 }
       @parser.on("--build-info", "Show build information") { puts BUILD_INFO; exit 0 }
