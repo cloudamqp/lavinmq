@@ -69,7 +69,7 @@ describe LavinMQ::HTTP::ChannelsController do
           ch.prefetch(1)
 
           ch.basic_get(q.name, no_ack: false)
-          q.subscribe {}
+          q.subscribe { }
 
           response = http.get("/api/channels")
           response.status_code.should eq 200
