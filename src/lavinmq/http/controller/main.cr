@@ -132,19 +132,6 @@ module LavinMQ
           end
         end
 
-        get "/api/shovels" do |context, _params|
-          itrs = vhosts(user(context)).flat_map do |v|
-            v.shovels.not_nil!.each_value
-          end
-          page(context, itrs)
-        end
-
-        get "/api/shovels/:vhost" do |context, params|
-          with_vhost(context, params) do |vhost|
-            page(context, @amqp_server.vhosts[vhost].shovels.not_nil!.each_value)
-          end
-        end
-
         get "/api/federation-links" do |context, _params|
           itrs = vhosts(user(context)).flat_map do |vhost|
             vhost.upstreams.not_nil!.flat_map do |upstream|
