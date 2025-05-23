@@ -35,7 +35,7 @@ RUN for lib in $(ldd bin/* | grep "=> /" | awk '{print $3}' | sort -u | grep -E 
     done
 
 # Resulting image with minimal layers
-FROM gcr.io/distroless/cc-debian12
+FROM gcr.io/distroless/cc-debian12:debug
 COPY --from=builder /usr/src/lavinmq/bin/* /usr/bin/
 COPY --from=builder /tmp/deps/ /
 EXPOSE 5672 15672
