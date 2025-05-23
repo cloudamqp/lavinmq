@@ -117,7 +117,31 @@ Table.renderTable('table', tableOptions, (tr, item, all) => {
       'dest-endpoint': (item) => item.value['dest-queue'] || item.value['dest-exchange']
     })
   }
-  btns.append(editBtn, deleteBtn)
+
+  const pauseOrResumeBtn = document.createElement('button')
+  pauseOrResumeBtn.classList.add('btn-warn')
+  pauseOrResumeBtn.textContent = item.value.state === 'Paused' ? 'Resume' : 'Pause'
+  pauseOrResumeBtn.onclick = function () {
+    const name = encodeURIComponent(item.name)
+    const vhost = encodeURIComponent(item.vhost)
+    const isRunning = item.state === 'Running'
+    const action = isRunning ? 'pause' : 'resume'
+
+    const url = `api/shovels/${vhost}/${name}/${action}`;
+
+    if (window.confirm('Are you sure?')) {
+      HTTP.request('PUT', url)
+        .then(() => {
+          dataSource.reload()
+          DOM.toast(`Shovel ${item.name} ${isRunning ? 'resumed' : 'paused'}`)
+        })
+      .catch((err) => {
+          console.error(err);
+          DOM.toast(`Shovel ${item.name} failed to ${isRunning ? 'resume' : 'pause'}`, 'error');
+      })
+    }
+  }
+  btns.append(editBtn, pauseOrResumeBtn, deleteBtn)
   Table.renderCell(tr, 11, btns, 'right')
 })
 
