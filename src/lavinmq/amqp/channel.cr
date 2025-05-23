@@ -40,7 +40,7 @@ module LavinMQ
       @tx = false
       @next_msg_body_tmp = IO::Memory.new
 
-      rate_stats({"ack", "get", "publish", "deliver", "deliver_get", "redeliver", "reject", "confirm", "return_unroutable"})
+      rate_stats({"ack", "get", "publish", "deliver", "deliver_get", "deliver_no_ack", "redeliver", "reject", "confirm", "return_unroutable"})
 
       Log = LavinMQ::Log.for "amqp.channel"
 
@@ -390,6 +390,7 @@ module LavinMQ
           else
             @get_count.add(1)
             @deliver_get_count.add(1)
+            @deliver_no_ack_count.add(1) if frame.no_ack
             @client.vhost.event_tick(EventType::ClientGet)
             ok = q.basic_get(frame.no_ack) do |env|
               delivery_tag = next_delivery_tag(q, env.segment_position, frame.no_ack, nil)

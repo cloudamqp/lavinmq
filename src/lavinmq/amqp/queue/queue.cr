@@ -118,7 +118,7 @@ module LavinMQ::AMQP
 
     # Creates @[x]_count and @[x]_rate and @[y]_log
     rate_stats(
-      {"ack", "deliver", "deliver_get", "confirm", "get", "get_no_ack", "publish", "redeliver", "reject", "return_unroutable", "dedup"},
+      {"ack", "deliver", "deliver_get", "deliver_no_ack", "confirm", "get", "get_no_ack", "publish", "redeliver", "reject", "return_unroutable", "dedup"},
       {"message_count", "unacked_count"})
 
     getter name, arguments, vhost, consumers
@@ -726,6 +726,7 @@ module LavinMQ::AMQP
       @queue_expiration_ttl_change.try_send? nil
       @get_count.add(1)
       @deliver_get_count.add(1)
+      @deliver_no_ack_count.add(1) if no_ack
       get(no_ack) do |env|
         yield env
       end
@@ -740,6 +741,7 @@ module LavinMQ::AMQP
         else
           @deliver_count.add(1)
           @deliver_get_count.add(1)
+          @deliver_no_ack_count.add(1) if no_ack
         end
       end
     end
