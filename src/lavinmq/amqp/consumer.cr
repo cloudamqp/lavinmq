@@ -200,6 +200,7 @@ module LavinMQ
           unacked = @unacked.add(1)
           @has_capacity.set(false) if (unacked + 1) == @prefetch_count
         end
+        @channel.@deliver_no_ack_count.add(1) if @no_ack
         delivery_tag = @channel.next_delivery_tag(@queue, sp, @no_ack, self)
         deliver = AMQP::Frame::Basic::Deliver.new(@channel.id, @tag,
           delivery_tag,
