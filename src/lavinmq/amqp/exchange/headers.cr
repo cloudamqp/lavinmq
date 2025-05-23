@@ -28,8 +28,8 @@ module LavinMQ
       end
 
       def bind(destination : Destination, routing_key, headers)
-        validate!(headers)
-        args = headers ? @arguments.clone.merge!(headers) : @arguments
+        args = headers || AMQP::Table.new
+        validate!(args)
         return false unless @bindings[args].add? destination
         binding_key = BindingKey.new(routing_key, args)
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
@@ -38,7 +38,7 @@ module LavinMQ
       end
 
       def unbind(destination : Destination, routing_key, headers)
-        args = headers ? @arguments.clone.merge!(headers) : @arguments
+        args = headers || AMQP::Table.new
         bds = @bindings[args]
         return false unless bds.delete(destination)
         @bindings.delete(routing_key) if bds.empty?
@@ -62,6 +62,7 @@ module LavinMQ
       end
 
       protected def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
+        default_x_match = @arguments["x-match"]?
         @bindings.each do |args, destinations|
           if headers.nil? || headers.empty?
             next unless args.empty?
@@ -69,7 +70,8 @@ module LavinMQ
               yield destination
             end
           else
-            is_match = case args["x-match"]?
+            x_match = args["x-match"]? || default_x_match
+            is_match = case x_match
                        when "any"
                          args.any? { |k, v| !k.starts_with?("x-") && (headers.has_key?(k) && headers[k] == v) }
                        else
