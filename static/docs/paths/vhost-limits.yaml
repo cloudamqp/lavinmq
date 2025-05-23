@@ -1,0 +1,131 @@
+---
+"/vhost-limits":
+  get:
+    tags:
+    - vhost-limits
+    description: List all vhosts with their limits (max-connections, max-queues).
+    summary: List vhost limits
+    operationId: GetVhostLimits
+    responses:
+      '200':
+        description: OK
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                "$ref": "../openapi.yaml#/components/schemas/vhost-limits"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+"/vhost-limits/{vhost}":
+  parameters:
+  - in: path
+    name: vhost
+    required: true
+    schema:
+      type: string
+      description: Name of vhost.
+  get:
+    tags:
+    - vhost-limits
+    description: Get limits for a specific vhost.
+    summary: Get vhost limits
+    operationId: GetVhostLimitsByVhost
+    responses:
+      '200':
+        description: OK
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/vhost-limits"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+"/vhost-limits/{vhost}/{type}":
+  parameters:
+  - in: path
+    name: vhost
+    required: true
+    schema:
+      type: string
+      description: Name of vhost.
+  - in: path
+    name: type
+    required: true
+    schema:
+      type: string
+      enum:
+      - max-connections
+      - max-queues
+      description: Type of limit to set or delete.
+  put:
+    tags:
+    - vhost-limits
+    description: Set a specific limit (max-connections or max-queues) for a vhost.
+    summary: Set vhost limit
+    operationId: PutVhostLimit
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              value:
+                type: integer
+                description: Value of the limit. Use `null` to remove the limit.
+    responses:
+      '204':
+        description: The limit was successfully set.
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+  delete:
+    tags:
+    - vhost-limits
+    description: Remove a specific limit (max-connections or max-queues) for a vhost.
+    summary: Delete vhost limit
+    operationId: DeleteVhostLimit
+    responses:
+      '204':
+        description: The limit was successfully removed.
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
