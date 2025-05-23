@@ -80,22 +80,28 @@ function render (id, unit, options = {}, stacked = false) {
   yAxisGroup.select('.domain').remove()
 
   // Add grid lines
-  g.append('g')
+  const xGrid = g.append('g')
     .attr('class', 'grid x-grid')
     .attr('transform', `translate(0,${height})`)
     .call(xAxis.tickSize(-height).tickFormat(''))
-    .selectAll('line')
+
+  xGrid.selectAll('line')
     .style('stroke', '#404040')
     .style('stroke-width', 0.5)
     .style('opacity', 0.7)
 
-  g.append('g')
+  xGrid.select('.domain').remove()
+
+  const yGrid = g.append('g')
     .attr('class', 'grid y-grid')
     .call(yAxis.tickSize(-width).tickFormat(''))
-    .selectAll('line')
+
+  yGrid.selectAll('line')
     .style('stroke', '#404040')
     .style('stroke-width', 0.5)
     .style('opacity', 0.7)
+
+  yGrid.select('.domain').remove()
 
   // Add Y axis label
   g.append('text')
@@ -249,9 +255,6 @@ function update (chart, data, filled = false) {
 function updateD3Chart (chart) {
   if (chart.data.datasets.length === 0) return
 
-  // Reset tooltip initialization when datasets change
-  chart.tooltipInitialized = false
-
   // Calculate time domain
   const now = new Date()
   const timeWindow = X_AXIS_LENGTH
@@ -267,19 +270,33 @@ function updateD3Chart (chart) {
   chart.yScale.domain([0, yMaxWithPadding])
 
   // Update axes
-  chart.xAxisGroup.transition().duration(300).call(d3.axisBottom(chart.xScale).tickFormat(d3.timeFormat('%H:%M:%S')))
-  chart.yAxisGroup.transition().duration(300).call(d3.axisLeft(chart.yScale).tickFormat(helpers.nFormatter))
+  chart.xAxisGroup.call(d3.axisBottom(chart.xScale).tickFormat(d3.timeFormat('%H:%M:%S')))
+  chart.yAxisGroup.call(d3.axisLeft(chart.yScale).tickFormat(helpers.nFormatter))
 
   // Remove all axis domain lines (borders)
   chart.xAxisGroup.select('.domain').remove()
   chart.yAxisGroup.select('.domain').remove()
 
-  // Update grid lines
-  chart.g.selectAll('.grid').selectAll('line')
-    .transition().duration(300)
+  // Update grid lines with current dimensions
+  const xGrid = chart.g.select('.x-grid')
+    .call(d3.axisBottom(chart.xScale).tickSize(-chart.height).tickFormat(''))
+
+  xGrid.selectAll('line')
     .style('stroke', '#404040')
     .style('stroke-width', 0.5)
     .style('opacity', 0.7)
+
+  xGrid.select('.domain').remove()
+
+  const yGrid = chart.g.select('.y-grid')
+    .call(d3.axisLeft(chart.yScale).tickSize(-chart.width).tickFormat(''))
+
+  yGrid.selectAll('line')
+    .style('stroke', '#404040')
+    .style('stroke-width', 0.5)
+    .style('opacity', 0.7)
+
+  yGrid.select('.domain').remove()
 
   // Bind data to lines (only visible datasets)
   const lines = chart.g.selectAll('.line')
@@ -305,7 +322,6 @@ function updateD3Chart (chart) {
     .datum(d => d.data)
     .style('stroke', (d, i) => chart.data.datasets[i].color)
     .style('opacity', (d, i) => chart.data.datasets[i].hidden ? 0 : 1)
-    .transition().duration(300)
     .attr('d', chart.line)
 
   // Add chart-wide hover interaction
@@ -403,64 +419,51 @@ function updateD3Chart (chart) {
             .style('stroke-width', 1)
         })
 
-        // Update or create tooltip content
-        if (!chart.tooltipInitialized) {
-          // Create tooltip structure once
-          const timeStr = d3.timeFormat('%H:%M:%S')(tooltipData[0].time)
-          let tooltipHTML = `<div class="tooltip-time">${timeStr}</div>`
+        // Create tooltip content
+        const timeStr = d3.timeFormat('%H:%M:%S')(tooltipData[0].time)
+        let tooltipHTML = `<div class="tooltip-time">${timeStr}</div>`
 
-          tooltipData.forEach((item, index) => {
-            tooltipHTML += `<div class="tooltip-line" data-index="${index}">
-              <span class="color-indicator" data-index="${index}"></span>
-              <span class="line-text" data-index="${index}">${item.label}: <strong class="line-value" data-index="${index}">${helpers.formatNumber(item.value)}</strong></span>
-            </div>`
-          })
+        tooltipData.forEach((item, index) => {
+          tooltipHTML += `<div class="tooltip-line" data-index="${index}">
+            <span class="color-indicator" data-index="${index}"></span>
+            <span class="line-text" data-index="${index}">${item.label}: <strong class="line-value" data-index="${index}">${helpers.formatNumber(item.value)}</strong></span>
+          </div>`
+        })
 
-          chart.tooltip.html(tooltipHTML)
+        // Update tooltip content
+        chart.tooltip.html(tooltipHTML)
 
-          // Style the tooltip using D3 (only once)
-          d3.select(chart.tooltip.node())
-            .select('.tooltip-time')
-            .style('font-weight', 'bold')
-            .style('margin-bottom', '5px')
+        // Style the tooltip using D3
+        const tooltipNode = d3.select(chart.tooltip.node())
 
-          // Style each tooltip line using D3 (only once)
-          tooltipData.forEach((item, index) => {
-            const tooltipNode = d3.select(chart.tooltip.node())
+        tooltipNode.select('.tooltip-time')
+          .style('font-weight', 'bold')
+          .style('margin-bottom', '5px')
 
-            tooltipNode.select(`.tooltip-line[data-index="${index}"]`)
-              .style('margin', '2px 0')
-              .style('display', 'flex')
-              .style('align-items', 'center')
+        // Style each tooltip line using D3
+        tooltipData.forEach((item, index) => {
+          tooltipNode.select(`.tooltip-line[data-index="${index}"]`)
+            .style('margin', '2px 0')
+            .style('display', 'flex')
+            .style('align-items', 'center')
 
-            tooltipNode.select(`.color-indicator[data-index="${index}"]`)
-              .style('display', 'inline-block')
-              .style('width', '12px')
-              .style('height', '12px')
-              .style('margin-right', '8px')
-              .style('border-radius', '2px')
-              .style('border', '1px solid rgba(255,255,255,0.3)')
-              .style('background-color', item.color)
+          tooltipNode.select(`.color-indicator[data-index="${index}"]`)
+            .style('display', 'inline-block')
+            .style('width', '12px')
+            .style('height', '12px')
+            .style('margin-right', '8px')
+            .style('border-radius', '2px')
+            .style('border', '1px solid rgba(255,255,255,0.3)')
+            .style('background-color', item.color)
 
-            tooltipNode.select(`.line-text[data-index="${index}"]`)
-              .style('color', item.color)
+          tooltipNode.select(`.line-text[data-index="${index}"]`)
+            .style('color', item.color)
 
-            tooltipNode.select(`.line-value[data-index="${index}"]`)
-              .style('color', item.color)
-          })
+          tooltipNode.select(`.line-value[data-index="${index}"]`)
+            .style('color', item.color)
+        })
 
-          chart.tooltipInitialized = true
-        } else {
-          // Just update the content
-          const timeStr = d3.timeFormat('%H:%M:%S')(tooltipData[0].time)
-          d3.select(chart.tooltip.node()).select('.tooltip-time').text(timeStr)
-
-          tooltipData.forEach((item, index) => {
-            d3.select(chart.tooltip.node()).select(`.line-value[data-index="${index}"]`)
-              .text(helpers.formatNumber(item.value))
-          })
-        }
-
+        // Show tooltip
         chart.tooltip
           .style('visibility', 'visible')
           .style('top', (event.pageY - 10) + 'px')
@@ -522,7 +525,32 @@ function resizeChart (chart) {
   // Update axis positions
   chart.xAxisGroup.attr('transform', `translate(0,${newHeight})`)
 
-  // Update grid lines - they will be properly updated in updateD3Chart
+  // Remove old grid lines
+  chart.g.selectAll('.grid').remove()
+
+  // Re-create grid lines with new dimensions
+  const xGrid = chart.g.append('g')
+    .attr('class', 'grid x-grid')
+    .attr('transform', `translate(0,${newHeight})`)
+    .call(d3.axisBottom(chart.xScale).tickSize(-newHeight).tickFormat(''))
+
+  xGrid.selectAll('line')
+    .style('stroke', '#404040')
+    .style('stroke-width', 0.5)
+    .style('opacity', 0.7)
+
+  xGrid.select('.domain').remove()
+
+  const yGrid = chart.g.append('g')
+    .attr('class', 'grid y-grid')
+    .call(d3.axisLeft(chart.yScale).tickSize(-newWidth).tickFormat(''))
+
+  yGrid.selectAll('line')
+    .style('stroke', '#404040')
+    .style('stroke-width', 0.5)
+    .style('opacity', 0.7)
+
+  yGrid.select('.domain').remove()
 
   // Update legend position
   chart.legend.attr('transform', `translate(${newWidth + chart.margin.left + 10}, ${chart.margin.top + 20})`)
