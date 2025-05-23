@@ -31,6 +31,7 @@ class MFile < IO
   getter capacity : Int64 = 0i64
   getter path : String
   getter fd : Int32
+  property? read_only : Bool
   @buffer = Pointer(UInt8).null
   @deleted = false
   @wg = WaitGroup.new
@@ -38,9 +39,9 @@ class MFile < IO
   # Map a file, if no capacity is given the file must exists and
   # the file will be mapped as readonly
   # The file won't be truncated if the capacity is smaller than current size
-  def initialize(@path : String, capacity : Int? = nil, @writeonly = false)
-    @readonly = capacity.nil?
-    raise ArgumentError.new("can't be both read only and write only") if @readonly && @writeonly
+  def initialize(@path : String, capacity : Int? = nil, @write_only = false)
+    @read_only = capacity.nil?
+    raise ArgumentError.new("can't be both read only and write only") if @read_only && @write_only
     @fd = open_fd
     @size = file_size
     @capacity = capacity ? Math.max(capacity.to_i64, @size) : @size
@@ -50,8 +51,8 @@ class MFile < IO
     end
   end
 
-  def self.open(path, capacity : Int? = nil, writeonly = false, & : self -> _)
-    mfile = self.new(path, capacity, writeonly)
+  def self.open(path, capacity : Int? = nil, write_only = false, & : self -> _)
+    mfile = self.new(path, capacity, write_only)
     begin
       yield mfile
     ensure
@@ -64,7 +65,7 @@ class MFile < IO
   end
 
   private def open_fd
-    flags = @readonly ? LibC::O_RDONLY : LibC::O_CREAT | LibC::O_RDWR
+    flags = @read_only ? LibC::O_RDONLY : LibC::O_CREAT | LibC::O_RDWR
     perms = 0o644
     fd = LibC.open(@path.check_no_null_byte, flags, perms)
     raise File::Error.from_errno("Error opening file", file: @path) if fd < 0
@@ -80,15 +81,15 @@ class MFile < IO
   private def mmap(length = @capacity) : Pointer(UInt8)
     return Pointer(UInt8).null if length.zero?
     protection = case
-                 when @readonly  then LibC::PROT_READ
-                 when @writeonly then LibC::PROT_WRITE
-                 else                 LibC::PROT_READ | LibC::PROT_WRITE
+                 when @read_only  then LibC::PROT_READ
+                 when @write_only then LibC::PROT_WRITE
+                 else                  LibC::PROT_READ | LibC::PROT_WRITE
                  end
     flags = LibC::MAP_SHARED
     ptr = LibC.mmap(nil, length, protection, flags, @fd, 0)
     raise RuntimeError.from_errno("mmap") if ptr == LibC::MAP_FAILED
     addr = ptr.as(UInt8*)
-    advise(MFile::Advice::Sequential, addr, 0, length) unless @writeonly
+    advise(MFile::Advice::Sequential, addr, 0, length) unless @write_only
     addr
   end
 
@@ -110,11 +111,10 @@ class MFile < IO
     @wg.done
   end
 
-  # The file will be truncated to the current position unless readonly or deleted
+  # The file will be truncated to the current position unless read_only or deleted
   def close(truncate_to_size = true)
-    if truncate_to_size && !@readonly && !@deleted && @fd > 0
-      code = LibC.ftruncate(@fd, @size)
-      raise File::Error.from_errno("Error truncating file", file: @path) if code < 0
+    if truncate_to_size && !@read_only && !@deleted && @fd > 0
+      truncate(@size)
     end
 
     unmap
@@ -124,6 +124,15 @@ class MFile < IO
       raise File::Error.from_errno("Error closing file", file: @path) if code < 0
       @fd = -1
     end
+  end
+
+  def truncate(size = @size) : Nil
+    @size = size.to_i64
+    @pos = size.to_i64 if @pos > size
+
+    @capacity = size.to_i64
+    code = LibC.ftruncate(@fd, size)
+    raise File::Error.from_errno("Error truncating file", file: @path) if code < 0
   end
 
   def flush
@@ -213,6 +222,16 @@ class MFile < IO
 
   def rewind
     @pos = 0u64
+  end
+
+  def seek(offset : Int, whence : IO::Seek = IO::Seek::Set, &)
+    original_pos = @pos
+    begin
+      seek(offset, whence)
+      yield
+    ensure
+      @pos = original_pos
+    end
   end
 
   def seek(offset : Int, whence : IO::Seek = IO::Seek::Set)
