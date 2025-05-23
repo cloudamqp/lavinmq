@@ -4,7 +4,7 @@ PERF_SOURCES := $(shell find src/lavinmqperf -name '*.cr' 2> /dev/null)
 VIEW_SOURCES := $(wildcard views/*.ecr)
 VIEW_TARGETS := $(patsubst views/%.ecr,static/views/%.html,$(VIEW_SOURCES))
 VIEW_PARTIALS := $(wildcard views/partials/*.ecr)
-JS := static/js/lib/chunks/helpers.segment.js static/js/lib/chart.js static/js/lib/luxon.js static/js/lib/chartjs-adapter-luxon.esm.js static/js/lib/elements-8.2.0.js static/js/lib/elements-8.2.0.css
+JS := static/js/lib/d3.v7.min.js static/js/lib/elements-8.2.0.js static/js/lib/elements-8.2.0.css
 LDFLAGS := $(shell (dpkg-buildflags --get LDFLAGS || rpm -E "%{build_ldflags}" || echo "-pie") 2>/dev/null)
 CRYSTAL_FLAGS := --release
 override CRYSTAL_FLAGS += --stats --error-on-warnings -Dpreview_mt -Dexecution_context --link-flags="$(LDFLAGS)"
@@ -58,23 +58,11 @@ bin/lavinmqctl: src/lavinmqctl.cr lib | bin
 lib: shard.yml shard.lock
 	shards install --production
 
-bin static/js/lib man1 static/js/lib/chunks:
+bin static/js/lib man1:
 	mkdir -p $@
 
-static/js/lib/chart.js: | static/js/lib
-	curl --retry 5 -sL https://github.com/chartjs/Chart.js/releases/download/v4.0.1/chart.js-4.0.1.tgz | \
-		tar -zxOf- package/dist/chart.js > $@
-
-static/js/lib/chunks/helpers.segment.js: | static/js/lib/chunks
-	curl --retry 5 -sL https://github.com/chartjs/Chart.js/releases/download/v4.0.1/chart.js-4.0.1.tgz | \
-		tar -zxOf- package/dist/chunks/helpers.segment.js > $@
-
-static/js/lib/luxon.js: | static/js/lib
-	curl --retry 5 -sLo $@ https://moment.github.io/luxon/es6/luxon.js
-
-static/js/lib/chartjs-adapter-luxon.esm.js: | static/js/lib
-	curl --retry 5 -sLo $@ https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.esm.js
-	sed -i'' -e "s|\(import { _adapters } from\).*|\1 './chart.js'|; s|\(import { DateTime } from\).*|\1 './luxon.js'|" $@
+static/js/lib/d3.v7.min.js: | static/js/lib
+	curl --retry 5 -sLo $@ https://d3js.org/d3.v7.min.js
 
 static/js/lib/elements-8.2.0.js: | static/js/lib
 	curl --retry 5 -sLo $@ https://unpkg.com/@stoplight/elements@8.2.0/web-components.min.js
