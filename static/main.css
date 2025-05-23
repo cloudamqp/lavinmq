@@ -1858,6 +1858,11 @@ fieldset.inline {
 
 .chart-container .graph {
   grid-column: 1 / span 1;
+  width: 100%;
+  min-width: 400px;
+  height: auto;
+  min-height: 250px;
+  box-sizing: border-box;
 }
 
 .pagination {
