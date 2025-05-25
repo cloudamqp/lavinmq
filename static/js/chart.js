@@ -18,7 +18,7 @@ function render (id, unit, options = {}, stacked = false) {
   el.append(graphContainer)
 
   // Set up dimensions and margins
-  const margin = { top: 20, right: 120, bottom: 50, left: 60 }
+  const margin = { top: 20, right: 20, bottom: 80, left: 60 }
   const minWidth = 400
   const minHeight = 250
 
@@ -130,7 +130,7 @@ function render (id, unit, options = {}, stacked = false) {
   // Create legend container
   const legend = svg.append('g')
     .attr('class', 'legend')
-    .attr('transform', `translate(${width + margin.left + 10}, ${margin.top + 20})`)
+    .attr('transform', `translate(${margin.left}, ${height + margin.top + 30})`)
 
   // Chart object to return
   const chart = {
@@ -340,7 +340,7 @@ function updateD3Chart (chart) {
 
       // Find closest data points for all visible datasets with wider search radius
       const tooltipData = []
-      const maxDistance = POLLING_RATE * 2 // Allow 2 polling intervals distance
+      const maxDistance = POLLING_RATE * 3 // Allow 2 polling intervals distance
 
       chart.data.datasets.forEach(dataset => {
         if (dataset.hidden || dataset.data.length === 0) return
@@ -553,7 +553,7 @@ function resizeChart (chart) {
   yGrid.select('.domain').remove()
 
   // Update legend position
-  chart.legend.attr('transform', `translate(${newWidth + chart.margin.left + 10}, ${chart.margin.top + 20})`)
+  chart.legend.attr('transform', `translate(${chart.margin.left}, ${newHeight + chart.margin.top + 30})`)
 
   // Re-render the chart with new dimensions
   updateD3Chart(chart)
@@ -589,8 +589,17 @@ function updateLegend (chart) {
   // Update all legend items
   const allLegendItems = newLegendItems.merge(legendItems)
 
+  // Calculate horizontal positioning
+  let xOffset = 0
   allLegendItems
-    .attr('transform', (d, i) => `translate(0, ${i * 20})`)
+    .attr('transform', function (d, i) {
+      if (i === 0) xOffset = 0
+      const currentX = xOffset
+      // Calculate text width (approximation: 7px per character + padding)
+      const textWidth = d.label.length * 7 + 30 // 18px for rect + text gap + 12px padding
+      xOffset += textWidth
+      return `translate(${currentX}, 0)`
+    })
     .on('click', function (event, d) {
       d.hidden = !d.hidden
       updateD3Chart(chart)
