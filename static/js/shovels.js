@@ -112,8 +112,8 @@ Table.renderTable('table', tableOptions, (tr, item, all) => {
         'dest-type': (item) => item.value['dest-queue'] ? 'queue' : 'exchange',
         'src-endpoint': (item) => item.value['src-queue'] || item.value['src-exchange'],
         'dest-endpoint': (item) => item.value['dest-queue'] || item.value['dest-exchange']
-      })
-    }
+        })
+      }
   })
 
   const pauseBtn = DOM.button.edit({
