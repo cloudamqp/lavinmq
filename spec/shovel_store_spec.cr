@@ -1,7 +1,7 @@
 require "../spec/spec_helper.cr"
 
 def setup_running_shovel(amqp_url, shovel_store, name = %{#{__FILE__}-test-upsert})
-    create_payload = JSON.parse(%{
+  create_payload = JSON.parse(%{
       {
         "src-uri":"#{amqp_url}",
         "dest-uri":"#{amqp_url}",
@@ -25,7 +25,7 @@ def setup_running_shovel(amqp_url, shovel_store, name = %{#{__FILE__}-test-upser
 end
 
 def setup_paused_shovel(amqp_url, shovel_store, name = %{#{__FILE__}-test-upsert})
-  shovel = setup_running_shovel(amqp_url, shovel_store, name)
+  setup_running_shovel(amqp_url, shovel_store, name)
   pause_payload = JSON.parse(%{{ "state": "Paused" }})
   shovel_store.upsert(name, pause_payload)
   running_shovel = shovel_store[name]
@@ -34,7 +34,6 @@ end
 
 describe LavinMQ::ShovelStore do
   describe "upsert" do
-
     it "can pause" do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]

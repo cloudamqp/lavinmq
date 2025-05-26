@@ -1,20 +1,21 @@
 require "../controller.cr"
+
 module LavinMQ
   module HTTP
-    class  ShovelsController < Controller
+    class ShovelsController < Controller
       include StatsHelpers
 
       private def register_routes
         get "/api/shovels" do |context, _params|
           itrs = vhosts(user(context)).flat_map do |v|
-            v.shovels.not_nil!.each_value
+            v.shovels.each_value
           end
           page(context, itrs)
         end
 
         get "/api/shovels/:vhost" do |context, params|
           with_vhost(context, params) do |vhost|
-            page(context, @amqp_server.vhosts[vhost].shovels.not_nil!.each_value)
+            page(context, @amqp_server.vhosts[vhost].shovels.each_value)
           end
         end
 
@@ -33,7 +34,7 @@ module LavinMQ
           with_vhost(context, params) do |vhost|
             shovel_name = params["name"]
             if current_shovel = @amqp_server.vhosts[vhost].shovels[shovel_name]?
-              if ! current_shovel.running?
+              if !current_shovel.running?
                 context.response.status_code = 422
                 next
               end
@@ -45,12 +46,12 @@ module LavinMQ
           end
         end
 
-        #TODO 911: found a bug when we restart the LMQ instance - shovel gets back to running
+        # TODO 911: found a bug when we restart the LMQ instance - shovel gets back to running
         put "/api/shovels/:vhost/:name/resume" do |context, params|
           with_vhost(context, params) do |vhost|
             shovel_name = params["name"]
             if current_shovel = @amqp_server.vhosts[vhost].shovels[shovel_name]?
-              if ! current_shovel.paused?
+              if !current_shovel.paused?
                 context.response.status_code = 422
               end
               current_shovel.resume
