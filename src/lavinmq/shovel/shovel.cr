@@ -378,7 +378,7 @@ module LavinMQ
       end
 
       def state
-        @state.to_s
+        @state
       end
 
       def run

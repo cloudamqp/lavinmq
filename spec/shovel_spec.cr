@@ -485,7 +485,7 @@ describe LavinMQ::Shovel do
           wait_for { shovel.details_tuple[:error] }
           shovel.details_tuple[:error].not_nil!.should contain "ACCESS_REFUSED"
           shovel.terminate
-          shovel.state.should eq "Terminated"
+          shovel.state.to_s.should eq "Terminated"
         end
       end
     end
@@ -515,7 +515,7 @@ describe LavinMQ::Shovel do
           wait_for { s.vhosts["/"].queues["c_q2"].message_count == 10 }
           shovel.details_tuple[:message_count].should eq 10
         end
-        shovel.state.should eq "Running"
+        shovel.state.to_s.should eq "Running"
       end
     end
 
