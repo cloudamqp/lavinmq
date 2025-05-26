@@ -415,6 +415,7 @@ module LavinMQ
           @error = ex.message
           exponential_reconnect_delay
         rescue ex
+          puts ex
           break if should_stop_loop?
           @state = State::Error
           Log.warn { ex.message }

@@ -120,11 +120,12 @@ Table.renderTable('table', tableOptions, (tr, item, all) => {
 
   const pauseOrResumeBtn = document.createElement('button')
   pauseOrResumeBtn.classList.add('btn-warn')
-  pauseOrResumeBtn.textContent = item.value.state === 'Paused' ? 'Resume' : 'Pause'
+  pauseOrResumeBtn.textContent = ['Running', 'Starting'].includes(item.state) ? 'Pause' : 'Resume'
   pauseOrResumeBtn.onclick = function () {
     const name = encodeURIComponent(item.name)
     const vhost = encodeURIComponent(item.vhost)
     const isRunning = item.state === 'Running'
+    console.log(isRunning)
     const action = isRunning ? 'pause' : 'resume'
 
     const url = `api/shovels/${vhost}/${name}/${action}`;
