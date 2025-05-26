@@ -1,5 +1,5 @@
 require "log"
-Log.setup_from_env(default_level: :info)
+Log.setup_from_env(default_level: :error)
 
 class Log
   def self.setup
