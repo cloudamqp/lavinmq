@@ -452,7 +452,7 @@ module LavinMQ
       def resume
         @state = State::Starting
         Log.info { "Resuming shovel #{@name} vhost=#{@vhost.name}" }
-        run
+        spawn(run, name: "Shovel name=#{@name} vhost=#{@vhost.name}")
       end
 
       def pause
