@@ -634,7 +634,7 @@ describe LavinMQ::Shovel do
           q2.get(no_ack: true).try(&.body_io.to_s).should eq nil
 
           spawn shovel.resume
-           wait_for { shovel.running? } # Ensure it gets back to Running state
+          wait_for { shovel.running? } # Ensure it gets back to Running state
           wait_for { shovel.terminated? }
           q2.get(no_ack: true).try(&.body_io.to_s).should eq "shovel me 3"
           q2.get(no_ack: true).try(&.body_io.to_s).should eq "shovel me 4"

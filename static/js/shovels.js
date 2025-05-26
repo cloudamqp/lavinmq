@@ -125,7 +125,6 @@ Table.renderTable('table', tableOptions, (tr, item, all) => {
     const name = encodeURIComponent(item.name)
     const vhost = encodeURIComponent(item.vhost)
     const isRunning = item.state === 'Running'
-    console.log(isRunning)
     const action = isRunning ? 'pause' : 'resume'
 
     const url = `api/shovels/${vhost}/${name}/${action}`;
