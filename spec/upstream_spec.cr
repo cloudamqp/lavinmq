@@ -38,6 +38,27 @@ module UpstreamSpecHelpers
     cleanup_vhost(s, "upstream")
     cleanup_vhost(s, "downstream")
   end
+
+  def self.create_fe_chain(s : LavinMQ::Server, chain_length = 10, max_hops = chain_length)
+    url = URI.parse(s.amqp_url)
+    # Create ten vhosts, each with an exchange "fe"
+    # Setup a chain of exchange federation with v10 as downstream
+    # and v1 as "top upstream"
+    # Messages should travel
+    # v1:fe -> v2:fe -> v3:fe -> ... -> v4:fe -> v10:fe
+    vhost1 = s.vhosts.create("v1")
+    vhost1.declare_exchange("fe", "topic", durable: true, auto_delete: false)
+    vhost_prev = vhost1
+    2.to(chain_length) do |i|
+      vhost = s.vhosts.create("v#{i}")
+      vhost.declare_exchange("fe", "topic", durable: true, auto_delete: false)
+      url.path = vhost_prev.name
+      upstream = LavinMQ::Federation::Upstream.new(vhost, "ef from #{vhost_prev.name}", url.to_s, exchange: nil, queue: nil, max_hops: max_hops)
+      link = upstream.link(vhost.exchanges["fe"])
+      wait_for { link.state.running? }
+      vhost_prev = vhost
+    end
+  end
 end
 
 describe LavinMQ::Federation::Upstream do
@@ -710,10 +731,44 @@ describe LavinMQ::Federation::Upstream do
         wait_for { link.state.running? }
         wait_for { upstream_ex.bindings_details.size == 1 }
 
-        sleep 120.seconds
         binding_details = upstream_ex.bindings_details.find { |x| x.routing_key == "federation.link.rk" }.should_not be_nil
         arguments = binding_details.arguments.should_not be_nil
-        arguments["x-bound-from"].should be_a Array(AMQ::Protocol::Field)
+        x_bound_from = arguments["x-bound-from"].should be_a Array(AMQ::Protocol::Field)
+        x_bound_from.size.should eq 1
+      end
+    end
+
+    describe "exchange federation chain" do
+      it "append to x-bound-from" do
+        with_http_server do |_http, s|
+          UpstreamSpecHelpers.create_fe_chain(s, chain_length: 10)
+          downstream_vhost = s.vhosts["v10"]
+          downstream_ex = downstream_vhost.exchanges["fe"]
+          downstream_vhost.declare_queue("q", durable: true, auto_delete: false)
+          q = downstream_vhost.queues["q"]
+          # This binding should be propagated all the way to "fe" in "v1"
+          # For each hop x-bound-from should be extended with one new entry
+          downstream_ex.bind(q, "spec.routing.key")
+
+          # Verify bindings on exchange "fe" from vhost v1 to
+          # vhost v9.
+          1.to(9) do |i|
+            fe = s.vhosts["v#{i}"].exchanges["fe"]
+            fe.bindings_details.size.should eq 1
+            fe_bk = fe.bindings_details.first.binding_key
+            args = fe_bk.arguments.should_not be_nil
+            x_bound_from = args["x-bound-from"].should be_a(Array(AMQ::Protocol::Field))
+            # in v1 there should be 9 entries
+            # in v2 there should be 8 entries etc
+            x_bound_from.size.should eq(9 - i + 1)
+            first_bound_from = x_bound_from.first.should be_a(AMQ::Protocol::Table)
+            # The first (last appended) x-bound-from should be the previous vhost (v2 is prev to v1 etc)
+            first_bound_from["vhost"].should eq "v#{i + 1}"
+            # The first (last appended) x-bound-from should always be the downstream (v10)
+            last_bound_from = x_bound_from.last.should be_a(AMQ::Protocol::Table)
+            last_bound_from["vhost"].should eq "v10"
+          end
+        end
       end
     end
   end
