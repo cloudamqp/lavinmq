@@ -417,10 +417,10 @@ module LavinMQ
           hops = get_binding_hops(bound_from)
           return {false, arguments} if hops == 0
           bound_from.unshift AMQP::Table.new({
-            "cluster-name": "dunno",
-            "vhost":        @upstream.vhost.name,
-            "exchange":     @federated_ex.name,
-            "hops":         hops,
+            # "cluster-name": "dunno",
+            "vhost":    @upstream.vhost.name,
+            "exchange": @federated_ex.name,
+            "hops":     hops,
           })
           arguments["x-bound-from"] = bound_from
           {true, arguments}
