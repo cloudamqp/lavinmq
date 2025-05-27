@@ -708,7 +708,7 @@ describe LavinMQ::Federation::Upstream do
     end
 
     it "set x-bound-from" do
-      with_http_server do |http, s|
+      with_http_server do |_http, s|
         vhost1 = s.vhosts.create("one")
         vhost2 = s.vhosts.create("two")
 
