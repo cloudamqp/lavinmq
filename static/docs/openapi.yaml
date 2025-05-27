@@ -266,6 +266,12 @@ paths:
     "$ref": "./paths/vhosts.yaml#/~1vhosts~1{name}~1permissions"
   "/auth/hash_password":
     "$ref": "./paths/auth.yaml#/~1auth~1hash_password"
+  "/vhost-limits":
+    "$ref": "./paths/vhost-limits.yaml#/~1vhost-limits"
+  "/vhost-limits/{vhost}":
+    "$ref": "./paths/vhost-limits.yaml#/~1vhost-limits~1{vhost}"
+  "/vhost-limits/{vhost}/{type}":
+    "$ref": "./paths/vhost-limits.yaml#/~1vhost-limits~1{vhost}~1{type}"
 tags:
 - name: bindings
   description: Manage bindings.
@@ -297,3 +303,5 @@ tags:
   description: Manage vhosts.
 - name: auth
   description: Hash a password.
+- name: vhost-limits
+  description: Manage vhost limits.
