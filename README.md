@@ -265,8 +265,13 @@ There are a few edge-cases that are handled a bit differently in LavinMQ compare
 For questions or suggestions:
 - Join our [Slack community](https://join.slack.com/t/lavinmq/shared_invite/zt-1v28sxova-wOyhOvDEKYVQMQpLePNUrg)
 - Use the [lavinmq tag](https://stackoverflow.com/questions/tagged/lavinmq) on Stack Overflow
-- If you use LavinMQ via [CloudAMQP](https://www.cloudamqp.com), contact [support@cloudamqp.com](mailto:support@cloudamqp.com)
 - Want to learn more? [Talk with our product experts](https://webforms.pipedrive.com/f/64JnLsqIMAdF2BDQ06ioKLhC2NuNmkwNplNhRxtIqlm0nFnuIeX97eb7fZKej0vFHZ)
+
+## Hosted Solutions
+
+[CloudAMQP](https://www.cloudamqp.com/plans.html#lmq) offers a hosted LavinMQ solution with 24/7 support. 
+
+For assistance with a CloudAMQP-hosted LavinMQ instance, contact [support@cloudamqp.com](mailto:support@cloudamqp.com).
 
 ## Contributing
 
