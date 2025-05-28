@@ -674,7 +674,9 @@ module LavinMQ
       in EventType::ClientGet
         @get_count.add(1)
         @deliver_get_count.add(1)
-      in EventType::ClientGetNoAck       then @get_no_ack_count.add(1)
+      in EventType::ClientGetNoAck
+        @get_no_ack_count.add(1)
+        @deliver_get_count.add(1)
       in EventType::ClientDeliver
         @deliver_count.add(1)
         @deliver_get_count.add(1)

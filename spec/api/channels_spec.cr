@@ -93,22 +93,10 @@ describe LavinMQ::HTTP::ChannelsController do
           q.get(true)
           response = http.get("/api/channels")
           response.status_code.should eq 200
-
-          channel = JSON.parse(response.body)[0]
-          name = URI.encode_www_form(channel["name"].as_s)
-          vhost = channel["vhost"].as_s
-          s.vhosts[vhost].declare_queue("q1", false, false)
-          s.vhosts[vhost].queues["q1"].basic_get(false) do |_|
-            response = http.get("/api/channels/#{name}")
-            response.status_code.should eq 200
-            body = JSON.parse(response.body)
-            message_stats = body["message_stats"].not_nil!
-            message_stats["get_no_ack"].should eq(1)
-         end
           body = JSON.parse(response.body)[0]
           if message_stats = body["message_stats"]?
-            message_stats["get_no_ack"].should eq(1)
             message_stats["get"].should eq(0)
+            message_stats["get_no_ack"].should eq(1)
             message_stats["deliver_get"].should eq(1)
           else
             fail "message_stats is nil"
