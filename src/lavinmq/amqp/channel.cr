@@ -329,6 +329,9 @@ module LavinMQ
       def deliver(frame, msg, redelivered = false) : Nil
         raise ClosedError.new("Channel is closed") unless @running
         @client.deliver(frame, msg)
+      end
+
+      def increment_deliver_count(redelivered : Bool)
         if redelivered
           @redeliver_count.add(1)
           @client.vhost.event_tick(EventType::ClientRedeliver)
