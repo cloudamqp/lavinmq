@@ -6,36 +6,33 @@ module LavinMQ
   module AMQP
     class ConsistentHashExchange < Exchange
       @hasher = ConsistentHasher(AMQP::Destination).new
-      @bindings = Hash(Destination, String).new
+      @bindings = Set({Destination, BindingKey}).new
 
       def type : String
         "x-consistent-hash"
       end
 
       def bindings_details : Iterator(BindingDetails)
-        @bindings.each.map do |d, w|
-          binding_key = BindingKey.new(w, @arguments)
-          BindingDetails.new(name, vhost.name, binding_key, d)
+        @bindings.each.map do |destination, binding_key|
+          BindingDetails.new(name, vhost.name, binding_key, destination)
         end
       end
 
-      def bind(destination : Destination, routing_key : String, headers : AMQP::Table?)
+      def bind(destination : Destination, routing_key : String, arguments : AMQP::Table?)
         w = weight(routing_key)
-        return false if @bindings.has_key? destination
-        @bindings[destination] = routing_key
+        binding_key = BindingKey.new(routing_key, arguments)
+        return false unless @bindings.add?({destination, binding_key})
         @hasher.add(destination.name, w, destination)
-        binding_key = BindingKey.new(routing_key, @arguments)
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
         notify_observers(ExchangeEvent::Bind, data)
         true
       end
 
-      def unbind(destination : Destination, routing_key : String, headers : AMQP::Table?)
+      def unbind(destination : Destination, routing_key : String, arguments : AMQP::Table?)
         w = weight(routing_key)
-        return false unless @bindings.delete destination
+        binding_key = BindingKey.new(routing_key, arguments)
+        return false unless @bindings.delete({destination, binding_key})
         @hasher.remove(destination.name, w)
-
-        binding_key = BindingKey.new(routing_key, @arguments)
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
         notify_observers(ExchangeEvent::Unbind, data)
 

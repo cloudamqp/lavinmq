@@ -88,7 +88,8 @@ class MFile < IO
     ptr = LibC.mmap(nil, length, protection, flags, @fd, 0)
     raise RuntimeError.from_errno("mmap") if ptr == LibC::MAP_FAILED
     addr = ptr.as(UInt8*)
-    advise(MFile::Advice::Sequential, addr, 0, length) unless @writeonly
+    advise(Advice::DontDump, addr, 0, length)
+    advise(Advice::Sequential, addr, 0, length) unless @writeonly
     addr
   end
 
@@ -262,12 +263,17 @@ class MFile < IO
     end
   end
 
-  enum Advice
-    Normal
-    Random
-    Sequential
-    WillNeed
-    DontNeed
+  enum Advice : LibC::Int
+    Normal     = 0
+    Random     = 1
+    Sequential = 2
+    WillNeed   = 3
+    DontNeed   = 4
+    {% if flag?(:linux) %}
+      DontDump = 16
+    {% else %}
+      DontDump = 8 # is called NoCore in BSD/Darwin
+    {% end %}
   end
 
   def resize(new_size : Int) : Nil

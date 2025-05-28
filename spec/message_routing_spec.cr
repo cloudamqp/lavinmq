@@ -197,49 +197,95 @@ module MessageRoutingSpec
         "user"    => "test",
       })
 
+      describe "bind" do
+        it "shouldn't care about argument order" do
+          q = LavinMQ::AMQP::Queue.new(vhost, "q")
+          args1 = {"foo": "bar", "f00": "baz"}
+          args2 = {"f00": "baz", "foo": "bar"}
+          x.bind(q, "", LavinMQ::AMQP::Table.new args1)
+          x.bind(q, "", LavinMQ::AMQP::Table.new args2).should be_false
+        end
+
+        it "shouldn't care about argument order with many bindings" do
+          q = LavinMQ::AMQP::Queue.new(vhost, "q")
+          args1 = {"foo": "bar", "f00": "baz"}
+          args2 = {"f00": "baz", "foo": "bar"}
+          x.bind(q, "", LavinMQ::AMQP::Table.new args1)
+          10.times do |i|
+            x.bind(q, "", LavinMQ::AMQP::Table.new args1.merge({"x": i.to_s}))
+          end
+          x.bind(q, "", LavinMQ::AMQP::Table.new args2).should be_false
+        end
+      end
+
+      describe "unbind" do
+        it "shouldn't care about argument order" do
+          q = LavinMQ::AMQP::Queue.new(vhost, "q")
+          args1 = {"foo": "bar", "f00": "baz"}
+          args2 = {"f00": "baz", "foo": "bar"}
+          x.bind(q, "", LavinMQ::AMQP::Table.new args1)
+          x.unbind(q, "", LavinMQ::AMQP::Table.new args2).should be_true
+        end
+
+        it "shouldn't care about argument order with many bindings" do
+          q = LavinMQ::AMQP::Queue.new(vhost, "q")
+          args1 = {"foo": "bar", "f00": "baz"}
+          args2 = {"f00": "baz", "foo": "bar"}
+          x.bind(q, "", LavinMQ::AMQP::Table.new args1)
+          10.times do |i|
+            x.bind(q, "", LavinMQ::AMQP::Table.new args1.merge({"x": i.to_s}))
+          end
+          x.unbind(q, "", LavinMQ::AMQP::Table.new args2).should be_true
+        end
+      end
+
       describe "match all" do
         it "should match if same args" do
-          x = LavinMQ::AMQP::HeadersExchange.new(vhost, "h", false, false, true)
           q6 = LavinMQ::AMQP::Queue.new(vhost, "q6")
           x.bind(q6, "", hdrs_all)
           matches(x, "", hdrs_all).should eq(Set{q6})
         end
 
         it "should not match if not all args are the same" do
-          x = LavinMQ::AMQP::HeadersExchange.new(vhost, "h", false, false, true)
           q7 = LavinMQ::AMQP::Queue.new(vhost, "q7")
           x.bind(q7, "", hdrs_all)
-          msg_hdrs = hdrs_all.dup
+          msg_hdrs = hdrs_all.clone
           msg_hdrs.delete "x-match"
           msg_hdrs["org"] = "google"
-          matches(x, "", msg_hdrs).size.should eq 0
+          matches(x, "", msg_hdrs).should be_empty
+        end
+
+        it "should not match if args are missing" do
+          q = LavinMQ::AMQP::Queue.new(vhost, "q")
+          bind_hdrs = hdrs_all.clone.merge!({
+            "missing": "header",
+          })
+          x.bind(q, "", bind_hdrs)
+          matches(x, "", hdrs_all).should be_empty
         end
       end
 
       describe "match any" do
         it "should match if any args are the same" do
-          x = LavinMQ::AMQP::HeadersExchange.new(vhost, "h", false, false, true)
           q8 = LavinMQ::AMQP::Queue.new(vhost, "q8")
           x.bind(q8, "", hdrs_any)
-          msg_hdrs = hdrs_any.dup
+          msg_hdrs = hdrs_any.clone
           msg_hdrs.delete "x-match"
           msg_hdrs["org"] = "google"
           matches(x, "", msg_hdrs).should eq(Set{q8})
         end
 
         it "should not match if no args are the same" do
-          x = LavinMQ::AMQP::HeadersExchange.new(vhost, "h", false, false, true)
           q9 = LavinMQ::AMQP::Queue.new(vhost, "q9")
           x.bind(q9, "", hdrs_any)
-          msg_hdrs = hdrs_any.dup
+          msg_hdrs = hdrs_any.clone
           msg_hdrs.delete "x-match"
           msg_hdrs["org"] = "google"
           msg_hdrs["user"] = "hest"
-          matches(x, "", msg_hdrs).size.should eq 0
+          matches(x, "", msg_hdrs).should be_empty
         end
 
         it "should match nestled amq-protocol tables" do
-          x = LavinMQ::AMQP::HeadersExchange.new(vhost, "h", false, false, true)
           q10 = LavinMQ::AMQP::Queue.new(vhost, "q10")
           bind_hdrs = LavinMQ::AMQP::Table.new({
             "x-match" => "any",
@@ -254,7 +300,6 @@ module MessageRoutingSpec
 
       it "should handle multiple bindings" do
         q10 = LavinMQ::AMQP::Queue.new(vhost, "q10")
-        x = LavinMQ::AMQP::HeadersExchange.new(vhost, "h", false, false, true)
         hdrs1 = LavinMQ::AMQP::Table.new({"x-match" => "any", "org" => "84codes", "user" => "test"})
         hdrs2 = LavinMQ::AMQP::Table.new({"x-match" => "all", "org" => "google", "user" => "test"})
 
@@ -268,7 +313,6 @@ module MessageRoutingSpec
 
       it "should handle all Field types" do
         q11 = LavinMQ::AMQP::Queue.new(vhost, "q11")
-        x = LavinMQ::AMQP::HeadersExchange.new(vhost, "h", false, false, true)
         hsh = {"k" => "v"} of String => LavinMQ::AMQP::Field
         arrf = [1] of LavinMQ::AMQP::Field
         arru = [1_u8] of LavinMQ::AMQP::Field
@@ -285,7 +329,6 @@ module MessageRoutingSpec
 
       it "should handle unbind" do
         q12 = LavinMQ::AMQP::Queue.new(vhost, "q12")
-        x = LavinMQ::AMQP::HeadersExchange.new(vhost, "h", false, false, true)
         hdrs1 = LavinMQ::AMQP::Table.new({
           "x-match" => "any", "org" => "84codes", "user" => "test",
         })
@@ -294,12 +337,11 @@ module MessageRoutingSpec
         })
         x.bind(q12, "", hdrs1)
         x.unbind(q12, "", hdrs2)
-        matches(x, "", hdrs1).size.should eq 0
+        matches(x, "", hdrs1).should be_empty
       end
 
       describe "match empty" do
         it "should match if both args and headers are empty" do
-          x = LavinMQ::AMQP::HeadersExchange.new(vhost, "h", false, false, true)
           q13 = LavinMQ::AMQP::Queue.new(vhost, "q13")
           x.bind(q13, "", nil)
           matches(x, "", nil).size.should eq 1
