@@ -322,8 +322,10 @@ module LavinMQPerf
     # Announce that the client is connected
     # and then wait for all other clients to be connected too
     private def wait_until_all_are_connected(connected)
-      connected.done rescue nil
+      connected.done
       connected.wait
+    rescue
+      # when we reconnect a broker the waitgroup will have a negative counter
     end
   end
 end
