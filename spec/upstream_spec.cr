@@ -777,7 +777,11 @@ describe LavinMQ::Federation::Upstream do
         end
       end
 
-      it "respects lower maxhops" do
+      it "binding forwarding respects lower maxhops on exchange" do
+        # This spec verifies that even though "hops" in x-bound-from allows the
+        # binding to be propagated to the next vhost, the max_hops of the current
+        # exchange is lower and takes precedence preventing the binding from
+        # traveling further.
         with_http_server do |_http, s|
           _, upstreams = UpstreamSpecHelpers.create_fe_chain(s, chain_length: 10)
 
@@ -810,6 +814,51 @@ describe LavinMQ::Federation::Upstream do
             x_bound_from = args["x-bound-from"].should be_a(Array(AMQ::Protocol::Field))
             # in v4 there should be 6 entries
             # in v5 there should be 5 entries etc
+            x_bound_from.size.should eq(9 - i + 1), "Expected #{6 - i + 1} entries in v#{i} but got #{x_bound_from.size}"
+            first_bound_from = x_bound_from.first.should be_a(AMQ::Protocol::Table)
+            # The first (last appended) x-bound-from should be the previous vhost (v2 is prev to v1 etc)
+            first_bound_from["vhost"].should eq "v#{i + 1}"
+            # The first (last appended) x-bound-from should always be the downstream (v10)
+            last_bound_from = x_bound_from.last.should be_a(AMQ::Protocol::Table)
+            last_bound_from["vhost"].should eq "v10"
+          end
+        end
+      end
+
+      it "binding forwarding respects lower maxhops in binding argument" do
+        # This spec verifies that even though max_hops of the current exchange allows the
+        # binding to be propagated to the next vhost, the current "hops" value in x-bound-from
+        # is lower and takes precedence preventing the binding from traveling further.
+        with_http_server do |_http, s|
+          _, upstreams = UpstreamSpecHelpers.create_fe_chain(s, chain_length: 10)
+
+          # By setting max_hops to 1 on v10, bindings should reach v7 but no further
+          us = upstreams.find { |u| u.vhost.name == "v10" }.should_not be_nil
+          us.max_hops = 3
+
+          downstream_vhost = s.vhosts["v10"]
+          downstream_ex = downstream_vhost.exchanges["fe"]
+          downstream_vhost.declare_queue("q", durable: true, auto_delete: false)
+          q = downstream_vhost.queues["q"]
+          # This binding should only be propagated to "fe" in "v4", because
+          # max_hops on v5 is 1.
+          downstream_ex.bind(q, "spec.routing.key")
+
+          # Verify bindings on exchange "fe" from vhost v1 to
+          # vhost v6.
+          1.to(6) do |i|
+            fe = s.vhosts["v#{i}"].exchanges["fe"]
+            fe.bindings_details.size.should eq 0
+          end
+
+          # Verify bindings on exchange "fe" from vhost v7 to
+          # vhost v9.
+          7.to(9) do |i|
+            fe = s.vhosts["v#{i}"].exchanges["fe"]
+            fe.bindings_details.size.should eq(1), "FE in vhost v#{i} should have one binding"
+            fe_bk = fe.bindings_details.first.binding_key
+            args = fe_bk.arguments.should_not be_nil
+            x_bound_from = args["x-bound-from"].should be_a(Array(AMQ::Protocol::Field))
             x_bound_from.size.should eq(9 - i + 1), "Expected #{6 - i + 1} entries in v#{i} but got #{x_bound_from.size}"
             first_bound_from = x_bound_from.first.should be_a(AMQ::Protocol::Table)
             # The first (last appended) x-bound-from should be the previous vhost (v2 is prev to v1 etc)
