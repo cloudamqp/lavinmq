@@ -411,6 +411,11 @@ module LavinMQ
           end
         end
 
+        # This methods returns a tuple where the first element is a boolean
+        # indicating whether the arguments were updated, and the second
+        # element is the updated arguments.
+        # If the arguments were not updated, it means that max hops has been reached
+        # and the binding should not be created.
         private def update_bound_from?(arguments : ::AMQP::Client::Arguments)
           bound_from = arguments["x-bound-from"]?.try(&.as?(Array(AMQP::Field)))
           bound_from ||= Array(AMQP::Field).new
@@ -425,6 +430,9 @@ module LavinMQ
           {true, arguments}
         end
 
+        # Calculate the number of hops for the binding. It will use the lowest value
+        # from the previous hops in the binding or the max hops configured on the current
+        # exchange.
         private def get_binding_hops(x_bound_from)
           if prev = x_bound_from.first?.try(&.as?(AMQP::Table))
             if hops = prev["hops"]?.try(&.as?(Int64))
