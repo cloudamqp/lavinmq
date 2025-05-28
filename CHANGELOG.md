@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Changed
+- queue metrics `ready`, `ready_bytes`, `unacked`, `unacked_bytes` are depricated in favour of
+`messages_ready`, `message_bytes_ready`, `messages_unacknowledged`, `message_bytes_unacknowledged`
+and will be removed with the next minor version. [#1121](https://github.com/cloudamqp/lavinmq/pull/1121)
+
 ## [2.4.0-rc.1] - 2025-05-20
 
 ### Added

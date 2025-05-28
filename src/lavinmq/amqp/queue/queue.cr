@@ -418,15 +418,15 @@ module LavinMQ::AMQP
         messages:                    @msg_store.size + unacked_count,
         total_bytes:                 @msg_store.bytesize + unacked_bytesize,
         messages_persistent:         durable? ? @msg_store.size + unacked_count : 0,
-        ready:                       @msg_store.size,
-        messages_ready:              @msg_store.size, # duplicate for rmq compatilibitly
-        ready_bytes:                 @msg_store.bytesize,
-        message_bytes_ready:         @msg_store.bytesize, # duplicate for rmq compatilibitly
+        ready:                       @msg_store.size, # Deprecated, to be removed in next minor version
+        messages_ready:              @msg_store.size,
+        ready_bytes:                 @msg_store.bytesize, # Deprecated, to be removed in next minor version
+        message_bytes_ready:         @msg_store.bytesize,
         ready_avg_bytes:             @msg_store.avg_bytesize,
-        unacked:                     unacked_count,
-        messages_unacknowledged:     unacked_count, # duplicate for rmq compatilibitly
-        unacked_bytes:               unacked_bytesize,
-        message_bytes_unacknowledged: unacked_bytesize,  # duplicate for rmq compatilibitly
+        unacked:                     unacked_count, # Deprecated, to be removed in next minor version
+        messages_unacknowledged:     unacked_count,
+        unacked_bytes:               unacked_bytesize, # Deprecated, to be removed in next minor version
+        message_bytes_unacknowledged: unacked_bytesize,
         unacked_avg_bytes:           unacked_avg_bytes,
         operator_policy:             @operator_policy.try &.name,
         policy:                      @policy.try &.name,
