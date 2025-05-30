@@ -22,7 +22,7 @@ module LavinMQ
     include Stats
 
     rate_stats({"channel_closed", "channel_created", "connection_closed", "connection_created",
-                "queue_declared", "queue_deleted", "ack", "deliver", "deliver_get", "get", "publish", "confirm",
+                "queue_declared", "queue_deleted", "ack", "deliver", "deliver_get", "get", "get_no_ack", "publish", "confirm",
                 "redeliver", "reject", "consumer_added", "consumer_removed"})
 
     getter name, exchanges, queues, data_dir, operator_policies, policies, parameters, shovels,
@@ -673,6 +673,9 @@ module LavinMQ
       in EventType::ConsumerRemoved      then @consumer_removed_count.add(1)
       in EventType::ClientGet
         @get_count.add(1)
+        @deliver_get_count.add(1)
+      in EventType::ClientGetNoAck
+        @get_no_ack_count.add(1)
         @deliver_get_count.add(1)
       in EventType::ClientDeliver
         @deliver_count.add(1)
