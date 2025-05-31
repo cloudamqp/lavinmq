@@ -120,11 +120,11 @@ class MFile < IO
   end
 
   def flush
-    msync(buffer, @size, LibC::MS_ASYNC)
+    msync(@buffer, @size, LibC::MS_ASYNC)
   end
 
   def msync
-    msync(buffer, @size, LibC::MS_SYNC)
+    msync(@buffer, @size, LibC::MS_SYNC)
   end
 
   private def munmap(addr = @buffer, length = @capacity)
