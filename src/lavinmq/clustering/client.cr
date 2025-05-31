@@ -214,9 +214,11 @@ module LavinMQ
       end
 
       private def file_from_socket(filename, lz4)
+        Log.debug { "Waiting for #{filename}" }
         path = File.join(@data_dir, filename)
         Dir.mkdir_p File.dirname(path)
         length = lz4.read_bytes Int64, IO::ByteFormat::LittleEndian
+        Log.debug { "Receiving #{filename}, #{length.humanize_bytes}" }
         File.open(path, "w") do |f|
           buffer = uninitialized UInt8[65536]
           remaining = length
@@ -277,10 +279,14 @@ module LavinMQ
 
       private def replace(filename, len, lz4)
         Log.debug { "Replacing file #{filename} (#{len} bytes)" }
-        f = @files["#{filename}.tmp"]
-        IO.copy(lz4, f, len) == len || raise IO::EOFError.new("Full file not received")
-        f.rename f.path[0..-5]
-        @files.delete("#{filename}.tmp").try &.close
+        @files.delete(filename).try &.close
+        path = File.join(@data_dir, "#{filename}.tmp")
+        Dir.mkdir_p File.dirname(path)
+        File.open(path, "w") do |f|
+          f.sync = true
+          IO.copy(lz4, f, len) == len || raise IO::EOFError.new("Full file not received")
+          f.rename f.path[0..-5]
+        end
       end
 
       # Concatenate as many acks as possible to generate few TCP packets
