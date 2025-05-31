@@ -75,11 +75,11 @@ module LavinMQ
         each_follower &.append(path, obj)
       end
 
-      def delete_file(path : String)
+      def delete_file(path : String, wg)
         path = strip_datadir path
         @files.delete(path)
         @checksums.delete(path)
-        each_follower &.delete(path)
+        each_follower &.delete(path, wg)
       end
 
       def files_with_hash(& : Tuple(String, Bytes) -> Nil)
@@ -89,12 +89,8 @@ module LavinMQ
             yield({path, calculated_hash})
           else
             if file = mfile
-              begin
-                file.reserve
-                sha1.update file.to_slice
-              ensure
-                file.unreserve
-              end
+              sha1.update file.to_slice
+              file.dontneed
             else
               filename = File.join(@data_dir, path)
               next unless File.exists? filename
@@ -250,7 +246,7 @@ module LavinMQ
       def append(path : String, obj)
       end
 
-      def delete_file(path : String)
+      def delete_file(path : String, wg : WaitGroup)
       end
 
       def followers : Array(Follower)
