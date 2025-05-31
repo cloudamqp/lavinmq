@@ -144,7 +144,8 @@ module LavinMQ
           when MFile
             size = f.size.to_i64
             @lz4.write_bytes size, IO::ByteFormat::LittleEndian
-            f.copy_to(@lz4, size)
+            @lz4.write f.to_slice
+            f.dontneed
             size
           when File
             size = f.size.to_i64
@@ -167,8 +168,8 @@ module LavinMQ
         send_action AppendAction.new(@data_dir, path, obj)
       end
 
-      def delete(path) : Int64
-        send_action DeleteAction.new(@data_dir, path)
+      def delete(path, wg) : Int64
+        send_action DeleteAction.new(@data_dir, path, wg)
       end
 
       private def send_action(action : Action) : Int64

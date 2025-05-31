@@ -174,12 +174,10 @@ module LavinMQ
             @log.debug { "Deleting segment #{sp.segment}" }
             select_next_read_segment if sp.segment == @rfile_id
             if a = @acks.delete(sp.segment)
-              a.delete(raise_on_missing: false).close
-              @replicator.try &.delete_file(a.path)
+              delete_file(a)
             end
             if seg = @segments.delete(sp.segment)
-              seg.delete(raise_on_missing: false).close
-              @replicator.try &.delete_file(seg.path)
+              delete_file(seg)
             end
             @segment_msg_count.delete(sp.segment)
             @deleted.delete(sp.segment)
@@ -203,9 +201,9 @@ module LavinMQ
       end
 
       def purge_all
-        @segments.each_value { |f| delete_file(f); f.close }
+        @segments.each_value { |f| delete_file(f) }
         @segments = Hash(UInt32, MFile).new
-        @acks.each_value { |f| delete_file(f); f.close }
+        @acks.each_value { |f| delete_file(f) }
         @acks = Hash(UInt32, MFile).new { |acks, seg| acks[seg] = open_ack_file(seg) }
         @deleted = Hash(UInt32, Array(UInt32)).new
         @segment_msg_count = Hash(UInt32, UInt32).new(0u32)
@@ -221,16 +219,25 @@ module LavinMQ
       end
 
       def delete
-        close
-        @segments.each_value { |f| delete_file(f) }
-        @acks.each_value { |f| delete_file(f) }
+        @closed = true
+        @empty.close
+        @segments.reject! { |_, f| delete_file(f); true }
+        @acks.reject! { |_, f| delete_file(f); true }
         FileUtils.rm_rf @msg_dir
       end
 
-      def delete_file(file)
-        @replicator.try &.delete_file(file.path)
+      def delete_file(file : MFile)
         file.delete(raise_on_missing: false)
-        Fiber.yield
+        if replicator = @replicator
+          wg = WaitGroup.new
+          replicator.delete_file(file.path, wg)
+          spawn(name: "wait for file deletion is replicated") do
+            wg.wait
+            file.close
+          end
+        else
+          file.close
+        end
       end
 
       def empty?
@@ -238,10 +245,23 @@ module LavinMQ
       end
 
       def close : Nil
+        return if @closed
         @closed = true
         @empty.close
-        @segments.each_value &.close
-        @acks.each_value &.close
+        # To make sure that all replication actions for the segments
+        # have finished wait for a delete action of a nonexistent file
+        if replicator = @replicator
+          wg = WaitGroup.new
+          replicator.delete_file(File.join(@msg_dir, "nonexistent"), wg)
+          spawn(name: "wait for file deletion is replicated") do
+            wg.wait
+            @segments.each_value &.close
+            @acks.each_value &.close
+          end
+        else
+          @segments.each_value &.close
+          @acks.each_value &.close
+        end
       end
 
       def avg_bytesize : UInt32
@@ -249,19 +269,22 @@ module LavinMQ
         (@bytesize / @size).to_u32
       end
 
+      # Used by StreamQueue
       def unmap_segments(except : Enumerable(UInt32) = StaticArray(UInt32, 0).new(0u32))
         @segments.each do |seg_id, mfile|
           next if mfile == @wfile
           next if except.includes? seg_id
-          mfile.unmap
+          mfile.dontneed
         end
       end
 
       private def select_next_read_segment : MFile?
         # Expect @segments to be ordered
         if id = @segments.each_key.find { |sid| sid > @rfile_id }
+          rfile = @segments[id]
+          rfile.advise(MFile::Advice::Sequential)
           @rfile_id = id
-          @rfile = @segments[id]
+          @rfile = rfile
         end
       end
 
@@ -279,7 +302,7 @@ module LavinMQ
       end
 
       private def open_new_segment(next_msg_size = 0) : MFile
-        @wfile.unmap unless @wfile == @rfile
+        @wfile.dontneed unless @wfile == @rfile
         next_id = @wfile_id + 1
         path = File.join(@msg_dir, "msgs.#{next_id.to_s.rjust(10, '0')}")
         capacity = Math.max(Config.instance.segment_size, next_msg_size + 4)
@@ -368,8 +391,7 @@ module LavinMQ
             rescue IO::EOFError
               # delete empty file, it will be recreated if it's needed
               @log.warn { "Empty file at #{path}, deleting it" }
-              file.delete(raise_on_missing: false).close
-              @replicator.try &.delete_file(path)
+              delete_file(file)
               if idx == 0 # Recreate the file if it's the first segment because we need at least one segment to exist
                 file = MFile.new(path, Config.instance.segment_size)
                 file.write_bytes Schema::VERSION
@@ -416,7 +438,7 @@ module LavinMQ
             close
           end
           mfile.pos = 4
-          mfile.unmap # will be mmap on demand
+          mfile.dontneed
           if is_long_queue
             @log.info { "Loaded #{counter}/#{@segments.size} segments, #{@size} messages" } if (counter &+= 1) % 128 == 0
           else
@@ -438,11 +460,9 @@ module LavinMQ
             @segment_msg_count.delete seg
             @deleted.delete seg
             if ack = @acks.delete(seg)
-              ack.delete(raise_on_missing: false).close
-              @replicator.try &.delete_file(ack.path)
+              delete_file(ack)
             end
-            mfile.delete(raise_on_missing: false).close
-            @replicator.try &.delete_file(mfile.path)
+            delete_file(mfile)
           end
           Fiber.yield
         end

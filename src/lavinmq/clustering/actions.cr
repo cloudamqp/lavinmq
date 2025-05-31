@@ -26,7 +26,6 @@ module LavinMQ
 
     struct ReplaceAction < Action
       def initialize(@data_dir : String, @filename : String, @mfile : MFile? = nil)
-        @mfile.try &.reserve
       end
 
       def lag_size : Int64
@@ -45,7 +44,8 @@ module LavinMQ
         if mfile = @mfile
           size = mfile.size.to_i64
           socket.write_bytes size, IO::ByteFormat::LittleEndian
-          mfile.copy_to(socket, size)
+          socket.write mfile.to_slice(0, size)
+          mfile.dontneed
           size
         else
           File.open(File.join(@data_dir, @filename)) do |f|
@@ -55,22 +55,14 @@ module LavinMQ
             size
           end
         end
-      ensure
-        done
       end
 
       def done
-        if mfile = @mfile
-          mfile.unreserve
-        end
       end
     end
 
     struct AppendAction < Action
-      def initialize(@data_dir : String, @filename : String, @obj : Bytes | FileRange | UInt32 | Int32)
-        if range = @obj.as?(FileRange)
-          range.mfile.reserve
-        end
+      def initialize(@data_dir : String, @filename : String, @obj : Bytes | UInt32 | Int32)
       end
 
       def lag_size : Int64
@@ -105,18 +97,17 @@ module LavinMQ
         end
         log.debug { "Append #{len} bytes to #{@filename}" }
         len
-      ensure
-        done
       end
 
       def done
-        if fr = @obj.as?(FileRange)
-          fr.mfile.unreserve
-        end
       end
     end
 
     struct DeleteAction < Action
+      def initialize(@data_dir : String, @filename : String, @wg : WaitGroup)
+        @wg.add
+      end
+
       def lag_size : Int64
         # Maybe it would be ok to not include delete action in lag, because
         # the follower should have all info necessary to GC the file during
@@ -129,9 +120,12 @@ module LavinMQ
         send_filename(socket)
         socket.write_bytes 0i64
         0i64
+      ensure
+        done
       end
 
       def done
+        @wg.done
       end
     end
   end

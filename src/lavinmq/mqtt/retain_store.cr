@@ -118,7 +118,7 @@ module LavinMQ
             file.close
             file.delete
           end
-          @replicator.delete_file(File.join(@dir, file_name))
+          @replicator.delete_file(File.join(@dir, file_name), WaitGroup.new)
         end
       end
 
