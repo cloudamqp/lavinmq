@@ -163,38 +163,5 @@ describe LavinMQ::Clustering::Action do
         end
       end
     end
-
-    describe "with FileRange" do
-      describe "#send" do
-        it "writes filename and data to IO" do
-          with_datadir do |data_dir|
-            filename = "file1"
-            absolute = File.join data_dir, filename
-            File.write absolute, "baz foo bar"
-            range = LavinMQ::Clustering::FileRange.new(MFile.new(absolute), 4, 3)
-            action = LavinMQ::Clustering::AppendAction.new data_dir, filename, range
-
-            io = IO::Memory.new
-            action.send io
-            io.rewind
-
-            read_and_verify_filename(io, filename)
-            read_and_verify_data(io, "foo".to_slice)
-          end
-        end
-      end
-      describe "#lag_size" do
-        it "should count filename and size of FileRange" do
-          with_datadir do |data_dir|
-            filename = "file1"
-            absolute = File.join data_dir, filename
-            File.write absolute, "foo bar baz"
-            range = LavinMQ::Clustering::FileRange.new(MFile.new(absolute), 4, 3)
-            action = LavinMQ::Clustering::AppendAction.new data_dir, filename, range
-            action.lag_size.should eq(sizeof(Int32) + filename.bytesize + sizeof(Int64) + range.len)
-          end
-        end
-      end
-    end
   end
 end

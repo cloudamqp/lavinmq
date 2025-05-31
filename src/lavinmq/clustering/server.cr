@@ -65,10 +65,6 @@ module LavinMQ
         each_follower &.replace(path)
       end
 
-      def append(path : String, file : MFile, position : Int32, length : Int32)
-        append path, FileRange.new(file, position, length)
-      end
-
       def append(path : String, obj)
         path = strip_datadir path
         @checksums.delete(path)
@@ -238,9 +234,6 @@ module LavinMQ
       end
 
       def replace_file(path : String) # only non mfiles are ever replaced
-      end
-
-      def append(path : String, file : MFile, position : Int32, length : Int32)
       end
 
       def append(path : String, obj)

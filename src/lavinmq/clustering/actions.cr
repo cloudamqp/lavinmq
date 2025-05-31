@@ -2,12 +2,6 @@ require "../mfile"
 
 module LavinMQ
   module Clustering
-    record FileRange, mfile : MFile, pos : Int32, len : Int32 do
-      def to_slice : Bytes
-        mfile.to_slice(pos, len)
-      end
-    end
-
     abstract struct Action
       def initialize(@data_dir : String, @filename : String)
       end
@@ -69,8 +63,6 @@ module LavinMQ
         datasize = case obj = @obj
                    in Bytes
                      obj.bytesize.to_i64
-                   in FileRange
-                     obj.len.to_i64
                    in UInt32, Int32
                      4i64
                    end
@@ -86,10 +78,6 @@ module LavinMQ
           len = obj.bytesize.to_i64
           socket.write_bytes -len.to_i64, IO::ByteFormat::LittleEndian
           socket.write obj
-        in FileRange
-          len = obj.len.to_i64
-          socket.write_bytes -len.to_i64, IO::ByteFormat::LittleEndian
-          socket.write obj.to_slice
         in UInt32, Int32
           len = 4i64
           socket.write_bytes -len.to_i64, IO::ByteFormat::LittleEndian
