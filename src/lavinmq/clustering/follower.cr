@@ -19,6 +19,7 @@ module LavinMQ
       def initialize(@socket : TCPSocket, @data_dir : String, @file_index : FileIndex)
         @socket.sync = true # Use buffering in lz4
         @socket.read_buffering = true
+        @socket.write_timeout = 3.seconds # don't wait for blocked followers
         @remote_address = @socket.remote_address
         @lz4 = Compress::LZ4::Writer.new(@socket, Compress::LZ4::CompressOptions.new(auto_flush: false, block_mode_linked: true))
       end
