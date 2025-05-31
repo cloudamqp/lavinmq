@@ -8,13 +8,12 @@ describe LavinMQ::AMQP::Queue do
         q = ch.queue("qexpires", args: AMQP::Client::Arguments.new({"x-expires" => 100}))
         queue = s.vhosts["/"].queues["qexpires"]
         tag = q.subscribe { }
-        sleep 100.milliseconds
+        sleep 110.milliseconds
         queue.closed?.should be_false
         ch.basic_cancel(tag)
-        sleep 100.milliseconds
-        queue.closed?.should be_false
-        sleep 100.milliseconds
-        queue.closed?.should be_true
+        start = Time.monotonic
+        should_eventually(be_true) { queue.closed? }
+        (Time.monotonic - start).total_milliseconds.should be_close 100, 50
       end
     end
   end
