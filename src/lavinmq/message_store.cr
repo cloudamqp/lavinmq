@@ -436,6 +436,7 @@ module LavinMQ
           rescue ex : OverflowError | AMQ::Protocol::Error::FrameDecode
             @log.error { "Could not initialize segment, closing message store: Failed to read segment #{seg} at pos #{mfile.pos}. #{ex}" }
             close
+            return
           end
           mfile.pos = 4
           mfile.dontneed
@@ -463,8 +464,10 @@ module LavinMQ
               delete_file(ack)
             end
             delete_file(mfile)
+            true
+          else
+            false
           end
-          Fiber.yield
         end
       end
 
