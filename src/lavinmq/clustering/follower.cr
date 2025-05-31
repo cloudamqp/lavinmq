@@ -120,7 +120,15 @@ module LavinMQ
           Log.info { "#{filename} requested" }
         end
         Log.info { "#{requested_files.size} files requested" }
-        total_requested_bytes = requested_files.sum { |p| File.size File.join(@data_dir, p) }
+        total_requested_bytes = requested_files.sum(0i64) do |p|
+          @file_index.with_file(p) do |f|
+            case f
+            when MFile then f.size
+            when File  then f.size
+            else            0
+            end
+          end
+        end
         sent_bytes = 0i64
         start = Time.monotonic
         requested_files.each do |filename|
