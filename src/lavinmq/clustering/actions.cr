@@ -24,7 +24,7 @@ module LavinMQ
       end
     end
 
-    struct AddAction < Action
+    struct ReplaceAction < Action
       def initialize(@data_dir : String, @filename : String, @mfile : MFile? = nil)
         @mfile.try &.reserve
       end
@@ -40,7 +40,7 @@ module LavinMQ
       end
 
       def send(socket, log = Log) : Int64
-        log.debug { "Add #{@filename}" }
+        log.debug { "Replace #{@filename}" }
         send_filename(socket)
         if mfile = @mfile
           size = mfile.size.to_i64

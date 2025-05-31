@@ -29,14 +29,14 @@ def read_and_verify_data(io, expected_data)
 end
 
 describe LavinMQ::Clustering::Action do
-  describe "AddAction" do
+  describe "ReplaceAction" do
     describe "without @mfile" do
       describe "#send" do
         it "writes filename and data to IO" do
           with_datadir do |data_dir|
             filename = "file1"
             File.write File.join(data_dir, filename), "foo"
-            action = LavinMQ::Clustering::AddAction.new data_dir, filename
+            action = LavinMQ::Clustering::ReplaceAction.new data_dir, filename
             io = IO::Memory.new
             action.send io
             io.rewind
@@ -52,7 +52,7 @@ describe LavinMQ::Clustering::Action do
           with_datadir do |data_dir|
             filename = "file1"
             File.write File.join(data_dir, filename), "foo"
-            action = LavinMQ::Clustering::AddAction.new data_dir, filename
+            action = LavinMQ::Clustering::ReplaceAction.new data_dir, filename
             action.lag_size.should eq(sizeof(Int32) + filename.bytesize + sizeof(Int64) + "foo".bytesize)
           end
         end
@@ -66,7 +66,7 @@ describe LavinMQ::Clustering::Action do
             filename = "file1"
             absolute = File.join data_dir, filename
             File.write absolute, "foo"
-            action = LavinMQ::Clustering::AddAction.new data_dir, filename, MFile.new(absolute)
+            action = LavinMQ::Clustering::ReplaceAction.new data_dir, filename, MFile.new(absolute)
             io = IO::Memory.new
             action.send io
             io.rewind
@@ -81,7 +81,7 @@ describe LavinMQ::Clustering::Action do
           with_datadir do |data_dir|
             filename = "file1"
             File.write File.join(data_dir, filename), "foo"
-            action = LavinMQ::Clustering::AddAction.new data_dir, filename
+            action = LavinMQ::Clustering::ReplaceAction.new data_dir, filename
             action.lag_size.should eq(sizeof(Int32) + filename.bytesize + sizeof(Int64) + "foo".bytesize)
           end
         end

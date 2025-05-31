@@ -159,8 +159,8 @@ module LavinMQ
         end
       end
 
-      def add(path, mfile : MFile? = nil) : Int64
-        send_action AddAction.new(@data_dir, path, mfile)
+      def replace(path) : Int64
+        send_action ReplaceAction.new(@data_dir, path)
       end
 
       def append(path, obj) : Int64

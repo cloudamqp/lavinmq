@@ -62,7 +62,7 @@ module LavinMQ
         path = strip_datadir path
         @files[path] = nil
         @checksums.delete(path)
-        each_follower &.add(path)
+        each_follower &.replace(path)
       end
 
       def append(path : String, file : MFile, position : Int32, length : Int32)
