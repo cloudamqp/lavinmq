@@ -28,7 +28,6 @@ module LavinMQ
       include Replicator
       Log = LavinMQ::Log.for "clustering.server"
 
-      @lock = Mutex.new(:unchecked)
       @followers : Sync::Shared(Array(Follower)) = Sync::Shared.new(Array(Follower).new(4))
       @password : String
       @files = Hash(String, MFile?).new
@@ -170,7 +169,7 @@ module LavinMQ
           follower.action_loop
         ensure
           @followers.write &.delete(follower)
-          @dirty_isr.set true
+          @dirty_isr.set true, :acquire
         end
       rescue ex : AuthenticationError
         Log.warn { "Follower negotiation error" }
@@ -192,7 +191,7 @@ module LavinMQ
         end
         Log.info { "In-sync replicas: #{ids}" }
         @etcd.put(isr_key, ids)
-        @dirty_isr.set false
+        @dirty_isr.set false, :release
       end
 
       def close
@@ -206,7 +205,7 @@ module LavinMQ
         # remove stale follower from ISR set as new changes are coming
         any_closed = false
         @followers.read do |followers|
-          update_isr(followers) if @dirty_isr.get
+          update_isr(followers) if @dirty_isr.get(:acquire)
           followers.each do |f|
             yield f
           rescue Channel::ClosedError
