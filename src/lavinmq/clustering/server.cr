@@ -164,15 +164,13 @@ module LavinMQ
         @followers.write do |followers|
           follower.full_sync # sync the last
           followers << follower
+          update_isr(followers)
         end
-        update_isr
         begin
           follower.action_loop
         ensure
-          @followers.write do |followers|
-            followers.delete(follower)
-            @dirty_isr.set true
-          end
+          @followers.write &.delete(follower)
+          @dirty_isr.set true
         end
       rescue ex : AuthenticationError
         Log.warn { "Follower negotiation error" }
@@ -186,10 +184,10 @@ module LavinMQ
         follower.try &.close
       end
 
-      private def update_isr
+      private def update_isr(followers)
         isr_key = "#{@config.clustering_etcd_prefix}/isr"
         ids = String.build do |str|
-          @followers.read &.each { |f| f.id.to_s(str, 36); str << "," }
+          followers.each { |f| f.id.to_s(str, 36); str << "," }
           @id.to_s(str, 36)
         end
         Log.info { "In-sync replicas: #{ids}" }
@@ -206,9 +204,9 @@ module LavinMQ
 
       private def each_follower(& : Follower -> Nil) : Nil
         # remove stale follower from ISR set as new changes are coming
-        update_isr if @dirty_isr.get
         any_closed = false
         @followers.read do |followers|
+          update_isr(followers) if @dirty_isr.get
           followers.each do |f|
             yield f
           rescue Channel::ClosedError
