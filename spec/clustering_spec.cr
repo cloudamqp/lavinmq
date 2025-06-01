@@ -223,7 +223,7 @@ describe LavinMQ::Clustering::Client do
       when appended.receive?
       when timeout 0.1.seconds
         # @action is a Channel. Let's look at its internal deque
-        action_queue = replicator.@followers.first.@actions.@queue.not_nil!("no deque? no follower?")
+        action_queue = replicator.followers.first.@actions.@queue.not_nil!("no deque? no follower?")
         break if action_queue.size == action_queue.@capacity # full?
       end
     end
@@ -234,7 +234,7 @@ describe LavinMQ::Clustering::Client do
     select
     when appended.receive?
     when timeout 0.1.seconds
-      replicator.@followers.first.@actions.close
+      replicator.followers.first.@actions.close
       deadlock = true
     end
 
