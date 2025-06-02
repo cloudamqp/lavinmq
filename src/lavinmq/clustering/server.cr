@@ -28,7 +28,7 @@ module LavinMQ
       include Replicator
       Log = LavinMQ::Log.for "clustering.server"
 
-      @followers : Sync::Shared(Array(Follower)) = Sync::Shared.new(Array(Follower).new(4))
+      @followers : Sync::Shared(Array(Follower)) = Sync::Shared.new(Array(Follower).new(4), :unchecked)
       @password : String
       @files = Hash(String, MFile?).new
       @dirty_isr = Atomic(Bool).new true
