@@ -303,10 +303,13 @@ module LavinMQ
               end
             end
           in .unbind?
-            with_consumer_ex do |ex|
-              b = data_as_binding_details(data)
-              args = b.arguments || ::AMQP::Client::Arguments.new
-              ex.unbind(@upstream_exchange, b.routing_key, args: args)
+            b = data_as_binding_details(data)
+            args = b.arguments.clone || ::AMQP::Client::Arguments.new
+            updated, args = update_bound_from?(args)
+            if updated
+              with_consumer_ex do |ex|
+                ex.unbind(@upstream_exchange, b.routing_key, args: args)
+              end
             end
           end
         rescue e
