@@ -660,11 +660,11 @@ describe LavinMQ::Federation::Upstream do
               }),
             )
             ch_pub.queue("q1").publish_confirm "foo", props: props
-            # Let things happen
-            10.times { Fiber.yield }
           end
         end
 
+        # How to get rid of this wait_for..?
+        wait_for { vhost2.queues["q2"].stats_details[:publish] == 1 }
         # Message is published to q1 and should do ONE jump to q2, not further to q3
         vhost1.queues["q1"].stats_details[:publish].should eq 1
         vhost2.queues["q2"].stats_details[:publish].should eq 1
