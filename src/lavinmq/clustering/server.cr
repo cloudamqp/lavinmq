@@ -35,12 +35,12 @@ module LavinMQ
       @id : Int32
       @config : Config
 
-      def initialize(config : Config, @etcd : Etcd, @id : Int32)
+      def initialize(@config : Config, @etcd : Etcd, @id : Int32)
         Log.info { "ID: #{@id.to_s(36)}" }
-        @config = config
         @data_dir = @config.data_dir
         @password = password
         @checksums = Checksums.new(@data_dir)
+        @isr_key = "#{@config.clustering_etcd_prefix}/isr"
       end
 
       def clear
@@ -164,12 +164,13 @@ module LavinMQ
           follower.full_sync # sync the last
           followers << follower
           update_isr(followers)
+          @dirty_isr.set false, :relaxed
         end
         begin
           follower.action_loop
         ensure
           @followers.write &.delete(follower)
-          @dirty_isr.set true, :acquire
+          @dirty_isr.set true, :relaxed
         end
       rescue ex : AuthenticationError
         Log.warn { "Follower negotiation error" }
@@ -184,14 +185,12 @@ module LavinMQ
       end
 
       private def update_isr(followers)
-        isr_key = "#{@config.clustering_etcd_prefix}/isr"
-        ids = String.build do |str|
+        ids = String.build(7 * (followers.size + 1)) do |str|
           followers.each { |f| f.id.to_s(str, 36); str << "," }
           @id.to_s(str, 36)
         end
         Log.info { "In-sync replicas: #{ids}" }
-        @etcd.put(isr_key, ids)
-        @dirty_isr.set false, :release
+        @etcd.put(@isr_key, ids)
       end
 
       def close
@@ -205,7 +204,7 @@ module LavinMQ
         # remove stale follower from ISR set as new changes are coming
         any_closed = false
         @followers.read do |followers|
-          update_isr(followers) if @dirty_isr.get(:acquire)
+          update_isr(followers) if @dirty_isr.swap(false, :relaxed)
           followers.each do |f|
             yield f
           rescue Channel::ClosedError
