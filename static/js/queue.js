@@ -90,15 +90,15 @@ function updateQueue (all) {
     .then(item => {
       Chart.update(chart, item.message_stats)
       handleQueueState(item.state)
-      document.getElementById('q-unacked').textContent = item.unacked
-      document.getElementById('q-unacked-bytes').textContent = Helpers.nFormatter(item.unacked_bytes) + 'B'
+      document.getElementById('q-messages-unacknowledged').textContent = item.messages_unacknowledged
+      document.getElementById('q-message-bytes-unacknowledged').textContent = Helpers.nFormatter(item.message_bytes_unacknowledged) + 'B'
       document.getElementById('q-unacked-avg-bytes').textContent = Helpers.nFormatter(item.unacked_avg_bytes) + 'B'
       document.getElementById('q-total').textContent = Helpers.formatNumber(item.messages)
       document.getElementById('q-total-bytes').textContent = Helpers.nFormatter(item.total_bytes) + 'B'
-      const totalAvgBytes = item.messages !== 0 ? (item.unacked_bytes + item.ready_bytes) / item.messages : 0
+      const totalAvgBytes = item.messages !== 0 ? (item.message_bytes_unacknowledged + item.message_bytes_ready) / item.messages : 0
       document.getElementById('q-total-avg-bytes').textContent = Helpers.nFormatter(totalAvgBytes) + 'B'
-      document.getElementById('q-ready').textContent = Helpers.formatNumber(item.ready)
-      document.getElementById('q-ready-bytes').textContent = Helpers.nFormatter(item.ready_bytes) + 'B'
+      document.getElementById('q-messages-ready').textContent = Helpers.formatNumber(item.ready)
+      document.getElementById('q-message-bytes-ready').textContent = Helpers.nFormatter(item.ready_bytes) + 'B'
       document.getElementById('q-ready-avg-bytes').textContent = Helpers.nFormatter(item.ready_avg_bytes) + 'B'
       document.getElementById('q-consumers').textContent = Helpers.formatNumber(item.consumers)
       document.getElementById('unacked-link').href = `/unacked#name=${encodeURIComponent(queue)}&vhost=${encodeURIComponent(item.vhost)}`
