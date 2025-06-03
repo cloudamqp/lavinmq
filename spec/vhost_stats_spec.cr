@@ -77,9 +77,9 @@ describe LavinMQ::VHost do
 
           q.get(true)
           s.update_stats_rates
-          vhost.get_no_ack_count.should eq(1)
-          vhost.deliver_get_count.should eq(1)
-          vhost.get_count.should eq(0)
+          vhost.get_no_ack_count.should eq 1
+          vhost.deliver_get_count.should eq 1
+          vhost.get_count.should eq 0
         end
       end
     end
