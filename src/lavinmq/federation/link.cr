@@ -172,13 +172,6 @@ module LavinMQ
           end
         end
 
-        private def should_forward?(headers)
-          return true if headers.nil?
-          x_received_from = headers["x-received-from"]?.try(&.as?(Array(AMQP::Field)))
-          return true unless x_received_from
-          x_received_from.size < @upstream.max_hops
-        end
-
         enum State
           Starting
           Running
@@ -258,11 +251,6 @@ module LavinMQ
             end
             q_name = q[:queue_name]
             upstream_channel.basic_consume(q_name, no_ack: no_ack, tag: @upstream.consumer_tag, block: true) do |msg|
-              unless should_forward?(msg.properties.headers)
-                @log.debug { "Skipping message, max hops reached" }
-                ack(msg.delivery_tag, upstream_channel)
-                next
-              end
               @last_changed = RoughTime.unix_ms
               headers, received_from = received_from_header(msg)
               received_from << ::AMQP::Client::Arguments.new({
@@ -295,6 +283,13 @@ module LavinMQ
 
         def name : String
           @federated_ex.name
+        end
+
+        private def should_forward?(headers)
+          return true if headers.nil?
+          x_received_from = headers["x-received-from"]?.try(&.as?(Array(AMQP::Field)))
+          return true unless x_received_from
+          x_received_from.size < @upstream.max_hops
         end
 
         def on(event : ExchangeEvent, data)
