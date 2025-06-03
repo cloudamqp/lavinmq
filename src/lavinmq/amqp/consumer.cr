@@ -97,6 +97,7 @@ module LavinMQ
         ch = @channel
         return if ch.has_capacity?
         @log.debug { "Waiting for global prefetch capacity" }
+        flush
         select
         when ch.has_capacity.when_true.receive
         when @notify_closed.receive
@@ -112,6 +113,7 @@ module LavinMQ
           @log.debug { "The queue isn't a single active consumer queue" }
         else
           @log.debug { "Waiting for this consumer to become the single active consumer" }
+          flush
           loop do
             select
             when sca = @queue.single_active_consumer_change.receive
@@ -132,6 +134,7 @@ module LavinMQ
         # single active consumer queues can't have priority consumers
         if @queue.has_priority_consumers? && @queue.single_active_consumer.nil?
           @log.debug { "Waiting for higher priority consumers to not have capacity" }
+          flush
           higher_prio_consumers = @queue.consumers.select { |c| c.priority > @priority }
           return false unless higher_prio_consumers.any? &.accepts?
           loop do
@@ -150,6 +153,7 @@ module LavinMQ
       private def wait_for_queue_ready
         if @queue.empty?
           @log.debug { "Waiting for queue not to be empty" }
+          flush
           select
           when @queue.empty.when_false.receive
           when @notify_closed.receive
@@ -161,6 +165,7 @@ module LavinMQ
       private def wait_for_paused_queue
         if @queue.state.paused?
           @log.debug { "Waiting for queue not to be paused" }
+          flush
           select
           when @queue.paused.when_false.receive
             @log.debug { "Queue is not paused" }
@@ -173,6 +178,7 @@ module LavinMQ
       private def wait_for_flow
         unless @flow
           @log.debug { "Waiting for flow" }
+          flush
           @flow_change.when_true.receive
           @log.debug { "Channel flow=true" }
           return true
@@ -184,6 +190,7 @@ module LavinMQ
         if @prefetch_count > 0
           until @unacked.get < @prefetch_count
             @log.debug { "Waiting for prefetch capacity" }
+            flush
             @has_capacity.when_true.receive
           end
         end
@@ -270,6 +277,10 @@ module LavinMQ
             name:            channel_details[:name],
           },
         }
+      end
+
+      def flush
+        @channel.flush
       end
 
       class ClosedError < Error; end
