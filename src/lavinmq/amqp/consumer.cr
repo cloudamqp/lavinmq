@@ -19,7 +19,6 @@ module LavinMQ
       getter? closed = false
       @flow : Bool
       @metadata : ::Log::Metadata
-      @deliver_wg = WaitGroup.new
       @unacked = Atomic(UInt32).new(0_u32)
       getter has_capacity = BoolChannel.new(true)
 
@@ -38,7 +37,6 @@ module LavinMQ
 
       def close
         @closed = true
-        @deliver_wg.wait
         @queue.rm_consumer(self)
         @notify_closed.close
         @has_capacity.close
@@ -206,12 +204,7 @@ module LavinMQ
           delivery_tag,
           redelivered,
           msg.exchange_name, msg.routing_key)
-        begin
-          @deliver_wg.add
-          @channel.deliver(deliver, msg, redelivered)
-        ensure
-          @deliver_wg.done
-        end
+        @channel.deliver(deliver, msg, redelivered)
       end
 
       def ack(sp)
