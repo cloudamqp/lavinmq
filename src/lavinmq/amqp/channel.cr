@@ -326,9 +326,9 @@ module LavinMQ
         end
       end
 
-      def deliver(frame, msg, redelivered = false) : Nil
+      def deliver(frame, msg, redelivered = false, flush = true) : Nil
         raise ClosedError.new("Channel is closed") unless @running
-        @client.deliver(frame, msg)
+        @client.deliver(frame, msg, flush)
       end
 
       def increment_deliver_count(redelivered : Bool, no_ack : Bool = false)
@@ -823,6 +823,10 @@ module LavinMQ
         @tx_acks.clear
         next_msg_body_file.rewind
         send AMQP::Frame::Tx::RollbackOk.new(frame.channel)
+      end
+
+      def flush
+        @client.flush
       end
 
       class ClosedError < Error; end
