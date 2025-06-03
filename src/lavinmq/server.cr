@@ -100,10 +100,11 @@ module LavinMQ
     def listen(s : TCPServer, protocol : Protocol)
       @listeners[s] = protocol
       Log.info { "Listening for #{protocol} on #{s.local_address}" }
+      mt = Fiber::ExecutionContext::MultiThreaded.new("clients", 20)
       loop do
         client = s.accept? || break
         next client.close if @closed
-        accept_tcp(client, protocol)
+        mt.spawn(name: "Accept TCP socket") { accept_tcp(client, protocol) }
       end
     rescue ex : IO::Error
       abort "Unrecoverable error in listener: #{ex.inspect_with_backtrace}"
@@ -112,16 +113,14 @@ module LavinMQ
     end
 
     private def accept_tcp(client, protocol)
-      spawn(name: "Accept TCP socket") do
-        remote_address = client.remote_address
-        set_socket_options(client)
-        set_buffer_size(client)
-        conn_info = extract_conn_info(client)
-        handle_connection(client, conn_info, protocol)
-      rescue ex
-        Log.warn(exception: ex) { "Error accepting connection from #{remote_address}" }
-        client.close rescue nil
-      end
+      remote_address = client.remote_address
+      set_socket_options(client)
+      set_buffer_size(client)
+      conn_info = extract_conn_info(client)
+      handle_connection(client, conn_info, protocol)
+    rescue ex
+      Log.warn(exception: ex) { "Error accepting connection from #{remote_address}" }
+      client.close rescue nil
     end
 
     private def extract_conn_info(client) : ConnectionInfo
