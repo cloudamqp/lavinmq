@@ -71,7 +71,7 @@ describe LavinMQ::VHost do
         with_channel(s) do |c|
           vhost = s.vhosts["/"]
           s.update_stats_rates
-          vhost.get_no_ack_count.should eq(0)
+          vhost.get_no_ack_count.should eq 0
           q = c.queue("q1")
           q.publish "not acked message"
 
