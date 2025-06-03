@@ -73,8 +73,8 @@ describe LavinMQ::HTTP::QueuesController do
         body["message_stats"]["publish_details"]["rate"].nil?.should be_false
         body["message_stats"]["get"].should eq 1
         body["message_stats"]["deliver"].should eq 1
-        body["message_stats"]["deliver_get"].should eq 3
         body["message_stats"]["get_no_ack"].should eq 1
+        body["message_stats"]["deliver_get"].should eq 3
       end
     end
 
