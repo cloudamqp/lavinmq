@@ -30,10 +30,14 @@ class MFile < IO
   getter size : Int64 = 0i64
   getter capacity : Int64 = 0i64
   getter path : String
-  getter fd : Int32
+  @fd = Atomic(Int32).new(-1)
   @buffer : Pointer(UInt8)
   @deleted = false
   getter? closed = false
+
+  def fd
+    @fd.get(:relaxed)
+  end
 
   # Map a file, if no capacity is given the file must exists and
   # the file will be mapped as readonly
@@ -41,14 +45,15 @@ class MFile < IO
   def initialize(@path : String, capacity : Int? = nil, @writeonly = false)
     @readonly = capacity.nil?
     raise ArgumentError.new("can't be both read only and write only") if @readonly && @writeonly
-    @fd = open_fd
-    @size = file_size
+    fd = open_fd
+    @fd.set fd, :relaxed
+    @size = file_size(fd)
     @capacity = capacity ? Math.max(capacity.to_i64, @size) : @size
     if @capacity > @size
-      code = LibC.ftruncate(@fd, @capacity)
+      code = LibC.ftruncate(fd, @capacity)
       raise File::Error.from_errno("Error truncating file", file: @path) if code < 0
     end
-    @buffer = mmap
+    @buffer = mmap(fd, @capacity)
   end
 
   def self.open(path, capacity : Int? = nil, writeonly = false, & : self -> _)
@@ -72,20 +77,20 @@ class MFile < IO
     fd
   end
 
-  private def file_size : Int64
-    code = LibC.fstat(@fd, out stat)
+  private def file_size(fd) : Int64
+    code = LibC.fstat(fd, out stat)
     raise File::Error.from_errno("Unable to get info", file: @path) if code < 0
     stat.st_size.to_i64
   end
 
-  private def mmap(length = @capacity) : Pointer(UInt8)
+  private def mmap(fd, length = @capacity) : Pointer(UInt8)
     protection = case
                  when @readonly  then LibC::PROT_READ
                  when @writeonly then LibC::PROT_WRITE
                  else                 LibC::PROT_READ | LibC::PROT_WRITE
                  end
     flags = LibC::MAP_SHARED
-    ptr = LibC.mmap(nil, length, protection, flags, @fd, 0)
+    ptr = LibC.mmap(nil, length, protection, flags, fd, 0)
     raise RuntimeError.from_errno("mmap") if ptr == LibC::MAP_FAILED
     addr = ptr.as(UInt8*)
     advise(Advice::DontDump, addr, length)
@@ -104,17 +109,18 @@ class MFile < IO
 
   # The file will be truncated to the current position unless readonly or deleted
   def close(truncate_to_size = true)
-    return if closed?
-    munmap
-    @closed = true # munmap checks if open so have to set closed here
-    if truncate_to_size && !@readonly && !@deleted && @fd > 0
-      truncate(@size)
-    end
-  ensure
-    unless @fd == -1
-      code = LibC.close(@fd)
-      raise File::Error.from_errno("Error closing file", file: @path) if code < 0
-      @fd = -1
+    if (fd = @fd.swap(-1, :relaxed)) != -1
+      munmap
+      @closed = true # munmap checks if open so have to set closed here
+      begin
+        if truncate_to_size && !@readonly && !@deleted
+          code = LibC.ftruncate(fd, @size)
+          raise File::Error.from_errno("Error truncating file", file: @path) if code < 0
+        end
+      ensure
+        code = LibC.close(fd)
+        raise File::Error.from_errno("Error closing file", file: @path) if code < 0
+      end
     end
   end
 
@@ -122,7 +128,7 @@ class MFile < IO
     @size = size.to_i64
     @pos = size.to_i64 if @pos > size
     @capacity = size.to_i64
-    code = LibC.ftruncate(@fd, size)
+    code = LibC.ftruncate(fd, size)
     raise File::Error.from_errno("Error truncating file", file: @path) if code < 0
   end
 
@@ -241,7 +247,7 @@ class MFile < IO
   # Read from a specific position in the file
   # but without mapping the whole file, it uses `pread`
   def read_at(pos, bytes)
-    cnt = LibC.pread(@fd, bytes, bytes.bytesize, pos)
+    cnt = LibC.pread(fd, bytes, bytes.bytesize, pos)
     raise IO::Error.from_errno("pread") if cnt == -1
     cnt
   end
