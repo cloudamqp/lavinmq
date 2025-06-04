@@ -81,10 +81,8 @@ module LavinMQ
           session.subscribe(tf.topic, tf.qos)
           ts = RoughTime.unix_ms
           @retain_store.each(tf.topic) do |topic, body_io, body_bytesize|
-            msg = Message.new(ts, EXCHANGE, topic,
-              AMQP::Properties.new(headers: headers,
-                delivery_mode: tf.qos),
-              body_bytesize, body_io)
+            props = AMQP::Properties.new(headers: headers, delivery_mode: tf.qos)
+            msg = Message.new(ts, EXCHANGE, topic, props, body_bytesize, body_io)
             session.publish(msg)
           end
           MQTT::SubAck::ReturnCode.from_int(tf.qos)
