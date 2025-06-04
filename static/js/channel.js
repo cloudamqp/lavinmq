@@ -1,3 +1,4 @@
+import * as DOM from './dom.js'
 import * as Table from './table.js'
 import * as Helpers from './helpers.js'
 import * as HTTP from './http.js'
@@ -39,16 +40,8 @@ const prefetchForm = (cb) => {
   const input = document.createElement('input')
   input.type = 'number'
 
-  const save = document.createElement('button')
-  save.type = 'submit'
-  save.title = 'Save'
-  save.classList.add('btn-icon', 'btn-submit')
-
-  const reset = document.createElement('button')
-  reset.type = 'reset'
-  reset.title = 'Reset'
-  reset.classList.add('btn-icon', 'btn-reset')
-
+  const save = DOM.button.submit()
+  const reset = DOM.button.reset()
   const form = document.createElement('form')
   form.classList.add('prefetch-form')
   form.addEventListener('submit', (event) => {

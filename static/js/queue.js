@@ -34,10 +34,7 @@ Table.renderTable('table', consumersTableOpts, function (tr, item) {
   const ack = item.ack_required ? '●' : '○'
   const exclusive = item.exclusive ? '●' : '○'
   const cancelForm = document.createElement('form')
-  const btn = document.createElement('button')
-  btn.classList.add('btn-primary')
-  btn.type = 'submit'
-  btn.textContent = 'Cancel'
+  const btn = DOM.button.delete({text: 'Cancel', type: 'submit'})
   cancelForm.appendChild(btn)
   const urlEncodedConsumerTag = encodeURIComponent(item.consumer_tag)
   const conn = encodeURIComponent(item.channel_details.connection_name)
@@ -57,7 +54,7 @@ Table.renderTable('table', consumersTableOpts, function (tr, item) {
   Table.renderCell(tr, 2, ack, 'center')
   Table.renderCell(tr, 3, exclusive, 'center')
   Table.renderCell(tr, 4, item.prefetch_count, 'right')
-  Table.renderCell(tr, 5, cancelForm, 'center')
+  Table.renderCell(tr, 5, cancelForm, 'right')
 })
 
 const loadMoreConsumersBtn = document.getElementById('load-more-consumers')
@@ -162,16 +159,16 @@ const bindingsTable = Table.renderTable('bindings-table', tableOptions, function
     const td = Table.renderCell(tr, 0, '(Default exchange binding)')
     td.setAttribute('colspan', 4)
   } else {
-    const btn = document.createElement('button')
-    btn.classList.add('btn-secondary')
-    btn.textContent = 'Unbind'
     const e = encodeURIComponent(item.source)
-    btn.onclick = function () {
-      const p = encodeURIComponent(item.properties_key)
-      const url = 'api/bindings/' + urlEncodedVhost + '/e/' + e + '/q/' + urlEncodedQueue + '/' + p
-      HTTP.request('DELETE', url)
-        .then(() => { tr.parentNode.removeChild(tr) })
-    }
+    const btn = DOM.button.delete({
+      text: 'Unbind',
+      onclick: function () {
+        const p = encodeURIComponent(item.properties_key)
+        const url = 'api/bindings/' + urlEncodedVhost + '/e/' + e + '/q/' + urlEncodedQueue + '/' + p
+        HTTP.request('DELETE', url).then(() => { tr.parentNode.removeChild(tr) })
+      }
+    })
+
     const exchangeLink = document.createElement('a')
     exchangeLink.href = `exchange#vhost=${urlEncodedVhost}&name=${e}`
     exchangeLink.textContent = item.source

@@ -66,18 +66,17 @@ const bindingsTable = Table.renderTable('bindings-table', tableOptions, function
     const td = Table.renderCell(tr, 0, '(Default exchange binding)')
     td.setAttribute('colspan', 5)
   } else {
-    const btn = document.createElement('button')
-    btn.classList.add('btn-secondary')
-    btn.textContent = 'Unbind'
-    btn.onclick = function () {
+    const btn = DOM.button.delete({
+      text: 'Unbind',
+      click: function () {
       const s = encodeURIComponent(item.source)
       const d = encodeURIComponent(item.destination)
       const p = encodeURIComponent(item.properties_key)
       const t = item.destination_type === 'exchange' ? 'e' : 'q'
       const url = 'api/bindings/' + urlEncodedVhost + '/e/' + s + '/' + t + '/' + d + '/' + p
-      HTTP.request('DELETE', url)
-        .then(() => { tr.parentNode.removeChild(tr) })
+      HTTP.request('DELETE', url).then(() => { tr.parentNode.removeChild(tr) })
     }
+})
 
     const destinationLink = document.createElement('a')
     destinationLink.href = `${item.destination_type}#vhost=${urlEncodedVhost}&name=${encodeURIComponent(item.destination)}`

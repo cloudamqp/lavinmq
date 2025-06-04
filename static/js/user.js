@@ -35,24 +35,23 @@ const permissionsTable = Table.renderTable('permissions', tableOptions, (tr, ite
   if (all) {
     const buttons = document.createElement('div')
     buttons.classList.add('buttons')
-    const deleteBtn = document.createElement('button')
-    deleteBtn.classList.add('btn-small-outlined-danger')
-    deleteBtn.innerText = 'Clear'
-    deleteBtn.onclick = function () {
-      const username = encodeURIComponent(item.user)
-      const vhost = encodeURIComponent(item.vhost)
-      const url = 'api/permissions/' + vhost + '/' + username
-      HTTP.request('DELETE', url)
-        .then(() => {
-          tr.parentNode.removeChild(tr)
-        })
-    }
-    const editBtn = document.createElement('button')
-    editBtn.classList.add('btn-small')
-    editBtn.innerText = 'Edit'
-    editBtn.onclick = function () {
-      Form.editItem('#setPermission', item)
-    }
+    const deleteBtn = DOM.button.delete({
+       text: 'Clear',
+       click: function () {
+        const username = encodeURIComponent(item.user)
+        const vhost = encodeURIComponent(item.vhost)
+        const url = 'api/permissions/' + vhost + '/' + username
+        HTTP.request('DELETE', url)
+          .then(() => {
+            tr.parentNode.removeChild(tr)
+          })
+      }
+    })
+    const editBtn = DOM.button.edit({
+      click: function () {
+        Form.editItem('#setPermission', item)
+      }
+    })
     buttons.append(editBtn, deleteBtn)
     Table.renderCell(tr, 0, item.vhost)
     Table.renderCell(tr, 4, buttons, 'right')

@@ -91,32 +91,30 @@ Table.renderTable('table', tableOptions, (tr, item, all) => {
   Table.renderCell(tr, 10, renderState(item))
   const btns = document.createElement('div')
   btns.classList.add('buttons')
-  const deleteBtn = document.createElement('button')
-  deleteBtn.classList.add('btn-danger')
-  deleteBtn.textContent = 'Delete'
-  deleteBtn.onclick = function () {
-    const name = encodeURIComponent(item.name)
-    const vhost = encodeURIComponent(item.vhost)
-    const url = 'api/parameters/shovel/' + vhost + '/' + name
-    if (window.confirm('Are you sure? This shovel can not be restored after deletion.')) {
-      HTTP.request('DELETE', url)
-        .then(() => {
-          tr.parentNode.removeChild(tr)
-          DOM.toast(`Shovel ${item.name} deleted`)
-        })
+  const deleteBtn = DOM.button.delete({
+    click: function () {
+      const name = encodeURIComponent(item.name)
+      const vhost = encodeURIComponent(item.vhost)
+      const url = 'api/parameters/shovel/' + vhost + '/' + name
+      if (window.confirm('Are you sure? This shovel can not be restored after deletion.')) {
+        HTTP.request('DELETE', url)
+          .then(() => {
+            tr.parentNode.removeChild(tr)
+            DOM.toast(`Shovel ${item.name} deleted`)
+          })
+      }
     }
-  }
-  const editBtn = document.createElement('button')
-  editBtn.classList.add('btn-secondary')
-  editBtn.textContent = 'Edit'
-  editBtn.onclick = function () {
-    Form.editItem('#createShovel', item, {
-      'src-type': (item) => item.value['src-queue'] ? 'queue' : 'exchange',
-      'dest-type': (item) => item.value['dest-queue'] ? 'queue' : 'exchange',
-      'src-endpoint': (item) => item.value['src-queue'] || item.value['src-exchange'],
-      'dest-endpoint': (item) => item.value['dest-queue'] || item.value['dest-exchange']
-    })
-  }
+  })
+  const editBtn = DOM.button.edit({
+    click: function () {
+      Form.editItem('#createShovel', item, {
+        'src-type': (item) => item.value['src-queue'] ? 'queue' : 'exchange',
+        'dest-type': (item) => item.value['dest-queue'] ? 'queue' : 'exchange',
+        'src-endpoint': (item) => item.value['src-queue'] || item.value['src-exchange'],
+        'dest-endpoint': (item) => item.value['dest-queue'] || item.value['dest-exchange']
+      })
+    }
+  })
   btns.append(editBtn, deleteBtn)
   Table.renderCell(tr, 11, btns, 'right')
 })

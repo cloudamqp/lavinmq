@@ -33,14 +33,13 @@ const permissionsTable = Table.renderTable('permissions', tableOptions, (tr, ite
   Table.renderCell(tr, 2, item.write)
   Table.renderCell(tr, 3, item.read)
   if (all) {
-    const btn = document.createElement('button')
-    btn.classList.add('btn-secondary')
-    btn.textContent = 'Clear'
-    btn.onclick = function () {
-      const url = 'api/permissions/' + urlEncodedVhost + '/' + encodeURIComponent(item.user)
-      HTTP.request('DELETE', url)
-        .then(() => tr.parentNode.removeChild(tr))
-    }
+    const btn = DOM.button.delete({
+      text: 'Clear',
+      click: function () {
+        const url = 'api/permissions/' + urlEncodedVhost + '/' + encodeURIComponent(item.user)
+        HTTP.request('DELETE', url).then(() => tr.parentNode.removeChild(tr))
+      }
+    })
     const userLink = document.createElement('a')
     userLink.href = `user#name=${encodeURIComponent(item.user)}`
     userLink.textContent = item.user
