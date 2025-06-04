@@ -24,6 +24,7 @@ class LavinMQ::Clustering::Controller
   # to start are met, i.e when the current node has been elected leader.
   # The method is blocking.
   @is_leader = BoolChannel.new(true)
+
   def run(&)
     lease = @lease = @etcd.lease_grant(id: @id)
     spawn(follow_leader, name: "Follower monitor")
