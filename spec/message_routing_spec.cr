@@ -456,6 +456,7 @@ module MessageRoutingSpec
         expect_raises(LavinMQ::Exchange::AccessRefused) do
           x.bind(q1, "q1", LavinMQ::AMQP::Table.new)
         end
+        store.close
       end
     end
   end
