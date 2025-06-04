@@ -23,6 +23,8 @@ module MqttSpecs
 
         entry = index["a"]?.should be_a String
         File.exists?(File.join("tmp/retain_store", entry)).should be_true
+      ensure
+        store.try &.close
       end
 
       it "empty body deletes" do
@@ -38,6 +40,8 @@ module MqttSpecs
         store.retain("a", msg.body_io, 0)
         index.size.should eq(0)
         File.exists?(File.join("tmp/retain_store", entry)).should be_false
+      ensure
+        store.try &.close
       end
     end
 
@@ -55,6 +59,8 @@ module MqttSpecs
             body.should eq "body".to_slice
           end
         end
+      ensure
+        store.try &.close
       end
 
       it "calls block with correct arguments" do
@@ -76,6 +82,8 @@ module MqttSpecs
         called.size.should eq(1)
         called[0][0].should eq("a")
         String.new(called[0][1]).should eq("body")
+      ensure
+        store.try &.close
       end
 
       it "handles multiple subscriptions" do
@@ -104,6 +112,8 @@ module MqttSpecs
         String.new(called[0][1]).should eq("body")
         called[1][0].should eq("b")
         String.new(called[1][1]).should eq("body")
+      ensure
+        store.try &.close
       end
     end
 
