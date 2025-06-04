@@ -15,7 +15,7 @@ module MqttSpecs
         index = IndexTree.new
         store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", LavinMQ::Clustering::NoopServer.new, index)
         props = LavinMQ::AMQP::Properties.new
-        msg = LavinMQ::Message.new(100, "test", "rk", props, 10, IO::Memory.new("body"))
+        msg = LavinMQ::Message.new(100, "test", "rk", props, 4, IO::Memory.new("body"))
         store.retain("a", msg.body_io, msg.bodysize)
 
         index.size.should eq(1)
@@ -29,7 +29,7 @@ module MqttSpecs
         index = IndexTree.new
         store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", LavinMQ::Clustering::NoopServer.new, index)
         props = LavinMQ::AMQP::Properties.new
-        msg = LavinMQ::Message.new(100, "test", "rk", props, 10, IO::Memory.new("body"))
+        msg = LavinMQ::Message.new(100, "test", "rk", props, 4, IO::Memory.new("body"))
 
         store.retain("a", msg.body_io, msg.bodysize)
         index.size.should eq(1)
@@ -46,7 +46,7 @@ module MqttSpecs
         index = IndexTree.new
         store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", LavinMQ::Clustering::NoopServer.new, index)
         props = LavinMQ::AMQP::Properties.new
-        msg = LavinMQ::Message.new(100, "test", "rk", props, 10, IO::Memory.new("body"))
+        msg = LavinMQ::Message.new(100, "test", "rk", props, 4, IO::Memory.new("body"))
         store.retain("a", msg.body_io, msg.bodysize)
         10.times do
           store.each("a") do |_topic, body_io, body_bytesize|
@@ -61,8 +61,9 @@ module MqttSpecs
         index = IndexTree.new
         store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", LavinMQ::Clustering::NoopServer.new, index)
         props = LavinMQ::AMQP::Properties.new
-        msg = LavinMQ::Message.new(100, "test", "rk", props, 10, IO::Memory.new("body"))
+        msg = LavinMQ::Message.new(100, "test", "rk", props, 4, IO::Memory.new("body"))
         store.retain("a", msg.body_io, msg.bodysize)
+        msg.body_io.rewind
         store.retain("b", msg.body_io, msg.bodysize)
 
         called = [] of Tuple(String, Bytes)
@@ -81,8 +82,8 @@ module MqttSpecs
         index = IndexTree.new
         store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", LavinMQ::Clustering::NoopServer.new, index)
         props = LavinMQ::AMQP::Properties.new
-        msg1 = LavinMQ::Message.new(100, "test", "rk", props, 10, IO::Memory.new("body"))
-        msg2 = LavinMQ::Message.new(100, "test", "rk", props, 10, IO::Memory.new("body"))
+        msg1 = LavinMQ::Message.new(100, "test", "rk", props, 4, IO::Memory.new("body"))
+        msg2 = LavinMQ::Message.new(100, "test", "rk", props, 4, IO::Memory.new("body"))
         store.retain("a", msg1.body_io, msg1.bodysize)
         store.retain("b", msg2.body_io, msg2.bodysize)
 
@@ -111,7 +112,7 @@ module MqttSpecs
         index = IndexTree.new
         store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", LavinMQ::Clustering::NoopServer.new, index)
         props = LavinMQ::AMQP::Properties.new
-        msg = LavinMQ::Message.new(100, "test", "rk", props, 10, IO::Memory.new("body"))
+        msg = LavinMQ::Message.new(100, "test", "rk", props, 4, IO::Memory.new("body"))
 
         store.retain("a", msg.body_io, msg.bodysize)
         store.close
@@ -128,7 +129,7 @@ module MqttSpecs
       index = IndexTree.new
       store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", LavinMQ::Clustering::NoopServer.new, index)
       props = LavinMQ::AMQP::Properties.new
-      msg = LavinMQ::Message.new(100, "test", "topic", props, 10, IO::Memory.new("body"))
+      msg = LavinMQ::Message.new(100, "test", "topic", props, 4, IO::Memory.new("body"))
 
       store.retain("topic", msg.body_io, msg.bodysize)
       store.close
