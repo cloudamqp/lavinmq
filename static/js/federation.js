@@ -32,7 +32,7 @@ const upstreamsTable = Table.renderTable('upstreamTable', utOpts, (tr, item) => 
   const buttons = document.createElement('div')
   buttons.classList.add('buttons')
   const deleteBtn = document.createElement('button')
-  deleteBtn.classList.add('btn-danger')
+  deleteBtn.classList.add('btn-small-outlined-danger')
   deleteBtn.textContent = 'Delete'
   deleteBtn.onclick = function () {
     const name = encodeURIComponent(item.name)
@@ -46,7 +46,7 @@ const upstreamsTable = Table.renderTable('upstreamTable', utOpts, (tr, item) => 
       })
   }
   const editBtn = document.createElement('button')
-  editBtn.classList.add('btn-secondary')
+  editBtn.classList.add('btn-small')
   editBtn.textContent = 'Edit'
   editBtn.onclick = function () {
     Form.editItem('#createUpstream', item)
