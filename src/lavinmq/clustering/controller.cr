@@ -89,6 +89,7 @@ class LavinMQ::Clustering::Controller
         select
         when @is_leader.when_true.receive
           Log.debug { "Is leader, don't replicate from self" }
+          @is_leader.close
           return
         when timeout(1.second)
           raise Error.new("Another node in the cluster is advertising the same URI")
