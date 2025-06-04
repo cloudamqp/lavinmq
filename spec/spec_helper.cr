@@ -1,6 +1,8 @@
 require "log"
 Log.setup_from_env(default_level: :error)
 
+Signal::SEGV.reset # Let the OS generate a coredump
+
 class Log
   def self.setup
     # noop, don't override during spec
