@@ -381,11 +381,12 @@ module LavinMQ
         @connections.each do |client|
           select
           when to_close.send client
-          else
+          else # spawn another fiber closing channels
             fiber_id = fiber_count &+= 1
             @log.trace { "spawning close conn fiber #{fiber_id} " }
+            client_inner = client
             wg.spawn do
-              client.close(reason)
+              client_inner.close(reason)
               while client_to_close = to_close.receive?
                 client_to_close.close(reason)
               end
