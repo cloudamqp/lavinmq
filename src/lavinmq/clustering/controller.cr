@@ -23,7 +23,7 @@ class LavinMQ::Clustering::Controller
   # The block will be yielded when the controller's prerequisites for a leader
   # to start are met, i.e when the current node has been elected leader.
   # The method is blocking.
-  @is_leader = BoolChannel.new(true)
+  @is_leader = BoolChannel.new(false)
 
   def run(&)
     lease = @lease = @etcd.lease_grant(id: @id)
