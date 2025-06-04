@@ -23,12 +23,13 @@ class LavinMQ::Clustering::Controller
   # The block will be yielded when the controller's prerequisites for a leader
   # to start are met, i.e when the current node has been elected leader.
   # The method is blocking.
+  @is_leader = BoolChannel.new(true)
   def run(&)
     lease = @lease = @etcd.lease_grant(id: @id)
     spawn(follow_leader, name: "Follower monitor")
     wait_to_be_insync
     @etcd.election_campaign("#{@config.clustering_etcd_prefix}/leader", @advertised_uri, lease: @id) # blocks until becoming leader
-    @is_leader = true
+    @is_leader.set(true)
     @repli_client.try &.close
     # TODO: make sure we still are in the ISR set
     yield
@@ -84,10 +85,11 @@ class LavinMQ::Clustering::Controller
         next
       end
       if uri == @advertised_uri # if this instance has become leader
-        if @is_leader
+        select
+        when @is_leader.when_true.receive
           Log.debug { "Is leader, don't replicate from self" }
           return
-        else
+        when timeout(1.second)
           raise Error.new("Another node in the cluster is advertising the same URI")
         end
       end
