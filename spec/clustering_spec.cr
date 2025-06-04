@@ -89,6 +89,8 @@ describe LavinMQ::Clustering::Client do
     b.sort!.should eq(["body1", "body2"])
     follower_retain_store.retained_messages.should eq(2)
   ensure
+    follower_retain_store.try &.close
+    retain_store.try &.close
     replicator.try &.close
   end
 
