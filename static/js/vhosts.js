@@ -11,8 +11,7 @@ const tableOptions = {
   search: true
 }
 const vhostTable = Table.renderTable('table', tableOptions, (tr, item, all) => {
-  const urlEncodedVhost = encodeURIComponent(item.name)
-  const permissionsUrl = 'api/vhosts/' + urlEncodedVhost + '/permissions'
+  const permissionsUrl = HTTP.url`api/vhosts/${item.name}/permissions`
   HTTP.request('GET', permissionsUrl)
     .then(permissions => {
       window.sessionStorage.setItem(permissionsUrl, JSON.stringify(permissions))
@@ -35,8 +34,8 @@ const vhostTable = Table.renderTable('table', tableOptions, (tr, item, all) => {
 document.querySelector('#createVhost').addEventListener('submit', function (evt) {
   evt.preventDefault()
   const data = new window.FormData(this)
-  const name = encodeURIComponent(data.get('name').trim())
-  const url = 'api/vhosts/' + name
+  const name = data.get('name').trim()
+  const url = HTTP.url`'api/vhosts/${name}`
   HTTP.request('PUT', url)
     .then(() => {
       vhostTable.reload()

@@ -3,11 +3,10 @@ import * as Table from './table.js'
 import * as DOM from './dom.js'
 
 const vhost = new URLSearchParams(window.location.hash.substring(1)).get('name')
-const urlEncodedVhost = encodeURIComponent(vhost)
 document.title = vhost + ' | LavinMQ'
 document.querySelector('#pagename-label').textContent = vhost
 
-const vhostUrl = 'api/vhosts/' + urlEncodedVhost
+const vhostUrl = HTTP.url`api/vhosts/${vhost}`
 HTTP.request('GET', vhostUrl).then(item => {
   document.getElementById('ready').textContent = item.messages_ready.toLocaleString()
   document.getElementById('unacked').textContent = item.messages_unacknowledged.toLocaleString()
@@ -15,7 +14,7 @@ HTTP.request('GET', vhostUrl).then(item => {
 })
 
 function fetchLimits () {
-  HTTP.request('GET', 'api/vhost-limits/' + urlEncodedVhost).then(arr => {
+  HTTP.request('GET', HTTP.url`api/vhost-limits/${vhost}`).then(arr => {
     const limits = arr[0] || { value: {} }
     const maxConnections = limits.value['max-connections'] || ''
     document.getElementById('max-connections').textContent = maxConnections.toLocaleString()
@@ -27,7 +26,7 @@ function fetchLimits () {
 }
 fetchLimits()
 
-const permissionsUrl = 'api/vhosts/' + urlEncodedVhost + '/permissions'
+const permissionsUrl = HTTP.url`api/vhosts/${vhost}/permissions`
 const tableOptions = { url: permissionsUrl, keyColumns: ['user'], countId: 'permissions-count' }
 const permissionsTable = Table.renderTable('permissions', tableOptions, (tr, item, all) => {
   Table.renderCell(tr, 1, item.configure)
@@ -37,12 +36,12 @@ const permissionsTable = Table.renderTable('permissions', tableOptions, (tr, ite
     const btn = DOM.button.delete({
       text: 'Clear',
       click: function () {
-        const url = 'api/permissions/' + urlEncodedVhost + '/' + encodeURIComponent(item.user)
+        const url = HTTP.url`api/permissions/${vhost}/${item.user}`
         HTTP.request('DELETE', url).then(() => tr.parentNode.removeChild(tr))
       }
     })
     const userLink = document.createElement('a')
-    userLink.href = `user#name=${encodeURIComponent(item.user)}`
+    userLink.href = HTTP.url`user#name=${item.user}`
     userLink.textContent = item.user
     Table.renderCell(tr, 0, userLink)
     Table.renderCell(tr, 4, btn, 'right')
@@ -82,7 +81,7 @@ fetchUsers(addUserOptions)
 document.querySelector('#setPermission').addEventListener('submit', function (evt) {
   evt.preventDefault()
   const data = new window.FormData(this)
-  const url = 'api/permissions/' + urlEncodedVhost + '/' + encodeURIComponent(data.get('user'))
+  const url = HTTP.url`api/permissions/${vhost}/${data.get('user')}`
   const body = {
     configure: data.get('configure'),
     write: data.get('write'),
@@ -97,9 +96,9 @@ document.querySelector('#setPermission').addEventListener('submit', function (ev
 
 document.forms.setLimits.addEventListener('submit', function (evt) {
   evt.preventDefault()
-  const maxConnectionsUrl = 'api/vhost-limits/' + urlEncodedVhost + '/max-connections'
+  const maxConnectionsUrl = HTTP.url`api/vhost-limits/${vhost}/max-connections`
   const maxConnectionsBody = { value: Number(this['max-connections'].value || -1) }
-  const maxQueuesUrl = 'api/vhost-limits/' + urlEncodedVhost + '/max-queues'
+  const maxQueuesUrl = HTTP.url`'api/vhost-limits/${vhost}/max-queues`
   const maxQueuesBody = { value: Number(this['max-queues'].value || -1) }
   Promise.all([
     HTTP.request('PUT', maxConnectionsUrl, { body: maxConnectionsBody }),
@@ -109,7 +108,7 @@ document.forms.setLimits.addEventListener('submit', function (evt) {
 
 document.querySelector('#deleteVhost').addEventListener('submit', function (evt) {
   evt.preventDefault()
-  const url = 'api/vhosts/' + urlEncodedVhost
+  const url = HTTP.url`api/vhosts/${vhost}`
   if (window.confirm('Are you sure? This object cannot be recovered after deletion.')) {
     HTTP.request('DELETE', url)
       .then(() => { window.location = 'vhosts' })

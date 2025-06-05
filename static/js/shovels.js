@@ -26,9 +26,8 @@ const vhost = window.sessionStorage.getItem('vhost')
 let url = 'api/parameters/shovel'
 let statusUrl = 'api/shovels'
 if (vhost && vhost !== '_all') {
-  const urlEncodedVhost = encodeURIComponent(vhost)
-  url += '/' + urlEncodedVhost
-  statusUrl += '/' + urlEncodedVhost
+  url += HTTP.url`/${vhost}`
+  statusUrl += HTTP.url`/${vhost}`
 }
 
 class ShovelsDataSource extends UrlDataSource {
@@ -93,9 +92,7 @@ Table.renderTable('table', tableOptions, (tr, item, all) => {
   btns.classList.add('buttons')
   const deleteBtn = DOM.button.delete({
     click: function () {
-      const name = encodeURIComponent(item.name)
-      const vhost = encodeURIComponent(item.vhost)
-      const url = 'api/parameters/shovel/' + vhost + '/' + name
+    const url = HTTP.url`api/parameters/shovel/${item.vhost}/${item.name}`
       if (window.confirm('Are you sure? This shovel can not be restored after deletion.')) {
         HTTP.request('DELETE', url)
           .then(() => {
@@ -158,9 +155,9 @@ document.querySelector('[name=dest-uri]').addEventListener('change', function ()
 document.querySelector('#createShovel').addEventListener('submit', function (evt) {
   evt.preventDefault()
   const data = new window.FormData(this)
-  const name = encodeURIComponent(data.get('name').trim())
-  const vhost = encodeURIComponent(data.get('vhost'))
-  const url = 'api/parameters/shovel/' + vhost + '/' + name
+  const name = data.get('name').trim()
+  const vhost = data.get('vhost')
+  const url = HTTP.url`api/parameters/shovel/${vhost}/${name}`
   const body = {
     value: {
       'src-uri': data.get('src-uri'),

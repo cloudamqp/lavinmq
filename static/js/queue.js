@@ -9,8 +9,6 @@ import { UrlDataSource, DataSource } from './datasource.js'
 const search = new URLSearchParams(window.location.hash.substring(1))
 const queue = search.get('name')
 const vhost = search.get('vhost')
-const urlEncodedQueue = encodeURIComponent(queue)
-const urlEncodedVhost = encodeURIComponent(vhost)
 const pauseQueueForm = document.querySelector('#pauseQueue')
 const resumeQueueForm = document.querySelector('#resumeQueue')
 document.title = queue + ' | LavinMQ'
@@ -29,17 +27,16 @@ const consumersTableOpts = {
 }
 Table.renderTable('table', consumersTableOpts, function (tr, item) {
   const channelLink = document.createElement('a')
-  channelLink.href = 'channel#name=' + encodeURIComponent(item.channel_details.name)
+  channelLink.href = HTTP.url`channel#name=${item.channel_details.name}`
   channelLink.textContent = item.channel_details.name
   const ack = item.ack_required ? '●' : '○'
   const exclusive = item.exclusive ? '●' : '○'
   const cancelForm = document.createElement('form')
   const btn = DOM.button.delete({ text: 'Cancel', type: 'submit' })
   cancelForm.appendChild(btn)
-  const urlEncodedConsumerTag = encodeURIComponent(item.consumer_tag)
-  const conn = encodeURIComponent(item.channel_details.connection_name)
-  const ch = encodeURIComponent(item.channel_details.number)
-  const actionPath = `api/consumers/${urlEncodedVhost}/${conn}/${ch}/${urlEncodedConsumerTag}`
+  const conn = item.channel_details.connection_name
+  const ch = item.channel_details.number
+  const actionPath = HTTP.url`api/consumers/${vhost}/${conn}/${ch}/${item.consumer_tag}`
   cancelForm.addEventListener('submit', function (evt) {
     evt.preventDefault()
     if (!window.confirm('Are you sure?')) return false
@@ -81,7 +78,7 @@ function handleQueueState (state) {
 }
 
 const chart = Chart.render('chart', 'msgs/s')
-const queueUrl = 'api/queues/' + urlEncodedVhost + '/' + urlEncodedQueue
+const queueUrl = HTTP.url`api/queues/${vhost}/${queue}`
 function updateQueue (all) {
   HTTP.request('GET', queueUrl + '?consumer_list_length=' + consumerListLength)
     .then(item => {
@@ -98,7 +95,7 @@ function updateQueue (all) {
       document.getElementById('q-message-bytes-ready').textContent = Helpers.nFormatter(item.ready_bytes) + 'B'
       document.getElementById('q-ready-avg-bytes').textContent = Helpers.nFormatter(item.ready_avg_bytes) + 'B'
       document.getElementById('q-consumers').textContent = Helpers.formatNumber(item.consumers)
-      document.getElementById('unacked-link').href = `/unacked#name=${encodeURIComponent(queue)}&vhost=${encodeURIComponent(item.vhost)}`
+      document.getElementById('unacked-link').href = HTTP.url`/unacked#name=${queue}&vhost=${item.vhost}`
       item.consumer_details.filtered_count = item.consumers
       consumersDataSource.setConsumers(item.consumer_details)
       const hasMoreConsumers = item.consumer_details.length < item.consumers
@@ -116,13 +113,13 @@ function updateQueue (all) {
         document.querySelector('.queue').textContent = queue
         if (item.policy) {
           const policyLink = document.createElement('a')
-          policyLink.href = `policies#name=${encodeURIComponent(item.policy)}&vhost=${encodeURIComponent(item.vhost)}`
+          policyLink.href = HTTP.url`policies#name=${item.policy}&vhost=${item.vhost}`
           policyLink.textContent = item.policy
           document.getElementById('q-policy').appendChild(policyLink)
         }
         if (item.operator_policy) {
           const policyLink = document.createElement('a')
-          policyLink.href = `operator-policies#name=${encodeURIComponent(item.operator_policy)}&vhost=${encodeURIComponent(item.vhost)}`
+          policyLink.href = HTTP.url`operator-policies#name=${item.operator_policy}&vhost=${item.vhost}`
           policyLink.textContent = item.operator_policy
           document.getElementById('q-operator-policy').appendChild(policyLink)
         }
@@ -163,14 +160,13 @@ const bindingsTable = Table.renderTable('bindings-table', tableOptions, function
     const btn = DOM.button.delete({
       text: 'Unbind',
       click: function () {
-        const p = encodeURIComponent(item.properties_key)
-        const url = 'api/bindings/' + urlEncodedVhost + '/e/' + e + '/q/' + urlEncodedQueue + '/' + p
+        const url = HTTP.url`api/bindings/${vhost}/e/${item.source}/q/${queue}/${item.properties_key}`
         HTTP.request('DELETE', url).then(() => { tr.parentNode.removeChild(tr) })
       }
     })
 
     const exchangeLink = document.createElement('a')
-    exchangeLink.href = `exchange#vhost=${urlEncodedVhost}&name=${e}`
+    exchangeLink.href = HTTP.url`exchange#vhost=${vhost}&name=${item.source}`
     exchangeLink.textContent = item.source
     Table.renderCell(tr, 0, exchangeLink)
     Table.renderCell(tr, 1, item.routing_key)
@@ -184,8 +180,8 @@ const bindingsTable = Table.renderTable('bindings-table', tableOptions, function
 document.querySelector('#addBinding').addEventListener('submit', function (evt) {
   evt.preventDefault()
   const data = new window.FormData(this)
-  const e = encodeURIComponent(data.get('source').trim())
-  const url = 'api/bindings/' + urlEncodedVhost + '/e/' + e + '/q/' + urlEncodedQueue
+  const e = data.get('source').trim()
+  const url = HTTP.url`api/bindings/${vhost}/e/${e}/q/${queue}`
   const args = DOM.parseJSON(data.get('arguments'))
   const body = {
     routing_key: data.get('routing_key').trim(),
@@ -202,7 +198,7 @@ document.querySelector('#addBinding').addEventListener('submit', function (evt) 
 document.querySelector('#publishMessage').addEventListener('submit', function (evt) {
   evt.preventDefault()
   const data = new window.FormData(this)
-  const url = 'api/exchanges/' + urlEncodedVhost + '/amq.default/publish'
+  const url = HTTP.url`api/exchanges/${vhost}/amq.default/publish`
   const properties = DOM.parseJSON(data.get('properties'))
   properties.delivery_mode = parseInt(data.get('delivery_mode'))
   properties.headers = { ...properties.headers, ...DOM.parseJSON(data.get('headers')) }
@@ -222,7 +218,7 @@ document.querySelector('#publishMessage').addEventListener('submit', function (e
 document.querySelector('#getMessages').addEventListener('submit', function (evt) {
   evt.preventDefault()
   const data = new window.FormData(this)
-  const url = 'api/queues/' + urlEncodedVhost + '/' + urlEncodedQueue + '/get'
+  const url = HTTP.url`api/queues/${vhost}/${queue}/get`
   const body = {
     count: parseInt(data.get('messages')),
     ack_mode: data.get('mode'),
@@ -263,10 +259,10 @@ document.querySelector('#moveMessages').addEventListener('submit', function (evt
   evt.preventDefault()
   const username = Auth.getUsername()
   const password = Auth.getPassword()
-  const uri = 'amqp://' + encodeURIComponent(username) + ':' + encodeURIComponent(password) + '@localhost/' + urlEncodedVhost
+  const uri = HTTP.url`amqp://${username}:${password}@localhost/${vhost}`
   const dest = document.querySelector('[name=shovel-destination]').value.trim()
   const name = 'Move ' + queue + ' to ' + dest
-  const url = 'api/parameters/shovel/' + urlEncodedVhost + '/' + encodeURIComponent(name)
+  const url = HTTP.url`api/parameters/shovel/${vhost}/${name}`
   const body = {
     name,
     value: {
@@ -293,7 +289,7 @@ document.querySelector('#purgeQueue').addEventListener('submit', function (evt) 
   if (countElem && countElem.value) {
     params = `?count=${countElem.value}`
   }
-  const url = `api/queues/${urlEncodedVhost}/${urlEncodedQueue}/contents${params}`
+  const url = HTTP.url`api/queues/${vhost}/${queue}/contents${HTTP.noescape(params)}`
   if (window.confirm('Are you sure? Messages cannot be recovered after purging.')) {
     HTTP.request('DELETE', url)
       .then(() => { DOM.toast('Queue purged!') })
@@ -302,7 +298,7 @@ document.querySelector('#purgeQueue').addEventListener('submit', function (evt) 
 
 document.querySelector('#deleteQueue').addEventListener('submit', function (evt) {
   evt.preventDefault()
-  const url = 'api/queues/' + urlEncodedVhost + '/' + urlEncodedQueue
+  const url = HTTP.url`api/queues/${vhost}/${queue}`
   if (window.confirm('Are you sure? The queue is going to be deleted. Messages cannot be recovered after deletion.')) {
     HTTP.request('DELETE', url)
       .then(() => { window.location = 'queues' })
@@ -311,7 +307,7 @@ document.querySelector('#deleteQueue').addEventListener('submit', function (evt)
 
 pauseQueueForm.addEventListener('submit', function (evt) {
   evt.preventDefault()
-  const url = 'api/queues/' + urlEncodedVhost + '/' + urlEncodedQueue + '/pause'
+  const url = HTTP.url`api/queues/${vhost}/${queue}/pause`
   if (window.confirm('Are you sure? This will suspend deliveries to all consumers.')) {
     HTTP.request('PUT', url)
       .then(() => {
@@ -323,7 +319,7 @@ pauseQueueForm.addEventListener('submit', function (evt) {
 
 resumeQueueForm.addEventListener('submit', function (evt) {
   evt.preventDefault()
-  const url = 'api/queues/' + urlEncodedVhost + '/' + urlEncodedQueue + '/resume'
+  const url = HTTP.url`api/queues/${vhost}/${queue}/resume`
   if (window.confirm('Are you sure? This will resume deliveries to all consumers.')) {
     HTTP.request('PUT', url)
       .then(() => {
@@ -333,8 +329,8 @@ resumeQueueForm.addEventListener('submit', function (evt) {
   }
 })
 
-Helpers.autoCompleteDatalist('exchange-list', 'exchanges', urlEncodedVhost)
-Helpers.autoCompleteDatalist('queue-list', 'queues', urlEncodedVhost)
+Helpers.autoCompleteDatalist('exchange-list', 'exchanges', vhost)
+Helpers.autoCompleteDatalist('queue-list', 'queues', vhost)
 
 document.querySelector('#dataTags').onclick = e => {
   Helpers.argumentHelperJSON('publishMessage', 'properties', e)

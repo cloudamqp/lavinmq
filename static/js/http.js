@@ -42,11 +42,33 @@ function standardErrorHandler (e) {
 
 function url(strings, ...params) {
   return params.reduce(
-    (res, param, i) => res + encodeURIComponent(param) + strings[i + 1],
+    (res, param, i) => {
+      if (param instanceof NoUrlEscapeString) {
+        return res + param.toString() + strings[i + 1]
+      } else {
+        return res + encodeURIComponent(param) + strings[i + 1]
+      }
+    }
     strings[0])
+}
+
+class NoUrlEscapeString {
+  constructor(value) {
+    this.value = value
+  }
+  toString() {
+    return this.value
+  }
+}
+
+
+function noescape(v) {
+  return new NoUrlEscapeString(v)
+
 }
 
 export {
  request,
- url
+ url,
+  noescape
 }
