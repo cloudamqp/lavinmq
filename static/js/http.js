@@ -48,7 +48,7 @@ function url(strings, ...params) {
       } else {
         return res + encodeURIComponent(param) + strings[i + 1]
       }
-    }
+    },
     strings[0])
 }
 
