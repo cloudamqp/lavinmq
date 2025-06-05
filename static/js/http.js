@@ -41,12 +41,9 @@ function standardErrorHandler (e) {
 }
 
 function url(strings, ...params) {
-  params = params.map(p => encodeURIComponent(p))
-  const result = [strings[0]]
-  params.forEach((p, i) => {
-    result.push(p, strings[i + 1])
-  })
-  return result.join('')
+  return params.reduce(
+    (res, param, i) => res + encodeURIComponent(param) + strings[i + 1],
+    strings[0])
 }
 
 export {
