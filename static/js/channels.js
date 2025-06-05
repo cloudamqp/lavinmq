@@ -1,10 +1,11 @@
 import * as Table from './table.js'
 import * as Helpers from './helpers.js'
+import * as HTTP from './http.js'
 
 const vhost = window.sessionStorage.getItem('vhost')
 let url = 'api/channels'
 if (vhost && vhost !== '_all') {
-  url = 'api/vhosts/' + encodeURIComponent(vhost) + '/channels'
+  url = HTTP.url`api/vhosts/${vhost}/channels`
 }
 const tableOptions = {
   url,
@@ -17,9 +18,8 @@ const tableOptions = {
 Table.renderTable('table', tableOptions, function (tr, item, all) {
   if (all) {
     const channelLink = document.createElement('a')
-    const urlEncodedChannel = encodeURIComponent(item.name)
     channelLink.textContent = item.name
-    channelLink.href = `channel#name=${urlEncodedChannel}`
+    channelLink.href = HTTP.url`channel#name=${item.name}`
     Table.renderCell(tr, 0, channelLink)
     Table.renderCell(tr, 1, item.vhost)
     Table.renderCell(tr, 2, item.user)

@@ -8,7 +8,7 @@ const numFormatter = new Intl.NumberFormat()
 let url = 'api/nodes'
 const vhost = window.sessionStorage.getItem('vhost')
 if (vhost && vhost !== '_all') {
-  url += '?vhost=' + encodeURIComponent(vhost)
+  url += HTTP.url`?vhost=${vhost}`
 }
 
 function update (cb) {

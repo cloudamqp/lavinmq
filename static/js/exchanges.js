@@ -60,9 +60,9 @@ const exchangeTable = Table.renderTable('table', tableOptions, function (tr, ite
 document.querySelector('#addExchange').addEventListener('submit', function (evt) {
   evt.preventDefault()
   const data = new window.FormData(this)
-  const vhost = encodeURIComponent(data.get('vhost'))
-  const exchange = encodeURIComponent(data.get('name').trim())
-  const url = 'api/exchanges/' + vhost + '/' + exchange
+  const vhost = data.get('vhost')
+  const exchange = data.get('name').trim()
+  const url = HTTP.url`api/exchanges/${vhost}/${exchange}`
   const body = {
     durable: data.get('durable') === '1',
     auto_delete: data.get('auto_delete') === '1',

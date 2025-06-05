@@ -33,7 +33,7 @@ document.querySelector('#importDefinitions').addEventListener('submit', function
   if (body.get('vhost') === '_all') {
     url += 'upload'
   } else {
-    url += encodeURIComponent(body.get('vhost')) + '/upload'
+    url += HTTP.url`${body.get('vhost')}/upload`
   }
   HTTP.request('POST', url, { body }).then(function () {
     window.location.assign('.')
@@ -48,7 +48,7 @@ document.querySelector('#exportDefinitions').addEventListener('submit', function
   const body = new window.FormData(this)
   let url = 'api/definitions'
   if (body.get('vhost') !== '_all') {
-    url += '/' + encodeURIComponent(body.get('vhost'))
+    url += HTTP.url`/${body.get('vhost')}`
   }
   HTTP.request('GET', url).then(function (data) {
     const a = document.createElement('a')
