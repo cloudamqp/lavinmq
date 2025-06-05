@@ -1,5 +1,6 @@
 import * as HTTP from './http.js'
 import * as Table from './table.js'
+import * as DOM from './dom.js'
 
 const vhost = new URLSearchParams(window.location.hash.substring(1)).get('name')
 const urlEncodedVhost = encodeURIComponent(vhost)

@@ -41,28 +41,27 @@ function createButton (type, text, classes, click) {
   if (click) {
     btn.addEventListener('click', click)
   }
-  return btn 
+  return btn
 }
 
 const button = {
-  delete: ({click, text = 'Delete', type = 'button'}) => {
+  delete: ({ click, text = 'Delete', type = 'button' }) => {
     return createButton(type, text, ['btn-small-outlined-danger'], click)
   },
-  edit: ({click, text = 'Edit', type = 'button'}) => {
+  edit: ({ click, text = 'Edit', type = 'button' }) => {
     return createButton(type, text, ['btn-small'], click)
   },
-  submit: ({text = 'Save'} = {}) => {
+  submit: ({ text = 'Save' } = {}) => {
     return createButton('submit', text, ['btn-icon', 'btn-submit'])
   },
-  reset: ({text = 'Reset'} = {}) => {
+  reset: ({ text = 'Reset' } = {}) => {
     return createButton('reset', text, ['btn-icon', 'btn-reset'])
-  },
+  }
 }
-
 
 export {
   jsonToText,
   parseJSON,
   toast,
-  button,
+  button
 }

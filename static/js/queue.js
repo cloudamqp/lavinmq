@@ -34,7 +34,7 @@ Table.renderTable('table', consumersTableOpts, function (tr, item) {
   const ack = item.ack_required ? '●' : '○'
   const exclusive = item.exclusive ? '●' : '○'
   const cancelForm = document.createElement('form')
-  const btn = DOM.button.delete({text: 'Cancel', type: 'submit'})
+  const btn = DOM.button.delete({ text: 'Cancel', type: 'submit' })
   cancelForm.appendChild(btn)
   const urlEncodedConsumerTag = encodeURIComponent(item.consumer_tag)
   const conn = encodeURIComponent(item.channel_details.connection_name)

@@ -36,8 +36,8 @@ const permissionsTable = Table.renderTable('permissions', tableOptions, (tr, ite
     const buttons = document.createElement('div')
     buttons.classList.add('buttons')
     const deleteBtn = DOM.button.delete({
-       text: 'Clear',
-       click: function () {
+      text: 'Clear',
+      click: function () {
         const username = encodeURIComponent(item.user)
         const vhost = encodeURIComponent(item.vhost)
         const url = 'api/permissions/' + vhost + '/' + username
