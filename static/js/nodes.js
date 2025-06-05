@@ -127,7 +127,7 @@ const stats = [
         key: 'messages_ready'
       },
       {
-        heading: 'Unacked',
+        heading: 'Unacknowledged',
         key: 'messages_unacknowledged'
       }
     ]
