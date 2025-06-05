@@ -1,6 +1,6 @@
 import * as HTTP from './http.js'
 import * as Helpers from './helpers.js'
-import * as Dom from './dom.js'
+import * as DOM from './dom.js'
 import * as Table from './table.js'
 import { UrlDataSource } from './datasource.js'
 
@@ -44,7 +44,7 @@ const performMultiAction = (el) => {
         queuesTable.reload()
       }
     }).catch(e => {
-      Dom.toast(`Failed to perform action on ${data.name}`, 'error')
+      DOM.toast(`Failed to perform action on ${data.name}`, 'error')
       queuesTable.reload()
     })
   })
@@ -123,7 +123,7 @@ document.querySelector('#declare').addEventListener('submit', function (evt) {
   const body = {
     durable: data.get('durable') === '1',
     auto_delete: data.get('auto_delete') === '1',
-    arguments: Dom.parseJSON(data.get('arguments'))
+    arguments: DOM.parseJSON(data.get('arguments'))
   }
   HTTP.request('PUT', url, { body })
     .then((response) => {
@@ -131,7 +131,7 @@ document.querySelector('#declare').addEventListener('submit', function (evt) {
       queuesTable.reload()
       evt.target.reset()
       evt.target.querySelector('select[name="vhost"]').value = decodeURIComponent(vhost) // Keep selected vhost selected
-      Dom.toast('Queue ' + queue + ' created')
+      DOM.toast('Queue ' + queue + ' created')
     })
 })
 queuesTable.on('updated', _ => {

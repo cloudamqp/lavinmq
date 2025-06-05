@@ -25,10 +25,10 @@ Table.renderTable('table', tableOptions, function (tr, item, firstRender) {
   const ack = item.ack_required ? '●' : '○'
   const exclusive = item.exclusive ? '●' : '○'
   const cancelForm = document.createElement('form')
-  const btn = document.createElement('button')
-  btn.classList.add('btn-small-outlined-danger')
-  btn.type = 'submit'
-  btn.textContent = 'Cancel'
+  const btn = DOM.button.delete({
+    text: 'Cancel',
+    type: 'submit'
+  })
 
   cancelForm.appendChild(btn)
   const urlEncodedVhost = encodeURIComponent(item.queue.vhost)
