@@ -5,7 +5,7 @@ import './expect_extensions.js'
 /**
  * @see https://playwright.dev/docs/test-configuration
  */
-module.exports = defineConfig(
+export default defineConfig(
   {
     testDir: '',
     /* Run tests in files in parallel */
