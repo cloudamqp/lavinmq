@@ -300,10 +300,7 @@ module LavinMQ
             @upstream.stop_link(@federated_ex)
           in .bind?
             b = data_as_binding_details(data)
-            # Must clone args here, else we'll add stuff to
-            # the arguments to the source exchange's binding
-            args = b.arguments.clone || ::AMQP::Client::Arguments.new
-            updated, args = update_bound_from?(args)
+            updated, args = update_bound_from?(b.arguments)
             if updated
               with_consumer_ex do |ex|
                 ex.bind(@upstream_exchange, b.routing_key, args: args)
@@ -311,8 +308,7 @@ module LavinMQ
             end
           in .unbind?
             b = data_as_binding_details(data)
-            args = b.arguments.clone || ::AMQP::Client::Arguments.new
-            updated, args = update_bound_from?(args)
+            updated, args = update_bound_from?(b.arguments)
             if updated
               with_consumer_ex do |ex|
                 ex.unbind(@upstream_exchange, b.routing_key, args: args)
@@ -387,10 +383,7 @@ module LavinMQ
           end
           @federated_ex.register_observer(self)
           @federated_ex.bindings_details.each do |binding|
-            # Must clone args here, else we'll add stuff to
-            # the arguments to the source exchange's binding
-            args = binding.arguments.clone || ::AMQP::Client::Arguments.new
-            updated, args = update_bound_from?(args)
+            updated, args = update_bound_from?(binding.arguments)
             if updated
               consumer_ex.bind(@upstream_exchange, binding.routing_key, args: args)
             end
@@ -431,7 +424,10 @@ module LavinMQ
         # element is the updated arguments.
         # If the arguments were not updated, it means that max hops has been reached
         # and the binding should not be created.
-        private def update_bound_from?(arguments : ::AMQP::Client::Arguments)
+        private def update_bound_from?(arguments : ::AMQP::Client::Arguments?)
+          # Arguments may be a reference to the arguments in a binding, and we don't
+          # want to be changed, therefore we clone it.
+          arguments = arguments.try &.clone || ::AMQP::Client::Arguments.new
           bound_from = arguments["x-bound-from"]?.try(&.as?(Array(AMQP::Field)))
           bound_from ||= Array(AMQP::Field).new
           hops = get_binding_hops(bound_from)
