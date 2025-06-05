@@ -39,6 +39,7 @@ module LavinMQ
           UsersController.new(@amqp_server),
           PermissionsController.new(@amqp_server),
           ParametersController.new(@amqp_server),
+          ShovelsController.new(@amqp_server),
           NodesController.new(@amqp_server),
           LogsController.new(@amqp_server),
         ] of ::HTTP::Handler
