@@ -40,6 +40,16 @@ function standardErrorHandler (e) {
   throw e
 }
 
+function url(strings, ...params) {
+  params = params.map(p => encodeURIComponent(p))
+  const result = [strings[0]]
+  params.forEach((p, i) => {
+    result.push(p, strings[i + 1])
+  })
+  return result.join('')
+}
+
 export {
-  request
+ request,
+ url
 }

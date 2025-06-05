@@ -1,10 +1,11 @@
+import * as HTTP from './http.js'
 import * as Table from './table.js'
 
 const vhost = window.sessionStorage.getItem('vhost')
 const numFormatter = new Intl.NumberFormat()
 let url = 'api/connections'
 if (vhost && vhost !== '_all') {
-  url = `api/vhosts/${encodeURIComponent(vhost)}/connections`
+  url = HTTP.url`api/vhosts/${vhost}/connections`
 }
 const tableOptions = {
   url,
@@ -18,7 +19,7 @@ const tableOptions = {
 Table.renderTable('table', tableOptions, function (tr, item, all) {
   if (all) {
     const connectionLink = document.createElement('a')
-    connectionLink.href = `connection#name=${encodeURIComponent(item.name)}`
+    connectionLink.href = HTTP.url`connection#name=${item.name}`
     connectionLink.appendChild(document.createElement('span')).textContent = item.name
     connectionLink.appendChild(document.createElement('br'))
     connectionLink.appendChild(document.createElement('small')).textContent = item.client_properties.connection_name
