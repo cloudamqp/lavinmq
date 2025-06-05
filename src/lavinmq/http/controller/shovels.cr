@@ -15,14 +15,14 @@ module LavinMQ
 
         get "/api/shovels/:vhost" do |context, params|
           with_vhost(context, params) do |vhost|
-            page(context, vhost.shovels.each_value)
+            page(context, @amqp_server.vhosts[vhost].shovels.each_value)
           end
         end
 
         get "/api/shovels/:vhost/:name" do |context, params|
           with_vhost(context, params) do |vhost|
             shovel_name = params["name"]
-            if shovel = vhost.shovels[shovel_name]?
+            if shovel = @amqp_server.vhosts[vhost].shovels[shovel_name]?
               shovel.to_json(context.response)
             else
               context.response.status_code = 404
@@ -33,7 +33,7 @@ module LavinMQ
         put "/api/shovels/:vhost/:name/pause" do |context, params|
           with_vhost(context, params) do |vhost|
             shovel_name = params["name"]
-            if current_shovel = vhost.shovels[shovel_name]?
+            if current_shovel = @amqp_server.vhosts[vhost].shovels[shovel_name]?
               if !current_shovel.running?
                 context.response.status_code = 422
                 next
@@ -50,7 +50,7 @@ module LavinMQ
         put "/api/shovels/:vhost/:name/resume" do |context, params|
           with_vhost(context, params) do |vhost|
             shovel_name = params["name"]
-            if current_shovel = vhost.shovels[shovel_name]?
+            if current_shovel = @amqp_server.vhosts[vhost].shovels[shovel_name]?
               if !current_shovel.paused?
                 context.response.status_code = 422
               end
