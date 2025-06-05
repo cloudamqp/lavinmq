@@ -51,10 +51,10 @@ const button = {
   edit: ({click, text = 'Edit', type = 'button'}) => {
     return createButton(type, text, ['btn-small'], click)
   },
-  submit: ({text = 'Save'}) => {
+  submit: ({text = 'Save'} = {}) => {
     return createButton('submit', text, ['btn-icon', 'btn-submit'])
   },
-  reset: ({text = 'Reset'}) => {
+  reset: ({text = 'Reset'} = {}) => {
     return createButton('reset', text, ['btn-icon', 'btn-reset'])
   },
 }
