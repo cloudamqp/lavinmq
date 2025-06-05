@@ -846,7 +846,7 @@ describe LavinMQ::Federation::Upstream do
               x_bound_from = args["x-bound-from"].should be_a(Array(AMQ::Protocol::Field))
               # in v4 there should be 6 entries
               # in v5 there should be 5 entries etc
-              x_bound_from.size.should eq(9 - i + 1), "Expected #{6 - i + 1} entries in v#{i} but got #{x_bound_from.size}"
+              x_bound_from.size.should eq(9 - i + 1), "Expected #{9 - i + 1} entries in v#{i} but got #{x_bound_from.size}"
               first_bound_from = x_bound_from.first.should be_a(AMQ::Protocol::Table)
               # The first (last appended) x-bound-from should be the previous vhost (v2 is prev to v1 etc)
               first_bound_from["vhost"].should eq "v#{i + 1}"
