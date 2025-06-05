@@ -408,30 +408,34 @@ module LavinMQ::AMQP
       unacked_bytesize = unacked_bytesize()
       unacked_avg_bytes = unacked_count.zero? ? 0u64 : unacked_bytesize//unacked_count
       {
-        name:                        @name,
-        durable:                     durable?,
-        exclusive:                   @exclusive,
-        auto_delete:                 @auto_delete,
-        arguments:                   @arguments,
-        consumers:                   @consumers.size,
-        vhost:                       @vhost.name,
-        messages:                    @msg_store.size + unacked_count,
-        total_bytes:                 @msg_store.bytesize + unacked_bytesize,
-        messages_persistent:         durable? ? @msg_store.size + unacked_count : 0,
-        ready:                       @msg_store.size,
-        ready_bytes:                 @msg_store.bytesize,
-        ready_avg_bytes:             @msg_store.avg_bytesize,
-        unacked:                     unacked_count,
-        unacked_bytes:               unacked_bytesize,
-        unacked_avg_bytes:           unacked_avg_bytes,
-        operator_policy:             @operator_policy.try &.name,
-        policy:                      @policy.try &.name,
-        exclusive_consumer_tag:      @exclusive ? @consumers.first?.try(&.tag) : nil,
-        single_active_consumer_tag:  @single_active_consumer.try &.tag,
-        state:                       @state,
-        effective_policy_definition: Policy.merge_definitions(@policy, @operator_policy),
-        message_stats:               current_stats_details,
-        effective_arguments:         @effective_args,
+        name:                         @name,
+        durable:                      durable?,
+        exclusive:                    @exclusive,
+        auto_delete:                  @auto_delete,
+        arguments:                    @arguments,
+        consumers:                    @consumers.size,
+        vhost:                        @vhost.name,
+        messages:                     @msg_store.size + unacked_count,
+        total_bytes:                  @msg_store.bytesize + unacked_bytesize,
+        messages_persistent:          durable? ? @msg_store.size + unacked_count : 0,
+        ready:                        @msg_store.size, # Deprecated, to be removed in next major version
+        messages_ready:               @msg_store.size,
+        ready_bytes:                  @msg_store.bytesize, # Deprecated, to be removed in next major version
+        message_bytes_ready:          @msg_store.bytesize,
+        ready_avg_bytes:              @msg_store.avg_bytesize,
+        unacked:                      unacked_count, # Deprecated, to be removed in next major version
+        messages_unacknowledged:      unacked_count,
+        unacked_bytes:                unacked_bytesize, # Deprecated, to be removed in next major version
+        message_bytes_unacknowledged: unacked_bytesize,
+        unacked_avg_bytes:            unacked_avg_bytes,
+        operator_policy:              @operator_policy.try &.name,
+        policy:                       @policy.try &.name,
+        exclusive_consumer_tag:       @exclusive ? @consumers.first?.try(&.tag) : nil,
+        single_active_consumer_tag:   @single_active_consumer.try &.tag,
+        state:                        @state,
+        effective_policy_definition:  Policy.merge_definitions(@policy, @operator_policy),
+        message_stats:                current_stats_details,
+        effective_arguments:          @effective_args,
       }
     end
 
