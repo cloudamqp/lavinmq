@@ -7,4 +7,25 @@ test.describe("overview", _ => {
     await page.goto('/')
     await expect(apiOverviewRequest).toBeRequested()
   })
+
+  test('definitions export trigger GET to /api/definitions', async ({ page, baseURL }) => {
+    const definitionsRequest  = helpers.waitForPathRequest(page, '/api/definitions')
+    await page.goto('/')
+    await page.locator('#exportDefinitions').getByRole('button', { name: /download/i }).click()
+    await expect(definitionsRequest).toBeRequested()
+  })
+
+  test('definitions import trigger POST to /api/definitions/upload', async ({ page, baseURL }) => {
+    const definitionsRequest = helpers.waitForPathRequest(page, '/api/definitions/upload')
+    await page.goto('/')
+
+    const importDefs = page.locator('#importDefinitions')
+    const fileChooserPromise = page.waitForEvent('filechooser');
+    await importDefs.getByLabel('File').click();
+    const fileChooser = await fileChooserPromise;
+    await fileChooser.setFiles({'name': 'definitions.json', buffer: Buffer.from('{}')});
+    await importDefs.getByRole('button', { name: /upload/i }).click()
+
+    await expect(definitionsRequest).toBeRequested()
+  })
 })
