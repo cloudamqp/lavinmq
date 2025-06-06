@@ -14,4 +14,14 @@ test.describe("connection", _ => {
     await page.goto(`/connection#name=${connectionName}`)
     await expect(apiChannelsRequest).toBeRequested()
   })
+
+  test('close button trigger DELETE to api/connections/<name>', async ({ page, baseURL }) => {
+    const response = {}
+    const connectionName = "127.0.0.1:63610 -> 127.0.0.1:12345"
+    await page.goto(`/connection#name=${connectionName}`)
+    const apiDeleteRequest = helpers.waitForPathRequest(page, `/api/connections/${connectionName}`, {method: 'DELETE'})
+    await page.locator('#closeConnection').getByRole('button').click()
+    await expect(apiDeleteRequest).toBeRequested()
+  })
+
 })
