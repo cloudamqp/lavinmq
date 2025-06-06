@@ -16,7 +16,7 @@ test.describe("overview", _ => {
   })
 
   test('definitions import trigger POST to /api/definitions/upload', async ({ page, baseURL }) => {
-    const definitionsRequest = helpers.waitForPathRequest(page, '/api/definitions/upload')
+    const definitionsRequest = helpers.waitForPathRequest(page, '/api/definitions/upload', { method: 'POST' })
     await page.goto('/')
 
     const importDefs = page.locator('#importDefinitions')
