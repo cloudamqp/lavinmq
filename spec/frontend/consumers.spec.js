@@ -24,20 +24,30 @@ const consumersResponse = {
 }
 
 test.describe("consumers", _ => {
-  test('are loaded', async ({ page, baseURL }) => {
-    const apiConsumersRequest = helpers.waitForPathRequest(page, `/api/consumers`)
-    await page.goto(`/consumers`)
-    await expect(apiConsumersRequest).toBeRequested()
-  })
+  test.describe("with one consumer in response", () => {
+    // Setup payload for each request
+    test.beforeEach(async ({ page }) => {
+      await page.route(/\/api\/consumers(?!\/)/, async route => {
+        if (route.request().method() == 'GET')
+          await route.fulfill({ json: consumersResponse })
+        else
+          await route.continue()
+      })
+      await page.goto(`/consumers`)
+    })
 
-  test('cancel consumer button trigger DELETE to api/consumers/<vhost>/<conn>/<channel>/<consumer_tag>', async ({ page, baseURL }) => {
-    const apiConsumersRequest = helpers.waitForPathRequest(page, `/api/consumers`, { response: consumersResponse })
-    await page.goto(`/consumers`)
-    await expect(apiConsumersRequest).toBeRequested()
-    const apiConsumerCancelRequest = helpers.waitForPathRequest(page, `/api/consumers/foo/connection_foo/1/consumer_foo`, { method: 'DELETE' })
-    page.on('dialog', async dialog => await dialog.accept())
-    await page.locator('#table').getByRole('button', { name: /cancel/i }).click()
-    await expect(apiConsumerCancelRequest).toBeRequested()
+    test('are loaded', async ({ page, baseURL }) => {
+      // Verify that one consumers has been loaded
+      expect(page.locator('#pagename-label')).toHaveText('1')
+    })
+
+    test('cancel consumer button trigger DELETE to api/consumers/<vhost>/<conn>/<channel>/<consumer_tag>', async ({ page, baseURL }) => {
+      // Just accept the 'Are you sure?' dialog
+      page.on('dialog', async dialog => await dialog.accept())
+      const apiConsumerCancelRequest = helpers.waitForPathRequest(page, `/api/consumers/foo/connection_foo/1/consumer_foo`, { method: 'DELETE' })
+      await page.locator('#table').getByRole('button', { name: /cancel/i }).click()
+      await expect(apiConsumerCancelRequest).toBeRequested()
+    })
   })
 })
- 
+
