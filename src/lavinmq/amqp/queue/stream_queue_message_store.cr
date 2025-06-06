@@ -25,6 +25,16 @@ module LavinMQ::AMQP
         drop_overflow
       end
 
+      def close : Nil
+        super
+        @consumer_offsets.close
+      end
+
+      def delete
+        super
+        delete_file(@consumer_offsets)
+      end
+
       private def get_last_offset : Int64
         return 0i64 if @size.zero?
         bytesize = 0_u32
