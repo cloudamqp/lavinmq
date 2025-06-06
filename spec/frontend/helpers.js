@@ -15,10 +15,6 @@ function waitForPathRequest(page, path, {response = {}, method = 'GET'} = {}) {
     }
     page.route('**/*', handler)
   })
-  return page.waitForRequest(req => {
-    const reqUrl = new URL(req.url())
-    return reqUrl.pathname == path && req.method == method
-  }, { timeout: 1000 })
 }
 
 
