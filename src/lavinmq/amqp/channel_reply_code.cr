@@ -13,6 +13,7 @@ module LavinMQ
       NOT_IMPLEMENTED = 540
       # TODO: Is this reply code ok to use on channel close? Does not look like that from the spec
       UNEXPECTED_FRAME = 505
+      RESOURCE_ERROR   = 506
     end
   end
 end
