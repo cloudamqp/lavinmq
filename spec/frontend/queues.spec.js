@@ -42,7 +42,7 @@ test.describe("queues", _ => {
     const queues_response = qHelpers.response(queues, { total_count: 100, page: 1, page_count: 10, page_size: 10 })
 
     test('updates url when a table header is clicked', async ({ page }) => {
-      const apiQueuesRequest = helpers.waitForPathRequest(page, '/api/queues', queues_response)
+      const apiQueuesRequest = helpers.waitForPathRequest(page, '/api/queues', { response: queues_response })
       await page.goto('/queues')
       await apiQueuesRequest
       await page.locator('#table thead').getByText('Name').click()
@@ -50,15 +50,15 @@ test.describe("queues", _ => {
     })
 
     test('is reversed when click on the same header', async ({ page }) => {
-      const apiQueuesRequest = helpers.waitForPathRequest(page, '/api/queues', queues_response)
+      const apiQueuesRequest = helpers.waitForPathRequest(page, '/api/queues', { response: queues_response })
       await page.goto('/queues')
       await apiQueuesRequest
-      const apiQueuesRequest2 = helpers.waitForPathRequest(page, '/api/queues', queues_response)
+      const apiQueuesRequest2 = helpers.waitForPathRequest(page, '/api/queues', { response: queues_response })
       await page.locator('#table thead').getByText('Name').click()
       await expect(page).toHaveURL(/sort=name/)
       await apiQueuesRequest2
       const sort_reverse = (new URL(page.url())).searchParams.get('sort_reverse') == 'true'
-      const apiQueuesRequest3 = helpers.waitForPathRequest(page, '/api/queues', queues_response)
+      const apiQueuesRequest3 = helpers.waitForPathRequest(page, '/api/queues', { response: queues_response })
       await page.locator('#table thead').getByText('Name').click()
       await expect(page).toHaveURL(new RegExp(`sort_reverse=${!sort_reverse}`))
       await expect(apiQueuesRequest3).toHaveQueryParams(`sort_reverse=${!sort_reverse}`)
@@ -70,14 +70,14 @@ test.describe("queues", _ => {
     const queues_response = qHelpers.response(queues, { total_count: 100, page: 1, page_count: 10, page_size: 10 })
 
     test('is visible for page_count=10', async ({ page }) => {
-      const apiQueuesRequest = helpers.waitForPathRequest(page, '/api/queues', queues_response)
+      const apiQueuesRequest = helpers.waitForPathRequest(page, '/api/queues', { response: queues_response })
       await page.goto('/queues')
       await apiQueuesRequest
       await expect(page.locator('#table .pagination .page-item')).toContainText(['Previous', 'Next'], { timeout: 10 })
     })
 
     test('updates url when Next is clicked', async ({page }) => {
-      const apiQueuesRequest = helpers.waitForPathRequest(page, '/api/queues', queues_response)
+      const apiQueuesRequest = helpers.waitForPathRequest(page, '/api/queues', { response: queues_response })
       await page.goto('/queues')
       await apiQueuesRequest
       const apiQueuesRequest2 = helpers.waitForPathRequest(page, '/api/queues')
