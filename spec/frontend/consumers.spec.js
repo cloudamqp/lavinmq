@@ -27,13 +27,18 @@ test.describe("consumers", _ => {
   test.describe("with one consumer in response", () => {
     // Setup payload for each request
     test.beforeEach(async ({ page }) => {
-      await page.route(/\/api\/consumers(?!\/)/, async route => {
-        if (route.request().method() == 'GET')
-          await route.fulfill({ json: consumersResponse })
-        else
-          await route.continue()
+      const consumersLoaded = new Promise(async (resolve, reject) => {
+        await page.route(/\/api\/consumers(?!\/)/, async route => {
+          if (route.request().method() == 'GET') {
+            await route.fulfill({ json: consumersResponse })
+            resolve()
+          } else {
+            await route.continue()
+          }
+        })
       })
       await page.goto(`/consumers`)
+      await consumersLoaded
     })
 
     test('are loaded', async ({ page, baseURL }) => {
