@@ -56,7 +56,12 @@ document.querySelector('#multiselect-controls .popup-close').addEventListener('c
   toggleMultiActionControls(false, 0)
 })
 const toggleMultiActionControls = (show, count) => {
-  multiSelectControls.classList.toggle('hide', !(show && count > 0))
+  const currentlyHidden = multiSelectControls.classList.contains('hide')
+  if (currentlyHidden && show && count > 0) {
+    multiSelectControls.classList.remove('hide')
+  } else if (!currentlyHidden && !show) {
+    multiSelectControls.classList.add('hide')
+  }
   document.getElementById('multi-queue-count').textContent = count
 }
 const rowCheckboxChanged = (e) => {
@@ -136,7 +141,7 @@ document.querySelector('#declare').addEventListener('submit', function (evt) {
 })
 queuesTable.on('updated', _ => {
   const checked = document.querySelectorAll('input[data-name]:checked')
-  toggleMultiActionControls(true, checked.length)
+  document.getElementById('multi-queue-count').textContent = checked.length
 })
 
 document.querySelector('#dataTags').onclick = e => {
