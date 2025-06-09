@@ -58,7 +58,7 @@ describe LavinMQ::VHost do
           vhost.connection_closed_count.should eq(initial_connections_closed)
         end
 
-        wait_for { vhost.@connections.empty? }
+        wait_for { vhost.connections.empty? }
 
         s.update_stats_rates
         vhost.connection_created_count.should eq(initial_connections_created + 1)
