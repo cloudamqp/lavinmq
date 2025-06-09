@@ -66,7 +66,7 @@ test.describe("queues", _ => {
       await expect(page.locator('#table .pagination .page-item')).toContainText(['Previous', 'Next'], { timeout: 10 })
     })
 
-    test('updates url when Next is clicked', async ({page }) => {
+    test('updates url when Next is clicked', async ({ page }) => {
       const apiQueuesRequest = helpers.waitForPathRequest(page, '/api/queues')
       await page.locator('#table .pagination .page-item').getByText('Next').click()
       await expect(page).toHaveURL(/page=2/)
@@ -75,7 +75,7 @@ test.describe("queues", _ => {
   })
 
   test.describe('search', _ => {
-    test('updates url when value is entered and Enter is hit', async ({ page })=> {
+    test('updates url when value is entered and Enter is hit', async ({ page }) => {
       const searchField = page.locator('.filter-table')
       await searchField.fill('my filter')
       const apiQueuesRequest = helpers.waitForPathRequest(page, '/api/queues')
