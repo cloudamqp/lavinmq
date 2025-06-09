@@ -84,4 +84,23 @@ test.describe("queues", _ => {
       await expect(apiQueuesRequest).toHaveQueryParams('name=my filter&use_regex=true')
     })
   })
+
+  test.describe('table checkboxes', _ => {
+    test('header checkbox checks all', async ({ page }) => {
+      await page.locator('#multi-check-all').check()
+      await page.locator('#table tbody tr[data-name="queue-9"]')
+      const queueCheckboxes = await page.locator('#table tbody').getByRole('checkbox').all()
+      queueCheckboxes.forEach(async (cb) => {
+        await expect(cb).toBeChecked()
+      })
+    })
+
+    test('header checkbox  action dialog opens and closes', async ({ page }) => {
+      await page.locator('#multi-check-all').check()
+      await expect(page.locator('#multiselect-controls')).toBeVisible()
+      await page.locator('#multiselect-controls').getByRole('close').click()
+      // TODO: fix the behaviour of the dialog, then enable this expectation
+      await expect(page.locator('#multiselect-controls')).toBeHidden()
+    })
+  })
 })
