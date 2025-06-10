@@ -453,7 +453,7 @@ module LavinMQ
       @parameters.apply(parameter) do |p|
         case p.component_name
         when SHOVEL
-          shovels.upsert(p.parameter_name, p.value)
+          shovels.create(p.parameter_name, p.value)
         when FEDERATION_UPSTREAM
           upstreams.create_upstream(p.parameter_name, p.value)
         when FEDERATION_UPSTREAM_SET

@@ -15,33 +15,8 @@ module LavinMQ
       end
     end
 
-    def upsert(name, config)
-      shovel = @shovels[name]?.try { |s| update_status_or_terminate(s, config) }
-      shovel ||= create(name, config)
-      shovel
-    end
-
-    private def update_status_or_terminate(shovel, config)
-      case {shovel.state, config["state"]?.try &.as_s}
-      when {LavinMQ::Shovel::State::Running, "Paused"}
-        shovel.pause
-        return shovel
-      when {LavinMQ::Shovel::State::Paused, "Running"}
-        spawn(shovel.resume, name: "Shovel name=#{shovel.name} vhost=#{@vhost.name}")
-        return shovel
-      end
-      shovel.terminate
-      nil
-    end
-
-    def delete(name)
-      if shovel = @shovels.delete name
-        shovel.terminate
-        shovel
-      end
-    end
-
-    private def create(name, config)
+    def create(name, config)
+      @shovels[name]?.try &.terminate
       delete_after_str = config["src-delete-after"]?.try(&.as_s.delete("-")).to_s
       delete_after = Shovel::DeleteAfter.parse?(delete_after_str) || Shovel::DEFAULT_DELETE_AFTER
       ack_mode_str = config["ack-mode"]?.try(&.as_s.delete("-")).to_s
@@ -64,6 +39,13 @@ module LavinMQ
       shovel
     rescue KeyError
       raise JSON::Error.new("Fields 'src-uri' and 'dest-uri' are required")
+    end
+
+    def delete(name)
+      if shovel = @shovels.delete name
+        shovel.terminate
+        shovel
+      end
     end
 
     private def destination(name, config, ack_mode)
