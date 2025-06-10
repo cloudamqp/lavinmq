@@ -46,7 +46,6 @@ module LavinMQ
           end
         end
 
-        # TODO 911: found a bug when we restart the LMQ instance - shovel gets back to running
         put "/api/shovels/:vhost/:name/resume" do |context, params|
           with_vhost(context, params) do |vhost|
             shovel_name = params["name"]
