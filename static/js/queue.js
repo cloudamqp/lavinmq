@@ -162,7 +162,7 @@ const bindingsTable = Table.renderTable('bindings-table', tableOptions, function
     const e = encodeURIComponent(item.source)
     const btn = DOM.button.delete({
       text: 'Unbind',
-      onclick: function () {
+      click: function () {
         const p = encodeURIComponent(item.properties_key)
         const url = 'api/bindings/' + urlEncodedVhost + '/e/' + e + '/q/' + urlEncodedQueue + '/' + p
         HTTP.request('DELETE', url).then(() => { tr.parentNode.removeChild(tr) })
