@@ -40,7 +40,7 @@ module LavinMQ
       @tx = false
       @next_msg_body_tmp = IO::Memory.new
 
-      rate_stats({"ack", "get", "get_no_ack", "publish", "deliver", "deliver_get", "redeliver", "reject", "confirm", "return_unroutable"})
+      rate_stats({"ack", "get", "get_no_ack", "publish", "deliver", "deliver_no_ack", "deliver_get", "redeliver", "reject", "confirm", "return_unroutable"})
 
       Log = LavinMQ::Log.for "amqp.channel"
 
@@ -331,12 +331,12 @@ module LavinMQ
         @client.deliver(frame, msg)
       end
 
-      def increment_deliver_count(redelivered : Bool)
+      def increment_deliver_count(redelivered : Bool, no_ack : Bool = false)
         if redelivered
           @redeliver_count.add(1)
           @client.vhost.event_tick(EventType::ClientRedeliver)
         else
-          @deliver_count.add(1)
+          no_ack ? @deliver_no_ack_count.add(1) : @deliver_count.add(1)
           @deliver_get_count.add(1)
           @client.vhost.event_tick(EventType::ClientDeliver)
         end

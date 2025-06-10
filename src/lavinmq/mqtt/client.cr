@@ -114,7 +114,8 @@ module LavinMQ
           if packet.dup?
             vhost.event_tick(EventType::ClientRedeliver)
           else
-            vhost.event_tick(EventType::ClientDeliver)
+            vhost.event_tick(EventType::ClientDeliverNoAck) if packet.qos == 0
+            vhost.event_tick(EventType::ClientDeliver) if packet.qos > 0
           end
         when MQTT::PubAck
           vhost.event_tick(EventType::ClientPublishConfirm)
