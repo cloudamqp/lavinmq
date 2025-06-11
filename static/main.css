@@ -434,36 +434,36 @@ body.login {
 }
 
 body.login main {
-  min-height: 100vh; 
-  margin: 0 auto; 
-  width: 100%; 
-  min-width: 100%; 
+  min-height: 100vh;
+  margin: 0 auto;
+  width: 100%;
+  min-width: 100%;
   max-width: 100%;
 }
 
 .login-logo {
-  width: 140px; 
+  width: 140px;
   margin-bottom: 48px;
 }
 
 .login-label {
-  text-align: left; 
+  text-align: left;
   margin-bottom: 8px;
   display: none !important;
 }
 
 .login-input {
-  width: auto !important; 
-  border-radius: 8px !important; 
+  width: auto !important;
+  border-radius: 8px !important;
   padding: 1rem 1rem !important;
 }
 
 .login-btn {
-  width: 100%; 
-  margin-left: 0 !important; 
-  font-size: 1rem; 
-  padding: 1rem 1rem; 
-  line-height: 1.5rem; 
+  width: 100%;
+  margin-left: 0 !important;
+  font-size: 1rem;
+  padding: 1rem 1rem;
+  line-height: 1.5rem;
   margin-top: 24px;
 }
 /* Login page end */
@@ -500,10 +500,10 @@ body.login main {
 }
 
 .login-card {
-  grid-column: 1 / span 12; 
-  align-items: center; 
-  display: flex; 
-  flex-direction: column; 
+  grid-column: 1 / span 12;
+  align-items: center;
+  display: flex;
+  flex-direction: column;
   justify-content: center;
 }
 
@@ -575,13 +575,13 @@ body.login main {
 }
 
 .login-form {
-  width: 100%; 
+  width: 100%;
   max-width: 400px;
 }
 
 .login-form label {
-  display: flex; 
-  flex-direction: column; 
+  display: flex;
+  flex-direction: column;
   margin: 12px auto;
 }
 
