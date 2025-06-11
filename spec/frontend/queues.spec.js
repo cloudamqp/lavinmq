@@ -95,11 +95,10 @@ test.describe("queues", _ => {
       })
     })
 
-    test('header checkbox  action dialog opens and closes', async ({ page }) => {
+    test('header checkbox action dialog opens and closes', async ({ page }) => {
       await page.locator('#multi-check-all').check()
       await expect(page.locator('#multiselect-controls')).toBeVisible()
-      await page.locator('#multiselect-controls').getByRole('close').click()
-      // TODO: fix the behaviour of the dialog, then enable this expectation
+      await page.locator('#multiselect-controls .popup-close').click()
       await expect(page.locator('#multiselect-controls')).toBeHidden()
     })
   })
