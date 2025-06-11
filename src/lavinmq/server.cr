@@ -105,7 +105,11 @@ module LavinMQ
       loop do
         client = s.accept? || break
         next client.close if @closed
-        MT.spawn(name: "Accept TCP socket") { accept_tcp(client, protocol) }
+        if @config.multi_threading?
+          MT.spawn(name: "Accept TCP socket") { accept_tcp(client, protocol) }
+        else
+          spawn(name: "Accept TCP socket") { accept_tcp(client, protocol) }
+        end
       end
     rescue ex : IO::Error
       abort "Unrecoverable error in listener: #{ex.inspect_with_backtrace}"
@@ -153,7 +157,11 @@ module LavinMQ
       loop do # do not try to use while
         client = s.accept? || break
         next client.close if @closed
-        MT.spawn(name: "Accept UNIX socket") { accept_unix(client, protocol) }
+        if @config.multi_threading?
+          MT.spawn(name: "Accept UNIX socket") { accept_unix(client, protocol) }
+        else
+          spawn(name: "Accept UNIX socket") { accept_unix(client, protocol) }
+        end
       end
     rescue ex : IO::Error
       abort "Unrecoverable error in unix listener: #{ex.inspect_with_backtrace}"
@@ -187,7 +195,11 @@ module LavinMQ
       loop do # do not try to use while
         client = s.accept? || break
         next client.close if @closed
-        MT.spawn(name: "Accept TLS socket") { accept_tls(client, context, protocol) }
+        if @config.multi_threading?
+          MT.spawn(name: "Accept TLS socket") { accept_tls(client, context, protocol) }
+        else
+          spawn(name: "Accept TLS socket") { accept_tls(client, context, protocol) }
+        end
       end
     rescue ex : IO::Error | OpenSSL::Error
       abort "Unrecoverable error in TLS listener: #{ex.inspect_with_backtrace}"
