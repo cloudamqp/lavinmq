@@ -88,11 +88,14 @@ test.describe("queues", _ => {
   test.describe('table checkboxes', _ => {
     test('header checkbox checks all', async ({ page }) => {
       await page.locator('#multi-check-all').check()
-      await page.locator('#table tbody tr[data-name="queue-9"]')
-      const queueCheckboxes = await page.locator('#table tbody').getByRole('checkbox').all()
-      queueCheckboxes.forEach(async (cb) => {
-        await expect(cb).toBeChecked()
-      })
+      await page.locator('#table tbody tr[data-name="queue-9"]').isVisible()
+      const checkboxes = page.locator('#table tbody').getByRole('checkbox')
+      await expect(checkboxes).toHaveCount(10)
+
+      const count = await checkboxes.count();
+      for (let i = 0; i < count; i++) {
+        await expect(checkboxes.nth(i)).toBeChecked();
+      }
     })
 
     test('header checkbox action dialog opens and closes', async ({ page }) => {
