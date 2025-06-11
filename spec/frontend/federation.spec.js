@@ -41,4 +41,16 @@ test.describe("federation", _ => {
     await expect(page.locator('#pagename-label')).toHaveText('1')
     await expect(page.locator('#links-count')).toHaveText('1')
   })
+
+  test('upstream can be deleted', async ({ page }) => {
+    const upstream = upstreamsResponse.items[0]
+    const deleteRequest = helpers.waitForPathRequest(
+      page,
+      `/api/parameters/federation-upstream/${upstream.vhost}/${upstream.name}`,
+      {method: 'DELETE'}
+    )
+    page.on('dialog', async dialog => await dialog.accept())
+    await page.locator('#upstreamTable').getByRole('button', { name: /delete/i }).click()
+    await expect(deleteRequest).toBeRequested()
+  })
 })
