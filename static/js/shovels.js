@@ -112,8 +112,8 @@ Table.renderTable('table', tableOptions, (tr, item, all) => {
         'dest-type': (item) => item.value['dest-queue'] ? 'queue' : 'exchange',
         'src-endpoint': (item) => item.value['src-queue'] || item.value['src-exchange'],
         'dest-endpoint': (item) => item.value['dest-queue'] || item.value['dest-exchange']
-        })
-      }
+      })
+    }
   })
 
   const pauseLabel = ['Running', 'Starting'].includes(item.state) ? 'Pause' : 'Resume'
@@ -124,21 +124,21 @@ Table.renderTable('table', tableOptions, (tr, item, all) => {
       const isRunning = item.state === 'Running'
       const action = isRunning ? 'pause' : 'resume'
 
-      const url = `api/shovels/${vhost}/${name}/${action}`;
+      const url = `api/shovels/${vhost}/${name}/${action}`
 
       if (window.confirm('Are you sure?')) {
         HTTP.request('PUT', url)
-             .then(() => {
-               dataSource.reload()
-               DOM.toast(`Shovel ${item.name} ${isRunning ? 'resumed' : 'paused'}`)
-             })
-           .catch((err) => {
-               console.error(err);
-               DOM.toast(`Shovel ${item.name} failed to ${isRunning ? 'resume' : 'pause'}`, 'error');
-           })
+          .then(() => {
+            dataSource.reload()
+            DOM.toast(`Shovel ${item.name} ${isRunning ? 'resumed' : 'paused'}`)
+          })
+          .catch((err) => {
+            console.error(err)
+            DOM.toast(`Shovel ${item.name} failed to ${isRunning ? 'resume' : 'pause'}`, 'error')
+          })
       }
     },
-    text: pauseLabel,
+    text: pauseLabel
   })
   btns.append(editBtn, pauseBtn, deleteBtn)
   Table.renderCell(tr, 11, btns, 'right')
