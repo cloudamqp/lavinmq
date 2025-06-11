@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [2.4.0] - 2025-06-11
 
 ### Added
-- Parts of LavinMQ is now multi threaded, many structures are not thread safe
+- Parts of LavinMQ is now multi threaded, many structures are now thread safe
 - Streams - Fltering on any header [#1053](https://github.com/cloudamqp/lavinmq/pull/1053)
 - Purgeing a queue without unacked messages is now instant [#1083](https://github.com/cloudamqp/lavinmq/pull/1083)
 - Show active arguments on queues & exchanges [#1072](https://github.com/cloudamqp/lavinmq/pull/1072)
