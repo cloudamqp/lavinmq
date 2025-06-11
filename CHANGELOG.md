@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.4.0-rc.1] - 2025-05-20
+## [2.4.0] - 2025-06-11
 
 ### Added
 - Parts of LavinMQ is now multi threaded, many structures are not thread safe
@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Append to x-received-from instead of replacing [#1084](https://github.com/cloudamqp/lavinmq/pull/1084)
 - Don't allow invalid binding arguments to ConsitentHashExchange [#1089](https://github.com/cloudamqp/lavinmq/pull/1089)
 - Drop msg on requeue if above delivery_limit [#996](https://github.com/cloudamqp/lavinmq/pull/996)
+- Fixed clustering leader election timing issue [#1138](https://github.com/cloudamqp/lavinmq/pull/1138)
 
 ## [2.3.0] - 2025-04-17
 
