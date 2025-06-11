@@ -61,3 +61,19 @@ document.querySelector('#createUser').addEventListener('submit', function (evt) 
 document.querySelector('#dataTags').onclick = e => {
   Helpers.argumentHelper('createUser', 'tags', e)
 }
+
+document.querySelector('#generatePassword').addEventListener('click', function() {
+  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+-=[]{}|;:,.<>?'
+  const password = Array.from(crypto.getRandomValues(new Uint8Array(16)), x => chars[x % chars.length]).join('')
+  const input = document.querySelector('#createUser input[name="password"]')
+
+  input.value = password
+  input.type = 'text'
+  setTimeout(() => input.type = 'password', 500)
+})
+
+document.querySelector('.password-toggle').addEventListener('click', function() {
+  const input = document.querySelector('#createUser input[name="password"]')
+  const isPassword = input.type === 'password'
+  input.type = isPassword ? 'text' : 'password'
+})
