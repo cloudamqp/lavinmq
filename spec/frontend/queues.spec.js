@@ -15,7 +15,7 @@ test.describe("queues", _ => {
   // Test that different combination of hash params are sent in the request
   test.describe('are loaded with params when hash params', _ => {
     test('are empty', async ({ page, baseURL }) => {
-      expect(page.locator('#pagename-label')).toHaveText('100') // total_count
+      await expect(page.locator('#pagename-label')).toHaveText('100') // total_count
    })
 
     test('are page_size=10, page=2', async ({ page }) => {
