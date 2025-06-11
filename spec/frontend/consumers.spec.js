@@ -32,9 +32,9 @@ test.describe("consumers", _ => {
       await consumersLoaded
     })
 
-    test('are loaded', async ({ page, baseURL }) => {
+    test('are loaded', async ({ page }) => {
       // Verify that one consumers has been loaded
-      expect(page.locator('#pagename-label')).toHaveText('1')
+      await expect(page.locator('#pagename-label')).toHaveText('1')
     })
 
     test('cancel consumer button trigger DELETE to api/consumers/<vhost>/<conn>/<channel>/<consumer_tag>', async ({ page, baseURL }) => {
