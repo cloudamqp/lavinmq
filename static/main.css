@@ -2021,6 +2021,11 @@ pre.arguments .inactive-argument:before {
   border: none;
   margin-left: 4px !important;
   display: flex !important;
+  opacity : .7;
+
+  &:hover {
+    opacity: 1;
+  }
 
   img {
     height: 1.2rem;
