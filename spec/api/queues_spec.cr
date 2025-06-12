@@ -64,6 +64,17 @@ describe LavinMQ::HTTP::QueuesController do
         end
         msgs.receive
 
+        msgs = Channel(Int32).new
+        with_channel(s) do |ch|
+          q = ch.queue("stats_q")
+
+          ch.prefetch 1
+          q.subscribe(no_ack: true) do
+            msgs.send 1
+          end
+        end
+        msgs.receive
+
         body = %({ "count": 1, "ack_mode": "get", "encoding": "auto" })
         http.post("/api/queues/%2f/stats_q/get", body: body)
 
@@ -74,7 +85,8 @@ describe LavinMQ::HTTP::QueuesController do
         body["message_stats"]["get"].should eq 1
         body["message_stats"]["deliver"].should eq 1
         body["message_stats"]["get_no_ack"].should eq 1
-        body["message_stats"]["deliver_get"].should eq 3
+        body["message_stats"]["deliver_no_ack"].should eq 1
+        body["message_stats"]["deliver_get"].should eq 4
       end
     end
 
