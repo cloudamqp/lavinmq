@@ -83,5 +83,24 @@ describe LavinMQ::VHost do
         end
       end
     end
+
+    it "should count deliver and deliver_no_ack" do
+      with_amqp_server do |s|
+        with_channel(s) do |c|
+          vhost = s.vhosts["/"]
+          q = c.queue("q1")
+          c.prefetch(1)
+
+          2.times { q.publish "message" }
+          q.subscribe(no_ack: false) { }
+          q.subscribe(no_ack: true) { }
+
+          s.update_stats_rates
+          vhost.deliver_count.should eq 1
+          vhost.deliver_no_ack_count.should eq 1
+          vhost.deliver_get_count.should eq 2
+        end
+      end
+    end
   end
 end

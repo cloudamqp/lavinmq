@@ -73,6 +73,7 @@ module LavinMQ::AMQP
         if env.redelivered
           @redeliver_count.add(1)
         else
+          @deliver_count.add(1)
           @deliver_get_count.add(1)
         end
       end

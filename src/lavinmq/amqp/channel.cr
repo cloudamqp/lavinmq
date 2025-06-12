@@ -336,9 +336,14 @@ module LavinMQ
           @redeliver_count.add(1)
           @client.vhost.event_tick(EventType::ClientRedeliver)
         else
-          no_ack ? @deliver_no_ack_count.add(1) : @deliver_count.add(1)
+          if no_ack
+            @deliver_no_ack_count.add(1)
+            @client.vhost.event_tick(EventType::ClientDeliverNoAck)
+          else
+            @deliver_count.add(1)
+            @client.vhost.event_tick(EventType::ClientDeliver)
+          end
           @deliver_get_count.add(1)
-          @client.vhost.event_tick(EventType::ClientDeliver)
         end
       end
 
