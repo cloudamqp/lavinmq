@@ -370,11 +370,18 @@ module LavinMQ
       @retries : Int64 = 0
       RETRY_THRESHOLD =  10
       MAX_DELAY       = 300
+      @config = LavinMQ::Config.instance
 
       getter name, vhost
 
       def initialize(@source : AMQPSource, @destination : Destination,
                      @name : String, @vhost : VHost, @reconnect_delay : Time::Span = DEFAULT_RECONNECT_DELAY)
+        #TODO1148 naive
+        FileUtils.mkdir_p(File.join(@config.data_dir, "shovels"))
+        @paused_file_path = File.join(@config.data_dir, "shovels", "#{@name}.paused")
+        if File.exists?(@paused_file_path)
+          @state = State::Paused
+        end
       end
 
       def state
@@ -449,12 +456,14 @@ module LavinMQ
       end
 
       def resume
+        delete_paused_file
         @state = State::Starting
         Log.info { "Resuming shovel #{@name} vhost=#{@vhost.name}" }
         spawn(run, name: "Shovel name=#{@name} vhost=#{@vhost.name}")
       end
 
       def pause
+        FileUtils.touch(@paused_file_path)
         Log.info { "Pausing shovel #{@name} vhost=#{@vhost.name}" }
         @state = State::Paused
         @source.stop
@@ -469,6 +478,12 @@ module LavinMQ
         @destination.stop
         return if terminated?
         Log.info &.emit("Terminated", name: @name, vhost: @vhost.name)
+      end
+
+      def delete_paused_file
+        if File.exists?(@paused_file_path)
+          FileUtils.rm(@paused_file_path)
+        end
       end
 
       def should_stop_loop?
