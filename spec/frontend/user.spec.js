@@ -15,16 +15,16 @@ test.describe("user", _ => {
   })
 
   test('permissions are loaded', async ({ page }) => {
-    const apiUserRequest = helpers.waitForPathRequest(page, '/api/users/guest/permissions')
+    const apiPermissionRequest = helpers.waitForPathRequest(page, '/api/users/guest/permissions')
     await page.goto('/user#name=guest')
-    await expect(apiUserRequest).toBeRequested()
+    await expect(apiPermissionRequest).toBeRequested()
   })
 
   test('permission can be removed', async ({ page }) => {
     const permission = permissionsResponse[1]
-    const apiUserRequest = helpers.waitForPathRequest(page, `/api/users/${permission.user}/permissions`)
+    const apiPermissionRequest = helpers.waitForPathRequest(page, `/api/users/${permission.user}/permissions`)
     await page.goto(`/user#name=${permission.user}`)
-    await apiUserRequest
+    await expect(apiPermissionRequest).toBeRequested()
     const apiDeletePermissionsRequest = helpers.waitForPathRequest(page,
       `/api/permissions/${permission.vhost}/${permission.user}`, { method: 'DELETE' })
     await page.locator(`#permissions tr[data-vhost='"${permission.vhost}"']`).getByRole('button', { name: /clear/i }).click()
