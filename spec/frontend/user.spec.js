@@ -27,7 +27,7 @@ test.describe("user", _ => {
     await apiUserRequest
     const apiDeletePermissionsRequest = helpers.waitForPathRequest(page,
       `/api/permissions/${permission.vhost}/${permission.user}`, { method: 'DELETE' })
-    await page.locator(`#permissions [data-vhost='"${permission.vhost}"']`).getByRole('button', { name: /clear/i }).first().click()
+    await page.locator(`#permissions [data-vhost='"${permission.vhost}"']`).getByRole('button', { name: /clear/i }).click()
     await expect(apiDeletePermissionsRequest).toBeRequested()
   })
 })
