@@ -16,6 +16,7 @@ module LavinMQ
       Starting
       Running
       Stopped
+      Paused
       Terminated
       Error
     end
@@ -377,13 +378,13 @@ module LavinMQ
       end
 
       def state
-        @state.to_s
+        @state
       end
 
       def run
         Log.context.set(name: @name, vhost: @vhost.name)
         loop do
-          break if terminated?
+          break if should_stop_loop?
           @state = State::Starting
           unless @source.started?
             if @source.last_unacked
@@ -393,7 +394,7 @@ module LavinMQ
           end
           @destination.start unless @destination.started?
 
-          break if terminated?
+          break if should_stop_loop?
           Log.info { "started" }
           @state = State::Running
           @retries = 0
@@ -404,7 +405,7 @@ module LavinMQ
           @vhost.delete_parameter("shovel", @name) if @source.delete_after.queue_length?
           break
         rescue ex : ::AMQP::Client::Connection::ClosedException | ::AMQP::Client::Channel::ClosedException | Socket::ConnectError
-          break if terminated?
+          break if should_stop_loop?
           @state = State::Error
           # Shoveled queue was deleted
           if ex.message.to_s.starts_with?("404")
@@ -414,14 +415,18 @@ module LavinMQ
           @error = ex.message
           exponential_reconnect_delay
         rescue ex
-          break if terminated?
+          break if should_stop_loop?
           @state = State::Error
           Log.warn { ex.message }
           @error = ex.message
           exponential_reconnect_delay
         end
       ensure
-        terminate
+        terminate_if_needed
+      end
+
+      private def terminate_if_needed
+        terminate if !paused?
       end
 
       def exponential_reconnect_delay
@@ -443,6 +448,20 @@ module LavinMQ
         }
       end
 
+      def resume
+        @state = State::Starting
+        Log.info { "Resuming shovel #{@name} vhost=#{@vhost.name}" }
+        spawn(run, name: "Shovel name=#{@name} vhost=#{@vhost.name}")
+      end
+
+      def pause
+        Log.info { "Pausing shovel #{@name} vhost=#{@vhost.name}" }
+        @state = State::Paused
+        @source.stop
+        @destination.stop
+        Log.info &.emit("Paused", name: @name, vhost: @vhost.name)
+      end
+
       # Does not trigger reconnect, but a graceful close
       def terminate
         @state = State::Terminated
@@ -450,6 +469,14 @@ module LavinMQ
         @destination.stop
         return if terminated?
         Log.info &.emit("Terminated", name: @name, vhost: @vhost.name)
+      end
+
+      def should_stop_loop?
+        terminated? || paused?
+      end
+
+      def paused?
+        @state.paused?
       end
 
       def terminated?

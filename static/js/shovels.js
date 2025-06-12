@@ -115,7 +115,32 @@ Table.renderTable('table', tableOptions, (tr, item, all) => {
       })
     }
   })
-  btns.append(editBtn, deleteBtn)
+
+  const pauseLabel = ['Running', 'Starting'].includes(item.state) ? 'Pause' : 'Resume'
+  const pauseBtn = DOM.button.edit({
+    click: function () {
+      const name = encodeURIComponent(item.name)
+      const vhost = encodeURIComponent(item.vhost)
+      const isRunning = item.state === 'Running'
+      const action = isRunning ? 'pause' : 'resume'
+
+      const url = `api/shovels/${vhost}/${name}/${action}`
+
+      if (window.confirm('Are you sure?')) {
+        HTTP.request('PUT', url)
+          .then(() => {
+            dataSource.reload()
+            DOM.toast(`Shovel ${item.name} ${isRunning ? 'resumed' : 'paused'}`)
+          })
+          .catch((err) => {
+            console.error(err)
+            DOM.toast(`Shovel ${item.name} failed to ${isRunning ? 'resume' : 'pause'}`, 'error')
+          })
+      }
+    },
+    text: pauseLabel
+  })
+  btns.append(editBtn, pauseBtn, deleteBtn)
   Table.renderCell(tr, 11, btns, 'right')
 })
 
