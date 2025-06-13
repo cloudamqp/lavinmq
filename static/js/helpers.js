@@ -10,7 +10,7 @@ function formatNumber (num) {
 
 function nFormatter (num) {
   let suffix = ''
-  if (typeof num == 'undefined') {
+  if (typeof num === 'undefined') {
     return ''
   }
 
