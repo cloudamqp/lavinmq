@@ -185,7 +185,7 @@ jobs:
         run: npx playwright install --with-deps
 
       - name: Run tests
-        run: npx playwright test --trace on --config ./spec/frontend/playwright.config.js
+        run: npx playwright test --config ./spec/frontend/playwright.config.js
 
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
