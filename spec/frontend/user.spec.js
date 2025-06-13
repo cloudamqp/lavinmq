@@ -22,7 +22,7 @@ test.describe("user", _ => {
 
   test('permission can be removed', async ({ page }) => {
     const permission = permissionsResponse[1]
-    const apiPermissionRequest = helpers.waitForPathRequest(page, `/api/users/${permission.user}/permissions`)
+    const apiPermissionRequest = helpers.waitForPathRequest(page, `/api/users/${permission.user}/permissions`, { response: permissionsResponse })
     await page.goto(`/user#name=${permission.user}`)
     await expect(apiPermissionRequest).toBeRequested()
     const apiDeletePermissionsRequest = helpers.waitForPathRequest(page,
