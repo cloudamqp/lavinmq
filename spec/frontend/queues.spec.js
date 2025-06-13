@@ -3,13 +3,20 @@ import * as qHelpers from './queues_helpers.js'
 import { test, expect } from './fixtures.js';
 
 test.describe("queues", _ => {
+    const queues = Array.from(Array(10), (_, i) => qHelpers.queue(`queue-${i}`))
+    const queues_response = qHelpers.response(queues, { total_count: 100, page: 1, page_count: 10, page_size: 10 })
+
+    test.beforeEach(async ({ apimap, page }) => {
+      const queuesLoaded = apimap.get('/api/queues', queues_response)
+      page.goto('/queues')
+      await queuesLoaded
+    })
+
   // Test that different combination of hash params are sent in the request
   test.describe('are loaded with params when hash params', _ => {
     test('are empty', async ({ page, baseURL }) => {
-      const apiQueuesRequest = helpers.waitForPathRequest(page, '/api/queues')
-      await page.goto('/queues')
-      await expect(apiQueuesRequest).toBeRequested()
-    })
+      await expect(page.locator('#pagename-label')).toHaveText('100') // total_count
+   })
 
     test('are page_size=10, page=2', async ({ page }) => {
       const apiQueuesRequest = helpers.waitForPathRequest(page, '/api/queues')
@@ -38,64 +45,64 @@ test.describe("queues", _ => {
   })
 
   test.describe('sorting', _ => {
-    const queues = Array.from(Array(10), (_, i) => qHelpers.queue(`queue-${i}`))
-    const queues_response = qHelpers.response(queues, { total_count: 100, page: 1, page_count: 10, page_size: 10 })
-
     test('updates url when a table header is clicked', async ({ page }) => {
-      const apiQueuesRequest = helpers.waitForPathRequest(page, '/api/queues', queues_response)
-      await page.goto('/queues')
-      await apiQueuesRequest
       await page.locator('#table thead').getByText('Name').click()
       await expect(page).toHaveURL(/sort=name/)
     })
 
     test('is reversed when click on the same header', async ({ page }) => {
-      const apiQueuesRequest = helpers.waitForPathRequest(page, '/api/queues', queues_response)
-      await page.goto('/queues')
-      await apiQueuesRequest
-      const apiQueuesRequest2 = helpers.waitForPathRequest(page, '/api/queues', queues_response)
       await page.locator('#table thead').getByText('Name').click()
       await expect(page).toHaveURL(/sort=name/)
-      await apiQueuesRequest2
       const sort_reverse = (new URL(page.url())).searchParams.get('sort_reverse') == 'true'
-      const apiQueuesRequest3 = helpers.waitForPathRequest(page, '/api/queues', queues_response)
+      const apiQueuesRequest = helpers.waitForPathRequest(page, '/api/queues')
       await page.locator('#table thead').getByText('Name').click()
       await expect(page).toHaveURL(new RegExp(`sort_reverse=${!sort_reverse}`))
-      await expect(apiQueuesRequest3).toHaveQueryParams(`sort_reverse=${!sort_reverse}`)
+      await expect(apiQueuesRequest).toHaveQueryParams(`sort_reverse=${!sort_reverse}`)
     })
   })
 
   test.describe('pagination', _ => {
-    const queues = Array.from(Array(10), (_, i) => qHelpers.queue(`queue-${i}`))
-    const queues_response = qHelpers.response(queues, { total_count: 100, page: 1, page_count: 10, page_size: 10 })
-
     test('is visible for page_count=10', async ({ page }) => {
-      const apiQueuesRequest = helpers.waitForPathRequest(page, '/api/queues', queues_response)
-      await page.goto('/queues')
-      await apiQueuesRequest
       await expect(page.locator('#table .pagination .page-item')).toContainText(['Previous', 'Next'], { timeout: 10 })
     })
 
-    test('updates url when Next is clicked', async ({page }) => {
-      const apiQueuesRequest = helpers.waitForPathRequest(page, '/api/queues', queues_response)
-      await page.goto('/queues')
-      await apiQueuesRequest
-      const apiQueuesRequest2 = helpers.waitForPathRequest(page, '/api/queues')
+    test('updates url when Next is clicked', async ({ page }) => {
+      const apiQueuesRequest = helpers.waitForPathRequest(page, '/api/queues')
       await page.locator('#table .pagination .page-item').getByText('Next').click()
       await expect(page).toHaveURL(/page=2/)
-      await expect(apiQueuesRequest2).toHaveQueryParams('page=2')
+      await expect(apiQueuesRequest).toHaveQueryParams('page=2')
     })
   })
 
   test.describe('search', _ => {
-    test('updates url when value is entered and Enter is hit', async ({ page })=> {
-      await page.goto('/queues')
+    test('updates url when value is entered and Enter is hit', async ({ page }) => {
       const searchField = page.locator('.filter-table')
       await searchField.fill('my filter')
       const apiQueuesRequest = helpers.waitForPathRequest(page, '/api/queues')
       await searchField.press('Enter')
       await expect(page).toHaveURL(/name=my(\+|%20)filter/)
       await expect(apiQueuesRequest).toHaveQueryParams('name=my filter&use_regex=true')
+    })
+  })
+
+  test.describe('table checkboxes', _ => {
+    test('header checkbox checks all', async ({ page }) => {
+      await page.locator('#multi-check-all').check()
+      await page.locator('#table tbody tr[data-name="queue-9"]').isVisible()
+      const checkboxes = page.locator('#table tbody').getByRole('checkbox')
+      await expect(checkboxes).toHaveCount(10)
+
+      const count = await checkboxes.count();
+      for (let i = 0; i < count; i++) {
+        await expect(checkboxes.nth(i)).toBeChecked();
+      }
+    })
+
+    test('header checkbox action dialog opens and closes', async ({ page }) => {
+      await page.locator('#multi-check-all').check()
+      await expect(page.locator('#multiselect-controls')).toBeVisible()
+      await page.locator('#multiselect-controls .popup-close').click()
+      await expect(page.locator('#multiselect-controls')).toBeHidden()
     })
   })
 })
