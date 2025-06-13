@@ -10,6 +10,9 @@ function formatNumber (num) {
 
 function nFormatter (num) {
   let suffix = ''
+  if (typeof num == 'undefined') {
+    return ''
+  }
 
   if (num === '') {
     return num
