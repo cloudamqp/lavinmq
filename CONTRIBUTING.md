@@ -28,6 +28,56 @@ The first step to making a code contribution, is starting a conversation around 
 1. Bump version in `shards.yml`
 1. Create and push an annotated tag (`git tag -a v$(shards version)`), put the changelog of the version in the tagging message
 
+### Branching strategy
+
+Our project's core development happens on the main branch, where new feature branches are merged as soon as they are complete. To prepare a new minor version, we create a long-lived release branch from main (e.g., 2.4.x). Bug fixes are applied to the relevant release branch and must also be merged back into main to be included in future releases.
+
+```mermaid
+%%{ init: { 'theme': 'base', 'gitGraph': {'mainBranchOrder':2 }} }%%
+gitGraph
+    commit
+    branch feature-1 order: 1
+    commit
+    checkout main
+    commit id:"b"
+    branch 2.4.x  order: 3
+    checkout 2.4.x
+    commit id: "v2.4.0-rc.1" tag:"v2.4.0-rc.1"
+    checkout main
+    commit
+    checkout 2.4.x
+    commit id:"bugfix 1" tag:"v2.4.0"
+    checkout main
+    cherry-pick id:"bugfix 1" tag:""
+    commit
+    branch feature-2 order: 0
+    checkout feature-2
+    commit
+    checkout 2.4.x
+    commit id:"bugfix 2" tag:"v2.4.1" 
+    checkout 2.4.x
+    checkout main
+    merge 2.4.x
+    checkout feature-1
+    commit
+    checkout main
+    merge feature-1
+    checkout main
+    commit
+    branch 2.5.x  order: 4
+    commit id:"2.5.0-rc-1" tag:"v2.5.0-rc.1"
+    checkout feature-2
+    commit
+    checkout main
+    merge feature-2
+    checkout 2.5.x
+    commit id:"bugfix 3" tag:"v2.5.0"
+    commit id:"bugfix 4" tag:"v2.5.1"
+    checkout main
+    merge 2.5.x
+    commit
+```
+
 ## Non-Code contributions
 
 Your schedule won't allow you make code contributions? Still fine, you can:
