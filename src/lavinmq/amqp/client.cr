@@ -241,7 +241,7 @@ module LavinMQ
 
       @write_lock = Mutex.new(:checked)
 
-      def deliver(frame, msg)
+      def deliver(frame, msg, flush = true)
         return false if closed?
         @write_lock.synchronize do
           socket = @socket
@@ -276,7 +276,7 @@ module LavinMQ
             @send_oct_count.add(8_u64 + body.bytesize)
             pos += length
           end
-          socket.flush unless websocket # Websockets need to send one frame per WS frame
+          socket.flush if flush && !websocket # Websockets need to send one frame per WS frame
           @last_sent_frame = RoughTime.monotonic
         end
         true
@@ -880,6 +880,12 @@ module LavinMQ
         # yield so that msg expiration, consumer delivery etc gets priority
         Fiber.yield
         with_channel frame, &.basic_get(frame)
+      end
+
+      def flush
+        @write_lock.synchronize do
+          @socket.flush
+        end
       end
     end
   end

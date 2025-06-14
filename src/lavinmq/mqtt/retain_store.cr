@@ -14,7 +14,7 @@ module LavinMQ
       def initialize(@dir : String, @replicator : Clustering::Replicator, @index = IndexTree.new)
         Dir.mkdir_p @dir
         @files = Hash(String, File).new do |files, file_name|
-          files[file_name] = File.open(File.join(@dir, file_name), "r+").tap &.sync = true
+          files[file_name] = File.new(File.join(@dir, file_name))
         end
         @index_file_name = File.join(@dir, INDEX_FILE_NAME)
         @index_file = File.new(@index_file_name, "a+")
@@ -23,13 +23,14 @@ module LavinMQ
         if @index.empty?
           restore_index(@index, @index_file)
           write_index
-          @index_file = File.new(@index_file_name, "a+")
         end
       end
 
       def close
         @lock.synchronize do
           write_index
+          @index_file.close
+          @files.each_value &.close
         end
       end
 
@@ -77,37 +78,38 @@ module LavinMQ
             add_to_index(topic, msg_file_name)
           end
 
-          tmp_file = File.join(@dir, "#{msg_file_name}.tmp")
-          File.open(tmp_file, "w+") do |f|
-            f.sync = true
-            ::IO.copy(body_io, f)
-          end
+          file = File.new(File.join(@dir, "#{msg_file_name}.tmp"), "w+")
+          file.sync = true
+          file.read_buffering = false
+          len = ::IO.copy(body_io, file, size)
+          raise ::IO::EOFError.new("Copied only #{len} of #{size} bytes") if len != size
           final_file_path = File.join(@dir, msg_file_name)
-          File.rename(tmp_file, final_file_path)
-          @files.delete(final_file_path)
-          @files[msg_file_name] = File.new(final_file_path, "r+")
+          file.rename(final_file_path)
           @replicator.replace_file(final_file_path)
-        ensure
-          FileUtils.rm_rf tmp_file unless tmp_file.nil?
+          @files.delete(msg_file_name).try &.close
+          @files[msg_file_name] = file
         end
       end
 
+      # Closes current index file, writes the inmemory index to a tmp file
+      # renames the file back to the correct name and replaces it on followers,
+      # sets @index_file to the new compacted index file
       private def write_index
-        File.open("#{@index_file_name}.tmp", "w") do |f|
-          @index.each do |topic|
-            f.puts topic
-          end
-          f.rename @index_file_name
+        @index_file.close
+        f = File.new("#{@index_file_name}.tmp", "w")
+        @index.each do |topic|
+          f.puts topic
         end
+        f.flush
+        f.rename @index_file_name
         @replicator.replace_file(@index_file_name)
-      rescue ex
-        FileUtils.rm_rf File.join(@dir, "#{INDEX_FILE_NAME}.tmp")
-        raise ex
+        @index_file = f
       end
 
       private def add_to_index(topic : String, file_name : String) : Nil
         @index.insert topic, file_name
         @index_file.puts topic
+        @index_file.flush
         @replicator.append(@index_file_name, "#{topic}\n".to_slice)
       end
 
@@ -125,18 +127,11 @@ module LavinMQ
       def each(subscription : String, &block : String, ::IO, UInt64 -> Nil) : Nil
         @lock.synchronize do
           @index.each(subscription) do |topic, file_name|
-            io = ::IO::Memory.new(read(file_name))
-            block.call(topic, io, io.bytesize.to_u64)
+            f = @files[file_name]
+            f.rewind
+            block.call(topic, f, f.size.to_u64)
           end
         end
-      end
-
-      private def read(file_name : String) : Bytes
-        f = @files[file_name]
-        body = Bytes.new(f.size)
-        f.read_fully(body)
-        f.rewind
-        body
       end
 
       def retained_messages
@@ -147,7 +142,7 @@ module LavinMQ
 
       @hasher = Digest::MD5.new
 
-      def make_file_name(topic : String) : String
+      private def make_file_name(topic : String) : String
         @hasher.update topic.to_slice
         "#{@hasher.hexfinal}#{MESSAGE_FILE_SUFFIX}"
       ensure
