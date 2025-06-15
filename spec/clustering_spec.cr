@@ -49,6 +49,47 @@ describe LavinMQ::Clustering::Client do
     end
   end
 
+  it "can stream changes to to priority queues" do
+    replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Etcd.new("localhost:12379"), 0)
+    tcp_server = TCPServer.new("localhost", 0)
+    spawn(replicator.listen(tcp_server), name: "repli server spec")
+    config = LavinMQ::Config.new.tap &.data_dir = follower_data_dir
+    repli = LavinMQ::Clustering::Client.new(config, 1, replicator.password, proxy: false)
+    done = Channel(Nil).new
+    spawn(name: "follow spec") do
+      repli.follow("localhost", tcp_server.local_address.port)
+      done.send nil
+    end
+    wait_for { replicator.followers.size == 1 }
+    with_amqp_server(replicator: replicator) do |s|
+      with_channel(s) do |ch|
+        args = AMQP::Client::Arguments.new({"x-max-priority" => 3})
+        q = ch.queue("repli", args: args)
+        q.publish_confirm "hello world", props: AMQP::Client::Properties.new(priority: 1_u8)
+        q.publish_confirm "hello world 2", props: AMQP::Client::Properties.new(priority: 2_u8)
+        if msg = q.get(no_ack: false)
+          msg.properties.priority.should eq 2
+        else
+          fail("could not get message")
+        end
+      end
+      repli.close
+      done.receive
+    end
+
+    server = LavinMQ::Server.new(config)
+    begin
+      q = server.vhosts["/"].queues["repli"].as(LavinMQ::AMQP::DurablePriorityQueue)
+      q.message_count.should eq 1
+      q.basic_get(true) do |env|
+        env.message.properties.priority.should eq 1
+        String.new(env.message.body).to_s.should eq "hello world"
+      end.should be_true
+    ensure
+      server.close
+    end
+  end
+
   it "replicates and streams retained messages to followers" do
     replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Etcd.new("localhost:12379"), 0)
     tcp_server = TCPServer.new("localhost", 0)
