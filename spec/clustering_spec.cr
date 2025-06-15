@@ -69,6 +69,7 @@ describe LavinMQ::Clustering::Client do
         q.publish_confirm "hello world 2", props: AMQP::Client::Properties.new(priority: 2_u8)
         if msg = q.get(no_ack: false)
           msg.properties.priority.should eq 2
+          msg.ack
         else
           fail("could not get message")
         end
