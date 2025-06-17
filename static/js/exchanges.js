@@ -18,7 +18,7 @@ HTTP.request('GET', 'api/overview').then(function (response) {
 const vhost = window.sessionStorage.getItem('vhost')
 let url = 'api/exchanges'
 if (vhost && vhost !== '_all') {
-  url += HTTP.url(`/${vhost}`)
+  url += HTTP.url`/${vhost}`
 }
 const tableOptions = {
   url,
