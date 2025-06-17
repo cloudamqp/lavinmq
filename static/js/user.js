@@ -37,7 +37,7 @@ const permissionsTable = Table.renderTable('permissions', tableOptions, (tr, ite
     const deleteBtn = DOM.button.delete({
       text: 'Clear',
       click: function () {
-      const url = HTTP.url`api/permissions/${item.vhost}/${item.username}`
+      const url = HTTP.url`api/permissions/${item.vhost}/${item.user}`
         HTTP.request('DELETE', url)
           .then(() => {
             tr.parentNode.removeChild(tr)
