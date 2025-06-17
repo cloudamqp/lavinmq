@@ -92,7 +92,7 @@ Table.renderTable('table', tableOptions, (tr, item, all) => {
   btns.classList.add('buttons')
   const deleteBtn = DOM.button.delete({
     click: function () {
-    const url = HTTP.url`api/parameters/shovel/${item.vhost}/${item.name}`
+      const url = HTTP.url`api/parameters/shovel/${item.vhost}/${item.name}`
       if (window.confirm('Are you sure? This shovel can not be restored after deletion.')) {
         HTTP.request('DELETE', url)
           .then(() => {

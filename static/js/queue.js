@@ -156,7 +156,6 @@ const bindingsTable = Table.renderTable('bindings-table', tableOptions, function
     const td = Table.renderCell(tr, 0, '(Default exchange binding)')
     td.setAttribute('colspan', 4)
   } else {
-    const e = encodeURIComponent(item.source)
     const btn = DOM.button.delete({
       text: 'Unbind',
       click: function () {

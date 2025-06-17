@@ -40,7 +40,7 @@ function standardErrorHandler (e) {
   throw e
 }
 
-function url(strings, ...params) {
+function url (strings, ...params) {
   return params.reduce(
     (res, param, i) => {
       if (param instanceof NoUrlEscapeString) {
@@ -53,15 +53,16 @@ function url(strings, ...params) {
 }
 
 class NoUrlEscapeString {
-  constructor(value) {
+  constructor (value) {
     this.value = value
   }
-  toString() {
+
+  toString () {
     return this.value
   }
 }
 
-function noencode(v) {
+function noencode (v) {
   return new NoUrlEscapeString(v)
 }
 

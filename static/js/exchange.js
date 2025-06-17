@@ -67,9 +67,9 @@ const bindingsTable = Table.renderTable('bindings-table', tableOptions, function
     const btn = DOM.button.delete({
       text: 'Unbind',
       click: function () {
-      const type = item.destination_type === 'exchange' ? 'e' : 'q'
-      const url = HTTP.url`api/bindings/${vhost}/e/${item.source}/${type}/${item.destination}/${item.properties_key}`
-         HTTP.request('DELETE', url).then(() => { tr.parentNode.removeChild(tr) })
+        const type = item.destination_type === 'exchange' ? 'e' : 'q'
+        const url = HTTP.url`api/bindings/${vhost}/e/${item.source}/${type}/${item.destination}/${item.properties_key}`
+        HTTP.request('DELETE', url).then(() => { tr.parentNode.removeChild(tr) })
       }
     })
 

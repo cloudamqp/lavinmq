@@ -181,5 +181,5 @@ export {
   argumentHelperJSON,
   formatJSONargument,
   autoCompleteDatalist,
-  formatTimestamp,
+  formatTimestamp
 }
