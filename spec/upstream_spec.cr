@@ -904,6 +904,8 @@ describe LavinMQ::Federation::Upstream do
       end
 
       it "message forwarding respects max-hops" do
+        # Verify that a message that has been forwarded twice (two x-received-from entries)
+        # will only be forwarded once when published to a federated exchange with max-hops 3.
         with_http_server do |_http, s|
           UpstreamSpecHelpers.with_fe_chain(s, chain_length: 3) do
             downstream_vhost = s.vhosts["v3"]
