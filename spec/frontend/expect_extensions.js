@@ -15,7 +15,6 @@ expect.extend(
         }
       })
     },
-
     async toHaveQueryParams(received, query) {
       try {
         const request = await received
