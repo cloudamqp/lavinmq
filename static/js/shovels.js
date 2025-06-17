@@ -116,12 +116,10 @@ Table.renderTable('table', tableOptions, (tr, item, all) => {
   const pauseLabel = ['Running', 'Starting'].includes(item.state) ? 'Pause' : 'Resume'
   const pauseBtn = DOM.button.edit({
     click: function () {
-      const name = encodeURIComponent(item.name)
-      const vhost = encodeURIComponent(item.vhost)
       const isRunning = item.state === 'Running'
       const action = isRunning ? 'pause' : 'resume'
 
-      const url = `api/shovels/${vhost}/${name}/${action}`
+      const url = HTTP.url`api/shovels/${item.vhost}/${item.name}/${action}`
 
       if (window.confirm('Are you sure?')) {
         HTTP.request('PUT', url)
