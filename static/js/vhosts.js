@@ -17,7 +17,7 @@ const vhostTable = Table.renderTable('table', tableOptions, (tr, item, all) => {
       window.sessionStorage.setItem(permissionsUrl, JSON.stringify(permissions))
       if (all) {
         const vhostLink = document.createElement('a')
-        vhostLink.href = `vhost#name=${urlEncodedVhost}`
+        vhostLink.href = HTTP.url`vhost#name=${item.name}`
         vhostLink.textContent = item.name
         Table.renderCell(tr, 0, vhostLink)
       }
@@ -35,7 +35,7 @@ document.querySelector('#createVhost').addEventListener('submit', function (evt)
   evt.preventDefault()
   const data = new window.FormData(this)
   const name = data.get('name').trim()
-  const url = HTTP.url`'api/vhosts/${name}`
+  const url = HTTP.url`api/vhosts/${name}`
   HTTP.request('PUT', url)
     .then(() => {
       vhostTable.reload()
