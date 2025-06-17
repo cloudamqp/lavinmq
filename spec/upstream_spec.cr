@@ -864,7 +864,7 @@ describe LavinMQ::Federation::Upstream do
         # is lower and takes precedence preventing the binding from traveling further.
         with_http_server do |_http, s|
           UpstreamSpecHelpers.with_fe_chain(s, chain_length: 10) do |_, upstreams|
-            # By setting max_hops to 1 on v10, bindings should reach v7 but no further
+            # By setting max_hops to 3 on v10, bindings should reach v7 but no further
             us = upstreams.find { |u| u.vhost.name == "v10" }.should_not be_nil
             us.max_hops = 3
 
