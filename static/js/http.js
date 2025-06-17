@@ -61,14 +61,12 @@ class NoUrlEscapeString {
   }
 }
 
-
-function noescape(v) {
+function noencode(v) {
   return new NoUrlEscapeString(v)
-
 }
 
 export {
- request,
- url,
-  noescape
+  request,
+  url,
+  noencode
 }

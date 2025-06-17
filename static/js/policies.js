@@ -35,7 +35,7 @@ const policiesTable = Table.renderTable('table', tableOptions, (tr, item) => {
     click: function () {
       const name = item.name
       const vhost = item.vhost
-      const url = HTTP.url`${HTTP.noescape(baseUrl)}/${vhost}/${name}`
+      const url = HTTP.url`${HTTP.noencode(baseUrl)}/${vhost}/${name}`
       if (window.confirm('Are you sure? This policy cannot be recovered after deletion.')) {
         HTTP.request('DELETE', url)
           .then(() => tr.parentNode.removeChild(tr))
@@ -58,7 +58,7 @@ document.querySelector('#createPolicy').addEventListener('submit', function (evt
   const data = new window.FormData(this)
   const name = data.get('name').trim()
   const vhost = data.get('vhost')
-  const url = HTTP.url`${HTTP.noescape(baseUrl)}/${vhost}/${name}`
+  const url = HTTP.url`${HTTP.noencode(baseUrl)}/${vhost}/${name}`
   const body = {
     pattern: data.get('pattern').trim(),
     definition: DOM.parseJSON(data.get('definition')),

@@ -289,7 +289,7 @@ document.querySelector('#purgeQueue').addEventListener('submit', function (evt) 
   if (countElem && countElem.value) {
     params = `?count=${countElem.value}`
   }
-  const url = HTTP.url`api/queues/${vhost}/${queue}/contents${HTTP.noescape(params)}`
+  const url = HTTP.url`api/queues/${vhost}/${queue}/contents${HTTP.noencode(params)}`
   if (window.confirm('Are you sure? Messages cannot be recovered after purging.')) {
     HTTP.request('DELETE', url)
       .then(() => { DOM.toast('Queue purged!') })
