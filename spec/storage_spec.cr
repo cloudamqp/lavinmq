@@ -10,7 +10,7 @@ describe LavinMQ::AMQP::DurableQueue do
       FileUtils.rm_rf("/tmp/lavinmq-spec-index-v2")
     end
 
-    it "should succefully convert queue index" do
+    it "should successfully convert queue index" do
       config = LavinMQ::Config.new.tap &.data_dir = "/tmp/lavinmq-spec-index-v2"
       server = LavinMQ::Server.new(config)
       begin

@@ -22,7 +22,7 @@ macro add_etcd_around_each
       end
     rescue e : Socket::ConnectError
       i += 1
-      raise "Cant connect to etcd on port 12379. Giving up after 100 tries. (#{e.message})" if i >= 100
+      raise "Can't connect to etcd on port 12379. Giving up after 100 tries. (#{e.message})" if i >= 100
       next
     end
     client.close

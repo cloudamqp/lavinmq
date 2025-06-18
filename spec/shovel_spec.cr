@@ -66,7 +66,7 @@ describe LavinMQ::Shovel do
         end
       end
 
-      it "wont start ack timeout loop when not needed" do
+      it "won't start ack timeout loop when not needed" do
         with_amqp_server do |s|
           source_name = Random::Secure.base64(32)
           source = LavinMQ::Shovel::AMQPSource.new(
@@ -121,7 +121,7 @@ describe LavinMQ::Shovel do
       end
     end
 
-    it "will wait to ack all msgs before deleting it self" do
+    it "will wait to ack all msgs before deleting itself" do
       with_amqp_server do |s|
         source = LavinMQ::Shovel::AMQPSource.new(
           "spec",

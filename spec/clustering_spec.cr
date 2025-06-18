@@ -210,7 +210,7 @@ describe LavinMQ::Clustering::Client do
     end
   end
 
-  it "wont deadlock under high load when a follower disconnects [#926]" do
+  it "won't deadlock under high load when a follower disconnects [#926]" do
     LavinMQ::Config.instance.clustering_max_unsynced_actions = 1
     replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Etcd.new("localhost:12379"), 0)
     tcp_server = TCPServer.new("localhost", 0)

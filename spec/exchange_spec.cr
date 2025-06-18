@@ -106,7 +106,7 @@ describe LavinMQ::Exchange do
     end
   end
   describe "auto delete exchange" do
-    it "should delete the exhchange when the last binding is removed" do
+    it "should delete the exchange when the last binding is removed" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           x = ch.exchange("ad", "topic", auto_delete: true)

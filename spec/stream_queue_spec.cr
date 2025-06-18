@@ -213,7 +213,7 @@ describe LavinMQ::AMQP::StreamQueue do
     end
   end
 
-  it "can start consume from last segment even is queue is empty" do
+  it "can start consume from last segment even if queue is empty" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         q = ch.queue("empty-stream", args: stream_queue_args)

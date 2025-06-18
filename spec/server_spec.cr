@@ -680,7 +680,7 @@ describe LavinMQ::Server do
     end
   end
 
-  it "only allow one consumer on when exlusive consumers flag is set" do
+  it "only allow one consumer when exclusive consumers flag is set" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         q = ch.queue("exlusive_consumer", auto_delete: true)

@@ -18,7 +18,7 @@ module LavinMQ
         @etcd.lease_revoke(@id)
       end
 
-      # Wait until looses leadership
+      # Wait until loses leadership
       # Raises `Lost` if lost leadership, otherwise returns after `timeout`
       def wait(timeout : Time::Span) : Nil
         select

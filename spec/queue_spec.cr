@@ -2,7 +2,7 @@ require "./spec_helper"
 require "./../src/lavinmq/amqp/queue"
 
 describe LavinMQ::AMQP::Queue do
-  it "should expire it self after last consumer disconnects" do
+  it "should expire itself after last consumer disconnects" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         q = ch.queue("qexpires", args: AMQP::Client::Arguments.new({"x-expires" => 100}))
@@ -34,7 +34,7 @@ describe LavinMQ::AMQP::Queue do
     end
   end
 
-  it "Should not dead letter messages to it self due to queue length" do
+  it "Should not dead letter messages to itself due to queue length" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         q1 = ch.queue("", args: AMQP::Client::Arguments.new(
@@ -48,7 +48,7 @@ describe LavinMQ::AMQP::Queue do
     end
   end
 
-  it "Should dead letter messages to it self only if rejected" do
+  it "Should dead letter messages to itself only if rejected" do
     queue_name = Random::Secure.hex
     with_amqp_server do |s|
       with_channel(s) do |ch|
@@ -254,7 +254,7 @@ describe LavinMQ::AMQP::Queue do
     end
   end
 
-  it "should keep track of unacked deliviered messages" do
+  it "should keep track of unacked delivered messages" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         q = ch.queue
@@ -442,7 +442,7 @@ describe LavinMQ::AMQP::Queue do
   end
 
   describe "deduplication" do
-    it "should not except message if it's a duplicate" do
+    it "should not accept message if it's a duplicate" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           queue_name = "dedup-queue"

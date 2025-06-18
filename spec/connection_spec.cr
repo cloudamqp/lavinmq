@@ -59,7 +59,7 @@ end
 
 describe LavinMQ::Server do
   describe "channel_max" do
-    it "should not accpet a channel_max from the client lower than the server config" do
+    it "should not accept a channel_max from the client lower than the server config" do
       with_amqp_server do |s|
         server_channel_max = LavinMQ::Config.instance.channel_max
         client_channel_max = server_channel_max + 1
@@ -110,7 +110,7 @@ describe LavinMQ::Server do
   end
 
   describe "frame_max" do
-    it "should not accpet a frame_max from the client lower than the server config" do
+    it "should not accept a frame_max from the client lower than the server config" do
       with_amqp_server do |s|
         server_frame_max = LavinMQ::Config.instance.frame_max
         client_frame_max = server_frame_max + 1
