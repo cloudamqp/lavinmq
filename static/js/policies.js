@@ -11,7 +11,7 @@ let url = baseUrl
 
 const vhost = window.sessionStorage.getItem('vhost')
 if (vhost && vhost !== '_all') {
-  url += '/' + encodeURIComponent(vhost)
+  url += HTTP.url`/${vhost}`
 }
 const policiesDataSource = new UrlDataSource(url)
 const tableOptions = {
@@ -33,9 +33,9 @@ const policiesTable = Table.renderTable('table', tableOptions, (tr, item) => {
   buttons.classList.add('buttons')
   const deleteBtn = DOM.button.delete({
     click: function () {
-      const name = encodeURIComponent(item.name)
-      const vhost = encodeURIComponent(item.vhost)
-      const url = `${baseUrl}/${vhost}/${name}`
+      const name = item.name
+      const vhost = item.vhost
+      const url = HTTP.url`${HTTP.noencode(baseUrl)}/${vhost}/${name}`
       if (window.confirm('Are you sure? This policy cannot be recovered after deletion.')) {
         HTTP.request('DELETE', url)
           .then(() => tr.parentNode.removeChild(tr))
@@ -56,9 +56,9 @@ const policiesTable = Table.renderTable('table', tableOptions, (tr, item) => {
 document.querySelector('#createPolicy').addEventListener('submit', function (evt) {
   evt.preventDefault()
   const data = new window.FormData(this)
-  const name = encodeURIComponent(data.get('name').trim())
-  const vhost = encodeURIComponent(data.get('vhost'))
-  const url = `${baseUrl}/${vhost}/${name}`
+  const name = data.get('name').trim()
+  const vhost = data.get('vhost')
+  const url = HTTP.url`${HTTP.noencode(baseUrl)}/${vhost}/${name}`
   const body = {
     pattern: data.get('pattern').trim(),
     definition: DOM.parseJSON(data.get('definition')),

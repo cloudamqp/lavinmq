@@ -6,8 +6,7 @@ import * as Chart from './chart.js'
 import { DataSource } from './datasource.js'
 
 const channel = new URLSearchParams(window.location.hash.substring(1)).get('name')
-const urlEncodedChannel = encodeURIComponent(channel)
-const channelUrl = 'api/channels/' + urlEncodedChannel
+const channelUrl = HTTP.url`api/channels/${channel}`
 const chart = Chart.render('chart', 'msgs/s')
 let vhost = null
 document.title = channel + ' | LavinMQ'
@@ -26,7 +25,7 @@ const consumerTableOpts = {
 Table.renderTable('table', consumerTableOpts, function (tr, item) {
   Table.renderCell(tr, 0, item.consumer_tag)
   const queueLink = document.createElement('a')
-  queueLink.href = `queue#vhost=${encodeURIComponent(vhost)}&name=${encodeURIComponent(item.queue.name)}`
+  queueLink.href = HTTP.url`queue#vhost=${vhost}&name=${item.queue.name}`
   queueLink.textContent = item.queue.name
   const ack = item.ack_required ? '●' : '○'
   const exclusive = item.exclusive ? '●' : '○'
@@ -106,7 +105,7 @@ function updateChannel () {
     document.getElementById('pagename-label').textContent = `${channel} in virtual host ${item.vhost}`
     document.getElementById('ch-username').textContent = item.user
     const connectionLink = document.querySelector('#ch-connection a')
-    connectionLink.href = `connection#name=${encodeURIComponent(item.connection_details.name)}`
+    connectionLink.href = HTTP.url`connection#name=${item.connection_details.name}`
     connectionLink.textContent = item.connection_details.name
     prefetch.update(item.prefetch_count)
     document.getElementById('ch-mode').textContent = `${item.confirm ? 'C' : ''}`

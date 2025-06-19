@@ -16,7 +16,7 @@ HTTP.request('GET', 'api/permissions').then(permissions => {
   usersTable = Table.renderTable('users', tableOptions, (tr, item, all) => {
     if (all) {
       const userLink = document.createElement('a')
-      userLink.href = 'user#name=' + encodeURIComponent(item.name)
+      userLink.href = HTTP.url`user#name=${item.name}`
       userLink.textContent = item.name
       Table.renderCell(tr, 0, userLink)
     }
@@ -33,8 +33,8 @@ HTTP.request('GET', 'api/permissions').then(permissions => {
 document.querySelector('#createUser').addEventListener('submit', function (evt) {
   evt.preventDefault()
   const data = new window.FormData(this)
-  const username = encodeURIComponent(data.get('username').trim())
-  const url = 'api/users/' + username
+  const username = data.get('username').trim()
+  const url = HTTP.url`api/users/${username}`
   let toastText = `User created: '${username}'`
   const trs = document.querySelectorAll('#table tbody tr')
   trs.forEach((tr) => {

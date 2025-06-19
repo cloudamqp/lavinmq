@@ -1,12 +1,12 @@
 import * as Table from './table.js'
 import { UrlDataSource } from './datasource.js'
+import * as HTTP from './http.js'
 
 const search = new URLSearchParams(window.location.hash.substring(1))
 const queue = search.get('name')
 const vhost = search.get('vhost')
-const url = `api/queues/${encodeURIComponent(vhost)}/${encodeURIComponent(queue)}/unacked`
-const channelBaseUrl = 'channel#name='
-document.getElementById('queue-link').href = `queue#vhost=${encodeURIComponent(vhost)}&name=${encodeURIComponent(queue)}`
+const url = HTTP.url`api/queues/${vhost}/${queue}/unacked`
+document.getElementById('queue-link').href = HTTP.url`queue#vhost=${vhost}&name=${queue}`
 document.getElementById('queue-link').innerHTML = queue
 document.querySelector('#pagename-label').textContent = `${queue} in virtual host ${vhost}`
 
@@ -25,7 +25,7 @@ Table.renderTable('table', tableOptions, function (tr, item, firstRender) {
     Table.renderCell(tr, 0, item.delivery_tag)
     Table.renderCell(tr, 1, item.consumer_tag)
     const channel = document.createElement('a')
-    channel.href = channelBaseUrl + encodeURIComponent(item.channel_name)
+    channel.href = HTTP.url`channel#name=${item.channel_name}`
     channel.textContent = item.channel_name
     Table.renderCell(tr, 2, channel)
   }

@@ -8,7 +8,7 @@ Helpers.addVhostOptions('declare')
 const vhost = window.sessionStorage.getItem('vhost')
 let url = 'api/queues'
 if (vhost && vhost !== '_all') {
-  url += '/' + encodeURIComponent(vhost)
+  url += HTTP.url`/${vhost}`
 }
 const queueDataSource = new UrlDataSource(url)
 const tableOptions = {
@@ -28,10 +28,10 @@ const performMultiAction = (el) => {
     let url
     switch (action) {
       case 'delete':
-        url = `api/queues/${data.vhost}/${data.name}`
+        url = HTTP.url`api/queues/${data.vhost}/${data.name}`
         break
       case 'purge':
-        url = `api/queues/${data.vhost}/${data.name}/contents`
+        url = HTTP.url`api/queues/${data.vhost}/${data.name}/contents`
         break
     }
     if (!url) return
@@ -86,13 +86,13 @@ const queuesTable = Table.renderTable('table', tableOptions, function (tr, item,
     features += item.exclusive ? ' E' : ''
     features += Object.keys(item.arguments).length > 0 ? ' Args ' : ''
     const queueLink = document.createElement('a')
-    queueLink.href = 'queue#vhost=' + encodeURIComponent(item.vhost) + '&name=' + encodeURIComponent(item.name)
+    queueLink.href = HTTP.url`queue#vhost=${item.vhost}&name=${item.name}`
     queueLink.textContent = item.name
 
     const checkbox = document.createElement('input')
     checkbox.type = 'checkbox'
-    checkbox.setAttribute('data-vhost', encodeURIComponent(item.vhost))
-    checkbox.setAttribute('data-name', encodeURIComponent(item.name))
+    checkbox.setAttribute('data-vhost', item.vhost)
+    checkbox.setAttribute('data-name', item.name)
     checkbox.addEventListener('change', rowCheckboxChanged)
     Table.renderCell(tr, 0, checkbox, 'checkbox')
     Table.renderCell(tr, 1, item.vhost)
@@ -103,7 +103,7 @@ const queuesTable = Table.renderTable('table', tableOptions, function (tr, item,
   let policyLink = ''
   if (item.policy) {
     policyLink = document.createElement('a')
-    policyLink.href = 'policies#name=' + encodeURIComponent(item.policy) + '&vhost=' + encodeURIComponent(item.vhost)
+    policyLink.href = HTTP.url`policies#name=${item.policy}&vhost=${item.vhost}`
     policyLink.textContent = item.policy
   }
   Table.renderCell(tr, 4, policyLink, 'center')
@@ -122,9 +122,9 @@ const queuesTable = Table.renderTable('table', tableOptions, function (tr, item,
 document.querySelector('#declare').addEventListener('submit', function (evt) {
   evt.preventDefault()
   const data = new window.FormData(this)
-  const vhost = encodeURIComponent(data.get('vhost'))
-  const queue = encodeURIComponent(data.get('name').trim())
-  const url = 'api/queues/' + vhost + '/' + queue
+  const vhost = data.get('vhost')
+  const queue = data.get('name').trim()
+  const url = HTTP.url`api/queues/${vhost}/${queue}`
   const body = {
     durable: data.get('durable') === '1',
     auto_delete: data.get('auto_delete') === '1',
