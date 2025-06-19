@@ -42,7 +42,16 @@ module LavinMQ
       def add(msg : Message)
         key = dedup_key(msg)
         return unless key
-        @cache.insert(key, dedup_ttl(msg))
+        ttl = dedup_ttl(msg)
+        if ttl
+          delay = RoughTime.unix_ms - msg.timestamp
+          ttl = if delay >= ttl
+                  0_u32
+                else
+                  ttl -= delay
+                end
+        end
+        @cache.insert(key, ttl)
       end
 
       def duplicate?(msg : Message) : Bool
