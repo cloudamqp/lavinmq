@@ -43,15 +43,19 @@ module LavinMQ
         key = dedup_key(msg)
         return unless key
         ttl = dedup_ttl(msg)
-        if ttl
-          delay = RoughTime.unix_ms - msg.timestamp
-          ttl = if delay >= ttl
-                  0_u32
-                else
-                  ttl -= delay
-                end
-        end
+        ttl = adjust_ttl(ttl, msg.timestamp) if ttl
         @cache.insert(key, ttl)
+      end
+
+      # Adjusts the TTL to account for time passed since message was created
+      # This is useful when message has been delayed
+      private def adjust_ttl(ttl : UInt32, msg_timestamp) : UInt32
+        delay = RoughTime.unix_ms - msg_timestamp
+        if delay >= ttl
+          0_u32
+        else
+          ttl - delay
+        end
       end
 
       def duplicate?(msg : Message) : Bool
