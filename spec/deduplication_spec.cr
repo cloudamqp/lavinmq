@@ -158,5 +158,48 @@ describe LavinMQ::Deduplication::Deduper do
       calls.first[0].should eq "msg1"
       calls.first[1].should eq 10
     end
+
+    it "should not reset x-cache-ttl on expire when using delayed exchange" do
+      cache_ttl = 1000
+      x_args = AMQP::Client::Arguments.new({
+        "x-delayed-exchange"      => true,
+        "x-delayed-type"          => "topic",
+        "x-message-deduplication" => true,
+        "x-cache-ttl"             => cache_ttl,
+        "x-cache-size"            => 1000,
+      })
+      q_name = "delayed_q"
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          x = ch.exchange("delayed_ex", "topic", args: x_args)
+          q = ch.queue(q_name)
+          q.bind(x.name, "#")
+          hdrs = AMQP::Client::Arguments.new({
+            "x-delay"                => cache_ttl,
+            "x-deduplication-header" => "msg1",
+          })
+          pub_time = RoughTime.unix_ms
+          x.publish "test message", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
+          queue = s.vhosts["/"].queues[q_name]
+          queue.message_count.should eq 0 # no message yet, delayed exchange
+
+          # second publish should be deduplicated
+          x.publish "test message", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
+          wait_for { queue.message_count == 1 }
+
+          # get message, message_count should be 0
+          ch.basic_get(q_name, no_ack: true)
+          wait_for { queue.message_count == 0 }
+
+          # Sleep until cache_ttl has passed, but less than cache_ttl + delay
+          ms_since_pub = RoughTime.unix_ms - pub_time
+          sleep (cache_ttl - ms_since_pub + 100).milliseconds
+
+          # cache_ttl has passed, message should be delivered
+          x.publish "test message", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
+          wait_for { queue.message_count == 1 }
+        end
+      end
+    end
   end
 end
