@@ -66,6 +66,33 @@ describe LavinMQ::AMQP::PriorityQueue do
     end
   end
 
+  it "should not set redelivered to true for a non-requeued message" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q_args = AMQP::Client::Arguments.new({"x-max-priority" => 10})
+        q = ch.queue("", args: q_args)
+        q.publish "prio1", props: AMQP::Client::Properties.new(priority: 1)
+        msg = q.get(no_ack: false)
+        msg = msg.should_not be_nil
+        msg.redelivered.should eq false
+      end
+    end
+  end
+
+  it "should set redelivered to true for a requeued message" do
+    with_amqp_server do |s|
+      q_args = AMQP::Client::Arguments.new({"x-max-priority" => 10})
+      with_channel(s) do |ch|
+        q = ch.queue("q", args: q_args)
+        q.publish "prio1", props: AMQP::Client::Properties.new(priority: 1)
+        msg = q.get(no_ack: false).should_not be_nil
+        msg.reject(requeue: true)
+        msg = q.get(no_ack: true).should_not be_nil
+        msg.redelivered.should be_true
+      end
+    end
+  end
+
   context "after restart" do
     it "can restore the priority queue" do
       with_amqp_server do |s|
