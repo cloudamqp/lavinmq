@@ -352,7 +352,7 @@ describe LavinMQ::AMQP::Queue do
       data_dir = File.join(LavinMQ::Config.instance.data_dir, "msgstore")
       Dir.mkdir_p data_dir
       begin
-        store = LavinMQ::Queue::MessageStore.new(data_dir, nil)
+        store = LavinMQ::MessageStore.new(data_dir, nil)
         body = IO::Memory.new(Random::DEFAULT.random_bytes(LavinMQ::Config.instance.segment_size), writeable: false)
         msg = LavinMQ::Message.new(0i64, "amq.topic", "rk", AMQ::Protocol::Properties.new, body.size.to_u64, body)
         sps = Array(LavinMQ::SegmentPosition).new(10) { store.push msg }
@@ -372,12 +372,12 @@ describe LavinMQ::AMQP::Queue do
         body = IO::Memory.new(Random::DEFAULT.random_bytes(LavinMQ::Config.instance.segment_size), writeable: false)
         msg = LavinMQ::Message.new(0i64, "amq.topic", "rk", AMQ::Protocol::Properties.new, body.size.to_u64, body)
 
-        store = LavinMQ::Queue::MessageStore.new(data_dir, nil)
+        store = LavinMQ::MessageStore.new(data_dir, nil)
         2.times { store.push msg }
         store.close
 
         # recreate store to let it read the segments and cleanup
-        LavinMQ::Queue::MessageStore.new(data_dir, nil)
+        LavinMQ::MessageStore.new(data_dir, nil)
         Dir.glob(File.join(data_dir, "acks.*")).should eq [] of String
       ensure
         FileUtils.rm_rf data_dir
@@ -387,9 +387,9 @@ describe LavinMQ::AMQP::Queue do
     it "should yield fiber while purging" do
       tmpdir = File.tempname "lavin", ".spec"
       Dir.mkdir_p tmpdir
-      store = LavinMQ::Queue::MessageStore.new(tmpdir, nil)
+      store = LavinMQ::MessageStore.new(tmpdir, nil)
 
-      (LavinMQ::Queue::MessageStore::PURGE_YIELD_INTERVAL * 2 + 1).times do
+      (LavinMQ::MessageStore::PURGE_YIELD_INTERVAL * 2 + 1).times do
         store.push(LavinMQ::Message.new(0i64, "a", "b", AMQ::Protocol::Properties.new, 0u64, IO::Memory.new(0)))
       end
 
@@ -421,7 +421,7 @@ describe LavinMQ::AMQP::Queue do
     it "should not raise NotFoundError if segment is gone when deleting" do
       tmpdir = File.tempname "lavin", ".spec"
       Dir.mkdir_p tmpdir
-      store = LavinMQ::Queue::MessageStore.new(tmpdir, nil)
+      store = LavinMQ::MessageStore.new(tmpdir, nil)
       data = Random::Secure.hex(512)
       io = IO::Memory.new(data.to_slice)
 
