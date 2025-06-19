@@ -178,22 +178,18 @@ describe LavinMQ::Deduplication::Deduper do
             "x-delay"                => cache_ttl,
             "x-deduplication-header" => "msg1",
           })
-          pub_time = RoughTime.unix_ms
           x.publish "test message", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
           queue = s.vhosts["/"].queues[q_name]
           queue.message_count.should eq 0 # no message yet, delayed exchange
 
           # second publish should be deduplicated
+          sleep 100.milliseconds # wait for first publish to be processed
           x.publish "test message", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
           wait_for { queue.message_count == 1 }
 
           # get message, message_count should be 0
           ch.basic_get(q_name, no_ack: true)
           wait_for { queue.message_count == 0 }
-
-          # Sleep until cache_ttl has passed, but less than cache_ttl + delay
-          ms_since_pub = RoughTime.unix_ms - pub_time
-          sleep (cache_ttl - ms_since_pub + 100).milliseconds
 
           # cache_ttl has passed, message should be delivered
           x.publish "test message", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
