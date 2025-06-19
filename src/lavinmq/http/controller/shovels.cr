@@ -52,6 +52,7 @@ module LavinMQ
             if current_shovel = @amqp_server.vhosts[vhost].shovels[shovel_name]?
               if !current_shovel.paused?
                 context.response.status_code = 422
+                next
               end
               current_shovel.resume
               context.response.status_code = 204
