@@ -43,6 +43,11 @@ Lint/NotNil:
   Enabled: true
   Severity: Warning
 
+Lint/SpecFilename:
+  IgnoredFilenames:
+  - spec_helper
+  - rough_time
+
 # Problems found: 3
 # Run `ameba --only Documentation/DocumentationAdmonition` for details
 Documentation/DocumentationAdmonition:

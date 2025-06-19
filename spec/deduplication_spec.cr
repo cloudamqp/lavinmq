@@ -33,14 +33,16 @@ describe LavinMQ::Deduplication do
     end
 
     it "should respect ttl" do
-      cache = LavinMQ::Deduplication::MemoryCache(String).new(3)
-      cache.insert("item1", 1)
-      cache.insert("item2", 300)
-      cache.insert("item3")
-      sleep 0.2.seconds
-      cache.contains?("item1").should be_false
-      cache.contains?("item2").should be_true
-      cache.contains?("item3").should be_true
+      RoughTime.paused do |t|
+        cache = LavinMQ::Deduplication::MemoryCache(String).new(3)
+        cache.insert("item1", 1)
+        cache.insert("item2", 300)
+        cache.insert("item3")
+        t.travel 0.2.seconds
+        cache.contains?("item1").should be_false
+        cache.contains?("item2").should be_true
+        cache.contains?("item3").should be_true
+      end
     end
   end
 end
