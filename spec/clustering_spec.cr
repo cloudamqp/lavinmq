@@ -33,6 +33,7 @@ describe LavinMQ::Clustering::Client do
         q = ch.queue("repli")
         q.publish_confirm "hello world"
       end
+      replicator.close
       repli.close
       done.receive
     end
