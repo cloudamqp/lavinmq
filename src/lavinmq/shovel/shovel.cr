@@ -376,9 +376,8 @@ module LavinMQ
 
       def initialize(@source : AMQPSource, @destination : Destination,
                      @name : String, @vhost : VHost, @reconnect_delay : Time::Span = DEFAULT_RECONNECT_DELAY)
-        #TODO1148 naive
-        FileUtils.mkdir_p(File.join(@config.data_dir, "shovels"))
-        @paused_file_path = File.join(@config.data_dir, "shovels", "#{@name}.paused")
+        filename = "shovels.#{Digest::SHA1.hexdigest @name}.paused"
+        @paused_file_path = File.join(@config.data_dir, filename)
         if File.exists?(@paused_file_path)
           @state = State::Paused
         end
