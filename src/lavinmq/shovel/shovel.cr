@@ -470,6 +470,11 @@ module LavinMQ
         Log.info &.emit("Paused", name: @name, vhost: @vhost.name)
       end
 
+      def delete
+        terminate
+        FileUtils.rm(@paused_file_path) if File.exists?(@paused_file_path)
+      end
+
       # Does not trigger reconnect, but a graceful close
       def terminate
         @state = State::Terminated
