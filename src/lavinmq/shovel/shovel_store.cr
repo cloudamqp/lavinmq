@@ -43,7 +43,7 @@ module LavinMQ
 
     def delete(name)
       if shovel = @shovels.delete name
-        shovel.terminate
+        shovel.delete
         shovel
       end
     end
