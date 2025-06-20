@@ -472,7 +472,7 @@ module LavinMQ
 
       def delete
         terminate
-        FileUtils.rm(@paused_file_path) if File.exists?(@paused_file_path)
+        delete_paused_file
       end
 
       # Does not trigger reconnect, but a graceful close
@@ -485,9 +485,7 @@ module LavinMQ
       end
 
       def delete_paused_file
-        if File.exists?(@paused_file_path)
-          FileUtils.rm(@paused_file_path)
-        end
+        FileUtils.rm(@paused_file_path) if File.exists?(@paused_file_path)
       end
 
       def should_stop_loop?
