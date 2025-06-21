@@ -8,6 +8,7 @@ module LavinMQ
     QueueDeleted
     ClientAck
     ClientDeliver
+    ClientDeliverNoAck
     ClientGet
     ClientGetNoAck
     ClientPublish

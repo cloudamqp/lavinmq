@@ -65,11 +65,12 @@ describe LavinMQ::HTTP::ChannelsController do
       with_http_server do |http, s|
         with_channel(s) do |ch|
           q = ch.queue("channel_message_stats")
-          2.times { q.publish "msg" }
+          3.times { q.publish "msg" }
           ch.prefetch(1)
 
           ch.basic_get(q.name, no_ack: false)
-          q.subscribe { }
+          q.subscribe(no_ack: false) { }
+          q.subscribe(no_ack: true) { }
 
           response = http.get("/api/channels")
           response.status_code.should eq 200
@@ -77,7 +78,8 @@ describe LavinMQ::HTTP::ChannelsController do
           if message_stats = body[0]["message_stats"]?
             message_stats["get"].should eq(1)
             message_stats["deliver"].should eq(1)
-            message_stats["deliver_get"].should eq(2)
+            message_stats["deliver_no_ack"].should eq(1)
+            message_stats["deliver_get"].should eq(3)
           else
             fail "No channel"
           end
