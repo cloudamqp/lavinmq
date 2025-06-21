@@ -20,6 +20,10 @@ shards:
     git: https://github.com/84codes/mqtt-protocol.cr.git
     version: 0.2.0+git.commit.d01a1210ed7adfed9aa5cd055f1788a45d9c4d52
 
+  sync:
+    git: https://github.com/ysbaddaden/sync.git
+    version: 0.1.0+git.commit.f838b4e8571217c48261421f9112c4273c11d8a1
+
   systemd:
     git: https://github.com/84codes/systemd.cr.git
     version: 2.0.0

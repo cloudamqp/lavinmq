@@ -15,6 +15,7 @@ require "./event_type"
 require "./stats"
 require "./queue_factory"
 require "./mqtt/session"
+require "sync/shared"
 
 module LavinMQ
   class VHost
@@ -26,7 +27,7 @@ module LavinMQ
                 "redeliver", "reject", "consumer_added", "consumer_removed"})
 
     getter name, exchanges, queues, data_dir, operator_policies, policies, parameters, shovels,
-      direct_reply_consumers, connections, dir, users
+      direct_reply_consumers, dir, users
     property? flow = true
     getter? closed = false
     property max_connections : Int32?
@@ -37,7 +38,7 @@ module LavinMQ
     @direct_reply_consumers = Hash(String, Client::Channel).new
     @shovels : ShovelStore?
     @upstreams : Federation::UpstreamStore?
-    @connections = Array(Client).new(512)
+    @connections = Sync::Shared(Array(Client)).new(Array(Client).new(512))
     @definitions_file : File
     @definitions_lock = Mutex.new(:reentrant)
     @definitions_file_path : String
@@ -64,11 +65,15 @@ module LavinMQ
       spawn check_consumer_timeouts_loop, name: "Consumer timeouts loop"
     end
 
+    def connections
+      @connections.read &.dup
+    end
+
     private def check_consumer_timeouts_loop
       loop do
         sleep Config.instance.consumer_timeout_loop_interval.seconds
         return if @closed
-        @connections.each do |c|
+        @connections.read &.each do |c|
           c.channels.each_value do |ch|
             ch.check_consumer_timeout
           end
@@ -301,7 +306,7 @@ module LavinMQ
       op = OperatorPolicy.new(name, @name, Regex.new(pattern),
         Policy::Target.parse(apply_to), definition, priority)
       @operator_policies.create(op)
-      spawn apply_policies, name: "ApplyPolicies (after add) OperatingPolicy #{@name}"
+      apply_policies
       @log.info { "OperatorPolicy=#{name} Created" }
       op
     end
@@ -311,31 +316,31 @@ module LavinMQ
       p = Policy.new(name, @name, Regex.new(pattern), Policy::Target.parse(apply_to),
         definition, priority)
       @policies.create(p)
-      spawn apply_policies, name: "ApplyPolicies (after add) #{@name}"
+      apply_policies
       @log.info { "Policy=#{name} Created" }
       p
     end
 
     def delete_operator_policy(name)
       @operator_policies.delete(name)
-      spawn apply_policies, name: "ApplyPolicies (after delete) #{@name}"
+      apply_policies
       @log.info { "OperatorPolicy=#{name} Deleted" }
     end
 
     def delete_policy(name)
       @policies.delete(name)
-      spawn apply_policies, name: "ApplyPolicies (after delete) #{@name}"
+      apply_policies
       @log.info { "Policy=#{name} Deleted" }
     end
 
     def add_connection(client : Client)
       event_tick(EventType::ConnectionCreated)
-      @connections << client
+      @connections.write &.push client
     end
 
     def rm_connection(client : Client)
       event_tick(EventType::ConnectionClosed)
-      @connections.delete client
+      @connections.write &.delete client
     end
 
     SHOVEL                  = "shovel"
@@ -346,7 +351,7 @@ module LavinMQ
       @log.debug { "Add parameter #{p.name}" }
       @parameters.create(p)
       apply_parameters(p)
-      spawn apply_policies, name: "ApplyPolicies (add parameter) #{@name}"
+      apply_policies
     end
 
     def delete_parameter(component_name, parameter_name)
@@ -376,14 +381,15 @@ module LavinMQ
       WaitGroup.wait do |wg|
         to_close = Channel(Client).new
         fiber_count = 0
-        @connections.each do |client|
+        @connections.read &.dup.each do |client|
           select
           when to_close.send client
-          else
+          else # spawn another fiber closing channels
             fiber_id = fiber_count &+= 1
             @log.trace { "spawning close conn fiber #{fiber_id} " }
+            client_inner = client
             wg.spawn do
-              client.close(reason)
+              client_inner.close(reason)
               while client_to_close = to_close.receive?
                 client_to_close.close(reason)
               end
@@ -414,15 +420,16 @@ module LavinMQ
       when close_done.receive?
         @log.info { "All connections closed gracefully" }
       when timeout 15.seconds
-        @log.warn { "Timeout waiting for connections to close. #{@connections.size} left that will be forced closed." }
+        @log.warn { "Timeout waiting for connections to close. #{@connections.read &.size} left that will be forced closed." }
       end
       close_done.close
       # then force close the remaining (close tcp socket)
-      @connections.each &.force_close
+      @connections.read &.each &.force_close
       Fiber.yield # yield so that Client read_loops can shutdown
-      @queues.each_value &.close
-      Fiber.yield
-      @definitions_file.close
+      @definitions_lock.synchronize do
+        @queues.each_value &.close
+        @definitions_file.close
+      end
       FileUtils.rm_rf File.join(@data_dir, "transient")
     end
 

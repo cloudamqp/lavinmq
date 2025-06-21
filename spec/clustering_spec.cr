@@ -68,8 +68,8 @@ describe LavinMQ::Clustering::Client do
     wait_for { replicator.followers.first?.try &.lag_in_bytes == 0 }
 
     props = LavinMQ::AMQP::Properties.new
-    msg1 = LavinMQ::Message.new(100, "test", "rk", props, 10, IO::Memory.new("body1"))
-    msg2 = LavinMQ::Message.new(100, "test", "rk", props, 10, IO::Memory.new("body2"))
+    msg1 = LavinMQ::Message.new(100, "test", "rk", props, 5, IO::Memory.new("body1"))
+    msg2 = LavinMQ::Message.new(100, "test", "rk", props, 5, IO::Memory.new("body2"))
     retain_store.retain("topic1", msg1.body_io, msg1.bodysize)
     retain_store.retain("topic2", msg2.body_io, msg2.bodysize)
 
@@ -89,6 +89,8 @@ describe LavinMQ::Clustering::Client do
     b.sort!.should eq(["body1", "body2"])
     follower_retain_store.retained_messages.should eq(2)
   ensure
+    follower_retain_store.try &.close
+    retain_store.try &.close
     replicator.try &.close
   end
 
@@ -259,7 +261,7 @@ describe LavinMQ::Clustering::Client do
       when appended.receive?
       when timeout 0.1.seconds
         # @action is a Channel. Let's look at its internal deque
-        action_queue = replicator.@followers.first.@actions.@queue.not_nil!("no deque? no follower?")
+        action_queue = replicator.followers.first.@actions.@queue.not_nil!("no deque? no follower?")
         break if action_queue.size == action_queue.@capacity # full?
       end
     end
@@ -270,7 +272,7 @@ describe LavinMQ::Clustering::Client do
     select
     when appended.receive?
     when timeout 0.1.seconds
-      replicator.@followers.first.@actions.close
+      replicator.followers.first.@actions.close
       deadlock = true
     end
 
