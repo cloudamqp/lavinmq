@@ -108,8 +108,7 @@ class MFile < IO
     munmap
     @closed = true # munmap checks if open so have to set closed here
     if truncate_to_size && !@readonly && !@deleted && @fd > 0
-      code = LibC.ftruncate(@fd, @size)
-      raise File::Error.from_errno("Error truncating file", file: @path) if code < 0
+      truncate(@size)
     end
   ensure
     unless @fd == -1
@@ -117,6 +116,14 @@ class MFile < IO
       raise File::Error.from_errno("Error closing file", file: @path) if code < 0
       @fd = -1
     end
+  end
+
+  def truncate(size = @size) : Nil
+    @size = size.to_i64
+    @pos = size.to_i64 if @pos > size
+    @capacity = size.to_i64
+    code = LibC.ftruncate(@fd, size)
+    raise File::Error.from_errno("Error truncating file", file: @path) if code < 0
   end
 
   def flush
