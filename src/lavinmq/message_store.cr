@@ -302,6 +302,10 @@ module LavinMQ
     end
 
     private def open_new_segment(next_msg_size = 0) : MFile
+      unless @wfile_id.zero?
+        write_message_count_file(@wfile.path, @segment_msg_count[@wfile_id])
+        @wfile.truncate(@wfile.size)
+      end
       @wfile.dontneed unless @wfile == @rfile
       next_id = @wfile_id + 1
       path = File.join(@msg_dir, "msgs.#{next_id.to_s.rjust(10, '0')}")
@@ -316,6 +320,15 @@ module LavinMQ
       delete_unused_segments
       @wfile.delete unless @durable # mark as deleted if non-durable
       wfile
+    end
+
+    private def write_message_count_file(wfile_path : String, count : UInt32)
+      @log.debug { "Write message count file #{wfile_path}.count: #{count}" }
+      File.open("#{wfile_path}.count", "w") do |f|
+        f.sync = true
+        f.write_bytes count
+      end
+      @replicator.try &.replace_file "#{wfile_path}.count"
     end
 
     private def open_ack_file(id) : MFile
@@ -362,7 +375,7 @@ module LavinMQ
     private def load_segments_from_disk : Nil
       ids = Array(UInt32).new
       Dir.each_child(@msg_dir) do |f|
-        if f.starts_with? "msgs."
+        if f.starts_with?("msgs.") && !f.ends_with?(".count")
           ids << f[5, 10].to_u32
         end
       end
@@ -421,34 +434,65 @@ module LavinMQ
         @log.debug { "Loading #{@segments.size} segments" }
       end
       @segments.each do |seg, mfile|
-        count = 0u32
-        loop do
-          pos = mfile.pos
-          ts = IO::ByteFormat::SystemEndian.decode(Int64, mfile.to_slice(pos, 8))
-          break mfile.resize(pos) if ts.zero? # This means that the rest of the file is zero, so resize it
-          bytesize = BytesMessage.skip(mfile)
-          count += 1
-          next if deleted?(seg, pos)
-          @bytesize += bytesize
-          @size += 1
-        rescue ex : IO::EOFError
-          break
-        rescue ex : OverflowError | AMQ::Protocol::Error::FrameDecode
-          @log.error { "Could not initialize segment, closing message store: Failed to read segment #{seg} at pos #{mfile.pos}. #{ex}" }
-          close
-          return
+        begin
+          read_count_from_file(seg, mfile)
+        rescue File::NotFoundError
+          manually_count_msgs(seg, mfile)
         end
-        mfile.pos = 4
-        mfile.dontneed
+
         if is_long_queue
           @log.info { "Loaded #{counter}/#{@segments.size} segments, #{@size} messages" } if (counter &+= 1) % 128 == 0
         else
           @log.debug { "Loaded #{counter}/#{@segments.size} segments, #{@size} messages" } if (counter &+= 1) % 128 == 0
         end
-        Fiber.yield
-        @segment_msg_count[seg] = count
       end
       @log.info { "Loaded #{counter} segments, #{@size} messages" }
+    end
+
+    private def read_count_from_file(seg, mfile)
+      count = File.open("#{mfile.path}.count", &.read_bytes(UInt32))
+      @segment_msg_count[seg] = count
+      bytesize = mfile.size - 4
+      if deleted = @deleted[seg]?
+        deleted.each do |pos|
+          mfile.pos = pos
+          bytesize -= BytesMessage.skip(mfile)
+          count -= 1
+        end
+      end
+      mfile.pos = 4
+      mfile.dontneed
+      @bytesize += bytesize
+      @size += count
+      @log.debug { "Reading count from #{mfile.path}.count: #{count}" }
+    end
+
+    private def manually_count_msgs(seg, mfile)
+      count = 0u32
+      loop do
+        pos = mfile.pos
+        ts = IO::ByteFormat::SystemEndian.decode(Int64, mfile.to_slice(pos, 8))
+        break mfile.resize(pos) if ts.zero? # This means that the rest of the file is zero, so resize it
+        bytesize = BytesMessage.skip(mfile)
+        count += 1
+        next if deleted?(seg, pos)
+        @bytesize += bytesize
+        @size += 1
+      rescue ex : IO::EOFError
+        break
+      rescue ex : OverflowError | AMQ::Protocol::Error::FrameDecode
+        @log.error { "Could not initialize segment, closing message store: Failed to read segment #{seg} at pos #{mfile.pos}. #{ex}" }
+        close
+        return count
+      end
+      mfile.pos = 4
+      mfile.dontneed
+      Fiber.yield
+      @segment_msg_count[seg] = count
+      @log.debug { "Manually counted #{count} msgs from #{mfile.path}" }
+      unless seg == @segments.last_key # this segment is not full yet
+        write_message_count_file(mfile.path, count)
+      end
     end
 
     private def delete_unused_segments : Nil
