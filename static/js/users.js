@@ -66,7 +66,7 @@ document.querySelector('#generatePassword').addEventListener('click', generatePa
 
 document.querySelector('.password-toggle').addEventListener('click', togglePasswordAsPlainText)
 
-function generatePassword() {
+function generatePassword () {
   const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+-=[]{}|;:,.<>?'
   const password = Array.from(window.crypto.getRandomValues(new Uint8Array(16)), x => chars[x % chars.length]).join('')
   const input = document.querySelector('#createUser input[name="password"]')
@@ -75,7 +75,7 @@ function generatePassword() {
   setTimeout(() => { input.type = 'password' }, 500)
 }
 
-function togglePasswordAsPlainText() {
+function togglePasswordAsPlainText () {
   const input = document.querySelector('#createUser input[name="password"]')
   const isPassword = input.type === 'password'
   input.type = isPassword ? 'text' : 'password'
