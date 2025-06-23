@@ -196,43 +196,49 @@ module LavinMQ
 
       def publish(msg : Message, immediate : Bool,
                   queues : Set(LavinMQ::Queue) = Set(LavinMQ::Queue).new,
-                  exchanges : Set(LavinMQ::Exchange) = Set(LavinMQ::Exchange).new) : UInt32
+                  exchanges : Set(LavinMQ::Exchange) = Set(LavinMQ::Exchange).new) : Bool
         @publish_in_count.add(1)
         if d = @deduper
           if d.duplicate?(msg)
             @dedup_count.add(1)
-            return 0u32
+            return false
           end
           d.add(msg)
         end
-        count = do_publish(msg, immediate, queues, exchanges)
-        @unroutable_count.add(1) if count.zero?
-        @publish_out_count.add(count)
-        count
-      end
-
-      private def do_publish(msg : Message, immediate : Bool, queues : Set(LavinMQ::Queue), exchanges : Set(LavinMQ::Exchange)) : UInt32
-        headers = msg.properties.headers
-        if should_delay_message?(headers)
+        if should_delay_message?(msg.properties.headers)
           if q = @delayed_queue
             q.publish(msg)
-            return 1u32
+            return true
           else
-            return 0u32
+            @unroutable_count.add(1)
+            return false
           end
         end
-        find_queues(msg.routing_key, headers, queues, exchanges)
-        return 0u32 if queues.empty?
-        return 0u32 if immediate && !queues.any? &.immediate_delivery?
+        route_msg(msg, immediate, queues, exchanges)
+      end
 
-        count = 0u32
+      def route_msg(msg : Message) : Bool
+        route_msg(msg, false, Set(LavinMQ::Queue).new, Set(LavinMQ::Exchange).new)
+      end
+
+      private def route_msg(msg : Message, immediate : Bool, queues : Set(LavinMQ::Queue), exchanges : Set(LavinMQ::Exchange)) : Bool
+        headers = msg.properties.headers
+        find_queues(msg.routing_key, headers, queues, exchanges)
+        if queues.empty? || (immediate && !queues.any? &.immediate_delivery?)
+          @unroutable_count.add(1)
+          return false
+        end
+
+        routed = false
         queues.each do |queue|
           if queue.publish(msg)
-            count += 1u32
+            routed = true
+            @publish_out_count.add(1)
             msg.body_io.seek(-msg.bodysize.to_i64, IO::Seek::Current) # rewind
           end
         end
-        count
+        @unroutable_count.add(1) unless routed
+        routed
       end
 
       def find_queues(routing_key : String, headers : AMQP::Table?,
