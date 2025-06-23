@@ -94,7 +94,7 @@ module LavinMQ
         sp = SegmentPosition.make(seg, pos, msg)
         return Envelope.new(sp, msg, redelivered: false)
       rescue ex : IndexError
-        @log.warn { "Msg file size does not match expected value, moving on to next segment" }
+        @log.warn(exception: ex) { "Msg file size does not match expected value, moving on to next segment" }
         select_next_read_segment && next
         return if @size.zero?
         raise Error.new(@rfile, cause: ex)
@@ -139,7 +139,7 @@ module LavinMQ
         @empty.set true if @size.zero?
         return Envelope.new(sp, msg, redelivered: false)
       rescue ex : IndexError
-        @log.warn { "Msg file size does not match expected value, moving on to next segment" }
+        @log.warn(exception: ex) { "Msg file size does not match expected value, moving on to next segment" }
         select_next_read_segment && next
         return if @size.zero?
         raise Error.new(@rfile, cause: ex)
