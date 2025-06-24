@@ -25,6 +25,7 @@ on:
       - '.github/workflows/ci.yml'
       - 'build/build_docs_in_ci'
       - 'openapi/**'
+  workflow_dispatch:
 
 jobs:
   format:
