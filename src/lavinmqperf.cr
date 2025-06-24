@@ -34,6 +34,8 @@ module LavinMQPerf
     when "throughput" then MQTT::Throughput.new.run
     else                   abort Perf.new.mqtt_banner
     end
+  when /^.+$/
+    Perf.new.run([protocol.not_nil!])
   else abort Perf.new.amqp_banner
   end
 end
