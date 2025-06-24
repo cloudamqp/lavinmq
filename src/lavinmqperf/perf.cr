@@ -11,6 +11,7 @@ module LavinMQPerf
       @parser = OptionParser.new
       @amqp_banner = "Usage: #{PROGRAM_NAME} [protocol] [throughput | bind-churn | queue-churn | connection-churn | connection-count | queue-count] [arguments]"
       @mqtt_banner = "Usage: #{PROGRAM_NAME} [protocol] [throughput]"
+      @parser.banner = @amqp_banner
       @parser.on("-h", "--help", "Show this help") { puts @parser; exit 0 }
       @parser.on("-v", "--version", "Show version") { puts LavinMQ::VERSION; exit 0 }
       @parser.on("--build-info", "Show build information") { puts BUILD_INFO; exit 0 }
