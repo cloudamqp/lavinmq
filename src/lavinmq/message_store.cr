@@ -176,7 +176,7 @@ module LavinMQ
             delete_file(a)
           end
           if seg = @segments.delete(sp.segment)
-            delete_file(seg)
+            delete_file(seg, including_meta: true)
           end
           @segment_msg_count.delete(sp.segment)
           @deleted.delete(sp.segment)
@@ -200,7 +200,7 @@ module LavinMQ
     end
 
     def purge_all
-      @segments.each_value { |f| delete_file(f) }
+      @segments.each_value { |f| delete_file(f, including_meta: true) }
       @segments = Hash(UInt32, MFile).new
       @acks.each_value { |f| delete_file(f) }
       @acks = Hash(UInt32, MFile).new { |acks, seg| acks[seg] = open_ack_file(seg) }
@@ -220,14 +220,16 @@ module LavinMQ
     def delete
       @closed = true
       @empty.close
-      @segments.reject! { |_, f| delete_file(f); true }
+      @segments.reject! { |_, f| delete_file(f, including_meta: true); true }
       @acks.reject! { |_, f| delete_file(f); true }
       FileUtils.rm_rf @msg_dir
     end
 
-    def delete_file(file : MFile)
+    private def delete_file(file : MFile, including_meta = false)
+      File.delete?("#{file.path}.meta") if including_meta
       file.delete(raise_on_missing: false)
       if replicator = @replicator
+        replicator.delete_file("#{file.path}.meta", WaitGroup.new) if including_meta
         wg = WaitGroup.new
         replicator.delete_file(file.path, wg)
         spawn(name: "wait for file deletion is replicated") do
@@ -408,7 +410,7 @@ module LavinMQ
           rescue IO::EOFError
             # delete empty file, it will be recreated if it's needed
             @log.warn { "Empty file at #{path}, deleting it" }
-            delete_file(file)
+            delete_file(file, including_meta: true)
             if idx == 0 # Recreate the file if it's the first segment because we need at least one segment to exist
               file = MFile.new(path, Config.instance.segment_size)
               file.write_bytes Schema::VERSION
@@ -509,7 +511,7 @@ module LavinMQ
           if ack = @acks.delete(seg)
             delete_file(ack)
           end
-          delete_file(mfile)
+          delete_file(mfile, including_meta: true)
           true
         else
           false
