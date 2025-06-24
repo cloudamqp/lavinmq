@@ -642,6 +642,32 @@ describe LavinMQ::Shovel do
         end
       end
     end
+
+    it "should keep paused even on broker restarts" do
+      with_amqp_server do |s|
+        vhost = s.vhosts.create("pause:resume:vhost")
+        shovel_name = "shovel:pause:resume"
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "#{shovel_name}q1",
+          [URI.parse(s.amqp_url)],
+          "#{shovel_name}q1",
+          delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
+          direct_user: s.users.direct_user
+        )
+        dest = LavinMQ::Shovel::AMQPDestination.new(
+          "#{shovel_name}q2",
+          URI.parse(s.amqp_url),
+          "#{shovel_name}q2",
+          direct_user: s.users.direct_user
+        )
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, shovel_name, vhost)
+        shovel.pause
+        shovel.paused?.should eq true
+        s.restart
+        # Server restart is not applying shovels?
+        should_eventually(be_true) { s.vhosts[vhost.name].shovels[shovel.name].paused? }
+      end
+    end
   end
 
   describe "HTTP" do
