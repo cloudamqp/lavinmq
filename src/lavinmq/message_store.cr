@@ -303,7 +303,7 @@ module LavinMQ
 
     private def open_new_segment(next_msg_size = 0) : MFile
       unless @wfile_id.zero?
-        write_metadata_file(@wfile.path, @wfile_id)
+        write_metadata_file(@wfile_id, @wfile)
         @wfile.truncate(@wfile.size)
       end
       @wfile.dontneed unless @wfile == @rfile
@@ -322,13 +322,13 @@ module LavinMQ
       wfile
     end
 
-    private def write_metadata_file(wfile_path : String, seg : UInt32)
-      @log.debug { "Write message segment meta file #{wfile_path}.meta" }
-      File.open("#{wfile_path}.meta", "w") do |f|
+    private def write_metadata_file(seg : UInt32, wfile : MFile)
+      @log.debug { "Write message segment meta file #{wfile.path}.meta" }
+      File.open("#{wfile.path}.meta", "w") do |f|
         f.buffer_size = 4096
         write_metadata(f, seg)
       end
-      @replicator.try &.replace_file "#{wfile_path}.meta"
+      @replicator.try &.replace_file "#{wfile.path}.meta"
     end
 
     private def write_metadata(io, seg)
@@ -439,9 +439,10 @@ module LavinMQ
       end
       @segments.each do |seg, mfile|
         begin
-          read_count_from_file(seg, mfile)
+          read_metadata_file(seg, mfile)
         rescue File::NotFoundError
-          manually_count_msgs(seg, mfile)
+          produce_metadata(seg, mfile)
+          write_metadata_file(seg, mfile) unless seg == @segments.last_key # this segment is not full yet
         end
 
         if is_long_queue
@@ -453,7 +454,7 @@ module LavinMQ
       @log.info { "Loaded #{counter} segments, #{@size} messages" }
     end
 
-    private def read_count_from_file(seg, mfile)
+    private def read_metadata_file(seg, mfile)
       count = File.open("#{mfile.path}.meta", &.read_bytes(UInt32))
       @segment_msg_count[seg] = count
       bytesize = mfile.size - 4
@@ -471,7 +472,7 @@ module LavinMQ
       @log.debug { "Reading count from #{mfile.path}.meta: #{count}" }
     end
 
-    private def manually_count_msgs(seg, mfile)
+    private def produce_metadata(seg, mfile)
       count = 0u32
       loop do
         pos = mfile.pos
@@ -494,9 +495,6 @@ module LavinMQ
       Fiber.yield
       @segment_msg_count[seg] = count
       @log.debug { "Manually counted #{count} msgs from #{mfile.path}" }
-      unless seg == @segments.last_key # this segment is not full yet
-        write_metadata_file(mfile.path, seg)
-      end
     end
 
     private def delete_unused_segments : Nil

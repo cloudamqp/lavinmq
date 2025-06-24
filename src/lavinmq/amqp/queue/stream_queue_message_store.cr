@@ -18,7 +18,6 @@ module LavinMQ::AMQP
       def initialize(*args, **kwargs)
         super
         @last_offset = get_last_offset
-        build_segment_indexes
         @consumer_offsets = MFile.new(File.join(@msg_dir, "consumer_offsets"), Config.instance.segment_size)
         @replicator.try &.register_file @consumer_offsets
         @consumer_offset_positions = restore_consumer_offset_positions
@@ -342,27 +341,13 @@ module LavinMQ::AMQP
         headers.not_nil!("Message lacks headers")["x-stream-offset"].as(Int64)
       end
 
-      private def build_segment_indexes
-        @segments.each do |seg_id, mfile|
-          begin
-            File.open("#{mfile.path}.meta") do |f|
-              f.skip(sizeof(UInt32)) # count
-              first_msg_offset = f.read_bytes(Int64)
-              first_msg_timestamp = f.read_bytes(Int64)
-              @offset_index[seg_id] = first_msg_offset
-              @timestamp_index[seg_id] = first_msg_timestamp
-            end
-          rescue File::NotFoundError
-            begin
-              msg = BytesMessage.from_bytes(mfile.to_slice + 4u32)
-              @offset_index[seg_id] = offset_from_headers(msg.properties.headers)
-              @timestamp_index[seg_id] = msg.timestamp
-            rescue IndexError
-              @offset_index[seg_id] = @last_offset
-              @timestamp_index[seg_id] = RoughTime.unix_ms
-            end
-          end
-        end
+      private def produce_metadata(seg, mfile)
+        msg = BytesMessage.from_bytes(mfile.to_slice + 4u32)
+        @offset_index[seg] = offset_from_headers(msg.properties.headers)
+        @timestamp_index[seg] = msg.timestamp
+      rescue IndexError
+        @offset_index[seg] = @last_offset
+        @timestamp_index[seg] = RoughTime.unix_ms
       end
     end
   end
