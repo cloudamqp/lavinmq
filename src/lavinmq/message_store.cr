@@ -278,6 +278,7 @@ module LavinMQ
     end
 
     private def select_next_read_segment : MFile?
+      @rfile.dontneed
       # Expect @segments to be ordered
       if id = @segments.each_key.find { |sid| sid > @rfile_id }
         rfile = @segments[id]
