@@ -1,6 +1,75 @@
 require "./spec_helper"
 
+def with_prio_store(max_prio, &)
+  data_dir = File.tempname
+  Dir.mkdir data_dir
+  store = LavinMQ::AMQP::PriorityQueue::PriorityMessageStore.new(max_prio.to_u8, data_dir, nil, metadata: ::Log::Metadata.empty)
+  yield store
+ensure
+  store.delete if store
+  FileUtils.rm_rf data_dir if data_dir
+end
+
 describe LavinMQ::AMQP::PriorityQueue do
+  describe "PriorityMessageStore" do
+    it "should use sub stores" do
+      with_prio_store(5) do |store|
+        store.@stores.size.should eq 6
+      end
+    end
+
+    it "should publish to the right sub store" do
+      with_prio_store(5) do |store|
+        6u8.times do |prio|
+          props = AMQP::Client::Properties.new(priority: prio)
+          msg = LavinMQ::Message.new("ex", "rk", "body", properties: props)
+          store.push msg
+          store.size.should eq(prio + 1)
+        end
+      end
+    end
+
+    it "#first? returns the first message with the highest priority" do
+      with_prio_store(5) do |store|
+        [3u8, 2u8, 5u8, 1u8, 0u8].each do |prio|
+          props = AMQP::Client::Properties.new(priority: prio)
+          store.push LavinMQ::Message.new("ex", "rk", "body", properties: props)
+        end
+        env = store.first?.should_not be_nil
+        env.message.properties.priority.should eq 5
+      end
+    end
+
+    describe "#shift?" do
+      it "returns the first message with the highest priority" do
+        with_prio_store(5) do |store|
+          [3u8, 2u8, 5u8, 1u8, 0u8].each do |prio|
+            props = AMQP::Client::Properties.new(priority: prio)
+            store.push LavinMQ::Message.new("ex", "rk", "body", properties: props)
+          end
+          env = store.shift?.should_not be_nil
+          env.message.properties.priority.should eq 5
+          env = store.shift?.should_not be_nil
+          env.message.properties.priority.should eq 3
+        end
+      end
+    end
+
+    describe "#requeue" do
+      it "reqeueus to the right sub store" do
+        with_prio_store(5) do |store|
+          [3u8, 2u8, 5u8, 1u8, 0u8].each do |prio|
+            props = AMQP::Client::Properties.new(priority: prio)
+            store.push LavinMQ::Message.new("ex", "rk", "body", properties: props)
+          end
+          env = store.shift?.should_not be_nil
+          store.requeue env.segment_position
+          store.@stores[0].size.should eq 1
+        end
+      end
+    end
+  end
+
   it "should prioritize messages" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
