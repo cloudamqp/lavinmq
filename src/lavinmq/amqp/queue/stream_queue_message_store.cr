@@ -272,6 +272,12 @@ module LavinMQ::AMQP
         end
       end
 
+      private def write_metadata(io, seg)
+        super
+        io.write_bytes @offset_index[seg]
+        io.write_bytes @timestamp_index[seg]
+      end
+
       def drop_overflow
         if max_length = @max_length
           drop_segments_while do
@@ -338,12 +344,24 @@ module LavinMQ::AMQP
 
       private def build_segment_indexes
         @segments.each do |seg_id, mfile|
-          msg = BytesMessage.from_bytes(mfile.to_slice + 4u32)
-          @offset_index[seg_id] = offset_from_headers(msg.properties.headers)
-          @timestamp_index[seg_id] = msg.timestamp
-        rescue IndexError
-          @offset_index[seg_id] = @last_offset
-          @timestamp_index[seg_id] = RoughTime.unix_ms
+          begin
+            File.open("#{mfile.path}.meta") do |f|
+              f.skip(sizeof(UInt32)) # count
+              first_msg_offset = f.read_bytes(Int64)
+              first_msg_timestamp = f.read_bytes(Int64)
+              @offset_index[seg_id] = first_msg_offset
+              @timestamp_index[seg_id] = first_msg_timestamp
+            end
+          rescue File::NotFoundError
+            begin
+              msg = BytesMessage.from_bytes(mfile.to_slice + 4u32)
+              @offset_index[seg_id] = offset_from_headers(msg.properties.headers)
+              @timestamp_index[seg_id] = msg.timestamp
+            rescue IndexError
+              @offset_index[seg_id] = @last_offset
+              @timestamp_index[seg_id] = RoughTime.unix_ms
+            end
+          end
         end
       end
     end
