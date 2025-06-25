@@ -16,6 +16,7 @@ require "../src/lavinmq/server"
 require "../src/lavinmq/http/http_server"
 require "http/client"
 require "amqp-client"
+require "./support/*"
 
 def init_config(config = LavinMQ::Config.instance)
   config.data_dir = "/tmp/lavinmq-spec"
