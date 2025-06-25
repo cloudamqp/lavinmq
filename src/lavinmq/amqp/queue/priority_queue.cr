@@ -31,21 +31,24 @@ module LavinMQ::AMQP
         @log = Logger.new(Log, metadata.extend({max_prio: @max_priority.to_s}))
         @stores = Array(MessageStore).new(1 + @max_priority)
 
+        init_sub_stores(@stores)
+        migrate_from_single_store
+
+        @empty.set empty?
+      end
+
+      private def init_sub_stores(stores)
         # Setup all sub-stores. We want the highets priority store
         # first in the array since we'll always search from high to
         # low priority.
         (0..@max_priority).reverse_each do |i|
-          sub_msg_dir = File.join(@msg_dir, i.to_s)
+          sub_msg_dir = File.join(@msg_dir, "prio.#{i.to_s.rjust(3, '0')}")
           Dir.mkdir_p sub_msg_dir
           store = MessageStore.new(sub_msg_dir, @replicator, @durable, metadata: @metadata.extend({prio: i.to_s}))
           @size += store.size
           @bytesize += store.bytesize
-          @stores << store
+          stores << store
         end
-
-        migrate_from_single_store
-
-        @empty.set empty?
       end
 
       private def migrate_from_single_store
