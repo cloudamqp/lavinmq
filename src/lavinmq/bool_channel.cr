@@ -27,8 +27,9 @@ class BoolChannel
     loop do
       channel = value ? @when_true : @when_false
       select
-      when channel.send nil
       when value = @value.receive
+      when channel.send nil
+        Fiber.yield # Improves fairness by allowing the receiving fiber to run instead of notifying all waiting fibers
       end
     end
   rescue Channel::ClosedError

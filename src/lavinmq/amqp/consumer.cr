@@ -196,8 +196,8 @@ module LavinMQ
 
       def accepts? : Bool
         return false unless @flow
-        return false if @prefetch_count > 0 && @unacked.get >= @prefetch_count
-        return false if @channel.global_prefetch_count > 0 && @channel.consumers.sum(&.unacked) >= @channel.global_prefetch_count
+        return false if @prefetch_count > 0 && @unacked.get(:relaxed) >= @prefetch_count
+        return false if @channel.global_prefetch_count > 0 && @channel.unacked.size >= @channel.global_prefetch_count
         true
       end
 
@@ -270,6 +270,7 @@ module LavinMQ
 
       def flush
         @channel.flush
+        Fiber.yield # We are waiting so might as well let other fibers run to improve fairness
       end
 
       class ClosedError < Error; end
