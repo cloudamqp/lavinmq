@@ -14,12 +14,26 @@ module LavinMQ::AMQP
     end
 
     class PriorityMessageStore < MessageStore
-      @stores : Array(MessageStore)
+      # These are just to make the compiler happy. They are never used.
+      @acks = uninitialized Hash(UInt32, MFile)
+      @wfile = uninitialized MFile
+      @rfile = uninitialized MFile
+      @wfile_id = 0
+      @rfile_id = 0
 
-      def initialize(@max_priority : UInt8, @msg_dir : String, @replicator : Clustering::Replicator?, @durable : Bool = true, @metadata : ::Log::Metadata = ::Log::Metadata.empty)
+      def initialize(
+        @max_priority : UInt8,
+        @msg_dir : String,
+        @replicator : Clustering::Replicator?,
+        @durable : Bool = true,
+        @metadata : ::Log::Metadata = ::Log::Metadata.empty,
+      )
+        @log = Logger.new(Log, metadata)
         @stores = Array(MessageStore).new(1 + @max_priority)
-        @log = Log.for(self, @metadata)
 
+        # Setup all sub-stores. We want the highets priority store
+        # first in the array since we'll always search from high to
+        # low priority.
         (0..@max_priority).reverse_each do |i|
           sub_msg_dir = File.join(@msg_dir, i.to_s)
           Dir.mkdir_p sub_msg_dir
