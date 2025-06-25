@@ -28,7 +28,7 @@ module LavinMQ::AMQP
         @durable : Bool = true,
         @metadata : ::Log::Metadata = ::Log::Metadata.empty,
       )
-        @log = Logger.new(Log, metadata)
+        @log = Logger.new(Log, metadata.extend({max_prio: @max_priority.to_s}))
         @stores = Array(MessageStore).new(1 + @max_priority)
 
         # Setup all sub-stores. We want the highets priority store
@@ -37,12 +37,57 @@ module LavinMQ::AMQP
         (0..@max_priority).reverse_each do |i|
           sub_msg_dir = File.join(@msg_dir, i.to_s)
           Dir.mkdir_p sub_msg_dir
-          store = MessageStore.new(sub_msg_dir, @replicator, @durable, metadata: @metadata)
+          store = MessageStore.new(sub_msg_dir, @replicator, @durable, metadata: @metadata.extend({prio: i.to_s}))
           @size += store.size
           @bytesize += store.bytesize
           @stores << store
         end
+
+        migrate_from_single_store
+
         @empty.set empty?
+      end
+
+      private def migrate_from_single_store
+        return unless needs_migrate?
+        unless empty?
+          @log.warn do
+            "Message store contains messages that should be migrated, but substores not empty. " \
+            "No migration will be performed."
+          end
+          return false
+        end
+        old_store = MessageStore.new(@msg_dir, @replicator, @durable, metadata: @metadata)
+        msg_count = old_store.size
+        @log.info { "Migrating #{msg_count} message" }
+        while env = old_store.shift?
+          msg = env.message
+          push LavinMQ::Message.new(
+            msg.timestamp,
+            msg.exchange_name,
+            msg.routing_key,
+            msg.properties,
+            msg.bodysize,
+            IO::Memory.new(msg.body)
+          )
+        end
+        if size != msg_count
+          @log.warn { "Message count mismatch. #{msg_count} messages before migration, #{size} after" }
+        end
+        @log.info { "Migration complete" }
+        old_store.close
+        Dir.each_child(@msg_dir) do |f|
+          if f.starts_with?("msgs.") || f.starts_with?("acks.")
+            File.delete? File.join(@msg_dir, f)
+          end
+        end
+      end
+
+      private def needs_migrate?
+        Dir.each_child(@msg_dir) do |f|
+          return true if f.starts_with? "msgs."
+        end
+        false
       end
 
       # returns the substore for the priority

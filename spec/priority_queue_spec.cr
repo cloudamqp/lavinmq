@@ -12,6 +12,28 @@ end
 
 describe LavinMQ::AMQP::PriorityQueue do
   describe "PriorityMessageStore" do
+    it "migrates old store" do
+      data_dir = File.tempname
+      Dir.mkdir data_dir
+      old_store = LavinMQ::MessageStore.new(data_dir, nil, durable: true)
+      60u8.times do |prio|
+        props = AMQP::Client::Properties.new(priority: prio % 6)
+        msg = LavinMQ::Message.new("ex", "rk", "body", properties: props)
+        old_store.push msg
+      end
+      old_store.close
+
+      store = LavinMQ::AMQP::PriorityQueue::PriorityMessageStore.new(5u8, data_dir, nil, durable: true)
+      store.size.should eq 60
+
+      6.times do |i|
+        store.@stores[i].size.should eq 10
+      end
+    ensure
+      store.delete if store
+      FileUtils.rm_rf data_dir if data_dir
+    end
+
     it "should use sub stores" do
       with_prio_store(5) do |store|
         store.@stores.size.should eq 6
