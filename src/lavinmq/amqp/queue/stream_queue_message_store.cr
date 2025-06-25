@@ -342,12 +342,35 @@ module LavinMQ::AMQP
       end
 
       private def produce_metadata(seg, mfile)
+        super
         msg = BytesMessage.from_bytes(mfile.to_slice + 4u32)
         @offset_index[seg] = offset_from_headers(msg.properties.headers)
         @timestamp_index[seg] = msg.timestamp
       rescue IndexError
         @offset_index[seg] = @last_offset
         @timestamp_index[seg] = RoughTime.unix_ms
+      end
+
+      private def read_metadata_file(seg, mfile)
+        File.open("#{mfile.path}.meta") do |file|
+          count = file.read_bytes(UInt32)
+          @offset_index[seg] = file.read_bytes(Int64)
+          @timestamp_index[seg] = file.read_bytes(Int64)
+          @segment_msg_count[seg] = count
+          bytesize = mfile.size - 4
+          if deleted = @deleted[seg]?
+            deleted.each do |pos|
+              mfile.pos = pos
+              bytesize -= BytesMessage.skip(mfile)
+              count -= 1
+            end
+          end
+          mfile.pos = 4
+          mfile.dontneed
+          @bytesize += bytesize
+          @size += count
+          @log.debug { "Reading count from #{mfile.path}.meta: #{count}" }
+        end
       end
     end
   end
