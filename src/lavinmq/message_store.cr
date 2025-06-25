@@ -176,7 +176,7 @@ module LavinMQ
             delete_file(a)
           end
           if seg = @segments.delete(sp.segment)
-            delete_file(seg)
+            delete_file(seg, including_meta: true)
           end
           @segment_msg_count.delete(sp.segment)
           @deleted.delete(sp.segment)
@@ -200,7 +200,7 @@ module LavinMQ
     end
 
     def purge_all
-      @segments.each_value { |f| delete_file(f) }
+      @segments.each_value { |f| delete_file(f, including_meta: true) }
       @segments = Hash(UInt32, MFile).new
       @acks.each_value { |f| delete_file(f) }
       @acks = Hash(UInt32, MFile).new { |acks, seg| acks[seg] = open_ack_file(seg) }
@@ -220,14 +220,16 @@ module LavinMQ
     def delete
       @closed = true
       @empty.close
-      @segments.reject! { |_, f| delete_file(f); true }
+      @segments.reject! { |_, f| delete_file(f, including_meta: true); true }
       @acks.reject! { |_, f| delete_file(f); true }
       FileUtils.rm_rf @msg_dir
     end
 
-    def delete_file(file : MFile)
+    private def delete_file(file : MFile, including_meta = false)
+      File.delete?("#{file.path}.meta") if including_meta
       file.delete(raise_on_missing: false)
       if replicator = @replicator
+        replicator.delete_file("#{file.path}.meta", WaitGroup.new) if including_meta
         wg = WaitGroup.new
         replicator.delete_file(file.path, wg)
         spawn(name: "wait for file deletion is replicated") do
@@ -302,6 +304,10 @@ module LavinMQ
     end
 
     private def open_new_segment(next_msg_size = 0) : MFile
+      unless @wfile_id.zero?
+        write_metadata_file(@wfile_id, @wfile)
+        @wfile.truncate(@wfile.size)
+      end
       @wfile.dontneed unless @wfile == @rfile
       next_id = @wfile_id + 1
       path = File.join(@msg_dir, "msgs.#{next_id.to_s.rjust(10, '0')}")
@@ -316,6 +322,19 @@ module LavinMQ
       delete_unused_segments
       @wfile.delete unless @durable # mark as deleted if non-durable
       wfile
+    end
+
+    private def write_metadata_file(seg : UInt32, wfile : MFile)
+      @log.debug { "Write message segment meta file #{wfile.path}.meta" }
+      File.open("#{wfile.path}.meta", "w") do |f|
+        f.buffer_size = 4096
+        write_metadata(f, seg)
+      end
+      @replicator.try &.replace_file "#{wfile.path}.meta"
+    end
+
+    private def write_metadata(io, seg)
+      io.write_bytes @segment_msg_count[seg]
     end
 
     private def open_ack_file(id) : MFile
@@ -362,7 +381,7 @@ module LavinMQ
     private def load_segments_from_disk : Nil
       ids = Array(UInt32).new
       Dir.each_child(@msg_dir) do |f|
-        if f.starts_with? "msgs."
+        if f.starts_with?("msgs.") && !f.ends_with?(".meta")
           ids << f[5, 10].to_u32
         end
       end
@@ -391,7 +410,7 @@ module LavinMQ
           rescue IO::EOFError
             # delete empty file, it will be recreated if it's needed
             @log.warn { "Empty file at #{path}, deleting it" }
-            delete_file(file)
+            delete_file(file, including_meta: true)
             if idx == 0 # Recreate the file if it's the first segment because we need at least one segment to exist
               file = MFile.new(path, Config.instance.segment_size)
               file.write_bytes Schema::VERSION
@@ -421,34 +440,63 @@ module LavinMQ
         @log.debug { "Loading #{@segments.size} segments" }
       end
       @segments.each do |seg, mfile|
-        count = 0u32
-        loop do
-          pos = mfile.pos
-          ts = IO::ByteFormat::SystemEndian.decode(Int64, mfile.to_slice(pos, 8))
-          break mfile.resize(pos) if ts.zero? # This means that the rest of the file is zero, so resize it
-          bytesize = BytesMessage.skip(mfile)
-          count += 1
-          next if deleted?(seg, pos)
-          @bytesize += bytesize
-          @size += 1
-        rescue ex : IO::EOFError
-          break
-        rescue ex : OverflowError | AMQ::Protocol::Error::FrameDecode
-          @log.error { "Could not initialize segment, closing message store: Failed to read segment #{seg} at pos #{mfile.pos}. #{ex}" }
-          close
-          return
+        begin
+          read_metadata_file(seg, mfile)
+        rescue File::NotFoundError
+          produce_metadata(seg, mfile)
+          write_metadata_file(seg, mfile) unless seg == @segments.last_key # this segment is not full yet
         end
-        mfile.pos = 4
-        mfile.dontneed
+
         if is_long_queue
           @log.info { "Loaded #{counter}/#{@segments.size} segments, #{@size} messages" } if (counter &+= 1) % 128 == 0
         else
           @log.debug { "Loaded #{counter}/#{@segments.size} segments, #{@size} messages" } if (counter &+= 1) % 128 == 0
         end
-        Fiber.yield
-        @segment_msg_count[seg] = count
       end
       @log.info { "Loaded #{counter} segments, #{@size} messages" }
+    end
+
+    private def read_metadata_file(seg, mfile)
+      count = File.open("#{mfile.path}.meta", &.read_bytes(UInt32))
+      @segment_msg_count[seg] = count
+      bytesize = mfile.size - 4
+      if deleted = @deleted[seg]?
+        deleted.each do |pos|
+          mfile.pos = pos
+          bytesize -= BytesMessage.skip(mfile)
+          count -= 1
+        end
+      end
+      mfile.pos = 4
+      mfile.dontneed
+      @bytesize += bytesize
+      @size += count
+      @log.debug { "Reading count from #{mfile.path}.meta: #{count}" }
+    end
+
+    private def produce_metadata(seg, mfile)
+      count = 0u32
+      loop do
+        pos = mfile.pos
+        ts = IO::ByteFormat::SystemEndian.decode(Int64, mfile.to_slice(pos, 8))
+        break mfile.resize(pos) if ts.zero? # This means that the rest of the file is zero, so resize it
+        bytesize = BytesMessage.skip(mfile)
+        count += 1
+        next if deleted?(seg, pos)
+        @bytesize += bytesize
+        @size += 1
+      rescue ex : IO::EOFError
+        break
+      rescue ex : OverflowError | AMQ::Protocol::Error::FrameDecode
+        @log.error { "Could not initialize segment, closing message store: Failed to read segment #{seg} at pos #{mfile.pos}. #{ex}" }
+        close
+        return count
+      end
+      mfile.pos = 4
+      mfile.dontneed
+      Fiber.yield
+      @segment_msg_count[seg] = count
+      @log.debug { "Manually counted #{count} msgs from #{mfile.path}" }
     end
 
     private def delete_unused_segments : Nil
@@ -463,7 +511,7 @@ module LavinMQ
           if ack = @acks.delete(seg)
             delete_file(ack)
           end
-          delete_file(mfile)
+          delete_file(mfile, including_meta: true)
           true
         else
           false

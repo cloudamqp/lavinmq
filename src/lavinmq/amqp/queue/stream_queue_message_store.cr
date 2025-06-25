@@ -18,7 +18,6 @@ module LavinMQ::AMQP
       def initialize(*args, **kwargs)
         super
         @last_offset = get_last_offset
-        build_segment_indexes
         @consumer_offsets = MFile.new(File.join(@msg_dir, "consumer_offsets"), Config.instance.segment_size)
         @replicator.try &.register_file @consumer_offsets
         @consumer_offset_positions = restore_consumer_offset_positions
@@ -272,6 +271,12 @@ module LavinMQ::AMQP
         end
       end
 
+      private def write_metadata(io, seg)
+        super
+        io.write_bytes @offset_index[seg]
+        io.write_bytes @timestamp_index[seg]
+      end
+
       def drop_overflow
         if max_length = @max_length
           drop_segments_while do
@@ -336,15 +341,13 @@ module LavinMQ::AMQP
         headers.not_nil!("Message lacks headers")["x-stream-offset"].as(Int64)
       end
 
-      private def build_segment_indexes
-        @segments.each do |seg_id, mfile|
-          msg = BytesMessage.from_bytes(mfile.to_slice + 4u32)
-          @offset_index[seg_id] = offset_from_headers(msg.properties.headers)
-          @timestamp_index[seg_id] = msg.timestamp
-        rescue IndexError
-          @offset_index[seg_id] = @last_offset
-          @timestamp_index[seg_id] = RoughTime.unix_ms
-        end
+      private def produce_metadata(seg, mfile)
+        msg = BytesMessage.from_bytes(mfile.to_slice + 4u32)
+        @offset_index[seg] = offset_from_headers(msg.properties.headers)
+        @timestamp_index[seg] = msg.timestamp
+      rescue IndexError
+        @offset_index[seg] = @last_offset
+        @timestamp_index[seg] = RoughTime.unix_ms
       end
     end
   end
