@@ -661,31 +661,31 @@ module LavinMQ
 
     def event_tick(event_type)
       case event_type
-      in EventType::ChannelClosed        then @channel_closed_count.add(1)
-      in EventType::ChannelCreated       then @channel_created_count.add(1)
-      in EventType::ConnectionClosed     then @connection_closed_count.add(1)
-      in EventType::ConnectionCreated    then @connection_created_count.add(1)
-      in EventType::QueueDeclared        then @queue_declared_count.add(1)
-      in EventType::QueueDeleted         then @queue_deleted_count.add(1)
-      in EventType::ClientAck            then @ack_count.add(1)
-      in EventType::ClientPublish        then @publish_count.add(1)
-      in EventType::ClientPublishConfirm then @confirm_count.add(1)
-      in EventType::ClientRedeliver      then @redeliver_count.add(1)
-      in EventType::ClientReject         then @reject_count.add(1)
-      in EventType::ConsumerAdded        then @consumer_added_count.add(1)
-      in EventType::ConsumerRemoved      then @consumer_removed_count.add(1)
+      in EventType::ChannelClosed        then @channel_closed_count.add(1, :relaxed)
+      in EventType::ChannelCreated       then @channel_created_count.add(1, :relaxed)
+      in EventType::ConnectionClosed     then @connection_closed_count.add(1, :relaxed)
+      in EventType::ConnectionCreated    then @connection_created_count.add(1, :relaxed)
+      in EventType::QueueDeclared        then @queue_declared_count.add(1, :relaxed)
+      in EventType::QueueDeleted         then @queue_deleted_count.add(1, :relaxed)
+      in EventType::ClientAck            then @ack_count.add(1, :relaxed)
+      in EventType::ClientPublish        then @publish_count.add(1, :relaxed)
+      in EventType::ClientPublishConfirm then @confirm_count.add(1, :relaxed)
+      in EventType::ClientRedeliver      then @redeliver_count.add(1, :relaxed)
+      in EventType::ClientReject         then @reject_count.add(1, :relaxed)
+      in EventType::ConsumerAdded        then @consumer_added_count.add(1, :relaxed)
+      in EventType::ConsumerRemoved      then @consumer_removed_count.add(1, :relaxed)
       in EventType::ClientGet
-        @get_count.add(1)
-        @deliver_get_count.add(1)
+        @get_count.add(1, :relaxed)
+        @deliver_get_count.add(1, :relaxed)
       in EventType::ClientGetNoAck
-        @get_no_ack_count.add(1)
-        @deliver_get_count.add(1)
+        @get_no_ack_count.add(1, :relaxed)
+        @deliver_get_count.add(1, :relaxed)
       in EventType::ClientDeliver
-        @deliver_count.add(1)
-        @deliver_get_count.add(1)
+        @deliver_count.add(1, :relaxed)
+        @deliver_get_count.add(1, :relaxed)
       in EventType::ClientDeliverNoAck
-        @deliver_no_ack_count.add(1)
-        @deliver_get_count.add(1)
+        @deliver_no_ack_count.add(1, :relaxed)
+        @deliver_get_count.add(1, :relaxed)
       end
     end
 

@@ -42,11 +42,11 @@ module LavinMQ::AMQP
     @unacked_bytesize = Atomic(UInt64).new(0u64)
 
     def unacked_count
-      @unacked_count.get
+      @unacked_count.get(:relaxed)
     end
 
     def unacked_bytesize
-      @unacked_count.get
+      @unacked_count.get(:relaxed)
     end
 
     @msg_store_lock = Mutex.new(:reentrant)
@@ -447,7 +447,7 @@ module LavinMQ::AMQP
       return false if @deleted || @state.closed?
       if d = @deduper
         if d.duplicate?(msg)
-          @dedup_count.add(1)
+          @dedup_count.add(1, :relaxed)
           return false
         end
         d.add(msg)
@@ -456,7 +456,7 @@ module LavinMQ::AMQP
       @msg_store_lock.synchronize do
         @msg_store.push(msg)
       end
-      @publish_count.add(1)
+      @publish_count.add(1, :relaxed)
       drop_overflow_if_no_immediate_delivery
       true
     rescue ex : MessageStore::Error
@@ -728,8 +728,8 @@ module LavinMQ::AMQP
     def basic_get(no_ack, force = false, & : Envelope -> Nil) : Bool
       return false if !@state.running? && (@state.paused? && !force)
       @queue_expiration_ttl_change.try_send? nil
-      @deliver_get_count.add(1)
-      no_ack ? @get_no_ack_count.add(1) : @get_count.add(1)
+      @deliver_get_count.add(1, :relaxed)
+      no_ack ? @get_no_ack_count.add(1, :relaxed) : @get_count.add(1, :relaxed)
       get(no_ack) do |env|
         yield env
       end
@@ -740,10 +740,10 @@ module LavinMQ::AMQP
       get(no_ack) do |env|
         yield env
         if env.redelivered
-          @redeliver_count.add(1)
+          @redeliver_count.add(1, :relaxed)
         else
-          no_ack ? @deliver_no_ack_count.add(1) : @deliver_count.add(1)
-          @deliver_get_count.add(1)
+          no_ack ? @deliver_no_ack_count.add(1, :relaxed) : @deliver_count.add(1, :relaxed)
+          @deliver_get_count.add(1, :relaxed)
         end
       end
     end
@@ -787,8 +787,8 @@ module LavinMQ::AMQP
 
     private def mark_unacked(sp, &)
       @log.debug { "Counting as unacked: #{sp}" }
-      @unacked_count.add(1)
-      @unacked_bytesize.add(sp.bytesize)
+      @unacked_count.add(1, :relaxed)
+      @unacked_bytesize.add(sp.bytesize, :relaxed)
       begin
         yield
       rescue ex
@@ -796,8 +796,8 @@ module LavinMQ::AMQP
         @msg_store_lock.synchronize do
           @msg_store.requeue(sp)
         end
-        @unacked_count.sub(1)
-        @unacked_bytesize.sub(sp.bytesize)
+        @unacked_count.sub(1, :relaxed)
+        @unacked_bytesize.sub(sp.bytesize, :relaxed)
         raise ex
       end
     end
@@ -829,9 +829,9 @@ module LavinMQ::AMQP
     def ack(sp : SegmentPosition) : Nil
       return if @deleted
       @log.debug { "Acking #{sp}" }
-      @ack_count.add(1)
-      @unacked_count.sub(1)
-      @unacked_bytesize.sub(sp.bytesize)
+      @ack_count.add(1, :relaxed)
+      @unacked_count.sub(1, :relaxed)
+      @unacked_bytesize.sub(sp.bytesize, :relaxed)
       delete_message(sp)
     end
 
@@ -848,9 +848,9 @@ module LavinMQ::AMQP
     def reject(sp : SegmentPosition, requeue : Bool)
       return if @deleted || @closed
       @log.debug { "Rejecting #{sp}, requeue: #{requeue}" }
-      @reject_count.add(1)
-      @unacked_count.sub(1)
-      @unacked_bytesize.sub(sp.bytesize)
+      @reject_count.add(1, :relaxed)
+      @unacked_count.sub(1, :relaxed)
+      @unacked_bytesize.sub(sp.bytesize, :relaxed)
       if requeue
         if has_expired?(sp, requeue: true) # guarantee to not deliver expired messages
           expire_msg(sp, :expired)
