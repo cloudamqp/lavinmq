@@ -40,7 +40,7 @@ module LavinMQ
       def initialize(@socket : IO,
                      @connection_info : ConnectionInfo,
                      @vhost : VHost,
-                     @user : User,
+                     @user : Auth::User,
                      tune_ok,
                      start_ok)
         @max_frame_size = tune_ok.frame_max
