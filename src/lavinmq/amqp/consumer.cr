@@ -245,10 +245,6 @@ module LavinMQ
         @channel.unacked
       end
 
-      def channel_name
-        @channel.name
-      end
-
       def details_tuple
         channel_details = @channel.details_tuple
         {

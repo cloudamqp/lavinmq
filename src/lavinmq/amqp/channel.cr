@@ -462,10 +462,6 @@ module LavinMQ
         notify_has_capacity(count)
       end
 
-      def unacked_count
-        @unacked.size
-      end
-
       record TxAck, delivery_tag : UInt64, multiple : Bool, negative : Bool, requeue : Bool
       @tx_acks = Array(TxAck).new
 

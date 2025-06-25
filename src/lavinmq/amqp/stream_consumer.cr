@@ -146,10 +146,6 @@ module LavinMQ
 
       @has_requeued = BoolChannel.new(false)
 
-      def has_capacity : BoolChannel
-        super
-      end
-
       private def stream_queue : StreamQueue
         @queue.as(StreamQueue)
       end

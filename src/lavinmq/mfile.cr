@@ -20,12 +20,6 @@ end
 # not `size` large, only on graceful close is the file truncated to its `size`.
 # The file does not expand further than initial `capacity`, unless manually expanded.
 class MFile < IO
-  class ClosedError < IO::Error
-    def initialize
-      super("MFile closed")
-    end
-  end
-
   getter pos : Int64 = 0i64
   getter size : Int64 = 0i64
   getter capacity : Int64 = 0i64

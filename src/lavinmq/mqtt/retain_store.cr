@@ -134,12 +134,6 @@ module LavinMQ
         end
       end
 
-      def retained_messages
-        @lock.synchronize do
-          @index.size
-        end
-      end
-
       @hasher = Digest::MD5.new
 
       private def make_file_name(topic : String) : String

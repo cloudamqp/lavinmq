@@ -40,10 +40,6 @@ module LavinMQ
         @body = ::IO::Memory.new
       end
 
-      def publish(msg : Message, immediate : Bool, queues : Set(Queue), exchanges : Set(Exchange)) : UInt32
-        raise LavinMQ::Exchange::AccessRefused.new(self)
-      end
-
       def publish(packet : MQTT::Publish) : UInt32
         @publish_in_count.add(1)
         properties = AMQP::Properties.new(headers: AMQP::Table.new)
