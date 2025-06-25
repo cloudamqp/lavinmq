@@ -114,7 +114,8 @@ module LavinMQ::AMQP
 
       def push(msg) : SegmentPosition
         raise ClosedError.new if @closed
-        sp = store_for msg, &.push(msg)
+        prio = [msg.properties.priority || 0u8, @max_priority].min
+        sp = store_for prio, &.push(msg)
         was_empty = @size.zero?
         @bytesize += sp.bytesize
         @size += 1

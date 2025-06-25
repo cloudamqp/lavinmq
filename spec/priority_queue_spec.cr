@@ -15,6 +15,7 @@ describe LavinMQ::AMQP::PriorityQueue do
     it "migrates old store" do
       data_dir = File.tempname
       Dir.mkdir data_dir
+
       old_store = LavinMQ::MessageStore.new(data_dir, nil, durable: true)
       60u8.times do |prio|
         props = AMQP::Client::Properties.new(priority: prio % 6)
@@ -40,13 +41,24 @@ describe LavinMQ::AMQP::PriorityQueue do
       end
     end
 
-    it "should publish to the right sub store" do
-      with_prio_store(5) do |store|
-        6u8.times do |prio|
-          props = AMQP::Client::Properties.new(priority: prio)
+    describe "#push" do
+      it "should publish to the right sub store" do
+        with_prio_store(5) do |store|
+          6u8.times do |prio|
+            props = AMQP::Client::Properties.new(priority: prio)
+            msg = LavinMQ::Message.new("ex", "rk", "body", properties: props)
+            store.push msg
+            store.size.should eq(prio + 1)
+          end
+        end
+      end
+
+      it "should treat to high priority as max_priority" do
+        with_prio_store(5) do |store|
+          props = AMQP::Client::Properties.new(priority: 10u8)
           msg = LavinMQ::Message.new("ex", "rk", "body", properties: props)
           store.push msg
-          store.size.should eq(prio + 1)
+          store.@stores[0].size.should eq 1
         end
       end
     end
