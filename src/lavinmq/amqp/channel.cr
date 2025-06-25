@@ -25,6 +25,7 @@ module LavinMQ
       getter global_prefetch_count = 0_u16
       getter has_capacity = BoolChannel.new(true)
       getter unacked = Deque(Unack).new
+      @basic_get_unacked_count = Atomic(UInt32).new(0)
       @confirm = false
       @confirm_total = 0_u64
       @next_publish_mandatory = false
@@ -33,7 +34,7 @@ module LavinMQ
       @next_publish_routing_key : String?
       @next_msg_size = 0_u64
       @next_msg_props : AMQP::Properties?
-      @delivery_tag = 0_u64
+      @delivery_tag = Atomic(UInt64).new(1_u64)
       @unack_lock = Mutex.new(:checked)
       @next_msg_body_file : File?
       @direct_reply_consumer : String?
@@ -424,7 +425,7 @@ module LavinMQ
 
       private def delete_unacked(delivery_tag) : Unack?
         found = nil
-        @unack_lock.synchronize do
+        notify_has_capacity do
           # @unacked is always sorted so can do a binary search
           # optimization for acking first unacked
           if @unacked[0]?.try(&.tag) == delivery_tag
@@ -435,18 +436,18 @@ module LavinMQ
             # @log.debug { "Unacked bsearch found tag:#{delivery_tag} at index:#{idx}" }
             found = @unacked.delete_at(idx)
           end
+          @basic_get_unacked_count.sub(1u32, :relaxed) if found.try &.consumer.nil?
         end
-        notify_has_capacity(1) if found
         found
       end
 
       private def delete_multiple_unacked(delivery_tag, & : Unack -> Nil)
-        count = 0
-        @unack_lock.synchronize do
+        notify_has_capacity do
           if delivery_tag.zero?
             until @unacked.empty?
-              yield @unacked.shift
-              count += 1
+              u = @unacked.shift
+              @basic_get_unacked_count.sub(1u32, :relaxed) if u.consumer.nil?
+              yield u
             end
           else
             idx = @unacked.bsearch_index { |unack, _| unack.tag >= delivery_tag }
@@ -454,12 +455,12 @@ module LavinMQ
             return nil unless @unacked[idx].tag == delivery_tag
             # @log.debug { "Unacked bsearch found tag:#{delivery_tag} at index:#{idx}" }
             (idx + 1).times do
-              yield @unacked.shift
-              count += 1
+              u = @unacked.shift
+              @basic_get_unacked_count.sub(1u32, :relaxed) if u.consumer.nil?
+              yield u
             end
           end
         end
-        notify_has_capacity(count)
       end
 
       record TxAck, delivery_tag : UInt64, multiple : Bool, negative : Bool, requeue : Bool
@@ -591,12 +592,8 @@ module LavinMQ
       def basic_qos(frame) : Nil
         @client.send_not_implemented(frame) if frame.prefetch_size != 0
         if frame.global
-          @global_prefetch_count = frame.prefetch_count
-          if frame.prefetch_count.zero?
-            @has_capacity.set(true)
-          else
-            unacked_by_consumers = @unack_lock.synchronize { @unacked.count(&.consumer) }
-            notify_has_capacity(frame.prefetch_count.to_i - unacked_by_consumers)
+          notify_has_capacity do
+            @global_prefetch_count = frame.prefetch_count
           end
         else
           self.prefetch_count = frame.prefetch_count
@@ -610,7 +607,7 @@ module LavinMQ
       end
 
       def basic_recover(frame) : Nil
-        @unack_lock.synchronize do
+        notify_has_capacity do
           if frame.requeue
             @unacked.each do |unack|
               next if delivery_tag_is_in_tx?(unack.tag)
@@ -620,7 +617,6 @@ module LavinMQ
               unack.queue.reject(unack.sp, requeue: true)
             end
             @unacked.clear
-            notify_has_capacity
           else # redeliver to the original recipient
             @unacked.reject! do |unack|
               next if delivery_tag_is_in_tx?(unack.tag)
@@ -634,7 +630,6 @@ module LavinMQ
               end
             end
           end
-          @has_capacity.set(true)
         end
         send AMQP::Frame::Basic::RecoverOk.new(frame.channel)
       end
@@ -674,11 +669,16 @@ module LavinMQ
       end
 
       protected def next_delivery_tag(queue : Queue, sp, no_ack, consumer) : UInt64
-        @unack_lock.synchronize do
-          tag = @delivery_tag &+= 1
-          @unacked.push Unack.new(tag, queue, sp, consumer, RoughTime.monotonic) unless no_ack
-          tag
+        tag = @delivery_tag.add(1, :relaxed)
+        unless no_ack
+          @unack_lock.synchronize do
+            @unacked.push Unack.new(tag, queue, sp, consumer, RoughTime.monotonic)
+          end
+          add = consumer ? 0u32 : 1u32
+          basic_get_unacked_count = @basic_get_unacked_count.add(add, :relaxed) + add
+          @has_capacity.set(false) if 0 < @global_prefetch_count <= (@unacked.size - basic_get_unacked_count)
         end
+        tag
       end
 
       # Iterate over all unacked messages and see if any has been unacked longer than the queue's consumer timeout
@@ -702,26 +702,20 @@ module LavinMQ
 
       def has_capacity? : Bool
         return true if @global_prefetch_count.zero?
-        prefetch_limit = @global_prefetch_count
-        @unack_lock.synchronize do
-          count = 0
-          @unacked.each do |unack|
-            next if unack.consumer.nil? # only count consumer unacked against limit
-            count += 1
-            if count >= prefetch_limit
-              @has_capacity.set(false)
-              return false
-            end
-          end
-          @has_capacity.set(true)
-          return true
-        end
+        consumer_unacked = @unacked.size - @basic_get_unacked_count.get(:relaxed)
+        consumer_unacked < @global_prefetch_count
       end
 
-      private def notify_has_capacity(capacity = Int32::MAX)
-        return if @global_prefetch_count.zero?
-        return if capacity.negative?
-        @has_capacity.set(true) if capacity > 0
+      # Notify has capcity if no capcity before the block but after
+      private def notify_has_capacity(&)
+        @unack_lock.synchronize do
+          had_capacity = has_capacity?
+          begin
+            yield
+          ensure
+            @has_capacity.set(true) if !had_capacity && has_capacity?
+          end
+        end
       end
 
       def cancel_consumer(frame)
@@ -781,8 +775,7 @@ module LavinMQ
       end
 
       private def process_tx_acks
-        count = 0
-        @unack_lock.synchronize do
+        notify_has_capacity do
           @tx_acks.each do |tx_ack|
             if idx = @unacked.bsearch_index { |u, _| u.tag >= tx_ack.delivery_tag }
               raise "BUG: Delivery tag not found" unless @unacked[idx].tag == tx_ack.delivery_tag
@@ -790,27 +783,26 @@ module LavinMQ
               if tx_ack.multiple
                 (idx + 1).times do
                   unack = @unacked.shift
+                  @basic_get_unacked_count.sub(1u32, :relaxed) if unack.consumer.nil?
                   if tx_ack.negative
                     do_reject(tx_ack.requeue, unack)
                   else
                     do_ack(unack)
                   end
-                  count += 1
                 end
               else
                 unack = @unacked.delete_at(idx)
+                @basic_get_unacked_count.sub(1u32, :relaxed) if unack.consumer.nil?
                 if tx_ack.negative
                   do_reject(tx_ack.requeue, unack)
                 else
                   do_ack(unack)
                 end
-                count += 1
               end
             end
           end
           @tx_acks.clear
         end
-        notify_has_capacity(count)
       end
 
       def tx_rollback(frame)
