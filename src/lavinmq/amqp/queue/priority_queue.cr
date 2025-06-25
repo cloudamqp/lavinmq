@@ -47,7 +47,12 @@ module LavinMQ::AMQP
 
       # returns the substore for the priority
       private def store_for(prio : UInt8, &)
-        yield @stores[@stores.size - prio - 1]
+        unless 0 <= prio <= @max_priority
+          raise ArgumentError.new "Priority must be between 0 and #{@max_priority}, got #{prio}"
+        end
+        # Since @stores is sorted with highets prio first, we do lookup from
+        # end of the array. We must add one step because last item is -1 not -0.
+        yield @stores[-(1 + prio)]
       end
 
       private def store_for(sp : SegmentPosition, &)
