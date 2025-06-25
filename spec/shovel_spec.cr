@@ -647,20 +647,14 @@ describe LavinMQ::Shovel do
       with_amqp_server do |s|
         vhost = s.vhosts.create("pause:resume:vhost")
         shovel_name = "shovel:pause:resume"
-        source = LavinMQ::Shovel::AMQPSource.new(
-          "#{shovel_name}q1",
-          [URI.parse(s.amqp_url)],
-          "#{shovel_name}q1",
-          delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
-          direct_user: s.users.direct_user
-        )
-        dest = LavinMQ::Shovel::AMQPDestination.new(
-          "#{shovel_name}q2",
-          URI.parse(s.amqp_url),
-          "#{shovel_name}q2",
-          direct_user: s.users.direct_user
-        )
-        shovel = LavinMQ::Shovel::Runner.new(source, dest, shovel_name, vhost)
+        config = %({
+        "src-uri": "#{s.amqp_url}",
+        "src-queue": "#{shovel_name}_q1",
+        "dest-uri": "#{s.amqp_url}",
+        "dest-queue": "#{shovel_name}_q2" })
+        p = LavinMQ::Parameter.new("shovel", shovel_name, JSON.parse(config))
+        s.vhosts[vhost.name].add_parameter(p)
+        shovel = s.vhosts[vhost.name].shovels[shovel_name]
         shovel.pause
         shovel.paused?.should eq true
         s.restart
