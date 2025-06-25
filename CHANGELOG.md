@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added 
+ - lavinmqperf now supports the mqtt throughput test [#983](https://github.com/cloudamqp/lavinmq/pull/983) 
+
 ### Changed
 - queue metrics `ready`, `ready_bytes`, `unacked`, `unacked_bytes` are depricated in favour of
 `messages_ready`, `message_bytes_ready`, `messages_unacknowledged`, `message_bytes_unacknowledged`
