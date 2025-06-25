@@ -240,12 +240,17 @@ jobs:
           cd rabbitmq-java-client
           git apply ../lavinmq/.github/rabbitmq-java-client.patch
 
-      - name: Run java tests (allowed to fail)
+      - name: Run tests
         id: test
+        continue-on-error: true
         run: |
           cd rabbitmq-java-client
           make deps
           ./mvnw verify -Dtest-broker.A.nodename=lavin@testhost -Dit.test=ClientTestSuite,FunctionalTestSuite -Drabbitmqctl.bin=../bin/lavinmqctl
+
+      - name: >-
+          Test outcome: ${{ steps.test.outcome }}
+        run: echo NOOP
 
   bunny-test:
     name: Bunny client test
