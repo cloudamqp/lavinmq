@@ -1,6 +1,6 @@
 require "json"
 require "./vhost"
-require "./auth/user"
+require "./auth/users/basic_user"
 require "./observable"
 
 module LavinMQ
@@ -28,7 +28,7 @@ module LavinMQ
       end
     end
 
-    def create(name : String, user : Auth::User = @users.default_user, description = "", tags = Array(String).new(0), save : Bool = true)
+    def create(name : String, user : Auth::Users::BasicUser = @users.default_user, description = "", tags = Array(String).new(0), save : Bool = true)
       if v = @vhosts[name]?
         return v
       end
