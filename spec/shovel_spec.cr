@@ -658,7 +658,6 @@ describe LavinMQ::Shovel do
         shovel.pause
         shovel.paused?.should eq true
         s.restart
-        # Server restart is not applying shovels?
         should_eventually(be_true) { s.vhosts[vhost.name].shovels[shovel.name].paused? }
       end
     end
