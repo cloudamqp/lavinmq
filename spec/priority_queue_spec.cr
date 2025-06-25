@@ -29,18 +29,32 @@ describe LavinMQ::AMQP::PriorityQueue do
       end
     end
 
-    it "#first? returns the first message with the highest priority" do
-      with_prio_store(5) do |store|
-        [3u8, 2u8, 5u8, 1u8, 0u8].each do |prio|
-          props = AMQP::Client::Properties.new(priority: prio)
-          store.push LavinMQ::Message.new("ex", "rk", "body", properties: props)
+    describe "#first?" do
+      it "returns nil if store is empty" do
+        with_prio_store(5) do |store|
+          store.first?.should be_nil
         end
-        env = store.first?.should_not be_nil
-        env.message.properties.priority.should eq 5
+      end
+
+      it "#first? returns the first message with the highest priority" do
+        with_prio_store(5) do |store|
+          [3u8, 2u8, 5u8, 1u8, 0u8].each do |prio|
+            props = AMQP::Client::Properties.new(priority: prio)
+            store.push LavinMQ::Message.new("ex", "rk", "body", properties: props)
+          end
+          env = store.first?.should_not be_nil
+          env.message.properties.priority.should eq 5
+        end
       end
     end
 
     describe "#shift?" do
+      it "returns nil if store is empty" do
+        with_prio_store(5) do |store|
+          store.first?.should be_nil
+        end
+      end
+
       it "returns the first message with the highest priority" do
         with_prio_store(5) do |store|
           [3u8, 2u8, 5u8, 1u8, 0u8].each do |prio|
@@ -62,8 +76,15 @@ describe LavinMQ::AMQP::PriorityQueue do
             props = AMQP::Client::Properties.new(priority: prio)
             store.push LavinMQ::Message.new("ex", "rk", "body", properties: props)
           end
-          env = store.shift?.should_not be_nil
-          store.requeue env.segment_position
+          env_prio_5 = store.shift?.should_not be_nil
+          env_prio_3 = store.shift?.should_not be_nil
+          sp_prio_5 = env_prio_5.segment_position
+          sp_prio_3 = env_prio_3.segment_position
+          sp_prio_5.priority.should eq 5
+          sp_prio_3.priority.should eq 3
+
+          store.requeue sp_prio_5
+          store.requeue sp_prio_3
           store.@stores[0].size.should eq 1
         end
       end
