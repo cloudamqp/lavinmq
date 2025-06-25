@@ -222,7 +222,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: rabbitmq/rabbitmq-java-client
-          ref: v5.22.0
+          ref: v5.25.0
           path: rabbitmq-java-client
 
       - name: Get patch file
