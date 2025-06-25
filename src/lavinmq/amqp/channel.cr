@@ -217,7 +217,7 @@ module LavinMQ
       end
 
       private def finish_publish(body_io)
-        @publish_count.add(1)
+        @publish_count.add(1, :relaxed)
         @client.vhost.event_tick(EventType::ClientPublish)
         props = @next_msg_props.not_nil!
         props.timestamp = RoughTime.utc if props.timestamp.nil? && Config.instance.set_timestamp?
@@ -286,13 +286,13 @@ module LavinMQ
 
       private def confirm_ack(msgid, multiple = false)
         @client.vhost.event_tick(EventType::ClientPublishConfirm)
-        @confirm_count.add(1)
+        @confirm_count.add(1, :relaxed)
         send AMQP::Frame::Basic::Ack.new(@id, msgid, multiple)
       end
 
       private def confirm_nack(msgid, multiple = false)
         @client.vhost.event_tick(EventType::ClientPublishConfirm)
-        @confirm_count.add(1)
+        @confirm_count.add(1, :relaxed)
         send AMQP::Frame::Basic::Nack.new(@id, msgid, multiple, requeue: false)
       end
 
@@ -314,7 +314,7 @@ module LavinMQ
       end
 
       private def basic_return(msg : Message, mandatory : Bool, immediate : Bool)
-        @return_unroutable_count.add(1)
+        @return_unroutable_count.add(1, :relaxed)
         if immediate
           retrn = AMQP::Frame::Basic::Return.new(@id, 313_u16, "NO_CONSUMERS", msg.exchange_name, msg.routing_key)
           deliver(retrn, msg)
@@ -333,17 +333,17 @@ module LavinMQ
 
       def increment_deliver_count(redelivered : Bool, no_ack : Bool = false)
         if redelivered
-          @redeliver_count.add(1)
+          @redeliver_count.add(1, :relaxed)
           @client.vhost.event_tick(EventType::ClientRedeliver)
         else
           if no_ack
-            @deliver_no_ack_count.add(1)
+            @deliver_no_ack_count.add(1, :relaxed)
             @client.vhost.event_tick(EventType::ClientDeliverNoAck)
           else
-            @deliver_count.add(1)
+            @deliver_count.add(1, :relaxed)
             @client.vhost.event_tick(EventType::ClientDeliver)
           end
-          @deliver_get_count.add(1)
+          @deliver_get_count.add(1, :relaxed)
         end
       end
 
@@ -398,13 +398,13 @@ module LavinMQ
           else
             case frame.no_ack
             when true
-              @get_no_ack_count.add(1)
+              @get_no_ack_count.add(1, :relaxed)
               @client.vhost.event_tick(EventType::ClientGetNoAck)
             when false
-              @get_count.add(1)
+              @get_count.add(1, :relaxed)
               @client.vhost.event_tick(EventType::ClientGet)
             end
-            @deliver_get_count.add(1)
+            @deliver_get_count.add(1, :relaxed)
             ok = q.basic_get(frame.no_ack) do |env|
               delivery_tag = next_delivery_tag(q, env.segment_position, frame.no_ack, nil)
               unless frame.no_ack # track unacked messages
@@ -506,7 +506,7 @@ module LavinMQ
         unack.queue.ack(unack.sp)
         unack.queue.basic_get_unacked.reject! { |u| u.channel == self && u.delivery_tag == unack.tag }
         @client.vhost.event_tick(EventType::ClientAck)
-        @ack_count.add(1)
+        @ack_count.add(1, :relaxed)
       end
 
       def basic_reject(frame)
@@ -584,7 +584,7 @@ module LavinMQ
         end
         unack.queue.reject(unack.sp, requeue)
         unack.queue.basic_get_unacked.reject! { |u| u.channel == self && u.delivery_tag == unack.tag }
-        @reject_count.add(1)
+        @reject_count.add(1, :relaxed)
         @client.vhost.event_tick(EventType::ClientReject)
       end
 

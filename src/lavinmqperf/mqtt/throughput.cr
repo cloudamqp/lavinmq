@@ -162,11 +162,11 @@ module LavinMQPerf
 
         loop do
           break if @stopped
-          pubs_last = @pubs.get
-          consumes_last = @consumes.get
+          pubs_last = @pubs.get(:relaxed)
+          consumes_last = @consumes.get(:relaxed)
           sleep 1.seconds
           unless @quiet
-            puts "Publish rate: #{@pubs.get - pubs_last} msgs/s Consume rate: #{@consumes.get - consumes_last} msgs/s"
+            puts "Publish rate: #{@pubs.get(:relaxed) - pubs_last} msgs/s Consume rate: #{@consumes.get(:relaxed) - consumes_last} msgs/s"
           end
         end
         summary(start)
@@ -175,8 +175,8 @@ module LavinMQPerf
       private def summary(start : Time::Span)
         stop = Time.monotonic
         elapsed = (stop - start).total_seconds
-        avg_pub = (@pubs.get / elapsed).round(1)
-        avg_consume = (@consumes.get / elapsed).round(1)
+        avg_pub = (@pubs.get(:relaxed) / elapsed).round(1)
+        avg_consume = (@consumes.get(:relaxed) / elapsed).round(1)
         puts
         if @json_output
           JSON.build(STDOUT) do |json|
@@ -184,8 +184,8 @@ module LavinMQPerf
               json.field "elapsed_seconds", elapsed
               json.field "avg_pub_rate", avg_pub
               json.field "avg_consume_rate", avg_consume
-              json.field "total_published", @pubs.get
-              json.field "total_consumed", @consumes.get
+              json.field "total_published", @pubs.get(:relaxed)
+              json.field "total_consumed", @consumes.get(:relaxed)
             end
           end
           puts
@@ -193,8 +193,8 @@ module LavinMQPerf
           puts "Summary:"
           puts "Average publish rate: #{avg_pub} msgs/s"
           puts "Average consume rate: #{avg_consume} msgs/s"
-          puts "Total published: #{@pubs.get}"
-          puts "Total consumed: #{@consumes.get}"
+          puts "Total published: #{@pubs.get(:relaxed)}"
+          puts "Total consumed: #{@consumes.get(:relaxed)}"
         end
       end
 
@@ -229,7 +229,7 @@ module LavinMQPerf
             end
           end
 
-          pubs = @pubs.add(1) + 1
+          pubs = @pubs.add(1, :relaxed) + 1
           break if @pmessages > 0 && pubs >= @pmessages
 
           if !@rate.zero?
@@ -270,7 +270,7 @@ module LavinMQPerf
             packet = LavinMQ::MQTT::Packet.from_io(io)
             case packet
             when LavinMQ::MQTT::Publish
-              consumes = @consumes.add(1) + 1
+              consumes = @consumes.add(1, :relaxed) + 1
               individual_consumes += 1
 
               if @verify
