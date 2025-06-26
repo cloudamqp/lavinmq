@@ -12,6 +12,40 @@ end
 
 describe LavinMQ::AMQP::PriorityQueue do
   describe "PriorityMessageStore" do
+    describe "clustering" do
+      add_etcd_around_each
+      it "can stream changes to to priority queues" do
+        with_clustering do |cluster|
+          with_amqp_server(replicator: cluster.replicator) do |s|
+            with_channel(s) do |ch|
+              args = AMQP::Client::Arguments.new({"x-max-priority" => 3})
+              q = ch.queue("repli", args: args)
+              q.publish_confirm "hello world", props: AMQP::Client::Properties.new(priority: 1_u8)
+              q.publish_confirm "hello world 2", props: AMQP::Client::Properties.new(priority: 2_u8)
+              if msg = q.get(no_ack: false)
+                msg.properties.priority.should eq 2
+                msg.ack
+              else
+                fail("could not get message")
+              end
+            end
+            cluster.stop
+          end
+
+          server = LavinMQ::Server.new(cluster.follower_config)
+          begin
+            q = server.vhosts["/"].queues["repli"].as(LavinMQ::AMQP::DurablePriorityQueue)
+            q.message_count.should eq 1
+            q.basic_get(true) do |env|
+              env.message.properties.priority.should eq 1
+              String.new(env.message.body).to_s.should eq "hello world"
+            end.should be_true
+          ensure
+            server.close
+          end
+        end
+      end
+    end
     describe "migration" do
       it "should migrate old store" do
         data_dir = File.tempname
@@ -31,6 +65,10 @@ describe LavinMQ::AMQP::PriorityQueue do
         6.times do |i|
           store.@stores[i].size.should eq 10
         end
+
+        old_store = LavinMQ::MessageStore.new(data_dir, nil, durable: true)
+        old_store.size.should eq 0
+        old_store.close
       ensure
         store.delete if store
         FileUtils.rm_rf data_dir if data_dir
