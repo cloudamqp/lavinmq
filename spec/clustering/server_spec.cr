@@ -1,5 +1,4 @@
 require "../spec_helper"
-require "./spec_helper"
 require "../../src/lavinmq/clustering/server"
 
 describe LavinMQ::Clustering::Server do

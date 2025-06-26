@@ -1,5 +1,4 @@
 require "./spec_helper"
-require "./clustering/spec_helper"
 require "../src/lavinmq/launcher"
 require "../src/lavinmq/clustering/client"
 require "../src/lavinmq/clustering/controller"
@@ -7,117 +6,80 @@ require "../src/lavinmq/clustering/controller"
 alias IndexTree = LavinMQ::MQTT::TopicTree(String)
 
 describe LavinMQ::Clustering::Client do
-  follower_data_dir = "/tmp/lavinmq-follower"
-  around_each do |spec|
-    FileUtils.rm_rf follower_data_dir
-    spec.run
-  ensure
-    FileUtils.rm_rf follower_data_dir
-  end
   add_etcd_around_each
 
   it "can stream changes" do
-    replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Etcd.new("localhost:12379"), 0)
-    tcp_server = TCPServer.new("localhost", 0)
-    spawn(replicator.listen(tcp_server), name: "repli server spec")
-    config = LavinMQ::Config.new.tap &.data_dir = follower_data_dir
-    repli = LavinMQ::Clustering::Client.new(config, 1, replicator.password, proxy: false)
-    done = Channel(Nil).new
-    spawn(name: "follow spec") do
-      repli.follow("localhost", tcp_server.local_address.port)
-      done.send nil
-    end
-    wait_for { replicator.followers.size == 1 }
-    with_amqp_server(replicator: replicator) do |s|
-      with_channel(s) do |ch|
-        q = ch.queue("repli")
-        q.publish_confirm "hello world"
+    with_clustering do |cluster|
+      with_amqp_server(replicator: cluster.replicator) do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("repli")
+          q.publish_confirm "hello world"
+        end
+        cluster.stop
       end
-      replicator.close
-      repli.close
-      done.receive
-    end
 
-    server = LavinMQ::Server.new(config)
-    begin
-      q = server.vhosts["/"].queues["repli"].as(LavinMQ::AMQP::DurableQueue)
-      q.message_count.should eq 1
-      q.basic_get(true) do |env|
-        String.new(env.message.body).to_s.should eq "hello world"
-      end.should be_true
-    ensure
-      server.close
+      server = LavinMQ::Server.new(cluster.follower_config)
+      begin
+        q = server.vhosts["/"].queues["repli"].as(LavinMQ::AMQP::DurableQueue)
+        q.message_count.should eq 1
+        q.basic_get(true) do |env|
+          String.new(env.message.body).to_s.should eq "hello world"
+        end.should be_true
+      ensure
+        server.close
+      end
     end
   end
 
   it "replicates and streams retained messages to followers" do
-    replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Etcd.new("localhost:12379"), 0)
-    tcp_server = TCPServer.new("localhost", 0)
+    with_clustering do |cluster|
+      replicator = cluster.replicator
+      retain_store = LavinMQ::MQTT::RetainStore.new("#{cluster.config.data_dir}/retain_store", replicator)
+      # This wait is needed for the initial replace of index to be synced.
+      # If we don't do this data may have been appended to the file before it's
+      # written to socket, meaning that the lag_size has changed.
+      wait_for { replicator.followers.first?.try &.lag_in_bytes == 0 }
 
-    spawn(replicator.listen(tcp_server), name: "repli server spec")
-    config = LavinMQ::Config.new.tap &.data_dir = follower_data_dir
-    repli = LavinMQ::Clustering::Client.new(config, 1, replicator.password, proxy: false)
-    done = Channel(Nil).new
-    spawn(name: "follow spec") do
-      repli.follow("localhost", tcp_server.local_address.port)
-      done.send nil
+      props = LavinMQ::AMQP::Properties.new
+      msg1 = LavinMQ::Message.new(100, "test", "rk", props, 5, IO::Memory.new("body1"))
+      msg2 = LavinMQ::Message.new(100, "test", "rk", props, 5, IO::Memory.new("body2"))
+      retain_store.retain("topic1", msg1.body_io, msg1.bodysize)
+      retain_store.retain("topic2", msg2.body_io, msg2.bodysize)
+
+      wait_for { replicator.followers.first?.try &.lag_in_bytes == 0 }
+      cluster.stop
+
+      follower_retain_store = LavinMQ::MQTT::RetainStore.new("#{cluster.follower_config.data_dir}/retain_store", LavinMQ::Clustering::NoopServer.new)
+      a = Array(String).new(2)
+      b = Array(String).new(2)
+      follower_retain_store.each("#") do |topic, body_io, body_bytesize|
+        a << topic
+        b << body_io.read_string(body_bytesize)
+      end
+
+      a.sort!.should eq(["topic1", "topic2"])
+      b.sort!.should eq(["body1", "body2"])
+      follower_retain_store.@index.size.should eq(2)
+    ensure
+      follower_retain_store.try &.close
+      retain_store.try &.close
     end
-    wait_for { replicator.followers.size == 1 }
-
-    retain_store = LavinMQ::MQTT::RetainStore.new("#{LavinMQ::Config.instance.data_dir}/retain_store", replicator)
-    wait_for { replicator.followers.first?.try &.lag_in_bytes == 0 }
-
-    props = LavinMQ::AMQP::Properties.new
-    msg1 = LavinMQ::Message.new(100, "test", "rk", props, 5, IO::Memory.new("body1"))
-    msg2 = LavinMQ::Message.new(100, "test", "rk", props, 5, IO::Memory.new("body2"))
-    retain_store.retain("topic1", msg1.body_io, msg1.bodysize)
-    retain_store.retain("topic2", msg2.body_io, msg2.bodysize)
-
-    wait_for { replicator.followers.first?.try &.lag_in_bytes == 0 }
-    repli.close
-    done.receive
-
-    follower_retain_store = LavinMQ::MQTT::RetainStore.new("#{follower_data_dir}/retain_store", LavinMQ::Clustering::NoopServer.new)
-    a = Array(String).new(2)
-    b = Array(String).new(2)
-    follower_retain_store.each("#") do |topic, body_io, body_bytesize|
-      a << topic
-      b << body_io.read_string(body_bytesize)
-    end
-
-    a.sort!.should eq(["topic1", "topic2"])
-    b.sort!.should eq(["body1", "body2"])
-    follower_retain_store.@index.size.should eq(2)
-  ensure
-    follower_retain_store.try &.close
-    retain_store.try &.close
-    replicator.try &.close
   end
 
   it "can stream full file" do
-    replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Etcd.new("localhost:12379"), 0)
-    tcp_server = TCPServer.new("localhost", 0)
-    spawn(replicator.listen(tcp_server), name: "repli server spec")
-    config = LavinMQ::Config.new.tap &.data_dir = follower_data_dir
-    repli = LavinMQ::Clustering::Client.new(config, 1, replicator.password, proxy: false)
-    done = Channel(Nil).new
-    spawn(name: "follow spec") do
-      repli.follow("localhost", tcp_server.local_address.port)
-      done.send nil
-    end
-    wait_for { replicator.followers.size == 1 }
-    with_amqp_server(replicator: replicator) do |s|
-      s.users.create("u1", "p1")
-      wait_for { replicator.followers.first?.try &.lag_in_bytes == 0 }
-      repli.close
-      done.receive
-    end
+    with_clustering do |cluster|
+      with_amqp_server(replicator: cluster.replicator) do |s|
+        s.users.create("u1", "p1")
+        wait_for { cluster.replicator.followers.first?.try &.lag_in_bytes == 0 }
+        cluster.stop
+      end
 
-    server = LavinMQ::Server.new(config)
-    begin
-      server.users["u1"].should_not be_nil
-    ensure
-      server.close
+      server = LavinMQ::Server.new(cluster.follower_config)
+      begin
+        server.users["u1"].should_not be_nil
+      ensure
+        server.close
+      end
     end
   end
 
