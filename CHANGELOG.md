@@ -14,9 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - OpenAPI documentation for vhost limits endpoints [#1122](https://github.com/cloudamqp/lavinmq/pull/1122)
 - Verification of the default password hash on launch [#1078](https://github.com/cloudamqp/lavinmq/pull/1078)
 - Alpine Linux compatibility and a corresponding Dockerfile (packaging/alpine/Dockerfile) [#1115](https://github.com/cloudamqp/lavinmq/pull/1115)
+- Improved consumer fairness and performance for AMQP [7a1455dc](https://github.com/cloudamqp/lavinmq/commit/7a1455dc)
+- Clustering helper code for specs [#1178](https://github.com/cloudamqp/lavinmq/pull/1178)
 
 ### Changed
-- Boot time is improved by storing the message count in a file alongside the message segment [#1163](httpshttps://github.com/cloudamqp/lavinmq/pull/1163)
+- Boot time is improved by storing the message count in a file alongside the message segment [#1163](https://github.com/cloudamqp/lavinmq/pull/1163)
+- Use java client 5.25.0 in CI [15de674b](https://github.com/cloudamqp/lavinmq/commit/15de674b)
+- Relaxed ordering for atomic counters [e95d9190](https://github.com/cloudamqp/lavinmq/commit/e95d9190)
 - Use `madvise` to signal that a read segment is no longer needed [#ea6171ac](https://github.com/cloudamqp/lavinmq/commit/ea6171ac)
 - `MFile` is now thread-safe [#9ef445aa](https://github.com/cloudamqp/lavinmq/commit/9ef445aa)
 - Sockets are now flushed only when the delivery loop would block [#29ab3436](https://github.com/cloudamqp/lavinmq/commit/29ab3436)
@@ -53,6 +57,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A new version of `amq-protocol` with a `Table#hash` implementation is now used [#115ce4a0](https://github.com/cloudamqp/lavinmq/commit/115ce4a0)
 
 ### Fixed
+- Delete orphan acks files on start and shutdown [#1175](https://github.com/cloudamqp/lavinmq/pull/1175)
+- Read message files properly if there is no meta files, also read index data from meta files if they exist [#1170](https://github.com/cloudamqp/lavinmq/pull/1170)
 - Specs now generate coredumps on segfault [#333a4ad2](https://github.com/cloudamqp/lavinmq/commit/333a4ad2)
 - `RetainStore` is now closed in specs to prevent file descriptor leaks [#ea83d7b3](https://github.com/cloudamqp/lavinmq/commit/ea83d7b3)
 - A file descriptor leak in `RetainStore` has been fixed and the code has been refactored [#be4e5032](https://github.com/cloudamqp/lavinmq/commit/be4e5032)
