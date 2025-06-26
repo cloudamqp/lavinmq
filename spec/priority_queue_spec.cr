@@ -14,7 +14,7 @@ describe LavinMQ::AMQP::PriorityQueue do
   describe "PriorityMessageStore" do
     describe "clustering" do
       add_etcd_around_each
-      it "can stream changes to to priority queues" do
+      it "is replicated correctly" do
         with_clustering do |cluster|
           with_amqp_server(replicator: cluster.replicator) do |s|
             with_channel(s) do |ch|
