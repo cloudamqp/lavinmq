@@ -60,7 +60,7 @@ describe LavinMQ::AMQP::PriorityQueue do
           props = AMQP::Client::Properties.new(priority: 10u8)
           msg = LavinMQ::Message.new("ex", "rk", "body", properties: props)
           store.push msg
-          store.@stores[0].size.should eq 1
+          store.@stores[-1].size.should eq 1
         end
       end
     end
@@ -121,7 +121,7 @@ describe LavinMQ::AMQP::PriorityQueue do
 
           store.requeue sp_prio_5
           store.requeue sp_prio_3
-          store.@stores[0].size.should eq 1
+          store.@stores[-1].size.should eq 1
         end
       end
     end

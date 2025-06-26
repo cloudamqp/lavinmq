@@ -38,10 +38,7 @@ module LavinMQ::AMQP
       end
 
       private def init_sub_stores(stores)
-        # Setup all sub-stores. We want the highets priority store
-        # first in the array since we'll always search from high to
-        # low priority.
-        (0..@max_priority).reverse_each do |i|
+        0.upto(@max_priority) do |i|
           sub_msg_dir = File.join(@msg_dir, "prio.#{i.to_s.rjust(3, '0')}")
           Dir.mkdir_p sub_msg_dir
           store = MessageStore.new(sub_msg_dir, @replicator, @durable, metadata: @metadata.extend({prio: i.to_s}))
@@ -107,7 +104,7 @@ module LavinMQ::AMQP
         end
         # Since @stores is sorted with highets prio first, we do lookup from
         # end of the array. We must add one step because last item is -1 not -0.
-        yield @stores[-(1 + prio)]
+        yield @stores[prio]
       end
 
       private def store_for(sp : SegmentPosition, &)
@@ -144,7 +141,7 @@ module LavinMQ::AMQP
 
       def first? : Envelope?
         raise ClosedError.new if @closed
-        @stores.each do |s|
+        @stores.reverse_each do |s|
           envelope = s.first?
           return envelope unless envelope.nil?
         end
@@ -152,7 +149,7 @@ module LavinMQ::AMQP
 
       def shift?(consumer = nil) : Envelope?
         raise ClosedError.new if @closed
-        @stores.each do |s|
+        @stores.reverse_each do |s|
           envelope = s.shift?(consumer)
           return envelope unless envelope.nil?
         end
