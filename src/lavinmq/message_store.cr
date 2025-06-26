@@ -32,6 +32,7 @@ module LavinMQ
       @durable = durable
       @acks = Hash(UInt32, MFile).new { |acks, seg| acks[seg] = open_ack_file(seg) }
       load_segments_from_disk
+      delete_orphan_ack_files
       load_deleted_from_disk
       load_stats_from_segments
       delete_unused_segments
@@ -248,6 +249,7 @@ module LavinMQ
     def close : Nil
       return if @closed
       @closed = true
+      delete_orphan_ack_files
       @empty.close
       # To make sure that all replication actions for the segments
       # have finished wait for a delete action of a nonexistent file
@@ -515,6 +517,18 @@ module LavinMQ
           true
         else
           false
+        end
+      end
+    end
+
+    private def delete_orphan_ack_files
+      Dir.each_child(@msg_dir) do |f|
+        next unless f.starts_with? "acks."
+        seg = f[5, 10].to_u32
+        unless @segments.has_key?(seg)
+          path = File.join(@msg_dir, f)
+          File.delete(path)
+          @replicator.try &.delete_file(path, WaitGroup.new)
         end
       end
     end
