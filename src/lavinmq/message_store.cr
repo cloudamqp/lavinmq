@@ -527,6 +527,7 @@ module LavinMQ
         seg = f[5, 10].to_u32
         unless @segments.has_key?(seg)
           path = File.join(@msg_dir, f)
+          @log.warn { "Deleting orphaned ack file: #{path}" }
           File.delete(path)
           @replicator.try &.delete_file(path, WaitGroup.new)
         end
