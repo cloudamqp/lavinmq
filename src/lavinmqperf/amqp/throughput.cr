@@ -211,7 +211,7 @@ module LavinMQPerf
             else
               ch.basic_publish(data, @exchange, @routing_key, props: props)
             end
-            pubs = @pubs.add(1)
+            pubs = @pubs.add(1, :relaxed)
             ch.tx_commit if @pub_in_transaction > 0 && (pubs % @pub_in_transaction) == 0
             break if (pubs + 1) == @pmessages
             unless @rate.zero?
@@ -248,7 +248,7 @@ module LavinMQPerf
           consumes_this_second = 0
           start = Time.monotonic
           q.subscribe(tag: "c", no_ack: @ack.zero?, block: true, args: @consumer_args) do |m|
-            consumes = @consumes.add(1)
+            consumes = @consumes.add(1, :relaxed)
             raise "Invalid data: #{m.body_io.to_slice}" if @verify && m.body_io.to_slice != data
             m.ack(multiple: true) if @ack > 0 && (consumes + 1) % @ack == 0
             ch.tx_commit if @ack_in_transaction > 0 && ((consumes + 1) % @ack_in_transaction) == 0
@@ -290,7 +290,7 @@ module LavinMQPerf
           start = Time.monotonic
           loop do
             if msg = q.get(no_ack: @ack.zero?)
-              consumes = @consumes.add(1)
+              consumes = @consumes.add(1, :relaxed)
               msg.ack(multiple: true) if @ack > 0 && (consumes + 1) % @ack == 0
               break if @stopped || (consumes + 1) == @cmessages
             end

@@ -197,17 +197,17 @@ module LavinMQ
       def publish(msg : Message, immediate : Bool,
                   queues : Set(LavinMQ::Queue) = Set(LavinMQ::Queue).new,
                   exchanges : Set(LavinMQ::Exchange) = Set(LavinMQ::Exchange).new) : UInt32
-        @publish_in_count.add(1)
+        @publish_in_count.add(1, :relaxed)
         if d = @deduper
           if d.duplicate?(msg)
-            @dedup_count.add(1)
+            @dedup_count.add(1, :relaxed)
             return 0u32
           end
           d.add(msg)
         end
         count = do_publish(msg, immediate, queues, exchanges)
-        @unroutable_count.add(1) if count.zero?
-        @publish_out_count.add(count)
+        @unroutable_count.add(1, :relaxed) if count.zero?
+        @publish_out_count.add(count, :relaxed)
         count
       end
 
