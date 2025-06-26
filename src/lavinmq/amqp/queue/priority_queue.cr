@@ -82,12 +82,13 @@ module LavinMQ::AMQP
         @log.info { "Migration complete" }
         old_store.close
         i = 0u32
+        noop_wg = WaitGroup.new(0)
         Dir.each_child(@msg_dir) do |f|
           if f.starts_with?("msgs.") || f.starts_with?("acks.")
             filepath = File.join(@msg_dir, f)
             File.delete? filepath
-            @replicator.delete_file(filepath) if @replicator
-            Fiber.yield if (i &+= 8096).zero
+            @replicator.try &.delete_file(filepath, noop_wg)
+            Fiber.yield if (i &+= 8096).zero?
           end
         end
       end
