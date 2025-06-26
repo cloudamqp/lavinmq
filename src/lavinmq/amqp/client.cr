@@ -212,7 +212,7 @@ module LavinMQ
           s.flush
         end
         @last_sent_frame = RoughTime.monotonic
-        @send_oct_count.add(8_u64 + frame.bytesize, :relaxed)
+        @send_oct_count.add(8_u64 + frame.bytesize)
         if frame.is_a?(AMQP::Frame::Connection::CloseOk)
           return false
         end
@@ -251,14 +251,14 @@ module LavinMQ
           {% end %}
           socket.write_bytes frame, ::IO::ByteFormat::NetworkEndian
           socket.flush if websocket
-          @send_oct_count.add(8_u64 + frame.bytesize, :relaxed)
+          @send_oct_count.add(8_u64 + frame.bytesize)
           header = AMQP::Frame::Header.new(frame.channel, 60_u16, 0_u16, msg.bodysize, msg.properties)
           {% unless flag?(:release) %}
             @log.trace { "Send #{header.inspect}" }
           {% end %}
           socket.write_bytes header, ::IO::ByteFormat::NetworkEndian
           socket.flush if websocket
-          @send_oct_count.add(8_u64 + header.bytesize, :relaxed)
+          @send_oct_count.add(8_u64 + header.bytesize)
           pos = 0
           while pos < msg.bodysize
             length = Math.min(msg.bodysize - pos, @max_frame_size - 8).to_u32
@@ -273,7 +273,7 @@ module LavinMQ
                    end
             socket.write_bytes body, ::IO::ByteFormat::NetworkEndian
             socket.flush if websocket
-            @send_oct_count.add(8_u64 + body.bytesize, :relaxed)
+            @send_oct_count.add(8_u64 + body.bytesize)
             pos += length
           end
           socket.flush if flush && !websocket # Websockets need to send one frame per WS frame
@@ -348,7 +348,7 @@ module LavinMQ
       # ameba:disable Metrics/CyclomaticComplexity
       private def process_frame(frame) : Nil
         @last_recv_frame = RoughTime.monotonic
-        @recv_oct_count.add(8_u64 + frame.bytesize, :relaxed)
+        @recv_oct_count.add(8_u64 + frame.bytesize)
         case frame
         when AMQP::Frame::Channel::Open
           open_channel(frame)

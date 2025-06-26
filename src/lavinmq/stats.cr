@@ -1,15 +1,16 @@
 require "./config"
+require "./counter"
 
 module LavinMQ
   module Stats
     macro rate_stats(stats_keys, log_keys = %w())
       {% for name in stats_keys %}
-        @{{name.id}}_count = Atomic(UInt64).new(0_u64)
+        @{{name.id}}_count = Counter(UInt64).new(0_u64)
         @{{name.id}}_count_prev = 0_u64
         @{{name.id}}_rate = 0_f64
         @{{name.id}}_log = Deque(Float64).new(Config.instance.stats_log_size)
         def {{name.id}}_count
-          @{{name.id}}_count.get(:relaxed)
+          @{{name.id}}_count.get
         end
       {% end %}
       {% for name in log_keys %}
@@ -46,7 +47,7 @@ module LavinMQ
           until @{{name.id}}_log.size < log_size
             @{{name.id}}_log.shift
           end
-          {{name.id}}_count = @{{name.id}}_count.get(:relaxed)
+          {{name.id}}_count = @{{name.id}}_count.get
           @{{name.id}}_rate = (({{name.id}}_count - @{{name.id}}_count_prev) / interval).round(1)
           @{{name.id}}_log.push @{{name.id}}_rate
           @{{name.id}}_count_prev = {{name.id}}_count

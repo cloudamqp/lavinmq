@@ -53,7 +53,7 @@ module LavinMQ::AMQP
       return false if @state.closed?
       @msg_store_lock.synchronize do
         @msg_store.push(msg)
-        @publish_count.add(1)
+        @publish_count.increment
       end
       true
     rescue ex : MessageStore::Error
@@ -71,10 +71,10 @@ module LavinMQ::AMQP
       get(consumer) do |env|
         yield env
         if env.redelivered
-          @redeliver_count.add(1)
+          @redeliver_count.increment
         else
-          @deliver_count.add(1)
-          @deliver_get_count.add(1)
+          @deliver_count.increment
+          @deliver_get_count.increment
         end
       end
     end

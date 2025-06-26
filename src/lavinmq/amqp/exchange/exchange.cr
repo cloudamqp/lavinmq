@@ -7,6 +7,7 @@ require "../../exchange"
 require "../../observable"
 require "../../policy"
 require "../../stats"
+require "../../counter"
 require "../../sortable_json"
 require "../queue"
 require "./event"
@@ -197,16 +198,16 @@ module LavinMQ
       def publish(msg : Message, immediate : Bool,
                   queues : Set(LavinMQ::Queue) = Set(LavinMQ::Queue).new,
                   exchanges : Set(LavinMQ::Exchange) = Set(LavinMQ::Exchange).new) : UInt32
-        @publish_in_count.add(1)
+        @publish_in_count.increment
         if d = @deduper
           if d.duplicate?(msg)
-            @dedup_count.add(1)
+            @dedup_count.increment
             return 0u32
           end
           d.add(msg)
         end
         count = do_publish(msg, immediate, queues, exchanges)
-        @unroutable_count.add(1) if count.zero?
+        @unroutable_count.increment if count.zero?
         @publish_out_count.add(count)
         count
       end

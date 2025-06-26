@@ -19,7 +19,7 @@ module LavinMQ
       getter? closed = false
       @flow : Bool
       @metadata : ::Log::Metadata
-      @unacked = Atomic(UInt32).new(0_u32)
+      @unacked = Counter(UInt32).new(0_u32)
       getter has_capacity = BoolChannel.new(true)
 
       def initialize(@channel : AMQP::Channel, @queue : Queue, frame : AMQP::Frame::Basic::Consume)
@@ -52,11 +52,11 @@ module LavinMQ
 
       def prefetch_count=(prefetch_count : UInt16)
         @prefetch_count = prefetch_count
-        @has_capacity.set(@prefetch_count > @unacked.get(:relaxed))
+        @has_capacity.set(@prefetch_count > @unacked.get)
       end
 
       def unacked
-        @unacked.get(:relaxed)
+        @unacked.get
       end
 
       private def deliver_loop
@@ -186,7 +186,7 @@ module LavinMQ
       # blocks until the consumer can accept more messages
       private def wait_for_capacity : Nil
         if @prefetch_count > 0
-          until @unacked.get(:relaxed) < @prefetch_count
+          until @unacked.get < @prefetch_count
             @log.debug { "Waiting for prefetch capacity" }
             flush
             @has_capacity.when_true.receive
@@ -203,7 +203,7 @@ module LavinMQ
 
       def deliver(msg, sp, redelivered = false, recover = false)
         unless @no_ack || recover
-          unacked = @unacked.add(1, :relaxed)
+          unacked = @unacked.increment
           @has_capacity.set(false) if (unacked + 1) == @prefetch_count
         end
         delivery_tag = @channel.next_delivery_tag(@queue, sp, @no_ack, self)
@@ -215,12 +215,12 @@ module LavinMQ
       end
 
       def ack(sp)
-        unacked = @unacked.sub(1, :relaxed)
+        unacked = @unacked.decrement
         @has_capacity.set(true) if unacked == @prefetch_count
       end
 
       def reject(sp, requeue = false)
-        unacked = @unacked.sub(1, :relaxed)
+        unacked = @unacked.decrement
         @has_capacity.set(true) if unacked == @prefetch_count
       end
 

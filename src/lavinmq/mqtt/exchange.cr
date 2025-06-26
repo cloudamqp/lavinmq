@@ -41,7 +41,7 @@ module LavinMQ
       end
 
       def publish(packet : MQTT::Publish) : UInt32
-        @publish_in_count.add(1)
+        @publish_in_count.increment
         properties = AMQP::Properties.new(headers: AMQP::Table.new)
         properties.delivery_mode = packet.qos
 
@@ -65,7 +65,7 @@ module LavinMQ
             msg.body_io.rewind
           end
         end
-        @unroutable_count.add(1) if count.zero?
+        @unroutable_count.increment if count.zero?
         @publish_out_count.add(count)
         count
       end

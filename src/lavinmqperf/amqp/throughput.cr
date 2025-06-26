@@ -2,6 +2,7 @@ require "amqp-client"
 require "json"
 require "wait_group"
 require "../perf"
+require "../../lavinmq/counter"
 
 module LavinMQPerf
   module AMQP
@@ -112,8 +113,8 @@ module LavinMQPerf
         end
       end
 
-      @pubs = Atomic(UInt64).new(0_u64)
-      @consumes = Atomic(UInt64).new(0_u64)
+      @pubs = Counter(UInt64).new(0_u64)
+      @consumes = Counter(UInt64).new(0_u64)
       @stopped = false
 
       def run
