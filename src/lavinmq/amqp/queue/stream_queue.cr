@@ -1,6 +1,7 @@
 require "./durable_queue"
 require "../stream_consumer"
 require "./stream_queue_message_store"
+require "./stream_s3_message_store"
 
 module LavinMQ::AMQP
   class StreamQueue < DurableQueue
@@ -41,7 +42,11 @@ module LavinMQ::AMQP
 
     private def init_msg_store(data_dir)
       replicator = @vhost.@replicator
-      @msg_store = StreamQueueMessageStore.new(data_dir, replicator, metadata: @metadata)
+      if Config.instance.streams_s3_storage?
+        @msg_store = StreamS3MessageStore.new(data_dir, replicator, true, metadata: @metadata)
+      else
+        @msg_store = StreamQueueMessageStore.new(data_dir, replicator, metadata: @metadata)
+      end
     end
 
     private def stream_queue_msg_store : StreamQueueMessageStore
@@ -184,6 +189,20 @@ module LavinMQ::AMQP
       @msg_store_lock.synchronize do
         stream_queue_msg_store.drop_overflow
         stream_queue_msg_store.unmap_segments(except: used_segments)
+      end
+    end
+
+    def add_consumer(consumer : Client::Channel::Consumer)
+      super
+      if Config.instance.streams_s3_storage?
+        @msg_store.as(StreamS3MessageStore).current_read_segments[consumer.tag] = consumer.as(AMQP::StreamConsumer).segment
+      end
+    end
+
+    def rm_consumer(consumer : Client::Channel::Consumer)
+      super
+      if Config.instance.streams_s3_storage?
+        @msg_store.as(StreamS3MessageStore).current_read_segments.delete(consumer.tag)
       end
     end
   end
