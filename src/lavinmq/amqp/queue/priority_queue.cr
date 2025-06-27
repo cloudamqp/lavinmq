@@ -51,11 +51,9 @@ module LavinMQ::AMQP
       private def migrate_from_single_store
         return unless needs_migrate?
         unless empty?
-          @log.warn do
-            "Message store contains messages that should be migrated, but substores not empty. " \
-            "No migration will be performed."
+          raise "Message store #{@msg_dir} contains messages that should be migrated, " \
+            "but substores are not empty. Migration aborted, manually intervention needed."
           end
-          return false
         end
         old_store = MessageStore.new(@msg_dir, @replicator, @durable, metadata: @metadata)
         msg_count = old_store.size
@@ -74,7 +72,7 @@ module LavinMQ::AMQP
           Fiber.yield if (i &+= 8096).zero?
         end
         if size != msg_count
-          @log.warn { "Message count mismatch. #{msg_count} messages before migration, #{size} after" }
+          raise "Message count mismatch when migration message store #{@msg_dir}. #{msg_count} messages before migration, #{size} after."
         end
         @log.info { "Migration complete" }
         old_store.close
