@@ -100,12 +100,18 @@ describe LavinMQ::Client::Channel::Consumer do
           subscriber_args = AMQP::Client::Arguments.new({"x-priority" => 5})
 
           msgs = Channel(Int32).new
+          # This is a sync channel to make sure each consumer
+          # is "working" long enough for the other consumer
+          # to retrive a message...
+          work = Channel(Bool).new
           q.subscribe(no_ack: false, args: subscriber_args) do |msg|
             msgs.send 1
+            work.send true
             msg.ack
           end
 
           q.subscribe(no_ack: false, args: subscriber_args) do |msg|
+            work.receive
             msgs.send 2
             msg.ack
           end
