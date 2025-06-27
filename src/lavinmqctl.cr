@@ -215,10 +215,16 @@ class LavinMQCtl
       client_from_uri(uri)
     else
       begin
+        unless File.exists? LavinMQ::HTTP::INTERNAL_UNIX_SOCKET
+          abort "#{LavinMQ::HTTP::INTERNAL_UNIX_SOCKET} not found. Is LavinMQ running?"
+        end
+        unless File::Info.writable? LavinMQ::HTTP::INTERNAL_UNIX_SOCKET
+          abort "Please run lavinmqctl as root or as the same user as LavinMQ."
+        end
         socket = UNIXSocket.new(LavinMQ::HTTP::INTERNAL_UNIX_SOCKET)
         HTTP::Client.new(socket)
-      rescue Socket::ConnectError
-        abort "LavinMQ is not running, socket not found: #{LavinMQ::HTTP::INTERNAL_UNIX_SOCKET}"
+      rescue ex : Socket::ConnectError
+        abort "Can't connect to LavinMQ: #{ex.message}"
       end
     end
   end
