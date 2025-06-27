@@ -462,7 +462,7 @@ module LavinMQ
       end
 
       def pause
-        FileUtils.touch(@paused_file_path)
+        File.write(@paused_file_path, @name)
         Log.info { "Pausing shovel #{@name} vhost=#{@vhost.name}" }
         @state = State::Paused
         @source.stop
