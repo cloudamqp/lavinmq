@@ -1,3 +1,6 @@
+require "../../src/lavinmq/clustering/client"
+require "../../src/lavinmq/clustering/server"
+
 class SpecClustering
   getter replicator, config, follower_config
 
