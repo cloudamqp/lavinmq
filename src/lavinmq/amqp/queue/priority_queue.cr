@@ -52,8 +52,7 @@ module LavinMQ::AMQP
         return unless needs_migrate?
         unless empty?
           raise "Message store #{@msg_dir} contains messages that should be migrated, " \
-            "but substores are not empty. Migration aborted, manually intervention needed."
-          end
+                "but substores are not empty. Migration aborted, manually intervention needed."
         end
         old_store = MessageStore.new(@msg_dir, @replicator, @durable, metadata: @metadata)
         msg_count = old_store.size
