@@ -420,7 +420,7 @@ module LavinMQ
               next
             end
           rescue ex
-            @log.error { "Could not initialize segment, closing message store: #{ex.message}" }
+            @log.error { "Could not initialize segment #{seg}, closing message store: #{ex.message}" }
             close
           end
         end

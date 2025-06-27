@@ -45,7 +45,40 @@ describe LavinMQ::AMQP::PriorityQueue do
           end
         end
       end
+
+      it "can replicate migration" do
+        with_clustering do |cluster|
+          Dir.mkdir_p cluster.config.data_dir
+          old_store = LavinMQ::MessageStore.new(cluster.config.data_dir, cluster.replicator, durable: true)
+          60u8.times do |prio|
+            props = AMQP::Client::Properties.new(priority: prio % 6)
+            msg = LavinMQ::Message.new("ex", "rk", "body", properties: props)
+            old_store.push msg
+          end
+          old_store.close
+
+          # Trigger migration
+          store = LavinMQ::AMQP::PriorityQueue::PriorityMessageStore.new(5u8, cluster.config.data_dir, cluster.replicator, durable: true)
+          store.size.should eq 60
+          store.close
+
+          cluster.stop
+
+          # Verify the replicated store
+          replicated_store = LavinMQ::AMQP::PriorityQueue::PriorityMessageStore.new(5u8, cluster.follower_config.data_dir, nil, durable: true)
+          replicated_store.size.should eq 60
+          6.times do |i|
+            replicated_store.@stores[i].size.should eq 10
+          end
+        ensure
+          replicated_store.close if replicated_store
+          store.close if store
+          old_store.close if old_store
+          FileUtils.rm_rf cluster.config.data_dir
+        end
+      end
     end
+
     describe "migration" do
       it "should migrate old store" do
         data_dir = File.tempname
