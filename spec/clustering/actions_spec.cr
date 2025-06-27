@@ -64,6 +64,24 @@ describe LavinMQ::Clustering::Action do
           read_and_verify_data(io, "foo")
         end
       end
+
+      it "sends the original file even though it has been appended to" do
+        with_datadir do |data_dir|
+          filename = "file1"
+          File.write File.join(data_dir, filename), "foo"
+          action = LavinMQ::Clustering::ReplaceAction.new data_dir, filename
+
+          # append
+          File.write File.join(data_dir, filename), "bar", mode: "a"
+
+          io = IO::Memory.new
+          action.send io
+          io.rewind
+
+          read_and_verify_filename(io, filename)
+          read_and_verify_data(io, "foo")
+        end
+      end
     end
 
     describe "#lag_size" do
