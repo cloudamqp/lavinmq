@@ -73,6 +73,7 @@ module LavinMQ
     property auth_backends : Array(String) = ["basic"]
     property default_user : String = ENV.fetch("LAVINMQ_DEFAULT_USER", "guest")
     property default_password : String = ENV.fetch("LAVINMQ_DEFAULT_PASSWORD", DEFAULT_PASSWORD_HASH) # Hashed password for default user
+    property max_consumers_per_channel = 0
     @@instance : Config = self.new
 
     def self.instance : LavinMQ::Config
@@ -322,19 +323,23 @@ module LavinMQ
     private def parse_amqp(settings)
       settings.each do |config, v|
         case config
-        when "bind"                then @amqp_bind = v
-        when "port"                then @amqp_port = v.to_i32
-        when "tls_port"            then @amqps_port = v.to_i32
-        when "tls_cert"            then @tls_cert_path = v # backward compatibility
-        when "tls_key"             then @tls_key_path = v  # backward compatibility
-        when "unix_path"           then @unix_path = v
-        when "heartbeat"           then @heartbeat = v.to_u16
-        when "frame_max"           then @frame_max = v.to_u32
-        when "channel_max"         then @channel_max = v.to_u16
-        when "max_message_size"    then @max_message_size = v.to_i32
-        when "systemd_socket_name" then @amqp_systemd_socket_name = v
-        when "unix_proxy_protocol" then @unix_proxy_protocol = true?(v) ? 1u8 : v.to_u8? || 0u8
-        when "tcp_proxy_protocol"  then @tcp_proxy_protocol = true?(v) ? 1u8 : v.to_u8? || 0u8
+        when "bind"                      then @amqp_bind = v
+        when "port"                      then @amqp_port = v.to_i32
+        when "tls_port"                  then @amqps_port = v.to_i32
+        when "tls_cert"                  then @tls_cert_path = v # backward compatibility
+        when "tls_key"                   then @tls_key_path = v  # backward compatibility
+        when "unix_path"                 then @unix_path = v
+        when "heartbeat"                 then @heartbeat = v.to_u16
+        when "frame_max"                 then @frame_max = v.to_u32
+        when "channel_max"               then @channel_max = v.to_u16
+        when "max_message_size"          then @max_message_size = v.to_i32
+        when "systemd_socket_name"       then @amqp_systemd_socket_name = v
+        when "unix_proxy_protocol"       then @unix_proxy_protocol = true?(v) ? 1u8 : v.to_u8? || 0u8
+        when "tcp_proxy_protocol"        then @tcp_proxy_protocol = true?(v) ? 1u8 : v.to_u8? || 0u8
+        when "set_timestamp"             then @set_timestamp = true?(v)
+        when "consumer_timeout"          then @consumer_timeout = v.to_u64
+        when "default_consumer_prefetch" then @default_consumer_prefetch = v.to_u16
+        when "max_consumers_per_channel" then @max_consumers_per_channel = v.to_i
         else
           STDERR.puts "WARNING: Unrecognized configuration 'amqp/#{config}'"
         end
