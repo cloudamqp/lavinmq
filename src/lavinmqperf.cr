@@ -12,10 +12,9 @@ Signal::SEGV.reset # Let the OS generate a coredump
 Log.setup_from_env
 
 module LavinMQPerf
-  protocol = ARGV[0]?
   # Default to 'amqp' if the first argument is not a protocol or an option
-  ARGV.unshift("amqp") if ARGV[0]?.try { |a| a != "amqp" && a != "mqtt" && !a.starts_with?("-") } || ARGV.empty?
-  protocol = ARGV.shift? || "amqp"
+  protocols = {"amqp", "mqtt"}
+  protocol = protocols.includes?(ARGV[0]?) ? ARGV.shift : "amqp"
   case protocol
   when "amqp"
     mode = ARGV.shift?
