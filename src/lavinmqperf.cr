@@ -33,9 +33,9 @@ module LavinMQPerf
   when "mqtt"
     mode = ARGV.shift?
     case mode
-    when "throughput"       then MQTT::Throughput.new.run
-    when /^.+$/             then Perf.new.run([mode.not_nil!])
-    else                         abort Perf.new.mqtt_banner
+    when "throughput" then MQTT::Throughput.new.run
+    when /^.+$/       then Perf.new.run([mode.not_nil!])
+    else                   abort Perf.new.mqtt_banner
     end
   when /^.+$/
     Perf.new.run([protocol.not_nil!])
