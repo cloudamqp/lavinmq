@@ -105,7 +105,7 @@ module LavinMQ
           context
         rescue ex : Base64::Error
           bad_request(context, ex.message)
-        rescue ex : User::InvalidPasswordHash
+        rescue ex : Auth::InvalidPasswordHash
           bad_request(context, ex.message)
         end
 

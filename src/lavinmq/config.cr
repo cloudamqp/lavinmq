@@ -208,7 +208,7 @@ module LavinMQ
     end
 
     def verify_default_password
-      User::SHA256Password.new(@default_password)
+      Auth::Password::SHA256Password.new(@default_password)
     rescue
       raise ArgumentError.new("Failed to decode default_password hash. Please see documentation for usage.")
     end
