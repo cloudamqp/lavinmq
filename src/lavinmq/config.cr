@@ -70,7 +70,7 @@ module LavinMQ
     property default_consumer_prefetch = UInt16::MAX
     property yield_each_received_bytes = 131_072    # max number of bytes to read from a client connection without letting other tasks in the server do any work
     property yield_each_delivered_bytes = 1_048_576 # max number of bytes sent to a client without tending to other tasks in the server
-    property auth_backends : Array(String) = ["basic"]
+    property auth_backends : Array(String) = ["oauth"]
     property default_user : String = ENV.fetch("LAVINMQ_DEFAULT_USER", "guest")
     property default_password : String = ENV.fetch("LAVINMQ_DEFAULT_PASSWORD", DEFAULT_PASSWORD_HASH) # Hashed password for default user
     property max_consumers_per_channel = 0
@@ -209,7 +209,7 @@ module LavinMQ
     end
 
     def verify_default_password
-      User::SHA256Password.new(@default_password)
+      Auth::Password::SHA256Password.new(@default_password)
     rescue
       raise ArgumentError.new("Failed to decode default_password hash. Please see documentation for usage.")
     end
