@@ -79,9 +79,9 @@
   --color-version-border: light-dark(#c2c2c2, #333332);
 
   /* Theme switcher colors */
-  --color-theme-switcher-bg: light-dark(rgba(255, 255, 255, 0.1), rgba(0, 0, 0, 0.1));
-  --color-theme-switcher-border: light-dark(rgba(0, 0, 0, 0.1), rgba(255, 255, 255, 0.1));
-  --color-theme-switcher-active: light-dark(#ffffff, #2D2C2C);
+  --color-theme-switcher-bg: light-dark(rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.08));
+  --color-theme-switcher-border: light-dark(rgba(0, 0, 0, 0.12), rgba(255, 255, 255, 0.15));
+  --color-theme-switcher-active: light-dark(#ffffff, rgba(255, 255, 255, 0.15));
 
   scrollbar-width: thin;
 }
@@ -2195,138 +2195,147 @@ pre.arguments .inactive-argument:before {
   display: flex;
   background: var(--color-theme-switcher-bg);
   border: 1px solid var(--color-theme-switcher-border);
-  border-radius: 20px;
+  border-radius: 14px;
   padding: 2px;
-  margin-right: 12px;
+  gap: 1px;
   backdrop-filter: blur(10px);
 }
 
 #theme-switcher button {
-  background: none;
+  background: transparent;
   border: none;
-  padding: 6px 12px;
-  border-radius: 16px;
+  padding: 0;
   color: var(--color-text-secondary);
-  font-size: 12px;
-  font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
-  min-width: 60px;
-  text-align: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
 }
 
+#theme-switcher button img {
+  width: 10px;
+  height: 10px;
+  transition: all 0.2s ease;
+  opacity: 0.7;
+}
+
+/* Show appropriate icon based on theme and active state */
+#theme-switcher button .theme-icon-dark {
+  display: none;
+}
+
+#theme-switcher button .theme-icon-light {
+  display: block;
+}
+
+/* Dark theme overrides */
+html.theme-dark #theme-switcher button .theme-icon-light {
+  display: none;
+}
+
+html.theme-dark #theme-switcher button .theme-icon-dark {
+  display: block;
+}
+
+/* System theme - show appropriate icon based on prefers-color-scheme */
+@media (prefers-color-scheme: dark) {
+  html:not(.theme-light) #theme-switcher button .theme-icon-light {
+    display: none;
+  }
+
+  html:not(.theme-light) #theme-switcher button .theme-icon-dark {
+    display: block;
+  }
+}
+
+/* Hover states */
 #theme-switcher button:hover {
-  color: var(--color-text-primary);
+  background: var(--color-bg-hover);
+  transform: scale(1.05);
 }
 
+#theme-switcher button:hover img {
+  opacity: 1;
+}
+
+/* Active state - inversed appearance */
 #theme-switcher button.active {
-  background: var(--color-theme-switcher-active);
-  color: var(--color-text-primary);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  background: var(--color-text-primary);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  transform: scale(1);
+}
+
+/* Active state icon visibility - show inverted icon */
+#theme-switcher button.active .theme-icon-light {
+  display: none;
+}
+
+#theme-switcher button.active .theme-icon-dark {
+  display: block;
+  opacity: 1;
+}
+
+/* Dark theme active state - show light icon */
+html.theme-dark #theme-switcher button.active .theme-icon-dark {
+  display: none;
+}
+
+html.theme-dark #theme-switcher button.active .theme-icon-light {
+  display: block;
+  opacity: 1;
+}
+
+/* System theme active state */
+@media (prefers-color-scheme: dark) {
+  html:not(.theme-light) #theme-switcher button.active .theme-icon-dark {
+    display: none;
+  }
+
+  html:not(.theme-light) #theme-switcher button.active .theme-icon-light {
+    display: block;
+    opacity: 1;
+  }
 }
 
 #theme-switcher button:focus {
   outline: none;
+  box-shadow: 0 0 0 2px var(--color-border-primary);
 }
 
 @media (max-width: 1000px) {
   #theme-switcher {
-    margin-right: 8px;
+    padding: 1px;
+    gap: 1px;
   }
 
   #theme-switcher button {
-    min-width: 50px;
-    padding: 4px 8px;
-    font-size: 11px;
+    width: 17px;
+    height: 17px;
+  }
+
+  #theme-switcher button img {
+    width: 8px;
+    height: 8px;
+  }
+
+  #theme-switcher button:hover::after {
+    display: none;
   }
 }
 
-/* Force light theme */
+/* Force theme color-scheme for proper system integration */
 html.theme-light {
   color-scheme: light !important;
 }
 
-html.theme-light :root {
-  --color-text-primary: #141414;
-  --color-text-secondary: #6B7280;
-  --color-text-muted: #374151;
-  --color-text-inverse: #f7f5f2;
-  --color-link: #2c2c2c;
-
-  --color-bg-primary: #ffffff;
-  --color-bg-secondary: #f9fafb;
-  --color-bg-tertiary: #f5f5f5;
-  --color-bg-elevated: #f9fafb;
-  --color-bg-input: #ffffff;
-  --color-bg-hover: #e5e7eb;
-
-  --color-border-primary: rgb(0 0 0 / 0.1);
-  --color-border-secondary: #d1d5db;
-  --color-border-tertiary: #d1d5db;
-  --color-border-menu: rgb(209, 213, 219);
-  --color-border-separator: #e5e7eb;
-
-  --color-scrollbar: rgba(0, 0, 0, 0.4) rgba(249, 250, 251, 1);
-
-  --color-header-text: #111827;
-  --color-menu-button: #111827;
-  --color-btn-outlined: #111827;
-  --color-btn-hover-bg: #f3f4f6;
-
-  --color-table-row-odd: #f9fafb;
-  --color-table-row-even: #ffffff;
-  --color-error-bg: #ffbaba;
-  --color-load-more-bg: #fafafa;
-
-  --color-theme-switcher-bg: rgba(255, 255, 255, 0.1);
-  --color-theme-switcher-border: rgba(0, 0, 0, 0.1);
-  --color-theme-switcher-active: #ffffff;
-
-  --color-version-border: #c2c2c2;
-}
-
-/* Force dark theme */
 html.theme-dark {
   color-scheme: dark !important;
-}
-
-html.theme-dark :root {
-  --color-text-primary: #f7f5f2;
-  --color-text-secondary: #9D9C9A;
-  --color-text-muted: #CDCBC9;
-  --color-text-inverse: #2c2c2c;
-  --color-link: #f7f5f2;
-
-  --color-bg-primary: #181818;
-  --color-bg-secondary: #1D1D1D;
-  --color-bg-tertiary: #ebecf1;
-  --color-bg-elevated: #1D1D1D;
-  --color-bg-input: #2D2C2C;
-  --color-bg-hover: #2d2c2c;
-
-  --color-border-primary: rgb(247 245 242 / 0.1);
-  --color-border-secondary: #414040;
-  --color-border-tertiary: #CBCAC7;
-  --color-border-menu: rgb(126, 126, 126);
-  --color-border-separator: #2D2C2C;
-
-  --color-scrollbar: rgba(255, 255, 255, 0.4) rgba(29, 29, 29, 1);
-
-  --color-header-text: #fff;
-  --color-menu-button: white;
-  --color-btn-outlined: #F7F5F2;
-  --color-btn-hover-bg: #2D2C2C;
-
-  --color-table-row-odd: #242424;
-  --color-table-row-even: #1D1D1D;
-  --color-error-bg: #3d1a1a;
-  --color-load-more-bg: #2a2a2a;
-
-  --color-theme-switcher-bg: rgba(0, 0, 0, 0.1);
-  --color-theme-switcher-border: rgba(255, 255, 255, 0.1);
-  --color-theme-switcher-active: #2D2C2C;
-
-  --color-version-border: #333332;
 }
 
 /* Theme Switcher end */
