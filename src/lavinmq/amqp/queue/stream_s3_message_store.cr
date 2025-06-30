@@ -204,25 +204,24 @@ module LavinMQ::AMQP
       private def read_metadata_file(seg, path, bytesize)
         return unless File.exists?("#{path}.meta")
         File.open("#{path}.meta") do |file|
-          count = file.read_bytes(UInt32)
-          @offset_index[seg] = file.read_bytes(Int64)
-          @timestamp_index[seg] = file.read_bytes(Int64)
-          @segment_msg_count[seg] = count
+          read_metadata(file, seg)
           @bytesize += bytesize
-          @size += count
-          @log.debug { "Reading count from #{path}.meta: #{count}" }
         end
       end
 
       private def read_metadata_file_from_s3(seg, mfile)
-        count = mfile.read_bytes(UInt32)
-        @offset_index[seg] = mfile.read_bytes(Int64)
-        @timestamp_index[seg] = mfile.read_bytes(Int64)
-        @segment_msg_count[seg] = count
+        read_metadata(mfile, seg)
         mfile.dontneed
         @bytesize += @s3_segments[seg][:size] - 4
+      end
+
+      private def read_metadata(file, seg)
+        count = file.read_bytes(UInt32)
+        @offset_index[seg] = file.read_bytes(Int64)
+        @timestamp_index[seg] = file.read_bytes(Int64)
+        @segment_msg_count[seg] = count
         @size += count
-        @log.debug { "Reading count from #{mfile.path}: #{count}" }
+        @log.debug { "Reading metadata from #{file.path}: #{count} msgs" }
       end
 
       private def verify_local_file?(s3file, seg_id) : MFile | Nil
