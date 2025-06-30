@@ -23,18 +23,18 @@
   color-scheme: light dark;
 
   /* Semantic color variables that adapt to light/dark mode */
-  --color-text-primary: light-dark(#141414, #f7f5f2);
+  --color-text-primary: light-dark(#141414, #fafafa);
   --color-text-secondary: light-dark(#6B7280, #9D9C9A);
   --color-text-muted: light-dark(#374151, #CDCBC9);
-  --color-text-inverse: light-dark(#f7f5f2, #2c2c2c);
-  --color-link: light-dark(#2c2c2c, #f7f5f2);
+  --color-text-inverse: light-dark(#fafafa, #fafafa);
+  --color-link: light-dark(#2c2c2c, #fafafa);
 
-  --color-bg-primary: light-dark(#ffffff, #181818);
-  --color-bg-secondary: light-dark(#f9fafb, #1D1D1D);
+  --color-bg-primary: light-dark(#F4F4F4, #181818);
+  --color-bg-secondary: light-dark(#FFFFFF, #1D1D1D);
   --color-bg-tertiary: light-dark(#f5f5f5, #ebecf1);
-  --color-bg-elevated: light-dark(#f9fafb, #1D1D1D);
-  --color-bg-input: light-dark(#ffffff, #2D2C2C);
-  --color-bg-hover: light-dark(#e5e7eb, #2d2c2c);
+  --color-bg-elevated: light-dark(#FFFFFF, #1D1D1D);
+  --color-bg-input: light-dark(#F4F4F4, #2D2C2C);
+  --color-bg-hover: light-dark(#F4F4F4, #2d2c2c);
 
   --color-border-primary: light-dark(rgb(0 0 0 / 0.1), rgb(247 245 242 / 0.1));
   --color-border-secondary: light-dark(#d1d5db, #414040);
@@ -200,6 +200,18 @@ select.dropdown {
   color: var(--color-text-primary);
 }
 
+@media (prefers-color-scheme: light) {
+  select.dropdown {
+    background-image: url(img/arrow-down-dark.svg);
+  }
+}
+
+.theme-light {
+  select.dropdown {
+    background-image: url(img/arrow-down-dark.svg);
+  }
+}
+
 /* Form end */
 
 /* Grid */
@@ -272,8 +284,48 @@ header {
   display: inline-block;
 }
 
-.lavinmq-logo img {
-  display: block;
+.theme-light {
+  #logo-light {
+    display: block;
+  }
+
+  #logo {
+    display: none;
+  }
+}
+
+.theme-dark {
+  #logo {
+    display: block;
+  }
+
+  #logo-light {
+    display: none;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  html:not(.theme-light) {
+    #logo {
+      display: block;
+    }
+
+    #logo-light {
+      display: none;
+    }
+  }
+}
+
+@media (prefers-color-scheme: light) {
+  html:not(.theme-dark) {
+    #logo-light {
+      display: block;
+    }
+
+    #logo {
+      display: none;
+    }
+  }
 }
 
 header a,
@@ -425,10 +477,10 @@ button {
 .btn-green {
   background: var(--color-success);
   border: 1px solid transparent;
-  color: var(--color-text-primary);
+  color: #141414;
 
   &:hover {
-    background-color: var(--color-success-bright);
+    background-color: #4CD37D;
   }
 }
 
@@ -580,7 +632,7 @@ body.login main {
   text-align: center;
   font-size: 0.875rem;
   line-height: 1.25rem;
-  color: var(--color-text-inverse);
+  color: #141414;
   font-size: 0.875rem;
   line-height: 1.25rem;
   padding: 0.125rem 0.375rem;
@@ -667,7 +719,7 @@ body.login main {
   position: absolute;
   bottom: -16px;
   left: 320px;
-  background: #1D1D1D;
+  background: light-dark(#FFFFFF, #1D1D1D);
   overflow: hidden;
 }
 
@@ -678,7 +730,7 @@ body.login main {
   position: absolute;
   top: 0;
   left: 0;
-  background: #181818;
+  background: light-dark(#F4F4F4, #181818);
 }
 
 .tooltip-icon {
