@@ -56,7 +56,9 @@ class ThemeSwitcher {
     // Add event listeners to theme buttons
     document.querySelectorAll('#theme-switcher button').forEach(button => {
       button.addEventListener('click', (e) => {
-        const theme = e.target.dataset.theme
+        // Find the button element (in case target is the img inside)
+        const buttonElement = e.target.closest('button')
+        const theme = buttonElement.dataset.theme
         this.setTheme(theme)
       })
     })
