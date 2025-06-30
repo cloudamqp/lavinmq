@@ -23,6 +23,7 @@
   color-scheme: light dark;
 
   /* Semantic color variables that adapt to light/dark mode */
+  --color-text-dark: #141414;
   --color-text-primary: light-dark(#141414, #fafafa);
   --color-text-secondary: light-dark(#6B7280, #9D9C9A);
   --color-text-muted: light-dark(#374151, #CDCBC9);
@@ -389,7 +390,7 @@ button {
   padding: 0.375rem 1rem;
   border: 1px solid transparent;
   background: var(--color-text-inverse);
-  color: var(--color-text-primary);
+  color: var(--color-text-dark);
   box-shadow: none;
   display: inline-flex !important;
   flex-direction: row;
@@ -399,7 +400,7 @@ button {
 
   &.bg-light-400 {
     background: var(--color-text-inverse);
-    color: var(--color-text-primary);
+    color: var(--color-text-dark);
   }
 
   &:hover {
