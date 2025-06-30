@@ -44,12 +44,12 @@ usermenuButton.onclick = (e) => {
 
 // Theme switcher functionality
 class ThemeSwitcher {
-  constructor() {
-    this.currentTheme = localStorage.getItem('theme') || 'system'
+  constructor () {
+    this.currentTheme = window.localStorage.getItem('theme') || 'system'
     this.init()
   }
 
-  init() {
+  init () {
     // Set initial theme
     this.applyTheme(this.currentTheme)
 
@@ -76,14 +76,14 @@ class ThemeSwitcher {
     this.updateActiveButton()
   }
 
-  setTheme(theme) {
+  setTheme (theme) {
     this.currentTheme = theme
-    localStorage.setItem('theme', theme)
+    window.localStorage.setItem('theme', theme)
     this.applyTheme(theme)
     this.updateActiveButton()
   }
 
-  applyTheme(theme) {
+  applyTheme (theme) {
     const html = document.documentElement
 
     // Remove existing theme classes
@@ -101,7 +101,7 @@ class ThemeSwitcher {
     }
   }
 
-  updateActiveButton() {
+  updateActiveButton () {
     document.querySelectorAll('#theme-switcher button').forEach(button => {
       button.classList.remove('active')
     })
@@ -114,8 +114,8 @@ class ThemeSwitcher {
 }
 
 // Initialize theme immediately to prevent flash
-(function() {
-  const savedTheme = localStorage.getItem('theme') || 'system'
+(function () {
+  const savedTheme = window.localStorage.getItem('theme') || 'system'
   const html = document.documentElement
 
   if (savedTheme === 'light') {
@@ -131,5 +131,6 @@ class ThemeSwitcher {
 
 // Initialize theme switcher when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
-  new ThemeSwitcher()
+  // Store theme switcher instance on window for debugging
+  window.themeSwitcher = new ThemeSwitcher()
 })
