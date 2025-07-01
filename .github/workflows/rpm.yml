@@ -69,7 +69,7 @@ jobs:
                   -F "package[package_file]=@${PKG_FILE}" \
                   https://packagecloud.io/api/v1/repos/${{ github.repository }}/packages.json
           done
-        if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-rc')
+        if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-rc') && !contains(github.ref, '-beta') && !contains(github.ref, '-alpha')
 
       - name: Upload to Packagecloud pre-release repo
         run: |
@@ -84,4 +84,4 @@ jobs:
                   -F "package[package_file]=@${PKG_FILE}" \
                   https://packagecloud.io/api/v1/repos/${{ github.repository }}-prerelease/packages.json
           done
-        if: startsWith(github.ref, 'refs/tags/v') && contains(github.ref, '-rc')
+        if: startsWith(github.ref, 'refs/tags/v') && (contains(github.ref, '-rc') || contains(github.ref, '-beta') || contains(github.ref, '-alpha'))
