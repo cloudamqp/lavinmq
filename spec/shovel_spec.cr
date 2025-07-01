@@ -642,6 +642,25 @@ describe LavinMQ::Shovel do
         end
       end
     end
+
+    it "should keep paused even on broker restarts" do
+      with_amqp_server do |s|
+        vhost = s.vhosts.create("pause:resume:vhost")
+        shovel_name = "shovel:pause:resume"
+        config = %({
+        "src-uri": "#{s.amqp_url}",
+        "src-queue": "#{shovel_name}_q1",
+        "dest-uri": "#{s.amqp_url}",
+        "dest-queue": "#{shovel_name}_q2" })
+        p = LavinMQ::Parameter.new("shovel", shovel_name, JSON.parse(config))
+        s.vhosts[vhost.name].add_parameter(p)
+        shovel = s.vhosts[vhost.name].shovels[shovel_name]
+        shovel.pause
+        shovel.paused?.should eq true
+        s.restart
+        should_eventually(be_true) { s.vhosts[vhost.name].shovels[shovel.name].paused? }
+      end
+    end
   end
 
   describe "HTTP" do
