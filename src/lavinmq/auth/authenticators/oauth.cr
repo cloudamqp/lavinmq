@@ -2,7 +2,7 @@ require "../authenticator"
 require "../users/temp_user"
 require "../../server"
 
-#This file is only used for testing purposes, it is not going to be included in this pull request.
+# This file is only used for testing purposes, it is not going to be included in this pull request.
 
 module LavinMQ
   module Auth
