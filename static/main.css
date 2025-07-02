@@ -2191,6 +2191,20 @@ pre.arguments .inactive-argument:before {
   }
 }
 
+.theme-light {
+  .password-toggle img {
+    filter: brightness(0) saturate(100%) invert(0%) sepia(1%) saturate(4454%) hue-rotate(319deg) brightness(90%) contrast(84%);
+  }
+}
+
+@media (prefers-color-scheme: light) {
+  html:not(.theme-dark) {
+    .password-toggle img {
+      filter: brightness(0) saturate(100%) invert(0%) sepia(1%) saturate(4454%) hue-rotate(319deg) brightness(90%) contrast(84%);
+    }
+  }
+}
+
 /* Theme Switcher */
 #theme-switcher {
   display: flex;
