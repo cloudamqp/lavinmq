@@ -127,6 +127,7 @@ module LavinMQ::AMQP
             begin
               read_metadata_file(seg, mfile)
             rescue File::NotFoundError
+              mfile.pos = 4
               produce_metadata(seg, mfile)
               write_metadata_file(seg, mfile) unless @segment_msg_count[seg].zero?
             end
@@ -178,6 +179,7 @@ module LavinMQ::AMQP
               if mfile = file
                 @replicator.try &.register_file mfile
                 segments << {seg, mfile}
+                mfile.pos = 4
                 produce_metadata(seg, mfile)
                 write_metadata_file(seg, mfile)
                 slice = Bytes.new(20)
@@ -220,7 +222,7 @@ module LavinMQ::AMQP
         @offset_index[seg] = file.read_bytes(Int64)
         @timestamp_index[seg] = file.read_bytes(Int64)
         @segment_msg_count[seg] = count
-        @size += count
+        @size += count unless seg == @s3_segments.last_key # will be added when reading file later
         @log.debug { "Reading metadata from #{file.path}: #{count} msgs" }
       end
 
@@ -608,16 +610,15 @@ module LavinMQ::AMQP
 
       def s3_signer : Awscr::Signer::Signers::V4?
         return @s3_signer if @s3_signer
-        unless Config.instance.streams_s3_storage_region &&
-               Config.instance.streams_s3_storage_access_key_id &&
-               Config.instance.streams_s3_storage_secret_access_key
+        if (region = Config.instance.streams_s3_storage_region) &&
+           (access_key = Config.instance.streams_s3_storage_access_key_id) &&
+           (secret_key = Config.instance.streams_s3_storage_secret_access_key)
+          @s3_signer = Awscr::Signer::Signers::V4.new("s3", region, access_key, secret_key)
+        else
           Log.fatal { "S3 storage for streams is enabled, but region or access key is not set" }
           abort "S3 storage for streams is enabled, but region or access key is not set"
         end
-        @s3_signer = Awscr::Signer::Signers::V4.new("s3",
-          Config.instance.streams_s3_storage_region, Config.instance.streams_s3_storage_access_key_id,
-          Config.instance.streams_s3_storage_secret_access_key
-        )
+        @s3_signer
       end
     end
   end
