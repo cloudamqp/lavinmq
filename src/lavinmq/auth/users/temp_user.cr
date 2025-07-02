@@ -1,5 +1,4 @@
 require "../user"
-require "../password"
 require "../../tag"
 
 module LavinMQ
@@ -7,24 +6,20 @@ module LavinMQ
     module Users
       class TempUser < User
         include SortableJSON
-
-        getter name, password, permissions
+        getter name, permissions
         property tags
         alias Permissions = NamedTuple(config: Regex, read: Regex, write: Regex)
 
         @name : String
         @permissions = Hash(String, Permissions).new
-        @password : Password? = nil
         @tags = Array(Tag).new
         @expiration_time : Time?
 
-        def initialize
-          pp "hello"
-          @name = "guest"
-          @password = Password::MD5Password.create("guest")
-          @tags = [Tag::Administrator]
-          @permissions["/"] = {config: /.*/, read: /.*/, write: /.*/}
-          @expiration_time = nil
+        def initialize(name : String, tags : Array(Tag), permissions : Hash(String, Permissions), expiration_time : Time? = nil)
+          @name = name
+          @tags = tags
+          @permissions = permissions
+          @expiration_time = expiration_time
         end
 
         def set_expiration(time : Time)
@@ -37,7 +32,6 @@ module LavinMQ
         end
 
         def can_write?(vhost, name) : Bool
-          pp "hellooo"
           return false if expired?
           perm = permissions[vhost]?
           perm ? perm_match?(perm[:write], name) : false
@@ -71,8 +65,6 @@ module LavinMQ
         def user_details
           {
             name:              @name,
-            password_hash:     @password,
-            hashing_algorithm: @password.try &.hash_algorithm,
             tags:              @tags.map(&.to_s.downcase).join(","),
           }
         end
