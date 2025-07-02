@@ -75,12 +75,12 @@ module LavinMQ
     property default_password : String = ENV.fetch("LAVINMQ_DEFAULT_PASSWORD", DEFAULT_PASSWORD_HASH) # Hashed password for default user
     property max_consumers_per_channel = 0
     property? streams_s3_storage = false
-    property streams_s3_storage_bucket = ""
-    property streams_s3_storage_region = ""
-    property streams_s3_storage_access_key_id = ""
-    property streams_s3_storage_secret_access_key = ""
-    property streams_s3_storage_session_token = ""
-    property streams_s3_storage_endpoint = ""
+    property streams_s3_storage_bucket : String? = nil
+    property streams_s3_storage_region : String? = nil
+    property streams_s3_storage_access_key_id : String? = nil
+    property streams_s3_storage_secret_access_key : String? = nil
+    property streams_s3_storage_session_token : String? = nil
+    property streams_s3_storage_endpoint : String? = nil
     property streams_s3_storage_local_segments_per_stream = 50
     @@instance : Config = self.new
 
