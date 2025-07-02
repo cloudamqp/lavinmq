@@ -37,6 +37,8 @@ module LavinMQ
         user
       end
 
+      #TODO: create_temporary_user
+
       def add(name, password_hash, password_algorithm, tags = Array(Tag).new, save = true)
         user = Users::BasicUser.new(name, password_hash, password_algorithm, tags)
         @users[name] = user
