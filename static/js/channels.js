@@ -28,7 +28,7 @@ Table.renderTable('table', tableOptions, function (tr, item, all) {
   if (item.confirm) {
     const confirmSpan = document.createElement('span')
     confirmSpan.textContent = 'Confirm'
-    confirmSpan.title = 'Enables publisher acknowledgements for reliable message delivery'
+    confirmSpan.title = 'Confirm mode enables publisher acknowledgements for reliable message delivery'
     mode = confirmSpan.outerHTML
   }
   Table.renderCell(tr, 3, mode, 'center')

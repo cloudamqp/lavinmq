@@ -113,7 +113,7 @@ function updateChannel () {
     if (item.confirm) {
       const confirmSpan = document.createElement('span')
       confirmSpan.textContent = 'Confirm'
-      confirmSpan.title = 'Enables publisher acknowledgements for reliable message delivery'
+      confirmSpan.title = 'Confirm mode enables publisher acknowledgements for reliable message delivery'
       modeEl.appendChild(confirmSpan)
     }
     document.getElementById('ch-global-prefetch').textContent = Helpers.formatNumber(item.global_prefetch_count)
