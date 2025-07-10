@@ -25,7 +25,12 @@ Table.renderTable('table', tableOptions, function (tr, item, all) {
     Table.renderCell(tr, 2, item.user)
   }
   let mode = ''
-  mode += item.confirm ? ' C' : ''
+  if (item.confirm) {
+    const confirmSpan = document.createElement('span')
+    confirmSpan.textContent = 'Confirm'
+    confirmSpan.title = 'Enables publisher acknowledgements for reliable message delivery'
+    mode = confirmSpan.outerHTML
+  }
   Table.renderCell(tr, 3, mode, 'center')
   Table.renderCell(tr, 4, Helpers.formatNumber(item.consumer_count), 'right')
   Table.renderCell(tr, 5, Helpers.formatNumber(item.prefetch_count), 'right')
