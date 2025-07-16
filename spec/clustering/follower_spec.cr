@@ -33,7 +33,7 @@ module FollowerSpec
     end
 
     def initialize(@io : UNIXSocket)
-      super(Family::INET, Type::STREAM, Protocol::TCP, false)
+      super(Family::INET, Type::STREAM, Protocol::TCP)
     end
 
     delegate read, write, to: @io
