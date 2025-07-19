@@ -108,13 +108,12 @@ function updateChannel () {
     connectionLink.href = HTTP.url`connection#name=${item.connection_details.name}`
     connectionLink.textContent = item.connection_details.name
     prefetch.update(item.prefetch_count)
-    const modeEl = document.getElementById('ch-mode')
-    modeEl.textContent = ''
     if (item.confirm) {
+      const chMode = document.getElementById('ch-mode')
       const confirmSpan = document.createElement('span')
       confirmSpan.textContent = 'Confirm'
       confirmSpan.title = 'Confirm mode enables publisher acknowledgements for reliable message delivery'
-      modeEl.appendChild(confirmSpan)
+      chMode.replaceChildren(confirmSpan)
     }
     document.getElementById('ch-global-prefetch').textContent = Helpers.formatNumber(item.global_prefetch_count)
   })

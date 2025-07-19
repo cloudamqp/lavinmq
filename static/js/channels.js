@@ -24,14 +24,12 @@ Table.renderTable('table', tableOptions, function (tr, item, all) {
     Table.renderCell(tr, 1, item.vhost)
     Table.renderCell(tr, 2, item.user)
   }
-  let mode = ''
   if (item.confirm) {
     const confirmSpan = document.createElement('span')
     confirmSpan.textContent = 'Confirm'
     confirmSpan.title = 'Confirm mode enables publisher acknowledgements for reliable message delivery'
-    mode = confirmSpan.outerHTML
+    Table.renderCell(tr, 3, confirmSpan, 'center')
   }
-  Table.renderCell(tr, 3, mode, 'center')
   Table.renderCell(tr, 4, Helpers.formatNumber(item.consumer_count), 'right')
   Table.renderCell(tr, 5, Helpers.formatNumber(item.prefetch_count), 'right')
   Table.renderCell(tr, 6, Helpers.formatNumber(item.messages_unacknowledged), 'right')
