@@ -51,6 +51,12 @@ This release brings significant improvements across multiple areas of LavinMQ. K
 `messages_ready`, `message_bytes_ready`, `messages_unacknowledged`, `message_bytes_unacknowledged`
 and will be removed with the next major version. [#1121](https://github.com/cloudamqp/lavinmq/pull/1121)
 
+## [2.4.1] - 2025-07-21
+
+### Fixed
+- MQTT 3.1 client support
+- Allow publishing of MQTT messages larger than 64KiB
+
 ## [2.4.0] - 2025-06-11
 
 ### Added
