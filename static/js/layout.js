@@ -141,7 +141,7 @@ class ConnectionStatusIndicator {
 
   init () {
     if (!this.indicator) return
-    
+
     // Listen for connection status changes
     HTTP.addConnectionStatusListener((isConnected) => {
       this.updateStatus(isConnected)
@@ -150,7 +150,7 @@ class ConnectionStatusIndicator {
 
   updateStatus (isConnected) {
     if (!this.indicator) return
-    
+
     if (isConnected) {
       this.indicator.classList.remove('disconnected')
       this.indicator.title = 'Connected to server'

@@ -1,10 +1,10 @@
-let connectionStatus = {
+const connectionStatus = {
   isConnected: true,
   lastSuccess: Date.now(),
   listeners: new Set()
 }
 
-function notifyConnectionStatusChange(isConnected) {
+function notifyConnectionStatusChange (isConnected) {
   if (connectionStatus.isConnected !== isConnected) {
     connectionStatus.isConnected = isConnected
     connectionStatus.listeners.forEach(callback => {
@@ -17,11 +17,11 @@ function notifyConnectionStatusChange(isConnected) {
   }
 }
 
-function addConnectionStatusListener(callback) {
+function addConnectionStatusListener (callback) {
   connectionStatus.listeners.add(callback)
 }
 
-function removeConnectionStatusListener(callback) {
+function removeConnectionStatusListener (callback) {
   connectionStatus.listeners.delete(callback)
 }
 
@@ -43,7 +43,7 @@ function request (method, path, options = {}) {
     .then(response => {
       connectionStatus.lastSuccess = Date.now()
       notifyConnectionStatusChange(true)
-      
+
       if (!response.ok) {
         const error = { status: response.status, reason: response.statusText, is_error: true }
         return response.json()
