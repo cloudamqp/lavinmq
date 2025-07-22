@@ -589,16 +589,36 @@ function updateLegend (chart) {
   // Update all legend items
   const allLegendItems = newLegendItems.merge(legendItems)
 
-  // Calculate horizontal positioning
+  // Calculate positioning with wrapping
   let xOffset = 0
+  let yOffset = 0
+  const lineHeight = 20
+  const maxWidth = chart.width
+
   allLegendItems
     .attr('transform', function (d, i) {
-      if (i === 0) xOffset = 0
+      if (i === 0) {
+        xOffset = 0
+        yOffset = 0
+      }
+
+      // Calculate text width including value (approximation: 7px per character + padding)
+      const latestValue = d.data.length > 0 ? d.data[d.data.length - 1].y : 0
+      const formattedValue = latestValue !== null ? helpers.formatNumber(latestValue) : '0'
+      const fullText = `${d.label}: ${formattedValue}`
+      const textWidth = fullText.length * 7 + 30 // 18px for rect + text gap + 12px padding
+
+      // Check if we need to wrap to next line
+      if (xOffset + textWidth > maxWidth && i > 0) {
+        xOffset = 0
+        yOffset += lineHeight
+      }
+
       const currentX = xOffset
-      // Calculate text width (approximation: 7px per character + padding)
-      const textWidth = d.label.length * 7 + 30 // 18px for rect + text gap + 12px padding
+      const currentY = yOffset
       xOffset += textWidth
-      return `translate(${currentX}, 0)`
+
+      return `translate(${currentX}, ${currentY})`
     })
     .on('click', function (event, d) {
       d.hidden = !d.hidden
@@ -611,7 +631,12 @@ function updateLegend (chart) {
     .style('stroke-width', 1)
 
   allLegendItems.select('text')
-    .text(d => d.label)
+    .text(d => {
+      // Get the latest value from the dataset
+      const latestValue = d.data.length > 0 ? d.data[d.data.length - 1].y : 0
+      const formattedValue = latestValue !== null ? helpers.formatNumber(latestValue) : '0'
+      return `${d.label}: ${formattedValue}`
+    })
     .style('fill', d => d.hidden ? '#666' : '#fff')
     .style('text-decoration', d => d.hidden ? 'line-through' : 'none')
 }
