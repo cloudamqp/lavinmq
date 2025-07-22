@@ -1516,6 +1516,14 @@ footer .logo {
   cursor: help;
 }
 
+.features span {
+  background: var(--color-bg-hover);
+  border-radius: 0.25rem;
+  padding: 0.125rem 0.25rem;
+  margin-right: 0.125rem;
+  font-size: 0.75rem;
+}
+
 .small-table {
   width: 50%;
   max-width: 600px;

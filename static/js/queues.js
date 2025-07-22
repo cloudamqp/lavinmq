@@ -80,11 +80,35 @@ document.getElementById('multi-check-all').addEventListener('change', (el) => {
 
 const queuesTable = Table.renderTable('table', tableOptions, function (tr, item, all) {
   if (all) {
-    let features = ''
-    features += item.durable ? ' D' : ''
-    features += item.auto_delete ? ' AD' : ''
-    features += item.exclusive ? ' E' : ''
-    features += Object.keys(item.arguments).length > 0 ? ' Args ' : ''
+    const features = document.createElement('span')
+    features.className = 'features'
+    if (item.durable) {
+      const durable = document.createElement('span')
+      durable.textContent = 'D '
+      durable.title = 'Durable'
+      features.appendChild(durable)
+    }
+    if (item.auto_delete) {
+      const autoDelete = document.createElement('span')
+      autoDelete.textContent = 'AD '
+      autoDelete.title = 'Auto Delete'
+      features.appendChild(autoDelete)
+    }
+    if (item.exclusive) {
+      const exclusive = document.createElement('span')
+      exclusive.textContent = 'E '
+      exclusive.title = 'Exclusive'
+      features.appendChild(exclusive)
+    }
+    if (Object.keys(item.arguments).length > 0) {
+      const argsTooltip = Object.entries(item.arguments)
+        .map(([key, value]) => `${key}: ${JSON.stringify(value)}`)
+        .join('\n')
+      const argsSpan = document.createElement('span')
+      argsSpan.textContent = 'Args '
+      argsSpan.title = argsTooltip
+      features.appendChild(argsSpan)
+    }
     const queueLink = document.createElement('a')
     queueLink.href = HTTP.url`queue#vhost=${item.vhost}&name=${item.name}`
     queueLink.textContent = item.name
