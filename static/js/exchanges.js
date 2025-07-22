@@ -33,11 +33,32 @@ const exchangeTable = Table.renderTable('table', tableOptions, function (tr, ite
     if (item.name === '') {
       item.name = 'amq.default'
     }
-    let features = ''
-    features += item.durable ? ' D' : ''
-    features += item.auto_delete ? ' AD' : ''
-    features += item.internal ? ' I' : ''
-    features += item.arguments['x-delayed-exchange'] ? ' d' : ''
+    const features = document.createElement('span')
+    features.className = 'features'
+    if (item.durable) {
+      const durable = document.createElement('span')
+      durable.textContent = 'D'
+      durable.title = 'Durable'
+      features.appendChild(durable)
+    }
+    if (item.auto_delete) {
+      const autoDelete = document.createElement('span')
+      autoDelete.textContent = ' AD'
+      autoDelete.title = 'Auto Delete'
+      features.appendChild(autoDelete)
+    }
+    if (item.internal) {
+      const internal = document.createElement('span')
+      internal.textContent = ' I'
+      internal.title = 'Internal'
+      features.appendChild(internal)
+    }
+    if (item.arguments['x-delayed-exchange']) {
+      const delayed = document.createElement('span')
+      delayed.textContent = ' d'
+      delayed.title = 'Delayed'
+      features.appendChild(delayed)
+    }
     const exchangeLink = document.createElement('a')
     exchangeLink.href = HTTP.url`exchange#vhost=${item.vhost}&name=${item.name}`
     exchangeLink.textContent = item.name
