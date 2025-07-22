@@ -1,5 +1,6 @@
 import * as Auth from './auth.js'
 import * as Helpers from './helpers.js'
+import * as HTTP from './http.js'
 
 document.getElementById('username').textContent = Auth.getUsername()
 
@@ -129,8 +130,42 @@ class ThemeSwitcher {
   }
 })()
 
+// Connection Status Indicator
+class ConnectionStatusIndicator {
+  constructor () {
+    this.indicator = document.getElementById('connection-status')
+    this.dot = this.indicator?.querySelector('.connection-dot')
+    this.text = this.indicator?.querySelector('.connection-text')
+    this.init()
+  }
+
+  init () {
+    if (!this.indicator) return
+    
+    // Listen for connection status changes
+    HTTP.addConnectionStatusListener((isConnected) => {
+      this.updateStatus(isConnected)
+    })
+  }
+
+  updateStatus (isConnected) {
+    if (!this.indicator) return
+    
+    if (isConnected) {
+      this.indicator.classList.remove('disconnected')
+      this.indicator.title = 'Connected to server'
+      if (this.text) this.text.textContent = 'Connected'
+    } else {
+      this.indicator.classList.add('disconnected')
+      this.indicator.title = 'Connection lost - Updates paused'
+      if (this.text) this.text.textContent = 'Disconnected'
+    }
+  }
+}
+
 // Initialize theme switcher when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
   // Store theme switcher instance on window for debugging
   window.themeSwitcher = new ThemeSwitcher()
+  window.connectionStatusIndicator = new ConnectionStatusIndicator()
 })
