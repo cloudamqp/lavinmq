@@ -136,6 +136,7 @@ class ConnectionStatusIndicator {
     this.indicator = document.getElementById('connection-status')
     this.dot = this.indicator?.querySelector('.connection-dot')
     this.text = this.indicator?.querySelector('.connection-text')
+    this.disconnectedAt = null
     this.init()
   }
 
@@ -155,10 +156,16 @@ class ConnectionStatusIndicator {
       this.indicator.classList.remove('disconnected')
       this.indicator.title = 'Connected to server'
       if (this.text) this.text.textContent = 'Connected'
+      this.disconnectedAt = null
     } else {
       this.indicator.classList.add('disconnected')
-      this.indicator.title = 'Connection lost - Updates paused'
       if (this.text) this.text.textContent = 'Disconnected'
+
+      if (!this.disconnectedAt) {
+        this.disconnectedAt = new Date()
+        const timeString = this.disconnectedAt.toLocaleTimeString()
+        this.indicator.title = `Connection lost at ${timeString} - Updates paused`
+      }
     }
   }
 }
