@@ -53,7 +53,7 @@ module LavinMQ
         Protocol::MQTT => MQTT::ConnectionFactory.new(authenticator, @mqtt_brokers, @config),
       }
       apply_parameter
-      spawn stats_loop, name: "Server#stats_loop"
+      Fiber::ExecutionContext::Isolated.new("Server#stats_loop") { stats_loop }
     end
 
     def followers
