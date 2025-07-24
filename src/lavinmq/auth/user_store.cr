@@ -13,10 +13,9 @@ module LavinMQ
 
     def initialize(@data_dir : String, @replicator : Clustering::Replicator)
       @users = Hash(String, User).new
+      @lock = Mutex.new
       load!
     end
-
-    forward_missing_to @users
 
     def each(&)
       @users.each do |kv|
@@ -24,56 +23,98 @@ module LavinMQ
       end
     end
 
+    def each_value
+      @users.each_value
+    end
+
+    def select(*keys)
+      @users.select(*keys)
+    end
+
+    def capacity
+      @users.capacity
+    end
+
+    def []?(name : String) : User?
+      @users[name]?
+    end
+
+    def [](name : String) : User
+      @users[name]
+    end
+
     # Adds a user to the use store
     def create(name, password, tags = Array(Tag).new, save = true)
-      if user = @users[name]?
-        return user
+      @lock.synchronize do
+        if user = @users[name]?
+          return user
+        end
+        user = User.create(name, password, "SHA256", tags)
+        new_users = @users.dup
+        new_users[name] = user
+        @users = new_users
+        Log.info { "Created user=#{name}" }
+        save! if save
+        user
       end
-      user = User.create(name, password, "SHA256", tags)
-      @users[name] = user
-      Log.info { "Created user=#{name}" }
-      save! if save
-      user
     end
 
     def add(name, password_hash, password_algorithm, tags = Array(Tag).new, save = true)
-      user = User.new(name, password_hash, password_algorithm, tags)
-      @users[name] = user
-      save! if save
-      user
+      @lock.synchronize do
+        if user = @users[name]?
+          return user
+        end
+        user = User.new(name, password_hash, password_algorithm, tags)
+        new_users = @users.dup
+        new_users[name] = user
+        @users = new_users
+        save! if save
+        user
+      end
     end
 
     def add_permission(user, vhost, config, read, write)
       perm = {config: config, read: read, write: write}
-      if @users[user].permissions[vhost]? && @users[user].permissions[vhost] == perm
-        return perm
-      end
-      @users[user].permissions[vhost] = perm
-      save!
-      perm
-    end
-
-    def rm_permission(user, vhost)
-      if perm = @users[user].permissions.delete vhost
-        Log.info { "Removed permissions for user=#{user} on vhost=#{vhost}" }
+      @lock.synchronize do
+        if @users[user].permissions[vhost]? == perm
+          return perm
+        end
+        @users[user].permissions[vhost] = perm
         save!
         perm
       end
     end
 
-    def rm_vhost_permissions_for_all(vhost)
-      @users.each_value do |user|
-        user.permissions.delete(vhost)
+    def rm_permission(user, vhost)
+      @lock.synchronize do
+        if perm = @users[user].permissions.delete vhost
+          Log.info { "Removed permissions for user=#{user} on vhost=#{vhost}" }
+          save!
+          perm
+        end
       end
-      save!
+    end
+
+    def rm_vhost_permissions_for_all(vhost)
+      @lock.synchronize do
+        @users.each_value do |user|
+          user.permissions.delete(vhost)
+        end
+        save!
+      end
     end
 
     def delete(name, save = true) : User?
       return if name == DIRECT_USER
-      if user = @users.delete name
-        Log.info { "Deleted user=#{name}" }
-        save! if save
-        user
+      @lock.synchronize do
+        if user = @users[name]?
+          new_users = @users.dup
+          new_users.delete(name)
+          @users = new_users
+          Log.info { "Deleted user=#{name}" }
+          save! if save
+          user
+        end
       end
     end
 
@@ -93,7 +134,7 @@ module LavinMQ
 
     def to_json(json : JSON::Builder)
       json.array do
-        each_value do |user|
+        @users.each_value do |user|
           next if user.hidden?
           user.to_json(json)
         end

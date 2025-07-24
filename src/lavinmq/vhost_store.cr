@@ -17,10 +17,9 @@ module LavinMQ
 
     def initialize(@data_dir : String, @users : UserStore, @replicator : Clustering::Replicator)
       @vhosts = Hash(String, VHost).new
+      @lock = Mutex.new
       load!
     end
-
-    forward_missing_to @vhosts
 
     def each(&)
       @vhosts.each do |kv|
@@ -28,28 +27,63 @@ module LavinMQ
       end
     end
 
-    def create(name : String, user : User = @users.default_user, description = "", tags = Array(String).new(0), save : Bool = true)
-      if v = @vhosts[name]?
-        return v
+    def each_value(&)
+      @vhosts.each_value do |vhost|
+        yield vhost
       end
-      vhost = VHost.new(name, @data_dir, @users, @replicator, description, tags)
-      Log.info { "Created vhost #{name}" }
-      @users.add_permission(user.name, name, /.*/, /.*/, /.*/)
-      @users.add_permission(UserStore::DIRECT_USER, name, /.*/, /.*/, /.*/)
-      @vhosts[name] = vhost
-      save! if save
-      notify_observers(Event::Added, name)
-      vhost
+    end
+
+    def first_value
+      @vhosts.first_value
+    end
+
+    def each_value
+      @vhosts.each_value
+    end
+
+    def []?(name : String) : VHost?
+      @vhosts[name]?
+    end
+
+    def [](name : String) : VHost
+      @vhosts[name]
+    end
+
+    def capacity
+      @vhosts.capacity
+    end
+
+    def create(name : String, user : User = @users.default_user, description = "", tags = Array(String).new(0), save : Bool = true)
+      @lock.synchronize do
+        if v = @vhosts[name]?
+          return v
+        end
+        vhost = VHost.new(name, @data_dir, @users, @replicator, description, tags)
+        Log.info { "Created vhost #{name}" }
+        @users.add_permission(user.name, name, /.*/, /.*/, /.*/)
+        @users.add_permission(UserStore::DIRECT_USER, name, /.*/, /.*/, /.*/)
+        new_vhosts = @vhosts.dup
+        new_vhosts[name] = vhost
+        @vhosts = new_vhosts
+        save! if save
+        notify_observers(Event::Added, name)
+        vhost
+      end
     end
 
     def delete(name) : VHost?
-      if vhost = @vhosts.delete name
-        @users.rm_vhost_permissions_for_all(name)
-        vhost.delete
-        notify_observers(Event::Deleted, name)
-        Log.info { "Deleted vhost #{name}" }
-        save!
-        vhost
+      @lock.synchronize do
+        if vhost = @vhosts[name]?
+          @users.rm_vhost_permissions_for_all(name)
+          vhost.delete
+          new_vhosts = @vhosts.dup
+          new_vhosts.delete(name)
+          @vhosts = new_vhosts
+          notify_observers(Event::Deleted, name)
+          Log.info { "Deleted vhost #{name}" }
+          save!
+          vhost
+        end
       end
     end
 
