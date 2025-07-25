@@ -281,11 +281,11 @@ module LavinMQ
                       help: "Server uptime in seconds"})
         writer.write({name:  "cpu_system_time_total",
                       value: @amqp_server.sys_time,
-                      type:  "gauge",
+                      type:  "counter",
                       help:  "Total CPU system time"})
         writer.write({name:  "cpu_user_time_total",
                       value: @amqp_server.user_time,
-                      type:  "gauge",
+                      type:  "counter",
                       help:  "Total CPU user time"})
         writer.write({name:  "stats_collection_duration_seconds_total",
                       value: @amqp_server.stats_collection_duration_seconds_total.to_f,
