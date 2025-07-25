@@ -6,7 +6,7 @@ require "../tag"
 module LavinMQ
   class User
     include SortableJSON
-    getter name, password, permissions
+    getter name, password
     property tags, plain_text_password
     alias Permissions = NamedTuple(config: Regex, read: Regex, write: Regex)
 
@@ -130,22 +130,56 @@ module LavinMQ
     end
 
     def can_write?(vhost, name) : Bool
-      perm = permissions[vhost]?
+      perm = @permissions[vhost]?
       perm ? perm_match?(perm[:write], name) : false
     end
 
     def can_read?(vhost, name) : Bool
-      perm = permissions[vhost]?
+      perm = @permissions[vhost]?
       perm ? perm_match?(perm[:read], name) : false
     end
 
     def can_config?(vhost, name) : Bool
-      perm = permissions[vhost]?
+      perm = @permissions[vhost]?
       perm ? perm_match?(perm[:config], name) : false
     end
 
     def can_impersonate?
       @tags.includes? Tag::Impersonator
+    end
+
+    protected def set_permission(vhost : String, config : Regex, read : Regex, write : Regex)
+      set_permission(vhost, {config: config, read: read, write: write})
+    end
+
+    protected def set_permission(vhost : String, perms : Permissions)
+      new_permissions = @permissions.dup
+      new_permissions[vhost] = perms
+      @permissions = new_permissions
+      perms
+    end
+
+    protected def remove_permission(vhost : String)
+      new_permissions = @permissions.dup
+      perm = new_permissions.delete(vhost)
+      @permissions = new_permissions
+      perm
+    end
+
+    def has_permission?(vhost : String) : Bool
+      @permissions.has_key? vhost
+    end
+
+    def permission?(vhost : String) : Permissions?
+      @permissions[vhost]?
+    end
+
+    def permitted_vhosts : Array(String)
+      @permissions.keys
+    end
+
+    def permissions : Enumerable(Tuple(String, Permissions))
+      @permissions.each
     end
 
     private def parse_permissions(pull)

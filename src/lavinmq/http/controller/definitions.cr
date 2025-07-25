@@ -192,11 +192,10 @@ module LavinMQ
               configure = p["configure"].as_s
               read = p["read"].as_s
               write = p["write"].as_s
-              @amqp_server.users[user].permissions[vhost] = {
-                config: Regex.new(configure),
-                read:   Regex.new(read),
-                write:  Regex.new(write),
-              }
+              @amqp_server.users[user].set_permission(vhost,
+                Regex.new(configure),
+                Regex.new(read),
+                Regex.new(write))
             end
             @amqp_server.users.save!
           end

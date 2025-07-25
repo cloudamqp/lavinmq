@@ -62,14 +62,12 @@ module LavinMQ
           username = username[split_pos + 1..]
         end
 
-        user = @authenticator.authenticate(username, password)
-        return unless user
-        has_vhost_permissions = user.try &.permissions.has_key?(vhost)
-        return unless has_vhost_permissions
-        broker = @brokers[vhost]?
-        return unless broker
-
-        {user, broker}
+        if broker = @brokers[vhost]?
+          if user = @authenticator.authenticate(username, password)
+            user.permission?(vhost) || return
+            {user, broker}
+          end
+        end
       end
 
       def assign_client_id(packet)

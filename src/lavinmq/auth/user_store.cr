@@ -76,10 +76,10 @@ module LavinMQ
     def add_permission(user, vhost, config, read, write)
       perm = {config: config, read: read, write: write}
       @lock.synchronize do
-        if @users[user].permissions[vhost]? == perm
+        if @users[user].permission?(vhost) == perm
           return perm
         end
-        @users[user].permissions[vhost] = perm
+        @users[user].set_permission(vhost, perm)
         save!
         perm
       end
@@ -87,7 +87,7 @@ module LavinMQ
 
     def rm_permission(user, vhost)
       @lock.synchronize do
-        if perm = @users[user].permissions.delete vhost
+        if perm = @users[user].remove_permission vhost
           Log.info { "Removed permissions for user=#{user} on vhost=#{vhost}" }
           save!
           perm
@@ -98,7 +98,7 @@ module LavinMQ
     def rm_vhost_permissions_for_all(vhost)
       @lock.synchronize do
         @users.each_value do |user|
-          user.permissions.delete(vhost)
+          user.remove_permission(vhost)
         end
         save!
       end
@@ -175,7 +175,7 @@ module LavinMQ
     private def create_direct_user
       @users[DIRECT_USER] = User.create_hidden_user(DIRECT_USER)
       perm = {config: /.*/, read: /.*/, write: /.*/}
-      @users[DIRECT_USER].permissions["/"] = perm
+      @users[DIRECT_USER].set_permission("/", perm)
     end
 
     def save!

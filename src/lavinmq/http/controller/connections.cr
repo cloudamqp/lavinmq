@@ -8,7 +8,7 @@ module LavinMQ
         if user.tags.any? { |t| t.administrator? || t.monitoring? }
           @amqp_server.connections
         else
-          vhosts = user.permissions.keys
+          vhosts = user.permitted_vhosts
           @amqp_server.connections.select &.vhost.name.in?(vhosts)
         end
       end
