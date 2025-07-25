@@ -34,6 +34,7 @@ module LavinMQ
     property http_port = 15672
     property https_port = -1
     property http_unix_path = ""
+    property metrics_port = 15692
     property http_systemd_socket_name = "lavinmq-http.socket"
     property amqp_systemd_socket_name = "lavinmq-amqp.socket"
     property heartbeat = 300_u16                     # second
@@ -150,6 +151,9 @@ module LavinMQ
         end
         p.on("--http-bind=BIND", "IP address that the HTTP server will listen on (default: 127.0.0.1)") do |v|
           @http_bind = v
+        end
+        p.on("--metrics-port=PORT", "Metrics port to listen on without auth (default: 15692)") do |v|
+          @metrics_port = v.to_i
         end
         p.on("--amqp-unix-path=PATH", "AMQP UNIX path to listen to") do |v|
           @unix_path = v
@@ -367,6 +371,7 @@ module LavinMQ
         when "bind"                then @http_bind = v
         when "port"                then @http_port = v.to_i32
         when "tls_port"            then @https_port = v.to_i32
+        when "metrics_port"        then @metrics_port = v.to_i32
         when "tls_cert"            then @tls_cert_path = v # backward compatibility
         when "tls_key"             then @tls_key_path = v  # backward compatibility
         when "unix_path"           then @http_unix_path = v

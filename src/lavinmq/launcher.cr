@@ -4,6 +4,7 @@ require "systemd"
 require "./reporter"
 require "./server"
 require "./http/http_server"
+require "./http/metrics_server"
 require "./in_memory_backend"
 require "./data_dir_lock"
 require "./etcd"
@@ -32,6 +33,7 @@ module LavinMQ
     @first_shutdown_attempt = true
     @data_dir_lock : DataDirLock?
     @closed = false
+    @metrics_server : LavinMQ::HTTP::MetricsServer?
 
     def initialize(@config : Config)
       print_environment_info
@@ -66,8 +68,9 @@ module LavinMQ
       @data_dir_lock.try &.acquire
       @amqp_server = amqp_server = LavinMQ::Server.new(@config, @replicator)
       @http_server = http_server = LavinMQ::HTTP::Server.new(amqp_server)
+      @metrics_server = metrics_server = LavinMQ::HTTP::MetricsServer.new(amqp_server)
       setup_log_exchange(amqp_server)
-      start_listeners(amqp_server, http_server)
+      start_listeners(amqp_server, http_server, metrics_server)
       SystemD.notify_ready
       Fiber.yield # Yield to let listeners spawn before logging startup time
       Log.info { "Finished startup in #{(Time.monotonic - started_at).total_seconds}s" }
@@ -88,6 +91,7 @@ module LavinMQ
       Log.warn { "Stopping" }
       SystemD.notify_stopping
       @http_server.try &.close rescue nil
+      @metrics_server.try &.close rescue nil
       @amqp_server.try &.close rescue nil
       @runner.stop
     end
@@ -138,7 +142,7 @@ module LavinMQ
     end
 
     # ameba:disable Metrics/CyclomaticComplexity
-    private def start_listeners(amqp_server, http_server)
+    private def start_listeners(amqp_server, http_server, metrics_server)
       if @config.amqp_port > 0
         spawn amqp_server.listen(@config.amqp_bind, @config.amqp_port, Server::Protocol::AMQP),
           name: "AMQP listening on #{@config.amqp_port}"
@@ -174,6 +178,13 @@ module LavinMQ
       http_server.bind_internal_unix
       spawn(name: "HTTP listener") do
         http_server.listen
+      end
+
+      if @config.metrics_port > 0
+        metrics_server.bind_tcp("127.0.0.1", @config.metrics_port)
+        spawn(name: "Metrics listener") do
+          metrics_server.listen
+        end
       end
 
       if @config.mqtt_port > 0

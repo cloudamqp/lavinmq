@@ -124,7 +124,7 @@ module LavinMQ
         end
       end
 
-      private def report(io, &)
+      def report(io, &)
         mem = 0
         elapsed = Time.measure do
           mem = Benchmark.memory do
@@ -146,7 +146,7 @@ module LavinMQ
                       help:  "Memory used for metrics collections in bytes"})
       end
 
-      private def overview_broker_metrics(vhosts, writer)
+      def overview_broker_metrics(vhosts, writer)
         stats = vhost_stats(vhosts)
         writer.write({name:   "identity_info",
                       type:   "gauge",
@@ -207,7 +207,7 @@ module LavinMQ
                       help:  "Memory high watermark in bytes"})
       end
 
-      private def global_metrics(writer)
+      def global_metrics(writer)
         writer.write({name:  "global_messages_delivered_total",
                       value: @amqp_server.deleted_vhosts_messages_delivered_total +
                              @amqp_server.vhosts.sum { |_, v| v.message_details[:message_stats][:deliver] },
@@ -230,7 +230,7 @@ module LavinMQ
                       help: "Total number of messages confirmed to publishers"})
       end
 
-      private def overview_queue_metrics(vhosts, writer)
+      def overview_queue_metrics(vhosts, writer)
         ready = unacked = connections = channels = consumers = queues = 0_u64
         vhosts.each do |vhost|
           d = vhost.message_details
@@ -275,7 +275,7 @@ module LavinMQ
                       help:  "Sum of ready and unacknowledged messages - total queue depth"})
       end
 
-      private def custom_metrics(writer)
+      def custom_metrics(writer)
         writer.write({name: "uptime", value: @amqp_server.uptime.to_i,
                       type: "counter",
                       help: "Server uptime in seconds"})
@@ -312,7 +312,7 @@ module LavinMQ
         end
       end
 
-      private def gc_metrics(writer)
+      def gc_metrics(writer)
         gc_stats = @amqp_server.gc_stats
 
         writer.write({name: "gc_heap_size_bytes", value: gc_stats.heap_size,
@@ -385,7 +385,7 @@ module LavinMQ
         {% end %}
       end
 
-      private def detailed_connection_churn_metrics(vhosts, writer)
+      def detailed_connection_churn_metrics(vhosts, writer)
         stats = vhost_stats(vhosts)
         writer.write({name:  "detailed_connections_opened_total",
                       value: stats[:connection_created],
@@ -421,7 +421,7 @@ module LavinMQ
                       help:  "Total number of consumers removed"})
       end
 
-      private def detailed_queue_coarse_metrics(vhosts, writer)
+      def detailed_queue_coarse_metrics(vhosts, writer)
         vhosts.each do |vhost|
           vhost.queues.each_value do |q|
             labels = {queue: q.name, vhost: vhost.name}
@@ -451,7 +451,7 @@ module LavinMQ
         end
       end
 
-      private def detailed_queue_consumer_count(vhosts, writer)
+      def detailed_queue_consumer_count(vhosts, writer)
         vhosts.each do |vhost|
           vhost.queues.each_value do |q|
             labels = {queue: q.name, vhost: vhost.name}
@@ -464,7 +464,7 @@ module LavinMQ
         end
       end
 
-      private def detailed_exchange_metrics(vhosts, writer)
+      def detailed_exchange_metrics(vhosts, writer)
         vhosts.each do |vhost|
           vhost.exchanges.each_value do |e|
             labels = {exchange: e.name, vhost: vhost.name}
@@ -477,7 +477,7 @@ module LavinMQ
         end
       end
 
-      private def detailed_connection_coarse_metrics(vhosts, writer)
+      def detailed_connection_coarse_metrics(vhosts, writer)
         vhosts.each do |vhost|
           vhost.connections.each do |conn|
             labels = {channel: conn.name}
@@ -500,7 +500,7 @@ module LavinMQ
         end
       end
 
-      private def detailed_channel_metrics(vhosts, writer)
+      def detailed_channel_metrics(vhosts, writer)
         vhosts.each do |vhost|
           vhost.connections.each do |conn|
             conn.channels.each_value do |ch|
