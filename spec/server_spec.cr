@@ -1127,15 +1127,11 @@ describe LavinMQ::Server do
   end
 
   it "should measure time it takes to collect metrics in stats_loop" do
-    stats_interval = LavinMQ::Config.instance.stats_interval
-    LavinMQ::Config.instance.stats_interval = 100
     with_amqp_server do |s|
       should_eventually(be_true, 1.seconds) { s.stats_collection_duration_seconds_total > Time::Span.zero }
       s.stats_rates_collection_duration_seconds.should_not eq Time::Span.zero
       s.stats_system_collection_duration_seconds.should_not eq Time::Span.zero
     end
-  ensure
-    LavinMQ::Config.instance.stats_interval = stats_interval if stats_interval
   end
 
   it "should requeue messages correctly on channel close" do

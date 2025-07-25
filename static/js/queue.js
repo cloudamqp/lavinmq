@@ -143,7 +143,7 @@ function updateQueue (all) {
     })
 }
 updateQueue(true)
-setInterval(updateQueue, 5000)
+setInterval(updateQueue, 1000)
 
 const tableOptions = {
   dataSource: new UrlDataSource(queueUrl + '/bindings', { useQueryState: false }),
