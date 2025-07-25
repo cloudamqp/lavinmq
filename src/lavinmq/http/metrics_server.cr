@@ -6,7 +6,7 @@ module LavinMQ
     class MetricsServer
       Log = LavinMQ::Log.for "http.metrics_server"
 
-      def initialize(@amqp_server : LavinMQ::Server)
+      def initialize(@amqp_server : LavinMQ::Server?)
         @prometheus_controller = PrometheusController.new(@amqp_server)
         @http = ::HTTP::Server.new do |context|
           case context.request.path
@@ -46,7 +46,7 @@ module LavinMQ
         end
         
         # Get all vhosts - no user-based filtering for unauthenticated endpoint
-        vhosts = @amqp_server.vhosts.values.to_a
+        vhosts = @amqp_server ? @amqp_server.vhosts.values.to_a : [] of LavinMQ::VHost
 
         @prometheus_controller.report(context.response) do
           writer = PrometheusWriter.new(context.response, prefix)
@@ -69,7 +69,7 @@ module LavinMQ
         
         families = context.request.query_params.fetch_all("family")
         # Get all vhosts - no user-based filtering for unauthenticated endpoint
-        vhosts = @amqp_server.vhosts.values.to_a
+        vhosts = @amqp_server ? @amqp_server.vhosts.values.to_a : [] of LavinMQ::VHost
 
         @prometheus_controller.report(context.response) do
           writer = PrometheusWriter.new(context.response, prefix)

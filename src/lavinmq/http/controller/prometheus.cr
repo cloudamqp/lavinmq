@@ -69,6 +69,10 @@ module LavinMQ
     end
 
     class PrometheusController < Controller
+      # Constructor for use with MetricsServer where amqp_server might be nil (e.g., in replication followers)
+      def initialize(@amqp_server : LavinMQ::Server?)
+        register_routes if @amqp_server
+      end
       private def target_vhosts(context)
         u = user(context)
         vhosts = vhosts(u)
@@ -186,46 +190,46 @@ module LavinMQ
                       type:  "gauge",
                       help:  "Open file descriptors"})
         writer.write({name:  "process_open_tcp_sockets",
-                      value: @amqp_server.vhosts.sum { |_, v| v.connections.size },
+                      value: @amqp_server ? @amqp_server.vhosts.sum { |_, v| v.connections.size } : 0,
                       type:  "gauge",
                       help:  "Open TCP sockets"})
         writer.write({name:  "process_resident_memory_bytes",
                       type:  "gauge",
-                      value: @amqp_server.rss,
+                      value: @amqp_server ? @amqp_server.rss : 0,
                       help:  "Memory used in bytes"})
         writer.write({name:  "disk_space_available_bytes",
                       type:  "gauge",
-                      value: @amqp_server.disk_free,
+                      value: @amqp_server ? @amqp_server.disk_free : 0,
                       help:  "Disk space available in bytes"})
         writer.write({name:  "process_max_fds",
                       value: System.file_descriptor_limit[0],
                       type:  "gauge",
                       help:  "Open file descriptors limit"})
         writer.write({name:  "resident_memory_limit_bytes",
-                      value: @amqp_server.mem_limit,
+                      value: @amqp_server ? @amqp_server.mem_limit : 0,
                       type:  "gauge",
                       help:  "Memory high watermark in bytes"})
       end
 
       def global_metrics(writer)
         writer.write({name:  "global_messages_delivered_total",
-                      value: @amqp_server.deleted_vhosts_messages_delivered_total +
-                             @amqp_server.vhosts.sum { |_, v| v.message_details[:message_stats][:deliver] },
+                      value: @amqp_server ? (@amqp_server.deleted_vhosts_messages_delivered_total +
+                             @amqp_server.vhosts.sum { |_, v| v.message_details[:message_stats][:deliver] }) : 0,
                       type: "counter",
                       help: "Total number of messaged delivered to consumers"})
         writer.write({name:  "global_messages_redelivered_total",
-                      value: @amqp_server.deleted_vhosts_messages_redelivered_total +
-                             @amqp_server.vhosts.sum { |_, v| v.message_details[:message_stats][:redeliver] },
+                      value: @amqp_server ? (@amqp_server.deleted_vhosts_messages_redelivered_total +
+                             @amqp_server.vhosts.sum { |_, v| v.message_details[:message_stats][:redeliver] }) : 0,
                       type: "counter",
                       help: "Total number of messages redelivered to consumers"})
         writer.write({name:  "global_messages_acknowledged_total",
-                      value: @amqp_server.deleted_vhosts_messages_acknowledged_total +
-                             @amqp_server.vhosts.sum { |_, v| v.message_details[:message_stats][:ack] },
+                      value: @amqp_server ? (@amqp_server.deleted_vhosts_messages_acknowledged_total +
+                             @amqp_server.vhosts.sum { |_, v| v.message_details[:message_stats][:ack] }) : 0,
                       type: "counter",
                       help: "Total number of messages acknowledged by consumers"})
         writer.write({name:  "global_messages_confirmed_total",
-                      value: @amqp_server.deleted_vhosts_messages_confirmed_total +
-                             @amqp_server.vhosts.sum { |_, v| v.message_details[:message_stats][:confirm] },
+                      value: @amqp_server ? (@amqp_server.deleted_vhosts_messages_confirmed_total +
+                             @amqp_server.vhosts.sum { |_, v| v.message_details[:message_stats][:confirm] }) : 0,
                       type: "counter",
                       help: "Total number of messages confirmed to publishers"})
       end
@@ -276,43 +280,46 @@ module LavinMQ
       end
 
       def custom_metrics(writer)
-        writer.write({name: "uptime", value: @amqp_server.uptime.to_i,
+        writer.write({name: "uptime", value: @amqp_server ? @amqp_server.uptime.to_i : 0,
                       type: "counter",
                       help: "Server uptime in seconds"})
         writer.write({name:  "cpu_system_time_total",
-                      value: @amqp_server.sys_time,
+                      value: @amqp_server ? @amqp_server.sys_time : 0,
                       type:  "gauge",
                       help:  "Total CPU system time"})
         writer.write({name:  "cpu_user_time_total",
-                      value: @amqp_server.user_time,
+                      value: @amqp_server ? @amqp_server.user_time : 0,
                       type:  "gauge",
                       help:  "Total CPU user time"})
         writer.write({name:  "stats_collection_duration_seconds_total",
-                      value: @amqp_server.stats_collection_duration_seconds_total.to_f,
+                      value: @amqp_server ? @amqp_server.stats_collection_duration_seconds_total.to_f : 0,
                       type:  "gauge",
                       help:  "Total time it takes to collect metrics (stats_loop)"})
         writer.write({name:  "stats_rates_collection_duration_seconds",
-                      value: @amqp_server.stats_rates_collection_duration_seconds.to_f,
+                      value: @amqp_server ? @amqp_server.stats_rates_collection_duration_seconds.to_f : 0,
                       type:  "gauge",
                       help:  "Time it takes to update stats rates (update_stats_rates)"})
         writer.write({name:  "stats_system_collection_duration_seconds",
-                      value: @amqp_server.stats_system_collection_duration_seconds.to_f,
+                      value: @amqp_server ? @amqp_server.stats_system_collection_duration_seconds.to_f : 0,
                       type:  "gauge",
                       help:  "Time it takes to collect system metrics"})
         writer.write({name:  "total_connected_followers",
-                      value: @amqp_server.followers.size,
+                      value: @amqp_server ? @amqp_server.followers.size : 0,
                       type:  "gauge",
                       help:  "Amount of follower nodes connected"})
-        @amqp_server.followers.each do |f|
-          writer.write({name:   "follower_lag_in_bytes",
-                        labels: {id: f.id.to_s(36)},
-                        value:  f.lag_in_bytes,
-                        type:   "gauge",
-                        help:   "Bytes that hasn't been synchronized with the follower yet"})
+        if @amqp_server
+          @amqp_server.followers.each do |f|
+            writer.write({name:   "follower_lag_in_bytes",
+                          labels: {id: f.id.to_s(36)},
+                          value:  f.lag_in_bytes,
+                          type:   "gauge",
+                          help:   "Bytes that hasn't been synchronized with the follower yet"})
+          end
         end
       end
 
       def gc_metrics(writer)
+        return unless @amqp_server
         gc_stats = @amqp_server.gc_stats
 
         writer.write({name: "gc_heap_size_bytes", value: gc_stats.heap_size,

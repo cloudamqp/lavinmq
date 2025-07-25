@@ -61,6 +61,27 @@ describe LavinMQ::HTTP::MetricsServer do
       end
     end
   end
+
+  it "should handle metrics without amqp_server (follower scenario)" do
+    metrics_server = LavinMQ::HTTP::MetricsServer.new(nil)
+    address = metrics_server.bind_tcp("127.0.0.1", 0) # Let system choose port
+    spawn(name: "MetricsServer") { metrics_server.listen }
+    Fiber.yield
+    
+    begin
+      port = address.port
+      client = HTTP::Client.new("127.0.0.1", port)
+      response = client.get("/metrics")
+      response.status_code.should eq(200)
+      response.headers["Content-Type"].should eq("text/plain")
+      # Should still contain some basic metrics but no server-specific ones
+      response.body.should contain("lavinmq_")
+      response.body.should contain("uptime 0")  # Should show 0 when no server
+    ensure
+      client.try(&.close)
+      metrics_server.close
+    end
+  end
 end
 
 describe LavinMQ::Config do
