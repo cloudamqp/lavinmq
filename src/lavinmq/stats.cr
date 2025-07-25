@@ -6,14 +6,14 @@ module LavinMQ
       {% for name in stats_keys %}
         @{{name.id}}_count = Atomic(UInt64).new(0_u64)
         @{{name.id}}_count_prev = 0_u64
-        @{{name.id}}_rate = 0_f64
-        @{{name.id}}_log = Deque(Float64).new(Config.instance.stats_log_size)
+        @{{name.id}}_rate = 0_u32
+        @{{name.id}}_log = Deque(UInt32).new(Config.instance.stats_retention_seconds)
         def {{name.id}}_count
           @{{name.id}}_count.get(:relaxed)
         end
       {% end %}
       {% for name in log_keys %}
-        @{{name.id}}_log = Deque(UInt32).new(Config.instance.stats_log_size)
+        @{{name.id}}_log = Deque(UInt32).new(Config.instance.stats_retention_seconds)
         getter {{name.id}}_log
       {% end %}
 
@@ -40,14 +40,13 @@ module LavinMQ
       end
 
       def update_rates : Nil
-        interval = Config.instance.stats_interval // 1000
-        log_size = Config.instance.stats_log_size
+        log_size = Config.instance.stats_retention_seconds
         {% for name in stats_keys %}
           until @{{name.id}}_log.size < log_size
             @{{name.id}}_log.shift
           end
           {{name.id}}_count = @{{name.id}}_count.get(:relaxed)
-          @{{name.id}}_rate = (({{name.id}}_count - @{{name.id}}_count_prev) / interval).round(1)
+          @{{name.id}}_rate = ({{name.id}}_count - @{{name.id}}_count_prev).to_u32
           @{{name.id}}_log.push @{{name.id}}_rate
           @{{name.id}}_count_prev = {{name.id}}_count
         {% end %}

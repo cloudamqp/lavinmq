@@ -58,12 +58,12 @@ function updateConnection (all) {
   })
 }
 updateConnection(true)
-setInterval(updateConnection, 5000)
+setInterval(updateConnection, 1000)
 const channelsDataSource = new UrlDataSource(connectionUrl + '/channels', { useQueryState: false })
 const tableOptions = {
   dataSource: channelsDataSource,
   keyColumns: ['name'],
-  interval: 5000,
+  interval: 1000,
   countId: 'table-count'
 }
 Table.renderTable('table', tableOptions, function (tr, item, all) {
