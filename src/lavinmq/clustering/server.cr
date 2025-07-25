@@ -142,10 +142,17 @@ module LavinMQ
         @checksums.restore
         Log.info { "Listening on #{server.local_address}" }
         @listeners << server
-        mt = Fiber::ExecutionContext::MultiThreaded.new("replication-followers", 4)
-        loop do
-          socket = server.accept? || break
-          mt.spawn(name: "Clustering follower") { handle_socket(socket) }
+        if @config.multi_threading?
+          mt = Fiber::ExecutionContext::MultiThreaded.new("replication-followers", 4)
+          loop do
+            socket = server.accept? || break
+            mt.spawn(name: "Clustering follower") { handle_socket(socket) }
+          end
+        else
+          loop do
+            socket = server.accept? || break
+            spawn(name: "Clustering follower") { handle_socket(socket) }
+          end
         end
       end
 

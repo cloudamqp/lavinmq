@@ -53,7 +53,11 @@ module LavinMQ
         Protocol::MQTT => MQTT::ConnectionFactory.new(authenticator, @mqtt_brokers, @config),
       }
       apply_parameter
-      Fiber::ExecutionContext::Isolated.new("Server#stats_loop") { stats_loop }
+      if @config.multi_threading?
+        Fiber::ExecutionContext::Isolated.new("Server#stats_loop") { stats_loop }
+      else
+        spawn(name: "Server#stats_loop") { stats_loop }
+      end
     end
 
     def followers
@@ -97,7 +101,7 @@ module LavinMQ
       Iterator(Client).chain(@vhosts.each_value.map(&.connections.each))
     end
 
-    MT = Fiber::ExecutionContext::MultiThreaded.new("clients", 20)
+    MT = Fiber::ExecutionContext::Parallel.new("clients", 20)
 
     def listen(s : TCPServer, protocol : Protocol)
       @listeners[s] = protocol
