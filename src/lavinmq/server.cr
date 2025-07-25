@@ -322,7 +322,7 @@ module LavinMQ
     end
 
     def update_system_metrics(statm)
-      log_size = @config.stats_log_size
+      log_size = @config.stats_retention_seconds
       rusage = System.resource_usage
 
       {% for m in {:user_time, :sys_time} %}
@@ -456,19 +456,19 @@ module LavinMQ
 
     {% for m in {:user_time, :sys_time} %}
       getter {{m.id}} = 0_f64
-      getter {{m.id}}_log = Deque(Float64).new(Config.instance.stats_log_size)
+      getter {{m.id}}_log = Deque(Float64).new(Config.instance.stats_retention_seconds)
     {% end %}
     {% for m in {:blocks_out, :blocks_in} %}
       getter {{m.id}} = 0_i64
-      getter {{m.id}}_log = Deque(UInt32).new(Config.instance.stats_log_size)
+      getter {{m.id}}_log = Deque(UInt32).new(Config.instance.stats_retention_seconds)
     {% end %}
     getter mem_limit = 0_i64
     getter rss = 0_i64
-    getter rss_log = Deque(Int64).new(Config.instance.stats_log_size)
+    getter rss_log = Deque(Int64).new(Config.instance.stats_retention_seconds)
     getter disk_total = 0_i64
-    getter disk_total_log = Deque(Int64).new(Config.instance.stats_log_size)
+    getter disk_total_log = Deque(Int64).new(Config.instance.stats_retention_seconds)
     getter disk_free = 0_i64
-    getter disk_free_log = Deque(Int64).new(Config.instance.stats_log_size)
+    getter disk_free_log = Deque(Int64).new(Config.instance.stats_retention_seconds)
     getter stats_collection_duration_seconds_total = Time::Span.new
     getter stats_rates_collection_duration_seconds = Time::Span.new
     getter stats_system_collection_duration_seconds = Time::Span.new

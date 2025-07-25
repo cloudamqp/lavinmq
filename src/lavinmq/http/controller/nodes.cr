@@ -16,7 +16,7 @@ module LavinMQ
         {% for sm in SERVER_METRICS %}
           {{sm.id}} = 0_u64
           {{sm.id}}_rate = 0_f64
-          {{sm.id}}_log = Deque(Float64).new(LavinMQ::Config.instance.stats_log_size)
+          {{sm.id}}_log = Deque(Float64).new(LavinMQ::Config.instance.stats_retention_seconds)
         {% end %}
         vhosts.each do |vhost|
           messages_unacknowledged += vhost.message_details[:messages_unacknowledged]

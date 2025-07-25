@@ -39,7 +39,7 @@ module LavinMQ
     property heartbeat = 300_u16                     # second
     property frame_max = 131_072_u32                 # bytes
     property channel_max = 2048_u16                  # number
-    property stats_log_size = 600                    # 10 mins at 1s interval
+    property stats_retention_seconds = 600           # 10 mins at 1s interval
     property? set_timestamp = false                  # in message headers when receive
     property socket_buffer_size = 16384              # bytes
     property? tcp_nodelay = false                    # bool
@@ -268,7 +268,7 @@ module LavinMQ
         when "data_dir_lock"             then @data_dir_lock = true?(v)
         when "log_level"                 then @log_level = ::Log::Severity.parse(v)
         when "log_file"                  then @log_file = v
-        when "stats_log_size"            then @stats_log_size = v.to_i32
+        when "stats_retention_seconds"   then @stats_retention_seconds = v.to_i32
         when "segment_size"              then @segment_size = v.to_i32
         when "set_timestamp"             then @set_timestamp = true?(v)
         when "socket_buffer_size"        then @socket_buffer_size = v.to_i32
