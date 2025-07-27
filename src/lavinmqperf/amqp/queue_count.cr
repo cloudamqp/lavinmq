@@ -19,10 +19,8 @@ module LavinMQPerf
         c = client.connect
         ch = c.channel
         loop do
-          @queues.times.each_slice(100) do |slice|
-            slice.each do
-              ch.queue("lavinmqperf-queue-#{Random::DEFAULT.hex(8)}", durable: false, auto_delete: true, exclusive: true)
-            end
+          @queues.times do
+            ch.queue("lavinmqperf-queue-#{Random::DEFAULT.hex(8)}", durable: false, auto_delete: true, exclusive: true)
           end
           puts
           print "#{count += @queues} queues "
