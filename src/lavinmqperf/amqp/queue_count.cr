@@ -16,11 +16,11 @@ module LavinMQPerf
       def run
         super
         count = 0
-        c = client.connect
+        c = ::AMQP::Client.new(@uri).connect
         ch = c.channel
         loop do
           @queues.times do
-            ch.queue("lavinmqperf-queue-#{Random::DEFAULT.hex(8)}", durable: false, auto_delete: true, exclusive: true)
+            ch.queue_declare("lavinmqperf-queue-#{Random::DEFAULT.hex(8)}", durable: false, auto_delete: true, exclusive: true)
           end
           puts
           print "#{count += @queues} queues "
@@ -28,10 +28,6 @@ module LavinMQPerf
           puts "Press enter to do add #{@queues} queues or ctrl-c to abort"
           gets
         end
-      end
-
-      private def client : ::AMQP::Client
-        @client ||= ::AMQP::Client.new(@uri)
       end
     end
   end
