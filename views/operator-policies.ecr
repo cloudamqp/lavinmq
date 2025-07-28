@@ -59,22 +59,22 @@
           <span>Definition</span>
           <textarea name="definition" placeholder='{ "key": value }'></textarea>
           <div id="dataTags" class="label">
-            <a class="arg-tooltip" data-tag="max-length">Max length
+            <a class="arg-tooltip" data-tag="max-length" data-value="0">Max length
               <span class="tooltiptext">How many (ready) messages a queue can contain before it starts dropping them.
                 Dropping strategy decided by overflow arg.</span>
             </a> |
-            <a class="arg-tooltip" data-tag="max-length-bytes">Max length bytes
+            <a class="arg-tooltip" data-tag="max-length-bytes" data-value="0">Max length bytes
               <span class="tooltiptext">The max length of a queue in bytes.</span>
             </a> |
-            <a class="arg-tooltip" data-tag="message-ttl">Message TTL
+            <a class="arg-tooltip" data-tag="message-ttl" data-value="0">Message TTL
               <span class="tooltiptext">How long a message published to a queue can live before it is discarded
                 (milliseconds).</span>
             </a> |
-            <a class="arg-tooltip" data-tag="expires">Auto expire
+            <a class="arg-tooltip" data-tag="expires" data-value="0">Auto expire
               <span class="tooltiptext">How long a queue can be unused for before it is automatically deleted
                 (milliseconds).</span>
             </a> |
-            <a class="arg-tooltip" data-tag="delivery-limit">Delivery limit
+            <a class="arg-tooltip" data-tag="delivery-limit" data-value="0">Delivery limit
               <span class="tooltiptext">The number of times a message can be redelivered before dropped or
                 dead-lettered</span>
             </a> |
