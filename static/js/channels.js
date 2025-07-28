@@ -10,7 +10,6 @@ if (vhost && vhost !== '_all') {
 const tableOptions = {
   url,
   keyColumns: ['name'],
-  interval: 5000,
   pagination: true,
   columnSelector: true,
   search: true
