@@ -322,6 +322,20 @@ describe LavinMQ::HTTP::ParametersController do
     end
   end
 
+  describe "PUT /api/operator-policies/vhost/name" do
+    it "should handle invalid definition types" do
+      with_http_server do |http, _|
+        body = %({
+        "apply-to": "queues",
+        "priority": 0,
+        "definition": { "max-length": "String" },
+        "pattern": ".*"
+      })
+        response = http.put("/api/operator-policies/%2f/name", body: body)
+        response.status_code.should eq 400
+      end
+    end
+  end
   describe "DELETE /api/policies/vhost/name" do
     it "should delete policy" do
       with_http_server do |http, s|
