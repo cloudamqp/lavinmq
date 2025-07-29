@@ -637,7 +637,7 @@ function updateLegend (chart) {
       const formattedValue = latestValue !== null ? helpers.formatNumber(latestValue) : '0'
       return `${d.label}: ${formattedValue}`
     })
-    .style('fill', d => d.hidden ? '#666' : '#fff')
+    .style('fill', d => d.hidden ? '#666' : 'var(--color-text-primary)')
     .style('text-decoration', d => d.hidden ? 'line-through' : 'none')
 }
 
