@@ -1298,6 +1298,7 @@ footer .logo {
   border-radius: 8px;
   font-weight: 600;
   text-decoration: none;
+  margin: 4px auto;
 }
 
 #menu ul ul li a {
