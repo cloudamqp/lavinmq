@@ -1474,7 +1474,6 @@ footer .logo {
 .details-table {
   width: 100%;
   border-collapse: collapse;
-  table-layout: fixed;
   font-size: 0.875rem;
   color: var(--color-text-primary);
 }
