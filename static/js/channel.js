@@ -2,12 +2,12 @@ import * as DOM from './dom.js'
 import * as Table from './table.js'
 import * as Helpers from './helpers.js'
 import * as HTTP from './http.js'
-import * as Chart from './chart.js'
+import Chart from './chart.js'
 import { DataSource } from './datasource.js'
 
 const channel = new URLSearchParams(window.location.hash.substring(1)).get('name')
 const channelUrl = HTTP.url`api/channels/${channel}`
-const chart = Chart.render('chart', 'msgs/s')
+const chart = new Chart('chart', 'msgs/s')
 let vhost = null
 document.title = channel + ' | LavinMQ'
 
@@ -94,7 +94,7 @@ const prefetch = prefetchHandler()
 document.getElementById('ch-prefetch').appendChild(prefetch.el)
 function updateChannel () {
   HTTP.request('GET', channelUrl).then(item => {
-    Chart.update(chart, item.message_stats)
+    chart.update(item.message_stats)
     vhost = item.vhost
     const stateEl = document.getElementById('ch-state')
     if (item.state !== stateEl.textContent) {

@@ -1,10 +1,10 @@
 import * as HTTP from './http.js'
 import * as DOM from './dom.js'
 import * as Table from './table.js'
-import * as Chart from './chart.js'
+import Chart from './chart.js'
 import { UrlDataSource } from './datasource.js'
 
-const chart = Chart.render('chart', 'bytes/s')
+const chart = new Chart('chart', 'bytes/s')
 
 const connection = new URLSearchParams(window.location.hash.substring(1)).get('name')
 document.title = `Connection ${connection} | LavinMQ`
@@ -14,7 +14,7 @@ const connectionUrl = `api/connections/${connection}`
 function updateConnection (all) {
   HTTP.request('GET', connectionUrl).then(item => {
     const stats = { send_details: item.send_oct_details, receive_details: item.recv_oct_details }
-    Chart.update(chart, stats)
+    chart.update(stats)
     const stateEl = document.getElementById('state')
     if (item.state !== stateEl.textContent) {
       stateEl.textContent = item.state

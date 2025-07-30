@@ -2,7 +2,7 @@ import * as HTTP from './http.js'
 import * as Helpers from './helpers.js'
 import * as DOM from './dom.js'
 import * as Table from './table.js'
-import * as Chart from './chart.js'
+import Chart from './chart.js'
 import * as Auth from './auth.js'
 import { UrlDataSource, DataSource } from './datasource.js'
 
@@ -77,12 +77,12 @@ function handleQueueState (state) {
   }
 }
 
-const chart = Chart.render('chart', 'msgs/s')
+const chart = new Chart('chart', 'msgs/s')
 const queueUrl = HTTP.url`api/queues/${vhost}/${queue}`
 function updateQueue (all) {
   HTTP.request('GET', queueUrl + '?consumer_list_length=' + consumerListLength)
     .then(item => {
-      Chart.update(chart, item.message_stats)
+      chart.update(item.message_stats)
       handleQueueState(item.state)
       document.getElementById('q-messages-unacknowledged').textContent = item.messages_unacknowledged
       document.getElementById('q-message-bytes-unacknowledged').textContent = Helpers.nFormatter(item.message_bytes_unacknowledged) + 'B'
