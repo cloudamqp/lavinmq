@@ -9,8 +9,7 @@ class Chart {
     this.metricsName = metricsName
     this.maxDataPoints = 600 // Fixed 600 seconds on x-axis
     this.metrics = new Map() // Store metric data and metadata
-    this.colors = ['#54be7e', '#4589ff', '#d12771', '#d2a106', '#08bdba', '#bae6ff', '#ba4e00',
--  '#d4bbff', '#8a3ffc', '#33b1ff', '#007d79']
+    this.colors = ['#54be7e', '#4589ff', '#d12771', '#d2a106', '#08bdba', '#bae6ff', '#ba4e00', '#d4bbff', '#8a3ffc', '#33b1ff', '#007d79']
 
     // Chart dimensions and margins
     this.margin = { top: 20, right: 150, bottom: 40, left: 60 }
