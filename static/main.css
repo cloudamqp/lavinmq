@@ -1821,11 +1821,6 @@ fieldset.inline {
 }
 
 .chart-container {
-  margin-right: 10px;
-  position: relative;
-}
-
-.chart-container .graph {
   grid-column: 1 / span 1;
   width: 100%;
   min-width: 400px;
