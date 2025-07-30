@@ -11,9 +11,9 @@ class Chart {
     this.metrics = new Map() // Store metric data and metadata
     this.colors = ['#54be7e', '#4589ff', '#d12771', '#d2a106', '#08bdba', '#bae6ff', '#ba4e00', '#d4bbff', '#8a3ffc', '#33b1ff', '#007d79']
 
-    // Chart dimensions and margins
-    this.margin = { top: 20, right: 150, bottom: 40, left: 60 }
-    this.width = 800 - this.margin.left - this.margin.right
+    // Chart dimensions and margins (extra bottom margin for legend)
+    this.margin = { top: 20, right: 20, bottom: 100, left: 60 }
+    this.width = 600 - this.margin.left - this.margin.right
     this.height = 400 - this.margin.top - this.margin.bottom
 
     this.initChart()
@@ -25,11 +25,10 @@ class Chart {
     // Clear any existing content
     container.selectAll('*').remove()
 
-    // Create SVG
+    // Create SVG with viewBox for scaling
     this.svg = container
       .append('svg')
-      .attr('width', this.width + this.margin.left + this.margin.right)
-      .attr('height', this.height + this.margin.top + this.margin.bottom)
+      .attr('viewBox', `0 0 ${this.width + this.margin.left + this.margin.right} ${this.height + this.margin.top + this.margin.bottom}`)
 
     // Create main group
     this.g = this.svg
@@ -38,7 +37,7 @@ class Chart {
 
     // Create scales
     this.xScale = d3.scaleLinear()
-      .domain([0, this.maxDataPoints - 1])
+      .domain([0, this.maxDataPoints])
       .range([0, this.width])
 
     this.yScale = d3.scaleLinear()
@@ -54,7 +53,7 @@ class Chart {
     // Create axes
     this.xAxis = d3.axisBottom(this.xScale)
       .tickFormat(d => {
-        const secondsAgo = Math.max(0, this.maxDataPoints - d - 1)
+        const secondsAgo = Math.max(0, this.maxDataPoints - d)
         const now = new Date()
         const timePoint = new Date(now.getTime() - secondsAgo * 1000)
         return timePoint.toLocaleTimeString('en-US', { hour12: false })
@@ -66,10 +65,12 @@ class Chart {
     this.g.append('g')
       .attr('class', 'x-axis')
       .attr('transform', `translate(0,${this.height})`)
+      .style('font-family', 'inherit')
       .call(this.xAxis)
 
     this.g.append('g')
       .attr('class', 'y-axis')
+      .style('font-family', 'inherit')
       .call(this.yAxis)
 
     // Add axis labels (x-axis label hidden)
@@ -83,10 +84,10 @@ class Chart {
       .text(this.metricsName)
       .style('fill', 'var(--color-text-primary)')
 
-    // Create legend container
+    // Create legend container below the chart
     this.legend = this.svg.append('g')
       .attr('class', 'legend')
-      .attr('transform', `translate(${this.width + this.margin.left + 10}, ${this.margin.top + 20})`)
+      .attr('transform', `translate(${this.margin.left}, ${this.height + this.margin.top + 40})`)
 
     // Add grid lines
     this.g.append('g')
@@ -146,12 +147,23 @@ class Chart {
     // Clear existing legend
     this.legend.selectAll('*').remove()
 
+    let xOffset = 0
     let yOffset = 0
+    const itemWidth = 150
+    const itemsPerRow = Math.floor(this.width / itemWidth) || 1
+
+    let itemCount = 0
     this.metrics.forEach((metric, key) => {
+      // Calculate position with wrapping
+      if (itemCount > 0 && itemCount % itemsPerRow === 0) {
+        xOffset = 0
+        yOffset += 25
+      }
+
       // Add legend line
       metric.legendLine = this.legend.append('line')
-        .attr('x1', 0)
-        .attr('x2', 20)
+        .attr('x1', xOffset)
+        .attr('x2', xOffset + 20)
         .attr('y1', yOffset)
         .attr('y2', yOffset)
         .attr('stroke', metric.color)
@@ -159,14 +171,15 @@ class Chart {
 
       // Add legend text
       metric.legendText = this.legend.append('text')
-        .attr('x', 25)
-        .attr('y', yOffset + 3)
+        .attr('x', xOffset + 25)
+        .attr('y', yOffset + 4)
         .text(`${metric.name}: --`)
         .style('font-size', '12px')
         .style('alignment-baseline', 'middle')
         .style('fill', 'var(--color-text-primary)')
 
-      yOffset += 25
+      xOffset += itemWidth
+      itemCount++
     })
   }
 
@@ -182,7 +195,7 @@ class Chart {
       }
 
       // Replace the entire data array with the new log values
-      this.metrics.get(metricKey).data = [...newData[metricKey].log]
+      this.metrics.get(metricKey).data = newData[metricKey].log
     })
 
     this.render()
@@ -195,7 +208,7 @@ class Chart {
       allValues = allValues.concat(metric.data)
     })
 
-    if (allValues.length === 0) return
+    //if (allValues.length === 0) return
 
     // Update y-scale domain
     const maxValue = d3.max(allValues) || 10
@@ -208,10 +221,10 @@ class Chart {
     ])
 
     // Update x-scale domain based on actual data length
-    const maxDataLength = Math.max(...Array.from(this.metrics.values()).map(m => m.data.length))
-    const actualXDomain = Math.min(maxDataLength - 1, this.maxDataPoints - 1)
+    //const maxDataLength = Math.max(...Array.from(this.metrics.values()).map(m => m.data.length))
+    //const actualXDomain = Math.min(maxDataLength - 1, this.maxDataPoints - 1)
 
-    this.xScale.domain([0, actualXDomain])
+    //this.xScale.domain([0, actualXDomain])
 
     // Update axes
     this.g.select('.y-axis')
