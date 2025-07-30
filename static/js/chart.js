@@ -48,6 +48,7 @@ class Chart {
     this.line = d3.line()
       .x((d, i) => this.xScale(i))
       .y(d => this.yScale(d))
+      .defined(d => d !== null)
       .curve(d3.curveMonotoneX)
 
     // Create axes
@@ -194,8 +195,11 @@ class Chart {
         this.addMetric(metricKey)
       }
 
-      // Replace the entire data array with the new log values
-      this.metrics.get(metricKey).data = newData[metricKey].log
+      // Replace the entire data array with the new log values, front-filling with nulls
+      const logData = newData[metricKey].log
+      const nullsNeeded = this.maxDataPoints - logData.length
+      const frontFilledData = new Array(nullsNeeded).fill(null).concat(logData)
+      this.metrics.get(metricKey).data = frontFilledData
     })
 
     this.render()
@@ -203,28 +207,26 @@ class Chart {
 
   render () {
     // Get all values for scaling
-    let allValues = []
+    let maxValue = 0
+    let minValue = Infinity
     this.metrics.forEach(metric => {
-      allValues = allValues.concat(metric.data)
+      metric.data.forEach(value => {
+        if (value > maxValue) {
+          maxValue = value
+        }
+        if (value < minValue) {
+          minValue = value
+        }
+      })
     })
 
-    //if (allValues.length === 0) return
-
     // Update y-scale domain
-    const maxValue = d3.max(allValues) || 10
-    const minValue = d3.min(allValues) || 0
     const padding = (maxValue - minValue) * 0.1 || 1
 
     this.yScale.domain([
       0,
       maxValue + padding
     ])
-
-    // Update x-scale domain based on actual data length
-    //const maxDataLength = Math.max(...Array.from(this.metrics.values()).map(m => m.data.length))
-    //const actualXDomain = Math.min(maxDataLength - 1, this.maxDataPoints - 1)
-
-    //this.xScale.domain([0, actualXDomain])
 
     // Update axes
     this.g.select('.y-axis')
@@ -254,8 +256,6 @@ class Chart {
     this.metrics.forEach((metric, key) => {
       metric.path
         .datum(metric.data)
-        .transition()
-        .duration(300)
         .attr('d', this.line)
 
       // Update legend with current value (last value in array)
