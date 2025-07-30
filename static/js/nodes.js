@@ -159,9 +159,9 @@ const updateStats = (nodeStats) => {
     }
   }
 }
-const memoryChart = new Chart('memoryChart', 'MB')
+const memoryChart = new Chart('memoryChart', 'MB', true)
 const ioChart = new Chart('ioChart', 'ops')
-const cpuChart = new Chart('cpuChart', '%')
+const cpuChart = new Chart('cpuChart', '%', true)
 const connectionChurnChart = new Chart('connectionChurnChart', '/s')
 const channelChurnChart = new Chart('channelChurnChart', '/s')
 const queueChurnChart = new Chart('queueChurnChart', '/s')

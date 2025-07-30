@@ -3,7 +3,7 @@ import * as HTTP from './http.js'
 import * as Helpers from './helpers.js'
 
 const numFormatter = new Intl.NumberFormat()
-const msgChart = new Chart('msgChart', 'msgs')
+const msgChart = new Chart('msgChart', 'msgs', true)
 const dataChart = new Chart('dataChart', 'bytes/s')
 const rateChart = new Chart('rateChart', 'msgs/s')
 
