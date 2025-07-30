@@ -191,7 +191,7 @@ Table.renderTable('followers', followersTableOpts, (tr, item, firstRender) => {
 function updateCharts (response) {
   if (response[0].mem_used !== undefined) {
     const memoryStats = {
-      mem_used_details: { log: response[0].mem_used_details.log.map(toMegaBytes) },
+      mem_used_details: { log: response[0].mem_used_details.log.map(toMegaBytes) }
     }
     memoryChart.update(memoryStats)
   }
@@ -228,7 +228,7 @@ function updateCharts (response) {
   if (response[0].queue_declared_details !== undefined) {
     const queueChurnStats = {
       queue_declared_details: { log: response[0].queue_declared_details.log },
-      queue_deleted_details: { log: response[0].queue_deleted_details.log } 
+      queue_deleted_details: { log: response[0].queue_deleted_details.log }
     }
     queueChurnChart.update(queueChurnStats)
   }

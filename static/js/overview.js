@@ -9,7 +9,7 @@ const rateChart = new Chart('rateChart', 'msgs/s')
 
 function updateCharts (response) {
   const msgStats = {
-    messages_ready: { log: response.queue_totals.messages_ready_log},
+    messages_ready: { log: response.queue_totals.messages_ready_log },
     messages_unacked: { log: response.queue_totals.messages_unacknowledged_log }
   }
   msgChart.update(msgStats)
