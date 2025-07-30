@@ -157,7 +157,6 @@ module LavinMQ
         get_no_ack += q.get_no_ack_count
         publish += q.publish_count
         redeliver += q.redeliver_count
-        return_unroutable += q.return_unroutable_count
       end
       {
         messages:                ready + unacked,
