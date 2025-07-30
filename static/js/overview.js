@@ -1,27 +1,25 @@
-import * as Chart from './chart.js'
+import Chart from './chart.js'
 import * as HTTP from './http.js'
 import * as Helpers from './helpers.js'
 
 const numFormatter = new Intl.NumberFormat()
-const msgChart = Chart.render('msgChart', 'msgs', true)
-const dataChart = Chart.render('dataChart', 'bytes/s')
-const rateChart = Chart.render('rateChart', 'msgs/s')
+const msgChart = new Chart('msgChart', 'msgs')
+const dataChart = new Chart('dataChart', 'bytes/s')
+const rateChart = new Chart('rateChart', 'msgs/s')
 
 function updateCharts (response) {
   const msgStats = {
-    messages_ready: response.queue_totals.messages_ready,
-    messages_unacked: response.queue_totals.messages_unacknowledged,
-    messages_ready_log: response.queue_totals.messages_ready_log,
-    messages_unacked_log: response.queue_totals.messages_unacknowledged_log
+    messages_ready: { log: response.queue_totals.messages_ready_log},
+    messages_unacked: { log: response.queue_totals.messages_unacknowledged_log }
   }
-  Chart.update(msgChart, msgStats, 'origin')
-  Chart.update(rateChart, response.message_stats)
+  msgChart.update(msgStats)
+  rateChart.update(response.message_stats)
 
   const dataStats = {
     send_details: response.send_oct_details,
     receive_details: response.recv_oct_details
   }
-  Chart.update(dataChart, dataStats)
+  dataChart.update(dataStats)
 }
 
 start(updateCharts)

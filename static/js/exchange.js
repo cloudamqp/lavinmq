@@ -2,20 +2,20 @@ import * as HTTP from './http.js'
 import * as Helpers from './helpers.js'
 import * as DOM from './dom.js'
 import * as Table from './table.js'
-import * as Chart from './chart.js'
+import Chart from './chart.js'
 import { UrlDataSource } from './datasource.js'
 
 const search = new URLSearchParams(window.location.hash.substring(1))
 const exchange = search.get('name')
 const vhost = search.get('vhost')
-const chart = Chart.render('chart', 'msgs/s')
+const chart = new Chart('chart', 'msgs/s')
 
 document.title = exchange + ' | LavinMQ'
 
 const exchangeUrl = HTTP.url`api/exchanges/${vhost}/${exchange}`
 function updateExchange () {
   HTTP.request('GET', exchangeUrl).then(item => {
-    Chart.update(chart, item.message_stats)
+    chart.update(item.message_stats)
     let features = ''
     features += item.durable ? ' D' : ''
     features += item.auto_delete ? ' AD' : ''

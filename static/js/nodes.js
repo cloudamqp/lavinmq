@@ -1,5 +1,5 @@
 import * as HTTP from './http.js'
-import * as Chart from './chart.js'
+import Chart from './chart.js'
 import * as Helpers from './helpers.js'
 import * as Table from './table.js'
 import { DataSource } from './datasource.js'
@@ -159,14 +159,14 @@ const updateStats = (nodeStats) => {
     }
   }
 }
-const memoryChart = Chart.render('memoryChart', 'MB')
-const ioChart = Chart.render('ioChart', 'ops')
-const cpuChart = Chart.render('cpuChart', '%', true)
-const connectionChurnChart = Chart.render('connectionChurnChart', '/s')
-const channelChurnChart = Chart.render('channelChurnChart', '/s')
-const queueChurnChart = Chart.render('queueChurnChart', '/s')
+const memoryChart = new Chart('memoryChart', 'MB')
+const ioChart = new Chart('ioChart', 'ops')
+const cpuChart = new Chart('cpuChart', '%')
+const connectionChurnChart = new Chart('connectionChurnChart', '/s')
+const channelChurnChart = new Chart('channelChurnChart', '/s')
+const queueChurnChart = new Chart('queueChurnChart', '/s')
 
-const toMegaBytes = (dataPointInBytes) => (dataPointInBytes / 1024 ** 2).toFixed(2)
+const toMegaBytes = (dataPointInBytes) => (dataPointInBytes / 1024 ** 2).toFixed(0)
 
 const followersDataSource = new (class extends DataSource {
   constructor () { super({ autoReloadTimeout: 0, useQueryState: false }) }
@@ -191,57 +191,46 @@ Table.renderTable('followers', followersTableOpts, (tr, item, firstRender) => {
 function updateCharts (response) {
   if (response[0].mem_used !== undefined) {
     const memoryStats = {
-      mem_used_details: toMegaBytes(response[0].mem_used),
-      mem_used_details_log: response[0].mem_used_details.log.map(toMegaBytes)
+      mem_used_details: { log: response[0].mem_used_details.log.map(toMegaBytes) },
     }
-    Chart.update(memoryChart, memoryStats)
+    memoryChart.update(memoryStats)
   }
   if (response[0].io_write_details !== undefined) {
     const ioStats = {
-      io_write_details: response[0].io_write_details.log.slice(-1)[0],
-      io_write_details_log: response[0].io_write_details.log,
-      io_read_details: response[0].io_read_details.log.slice(-1)[0],
-      io_read_details_log: response[0].io_read_details.log
+      io_write_details: { log: response[0].io_write_details.log },
+      io_read_details: { log: response[0].io_read_details.log }
     }
-    Chart.update(ioChart, ioStats)
+    ioChart.update(ioStats)
   }
 
   if (response[0].cpu_user_details !== undefined) {
     const cpuStats = {
-      user_time_details: response[0].cpu_user_details.log.slice(-1)[0] * 100,
-      system_time_details: response[0].cpu_sys_details.log.slice(-1)[0] * 100,
-      user_time_details_log: response[0].cpu_user_details.log.map(x => x * 100),
-      system_time_details_log: response[0].cpu_sys_details.log.map(x => x * 100)
+      user_time_details: { log: response[0].cpu_user_details.log.map(x => x * 100) },
+      system_time_details: { log: response[0].cpu_sys_details.log.map(x => x * 100) }
     }
-    Chart.update(cpuChart, cpuStats, 'origin')
+    cpuChart.update(cpuStats)
   }
 
   if (response[0].connection_created_details !== undefined) {
     const connectionChurnStats = {
-      connection_created_details: response[0].connection_created_details.rate,
-      connection_closed_details: response[0].connection_closed_details.rate,
-      connection_created_details_log: response[0].connection_created_details.log,
-      connection_closed_details_log: response[0].connection_closed_details.log
+      connection_created_details: { log: response[0].connection_created_details.log },
+      connection_closed_details: { log: response[0].connection_closed_details.log }
     }
-    Chart.update(connectionChurnChart, connectionChurnStats)
+    connectionChurnChart.update(connectionChurnStats)
   }
   if (response[0].channel_created_details !== undefined) {
     const channelChurnStats = {
-      channel_created_details: response[0].channel_created_details.rate,
-      channel_closed_details: response[0].channel_closed_details.rate,
-      channel_created_details_log: response[0].channel_created_details.log,
-      channel_closed_details_log: response[0].channel_closed_details.log
+      channel_created_details: { log: response[0].channel_created_details.log },
+      channel_closed_details: { log: response[0].channel_closed_details.log }
     }
-    Chart.update(channelChurnChart, channelChurnStats)
+    channelChurnChart.update(channelChurnStats)
   }
   if (response[0].queue_declared_details !== undefined) {
     const queueChurnStats = {
-      queue_declared_details: response[0].queue_declared_details.rate,
-      queue_deleted_details: response[0].queue_deleted_details.rate,
-      queue_declared_details_log: response[0].queue_declared_details.log,
-      queue_deleted_details_log: response[0].queue_deleted_details.log
+      queue_declared_details: { log: response[0].queue_declared_details.log },
+      queue_deleted_details: { log: response[0].queue_deleted_details.log } 
     }
-    Chart.update(queueChurnChart, queueChurnStats)
+    queueChurnChart.update(queueChurnStats)
   }
   followersDataSource.update(response[0].followers)
 }
