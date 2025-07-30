@@ -4,9 +4,10 @@ import './lib/d3.v7.min.js'
 const d3 = window.d3
 
 class Chart {
-  constructor (elementId, metricsName = 'msgs/s') {
+  constructor (elementId, metricsName = 'msgs/s', stacked = false) {
     this.elementId = elementId
     this.metricsName = metricsName
+    this.stacked = stacked
     this.maxDataPoints = 600 // Fixed 600 seconds on x-axis
     this.metrics = new Map() // Store metric data and metadata
     this.colors = ['#54be7e', '#4589ff', '#d12771', '#d2a106', '#08bdba', '#bae6ff', '#ba4e00', '#d4bbff', '#8a3ffc', '#33b1ff', '#007d79']
@@ -49,6 +50,14 @@ class Chart {
       .x((d, i) => this.xScale(i))
       .y(d => this.yScale(d))
       .defined(d => d !== null)
+      .curve(d3.curveMonotoneX)
+
+    // Create area generator for stacked charts
+    this.area = d3.area()
+      .x((d, i) => this.xScale(i))
+      .y0(d => this.yScale(d[0]))
+      .y1(d => this.yScale(d[1]))
+      .defined(d => d[0] !== null && d[1] !== null)
       .curve(d3.curveMonotoneX)
 
     // Create axes
@@ -134,11 +143,20 @@ class Chart {
     }
 
     // Create path for this metric
-    metricData.path = this.g.append('path')
-      .attr('class', `metric-line-${metricKey}`)
-      .attr('fill', 'none')
-      .attr('stroke', color)
-      .attr('stroke-width', 2)
+    if (this.stacked) {
+      metricData.path = this.g.append('path')
+        .attr('class', `metric-area-${metricKey}`)
+        .attr('fill', color)
+        .attr('fill-opacity', 0.7)
+        .attr('stroke', color)
+        .attr('stroke-width', 1)
+    } else {
+      metricData.path = this.g.append('path')
+        .attr('class', `metric-line-${metricKey}`)
+        .attr('fill', 'none')
+        .attr('stroke', color)
+        .attr('stroke-width', 2)
+    }
 
     this.metrics.set(metricKey, metricData)
     this.updateLegend()
@@ -205,37 +223,99 @@ class Chart {
     this.render()
   }
 
+  createStackedData () {
+    const metricsArray = Array.from(this.metrics.values())
+    const stackedData = []
+
+    for (let metricIndex = 0; metricIndex < metricsArray.length; metricIndex++) {
+      const stackedMetric = []
+      for (let i = 0; i < this.maxDataPoints; i++) {
+        let cumulativeValue = 0
+        let baseValue = 0
+
+        // Calculate base value (sum of all previous metrics)
+        for (let j = 0; j < metricIndex; j++) {
+          const value = metricsArray[j].data[i]
+          if (value !== null) {
+            baseValue += value
+          }
+        }
+
+        // Calculate top value (base + current metric)
+        const currentValue = metricsArray[metricIndex].data[i]
+        if (currentValue !== null) {
+          cumulativeValue = baseValue + currentValue
+        } else {
+          cumulativeValue = null
+          baseValue = null
+        }
+
+        stackedMetric.push([baseValue, cumulativeValue])
+      }
+      stackedData.push(stackedMetric)
+    }
+
+    return stackedData
+  }
+
   render () {
-    // Get all values for scaling
-    let maxValue = 0
-    let minValue = Infinity
-    this.metrics.forEach(metric => {
-      metric.data.forEach(value => {
-        if (value > maxValue) {
-          maxValue = value
-        }
-        if (value < minValue) {
-          minValue = value
-        }
+    if (this.stacked) {
+      // Stacked area chart
+      const stackedData = this.createStackedData()
+
+      // Get all values for scaling (use the top values of stacked data)
+      let maxValue = 0
+      stackedData.forEach(metricStack => {
+        metricStack.forEach(([base, top]) => {
+          if (top !== null && top > maxValue) {
+            maxValue = top
+          }
+        })
       })
-    })
 
-    // Update y-scale domain
-    const padding = (maxValue - minValue) * 0.1 || 1
+      // Update y-scale domain
+      const padding = maxValue * 0.1 || 1
+      this.yScale.domain([0, maxValue + padding])
 
-    this.yScale.domain([
-      0,
-      maxValue + padding
-    ])
+      // Update areas for each metric
+      let metricIndex = 0
+      this.metrics.forEach((metric, key) => {
+        metric.path
+          .datum(stackedData[metricIndex])
+          .attr('d', this.area)
+        metricIndex++
+      })
+    } else {
+      // Regular line chart
+      let maxValue = 0
+      this.metrics.forEach(metric => {
+        metric.data.forEach(value => {
+          if (value !== null && value > maxValue) {
+            maxValue = value
+          }
+        })
+      })
 
-    // Update axes
+      // Update y-scale domain
+      const padding = maxValue * 0.1 || 1
+      this.yScale.domain([0, maxValue + padding])
+
+      // Update lines for each metric
+      this.metrics.forEach((metric, key) => {
+        metric.path
+          .datum(metric.data)
+          .attr('d', this.line)
+      })
+    }
+
+    // Update axes (common for both types)
     this.g.select('.y-axis')
       .call(this.yAxis)
 
     this.g.select('.x-axis')
       .call(this.xAxis)
 
-    // Update grid
+    // Update grid (common for both types)
     this.g.select('.grid-y')
       .transition()
       .duration(300)
@@ -252,13 +332,8 @@ class Chart {
         .tickFormat('')
       )
 
-    // Update lines for each metric
+    // Update legend with current values (common for both types)
     this.metrics.forEach((metric, key) => {
-      metric.path
-        .datum(metric.data)
-        .attr('d', this.line)
-
-      // Update legend with current value (last value in array)
       const currentValue = metric.data.length > 0 ? metric.data[metric.data.length - 1] : null
       metric.legendText.text(`${metric.name}: ${currentValue !== null ? Math.round(currentValue) : '--'}`)
     })
