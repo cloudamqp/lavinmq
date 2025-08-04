@@ -78,6 +78,10 @@ module LavinMQ
         each_follower &.delete(path, wg)
       end
 
+      def nr_of_files
+        @files.size
+      end
+
       def files_with_hash(& : Tuple(String, Bytes) -> Nil)
         sha1 = Digest::SHA1.new
         @files.each do |path, mfile|
