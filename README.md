@@ -134,17 +134,23 @@ All AMQP client libraries work with LavinMQ, and there are AMQP client libraries
 
 ## Performance
 
-A single c8g.large EC2 instance with a GP3 EBS drive (XFS formatted)
-can sustain about 820,000 messages/s (16 byte message body, single queue, single producer,
-single consumer). A single producer can push 1,600,000 msgs/s and if there are no producers,
-auto-ack consumers can receive 1,200,000 msgs/s.
+LavinMQ delivers exceptional throughput performance on commodity hardware. On a single c8g.large EC2 instance with GP3 EBS storage (XFS formatted), LavinMQ achieves:
 
-Enqueueing 100M messages only uses 25 MB RAM. 8,000
-connections use only about 400 MB RAM. Declaring 100,000 queues uses about 100
-MB RAM. About 1,600 bindings per second can be made to non-durable queues,
-and about 1,000 bindings/second to durable queues.
+**Throughput Benchmarks:**
+- **800,000 msgs/s** - End-to-end throughput (16-byte messages, single queue, single producer/consumer)
+- **1,600,000 msgs/s** - Producer-only performance
+- **1,200,000 msgs/s** - Consumer-only performance (auto-ack)
 
-You can use [lavinnmqperf](https://lavinmq.com/documentation/lavinmqperf) to verify these results for yourself.
+**Memory Efficiency:**
+- **25 MB RAM** - For 100 million enqueued messages
+- **45 MB RAM** - For 1,000 declared queues
+- **70 MB RAM** - For 1,000 concurrent connections
+
+**Binding Performance:**
+- **1,600 bindings/s** - Non-durable queues
+- **1,000 bindings/s** - Durable queues
+
+Use [lavinmqperf](https://lavinmq.com/documentation/lavinmqperf) to benchmark your own setup, or review detailed performance data at [lavinmq-benchmark](https://github.com/cloudamqp/lavinmq-benchmark/blob/main/results/lavinmq_throughput.md) on GitHub.
 
 ## Features
 
