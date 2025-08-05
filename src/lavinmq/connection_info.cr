@@ -34,6 +34,20 @@ module LavinMQ
         @port = ip_address.port.to_u16!
       end
 
+      def initialize(address : String)
+        # is unix
+        if address.starts_with("/")
+          @address = address
+          @port = 0
+          return
+        end
+        parts = address.split(":");
+        if parts.length != 2
+          raise "Socket address should be host:port"
+        end
+        return self.new(Socket::IPAddress.new(parts[0], parts[1].to_u16))
+      end
+
       def to_s(io)
         io << @address << ':' << @port
       end

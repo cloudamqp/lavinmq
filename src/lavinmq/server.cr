@@ -163,6 +163,7 @@ module LavinMQ
 
     private def accept_unix(client, protocol)
       spawn(name: "Accept UNIX socket") do
+        Log.debug { "Accepted connection from #{client.remote_address}" }
         remote_address = client.remote_address
         set_buffer_size(client)
         conn_info =
