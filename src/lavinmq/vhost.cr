@@ -124,8 +124,7 @@ module LavinMQ
     def publish(msg : Message, immediate = false,
                 visited = Set(LavinMQ::Exchange).new, found_queues = Set(LavinMQ::Queue).new) : Bool
       ex = @exchanges[msg.exchange_name]? || return false
-      published_queue_count = ex.publish(msg, immediate, found_queues, visited)
-      !published_queue_count.zero?
+      ex.publish(msg, immediate, found_queues, visited)
     ensure
       visited.clear
       found_queues.clear
