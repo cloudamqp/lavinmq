@@ -633,14 +633,20 @@ module LavinMQ::AMQP
     private def dead_letter_loop?(headers, reason) : Bool
       return false if headers.nil?
       if xdeaths = headers["x-death"]?.as?(Array(AMQ::Protocol::Field))
+        queue_matches = 0
+        has_rejected = false
+
         xdeaths.each do |xd|
           if xd = xd.as?(AMQ::Protocol::Table)
-            break if xd["reason"]? == "rejected"
-            if xd["queue"]? == @name && xd["reason"]? == reason.to_s
-              @log.debug { "preventing dead letter loop" }
-              return true
-            end
+            has_rejected = true if xd["reason"]? == "rejected"
+            queue_matches += 1 if xd["queue"]? == @name
           end
+        end
+
+        # Only prevent loop if we've seen this queue before AND cycle is fully automatic
+        if queue_matches > 1 && !has_rejected
+          @log.debug { "preventing dead letter loop" }
+          return true
         end
       end
       false
