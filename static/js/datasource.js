@@ -106,6 +106,7 @@ class DataSource {
   get reverseOrder () { return this._queryState.sort_reverse }
   set searchTerm (value) { this._queryState.name = value }
   get searchTerm () { return this._queryState.name }
+
   get filteredCount () { return this._filteredCount }
   get itemCount () { return this._itemCount }
   get pageCount () { return this._pageCount }
@@ -131,7 +132,6 @@ class DataSource {
           this.reload({ updateState: true })
           return
         }
-        this._queryState.page = targetPage
       }
     } else {
       this._items = data
