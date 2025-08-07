@@ -99,8 +99,8 @@ module LavinMQ::AMQP
           case element.name
           when "Key"
             path = element.content
-            return nil unless path.includes?("msgs.")
-            if path.includes?(".meta")
+            return nil unless path.includes?("msgs.") && path.size > 10
+            if path.includes?(".meta") && path.size > 15
               update_s3_segment_list(path[-15..-6].to_u32, "", "", 0_i64, true)
               return
             end
@@ -322,7 +322,9 @@ module LavinMQ::AMQP
                   @segments[segment] = mfile
                 end
               rescue ex : IO::Error
-                @downloading_clients.delete(segment)
+                if cl = @downloading_clients.delete(segment)
+                  cl.each(&.close) # Make sure clients are closed
+                end
                 @log.error { "Segment #{segment}: socket closed" }
               end
             end
