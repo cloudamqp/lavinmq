@@ -89,7 +89,7 @@ When conducting code reviews, Claude should:
 
 ### Review Format
 - Use bullet points for multiple issues
-- Reference specific line numbers and file paths when possible
+- Reference specific lines when possible, and always mention the file name
 - Suggest concrete improvements rather than just identifying problems
 - Keep feedback under 200 words per file unless critical issues require detailed explanation
 - Give a short summary of key points at the end of the review
