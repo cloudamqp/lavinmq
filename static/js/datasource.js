@@ -122,6 +122,17 @@ class DataSource {
       this._itemCount = data.item_count
       this._pageCount = data.page_count
       this._totalCount = data.total_count
+
+      // If current page is out of bounds, redirect to the last valid page
+      if (this._queryState.page > this._pageCount) {
+        const targetPage = this._pageCount === 0 ? 1 : this._pageCount
+        // Only reload if we're not already on the target page
+        if (this._queryState.page !== targetPage) {
+          this._queryState.page = targetPage
+          this.reload({ updateState: true })
+          return
+        }
+      }
     } else {
       this._items = data
       this._filteredCount = this.items.length
