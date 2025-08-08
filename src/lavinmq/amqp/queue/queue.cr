@@ -631,19 +631,25 @@ module LavinMQ::AMQP
     # checks if the message has been dead lettered to the same queue
     # for the same reason already
     private def dead_letter_loop?(headers, reason) : Bool
-      return false if headers.nil?
-      if xdeaths = headers["x-death"]?.as?(Array(AMQ::Protocol::Field))
-        xdeaths.each do |xd|
-          if xd = xd.as?(AMQ::Protocol::Table)
-            break if xd["reason"]? == "rejected"
-            if xd["queue"]? == @name && xd["reason"]? == reason.to_s
-              @log.debug { "preventing dead letter loop" }
-              return true
-            end
-          end
-        end
+      xdeaths = headers.try &.["x-death"]?.as?(Array(AMQ::Protocol::Field))
+      return false unless xdeaths
+
+      queue_matches, has_rejected = 0, false
+      xdeaths.each do |xd|
+        next unless table = xd.as?(AMQ::Protocol::Table)
+        has_rejected = true if table["reason"]? == "rejected"
+        queue_matches += 1 if table["queue"]? == @name
       end
-      false
+
+      # For maxlen/maxlenbytes, prevent loop on first occurrence (threshold=0) since they trigger immediately
+      # For other reasons like TTL, allow one occurrence before blocking (threshold=1)
+      threshold = reason.in?(:maxlen, :maxlenbytes) ? 0 : 1
+      if queue_matches > threshold && !has_rejected
+        @log.debug { "preventing dead letter loop" }
+        true
+      else
+        false
+      end
     end
 
     private def handle_dlx_header(msg, reason) : AMQP::Properties

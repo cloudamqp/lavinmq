@@ -107,4 +107,176 @@ describe "Dead lettering" do
       end
     end
   end
+
+  describe "Dead letter loop detection" do
+    it "should allow dead lettering on first death" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q1 = ch.queue("q1", args: AMQP::Client::Arguments.new(
+            {"x-message-ttl" => 1, "x-dead-letter-exchange" => "", "x-dead-letter-routing-key" => "q2"}
+          ))
+          q2 = ch.queue("q2")
+
+          ch.default_exchange.publish_confirm("msg", q1.name)
+          msg = wait_for { q2.get }
+
+          msg.should_not be_nil
+          headers = msg.properties.headers.not_nil!
+          x_death = headers["x-death"].as(Array(AMQ::Protocol::Field))
+          x_death.size.should eq 1
+        end
+      end
+    end
+
+    it "should block dead lettering on genuine cycle (multiple automatic deaths)" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q1 = ch.queue("q1", args: AMQP::Client::Arguments.new(
+            {"x-message-ttl" => 1, "x-dead-letter-exchange" => "", "x-dead-letter-routing-key" => "q2"}
+          ))
+          q2 = ch.queue("q2", args: AMQP::Client::Arguments.new(
+            {"x-message-ttl" => 1, "x-dead-letter-exchange" => "", "x-dead-letter-routing-key" => "q1"}
+          ))
+
+          ch.default_exchange.publish_confirm("msg", q1.name)
+
+          # Message should cycle once but then get dropped on second cycle
+          sleep 0.1.seconds # Allow messages to cycle
+
+          q1.message_count.should eq 0
+          q2.message_count.should eq 0
+        end
+      end
+    end
+
+    it "should allow dead lettering when cycle contains rejected reason" do
+      with_amqp_server do |s|
+        v = s.vhosts.create("test")
+
+        # Create queues with dead letter setup
+        q1_args = AMQ::Protocol::Table.new({
+          "x-dead-letter-exchange"    => "",
+          "x-dead-letter-routing-key" => "q2",
+        })
+        q2_args = AMQ::Protocol::Table.new({
+          "x-message-ttl"             => 1,
+          "x-dead-letter-exchange"    => "",
+          "x-dead-letter-routing-key" => "q1",
+        })
+        v.declare_queue("q1", true, false, q1_args)
+        v.declare_queue("q2", true, false, q2_args)
+
+        # Create message with x-death header containing rejected reason
+        headers = AMQ::Protocol::Table.new({
+          "x-death" => [
+            AMQ::Protocol::Table.new({
+              "queue"  => "q1",
+              "reason" => "rejected",
+              "count"  => 1,
+            }),
+            AMQ::Protocol::Table.new({
+              "queue"  => "q2",
+              "reason" => "expired",
+              "count"  => 1,
+            }),
+          ] of AMQ::Protocol::Field,
+        })
+        props = AMQ::Protocol::Properties.new(headers: headers)
+        msg = LavinMQ::Message.new(RoughTime.unix_ms, "", "q2", props, 3, IO::Memory.new("msg"))
+
+        v.publish msg
+
+        # Should allow dead lettering because cycle contains "rejected"
+        select
+        when v.queues["q1"].empty.when_false.receive
+        when timeout(0.5.seconds)
+          fail "timeout: message should have been dead lettered"
+        end
+      end
+    end
+
+    it "should not block single death to same queue" do
+      with_amqp_server do |s|
+        v = s.vhosts.create("test")
+
+        # This test demonstrates the key difference:
+        # A message with single death to same queue+reason should NOT be blocked
+        # Only when there are multiple deaths to same queue should it be blocked
+
+        q1_args = AMQ::Protocol::Table.new({
+          "x-message-ttl"             => 1,
+          "x-dead-letter-exchange"    => "",
+          "x-dead-letter-routing-key" => "q2",
+        })
+        v.declare_queue("q1", true, false, q1_args)
+        v.declare_queue("q2", true, false, AMQ::Protocol::Table.new)
+
+        # Single death entry for current queue - should NOT block
+        headers = AMQ::Protocol::Table.new({
+          "x-death" => [
+            AMQ::Protocol::Table.new({
+              "queue"    => "q1",
+              "reason"   => "expired",
+              "count"    => 1,
+              "time"     => Time.utc,
+              "exchange" => "",
+            }),
+          ] of AMQ::Protocol::Field,
+        })
+        props = AMQ::Protocol::Properties.new(headers: headers)
+        msg = LavinMQ::Message.new(RoughTime.unix_ms, "", "q1", props, 4, IO::Memory.new("msg1"))
+
+        v.publish msg
+
+        # Should allow through (not a cycle yet)
+        select
+        when v.queues["q2"].empty.when_false.receive
+          # Success
+        when timeout(0.5.seconds)
+          fail "Single death should NOT be blocked"
+        end
+      end
+    end
+
+    it "should block multiple deaths to same queue" do
+      with_amqp_server do |s|
+        v = s.vhosts.create("test")
+
+        q1_args = AMQ::Protocol::Table.new({
+          "x-message-ttl"             => 1,
+          "x-dead-letter-exchange"    => "",
+          "x-dead-letter-routing-key" => "q2",
+        })
+        v.declare_queue("q1", true, false, q1_args)
+        v.declare_queue("q2", true, false, AMQ::Protocol::Table.new)
+        headers = AMQ::Protocol::Table.new({
+          "x-death" => [
+            AMQ::Protocol::Table.new({
+              "queue"    => "q1",
+              "reason"   => "expired",
+              "count"    => 2, # Second time
+              "time"     => Time.utc,
+              "exchange" => "",
+            }),
+            AMQ::Protocol::Table.new({
+              "queue"    => "q1",
+              "reason"   => "expired",
+              "count"    => 1, # First time
+              "time"     => Time.utc,
+              "exchange" => "",
+            }),
+          ] of AMQ::Protocol::Field,
+        })
+        props = AMQ::Protocol::Properties.new(headers: headers)
+        msg = LavinMQ::Message.new(RoughTime.unix_ms, "", "q1", props, 4, IO::Memory.new("msg2"))
+
+        initial_count = v.queues["q2"].message_count
+        v.publish msg
+
+        # Should be blocked (genuine cycle)
+        sleep 0.1.seconds
+        v.queues["q2"].message_count.should eq initial_count # No new message
+      end
+    end
+  end
 end
