@@ -1,4 +1,6 @@
+require "json"
 require "../user"
+require "../../sortable_json"
 require "../../tag"
 
 module LavinMQ
@@ -13,22 +15,23 @@ module LavinMQ
         @name : String
         @permissions = Hash(String, Permissions).new
         @tags = Array(Tag).new
-        @expiration_time : Time?
+        @expires_at : Time?
 
-        def initialize(name : String, tags : Array(Tag), permissions : Hash(String, Permissions), expiration_time : Time? = nil)
+        def initialize(name : String, tags : Array(Tag), permissions : Hash(String, Permissions), expires_at : Time? = nil)
           @name = name
           @tags = tags
           @permissions = permissions
+          @expires_at = expires_at
           @expiration_time = expiration_time
         end
 
         def set_expiration(time : Time)
-          @expiration_time = time
+          @expires_at = time
         end
 
         def expired? : Bool
-          return false unless @expiration_time
-          Time.utc > @expiration_time.not_nil!
+          return false unless @expires_at
+          Time.utc > @expires_at.not_nil!
         end
 
         def can_write?(vhost, name) : Bool
