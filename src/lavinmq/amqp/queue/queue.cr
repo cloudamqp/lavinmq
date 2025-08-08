@@ -143,7 +143,10 @@ module LavinMQ::AMQP
       @metadata = ::Log::Metadata.new(nil, {queue: @name, vhost: @vhost.name})
       @log = Logger.new(Log, @metadata)
       File.open(File.join(@data_dir, ".queue"), "w") { |f| f.sync = true; f.print @name }
-      if File.exists?(File.join(@data_dir, ".paused"))
+      if File.exists?(File.join(@data_dir, ".paused")) # Legacy support
+        File.rename(File.join(@data_dir, ".paused"), File.join(@data_dir, "paused"))
+      end
+      if File.exists?(File.join(@data_dir, "paused"))
         @state = QueueState::Paused
         @paused.set(true)
       end
@@ -354,7 +357,7 @@ module LavinMQ::AMQP
       @state = QueueState::Paused
       @log.debug { "Paused" }
       @paused.set(true)
-      File.touch(File.join(@data_dir, ".paused"))
+      File.touch(File.join(@data_dir, "paused"))
     end
 
     def resume!
@@ -362,7 +365,7 @@ module LavinMQ::AMQP
       @state = QueueState::Running
       @log.debug { "Resuming" }
       @paused.set(false)
-      File.delete(File.join(@data_dir, ".paused"))
+      File.delete(File.join(@data_dir, "paused"))
     end
 
     def close : Bool

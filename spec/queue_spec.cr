@@ -91,11 +91,24 @@ describe LavinMQ::AMQP::Queue do
         v.declare_queue("q", true, false)
         data_dir = s.vhosts["/"].queues["q"].as(LavinMQ::AMQP::Queue).@msg_store.@msg_dir
         s.vhosts["/"].queues["q"].pause!
-        File.exists?(File.join(data_dir, ".paused")).should be_true
+        File.exists?(File.join(data_dir, "paused")).should be_true
         s.restart
         s.vhosts["/"].queues["q"].state.paused?.should be_true
         s.vhosts["/"].queues["q"].resume!
-        File.exists?(File.join(data_dir, ".paused")).should be_false
+        File.exists?(File.join(data_dir, "paused")).should be_false
+      end
+    end
+
+    it "should handle '.paused' files and rename to 'paused'" do
+      with_amqp_server do |s|
+        s.vhosts.create("/")
+        v = s.vhosts["/"].not_nil!
+        v.declare_queue("q", true, false)
+        data_dir = s.vhosts["/"].queues["q"].as(LavinMQ::AMQP::Queue).@msg_store.@msg_dir
+        File.touch(File.join(data_dir, ".paused"))
+        s.restart
+        File.exists?(File.join(data_dir, "paused")).should be_true
+        s.vhosts["/"].queues["q"].state.paused?.should be_true
       end
     end
 
