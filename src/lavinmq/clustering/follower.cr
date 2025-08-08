@@ -97,13 +97,13 @@ module LavinMQ
       end
 
       private def send_file_list(lz4 = @lz4)
-        Log.info { "Calculating hashes" }
+        Log.info { "Calculating hashes for #{@file_index.nr_of_files} files" }
         count = 0
         @file_index.files_with_hash do |path, hash|
-          count &+= 1
           lz4.write_bytes path.bytesize.to_i32, IO::ByteFormat::LittleEndian
           lz4.write path.to_slice
           lz4.write hash
+          Log.info { "Calculated hash for #{count}/#{@file_index.nr_of_files} files" } if (count &+= 1) % 32 == 0
         end
         lz4.write_bytes 0i32 # 0 means end of file list
         lz4.flush
