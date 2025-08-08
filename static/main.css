@@ -2362,3 +2362,47 @@ html.theme-dark {
 }
 
 /* Theme Switcher end */
+
+/* Connection Status Indicator */
+.connection-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-secondary);
+  user-select: none;
+}
+
+.connection-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--color-success);
+  transition: background-color 0.3s ease;
+}
+
+.connection-indicator.disconnected .connection-dot {
+  background-color: var(--color-danger);
+}
+
+.connection-indicator.disconnected {
+  color: var(--color-danger);
+}
+
+.connection-text {
+  font-weight: 500;
+}
+
+@media (max-width: 1000px) {
+  .connection-indicator .connection-text {
+    display: none;
+  }
+  
+  .connection-indicator {
+    padding: 6px;
+  }
+}
