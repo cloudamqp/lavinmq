@@ -643,8 +643,10 @@ module LavinMQ::AMQP
           end
         end
 
-        # Only prevent loop if we've seen this queue before AND cycle is fully automatic
-        if queue_matches > 1 && !has_rejected
+        if reason.in?(:maxlen, :maxlenbytes) && queue_matches > 0 && !has_rejected
+          @log.debug { "preventing dead letter loop for maxlength" }
+          return true
+        elsif queue_matches > 1 && !has_rejected
           @log.debug { "preventing dead letter loop" }
           return true
         end
