@@ -141,7 +141,7 @@ describe "Dead lettering" do
           ch.default_exchange.publish_confirm("msg", q1.name)
 
           # Message should cycle once but then get dropped on second cycle
-          sleep 0.1 # Allow messages to cycle
+          sleep 0.1.seconds # Allow messages to cycle
 
           q1.message_count.should eq 0
           q2.message_count.should eq 0
@@ -274,7 +274,7 @@ describe "Dead lettering" do
         v.publish msg
 
         # Should be blocked (genuine cycle)
-        sleep 0.1
+        sleep 0.1.seconds
         v.queues["q2"].message_count.should eq initial_count # No new message
       end
     end
