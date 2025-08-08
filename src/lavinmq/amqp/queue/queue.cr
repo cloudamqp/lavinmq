@@ -641,6 +641,8 @@ module LavinMQ::AMQP
         queue_matches += 1 if table["queue"]? == @name
       end
 
+      # For maxlen/maxlenbytes, prevent loop on first occurrence (threshold=0) since they trigger immediately
+      # For other reasons like TTL, allow one occurrence before blocking (threshold=1)
       threshold = reason.in?(:maxlen, :maxlenbytes) ? 0 : 1
       if queue_matches > threshold && !has_rejected
         @log.debug { "preventing dead letter loop" }
