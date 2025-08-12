@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.5.0-beta.1] - 2025-07-01
+## [2.5.0-rc.1] - 2025-08-12
 
 This release brings significant improvements across multiple areas of LavinMQ. Key focus areas include major clustering and replication enhancements for better reliability and performance, a new light mode UI theme alongside numerous user interface improvements, substantial performance optimizations including faster boot times and improved memory management, and enhanced tooling with expanded MQTT support. The release also includes important bug fixes.
 
@@ -21,6 +21,8 @@ This release brings significant improvements across multiple areas of LavinMQ. K
 - Alpine Linux compatibility and a corresponding Dockerfile (packaging/alpine/Dockerfile) [#1115](https://github.com/cloudamqp/lavinmq/pull/1115)
 - The container image now includes an SBOM and provenance information [#54a3cc21](https://github.com/cloudamqp/lavinmq/commit/54a3cc21)
 - Support for MQTT 3.1.0 clients
+- Added --durable, --arguments and --no-wait parameters to `lavinmqperf queue-count` [#6b8b8c91](https://github.com/cloudamqp/lavinmq/commit/6b8b8c91)
+- Persist shovel pause state across broker restarts [#1151](https://github.com/cloudamqp/lavinmq/pull/1151)
 
 ### Changed
 - Priority message store refactored to use one message store per priority, big performance/memory gain [#1156](https://github.com/cloudamqp/lavinmq/pull/1156)
@@ -30,6 +32,11 @@ This release brings significant improvements across multiple areas of LavinMQ. K
 - `MFile`s are no longer included in coredumps [#1128](https://github.com/cloudamqp/lavinmq/pull/1128)
 - Federation now respects `max-hops` [#1130](https://github.com/cloudamqp/lavinmq/pull/1130)
 - UI: The user form in the UI now has a password visibility toggle and a password generation button [#1150](https://github.com/cloudamqp/lavinmq/pull/1150)
+- Prometheus CPU system/user time metrics are now ever-increasing counters [#0509b547](https://github.com/cloudamqp/lavinmq/commit/0509b547)
+- Channel mode display improved to be more descriptive [#1188](https://github.com/cloudamqp/lavinmq/pull/1188)
+- Crystal 1.17.0 is now required [#4b0fa247](https://github.com/cloudamqp/lavinmq/commit/4b0fa247)
+- Improved queue and exchange features display with tooltips and styling [#3fb458ec](https://github.com/cloudamqp/lavinmq/commit/3fb458ec)
+- UI: Removed fixed table layout for details table for better responsiveness [#eff8575b](https://github.com/cloudamqp/lavinmq/commit/eff8575b)
 
 ### Fixed
 - MQTT clients can now publish messages with a payload larger than 64 KiB
@@ -45,6 +52,12 @@ This release brings significant improvements across multiple areas of LavinMQ. K
 - Verification of the default password hash on launch [#1078](https://github.com/cloudamqp/lavinmq/pull/1078)
 - UI: The unbind button in the bindings listing in the queue view has been fixed [#1145](https://github.com/cloudamqp/lavinmq/pull/1145)
 - UI: The behavior of the multi-control popup has been improved [#1144](https://github.com/cloudamqp/lavinmq/pull/1144)
+- Fixed dead letter loop detection to prevent infinite loops [#1206](https://github.com/cloudamqp/lavinmq/pull/1206)
+- Fixed pagination bounds check to prevent out-of-bounds pages [#1207](https://github.com/cloudamqp/lavinmq/pull/1207)
+- Fixed bug where x-cache-ttl was reset when expiring messages with delayed exchange [#24f74bd7](https://github.com/cloudamqp/lavinmq/commit/24f74bd7)
+- Validate input for operator policies [#1199](https://github.com/cloudamqp/lavinmq/pull/1199)
+- Fixed unsafe shared body buffer in MQTT publish [#de730e77](https://github.com/cloudamqp/lavinmq/commit/de730e77)
+- Fixed bug where messages larger than 64kB couldn't be published [#cd77b3f0](https://github.com/cloudamqp/lavinmq/commit/cd77b3f0)
 
 ### Deprecated
 - queue metrics `ready`, `ready_bytes`, `unacked`, `unacked_bytes` are deprecated in favour of
