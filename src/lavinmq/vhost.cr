@@ -261,12 +261,13 @@ module LavinMQ
           store_definition(f, dirty: true) if !loading && src.durable? && dst.durable?
         when AMQP::Frame::Queue::Declare
           return false if @queues.has_key? f.queue_name
-          q = @queues[f.queue_name] = QueueFactory.make(self, f)
+          q = QueueFactory.make(self, f)
+          add_queue(f.queue_name, q)
           apply_policies([q] of Queue) unless loading
           store_definition(f) if !loading && f.durable && !f.exclusive
           event_tick(EventType::QueueDeclared) unless loading
         when AMQP::Frame::Queue::Delete
-          if q = @queues.delete(f.queue_name)
+          if q = remove_queue(f.queue_name)
             @exchanges.each_value do |ex|
               ex.bindings_details.each do |binding|
                 next unless binding.destination == q
@@ -663,6 +664,19 @@ module LavinMQ
 
     def shovels
       @shovels.not_nil!
+    end
+
+    private def add_queue(name : String, queue : Queue)
+      new_queues = @queues.dup
+      new_queues[name] = queue
+      @queues = new_queues
+    end
+
+    private def remove_queue(name : String)
+      new_queues = @queues.dup
+      removed = new_queues.delete(name)
+      @queues = new_queues
+      removed
     end
 
     def event_tick(event_type)
