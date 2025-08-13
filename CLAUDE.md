@@ -80,6 +80,7 @@ When conducting code reviews, Claude should:
 - Highlight Crystal-specific best practices and idioms
 - Check for proper error handling and resource cleanup
 - Verify thread safety in concurrent code
+- try to mimic the style of the code owners review style
 
 ### Key Areas to Review
 - **Memory Safety** - Check for potential memory leaks, especially with C bindings
@@ -93,3 +94,4 @@ When conducting code reviews, Claude should:
 - Suggest concrete improvements rather than just identifying problems
 - Keep feedback under 200 words per file unless critical issues require detailed explanation
 - Give a short summary of key points at the end of the review
+- Try to mimic the style of the code owners review style
