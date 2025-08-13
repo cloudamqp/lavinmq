@@ -12,8 +12,8 @@ class Chart {
     this.metrics = new Map() // Store metric data and metadata
     this.colors = ['#54be7e', '#4589ff', '#d12771', '#d2a106', '#08bdba', '#bae6ff', '#ba4e00', '#d4bbff', '#8a3ffc', '#33b1ff', '#007d79']
 
-    // Chart dimensions and margins (extra bottom margin for legend)
-    this.margin = { top: 20, right: 20, bottom: 100, left: 60 }
+    // Chart dimensions and margins (extra bottom margin for legend and rotated labels)
+    this.margin = { top: 20, right: 20, bottom: 120, left: 60 }
     this.width = 600 - this.margin.left - this.margin.right
     this.height = 400 - this.margin.top - this.margin.bottom
 
@@ -31,10 +31,17 @@ class Chart {
       .append('svg')
       .attr('viewBox', `0 0 ${this.width + this.margin.left + this.margin.right} ${this.height + this.margin.top + this.margin.bottom}`)
 
-    // Create main group
+    // Create main group with clipping path
+    this.svg.append('defs').append('clipPath')
+      .attr('id', `clip-${this.elementId}`)
+      .append('rect')
+      .attr('width', this.width)
+      .attr('height', this.height)
+
     this.g = this.svg
       .append('g')
       .attr('transform', `translate(${this.margin.left},${this.margin.top})`)
+      .attr('clip-path', `url(#clip-${this.elementId})`)
 
     // Create scales
     this.xScale = d3.scaleLinear()
@@ -62,11 +69,15 @@ class Chart {
 
     // Create axes
     this.xAxis = d3.axisBottom(this.xScale)
+      .ticks(10)
       .tickFormat(d => {
         const secondsAgo = Math.max(0, this.maxDataPoints - d)
-        const now = new Date()
-        const timePoint = new Date(now.getTime() - secondsAgo * 1000)
-        return timePoint.toLocaleTimeString('en-US', { hour12: false })
+        if (secondsAgo === 0) return 'now'
+        if (secondsAgo < 60) return `${secondsAgo}s ago`
+        const minutesAgo = Math.floor(secondsAgo / 60)
+        if (minutesAgo < 60) return `${minutesAgo} min ago`
+        const hoursAgo = Math.floor(minutesAgo / 60)
+        return `${hoursAgo}h ago`
       })
 
     this.yAxis = d3.axisLeft(this.yScale)
@@ -77,6 +88,11 @@ class Chart {
       .attr('transform', `translate(0,${this.height})`)
       .style('font-family', 'inherit')
       .call(this.xAxis)
+      .selectAll('text')
+      .style('text-anchor', 'end')
+      .attr('dx', '-.8em')
+      .attr('dy', '.15em')
+      .attr('transform', 'rotate(-45)')
 
     this.g.append('g')
       .attr('class', 'y-axis')
@@ -97,18 +113,43 @@ class Chart {
     // Create legend container below the chart
     this.legend = this.svg.append('g')
       .attr('class', 'legend')
-      .attr('transform', `translate(${this.margin.left}, ${this.height + this.margin.top + 40})`)
+      .attr('transform', `translate(${this.margin.left}, ${this.height + this.margin.top + 80})`)
 
     // Add grid lines
     this.g.append('g')
       .attr('class', 'grid-x')
       .attr('transform', `translate(0,${this.height})`)
       .call(d3.axisBottom(this.xScale)
+        .ticks(10)
         .tickSize(-this.height)
         .tickFormat('')
       )
       .style('stroke-dasharray', '3,3')
       .style('opacity', 0.3)
+
+    // Create tooltip
+    this.tooltip = d3.select('body').append('div')
+      .attr('class', 'chart-tooltip')
+      .style('position', 'absolute')
+      .style('visibility', 'hidden')
+      .style('background', 'rgba(0, 0, 0, 0.8)')
+      .style('color', 'white')
+      .style('padding', '8px')
+      .style('border-radius', '4px')
+      .style('font-size', '12px')
+      .style('pointer-events', 'none')
+      .style('z-index', '1000')
+
+    // Add invisible overlay for mouse tracking (covers entire SVG including margins)
+    this.overlay = this.svg.append('rect')
+      .attr('class', 'overlay')
+      .attr('width', this.width + this.margin.left + this.margin.right)
+      .attr('height', this.height + this.margin.top + this.margin.bottom)
+      .style('fill', 'none')
+      .style('pointer-events', 'all')
+      .on('mouseover', () => this.tooltip.style('visibility', 'visible'))
+      .on('mouseout', () => this.tooltip.style('visibility', 'hidden'))
+      .on('mousemove', (event) => this.showTooltip(event))
 
     this.g.append('g')
       .attr('class', 'grid-y')
@@ -131,7 +172,8 @@ class Chart {
   addMetric (metricKey) {
     if (this.metrics.has(metricKey)) return
 
-    const color = this.colors[this.metrics.size % this.colors.length]
+    const colorIndex = this.metrics.size % this.colors.length
+    const color = this.colors[colorIndex]
 
     const metricData = {
       name: this.getMetricName(metricKey),
@@ -200,6 +242,40 @@ class Chart {
       xOffset += itemWidth
       itemCount++
     })
+  }
+
+  showTooltip (event) {
+    const [mouseX] = d3.pointer(event, this.svg.node())
+    const adjustedMouseX = mouseX - this.margin.left
+    const dataIndex = Math.round(this.xScale.invert(adjustedMouseX))
+
+    if (dataIndex < 0 || dataIndex >= this.maxDataPoints || adjustedMouseX < 0 || adjustedMouseX > this.width) return
+
+    const secondsAgo = Math.max(0, this.maxDataPoints - dataIndex)
+    const now = new Date()
+    const timestamp = new Date(now.getTime() - secondsAgo * 1000)
+    const timeLabel = timestamp.toLocaleString(undefined, {
+      hour12: false,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    })
+
+    let tooltipContent = `<b>${timeLabel}</b><br>`
+
+    this.metrics.forEach((metric, key) => {
+      const value = metric.data[dataIndex]
+      const displayValue = value !== null ? Math.round(value) : '--'
+      tooltipContent += `${metric.name}: ${displayValue}<br>`
+    })
+
+    this.tooltip
+      .html(tooltipContent)
+      .style('left', (event.pageX + 10) + 'px')
+      .style('top', (event.pageY - 10) + 'px')
   }
 
   update (newData) {
@@ -314,6 +390,11 @@ class Chart {
 
     this.g.select('.x-axis')
       .call(this.xAxis)
+      .selectAll('text')
+      .style('text-anchor', 'end')
+      .attr('dx', '-.8em')
+      .attr('dy', '.15em')
+      .attr('transform', 'rotate(-45)')
 
     // Update grid (common for both types)
     this.g.select('.grid-y')
@@ -328,6 +409,7 @@ class Chart {
       .transition()
       .duration(300)
       .call(d3.axisBottom(this.xScale)
+        .ticks(10)
         .tickSize(-this.height)
         .tickFormat('')
       )
@@ -341,6 +423,9 @@ class Chart {
 
   destroy () {
     d3.select(`#${this.elementId}`).selectAll('*').remove()
+    if (this.tooltip) {
+      this.tooltip.remove()
+    }
   }
 }
 

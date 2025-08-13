@@ -13,7 +13,10 @@ function updateCharts (response) {
     unacked_details: { log: response.queue_totals.messages_unacknowledged_log }
   }
   msgChart.update(msgStats)
-  rateChart.update(response.message_stats)
+
+  const rateStats = { ...response.message_stats }
+  delete rateStats.deliver_get_details
+  rateChart.update(rateStats)
 
   const dataStats = {
     send_details: response.send_oct_details,
