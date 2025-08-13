@@ -118,7 +118,7 @@ module LavinMQ::AMQP
 
     # Creates @[x]_count and @[x]_rate and @[y]_log
     rate_stats(
-      {"ack", "deliver", "deliver_no_ack", "deliver_get", "confirm", "get", "get_no_ack", "publish", "redeliver", "reject", "return_unroutable", "dedup"},
+      {"ack", "deliver", "deliver_no_ack", "deliver_get", "confirm", "get", "get_no_ack", "publish", "redeliver", "reject", "dedup"},
       {"message_count", "unacked_count"})
 
     getter name, arguments, vhost, consumers
