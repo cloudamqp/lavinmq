@@ -74,14 +74,13 @@ LavinMQ uses a disk-first approach where the OS handles caching. Message segment
 
 When conducting code reviews, Claude should:
 
-<!-- ### Review Style
+### Review Style
 - Provide concise, to-the-point and actionable feedback
 - Focus on critical issues: bugs, security vulnerabilities, performance problems
 - Highlight Crystal-specific best practices and idioms
 - Check for proper error handling and resource cleanup
-- Verify thread safety in concurrent code -->
-- try to mimic the style of the code owners review style
-<!--
+- Verify thread safety in concurrent code
+
 ### Key Areas to Review
 - **Memory Safety** - Check for potential memory leaks, especially with C bindings
 - **AMQP Compliance** - Ensure protocol implementations follow AMQP 0-9-1 specification
@@ -94,4 +93,3 @@ When conducting code reviews, Claude should:
 - Suggest concrete improvements rather than just identifying problems
 - Keep feedback under 200 words per file unless critical issues require detailed explanation
 - Give a short summary of key points at the end of the review
-- Try to mimic the style of the code owners review style -->
