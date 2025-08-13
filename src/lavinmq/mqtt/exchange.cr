@@ -4,6 +4,7 @@ require "../destination"
 require "./subscription_tree"
 require "./session"
 require "./retain_store"
+require "sync/shared"
 
 module LavinMQ
   module MQTT
@@ -26,9 +27,11 @@ module LavinMQ
         end
       end
 
-      @bindings = Hash(BindingKey, Set(MQTT::Session)).new do |h, k|
-        h[k] = Set(MQTT::Session).new
-      end
+      @bindings = Sync::Shared(Hash(BindingKey, Set(MQTT::Session))).new(
+        Hash(BindingKey, Set(MQTT::Session)).new do |h, k|
+          h[k] = Set(MQTT::Session).new
+        end
+      )
       @tree = MQTT::SubscriptionTree(MQTT::Session).new
 
       def type : String
@@ -71,9 +74,11 @@ module LavinMQ
       end
 
       def bindings_details : Iterator(BindingDetails)
-        @bindings.each.flat_map do |binding_key, ds|
-          ds.each.map do |d|
-            BindingDetails.new(name, vhost.name, binding_key.inner, d)
+        @bindings.read do |bindings|
+          bindings.each.flat_map do |binding_key, ds|
+            ds.each.map do |d|
+              BindingDetails.new(name, vhost.name, binding_key.inner, d)
+            end
           end
         end
       end
@@ -85,7 +90,9 @@ module LavinMQ
       def bind(destination : MQTT::Session, routing_key : String, arguments = nil) : Bool
         qos = arguments.try { |h| h[QOS_HEADER]?.try(&.as(UInt8)) } || 0u8
         binding_key = BindingKey.new(routing_key, arguments)
-        @bindings[binding_key].add destination
+        @bindings.write do |bindings|
+          bindings[binding_key].add destination
+        end
         @tree.subscribe(routing_key, destination, qos)
 
         data = BindingDetails.new(name, vhost.name, binding_key.inner, destination)
@@ -95,16 +102,19 @@ module LavinMQ
 
       def unbind(destination : MQTT::Session, routing_key, arguments = nil) : Bool
         binding_key = BindingKey.new(routing_key, arguments)
-        rk_bindings = @bindings[binding_key]
-        rk_bindings.delete destination
-        @bindings.delete binding_key if rk_bindings.empty?
+        all_empty = @bindings.write do |bindings|
+          rk_bindings = bindings[binding_key]
+          rk_bindings.delete destination
+          bindings.delete binding_key if rk_bindings.empty?
+          bindings.each_value.all?(&.empty?)
+        end
 
         @tree.unsubscribe(routing_key, destination)
 
         data = BindingDetails.new(name, vhost.name, binding_key.inner, destination)
         notify_observers(ExchangeEvent::Unbind, data)
 
-        delete if @auto_delete && @bindings.each_value.all?(&.empty?)
+        delete if @auto_delete && all_empty
         true
       end
 
