@@ -34,7 +34,7 @@ module LavinMQ
     property max_queues : Int32?
 
     @exchanges = Hash(String, Exchange).new
-    @queues = Hash(String, Queue).new
+    @queues = Sync::Shared(Hash(String, Queue)).new(Hash(String, Queue).new)
     @direct_reply_consumers = Hash(String, Client::Channel).new
     @shovels : ShovelStore?
     @upstreams : Federation::UpstreamStore?
@@ -150,19 +150,21 @@ module LavinMQ
     def message_details
       ready = unacked = 0_u64
       ack = confirm = deliver = deliver_no_ack = get = get_no_ack = publish = redeliver = return_unroutable = deliver_get = 0_u64
-      @queues.each_value do |q|
-        ready += q.message_count
-        unacked += q.unacked_count
-        ack += q.ack_count
-        confirm += q.confirm_count
-        deliver += q.deliver_count
-        deliver_no_ack += q.deliver_no_ack_count
-        deliver_get += q.deliver_get_count
-        get += q.get_count
-        get_no_ack += q.get_no_ack_count
-        publish += q.publish_count
-        redeliver += q.redeliver_count
-        return_unroutable += q.return_unroutable_count
+      @queues.read do |queues|
+        queues.each_value do |q|
+          ready += q.message_count
+          unacked += q.unacked_count
+          ack += q.ack_count
+          confirm += q.confirm_count
+          deliver += q.deliver_count
+          deliver_no_ack += q.deliver_no_ack_count
+          deliver_get += q.deliver_get_count
+          get += q.get_count
+          get_no_ack += q.get_no_ack_count
+          publish += q.publish_count
+          redeliver += q.redeliver_count
+          return_unroutable += q.return_unroutable_count
+        end
       end
       {
         messages:                ready + unacked,
@@ -260,14 +262,16 @@ module LavinMQ
           return false unless src.unbind(dst, f.routing_key, f.arguments)
           store_definition(f, dirty: true) if !loading && src.durable? && dst.durable?
         when AMQP::Frame::Queue::Declare
-          return false if @queues.has_key? f.queue_name
+          has_queue : Bool = @queues.read { |queues| queues.has_key?(f.queue_name).as(Bool) }
+          return false if has_queue
           q = QueueFactory.make(self, f)
-          add_queue(f.queue_name, q)
+          @queues.write { |queues| (queues[f.queue_name] = q).as(Queue) }
           apply_policies([q] of Queue) unless loading
           store_definition(f) if !loading && f.durable && !f.exclusive
           event_tick(EventType::QueueDeclared) unless loading
         when AMQP::Frame::Queue::Delete
-          if q = remove_queue(f.queue_name)
+          q = @queues.write { |queues| queues.delete(f.queue_name).as(Queue?) }
+          if q
             @exchanges.each_value do |ex|
               ex.bindings_details.each do |binding|
                 next unless binding.destination == q
@@ -282,12 +286,12 @@ module LavinMQ
           end
         when AMQP::Frame::Queue::Bind
           x = @exchanges[f.exchange_name]? || return false
-          q = @queues[f.queue_name]? || return false
+          q = @queues.read { |queues| queues[f.queue_name]?.as(Queue?) } || return false
           return false unless x.bind(q, f.routing_key, f.arguments)
           store_definition(f) if !loading && x.durable? && q.durable? && !q.exclusive?
         when AMQP::Frame::Queue::Unbind
           x = @exchanges[f.exchange_name]? || return false
-          q = @queues[f.queue_name]? || return false
+          q = @queues.read { |queues| queues[f.queue_name]?.as(Queue?) } || return false
           return false unless x.unbind(q, f.routing_key, f.arguments)
           store_definition(f, dirty: true) if !loading && x.durable? && q.durable? && !q.exclusive?
         else raise "Cannot apply frame #{f.class} in vhost #{@name}"
@@ -430,7 +434,7 @@ module LavinMQ
       @connections.read &.each &.force_close
       Fiber.yield # yield so that Client read_loops can shutdown
       @definitions_lock.synchronize do
-        @queues.each_value &.close
+        @queues.read { |queues| queues.each_value &.close }
         @definitions_file.close
       end
       FileUtils.rm_rf File.join(@data_dir, "transient")
@@ -446,7 +450,9 @@ module LavinMQ
       itr = if resources
               resources.each
             else
-              Iterator.chain({@queues.each_value, @exchanges.each_value})
+              @queues.read do |queues|
+                Iterator.chain({queues.each_value, @exchanges.each_value})
+              end
             end
       policies = @policies.values.sort_by!(&.priority).reverse
       operator_policies = @operator_policies.values.sort_by!(&.priority).reverse
@@ -587,10 +593,12 @@ module LavinMQ
             false, e.arguments)
           io.write_bytes f
         end
-        @queues.each_value.select(&.durable?).each do |q|
-          f = AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, q.name, false, q.durable?, q.exclusive?,
-            q.auto_delete?, false, q.arguments)
-          io.write_bytes f
+        @queues.read do |queues|
+          queues.each_value.select(&.durable?).each do |q|
+            f = AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, q.name, false, q.durable?, q.exclusive?,
+              q.auto_delete?, false, q.arguments)
+            io.write_bytes f
+          end
         end
         @exchanges.each_value.select(&.durable?).each do |e|
           e.bindings_details.each do |binding|
@@ -664,19 +672,6 @@ module LavinMQ
 
     def shovels
       @shovels.not_nil!
-    end
-
-    private def add_queue(name : String, queue : Queue)
-      new_queues = @queues.dup
-      new_queues[name] = queue
-      @queues = new_queues
-    end
-
-    private def remove_queue(name : String)
-      new_queues = @queues.dup
-      removed = new_queues.delete(name)
-      @queues = new_queues
-      removed
     end
 
     def event_tick(event_type)

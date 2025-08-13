@@ -363,7 +363,7 @@ module LavinMQ
           unless frame.no_wait
             send AMQP::Frame::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag)
           end
-        elsif q = @client.vhost.queues[frame.queue]?
+        elsif q = @client.vhost.queues.read { |queues| queues[frame.queue]? }
           if @client.queue_exclusive_to_other_client?(q)
             @client.send_resource_locked(frame, "Exclusive queue")
             return
@@ -389,7 +389,7 @@ module LavinMQ
       end
 
       def basic_get(frame)
-        if q = @client.vhost.queues.fetch(frame.queue, nil)
+        if q = @client.vhost.queues.read { |queues| queues.fetch(frame.queue, nil) }
           if @client.queue_exclusive_to_other_client?(q)
             @client.send_resource_locked(frame, "Exclusive queue")
           elsif q.has_exclusive_consumer?

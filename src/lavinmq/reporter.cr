@@ -15,17 +15,23 @@ module LavinMQ
       s.vhosts.each do |name, vh|
         puts "VHost #{name}"
         puts_size_capacity vh.@exchanges, 4
-        puts_size_capacity vh.@queues, 4
-        vh.queues.each do |_, q|
-          puts "    #{q.name} #{q.durable? ? "durable" : ""} args=#{q.arguments}"
-          if q = (q.as(LavinMQ::AMQP::Queue) || q.as(LavinMQ::MQTT::Session))
-            puts_size_capacity q.@consumers, 6
-            puts_size_capacity q.@deliveries, 6
-            puts_size_capacity q.@msg_store.@segments, 6
-            puts_size_capacity q.@msg_store.@acks, 6
-            puts_size_capacity q.@msg_store.@deleted, 6
-            puts_size_capacity q.@msg_store.@segment_msg_count, 6
-            puts_size_capacity q.@msg_store.@requeued, 6
+        STDOUT << "    @queues size="
+        STDOUT << vh.@queues.read &.size
+        STDOUT << " capacity="
+        STDOUT << vh.@queues.read &.capacity
+        STDOUT << '\n'
+        vh.@queues.read do |queues|
+          queues.each do |_, q|
+            puts "    #{q.name} #{q.durable? ? "durable" : ""} args=#{q.arguments}"
+            if q = (q.as(LavinMQ::AMQP::Queue) || q.as(LavinMQ::MQTT::Session))
+              puts_size_capacity q.@consumers, 6
+              puts_size_capacity q.@deliveries, 6
+              puts_size_capacity q.@msg_store.@segments, 6
+              puts_size_capacity q.@msg_store.@acks, 6
+              puts_size_capacity q.@msg_store.@deleted, 6
+              puts_size_capacity q.@msg_store.@segment_msg_count, 6
+              puts_size_capacity q.@msg_store.@requeued, 6
+            end
           end
         end
         puts_size_capacity vh.connections

@@ -15,7 +15,7 @@ module LavinMQ
       private def register_routes
         get "/api/overview" do |context, _params|
           x_vhost = context.request.headers["x-vhost"]?
-          channels, connections, exchanges, queues, consumers, ready, unacked = 0_u32, 0_u32, 0_u32, 0_u32, 0_u32, 0_u32, 0_u32
+          channels, connections, exchanges, queue_count, consumers, ready, unacked = 0_u32, 0_u32, 0_u32, 0_u32, 0_u32, 0_u32, 0_u32
           recv_rate, send_rate = 0_f64, 0_f64
           ready_log = Deque(UInt32).new(LavinMQ::Config.instance.stats_log_size)
           unacked_log = Deque(UInt32).new(LavinMQ::Config.instance.stats_log_size)
@@ -43,12 +43,14 @@ module LavinMQ
               add_logs!(send_rate_log, c.stats_details[:send_oct_details][:log])
             end
             exchanges += vhost.exchanges.size
-            queues += vhost.queues.size
-            vhost.queues.each_value do |q|
-              ready += q.message_count
-              unacked += q.unacked_count
-              add_logs!(ready_log, q.message_count_log)
-              add_logs!(unacked_log, q.unacked_count_log)
+            queue_count += vhost.queues.read(&.size)
+            vhost.queues.read do |queues|
+              queues.each_value do |q|
+                ready += q.message_count
+                unacked += q.unacked_count
+                add_logs!(ready_log, q.message_count_log)
+                add_logs!(unacked_log, q.unacked_count_log)
+              end
             end
             vhost_stats_details = vhost.stats_details
             {% for sm in OVERVIEW_STATS %}
@@ -70,7 +72,7 @@ module LavinMQ
               connections: connections,
               consumers:   consumers,
               exchanges:   exchanges,
-              queues:      queues,
+              queues:      queue_count,
             },
             queue_totals: {
               messages:                    ready + unacked,
@@ -126,7 +128,7 @@ module LavinMQ
               IO::Memory.new("test"))
             ok = @amqp_server.vhosts[vhost].publish(msg)
             env = nil
-            @amqp_server.vhosts[vhost].queues["aliveness-test"].basic_get(true) { |e| env = e }
+            @amqp_server.vhosts[vhost].queues.read { |queues| queues["aliveness-test"].basic_get(true) { |e| env = e } }
             ok = ok && env && String.new(env.message.body) == "test"
             {status: ok ? "ok" : "failed"}.to_json(context.response)
           end

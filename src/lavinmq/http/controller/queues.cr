@@ -9,7 +9,7 @@ module LavinMQ
     module QueueHelpers
       private def queue(context, params, vhost, key = "name")
         name = URI.decode_www_form(params[key])
-        q = @amqp_server.vhosts[vhost].queues[name]?
+        q = @amqp_server.vhosts[vhost].queues.read { |queues| queues[name]? }
         not_found(context, "Not Found") unless q
         q
       end
@@ -22,14 +22,14 @@ module LavinMQ
       # ameba:disable Metrics/CyclomaticComplexity
       private def register_routes
         get "/api/queues" do |context, _|
-          itr = Iterator(Queue).chain(vhosts(user(context)).map &.queues.each_value)
+          itr = Iterator(Queue).chain(vhosts(user(context)).map { |vhost| vhost.queues.read(&.each_value) })
           page(context, itr)
         end
 
         get "/api/queues/:vhost" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            page(context, @amqp_server.vhosts[vhost].queues.each_value)
+            page(context, @amqp_server.vhosts[vhost].queues.read(&.each_value))
           end
         end
 
@@ -67,7 +67,7 @@ module LavinMQ
             unless user.can_config?(vhost, name) && dlx_ok
               access_refused(context, "User doesn't have permissions to declare queue '#{name}'")
             end
-            q = @amqp_server.vhosts[vhost].queues[name]?
+            q = @amqp_server.vhosts[vhost].queues.read { |queues| queues[name]? }
             if q
               unless q.match?(durable, false, auto_delete, tbl)
                 bad_request(context, "Existing queue declared with other arguments arg")

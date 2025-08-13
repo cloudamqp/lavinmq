@@ -605,7 +605,7 @@ module LavinMQ
           send_precondition_failed(frame, "Queue name isn't valid")
           return
         end
-        q = @vhost.queues.fetch(frame.queue_name, nil)
+        q = @vhost.queues.read { |queues| queues.fetch(frame.queue_name, nil) }
         if q.nil?
           send AMQP::Frame::Queue::DeleteOk.new(frame.channel, 0_u32) unless frame.no_wait
         elsif queue_exclusive_to_other_client?(q)
@@ -631,7 +631,7 @@ module LavinMQ
       private def declare_queue(frame)
         if !frame.queue_name.empty? && !NameValidator.valid_entity_name?(frame.queue_name)
           send_precondition_failed(frame, "Queue name isn't valid")
-        elsif q = @vhost.queues.fetch(frame.queue_name, nil)
+        elsif q = @vhost.queues.read { |queues| queues.fetch(frame.queue_name, nil) }
           redeclare_queue(frame, q)
         elsif {"amq.rabbitmq.reply-to", "amq.direct.reply-to"}.includes? frame.queue_name
           unless frame.no_wait
@@ -648,7 +648,7 @@ module LavinMQ
           send_not_found(frame, "Queue '#{frame.queue_name}' doesn't exists")
         elsif NameValidator.reserved_prefix?(frame.queue_name)
           send_access_refused(frame, "Prefix #{NameValidator::PREFIX_LIST} forbidden, please choose another name")
-        elsif @vhost.max_queues.try { |max| @vhost.queues.size >= max }
+        elsif @vhost.max_queues.try { |max| @vhost.queues.read(&.size) >= max }
           send_access_refused(frame, "queue limit in vhost '#{@vhost.name}' (#{@vhost.max_queues}) is reached")
         else
           declare_new_queue(frame)
@@ -694,7 +694,7 @@ module LavinMQ
         @vhost.apply(frame)
         @last_queue_name = frame.queue_name
         if frame.exclusive
-          @exclusive_queues << @vhost.queues[frame.queue_name]
+          @exclusive_queues << @vhost.queues.read { |queues| queues[frame.queue_name] }
         end
         unless frame.no_wait
           send AMQP::Frame::Queue::DeclareOk.new(frame.channel, frame.queue_name, 0_u32, 0_u32)
@@ -712,7 +712,7 @@ module LavinMQ
         end
         return unless valid_q_bind_unbind?(frame)
 
-        q = @vhost.queues[frame.queue_name]?
+        q = @vhost.queues.read { |queues| queues[frame.queue_name]? }
         if q.nil?
           send_not_found frame, "Queue '#{frame.queue_name}' not found"
         elsif !@vhost.exchanges.has_key? frame.exchange_name
@@ -739,7 +739,7 @@ module LavinMQ
         end
         return unless valid_q_bind_unbind?(frame)
 
-        q = @vhost.queues[frame.queue_name]?
+        q = @vhost.queues.read { |queues| queues[frame.queue_name]? }
         if q.nil?
           # should return not_found according to spec but we make it idempotent
           send AMQP::Frame::Queue::UnbindOk.new(frame.channel)
@@ -823,7 +823,7 @@ module LavinMQ
         end
         if !NameValidator.valid_entity_name?(frame.queue_name)
           send_precondition_failed(frame, "Queue name isn't valid")
-        elsif q = @vhost.queues.fetch(frame.queue_name, nil)
+        elsif q = @vhost.queues.read { |queues| queues.fetch(frame.queue_name, nil) }
           if queue_exclusive_to_other_client?(q)
             send_resource_locked(frame, "Queue '#{q.name}' is exclusive")
           else

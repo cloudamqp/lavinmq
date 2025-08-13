@@ -278,15 +278,17 @@ module LavinMQ
         private def export_queues(json)
           json.array do
             vhosts.each_value do |v|
-              v.queues.each_value do |q|
-                next if q.exclusive?
-                {
-                  "name":        q.name,
-                  "vhost":       q.vhost.name,
-                  "durable":     q.durable?,
-                  "auto_delete": q.auto_delete?,
-                  "arguments":   q.arguments,
-                }.to_json(json)
+              v.queues.read do |queues|
+                queues.each_value do |q|
+                  next if q.exclusive?
+                  {
+                    "name":        q.name,
+                    "vhost":       q.vhost.name,
+                    "durable":     q.durable?,
+                    "auto_delete": q.auto_delete?,
+                    "arguments":   q.arguments,
+                  }.to_json(json)
+                end
               end
             end
           end
