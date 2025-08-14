@@ -5,9 +5,11 @@ module LavinMQ
   module HTTP
     module BindingHelpers
       private def bindings(vhost)
-        vhost.exchanges.each_value.flat_map do |e|
-          e.bindings_details
+        bindings = Array(BindingDetails).new
+        vhost.each_exchange do |e|
+          bindings.concat(e.bindings_details)
         end
+        bindings
       end
 
       private def binding_for_props(context, source, destination : Destination, props)

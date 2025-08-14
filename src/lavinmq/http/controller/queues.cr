@@ -9,9 +9,7 @@ module LavinMQ
     module QueueHelpers
       private def queue(context, params, vhost, key = "name")
         name = URI.decode_www_form(params[key])
-        q = @amqp_server.vhosts[vhost].queues.read { |queues| queues[name]? }
-        not_found(context, "Not Found") unless q
-        q
+        @amqp_server.vhosts[vhost].fetch_queue(name) || not_found(context, "Not Found")
       end
     end
 
@@ -22,14 +20,16 @@ module LavinMQ
       # ameba:disable Metrics/CyclomaticComplexity
       private def register_routes
         get "/api/queues" do |context, _|
-          itr = Iterator(Queue).chain(vhosts(user(context)).map { |vhost| vhost.queues.read(&.each_value) })
-          page(context, itr)
+          queues = Array(Queue).new
+          vhosts(user(context)).each { |vhost| vhost.each_queue { |q| queues << q } }
+          page(context, queues)
         end
 
         get "/api/queues/:vhost" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            page(context, @amqp_server.vhosts[vhost].queues.read(&.each_value))
+            vhost = @amqp_server.vhosts[vhost]
+            page(context, vhost.queues)
           end
         end
 
@@ -67,8 +67,7 @@ module LavinMQ
             unless user.can_config?(vhost, name) && dlx_ok
               access_refused(context, "User doesn't have permissions to declare queue '#{name}'")
             end
-            q = @amqp_server.vhosts[vhost].queues.read { |queues| queues[name]? }
-            if q
+            if q = @amqp_server.vhosts[vhost].fetch_queue(name)
               unless q.match?(durable, false, auto_delete, tbl)
                 bad_request(context, "Existing queue declared with other arguments arg")
               end

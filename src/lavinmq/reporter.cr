@@ -14,24 +14,26 @@ module LavinMQ
       puts_size_capacity s.@vhosts
       s.vhosts.each do |name, vh|
         puts "VHost #{name}"
-        puts_size_capacity vh.@exchanges, 4
-        STDOUT << "    @queues size="
-        STDOUT << vh.@queues.read &.size
+        STDOUT << "    @exchanges size="
+        STDOUT << vh.exchanges_count
         STDOUT << " capacity="
-        STDOUT << vh.@queues.read &.capacity
+        STDOUT << vh.exchanges_count # Sync::Shared doesn't expose capacity, using size
         STDOUT << '\n'
-        vh.@queues.read do |queues|
-          queues.each do |_, q|
-            puts "    #{q.name} #{q.durable? ? "durable" : ""} args=#{q.arguments}"
-            if q = (q.as(LavinMQ::AMQP::Queue) || q.as(LavinMQ::MQTT::Session))
-              puts_size_capacity q.@consumers, 6
-              puts_size_capacity q.@deliveries, 6
-              puts_size_capacity q.@msg_store.@segments, 6
-              puts_size_capacity q.@msg_store.@acks, 6
-              puts_size_capacity q.@msg_store.@deleted, 6
-              puts_size_capacity q.@msg_store.@segment_msg_count, 6
-              puts_size_capacity q.@msg_store.@requeued, 6
-            end
+        STDOUT << "    @queues size="
+        STDOUT << vh.queues_count
+        STDOUT << " capacity="
+        STDOUT << vh.queues_count # Sync::Shared doesn't expose capacity, using size
+        STDOUT << '\n'
+        vh.each_queue do |q|
+          puts "    #{q.name} #{q.durable? ? "durable" : ""} args=#{q.arguments}"
+          if q = (q.as(LavinMQ::AMQP::Queue) || q.as(LavinMQ::MQTT::Session))
+            puts_size_capacity q.@consumers, 6
+            puts_size_capacity q.@deliveries, 6
+            puts_size_capacity q.@msg_store.@segments, 6
+            puts_size_capacity q.@msg_store.@acks, 6
+            puts_size_capacity q.@msg_store.@deleted, 6
+            puts_size_capacity q.@msg_store.@segment_msg_count, 6
+            puts_size_capacity q.@msg_store.@requeued, 6
           end
         end
         puts_size_capacity vh.connections

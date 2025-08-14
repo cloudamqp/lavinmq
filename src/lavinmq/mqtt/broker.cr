@@ -27,7 +27,7 @@ module LavinMQ
         @clients = Hash(String, Client).new
         @retain_store = RetainStore.new(File.join(@vhost.data_dir, "mqtt_retained_store"), @replicator)
         @exchange = MQTT::Exchange.new(@vhost, EXCHANGE, @retain_store)
-        @vhost.exchanges[EXCHANGE] = @exchange
+        @vhost.add_exchange(EXCHANGE, @exchange)
       end
 
       def session_present?(client_id : String, clean_session) : Bool

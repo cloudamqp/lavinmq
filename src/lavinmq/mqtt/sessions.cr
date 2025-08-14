@@ -4,18 +4,15 @@ require "../vhost"
 module LavinMQ
   module MQTT
     class Sessions
-      @queues : Sync::Shared(Hash(String, Queue))
-
       def initialize(@vhost : VHost)
-        @queues = @vhost.queues
       end
 
       def []?(client_id : String) : Session?
-        @queues.read { |queues| queues["mqtt.#{client_id}"]? }.try &.as(Session)
+        @vhost.fetch_queue("mqtt.#{client_id}").as(Session?)
       end
 
       def [](client_id : String) : Session
-        @queues.read { |queues| queues["mqtt.#{client_id}"] }.as(Session)
+        @vhost.fetch_queue("mqtt.#{client_id}").as(Session)
       end
 
       def declare(client : Client)

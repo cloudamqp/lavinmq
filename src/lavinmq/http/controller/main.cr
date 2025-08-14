@@ -42,15 +42,13 @@ module LavinMQ
               add_logs!(recv_rate_log, c.stats_details[:recv_oct_details][:log])
               add_logs!(send_rate_log, c.stats_details[:send_oct_details][:log])
             end
-            exchanges += vhost.exchanges.size
-            queue_count += vhost.queues.read(&.size)
-            vhost.queues.read do |queues|
-              queues.each_value do |q|
-                ready += q.message_count
-                unacked += q.unacked_count
-                add_logs!(ready_log, q.message_count_log)
-                add_logs!(unacked_log, q.unacked_count_log)
-              end
+            exchanges += vhost.exchanges_count
+            queue_count += vhost.queues_count
+            vhost.each_queue do |q|
+              ready += q.message_count
+              unacked += q.unacked_count
+              add_logs!(ready_log, q.message_count_log)
+              add_logs!(unacked_log, q.unacked_count_log)
             end
             vhost_stats_details = vhost.stats_details
             {% for sm in OVERVIEW_STATS %}
@@ -128,7 +126,7 @@ module LavinMQ
               IO::Memory.new("test"))
             ok = @amqp_server.vhosts[vhost].publish(msg)
             env = nil
-            @amqp_server.vhosts[vhost].queues.read { |queues| queues["aliveness-test"].basic_get(true) { |e| env = e } }
+            @amqp_server.vhosts[vhost].fetch_queue("aliveness-test").try &.basic_get(true) { |e| env = e }
             ok = ok && env && String.new(env.message.body) == "test"
             {status: ok ? "ok" : "failed"}.to_json(context.response)
           end

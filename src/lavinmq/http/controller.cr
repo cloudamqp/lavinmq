@@ -18,7 +18,7 @@ module LavinMQ
 
       private abstract def register_routes
 
-      private def page(context, iterator : Iterator(SortableJSON))
+      private def page(context, iterator : Enumerable(SortableJSON))
         params = context.request.query_params
         page_size = extract_page_size(context)
         search_term = extract_search_term(params)
@@ -218,11 +218,11 @@ module LavinMQ
         user
       end
 
-      def vhosts(user : User)
+      def vhosts(user : User) : Iterator(VHost)
         @amqp_server.vhosts.each_value.select do |v|
-          full_view_vhosts_access = user.tags.any? { |t| t.administrator? || t.monitoring? }
-          amqp_access = user.has_permission?(v.name)
-          full_view_vhosts_access || (amqp_access && !user.tags.empty?)
+          next false if user.tags.empty? # no tags means no access
+          next true if user.tags.any? { |t| t.administrator? || t.monitoring? }
+          user.has_permission?(v.name)
         end
       end
 

@@ -243,7 +243,7 @@ module LavinMQ
               consumers += ch.consumers.size
             end
           end
-          queues += vhost.queues.read(&.size)
+          queues += vhost.queues_count
         end
         writer.write({name:  "connections",
                       value: connections,
@@ -423,53 +423,49 @@ module LavinMQ
 
       private def detailed_queue_coarse_metrics(vhosts, writer)
         vhosts.each do |vhost|
-          vhost.queues.read do |queues|
-            queues.each_value do |q|
-              labels = {queue: q.name, vhost: vhost.name}
-              ready = q.message_count
-              unacked = q.unacked_count
-              writer.write({name:   "detailed_queue_messages_ready",
-                            value:  ready,
-                            type:   "gauge",
-                            labels: labels,
-                            help:   "Messages ready to be delivered to consumers"})
-              writer.write({name:   "detailed_queue_messages_unacked",
-                            value:  unacked,
-                            type:   "gauge",
-                            labels: labels,
-                            help:   "Messages delivered to consumers but not yet acknowledged"})
-              writer.write({name:   "detailed_queue_messages",
-                            value:  ready + unacked,
-                            type:   "gauge",
-                            labels: labels,
-                            help:   "Sum of ready and unacknowledged messages - total queue depth"})
-              writer.write({name:   "detailed_queue_deduplication",
-                            value:  q.dedup_count,
-                            type:   "counter",
-                            labels: labels,
-                            help:   "Number of deduplicated messages for this queue"})
-            end
+          vhost.each_queue do |q|
+            labels = {queue: q.name, vhost: vhost.name}
+            ready = q.message_count
+            unacked = q.unacked_count
+            writer.write({name:   "detailed_queue_messages_ready",
+                          value:  ready,
+                          type:   "gauge",
+                          labels: labels,
+                          help:   "Messages ready to be delivered to consumers"})
+            writer.write({name:   "detailed_queue_messages_unacked",
+                          value:  unacked,
+                          type:   "gauge",
+                          labels: labels,
+                          help:   "Messages delivered to consumers but not yet acknowledged"})
+            writer.write({name:   "detailed_queue_messages",
+                          value:  ready + unacked,
+                          type:   "gauge",
+                          labels: labels,
+                          help:   "Sum of ready and unacknowledged messages - total queue depth"})
+            writer.write({name:   "detailed_queue_deduplication",
+                          value:  q.dedup_count,
+                          type:   "counter",
+                          labels: labels,
+                          help:   "Number of deduplicated messages for this queue"})
           end
         end
       end
 
       private def detailed_queue_consumer_count(vhosts, writer)
         vhosts.each do |vhost|
-          vhost.queues.read do |queues|
-            queues.each_value do |q|
-              writer.write({name:   "detailed_queue_consumers",
-                            value:  q.consumers.size,
-                            type:   "gauge",
-                            labels: {queue: q.name, vhost: vhost.name},
-                            help:   "Consumers on a queue"})
-            end
+          vhost.each_queue do |q|
+            writer.write({name:   "detailed_queue_consumers",
+                          value:  q.consumers.size,
+                          type:   "gauge",
+                          labels: {queue: q.name, vhost: vhost.name},
+                          help:   "Consumers on a queue"})
           end
         end
       end
 
       private def detailed_exchange_metrics(vhosts, writer)
         vhosts.each do |vhost|
-          vhost.exchanges.each_value do |e|
+          vhost.each_exchange do |e|
             writer.write({name:   "detailed_exchange_deduplication",
                           value:  e.dedup_count,
                           type:   "counter",
