@@ -15,8 +15,7 @@ module LavinMQ
       # ameba:disable Metrics/CyclomaticComplexity
       private def register_routes
         get "/api/bindings" do |context, _params|
-          itr = Iterator(BindingDetails)
-            .chain(vhosts(user(context)).map { |v| bindings(v) })
+          itr = vhosts(user(context)).flat_map { |v| bindings(v) }
           page(context, itr)
         end
 
@@ -32,13 +31,13 @@ module LavinMQ
             refuse_unless_management(context, user(context), vhost)
             e = exchange(context, params, vhost)
             q = queue(context, params, vhost, "queue")
-            itr = Iterator(BindingDetails).chain({e.bindings_details.select { |db| db.destination == q }})
+            bindings = e.bindings_details.select { |db| db.destination == q }
             if e.name.empty?
               binding_key = BindingKey.new(q.name)
               default_binding = BindingDetails.new("", q.vhost.name, binding_key, q)
-              itr = {default_binding}.each.chain(itr)
+              bindings << default_binding
             end
-            page(context, itr)
+            page(context, bindings)
           end
         end
 
@@ -120,8 +119,7 @@ module LavinMQ
             source = exchange(context, params, vhost)
             destination = exchange(context, params, vhost, "destination")
             bindings = source.bindings_details.select { |bd| bd.destination == destination }
-            itr = Iterator(BindingDetails).chain({bindings})
-            page(context, itr)
+            page(context, bindings)
           end
         end
 
@@ -199,8 +197,7 @@ module LavinMQ
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
             e = exchange(context, params, vhost)
-            itr = Iterator(BindingDetails).chain({e.bindings_details})
-            page(context, itr)
+            page(context, e.bindings_details)
           end
         end
 

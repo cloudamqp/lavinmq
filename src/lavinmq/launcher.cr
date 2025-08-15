@@ -207,7 +207,7 @@ module LavinMQ
       puts "  reclaimed bytes before last GC: #{ps.reclaimed_bytes_before_gc.humanize_bytes}"
       puts "Fibers:"
       Fiber.list { |f| puts f.inspect }
-      LavinMQ::Reporter.report(@amqp_server)
+      # LavinMQ::Reporter.report(@amqp_server)
       STDOUT.flush
     end
 

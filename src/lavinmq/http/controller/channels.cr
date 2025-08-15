@@ -15,8 +15,13 @@ module LavinMQ
         get "/api/vhosts/:vhost/channels" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            c = @amqp_server.connections.find { |conn| conn.vhost.name == vhost }
-            channels = c.try(&.channels.each_value) || ([] of Client::Channel).each
+            channels = [] of Client::Channel
+            @amqp_server.connections.each do |conn|
+              next unless conn.vhost.name == vhost
+              conn.each_channel do |channel|
+                channels << channel
+              end
+            end
             page(context, channels)
           end
         end
@@ -44,7 +49,7 @@ module LavinMQ
       end
 
       private def all_channels(user)
-        Iterator(Client::Channel).chain(connections(user).map(&.channels.each_value))
+        connections(user).flat_map(&.channels)
       end
 
       private def with_channel(context, params, &)

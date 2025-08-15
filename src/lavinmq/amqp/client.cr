@@ -16,7 +16,7 @@ module LavinMQ
       include Stats
       include SortableJSON
 
-      getter vhost, channels, log, name
+      getter vhost, log, name
       getter user
       getter max_frame_size : UInt32
       getter channel_max : UInt16
@@ -26,7 +26,7 @@ module LavinMQ
       getter connection_info : ConnectionInfo
 
       @connected_at = RoughTime.unix_ms
-      @channels = Hash(UInt16, Client::Channel).new
+      @channels = Sync::Shared(Hash(UInt16, Client::Channel)).new(Hash(UInt16, Client::Channel).new)
       @actual_channel_max : UInt16
       @exclusive_queues = Array(Queue).new
       @heartbeat_interval_ms : Int64?
@@ -79,7 +79,7 @@ module LavinMQ
 
       def details_tuple
         {
-          channels:          @channels.size,
+          channels:          @channels.read &.size,
           connected_at:      @connected_at,
           type:              "network",
           channel_max:       @channel_max,
@@ -197,7 +197,7 @@ module LavinMQ
       def send(frame : AMQP::Frame, channel_is_open : Bool? = nil) : Bool
         return false if closed?
         if channel_is_open.nil?
-          channel_is_open = frame.channel.zero? || @channels[frame.channel]?.try &.running?
+          channel_is_open = frame.channel.zero? || fetch_channel(frame.channel).try &.running?
         end
         unless channel_is_open
           @log.debug { "Channel #{frame.channel} is closed so is not sending #{frame.inspect}" }
@@ -303,7 +303,7 @@ module LavinMQ
       end
 
       private def with_channel(frame, &)
-        if ch = @channels[frame.channel]?
+        if ch = fetch_channel(frame.channel)
           if ch.running?
             yield ch
           else
@@ -332,14 +332,14 @@ module LavinMQ
       end
 
       private def open_channel(frame)
-        if @channels.has_key? frame.channel
+        if @channels.read &.has_key? frame.channel
           close_connection(frame, ConnectionReplyCode::CHANNEL_ERROR, "second 'channel.open' seen")
-        elsif @channels.size >= @actual_channel_max
-          reply_text = "number of channels opened (#{@channels.size})" \
+        elsif (size = channels_count) >= @actual_channel_max
+          reply_text = "number of channels opened (#{size})" \
                        " has reached the negotiated channel_max (#{@actual_channel_max})"
           close_connection(frame, ConnectionReplyCode::NOT_ALLOWED, reply_text)
         else
-          @channels[frame.channel] = AMQP::Channel.new(self, frame.channel)
+          @channels.write &.[frame.channel] = AMQP::Channel.new(self, frame.channel)
           @vhost.event_tick(EventType::ChannelCreated)
           send AMQP::Frame::Channel::OpenOk.new(frame.channel)
         end
@@ -353,10 +353,10 @@ module LavinMQ
         when AMQP::Frame::Channel::Open
           open_channel(frame)
         when AMQP::Frame::Channel::Close
-          @channels.delete(frame.channel).try &.close
+          @channels.write &.delete(frame.channel).try &.close
           send AMQP::Frame::Channel::CloseOk.new(frame.channel), true
         when AMQP::Frame::Channel::CloseOk
-          @channels.delete(frame.channel).try &.close
+          @channels.write &.delete(frame.channel).try &.close
         when AMQP::Frame::Channel::Flow
           with_channel frame, &.flow(frame.active)
         when AMQP::Frame::Channel::FlowOk
@@ -427,11 +427,13 @@ module LavinMQ
       private def cleanup
         @running = false
         i = 0u32
-        @channels.each_value do |ch|
-          ch.close
-          Fiber.yield if (i &+= 1) % 512 == 0
+        @channels.write do |channels|
+          channels.each_value do |ch|
+            ch.close
+            Fiber.yield if (i &+= 1) % 512 == 0
+          end
+          channels.clear
         end
-        @channels.clear
         @exclusive_queues.each(&.close)
         @exclusive_queues.clear
         @vhost.rm_connection(self)
@@ -478,7 +480,7 @@ module LavinMQ
         else
           send AMQP::Frame::Channel::Close.new(frame.channel, code.value, text, 0, 0)
         end
-        @channels.delete(frame.channel).try &.close
+        @channels.write &.delete(frame.channel).try &.close
       end
 
       def close_connection(frame : AMQ::Protocol::Frame?, code : ConnectionReplyCode, text)
@@ -527,7 +529,7 @@ module LavinMQ
           @running = false
         else
           send AMQP::Frame::Channel::Close.new(ex.channel, code.value, code.to_s, ex.class_id, ex.method_id)
-          @channels.delete(ex.channel).try &.close
+          @channels.write &.delete(ex.channel).try &.close
         end
       end
 
@@ -886,6 +888,30 @@ module LavinMQ
         @write_lock.synchronize do
           @socket.flush
         end
+      end
+
+      def check_consumer_timeout
+        @channels.read &.each_value do |ch|
+          ch.check_consumer_timeout
+        end
+      end
+
+      def each_channel(&)
+        @channels.read &.each_value do |ch|
+          yield ch
+        end
+      end
+
+      def channels_count
+        @channels.read &.size
+      end
+
+      def channels
+        @channels.read &.values
+      end
+
+      def fetch_channel(channel_id : UInt16)
+        @channels.read &.[channel_id]?
       end
     end
   end

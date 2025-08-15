@@ -98,7 +98,7 @@ module LavinMQ
     end
 
     def connections
-      Iterator(Client).chain(@vhosts.each_value.map(&.connections.each))
+      @vhosts.each_value.flat_map(&.connections)
     end
 
     MT = Fiber::ExecutionContext::Parallel.new("clients", 20)
@@ -325,9 +325,9 @@ module LavinMQ
       @vhosts.each_value do |vhost|
         vhost.each_queue(&.update_rates)
         vhost.each_exchange(&.update_rates)
-        vhost.connections.each do |connection|
+        vhost.each_connection do |connection|
           connection.update_rates
-          connection.channels.each_value(&.update_rates)
+          connection.each_channel &.update_rates
         end
         vhost.update_rates
       end

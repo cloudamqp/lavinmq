@@ -9,18 +9,20 @@ module LavinMQ
 
       private def register_routes
         get "/api/consumers" do |context, _params|
-          page(context, all_consumers(user(context)))
+          consumers = Array(AMQP::Channel::Consumer).new
+          connections(user(context)).each(&.each_channel(&.consumers.each { |c| consumers << c }))
+          page(context, consumers)
         end
 
         get "/api/consumers/:vhost" do |context, params|
           with_vhost(context, params) do |vhost|
             user = user(context)
             refuse_unless_management(context, user, vhost)
-            itr = connections(user).each.select(&.vhost.name.==(vhost))
-              .flat_map do |conn|
-                conn.channels.each_value.flat_map &.consumers
-              end
-            page(context, itr)
+            consumers = Array(AMQP::Channel::Consumer).new
+            connections(user(context)).each
+              .select(&.vhost.name.==(vhost))
+              .each(&.each_channel(&.consumers.each { |c| consumers << c }))
+            page(context, consumers)
           end
         end
 
@@ -30,13 +32,13 @@ module LavinMQ
             refuse_unless_management(context, user, vhost)
             consumer_tag = URI.decode_www_form(params["consumer_tag"])
             conn_id = URI.decode_www_form(params["connection"])
-            ch_id = URI.decode_www_form(params["channel"]).to_i
+            ch_id = URI.decode_www_form(params["channel"]).to_u16
             connection = connections(user).find { |conn| conn.vhost.name == vhost && conn.name == conn_id }
             unless connection
               context.response.status_code = 404
               break
             end
-            channel = connection.channels[ch_id]?
+            channel = connection.fetch_channel(ch_id)
             unless channel
               context.response.status_code = 404
               break
@@ -51,11 +53,6 @@ module LavinMQ
           end
           context
         end
-      end
-
-      private def all_consumers(user)
-        Iterator(Client::Channel::Consumer)
-          .chain(connections(user).map { |c| c.channels.each_value.flat_map &.consumers })
       end
     end
   end

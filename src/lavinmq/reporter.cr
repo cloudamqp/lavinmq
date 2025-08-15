@@ -1,3 +1,16 @@
+require "sync/shared"
+
+# Monkey patch Sync::Shared to add capacity and size methods
+class Sync::Shared
+  def capacity
+    read &.capacity
+  end
+
+  def size
+    read &.size
+  end
+end
+
 module LavinMQ
   class Reporter
     def self.report(s)
@@ -37,14 +50,14 @@ module LavinMQ
           end
         end
         puts_size_capacity vh.connections
-        vh.connections.each do |c|
+        vh.each_connection do |c|
           puts "  #{c.name}"
-          puts_size_capacity c.channels, 4
+          puts_size_capacity c.@channels, 4
           case c
           when LavinMQ::AMQP::Client
             puts_size_capacity c.@acl_cache, 4
           end
-          c.channels.each_value do |ch|
+          c.each_channel do |ch|
             puts "    #{ch.id} global_prefetch=#{ch.global_prefetch_count} prefetch=#{ch.prefetch_count}"
             puts_size_capacity ch.consumers, 8
             case ch

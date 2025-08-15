@@ -238,8 +238,8 @@ module LavinMQ
           unacked += d[:messages_unacknowledged]
           connections += vhost.connections.size
           vhost.connections.each do |conn|
-            channels += conn.channels.size
-            conn.channels.each_value do |ch|
+            conn.each_channel do |ch|
+              channels += 1
               consumers += ch.consumers.size
             end
           end
@@ -490,7 +490,7 @@ module LavinMQ
                           labels: labels,
                           help:   "Total number of bytes sent on a connection"})
             writer.write({name:   "detailed_connection_channels",
-                          value:  conn.channels.size,
+                          value:  conn.channels_count,
                           type:   "counter",
                           labels: labels,
                           help:   "Channels on a connection"})
@@ -501,7 +501,7 @@ module LavinMQ
       private def detailed_channel_metrics(vhosts, writer)
         vhosts.each do |vhost|
           vhost.connections.each do |conn|
-            conn.channels.each_value do |ch|
+            conn.each_channel do |ch|
               labels = {channel: ch.name}
               d = ch.details_tuple
               writer.write({name:   "detailed_channel_consumers",

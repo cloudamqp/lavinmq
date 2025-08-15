@@ -65,6 +65,12 @@ module LavinMQ
       spawn check_consumer_timeouts_loop, name: "Consumer timeouts loop"
     end
 
+    def each_connection(&)
+      @connections.read &.each do |c|
+        yield c
+      end
+    end
+
     def connections
       @connections.read &.dup
     end
@@ -74,9 +80,7 @@ module LavinMQ
         sleep Config.instance.consumer_timeout_loop_interval.seconds
         return if @closed
         @connections.read &.each do |c|
-          c.channels.each_value do |ch|
-            ch.check_consumer_timeout
-          end
+          c.check_consumer_timeout
         end
       end
     end
@@ -292,13 +296,16 @@ module LavinMQ
       end
     end
 
-    def queue_bindings(queue : Queue) : Iterator(BindingDetails)
+    def queue_bindings(queue : Queue) : Array(BindingDetails)
       default_binding = BindingDetails.new("", name, BindingKey.new(queue.name), queue)
-      bindings = [] of BindingDetails
+      bindings = [default_binding]
       each_exchange do |ex|
-        bindings.concat(ex.bindings_details.select { |binding| binding.destination == queue })
+        ex.bindings_details.each do |bd|
+          next unless bd.destination == queue
+          bindings << bd
+        end
       end
-      {default_binding}.each.chain(bindings.each)
+      bindings
     end
 
     def add_operator_policy(name : String, pattern : String, apply_to : String,

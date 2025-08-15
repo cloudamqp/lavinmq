@@ -7,8 +7,8 @@ module LavinMQ
         "direct"
       end
 
-      def bindings_details : Iterator(BindingDetails)
-        Iterator(BindingDetails).empty
+      def bindings_details : Enumerable(BindingDetails)
+        Array(BindingDetails).new(0)
       end
 
       protected def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)

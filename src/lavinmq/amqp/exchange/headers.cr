@@ -21,12 +21,10 @@ module LavinMQ
         "headers"
       end
 
-      def bindings_details : Iterator(BindingDetails)
-        @bindings.read do |bindings|
-          bindings.each.flat_map do |_args, ds|
-            ds.map do |d, binding_key|
-              BindingDetails.new(name, vhost.name, binding_key, d)
-            end
+      def bindings_details : Enumerable(BindingDetails)
+        @bindings.read &.flat_map do |_args, ds|
+          ds.each.map do |d, binding_key|
+            BindingDetails.new(name, vhost.name, binding_key, d)
           end
         end
       end
@@ -75,25 +73,23 @@ module LavinMQ
 
       protected def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
         default_x_match = @arguments["x-match"]? || "all"
-        @bindings.read do |bindings|
-          bindings.each do |args, destinations|
-            if headers.nil? || headers.empty?
-              next unless args.empty?
-              destinations.each do |destination, _binding_key|
-                yield destination
-              end
-            else
-              x_match = args["x-match"]? || default_x_match
-              is_match = case x_match
-                         when "any"
-                           args.any? { |k, v| !k.starts_with?("x-") && (headers.has_key?(k) && headers[k] == v) }
-                         else
-                           args.all? { |k, v| k.starts_with?("x-") || (headers.has_key?(k) && headers[k] == v) }
-                         end
-              next unless is_match
-              destinations.each do |destination, _binding_key|
-                yield destination
-              end
+        @bindings.read &.each do |args, destinations|
+          if headers.nil? || headers.empty?
+            next unless args.empty?
+            destinations.each do |destination, _binding_key|
+              yield destination
+            end
+          else
+            x_match = args["x-match"]? || default_x_match
+            is_match = case x_match
+                       when "any"
+                         args.any? { |k, v| !k.starts_with?("x-") && (headers.has_key?(k) && headers[k] == v) }
+                       else
+                         args.all? { |k, v| k.starts_with?("x-") || (headers.has_key?(k) && headers[k] == v) }
+                       end
+            next unless is_match
+            destinations.each do |destination, _binding_key|
+              yield destination
             end
           end
         end

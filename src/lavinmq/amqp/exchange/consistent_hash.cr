@@ -1,19 +1,20 @@
 require "../destination"
 require "./exchange"
 require "../../consistent_hasher.cr"
+require "sync/shared"
 
 module LavinMQ
   module AMQP
     class ConsistentHashExchange < Exchange
-      @hasher = ConsistentHasher(AMQP::Destination).new
-      @bindings = Set({Destination, BindingKey}).new
+      @hasher = Sync::Shared(ConsistentHasher(AMQP::Destination)).new(ConsistentHasher(AMQP::Destination).new)
+      @bindings = Sync::Shared(Set({Destination, BindingKey})).new(Set({Destination, BindingKey}).new)
 
       def type : String
         "x-consistent-hash"
       end
 
-      def bindings_details : Iterator(BindingDetails)
-        @bindings.each.map do |destination, binding_key|
+      def bindings_details : Enumerable(BindingDetails)
+        @bindings.read &.map do |destination, binding_key|
           BindingDetails.new(name, vhost.name, binding_key, destination)
         end
       end
@@ -21,8 +22,8 @@ module LavinMQ
       def bind(destination : Destination, routing_key : String, arguments : AMQP::Table?)
         w = weight(routing_key)
         binding_key = BindingKey.new(routing_key, arguments)
-        return false unless @bindings.add?({destination, binding_key})
-        @hasher.add(destination.name, w, destination)
+        return false unless @bindings.write &.add?({destination, binding_key})
+        @hasher.write &.add(destination.name, w, destination)
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
         notify_observers(ExchangeEvent::Bind, data)
         true
@@ -31,18 +32,18 @@ module LavinMQ
       def unbind(destination : Destination, routing_key : String, arguments : AMQP::Table?)
         w = weight(routing_key)
         binding_key = BindingKey.new(routing_key, arguments)
-        return false unless @bindings.delete({destination, binding_key})
-        @hasher.remove(destination.name, w)
+        return false unless @bindings.write &.delete({destination, binding_key})
+        @hasher.write &.remove(destination.name, w)
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
         notify_observers(ExchangeEvent::Unbind, data)
 
-        delete if @auto_delete && @bindings.empty?
+        delete if @auto_delete && @bindings.read &.empty?
         true
       end
 
       def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
         key = hash_key(routing_key, headers)
-        if d = @hasher.get(key)
+        if d = @hasher.read &.get(key)
           yield d
         end
       end

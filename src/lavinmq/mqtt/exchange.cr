@@ -73,9 +73,9 @@ module LavinMQ
         count
       end
 
-      def bindings_details : Iterator(BindingDetails)
+      def bindings_details : Enumerable(BindingDetails)
         @bindings.read do |bindings|
-          bindings.each.flat_map do |binding_key, ds|
+          bindings.flat_map do |binding_key, ds|
             ds.each.map do |d|
               BindingDetails.new(name, vhost.name, binding_key.inner, d)
             end

@@ -18,18 +18,22 @@ module LavinMQ
 
       private abstract def register_routes
 
-      private def page(context, iterator : Enumerable(SortableJSON))
+      private def page(context, all_items : Enumerable(SortableJSON))
         params = context.request.query_params
         page_size = extract_page_size(context)
         search_term = extract_search_term(params)
         total_count = 0
-        all_items = iterator.compact_map do |i|
+        all_items = all_items.compact_map do |i|
           total_count += 1
-          next unless i.search_match?(search_term) if search_term
-          i.details_tuple
+          if search_term
+            if i.search_match?(search_term)
+              i.details_tuple
+            end
+          else
+            i.details_tuple
+          end
         rescue ex
           Log.warn(exception: ex) { "Could not list all items" }
-          next
         end
         all_items = sort(all_items, context)
         columns = params["columns"]?.try(&.split(','))
@@ -77,7 +81,7 @@ module LavinMQ
           if context.request.query_params["sort_reverse"]?.try { |s| !(s =~ /^false$/i) }
             sorted_items.reverse!
           end
-          sorted_items.each
+          sorted_items
         else
           all_items
         end

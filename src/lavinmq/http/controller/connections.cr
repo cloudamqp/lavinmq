@@ -19,13 +19,13 @@ module LavinMQ
 
       private def register_routes
         get "/api/connections" do |context, _params|
-          page(context, connections(user(context)).each)
+          page(context, connections(user(context)))
         end
 
         get "/api/vhosts/:vhost/connections" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            page(context, @amqp_server.vhosts[vhost].connections.each)
+            page(context, @amqp_server.vhosts[vhost].connections)
           end
         end
 
@@ -45,13 +45,13 @@ module LavinMQ
 
         get "/api/connections/:name/channels" do |context, params|
           with_connection(context, params) do |connection|
-            page(context, connection.channels.each_value)
+            page(context, connection.channels)
           end
         end
 
         get "/api/connections/username/:username" do |context, params|
           connections = get_connections_by_username(context, params["username"])
-          page(context, connections.each)
+          page(context, connections)
         end
 
         delete "/api/connections/username/:username" do |context, params|

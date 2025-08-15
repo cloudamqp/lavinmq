@@ -14,12 +14,10 @@ module LavinMQ
         "topic"
       end
 
-      def bindings_details : Iterator(BindingDetails)
-        @bindings.read do |bindings|
-          bindings.each.flat_map do |_rk, ds|
-            ds.each.map do |d, binding_key|
-              BindingDetails.new(name, vhost.name, binding_key, d)
-            end
+      def bindings_details : Enumerable(BindingDetails)
+        @bindings.read &.flat_map do |_rk, ds|
+          ds.each.map do |d, binding_key|
+            BindingDetails.new(name, vhost.name, binding_key, d)
           end
         end
       end

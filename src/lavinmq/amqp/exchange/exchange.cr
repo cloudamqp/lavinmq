@@ -192,7 +192,7 @@ module LavinMQ
       abstract def type : String
       abstract def bind(destination : AMQP::Destination, routing_key : String, arguments : AMQP::Table?)
       abstract def unbind(destination : AMQP::Destination, routing_key : String, arguments : AMQP::Table?)
-      abstract def bindings_details : Iterator(BindingDetails)
+      abstract def bindings_details : Enumerable(BindingDetails)
       abstract def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
 
       def publish(msg : Message, immediate : Bool,

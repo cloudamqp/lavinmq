@@ -35,8 +35,10 @@ module LavinMQ
             next if x_vhost && vhost.name != x_vhost
             vhost.connections.each do |c|
               connections += 1
-              channels += c.channels.size
-              consumers += c.channels.each_value.sum &.consumers.size
+              c.each_channel do |ch|
+                channels += 1
+                consumers += ch.consumers.size
+              end
               recv_rate += c.stats_details[:recv_oct_details][:rate]
               send_rate += c.stats_details[:send_oct_details][:rate]
               add_logs!(recv_rate_log, c.stats_details[:recv_oct_details][:log])
@@ -133,20 +135,19 @@ module LavinMQ
         end
 
         get "/api/federation-links" do |context, _params|
-          itrs = vhosts(user(context)).flat_map do |vhost|
-            vhost.upstreams.not_nil!.flat_map do |upstream|
-              upstream.links.each
+          links = Array(LavinMQ::Federation::Upstream::Link).new
+          vhosts(user(context)).each do |vhost|
+            vhost.upstreams.not_nil!.each do |upstream|
+              links.concat upstream.links
             end
           end
-          page(context, itrs)
+          page(context, links)
         end
 
         get "/api/federation-links/:vhost" do |context, params|
           with_vhost(context, params) do |vhost|
-            itrs = @amqp_server.vhosts[vhost].upstreams.not_nil!.map do |upstream|
-              upstream.links.each
-            end
-            page(context, Iterator(Federation::Upstream::Link).chain(itrs))
+            links = @amqp_server.vhosts[vhost].upstreams.not_nil!.flat_map &.links
+            page(context, links)
           end
         end
 
