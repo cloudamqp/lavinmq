@@ -13,7 +13,6 @@ module LavinMQ
 
     def initialize(@data_dir : String, @replicator : Clustering::Replicator)
       @users = Hash(String, User).new
-      @lock = Mutex.new
       load!
     end
 
@@ -45,76 +44,64 @@ module LavinMQ
 
     # Adds a user to the use store
     def create(name, password, tags = Array(Tag).new, save = true)
-      @lock.synchronize do
-        if user = @users[name]?
-          return user
-        end
-        user = User.create(name, password, "SHA256", tags)
-        new_users = @users.dup
-        new_users[name] = user
-        @users = new_users
-        Log.info { "Created user=#{name}" }
-        save! if save
-        user
+      if user = @users[name]?
+        return user
       end
+      user = User.create(name, password, "SHA256", tags)
+      new_users = @users.dup
+      new_users[name] = user
+      @users = new_users
+      Log.info { "Created user=#{name}" }
+      save! if save
+      user
     end
 
     def add(name, password_hash, password_algorithm, tags = Array(Tag).new, save = true)
-      @lock.synchronize do
-        if user = @users[name]?
-          return user
-        end
-        user = User.new(name, password_hash, password_algorithm, tags)
-        new_users = @users.dup
-        new_users[name] = user
-        @users = new_users
-        save! if save
-        user
+      if user = @users[name]?
+        return user
       end
+      user = User.new(name, password_hash, password_algorithm, tags)
+      new_users = @users.dup
+      new_users[name] = user
+      @users = new_users
+      save! if save
+      user
     end
 
     def add_permission(user, vhost, config, read, write)
       perm = {config: config, read: read, write: write}
-      @lock.synchronize do
-        if @users[user].permission?(vhost) == perm
-          return perm
-        end
-        @users[user].set_permission(vhost, perm)
+      if @users[user].permission?(vhost) == perm
+        return perm
+      end
+      @users[user].set_permission(vhost, perm)
+      save!
+      perm
+    end
+
+    def rm_permission(user, vhost)
+      if perm = @users[user].remove_permission vhost
+        Log.info { "Removed permissions for user=#{user} on vhost=#{vhost}" }
         save!
         perm
       end
     end
 
-    def rm_permission(user, vhost)
-      @lock.synchronize do
-        if perm = @users[user].remove_permission vhost
-          Log.info { "Removed permissions for user=#{user} on vhost=#{vhost}" }
-          save!
-          perm
-        end
-      end
-    end
-
     def rm_vhost_permissions_for_all(vhost)
-      @lock.synchronize do
-        @users.each_value do |user|
-          user.remove_permission(vhost)
-        end
-        save!
+      @users.each_value do |user|
+        user.remove_permission(vhost)
       end
+      save!
     end
 
     def delete(name, save = true) : User?
       return if name == DIRECT_USER
-      @lock.synchronize do
-        if user = @users[name]?
-          new_users = @users.dup
-          new_users.delete(name)
-          @users = new_users
-          Log.info { "Deleted user=#{name}" }
-          save! if save
-          user
-        end
+      if user = @users[name]?
+        new_users = @users.dup
+        new_users.delete(name)
+        @users = new_users
+        Log.info { "Deleted user=#{name}" }
+        save! if save
+        user
       end
     end
 
