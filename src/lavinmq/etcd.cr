@@ -1,6 +1,7 @@
 require "socket"
 require "wait_group"
 require "json"
+require "openssl"
 require "./logger"
 require "./etcd/lease"
 
@@ -8,11 +9,21 @@ module LavinMQ
   class Etcd
     Log = LavinMQ::Log.for "etcd"
 
+    @endpoints : Array(Tuple(String, Int32, String?, Bool))
+
     def initialize(endpoints = "localhost:2379")
-      @endpoints = endpoints.split(',')
+      @endpoints = endpoints.split(',').map { |ep| parse_endpoint(ep) }
     end
 
-    getter endpoints
+    private def parse_endpoint(endpoint) : Tuple(String, Int32, String?, Bool)
+      uri = endpoint.includes?("://") ? URI.parse(endpoint) : URI.parse("tcp://#{endpoint}")
+      auth = uri.user && uri.password ? "Basic #{Base64.strict_encode("#{uri.user}:#{uri.password}")}" : nil
+      {uri.host || "localhost", uri.port || 2379, auth, uri.scheme == "https"}
+    end
+
+    def endpoints
+      @endpoints.map { |host, port, auth, tls| "#{host}:#{port}" }
+    end
 
     # Sets value if key doesn't exist
     # Return the value that was set or the value that was already stored
@@ -150,13 +161,13 @@ module LavinMQ
     end
 
     private def post(path, body) : JSON::Any
-      with_tcp do |tcp, address|
-        return post_request(tcp, address, path, body)
+      with_tcp do |tcp, address, auth|
+        return post_request(tcp, address, auth, path, body)
       end
     end
 
-    private def post_request(tcp, address, path, body) : JSON::Any
-      send_request(tcp, address, path, body)
+    private def post_request(tcp, address, auth, path, body) : JSON::Any
+      send_request(tcp, address, auth, path, body)
       content_length = read_headers(tcp)
       case content_length
       when -1 # chunked response, expect only one chunk
@@ -169,15 +180,15 @@ module LavinMQ
     end
 
     private def stream(path, body, & : JSON::Any -> _)
-      with_tcp do |tcp, address|
-        post_stream(tcp, address, path, body) do |chunk|
+      with_tcp do |tcp, address, auth|
+        post_stream(tcp, address, auth, path, body) do |chunk|
           yield chunk
         end
       end
     end
 
-    private def post_stream(tcp, address, path, body, & : JSON::Any -> _)
-      send_request(tcp, address, path, body)
+    private def post_stream(tcp, address, auth, path, body, & : JSON::Any -> _)
+      send_request(tcp, address, auth, path, body)
       content_length = read_headers(tcp)
       if content_length == -1 # Chunked response
         read_chunks(tcp) do |chunk|
@@ -228,10 +239,13 @@ module LavinMQ
       raise Error.new("Read response error", cause: ex)
     end
 
-    private def send_request(tcp : IO, address : String, path : String, body : String)
+    private def send_request(tcp : IO, address : String, auth : String?, path : String, body : String)
       tcp << "POST " << path << " HTTP/1.1\r\n"
       tcp << "Host: " << address << "\r\n"
       tcp << "Content-Length: " << body.bytesize << "\r\n"
+      if auth
+        tcp << "Authorization: " << auth << "\r\n"
+      end
       tcp << "\r\n"
       tcp << body
       tcp.flush
@@ -269,14 +283,14 @@ module LavinMQ
       raise Error.new("Read response error", cause: ex)
     end
 
-    @connections = Deque(Tuple(TCPSocket, String)).new
+    @connections = Deque(Tuple(IO, String, String?)).new
     @lock = Mutex.new
 
-    private def with_tcp(& : Tuple(TCPSocket, String) -> _)
+    private def with_tcp(& : Tuple(IO, String, String?) -> _)
       loop do
-        socket, address = @lock.synchronize { @connections.shift? } || connect
+        socket, address, auth = @lock.synchronize { @connections.shift? } || connect
         begin
-          return yield({socket, address})
+          return yield({socket, address, auth})
         rescue ex : LeaseAlreadyExists
           raise ex # don't retry
         rescue ex : NoLeader
@@ -286,24 +300,19 @@ module LavinMQ
           socket.close rescue nil
           sleep 0.1.seconds
         ensure
-          @lock.synchronize { @connections.push({socket, address}) } unless socket.closed?
+          @lock.synchronize { @connections.push({socket, address, auth}) } unless socket.closed?
         end
       end
     end
 
-    private def connect : Tuple(TCPSocket, String)
-      @endpoints.shuffle.each do |address|
-        host, port = address.split(':', 2)
-        socket = TCPSocket.new(host, port, connect_timeout: 1.seconds)
-        socket.sync = false
-        socket.read_buffering = true
-        socket.keepalive = true
-        socket.tcp_keepalive_idle = 5
-        socket.tcp_keepalive_count = 3
-        socket.tcp_keepalive_interval = 1
-        # update_endpoints(socket, address)
+    private def connect : Tuple(IO, String, String?)
+      @endpoints.shuffle.each do |host, port, auth, tls|
+        address = "#{host}:#{port}"
+        tcp_socket = create_tcp_socket(host, port)
+        socket = tls ? wrap_with_tls(tcp_socket, host) : tcp_socket
+        # update_endpoints(socket, address, auth)
         Log.debug { "Connected to #{address}" }
-        return {socket, address}
+        return {socket, address, auth}
       rescue ex : IO::Error
         Log.debug { "Could not connect to #{address}: #{ex}" }
         next
@@ -312,21 +321,44 @@ module LavinMQ
       exit 5 # 5th character in the alphabet is E(etcd)
     end
 
-    private def update_endpoints(tcp, address)
-      json = post_request(tcp, address, "/v3/cluster/member/list", "")
-      endpoints = Array(String).new
+    private def create_tcp_socket(host, port)
+      socket = TCPSocket.new(host, port, connect_timeout: 1.seconds)
+      socket.sync = false
+      socket.read_buffering = true
+      socket.keepalive = true
+      socket.tcp_keepalive_idle = 5
+      socket.tcp_keepalive_count = 3
+      socket.tcp_keepalive_interval = 1
+      socket
+    end
+
+    private def wrap_with_tls(tcp_socket, host)
+      ssl_context = OpenSSL::SSL::Context::Client.new
+      ssl_socket = OpenSSL::SSL::Socket::Client.new(tcp_socket, context: ssl_context, hostname: host)
+      ssl_socket.sync = false
+      ssl_socket
+    end
+
+    private def update_endpoints(tcp, address, auth)
+      json = post_request(tcp, address, auth, "/v3/cluster/member/list", "")
+      new_endpoints = [] of Tuple(String, Int32, String?, Bool)
       json["members"].as_a.each do |m|
         m["clientURLs"]?.try &.as_a.each do |url|
           uri = URI.parse url.as_s
-          if uri.scheme == "http" # Doesn't support https yet
-            endpoints << "#{uri.hostname || "127.0.0.1"}:#{uri.port || 2379}"
+          if uri.scheme == "http" || uri.scheme == "https"
+            host = uri.hostname || "127.0.0.1"
+            port = uri.port || 2379
+            tls = uri.scheme == "https"
+            new_endpoints << {host, port, nil, tls}
           end
         end
       end
-      unless @endpoints.size == endpoints.size &&
-             @endpoints.all? { |addr| endpoints.includes? addr }
-        Log.info { "Updated endpoints to: #{endpoints} (from: #{@endpoints})" }
-        @endpoints = endpoints
+      old_addresses = endpoints
+      new_addresses = new_endpoints.map { |host, port, auth, tls| "#{host}:#{port}" }
+      unless old_addresses.size == new_addresses.size &&
+             old_addresses.all? { |addr| new_addresses.includes? addr }
+        Log.info { "Updated endpoints to: #{new_addresses} (from: #{old_addresses})" }
+        @endpoints = new_endpoints
       end
     rescue ex : KeyError
       Log.warn { "Could not update endpoints, response was: #{json}" }
