@@ -22,7 +22,7 @@ module LavinMQ
     end
 
     def endpoints
-      @endpoints.map { |host, port, auth, tls| "#{host}:#{port}" }
+      @endpoints.map { |host, port, _, _| "#{host}:#{port}" }
     end
 
     # Sets value if key doesn't exist
@@ -354,7 +354,7 @@ module LavinMQ
         end
       end
       old_addresses = endpoints
-      new_addresses = new_endpoints.map { |host, port, auth, tls| "#{host}:#{port}" }
+      new_addresses = new_endpoints.map { |host, port, _, _| "#{host}:#{port}" }
       unless old_addresses.size == new_addresses.size &&
              old_addresses.all? { |addr| new_addresses.includes? addr }
         Log.info { "Updated endpoints to: #{new_addresses} (from: #{old_addresses})" }
