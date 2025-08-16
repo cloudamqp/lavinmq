@@ -28,8 +28,10 @@ module LavinMQ
 
         get "/api/channels/:name" do |context, params|
           with_channel(context, params) do |channel|
+            consumers = Array(Client::Channel::Consumer).new
+            channel.each_consumer { |c| consumers << c }
             channel.details_tuple.merge({
-              consumer_details: channel.consumers,
+              consumer_details: consumers,
             }).to_json(context.response)
           end
         end

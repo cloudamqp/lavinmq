@@ -30,15 +30,15 @@ module LavinMQ
         loop do
           break if @closed
           next @msg_store.empty.when_false.receive? if @msg_store.empty?
-          next @consumers_empty.when_false.receive? if @consumers.empty?
-          consumer = @consumers.first.as(MQTT::Consumer)
+          next @consumers_empty.when_false.receive? if @consumers.read(&.empty?)
+          consumer = @consumers.read(&.first).as(MQTT::Consumer)
           get_packet do |pub_packet|
             consumer.deliver(pub_packet)
           end
           Fiber.yield if (i &+= 1) % 32768 == 0
         rescue ex
           @log.error(exception: ex) { "Failed to deliver message in deliver_loop" }
-          @consumers.each &.close
+          @consumers.read &.each &.close
           self.client = nil
         end
       end
@@ -56,8 +56,10 @@ module LavinMQ
         end
         @unacked.clear
 
-        @consumers.each do |c|
-          rm_consumer c
+        @consumers.read do |consumers|
+          consumers.each do |c|
+            rm_consumer c
+          end
         end
 
         if c = client
@@ -88,7 +90,7 @@ module LavinMQ
 
       def publish(msg : Message) : Bool
         # Do not enqueue messages with QoS 0 if there are no consumers subscribed to the session
-        return true if msg.properties.delivery_mode == 0 && @consumers.empty?
+        return true if msg.properties.delivery_mode == 0 && @consumers.read(&.empty?)
         super
       end
 

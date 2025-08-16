@@ -176,8 +176,8 @@ module LavinMQ::AMQP
 
     private def unmap_and_remove_segments
       used_segments = Set(UInt32).new
-      @consumers_lock.synchronize do
-        @consumers.each do |consumer|
+      @consumers.read do |consumers|
+        consumers.each do |consumer|
           used_segments << consumer.as(AMQP::StreamConsumer).segment
         end
       end

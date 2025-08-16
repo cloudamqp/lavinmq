@@ -20,7 +20,7 @@ module LavinMQ
       getter id, name
       property? running = true
       getter? flow = true
-      getter consumers = Array(Consumer).new
+      @consumers = Sync::Shared(Array(Consumer)).new(Array(Consumer).new)
       getter prefetch_count : UInt16 = Config.instance.default_consumer_prefetch
       getter global_prefetch_count = 0_u16
       getter has_capacity = BoolChannel.new(true)
@@ -64,7 +64,7 @@ module LavinMQ
           name:                    @name,
           vhost:                   @client.vhost.name,
           user:                    @client.user.name,
-          consumer_count:          @consumers.size,
+          consumer_count:          consumer_count,
           prefetch_count:          @prefetch_count,
           global_prefetch_count:   @global_prefetch_count,
           confirm:                 @confirm,
@@ -76,9 +76,25 @@ module LavinMQ
         }
       end
 
+      def each_consumer(&block : Consumer -> Nil) : Nil
+        @consumers.read &.each(&block)
+      end
+
+      def consumer_count : Int32
+        @consumers.read(&.size)
+      end
+
+      def find_consumer(&block : Consumer -> Bool) : Consumer?
+        @consumers.read(&.find(&block))
+      end
+
+      def remove_consumer(consumer : Consumer) : Consumer?
+        @consumers.write(&.delete(consumer))
+      end
+
       def flow(active : Bool)
         @flow = active
-        @consumers.each &.flow(active)
+        each_consumer &.flow(active)
         send AMQP::Frame::Channel::FlowOk.new(@id, active)
       end
 
@@ -349,7 +365,7 @@ module LavinMQ
       end
 
       def consume(frame)
-        if @consumers.size >= Config.instance.max_consumers_per_channel > 0
+        if consumer_count >= Config.instance.max_consumers_per_channel > 0
           @client.send_resource_error(frame, "Max #{Config.instance.max_consumers_per_channel} consumers per channel reached")
           return
         end
@@ -381,7 +397,7 @@ module LavinMQ
               else
                 AMQP::Consumer.new(self, q, frame)
               end
-          @consumers.push(c)
+          @consumers.write &.push(c)
           q.add_consumer(c)
           unless frame.no_wait
             send AMQP::Frame::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag)
@@ -606,7 +622,7 @@ module LavinMQ
       end
 
       def prefetch_count=(value)
-        @consumers.each(&.prefetch_count = value)
+        each_consumer(&.prefetch_count = value)
         @prefetch_count = value
       end
 
@@ -650,11 +666,13 @@ module LavinMQ
 
       def close
         @running = false
-        @consumers.each_with_index(1) do |consumer, i|
-          consumer.close
-          Fiber.yield if (i % 128) == 0
+        @consumers.write do |consumers|
+          consumers.each_with_index(1) do |consumer, i|
+            consumer.close
+            Fiber.yield if (i % 128) == 0
+          end
+          consumers.clear
         end
-        @consumers.clear
         if drc = @direct_reply_consumer
           @client.vhost.direct_reply_consumers.delete(drc)
         end
@@ -724,8 +742,8 @@ module LavinMQ
 
       def cancel_consumer(frame)
         @log.debug { "Cancelling consumer '#{frame.consumer_tag}'" }
-        if idx = @consumers.index { |cons| cons.tag == frame.consumer_tag }
-          c = @consumers.delete_at idx
+        if c = find_consumer(&.tag.==(frame.consumer_tag))
+          remove_consumer(c)
           c.close
         elsif @direct_reply_consumer == frame.consumer_tag
           @direct_reply_consumer = nil

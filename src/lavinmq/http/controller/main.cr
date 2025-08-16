@@ -37,7 +37,7 @@ module LavinMQ
               connections += 1
               c.each_channel do |ch|
                 channels += 1
-                consumers += ch.consumers.size
+                consumers += ch.consumer_count
               end
               stats_details = c.stats_details
               recv_rate += stats_details[:recv_oct_details][:rate]

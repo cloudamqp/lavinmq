@@ -10,7 +10,7 @@ module LavinMQ
       private def register_routes
         get "/api/consumers" do |context, _params|
           consumers = Array(AMQP::Channel::Consumer).new
-          connections(user(context)).each(&.each_channel(&.consumers.each { |c| consumers << c }))
+          connections(user(context)).each(&.each_channel { |ch| ch.each_consumer { |c| consumers << c } })
           page(context, consumers)
         end
 
@@ -21,7 +21,7 @@ module LavinMQ
             consumers = Array(AMQP::Channel::Consumer).new
             connections(user(context)).each
               .select(&.vhost.name.==(vhost))
-              .each(&.each_channel(&.consumers.each { |c| consumers << c }))
+              .each(&.each_channel { |ch| ch.each_consumer { |c| consumers << c } })
             page(context, consumers)
           end
         end
@@ -43,7 +43,7 @@ module LavinMQ
               context.response.status_code = 404
               break
             end
-            consumer = channel.consumers.find(&.tag.==(consumer_tag))
+            consumer = channel.find_consumer(&.tag.==(consumer_tag))
             unless consumer
               context.response.status_code = 404
               break
