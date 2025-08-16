@@ -11,7 +11,6 @@ if (vhost && vhost !== '_all') {
 const tableOptions = {
   url,
   keyColumns: ['channel_details', 'consumer_tag'],
-  interval: 5000,
   pagination: true,
   columnSelector: true,
   search: true

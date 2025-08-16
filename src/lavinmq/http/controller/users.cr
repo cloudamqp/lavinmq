@@ -5,7 +5,7 @@ module LavinMQ
     struct UserView
       include SortableJSON
 
-      def initialize(@user : User)
+      def initialize(@user : Auth::User)
       end
 
       def details_tuple
@@ -74,7 +74,7 @@ module LavinMQ
         put "/api/users/:name" do |context, params|
           refuse_unless_administrator(context, user(context))
           name = params["name"]
-          bad_request(context, "Illegal user name") if UserStore.hidden?(name)
+          bad_request(context, "Illegal user name") if Auth::UserStore.hidden?(name)
           body = parse_body(context)
           password_hash = body["password_hash"]?.try &.as_s?
           password = body["password"]?.try &.as_s?
@@ -105,7 +105,7 @@ module LavinMQ
           context
         rescue ex : Base64::Error
           bad_request(context, ex.message)
-        rescue ex : User::InvalidPasswordHash
+        rescue ex : Auth::InvalidPasswordHash
           bad_request(context, ex.message)
         end
 
@@ -131,7 +131,7 @@ module LavinMQ
         put "/api/auth/hash_password" do |context, _params|
           body = parse_body(context)
           if password = body["password"]?.try &.as_s?
-            hash = User.hash_password(password, "SHA256")
+            hash = Auth::User.hash_password(password, "SHA256")
             {password_hash: hash.to_s}.to_json(context.response)
             context
           else

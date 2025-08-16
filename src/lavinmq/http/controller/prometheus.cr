@@ -208,24 +208,25 @@ module LavinMQ
       end
 
       private def global_metrics(writer)
+        message_stats = @amqp_server.vhosts.map { |_, v| v.message_details[:message_stats] }
         writer.write({name:  "global_messages_delivered_total",
                       value: @amqp_server.deleted_vhosts_messages_delivered_total +
-                             @amqp_server.vhosts.sum { |_, v| v.message_details[:message_stats][:deliver] },
+                             message_stats.sum { |ms| ms[:deliver] },
                       type: "counter",
                       help: "Total number of messaged delivered to consumers"})
         writer.write({name:  "global_messages_redelivered_total",
                       value: @amqp_server.deleted_vhosts_messages_redelivered_total +
-                             @amqp_server.vhosts.sum { |_, v| v.message_details[:message_stats][:redeliver] },
+                             message_stats.sum { |ms| ms[:redeliver] },
                       type: "counter",
                       help: "Total number of messages redelivered to consumers"})
         writer.write({name:  "global_messages_acknowledged_total",
                       value: @amqp_server.deleted_vhosts_messages_acknowledged_total +
-                             @amqp_server.vhosts.sum { |_, v| v.message_details[:message_stats][:ack] },
+                             message_stats.sum { |ms| ms[:ack] },
                       type: "counter",
                       help: "Total number of messages acknowledged by consumers"})
         writer.write({name:  "global_messages_confirmed_total",
                       value: @amqp_server.deleted_vhosts_messages_confirmed_total +
-                             @amqp_server.vhosts.sum { |_, v| v.message_details[:message_stats][:confirm] },
+                             message_stats.sum { |ms| ms[:confirm] },
                       type: "counter",
                       help: "Total number of messages confirmed to publishers"})
       end
@@ -281,11 +282,11 @@ module LavinMQ
                       help: "Server uptime in seconds"})
         writer.write({name:  "cpu_system_time_total",
                       value: @amqp_server.sys_time,
-                      type:  "gauge",
+                      type:  "counter",
                       help:  "Total CPU system time"})
         writer.write({name:  "cpu_user_time_total",
                       value: @amqp_server.user_time,
-                      type:  "gauge",
+                      type:  "counter",
                       help:  "Total CPU user time"})
         writer.write({name:  "stats_collection_duration_seconds_total",
                       value: @amqp_server.stats_collection_duration_seconds_total.to_f,
@@ -372,8 +373,9 @@ module LavinMQ
           {{sm.id}} = 0_u64
         {% end %}
         vhosts.each do |vhost|
+          stats_details = vhost.stats_details
           {% for sm in SERVER_METRICS %}
-            {{sm.id}} += vhost.stats_details[:{{sm.id}}]
+            {{sm.id}} += stats_details[:{{sm.id}}]
           {% end %}
         end
         {% begin %}

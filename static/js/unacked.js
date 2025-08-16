@@ -13,7 +13,6 @@ document.querySelector('#pagename-label').textContent = `${queue} in virtual hos
 const tableOptions = {
   dataSource: new UrlDataSource(url, { useQueryState: false }),
   keyColumns: ['delivery_tag', 'channel_name'],
-  interval: 5000,
   pagination: true,
   columnSelector: true,
   search: false,

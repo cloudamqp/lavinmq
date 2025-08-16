@@ -26,7 +26,7 @@ module LavinMQ
 
       def initialize(@socket : ::IO,
                      @connection_info : ConnectionInfo,
-                     @user : User,
+                     @user : Auth::User,
                      @broker : MQTT::Broker,
                      @client_id : String,
                      @clean_session : Bool = false,

@@ -45,7 +45,7 @@ module LavinMQ
     @definitions_deletes = 0
     Log = LavinMQ::Log.for "vhost"
 
-    def initialize(@name : String, @server_data_dir : String, @users : UserStore, @replicator : Clustering::Replicator, @description = "", @tags = Array(String).new(0))
+    def initialize(@name : String, @server_data_dir : String, @users : Auth::UserStore, @replicator : Clustering::Replicator, @description = "", @tags = Array(String).new(0))
       @log = Logger.new(Log, vhost: @name)
       @dir = Digest::SHA1.hexdigest(@name)
       @data_dir = File.join(@server_data_dir, @dir)
@@ -133,8 +133,7 @@ module LavinMQ
     def publish(msg : Message, immediate = false,
                 visited = Set(LavinMQ::Exchange).new, found_queues = Set(LavinMQ::Queue).new) : Bool
       ex = fetch_exchange(msg.exchange_name) || return false
-      published_queue_count = ex.publish(msg, immediate, found_queues, visited)
-      !published_queue_count.zero?
+      ex.publish(msg, immediate, found_queues, visited)
     ensure
       visited.clear
       found_queues.clear

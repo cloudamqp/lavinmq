@@ -1,6 +1,9 @@
 <header>
   <div id="menu-header">
-    <a class="lavinmq-logo" href="/"><img alt="LavinMQ logo" id="logo" src="img/logo-lavinmq-all-white.svg" width="120" height="24"></a>
+    <a class="lavinmq-logo" href="/">
+      <img alt="LavinMQ logo" class="dark" id="logo" src="img/logo-lavinmq-all-white.svg" width="120" height="24">
+      <img alt="LavinMQ logo" class="light" id="logo-light" src="img/logo-lavinmq-all-dark.svg" width="120" height="24">
+    </a>
     <span class="version-tab" id="version"><%= LavinMQ::VERSION %></span>
   </div>
   <button id="usermenu-button"></button>
@@ -19,6 +22,22 @@
             <select class="dropdown" id="userMenuVhost" name="vhost"></select>
           </label>
         </form>
+      </li>
+      <li class="flex flex-row items-center">
+        <div id="theme-switcher">
+          <button id="theme-light" data-theme="light" title="Light theme">
+            <img src="img/mode-icons/sun-light.svg" alt="Light theme" class="theme-icon-dark">
+            <img src="img/mode-icons/sun-dark.svg" alt="Light theme" class="theme-icon-light">
+          </button>
+          <button id="theme-dark" data-theme="dark" title="Dark theme">
+            <img src="img/mode-icons/moon-light.svg" alt="Dark theme" class="theme-icon-dark">
+            <img src="img/mode-icons/moon-dark.svg" alt="Dark theme" class="theme-icon-light">
+          </button>
+          <button id="theme-system" data-theme="system" title="System theme">
+            <img src="img/mode-icons/monitor-light.svg" alt="System theme" class="theme-icon-dark">
+            <img src="img/mode-icons/monitor-dark.svg" alt="System theme" class="theme-icon-light">
+          </button>
+        </div>
       </li>
       <li>
         <a id="signoutLink" href="#">

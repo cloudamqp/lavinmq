@@ -210,7 +210,7 @@ module LavinMQ
         context
       end
 
-      private def user(context) : User
+      private def user(context) : Auth::User
         user = nil
         if username = context.authenticated_username?
           user = @amqp_server.users[username]?
@@ -222,7 +222,7 @@ module LavinMQ
         user
       end
 
-      def vhosts(user : User) : Iterator(VHost)
+      def vhosts(user : Auth::User) : Iterator(VHost)
         @amqp_server.vhosts.each_value.select do |v|
           next false if user.tags.empty? # no tags means no access
           next true if user.tags.any? { |t| t.administrator? || t.monitoring? }
@@ -254,7 +254,7 @@ module LavinMQ
         end
       end
 
-      private def refuse_unless_administrator(context, user : User)
+      private def refuse_unless_administrator(context, user : Auth::User)
         unless user.tags.any? &.administrator?
           Log.warn { "user=#{user.name} does not have administrator access" }
           access_refused(context)

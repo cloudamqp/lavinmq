@@ -12,7 +12,9 @@ Signal::SEGV.reset # Let the OS generate a coredump
 Log.setup_from_env
 
 module LavinMQPerf
-  protocol = ARGV.shift? || "amqp"
+  # Default to 'amqp' if the first argument is not a protocol or an option
+  protocols = {"amqp", "mqtt"}
+  protocol = protocols.includes?(ARGV[0]?) ? ARGV.shift : "amqp"
   case protocol
   when "amqp"
     mode = ARGV.shift?
@@ -32,6 +34,7 @@ module LavinMQPerf
     mode = ARGV.shift?
     case mode
     when "throughput" then MQTT::Throughput.new.run
+    when /^.+$/       then Perf.new.run([mode.not_nil!])
     else                   abort Perf.new.mqtt_banner
     end
   when /^.+$/

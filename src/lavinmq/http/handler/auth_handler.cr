@@ -11,7 +11,7 @@ module LavinMQ
 
       def call(context)
         if internal_unix_socket?(context)
-          context.authenticated_username = UserStore::DIRECT_USER
+          context.authenticated_username = Auth::UserStore::DIRECT_USER
           return call_next(context)
         end
 

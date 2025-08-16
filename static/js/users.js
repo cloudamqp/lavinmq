@@ -8,7 +8,7 @@ HTTP.request('GET', 'api/permissions').then(permissions => {
   const tableOptions = {
     url: 'api/users',
     keyColumns: ['vhost', 'name'],
-    interval: 0,
+    autoReloadTimeout: 0,
     pagination: true,
     columnSelector: true,
     search: true

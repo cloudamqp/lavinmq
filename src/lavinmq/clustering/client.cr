@@ -159,6 +159,8 @@ module LavinMQ
               move_to_backup path
               requested_files << filename
               request_file(filename, socket)
+            else
+              Log.info { "Matching hash: #{path}" }
             end
           else
             requested_files << filename

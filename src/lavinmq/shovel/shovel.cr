@@ -46,7 +46,7 @@ module LavinMQ
                      @exchange_key : String? = nil,
                      @delete_after = DEFAULT_DELETE_AFTER, @prefetch = DEFAULT_PREFETCH,
                      @ack_mode = DEFAULT_ACK_MODE, consumer_args : Hash(String, JSON::Any)? = nil,
-                     direct_user : User? = nil, @batch_ack_timeout : Time::Span = DEFAULT_BATCH_ACK_TIMEOUT)
+                     direct_user : Auth::User? = nil, @batch_ack_timeout : Time::Span = DEFAULT_BATCH_ACK_TIMEOUT)
         @tag = "Shovel"
         raise ArgumentError.new("At least one source uri is required") if @uris.empty?
         @uris.each do |uri|
@@ -244,7 +244,7 @@ module LavinMQ
       @ch : ::AMQP::Client::Channel?
 
       def initialize(@name : String, @uri : URI, @queue : String?, @exchange : String? = nil,
-                     @exchange_key : String? = nil, @ack_mode = DEFAULT_ACK_MODE, direct_user : User? = nil)
+                     @exchange_key : String? = nil, @ack_mode = DEFAULT_ACK_MODE, direct_user : Auth::User? = nil)
         unless @uri.user
           if direct_user
             @uri.user = direct_user.name
@@ -370,11 +370,17 @@ module LavinMQ
       @retries : Int64 = 0
       RETRY_THRESHOLD =  10
       MAX_DELAY       = 300
+      @config = LavinMQ::Config.instance
 
       getter name, vhost
 
       def initialize(@source : AMQPSource, @destination : Destination,
                      @name : String, @vhost : VHost, @reconnect_delay : Time::Span = DEFAULT_RECONNECT_DELAY)
+        filename = "shovels.#{Digest::SHA1.hexdigest @name}.paused"
+        @paused_file_path = File.join(@config.data_dir, filename)
+        if File.exists?(@paused_file_path)
+          @state = State::Paused
+        end
       end
 
       def state
@@ -449,17 +455,24 @@ module LavinMQ
       end
 
       def resume
+        delete_paused_file
         @state = State::Starting
         Log.info { "Resuming shovel #{@name} vhost=#{@vhost.name}" }
         spawn(run, name: "Shovel name=#{@name} vhost=#{@vhost.name}")
       end
 
       def pause
+        File.write(@paused_file_path, @name)
         Log.info { "Pausing shovel #{@name} vhost=#{@vhost.name}" }
         @state = State::Paused
         @source.stop
         @destination.stop
         Log.info &.emit("Paused", name: @name, vhost: @vhost.name)
+      end
+
+      def delete
+        terminate
+        delete_paused_file
       end
 
       # Does not trigger reconnect, but a graceful close
@@ -469,6 +482,10 @@ module LavinMQ
         @destination.stop
         return if terminated?
         Log.info &.emit("Terminated", name: @name, vhost: @vhost.name)
+      end
+
+      def delete_paused_file
+        FileUtils.rm(@paused_file_path) if File.exists?(@paused_file_path)
       end
 
       def should_stop_loop?

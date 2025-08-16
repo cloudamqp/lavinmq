@@ -24,6 +24,10 @@ module FollowerSpec
     def with_file(filename : String, &)
       yield nil
     end
+
+    def nr_of_files
+      @files_with_hash.size
+    end
   end
 
   class FakeSocket < TCPSocket
@@ -33,7 +37,7 @@ module FollowerSpec
     end
 
     def initialize(@io : UNIXSocket)
-      super(Family::INET, Type::STREAM, Protocol::TCP, false)
+      super(Family::INET, Type::STREAM, Protocol::TCP)
     end
 
     delegate read, write, to: @io

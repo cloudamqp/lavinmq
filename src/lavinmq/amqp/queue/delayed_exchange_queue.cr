@@ -49,8 +49,11 @@ module LavinMQ::AMQP
         headers.delete("x-delay")
         msg.properties.headers = headers
       end
-      @vhost.publish Message.new(msg.timestamp, @exchange_name, msg.routing_key,
-        msg.properties, msg.bodysize, IO::Memory.new(msg.body))
+      if ex = @vhost.fetch_exchange(@exchange_name)
+        ex.route_msg Message.new(msg.timestamp, @exchange_name, msg.routing_key, msg.properties, msg.bodysize, IO::Memory.new(msg.body))
+      else
+        @log.error { "Exchange #{@exchange_name} not found, can't route expired message #{sp}" }
+      end
       delete_message sp
     end
 

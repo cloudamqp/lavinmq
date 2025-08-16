@@ -40,7 +40,7 @@ module LavinMQ
       def initialize(@socket : IO,
                      @connection_info : ConnectionInfo,
                      @vhost : VHost,
-                     @user : User,
+                     @user : Auth::User,
                      tune_ok,
                      start_ok)
         @max_frame_size = tune_ok.frame_max
@@ -535,6 +535,11 @@ module LavinMQ
 
       def send_internal_error(message)
         close_connection(nil, ConnectionReplyCode::INTERNAL_ERROR, "Unexpected error, please report")
+      end
+
+      def send_resource_error(frame, message)
+        @log.warn { "Resource error channel=#{frame.channel} reason=\"#{message}\"" }
+        close_channel(frame, ChannelReplyCode::RESOURCE_ERROR, message)
       end
 
       def send_frame_error(message = nil)

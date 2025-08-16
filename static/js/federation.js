@@ -14,7 +14,7 @@ if (vhost && vhost !== '_all') {
   linksUrl += HTTP.url`/${vhost}`
 }
 
-const utOpts = { url, keyColumns: ['vhost', 'name'], interval: 5000 }
+const utOpts = { url, keyColumns: ['vhost', 'name'] }
 const upstreamsTable = Table.renderTable('upstreamTable', utOpts, (tr, item) => {
   Table.renderCell(tr, 0, item.vhost)
   Table.renderCell(tr, 1, item.name)
@@ -50,7 +50,7 @@ const upstreamsTable = Table.renderTable('upstreamTable', utOpts, (tr, item) => 
   Table.renderCell(tr, 11, buttons, 'right')
 })
 
-const linksOpts = { url: linksUrl, keyColumns: ['vhost', 'name'], interval: 5000, countId: 'links-count' }
+const linksOpts = { url: linksUrl, keyColumns: ['vhost', 'name'], countId: 'links-count' }
 
 Table.renderTable('linksTable', linksOpts, (tr, item) => {
   const resourceDiv = document.createElement('span')

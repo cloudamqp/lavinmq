@@ -18,7 +18,7 @@ shards:
 
   mqtt-protocol:
     git: https://github.com/84codes/mqtt-protocol.cr.git
-    version: 0.2.0+git.commit.d01a1210ed7adfed9aa5cd055f1788a45d9c4d52
+    version: 0.2.0+git.commit.5cf504b32313b3b63eecde22e2a136b9b9935b8b
 
   sync:
     git: https://github.com/ysbaddaden/sync.git
