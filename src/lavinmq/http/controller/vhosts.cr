@@ -74,7 +74,7 @@ module LavinMQ
           with_vhost(context, params, "name") do |vhost|
             @amqp_server.users.compact_map do |_, u|
               next if u.hidden?
-              u.permissions[vhost]?.try { |p| u.permissions_details(vhost, p) }
+              u.permission?(vhost).try { |p| u.permissions_details(vhost, p) }
             end.to_json(context.response)
           end
         end

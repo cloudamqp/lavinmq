@@ -60,7 +60,7 @@ module LavinMQ
       frame.arguments["x-queue-type"]? == "stream"
     end
 
-    private def self.warn_if_unsupported_queue_type(frame)
+    private def self.warn_if_unsupported_queue_type(frame) : Nil
       if frame.arguments["x-queue-type"]?
         Log.info { "The queue type #{frame.arguments["x-queue-type"]} is not supported by LavinMQ and will be changed to the default queue type" }
       end

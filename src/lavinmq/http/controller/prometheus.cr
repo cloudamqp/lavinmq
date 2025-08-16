@@ -239,12 +239,12 @@ module LavinMQ
           unacked += d[:messages_unacknowledged]
           connections += vhost.connections.size
           vhost.connections.each do |conn|
-            channels += conn.channels.size
-            conn.channels.each_value do |ch|
-              consumers += ch.consumers.size
+            conn.each_channel do |ch|
+              channels += 1
+              consumers += ch.consumer_count
             end
           end
-          queues += vhost.queues.size
+          queues += vhost.queues_count
         end
         writer.write({name:  "connections",
                       value: connections,
@@ -425,7 +425,7 @@ module LavinMQ
 
       private def detailed_queue_coarse_metrics(vhosts, writer)
         vhosts.each do |vhost|
-          vhost.queues.each_value do |q|
+          vhost.each_queue do |q|
             labels = {queue: q.name, vhost: vhost.name}
             ready = q.message_count
             unacked = q.unacked_count
@@ -455,12 +455,11 @@ module LavinMQ
 
       private def detailed_queue_consumer_count(vhosts, writer)
         vhosts.each do |vhost|
-          vhost.queues.each_value do |q|
-            labels = {queue: q.name, vhost: vhost.name}
+          vhost.each_queue do |q|
             writer.write({name:   "detailed_queue_consumers",
                           value:  q.consumers.size,
                           type:   "gauge",
-                          labels: labels,
+                          labels: {queue: q.name, vhost: vhost.name},
                           help:   "Consumers on a queue"})
           end
         end
@@ -468,12 +467,11 @@ module LavinMQ
 
       private def detailed_exchange_metrics(vhosts, writer)
         vhosts.each do |vhost|
-          vhost.exchanges.each_value do |e|
-            labels = {exchange: e.name, vhost: vhost.name}
+          vhost.each_exchange do |e|
             writer.write({name:   "detailed_exchange_deduplication",
                           value:  e.dedup_count,
                           type:   "counter",
-                          labels: labels,
+                          labels: {exchange: e.name, vhost: vhost.name},
                           help:   "Number of deduplicated messages for this queue"})
           end
         end
@@ -494,7 +492,7 @@ module LavinMQ
                           labels: labels,
                           help:   "Total number of bytes sent on a connection"})
             writer.write({name:   "detailed_connection_channels",
-                          value:  conn.channels.size,
+                          value:  conn.channels_count,
                           type:   "counter",
                           labels: labels,
                           help:   "Channels on a connection"})
@@ -505,7 +503,7 @@ module LavinMQ
       private def detailed_channel_metrics(vhosts, writer)
         vhosts.each do |vhost|
           vhost.connections.each do |conn|
-            conn.channels.each_value do |ch|
+            conn.each_channel do |ch|
               labels = {channel: ch.name}
               d = ch.details_tuple
               writer.write({name:   "detailed_channel_consumers",

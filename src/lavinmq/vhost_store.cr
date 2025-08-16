@@ -20,12 +20,36 @@ module LavinMQ
       load!
     end
 
-    forward_missing_to @vhosts
-
     def each(&)
       @vhosts.each do |kv|
         yield kv
       end
+    end
+
+    def each_value(&)
+      @vhosts.each_value do |vhost|
+        yield vhost
+      end
+    end
+
+    def first_value
+      @vhosts.first_value
+    end
+
+    def each_value
+      @vhosts.each_value
+    end
+
+    def []?(name : String) : VHost?
+      @vhosts[name]?
+    end
+
+    def [](name : String) : VHost
+      @vhosts[name]
+    end
+
+    def capacity
+      @vhosts.capacity
     end
 
     def create(name : String, user : Auth::User = @users.default_user, description = "", tags = Array(String).new(0), save : Bool = true)
@@ -36,16 +60,21 @@ module LavinMQ
       Log.info { "Created vhost #{name}" }
       @users.add_permission(user.name, name, /.*/, /.*/, /.*/)
       @users.add_permission(Auth::UserStore::DIRECT_USER, name, /.*/, /.*/, /.*/)
-      @vhosts[name] = vhost
+      new_vhosts = @vhosts.dup
+      new_vhosts[name] = vhost
+      @vhosts = new_vhosts
       save! if save
       notify_observers(Event::Added, name)
       vhost
     end
 
     def delete(name) : VHost?
-      if vhost = @vhosts.delete name
+      if vhost = @vhosts[name]?
         @users.rm_vhost_permissions_for_all(name)
         vhost.delete
+        new_vhosts = @vhosts.dup
+        new_vhosts.delete(name)
+        @vhosts = new_vhosts
         notify_observers(Event::Deleted, name)
         Log.info { "Deleted vhost #{name}" }
         save!

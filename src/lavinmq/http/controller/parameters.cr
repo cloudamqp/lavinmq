@@ -139,8 +139,7 @@ module LavinMQ
         get "/api/policies" do |context, _params|
           user = user(context)
           refuse_unless_policymaker(context, user)
-          itr = Iterator(Policy).chain(vhosts(user).map(&.policies.each_value))
-          page(context, itr)
+          page(context, vhosts(user).flat_map(&.policies.values))
         end
 
         get "/api/policies/:vhost" do |context, params|
@@ -198,14 +197,14 @@ module LavinMQ
         get "/api/operator-policies" do |context, _params|
           user = user(context)
           refuse_unless_policymaker(context, user)
-          itr = Iterator(OperatorPolicy).chain(vhosts(user).map(&.operator_policies.each_value))
-          page(context, itr)
+          policies = vhosts(user).flat_map(&.operator_policies.values)
+          page(context, policies)
         end
 
         get "/api/operator-policies/:vhost" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_policymaker(context, user(context), vhost)
-            page(context, @amqp_server.vhosts[vhost].operator_policies.each_value)
+            page(context, @amqp_server.vhosts[vhost].operator_policies.values)
           end
         end
 

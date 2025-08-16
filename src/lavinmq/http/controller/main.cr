@@ -15,7 +15,7 @@ module LavinMQ
       private def register_routes
         get "/api/overview" do |context, _params|
           x_vhost = context.request.headers["x-vhost"]?
-          channels, connections, exchanges, queues, consumers, ready, unacked = 0_u32, 0_u32, 0_u32, 0_u32, 0_u32, 0_u32, 0_u32
+          channels, connections, exchanges, queue_count, consumers, ready, unacked = 0_u32, 0_u32, 0_u32, 0_u32, 0_u32, 0_u32, 0_u32
           recv_rate, send_rate = 0_f64, 0_f64
           ready_log = Deque(UInt32).new(LavinMQ::Config.instance.stats_log_size)
           unacked_log = Deque(UInt32).new(LavinMQ::Config.instance.stats_log_size)
@@ -35,17 +35,19 @@ module LavinMQ
             next if x_vhost && vhost.name != x_vhost
             vhost.connections.each do |c|
               connections += 1
-              channels += c.channels.size
-              consumers += c.channels.each_value.sum &.consumers.size
+              c.each_channel do |ch|
+                channels += 1
+                consumers += ch.consumer_count
+              end
               stats_details = c.stats_details
               recv_rate += stats_details[:recv_oct_details][:rate]
               send_rate += stats_details[:send_oct_details][:rate]
               add_logs!(recv_rate_log, stats_details[:recv_oct_details][:log])
               add_logs!(send_rate_log, stats_details[:send_oct_details][:log])
             end
-            exchanges += vhost.exchanges.size
-            queues += vhost.queues.size
-            vhost.queues.each_value do |q|
+            exchanges += vhost.exchanges_count
+            queue_count += vhost.queues_count
+            vhost.each_queue do |q|
               ready += q.message_count
               unacked += q.unacked_count
               add_logs!(ready_log, q.message_count_log)
@@ -71,7 +73,7 @@ module LavinMQ
               connections: connections,
               consumers:   consumers,
               exchanges:   exchanges,
-              queues:      queues,
+              queues:      queue_count,
             },
             queue_totals: {
               messages:                    ready + unacked,
@@ -127,27 +129,26 @@ module LavinMQ
               IO::Memory.new("test"))
             ok = @amqp_server.vhosts[vhost].publish(msg)
             env = nil
-            @amqp_server.vhosts[vhost].queues["aliveness-test"].basic_get(true) { |e| env = e }
+            @amqp_server.vhosts[vhost].fetch_queue("aliveness-test").try &.basic_get(true) { |e| env = e }
             ok = ok && env && String.new(env.message.body) == "test"
             {status: ok ? "ok" : "failed"}.to_json(context.response)
           end
         end
 
         get "/api/federation-links" do |context, _params|
-          itrs = vhosts(user(context)).flat_map do |vhost|
-            vhost.upstreams.not_nil!.flat_map do |upstream|
-              upstream.links.each
+          links = Array(LavinMQ::Federation::Upstream::Link).new
+          vhosts(user(context)).each do |vhost|
+            vhost.upstreams.not_nil!.each do |upstream|
+              links.concat upstream.links
             end
           end
-          page(context, itrs)
+          page(context, links)
         end
 
         get "/api/federation-links/:vhost" do |context, params|
           with_vhost(context, params) do |vhost|
-            itrs = @amqp_server.vhosts[vhost].upstreams.not_nil!.map do |upstream|
-              upstream.links.each
-            end
-            page(context, Iterator(Federation::Upstream::Link).chain(itrs))
+            links = @amqp_server.vhosts[vhost].upstreams.not_nil!.flat_map &.links
+            page(context, links)
           end
         end
 

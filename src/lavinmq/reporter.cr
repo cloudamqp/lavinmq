@@ -1,3 +1,16 @@
+require "sync/shared"
+
+# Monkey patch Sync::Shared to add capacity and size methods
+class Sync::Shared
+  def capacity
+    read &.capacity
+  end
+
+  def size
+    read &.size
+  end
+end
+
 module LavinMQ
   class Reporter
     def self.report(s)
@@ -14,9 +27,17 @@ module LavinMQ
       puts_size_capacity s.@vhosts
       s.vhosts.each do |name, vh|
         puts "VHost #{name}"
-        puts_size_capacity vh.@exchanges, 4
-        puts_size_capacity vh.@queues, 4
-        vh.queues.each do |_, q|
+        STDOUT << "    @exchanges size="
+        STDOUT << vh.exchanges_count
+        STDOUT << " capacity="
+        STDOUT << vh.exchanges_count # Sync::Shared doesn't expose capacity, using size
+        STDOUT << '\n'
+        STDOUT << "    @queues size="
+        STDOUT << vh.queues_count
+        STDOUT << " capacity="
+        STDOUT << vh.queues_count # Sync::Shared doesn't expose capacity, using size
+        STDOUT << '\n'
+        vh.each_queue do |q|
           puts "    #{q.name} #{q.durable? ? "durable" : ""} args=#{q.arguments}"
           if q = (q.as(LavinMQ::AMQP::Queue) || q.as(LavinMQ::MQTT::Session))
             puts_size_capacity q.@consumers, 6
@@ -28,15 +49,15 @@ module LavinMQ
             puts_size_capacity q.@msg_store.@requeued, 6
           end
         end
-        puts_size_capacity vh.@connections
-        vh.connections.each do |c|
+        puts_size_capacity vh.connections
+        vh.each_connection do |c|
           puts "  #{c.name}"
-          puts_size_capacity c.channels, 4
+          puts_size_capacity c.@channels, 4
           case c
           when LavinMQ::AMQP::Client
             puts_size_capacity c.@acl_cache, 4
           end
-          c.channels.each_value do |ch|
+          c.each_channel do |ch|
             puts "    #{ch.id} global_prefetch=#{ch.global_prefetch_count} prefetch=#{ch.prefetch_count}"
             puts_size_capacity ch.consumers, 8
             case ch
