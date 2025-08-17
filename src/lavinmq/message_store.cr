@@ -532,6 +532,8 @@ module LavinMQ
           @replicator.try &.delete_file(path, WaitGroup.new)
         end
       end
+    rescue File::NotFoundError
+      @log.debug { "Could not delete orphaned ack files, directory #{@msg_dir} does not exist" }
     end
 
     private def deleted?(seg, pos) : Bool
