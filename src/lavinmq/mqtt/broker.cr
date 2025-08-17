@@ -6,6 +6,7 @@ require "./session"
 require "./sessions"
 require "./retain_store"
 require "../vhost"
+require "sync/shared"
 
 module LavinMQ
   module MQTT
@@ -24,7 +25,7 @@ module LavinMQ
       # The `Broker` class helps keep the MQTT client concise and focused on the protocol.
       def initialize(@vhost : VHost, @replicator : Clustering::Replicator)
         @sessions = Sessions.new(@vhost)
-        @clients = Hash(String, Client).new
+        @clients = Sync::Shared(Hash(String, Client)).new(Hash(String, Client).new)
         @retain_store = RetainStore.new(File.join(@vhost.data_dir, "mqtt_retained_store"), @replicator)
         @exchange = MQTT::Exchange.new(@vhost, EXCHANGE, @retain_store)
         @vhost.add_exchange(EXCHANGE, @exchange)
@@ -38,7 +39,7 @@ module LavinMQ
       end
 
       def add_client(socket, connection_info, user, packet)
-        if prev_client = @clients[packet.client_id]?
+        if prev_client = @clients.read &.[packet.client_id]?
           prev_client.close("New client #{connection_info.remote_address} (username=#{packet.username}) connected as #{packet.client_id}")
         end
         client = MQTT::Client.new(socket,
@@ -56,7 +57,7 @@ module LavinMQ
             session.client = client
           end
         end
-        @clients[packet.client_id] = client
+        @clients.write &.[packet.client_id] = client
         @vhost.add_connection client
       end
 
@@ -66,7 +67,7 @@ module LavinMQ
           session.client = nil
           sessions.delete(client_id) if session.clean_session?
         end
-        @clients.delete client_id
+        @clients.write &.delete client_id
         @vhost.rm_connection(client)
       end
 
