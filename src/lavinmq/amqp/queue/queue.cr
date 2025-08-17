@@ -45,7 +45,7 @@ module LavinMQ::AMQP
     end
 
     def unacked_bytesize
-      @unacked_count.get(:relaxed)
+      @unacked_bytesize.get(:relaxed)
     end
 
     @msg_store_lock = Mutex.new(:reentrant)
