@@ -38,7 +38,8 @@ module LavinMQ
           Fiber.yield if (i &+= 1) % 32768 == 0
         rescue ex
           @log.error(exception: ex) { "Failed to deliver message in deliver_loop" }
-          @consumers.read &.each &.close
+          consumers = @consumers.read &.dup
+          consumers.each &.close
           self.client = nil
         end
       end
@@ -56,10 +57,9 @@ module LavinMQ
         end
         @unacked.clear
 
-        @consumers.read do |consumers|
-          consumers.each do |c|
-            rm_consumer c
-          end
+        consumers = @consumers.read &.dup
+        consumers.each do |c|
+          rm_consumer c
         end
 
         if c = client

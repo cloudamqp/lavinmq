@@ -120,7 +120,7 @@ module LavinMQ::AMQP
       {"ack", "deliver", "deliver_no_ack", "deliver_get", "confirm", "get", "get_no_ack", "publish", "redeliver", "reject", "return_unroutable", "dedup"},
       {"message_count", "unacked_count"})
 
-    getter name, arguments, vhost, consumers
+    getter name, arguments, vhost
     getter? auto_delete, exclusive
     getter policy : Policy?
     getter operator_policy : OperatorPolicy?
@@ -370,14 +370,16 @@ module LavinMQ::AMQP
       @message_ttl_change.close
       @paused.close
       @consumers_empty.close
-      @consumers.write do |consumers|
-        consumers.each &.cancel
-        consumers.clear
-      end
+      @log.debug { "Trying to aquiring consumers read lock" }
+      consumers = @consumers.read &.dup
+      @log.debug { "Cancelling #{consumers.size} consumers" }
+      consumers.each &.cancel
+      @log.debug { "Cancelled #{consumers.size} consumers" }
       Fiber.yield # Allow all consumers to cancel before closing mmap:s
       @msg_store_lock.synchronize do
         @msg_store.close
       end
+      @log.debug { "Message store closed" }
       # TODO: When closing due to ReadError, queue is deleted if exclusive
       delete if !durable? || @exclusive
       Fiber.yield

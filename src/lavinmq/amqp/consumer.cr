@@ -36,6 +36,7 @@ module LavinMQ
       end
 
       def close
+        return if @closed
         @closed = true
         @queue.rm_consumer(self)
         @notify_closed.close
@@ -133,14 +134,14 @@ module LavinMQ
         if @queue.has_priority_consumers? && @queue.single_active_consumer.nil?
           @log.debug { "Waiting for higher priority consumers to not have capacity" }
           flush
-          higher_prio_consumers = @queue.consumers.read(&.select { |c| c.priority > @priority })
+          higher_prio_consumers = @queue.consumers_with_higher_priority(@priority)
           return false unless higher_prio_consumers.any? &.accepts?
           loop do
             # FIXME: doesnt take into account that new higher prio consumer might connect
             ::Channel.receive_first(higher_prio_consumers.map(&.has_capacity.when_false))
             break
           rescue ::Channel::ClosedError
-            higher_prio_consumers = @queue.consumers.read(&.select { |c| c.priority > @priority })
+            higher_prio_consumers = @queue.consumers_with_higher_priority(@priority)
             break if higher_prio_consumers.empty?
             next
           end
