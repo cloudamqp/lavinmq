@@ -15,6 +15,7 @@ module LavinMQ
 
       getter log, name, user, client_id, connection_info
       getter? clean_session
+      getter? closed = false
       @connected_at = RoughTime.unix_ms
       @session : MQTT::Session?
       rate_stats({"send_oct", "recv_oct"})
@@ -194,8 +195,8 @@ module LavinMQ
       # should only be used when server needs to froce close client
       def close(reason = "")
         return if @closed
-        @log.info { "Closing connection: #{reason}" }
         @closed = true
+        @log.info { "Closing connection: #{reason}" }
         close_socket
         @waitgroup.wait
       end
@@ -296,7 +297,7 @@ module LavinMQ
       end
 
       def closed?
-        false
+        @client.closed?
       end
 
       def flow(active : Bool)
