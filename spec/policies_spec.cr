@@ -27,13 +27,13 @@ describe LavinMQ::VHost do
 
   it "should remove policy from resource when deleted" do
     PoliciesSpec.with_vhost do |vhost|
-      vhost.queues["test1"] = LavinMQ::AMQP::Queue.new(vhost, "test")
+      vhost.add_queue("test1", LavinMQ::AMQP::Queue.new(vhost, "test"))
       vhost.add_policy("test", "^.*$", "all", definitions, -10_i8)
       sleep 10.milliseconds
-      vhost.queues["test1"].policy.try(&.name).should eq "test"
+      vhost.queue("test1").not_nil!.policy.try(&.name).should eq "test"
       vhost.delete_policy("test")
       sleep 10.milliseconds
-      vhost.queues["test1"].policy.should be_nil
+      vhost.queue("test1").not_nil!.policy.should be_nil
     end
   end
 
@@ -58,21 +58,21 @@ describe LavinMQ::VHost do
   it "should apply policy" do
     PoliciesSpec.with_vhost do |vhost|
       defs = {"max-length" => JSON::Any.new(1_i64)} of String => JSON::Any
-      vhost.queues["test"] = LavinMQ::AMQP::Queue.new(vhost, "test")
+      vhost.add_queue("test", LavinMQ::AMQP::Queue.new(vhost, "test"))
       vhost.add_policy("ml", "^.*$", "queues", defs, 11_i8)
       sleep 10.milliseconds
-      vhost.queues["test"].policy.not_nil!.name.should eq "ml"
+      vhost.queue("test").not_nil!.policy.not_nil!.name.should eq "ml"
     end
   end
 
   it "should respect priority" do
     PoliciesSpec.with_vhost do |vhost|
       defs = {"max-length" => JSON::Any.new(1_i64)} of String => JSON::Any
-      vhost.queues["test2"] = LavinMQ::AMQP::Queue.new(vhost, "test")
+      vhost.add_queue("test2", LavinMQ::AMQP::Queue.new(vhost, "test"))
       vhost.add_policy("ml2", "^.*$", "queues", defs, 1_i8)
       vhost.add_policy("ml1", "^.*$", "queues", defs, 0_i8)
       sleep 10.milliseconds
-      vhost.queues["test2"].policy.not_nil!.name.should eq "ml2"
+      vhost.queue("test2").not_nil!.policy.not_nil!.name.should eq "ml2"
     end
   end
 
@@ -129,7 +129,7 @@ describe LavinMQ::VHost do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         ch.queue("qttl", args: AMQP::Client::Arguments.new({"x-expires" => 1000}))
-        queue = s.vhosts["/"].queues["qttl"].as(LavinMQ::AMQP::Queue)
+        queue = s.vhosts["/"].queue("qttl").not_nil!.as(LavinMQ::AMQP::Queue)
         Fiber.yield
         expire_before = queue.@expires
         expire_before.should eq 1000
@@ -280,10 +280,10 @@ describe LavinMQ::VHost do
                               "federation-upstream", "federation-upstream-set",
                               "delivery-limit", "max-age", "alternate-exchange",
                               "delayed-message"}
-        vhost.queues["test"] = LavinMQ::AMQP::Queue.new(vhost, "test")
+        vhost.add_queue("test", LavinMQ::AMQP::Queue.new(vhost, "test"))
         vhost.add_policy("test", "^.*$", "all", definitions, -10_i8)
         sleep 10.milliseconds
-        vhost.queues["test"].details_tuple[:effective_policy_definition].as(Hash(String, JSON::Any)).each_key do |k|
+        vhost.queue("test").not_nil!.details_tuple[:effective_policy_definition].as(Hash(String, JSON::Any)).each_key do |k|
           supported_policies.includes?(k).should be_true
         end
         vhost.delete_policy("test")
@@ -294,9 +294,9 @@ describe LavinMQ::VHost do
   describe "together with arguments" do
     it "arguments should have priority for non numeric arguments" do
       PoliciesSpec.with_vhost do |vhost|
-        no_ae_ex = vhost.exchanges["no-ae"] = LavinMQ::AMQP::DirectExchange.new(vhost, "no-ae")
-        ae_ex = vhost.exchanges["x-with-ae"] = LavinMQ::AMQP::DirectExchange.new(vhost, "x-with-ae",
-          arguments: AMQ::Protocol::Table.new({"x-alternate-exchange": "ae2"}))
+        no_ae_ex = vhost.add_exchange("no-ae", LavinMQ::AMQP::DirectExchange.new(vhost, "no-ae"))
+        ae_ex = vhost.add_exchange("x-with-ae", LavinMQ::AMQP::DirectExchange.new(vhost, "x-with-ae",
+          arguments: AMQ::Protocol::Table.new({"x-alternate-exchange": "ae2"})))
         vhost.add_policy("test", ".*", "all", definitions, 100_i8)
         sleep 10.milliseconds
         no_ae_ex.@alternate_exchange.should eq "dead-letters"
@@ -310,34 +310,34 @@ describe LavinMQ::VHost do
 
     it "should use the lowest value" do
       PoliciesSpec.with_vhost do |vhost|
-        vhost.queues["test1"] = LavinMQ::AMQP::Queue.new(vhost, "test1", arguments: LavinMQ::AMQP::Table.new({"x-max-length" => 1_i64}))
-        vhost.queues["test2"] = LavinMQ::AMQP::Queue.new(vhost, "test2", arguments: LavinMQ::AMQP::Table.new({"x-max-length" => 11_i64}))
+        vhost.add_queue("test1", LavinMQ::AMQP::Queue.new(vhost, "test1", arguments: LavinMQ::AMQP::Table.new({"x-max-length" => 1_i64})))
+        vhost.add_queue("test2", LavinMQ::AMQP::Queue.new(vhost, "test2", arguments: LavinMQ::AMQP::Table.new({"x-max-length" => 11_i64})))
         vhost.add_policy("test", ".*", "all", definitions, 100_i8)
         sleep 10.milliseconds
-        vhost.queues["test1"].as(LavinMQ::AMQP::Queue).@max_length.should eq 1
-        vhost.queues["test2"].as(LavinMQ::AMQP::Queue).@max_length.should eq 10
+        vhost.queue("test1").not_nil!.as(LavinMQ::AMQP::Queue).@max_length.should eq 1
+        vhost.queue("test2").not_nil!.as(LavinMQ::AMQP::Queue).@max_length.should eq 10
         vhost.delete_policy("test")
         sleep 10.milliseconds
-        vhost.queues["test1"].as(LavinMQ::AMQP::Queue).@max_length.should eq 1
-        vhost.queues["test2"].as(LavinMQ::AMQP::Queue).@max_length.should eq 11
+        vhost.queue("test1").not_nil!.as(LavinMQ::AMQP::Queue).@max_length.should eq 1
+        vhost.queue("test2").not_nil!.as(LavinMQ::AMQP::Queue).@max_length.should eq 11
       end
     end
 
     it "should use the lowest value for delivery-limit" do
       PoliciesSpec.with_vhost do |vhost|
-        vhost.queues["test1"] = LavinMQ::AMQP::Queue.new(vhost, "test1", arguments: LavinMQ::AMQP::Table.new({"x-delivery-limit" => 1_i64}))
-        vhost.queues["test2"] = LavinMQ::AMQP::Queue.new(vhost, "test2", arguments: LavinMQ::AMQP::Table.new({"x-delivery-limit" => 11_i64}))
-        vhost.queues["test3"] = LavinMQ::AMQP::Queue.new(vhost, "test3")
+        vhost.add_queue("test1", LavinMQ::AMQP::Queue.new(vhost, "test1", arguments: LavinMQ::AMQP::Table.new({"x-delivery-limit" => 1_i64})))
+        vhost.add_queue("test2", LavinMQ::AMQP::Queue.new(vhost, "test2", arguments: LavinMQ::AMQP::Table.new({"x-delivery-limit" => 11_i64})))
+        vhost.add_queue("test3", LavinMQ::AMQP::Queue.new(vhost, "test3"))
         vhost.add_policy("test", ".*", "all", definitions, 100_i8)
         sleep 10.milliseconds
-        vhost.queues["test1"].as(LavinMQ::AMQP::Queue).@delivery_limit.should eq 1
-        vhost.queues["test2"].as(LavinMQ::AMQP::Queue).@delivery_limit.should eq 10
-        vhost.queues["test3"].as(LavinMQ::AMQP::Queue).@delivery_limit.should eq 10
+        vhost.queue("test1").not_nil!.as(LavinMQ::AMQP::Queue).@delivery_limit.should eq 1
+        vhost.queue("test2").not_nil!.as(LavinMQ::AMQP::Queue).@delivery_limit.should eq 10
+        vhost.queue("test3").not_nil!.as(LavinMQ::AMQP::Queue).@delivery_limit.should eq 10
         vhost.delete_policy("test")
         sleep 10.milliseconds
-        vhost.queues["test1"].as(LavinMQ::AMQP::Queue).@delivery_limit.should eq 1
-        vhost.queues["test2"].as(LavinMQ::AMQP::Queue).@delivery_limit.should eq 11
-        vhost.queues["test3"].as(LavinMQ::AMQP::Queue).@delivery_limit.should eq nil
+        vhost.queue("test1").not_nil!.as(LavinMQ::AMQP::Queue).@delivery_limit.should eq 1
+        vhost.queue("test2").not_nil!.as(LavinMQ::AMQP::Queue).@delivery_limit.should eq 11
+        vhost.queue("test3").not_nil!.as(LavinMQ::AMQP::Queue).@delivery_limit.should eq nil
       end
     end
   end

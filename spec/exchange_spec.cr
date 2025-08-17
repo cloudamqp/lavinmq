@@ -16,8 +16,8 @@ describe LavinMQ::Exchange do
               x = ch.exchange("test", exchange_type)
               q = ch.queue("q")
               q.bind(x.name, routing_key, args: LavinMQ::AMQP::Table.new({"x-foo": "bar"}))
-              ex = s.vhosts["/"].exchanges["test"]
-              q = s.vhosts["/"].queues["q"]
+              ex = s.vhosts["/"].exchange("test").not_nil!
+              q = s.vhosts["/"].queue("q").not_nil!
               bd = ex.bindings_details.find { |b| b.destination == q }.should_not be_nil
               bd.binding_key.arguments.should eq LavinMQ::AMQP::Table.new({"x-foo": "bar"})
             end
@@ -31,8 +31,8 @@ describe LavinMQ::Exchange do
               ch_q = ch.queue("q")
               bd_args = LavinMQ::AMQP::Table.new({"x-foo": "bar"})
               ch_q.bind(x.name, routing_key, args: bd_args)
-              ex = s.vhosts["/"].exchanges["test"]
-              q = s.vhosts["/"].queues["q"]
+              ex = s.vhosts["/"].exchange("test").not_nil!
+              q = s.vhosts["/"].queue("q").not_nil!
               ex.bindings_details.find { |b| b.destination == q }.should_not be_nil
               ch_q.unbind(x.name, routing_key)
               ex.bindings_details.find { |b| b.destination == q }.should_not be_nil
@@ -86,7 +86,7 @@ describe LavinMQ::Exchange do
           x_args = AMQP::Client::Arguments.new
           x = ch.exchange(x_name, "topic", args: x_args)
           x.publish_confirm "test message 1", "none"
-          s.vhosts["/"].exchanges[x_name].unroutable_count.should eq 1
+          s.vhosts["/"].exchange(x_name).not_nil!.unroutable_count.should eq 1
         end
       end
     end
@@ -100,7 +100,7 @@ describe LavinMQ::Exchange do
           q.bind(x.name, q.name)
           x.publish_confirm "test message 1", "none"
           x.publish_confirm "test message 2", q.name
-          s.vhosts["/"].exchanges[x_name].unroutable_count.should eq 1
+          s.vhosts["/"].exchange(x_name).not_nil!.unroutable_count.should eq 1
         end
       end
     end
@@ -142,7 +142,7 @@ describe LavinMQ::Exchange do
           expect_raises(AMQP::Client::Channel::ClosedException, "PRECONDITION_FAILED") do
             ch.exchange("test2", "x-delayed-message", args: illegal_dmx_args)
           end
-          s.vhosts["/"].exchanges["test2"]?.should be_nil
+          s.vhosts["/"].exchange("test2").should be_nil
         end
       end
     end
@@ -174,8 +174,8 @@ describe LavinMQ::Exchange do
         with_channel(s) do |ch|
           ch.exchange("e1", "topic", auto_delete: true)
           ch.exchange("e2", "topic", auto_delete: true)
-          s.vhosts["/"].exchanges["e1"].in_use?.should be_false
-          s.vhosts["/"].exchanges["e2"].in_use?.should be_false
+          s.vhosts["/"].exchange("e1").not_nil!.in_use?.should be_false
+          s.vhosts["/"].exchange("e2").not_nil!.in_use?.should be_false
         end
       end
     end
@@ -185,7 +185,7 @@ describe LavinMQ::Exchange do
           x1 = ch.exchange("e1", "topic", auto_delete: true)
           x2 = ch.exchange("e2", "topic", auto_delete: true)
           x2.bind(x1.name, "#")
-          s.vhosts["/"].exchanges["e2"].in_use?.should be_true
+          s.vhosts["/"].exchange("e2").not_nil!.in_use?.should be_true
         end
       end
     end
@@ -195,7 +195,7 @@ describe LavinMQ::Exchange do
           x1 = ch.exchange("e1", "topic", auto_delete: true)
           x2 = ch.exchange("e2", "topic", auto_delete: true)
           x2.bind(x1.name, "#")
-          s.vhosts["/"].exchanges["e1"].in_use?.should be_true
+          s.vhosts["/"].exchange("e1").not_nil!.in_use?.should be_true
         end
       end
     end
@@ -206,9 +206,9 @@ describe LavinMQ::Exchange do
           x1 = ch.exchange("e1", "topic")
           x2 = ch.exchange("e2", "topic", auto_delete: true)
           x2.bind(x1.name, "#")
-          s.vhosts["/"].exchanges["e1"].in_use?.should be_true
+          s.vhosts["/"].exchange("e1").not_nil!.in_use?.should be_true
           x2.unbind(x1.name, "#")
-          s.vhosts["/"].exchanges["e1"].in_use?.should be_false
+          s.vhosts["/"].exchange("e1").not_nil!.in_use?.should be_false
         end
       end
     end
@@ -222,8 +222,8 @@ describe LavinMQ::Exchange do
           })
           ch.exchange("test", "topic", args: args)
           ch.queue.bind("test", "#")
-          ex = s.vhosts["/"].exchanges["test"]
-          q = s.vhosts["/"].queues.first_value
+          ex = s.vhosts["/"].exchange("test").not_nil!
+          q = s.vhosts["/"].queues.first
           props = LavinMQ::AMQP::Properties.new(headers: LavinMQ::AMQP::Table.new({
             "x-deduplication-header" => "msg1",
           }))
@@ -251,8 +251,8 @@ describe LavinMQ::Exchange do
           })
           ch.exchange("test", "topic", args: args)
           ch.queue.bind("test", "#")
-          ex = s.vhosts["/"].exchanges["test"]
-          q = s.vhosts["/"].queues.first_value
+          ex = s.vhosts["/"].exchange("test").not_nil!
+          q = s.vhosts["/"].queues.first
           props = LavinMQ::AMQP::Properties.new(headers: LavinMQ::AMQP::Table.new({
             "custom" => "msg1",
           }))
@@ -310,7 +310,7 @@ describe LavinMQ::Exchange do
             definition = {"federation-upstream" => JSON::Any.new("upstream")}
             downstream_vhost.add_policy("fed", "^fed", "exchanges", definition, 1i8)
             downstream_vhost.declare_exchange("fed.internal", "topic", durable: true, auto_delete: false, internal: true)
-            wait_for(100.milliseconds) { downstream_vhost.exchanges["fed.internal"].policy.try &.name == "fed" }
+            wait_for(100.milliseconds) { downstream_vhost.exchange("fed.internal").not_nil!.policy.try &.name == "fed" }
             downstream_vhost.upstreams.@upstreams["upstream"].links.empty?.should be_true
           end
         end

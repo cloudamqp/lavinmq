@@ -7,13 +7,14 @@ module LavinMQ
   module Auth
     class User
       include SortableJSON
-      getter name, password, permissions
+      getter name, password
       property tags, plain_text_password
       alias Permissions = NamedTuple(config: Regex, read: Regex, write: Regex)
 
       @name : String
-      @permissions = Hash(String, Permissions).new
-      @password : Auth::Password? = nil
+      @permissions = Hash(String, Permissions).new # CoW
+      @lock = Mutex.new
+      @password : Password? = nil
       @plain_text_password : String?
       @tags = Array(Tag).new
 
@@ -48,20 +49,20 @@ module LavinMQ
 
       def self.hash_password(password, hash_algorithm)
         case hash_algorithm
-        when /bcrypt$/i then Auth::Password::BcryptPassword.create(password, cost: 4)
-        when /sha256$/i then Auth::Password::SHA256Password.create(password)
-        when /sha512$/i then Auth::Password::SHA512Password.create(password)
-        when /md5$/i    then Auth::Password::MD5Password.create(password)
+        when /bcrypt$/i then Password::BcryptPassword.create(password, cost: 4)
+        when /sha256$/i then Password::SHA256Password.create(password)
+        when /sha512$/i then Password::SHA512Password.create(password)
+        when /md5$/i    then Password::MD5Password.create(password)
         else                 raise UnknownHashAlgoritm.new(hash_algorithm)
         end
       end
 
       private def parse_password(hash, hash_algorithm, loc = nil)
         case hash_algorithm
-        when /bcrypt$/i   then Auth::Password::BcryptPassword.new(hash)
-        when /sha256$/i   then Auth::Password::SHA256Password.new(hash)
-        when /sha512$/i   then Auth::Password::SHA512Password.new(hash)
-        when /md5$/i, nil then Auth::Password::MD5Password.new(hash)
+        when /bcrypt$/i   then Password::BcryptPassword.new(hash)
+        when /sha256$/i   then Password::SHA256Password.new(hash)
+        when /sha512$/i   then Password::SHA512Password.new(hash)
+        when /md5$/i, nil then Password::MD5Password.new(hash)
         else
           if loc
             raise JSON::ParseException.new("Unsupported hash algorithm", *loc)
@@ -131,22 +132,60 @@ module LavinMQ
       end
 
       def can_write?(vhost, name) : Bool
-        perm = permissions[vhost]?
+        perm = @permissions[vhost]?
         perm ? perm_match?(perm[:write], name) : false
       end
 
       def can_read?(vhost, name) : Bool
-        perm = permissions[vhost]?
+        perm = @permissions[vhost]?
         perm ? perm_match?(perm[:read], name) : false
       end
 
       def can_config?(vhost, name) : Bool
-        perm = permissions[vhost]?
+        perm = @permissions[vhost]?
         perm ? perm_match?(perm[:config], name) : false
       end
 
       def can_impersonate?
         @tags.includes? Tag::Impersonator
+      end
+
+      protected def set_permission(vhost : String, config : Regex, read : Regex, write : Regex)
+        set_permission(vhost, {config: config, read: read, write: write})
+      end
+
+      protected def set_permission(vhost : String, perms : Permissions)
+        @lock.synchronize do
+          new_permissions = @permissions.dup
+          new_permissions[vhost] = perms
+          @permissions = new_permissions
+        end
+        perms
+      end
+
+      protected def remove_permission(vhost : String)
+        @lock.synchronize do
+          new_permissions = @permissions.dup
+          perm = new_permissions.delete(vhost)
+          @permissions = new_permissions
+          perm
+        end
+      end
+
+      def has_permission?(vhost : String) : Bool
+        @permissions.has_key? vhost
+      end
+
+      def permission?(vhost : String) : Permissions?
+        @permissions[vhost]?
+      end
+
+      def permitted_vhosts : Array(String)
+        @permissions.keys
+      end
+
+      def permissions : Enumerable(Tuple(String, Permissions))
+        @permissions.each
       end
 
       private def parse_permissions(pull)

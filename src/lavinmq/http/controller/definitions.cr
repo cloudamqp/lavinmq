@@ -192,11 +192,10 @@ module LavinMQ
               configure = p["configure"].as_s
               read = p["read"].as_s
               write = p["write"].as_s
-              @amqp_server.users[user].permissions[vhost] = {
-                config: Regex.new(configure),
-                read:   Regex.new(read),
-                write:  Regex.new(write),
-              }
+              @amqp_server.users[user].set_permission(vhost,
+                Regex.new(configure),
+                Regex.new(read),
+                Regex.new(write))
             end
             @amqp_server.users.save!
           end
@@ -279,7 +278,7 @@ module LavinMQ
         private def export_queues(json)
           json.array do
             vhosts.each_value do |v|
-              v.queues.each_value do |q|
+              v.each_queue do |q|
                 next if q.exclusive?
                 {
                   "name":        q.name,
@@ -296,7 +295,8 @@ module LavinMQ
         private def export_exchanges(json)
           json.array do
             vhosts.each_value do |v|
-              v.exchanges.each_value.reject(&.internal?).each do |e|
+              v.each_exchange do |e|
+                next if e.internal?
                 delayed = e.arguments["x-delayed-exchange"]?
                 if delayed
                   arguments = e.arguments.clone
@@ -320,7 +320,7 @@ module LavinMQ
         private def export_bindings(json)
           json.array do
             vhosts.each_value do |v|
-              v.exchanges.each_value do |e|
+              v.each_exchange do |e|
                 e.bindings_details.each do |b|
                   b.to_json(json)
                 end

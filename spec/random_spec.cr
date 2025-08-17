@@ -26,8 +26,8 @@ describe LavinMQ do
           count.should eq 0
 
           Fiber.yield
-          Server.vhosts["/"].queues[qname].@ready.size.should eq 2
-          Server.vhosts["/"].queues[qname].@unacked.size.should eq 0
+          Server.vhosts["/"].queue(qname).not_nil!.@ready.size.should eq 2
+          Server.vhosts["/"].queue(qname).not_nil!.@unacked.size.should eq 0
         end
       end
     end

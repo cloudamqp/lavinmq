@@ -223,7 +223,7 @@ describe LavinMQ::Server do
         q.publish_confirm ttl_msg
         msg = wait_for { dlq.get(no_ack: true) }
         msg.not_nil!.body_io.to_s.should eq(ttl_msg)
-        s.vhosts["/"].queues[q.name].empty?.should be_true
+        s.vhosts["/"].queue(q.name).not_nil!.empty?.should be_true
         q.publish_confirm ttl_msg
         msg = wait_for { dlq.get(no_ack: true) }
         msg.not_nil!.body_io.to_s.should eq(ttl_msg)
@@ -241,7 +241,7 @@ describe LavinMQ::Server do
         msg.reject(requeue: true)
         msg = wait_for { dlq.get(no_ack: true) }
         msg.not_nil!.body_io.to_s.should eq(r_msg)
-        s.vhosts["/"].queues[q.name].empty?.should be_true
+        s.vhosts["/"].queue(q.name).not_nil!.empty?.should be_true
       end
     end
   end
@@ -269,7 +269,7 @@ describe LavinMQ::Server do
         tag = q.subscribe(no_ack: false) { |_| done.send nil }
         done.receive
         q.unsubscribe(tag)
-        s.vhosts["/"].queues["msg_q"].empty?.should be_true
+        s.vhosts["/"].queue("msg_q").not_nil!.empty?.should be_true
       end
     end
   end
@@ -642,7 +642,7 @@ describe LavinMQ::Server do
         definitions = {"max-length" => JSON::Any.new(1_i64)} of String => JSON::Any
         s.vhosts["/"].add_policy("test", "^mlq$", "queues", definitions, 10_i8)
         sleep 10.milliseconds
-        s.vhosts["/"].queues["mlq"].message_count.should eq 1
+        s.vhosts["/"].queue("mlq").not_nil!.message_count.should eq 1
       end
     end
   end
@@ -814,7 +814,7 @@ describe LavinMQ::Server do
         ch.queue("test", args: args)
         sleep 5.milliseconds
         Fiber.yield
-        s.vhosts["/"].queues.has_key?("test").should be_false
+        s.vhosts["/"].has_queue?("test").should be_false
       end
     end
   end
@@ -828,7 +828,7 @@ describe LavinMQ::Server do
         q.subscribe(no_ack: true) { |_| }
         sleep 50.milliseconds
         Fiber.yield
-        s.vhosts["/"].queues.has_key?("test").should be_true
+        s.vhosts["/"].has_queue?("test").should be_true
       end
     end
   end
@@ -971,7 +971,7 @@ describe LavinMQ::Server do
         msg.properties.headers.not_nil!["x-delivery-count"].as(Int32).should eq 1
         msg.reject(requeue: true)
         Fiber.yield
-        s.vhosts["/"].queues["delivery_limit"].empty?.should be_true
+        s.vhosts["/"].queue("delivery_limit").not_nil!.empty?.should be_true
       end
     end
   end
@@ -1107,8 +1107,8 @@ describe LavinMQ::Server do
         count.should eq 0
 
         Fiber.yield
-        s.vhosts["/"].queues[qname].message_count.should eq 1
-        s.vhosts["/"].queues[qname].unacked_count.should eq 0
+        s.vhosts["/"].queue(qname).not_nil!.message_count.should eq 1
+        s.vhosts["/"].queue(qname).not_nil!.unacked_count.should eq 0
       end
     end
   end
