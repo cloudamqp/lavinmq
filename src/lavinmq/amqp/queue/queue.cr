@@ -83,7 +83,7 @@ module LavinMQ::AMQP
         @log.debug { "Consumers empty" }
         @msg_store.empty.when_false.receive
         @log.debug { "Message store not empty" }
-        next unless @consumers.read(&.empty?)
+        next unless @consumers.unsafe_get.empty?
         if ttl = time_to_message_expiration
           @log.debug { "Next message TTL: #{ttl}" }
           select
@@ -343,7 +343,7 @@ module LavinMQ::AMQP
     end
 
     def consumer_count
-      @consumers.read(&.size).to_u32
+      @consumers.unsafe_get.size.to_u32
     end
 
     def pause!
@@ -410,7 +410,7 @@ module LavinMQ::AMQP
         exclusive:                    @exclusive,
         auto_delete:                  @auto_delete,
         arguments:                    @arguments,
-        consumers:                    @consumers.read(&.size),
+        consumers:                    @consumers.unsafe_get.size,
         vhost:                        @vhost.name,
         messages:                     @msg_store.size + unacked_count,
         total_bytes:                  @msg_store.bytesize + unacked_bytesize,
@@ -556,7 +556,7 @@ module LavinMQ::AMQP
     end
 
     private def has_expired?(msg : BytesMessage, requeue = false) : Bool
-      return false if zero_ttl?(msg) && !requeue && !@consumers.read(&.empty?)
+      return false if zero_ttl?(msg) && !requeue && !@consumers.unsafe_get.empty?
       if expire_at = expire_at(msg)
         expire_at <= RoughTime.unix_ms
       else
@@ -722,7 +722,7 @@ module LavinMQ::AMQP
 
     private def expire_queue : Bool
       @log.debug { "Trying to expire queue" }
-      return false unless @consumers.read(&.empty?)
+      return false unless @consumers.unsafe_get.empty?
       @log.debug { "Queue expired" }
       @vhost.delete_queue(@name)
       true
@@ -893,7 +893,7 @@ module LavinMQ::AMQP
       end
       @exclusive_consumer = true if consumer.exclusive?
       @has_priority_consumers = true unless consumer.priority.zero?
-      @log.debug { "Adding consumer (now #{@consumers.read(&.size)})" }
+      @log.debug { "Adding consumer (now #{@consumers.unsafe_get.size})" }
       @vhost.event_tick(EventType::ConsumerAdded)
       notify_observers(QueueEvent::ConsumerAdded, consumer)
     end
@@ -1007,6 +1007,14 @@ module LavinMQ::AMQP
 
     def durable?
       false
+    end
+
+    def consumers_with_higher_priority(prio)
+      @consumers.read &.select { |c| c.priority > prio }
+    end
+
+    def consumers_empty?
+      @consumers.unsafe_get.empty?
     end
 
     class Error < Exception; end
