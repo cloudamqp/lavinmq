@@ -12,7 +12,8 @@ module LavinMQ
       alias Permissions = NamedTuple(config: Regex, read: Regex, write: Regex)
 
       @name : String
-      @permissions = Hash(String, Permissions).new
+      @permissions = Hash(String, Permissions).new # CoW
+      @lock = Mutex.new
       @password : Password? = nil
       @plain_text_password : String?
       @tags = Array(Tag).new
@@ -154,17 +155,21 @@ module LavinMQ
       end
 
       protected def set_permission(vhost : String, perms : Permissions)
-        new_permissions = @permissions.dup
-        new_permissions[vhost] = perms
-        @permissions = new_permissions
+        @lock.synchronize do
+          new_permissions = @permissions.dup
+          new_permissions[vhost] = perms
+          @permissions = new_permissions
+        end
         perms
       end
 
       protected def remove_permission(vhost : String)
-        new_permissions = @permissions.dup
-        perm = new_permissions.delete(vhost)
-        @permissions = new_permissions
-        perm
+        @lock.synchronize do
+          new_permissions = @permissions.dup
+          perm = new_permissions.delete(vhost)
+          @permissions = new_permissions
+          perm
+        end
       end
 
       def has_permission?(vhost : String) : Bool

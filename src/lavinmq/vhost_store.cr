@@ -16,7 +16,8 @@ module LavinMQ
     Log = LavinMQ::Log.for "vhost_store"
 
     def initialize(@data_dir : String, @users : Auth::UserStore, @replicator : Clustering::Replicator)
-      @vhosts = Hash(String, VHost).new
+      @vhosts = Hash(String, VHost).new # CoW
+      @lock = Mutex.new
       load!
     end
 
@@ -60,10 +61,12 @@ module LavinMQ
       Log.info { "Created vhost #{name}" }
       @users.add_permission(user.name, name, /.*/, /.*/, /.*/)
       @users.add_permission(Auth::UserStore::DIRECT_USER, name, /.*/, /.*/, /.*/)
-      new_vhosts = @vhosts.dup
-      new_vhosts[name] = vhost
-      @vhosts = new_vhosts
-      save! if save
+      @lock.synchronize do
+        new_vhosts = @vhosts.dup
+        new_vhosts[name] = vhost
+        @vhosts = new_vhosts
+        save! if save
+      end
       notify_observers(Event::Added, name)
       vhost
     end
@@ -72,12 +75,14 @@ module LavinMQ
       if vhost = @vhosts[name]?
         @users.rm_vhost_permissions_for_all(name)
         vhost.delete
-        new_vhosts = @vhosts.dup
-        new_vhosts.delete(name)
-        @vhosts = new_vhosts
+        @lock.synchronize do
+          new_vhosts = @vhosts.dup
+          new_vhosts.delete(name)
+          @vhosts = new_vhosts
+          save!
+        end
         notify_observers(Event::Deleted, name)
         Log.info { "Deleted vhost #{name}" }
-        save!
         vhost
       end
     end

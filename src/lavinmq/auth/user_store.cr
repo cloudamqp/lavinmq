@@ -13,7 +13,8 @@ module LavinMQ
       end
 
       def initialize(@data_dir : String, @replicator : Clustering::Replicator)
-        @users = Hash(String, User).new
+        @users = Hash(String, User).new # CoW
+        @lock = Mutex.new
         load!
       end
 
@@ -49,11 +50,13 @@ module LavinMQ
           return user
         end
         user = User.create(name, password, "SHA256", tags)
-        new_users = @users.dup
-        new_users[name] = user
-        @users = new_users
+        @lock.synchronize do
+          new_users = @users.dup
+          new_users[name] = user
+          @users = new_users
+          save! if save
+        end
         Log.info { "Created user=#{name}" }
-        save! if save
         user
       end
 
@@ -62,10 +65,12 @@ module LavinMQ
           return user
         end
         user = User.new(name, password_hash, password_algorithm, tags)
-        new_users = @users.dup
-        new_users[name] = user
-        @users = new_users
-        save! if save
+        @lock.synchronize do
+          new_users = @users.dup
+          new_users[name] = user
+          @users = new_users
+          save! if save
+        end
         user
       end
 
@@ -97,11 +102,13 @@ module LavinMQ
       def delete(name, save = true) : User?
         return if name == DIRECT_USER
         if user = @users[name]?
-          new_users = @users.dup
-          new_users.delete(name)
-          @users = new_users
-          Log.info { "Deleted user=#{name}" }
-          save! if save
+          @lock.synchronize do
+            new_users = @users.dup
+            new_users.delete(name)
+            @users = new_users
+            Log.info { "Deleted user=#{name}" }
+            save! if save
+          end
           user
         end
       end
