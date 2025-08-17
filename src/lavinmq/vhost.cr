@@ -387,7 +387,8 @@ module LavinMQ
       WaitGroup.wait do |wg|
         to_close = Channel(Client).new
         fiber_count = 0
-        @connections.read &.dup.each do |client|
+        connections = @connections.read &.dup
+        connections.each do |client|
           select
           when to_close.send client
           else # spawn another fiber closing channels
@@ -430,10 +431,21 @@ module LavinMQ
       end
       close_done.close
       # then force close the remaining (close tcp socket)
-      @connections.read &.each &.force_close
+      each_connection do |c|
+        next if c.closed?
+        @log.warn { "Forcing close connection #{c.name}" }
+        c.force_close
+      end
+      @log.debug { "All remaining connections force closed" }
       Fiber.yield # yield so that Client read_loops can shutdown
+      @log.debug { "Aquired defintions lock" }
+      queues = @queues.read &.values
+      queues.each do |q|
+        @log.debug { "Closing queue #{q.name}" }
+        q.close
+      end
+      @log.debug { "All queues closed" }
       @definitions_lock.synchronize do
-        each_queue(&.close)
         @definitions_file.close
       end
       FileUtils.rm_rf File.join(@data_dir, "transient")
@@ -446,13 +458,8 @@ module LavinMQ
     end
 
     private def apply_policies
-      exchanges_list = [] of Exchange
-      each_exchange { |ex| exchanges_list << ex }
-      apply_policies exchanges_list
-
-      queues_list = [] of Queue
-      each_queue { |q| queues_list << q }
-      apply_policies queues_list
+      apply_policies @exchanges.read &.values
+      apply_policies @queues.read &.values
     end
 
     private def apply_policies(resources : Enumerable(Queue | Exchange))
