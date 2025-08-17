@@ -65,7 +65,7 @@ describe LavinMQ::HTTP::BindingsController do
         response = http.post("/api/bindings/%2f/e/be1/q/bindings_q1", body: body)
         response.status_code.should eq 201
         response.headers["Location"].should eq "bindings_q1/rk"
-        s.vhosts["/"].exchanges["be1"].bindings_details.first.routing_key.should eq "rk"
+        s.vhosts["/"].exchange("be1").not_nil!.bindings_details.first.routing_key.should eq "rk"
       end
     end
 
@@ -127,7 +127,7 @@ describe LavinMQ::HTTP::BindingsController do
         props = binding[0]["properties_key"].as_s
         response = http.delete("/api/bindings/%2f/e/be1/q/bindings_q1/#{props}")
         response.status_code.should eq 204
-        s.vhosts["/"].exchanges["be1"].bindings_details.empty?.should be_true
+        s.vhosts["/"].exchange("be1").not_nil!.bindings_details.empty?.should be_true
       end
     end
   end

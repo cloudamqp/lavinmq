@@ -12,7 +12,7 @@ module LavinMQ
       end
 
       protected def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
-        if q = @vhost.fetch_queue(routing_key)
+        if q = @vhost.queue(routing_key)
           yield q
         end
       end

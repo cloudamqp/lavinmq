@@ -457,7 +457,7 @@ module LavinMQ
         vhosts.each do |vhost|
           vhost.each_queue do |q|
             writer.write({name:   "detailed_queue_consumers",
-                          value:  q.consumers.size,
+                          value:  q.consumer_count,
                           type:   "gauge",
                           labels: {queue: q.name, vhost: vhost.name},
                           help:   "Consumers on a queue"})

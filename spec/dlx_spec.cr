@@ -50,12 +50,12 @@ describe "Dead lettering" do
       v.publish msg
 
       select
-      when v.queues["q2"].empty.when_false.receive
+      when v.queue("q2").not_nil!.empty.when_false.receive
       when timeout(1.second)
         fail "timeout: message not dead lettered?"
       end
 
-      v.queues["q2"].basic_get(no_ack: true) do |env|
+      v.queue("q2").not_nil!.basic_get(no_ack: true) do |env|
         msg = env.message
       end
 
@@ -188,7 +188,7 @@ describe "Dead lettering" do
 
         # Should allow dead lettering because cycle contains "rejected"
         select
-        when v.queues["q1"].empty.when_false.receive
+        when v.queue("q1").not_nil!.empty.when_false.receive
         when timeout(0.5.seconds)
           fail "timeout: message should have been dead lettered"
         end
@@ -230,7 +230,7 @@ describe "Dead lettering" do
 
         # Should allow through (not a cycle yet)
         select
-        when v.queues["q2"].empty.when_false.receive
+        when v.queue("q2").not_nil!.empty.when_false.receive
           # Success
         when timeout(0.5.seconds)
           fail "Single death should NOT be blocked"
@@ -270,12 +270,12 @@ describe "Dead lettering" do
         props = AMQ::Protocol::Properties.new(headers: headers)
         msg = LavinMQ::Message.new(RoughTime.unix_ms, "", "q1", props, 4, IO::Memory.new("msg2"))
 
-        initial_count = v.queues["q2"].message_count
+        initial_count = v.queue("q2").not_nil!.message_count
         v.publish msg
 
         # Should be blocked (genuine cycle)
         sleep 0.1.seconds
-        v.queues["q2"].message_count.should eq initial_count # No new message
+        v.queue("q2").not_nil!.message_count.should eq initial_count # No new message
       end
     end
   end

@@ -263,7 +263,7 @@ module LavinMQ
         end
 
         if queues.empty? && (ae_name = alternate_exchange)
-          @vhost.fetch_exchange(ae_name).try do |ae|
+          @vhost.exchange(ae_name).try do |ae|
             ae.find_queues(routing_key, headers, queues, exchanges)
           end
         end

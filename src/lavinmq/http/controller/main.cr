@@ -129,7 +129,7 @@ module LavinMQ
               IO::Memory.new("test"))
             ok = @amqp_server.vhosts[vhost].publish(msg)
             env = nil
-            @amqp_server.vhosts[vhost].fetch_queue("aliveness-test").try &.basic_get(true) { |e| env = e }
+            @amqp_server.vhosts[vhost].queue("aliveness-test").try &.basic_get(true) { |e| env = e }
             ok = ok && env && String.new(env.message.body) == "test"
             {status: ok ? "ok" : "failed"}.to_json(context.response)
           end

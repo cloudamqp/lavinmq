@@ -30,7 +30,7 @@ describe LavinMQ::VHost do
       v = s.vhosts["test"].not_nil!
       v.declare_exchange("e", "direct", true, false)
       s.restart
-      s.vhosts["test"].exchanges["e"].should_not be_nil
+      s.vhosts["test"].exchange("e").not_nil!.should_not be_nil
     end
   end
 
@@ -59,7 +59,7 @@ describe LavinMQ::VHost do
       v = s.vhosts["test"].not_nil!
       v.declare_queue("q", true, false)
       s.restart
-      s.vhosts["test"].queues["q"].should_not be_nil
+      s.vhosts["test"].queue("q").not_nil!.should_not be_nil
     end
   end
 
@@ -71,7 +71,7 @@ describe LavinMQ::VHost do
       v.declare_queue("q", true, false)
       s.vhosts["test"].bind_queue("q", "e", "q")
       s.restart
-      s.vhosts["test"].exchanges["e"].bindings_details.first.destination.name.should eq "q"
+      s.vhosts["test"].exchange("e").not_nil!.bindings_details.first.destination.name.should eq "q"
     end
   end
 
@@ -123,7 +123,7 @@ describe LavinMQ::VHost do
         user = s.users.create(username, "password", [LavinMQ::Tag::Administrator])
         vhost = "test-vhost"
         s.vhosts.create(vhost, user)
-        p = user.permissions[vhost]
+        p = user.permission?(vhost).not_nil!
         p[:config].should eq /.*/
         p[:read].should eq /.*/
         p[:write].should eq /.*/
@@ -135,7 +135,7 @@ describe LavinMQ::VHost do
         vhost = "test-vhost"
         s.vhosts.create(vhost)
         user = s.users.default_user
-        p = user.permissions[vhost]
+        p = user.permission?(vhost).not_nil!
         p[:config].should eq /.*/
         p[:read].should eq /.*/
         p[:write].should eq /.*/

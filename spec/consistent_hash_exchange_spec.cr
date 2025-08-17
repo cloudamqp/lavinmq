@@ -8,8 +8,8 @@ describe LavinMQ::AMQP::ConsistentHashExchange do
         vhost = s.vhosts["/"]
         vhost.declare_exchange "con-hash", "x-consistent-hash", durable: true, auto_delete: false
         vhost.declare_queue "my-queue", durable: true, auto_delete: false
-        exchange = vhost.exchanges["con-hash"].should be_a(LavinMQ::AMQP::ConsistentHashExchange)
-        queue = vhost.queues["my-queue"].as(LavinMQ::AMQP::Queue)
+        exchange = vhost.exchange("con-hash").not_nil!.should be_a(LavinMQ::AMQP::ConsistentHashExchange)
+        queue = vhost.queue("my-queue").not_nil!.as(LavinMQ::AMQP::Queue)
         expect_raises(LavinMQ::Error::PreconditionFailed) do
           exchange.bind(queue, "non-numeric", nil)
         end
@@ -24,8 +24,8 @@ describe LavinMQ::AMQP::ConsistentHashExchange do
         vhost = s.vhosts["/"]
         vhost.declare_exchange "con-hash", "x-consistent-hash", durable: true, auto_delete: false
         vhost.declare_queue "my-queue", durable: true, auto_delete: false
-        exchange = vhost.exchanges["con-hash"].should be_a(LavinMQ::AMQP::ConsistentHashExchange)
-        queue = vhost.queues["my-queue"].as(LavinMQ::AMQP::Queue)
+        exchange = vhost.exchange("con-hash").not_nil!.should be_a(LavinMQ::AMQP::ConsistentHashExchange)
+        queue = vhost.queue("my-queue").not_nil!.as(LavinMQ::AMQP::Queue)
         expect_raises(LavinMQ::Error::PreconditionFailed) do
           exchange.unbind(queue, "non-numeric", nil)
         end

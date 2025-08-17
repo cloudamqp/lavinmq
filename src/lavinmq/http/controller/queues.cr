@@ -9,7 +9,7 @@ module LavinMQ
     module QueueHelpers
       private def queue(context, params, vhost, key = "name")
         name = URI.decode_www_form(params[key])
-        @amqp_server.vhosts[vhost].fetch_queue(name) || not_found(context, "Not Found")
+        @amqp_server.vhosts[vhost].queue(name) || not_found(context, "Not Found")
       end
     end
 
@@ -67,7 +67,7 @@ module LavinMQ
             unless user.can_config?(vhost, name) && dlx_ok
               access_refused(context, "User doesn't have permissions to declare queue '#{name}'")
             end
-            if q = @amqp_server.vhosts[vhost].fetch_queue(name)
+            if q = @amqp_server.vhosts[vhost].queue(name)
               unless q.match?(durable, false, auto_delete, tbl)
                 bad_request(context, "Existing queue declared with other arguments arg")
               end

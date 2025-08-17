@@ -181,7 +181,7 @@ describe LavinMQ::Deduplication::Deduper do
             "x-deduplication-header" => "msg1",
           })
           x.publish "test message", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
-          queue = s.vhosts["/"].queues[q_name]
+          queue = s.vhosts["/"].queue(q_name).not_nil!
           queue.message_count.should eq 0 # no message yet, delayed exchange
 
           # second publish should be deduplicated

@@ -132,7 +132,7 @@ module LavinMQ
     # When this method finishes, the position will be the same, start of the body
     def publish(msg : Message, immediate = false,
                 visited = Set(LavinMQ::Exchange).new, found_queues = Set(LavinMQ::Queue).new) : Bool
-      ex = fetch_exchange(msg.exchange_name) || return false
+      ex = exchange(msg.exchange_name) || return false
       ex.publish(msg, immediate, found_queues, visited)
     ensure
       visited.clear
@@ -250,14 +250,14 @@ module LavinMQ
           x.delete
           store_definition(f, dirty: true) if !loading && x.durable?
         when AMQP::Frame::Exchange::Bind
-          src = fetch_exchange(f.source)
-          dst = fetch_exchange(f.destination)
+          src = exchange(f.source)
+          dst = exchange(f.destination)
           return false unless src && dst
           return false unless src.bind(dst, f.routing_key, f.arguments)
           store_definition(f) if !loading && src.durable? && dst.durable?
         when AMQP::Frame::Exchange::Unbind
-          src = fetch_exchange(f.source)
-          dst = fetch_exchange(f.destination)
+          src = exchange(f.source)
+          dst = exchange(f.destination)
           return false unless src && dst
           return false unless src.unbind(dst, f.routing_key, f.arguments)
           store_definition(f, dirty: true) if !loading && src.durable? && dst.durable?
@@ -280,13 +280,13 @@ module LavinMQ
           event_tick(EventType::QueueDeleted) unless loading
           q.delete
         when AMQP::Frame::Queue::Bind
-          x = fetch_exchange(f.exchange_name) || return false
-          q = fetch_queue(f.queue_name) || return false
+          x = exchange(f.exchange_name) || return false
+          q = queue(f.queue_name) || return false
           return false unless x.bind(q, f.routing_key, f.arguments)
           store_definition(f) if !loading && x.durable? && q.durable? && !q.exclusive?
         when AMQP::Frame::Queue::Unbind
-          x = fetch_exchange(f.exchange_name) || return false
-          q = fetch_queue(f.queue_name) || return false
+          x = exchange(f.exchange_name) || return false
+          q = queue(f.queue_name) || return false
           return false unless x.unbind(q, f.routing_key, f.arguments)
           store_definition(f, dirty: true) if !loading && x.durable? && q.durable? && !q.exclusive?
         else raise "Cannot apply frame #{f.class} in vhost #{@name}"
@@ -713,7 +713,7 @@ module LavinMQ
       @queues.read &.has_key?(name)
     end
 
-    def fetch_queue(name : String) : Queue?
+    def queue(name : String) : Queue?
       @queues.read &.fetch(name, nil)
     end
 
@@ -747,7 +747,7 @@ module LavinMQ
       @exchanges.read &.has_key?(name)
     end
 
-    def fetch_exchange(name : String) : Exchange?
+    def exchange(name : String) : Exchange?
       @exchanges.read { |exchanges| exchanges[name]? }
     end
 
