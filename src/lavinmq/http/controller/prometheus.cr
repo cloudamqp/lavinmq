@@ -70,9 +70,14 @@ module LavinMQ
 
     class PrometheusController < Controller
       private def target_vhosts(context)
-        u = user(context)
-        vhosts = vhosts(u)
         selected = context.request.query_params.fetch_all("vhost")
+        vhosts = if LavinMQ::Config.instance.allow_open_metrics
+                   @amqp_server.vhosts.values
+                 else
+                   user = context.authenticated_username?.try { |v| @amqp_server.users[v]? }
+                   access_refused(context) unless user
+                   vhosts(user)
+                 end
         vhosts = vhosts.select { |vhost| selected.includes? vhost.name } unless selected.empty?
         vhosts.to_a
       end

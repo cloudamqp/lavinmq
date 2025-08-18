@@ -74,6 +74,7 @@ module LavinMQ
     property default_user : String = ENV.fetch("LAVINMQ_DEFAULT_USER", "guest")
     property default_password : String = ENV.fetch("LAVINMQ_DEFAULT_PASSWORD", DEFAULT_PASSWORD_HASH) # Hashed password for default user
     property max_consumers_per_channel = 0
+    property allow_open_metrics = false
     @@instance : Config = self.new
 
     def self.instance : LavinMQ::Config
@@ -117,6 +118,7 @@ module LavinMQ
         end
         p.on("--no-data-dir-lock", "Don't put a file lock in the data directory (default: true)") { @data_dir_lock = false }
         p.on("--raise-gc-warn", "Raise on GC warnings (default: false)") { @raise_gc_warn = true }
+        p.on("--allow-open-metrics", "Require authentication to access prometheus metrics") { @allow_open_metrics = true }
 
         p.separator("\nBindings & TLS:")
         p.on("-b BIND", "--bind=BIND", "IP address that the AMQP, MQTT and HTTP servers will listen on (default: 127.0.0.1)") do |v|
@@ -297,6 +299,7 @@ module LavinMQ
         when "guest_only_loopback" # TODO: guest_only_loopback was deprecated in 2.2.x, remove in 3.0
           STDERR.puts "WARNING: 'guest_only_loopback' is deprecated, use 'default_user_only_loopback' instead"
           @default_user_only_loopback = true?(v)
+        when "allow_open_metrics" then @allow_open_metrics = true?(v)
         else
           STDERR.puts "WARNING: Unrecognized configuration 'main/#{config}'"
         end

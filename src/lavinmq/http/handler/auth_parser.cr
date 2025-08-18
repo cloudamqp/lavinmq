@@ -3,7 +3,7 @@ require "base64"
 
 module LavinMQ
   module HTTP
-    class AuthHandler
+    class AuthParser
       include ::HTTP::Handler
 
       def initialize(@server : LavinMQ::Server)
@@ -12,18 +12,15 @@ module LavinMQ
       def call(context)
         if internal_unix_socket?(context)
           context.authenticated_username = Auth::UserStore::DIRECT_USER
-          return call_next(context)
         end
 
         if auth = cookie_auth(context) || basic_auth(context)
           username, password = auth
           if valid_auth?(username, password, context.request.remote_address)
             context.authenticated_username = username
-            return call_next(context)
           end
         end
-
-        unauthenticated(context)
+        call_next(context)
       end
 
       private def basic_auth(context)
@@ -74,10 +71,6 @@ module LavinMQ
           return addr.to_s == HTTP::INTERNAL_UNIX_SOCKET
         end
         false
-      end
-
-      private def unauthenticated(context)
-        context.response.status_code = 401
       end
 
       private def default_user_only_loopback?(remote_address, username) : Bool
