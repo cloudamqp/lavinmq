@@ -184,54 +184,54 @@ module LavinMQ::AMQP
       end
 
       private def load_stats_from_s3_segments(is_long_queue)
-        wg = WaitGroup.new(@s3_segments.size)
         segments = Array(Tuple(UInt32, MFile)).new(@s3_segments.size)
         counter = 0
-        running_fibers = 0
-        @s3_segments.each do |seg, s3file|
-          while running_fibers >= MAX_RUNNING_FIBERS
-            Fiber.yield
-          end
-          running_fibers += 1
+        segment_keys = @s3_segments.keys
+        keys_mutex = Mutex.new
+        wg = WaitGroup.new([MAX_RUNNING_FIBERS, @s3_segments.size].min)
+        [MAX_RUNNING_FIBERS, @s3_segments.size].min.times do
           spawn do
-            path = File.join(Config.instance.data_dir, s3file[:path])
-            if File.exists?("#{path}.meta")
-              read_metadata_file(seg, path, s3file[:size])
-              unless s3file[:meta] # upload to s3 unless it exists there
-                Log.info { "Uploading metadata file for segment #{seg} to S3" }
-                slice = Bytes.new(20)
-                File.open("#{path}.meta", &.read_fully(slice))
-                upload_file_to_s3("/#{path[Config.instance.data_dir.bytesize + 1..]}.meta", slice)
+            while seg = keys_mutex.synchronize { segment_keys.pop? }
+              s3file = @s3_segments[seg]
+              path = File.join(Config.instance.data_dir, s3file[:path])
+              if File.exists?("#{path}.meta")
+                read_metadata_file(seg, path, s3file[:size])
+                unless s3file[:meta] # upload to s3 unless it exists there
+                  Log.info { "Uploading metadata file for segment #{seg} to S3" }
+                  slice = Bytes.new(20)
+                  File.open("#{path}.meta", &.read_fully(slice))
+                  upload_file_to_s3("/#{path[Config.instance.data_dir.bytesize + 1..]}.meta", slice)
+                end
+              elsif meta_file = download_meta_file(seg, http_client)
+                read_metadata_file_from_s3(seg, meta_file)
               end
-            elsif meta_file = download_meta_file(seg, http_client)
-              read_metadata_file_from_s3(seg, meta_file)
-            end
-            file = verify_local_file?(s3file, seg)
+              file = verify_local_file?(s3file, seg)
 
-            # download segment from s3 if meta file was not found and local file is not valid
-            # always download last segment unless it exists locally
-            if @segment_msg_count[seg].zero? || seg == @s3_segments.last_key
-              file ||= download_segment(seg, http_client)
-              if mfile = file
-                @replicator.try &.register_file mfile
-                segments << {seg, mfile}
-                mfile.pos = 4
-                produce_metadata(seg, mfile)
-                write_metadata_file(seg, mfile)
-                slice = Bytes.new(20)
-                File.open("#{path}.meta", &.read_fully(slice))
-                upload_file_to_s3("/#{path[Config.instance.data_dir.bytesize + 1..]}.meta", slice)
-              else
-                @log.error { "Failed to load segment #{path}" }
+              # download segment from s3 if meta file was not found and local file is not valid
+              # always download last segment unless it exists locally
+              if @segment_msg_count[seg].zero? || seg == @s3_segments.last_key
+                file ||= download_segment(seg, http_client)
+                if mfile = file
+                  @replicator.try &.register_file mfile
+                  segments << {seg, mfile}
+                  mfile.pos = 4
+                  produce_metadata(seg, mfile)
+                  write_metadata_file(seg, mfile)
+                  slice = Bytes.new(20)
+                  File.open("#{path}.meta", &.read_fully(slice))
+                  upload_file_to_s3("/#{path[Config.instance.data_dir.bytesize + 1..]}.meta", slice)
+                else
+                  @log.error { "Failed to load segment #{path}" }
+                end
               end
+              counter += 1
+              if is_long_queue
+                @log.info { "Loaded #{counter}/#{@s3_segments.size} segments, #{@size} messages" } if counter % 128 == 0
+              else
+                @log.debug { "Loaded #{counter}/#{@s3_segments.size} segments, #{@size} messages" } if counter % 128 == 0
+              end
+              Fiber.yield
             end
-            if is_long_queue
-              @log.info { "Loaded #{counter}/#{@s3_segments.size} segments, #{@size} messages" } if (counter &+= 1) % 128 == 0
-            else
-              @log.debug { "Loaded #{counter}/#{@s3_segments.size} segments, #{@size} messages" } if (counter &+= 1) % 128 == 0
-            end
-            Fiber.yield
-            running_fibers -= 1
             wg.done
           end
         end
@@ -306,30 +306,31 @@ module LavinMQ::AMQP
           next if segments_to_download.empty?
           segments_to_download.reject! { |seg| @downloading_segments[seg]? || @segments[seg]? || !@s3_segments[seg]? }
 
-          segments_to_download.each do |segment|
-            while @downloading_segments.size >= MAX_RUNNING_FIBERS
-              sleep 10.milliseconds
-            end
-
-            @downloading_segments[segment] = RoughTime.unix_ms
+          download_mutex = Mutex.new
+          [MAX_RUNNING_FIBERS, @s3_segments.size].min.times do
             spawn do
-              path = File.join(Config.instance.data_dir, @s3_segments[segment][:path])
-              File.delete(path) if File.exists?(path) # delete old file if exists
-              h = http_client
-              @downloading_clients[segment] = [h]
-              begin
-                if mfile = download_segment(segment, h)
-                  @segments[segment] = mfile
-                end
-              rescue ex : IO::Error
-                if cl = @downloading_clients.delete(segment)
-                  cl.each(&.close) # Make sure clients are closed
-                end
-                @log.error { "Segment #{segment}: socket closed" }
+              while segment = download_mutex.synchronize { segments_to_download.pop? }
+                do_download(segment, http_client)
               end
             end
-            Fiber.yield
           end
+        end
+      end
+
+      def do_download(segment, h)
+        @downloading_segments[segment] = RoughTime.unix_ms
+        path = File.join(Config.instance.data_dir, @s3_segments[segment][:path])
+        File.delete(path) if File.exists?(path) # delete old file if exists
+        @downloading_clients[segment] = [h]
+        begin
+          if mfile = download_segment(segment, h)
+            @segments[segment] = mfile
+          end
+        rescue ex : IO::Error
+          if cl = @downloading_clients.delete(segment)
+            cl.each(&.close) # Make sure clients are closed
+          end
+          @log.error { "Segment #{segment}: socket closed" }
         end
       end
 
