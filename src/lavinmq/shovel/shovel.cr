@@ -352,13 +352,27 @@ module LavinMQ
                else
                  "/"
                end
-        response = c.post(path, headers: headers, body: msg.body_io)
+        success = push_with_retry(path, headers, msg.body_io, max_retries: 3, jitter: 0.5)
         case @ack_mode
         in AckMode::OnConfirm, AckMode::OnPublish
-          raise FailedDeliveryError.new unless response.success?
+          raise FailedDeliveryError.new unless success
           source.ack(msg.delivery_tag)
         in AckMode::NoAck
         end
+      end
+
+      private def push_with_retry(path, headers, body, max_retries = 3, jitter = 0.5)
+        retries = 0
+        while retries < max_retries
+          response = @client.not_nil!.post(path, headers: headers, body: body)
+          return true if response.success?
+          retries += 1
+          # Exponential backoff: 2^retries seconds with jitter
+          base_delay = (2.0 ** retries).seconds
+          jitter_delay = jitter.seconds * Random.rand(0.0..1.0)
+          sleep base_delay + jitter_delay
+        end
+        false
       end
     end
 
