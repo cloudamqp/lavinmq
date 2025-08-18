@@ -118,7 +118,7 @@ module LavinMQ
         end
         p.on("--no-data-dir-lock", "Don't put a file lock in the data directory (default: true)") { @data_dir_lock = false }
         p.on("--raise-gc-warn", "Raise on GC warnings (default: false)") { @raise_gc_warn = true }
-        p.on("--allow-open-metrics", "Require authentication to access prometheus metrics") { @allow_open_metrics = true }
+        p.on("--allow-open-metrics", "Allow access to prometheus metrics without authentication") { @allow_open_metrics = true }
 
         p.separator("\nBindings & TLS:")
         p.on("-b BIND", "--bind=BIND", "IP address that the AMQP, MQTT and HTTP servers will listen on (default: 127.0.0.1)") do |v|
