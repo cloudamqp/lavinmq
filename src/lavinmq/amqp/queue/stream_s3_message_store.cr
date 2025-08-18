@@ -55,14 +55,14 @@ module LavinMQ::AMQP
       # Get a list of segments from s3
       private def s3_segments_from_bucket(retries = 5)
         prefix = @msg_dir[Config.instance.data_dir.bytesize + 1..] + "/"
-        cont_token = ""
+        continuation_token = ""
         loop do
           path = "?delimiter=%2F&encoding-type=url&list-type=2&prefix=#{prefix}&max-keys=1000"
-          path += "&continuation-token=#{URI.encode_path(cont_token)}" unless cont_token.empty?
+          path += "&continuation-token=#{URI.encode_path(continuation_token)}" unless continuation_token.empty?
           h = http(URI.parse "https://#{Config.instance.streams_s3_storage_bucket}.#{Config.instance.streams_s3_storage_endpoint}")
           response = h.get(path)
-          cont_token = list_of_files_from_xml(XML.parse(response.body))
-          break unless cont_token # no more pages to process
+          continuation_token = list_of_files_from_xml(XML.parse(response.body))
+          break unless continuation_token # no more pages to process
         end
       rescue ex : IO::TimeoutError # retry
         @log.error { "Timeout while downloading file list, retrying..." }
@@ -70,22 +70,19 @@ module LavinMQ::AMQP
       end
 
       # Parse the XML response from S3
-      def list_of_files_from_xml(body)
-        list_bucket_results = body.first_element_child
+      def list_of_files_from_xml(document)
+        list_bucket_results = document.first_element_child
         return unless list_bucket_results
 
-        contents_elements = list_bucket_results.children.select(&.element?).select(&.name.==("Contents"))
+        contents_elements = list_bucket_results.xpath_nodes("//Contents")
         contents_elements.each { |content| parse_xml_element(content) }
         @log.info { "Found #{@s3_segments.size} segments in S3" }
 
-        continuation_token(list_bucket_results)
-      end
-
-      private def continuation_token(list_bucket_results)
-        is_truncated = list_bucket_results.children.select(&.element?).find { |c| (c.name.==("IsTruncated")) }.try &.children.first?.try &.content
-        if is_truncated == "true"
-          continuation_token = list_bucket_results.children.select(&.element?).find { |c| (c.name.==("NextContinuationToken")) }.try &.children.first?.try &.content
-          return continuation_token
+        # Check for continuation token
+        is_truncated_node = list_bucket_results.xpath_node("IsTruncated")
+        if is_truncated_node && is_truncated_node.content == "true"
+          continuation_token_node = list_bucket_results.xpath_node("NextContinuationToken")
+          return continuation_token_node.try &.content
         end
         nil
       end
@@ -95,26 +92,32 @@ module LavinMQ::AMQP
         id = 0_u32
         size = 0_i64
 
-        content.children.select(&.element?).each do |element|
-          case element.name
-          when "Key"
-            path = element.content
-            return nil unless path.includes?("msgs.") && path.size > 10
-            if path.includes?(".meta") && path.size > 15
-              update_s3_segment_list(path[-15..-6].to_u32, "", "", 0_i64, true)
-              return
-            end
-            id = path[-10..].to_u32
-          when "ETag"
-            if element.content.starts_with?('"')
-              etag = element.content[1..-2] # Remove quotes from ETag
-            else
-              etag = element.content
-            end
-          when "Size"
-            size = element.content.to_i64
+        if key_node = content.xpath_node("Key")
+          path = key_node.content
+          if match = path.match(/\/msgs\.(\d{10})\.meta$/)
+            id = match[1].to_u32
+            update_s3_segment_list(id, "", "", 0_i64, true)
+            return
+          elsif match = path.match(/\/msgs\.(\d{10})$/)
+            id = match[1].to_u32
+          else
+            return # Invalid file format
           end
         end
+
+        if etag_node = content.xpath_node("ETag")
+          etag_content = etag_node.content
+          if etag_content.starts_with?('"')
+            etag = etag_content[1..-2] # Remove quotes from ETag
+          else
+            etag = etag_content
+          end
+        end
+
+        if size_node = content.xpath_node("Size")
+          size = size_node.content.to_i64
+        end
+
         update_s3_segment_list(id, path, etag, size, false)
       end
 
