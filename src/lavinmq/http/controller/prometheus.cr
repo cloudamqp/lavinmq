@@ -68,10 +68,118 @@ module LavinMQ
       end
     end
 
+    module Prometheus
+      def report(io, &)
+        mem = 0
+        elapsed = Time.measure do
+          mem = Benchmark.memory do
+            begin
+              yield
+            rescue ex
+              Log.error(exception: ex) { "Error while reporting prometheus metrics" }
+            end
+          end
+        end
+        writer = PrometheusWriter.new(io, "telemetry")
+        writer.write({name:  "scrape_duration_seconds",
+                      type:  "gauge",
+                      value: elapsed.total_seconds,
+                      help:  "Duration for metrics collection in seconds"})
+        writer.write({name:  "scrape_mem",
+                      type:  "gauge",
+                      value: mem,
+                      help:  "Memory used for metrics collections in bytes"})
+      end
+
+      def gc_metrics(writer)
+        gc_stats = GC.prof_stats
+
+        writer.write({name: "gc_heap_size_bytes", value: gc_stats.heap_size,
+                      type: "gauge",
+                      help: "Heap size in bytes (including the area unmapped to OS)"})
+
+        writer.write({name: "gc_free_bytes", value: gc_stats.free_bytes,
+                      type: "gauge",
+                      help: "Total bytes contained in free and unmapped blocks"})
+
+        writer.write({name: "gc_unmapped_bytes", value: gc_stats.unmapped_bytes,
+                      type: "gauge",
+                      help: "Amount of memory unmapped to OS"})
+
+        writer.write({name: "gc_since_recent_collection_allocated_bytes", value: gc_stats.bytes_since_gc,
+                      type: "gauge",
+                      help: "Number of bytes allocated since the recent GC"})
+
+        writer.write({name: "gc_before_recent_collection_allocated_bytes_total", value: gc_stats.bytes_before_gc,
+                      type: "counter",
+                      help: "Number of bytes allocated before the recent GC (value may wrap)"})
+
+        writer.write({name: "gc_non_candidate_bytes", value: gc_stats.non_gc_bytes,
+                      type: "gauge",
+                      help: "Number of bytes not considered candidates for GC"})
+
+        writer.write({name: "gc_cycles_total", value: gc_stats.gc_no,
+                      type: "counter",
+                      help: "Garbage collection cycle number (value may wrap)"})
+
+        writer.write({name: "gc_marker_threads", value: gc_stats.markers_m1,
+                      type: "gauge",
+                      help: "Number of marker threads (excluding the initiating one)"})
+
+        writer.write({name: "gc_since_recent_collection_reclaimed_bytes", value: gc_stats.bytes_reclaimed_since_gc,
+                      type: "gauge",
+                      help: "Approximate number of reclaimed bytes after recent GC"})
+
+        writer.write({name: "gc_before_recent_collection_reclaimed_bytes_total", value: gc_stats.reclaimed_bytes_before_gc,
+                      type: "counter",
+                      help: "Approximate number of bytes reclaimed before the recent GC (value may wrap)"})
+
+        writer.write({name: "gc_since_recent_collection_explicitly_freed_bytes", value: gc_stats.expl_freed_bytes_since_gc,
+                      type: "counter",
+                      help: "Number of bytes freed explicitly since the recent GC"})
+
+        writer.write({name: "gc_from_os_obtained_bytes_total", value: gc_stats.obtained_from_os_bytes,
+                      type: "counter",
+                      help: "Total amount of memory obtained from OS, in bytes"})
+      end
+    end
+
+    class FollowerPrometheusController
+      include Router
+      include Prometheus
+
+      Log = LavinMQ::Log.for "http.prometheus"
+
+      def initialize
+        register_routes
+      end
+
+      private def register_routes
+        get "/metrics" do |context, _|
+          context.response.content_type = "text/plain"
+          prefix = context.request.query_params["prefix"]? || "lavinmq"
+          if prefix.bytesize > 20
+            context.response.status_code = 400
+            reason = "Prefix too long (max 20 characters)"
+            body = {error: "bad_request", reason: reason}
+              .to_json(context.response)
+            raise Controller::HaltRequest.new(reason)
+          end
+
+          report(context.response) do
+            writer = PrometheusWriter.new(context.response, prefix)
+            gc_metrics(writer)
+          end
+          context
+        end
+      end
+    end
+
     class PrometheusController < Controller
+      include Prometheus
+
       private def target_vhosts(context)
-        u = user(context)
-        vhosts = vhosts(u)
+        vhosts = @amqp_server.vhosts.values
         selected = context.request.query_params.fetch_all("vhost")
         vhosts = vhosts.select { |vhost| selected.includes? vhost.name } unless selected.empty?
         vhosts.to_a
@@ -122,28 +230,6 @@ module LavinMQ
           end
           context
         end
-      end
-
-      private def report(io, &)
-        mem = 0
-        elapsed = Time.measure do
-          mem = Benchmark.memory do
-            begin
-              yield
-            rescue ex
-              Log.error(exception: ex) { "Error while reporting prometheus metrics" }
-            end
-          end
-        end
-        writer = PrometheusWriter.new(io, "telemetry")
-        writer.write({name:  "scrape_duration_seconds",
-                      type:  "gauge",
-                      value: elapsed.total_seconds,
-                      help:  "Duration for metrics collection in seconds"})
-        writer.write({name:  "scrape_mem",
-                      type:  "gauge",
-                      value: mem,
-                      help:  "Memory used for metrics collections in bytes"})
       end
 
       private def overview_broker_metrics(vhosts, writer)
@@ -311,58 +397,6 @@ module LavinMQ
                         type:   "gauge",
                         help:   "Bytes that hasn't been synchronized with the follower yet"})
         end
-      end
-
-      private def gc_metrics(writer)
-        gc_stats = @amqp_server.gc_stats
-
-        writer.write({name: "gc_heap_size_bytes", value: gc_stats.heap_size,
-                      type: "gauge",
-                      help: "Heap size in bytes (including the area unmapped to OS)"})
-
-        writer.write({name: "gc_free_bytes", value: gc_stats.free_bytes,
-                      type: "gauge",
-                      help: "Total bytes contained in free and unmapped blocks"})
-
-        writer.write({name: "gc_unmapped_bytes", value: gc_stats.unmapped_bytes,
-                      type: "gauge",
-                      help: "Amount of memory unmapped to OS"})
-
-        writer.write({name: "gc_since_recent_collection_allocated_bytes", value: gc_stats.bytes_since_gc,
-                      type: "gauge",
-                      help: "Number of bytes allocated since the recent GC"})
-
-        writer.write({name: "gc_before_recent_collection_allocated_bytes_total", value: gc_stats.bytes_before_gc,
-                      type: "counter",
-                      help: "Number of bytes allocated before the recent GC (value may wrap)"})
-
-        writer.write({name: "gc_non_candidate_bytes", value: gc_stats.non_gc_bytes,
-                      type: "gauge",
-                      help: "Number of bytes not considered candidates for GC"})
-
-        writer.write({name: "gc_cycles_total", value: gc_stats.gc_no,
-                      type: "counter",
-                      help: "Garbage collection cycle number (value may wrap)"})
-
-        writer.write({name: "gc_marker_threads", value: gc_stats.markers_m1,
-                      type: "gauge",
-                      help: "Number of marker threads (excluding the initiating one)"})
-
-        writer.write({name: "gc_since_recent_collection_reclaimed_bytes", value: gc_stats.bytes_reclaimed_since_gc,
-                      type: "gauge",
-                      help: "Approximate number of reclaimed bytes after recent GC"})
-
-        writer.write({name: "gc_before_recent_collection_reclaimed_bytes_total", value: gc_stats.reclaimed_bytes_before_gc,
-                      type: "counter",
-                      help: "Approximate number of bytes reclaimed before the recent GC (value may wrap)"})
-
-        writer.write({name: "gc_since_recent_collection_explicitly_freed_bytes", value: gc_stats.expl_freed_bytes_since_gc,
-                      type: "counter",
-                      help: "Number of bytes freed explicitly since the recent GC"})
-
-        writer.write({name: "gc_from_os_obtained_bytes_total", value: gc_stats.obtained_from_os_bytes,
-                      type: "counter",
-                      help: "Total amount of memory obtained from OS, in bytes"})
       end
 
       SERVER_METRICS = {:connection_created, :connection_closed, :channel_created, :channel_closed,
