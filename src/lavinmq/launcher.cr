@@ -4,6 +4,7 @@ require "systemd"
 require "./reporter"
 require "./server"
 require "./http/http_server"
+require "./http/metrics_server"
 require "./in_memory_backend"
 require "./data_dir_lock"
 require "./etcd"
@@ -68,6 +69,7 @@ module LavinMQ
       @http_server = http_server = LavinMQ::HTTP::Server.new(amqp_server)
       setup_log_exchange(amqp_server)
       start_listeners(amqp_server, http_server)
+      start_metrics_server(amqp_server) unless @config.metrics_http_port == -1
       SystemD.notify_ready
       Fiber.yield # Yield to let listeners spawn before logging startup time
       Log.info { "Finished startup in #{(Time.monotonic - started_at).total_seconds}s" }
@@ -89,6 +91,7 @@ module LavinMQ
       SystemD.notify_stopping
       @http_server.try &.close rescue nil
       @amqp_server.try &.close rescue nil
+      @metrics_server.try &.close rescue nil
       @runner.stop
     end
 
@@ -134,6 +137,14 @@ module LavinMQ
             AMQP::Properties.new(timestamp: entry.timestamp, content_type: "text/plain")
           ))
         end
+      end
+    end
+
+    private def start_metrics_server(amqp_server)
+      @metrics_server = metrics_server = LavinMQ::HTTP::MetricsServer.new(amqp_server)
+      metrics_server.bind_tcp(@config.metrics_http_bind, @config.metrics_http_port)
+      spawn(name: "HTTP metrics listener") do
+        metrics_server.listen
       end
     end
 
