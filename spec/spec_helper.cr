@@ -14,6 +14,7 @@ require "file_utils"
 require "../src/lavinmq/config" # have to be required first
 require "../src/lavinmq/server"
 require "../src/lavinmq/http/http_server"
+require "../src/lavinmq/http/metrics_server"
 require "http/client"
 require "amqp-client"
 require "./support/*"
@@ -128,6 +129,20 @@ def with_http_server(&)
     h = LavinMQ::HTTP::Server.new(s)
     begin
       addr = h.bind_tcp("::1", ENV.has_key?("NATIVE_PORTS") ? 15672 : 0)
+      spawn(name: "http listen") { h.listen }
+      Fiber.yield
+      yield({HTTPSpecHelper.new(addr.to_s), s})
+    ensure
+      h.close
+    end
+  end
+end
+
+def with_metrics_server(&)
+  with_amqp_server do |s|
+    h = LavinMQ::HTTP::MetricsServer.new(s)
+    begin
+      addr = h.bind_tcp("::1", ENV.has_key?("NATIVE_PORTS") ? 15692 : 0)
       spawn(name: "http listen") { h.listen }
       Fiber.yield
       yield({HTTPSpecHelper.new(addr.to_s), s})
