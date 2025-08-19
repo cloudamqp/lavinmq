@@ -170,7 +170,7 @@ module LavinMQ
           case @config.unix_proxy_protocol
           when 1 then ProxyProtocol::V1.parse(client)
           when 2 then ProxyProtocol::V2.parse(client)
-          else ConnectionInfo.new(client.remote_address.path, client.local_address.path)
+          else        ConnectionInfo.new(client.remote_address.path, client.local_address.path)
           end
         handle_connection(client, conn_info, protocol)
       rescue ex
