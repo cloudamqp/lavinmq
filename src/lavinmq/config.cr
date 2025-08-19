@@ -36,6 +36,8 @@ module LavinMQ
     property http_unix_path = ""
     property http_systemd_socket_name = "lavinmq-http.socket"
     property amqp_systemd_socket_name = "lavinmq-amqp.socket"
+    property metrics_http_bind = "127.0.0.1"
+    property metrics_http_port = 15693
     property heartbeat = 300_u16                     # second
     property frame_max = 131_072_u32                 # bytes
     property channel_max = 2048_u16                  # number
@@ -159,6 +161,12 @@ module LavinMQ
         end
         p.on("--mqtt-unix-path=PATH", "MQTT UNIX path to listen to") do |v|
           @mqtt_unix_path = v
+        end
+        p.on("--metrics-http-bind=BIND", "IP address that the Prometheus server will bind to (default: 127.0.0.1)") do |v|
+          @metrics_http_bind = v
+        end
+        p.on("--metrics-http-port=PORT", "HTTP port that prometheus will listen to (default: 15692)") do |v|
+          @metrics_http_port = v.to_i
         end
         p.on("--cert FILE", "TLS certificate (including chain)") { |v| @tls_cert_path = v }
         p.on("--key FILE", "Private key for the TLS certificate") { |v| @tls_key_path = v }
@@ -288,6 +296,8 @@ module LavinMQ
         when "max_deleted_definitions"   then @max_deleted_definitions = v.to_i
         when "consumer_timeout"          then @consumer_timeout = v.to_u64
         when "default_consumer_prefetch" then @default_consumer_prefetch = v.to_u16
+        when "metrics_http_bind"         then @metrics_http_bind = v
+        when "metrics_http_port"         then @metrics_http_port = v.to_i
         when "default_user"              then @default_user = v
         when "default_password_hash"     then @default_password = v
         when "default_password"
