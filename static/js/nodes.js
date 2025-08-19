@@ -30,7 +30,7 @@ function render (data) {
 
 function start (cb) {
   update(cb)
-  setInterval(update, 5000, cb)
+  setInterval(update, 1000, cb)
 }
 
 const updateDetails = (nodeStats) => {
