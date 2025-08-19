@@ -106,7 +106,7 @@ module LavinMQ
       protected def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
         # Collect destinations from MQTT subscription tree (handles MQTT topic matching)
         destinations = Set(LavinMQ::Destination).new
-        @tree.each_entry(routing_key) do |destination, qos|
+        @tree.each_entry(routing_key) do |destination, _|
           destinations.add(destination)
         end
 
