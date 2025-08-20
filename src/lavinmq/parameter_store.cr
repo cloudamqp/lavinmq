@@ -1,6 +1,6 @@
 require "json"
 require "./parameter"
-require "./logger"
+require "./logging"
 
 module LavinMQ
   class ParameterStore(T)
@@ -10,7 +10,7 @@ module LavinMQ
 
     def initialize(@data_dir : String, @file_name : String, @replicator : Clustering::Replicator, vhost : String? = nil)
       metadata = vhost ? ::Log::Metadata.build({vhost: vhost}) : ::Log::Metadata.empty
-      @log = Logger.new(Log, metadata)
+      @log = Logging::Logger.new(Log, metadata)
       @parameters = Hash(ParameterId?, T).new
       load!
     end

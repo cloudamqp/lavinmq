@@ -1,7 +1,7 @@
 require "socket"
 require "wait_group"
 require "json"
-require "./logger"
+require "./logging"
 require "./etcd/lease"
 
 module LavinMQ

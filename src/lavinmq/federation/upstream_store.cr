@@ -1,5 +1,5 @@
 require "./upstream"
-require "../logger"
+require "../logging"
 
 module LavinMQ
   module Federation
@@ -11,7 +11,7 @@ module LavinMQ
 
       def initialize(@vhost : VHost)
         @metadata = ::Log::Metadata.new(nil, {vhost: @vhost.name})
-        @log = Logger.new(Log, @metadata)
+        @log = Logging::Logger.new(Log, @metadata)
       end
 
       def each(&)

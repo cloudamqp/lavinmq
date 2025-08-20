@@ -1,6 +1,6 @@
 require "json"
 require "../stdlib/*"
-require "./logger"
+require "./logging"
 require "./policy"
 require "./parameter_store"
 require "./parameter"
@@ -45,7 +45,7 @@ module LavinMQ
     Log = LavinMQ::Log.for "vhost"
 
     def initialize(@name : String, @server_data_dir : String, @users : Auth::UserStore, @replicator : Clustering::Replicator, @description = "", @tags = Array(String).new(0))
-      @log = Logger.new(Log, vhost: @name)
+      @log = Logging::Logger.new(Log, vhost: @name)
       @dir = Digest::SHA1.hexdigest(@name)
       @data_dir = File.join(@server_data_dir, @dir)
       Dir.mkdir_p File.join(@data_dir)

@@ -17,7 +17,7 @@ module LavinMQ
 
         super(@vhost, @name, false, @auto_delete, arguments)
 
-        @log = Logger.new(Log, @metadata)
+        @log = Logging::Logger.new(Log, @metadata)
         spawn deliver_loop, name: "Session#deliver_loop"
       end
 
