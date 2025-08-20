@@ -39,7 +39,7 @@ module LavinMQ
         @waitgroup = WaitGroup.new(1)
         @name = "#{@connection_info.remote_address} -> #{@connection_info.local_address}"
         metadata = ::Log::Metadata.new(nil, {vhost: @broker.vhost.name, address: @connection_info.remote_address.to_s, client_id: client_id})
-        @log = Logger.new(Log, metadata)
+        @log = Logging::Logger.new(Log, metadata)
         @log.info { "Connection established for user=#{@user.name}" }
         spawn read_loop, name: "MQTT read_loop #{@connection_info.remote_address}"
       end

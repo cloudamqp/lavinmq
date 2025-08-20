@@ -2,7 +2,7 @@ require "log"
 require "wait_group"
 require "../amqp"
 require "../client/channel/consumer"
-require "../logger"
+require "../logging"
 require "../bool_channel"
 
 module LavinMQ
@@ -30,7 +30,7 @@ module LavinMQ
         @prefetch_count = @channel.prefetch_count
         @flow = @channel.flow?
         @metadata = @channel.@metadata.extend({consumer: @tag})
-        @log = Logger.new(Log, @metadata)
+        @log = Logging::Logger.new(Log, @metadata)
         spawn deliver_loop, name: "Consumer deliver loop"
         @flow_change = BoolChannel.new(@flow)
         @has_capacity = BoolChannel.new(true)

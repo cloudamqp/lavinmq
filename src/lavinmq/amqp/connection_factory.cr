@@ -1,5 +1,5 @@
 require "../version"
-require "../logger"
+require "../logging"
 require "./client"
 require "../auth/user_store"
 require "../vhost_store"
@@ -18,7 +18,7 @@ module LavinMQ
       def start(socket, connection_info) : Client?
         socket.read_timeout = 15.seconds
         metadata = ::Log::Metadata.build({address: connection_info.remote_address.to_s})
-        logger = Logger.new(Log, metadata)
+        logger = Logging::Logger.new(Log, metadata)
         if confirm_header(socket, logger)
           if start_ok = start(socket, logger)
             if user = authenticate(socket, connection_info.remote_address, start_ok, logger)
@@ -45,7 +45,7 @@ module LavinMQ
         end
       end
 
-      def confirm_header(socket, log : Logger) : Bool
+      def confirm_header(socket, log : Logging::Logger) : Bool
         proto = uninitialized UInt8[8]
         count = socket.read(proto.to_slice)
         if count.zero? # EOF, socket closed by peer
@@ -77,7 +77,7 @@ module LavinMQ
         },
       })
 
-      def start(socket, log : Logger)
+      def start(socket, log : Logging::Logger)
         start = AMQP::Frame::Connection::Start.new(server_properties: SERVER_PROPERTIES)
         socket.write_bytes start, ::IO::ByteFormat::NetworkEndian
         socket.flush

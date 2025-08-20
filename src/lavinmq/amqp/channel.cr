@@ -3,7 +3,7 @@ require "./client"
 require "./consumer"
 require "./stream/stream_consumer"
 require "../error"
-require "../logger"
+require "../logging"
 require "./queue"
 require "../exchange"
 require "../amqp"
@@ -48,7 +48,7 @@ module LavinMQ
       def initialize(@client : Client, @id : UInt16)
         @metadata = ::Log::Metadata.new(nil, {client: @client.connection_info.remote_address.to_s, channel: @id.to_i})
         @name = "#{@client.channel_name_prefix}[#{@id}]"
-        @log = Logger.new(Log, @metadata)
+        @log = Logging::Logger.new(Log, @metadata)
       end
 
       record Unack,
