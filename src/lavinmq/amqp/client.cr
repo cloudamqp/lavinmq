@@ -3,7 +3,7 @@ require "socket"
 require "./channel"
 require "../client"
 require "../error"
-require "../logger"
+require "../logging"
 require "../name_validator"
 require "./channel_reply_code"
 require "./connection_reply_code"
@@ -62,7 +62,7 @@ module LavinMQ
           else
             ::Log::Metadata.new(nil, {vhost: @vhost.name, address: @connection_info.remote_address.to_s})
           end
-        @log = Logger.new(Log, @metadata)
+        @log = Logging::Logger.new(Log, @metadata)
         @vhost.add_connection(self)
         @log.info { "Connection established for user=#{@user.name}" }
         spawn read_loop, name: "Client#read_loop #{@connection_info.remote_address}"

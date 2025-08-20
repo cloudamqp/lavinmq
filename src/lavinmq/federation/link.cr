@@ -1,6 +1,6 @@
 require "../observable"
 require "amqp-client"
-require "../logger"
+require "../logging"
 require "../sortable_json"
 require "../amqp/queue/event"
 require "../amqp/exchange/event"
@@ -23,7 +23,7 @@ module LavinMQ
 
         def initialize(@upstream : Upstream)
           @metadata = ::Log::Metadata.new(nil, {vhost: @upstream.vhost.name, upstream: @upstream.name})
-          @log = Logger.new(Log, @metadata)
+          @log = Logging::Logger.new(Log, @metadata)
           user = @upstream.vhost.users.direct_user
           vhost = @upstream.vhost.name == "/" ? "" : @upstream.vhost.name
           port = Config.instance.amqp_port

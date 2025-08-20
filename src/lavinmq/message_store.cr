@@ -28,7 +28,7 @@ module LavinMQ
     getter empty = BoolChannel.new(true)
 
     def initialize(@msg_dir : String, @replicator : Clustering::Replicator?, durable : Bool = true, metadata : ::Log::Metadata = ::Log::Metadata.empty)
-      @log = Logger.new(Log, metadata)
+      @log = Logging::Logger.new(Log, metadata)
       @durable = durable
       @acks = Hash(UInt32, MFile).new { |acks, seg| acks[seg] = open_ack_file(seg) }
       load_segments_from_disk

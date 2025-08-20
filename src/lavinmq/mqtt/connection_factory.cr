@@ -18,7 +18,7 @@ module LavinMQ
 
       def start(socket : ::IO, connection_info : ConnectionInfo)
         metadata = ::Log::Metadata.build({address: connection_info.remote_address.to_s})
-        logger = Logger.new(Log, metadata)
+        logger = Logging::Logger.new(Log, metadata)
         begin
           io = MQTT::IO.new(socket)
           if packet = Packet.from_io(socket).as?(Connect)

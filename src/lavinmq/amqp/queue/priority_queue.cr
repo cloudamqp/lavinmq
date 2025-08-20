@@ -28,7 +28,7 @@ module LavinMQ::AMQP
         @durable : Bool = true,
         @metadata : ::Log::Metadata = ::Log::Metadata.empty,
       )
-        @log = Logger.new(Log, metadata.extend({max_prio: @max_priority.to_s}))
+        @log = Logging::Logger.new(Log, metadata.extend({max_prio: @max_priority.to_s}))
         @stores = Array(MessageStore).new(1 + @max_priority)
 
         init_sub_stores(@stores)
