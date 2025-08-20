@@ -37,7 +37,6 @@ module LavinMQ
 
       def close
         @http.try &.close
-        File.delete?(INTERNAL_UNIX_SOCKET)
       end
     end
   end
