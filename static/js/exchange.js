@@ -75,6 +75,12 @@ const bindingsTable = Table.renderTable('bindings-table', tableOptions, function
 
     const destinationLink = document.createElement('a')
     destinationLink.href = HTTP.url`${item.destination_type}#vhost=${vhost}&name=${item.destination}`
+    if (item.destination_type === 'exchange') {
+      destinationLink.onclick = function(e) {
+        window.location.href = this.href
+        window.location.reload()
+      }
+    }
     destinationLink.textContent = item.destination
     const argsPre = document.createElement('pre')
     argsPre.textContent = JSON.stringify(item.arguments || {})
