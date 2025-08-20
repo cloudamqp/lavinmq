@@ -1,5 +1,5 @@
 require "digest/sha1"
-require "../../logger"
+require "../../logging"
 require "../../segment_position"
 require "../../policy"
 require "../../observable"
@@ -141,7 +141,7 @@ module LavinMQ::AMQP
                    @arguments = AMQP::Table.new)
       @data_dir = make_data_dir
       @metadata = ::Log::Metadata.new(nil, {queue: @name, vhost: @vhost.name})
-      @log = Logger.new(Log, @metadata)
+      @log = Logging::Logger.new(Log, @metadata)
       File.open(File.join(@data_dir, ".queue"), "w") { |f| f.sync = true; f.print @name }
       if File.exists?(File.join(@data_dir, ".paused"))
         @state = QueueState::Paused

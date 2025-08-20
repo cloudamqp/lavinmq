@@ -2,7 +2,7 @@ require "log"
 require "wait_group"
 require "../amqp"
 require "../client/channel/consumer"
-require "../logger"
+require "../logging"
 require "../bool_channel"
 
 module LavinMQ
@@ -31,7 +31,7 @@ module LavinMQ
         @flow = @channel.flow?
         @flow_change = BoolChannel.new(@flow)
         @metadata = @channel.@metadata.extend({consumer: @tag})
-        @log = Logger.new(Log, @metadata)
+        @log = Logging::Logger.new(Log, @metadata)
         spawn deliver_loop, name: "Consumer deliver loop"
       end
 
