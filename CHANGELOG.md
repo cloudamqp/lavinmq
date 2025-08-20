@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Changed
+
+- Prometheus metrics are now served on a different port to allow unauthenticated requests for metrics [#1217](https://github.com/cloudamqp/lavinmq/pull/1217)
+- Followers no longer forward requests to `/metrics` to leader and instead show their own metrics [#1217](https://github.com/cloudamqp/lavinmq/pull/1217)
+
+
 ## [2.5.0-beta.1] - 2025-07-01
 
 This release brings significant improvements across multiple areas of LavinMQ. Key focus areas include major clustering and replication enhancements for better reliability and performance, a new light mode UI theme alongside numerous user interface improvements, substantial performance optimizations including faster boot times and improved memory management, and enhanced tooling with expanded MQTT support. The release also includes important bug fixes.
