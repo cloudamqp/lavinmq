@@ -47,6 +47,10 @@ module LavinMQ::AMQP
         @empty.set empty?
 
         drop_overflow
+        spawn_fibers
+      end
+
+      def spawn_fibers
         spawn download_segments, name: "StreamS3MessageStore#download_segments" # asynchronously download segments ahead of current consumers
         spawn monitor_downloads, name: "StreamS3MessageStore#monitor_downloads" # monitor downloads and retry if needed
         spawn remove_local_segments, name: "StreamS3MessageStore#remove_local_segments"
@@ -59,8 +63,7 @@ module LavinMQ::AMQP
         loop do
           path = "?delimiter=%2F&encoding-type=url&list-type=2&prefix=#{prefix}&max-keys=1000"
           path += "&continuation-token=#{URI.encode_path(continuation_token)}" unless continuation_token.empty?
-          h = http(URI.parse "https://#{Config.instance.streams_s3_storage_bucket}.#{Config.instance.streams_s3_storage_endpoint}")
-          response = h.get(path)
+          response = http_client.get(path)
           continuation_token = list_of_files_from_xml(XML.parse(response.body))
           break unless continuation_token # no more pages to process
         end
@@ -73,15 +76,14 @@ module LavinMQ::AMQP
       def list_of_files_from_xml(document)
         list_bucket_results = document.first_element_child
         return unless list_bucket_results
-
-        contents_elements = list_bucket_results.xpath_nodes("//Contents")
+        contents_elements = list_bucket_results.xpath_nodes("//*[local-name()='Contents']")
         contents_elements.each { |content| parse_xml_element(content) }
         @log.info { "Found #{@s3_segments.size} segments in S3" }
 
         # Check for continuation token
-        is_truncated_node = list_bucket_results.xpath_node("IsTruncated")
+        is_truncated_node = list_bucket_results.xpath_node(".//*[local-name()='IsTruncated']")
         if is_truncated_node && is_truncated_node.content == "true"
-          continuation_token_node = list_bucket_results.xpath_node("NextContinuationToken")
+          continuation_token_node = list_bucket_results.xpath_node(".//*[local-name()='NextContinuationToken']")
           return continuation_token_node.try &.content
         end
         nil
@@ -92,7 +94,7 @@ module LavinMQ::AMQP
         id = 0_u32
         size = 0_i64
 
-        if key_node = content.xpath_node("Key")
+        if key_node = content.xpath_node(".//*[local-name()='Key']")
           path = key_node.content
           if match = path.match(/\/msgs\.(\d{10})\.meta$/)
             id = match[1].to_u32
@@ -105,7 +107,7 @@ module LavinMQ::AMQP
           end
         end
 
-        if etag_node = content.xpath_node("ETag")
+        if etag_node = content.xpath_node(".//*[local-name()='ETag']")
           etag_content = etag_node.content
           if etag_content.starts_with?('"')
             etag = etag_content[1..-2] # Remove quotes from ETag
@@ -114,7 +116,7 @@ module LavinMQ::AMQP
           end
         end
 
-        if size_node = content.xpath_node("Size")
+        if size_node = content.xpath_node(".//*[local-name()='Size']")
           size = size_node.content.to_i64
         end
 
@@ -194,7 +196,7 @@ module LavinMQ::AMQP
         wg = WaitGroup.new([MAX_RUNNING_FIBERS, @s3_segments.size].min)
         [MAX_RUNNING_FIBERS, @s3_segments.size].min.times do
           spawn do
-            while seg = keys_mutex.synchronize { segment_keys.pop? }
+            while seg = keys_mutex.synchronize { segment_keys.shift? }
               s3file = @s3_segments[seg]
               path = File.join(Config.instance.data_dir, s3file[:path])
               if File.exists?("#{path}.meta")
@@ -312,7 +314,7 @@ module LavinMQ::AMQP
           download_mutex = Mutex.new
           [MAX_RUNNING_FIBERS, @s3_segments.size].min.times do
             spawn do
-              while segment = download_mutex.synchronize { segments_to_download.pop? }
+              while segment = download_mutex.synchronize { segments_to_download.shift? }
                 do_download(segment, http_client)
               end
             end
@@ -328,12 +330,13 @@ module LavinMQ::AMQP
         begin
           if mfile = download_segment(segment, h)
             @segments[segment] = mfile
+            @downloading_clients[segment].try &.delete(h)
           end
         rescue ex : IO::Error
           if cl = @downloading_clients.delete(segment)
             cl.each(&.close) # Make sure clients are closed
           end
-          @log.error { "Segment #{segment}: socket closed" }
+          @log.debug { "Segment #{segment}: socket closed" }
         end
       end
 
@@ -350,24 +353,29 @@ module LavinMQ::AMQP
               if clients = @downloading_clients.delete(seg_id)
                 clients.each(&.close) # Close any client still trying to download completed segment
               end
+              Dir.glob(File.join(Config.instance.data_dir, "msgs.#{seg_id.to_s.rjust(10, '0')}.tmp.*")).each do |file|
+                File.delete(file)
+              end
             elsif RoughTime.unix_ms - download_start_time > DOWNLOAD_TIMEOUT
               @log.debug { "Segment #{seg_id} download timed out, retrying" }
               @downloading_segments[seg_id] = RoughTime.unix_ms
-              spawn do
-                h = http_client
-                @downloading_clients[seg_id] << h
-                begin
-                  if mfile = download_segment(seg_id, h)
-                    @segments[seg_id] = mfile
-                  end
-                rescue ex : IO::Error
-                  @log.debug { "Segment #{seg_id}: socket closed during retry" }
-                  @downloading_segments[seg_id] = RoughTime.unix_ms - 2000 # Reset the start time to retry again
-                end
-              end
+              spawn retry_download_segment(seg_id)
             end
             Fiber.yield
           end
+        end
+      end
+
+      private def retry_download_segment(seg_id)
+        h = http_client
+        @downloading_clients[seg_id] << h
+        begin
+          if mfile = download_segment(seg_id, h)
+            @segments[seg_id] = mfile
+          end
+        rescue ex : IO::Error
+          @log.debug { "Segment #{seg_id}: socket closed during retry" }
+          @downloading_segments[seg_id] = RoughTime.unix_ms - 2000 # Reset the start time to retry again
         end
       end
 
@@ -392,10 +400,10 @@ module LavinMQ::AMQP
         return unless @s3_segments[segment_id]?
         s3file_path = @s3_segments[segment_id][:path]
         path = File.join(Config.instance.data_dir, s3file_path)
-
+        temp_path = temp_path(path)
         h.get("/#{s3file_path}") do |response|
           bytesize = response.headers["Content-Length"].to_i32
-          rfile = MFile.new(temp_path(path), bytesize) # Create a temporary file
+          rfile = MFile.new(temp_path, bytesize) # Create a temporary file
           IO.copy response.body_io, rfile
           if File.exists?(path)
             rfile.delete # Delete temp file if segment already exists
@@ -405,6 +413,9 @@ module LavinMQ::AMQP
             @log.debug { "Downloaded segment: #{segment_id}" }
             return rfile
           end
+        rescue ex : IO::Error
+          File.delete(temp_path) if File.exists?(temp_path)
+          raise ex
         end
       rescue ex : IO::TimeoutError
         @log.warn { "Timeout while downloading segment #{segment_id}, retrying" }
@@ -496,8 +507,7 @@ module LavinMQ::AMQP
       end
 
       private def upload_file_to_s3(path, slice, retries = 3)
-        h = http(URI.parse "https://#{Config.instance.streams_s3_storage_bucket}.#{Config.instance.streams_s3_storage_endpoint}")
-        response = h.put(path, body: slice)
+        response = http_client.put(path, body: slice)
         if response.status_code != 200
           if (retries -= 1) <= 0
             raise Exception.new("Failed to upload file #{path} to S3 after multiple retries")
@@ -593,7 +603,7 @@ module LavinMQ::AMQP
       end
 
       private def delete_from_s3(s3_seg)
-        h = http(URI.parse "https://#{Config.instance.streams_s3_storage_bucket}.#{Config.instance.streams_s3_storage_endpoint}")
+        h = http_client
         delete_from_s3(h, s3_seg[:path])
         delete_from_s3(h, "#{s3_seg[:path]}.meta")
       end
@@ -627,21 +637,18 @@ module LavinMQ::AMQP
         super
       end
 
-      private def http_client
-        h = http(URI.parse "https://#{Config.instance.streams_s3_storage_bucket}.#{Config.instance.streams_s3_storage_endpoint}")
-        h.connect_timeout = HTTP_CONNECT_TIMEOUT
-        h.read_timeout = HTTP_READ_TIMEOUT
-        h
-      end
-
-      def http(uri : URI)
-        h = ::HTTP::Client.new(uri)
+      private def http_client(with_timeouts = false)
+        h = ::HTTP::Client.new(URI.parse("https://#{Config.instance.streams_s3_storage_bucket}.#{Config.instance.streams_s3_storage_endpoint}"))
         h.before_request do |request|
           if signer = s3_signer
             signer.sign(request)
           else
             raise "No S3 signer found"
           end
+        end
+        if with_timeouts
+          h.connect_timeout = HTTP_CONNECT_TIMEOUT
+          h.read_timeout = HTTP_READ_TIMEOUT
         end
         h
       end
