@@ -39,7 +39,7 @@ end
 
 RESPONSE_FILE_LIST = <<-XML
           <?xml version="1.0" encoding="UTF-8"?>
-          <ListBucketResult>
+          <ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
             <Contents>
               <Key>test_queue/msgs.0000000001</Key>
               <ETag>"abc123"</ETag>
@@ -120,13 +120,18 @@ class MockStreamS3MessageStore < LavinMQ::AMQP::StreamQueue::StreamS3MessageStor
     super(@msg_dir, nil, true, ::Log::Metadata.empty)
   end
 
-  def http(uri : URI)
+  def http_client(with_timeouts = false)
     h = MockS3HTTPClient.new("test.lavinmq.com")
     h.responses = @test_responses
+
     if signer = s3_signer
-      signer.sign(::HTTP::Request.new("GET", uri.path))
+      signer.sign(::HTTP::Request.new("GET", "test.lavinmq.com"))
     else
       raise "No S3 signer found"
+    end
+    if with_timeouts
+      h.connect_timeout = HTTP_CONNECT_TIMEOUT
+      h.read_timeout = HTTP_READ_TIMEOUT
     end
     h.as(::HTTP::Client)
   end
@@ -197,7 +202,7 @@ describe LavinMQ::AMQP::StreamQueue::StreamS3MessageStore do
 
       file_list = <<-XML
           <?xml version="1.0" encoding="UTF-8"?>
-          <ListBucketResult>
+          <ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
             <Contents>
               <Key>test_queue/msgs.0000000001</Key>
               <ETag>"#{etag1}"</ETag>
@@ -237,7 +242,7 @@ describe LavinMQ::AMQP::StreamQueue::StreamS3MessageStore do
       File.write(File.join(msg_dir, "msgs.0000000002"), S3SpecHelper.segment_bytes(100_i64))
       file_list = <<-XML
           <?xml version="1.0" encoding="UTF-8"?>
-          <ListBucketResult>
+          <ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
           </ListBucketResult>
           XML
       responses = {
@@ -259,7 +264,7 @@ describe LavinMQ::AMQP::StreamQueue::StreamS3MessageStore do
       Dir.mkdir_p(msg_dir)
       file_list = <<-XML
           <?xml version="1.0" encoding="UTF-8"?>
-          <ListBucketResult>
+          <ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
             <Contents>
               <Key>test_queue/msgs.0000000001</Key>
               <ETag>"abc"</ETag>
