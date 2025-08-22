@@ -30,6 +30,7 @@ module LavinMQ
         h[k] = Set(Destination).new
       end
       @tree = MQTT::SubscriptionTree(Destination).new
+      @delivered_to = Set(LavinMQ::Destination).new
 
       def type : String
         "mqtt"
@@ -55,41 +56,21 @@ module LavinMQ
 
         msg = Message.new(timestamp, EXCHANGE, packet.topic, properties, bodysize, body)
         count = 0u32
-        delivered_to = Set(LavinMQ::Destination).new
+        @delivered_to.clear
 
-        # First, handle MQTT sessions using topic pattern matching
-        @tree.each_entry(packet.topic) do |destination, qos|
-          # Use the subscription QoS for MQTT sessions (as per MQTT spec)
-          msg.properties.delivery_mode = qos
+        # Handle all destinations (both MQTT and AMQP) via subscription tree
+        @tree.each_entry(packet.topic) do |destination, _|
+          next if @delivered_to.includes?(destination)
           case destination
-          when MQTT::Session
-            if destination.publish(msg)
-              count += 1
-              msg.body_io.rewind
-              delivered_to.add(destination)
-            end
           when LavinMQ::Queue
             if destination.publish(msg)
               count += 1
               msg.body_io.rewind
-              delivered_to.add(destination)
+              @delivered_to.add(destination)
             end
           end
         end
 
-        # Also handle AMQP destinations via bindings
-        queues = Set(LavinMQ::Queue).new
-        exchanges = Set(LavinMQ::Exchange).new
-        find_queues(packet.topic, msg.properties.headers, queues, exchanges)
-
-        queues.each do |queue|
-          next if delivered_to.includes?(queue) # Skip if already handled via MQTT tree
-          msg.properties.delivery_mode = packet.qos
-          if queue.publish(msg)
-            count += 1
-            msg.body_io.rewind
-          end
-        end
         @unroutable_count.add(1, :relaxed) if count.zero?
         @publish_out_count.add(count, :relaxed)
         count
@@ -104,24 +85,8 @@ module LavinMQ
       end
 
       protected def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
-        # Collect destinations from MQTT subscription tree (handles MQTT topic matching)
-        destinations = Set(LavinMQ::Destination).new
-        @tree.each_entry(routing_key) do |destination, _|
-          destinations.add(destination)
-        end
-
-        # Also collect destinations from AMQP-style bindings
-        # For MQTT->AMQP bindings, we need exact routing key match
-        @bindings.each do |binding_key, binding_destinations|
-          if binding_key.inner.routing_key == routing_key
-            binding_destinations.each do |destination|
-              destinations.add(destination)
-            end
-          end
-        end
-
-        # Now yield all collected destinations
-        destinations.each do |destination|
+        # Use only the subscription tree for all destinations (MQTT and AMQP)
+        @tree.destinations_iterator(routing_key).each do |destination|
           yield destination
         end
       end

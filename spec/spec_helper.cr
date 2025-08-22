@@ -190,3 +190,16 @@ module LavinMQ
     end
   end
 end
+
+# MQTT Cross-Protocol Binding Helpers
+def create_mqtt_exchange(s)
+  vhost = s.vhosts["/"]
+  retain_store = LavinMQ::MQTT::RetainStore.new(File.join(vhost.data_dir, "mqtt_retain"), LavinMQ::Clustering::NoopServer.new)
+  mqtt_exchange = LavinMQ::MQTT::Exchange.new(vhost, "mqtt.default", retain_store)
+  vhost.exchanges["mqtt.default"] = mqtt_exchange
+  mqtt_exchange
+end
+
+def mqtt_publish(topic, payload, qos = 0u8)
+  MQTT::Protocol::Publish.new(topic, payload.to_slice, nil, false, qos, false)
+end

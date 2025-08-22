@@ -43,6 +43,112 @@ describe LavinMQ::Exchange do
         end
       end
     end
+
+    describe "cross-protocol bindings" do
+      it "AMQP queue can bind to MQTT exchange" do
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            ch.queue("test-queue")
+            mqtt_exchange = create_mqtt_exchange(s)
+            amqp_queue = s.vhosts["/"].queues["test-queue"]
+            binding_args = LavinMQ::AMQP::Table.new({"x-mqtt-qos": 1_u8})
+
+            mqtt_exchange.bind(amqp_queue, "sensor/temperature", binding_args).should be_true
+            binding = mqtt_exchange.bindings_details.find { |b| b.destination == amqp_queue }
+            binding.should_not be_nil
+            binding.not_nil!.binding_key.routing_key.should eq "sensor/temperature"
+            binding.not_nil!.binding_key.arguments.should eq binding_args
+          end
+        end
+      end
+
+      it "AMQP queue receives messages from MQTT publish" do
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            amqp_queue = ch.queue("mqtt-messages")
+            mqtt_exchange = create_mqtt_exchange(s)
+            amqp_queue = s.vhosts["/"].queues["mqtt-messages"]
+
+            mqtt_exchange.bind(amqp_queue, "home/lights", nil)
+            mqtt_exchange.publish(mqtt_publish("home/lights", "ON")).should eq 1
+            amqp_queue.message_count.should eq 1
+            String.new(amqp_queue.get.not_nil!.body_io.to_slice).should eq "ON"
+          end
+        end
+      end
+
+      it "MQTT exchange routes with topic patterns" do
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            ch.queue("sensor-data")
+            ch.queue("all-data")
+            mqtt_exchange = create_mqtt_exchange(s)
+            sensor_queue = s.vhosts["/"].queues["sensor-data"]
+            all_queue = s.vhosts["/"].queues["all-data"]
+
+            mqtt_exchange.bind(sensor_queue, "sensor/+/temperature", nil)
+            mqtt_exchange.bind(all_queue, "#", nil)
+            mqtt_exchange.publish(mqtt_publish("sensor/bedroom/temperature", "22.5")).should eq 2
+            sensor_queue.message_count.should eq 1
+            all_queue.message_count.should eq 1
+          end
+        end
+      end
+
+      it "handles QoS arguments and unbinding" do
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            ch.queue("qos-test")
+            mqtt_exchange = create_mqtt_exchange(s)
+            amqp_queue = s.vhosts["/"].queues["qos-test"]
+            qos_args = LavinMQ::AMQP::Table.new({"x-mqtt-qos": 2_u8})
+
+            mqtt_exchange.bind(amqp_queue, "device/status", qos_args).should be_true
+            binding = mqtt_exchange.bindings_details.find { |b| b.destination == amqp_queue }
+            binding.not_nil!.binding_key.arguments.should eq qos_args
+
+            mqtt_exchange.unbind(amqp_queue, "device/status", qos_args).should be_true
+            mqtt_exchange.bindings_details.find { |b| b.destination == amqp_queue }.should be_nil
+          end
+        end
+      end
+
+      it "multiple queues bind to same topic with different QoS" do
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            ["mqtt-qos0", "mqtt-qos1", "mqtt-qos2"].each { |name| ch.queue(name) }
+            mqtt_exchange = create_mqtt_exchange(s)
+            queues = ["mqtt-qos0", "mqtt-qos1", "mqtt-qos2"].map { |name| s.vhosts["/"].queues[name] }
+
+            queues.each_with_index do |queue, i|
+              mqtt_exchange.bind(queue, "alerts/fire", LavinMQ::AMQP::Table.new({"x-mqtt-qos": i.to_u8}))
+            end
+
+            mqtt_exchange.bindings_details.count { |b| b.binding_key.routing_key == "alerts/fire" }.should eq 3
+            mqtt_exchange.publish(mqtt_publish("alerts/fire", "EMERGENCY", 1u8)).should eq 3
+            queues.each { |queue| queue.message_count.should eq 1 }
+          end
+        end
+      end
+
+      it "handles MQTT wildcard patterns correctly" do
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            ch.queue("pattern-test")
+            mqtt_exchange = create_mqtt_exchange(s)
+            amqp_queue = s.vhosts["/"].queues["pattern-test"]
+
+            mqtt_exchange.bind(amqp_queue, "devices/+/status", nil)
+            mqtt_exchange.bind(amqp_queue, "logs/#", nil)
+
+            mqtt_exchange.publish(mqtt_publish("devices/sensor1/status", "online")).should eq 1
+            mqtt_exchange.publish(mqtt_publish("logs/app/error/db", "failed")).should eq 1
+            mqtt_exchange.publish(mqtt_publish("devices/sensor1/data/temp", "20")).should eq 0
+            amqp_queue.message_count.should eq 2
+          end
+        end
+      end
+    end
   end
   describe "Exchange => Exchange binding" do
     it "should allow multiple e2e bindings" do

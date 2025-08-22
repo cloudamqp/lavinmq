@@ -132,6 +132,29 @@ module LavinMQ
         end
       end
 
+      def destinations_iterator(topic : String)
+        destinations = [] of T
+        if subs = @non_wildcards[topic]?
+          destinations.concat(subs.keys)
+        end
+        get_destinations_recursive(StringTokenIterator.new(topic), destinations)
+        destinations.each
+      end
+
+      protected def get_destinations_recursive(topic : StringTokenIterator, destinations : Array(T))
+        unless current = topic.next
+          destinations.concat(@leafs.keys)
+          return
+        end
+        destinations.concat(@wildcard_rest.keys)
+        if plus = @plus
+          plus.get_destinations_recursive(topic, destinations)
+        end
+        if sublevel = @sublevels.fetch(current, nil)
+          sublevel.get_destinations_recursive(topic, destinations)
+        end
+      end
+
       def inspect
         "#{self.class.name}(@wildcard_rest=#{@wildcard_rest.inspect}, @non_wildcards=#{@non_wildcards.inspect}, @plus=#{@plus.inspect}, @sublevels=#{@sublevels.inspect}, @leafs=#{@leafs.inspect})"
       end
