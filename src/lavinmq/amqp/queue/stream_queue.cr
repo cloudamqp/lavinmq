@@ -195,14 +195,14 @@ module LavinMQ::AMQP
     def add_consumer(consumer : Client::Channel::Consumer)
       super
       if Config.instance.streams_s3_storage?
-        @msg_store.as(StreamS3MessageStore).current_read_segments[consumer.tag] = consumer.as(AMQP::StreamConsumer).segment
+        @msg_store.as(StreamS3MessageStore).add_consumer(consumer.tag, consumer.as(AMQP::StreamConsumer).segment)
       end
     end
 
     def rm_consumer(consumer : Client::Channel::Consumer)
       super
       if Config.instance.streams_s3_storage?
-        @msg_store.as(StreamS3MessageStore).current_read_segments.delete(consumer.tag)
+        @msg_store.as(StreamS3MessageStore).remove_consumer(consumer.tag)
       end
     end
   end
