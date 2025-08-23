@@ -262,7 +262,7 @@ module LavinMQ::AMQP
         end
       end
 
-      private def upload_segment_to_s3(segment, seg_id, retries = 3)
+      private def upload_segment_to_s3(segment, seg_id)
         return if @s3_segments[seg_id]?
         return unless @segment_msg_count[seg_id] > 0 # don't upload empty segments
         @log.debug { "Uploading file to s3: /#{segment.path[Config.instance.data_dir.bytesize + 1..]}" }
