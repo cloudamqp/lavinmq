@@ -40,7 +40,8 @@ module LavinMQ
         super(vhost, name, false, false, true)
       end
 
-      def publish(packet : MQTT::Publish) : UInt32
+      # TODO: Send queues and exchanges from client to avoid allocation
+      def publish(packet : MQTT::Publish, queues = Set(LavinMQ::Queue).new, exchanges = Set(LavinMQ::Exchange).new) : UInt32
         @publish_in_count.add(1, :relaxed)
         properties = AMQP::Properties.new(headers: AMQP::Table.new)
         properties.delivery_mode = packet.qos
@@ -56,17 +57,21 @@ module LavinMQ
 
         msg = Message.new(timestamp, EXCHANGE, packet.topic, properties, bodysize, body)
         count = 0u32
-        @delivered_to.clear
 
-        # Handle all destinations (both MQTT and AMQP) via subscription tree
-        @tree.each_entry(packet.topic) do |destination, _|
-          next if @delivered_to.includes?(destination)
+        @tree.each_entry(packet.topic) do |destination, qos|
+          next if queues.includes?(destination)
+          msg.properties.delivery_mode = qos
           case destination
           when LavinMQ::Queue
             if destination.publish(msg)
               count += 1
               msg.body_io.rewind
-              @delivered_to.add(destination)
+              queues.add(destination)
+            end
+          when LavinMQ::Exchange
+            if exchanges.add?(destination)
+              destination.publish(msg, false, queues, exchanges)
+              msg.body_io.rewind
             end
           end
         end
@@ -84,10 +89,18 @@ module LavinMQ
         end
       end
 
-      protected def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
+      protected def each_destination(routing_key : String, headers : AMQP::Table?, &block : LavinMQ::Destination ->)
         # Use only the subscription tree for all destinations (MQTT and AMQP)
-        @tree.destinations_iterator(routing_key).each do |destination|
-          yield destination
+      end
+
+      protected def find_queues_internal(routing_key, headers, queues, exchanges)
+        @tree.each_entry(routing_key) do |destination, _|
+          case destination
+          in LavinMQ::Queue
+            queues.add(destination)
+          in LavinMQ::Exchange
+            destination.find_queues(routing_key, headers, queues, exchanges)
+          end
         end
       end
 

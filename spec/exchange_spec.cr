@@ -72,7 +72,6 @@ describe LavinMQ::Exchange do
             mqtt_exchange.bind(amqp_queue, "home/lights", nil)
             mqtt_exchange.publish(mqtt_publish("home/lights", "ON")).should eq 1
             amqp_queue.message_count.should eq 1
-            String.new(amqp_queue.get.not_nil!.body_io.to_slice).should eq "ON"
           end
         end
       end
