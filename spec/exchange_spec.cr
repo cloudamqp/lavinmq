@@ -56,8 +56,10 @@ describe LavinMQ::Exchange do
             mqtt_exchange.bind(amqp_queue, "sensor/temperature", binding_args).should be_true
             binding = mqtt_exchange.bindings_details.find { |b| b.destination == amqp_queue }
             binding.should_not be_nil
-            binding.not_nil!.binding_key.routing_key.should eq "sensor/temperature"
-            binding.not_nil!.binding_key.arguments.should eq binding_args
+            if binding
+              binding.binding_key.routing_key.should eq "sensor/temperature"
+              binding.binding_key.arguments.should eq binding_args
+            end
           end
         end
       end
@@ -65,7 +67,7 @@ describe LavinMQ::Exchange do
       it "AMQP queue receives messages from MQTT publish" do
         with_amqp_server do |s|
           with_channel(s) do |ch|
-            amqp_queue = ch.queue("mqtt-messages")
+            ch.queue("mqtt-messages")
             mqtt_exchange = create_mqtt_exchange(s)
             amqp_queue = s.vhosts["/"].queues["mqtt-messages"]
 
@@ -104,7 +106,8 @@ describe LavinMQ::Exchange do
 
             mqtt_exchange.bind(amqp_queue, "device/status", qos_args).should be_true
             binding = mqtt_exchange.bindings_details.find { |b| b.destination == amqp_queue }
-            binding.not_nil!.binding_key.arguments.should eq qos_args
+            binding.should_not be_nil
+            binding.try(&.binding_key.arguments.should eq qos_args)
 
             mqtt_exchange.unbind(amqp_queue, "device/status", qos_args).should be_true
             mqtt_exchange.bindings_details.find { |b| b.destination == amqp_queue }.should be_nil
@@ -125,7 +128,7 @@ describe LavinMQ::Exchange do
 
             mqtt_exchange.bindings_details.count { |b| b.binding_key.routing_key == "alerts/fire" }.should eq 3
             mqtt_exchange.publish(mqtt_publish("alerts/fire", "EMERGENCY", 1u8), Set(LavinMQ::Queue).new, Set(LavinMQ::Exchange).new).should eq 3
-            queues.each { |queue| queue.message_count.should eq 1 }
+            queues.each(&.message_count.should(eq(1)))
           end
         end
       end

@@ -90,7 +90,7 @@ module LavinMQ
         end
       end
 
-      protected def each_destination(routing_key : String, headers : AMQP::Table?, &block : LavinMQ::Destination ->)
+      protected def each_destination(routing_key : String, headers : AMQP::Table?, &_block : LavinMQ::Destination ->)
         # Use only the subscription tree for all destinations (MQTT and AMQP)
       end
 
