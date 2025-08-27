@@ -70,7 +70,7 @@ describe LavinMQ::Exchange do
             amqp_queue = s.vhosts["/"].queues["mqtt-messages"]
 
             mqtt_exchange.bind(amqp_queue, "home/lights", nil)
-            mqtt_exchange.publish(mqtt_publish("home/lights", "ON"),  Set(LavinMQ::Queue).new, Set(LavinMQ::Exchange).new).should eq 1
+            mqtt_exchange.publish(mqtt_publish("home/lights", "ON"), Set(LavinMQ::Queue).new, Set(LavinMQ::Exchange).new).should eq 1
             amqp_queue.message_count.should eq 1
           end
         end

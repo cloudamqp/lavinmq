@@ -41,7 +41,7 @@ module LavinMQ
         @log = Logger.new(Log, metadata)
         @log.info { "Connection established for user=#{@user.name}" }
         @queues = Set(LavinMQ::Queue).new
-        @exchanges =  Set(LavinMQ::Exchange).new
+        @exchanges = Set(LavinMQ::Exchange).new
         spawn read_loop, name: "MQTT read_loop #{@connection_info.remote_address}"
       end
 
