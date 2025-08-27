@@ -30,7 +30,6 @@ module LavinMQ
         h[k] = Set(Destination).new
       end
       @tree = MQTT::SubscriptionTree(Destination).new
-      @delivered_to = Set(LavinMQ::Destination).new
 
       def type : String
         "mqtt"
