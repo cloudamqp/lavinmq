@@ -40,8 +40,7 @@ module LavinMQ
         super(vhost, name, false, false, true)
       end
 
-      # TODO: Send queues and exchanges from client to avoid allocation
-      def publish(packet : MQTT::Publish, queues = Set(LavinMQ::Queue).new, exchanges = Set(LavinMQ::Exchange).new) : UInt32
+      def publish(packet : MQTT::Publish, queues : Set(LavinMQ::Queue), exchanges : Set(LavinMQ::Exchange)) : UInt32
         @publish_in_count.add(1, :relaxed)
         properties = AMQP::Properties.new(headers: AMQP::Table.new)
         properties.delivery_mode = packet.qos
@@ -76,6 +75,8 @@ module LavinMQ
           end
         end
 
+        queues.clear
+        exchanges.clear
         @unroutable_count.add(1, :relaxed) if count.zero?
         @publish_out_count.add(count, :relaxed)
         count

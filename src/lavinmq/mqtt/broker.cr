@@ -70,8 +70,8 @@ module LavinMQ
         @vhost.rm_connection(client)
       end
 
-      def publish(packet : MQTT::Publish)
-        @exchange.publish(packet)
+      def publish(packet : MQTT::Publish, queues : Set(LavinMQ::Queue), exchanges : Set(LavinMQ::Exchange))
+        @exchange.publish(packet, queues, exchanges)
       end
 
       def subscribe(client, topics)

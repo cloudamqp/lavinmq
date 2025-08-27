@@ -70,7 +70,7 @@ describe LavinMQ::Exchange do
             amqp_queue = s.vhosts["/"].queues["mqtt-messages"]
 
             mqtt_exchange.bind(amqp_queue, "home/lights", nil)
-            mqtt_exchange.publish(mqtt_publish("home/lights", "ON")).should eq 1
+            mqtt_exchange.publish(mqtt_publish("home/lights", "ON"),  Set(LavinMQ::Queue).new, Set(LavinMQ::Exchange).new).should eq 1
             amqp_queue.message_count.should eq 1
           end
         end
@@ -87,7 +87,7 @@ describe LavinMQ::Exchange do
 
             mqtt_exchange.bind(sensor_queue, "sensor/+/temperature", nil)
             mqtt_exchange.bind(all_queue, "#", nil)
-            mqtt_exchange.publish(mqtt_publish("sensor/bedroom/temperature", "22.5")).should eq 2
+            mqtt_exchange.publish(mqtt_publish("sensor/bedroom/temperature", "22.5"), Set(LavinMQ::Queue).new, Set(LavinMQ::Exchange).new).should eq 2
             sensor_queue.message_count.should eq 1
             all_queue.message_count.should eq 1
           end
@@ -124,7 +124,7 @@ describe LavinMQ::Exchange do
             end
 
             mqtt_exchange.bindings_details.count { |b| b.binding_key.routing_key == "alerts/fire" }.should eq 3
-            mqtt_exchange.publish(mqtt_publish("alerts/fire", "EMERGENCY", 1u8)).should eq 3
+            mqtt_exchange.publish(mqtt_publish("alerts/fire", "EMERGENCY", 1u8), Set(LavinMQ::Queue).new, Set(LavinMQ::Exchange).new).should eq 3
             queues.each { |queue| queue.message_count.should eq 1 }
           end
         end
@@ -140,9 +140,9 @@ describe LavinMQ::Exchange do
             mqtt_exchange.bind(amqp_queue, "devices/+/status", nil)
             mqtt_exchange.bind(amqp_queue, "logs/#", nil)
 
-            mqtt_exchange.publish(mqtt_publish("devices/sensor1/status", "online")).should eq 1
-            mqtt_exchange.publish(mqtt_publish("logs/app/error/db", "failed")).should eq 1
-            mqtt_exchange.publish(mqtt_publish("devices/sensor1/data/temp", "20")).should eq 0
+            mqtt_exchange.publish(mqtt_publish("devices/sensor1/status", "online"), Set(LavinMQ::Queue).new, Set(LavinMQ::Exchange).new).should eq 1
+            mqtt_exchange.publish(mqtt_publish("logs/app/error/db", "failed"), Set(LavinMQ::Queue).new, Set(LavinMQ::Exchange).new).should eq 1
+            mqtt_exchange.publish(mqtt_publish("devices/sensor1/data/temp", "20"), Set(LavinMQ::Queue).new, Set(LavinMQ::Exchange).new).should eq 0
             amqp_queue.message_count.should eq 2
           end
         end
