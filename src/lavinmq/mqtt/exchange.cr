@@ -61,13 +61,13 @@ module LavinMQ
           next if queues.includes?(destination)
           msg.properties.delivery_mode = qos
           case destination
-          when LavinMQ::Queue
+          in LavinMQ::Queue
             if destination.publish(msg)
               count += 1
               msg.body_io.rewind
               queues.add(destination)
             end
-          when LavinMQ::Exchange
+          in LavinMQ::Exchange
             if exchanges.add?(destination)
               destination.publish(msg, false, queues, exchanges)
               msg.body_io.rewind
