@@ -6,10 +6,10 @@ document.getElementById('username').textContent = Auth.getUsername()
 const menuButton = document.getElementById('menu-button')
 const menuContent = document.getElementById('menu-content')
 
-menuButton.onclick = (e) => {
+menuButton.addEventListener('click', (e) => {
   menuButton.classList.toggle('open-menu')
   menuContent.classList.toggle('show-menu')
-}
+})
 
 Helpers.addVhostOptions('user-vhost', { addAll: true }).then(() => {
   const vhost = window.sessionStorage.getItem('vhost')
@@ -24,23 +24,23 @@ Helpers.addVhostOptions('user-vhost', { addAll: true }).then(() => {
   }
 })
 
-document.getElementById('userMenuVhost').onchange = (e) => {
+document.getElementById('userMenuVhost').addEventListener('change', (e) => {
   window.sessionStorage.setItem('vhost', e.target.value)
   window.location.reload()
-}
+})
 
-document.getElementById('signoutLink').onclick = () => {
+document.getElementById('signoutLink').addEventListener('click', () => {
   document.cookie = 'm=; max-age=0'
   window.location.assign('login')
-}
+})
 
 const usermenuButton = document.getElementById('usermenu-button')
 const usermenuContent = document.getElementById('user-menu')
 
-usermenuButton.onclick = (e) => {
+usermenuButton.addEventListener('click', (e) => {
   usermenuButton.classList.toggle('open-menu')
   usermenuContent.classList.toggle('visible')
-}
+})
 
 // Theme switcher functionality
 class ThemeSwitcher {

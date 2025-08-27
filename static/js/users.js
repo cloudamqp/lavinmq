@@ -58,9 +58,9 @@ document.querySelector('#createUser').addEventListener('submit', function (evt) 
     })
 })
 
-document.querySelector('#dataTags').onclick = e => {
+document.querySelector('#dataTags').addEventListener('click', e => {
   Helpers.argumentHelper('createUser', 'tags', e)
-}
+})
 
 document.querySelector('#generatePassword').addEventListener('click', generatePassword)
 
