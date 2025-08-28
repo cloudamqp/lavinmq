@@ -23,7 +23,6 @@ module LavinMQ::AMQP
     include Observable(QueueEvent)
     include Stats
     include SortableJSON
-    include Logging::Loggable
 
     def self.validate_arguments!(arguments : AMQP::Table)
       int_zero = ArgumentValidator::IntValidator.new(min_value: 0)
