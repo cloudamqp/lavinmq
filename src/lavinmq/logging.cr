@@ -1,6 +1,4 @@
-require "./logging/entity"
-require "./logging/format"
-require "./logging/logger"
+require "./logging/*"
 
 module LavinMQ
   Log = ::Log.for "lmq"
