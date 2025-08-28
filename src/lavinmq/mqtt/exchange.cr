@@ -37,6 +37,12 @@ module LavinMQ
 
       def initialize(vhost : VHost, name : String, @retain_store : MQTT::RetainStore)
         super(vhost, name, false, false, true)
+        @queues = Set(LavinMQ::Queue).new
+        @exchanges = Set(LavinMQ::Exchange).new
+      end
+
+      def publish(packet : MQTT::Publish) : UInt32
+        publish(packet, @queues, @exchanges)
       end
 
       def publish(packet : MQTT::Publish, queues : Set(LavinMQ::Queue), exchanges : Set(LavinMQ::Exchange)) : UInt32
@@ -91,17 +97,6 @@ module LavinMQ
 
       protected def each_destination(routing_key : String, headers : AMQP::Table?, &_block : LavinMQ::Destination ->)
         # Use only the subscription tree for all destinations (MQTT and AMQP)
-      end
-
-      protected def find_queues_internal(routing_key, headers, queues, exchanges)
-        @tree.each_entry(routing_key) do |destination, _|
-          case destination
-          in LavinMQ::Queue
-            queues.add(destination)
-          in LavinMQ::Exchange
-            destination.find_queues(routing_key, headers, queues, exchanges)
-          end
-        end
       end
 
       def bind(destination : Destination, routing_key : String, arguments = nil) : Bool

@@ -218,7 +218,14 @@ module LavinMQ
                       queues : Set(LavinMQ::Queue) = Set(LavinMQ::Queue).new,
                       exchanges : Set(LavinMQ::Exchange) = Set(LavinMQ::Exchange).new) : Nil
         return unless exchanges.add? self
-        find_queues_internal(routing_key, headers, queues, exchanges)
+        each_destination(routing_key, headers) do |d|
+          case d
+          in LavinMQ::Queue
+            queues.add(d)
+          in LavinMQ::Exchange
+            d.find_queues(routing_key, headers, queues, exchanges)
+          end
+        end
 
         if hdrs = headers
           find_cc_queues(hdrs, "CC", queues)
@@ -229,17 +236,6 @@ module LavinMQ
         if queues.empty? && alternate_exchange
           @vhost.exchanges[alternate_exchange]?.try do |ae|
             ae.find_queues(routing_key, headers, queues, exchanges)
-          end
-        end
-      end
-
-      protected def find_queues_internal(routing_key, headers, queues, exchanges)
-        each_destination(routing_key, headers) do |d|
-          case d
-          in LavinMQ::Queue
-            queues.add(d)
-          in LavinMQ::Exchange
-            d.find_queues(routing_key, headers, queues, exchanges)
           end
         end
       end
