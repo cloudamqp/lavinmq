@@ -23,6 +23,7 @@ module LavinMQ::AMQP
     include Observable(QueueEvent)
     include Stats
     include SortableJSON
+    include Logging::Loggable
 
     def self.validate_arguments!(arguments : AMQP::Table)
       int_zero = ArgumentValidator::IntValidator.new(min_value: 0)
@@ -178,6 +179,7 @@ module LavinMQ::AMQP
     protected def initialize(@vhost : VHost, @name : String,
                              @exclusive : Bool = false, @auto_delete : Bool = false,
                              @arguments : AMQP::Table = AMQP::Table.new)
+      L.set_metadata(queue: @name, vhost: @vhost.name)
       @data_dir = make_data_dir
       @metadata = ::Log::Metadata.new(nil, {queue: @name, vhost: @vhost.name})
       @log = Logging::Logger.new(Log, @metadata)
