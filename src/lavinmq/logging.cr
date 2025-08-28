@@ -13,7 +13,12 @@ module LavinMQ
         \{% if @type.ancestors.includes?(::LavinMQ::Logging::Loggable) %}
           @log_metadata = ::Log::Metadata.build({{{values.double_splat}}})
         \{% else %}
-          \{% raise "Can only use `context` macro in classes/modules including LavinMQ::Logging::Loggable" %}
+          {% receiver = if @caller.first
+                          @caller.first.receiver
+                        else
+                          @type
+                        end %}
+          \{% raise "Can only use `{{(receiver)}}.context` in classes including LavinMQ::Logging::Loggable" %}
         \{% end %}
       {% end %}
     end
