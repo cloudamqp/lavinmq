@@ -40,8 +40,6 @@ module LavinMQ
         metadata = ::Log::Metadata.new(nil, {vhost: @broker.vhost.name, address: @connection_info.remote_address.to_s, client_id: client_id})
         @log = Logger.new(Log, metadata)
         @log.info { "Connection established for user=#{@user.name}" }
-        @queues = Set(LavinMQ::Queue).new
-        @exchanges = Set(LavinMQ::Exchange).new
         spawn read_loop, name: "MQTT read_loop #{@connection_info.remote_address}"
       end
 
@@ -129,7 +127,7 @@ module LavinMQ
       end
 
       def recieve_publish(packet : MQTT::Publish)
-        @broker.publish(packet, @queues, @exchanges)
+        @broker.publish(packet)
         vhost.event_tick(EventType::ClientPublish)
         # Ok to not send anything if qos = 0 (fire and forget)
         if packet.qos > 0 && (packet_id = packet.packet_id)
@@ -188,7 +186,7 @@ module LavinMQ
             qos: will.qos,
             retain: will.retain?,
             dup: false,
-          ), @queues, @exchanges
+          )
         end
       rescue ex
         @log.warn { "Failed to publish will: #{ex.message}" }
