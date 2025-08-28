@@ -10,7 +10,11 @@ module LavinMQ
 
     macro context(**values)
       {% unless values.empty? %}
-        @log_metadata = ::Log::Metadata.build({{{values.double_splat}}})
+        \{% if @type.ancestors.includes?(::LavinMQ::Logging::Loggable) %}
+          @log_metadata = ::Log::Metadata.build({{{values.double_splat}}})
+        \{% else %}
+          \{% raise "Can only use `context` macro in classes/modules including LavinMQ::Logging::Loggable" %}
+        \{% end %}
       {% end %}
     end
 
