@@ -8,6 +8,8 @@ module LavinMQ
       @log_metadata : ::Log::Metadata = ::Log::Metadata.empty
     end
 
+    # Set "base metadata" for an instance. Should normally be called from the
+    # constructor.
     macro context(**values)
       {% unless values.empty? %}
         \{% if @type.ancestors.includes?(::LavinMQ::Logging::Loggable) %}
