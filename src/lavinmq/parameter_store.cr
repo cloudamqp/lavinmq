@@ -10,7 +10,7 @@ module LavinMQ
     Log = LavinMQ::Log.for "parameter_store"
 
     def initialize(@data_dir : String, @file_name : String, @replicator : Clustering::Replicator, vhost : String? = nil)
-      L.set_metadata(vhost: vhost)
+      L.context(vhost: vhost)
       @parameters = Hash(ParameterId?, T).new
       load!
     end
