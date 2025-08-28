@@ -8,8 +8,10 @@ module LavinMQ
       @log_metadata : ::Log::Metadata = ::Log::Metadata.empty
     end
 
-    macro set_metadata(**metadata)
-      @log_metadata = ::Log::Metadata.build({{{metadata.double_splat}}}).as(::Log::Metadata)
+    macro context(**values)
+      {% unless values.empty? %}
+        @log_metadata = ::Log::Metadata.build({{{values.double_splat}}})
+      {% end %}
     end
 
     #
@@ -21,7 +23,6 @@ module LavinMQ
     # `Log.info "message", exception: e` which will be converted to
     # `Log.info exception: e do |emitter| emitter.emit("message") end`
     #
-
     macro log(level, msg, exception = nil, **metadata)
       \{% begin %}
         {% level = level.id %}
@@ -53,9 +54,9 @@ module LavinMQ
     {% for level in %w(trace debug info notice warn error fatal) %}
       macro {{level.id}}(msg, **metadata)
         \{% if metadata.empty? %}
-          Logging.log {{level}}, \{{msg}}
+          ::LavinMQ::Logging.log {{level}}, \{{msg}}
         \{% else %}
-          Logging.log {{level}}, \{{msg}}, \{{metadata.double_splat}}
+          ::LavinMQ::Logging.log {{level}}, \{{msg}}, \{{metadata.double_splat}}
         \{% end %}
       end
     {% end %}

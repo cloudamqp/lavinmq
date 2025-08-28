@@ -22,7 +22,6 @@ module LavinMQ::AMQP
     include Observable(QueueEvent)
     include Stats
     include SortableJSON
-    include Logging::Loggable
 
     @message_ttl : Int64?
     @max_length : Int64?
@@ -140,7 +139,6 @@ module LavinMQ::AMQP
     def initialize(@vhost : VHost, @name : String,
                    @exclusive = false, @auto_delete = false,
                    @arguments = AMQP::Table.new)
-      L.set_metadata(queue: @name, vhost: @vhost.name)
       @data_dir = make_data_dir
       @metadata = ::Log::Metadata.new(nil, {queue: @name, vhost: @vhost.name})
       @log = Logging::Logger.new(Log, @metadata)
