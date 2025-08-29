@@ -51,111 +51,41 @@ module LavinMQ
     # Exception must be passed as a key-value argument, e.g.
     # `Log.info "message", exception: e` which will be converted to
     # `Log.info exception: e do |emitter| emitter.emit("message") end`
-    #
-    #    macro log(level, msg, exception = nil, **metadata)
-    #      \{% begin %}
-    #        {% level = level.id %}
-    #        \{% is_loggable = (@type.ancestors.includes?(::LavinMQ::Logging::Loggable)) %}
-    #        {% if metadata.empty? %}
-    #          \{% if is_loggable %}
-    #            Log.{{level}} exception: {{exception}} do |emitter|
-    #              emitter.emit({{msg}}, @log_context)
-    #            end
-    #          \{% else %}
-    #            Log.{{level}} exception: {{exception}} do |emitter|
-    #              emitter.emit({{msg}})
-    #            end
-    #          \{% end %}
-    #        {% else %}
-    #          \{% if is_loggable %}
-    #            Log.{{level}} exception: {{exception}} do |emitter|
-    #              emitter.emit({{msg}}, @log_context.extend({ {{metadata.double_splat}} }))
-    #            end
-    #          \{% else %}
-    #            Log.{{level}} exception: {{exception}} do |emitter|
-    #              emitter.emit({{msg}}, {{metadata.double_splat}})
-    #            end
-    #          \{% end %}
-    #        {% end %}
-    #      \{% end %}
-    #    end
-
     macro log(level, exception = nil, **metadata, &block)
       \{% begin %}
-        {% level = level.id %}
         \{% is_loggable = (@type.ancestors.includes?(::LavinMQ::Logging::Loggable)) %}
-        {% if metadata.empty? %}
-          \{% if is_loggable %}
-            Log.{{level}} exception: {{exception}} do |emitter|
+        {%
+          metadata = if metadata.empty?
+                       "NamedTuple.new".id
+                     else
+                       "{#{metadata.double_splat}}".id
+                     end
+        %}
+        Log.{{level.id}} exception: {{exception}} do |emitter|
               %msg = begin
-                      {{ block.body }}
+                      {{ block.body if block.is_a?(Block) }}
                     end
               break if %msg.nil?
-              emitter.emit(%msg, @log_context)
+            \{% if is_loggable %}
+                emitter.emit(%msg, @log_context.extend( {{metadata}} ))
+            \{% else %}
+                emitter.emit(%msg, ::Log::Metadata.build( {{metadata}} ))
+            \{% end %}
             end
-          \{% else %}
-            Log.{{level}} exception: {{exception}} do |emitter|
-              %msg = begin
-                      {{ block.body }}
-                    end
-              break if %msg.nil?
-               emitter.emit(%msg)
-            end
-          \{% end %}
-        {% else %}
-          \{% if is_loggable %}
-            Log.{{level}} exception: {{exception}} do |emitter|
-              %msg = begin
-                      {{ block.body }}
-                    end
-              break if %msg.nil?
-               emitter.emit(%msg, @log_context.extend({ {{metadata.double_splat}} }))
-            end
-          \{% else %}
-            Log.{{level}} exception: {{exception}} do |emitter|
-              %msg = begin
-                      {{ block.body }}
-                    end
-              break if %msg.nil?
-               emitter.emit(%msg, {{metadata.double_splat}})
-            end
-          \{% end %}
-        {% end %}
       \{% end %}
-    end
+     end
 
-    #    {% for level in %w(trace debug info notice warn error fatal) %}
-    #      macro {{level.id}}(msg, **metadata)
-    #        \{% if metadata.empty? %}
-    #          ::LavinMQ::Logging.log {{level}}, \{{msg}}
-    #        \{% else %}
-    #          ::LavinMQ::Logging.log {{level}}, \{{msg}}, \{{metadata.double_splat}}
-    #        \{% end %}
-    #      end
-    #    {% end %}
-    #
     {% for level in %w(trace debug info notice warn error fatal) %}
-      macro {{level.id}}(msg, **metadata)
-        \{% if metadata.empty? %}
-          ::LavinMQ::Logging.log {{level}} do
-            \{{msg}}
+      macro {{level.id}}(msg = nil, **metadata, &block)
+        ::LavinMQ::Logging.log({{level}}\{{ ", #{metadata.double_splat}".id unless metadata.empty? }}) do
+            {% verbatim do %}
+              {% if msg %}
+                {{ msg }}
+              {% elsif block.is_a?(Block) %}
+                {{ block.body }}
+              {% end %}
+            {% end %}
           end
-        \{% else %}
-          ::LavinMQ::Logging.log({{level}}, \{{metadata.double_splat}}) do
-            \{{msg}}
-          end
-        \{% end %}
-      end
-      macro {{level.id}}(**metadata, &block)
-        \{% if metadata.empty? %}
-          ::LavinMQ::Logging.log {{level}} do
-            \{{ block.body }}
-          end
-        \{% else %}
-          ::LavinMQ::Logging.log({{level}}, \{{metadata.double_splat}}) do
-            \{{ block.body }}
-          end
-        \{% end %}
       end
     {% end %}
   end
