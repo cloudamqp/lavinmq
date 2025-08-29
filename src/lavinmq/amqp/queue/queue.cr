@@ -496,14 +496,12 @@ module LavinMQ::AMQP
       drop_overflow if (@max_length || @max_length_bytes) && !immediate_delivery?
     end
 
-    private def drop_overflow : Nil
+    private def drop_overflow : Nil # ameba:disable Metrics/CyclomaticComplexity
       counter = 0
       if ml = @max_length
         @msg_store_lock.synchronize do
           L.debug max_length: ml, size: @msg_store.size do
-            if @msg_store.size > ml
-              "Dropping messages due to overflow"
-            end
+            "Dropping messages due to overflow" if @msg_store.size > ml
           end
           while @msg_store.size > ml
             env = @msg_store.shift? || break
