@@ -6,6 +6,7 @@ module LavinMQ
   module MQTT
     class Session < LavinMQ::AMQP::Queue
       include SortableJSON
+      include LavinMQ::Logging::Loggable
       Log = ::LavinMQ::Log.for "mqtt.session"
 
       def initialize(@vhost : VHost,
@@ -17,7 +18,7 @@ module LavinMQ
 
         super(@vhost, @name, false, @auto_delete, arguments)
 
-        @log = Logging::Logger.new(Log, @metadata)
+        # L.context(@metadata)
         spawn deliver_loop, name: "Session#deliver_loop"
       end
 
@@ -37,7 +38,7 @@ module LavinMQ
           end
           Fiber.yield if (i &+= 1) % 32768 == 0
         rescue ex
-          @log.error(exception: ex) { "Failed to deliver message in deliver_loop" }
+          L.error "Failed to deliver message in deliver_loop", exception: ex
           @consumers.each &.close
           self.client = nil
         end
@@ -63,7 +64,7 @@ module LavinMQ
         if c = client
           add_consumer MQTT::Consumer.new(c, self)
         end
-        @log.debug { "client set to '#{client.try &.name}'" }
+        L.debug "client set", client: client.try &.name
       end
 
       def durable?
@@ -128,7 +129,7 @@ module LavinMQ
         end
         false
       rescue ex : MessageStore::Error
-        @log.error(ex) { "Queue closed due to error" }
+        L.error "Queue closed due to error", exception: ex
         close
         raise ClosedError.new(cause: ex)
       end
@@ -152,7 +153,7 @@ module LavinMQ
       def apply_policy(policy : Policy?, operator_policy : OperatorPolicy?)
         clear_policy
         Policy.merge_definitions(policy, operator_policy).each do |k, v|
-          @log.debug { "Applying policy #{k}: #{v}" }
+          L.debug "Applying policy", key: k, value: v
           case k
           when "max-length"
             unless @max_length.try &.< v.as_i64

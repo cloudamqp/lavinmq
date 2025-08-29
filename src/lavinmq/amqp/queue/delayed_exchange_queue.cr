@@ -13,7 +13,7 @@ module LavinMQ::AMQP
 
     private def init_msg_store(data_dir)
       replicator = durable? ? @vhost.@replicator : nil
-      DelayedMessageStore.new(data_dir, replicator, durable?, metadata: @metadata)
+      DelayedMessageStore.new(data_dir, replicator, durable?, metadata: L.context)
     end
 
     private def expire_at(msg : BytesMessage) : Int64?
@@ -44,7 +44,7 @@ module LavinMQ::AMQP
     private def expire_msg(env : Envelope, reason : Symbol)
       sp = env.segment_position
       msg = env.message
-      @log.debug { "Expiring #{sp} now due to #{reason}" }
+      L.debug "Expiring message", segment_position: sp, reason: reason
       if headers = msg.properties.headers
         headers.delete("x-delay")
         msg.properties.headers = headers

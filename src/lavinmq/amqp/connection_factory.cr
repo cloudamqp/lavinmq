@@ -10,6 +10,7 @@ require "./connection_reply_code"
 module LavinMQ
   module AMQP
     class ConnectionFactory < LavinMQ::ConnectionFactory
+      include LavinMQ::Logging::Loggable
       Log = LavinMQ::Log.for "amqp.connection_factory"
 
       def initialize(@authenticator : Auth::Authenticator, @vhosts : VHostStore)
@@ -17,13 +18,12 @@ module LavinMQ
 
       def start(socket, connection_info) : Client?
         socket.read_timeout = 15.seconds
-        metadata = ::Log::Metadata.build({address: connection_info.remote_address.to_s})
-        logger = Logging::Logger.new(Log, metadata)
-        if confirm_header(socket, logger)
-          if start_ok = start(socket, logger)
-            if user = authenticate(socket, connection_info.remote_address, start_ok, logger)
-              if tune_ok = tune(socket, logger)
-                if vhost = open(socket, user, logger)
+        L.context(address: connection_info.remote_address)
+        if confirm_header(socket)
+          if start_ok = start(socket)
+            if user = authenticate(socket, connection_info.remote_address, start_ok)
+              if tune_ok = tune(socket)
+                if vhost = open(socket, user)
                   socket.read_timeout = heartbeat_timeout(tune_ok)
                   return LavinMQ::AMQP::Client.new(socket, connection_info, vhost, user, tune_ok, start_ok)
                 end
@@ -32,10 +32,10 @@ module LavinMQ
           end
         end
       rescue ex : IO::TimeoutError | IO::Error | OpenSSL::SSL::Error | AMQ::Protocol::Error::FrameDecode
-        Log.warn { "#{ex} when #{connection_info.remote_address} tried to establish connection" }
+        L.warn "Connection establishment failed", remote_address: connection_info.remote_address, exception: ex
         nil
       rescue ex
-        Log.error(exception: ex) { "Error while #{connection_info.remote_address} tried to establish connection" }
+        L.error "Connection establishment error", remote_address: connection_info.remote_address, exception: ex
         nil
       end
 
@@ -45,7 +45,7 @@ module LavinMQ
         end
       end
 
-      def confirm_header(socket, log : Logging::Logger) : Bool
+      def confirm_header(socket) : Bool
         proto = uninitialized UInt8[8]
         count = socket.read(proto.to_slice)
         if count.zero? # EOF, socket closed by peer
@@ -53,7 +53,7 @@ module LavinMQ
         elsif proto != AMQP::PROTOCOL_START_0_9_1 && proto != AMQP::PROTOCOL_START_0_9
           socket.write AMQP::PROTOCOL_START_0_9_1.to_slice
           socket.flush
-          log.warn { "Unexpected protocol #{String.new(proto.to_unsafe, count).inspect}, closing socket" }
+          L.warn "Unexpected protocol, closing socket", protocol: String.new(proto.to_unsafe, count).inspect
           false
         else
           true
@@ -77,13 +77,13 @@ module LavinMQ
         },
       })
 
-      def start(socket, log : Logging::Logger)
+      def start(socket)
         start = AMQP::Frame::Connection::Start.new(server_properties: SERVER_PROPERTIES)
         socket.write_bytes start, ::IO::ByteFormat::NetworkEndian
         socket.flush
         start_ok = AMQP::Frame.from_io(socket) { |f| f.as(AMQP::Frame::Connection::StartOk) }
         if start_ok.bytesize > 4096
-          log.warn { "StartOk frame was #{start_ok.bytesize} bytes, max allowed is 4096 bytes" }
+          L.warn "StartOk frame too large", size: start_ok.bytesize, max_allowed: 4096
           return
         end
         start_ok
@@ -106,15 +106,15 @@ module LavinMQ
         end
       end
 
-      def authenticate(socket, remote_address, start_ok, log)
+      def authenticate(socket, remote_address, start_ok)
         username, password = credentials(start_ok)
         user = @authenticator.authenticate(username, password)
         return user if user && default_user_only_loopback?(remote_address, user)
 
         if user.nil?
-          log.warn { "User \"#{username}\" not found" }
+          L.warn "User not found", username: username
         else
-          log.warn { "Authentication failure for user \"#{username}\"" }
+          L.warn "Authentication failure", username: username
         end
         props = start_ok.client_properties
         if capabilities = props["capabilities"]?.try &.as?(AMQP::Table)
@@ -128,7 +128,7 @@ module LavinMQ
       MIN_FRAME_MAX       = 4096_u32
       LOW_FRAME_MAX_RANGE = 1...MIN_FRAME_MAX # 0 is unlimited
 
-      def tune(socket, log)
+      def tune(socket)
         frame_max = socket.is_a?(WebSocketIO) ? MIN_FRAME_MAX : Config.instance.frame_max
         socket.write_bytes AMQP::Frame::Connection::Tune.new(
           channel_max: Config.instance.channel_max,
@@ -139,36 +139,36 @@ module LavinMQ
           case frame
           when AMQP::Frame::Connection::TuneOk
             if LOW_FRAME_MAX_RANGE.includes? frame.frame_max
-              log.warn { "Suggested Frame max (#{frame.frame_max}) too low, closing connection" }
+              L.warn "Suggested Frame max too low, closing connection", frame_max: frame.frame_max
               reply_text = "failed to negotiate connection parameters: negotiated frame_max = #{frame.frame_max} is lower than the minimum allowed value (#{MIN_FRAME_MAX})"
               return close_connection(socket, ConnectionReplyCode::NOT_ALLOWED, reply_text, frame)
             end
             if too_high?(frame.frame_max, Config.instance.frame_max)
-              log.warn { "Suggested Frame max (#{frame.frame_max}) too high, closing connection" }
+              L.warn "Suggested Frame max too high, closing connection", frame_max: frame.frame_max
               reply_text = "failed to negotiate connection parameters: negotiated frame_max = #{frame.frame_max} is higher than the maximum allowed value (#{Config.instance.frame_max})"
               return close_connection(socket, ConnectionReplyCode::NOT_ALLOWED, reply_text, frame)
             end
             if too_high?(frame.channel_max, Config.instance.channel_max)
-              log.warn { "Suggested Channel max (#{frame.channel_max}) too high, closing connection" }
+              L.warn "Suggested Channel max too high, closing connection", channel_max: frame.channel_max
               reply_text = "failed to negotiate connection parameters: negotiated channel_max = #{frame.channel_max} is higher than the maximum allowed value (#{Config.instance.channel_max})"
               return close_connection(socket, ConnectionReplyCode::NOT_ALLOWED, reply_text, frame)
             end
             frame
           else
-            log.warn { "Expected TuneOk Frame got #{frame.inspect}" }
+            L.warn "Expected TuneOk Frame", got: frame.inspect
             return
           end
         end
         tune_ok
       end
 
-      def open(socket, user, log)
+      def open(socket, user)
         open = AMQP::Frame.from_io(socket) { |f| f.as(AMQP::Frame::Connection::Open) }
         vhost_name = open.vhost.empty? ? "/" : open.vhost
         if vhost = @vhosts[vhost_name]?
           if user.permissions[vhost_name]?
             if vhost.max_connections.try { |max| vhost.connections.size >= max }
-              log.warn { "Max connections (#{vhost.max_connections}) reached for vhost #{vhost_name}" }
+              L.warn "Max connections reached for vhost", max_connections: vhost.max_connections, vhost: vhost_name
               reply_text = "access to vhost '#{vhost_name}' refused: connection limit (#{vhost.max_connections}) is reached"
               return close_connection(socket, ConnectionReplyCode::NOT_ALLOWED, reply_text, open)
             end
@@ -176,12 +176,12 @@ module LavinMQ
             socket.flush
             return vhost
           else
-            log.warn { "Access denied for user \"#{user.name}\" to vhost \"#{vhost_name}\"" }
+            L.warn "Access denied", user: user.name, vhost: vhost_name
             reply_text = "'#{user.name}' doesn't have access to '#{vhost.name}'"
             close_connection(socket, ConnectionReplyCode::NOT_ALLOWED, reply_text, open)
           end
         else
-          log.warn { "VHost \"#{vhost_name}\" not found" }
+          L.warn "VHost not found", vhost: vhost_name
           close_connection(socket, ConnectionReplyCode::NOT_ALLOWED, "vhost not found", open)
         end
         nil

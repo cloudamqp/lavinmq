@@ -3,7 +3,7 @@ require "uri"
 require "option_parser"
 require "ini"
 require "./version"
-require "./logging/format"
+require "./logging"
 require "./in_memory_backend"
 require "./auth/password"
 
@@ -254,7 +254,7 @@ module LavinMQ
 
       ::Log.setup(@log_level, broadcast_backend)
       target = (path = @log_file) ? path : "stdout"
-      Log.info &.emit("Logger settings", level: @log_level.to_s, target: target)
+      # L.info "Logger reloaded", level: @log_level, target: target
     end
 
     def tls_configured?
