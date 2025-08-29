@@ -122,7 +122,7 @@ module LavinMQ
             break
           end
           {% unless flag?(:release) %}
-            @log.debug { "Getting a new message" }
+            L.debug "Getting a new message"
           {% end %}
           stream_queue.consume_get(self) do |env|
             deliver(env.message, env.segment_position, env.redelivered)
@@ -130,16 +130,16 @@ module LavinMQ
           Fiber.yield if (i &+= 1) % 32768 == 0
         end
       rescue ex : ClosedError | Queue::ClosedError | AMQP::Channel::ClosedError | ::Channel::ClosedError
-        @log.debug { "deliver loop exiting: #{ex.inspect}" }
+        L.debug "Deliver loop exiting", exception: ex
       end
 
       private def wait_for_queue_ready
         if @offset > stream_queue.last_offset && @requeued.empty?
-          @log.debug { "Waiting for queue not to be empty" }
+          L.debug "Waiting for queue not to be empty"
           flush
           select
           when @new_message_available.when_true.receive
-            @log.debug { "Queue is not empty - new message notification received" }
+            L.debug "Queue is not empty - new message notification received"
             @new_message_available.set(false) # Reset the flag
           when @notify_closed.receive
           end

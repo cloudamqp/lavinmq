@@ -15,6 +15,7 @@ module LavinMQ
   # Messages are refered to as SegmentPositions
   # Deleted messages are written to acks.#{segment}
   class MessageStore
+    include LavinMQ::Logging::Loggable
     PURGE_YIELD_INTERVAL = 16_384
     Log                  = LavinMQ::Log.for "message_store"
     @segments = Hash(UInt32, MFile).new
@@ -28,7 +29,7 @@ module LavinMQ
     getter empty = BoolChannel.new(true)
 
     def initialize(@msg_dir : String, @replicator : Clustering::Replicator?, durable : Bool = true, metadata : ::Log::Metadata = ::Log::Metadata.empty)
-      @log = Logging::Logger.new(Log, metadata)
+      L.context(metadata)
       @durable = durable
       @acks = Hash(UInt32, MFile).new { |acks, seg| acks[seg] = open_ack_file(seg) }
       load_segments_from_disk
@@ -96,7 +97,7 @@ module LavinMQ
         sp = SegmentPosition.make(seg, pos, msg)
         return Envelope.new(sp, msg, redelivered: false)
       rescue ex : IndexError
-        @log.warn(exception: ex) { "Msg file size does not match expected value, moving on to next segment" }
+        L.warn "Msg file size does not match expected value, moving on to next segment", exception: ex
         select_next_read_segment && next
         return if @size.zero?
         raise Error.new(@rfile, cause: ex)
@@ -142,7 +143,7 @@ module LavinMQ
         @empty.set true if @size.zero?
         return Envelope.new(sp, msg, redelivered: false)
       rescue ex : IndexError
-        @log.warn(exception: ex) { "Msg file size does not match expected value, moving on to next segment" }
+        L.warn "Msg file size does not match expected value, moving on to next segment", exception: ex
         select_next_read_segment && next
         return if @size.zero?
         raise Error.new(@rfile, cause: ex)
@@ -173,7 +174,7 @@ module LavinMQ
         ack_count = afile.size // sizeof(UInt32)
         msg_count = @segment_msg_count[sp.segment]
         if ack_count == msg_count
-          @log.debug { "Deleting segment #{sp.segment}" }
+          L.debug "Deleting segment", segment: sp.segment
           select_next_read_segment if sp.segment == @rfile_id
           if a = @acks.delete(sp.segment)
             delete_file(a)
@@ -328,7 +329,7 @@ module LavinMQ
 
     private def write_metadata_file(seg : UInt32, wfile : MFile)
       metafile = meta_file_name(wfile)
-      @log.debug { "Write message segment meta file #{metafile}" }
+      L.debug "Write message segment meta file #{metafile}"
       File.open(metafile, "w") do |f|
         f.buffer_size = 4096
         write_metadata(f, seg)
@@ -357,7 +358,7 @@ module LavinMQ
         ack_files += 1 if f.starts_with? "acks."
       end
 
-      @log.debug { "Loading #{ack_files} ack files" }
+      L.debug "Loading ack files", count: ack_files
       Dir.each_child(@msg_dir) do |child|
         next unless child.starts_with? "acks."
         seg = child[5, 10].to_u32
@@ -376,11 +377,11 @@ module LavinMQ
           @replicator.try &.register_file(file)
         end
         @acks[seg] = open_ack_file(seg)
-        @log.debug { "Loaded #{count}/#{ack_files} ack files" } if (count += 1) % 128 == 0
+        L.debug "Loaded ack files", loaded: count + 1, total: ack_files if (count += 1) % 128 == 0
         @deleted[seg] = acked.sort! unless acked.empty?
         Fiber.yield
       end
-      @log.debug { "Loaded #{count} ack files" }
+      L.debug "Loaded ack files", count: count
     end
 
     private def load_segments_from_disk : Nil
@@ -414,7 +415,7 @@ module LavinMQ
             SchemaVersion.verify(file, :message)
           rescue IO::EOFError
             # delete empty file, it will be recreated if it's needed
-            @log.warn { "Empty file at #{path}, deleting it" }
+            L.warn "Empty file, deleting it", path: path
             delete_file(file, including_meta: true)
             if idx == 0 # Recreate the file if it's the first segment because we need at least one segment to exist
               file = MFile.new(path, Config.instance.segment_size)
@@ -425,7 +426,7 @@ module LavinMQ
               next
             end
           rescue ex
-            @log.error { "Could not initialize segment #{seg}, closing message store: #{ex.message}" }
+            L.error "Could not initialize segment, closing message store", segment: seg, exception: ex
             close
           end
         end
@@ -440,9 +441,9 @@ module LavinMQ
       counter = 0
       is_long_queue = @segments.size > 255
       if is_long_queue
-        @log.info { "Loading #{@segments.size} segments" }
+        L.info "Loading segments", count: @segments.size
       else
-        @log.debug { "Loading #{@segments.size} segments" }
+        L.debug "Loading segments", count: @segments.size
       end
       @segments.each do |seg, mfile|
         begin
@@ -453,12 +454,12 @@ module LavinMQ
         end
 
         if is_long_queue
-          @log.info { "Loaded #{counter}/#{@segments.size} segments, #{@size} messages" } if (counter &+= 1) % 128 == 0
+          L.info "Loaded segments", loaded: counter &+= 1, total: @segments.size, messages: @size if counter % 128 == 0
         else
-          @log.debug { "Loaded #{counter}/#{@segments.size} segments, #{@size} messages" } if (counter &+= 1) % 128 == 0
+          L.debug "Loaded segments", loaded: counter &+= 1, total: @segments.size, messages: @size if counter % 128 == 0
         end
       end
-      @log.info { "Loaded #{counter} segments, #{@size} messages" }
+      L.info "Loaded segments", count: counter, messages: @size
     end
 
     private def read_metadata_file(seg, mfile)
@@ -487,11 +488,11 @@ module LavinMQ
       mfile.dontneed
       @bytesize += bytesize
       @size += count
-      @log.debug { "Reading count from #{metafile}: #{count}" }
+      L.debug "Reading count from #{metafile}: #{count}"
     rescue ex : File::NotFoundError
       raise ex
     rescue ex
-      @log.error(exception: ex) { "Metadata file #{metafile} is incorrect" }
+      L.error "Metadata file #{metafile} is incorrect", exception: ex
       raise MetadataError.new("Metadata file #{metafile} is incorrect", cause: ex)
     end
 
@@ -514,7 +515,7 @@ module LavinMQ
       rescue ex : IO::EOFError
         break
       rescue ex : OverflowError | AMQ::Protocol::Error::FrameDecode
-        @log.error { "Could not initialize segment, closing message store: Failed to read segment #{seg} at pos #{mfile.pos}. #{ex}" }
+        L.error "Could not initialize segment, closing message store", segment: seg, position: mfile.pos, exception: ex
         close
         return count
       end
@@ -522,7 +523,7 @@ module LavinMQ
       mfile.dontneed
       Fiber.yield
       @segment_msg_count[seg] = count
-      @log.debug { "Manually counted #{count} msgs from #{mfile.path}" }
+      L.debug "Manually counted messages", count: count, path: mfile.path
     end
 
     private def delete_unused_segments : Nil
@@ -531,7 +532,7 @@ module LavinMQ
         next if seg == current_seg # don't the delete the segment still being written to
 
         if (acks = @acks[seg]?) && @segment_msg_count[seg] <= (acks.size // sizeof(UInt32))
-          @log.debug { "Deleting unused segment #{seg}" }
+          L.debug "Deleting unused segment #{seg}"
           @segment_msg_count.delete seg
           @deleted.delete seg
           if ack = @acks.delete(seg)
@@ -551,7 +552,7 @@ module LavinMQ
         seg = f[5, 10].to_u32
         unless @segments.has_key?(seg)
           path = File.join(@msg_dir, f)
-          @log.warn { "Deleting orphaned ack file: #{path}" }
+          L.warn "Deleting orphaned ack file", path: path
           File.delete(path)
           @replicator.try &.delete_file(path, WaitGroup.new)
         end

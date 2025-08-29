@@ -76,7 +76,7 @@ module LavinMQ::AMQP
 
     private def init_msg_store(data_dir)
       replicator = @vhost.@replicator
-      @msg_store = StreamMessageStore.new(data_dir, replicator, metadata: @metadata)
+      @msg_store = StreamQueueMessageStore.new(data_dir, replicator, metadata: L.context)
     end
 
     def stream_msg_store : StreamMessageStore
@@ -94,7 +94,7 @@ module LavinMQ::AMQP
       notify_all_stream_consumers
       true
     rescue ex : MessageStore::Error
-      @log.error(ex) { "Queue closed due to error" }
+      L.error "Queue closed due to error", exception: ex
       close
       raise ex
     end
@@ -133,7 +133,7 @@ module LavinMQ::AMQP
       yield env # deliver the message
       true
     rescue ex : MessageStore::Error
-      @log.error(ex) { "Queue closed due to error" }
+      L.error "Queue closed due to error", exception: ex
       close
       raise ClosedError.new(cause: ex)
     end
@@ -192,10 +192,10 @@ module LavinMQ::AMQP
 
     def purge(max_count : Int = UInt32::MAX) : UInt32
       delete_count = @msg_store_lock.synchronize { @msg_store.purge(max_count) }
-      @log.info { "Purged #{delete_count} messages" }
+      L.info "Purged messages", count: delete_count
       delete_count
     rescue ex : MessageStore::Error
-      @log.error(ex) { "Queue closed due to error" }
+      L.error "Queue closed due to error", exception: ex
       close
       raise ex
     end

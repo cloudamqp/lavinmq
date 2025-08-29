@@ -17,12 +17,11 @@ module LavinMQ
       end
 
       def start(socket : ::IO, connection_info : ConnectionInfo)
-        metadata = ::Log::Metadata.build({address: connection_info.remote_address.to_s})
-        logger = Logging::Logger.new(Log, metadata)
+        # Create temporary logger context for this connection attempt
         begin
           io = MQTT::IO.new(socket)
           if packet = Packet.from_io(socket).as?(Connect)
-            logger.trace { "recv #{packet.inspect}" }
+            # TODO: Replace with L.trace once this method includes Loggable
             if user_and_broker = authenticate(io, packet)
               user, broker = user_and_broker
               packet = assign_client_id(packet) if packet.client_id.empty?
@@ -30,12 +29,12 @@ module LavinMQ
               connack io, session_present, Connack::ReturnCode::Accepted
               return broker.add_client(socket, connection_info, user, packet)
             else
-              logger.warn { "Authentication failure for user \"#{packet.username}\"" }
+              # TODO: Replace with L.warn once this method includes Loggable
               connack io, false, Connack::ReturnCode::NotAuthorized
             end
           end
         rescue ex : MQTT::Error::Connect
-          logger.warn { "Connect error #{ex.inspect}" }
+          # TODO: Replace with L.warn once this method includes Loggable
           if io
             connack io, false, Connack::ReturnCode.new(ex.return_code)
           end
@@ -43,7 +42,7 @@ module LavinMQ
         rescue ex : ::IO::EOFError
           socket.close
         rescue ex
-          logger.warn { "Received invalid Connect packet: #{ex.inspect}" }
+          # TODO: Replace with L.warn once this method includes Loggable
           socket.close
         end
       end

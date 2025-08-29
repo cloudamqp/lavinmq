@@ -9,6 +9,7 @@ module LavinMQ
   module AMQP
     class Consumer < LavinMQ::Client::Channel::Consumer
       include SortableJSON
+      include LavinMQ::Logging::Loggable
       Log = LavinMQ::Log.for "amqp.consumer"
       getter tag : String
       getter priority : Int32
@@ -18,7 +19,6 @@ module LavinMQ
       getter prefetch_count : UInt16
       getter? closed = false
       @flow : Bool
-      @metadata : ::Log::Metadata
       @unacked = Atomic(UInt32).new(0_u32)
       getter has_capacity : BoolChannel
 
@@ -29,8 +29,7 @@ module LavinMQ
         @priority = consumer_priority(frame) # Must be before ConsumeOk, can close channel
         @prefetch_count = @channel.prefetch_count
         @flow = @channel.flow?
-        @metadata = @channel.@metadata.extend({consumer: @tag})
-        @log = Logging::Logger.new(Log, @metadata)
+        L.context(@channel.log_context.extend({consumer: @tag}))
         spawn deliver_loop, name: "Consumer deliver loop"
         @flow_change = BoolChannel.new(@flow)
         @has_capacity = BoolChannel.new(true)
@@ -76,7 +75,7 @@ module LavinMQ
             break
           end
           {% unless flag?(:release) %}
-            @log.debug { "Getting a new message" }
+            L.debug "Getting a new message"
           {% end %}
           queue.consume_get(@no_ack) do |env|
             deliver(env.message, env.segment_position, env.redelivered)
@@ -89,13 +88,13 @@ module LavinMQ
           end
         end
       rescue ex : ClosedError | Queue::ClosedError | AMQP::Channel::ClosedError | ::Channel::ClosedError
-        @log.debug { "deliver loop exiting: #{ex.inspect}" }
+        L.debug "deliver loop exiting", exception: ex
       end
 
       private def wait_for_global_capacity
         ch = @channel
         return if ch.has_capacity?
-        @log.debug { "Waiting for global prefetch capacity" }
+        L.debug "Waiting for global prefetch capacity"
         flush
         select
         when ch.has_capacity.when_true.receive
@@ -107,11 +106,11 @@ module LavinMQ
       private def wait_for_single_active_consumer
         case @queue.single_active_consumer
         when self
-          @log.debug { "This consumer is the single active consumer" }
+          L.debug "This consumer is the single active consumer"
         when nil
-          @log.debug { "The queue isn't a single active consumer queue" }
+          L.debug "The queue isn't a single active consumer queue"
         else
-          @log.debug { "Waiting for this consumer to become the single active consumer" }
+          L.debug "Waiting for this consumer to become the single active consumer"
           flush
           loop do
             select
@@ -119,7 +118,7 @@ module LavinMQ
               if sca == self
                 break
               else
-                @log.debug { "New single active consumer, but not me" }
+                L.debug "New single active consumer, but not me"
               end
             when @notify_closed.receive
               break
@@ -132,7 +131,7 @@ module LavinMQ
       private def wait_for_priority_consumers
         # single active consumer queues can't have priority consumers
         if @queue.has_priority_consumers? && @queue.single_active_consumer.nil?
-          @log.debug { "Waiting for higher priority consumers to not have capacity" }
+          L.debug "Waiting for higher priority consumers to not have capacity"
           flush
           higher_prio_consumers = @queue.consumers.select { |c| c.priority > @priority }
           return false unless higher_prio_consumers.any? &.accepts?
@@ -151,7 +150,7 @@ module LavinMQ
 
       private def wait_for_queue_ready
         if @queue.empty?
-          @log.debug { "Waiting for queue not to be empty" }
+          L.debug "Waiting for queue not to be empty"
           flush
           select
           when @queue.empty.when_false.receive
@@ -163,11 +162,11 @@ module LavinMQ
 
       private def wait_for_paused_queue
         if @queue.state.paused?
-          @log.debug { "Waiting for queue not to be paused" }
+          L.debug "Waiting for queue not to be paused"
           flush
           select
           when @queue.paused.when_false.receive
-            @log.debug { "Queue is not paused" }
+            L.debug "Queue is not paused"
           when @notify_closed.receive
           end
           return true
@@ -176,10 +175,10 @@ module LavinMQ
 
       private def wait_for_flow
         unless @flow
-          @log.debug { "Waiting for flow" }
+          L.debug "Waiting for flow"
           flush
           @flow_change.when_true.receive
-          @log.debug { "Channel flow=true" }
+          L.debug "Channel flow=true"
           return true
         end
       end
@@ -188,7 +187,7 @@ module LavinMQ
       private def wait_for_capacity : Nil
         if @prefetch_count > 0
           until @unacked.get(:relaxed) < @prefetch_count
-            @log.debug { "Waiting for prefetch capacity" }
+            L.debug "Waiting for prefetch capacity"
             flush
             @has_capacity.when_true.receive
           end
