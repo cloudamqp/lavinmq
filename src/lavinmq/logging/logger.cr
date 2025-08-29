@@ -1,21 +1,18 @@
-require "log"
-
 module LavinMQ
-  Log = ::Log.for "lmq"
-
-  struct Logger
-    def initialize(@log : ::Log, @metadata : ::Log::Metadata)
-    end
-
-    def initialize(@log : ::Log, **kwargs)
-      if kwargs.empty?
-        @metadata = ::Log::Metadata.empty
-      else
-        @metadata = ::Log::Metadata.build(kwargs)
+  module Logging
+    struct Logger
+      def initialize(@log : ::Log, @metadata : ::Log::Metadata)
       end
-    end
 
-    {% for method in %w(trace debug info notice warn error fatal) %}
+      def initialize(@log : ::Log, **kwargs)
+        if kwargs.empty?
+          @metadata = ::Log::Metadata.empty
+        else
+          @metadata = ::Log::Metadata.build(kwargs)
+        end
+      end
+
+      {% for method in %w(trace debug info notice warn error fatal) %}
       def {{method.id}}(exception : Exception? = nil, &block)
         severity = ::Log::Severity::{{method.camelcase.id}}
         return unless @log.level <= severity
@@ -24,5 +21,6 @@ module LavinMQ
         backend.dispatch ::Log::Entry.new(@log.source, severity, logstr, @metadata, exception, timestamp: Time.local)
       end
     {% end %}
+    end
   end
 end

@@ -3,7 +3,7 @@ require "uri"
 require "option_parser"
 require "ini"
 require "./version"
-require "./log_formatter"
+require "./logging"
 require "./in_memory_backend"
 require "./auth/password"
 
@@ -242,9 +242,9 @@ module LavinMQ
       log_file = (path = @log_file) ? File.open(path, "a") : STDOUT
       broadcast_backend = ::Log::BroadcastBackend.new
       backend = if ENV.has_key?("JOURNAL_STREAM")
-                  ::Log::IOBackend.new(io: log_file, formatter: JournalLogFormat)
+                  ::Log::IOBackend.new(io: log_file, formatter: Logging::Format::JournalLogFormat)
                 else
-                  ::Log::IOBackend.new(io: log_file, formatter: StdoutLogFormat)
+                  ::Log::IOBackend.new(io: log_file, formatter: Logging::Format::StdoutLogFormat)
                 end
 
       broadcast_backend.append(backend, @log_level)
@@ -254,7 +254,7 @@ module LavinMQ
 
       ::Log.setup(@log_level, broadcast_backend)
       target = (path = @log_file) ? path : "stdout"
-      Log.info &.emit("Logger settings", level: @log_level.to_s, target: target)
+      L.info "Log set", level: @log_level, target: target
     end
 
     def tls_configured?

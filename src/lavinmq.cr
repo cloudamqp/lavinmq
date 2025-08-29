@@ -1,6 +1,7 @@
 require "./lavinmq/version"
 require "./stdlib/*"
 require "./lavinmq/config"
+require "./lavinmq/logging"
 
 config = LavinMQ::Config.instance
 config.parse # both ARGV and config file
