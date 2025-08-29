@@ -10,6 +10,7 @@ module LavinMQ
     class Upstream
       abstract class Link
         include SortableJSON
+        include LavinMQ::Logging::Loggable
         Log = LavinMQ::Log.for "federation.link"
         getter last_changed, error, state
 
@@ -19,11 +20,9 @@ module LavinMQ
         @scrubbed_uri : String
         @last_unacked : UInt64?
         @upstream_connection : ::AMQP::Client::Connection?
-        @metadata : ::Log::Metadata
 
         def initialize(@upstream : Upstream)
-          @metadata = ::Log::Metadata.new(nil, {vhost: @upstream.vhost.name, upstream: @upstream.name})
-          @log = Logging::Logger.new(Log, @metadata)
+          L.context(vhost: @upstream.vhost.name, upstream: @upstream.name)
           user = @upstream.vhost.users.direct_user
           vhost = @upstream.vhost.name == "/" ? "" : @upstream.vhost.name
           port = Config.instance.amqp_port
@@ -58,13 +57,13 @@ module LavinMQ
         end
 
         def run
-          @log.info { "Starting" }
+          L.info "Starting"
           spawn(run_loop, name: "Federation link #{@upstream.vhost.name}/#{name}")
           Fiber.yield
         end
 
         private def state(state)
-          @log.debug { "state change #{@state}->#{state}" }
+          L.debug "state change", from: @state.to_s, to: state.to_s
           @last_changed = RoughTime.unix_ms
           @state = state
         end
@@ -84,23 +83,23 @@ module LavinMQ
             break if @state.terminating?
             state(State::Stopped)
             sleep @upstream.reconnect_delay.seconds
-            @log.info { "Federation try reconnect" }
+            L.info "Federation try reconnect"
           rescue ex
             break if @state.terminating?
-            @log.info { "Federation link state=#{@state} error=#{ex.inspect}" }
+            L.info "Federation link error", state: @state, exception: ex
             state(State::Stopped)
             @error = ex.message
             sleep @upstream.reconnect_delay.seconds
-            @log.info { "Federation try reconnect" }
+            L.info "Federation try reconnect"
           end
-          @log.info { "Federation link stopped" }
+          L.info "Federation link stopped"
         ensure
           state(State::Terminated)
-          @log.info { "Terminated" }
+          L.info "Terminated"
         end
 
         private def federate(msg, upstream_ch, exchange, routing_key, immediate = false)
-          @log.debug { "Federating routing_key=#{routing_key} exchange=#{exchange}" }
+          L.debug "Federating", routing_key: routing_key, exchange: exchange
           status = @upstream.vhost.publish(
             Message.new(
               RoughTime.unix_ms, exchange, routing_key, msg.properties,
@@ -191,7 +190,8 @@ module LavinMQ
           @federated_q.register_observer(self)
           consumer_available if @federated_q.immediate_delivery?
           super(@upstream)
-          @metadata = @metadata.extend({link: @federated_q.name})
+          new_context = L.context.extend({link: @federated_q.name})
+          L.context(new_context)
         end
 
         def name : String
@@ -213,7 +213,7 @@ module LavinMQ
 
         def on(event : QueueEvent, data)
           return if @state.terminated? || @state.terminating?
-          @log.debug { "event=#{event} data=#{data}" }
+          L.debug "Queue event", event: event, data: data
           case event
           in .deleted?, .closed?
             @upstream.stop_link(@federated_q)
@@ -223,7 +223,7 @@ module LavinMQ
             nil
           end
         rescue e
-          @log.error { "Could not process event=#{event} data=#{data} error=#{e.inspect_with_backtrace}" }
+          L.error "Could not process queue event", event: event, data: data, exception: e
         end
 
         private def setup_queue(upstream_client)
@@ -239,7 +239,7 @@ module LavinMQ
             no_ack = @upstream.ack_mode.no_ack?
             state(State::Running)
             unless @federated_q.immediate_delivery?
-              @log.debug { "Waiting for consumers" }
+              L.debug "Waiting for consumers"
               loop do
                 select
                 when @consumer_available.receive?
@@ -266,7 +266,7 @@ module LavinMQ
               end
             end
           rescue ex : NoDownstreamConsumerError
-            @log.warn(ex) { "No downstream consumer active, stopping federation" }
+            L.warn "No downstream consumer active, stopping federation", exception: ex
           end
         end
       end
@@ -278,7 +278,8 @@ module LavinMQ
         def initialize(@upstream : Upstream, @federated_ex : Exchange, @upstream_q : String,
                        @upstream_exchange : String)
           super(@upstream)
-          @metadata = @metadata.extend({link: @federated_ex.name})
+          new_context = L.context.extend({link: @federated_ex.name})
+          L.context(new_context)
         end
 
         def name : String
@@ -294,7 +295,7 @@ module LavinMQ
 
         def on(event : ExchangeEvent, data)
           return if @state.terminated? || @state.terminating?
-          @log.debug { "event=#{event} data=#{data}" }
+          L.debug "Exchange event", event: event, data: data
           case event
           in .deleted?
             @upstream.stop_link(@federated_ex)
@@ -316,7 +317,7 @@ module LavinMQ
             end
           end
         rescue e
-          @log.error { "Could not process event=#{event} data=#{data} error=#{e.inspect_with_backtrace}" }
+          L.error "Could not process exchange event", event: event, data: data, exception: e
         end
 
         private def data_as_binding_details(data) : BindingDetails
@@ -329,7 +330,7 @@ module LavinMQ
           if ex = @consumer_ex
             yield ex
           else
-            @log.warn { "No upstream connection for exchange event" }
+            L.warn "No upstream connection for exchange event"
           end
         end
 
@@ -352,7 +353,7 @@ module LavinMQ
             ch.exchange_delete(@upstream_q)
           end
         rescue e
-          @log.warn(e) { "cleanup interrupted " }
+          L.warn "cleanup interrupted", exception: e
         end
 
         private def setup(upstream_client)
@@ -399,7 +400,7 @@ module LavinMQ
             state(State::Running)
             upstream_channel.basic_consume(@upstream_q, no_ack: no_ack, tag: @upstream.consumer_tag, block: true) do |msg|
               unless should_forward?(msg.properties.headers)
-                @log.debug { "Skipping message, max hops reached" }
+                L.debug "Skipping message, max hops reached"
                 ack(msg.delivery_tag, upstream_channel)
                 next
               end

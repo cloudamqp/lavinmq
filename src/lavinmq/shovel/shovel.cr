@@ -481,7 +481,7 @@ module LavinMQ
         @source.stop
         @destination.stop
         return if terminated?
-        Log.info &.emit("Terminated", name: @name, vhost: @vhost.name)
+        L.info "Terminated", name: @name, vhost: @vhost.name
       end
 
       def delete_paused_file
