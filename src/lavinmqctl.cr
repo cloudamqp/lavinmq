@@ -501,7 +501,7 @@ class LavinMQCtl
             when "client_properties"
               print_erlang_terms(conn[c].as_h)
             else
-              print conn[c]
+              print conn[c]?
             end
             print "\t" unless i == columns.size - 1
           end
