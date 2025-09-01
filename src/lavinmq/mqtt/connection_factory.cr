@@ -19,8 +19,9 @@ module LavinMQ
       def start(socket : ::IO, connection_info : ConnectionInfo)
         # Create temporary logger context for this connection attempt
         io = MQTT::IO.new(socket)
+        address = connection_info.remote_address
         if packet = Packet.from_io(socket).as?(Connect)
-          # TODO: Replace with L.trace once this method includes Loggable
+          L.trace "recv CONNECT packet", address: address
           if user_and_broker = authenticate(io, packet)
             user, broker = user_and_broker
             packet = assign_client_id(packet) if packet.client_id.empty?
@@ -28,12 +29,12 @@ module LavinMQ
             connack io, session_present, Connack::ReturnCode::Accepted
             return broker.add_client(socket, connection_info, user, packet)
           else
-            # TODO: Replace with L.warn once this method includes Loggable
+            L.warn "Autnetication failed", address: address, user: packet.username
             connack io, false, Connack::ReturnCode::NotAuthorized
           end
         end
       rescue ex : MQTT::Error::Connect
-        # TODO: Replace with L.warn once this method includes Loggable
+        L.warn "Connection error", address: address, exception: ex
         if io
           connack io, false, Connack::ReturnCode.new(ex.return_code)
         end
@@ -41,7 +42,7 @@ module LavinMQ
       rescue ex : ::IO::EOFError
         socket.close
       rescue ex
-        # TODO: Replace with L.warn once this method includes Loggable
+        L.error "Error while handling CONNECT packet", address: address, exception: ex
         socket.close
       end
 
