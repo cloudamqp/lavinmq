@@ -72,7 +72,7 @@ describe LavinMQ::Exchange do
             amqp_queue = s.vhosts["/"].queues["mqtt-messages"]
 
             mqtt_exchange.bind(amqp_queue, "home/lights", nil)
-            mqtt_exchange.publish(mqtt_publish("home/lights", "ON"), Set(LavinMQ::Queue).new, Set(LavinMQ::Exchange).new).should eq 1
+            mqtt_exchange.publish(mqtt_publish("home/lights", "ON")).should eq 1
             amqp_queue.message_count.should eq 1
           end
         end
@@ -89,7 +89,7 @@ describe LavinMQ::Exchange do
 
             mqtt_exchange.bind(sensor_queue, "sensor/+/temperature", nil)
             mqtt_exchange.bind(all_queue, "#", nil)
-            mqtt_exchange.publish(mqtt_publish("sensor/bedroom/temperature", "22.5"), Set(LavinMQ::Queue).new, Set(LavinMQ::Exchange).new).should eq 2
+            mqtt_exchange.publish(mqtt_publish("sensor/bedroom/temperature", "22.5")).should eq 2
             sensor_queue.message_count.should eq 1
             all_queue.message_count.should eq 1
           end
