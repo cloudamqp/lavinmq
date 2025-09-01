@@ -254,7 +254,7 @@ module LavinMQ
 
       ::Log.setup(@log_level, broadcast_backend)
       target = (path = @log_file) ? path : "stdout"
-      L.info "Log set", level: @log_level, target: target
+      L.info "Log configured", target: target, log_level: @log_level
     end
 
     def tls_configured?
