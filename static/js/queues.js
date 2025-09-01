@@ -168,6 +168,6 @@ queuesTable.on('updated', _ => {
   document.getElementById('multi-queue-count').textContent = checked.length
 })
 
-document.querySelector('#dataTags').onclick = e => {
+document.querySelector('#dataTags').addEventListener('click', e => {
   Helpers.argumentHelperJSON('declare', 'arguments', e)
-}
+})

@@ -25,12 +25,12 @@ class Pagination {
     div.appendChild(button)
     if (opts.disabled !== true) {
       button.href = `#${params.toString()}`
-      button.onclick = e => {
+      button.addEventListener('click', e => {
         e.preventDefault()
         this.#dataSource.page = toPage
         this.#dataSource.reload()
         return false
-      }
+      })
     }
     return div
   }
