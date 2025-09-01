@@ -1,26 +1,26 @@
 require "./logging/*"
-require "./segment_position"
+
+# Add some methods to support more data types in Log::Metadata
+class Log::Metadata
+  struct Value
+    def self.new(value : UInt8 | UInt16)
+      new(value.to_u32)
+    end
+
+    def self.new(value : Int8 | Int16)
+      new(value.to_i32)
+    end
+
+    def self.new(value)
+      new(value.to_s)
+    end
+  end
+end
 
 module LavinMQ
   Log = ::Log.for "lmq"
 
   module Logging
-    module Loggable
-      @log_context : ::Log::Metadata = ::Log::Metadata.empty
-
-      def _set_log_context(new_metadata : ::Log::Metadata)
-        @log_context = new_metadata
-      end
-
-      def _set_log_context(new_metadata : NamedTuple)
-        @log_context = ::Log::Metadata.build(new_metadata)
-      end
-
-      def log_context
-        @log_context
-      end
-    end
-
     # Set "base metadata" for an instance. Should normally be called from the
     # constructor.
     macro context(*args, **kwargs)
@@ -77,34 +77,18 @@ module LavinMQ
 
     {% for level in %w(trace debug info notice warn error fatal) %}
       macro {{level.id}}(msg = nil, **metadata, &block)
-        ::LavinMQ::Logging.log({{level}}\{{ ", #{metadata.double_splat}".id unless metadata.empty? }}) do
-            {% verbatim do %}
-              {% if msg %}
-                {{ msg }}
-              {% elsif block.is_a?(Block) %}
-                {{ block.body }}
-              {% end %}
+        ::LavinMQ::Logging.log(:{{level.id}}\{{ ", #{metadata.double_splat}".id unless metadata.empty? }}) do
+          {% verbatim do %}
+            {% if msg %}
+              {{ msg }}
+            {% elsif block.is_a?(Block) %}
+              {{ block.body }}
             {% end %}
-          end
+          {% end %}\
+        end
       end
     {% end %}
   end
 
   alias L = Logging
-end
-
-class Log::Metadata
-  struct Value
-    def self.new(value : UInt8 | UInt16)
-      new(value.to_u32)
-    end
-
-    def self.new(value : Int8 | Int16)
-      new(value.to_i32)
-    end
-
-    def self.new(value)
-      new(value.to_s)
-    end
-  end
 end
