@@ -51,7 +51,7 @@ module LavinMQ
     # Exception must be passed as a key-value argument, e.g.
     # `Log.info "message", exception: e` which will be converted to
     # `Log.info exception: e do |emitter| emitter.emit("message") end`
-    macro log(level, exception = nil, **metadata, &block)
+    macro log(level_, exception = nil, **metadata, &block)
       \{% begin %}
         \{% is_loggable = (@type.ancestors.includes?(::LavinMQ::Logging::Loggable)) %}
         {%
@@ -61,7 +61,7 @@ module LavinMQ
                        "{#{metadata.double_splat}}".id
                      end
         %}
-        Log.{{level.id}} exception: {{exception}} do |emitter|
+        Log.{{level_.id}} exception: {{exception}} do |emitter|
               %msg = begin
                       {{ block.body if block.is_a?(Block) }}
                     end
