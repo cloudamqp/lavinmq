@@ -26,10 +26,10 @@ module LavinMQ
         end
       end
 
-      @bindings = Hash(BindingKey, Set(MQTT::Session)).new do |h, k|
-        h[k] = Set(MQTT::Session).new
+      @bindings = Hash(BindingKey, Set(Destination)).new do |h, k|
+        h[k] = Set(Destination).new
       end
-      @tree = MQTT::SubscriptionTree(MQTT::Session).new
+      @tree = MQTT::SubscriptionTree(Destination).new
 
       def type : String
         "mqtt"
@@ -39,7 +39,7 @@ module LavinMQ
         super(vhost, name, false, false, true)
       end
 
-      def publish(packet : MQTT::Publish) : UInt32
+      def publish(packet : MQTT::Publish, queues : Set(LavinMQ::Queue), exchanges : Set(LavinMQ::Exchange)) : UInt32
         @publish_in_count.add(1, :relaxed)
         properties = AMQP::Properties.new(headers: AMQP::Table.new)
         properties.delivery_mode = packet.qos
@@ -55,13 +55,27 @@ module LavinMQ
 
         msg = Message.new(timestamp, EXCHANGE, packet.topic, properties, bodysize, body)
         count = 0u32
-        @tree.each_entry(packet.topic) do |queue, qos|
+
+        @tree.each_entry(packet.topic) do |destination, qos|
+          next if queues.includes?(destination)
           msg.properties.delivery_mode = qos
-          if queue.publish(msg)
-            count += 1
-            msg.body_io.rewind
+          case destination
+          in LavinMQ::Queue
+            if destination.publish(msg)
+              count += 1
+              msg.body_io.rewind
+              queues.add(destination)
+            end
+          in LavinMQ::Exchange
+            if exchanges.add?(destination)
+              destination.publish(msg, false, queues, exchanges)
+              msg.body_io.rewind
+            end
           end
         end
+
+        queues.clear
+        exchanges.clear
         @unroutable_count.add(1, :relaxed) if count.zero?
         @publish_out_count.add(count, :relaxed)
         count
@@ -75,11 +89,23 @@ module LavinMQ
         end
       end
 
-      # Only here to make superclass happy
-      protected def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
+      protected def each_destination(routing_key : String, headers : AMQP::Table?, &_block : LavinMQ::Destination ->)
+        # Use only the subscription tree for all destinations (MQTT and AMQP)
       end
 
-      def bind(destination : MQTT::Session, routing_key : String, arguments = nil) : Bool
+      # Override to use the subscription tree
+      protected def find_queues_internal(routing_key, headers, queues, exchanges)
+        @tree.each_entry(routing_key) do |destination, _|
+          case destination
+          in LavinMQ::Queue
+            queues.add(destination)
+          in LavinMQ::Exchange
+            destination.find_queues(routing_key, headers, queues, exchanges)
+          end
+        end
+      end
+
+      def bind(destination : Destination, routing_key : String, arguments = nil) : Bool
         qos = arguments.try { |h| h[QOS_HEADER]?.try(&.as(UInt8)) } || 0u8
         binding_key = BindingKey.new(routing_key, arguments)
         @bindings[binding_key].add destination
@@ -90,7 +116,7 @@ module LavinMQ
         true
       end
 
-      def unbind(destination : MQTT::Session, routing_key, arguments = nil) : Bool
+      def unbind(destination : Destination, routing_key, arguments = nil) : Bool
         binding_key = BindingKey.new(routing_key, arguments)
         rk_bindings = @bindings[binding_key]
         rk_bindings.delete destination
@@ -103,14 +129,6 @@ module LavinMQ
 
         delete if @auto_delete && @bindings.each_value.all?(&.empty?)
         true
-      end
-
-      def bind(destination : Destination, routing_key : String, arguments = nil) : Bool
-        raise LavinMQ::Exchange::AccessRefused.new(self)
-      end
-
-      def unbind(destination : Destination, routing_key, arguments = nil) : Bool
-        raise LavinMQ::Exchange::AccessRefused.new(self)
       end
 
       def apply_policy(policy : Policy?, operator_policy : OperatorPolicy?)

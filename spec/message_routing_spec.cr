@@ -442,22 +442,4 @@ module MessageRoutingSpec
       end
     end
   end
-
-  describe LavinMQ::MQTT::Exchange do
-    it "should only allow Session to bind" do
-      with_amqp_server do |s|
-        vhost = s.vhosts.create("x")
-        q1 = LavinMQ::AMQP::Queue.new(vhost, "q1")
-        s1 = LavinMQ::MQTT::Session.new(vhost, "q1")
-        index = LavinMQ::MQTT::TopicTree(String).new
-        store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", LavinMQ::Clustering::NoopServer.new, index)
-        x = LavinMQ::MQTT::Exchange.new(vhost, "", store)
-        x.bind(s1, "s1", LavinMQ::AMQP::Table.new)
-        expect_raises(LavinMQ::Exchange::AccessRefused) do
-          x.bind(q1, "q1", LavinMQ::AMQP::Table.new)
-        end
-        store.close
-      end
-    end
-  end
 end
