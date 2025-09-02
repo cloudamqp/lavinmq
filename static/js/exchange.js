@@ -76,7 +76,7 @@ const bindingsTable = Table.renderTable('bindings-table', tableOptions, function
     const destinationLink = document.createElement('a')
     destinationLink.href = HTTP.url`${item.destination_type}#vhost=${vhost}&name=${item.destination}`
     if (item.destination_type === 'exchange') {
-      destinationLink.addEventListener('click', function(e) {
+      destinationLink.addEventListener('click', function (e) {
         window.location.href = this.href
         window.location.reload()
       })
