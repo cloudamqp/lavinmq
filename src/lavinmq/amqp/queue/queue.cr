@@ -143,7 +143,7 @@ module LavinMQ::AMQP
       @metadata = ::Log::Metadata.new(nil, {queue: @name, vhost: @vhost.name})
       @log = Logger.new(Log, @metadata)
       File.open(File.join(@data_dir, ".queue"), "w") { |f| f.sync = true; f.print @name }
-      if File.exists?(File.join(@data_dir, ".paused")) # Legacy support
+      if File.exists?(File.join(@data_dir, ".paused")) # Migrate '.paused' files to 'paused'
         File.rename(File.join(@data_dir, ".paused"), File.join(@data_dir, "paused"))
       end
       if File.exists?(File.join(@data_dir, "paused"))
