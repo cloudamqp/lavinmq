@@ -39,7 +39,7 @@ module LavinMQ
           refuse_unless_administrator(context, user(context))
           with_vhost(context, params) do |vhost|
             u = user(context, params, "user")
-            perm = u.permissions[vhost]?
+            perm = u.permission?(vhost)
             not_found(context) unless perm
             u.permissions_details(vhost, perm).to_json(context.response)
           end
@@ -56,7 +56,8 @@ module LavinMQ
             unless config && read && write
               bad_request(context, "Fields 'configure', 'read' and 'write' are required")
             end
-            is_update = @amqp_server.users[u.name].permissions[vhost]?
+            user = @amqp_server.users[u.name]
+            is_update = user.permission?(vhost)
             @amqp_server.users
               .add_permission(u.name, vhost, Regex.new(config), Regex.new(read), Regex.new(write))
             context.response.status_code = is_update ? 204 : 201

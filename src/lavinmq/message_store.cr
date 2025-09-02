@@ -282,7 +282,7 @@ module LavinMQ
     end
 
     private def select_next_read_segment : MFile?
-      @rfile.dontneed
+      @rfile.dontneed unless @rfile.closed?
       # Expect @segments to be ordered
       if id = @segments.each_key.find { |sid| sid > @rfile_id }
         rfile = @segments[id]
@@ -532,6 +532,8 @@ module LavinMQ
           @replicator.try &.delete_file(path, WaitGroup.new)
         end
       end
+    rescue File::NotFoundError
+      @log.debug { "Could not delete orphaned ack files, directory #{@msg_dir} does not exist" }
     end
 
     private def deleted?(seg, pos) : Bool

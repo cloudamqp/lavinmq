@@ -7,7 +7,7 @@ module MqttSpecs
       it "should create mqtt exchange when vhost is created" do
         with_amqp_server do |server|
           server.vhosts.create("new")
-          server.vhosts["new"].exchanges[LavinMQ::MQTT::EXCHANGE]?.should_not be_nil
+          server.vhosts["new"].exchange(LavinMQ::MQTT::EXCHANGE).should_not be_nil
         end
       end
 

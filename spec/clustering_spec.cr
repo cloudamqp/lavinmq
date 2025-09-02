@@ -20,7 +20,7 @@ describe LavinMQ::Clustering::Client do
 
       server = LavinMQ::Server.new(cluster.follower_config)
       begin
-        q = server.vhosts["/"].queues["repli"].as(LavinMQ::AMQP::DurableQueue)
+        q = server.vhosts["/"].queue("repli").not_nil!.as(LavinMQ::AMQP::DurableQueue)
         q.message_count.should eq 1
         q.basic_get(true) do |env|
           String.new(env.message.body).to_s.should eq "hello world"
@@ -223,7 +223,7 @@ describe LavinMQ::Clustering::Client do
       when appended.receive?
       when timeout 0.1.seconds
         # @action is a Channel. Let's look at its internal deque
-        action_queue = replicator.@followers.first.@actions.@queue.not_nil!("no deque? no follower?")
+        action_queue = replicator.followers.first.@actions.@queue.not_nil!("no deque? no follower?")
         break if action_queue.size == action_queue.@capacity # full?
       end
     end
@@ -234,7 +234,7 @@ describe LavinMQ::Clustering::Client do
     select
     when appended.receive?
     when timeout 0.1.seconds
-      replicator.@followers.first.@actions.close
+      replicator.followers.first.@actions.close
       deadlock = true
     end
 
