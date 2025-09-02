@@ -93,6 +93,7 @@ module LavinMQ
         # Use only the subscription tree for all destinations (MQTT and AMQP)
       end
 
+      # Override to use the subscription tree
       protected def find_queues_internal(routing_key, headers, queues, exchanges)
         @tree.each_entry(routing_key) do |destination, _|
           case destination
