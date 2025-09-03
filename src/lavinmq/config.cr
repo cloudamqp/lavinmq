@@ -37,7 +37,7 @@ module LavinMQ
     property http_systemd_socket_name = "lavinmq-http.socket"
     property amqp_systemd_socket_name = "lavinmq-amqp.socket"
     property metrics_http_bind = "127.0.0.1"
-    property metrics_http_port = 15693
+    property metrics_http_port = 15692
     property heartbeat = 300_u16                     # second
     property frame_max = 131_072_u32                 # bytes
     property channel_max = 2048_u16                  # number
@@ -162,10 +162,10 @@ module LavinMQ
         p.on("--mqtt-unix-path=PATH", "MQTT UNIX path to listen to") do |v|
           @mqtt_unix_path = v
         end
-        p.on("--metrics-http-bind=BIND", "IP address that the Prometheus server will bind to (default: 127.0.0.1)") do |v|
+        p.on("--metrics-http-bind=BIND", "IP address that the Prometheus server will bind to (default: #{@metrics_http_bind})") do |v|
           @metrics_http_bind = v
         end
-        p.on("--metrics-http-port=PORT", "HTTP port that prometheus will listen to (default: 15692)") do |v|
+        p.on("--metrics-http-port=PORT", "HTTP port that prometheus will listen to (default: #{@metrics_http_port})") do |v|
           @metrics_http_port = v.to_i
         end
         p.on("--cert FILE", "TLS certificate (including chain)") { |v| @tls_cert_path = v }

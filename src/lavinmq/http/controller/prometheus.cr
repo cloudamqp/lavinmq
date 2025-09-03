@@ -161,8 +161,6 @@ module LavinMQ
           if prefix.bytesize > 20
             context.response.status_code = 400
             reason = "Prefix too long (max 20 characters)"
-            body = {error: "bad_request", reason: reason}
-              .to_json(context.response)
             raise Controller::HaltRequest.new(reason)
           end
 
