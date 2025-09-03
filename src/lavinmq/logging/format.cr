@@ -1,4 +1,5 @@
 require "log"
+require "json"
 
 module LavinMQ
   module Logging
@@ -32,6 +33,36 @@ module LavinMQ
 
         def journal_severity : Nil
           @io << '<' << severity_to_priority << '>'
+        end
+      end
+
+      struct JsonFormat < BaseFormatter
+        def run(journal)
+          if journal
+            journal_severity
+          end
+          JSON.build(@io) do |json|
+            json.object do
+              json.field "timestamp" do
+                json.string { |io| @entry.timestamp.to_rfc3339(io, fraction_digits: 6) }
+              end
+              json.field "severity", @entry.severity.label
+              json.field "source", @entry.source if @entry.source
+              if (context = @entry.context) && !context.empty?
+                context.each do |key, value|
+                  json.string key
+                  json.string value
+                end
+              end
+              json.field "message", @entry.message if @entry.message
+              if (data = @entry.data) && !data.empty?
+                data.each do |key, value|
+                  json.string key
+                  json.string value
+                end
+              end
+            end
+          end
         end
       end
 
@@ -92,7 +123,7 @@ module LavinMQ
         end
       end
 
-      struct StdoutLogFormat < BaseFormatter
+      struct StdoutFormat < BaseFormatter
         def run(journal)
           if journal
             journal_severity
