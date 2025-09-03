@@ -12,7 +12,7 @@ module LavinMQ
 
       def initialize(amqp_server : LavinMQ::Server? = nil)
         controller = if s = amqp_server
-                       PrometheusController.new(amqp_server)
+                       PrometheusController.new(s)
                      else
                        FollowerPrometheusController.new
                      end
