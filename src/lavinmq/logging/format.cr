@@ -1,5 +1,6 @@
-require "log"
 require "json"
+require "log"
+require "log/json"
 
 module LavinMQ
   module Logging
@@ -57,25 +58,41 @@ module LavinMQ
           end
           JSON.build(@io) do |json|
             json.object do
-              json.field "timestamp" do
-                json.string { |io| @entry.timestamp.to_rfc3339(io, fraction_digits: 6) }
-              end
+              json.string "timestamp"
+              timestamp json
               json.field "severity", @entry.severity.label
               json.field "source", @entry.source if @entry.source
               if (context = @entry.context) && !context.empty?
-                context.each do |key, value|
-                  json.string key
-                  json.string value
-                end
+                json.field "context" { context.to_json json }
               end
               json.field "message", @entry.message if @entry.message
               if (data = @entry.data) && !data.empty?
-                data.each do |key, value|
-                  json.string key
-                  json.string value
+                json.field "data" { data.to_json json }
+              end
+              exception json
+            end
+          end
+        end
+
+        private def exception(json)
+          if exception = @entry.exception
+            json.field "exception" do
+              json.object do
+                json.field "class", exception.class.name
+                json.field "message", exception.message
+                if backtrace = exception.backtrace?
+                  json.field "backtrace" do
+                    backtrace.to_json json
+                  end
                 end
               end
             end
+          end
+        end
+
+        private def timestamp(json)
+          json.string do |io|
+            @entry.timestamp.to_rfc3339(io, fraction_digits: 6)
           end
         end
       end
@@ -84,57 +101,65 @@ module LavinMQ
         def run(journal)
           if journal
             journal_severity
-            string ' '
           else
-            timestamp ' '
-            severity ' '
+            timestamp "ts="
+            severity " at="
           end
-          source ' '
+          source " src="
           context ' '
-          message ' '
-          data
+          message " msg="
+          data ' '
+          exception " error=", "backtrace="
         end
 
-        def timestamp(after = nil)
-          @io << "ts=" << super() << after
+        def timestamp(before = nil)
+          @io << before << super()
         end
 
-        def severity(after = nil)
-          @io << "at=" << @entry.severity.label.downcase << after
+        def severity(before = nil)
+          @io << before << @entry.severity.label.downcase
         end
 
-        def source(after = nil)
-          @io << "src=" << @entry.source << after if @entry.source
+        def source(before = nil)
+          @io << before << @entry.source if @entry.source
         end
 
-        def message(after = nil)
+        def message(before = nil)
           if message = @entry.message
             need_quotes = message.includes? ' '
-            @io << "msg="
+            @io << before
             @io << '"' if need_quotes
             @io << @entry.message
             @io << '"' if need_quotes
-            @io << after
           end
         end
 
-        def context(after = nil)
-          metadata_to_s(@entry.context, after) if @entry.context
+        def context(before = nil)
+          metadata_to_s(@entry.context, before) if @entry.context
         end
 
-        def data(after = nil)
-          metadata_to_s(@entry.data, after) if @entry.data
+        def data(before = nil)
+          metadata_to_s(@entry.data, before) if @entry.data
         end
 
-        private def metadata_to_s(metadata : ::Log::Metadata, after = nil) : Nil
+        def exception(before = nil, backtrace = nil)
+          if ex = @entry.exception
+            @io << before << '"' << ex.class.name << ": " << ex.message << '"'
+            if backtrace && ex.backtrace?
+              @io << ' ' << backtrace << '"' << ex.backtrace.join(" ", @io) << '"'
+            end
+          end
+        end
+
+        private def metadata_to_s(metadata : ::Log::Metadata, before = nil) : Nil
           return if metadata.empty?
+          @io << before
           found = false
           metadata.each do |key, value|
             @io << ' ' if found
             @io << key.to_s << '=' << value.to_s
             found = true
           end
-          @io << after
         end
       end
 
