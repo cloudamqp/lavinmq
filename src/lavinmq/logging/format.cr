@@ -3,7 +3,21 @@ require "json"
 
 module LavinMQ
   module Logging
-    module Format
+    module Formats
+      enum Format
+        Json
+        Logfmt
+        Stdout
+
+        def label : String
+          case self
+          in .json?   then "json"
+          in .logfmt? then "logfmt"
+          in .stdout? then "stdout"
+          end
+        end
+      end
+
       abstract struct BaseFormatter < ::Log::StaticFormatter
         JOURNAL_STREAM = !!ENV["JOURNAL_STREAM"]?
 
@@ -31,7 +45,7 @@ module LavinMQ
           end
         end
 
-        def journal_severity : Nil
+        def journal_severity(io : IO = @io) : Nil
           @io << '<' << severity_to_priority << '>'
         end
       end
@@ -70,48 +84,49 @@ module LavinMQ
         def run(journal)
           if journal
             journal_severity
+            string ' '
           else
-            timestamp
-            severity
+            timestamp ' '
+            severity ' '
           end
-          source
-          context
-          message
+          source ' '
+          context ' '
+          message ' '
           data
         end
 
-        def timestamp
-          @io << "ts=" << super << ' '
+        def timestamp(after = nil)
+          @io << "ts=" << super() << after
         end
 
-        def severity(journal : Bool)
-          @io << "at=" << @entry.severity.label.downcase << ' '
+        def severity(after = nil)
+          @io << "at=" << @entry.severity.label.downcase << after
         end
 
-        def source
-          @io << "src=" << @entry.source << ' ' if @entry.source
+        def source(after = nil)
+          @io << "src=" << @entry.source << after if @entry.source
         end
 
-        def message
+        def message(after = nil)
           if message = @entry.message
-            quote = message.includes? ' '
+            need_quotes = message.includes? ' '
             @io << "msg="
-            @io << '"' if quote
+            @io << '"' if need_quotes
             @io << @entry.message
-            @io << '"' if quote
-            @io << ' '
+            @io << '"' if need_quotes
+            @io << after
           end
         end
 
-        def context
-          metadata_to_s(@entry.context) if @entry.context
+        def context(after = nil)
+          metadata_to_s(@entry.context, after) if @entry.context
         end
 
-        def data
-          metadata_to_s(@entry.data) if @entry.data
+        def data(after = nil)
+          metadata_to_s(@entry.data, after) if @entry.data
         end
 
-        private def metadata_to_s(metadata : ::Log::Metadata) : Nil
+        private def metadata_to_s(metadata : ::Log::Metadata, after = nil) : Nil
           return if metadata.empty?
           found = false
           metadata.each do |key, value|
@@ -119,7 +134,7 @@ module LavinMQ
             @io << key.to_s << '=' << value.to_s
             found = true
           end
-          @io << ' '
+          @io << after
         end
       end
 
@@ -133,9 +148,9 @@ module LavinMQ
           end
           source(before: ' ')
           context(before: '[', after: ']')
-          data(before: '[', after: ']')
           string ' '
           message
+          data(before: '[', after: ']')
           exception
         end
       end
