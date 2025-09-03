@@ -241,11 +241,9 @@ module LavinMQ
     private def reload_logger
       log_file = (path = @log_file) ? File.open(path, "a") : STDOUT
       broadcast_backend = ::Log::BroadcastBackend.new
-      backend = if ENV.has_key?("JOURNAL_STREAM")
-                  ::Log::IOBackend.new(io: log_file, formatter: Logging::Format::JournalLogFormat)
-                else
-                  ::Log::IOBackend.new(io: log_file, formatter: Logging::Format::StdoutLogFormat)
-                end
+
+      formatter = Logging::Format::StdoutLogFormat
+      backend = ::Log::IOBackend.new(io: log_file, formatter: formatter)
 
       broadcast_backend.append(backend, @log_level)
 
