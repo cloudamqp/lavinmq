@@ -242,7 +242,7 @@ module LavinMQ
       log_file = (path = @log_file) ? File.open(path, "a") : STDOUT
       broadcast_backend = ::Log::BroadcastBackend.new
 
-      formatter = Logging::Format::StdoutLogFormat
+      formatter = Logging::Format::JsonFormat
       backend = ::Log::IOBackend.new(io: log_file, formatter: formatter)
 
       broadcast_backend.append(backend, @log_level)
