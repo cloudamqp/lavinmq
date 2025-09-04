@@ -2,7 +2,12 @@ require "./stream"
 require "./stream_consumer"
 
 module LavinMQ::AMQP
+  module StreamStore
+    abstract def read(segment, position) : Envelope?
+  end
+
   class StreamMessageStore < MessageStore
+    include StreamStore
     getter new_messages = ::Channel(Bool).new
     property max_length : Int64?
     property max_length_bytes : Int64?
@@ -210,6 +215,20 @@ module LavinMQ::AMQP
       spawn(name: "wait for consumeroffset deletion to be replicated") do
         deletion_replicated.wait
         old_consumer_offsets.close(truncate_to_size: false)
+      end
+    end
+
+    def read(segment, position) : Envelope?
+      return nil if @closed
+      rfile = @segments[segment]
+      return if position == rfile.size
+      begin
+        msg = BytesMessage.from_bytes(rfile.to_slice + position)
+        sp = SegmentPosition.new(segment, position, msg.bytesize.to_u32)
+        Envelope.new(sp, msg, redelivered: false)
+      rescue ex
+        puts "read segment=#{segment} position=#{position}"
+        raise Error.new(rfile, cause: ex)
       end
     end
 

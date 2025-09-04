@@ -69,6 +69,10 @@ module LavinMQ::AMQP
       false
     end
 
+    def reader(offset)
+      StreamReader.new(stream_msg_store, offset)
+    end
+
     def consume_get(consumer : AMQP::StreamConsumer, & : Envelope -> Nil) : Bool
       get(consumer) do |env|
         yield env
