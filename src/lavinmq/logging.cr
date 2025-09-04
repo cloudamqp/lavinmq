@@ -1,7 +1,68 @@
 require "./logging/*"
+require "log/metadata"
 
 # Add some methods to support more data types in Log::Metadata
 class Log::Metadata
+  # Override some stuff in Metadata to get the same behaviour
+  # as in https://github.com/crystal-lang/crystal/pull/16098
+  #
+  # @overridden_size will be used as @parent_size in the PR
+  #
+  def setup
+    previous_def
+    @overridden_size = 0
+    parent_size = (@parent.try(&.max_total_size) || 0)
+    @max_total_size = @size + parent_size
+  end
+
+  protected def defrag
+    parent = @parent
+    return if parent.nil?
+
+    ptr_entries = pointerof(@first)
+    next_free_entry = ptr_entries + @size
+    total_size = @size
+
+    # Copy parent entries that ain't overwritten
+    parent_size = 0
+    parent.each do |(key, value)|
+      overwritten = false
+      @size.times do |i|
+        if ptr_entries[i][:key] == key
+          overwritten = true
+          break
+        end
+      end
+      next if overwritten
+      next_free_entry.value = {key: key, value: value}
+      parent_size += 1
+      next_free_entry += 1
+      total_size += 1
+    end
+
+    @size = total_size
+    @max_total_size = total_size
+    @overridden_size = parent_size
+    @parent = nil
+  end
+
+  def each(& : {Symbol, Value} ->)
+    defrag
+    ptr_entries = pointerof(@first)
+    parent_size = @overridden_size
+    local_size = @size - parent_size
+
+    parent_size.times do |i|
+      entry = ptr_entries[i + local_size]
+      yield({entry[:key], entry[:value]})
+    end
+
+    local_size.times do |i|
+      entry = ptr_entries[i]
+      yield({entry[:key], entry[:value]})
+    end
+  end
+
   struct Value
     def self.new(value : UInt8 | UInt16)
       new(value.to_u32)
