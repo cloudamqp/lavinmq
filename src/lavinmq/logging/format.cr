@@ -140,52 +140,35 @@ module LavinMQ
           metadata_to_s(@entry.data, before) if @entry.data
         end
 
-        def exception(before = nil, backtrace = nil)
+        def exception(before = nil, before_backtrace = nil)
           if ex = @entry.exception
-            @io << before << '"' << ex.class.name << ": " << ex.message << '"'
-            if backtrace && ex.backtrace?
+            # @io << before << '"' << ex.class.name << ": " << ex.message << '"'
+            if ex.backtrace?
               if single_line?
-                @io << ' ' << backtrace << '"' << ex.backtrace.join(@io, "\\n") << '"'
+                @io << ' ' << before_backtrace << '"' << ex.backtrace.join(@io, "\\n") << '"'
               else
                 backtrace_id = Time.monotonic.nanoseconds
-                multi_line_backtrace(backtrace_id, ex)
+                @io << " " << before_backtrace
+                backtrace_id.to_s(@io, 32)
+                multi_line_backtrace(before_backtrace, backtrace_id, ex)
               end
             end
           end
         end
 
-        private def multi_line_backtrace(backtrace_id, exception : Exception)
+        private def multi_line_backtrace(before_backtrace, backtrace_id, exception : Exception, heading = "from")
           return unless backtrace = exception.backtrace?
-          @io << " backtrace_id="
+          @io << "\n" << before_backtrace
           backtrace_id.to_s(@io, 32)
-          @io << "\n"
-          backtrace_id.to_s(@io, 32)
-          @io << " -- from"
+          @io << " -- " << heading << " " << exception.class.name << ": " << exception.message
           backtrace.each do |line|
-            @io << "\n"
+            @io << "\n" << before_backtrace
             backtrace_id.to_s(@io, 32)
             @io << "  "
             @io << line
           end
           if cause = exception.cause
-            multi_line_backtrace_cause(backtrace_id, cause)
-          end
-        end
-
-        private def multi_line_backtrace_cause(backtrace_id, exception : Exception)
-          return unless backtrace = exception.backtrace?
-          @io << "\n"
-          backtrace_id.to_s(@io, 32)
-          @io << " -- caused by "
-          @io << exception.class.name << " :" << exception.message
-          backtrace.each do |line|
-            @io << "\n"
-            backtrace_id.to_s(@io, 32)
-            @io << "  "
-            @io << line
-          end
-          if cause = exception.cause
-            multi_line_backtrace_cause(backtrace_id, cause)
+            multi_line_backtrace(before_backtrace, backtrace_id, cause, "caused by")
           end
         end
 
