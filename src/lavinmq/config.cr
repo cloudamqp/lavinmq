@@ -17,6 +17,7 @@ module LavinMQ
     property log_file : String? = nil
     property log_level : ::Log::Severity = DEFAULT_LOG_LEVEL
     property log_format : Logging::Formats::Format = Logging::Formats::Format::Logfmt
+    property? log_single_line = true
     property amqp_bind = "127.0.0.1"
     property amqp_port = 5672
     property amqps_port = -1
@@ -276,6 +277,7 @@ module LavinMQ
         when "log_level"                 then @log_level = ::Log::Severity.parse(v)
         when "log_file"                  then @log_file = v
         when "log_format"                then @log_format = Logging::Formats::Format.parse(v)
+        when "log_single_line"           then @log_single_line = true?(v)
         when "stats_interval"            then @stats_interval = v.to_i32
         when "stats_log_size"            then @stats_log_size = v.to_i32
         when "segment_size"              then @segment_size = v.to_i32
