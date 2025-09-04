@@ -1,6 +1,7 @@
 require "json"
 require "log"
 require "log/json"
+require "../config"
 
 module LavinMQ
   module Logging
@@ -22,16 +23,13 @@ module LavinMQ
       abstract struct BaseFormatter < ::Log::StaticFormatter
         JOURNAL_STREAM = !!ENV["JOURNAL_STREAM"]?
 
-        def self.format(entry : ::Log::Entry, io : IO)
-          fmt = new(entry, io)
-          fmt.run(JOURNAL_STREAM)
+        def journal? : Bool
+          JOURNAL_STREAM
         end
 
-        def run
-          raise "dont use this"
+        def single_line? : Bool
+          Config.instance.log_single_line?
         end
-
-        abstract def run(journal : Bool)
 
         private def severity_to_priority
           case @entry.severity
@@ -52,8 +50,8 @@ module LavinMQ
       end
 
       struct JsonFormat < BaseFormatter
-        def run(journal)
-          if journal
+        def run
+          if journal?
             journal_severity
           end
           JSON.build(@io) do |json|
@@ -98,8 +96,8 @@ module LavinMQ
       end
 
       struct LogfmtFormat < BaseFormatter
-        def run(journal)
-          if journal
+        def run
+          if journal?
             journal_severity
           else
             timestamp "ts="
@@ -146,8 +144,48 @@ module LavinMQ
           if ex = @entry.exception
             @io << before << '"' << ex.class.name << ": " << ex.message << '"'
             if backtrace && ex.backtrace?
-              @io << ' ' << backtrace << '"' << ex.backtrace.join(" ", @io) << '"'
+              if single_line?
+                @io << ' ' << backtrace << '"' << ex.backtrace.join(@io, "\\n") << '"'
+              else
+                backtrace_id = Time.monotonic.nanoseconds
+                multi_line_backtrace(backtrace_id, ex)
+              end
             end
+          end
+        end
+
+        private def multi_line_backtrace(backtrace_id, exception : Exception)
+          return unless backtrace = exception.backtrace?
+          @io << " backtrace_id="
+          backtrace_id.to_s(@io, 32)
+          @io << "\n"
+          backtrace_id.to_s(@io, 32)
+          @io << " -- from"
+          backtrace.each do |line|
+            @io << "\n"
+            backtrace_id.to_s(@io, 32)
+            @io << "  "
+            @io << line
+          end
+          if cause = exception.cause
+            multi_line_backtrace_cause(backtrace_id, cause)
+          end
+        end
+
+        private def multi_line_backtrace_cause(backtrace_id, exception : Exception)
+          return unless backtrace = exception.backtrace?
+          @io << "\n"
+          backtrace_id.to_s(@io, 32)
+          @io << " -- caused by "
+          @io << exception.class.name << " :" << exception.message
+          backtrace.each do |line|
+            @io << "\n"
+            backtrace_id.to_s(@io, 32)
+            @io << "  "
+            @io << line
+          end
+          if cause = exception.cause
+            multi_line_backtrace_cause(backtrace_id, cause)
           end
         end
 
@@ -164,8 +202,8 @@ module LavinMQ
       end
 
       struct StdoutFormat < BaseFormatter
-        def run(journal)
-          if journal
+        def run
+          if journal?
             journal_severity
           else
             timestamp
