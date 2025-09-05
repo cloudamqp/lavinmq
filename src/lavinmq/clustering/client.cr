@@ -55,7 +55,7 @@ module LavinMQ
       end
 
       def follow(host : String, port : Int32)
-        Log.info { "Following #{host}:#{port}" }
+        L.info "Following #{host}:#{port}"
         @host = host
         @port = port
         if amqp_proxy = @amqp_proxy
@@ -82,13 +82,13 @@ module LavinMQ
           socket.read_buffering = false # use lz4 buffering
           lz4 = Compress::LZ4::Reader.new(socket)
           sync(socket, lz4)
-          Log.info { "Streaming changes" }
+          L.info "Streaming changes"
           stream_changes(socket, lz4)
         rescue ex : IO::Error
           lz4.try &.close
           socket.try &.close
           break if @closed
-          Log.info { "Disconnected from server #{host}:#{port} (#{ex}), retrying..." }
+          L.info "Disconnected from server #{host}:#{port} (#{ex}), retrying..."
           sleep 1.seconds
         end
       end
@@ -112,14 +112,14 @@ module LavinMQ
       end
 
       private def sync(socket, lz4)
-        Log.info { "Connected" }
+        L.info "Connected"
         authenticate(socket)
-        Log.info { "Authenticated" }
+        L.info "Authenticated"
         set_socket_opts(socket)
         sync_files(socket, lz4)
-        Log.info { "Bulk synchronised" }
+        L.info "Bulk synchronised"
         sync_files(socket, lz4)
-        Log.info { "Fully synchronised" }
+        L.info "Fully synchronised"
       end
 
       private def set_socket_opts(socket)
@@ -132,7 +132,7 @@ module LavinMQ
       end
 
       private def sync_files(socket, lz4)
-        Log.info { "Waiting for list of files" }
+        L.info "Waiting for list of files"
         sha1 = Digest::SHA1.new
         remote_hash = Bytes.new(sha1.digest_size)
         files_to_delete = ls_r(@data_dir)
@@ -147,7 +147,7 @@ module LavinMQ
           files_to_delete.delete(path)
           if File.exists? path
             unless local_hash = @checksums[filename]?
-              Log.info { "Calculating checksum for #{filename}" }
+              L.info "Calculating checksum for #{filename}"
               sha1.file(path)
               local_hash = sha1.final
               @checksums[filename] = local_hash
@@ -155,12 +155,12 @@ module LavinMQ
               Fiber.yield # CPU bound, so allow other fibers to run
             end
             if local_hash != remote_hash
-              Log.info { "Mismatching hash: #{path}" }
+              L.info "Mismatching hash: #{path}"
               move_to_backup path
               requested_files << filename
               request_file(filename, socket)
             else
-              Log.info { "Matching hash: #{path}" }
+              L.info "Matching hash: #{path}"
             end
           else
             requested_files << filename
@@ -168,9 +168,9 @@ module LavinMQ
           end
         end
         end_of_file_list(socket)
-        Log.info { "List of files received" }
+        L.info "List of files received"
         files_to_delete.each do |path|
-          Log.info { "File not on leader: #{path}" }
+          L.info "File not on leader: #{path}"
           move_to_backup path
         end
         requested_files.each do |filename|
@@ -206,7 +206,7 @@ module LavinMQ
       end
 
       private def request_file(filename, socket)
-        Log.info { "Requesting #{filename}" }
+        L.info "Requesting #{filename}"
         socket.write_bytes filename.bytesize, IO::ByteFormat::LittleEndian
         socket.write filename.to_slice
       end
@@ -216,11 +216,11 @@ module LavinMQ
       end
 
       private def file_from_socket(filename, lz4)
-        Log.debug { "Waiting for #{filename}" }
+        L.debug "Waiting for #{filename}"
         path = File.join(@data_dir, filename)
         Dir.mkdir_p File.dirname(path)
         length = lz4.read_bytes Int64, IO::ByteFormat::LittleEndian
-        Log.debug { "Receiving #{filename}, #{length.humanize_bytes}" }
+        L.debug "Receiving #{filename}, #{length.humanize_bytes}"
         File.open(path, "w") do |f|
           buffer = uninitialized UInt8[65536]
           remaining = length
@@ -234,7 +234,7 @@ module LavinMQ
           remaining.zero? || raise IO::EOFError.new
           @checksums[filename] = sha1.final
         end
-        Log.info { "Received #{filename}, #{length.humanize_bytes}" }
+        L.info "Received #{filename}, #{length.humanize_bytes}"
       end
 
       private def stream_changes(socket, lz4)
@@ -264,13 +264,13 @@ module LavinMQ
       end
 
       private def append(filename, len, lz4)
-        Log.debug { "Appending #{len.abs} bytes to #{filename}" }
+        L.debug "Appending #{len.abs} bytes to #{filename}"
         f = @files[filename]
         IO.copy(lz4, f, len.abs) == len.abs || raise IO::EOFError.new("Full append not received")
       end
 
       private def delete(filename)
-        Log.debug { "Deleting #{filename}" }
+        L.debug "Deleting #{filename}"
         if f = @files.delete(filename)
           f.delete
           f.close
@@ -280,7 +280,7 @@ module LavinMQ
       end
 
       private def replace(filename, len, lz4)
-        Log.debug { "Replacing file #{filename} (#{len} bytes)" }
+        L.debug "Replacing file #{filename} (#{len} bytes)"
         @files.delete(filename).try &.close
         path = File.join(@data_dir, "#{filename}.tmp")
         Dir.mkdir_p File.dirname(path)
@@ -309,7 +309,7 @@ module LavinMQ
         loop do
           sleep 30.seconds
           break if @closed
-          Log.info { "Total streamed bytes: #{@streamed_bytes}" }
+          L.info "Total streamed bytes: #{@streamed_bytes}"
         end
       end
 

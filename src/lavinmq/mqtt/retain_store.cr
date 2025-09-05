@@ -35,7 +35,7 @@ module LavinMQ
       end
 
       private def restore_index(index : IndexTree, index_file : ::IO)
-        Log.debug { "restoring index" }
+        L.debug "restoring index"
         dir = @dir
         msg_count = 0u64
         msg_file_segments = Set(String).new(
@@ -47,26 +47,26 @@ module LavinMQ
         while topic = index_file.gets
           msg_file_name = make_file_name(topic)
           unless msg_file_segments.delete(msg_file_name)
-            Log.warn { "msg file for topic #{topic} missing, dropping from index" }
+            L.warn "msg file for topic #{topic} missing, dropping from index"
             next
           end
           index.insert(topic, msg_file_name)
-          Log.debug { "restored #{topic}" }
+          L.debug "restored #{topic}"
           msg_count += 1
         end
 
         unless msg_file_segments.empty?
-          Log.warn { "unreferenced messages will be deleted: #{msg_file_segments.join(",")}" }
+          L.warn "unreferenced messages will be deleted: #{msg_file_segments.join(",")}"
           msg_file_segments.each do |file_name|
             File.delete? File.join(dir, file_name)
           end
         end
-        Log.debug { "restoring index done, msg_count = #{msg_count}" }
+        L.debug "restoring index done, msg_count = #{msg_count}"
       end
 
       def retain(topic : String, body_io : ::IO, size : UInt64) : Nil
         @lock.synchronize do
-          Log.debug { "retain topic=#{topic} body.bytesize=#{size}" }
+          L.debug "retain topic=#{topic} body.bytesize=#{size}"
           # An empty message with retain flag means clear the topic from retained messages
           if size.zero?
             delete_from_index(topic)
@@ -115,7 +115,7 @@ module LavinMQ
 
       private def delete_from_index(topic : String) : Nil
         if file_name = @index.delete topic
-          Log.trace { "deleted '#{topic}' from index, deleting file #{file_name}" }
+          L.trace "deleted '#{topic}' from index, deleting file #{file_name}"
           if file = @files.delete(file_name)
             file.close
             file.delete

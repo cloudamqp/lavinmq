@@ -16,12 +16,12 @@ module LavinMQ
       begin
         @lock.flock_exclusive(blocking: false)
       rescue
-        Log.info { "Data directory locked by '#{@lock.gets_to_end}'" }
-        Log.info { "Waiting for file lock to be released" }
+        L.info "Data directory locked by '#{@lock.gets_to_end}'"
+        L.info "Waiting for file lock to be released"
         @lock.flock_exclusive(blocking: true)
-        Log.info { "Lock acquired" }
+        L.info "Lock acquired"
       end
-      Log.debug { "Data directory lock aquired" }
+      L.debug "Data directory lock aquired"
       @lock.truncate
       @lock.print "PID #{Process.pid} @ #{System.hostname}"
     end
@@ -36,7 +36,7 @@ module LavinMQ
     def poll
       @lock.read_at(0, 1, &.read_byte) || raise IO::EOFError.new
     rescue ex : IO::Error | ArgumentError
-      Log.fatal(exception: ex) { "Lost data dir lock" }
+      L.fatal "Lost data dir lock", exception: ex
       exit 4 # 4 for D(dataDir)
     end
   end

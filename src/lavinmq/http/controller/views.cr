@@ -51,7 +51,7 @@ module LavinMQ
         {% view = path[1..] if view.nil? %}
         get {{path}} do |context, params|
           if_non_match = context.request.headers["If-None-Match"]?
-          Log.trace { "static_view path={{path.id}} etag=#{ETag} if-non-match=#{if_non_match}" }
+          L.trace "static_view", path: {{path}}, etag: ETag, if_non_match: if_non_match
           if if_non_match == ETag
             context.response.status_code = 304
           else

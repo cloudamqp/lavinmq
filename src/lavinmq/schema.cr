@@ -35,7 +35,7 @@ module LavinMQ
       return if children.empty?
 
       backup_dir = File.join(data_dir, "backups", Time.utc.to_rfc3339)
-      Log.info { "Saving a backup of #{data_dir} to #{backup_dir}" }
+      L.info "Saving a backup of #{data_dir} to #{backup_dir}"
       Dir.mkdir_p(backup_dir)
       children.each do |child|
         FileUtils.cp_r File.join(data_dir, child), backup_dir
@@ -46,7 +46,7 @@ module LavinMQ
     private def self.restore(data_dir, backup_dir)
       return if backup_dir.nil?
 
-      Log.info { "Restoring backup #{backup_dir}" }
+      L.info "Restoring backup #{backup_dir}"
       # delete everything in data dir except backups
       Dir.each_child(data_dir) do |child|
         next if child.in?("backups", ".lock")
@@ -61,7 +61,7 @@ module LavinMQ
     private def self.delete_backup(backup_dir)
       return if backup_dir.nil?
 
-      Log.warn { "Migration successful, backup #{backup_dir} can be deleted" }
+      L.warn "Migration successful, backup #{backup_dir} can be deleted"
     end
 
     # Migrates a data directory from version 1-3 to version 4
@@ -86,7 +86,7 @@ module LavinMQ
           end
         end
       rescue File::NotFoundError
-        Log.debug { "Can't migrate data directory, vhosts.json is missing" }
+        L.debug "Can't migrate data directory, vhosts.json is missing"
       end
 
       class VhostMigrator
@@ -149,7 +149,7 @@ module LavinMQ
             wfile.close
             File.delete File.join(@queue_dir, "ack")
             File.delete File.join(@queue_dir, "enq")
-            Log.info { "Migrated #{i} messages in #{@queue_dir}" }
+            L.info "Migrated #{i} messages in #{@queue_dir}"
           end
 
           private def enqs(& : SegmentPositionBase -> Nil) : Nil

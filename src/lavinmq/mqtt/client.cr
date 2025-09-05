@@ -12,8 +12,9 @@ module LavinMQ
     class Client < LavinMQ::Client
       include Stats
       include SortableJSON
+      include LavinMQ::Logging::Loggable
 
-      getter channels, log, name, user, client_id, socket, connection_info
+      getter channels, name, user, client_id, socket, connection_info
       getter? clean_session
       @connected_at = RoughTime.unix_ms
       @channels = Hash(UInt16, Client::Channel).new
@@ -37,9 +38,8 @@ module LavinMQ
         @lock = Mutex.new
         @waitgroup = WaitGroup.new(1)
         @name = "#{@connection_info.remote_address} -> #{@connection_info.local_address}"
-        metadata = ::Log::Metadata.new(nil, {vhost: @broker.vhost.name, address: @connection_info.remote_address.to_s, client_id: client_id})
-        @log = Logger.new(Log, metadata)
-        @log.info { "Connection established for user=#{@user.name}" }
+        L.context(vhost: @broker.vhost.name, address: @connection_info.remote_address, client_id: client_id)
+        L.info "Connection established", user: @user.name
         spawn read_loop, name: "MQTT read_loop #{@connection_info.remote_address}"
       end
 
@@ -55,7 +55,7 @@ module LavinMQ
           socket.read_timeout = @keepalive.zero? ? nil : (@keepalive * 1.5).seconds
         end
         loop do
-          @log.trace { "waiting for packet" }
+          L.trace "waiting for packet"
           packet = read_and_handle_packet
           if (received_bytes &+= packet.bytesize) > Config.instance.yield_each_received_bytes
             received_bytes = 0_u32
@@ -64,21 +64,21 @@ module LavinMQ
           # The disconnect packet has been handled and the socket has been closed.
           # If we dont breakt the loop here we'll get a IO/Error on next read.
           if packet.is_a?(MQTT::Disconnect)
-            @log.debug { "Received disconnect" }
+            L.debug "Received disconnect"
             break
           end
         end
       rescue ex : ::MQTT::Protocol::Error::PacketDecode
-        @log.warn(exception: ex) { "Packet decode error" }
+        L.warn "Packet decode error", exception: ex
         publish_will
       rescue ex : ::IO::TimeoutError
-        @log.warn { "Keepalive timeout (keepalive:#{@keepalive}): #{ex.message}" }
+        L.warn "Keepalive timeout", keepalive: @keepalive, message: ex.message
         publish_will
       rescue ex : ::IO::Error
-        @log.error { "Client unexpectedly closed connection: #{ex.message}" } unless @closed
+        L.error "Client unexpectedly closed connection", message: ex.message unless @closed
         publish_will
       rescue ex
-        @log.error(exception: ex) { "Read Loop error" }
+        L.error "Read Loop error", exception: ex
         publish_will
       ensure
         @broker.remove_client(self)
@@ -88,7 +88,7 @@ module LavinMQ
 
       def read_and_handle_packet
         packet : MQTT::Packet = MQTT::Packet.from_io(@io)
-        @log.trace { "Received packet:  #{packet.inspect}" }
+        L.trace "Received packet", packet_type: packet.class.name
         @recv_oct_count.add(packet.bytesize, :relaxed)
 
         case packet
@@ -189,13 +189,13 @@ module LavinMQ
           )
         end
       rescue ex
-        @log.warn { "Failed to publish will: #{ex.message}" }
+        L.warn "Failed to publish will", message: ex.message
       end
 
       # should only be used when server needs to froce close client
       def close(reason = "")
         return if @closed
-        @log.info { "Closing connection: #{reason}" }
+        L.info "Closing connection", reason: reason
         @closed = true
         close_socket
         @waitgroup.wait

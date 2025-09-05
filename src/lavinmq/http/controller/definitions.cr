@@ -426,7 +426,7 @@ module LavinMQ
             if vhost = vhosts[name]?
               vhost
             else
-              Log.warn { "No vhost named #{name}, can't import #{name}" }
+              L.warn "No vhost named #{name}, can't import #{name}"
             end
           else # if vhost property is missing, use first/default vhost
             vhosts.first_value

@@ -13,7 +13,7 @@ module LavinMQ
             f.puts "#{hash.hexstring} *#{path}"
           end
         end
-        Log.info { "Wrote #{@checksums.size} checksums to disk" }
+        L.info "Wrote #{@checksums.size} checksums to disk"
       end
 
       def restore : Nil
@@ -27,10 +27,10 @@ module LavinMQ
             break
           end
           f.delete # prevent out-of-date hashes to be restored in the event of a crash
-          Log.info { "Restored #{@checksums.size} checksums from disk" }
+          L.info "Restored #{@checksums.size} checksums from disk"
         end
       rescue File::NotFoundError
-        Log.info { "Checksums not found" }
+        L.info "Checksums not found"
       end
 
       def []?(path)

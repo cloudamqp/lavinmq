@@ -1,7 +1,7 @@
 require "socket"
 require "wait_group"
 require "json"
-require "./logger"
+require "./logging"
 require "./etcd/lease"
 
 module LavinMQ
@@ -87,7 +87,7 @@ module LavinMQ
         json = post("/v3/lease/grant", body: %({"TTL":"#{ttl}","ID":#{id}}))
       rescue LeaseAlreadyExists
         expires_in = lease_ttl(id) + 1
-        Log.warn { "Cluster ID #{id.to_s(36)} already leased, waits #{expires_in}s for it to expire" }
+        L.warn "Cluster ID #{id.to_s(36)} already leased, waits #{expires_in}s for it to expire"
         sleep expires_in.seconds
         json = post("/v3/lease/grant", body: %({"TTL":"#{ttl}","ID":#{id}}))
       end
@@ -282,7 +282,7 @@ module LavinMQ
         rescue ex : NoLeader
           raise ex # don't retry when leader is missing
         rescue ex : Error
-          Log.warn { "Service Unavailable at #{address}, #{ex.message}, retrying" }
+          L.warn "Service Unavailable at #{address}, #{ex.message}, retrying"
           socket.close rescue nil
           sleep 0.1.seconds
         ensure
@@ -302,13 +302,13 @@ module LavinMQ
         socket.tcp_keepalive_count = 3
         socket.tcp_keepalive_interval = 1
         # update_endpoints(socket, address)
-        Log.debug { "Connected to #{address}" }
+        L.debug "Connected to #{address}"
         return {socket, address}
       rescue ex : IO::Error
-        Log.debug { "Could not connect to #{address}: #{ex}" }
+        L.debug "Could not connect to #{address}: #{ex}"
         next
       end
-      Log.fatal { "No etcd endpoint responded" }
+      L.fatal "No etcd endpoint responded"
       exit 5 # 5th character in the alphabet is E(etcd)
     end
 
@@ -325,11 +325,11 @@ module LavinMQ
       end
       unless @endpoints.size == endpoints.size &&
              @endpoints.all? { |addr| endpoints.includes? addr }
-        Log.info { "Updated endpoints to: #{endpoints} (from: #{@endpoints})" }
+        L.info "Updated endpoints to: #{endpoints} (from: #{@endpoints})"
         @endpoints = endpoints
       end
     rescue ex : KeyError
-      Log.warn { "Could not update endpoints, response was: #{json}" }
+      L.warn "Could not update endpoints, response was: #{json}"
       raise ex
     end
 
@@ -346,7 +346,7 @@ module LavinMQ
 
     private def raise_if_error(json)
       if error = json["error"]?
-        Log.debug { "etcd error: #{error}" }
+        L.debug "etcd error: #{error}"
         error_msg =
           if errorh = error.as_h?
             errorh["message"].as_s

@@ -28,7 +28,7 @@ module LavinMQ
           next unless i.search_match?(search_term) if search_term
           i.details_tuple
         rescue ex
-          Log.warn(exception: ex) { "Could not list all items" }
+          L.warn "Could not list all items", exception: ex
           next
         end
         all_items = sort(all_items, context)
@@ -50,7 +50,7 @@ module LavinMQ
           else
             items, total = array_iterator_to_json(json, all_items, columns, 0, MAX_PAGE_SIZE)
             if total > MAX_PAGE_SIZE
-              Log.warn { "Result set truncated: #{items}/#{total}" }
+              L.warn "Result set truncated: #{items}/#{total}"
             end
           end
         end
@@ -212,7 +212,7 @@ module LavinMQ
           user = @amqp_server.users[username]?
         end
         unless user
-          Log.warn { "Authorized user=#{context.authenticated_username?} not in user store" }
+          L.warn "Authorized user=#{context.authenticated_username?} not in user store"
           access_refused(context)
         end
         user
@@ -229,7 +229,7 @@ module LavinMQ
       private def refuse_unless_vhost_access(context, user, vhost)
         return if user.tags.any? &.administrator?
         unless user.permissions.has_key?(vhost)
-          Log.warn { "user=#{user.name} does not have permissions to access vhost=#{vhost}" }
+          L.warn "user=#{user.name} does not have permissions to access vhost=#{vhost}"
           access_refused(context)
         end
       end
@@ -238,21 +238,21 @@ module LavinMQ
         unless user.tags.any? do |t|
                  t.administrator? || t.monitoring? || t.policy_maker? || t.management?
                end
-          Log.warn { "user=#{user.name} does not have management access on vhost=#{vhost}" }
+          L.warn "user=#{user.name} does not have management access on vhost=#{vhost}"
           access_refused(context)
         end
       end
 
       private def refuse_unless_policymaker(context, user, vhost = nil)
         unless user.tags.any? { |t| t.policy_maker? || t.administrator? }
-          Log.warn { "user=#{user.name} does not have policymaker access on vhost=#{vhost}" }
+          L.warn "user=#{user.name} does not have policymaker access on vhost=#{vhost}"
           access_refused(context)
         end
       end
 
       private def refuse_unless_administrator(context, user : Auth::User)
         unless user.tags.any? &.administrator?
-          Log.warn { "user=#{user.name} does not have administrator access" }
+          L.warn "user=#{user.name} does not have administrator access"
           access_refused(context)
         end
       end
