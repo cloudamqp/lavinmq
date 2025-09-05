@@ -13,6 +13,34 @@ module LavinMQ
         not_found(context, "Not Found") unless q
         q
       end
+
+      private def env_as_json(j, q, env, truncate, encoding)
+        size = truncate ? Math.min(truncate, env.message.bodysize) : env.message.bodysize
+        payload = String.new(env.message.body[0, size])
+        case encoding
+        when "base64"
+          content = Base64.urlsafe_encode(payload)
+          payload_encoding = "base64"
+        else
+          if payload.valid_encoding?
+            content = payload
+            payload_encoding = "string"
+          else
+            content = Base64.urlsafe_encode(payload)
+            payload_encoding = "base64"
+          end
+        end
+        j.object do
+          j.field("payload_bytes", env.message.bodysize)
+          j.field("redelivered", env.redelivered)
+          j.field("exchange", env.message.exchange_name)
+          j.field("routing_key", env.message.routing_key)
+          j.field("message_count", q.message_count)
+          j.field("properties", env.message.properties)
+          j.field("payload", content)
+          j.field("payload_encoding", payload_encoding)
+        end
+      end
     end
 
     class QueuesController < Controller
@@ -177,31 +205,7 @@ module LavinMQ
                 get_count.times do
                   q.basic_get(false, true) do |env|
                     sps << env.segment_position
-                    size = truncate ? Math.min(truncate, env.message.bodysize) : env.message.bodysize
-                    payload = String.new(env.message.body[0, size])
-                    case encoding
-                    when "base64"
-                      content = Base64.urlsafe_encode(payload)
-                      payload_encoding = "base64"
-                    else
-                      if payload.valid_encoding?
-                        content = payload
-                        payload_encoding = "string"
-                      else
-                        content = Base64.urlsafe_encode(payload)
-                        payload_encoding = "base64"
-                      end
-                    end
-                    j.object do
-                      j.field("payload_bytes", env.message.bodysize)
-                      j.field("redelivered", env.redelivered)
-                      j.field("exchange", env.message.exchange_name)
-                      j.field("routing_key", env.message.routing_key)
-                      j.field("message_count", q.message_count)
-                      j.field("properties", env.message.properties)
-                      j.field("payload", content)
-                      j.field("payload_encoding", payload_encoding)
-                    end
+                    env_as_json(j, q, env, truncate, encoding)
                   end || break
                 end
                 sps.each do |sp|
@@ -210,6 +214,40 @@ module LavinMQ
                   else
                     q.reject(sp, requeue)
                   end
+                end
+              end
+            end
+          end
+        end
+
+        post "/api/queues/:vhost/:name/read" do |context, params|
+          with_vhost(context, params) do |vhost|
+            user = user(context)
+            refuse_unless_management(context, user, vhost)
+            q = queue(context, params, vhost)
+            unless user.can_read?(q.vhost.name, q.name)
+              access_refused(context, "User doesn't have permissions to read queue '#{q.name}'")
+            end
+            # if q.state != QueueState::Running && q.state != QueueState::Paused
+            #   forbidden(context, "Can't get from queue that is not in running state")
+            # end
+            unless q.is_a?(AMQP::StreamQueue)
+              access_refused(context, "Can only read from a stream queue")
+            end
+            truncate = nil
+            body = parse_body(context)
+            encoding = body["encoding"]?.try(&.as_s) || "auto"
+            count = body["count"]?.try(&.as_i) || 1
+            encoding = body["encoding"]?.try(&.as_s) || "auto"
+            offset = body["offset"]?.try do |v|
+              v.as_i64? || v.as_s
+            end || "first"
+            JSON.build(context.response) do |j|
+              j.array do
+                q.stream(offset).each do |env|
+                  env_as_json(j, q, env, truncate, encoding)
+                  count -= 1
+                  break if count.zero?
                 end
               end
             end

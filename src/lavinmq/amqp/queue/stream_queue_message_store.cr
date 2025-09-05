@@ -3,7 +3,11 @@ require "../stream_consumer"
 
 module LavinMQ::AMQP
   class StreamQueue < DurableQueue
+    module MsgStore
+    end
+
     class StreamQueueMessageStore < MessageStore
+      include MsgStore
       getter new_messages = ::Channel(Bool).new
       property max_length : Int64?
       property max_length_bytes : Int64?
@@ -227,6 +231,20 @@ module LavinMQ::AMQP
           return unless consumer.filter_match?(msg.properties.headers)
           Envelope.new(sp, msg, redelivered: false)
         rescue ex
+          raise Error.new(rfile, cause: ex)
+        end
+      end
+
+      def read(segment, position) : Envelope?
+        return nil if @closed
+        rfile = @segments[segment]
+        return if position == rfile.size
+        begin
+          msg = BytesMessage.from_bytes(rfile.to_slice + position)
+          sp = SegmentPosition.new(segment, position, msg.bytesize.to_u32)
+          Envelope.new(sp, msg, redelivered: false)
+        rescue ex
+          puts "read segment=#{segment} position=#{position}"
           raise Error.new(rfile, cause: ex)
         end
       end
