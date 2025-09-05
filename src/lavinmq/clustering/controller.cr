@@ -110,7 +110,7 @@ class LavinMQ::Clustering::Controller
       SystemD.notify_ready
     end
   rescue ex : Error
-    L.fatal ex.message.not_nil!
+    L.fatal ex.message
     exit 36 # 36 for CF (Cluster Follower)
   rescue ex
     L.fatal "Unhandled exception while following leader", exception: ex
