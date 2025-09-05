@@ -149,7 +149,7 @@ module LavinMQ
 
       private def ack_timeout_loop(ch)
         batch_ack_timeout = @batch_ack_timeout
-        Log.trace { "ack_timeout_loop starting for ch #{ch}" }
+        L.trace "ack_timeout_loop starting for ch #{ch}"
         loop do
           last_unacked = @last_unacked
           sleep batch_ack_timeout
@@ -169,7 +169,7 @@ module LavinMQ
             ack(last_unacked, batch: false)
           end
         end
-        Log.trace { "ack_timeout_loop stopped for ch #{ch}" }
+        L.trace "ack_timeout_loop stopped for ch #{ch}"
       end
 
       def each(&blk : ::AMQP::Client::DeliverMessage -> Nil)
@@ -193,7 +193,7 @@ module LavinMQ
           msg.reject
         end
       rescue e
-        Log.warn { "name=#{@name} #{e.message}" }
+        L.warn "#{e.message}", name: @name
         stop
         raise e
       end
@@ -394,14 +394,14 @@ module LavinMQ
           @state = State::Starting
           unless @source.started?
             if @source.last_unacked
-              Log.error { "Restarted with unacked messages, message duplication possible" }
+              L.error "Restarted with unacked messages, message duplication possible"
             end
             @source.start
           end
           @destination.start unless @destination.started?
 
           break if should_stop_loop?
-          Log.info { "started" }
+          L.info "started"
           @state = State::Running
           @retries = 0
           @source.each do |msg|
@@ -417,13 +417,13 @@ module LavinMQ
           if ex.message.to_s.starts_with?("404")
             break
           end
-          Log.warn { ex.message }
+          L.warn ex.message
           @error = ex.message
           exponential_reconnect_delay
         rescue ex
           break if should_stop_loop?
           @state = State::Error
-          Log.warn { ex.message }
+          L.warn ex.message
           @error = ex.message
           exponential_reconnect_delay
         end
@@ -457,17 +457,17 @@ module LavinMQ
       def resume
         delete_paused_file
         @state = State::Starting
-        Log.info { "Resuming shovel #{@name} vhost=#{@vhost.name}" }
+        L.info "Resuming shovel", name: @name, vhost: @vhost.name
         spawn(run, name: "Shovel name=#{@name} vhost=#{@vhost.name}")
       end
 
       def pause
         File.write(@paused_file_path, @name)
-        Log.info { "Pausing shovel #{@name} vhost=#{@vhost.name}" }
+        L.info "Pausing shovel", name: @name, vhost: @vhost.name
         @state = State::Paused
         @source.stop
         @destination.stop
-        Log.info &.emit("Paused", name: @name, vhost: @vhost.name)
+        L.info "Paused", name: @name, vhost: @vhost.name
       end
 
       def delete
