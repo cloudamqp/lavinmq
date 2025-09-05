@@ -1,5 +1,5 @@
-require "./consumer"
-require "../segment_position"
+require "../consumer"
+require "../../segment_position"
 
 module LavinMQ
   module AMQP
@@ -14,7 +14,7 @@ module LavinMQ
       @match_unfiltered = false
       @track_offset = false
 
-      def initialize(@channel : Client::Channel, @queue : StreamQueue, frame : AMQP::Frame::Basic::Consume)
+      def initialize(@channel : Client::Channel, @queue : Stream, frame : AMQP::Frame::Basic::Consume)
         @tag = frame.consumer_tag
         validate_preconditions(frame)
         offset = frame.arguments["x-stream-offset"]?
@@ -37,7 +37,7 @@ module LavinMQ
           raise LavinMQ::Error::PreconditionFailed.new("Stream consumers does not support global prefetch limit")
         end
         if frame.arguments.has_key? "x-priority"
-          raise LavinMQ::Error::PreconditionFailed.new("x-priority not supported on stream queues")
+          raise LavinMQ::Error::PreconditionFailed.new("x-priority not supported on streams")
         end
         validate_stream_offset(frame)
         validate_stream_filter(frame.arguments["x-stream-filter"]?)
@@ -148,8 +148,8 @@ module LavinMQ
         @new_message_available.set(true)
       end
 
-      private def stream_queue : StreamQueue
-        @queue.as(StreamQueue)
+      private def stream_queue : Stream
+        @queue.as(Stream)
       end
 
       def waiting_for_messages?
