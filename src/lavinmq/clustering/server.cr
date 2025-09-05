@@ -182,7 +182,7 @@ module LavinMQ
       rescue ex : AuthenticationError
         L.warn "Follower negotiation error"
       rescue ex : InvalidStartHeaderError
-        L.warn ex.message.not_nil!
+        L.warn ex.message
       rescue ex : IO::EOFError
         L.info "Follower disconnected"
       rescue ex : IO::Error
