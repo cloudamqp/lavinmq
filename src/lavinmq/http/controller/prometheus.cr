@@ -131,7 +131,7 @@ module LavinMQ
             begin
               yield
             rescue ex
-              Log.error(exception: ex) { "Error while reporting prometheus metrics" }
+              L.error "Error while reporting prometheus metrics", exception: ex
             end
           end
         end

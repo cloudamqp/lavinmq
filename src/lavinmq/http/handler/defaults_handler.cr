@@ -17,7 +17,7 @@ module LavinMQ
               call_next(context)
             end
           end
-          Log.info { "request=#{context.request.path}?#{context.request.query} memory=#{mem.humanize_bytes} elapsed=#{elapsed.total_milliseconds.to_i}ms" }
+          L.info request: "#{context.request.path}?#{context.request.query}", memory: mem.humanize_bytes, elapsed: "#{elapsed.total_milliseconds.to_i}ms"
         {% end %}
       end
     end
