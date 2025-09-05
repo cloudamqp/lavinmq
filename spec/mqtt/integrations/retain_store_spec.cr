@@ -154,5 +154,54 @@ module MqttSpecs
         topic.should eq "topic"
       end
     end
+
+    it "works with message store publishing (simulates production flow)" do
+      index = IndexTree.new
+      store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", LavinMQ::Clustering::NoopServer.new, index)
+
+      # Create a message store for testing
+      Dir.mkdir_p("tmp/msg_store")
+      msg_store = LavinMQ::MessageStore.new("tmp/msg_store", LavinMQ::Clustering::NoopServer.new)
+
+      # Store a retained message
+      props = LavinMQ::AMQP::Properties.new
+      body_content = "test_body"
+      original_msg = LavinMQ::Message.new(100, "test", "topic", props, body_content.bytesize.to_u64, IO::Memory.new(body_content))
+      store.retain("topic/test", original_msg.body_io, original_msg.bodysize)
+
+      # Simulate the production flow: read from retain store and publish through message store
+      store.each("topic/test") do |topic, body_io, body_bytesize|
+        # This simulates what happens in MQTT broker when publishing retained messages
+        republished_props = LavinMQ::AMQP::Properties.new(headers: LavinMQ::AMQP::Table.new)
+        republished_msg = LavinMQ::Message.new(200, "amq.topic", topic, republished_props, body_bytesize, body_io)
+
+        # This should not crash with ArgumentError about read buffering
+        sp = msg_store.push(republished_msg)
+        sp.should_not be_nil
+      end
+    ensure
+      store.try &.close
+      msg_store.try &.close
+      FileUtils.rm_rf("tmp/msg_store")
+    end
+
+    it "files opened from hash have read buffering disabled" do
+      index = IndexTree.new
+      store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", LavinMQ::Clustering::NoopServer.new, index)
+
+      # Store a retained message
+      props = LavinMQ::AMQP::Properties.new
+      msg = LavinMQ::Message.new(100, "test", "topic", props, 4, IO::Memory.new("body"))
+      store.retain("test/topic", msg.body_io, msg.bodysize)
+
+      # Verify that files accessed through the hash have read buffering disabled
+      store.each("test/topic") do |topic, body_io, body_bytesize|
+        body_io.should be_a(File)
+        file = body_io.as(File)
+        file.read_buffering?.should be_false
+      end
+    ensure
+      store.try &.close
+    end
   end
 end
