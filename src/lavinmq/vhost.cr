@@ -311,6 +311,7 @@ module LavinMQ
                    definition : Hash(String, JSON::Any), priority : Int8) : Policy
       p = Policy.new(name, @name, Regex.new(pattern), Policy::Target.parse(apply_to),
         definition, priority)
+      pp p
       @policies.create(p)
       spawn apply_policies, name: "ApplyPolicies (after add) #{@name}"
       @log.info { "Policy=#{name} Created" }
