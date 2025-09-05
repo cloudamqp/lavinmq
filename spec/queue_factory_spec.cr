@@ -53,7 +53,7 @@ describe LavinMQ::QueueFactory do
         frame = AMQ::Protocol::Frame::Method::Queue::Declare.new(0, 0, "test", false, true, false,
           false, false, queue_args)
         q = LavinMQ::QueueFactory.make(s.vhosts["/"], frame)
-        q.should be_a LavinMQ::AMQP::StreamQueue
+        q.should be_a LavinMQ::AMQP::Stream
       end
     end
   end

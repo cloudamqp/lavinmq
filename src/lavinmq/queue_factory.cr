@@ -25,7 +25,7 @@ module LavinMQ
         elsif frame.auto_delete
           raise Error::PreconditionFailed.new("A stream queue cannot be auto-delete")
         end
-        AMQP::StreamQueue.new(vhost, frame.queue_name, frame.exclusive, frame.auto_delete, frame.arguments)
+        AMQP::Stream.new(vhost, frame.queue_name, frame.exclusive, frame.auto_delete, frame.arguments)
       elsif mqtt_session? frame
         MQTT::Session.new(vhost, frame.queue_name, frame.auto_delete, frame.arguments)
       else

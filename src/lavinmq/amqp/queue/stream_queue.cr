@@ -3,12 +3,12 @@ require "../stream_consumer"
 require "./stream_queue_message_store"
 
 module LavinMQ::AMQP
-  class StreamQueue < DurableQueue
+  class Stream < DurableQueue
     def initialize(@vhost : VHost, @name : String,
                    @exclusive = false, @auto_delete = false,
                    @arguments = AMQP::Table.new)
       super
-      spawn unmap_and_remove_segments_loop, name: "StreamQueue#unmap_and_remove_segments_loop"
+      spawn unmap_and_remove_segments_loop, name: "Stream#unmap_and_remove_segments_loop"
     end
 
     def apply_policy(policy : Policy?, operator_policy : OperatorPolicy?)
@@ -29,23 +29,23 @@ module LavinMQ::AMQP
       stream_queue_msg_store.drop_overflow
     end
 
-    delegate last_offset, new_messages, find_offset, to: @msg_store.as(StreamQueueMessageStore)
+    delegate last_offset, new_messages, find_offset, to: @msg_store.as(StreamMessageStore)
 
     private def message_expire_loop
-      # StreamQueues doesn't handle message expiration
+      # Streams doesn't handle message expiration
     end
 
     private def queue_expire_loop
-      # StreamQueues doesn't handle queue expiration
+      # Streams doesn't handle queue expiration
     end
 
     private def init_msg_store(data_dir)
       replicator = @vhost.@replicator
-      @msg_store = StreamQueueMessageStore.new(data_dir, replicator, metadata: @metadata)
+      @msg_store = StreamMessageStore.new(data_dir, replicator, metadata: @metadata)
     end
 
-    private def stream_queue_msg_store : StreamQueueMessageStore
-      @msg_store.as(StreamQueueMessageStore)
+    private def stream_queue_msg_store : StreamMessageStore
+      @msg_store.as(StreamMessageStore)
     end
 
     # save message id / segment position
@@ -106,7 +106,7 @@ module LavinMQ::AMQP
     end
 
     private def drop_overflow : Nil
-      # Overflow handling is done in StreamQueueMessageStore
+      # Overflow handling is done in StreamMessageStore
     end
 
     private def notify_all_stream_consumers

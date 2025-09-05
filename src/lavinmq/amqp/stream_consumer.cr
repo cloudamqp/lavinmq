@@ -14,7 +14,7 @@ module LavinMQ
       @match_unfiltered = false
       @track_offset = false
 
-      def initialize(@channel : Client::Channel, @queue : StreamQueue, frame : AMQP::Frame::Basic::Consume)
+      def initialize(@channel : Client::Channel, @queue : Stream, frame : AMQP::Frame::Basic::Consume)
         @tag = frame.consumer_tag
         validate_preconditions(frame)
         offset = frame.arguments["x-stream-offset"]?
@@ -148,8 +148,8 @@ module LavinMQ
         @new_message_available.set(true)
       end
 
-      private def stream_queue : StreamQueue
-        @queue.as(StreamQueue)
+      private def stream_queue : Stream
+        @queue.as(Stream)
       end
 
       def waiting_for_messages?
