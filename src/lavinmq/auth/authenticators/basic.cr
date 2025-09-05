@@ -16,7 +16,7 @@ module LavinMQ
           end
         end
       rescue ex : Exception
-        Log.error { "Basic authentication failed: #{ex.message}" }
+        L.error "Basic authentication failed: #{ex.message}"
       end
     end
   end

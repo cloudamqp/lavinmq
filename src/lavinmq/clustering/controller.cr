@@ -40,11 +40,11 @@ class LavinMQ::Clustering::Controller
     end
   rescue Etcd::Lease::Lost
     unless @stopped
-      Log.fatal { "Lost cluster leadership" }
+      L.fatal "Lost cluster leadership"
       exit 3
     end
   rescue Etcd::LeaseAlreadyExists
-    Log.fatal { "Cluster ID #{@id.to_s(36)} used by another node" }
+    L.fatal "Cluster ID #{@id.to_s(36)} used by another node"
     exit 3
   end
 
@@ -65,7 +65,7 @@ class LavinMQ::Clustering::Controller
       id = rand(Int32::MAX)
       Dir.mkdir_p @config.data_dir
       File.write(id_file_path, id.to_s(36))
-      Log.info { "Generated new clustering ID" }
+      L.info "Generated new clustering ID"
     end
     id
   end
@@ -82,24 +82,24 @@ class LavinMQ::Clustering::Controller
         end
       end
       if uri.nil? # no leader yet
-        Log.warn { "No leader available" }
+        L.warn "No leader available"
         next
       end
       if uri == @advertised_uri # if this instance has become leader
         select
         when @is_leader.when_true.receive
-          Log.debug { "Is leader, don't replicate from self" }
+          L.debug "Is leader, don't replicate from self"
           @is_leader.close
           return
         when timeout(1.second)
           raise Error.new("Another node in the cluster is advertising the same URI")
         end
       end
-      Log.info { "Leader: #{uri}" }
+      L.info "Leader: #{uri}"
       key = "#{@config.clustering_etcd_prefix}/clustering_secret"
       secret = @etcd.get(key)
       until secret # the leader might not have had time to set the secret yet
-        Log.debug { "Clustering secret is missing, watching for it" }
+        L.debug "Clustering secret is missing, watching for it"
         @etcd.watch(key) do |value|
           secret = value
           break
@@ -110,22 +110,22 @@ class LavinMQ::Clustering::Controller
       SystemD.notify_ready
     end
   rescue ex : Error
-    Log.fatal { ex.message }
+    L.fatal ex.message.not_nil!
     exit 36 # 36 for CF (Cluster Follower)
   rescue ex
-    Log.fatal(exception: ex) { "Unhandled exception while following leader" }
+    L.fatal "Unhandled exception while following leader", exception: ex
     exit 36 # 36 for CF (Cluster Follower)
   end
 
   def wait_to_be_insync
     if isr = @etcd.get("#{@config.clustering_etcd_prefix}/isr")
       unless isr.split(",").map(&.to_i(36)).includes?(@id)
-        Log.info { "ISR: #{isr}" }
-        Log.info { "Not in sync, waiting for a leader" }
+        L.info "ISR: #{isr}"
+        L.info "Not in sync, waiting for a leader"
         @etcd.watch("#{@config.clustering_etcd_prefix}/isr") do |value|
           break if value.try &.split(",").map(&.to_i(36)).includes?(@id)
         end
-        Log.info { "In sync with leader" }
+        L.info "In sync with leader"
       end
     end
   end

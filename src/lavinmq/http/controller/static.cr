@@ -67,11 +67,11 @@ module LavinMQ
         end
       {% else %}
         private def serve(context, file_path)
-          Log.debug { "Serve #{file_path} from static?" }
+          L.debug "Serve #{file_path} from static?"
           full_path = File.join(PUBLIC_DIR, file_path)
           raise File::NotFoundError.new("file isn't a file", file: full_path) unless File.file?(full_path)
           File.open(full_path) do |file|
-            Log.debug { "Serving static #{file_path}" }
+            L.debug "Serving static #{file_path}"
             file.read_buffering = false
             etag = %(W/"#{Digest::MD5.hexdigest(file)}")
             if context.request.headers["If-None-Match"]? == etag

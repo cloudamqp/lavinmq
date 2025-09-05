@@ -13,8 +13,8 @@ class BoolChannel
 
   def set(value : Bool)
     @value.send value
-  rescue Channel::ClosedError
-    Log.debug { "BoolChannel closed, could not set value" }
+  rescue ex : Channel::ClosedError
+    Log.debug(exception: ex) { "BoolChannel closed, could not set value" }
   end
 
   def close

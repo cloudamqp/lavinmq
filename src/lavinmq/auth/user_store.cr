@@ -32,7 +32,7 @@ module LavinMQ
         end
         user = User.create(name, password, "SHA256", tags)
         @users[name] = user
-        Log.info { "Created user=#{name}" }
+        L.info "Created user=#{name}"
         save! if save
         user
       end
@@ -58,7 +58,7 @@ module LavinMQ
       def rm_permission(user, vhost)
         if perm = @users[user].permissions.delete vhost
           @users[user].clear_permissions_cache
-          Log.info { "Removed permissions for user=#{user} on vhost=#{vhost}" }
+          L.info "Removed permissions for user=#{user} on vhost=#{vhost}"
           save!
           perm
         end
@@ -75,7 +75,7 @@ module LavinMQ
       def delete(name, save = true) : User?
         return if name == DIRECT_USER
         if user = @users.delete name
-          Log.info { "Deleted user=#{name}" }
+          L.info "Deleted user=#{name}"
           save! if save
           user
         end
@@ -111,7 +111,7 @@ module LavinMQ
       private def load!
         path = File.join(@data_dir, "users.json")
         if File.exists? path
-          Log.debug { "Loading users from file" }
+          L.debug "Loading users from file"
           File.open(path) do |f|
             Array(User).from_json(f) do |user|
               @users[user.name] = user
@@ -119,13 +119,13 @@ module LavinMQ
             @replicator.register_file f
           end
         else
-          Log.debug { "Loading default users" }
+          L.debug "Loading default users"
           create_default_user
         end
         create_direct_user
-        Log.debug { "#{size} users loaded" }
+        L.debug "#{size} users loaded"
       rescue ex
-        Log.error(exception: ex) { "Failed to load users" }
+        L.error "Failed to load users", exception: ex
         raise ex
       end
 
@@ -142,7 +142,7 @@ module LavinMQ
       end
 
       def save!
-        Log.debug { "Saving users to file" }
+        L.debug "Saving users to file"
         path = File.join(@data_dir, "users.json")
         tmpfile = "#{path}.tmp"
         File.open(tmpfile, "w") { |f| to_pretty_json(f); f.fsync }

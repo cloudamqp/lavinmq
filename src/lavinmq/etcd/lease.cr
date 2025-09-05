@@ -34,7 +34,7 @@ module LavinMQ
           ttl = @etcd.lease_keepalive(@id)
         end
       rescue ex
-        Log.error(exception: ex) { "Lost leadership" } unless @lost_leadership.closed?
+        L.error "Lost leadership", exception: ex unless @lost_leadership.closed?
       ensure
         @lost_leadership.close
       end
