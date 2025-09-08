@@ -9,6 +9,7 @@ module LavinMQ
 
       OVERVIEW_STATS = {"ack", "deliver", "get", "deliver_get", "publish", "confirm", "redeliver", "reject"}
       EXCHANGE_TYPES = {"direct", "fanout", "topic", "headers", "x-federation-upstream", "x-consistent-hash"}
+      EXCHANGE_TYPES_HUMAN = {"Direct", "Fanout", "Topic", "Headers", "Federation Upstream", "Consistent Hash"}
       CHURN_STATS    = {"connection_created", "connection_closed", "channel_created", "channel_closed",
                         "queue_declared", "queue_deleted"}
 
@@ -106,6 +107,7 @@ module LavinMQ
             {% end %} } {% end %},
             listeners:      @amqp_server.listeners,
             exchange_types: EXCHANGE_TYPES.map { |name| {name: name} },
+            exchange_types_human: EXCHANGE_TYPES_HUMAN.map { |name| {name: name} },
           }.to_json(context.response)
           context
         end
