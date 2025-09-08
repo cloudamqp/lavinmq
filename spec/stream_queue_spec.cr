@@ -374,14 +374,14 @@ describe LavinMQ::AMQP::Stream do
         data_dir = File.join(vhost.data_dir, Digest::SHA1.hexdigest queue_name)
         msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
         offsets.each_with_index do |offset, i|
-          msg_store.store_consumer_offset(tag_prefix + i.to_s, offset)
+          msg_store.offsets.store_consumer_offset(tag_prefix + i.to_s, offset)
         end
         msg_store.close
         wait_for { msg_store.@closed }
 
         msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
         offsets.each_with_index do |offset, i|
-          msg_store.last_offset_by_consumer_tag(tag_prefix + i.to_s).should eq offset
+          msg_store.offsets.last_offset_by_consumer_tag(tag_prefix + i.to_s).should eq offset
         end
         msg_store.close
       end
@@ -397,11 +397,11 @@ describe LavinMQ::AMQP::Stream do
         data_dir = File.join(s.vhosts["/"].data_dir, Digest::SHA1.hexdigest queue_name)
         msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
         offsets.each do |offset|
-          msg_store.store_consumer_offset(consumer_tag, offset)
+          msg_store.offsets.store_consumer_offset(consumer_tag, offset)
         end
         bytesize = consumer_tag.bytesize + 1 + 8
-        msg_store.@consumer_offsets.size.should eq bytesize*5
-        msg_store.last_offset_by_consumer_tag(consumer_tag).should eq offsets.last
+        msg_store.@offset_file.size.should eq bytesize*5
+        msg_store.offsets.last_offset_by_consumer_tag(consumer_tag).should eq offsets.last
         msg_store.close
       end
     end
@@ -416,14 +416,14 @@ describe LavinMQ::AMQP::Stream do
         data_dir = File.join(s.vhosts["/"].data_dir, Digest::SHA1.hexdigest queue_name)
         msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
         offsets.each do |offset|
-          msg_store.store_consumer_offset(consumer_tag, offset)
+          msg_store.offsets.store_consumer_offset(consumer_tag, offset)
         end
         msg_store.close
 
         msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
-        msg_store.last_offset_by_consumer_tag(consumer_tag).should eq offsets.last
+        msg_store.offsets.last_offset_by_consumer_tag(consumer_tag).should eq offsets.last
         bytesize = consumer_tag.bytesize + 1 + 8
-        msg_store.@consumer_offsets.size.should eq bytesize
+        msg_store.@offset_file.size.should eq bytesize
         msg_store.close
       end
     end
@@ -440,10 +440,10 @@ describe LavinMQ::AMQP::Stream do
 
         offsets = (LavinMQ::Config.instance.segment_size / bytesize).to_i32 + 1
         offsets.times do |i|
-          msg_store.store_consumer_offset(consumer_tag, i)
+          msg_store.offsets.store_consumer_offset(consumer_tag, i)
         end
-        msg_store.last_offset_by_consumer_tag(consumer_tag).should eq offsets - 1
-        msg_store.@consumer_offsets.size.should eq bytesize*2
+        msg_store.offsets.last_offset_by_consumer_tag(consumer_tag).should eq offsets - 1
+        msg_store.@offset_file.size.should eq bytesize*2
         msg_store.close
       end
     end
@@ -533,16 +533,16 @@ describe LavinMQ::AMQP::Stream do
         data_dir = File.join(s.vhosts["/"].data_dir, Digest::SHA1.hexdigest queue_name)
         msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
         offsets.each_with_index do |offset, i|
-          msg_store.store_consumer_offset(tag_prefix + i.to_s, offset)
+          msg_store.offsets.store_consumer_offset(tag_prefix + i.to_s, offset)
         end
         sleep 0.1.seconds
-        msg_store.cleanup_consumer_offsets
+        msg_store.offsets.cleanup_consumer_offsets
         msg_store.close
         sleep 0.1.seconds
 
         msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
-        msg_store.last_offset_by_consumer_tag(tag_prefix + 1.to_s).should eq nil
-        msg_store.last_offset_by_consumer_tag(tag_prefix + 0.to_s).should eq offsets[0]
+        msg_store.offsets.last_offset_by_consumer_tag(tag_prefix + 1.to_s).should eq nil
+        msg_store.offsets.last_offset_by_consumer_tag(tag_prefix + 0.to_s).should eq offsets[0]
         msg_store.close
       end
     end
@@ -573,7 +573,7 @@ describe LavinMQ::AMQP::Stream do
         end
 
         msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
-        msg_store.last_offset_by_consumer_tag(consumer_tag).should eq 2
+        msg_store.offsets.last_offset_by_consumer_tag(consumer_tag).should eq 2
 
         with_channel(s) do |ch|
           q = ch.queue(queue_name, args: AMQP::Client::Arguments.new(args))
@@ -581,7 +581,7 @@ describe LavinMQ::AMQP::Stream do
         end
 
         msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
-        msg_store.last_offset_by_consumer_tag(consumer_tag).should eq nil
+        msg_store.offsets.last_offset_by_consumer_tag(consumer_tag).should eq nil
       end
     end
 
@@ -606,7 +606,7 @@ describe LavinMQ::AMQP::Stream do
         sleep 0.1.seconds
         data_dir = File.join(s.vhosts["/"].data_dir, Digest::SHA1.hexdigest queue_name)
         msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
-        msg_store.last_offset_by_consumer_tag(c_tag).should eq nil
+        msg_store.offsets.last_offset_by_consumer_tag(c_tag).should eq nil
       end
     end
 
@@ -622,13 +622,13 @@ describe LavinMQ::AMQP::Stream do
         bytesize = 0
         offsets.times do |i|
           consumer_tag = "#{consumer_tag_prefix}#{i + 1000}"
-          msg_store.store_consumer_offset(consumer_tag, i + 1000)
+          msg_store.offsets.store_consumer_offset(consumer_tag, i + 1000)
           bytesize += consumer_tag.bytesize + 1 + 8
         end
-        msg_store.@consumer_offsets.size.should eq bytesize
-        msg_store.@consumer_offsets.size.should be > LavinMQ::Config.instance.segment_size
+        msg_store.@offset_file.size.should eq bytesize
+        msg_store.@offset_file.size.should be > LavinMQ::Config.instance.segment_size
         offsets.times do |i|
-          msg_store.last_offset_by_consumer_tag("#{consumer_tag_prefix}#{i + 1000}").should eq i + 1000
+          msg_store.offsets.last_offset_by_consumer_tag("#{consumer_tag_prefix}#{i + 1000}").should eq i + 1000
         end
       end
     end
