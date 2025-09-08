@@ -37,10 +37,10 @@ module LavinMQ
       print_environment_info
       print_max_map_count
       fd_limit = System.maximize_fd_limit
-      Log.info { "FD limit: #{fd_limit}" }
+      L.info "FD limit: #{fd_limit}"
       if fd_limit < 1025
-        Log.warn { "The file descriptor limit is very low, consider raising it." }
-        Log.warn { "You need one for each connection and two for each durable queue, and some more." }
+        L.warn "The file descriptor limit is very low, consider raising it."
+        L.warn "You need one for each connection and two for each durable queue, and some more."
       end
       Dir.mkdir_p @config.data_dir
       if @config.data_dir_lock?
@@ -70,7 +70,7 @@ module LavinMQ
       start_listeners(amqp_server, http_server)
       SystemD.notify_ready
       Fiber.yield # Yield to let listeners spawn before logging startup time
-      Log.info { "Finished startup in #{(Time.monotonic - started_at).total_seconds}s" }
+      L.info "Finished startup in #{(Time.monotonic - started_at).total_seconds}s"
       self
     end
 
@@ -85,7 +85,7 @@ module LavinMQ
     def stop
       return if @closed
       @closed = true
-      Log.warn { "Stopping" }
+      L.warn "Stopping"
       SystemD.notify_stopping
       @http_server.try &.close rescue nil
       @amqp_server.try &.close rescue nil
@@ -94,27 +94,27 @@ module LavinMQ
 
     private def print_environment_info
       LavinMQ::BUILD_INFO.each_line do |line|
-        Log.info { line }
+        L.info line
       end
       {% unless flag?(:release) %}
-        Log.warn { "Not built in release mode" }
+        L.warn "Not built in release mode"
       {% end %}
       {% if flag?(:preview_mt) %}
-        Log.info { "Multithreading: #{ENV.fetch("CRYSTAL_WORKERS", "4")} threads" }
+        L.info "Multithreading: #{ENV.fetch("CRYSTAL_WORKERS", "4")} threads"
       {% end %}
-      Log.info { "Pid: #{Process.pid}" }
-      Log.info { "Config file: #{@config.config_file}" } unless @config.config_file.empty?
-      Log.info { "Data directory: #{@config.data_dir}" }
+      L.info "Pid: #{Process.pid}"
+      L.info "Config file: #{@config.config_file}" unless @config.config_file.empty?
+      L.info "Data directory: #{@config.data_dir}"
     end
 
     private def print_max_map_count
       {% if flag?(:linux) %}
         max_map_count = File.read("/proc/sys/vm/max_map_count").to_i
-        Log.info { "Max mmap count: #{max_map_count}" }
+        L.info "Max mmap count: #{max_map_count}"
         if max_map_count < 100_000
-          Log.warn { "The max mmap count limit is very low, consider raising it." }
-          Log.warn { "The limits should be higher than the maximum of # connections * 2 + # consumer * 2 + # queues * 4" }
-          Log.warn { "sysctl -w vm.max_map_count=1000000" }
+          L.warn "The max mmap count limit is very low, consider raising it."
+          L.warn "The limits should be higher than the maximum of # connections * 2 + # consumer * 2 + # queues * 4"
+          L.warn "sysctl -w vm.max_map_count=1000000"
         end
       {% end %}
     end
@@ -220,9 +220,9 @@ module LavinMQ
     private def reload_server
       SystemD.notify_reloading
       if @config.config_file.empty?
-        Log.info { "No configuration file to reload" }
+        L.info "No configuration file to reload"
       else
-        Log.info { "Reloading configuration file '#{@config.config_file}'" }
+        L.info "Reloading configuration file '#{@config.config_file}'"
         @config.reload
         reload_tls_context
       end
@@ -234,12 +234,12 @@ module LavinMQ
         @first_shutdown_attempt = false
         stop
         Fiber.yield
-        Log.info { "Fibers: " }
-        Fiber.list { |f| Log.info { f.inspect } }
+        L.info "Fibers: "
+        Fiber.list { |f| L.info f.inspect }
         exit 0
       else
-        Log.info { "Fibers: " }
-        Fiber.list { |f| Log.info { f.inspect } }
+        L.info "Fibers: "
+        Fiber.list { |f| L.info f.inspect }
         exit 1
       end
     end
@@ -275,7 +275,7 @@ module LavinMQ
       when "1.3"
         tls.add_options(OpenSSL::SSL::Options::NO_TLS_V1_2)
       else
-        Log.warn { "Unrecognized @config value for tls_min_version: '#{@config.tls_min_version}'" }
+        L.warn "Unrecognized @config value for tls_min_version: '#{@config.tls_min_version}'"
       end
       tls.certificate_chain = @config.tls_cert_path
       tls.private_key = @config.tls_key_path.empty? ? @config.tls_cert_path : @config.tls_key_path

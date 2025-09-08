@@ -369,7 +369,7 @@ module LavinMQ::AMQP
           mfile.dontneed
           @bytesize += bytesize
           @size += count
-          @log.debug { "Reading count from #{mfile.path}.meta: #{count}" }
+          L.debug "Read count from meta file", file: "#{mfile.path}.meta", count: count
         end
       end
     end

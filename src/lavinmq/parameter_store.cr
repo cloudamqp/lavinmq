@@ -1,16 +1,16 @@
 require "json"
 require "./parameter"
-require "./logger"
+require "./logging"
 
 module LavinMQ
   class ParameterStore(T)
     include Enumerable({ParameterId?, T})
+    include Logging::Loggable
 
     Log = LavinMQ::Log.for "parameter_store"
 
     def initialize(@data_dir : String, @file_name : String, @replicator : Clustering::Replicator, vhost : String? = nil)
-      metadata = vhost ? ::Log::Metadata.build({vhost: vhost}) : ::Log::Metadata.empty
-      @log = Logger.new(Log, metadata)
+      L.context(vhost: vhost)
       @parameters = Hash(ParameterId?, T).new
       load!
     end
@@ -38,7 +38,8 @@ module LavinMQ
       itr.each do |p|
         yield p
       rescue ex : Exception
-        @log.error { "Parameter #{p.component_name}/#{p.parameter_name} could not be applied with value=#{p.value} error='#{ex.message}'" }
+        L.error "Parameter could not be applied", exception: ex,
+          component: p.component_name, parameter: p.parameter_name, value: p.value.to_s
         delete(p.name)
         raise ex unless parameter.nil?
       end
@@ -59,7 +60,7 @@ module LavinMQ
     end
 
     private def save!
-      @log.debug { "Saving #{@file_name}" }
+      L.debug "Saving parameters", file_name: @file_name
       path = File.join(@data_dir, @file_name)
       tmpfile = "#{path}.tmp"
       File.open(tmpfile, "w") { |f| self.to_pretty_json(f) }
@@ -75,9 +76,9 @@ module LavinMQ
           @replicator.register_file f
         end
       end
-      @log.debug { "#{size} items loaded from #{@file_name}" }
+      L.debug "Parameters loaded", file_name: @file_name, items: size
     rescue ex
-      @log.error(exception: ex) { "Failed to load #{@file_name}" }
+      L.error "Failed to load parameters", file_name: @file_name, exception: ex
       raise ex
     end
   end

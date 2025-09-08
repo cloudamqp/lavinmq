@@ -1,6 +1,6 @@
 require "json"
 require "../stdlib/*"
-require "./logger"
+require "./logging"
 require "./policy"
 require "./parameter_store"
 require "./parameter"
@@ -20,6 +20,7 @@ module LavinMQ
   class VHost
     include SortableJSON
     include Stats
+    include LavinMQ::Logging::Loggable
 
     rate_stats({"channel_closed", "channel_created", "connection_closed", "connection_created",
                 "queue_declared", "queue_deleted", "ack", "deliver", "deliver_no_ack", "deliver_get", "get", "get_no_ack", "publish", "confirm",
@@ -45,7 +46,7 @@ module LavinMQ
     Log = LavinMQ::Log.for "vhost"
 
     def initialize(@name : String, @server_data_dir : String, @users : Auth::UserStore, @replicator : Clustering::Replicator, @description = "", @tags = Array(String).new(0))
-      @log = Logger.new(Log, vhost: @name)
+      L.context(vhost: @name)
       @dir = Digest::SHA1.hexdigest(@name)
       @data_dir = File.join(@server_data_dir, @dir)
       Dir.mkdir_p File.join(@data_dir)
@@ -180,24 +181,24 @@ module LavinMQ
     def declare_queue(name, durable, auto_delete, arguments = AMQP::Table.new)
       apply AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, name, false, durable, false,
         auto_delete, false, arguments)
-      @log.info { "Created queue: #{name} (durable=#{durable} auto_delete=#{auto_delete} arguments=#{arguments})" }
+      L.info "Created queue", name: name, durable: durable, auto_delete: auto_delete, arguments: arguments
     end
 
     def delete_queue(name)
       apply AMQP::Frame::Queue::Delete.new(0_u16, 0_u16, name, false, false, false)
-      @log.debug { "Deleted queue: #{name}" }
+      L.debug "Deleted queue", name: name
     end
 
     def declare_exchange(name, type, durable, auto_delete, internal = false,
                          arguments = AMQP::Table.new)
       apply AMQP::Frame::Exchange::Declare.new(0_u16, 0_u16, name, type, false, durable,
         auto_delete, internal, false, arguments)
-      @log.info { "Created exchange: #{name} (type=#{type} durable=#{durable} auto_delete=#{auto_delete} arguments=#{arguments})" }
+      L.info "Created exchange", name: name, type: type, durable: durable, auto_delete: auto_delete, arguments: arguments
     end
 
     def delete_exchange(name)
       apply AMQP::Frame::Exchange::Delete.new(0_u16, 0_u16, name, false, false)
-      @log.info { "Deleted exchange: #{name}" }
+      L.info "Deleted exchange", name: name
     end
 
     def bind_queue(destination, source, routing_key, arguments = AMQP::Table.new)
@@ -303,7 +304,7 @@ module LavinMQ
         Policy::Target.parse(apply_to), definition, priority)
       @operator_policies.create(op)
       spawn apply_policies, name: "ApplyPolicies (after add) OperatingPolicy #{@name}"
-      @log.info { "OperatorPolicy=#{name} Created" }
+      L.info "OperatorPolicy Created", name: name
       op
     end
 
@@ -313,20 +314,20 @@ module LavinMQ
         definition, priority)
       @policies.create(p)
       spawn apply_policies, name: "ApplyPolicies (after add) #{@name}"
-      @log.info { "Policy=#{name} Created" }
+      L.info "Policy Created", name: name
       p
     end
 
     def delete_operator_policy(name)
       @operator_policies.delete(name)
       spawn apply_policies, name: "ApplyPolicies (after delete) #{@name}"
-      @log.info { "OperatorPolicy=#{name} Deleted" }
+      L.info "OperatorPolicy Deleted", name: name
     end
 
     def delete_policy(name)
       @policies.delete(name)
       spawn apply_policies, name: "ApplyPolicies (after delete) #{@name}"
-      @log.info { "Policy=#{name} Deleted" }
+      L.info "Policy Deleted", name: name
     end
 
     def add_connection(client : Client)
@@ -344,14 +345,14 @@ module LavinMQ
     FEDERATION_UPSTREAM_SET = "federation-upstream-set"
 
     def add_parameter(p : Parameter)
-      @log.debug { "Add parameter #{p.name}" }
+      L.debug "Add parameter", name: p.name
       @parameters.create(p)
       apply_parameters(p)
       spawn apply_policies, name: "ApplyPolicies (add parameter) #{@name}"
     end
 
     def delete_parameter(component_name, parameter_name)
-      @log.debug { "Delete parameter #{parameter_name}" }
+      L.debug "Delete parameter", name: parameter_name
       @parameters.delete({component_name, parameter_name})
       case component_name
       when SHOVEL
@@ -361,7 +362,7 @@ module LavinMQ
       when FEDERATION_UPSTREAM_SET
         upstreams.delete_upstream_set(parameter_name)
       else
-        @log.warn { "No action when deleting parameter #{component_name}" }
+        L.warn "No action when deleting parameter", component: component_name
       end
     end
 
@@ -382,14 +383,14 @@ module LavinMQ
           when to_close.send client
           else # spawn another fiber closing channels
             fiber_id = fiber_count &+= 1
-            @log.trace { "spawning close conn fiber #{fiber_id} " }
+            L.trace "spawning close conn fiber", fiber_id: fiber_id
             client_inner = client
             wg.spawn do
               client_inner.close(reason)
               while client_to_close = to_close.receive?
                 client_to_close.close(reason)
               end
-              @log.trace { "exiting close conn fiber #{fiber_id} " }
+              L.trace "exiting close conn fiber", fiber_id: fiber_id
             end
             Fiber.yield
           end
@@ -403,20 +404,20 @@ module LavinMQ
       stop_shovels
       stop_upstream_links
 
-      @log.info { "Closing connections" }
+      L.info "Closing connections"
       close_done = Channel(Nil).new
 
       spawn do
         close_connections reason
-        @log.debug { "Close sent to all connections" }
+        L.debug "Close sent to all connections"
         close_done.close
       end
 
       select
       when close_done.receive?
-        @log.info { "All connections closed gracefully" }
+        L.info "All connections closed gracefully"
       when timeout 15.seconds
-        @log.warn { "Timeout waiting for connections to close. #{@connections.size} left that will be forced closed." }
+        L.warn "Timeout waiting for connections to close", remaining: @connections.size
       end
       close_done.close
       # then force close the remaining (close tcp socket)
@@ -448,7 +449,7 @@ module LavinMQ
         r.apply_policy(policy, operator_policy)
       end
     rescue ex : TypeCastError
-      @log.error { "Invalid policy. #{ex.message}" }
+      L.error "Invalid policy", exception: ex
     end
 
     private def apply_parameters(parameter : Parameter? = nil)
@@ -461,7 +462,7 @@ module LavinMQ
         when FEDERATION_UPSTREAM_SET
           upstreams.create_upstream_set(p.parameter_name, p.value)
         else
-          @log.warn { "No action when applying parameter #{p.component_name}" }
+          L.warn "No action when applying parameter", component: p.component_name
         end
       end
     end
@@ -491,13 +492,13 @@ module LavinMQ
         return
       end
 
-      @log.info { "Loading definitions" }
+      L.info "Loading definitions"
       @definitions_lock.synchronize do
-        @log.debug { "Verifying schema" }
+        L.debug "Verifying schema"
         SchemaVersion.verify(io, :definition)
         loop do
           AMQP::Frame.from_io(io, IO::ByteFormat::SystemEndian) do |f|
-            @log.trace { "Reading frame #{f.inspect}" }
+            L.trace "Reading frame", frame: f.inspect
             case f
             when AMQP::Frame::Exchange::Declare
               exchanges[f.exchange_name] = f
@@ -539,27 +540,27 @@ module LavinMQ
       end   # synchronize
 
       # apply definitions
-      @log.info { "Applying #{exchanges.size} exchanges" }
+      L.info "Applying exchanges", count: exchanges.size
       exchanges.each_value &->self.load_apply(AMQP::Frame)
-      @log.info { "Applying #{queues.size} queues" }
+      L.info "Applying queues", count: queues.size
       queues.each_value &->self.load_apply(AMQP::Frame)
-      @log.info { "Applying #{exchange_bindings.each_value.sum(0, &.size)} exchange bindings" }
+      L.info "Applying exchange bindings", count: exchange_bindings.each_value.sum(0, &.size)
       exchange_bindings.each_value &.each(&->self.load_apply(AMQP::Frame))
-      @log.info { "Applying #{queue_bindings.each_value.sum(0, &.size)} queue bindings" }
+      L.info "Applying queue bindings", count: queue_bindings.each_value.sum(0, &.size)
       queue_bindings.each_value &.each(&->self.load_apply(AMQP::Frame))
 
-      @log.info { "Definitions loaded" }
+      L.info "Definitions loaded"
       compact! if should_compact
     end
 
     protected def load_apply(frame : AMQP::Frame)
       apply frame, loading: true
     rescue ex : LavinMQ::Error
-      @log.error(exception: ex) { "Failed to apply frame #{frame.inspect}" }
+      L.error "Failed to apply frame", frame: frame.inspect, exception: ex
     end
 
     private def load_default_definitions
-      @log.info { "Loading default definitions" }
+      L.info "Loading default definitions"
       @exchanges[""] = AMQP::DefaultExchange.new(self, "", true, false, false)
       @exchanges["amq.direct"] = AMQP::DirectExchange.new(self, "amq.direct", true, false, false)
       @exchanges["amq.fanout"] = AMQP::FanoutExchange.new(self, "amq.fanout", true, false, false)
@@ -570,7 +571,7 @@ module LavinMQ
 
     private def compact!
       @definitions_lock.synchronize do
-        @log.info { "Compacting definitions" }
+        L.info "Compacting definitions"
         io = File.open("#{@definitions_file_path}.tmp", "a+")
         SchemaVersion.prefix(io, :definition)
         @exchanges.each_value.select(&.durable?).each do |e|
@@ -609,7 +610,7 @@ module LavinMQ
     end
 
     private def store_definition(frame, dirty = false)
-      @log.debug { "Storing definition: #{frame.inspect}" }
+      L.debug "Storing definition", frame: frame.inspect
       bytes = frame.to_slice
       @definitions_file.write bytes
       @replicator.append @definitions_file_path, bytes

@@ -33,7 +33,7 @@ module LavinMQ
         return v
       end
       vhost = VHost.new(name, @data_dir, @users, @replicator, description, tags)
-      Log.info { "Created vhost #{name}" }
+      L.info "Created vhost #{name}"
       @users.add_permission(user.name, name, /.*/, /.*/, /.*/)
       @users.add_permission(Auth::UserStore::DIRECT_USER, name, /.*/, /.*/, /.*/)
       @vhosts[name] = vhost
@@ -47,7 +47,7 @@ module LavinMQ
         @users.rm_vhost_permissions_for_all(name)
         vhost.delete
         notify_observers(Event::Deleted, name)
-        Log.info { "Deleted vhost #{name}" }
+        L.info "Deleted vhost #{name}"
         save!
         vhost
       end
@@ -75,7 +75,7 @@ module LavinMQ
     private def load!
       path = File.join(@data_dir, "vhosts.json")
       if File.exists? path
-        Log.debug { "Loading vhosts from file" }
+        L.debug "Loading vhosts from file"
         File.open(path) do |f|
           JSON.parse(f).as_a.each do |vhost|
             name = vhost["name"].as_s
@@ -87,17 +87,17 @@ module LavinMQ
           @replicator.register_file(f)
         end
       else
-        Log.debug { "Loading default vhosts" }
+        L.debug "Loading default vhosts"
         create("/")
       end
-      Log.debug { "#{size} vhosts loaded" }
+      L.debug "#{size} vhosts loaded"
     rescue ex
-      Log.error(exception: ex) { "Failed to load vhosts" }
+      L.error "Failed to load vhosts", exception: ex
       raise ex
     end
 
     private def save!
-      Log.debug { "Saving vhosts to file" }
+      L.debug "Saving vhosts to file"
       path = File.join(@data_dir, "vhosts.json")
       File.open("#{path}.tmp", "w") { |f| to_pretty_json(f); f.fsync }
       File.rename "#{path}.tmp", path

@@ -36,7 +36,7 @@ module LavinMQ
       @config : Config
 
       def initialize(config : Config, @etcd : Etcd, @id : Int32)
-        Log.info { "ID: #{@id.to_s(36)}" }
+        L.info "ID: #{@id.to_s(36)}"
         @config = config
         @data_dir = @config.data_dir
         @password = password
@@ -136,7 +136,7 @@ module LavinMQ
         secret = Random::Secure.base64(32)
         stored_secret = @etcd.put_or_get(key, secret)
         if stored_secret == secret
-          Log.info { "Generated new clustering secret" }
+          L.info "Generated new clustering secret"
         end
         stored_secret
       end
@@ -146,7 +146,7 @@ module LavinMQ
       def listen(server : TCPServer)
         server.listen
         @checksums.restore
-        Log.info { "Listening on #{server.local_address}" }
+        L.info "Listening on #{server.local_address}"
         @listeners << server
         while socket = server.accept?
           spawn handle_socket(socket), name: "Clustering follower"
@@ -158,11 +158,11 @@ module LavinMQ
         follower = Follower.new(socket, @data_dir, self)
         follower.negotiate!(@password)
         if follower.id == @id
-          Log.error { "Disconnecting follower with the clustering id of the leader" }
+          L.error "Disconnecting follower with the clustering id of the leader"
           return
         end
         if stale_follower = @followers.find { |f| f.id == follower.id }
-          Log.error { "Disconnecting stale follower with id #{follower.id.to_s(36)}" }
+          L.error "Disconnecting stale follower with id #{follower.id.to_s(36)}"
           stale_follower.close
         end
         follower.full_sync # sync the bulk
@@ -180,13 +180,13 @@ module LavinMQ
           end
         end
       rescue ex : AuthenticationError
-        Log.warn { "Follower negotiation error" }
+        L.warn "Follower negotiation error"
       rescue ex : InvalidStartHeaderError
-        Log.warn { ex.message }
+        L.warn ex.message
       rescue ex : IO::EOFError
-        Log.info { "Follower disconnected" }
+        L.info "Follower disconnected"
       rescue ex : IO::Error
-        Log.warn(exception: ex) { "Follower disonnected: #{ex.message}" }
+        L.warn "Follower disonnected: #{ex.message}", exception: ex
       ensure
         follower.try &.close
       end
@@ -197,7 +197,7 @@ module LavinMQ
           @followers.each { |f| f.id.to_s(str, 36); str << "," }
           @id.to_s(str, 36)
         end
-        Log.info { "In-sync replicas: #{ids}" }
+        L.info "In-sync replicas: #{ids}"
         @etcd.put(isr_key, ids)
         @dirty_isr = false
       end

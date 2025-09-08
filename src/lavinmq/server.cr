@@ -99,7 +99,7 @@ module LavinMQ
 
     def listen(s : TCPServer, protocol : Protocol)
       @listeners[s] = protocol
-      Log.info { "Listening for #{protocol} on #{s.local_address}" }
+      L.info "Listening for #{protocol} on #{s.local_address}"
       loop do
         client = s.accept? || break
         next client.close if @closed
@@ -119,7 +119,7 @@ module LavinMQ
         conn_info = extract_conn_info(client)
         handle_connection(client, conn_info, protocol)
       rescue ex
-        Log.warn(exception: ex) { "Error accepting connection from #{remote_address}" }
+        L.warn "Error accepting connection from #{remote_address}", exception: ex
         client.close rescue nil
       end
     end
@@ -149,7 +149,7 @@ module LavinMQ
 
     def listen(s : UNIXServer, protocol : Protocol)
       @listeners[s] = protocol
-      Log.info { "Listening for #{protocol} on #{s.local_address}" }
+      L.info "Listening for #{protocol} on #{s.local_address}"
       loop do # do not try to use while
         client = s.accept? || break
         next client.close if @closed
@@ -173,7 +173,7 @@ module LavinMQ
           end
         handle_connection(client, conn_info, protocol)
       rescue ex
-        Log.warn(exception: ex) { "Error accepting connection from #{remote_address}" }
+        L.warn "Error accepting connection from #{remote_address}", exception: ex
         client.close rescue nil
       end
     end
@@ -185,7 +185,7 @@ module LavinMQ
 
     def listen_tls(s : TCPServer, context, protocol : Protocol)
       @listeners[s] = protocol
-      Log.info { "Listening for #{protocol} on #{s.local_address} (TLS)" }
+      L.info "Listening for #{protocol} on #{s.local_address} (TLS)"
       loop do # do not try to use while
         client = s.accept? || break
         next client.close if @closed
@@ -203,14 +203,14 @@ module LavinMQ
         set_socket_options(client)
         ssl_client = OpenSSL::SSL::Socket::Server.new(client, context, sync_close: true)
         set_buffer_size(ssl_client)
-        Log.debug { "#{remote_addr} connected with #{ssl_client.tls_version} #{ssl_client.cipher}" }
+        L.debug "#{remote_addr} connected with #{ssl_client.tls_version} #{ssl_client.cipher}"
         conn_info = ConnectionInfo.new(remote_addr, client.local_address)
         conn_info.ssl = true
         conn_info.ssl_version = ssl_client.tls_version
         conn_info.ssl_cipher = ssl_client.cipher
         handle_connection(ssl_client, conn_info, protocol)
       rescue ex
-        Log.warn(exception: ex) { "Error accepting TLS connection from #{remote_addr}" }
+        L.warn "Error accepting TLS connection from #{remote_addr}", exception: ex
         client.close rescue nil
       end
     end
@@ -236,9 +236,9 @@ module LavinMQ
 
     def close
       @closed = true
-      Log.debug { "Closing listeners" }
+      L.debug "Closing listeners"
       @listeners.each_key &.close
-      Log.debug { "Closing vhosts" }
+      L.debug "Closing vhosts"
       @vhosts.close
     end
 
@@ -274,7 +274,7 @@ module LavinMQ
 
     private def apply_parameter(parameter : Parameter? = nil)
       @parameters.apply(parameter) do |p|
-        Log.warn { "No action when applying parameter #{p.parameter_name}" }
+        L.warn "No action when applying parameter #{p.parameter_name}"
       end
     end
 
@@ -409,7 +409,7 @@ module LavinMQ
           return output[idx..idx2].to_i64 * PAGE_SIZE
         end
       end
-      Log.warn { "Could not parse /proc/self/statm: #{output}" }
+      L.warn "Could not parse /proc/self/statm: #{output}"
     end
 
     # used on non linux systems
@@ -465,14 +465,14 @@ module LavinMQ
     private def control_flow!
       if disk_full?
         if flow?
-          Log.info { "Low disk space: #{@disk_free.humanize}B, stopping flow" }
+          L.info "Low disk space: #{@disk_free.humanize}B, stopping flow"
           flow(false)
         end
       elsif !flow?
-        Log.info { "Not low on disk space, starting flow" }
+        L.info "Not low on disk space, starting flow"
         flow(true)
       elsif disk_usage_over_warning_level?
-        Log.info { "Low on disk space: #{@disk_free.humanize}B" }
+        L.info "Low on disk space: #{@disk_free.humanize}B"
       end
     end
 

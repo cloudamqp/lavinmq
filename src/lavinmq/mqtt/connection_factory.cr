@@ -17,35 +17,33 @@ module LavinMQ
       end
 
       def start(socket : ::IO, connection_info : ConnectionInfo)
-        metadata = ::Log::Metadata.build({address: connection_info.remote_address.to_s})
-        logger = Logger.new(Log, metadata)
-        begin
-          io = MQTT::IO.new(socket)
-          if packet = Packet.from_io(socket).as?(Connect)
-            logger.trace { "recv #{packet.inspect}" }
-            if user_and_broker = authenticate(io, packet)
-              user, broker = user_and_broker
-              packet = assign_client_id(packet) if packet.client_id.empty?
-              session_present = broker.session_present?(packet.client_id, packet.clean_session?)
-              connack io, session_present, Connack::ReturnCode::Accepted
-              return broker.add_client(socket, connection_info, user, packet)
-            else
-              logger.warn { "Authentication failure for user \"#{packet.username}\"" }
-              connack io, false, Connack::ReturnCode::NotAuthorized
-            end
+        # Create temporary logger context for this connection attempt
+        io = MQTT::IO.new(socket)
+        address = connection_info.remote_address
+        if packet = Packet.from_io(socket).as?(Connect)
+          L.trace "recv CONNECT packet", address: address
+          if user_and_broker = authenticate(io, packet)
+            user, broker = user_and_broker
+            packet = assign_client_id(packet) if packet.client_id.empty?
+            session_present = broker.session_present?(packet.client_id, packet.clean_session?)
+            connack io, session_present, Connack::ReturnCode::Accepted
+            return broker.add_client(socket, connection_info, user, packet)
+          else
+            L.warn "Autnetication failed", address: address, user: packet.username
+            connack io, false, Connack::ReturnCode::NotAuthorized
           end
-        rescue ex : MQTT::Error::Connect
-          logger.warn { "Connect error #{ex.inspect}" }
-          if io
-            connack io, false, Connack::ReturnCode.new(ex.return_code)
-          end
-          socket.close
-        rescue ex : ::IO::EOFError
-          socket.close
-        rescue ex
-          logger.warn { "Received invalid Connect packet: #{ex.inspect}" }
-          socket.close
         end
+      rescue ex : MQTT::Error::Connect
+        L.warn "Connection error", address: address, exception: ex
+        if io
+          connack io, false, Connack::ReturnCode.new(ex.return_code)
+        end
+        socket.close
+      rescue ex : ::IO::EOFError
+        socket.close
+      rescue ex
+        L.error "Error while handling CONNECT packet", address: address, exception: ex
+        socket.close
       end
 
       private def connack(io : MQTT::IO, session_present : Bool, return_code : Connack::ReturnCode)

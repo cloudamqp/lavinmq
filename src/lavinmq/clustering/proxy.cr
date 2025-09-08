@@ -22,7 +22,7 @@ module LavinMQ
       end
 
       def forward_to(target_host, target_port, @proxy_header = false)
-        Log.info { "Proxying from #{@local_address} to #{target_host}:#{target_port}" }
+        L.info "Proxying from #{@local_address} to #{target_host}:#{target_port}"
         while socket = @server.accept?
           spawn handle_client(socket, target_host, target_port), name: "Handle proxy client"
         end

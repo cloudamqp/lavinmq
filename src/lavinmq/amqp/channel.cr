@@ -3,7 +3,7 @@ require "./client"
 require "./consumer"
 require "./stream_consumer"
 require "../error"
-require "../logger"
+require "../logging"
 require "./queue"
 require "../exchange"
 require "../amqp"
@@ -16,6 +16,7 @@ module LavinMQ
     class Channel < LavinMQ::Client::Channel
       include Stats
       include SortableJSON
+      include LavinMQ::Logging::Loggable
 
       getter id, name
       property? running = true
@@ -46,9 +47,8 @@ module LavinMQ
       Log = LavinMQ::Log.for "amqp.channel"
 
       def initialize(@client : Client, @id : UInt16)
-        @metadata = ::Log::Metadata.new(nil, {client: @client.connection_info.remote_address.to_s, channel: @id.to_i})
         @name = "#{@client.channel_name_prefix}[#{@id}]"
-        @log = Logger.new(Log, @metadata)
+        L.context(client: @client.connection_info.remote_address.to_s, channel: @id)
       end
 
       record Unack,
@@ -88,7 +88,7 @@ module LavinMQ
 
       def send(frame)
         unless @running
-          @log.debug { "Channel is closed so is not sending #{frame.inspect}" }
+          L.debug "Channel is closed so is not sending frame", frame_type: frame.class.name
           return false
         end
         @client.send frame, true
@@ -145,7 +145,7 @@ module LavinMQ
         if frame.body_size > Config.instance.max_message_size
           error = "message size #{frame.body_size} larger than max size #{Config.instance.max_message_size}"
           @client.send_precondition_failed(frame, error)
-          @log.warn { "Message size exceeded, #{frame.body_size}/#{Config.instance.max_message_size}" }
+          L.warn "Message size exceeded", body_size: frame.body_size, max_size: Config.instance.max_message_size
           return
         end
         @next_msg_size = frame.body_size
@@ -265,7 +265,7 @@ module LavinMQ
         current_user = @client.user
         if user_id && user_id != current_user.name && !current_user.can_impersonate?
           text = "Message's user_id property '#{user_id}' doesn't match actual user '#{current_user.name}'"
-          @log.error { text }
+          L.error text
           raise LavinMQ::Error::PreconditionFailed.new(text)
         end
       end
@@ -361,7 +361,7 @@ module LavinMQ
             @client.send_precondition_failed(frame, "Direct replys must be consumed in no-ack mode")
             return
           end
-          @log.debug { "Saving direct reply consumer #{frame.consumer_tag}" }
+          L.debug "Saving direct reply consumer", consumer_tag: frame.consumer_tag
           @direct_reply_consumer = frame.consumer_tag
           @client.vhost.direct_reply_consumers[frame.consumer_tag] = self
           unless frame.no_wait
@@ -527,7 +527,7 @@ module LavinMQ
           return
         end
 
-        @log.debug { "Rejecting #{frame.inspect}" }
+        L.debug "Rejecting message", delivery_tag: frame.delivery_tag, requeue: frame.requeue
         if unack = delete_unacked(frame.delivery_tag)
           do_reject(frame.requeue, unack)
         else
@@ -660,7 +660,7 @@ module LavinMQ
         end
         @unack_lock.synchronize do
           @unacked.each do |unack|
-            @log.debug { "Requeing unacked msg #{unack.sp}" }
+            L.debug "Requeing unacked msg", segment_position: unack.sp
             unack.queue.reject(unack.sp, true)
             unack.queue.basic_get_unacked.reject! { |u| u.channel == self && u.delivery_tag == unack.tag }
           end
@@ -669,7 +669,7 @@ module LavinMQ
         @has_capacity.close
         @next_msg_body_file.try &.close
         @client.vhost.event_tick(EventType::ChannelClosed)
-        @log.debug { "Closed" }
+        L.debug "Channel closed"
       end
 
       protected def next_delivery_tag(queue : Queue, sp, no_ack, consumer) : UInt64
@@ -723,7 +723,7 @@ module LavinMQ
       end
 
       def cancel_consumer(frame)
-        @log.debug { "Cancelling consumer '#{frame.consumer_tag}'" }
+        L.debug "Cancelling consumer", consumer_tag: frame.consumer_tag
         if idx = @consumers.index { |cons| cons.tag == frame.consumer_tag }
           c = @consumers.delete_at idx
           c.close
@@ -783,7 +783,7 @@ module LavinMQ
           @tx_acks.each do |tx_ack|
             if idx = @unacked.bsearch_index { |u, _| u.tag >= tx_ack.delivery_tag }
               raise "BUG: Delivery tag not found" unless @unacked[idx].tag == tx_ack.delivery_tag
-              @log.debug { "Unacked bsearch found tag:#{tx_ack.delivery_tag} at index:#{idx}" }
+              L.debug "Unacked bsearch found tag", delivery_tag: tx_ack.delivery_tag, index: idx
               if tx_ack.multiple
                 (idx + 1).times do
                   unack = @unacked.shift

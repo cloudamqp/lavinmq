@@ -49,13 +49,13 @@ module LavinMQ
 
       def bind_tcp(address, port)
         addr = @http.bind_tcp address, port
-        Log.info { "Bound to #{addr}" }
+        L.info "Bound to #{addr}"
         addr
       end
 
       def bind_tls(address, port, ctx)
         addr = @http.bind_tls address, port, ctx
-        Log.info { "Bound on #{addr}" }
+        L.info "Bound on #{addr}"
         addr
       end
 
@@ -63,7 +63,7 @@ module LavinMQ
         File.delete?(path)
         addr = @http.bind_unix(path)
         File.chmod(path, 0o666)
-        Log.info { "Bound to #{addr}" }
+        L.info "Bound to #{addr}"
         addr
       end
 
@@ -71,7 +71,7 @@ module LavinMQ
         File.delete?(INTERNAL_UNIX_SOCKET)
         addr = @http.bind_unix(INTERNAL_UNIX_SOCKET)
         File.chmod(INTERNAL_UNIX_SOCKET, 0o660)
-        Log.info { "Bound to #{addr}" }
+        L.info "Bound to #{addr}"
         addr
       end
 
@@ -96,7 +96,7 @@ module LavinMQ
         File.delete?(INTERNAL_UNIX_SOCKET)
         addr = http_server.bind_unix(INTERNAL_UNIX_SOCKET)
         File.chmod(INTERNAL_UNIX_SOCKET, 0o660)
-        Log.info { "Bound to #{addr}" }
+        L.info "Bound to #{addr}"
 
         spawn(name: "HTTP listener") do
           http_server.listen

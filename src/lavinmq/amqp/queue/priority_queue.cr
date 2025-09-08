@@ -10,10 +10,11 @@ module LavinMQ::AMQP
     private def init_msg_store(msg_dir)
       replicator = durable? ? @vhost.@replicator : nil
       max_priority = @arguments["x-max-priority"]?.try(&.as?(Int)) || 0u8
-      PriorityMessageStore.new(max_priority.to_u8, msg_dir, replicator, metadata: @metadata)
+      PriorityMessageStore.new(max_priority.to_u8, msg_dir, replicator, metadata: L.context)
     end
 
     class PriorityMessageStore < MessageStore
+      include LavinMQ::Logging::Loggable
       # These are just to make the compiler happy. They are never used.
       @acks = uninitialized Hash(UInt32, MFile)
       @wfile = uninitialized MFile
@@ -26,9 +27,9 @@ module LavinMQ::AMQP
         @msg_dir : String,
         @replicator : Clustering::Replicator?,
         @durable : Bool = true,
-        @metadata : ::Log::Metadata = ::Log::Metadata.empty,
+        metadata : ::Log::Metadata = ::Log::Metadata.empty,
       )
-        @log = Logger.new(Log, metadata.extend({max_prio: @max_priority.to_s}))
+        L.context(metadata.extend({max_prio: @max_priority}))
         @stores = Array(MessageStore).new(1 + @max_priority)
 
         init_sub_stores(@stores)
@@ -41,7 +42,7 @@ module LavinMQ::AMQP
         0.upto(@max_priority) do |i|
           sub_msg_dir = File.join(@msg_dir, "prio.#{i.to_s.rjust(3, '0')}")
           Dir.mkdir_p sub_msg_dir
-          store = MessageStore.new(sub_msg_dir, @replicator, @durable, metadata: @metadata.extend({prio: i.to_s}))
+          store = MessageStore.new(sub_msg_dir, @replicator, @durable, metadata: L.context.extend({prio: i}))
           @size += store.size
           @bytesize += store.bytesize
           stores << store
@@ -54,9 +55,9 @@ module LavinMQ::AMQP
           raise "Message store #{@msg_dir} contains messages that should be migrated, " \
                 "but substores are not empty. Migration aborted, manually intervention needed."
         end
-        old_store = MessageStore.new(@msg_dir, @replicator, @durable, metadata: @metadata)
+        old_store = MessageStore.new(@msg_dir, @replicator, @durable, metadata: L.context)
         msg_count = old_store.size
-        @log.info { "Migrating #{msg_count} message" }
+        L.info "Migrating messages", count: msg_count
         i = 0u32
         while env = old_store.shift?
           msg = env.message
@@ -73,7 +74,7 @@ module LavinMQ::AMQP
         if size != msg_count
           raise "Message count mismatch when migration message store #{@msg_dir}. #{msg_count} messages before migration, #{size} after."
         end
-        @log.info { "Migration complete" }
+        L.info "Migration complete"
         old_store.close
         i = 0u32
         delete_wg = WaitGroup.new

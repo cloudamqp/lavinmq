@@ -36,7 +36,7 @@ module LavinMQ
           @socket.tcp_keepalive_count = keepalive[2]
         end
         @socket.read_timeout = nil # assumed authed followers are well behaving
-        Log.info { "Accepted ID #{@id.to_s(36)}" }
+        L.info "Accepted ID #{@id.to_s(36)}"
       end
 
       def full_sync : Nil
@@ -97,17 +97,17 @@ module LavinMQ
       end
 
       private def send_file_list(lz4 = @lz4)
-        Log.info { "Calculating hashes for #{@file_index.nr_of_files} files" }
+        L.info "Calculating hashes for #{@file_index.nr_of_files} files"
         count = 0
         @file_index.files_with_hash do |path, hash|
           lz4.write_bytes path.bytesize.to_i32, IO::ByteFormat::LittleEndian
           lz4.write path.to_slice
           lz4.write hash
-          Log.info { "Calculated hash for #{count}/#{@file_index.nr_of_files} files" } if (count &+= 1) % 32 == 0
+          L.info "Calculated hash for #{count}/#{@file_index.nr_of_files} files" if (count &+= 1) % 32 == 0
         end
         lz4.write_bytes 0i32 # 0 means end of file list
         lz4.flush
-        Log.info { "File list sent (#{count} files)" }
+        L.info "File list sent (#{count} files)"
         count
       end
 
@@ -118,9 +118,9 @@ module LavinMQ
           break if filename_len.zero?
           filename = socket.read_string(filename_len)
           requested_files << filename
-          Log.info { "#{filename} requested" }
+          L.info "#{filename} requested"
         end
-        Log.info { "#{requested_files.size} files requested" }
+        L.info "#{requested_files.size} files requested"
         total_requested_bytes = requested_files.sum(0i64) do |p|
           @file_index.with_file(p) do |f|
             case f
@@ -140,8 +140,8 @@ module LavinMQ
           total_time_taken = (Time.monotonic - start).total_seconds
           bps = (sent_bytes / total_time_taken).round.to_u64
           time_left = (total_requested_bytes / bps).round(1)
-          Log.info { "Uploaded #{filename} in #{bps.humanize_bytes}/s" }
-          Log.info { "#{total_requested_bytes.humanize_bytes} left, expected #{time_left}s left" }
+          L.info "Uploaded #{filename} in #{bps.humanize_bytes}/s"
+          L.info "#{total_requested_bytes.humanize_bytes} left, expected #{time_left}s left"
           Fiber.yield
         end
         @lz4.flush

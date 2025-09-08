@@ -3,7 +3,7 @@ require "uri"
 require "option_parser"
 require "ini"
 require "./version"
-require "./log_formatter"
+require "./logging"
 require "./in_memory_backend"
 require "./auth/password"
 
@@ -16,6 +16,9 @@ module LavinMQ
     property config_file = File.exists?(File.join(ENV.fetch("CONFIGURATION_DIRECTORY", "/etc/lavinmq"), "lavinmq.ini")) ? File.join(ENV.fetch("CONFIGURATION_DIRECTORY", "/etc/lavinmq"), "lavinmq.ini") : ""
     property log_file : String? = nil
     property log_level : ::Log::Severity = DEFAULT_LOG_LEVEL
+    property log_format : Logging::Formats::Format = Logging::Formats::Format::Logfmt
+    property? log_single_line = true
+    property log_backtrace_separator = " => "
     property amqp_bind = "127.0.0.1"
     property amqp_port = 5672
     property amqps_port = -1
@@ -241,11 +244,16 @@ module LavinMQ
     private def reload_logger
       log_file = (path = @log_file) ? File.open(path, "a") : STDOUT
       broadcast_backend = ::Log::BroadcastBackend.new
-      backend = if ENV.has_key?("JOURNAL_STREAM")
-                  ::Log::IOBackend.new(io: log_file, formatter: JournalLogFormat)
-                else
-                  ::Log::IOBackend.new(io: log_file, formatter: StdoutLogFormat)
-                end
+
+      formatter = case @log_format
+                  in .json?
+                    Logging::Formats::JsonFormat
+                  in .stdout?
+                    Logging::Formats::StdoutFormat
+                  in .logfmt?
+                    Logging::Formats::LogfmtFormat
+                  end
+      backend = ::Log::IOBackend.new(io: log_file, formatter: formatter)
 
       broadcast_backend.append(backend, @log_level)
 
@@ -254,7 +262,7 @@ module LavinMQ
 
       ::Log.setup(@log_level, broadcast_backend)
       target = (path = @log_file) ? path : "stdout"
-      Log.info &.emit("Logger settings", level: @log_level.to_s, target: target)
+      L.info "Log configured", target: target, level: @log_level, format: @log_format.label
     end
 
     def tls_configured?
@@ -269,6 +277,9 @@ module LavinMQ
         when "data_dir_lock"             then @data_dir_lock = true?(v)
         when "log_level"                 then @log_level = ::Log::Severity.parse(v)
         when "log_file"                  then @log_file = v
+        when "log_format"                then @log_format = Logging::Formats::Format.parse(v)
+        when "log_single_line"           then @log_single_line = true?(v)
+        when "log_backtrace_separator"   then @log_backtrace_separator = v
         when "stats_interval"            then @stats_interval = v.to_i32
         when "stats_log_size"            then @stats_log_size = v.to_i32
         when "segment_size"              then @segment_size = v.to_i32
