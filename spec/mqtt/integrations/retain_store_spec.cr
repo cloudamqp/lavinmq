@@ -154,5 +154,55 @@ module MqttSpecs
         topic.should eq "topic"
       end
     end
+
+    it "subscribing to topic with retained message does not crash" do
+      with_server(clean_dir: false) do |server|
+        # First, publish a retained message
+        with_client_io(server) do |io|
+          connect(io, client_id: "publisher")
+          # Use a larger payload to increase chances of triggering copy_file_range
+          subscribe(io, topic_filters: [subtopic("test/retain")])
+          large_payload = "retained_message_" + ("x" * 8192)
+          publish(io, topic: "test/retain", payload: large_payload.to_slice, qos: 0u8, retain: true)
+          disconnect(io)
+        end
+        with_client_io(server) do |io|
+          connect(io, client_id: "subscriber")
+          subscribe(io, topic_filters: [subtopic("test/retain")])
+
+          # Should receive the retained message without crashing
+          pub = read_packet(io).as(MQTT::Protocol::Publish)
+          pub.topic.should eq("test/retain")
+          pub.retain?.should eq(true)
+          String.new(pub.payload).should start_with("retained_message_")
+
+          disconnect(io)
+        end
+      end
+
+      with_server do |server|
+        # First, publish a retained message
+        with_client_io(server) do |io|
+          connect(io, client_id: "publisher")
+          # Use a larger payload to increase chances of triggering copy_file_range
+          subscribe(io, topic_filters: [subtopic("test/retain")])
+          large_payload = "retained_message_" + ("x" * 8192)
+          publish(io, topic: "test/retain", payload: large_payload.to_slice, qos: 0u8, retain: true)
+          disconnect(io)
+        end
+        with_client_io(server) do |io|
+          connect(io, client_id: "subscriber")
+          subscribe(io, topic_filters: [subtopic("test/retain")])
+
+          # Should receive the retained message without crashing
+          pub = read_packet(io).as(MQTT::Protocol::Publish)
+          pub.topic.should eq("test/retain")
+          pub.retain?.should eq(true)
+          String.new(pub.payload).should start_with("retained_message_")
+
+          disconnect(io)
+        end
+      end
+    end
   end
 end

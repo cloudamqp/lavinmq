@@ -36,7 +36,7 @@ module MqttHelpers
     socket.try &.close
   end
 
-  def with_server(& : LavinMQ::Server -> Nil)
+  def with_server(clean_dir = true, & : LavinMQ::Server -> Nil)
     mqtt_server = TCPServer.new("localhost", 0)
     amqp_server = TCPServer.new("localhost", 0)
     s = LavinMQ::Server.new(LavinMQ::Config.instance, LavinMQ::Clustering::NoopServer.new)
@@ -47,7 +47,7 @@ module MqttHelpers
       yield s
     ensure
       s.close
-      FileUtils.rm_rf(LavinMQ::Config.instance.data_dir)
+      FileUtils.rm_rf(LavinMQ::Config.instance.data_dir) if clean_dir
     end
   end
 

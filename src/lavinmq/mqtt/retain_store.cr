@@ -14,7 +14,9 @@ module LavinMQ
       def initialize(@dir : String, @replicator : Clustering::Replicator, @index = IndexTree.new)
         Dir.mkdir_p @dir
         @files = Hash(String, File).new do |files, file_name|
-          files[file_name] = File.new(File.join(@dir, file_name))
+          file = File.new(File.join(@dir, file_name))
+          file.read_buffering = false
+          files[file_name] = file
         end
         @index_file_name = File.join(@dir, INDEX_FILE_NAME)
         @index_file = File.new(@index_file_name, "a+")
