@@ -228,7 +228,7 @@ module LavinMQ
       getter tag : String
 
       def has_capacity : BoolChannel
-        self.dummy_has_capacity
+        self.class.dummy_has_capacity
       end
 
       property prefetch_count = 0_u16
