@@ -220,9 +220,18 @@ module LavinMQ
     end
 
     class Consumer < LavinMQ::Client::Channel::Consumer
+      # `MQTT::Consumer` only has the `has_capacity` method to satisfy the interface.
+      # Since it's never used a shared object can be used. It's also closed immediately
+      # to not have a fiber running.
+      class_getter(dummy_has_capacity : BoolChannel) { BoolChannel.new(true).tap &.close }
+
       getter unacked = 0_u32
       getter tag : String
-      getter has_capacity = BoolChannel.new(true)
+
+      def has_capacity : BoolChannel
+        self.class.dummy_has_capacity
+      end
+
       property prefetch_count = 0_u16
 
       def initialize(@client : Client, @session : MQTT::Session)
