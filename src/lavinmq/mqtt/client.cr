@@ -222,7 +222,7 @@ module LavinMQ
     class Consumer < LavinMQ::Client::Channel::Consumer
       getter unacked = 0_u32
       getter tag : String
-      getter has_capacity = BoolChannel.new(true)
+      getter has_capacity = BoolChannel.dummy
       property prefetch_count = 0_u16
 
       def initialize(@client : Client, @session : MQTT::Session)

@@ -5,6 +5,8 @@ class BoolChannel
   getter when_false = Channel(Nil).new
   @value = Channel(Bool).new
 
+  class_getter(dummy : BoolChannel) { BoolChannel.new(true).tap &.close }
+
   def initialize(value : Bool)
     spawn(name: "BoolChannel#send_loop") do
       send_loop(value)
