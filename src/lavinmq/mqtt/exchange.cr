@@ -8,6 +8,13 @@ require "./retain_store"
 module LavinMQ
   module MQTT
     class Exchange < AMQP::Exchange
+      # Transform MQTT topic to AMQP routing key
+      # MQTT uses '/' as separator, AMQP uses '.'
+      # MQTT '+' wildcard becomes AMQP '*' wildcard
+      # MQTT '#' wildcard stays '#' in AMQP
+      private def mqtt_topic_to_amqp_routing_key(mqtt_topic : String) : String
+        mqtt_topic.gsub('/', '.').gsub('+', '*')
+      end
       # In MQTT only topic/routing key is used in routing, but arguments is used to
       # store QoS level for each subscription. To make @bingings treat the same subscription
       # with different QoS as the same subscription this "custom" BindingKey is used which
@@ -60,11 +67,39 @@ module LavinMQ
           next if queues.includes?(destination)
           msg.properties.delivery_mode = qos
           case destination
+          in LavinMQ::AMQP::Queue
+            amqp_routing_key = mqtt_topic_to_amqp_routing_key(packet.topic)
+            amqp_msg = Message.new(timestamp, EXCHANGE, amqp_routing_key, properties, bodysize, body)
+            amqp_msg.properties.delivery_mode = qos
+            if destination.publish(amqp_msg)
+              count += 1
+              msg.body_io.rewind
+              queues.add(destination)
+            end
+          in LavinMQ::MQTT::Session
+            if destination.publish(msg)
+              count += 1
+              msg.body_io.rewind
+              queues.add(destination)
+            end
           in LavinMQ::Queue
             if destination.publish(msg)
               count += 1
               msg.body_io.rewind
               queues.add(destination)
+            end
+          in LavinMQ::AMQP::Exchange
+            amqp_routing_key = mqtt_topic_to_amqp_routing_key(packet.topic)
+            amqp_msg = Message.new(timestamp, EXCHANGE, amqp_routing_key, properties, bodysize, body)
+            amqp_msg.properties.delivery_mode = qos
+            if exchanges.add?(destination)
+              destination.publish(amqp_msg, false, queues, exchanges)
+              msg.body_io.rewind
+            end
+          in LavinMQ::MQTT::Exchange
+            if exchanges.add?(destination)
+              destination.publish(msg, false, queues, exchanges)
+              msg.body_io.rewind
             end
           in LavinMQ::Exchange
             if exchanges.add?(destination)
@@ -97,8 +132,18 @@ module LavinMQ
       protected def find_queues_internal(routing_key, headers, queues, exchanges)
         @tree.each_entry(routing_key) do |destination, _|
           case destination
+          in LavinMQ::AMQP::Queue
+            queues.add(destination)
+          in LavinMQ::MQTT::Session
+            queues.add(destination)
           in LavinMQ::Queue
             queues.add(destination)
+          in LavinMQ::AMQP::Exchange
+            # Transform MQTT topic to AMQP routing key for AMQP exchanges
+            amqp_routing_key = mqtt_topic_to_amqp_routing_key(routing_key)
+            destination.find_queues(amqp_routing_key, headers, queues, exchanges)
+          in LavinMQ::MQTT::Exchange
+            destination.find_queues(routing_key, headers, queues, exchanges)
           in LavinMQ::Exchange
             destination.find_queues(routing_key, headers, queues, exchanges)
           end
