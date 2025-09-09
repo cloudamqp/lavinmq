@@ -15,6 +15,7 @@ module LavinMQ
       private def mqtt_topic_to_amqp_routing_key(mqtt_topic : String) : String
         mqtt_topic.gsub('/', '.').gsub('+', '*')
       end
+
       # In MQTT only topic/routing key is used in routing, but arguments is used to
       # store QoS level for each subscription. To make @bingings treat the same subscription
       # with different QoS as the same subscription this "custom" BindingKey is used which
