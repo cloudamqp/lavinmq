@@ -74,7 +74,7 @@ module LavinMQ
             amqp_msg.properties.delivery_mode = qos
             if destination.publish(amqp_msg)
               count += 1
-              msg.body_io.rewind
+              amqp_msg.body_io.rewind
               queues.add(destination)
             end
           in LavinMQ::MQTT::Session
@@ -95,7 +95,7 @@ module LavinMQ
             amqp_msg.properties.delivery_mode = qos
             if exchanges.add?(destination)
               destination.publish(amqp_msg, false, queues, exchanges)
-              msg.body_io.rewind
+              amqp_msg.body_io.rewind
             end
           in LavinMQ::MQTT::Exchange
             if exchanges.add?(destination)
