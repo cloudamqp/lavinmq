@@ -220,9 +220,17 @@ module LavinMQ
     end
 
     class Consumer < LavinMQ::Client::Channel::Consumer
+      # MQTT::Consumer to not have to create a new channel per consumer. It's
+      # not used, only needed for compilation. Create one shared and closed object.
+      class_getter(dummy_has_capacity : BoolChannel) { BoolChannel.new(true).tap &.close }
+
       getter unacked = 0_u32
       getter tag : String
-      getter has_capacity = BoolChannel.dummy
+
+      def has_capacity : BoolChannel
+        self.dummy_has_capacity
+      end
+
       property prefetch_count = 0_u16
 
       def initialize(@client : Client, @session : MQTT::Session)
