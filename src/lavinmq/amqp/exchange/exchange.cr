@@ -197,7 +197,6 @@ module LavinMQ
       private def route_msg(msg : Message, immediate : Bool, queues : Set(LavinMQ::Queue), exchanges : Set(LavinMQ::Exchange)) : Bool
         headers = msg.properties.headers
         find_queues(msg.routing_key, headers, queues, exchanges)
-        pp queues
         if queues.empty? || (immediate && !queues.any? &.immediate_delivery?)
           @unroutable_count.add(1, :relaxed)
           return false

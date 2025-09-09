@@ -8,12 +8,12 @@ require "./retain_store"
 module LavinMQ
   module MQTT
     class Exchange < AMQP::Exchange
-      # Transform MQTT topic to AMQP routing key
-      # MQTT uses '/' as separator, AMQP uses '.'
-      # MQTT '+' wildcard becomes AMQP '*' wildcard
-      # MQTT '#' wildcard stays '#' in AMQP
       private def mqtt_topic_to_amqp_routing_key(mqtt_topic : String) : String
         mqtt_topic.gsub('/', '.').gsub('+', '*')
+      end
+
+      private def amqp_routing_key_to_mqtt_topic(amqp_routing_key : String) : String
+        amqp_routing_key.gsub('.', '/').gsub('*', '+')
       end
 
       # In MQTT only topic/routing key is used in routing, but arguments is used to
@@ -90,11 +90,14 @@ module LavinMQ
               queues.add(destination)
             end
           in LavinMQ::AMQP::Exchange
-            amqp_routing_key = mqtt_topic_to_amqp_routing_key(packet.topic)
-            amqp_msg = Message.new(timestamp, EXCHANGE, amqp_routing_key, properties, bodysize, body)
-            amqp_msg.properties.delivery_mode = qos
             if exchanges.add?(destination)
-              destination.publish(amqp_msg, false, queues, exchanges)
+              amqp_routing_key = mqtt_topic_to_amqp_routing_key(packet.topic)
+              amqp_msg = Message.new(timestamp, EXCHANGE, amqp_routing_key, properties, bodysize, body)
+              amqp_msg.properties.delivery_mode = qos
+              # Use route_msg directly to avoid creating new sets
+              if destination.route_msg(amqp_msg)
+                count += 1
+              end
               amqp_msg.body_io.rewind
             end
           in LavinMQ::MQTT::Exchange
@@ -155,7 +158,10 @@ module LavinMQ
         qos = arguments.try { |h| h[QOS_HEADER]?.try(&.as(UInt8)) } || 0u8
         binding_key = BindingKey.new(routing_key, arguments)
         @bindings[binding_key].add destination
-        @tree.subscribe(routing_key, destination, qos)
+
+        # Convert AMQP routing key to MQTT topic pattern for subscription tree
+        mqtt_topic_pattern = amqp_routing_key_to_mqtt_topic(routing_key)
+        @tree.subscribe(mqtt_topic_pattern, destination, qos)
 
         data = BindingDetails.new(name, vhost.name, binding_key.inner, destination)
         notify_observers(ExchangeEvent::Bind, data)
@@ -168,7 +174,9 @@ module LavinMQ
         rk_bindings.delete destination
         @bindings.delete binding_key if rk_bindings.empty?
 
-        @tree.unsubscribe(routing_key, destination)
+        # Convert AMQP routing key to MQTT topic pattern for subscription tree
+        mqtt_topic_pattern = amqp_routing_key_to_mqtt_topic(routing_key)
+        @tree.unsubscribe(mqtt_topic_pattern, destination)
 
         data = BindingDetails.new(name, vhost.name, binding_key.inner, destination)
         notify_observers(ExchangeEvent::Unbind, data)
