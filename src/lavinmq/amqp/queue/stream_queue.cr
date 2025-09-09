@@ -1,6 +1,7 @@
 require "./durable_queue"
 require "../stream_consumer"
 require "./stream_queue_message_store"
+require "./stream_reader"
 
 module LavinMQ::AMQP
   class StreamQueue < DurableQueue
@@ -65,6 +66,10 @@ module LavinMQ::AMQP
     # Stream queues does not support basic_get, so always returns `false`
     def basic_get(no_ack, force = false, & : Envelope -> Nil) : Bool
       false
+    end
+
+    def stream(offset)
+      StreamReader.new(stream_queue_msg_store, offset)
     end
 
     def consume_get(consumer : AMQP::StreamConsumer, & : Envelope -> Nil) : Bool
