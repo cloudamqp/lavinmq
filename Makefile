@@ -70,7 +70,7 @@ static/js/lib/chunks/helpers.segment.js: | static/js/lib/chunks
 		tar -zxOf- package/dist/chunks/helpers.segment.js > $@
 
 static/js/lib/luxon.js: | static/js/lib
-	curl --retry 5 -sLo $@ https://moment.github.io/luxon/es6/luxon.js
+	curl --retry 5 -sLo $@ https://moment.github.io/luxon/es6/luxon.mjs
 
 static/js/lib/chartjs-adapter-luxon.esm.js: | static/js/lib
 	curl --retry 5 -sLo $@ https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.esm.js
