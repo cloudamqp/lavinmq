@@ -159,8 +159,6 @@ describe "Delayed Message Exchange" do
   it "should prevent binding delayed exchange to its own internal queue" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
-        x = ch.exchange(x_name, "topic", args: x_args)
-
         # The internal delayed queue should exist
         internal_queue_name = "amq.delayed.#{x_name}"
         internal_queue = s.vhosts["/"].queues[internal_queue_name]?
