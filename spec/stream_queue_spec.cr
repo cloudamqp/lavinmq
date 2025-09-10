@@ -110,6 +110,124 @@ describe LavinMQ::AMQP::StreamQueue do
         end
       end
     end
+
+    it "multiple consumers get new messages immediately as they arrive" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          ch.prefetch 1
+          args = {"x-queue-type": "stream"}
+          q = ch.queue("stream-consume-multiple", args: AMQP::Client::Arguments.new(args))
+
+          # Publish an initial message
+          q.publish "initial"
+
+          # Set up two consumers
+          consumer1_msgs = Channel(AMQP::Client::DeliverMessage).new
+          consumer2_msgs = Channel(AMQP::Client::DeliverMessage).new
+
+          # Consumer 1 starts from the beginning
+          q.subscribe(no_ack: false, tag: "consumer1", args: AMQP::Client::Arguments.new({"x-stream-offset": 0})) do |msg|
+            msg.ack
+            consumer1_msgs.send(msg)
+          end
+
+          # Consumer 2 starts from the beginning as well
+          q.subscribe(no_ack: false, tag: "consumer2", args: AMQP::Client::Arguments.new({"x-stream-offset": 0})) do |msg|
+            msg.ack
+            consumer2_msgs.send(msg)
+          end
+
+          # Both consumers should receive the initial message
+          consumer1_msgs.receive.body_io.to_s.should eq "initial"
+          consumer2_msgs.receive.body_io.to_s.should eq "initial"
+
+          # Publish a new message
+          q.publish "new_message"
+
+          # Both consumers should immediately receive the new message
+          # Use select with timeout to detect if messages aren't delivered immediately
+          received_count = 0
+          timeout = 2.seconds
+
+          select
+          when msg1 = consumer1_msgs.receive
+            msg1.body_io.to_s.should eq "new_message"
+            received_count += 1
+          when timeout(timeout)
+            fail("Consumer 1 didn't receive new message within #{timeout}")
+          end
+
+          select
+          when msg2 = consumer2_msgs.receive
+            msg2.body_io.to_s.should eq "new_message"
+            received_count += 1
+          when timeout(timeout)
+            fail("Consumer 2 didn't receive new message within #{timeout}")
+          end
+
+          received_count.should eq 2
+        end
+      end
+    end
+
+    it "reproduces bug: second consumer doesn't get immediate delivery" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          ch.prefetch 1
+          args = {"x-queue-type": "stream"}
+          q = ch.queue("stream-bug-test", args: AMQP::Client::Arguments.new(args))
+
+          # Set up two consumers that both start from "next" (end of stream)
+          consumer1_msgs = Channel(AMQP::Client::DeliverMessage).new
+          consumer2_msgs = Channel(AMQP::Client::DeliverMessage).new
+
+          # Both consumers start from the next offset (waiting for new messages)
+          q.subscribe(no_ack: false, tag: "consumer1", args: AMQP::Client::Arguments.new({"x-stream-offset": "next"})) do |msg|
+            msg.ack
+            consumer1_msgs.send(msg)
+          end
+
+          q.subscribe(no_ack: false, tag: "consumer2", args: AMQP::Client::Arguments.new({"x-stream-offset": "next"})) do |msg|
+            msg.ack
+            consumer2_msgs.send(msg)
+          end
+
+          # Small delay to ensure consumers are ready
+          sleep 0.1.seconds
+
+          # Publish a new message - both consumers should receive it immediately
+          q.publish "test_message"
+
+          # Test with a short timeout - both should receive within 1 second
+          timeout = 1.seconds
+          consumer1_received = false
+          consumer2_received = false
+
+          # Check consumer 1
+          select
+          when msg1 = consumer1_msgs.receive
+            msg1.body_io.to_s.should eq "test_message"
+            consumer1_received = true
+          when timeout(timeout)
+            # Consumer 1 failed to receive
+          end
+
+          # Check consumer 2
+          select
+          when msg2 = consumer2_msgs.receive
+            msg2.body_io.to_s.should eq "test_message"
+            consumer2_received = true
+          when timeout(timeout)
+            # Consumer 2 failed to receive
+          end
+
+          # This assertion should fail due to the bug - not both consumers get immediate delivery
+          # When the bug is present, typically only one consumer receives the message immediately
+          (consumer1_received && consumer2_received).should be_true,
+            "Bug reproduced: Not all consumers received immediate delivery (C1: #{consumer1_received}, C2: #{consumer2_received})"
+        end
+      end
+    end
   end
 
   describe "Expiration" do
