@@ -16,7 +16,7 @@ module LavinMQ
       end
 
       def bind(destination : Destination, routing_key, arguments = nil)
-        validate_delayed_binding(destination)
+        validate_delayed_binding!(destination)
         binding_key = BindingKey.new(routing_key, arguments)
         return false unless @bindings.add?({destination, binding_key})
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
