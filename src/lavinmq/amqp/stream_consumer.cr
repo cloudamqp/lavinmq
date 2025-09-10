@@ -4,7 +4,6 @@ require "../segment_position"
 module LavinMQ
   module AMQP
     class StreamConsumer < Consumer
-      include SortableJSON
       property offset : Int64
       property segment : UInt32
       property pos : UInt32
@@ -193,6 +192,18 @@ module LavinMQ
           end
         end
         false
+      end
+
+      def details_tuple
+        tuple = super
+        tuple.merge({
+          stream_filters: {
+            filters:          @consumer_filters,
+            match_type:       @filter_match_all ? "all" : "any",
+            match_unfiltered: @match_unfiltered,
+          },
+          stream_offset: @offset,
+        })
       end
     end
   end
