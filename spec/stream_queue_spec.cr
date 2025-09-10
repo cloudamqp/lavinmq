@@ -200,31 +200,22 @@ describe LavinMQ::AMQP::StreamQueue do
 
           # Test with a short timeout - both should receive within 1 second
           timeout = 1.seconds
-          consumer1_received = false
-          consumer2_received = false
 
           # Check consumer 1
           select
           when msg1 = consumer1_msgs.receive
             msg1.body_io.to_s.should eq "test_message"
-            consumer1_received = true
           when timeout(timeout)
-            # Consumer 1 failed to receive
+            fail("Consumer 1 failed to receive new message")
           end
 
           # Check consumer 2
           select
           when msg2 = consumer2_msgs.receive
             msg2.body_io.to_s.should eq "test_message"
-            consumer2_received = true
           when timeout(timeout)
-            # Consumer 2 failed to receive
+            fail("Consumer 2 failed to receive new message")
           end
-
-          # This assertion should fail due to the bug - not both consumers get immediate delivery
-          # When the bug is present, typically only one consumer receives the message immediately
-          (consumer1_received && consumer2_received).should be_true,
-            "Bug reproduced: Not all consumers received immediate delivery (C1: #{consumer1_received}, C2: #{consumer2_received})"
         end
       end
     end
