@@ -7,7 +7,6 @@ require "./filters/gis"
 module LavinMQ
   module AMQP
     class StreamConsumer < Consumer
-      include SortableJSON
       property offset : Int64
       property segment : UInt32
       property pos : UInt32
@@ -165,6 +164,18 @@ module LavinMQ
         else
           @filters.all?(&.match?(headers))
         end
+      end
+
+      def details_tuple
+        tuple = super
+        tuple.merge({
+          stream_filters: {
+            # filters:          @filters,
+            match_type:       @filter_match_all ? "all" : "any",
+            match_unfiltered: @match_unfiltered,
+          },
+          stream_offset: @offset,
+        })
       end
     end
   end
