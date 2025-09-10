@@ -11,6 +11,8 @@ overview:
         properties:
           name:
             type: string
+          human:
+            type: string
     listeners:
       type: array
       items:
@@ -21,7 +23,7 @@ overview:
           protocol:
             type: string
             enum:
-            - amqp
+              - amqp
           port:
             type: integer
     message_stats:
@@ -121,8 +123,8 @@ aliveness-test:
     status:
       type: string
       enum:
-      - ok
-      - failed
+        - ok
+        - failed
 shovels: # TODO
   type: array
 federation-links: # TODO
