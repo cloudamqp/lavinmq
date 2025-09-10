@@ -160,34 +160,6 @@ module LavinMQ
         notify_observers(ExchangeEvent::Deleted)
       end
 
-      # This outer macro will add a finished macro hook to all inherited classes
-      # in LavinMQ::AMQP namespace.
-      macro inherited
-        {% if @type.name.starts_with?("LavinMQ::AMQP::") %}
-          # This macro will find the "bind" method of classes inheriting from this class
-          # and redefine them to raise AccessRefused exception if the first argument
-          # isn't a type in LavinMQ::AMQP namespace.
-          #
-          # TODO remove this when LavinMQ::MQTT::Session no longer inherit from
-          # LavinMQ::AMQP::Queue and LavinMQ::MQTT::Exchange no longer inherit from
-          # lavinMQ::AMQP::Exchange
-        macro finished
-          \{% if (m = @type.methods.find(&.name.== "bind"))  %}
-            def bind(\{{ m.args.map(&.id).join(",").id}}) : Bool
-              unless \{{m.args[0].name.id}}.class.name.starts_with?("LavinMQ::AMQP::")
-                raise AccessRefused.new(self)
-              end
-              \{{ m.body }}
-          end
-         \{% end %}
-        end
-        {% end %}
-      end
-
-      def bind(destination : LavinMQ::Destination, routing_key, arguments = nil) : Bool
-        raise AccessRefused.new(self)
-      end
-
       abstract def type : String
       abstract def bind(destination : AMQP::Destination, routing_key : String, arguments : AMQP::Table?)
       abstract def unbind(destination : AMQP::Destination, routing_key : String, arguments : AMQP::Table?)
@@ -246,14 +218,7 @@ module LavinMQ
                       queues : Set(LavinMQ::Queue) = Set(LavinMQ::Queue).new,
                       exchanges : Set(LavinMQ::Exchange) = Set(LavinMQ::Exchange).new) : Nil
         return unless exchanges.add? self
-        each_destination(routing_key, headers) do |d|
-          case d
-          in LavinMQ::Queue
-            queues.add(d)
-          in LavinMQ::Exchange
-            d.find_queues(routing_key, headers, queues, exchanges)
-          end
-        end
+        find_queues_internal(routing_key, headers, queues, exchanges)
 
         if hdrs = headers
           find_cc_queues(hdrs, "CC", queues)
@@ -264,6 +229,17 @@ module LavinMQ
         if queues.empty? && alternate_exchange
           @vhost.exchanges[alternate_exchange]?.try do |ae|
             ae.find_queues(routing_key, headers, queues, exchanges)
+          end
+        end
+      end
+
+      protected def find_queues_internal(routing_key, headers, queues, exchanges)
+        each_destination(routing_key, headers) do |d|
+          case d
+          in LavinMQ::Queue
+            queues.add(d)
+          in LavinMQ::Exchange
+            d.find_queues(routing_key, headers, queues, exchanges)
           end
         end
       end

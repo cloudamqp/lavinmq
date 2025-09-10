@@ -652,7 +652,7 @@ describe LavinMQ::Federation::Upstream do
 
         downstream_ex = vhost2.exchanges["downstream_ex"]
         downstream_q = vhost2.queues["downstream_q"]
-        downstream_ex.bind(downstream_q, "#")
+        downstream_ex.bind(downstream_q, "#", nil)
 
         url = URI.parse(s.amqp_url)
         url.path = vhost1.name
@@ -719,7 +719,7 @@ describe LavinMQ::Federation::Upstream do
         link_ex2 = upstream_ex1_to_ex2.link(ex2)
         wait_for { link_ex2.state.running? && link_ex3.state.running? }
 
-        downstream_ex.bind(downstream_q, "#")
+        downstream_ex.bind(downstream_q, "#", nil)
         with_channel(s, vhost: "three") do |ch|
           ch_q3 = ch.queue("q3")
 
@@ -754,7 +754,7 @@ describe LavinMQ::Federation::Upstream do
 
         downstream_ex = vhost2.exchanges["downstream_ex"]
         downstream_q = vhost2.queues["downstream_q"]
-        downstream_ex.bind(downstream_q, "federation.link.rk")
+        downstream_ex.bind(downstream_q, "federation.link.rk", nil)
 
         upstream_ex = vhost1.exchanges["upstream_ex"]
 
@@ -786,7 +786,7 @@ describe LavinMQ::Federation::Upstream do
             q = downstream_vhost.queues["q"]
             # This binding should be propagated all the way to "fe" in "v1"
             # For each hop x-bound-from should be extended with one new entry
-            downstream_ex.bind(q, "spec.routing.key")
+            downstream_ex.bind(q, "spec.routing.key", nil)
 
             # Verify bindings on exchange "fe" from vhost v1 to
             # vhost v9.
@@ -827,7 +827,7 @@ describe LavinMQ::Federation::Upstream do
             q = downstream_vhost.queues["q"]
             # This binding should only be propagated to "fe" in "v4", because
             # max_hops on v5 is 1.
-            downstream_ex.bind(q, "spec.routing.key")
+            downstream_ex.bind(q, "spec.routing.key", nil)
 
             # Verify bindings on exchange "fe" from vhost v1 to
             # vhost v4.
@@ -874,7 +874,7 @@ describe LavinMQ::Federation::Upstream do
             q = downstream_vhost.queues["q"]
             # This binding should only be propagated to "fe" in "v4", because
             # max_hops on v5 is 1.
-            downstream_ex.bind(q, "spec.routing.key")
+            downstream_ex.bind(q, "spec.routing.key", nil)
 
             # Verify bindings on exchange "fe" from vhost v1 to
             # vhost v6.
@@ -912,7 +912,7 @@ describe LavinMQ::Federation::Upstream do
             downstream_ex = downstream_vhost.exchanges["fe"]
             downstream_vhost.declare_queue("q", durable: true, auto_delete: false)
             q = downstream_vhost.queues["q"]
-            downstream_ex.bind(q, "spec.routing.key")
+            downstream_ex.bind(q, "spec.routing.key", nil)
 
             with_channel(s, vhost: "v1") do |ch|
               # By addign two entries in x-received-from the message should

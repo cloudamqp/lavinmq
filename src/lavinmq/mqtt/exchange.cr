@@ -8,6 +8,14 @@ require "./retain_store"
 module LavinMQ
   module MQTT
     class Exchange < AMQP::Exchange
+      private def mqtt_topic_to_amqp_routing_key(mqtt_topic : String) : String
+        mqtt_topic.gsub('/', '.').gsub('+', '*')
+      end
+
+      private def amqp_routing_key_to_mqtt_topic(amqp_routing_key : String) : String
+        amqp_routing_key.gsub('.', '/').gsub('*', '+')
+      end
+
       # In MQTT only topic/routing key is used in routing, but arguments is used to
       # store QoS level for each subscription. To make @bingings treat the same subscription
       # with different QoS as the same subscription this "custom" BindingKey is used which
@@ -26,10 +34,10 @@ module LavinMQ
         end
       end
 
-      @bindings = Hash(BindingKey, Set(MQTT::Session)).new do |h, k|
-        h[k] = Set(MQTT::Session).new
+      @bindings = Hash(BindingKey, Set(Destination)).new do |h, k|
+        h[k] = Set(Destination).new
       end
-      @tree = MQTT::SubscriptionTree(MQTT::Session).new
+      @tree = MQTT::SubscriptionTree(Destination).new
 
       def type : String
         "mqtt"
@@ -39,7 +47,7 @@ module LavinMQ
         super(vhost, name, false, false, true)
       end
 
-      def publish(packet : MQTT::Publish) : UInt32
+      def publish(packet : MQTT::Publish, queues : Set(LavinMQ::Queue), exchanges : Set(LavinMQ::Exchange)) : UInt32
         @publish_in_count.add(1, :relaxed)
         properties = AMQP::Properties.new(headers: AMQP::Table.new)
         properties.delivery_mode = packet.qos
@@ -55,13 +63,58 @@ module LavinMQ
 
         msg = Message.new(timestamp, EXCHANGE, packet.topic, properties, bodysize, body)
         count = 0u32
-        @tree.each_entry(packet.topic) do |queue, qos|
+
+        @tree.each_entry(packet.topic) do |destination, qos|
+          next if queues.includes?(destination)
           msg.properties.delivery_mode = qos
-          if queue.publish(msg)
-            count += 1
-            msg.body_io.rewind
+          case destination
+          in LavinMQ::AMQP::Queue
+            amqp_routing_key = mqtt_topic_to_amqp_routing_key(packet.topic)
+            amqp_msg = Message.new(timestamp, EXCHANGE, amqp_routing_key, properties, bodysize, body)
+            amqp_msg.properties.delivery_mode = qos
+            if destination.publish(amqp_msg)
+              count += 1
+              amqp_msg.body_io.rewind
+              queues.add(destination)
+            end
+          in LavinMQ::MQTT::Session
+            if destination.publish(msg)
+              count += 1
+              msg.body_io.rewind
+              queues.add(destination)
+            end
+          in LavinMQ::Queue
+            if destination.publish(msg)
+              count += 1
+              msg.body_io.rewind
+              queues.add(destination)
+            end
+          in LavinMQ::AMQP::Exchange
+            if exchanges.add?(destination)
+              amqp_routing_key = mqtt_topic_to_amqp_routing_key(packet.topic)
+              amqp_msg = Message.new(timestamp, EXCHANGE, amqp_routing_key, properties, bodysize, body)
+              amqp_msg.properties.delivery_mode = qos
+              # Use route_msg directly to avoid creating new sets
+              if destination.route_msg(amqp_msg)
+                count += 1
+              end
+              amqp_msg.body_io.rewind
+            end
+          in LavinMQ::MQTT::Exchange
+            if exchanges.add?(destination)
+              destination.publish(msg, false, queues, exchanges)
+              msg.body_io.rewind
+            end
+          in LavinMQ::Exchange
+            if exchanges.add?(destination)
+              destination.publish(msg, false, queues, exchanges)
+              msg.body_io.rewind
+            end
           end
         end
+
+        queues.clear
+        exchanges.clear
         @unroutable_count.add(1, :relaxed) if count.zero?
         @publish_out_count.add(count, :relaxed)
         count
@@ -75,42 +128,61 @@ module LavinMQ
         end
       end
 
-      # Only here to make superclass happy
-      protected def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
+      protected def each_destination(routing_key : String, headers : AMQP::Table?, &_block : LavinMQ::Destination ->)
+        # Use only the subscription tree for all destinations (MQTT and AMQP)
       end
 
-      def bind(destination : MQTT::Session, routing_key : String, arguments = nil) : Bool
+      # Override to use the subscription tree
+      protected def find_queues_internal(routing_key, headers, queues, exchanges)
+        @tree.each_entry(routing_key) do |destination, _|
+          case destination
+          in LavinMQ::AMQP::Queue
+            queues.add(destination)
+          in LavinMQ::MQTT::Session
+            queues.add(destination)
+          in LavinMQ::Queue
+            queues.add(destination)
+          in LavinMQ::AMQP::Exchange
+            # Transform MQTT topic to AMQP routing key for AMQP exchanges
+            amqp_routing_key = mqtt_topic_to_amqp_routing_key(routing_key)
+            destination.find_queues(amqp_routing_key, headers, queues, exchanges)
+          in LavinMQ::MQTT::Exchange
+            destination.find_queues(routing_key, headers, queues, exchanges)
+          in LavinMQ::Exchange
+            destination.find_queues(routing_key, headers, queues, exchanges)
+          end
+        end
+      end
+
+      def bind(destination : Destination, routing_key : String, arguments = nil) : Bool
         qos = arguments.try { |h| h[QOS_HEADER]?.try(&.as(UInt8)) } || 0u8
         binding_key = BindingKey.new(routing_key, arguments)
         @bindings[binding_key].add destination
-        @tree.subscribe(routing_key, destination, qos)
+
+        # Convert AMQP routing key to MQTT topic pattern for subscription tree
+        mqtt_topic_pattern = amqp_routing_key_to_mqtt_topic(routing_key)
+        @tree.subscribe(mqtt_topic_pattern, destination, qos)
 
         data = BindingDetails.new(name, vhost.name, binding_key.inner, destination)
         notify_observers(ExchangeEvent::Bind, data)
         true
       end
 
-      def unbind(destination : MQTT::Session, routing_key, arguments = nil) : Bool
+      def unbind(destination : Destination, routing_key, arguments = nil) : Bool
         binding_key = BindingKey.new(routing_key, arguments)
         rk_bindings = @bindings[binding_key]
         rk_bindings.delete destination
         @bindings.delete binding_key if rk_bindings.empty?
 
-        @tree.unsubscribe(routing_key, destination)
+        # Convert AMQP routing key to MQTT topic pattern for subscription tree
+        mqtt_topic_pattern = amqp_routing_key_to_mqtt_topic(routing_key)
+        @tree.unsubscribe(mqtt_topic_pattern, destination)
 
         data = BindingDetails.new(name, vhost.name, binding_key.inner, destination)
         notify_observers(ExchangeEvent::Unbind, data)
 
         delete if @auto_delete && @bindings.each_value.all?(&.empty?)
         true
-      end
-
-      def bind(destination : Destination, routing_key : String, arguments = nil) : Bool
-        raise LavinMQ::Exchange::AccessRefused.new(self)
-      end
-
-      def unbind(destination : Destination, routing_key, arguments = nil) : Bool
-        raise LavinMQ::Exchange::AccessRefused.new(self)
       end
 
       def apply_policy(policy : Policy?, operator_policy : OperatorPolicy?)
