@@ -258,7 +258,7 @@ module LavinMQ
           case d
           in LavinMQ::Queue
             # Prevent routing to own internal delayed queue to avoid infinite loops
-            unless delayed? && d.name == "amq.delayed.#{@name}"
+            unless delayed? && d == @delayed_queue
               queues.add(d)
             end
           in LavinMQ::Exchange
