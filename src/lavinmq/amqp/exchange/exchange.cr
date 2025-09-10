@@ -190,7 +190,7 @@ module LavinMQ
 
       protected def validate_delayed_binding(destination : AMQP::Destination) : Bool
         return true unless delayed?
-        if destination.is_a?(Queue) && destination.name == "amq.delayed.#{@name}"
+        if destination == @delayed_queue
           raise LavinMQ::Error::PreconditionFailed.new("Cannot bind delayed exchange '#{@name}' to its internal delayed queue '#{destination.name}'")
         end
         true
