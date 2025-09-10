@@ -155,4 +155,48 @@ describe "Delayed Message Exchange" do
       end
     end
   end
+
+  it "should prevent binding delayed exchange to its own internal queue" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        x = ch.exchange(x_name, "topic", args: x_args)
+        
+        # The internal delayed queue should exist
+        internal_queue_name = "amq.delayed.#{x_name}"
+        internal_queue = s.vhosts["/"].queues[internal_queue_name]?
+        internal_queue.should_not be_nil
+        
+        # Attempting to bind the delayed exchange to its internal queue should raise an error
+        expect_raises(AMQP::Client::Channel::ClosedException, /Cannot bind delayed exchange/) do
+          ch.queue_bind(internal_queue_name, x_name, "#")
+        end
+      end
+    end
+  end
+
+  it "should not route messages to its own internal queue even if bound" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        x = ch.exchange(x_name, "topic", args: x_args)
+        q = ch.queue(q_name)
+        q.bind(x.name, "#")
+        
+        # Even if somehow a binding existed (shouldn't happen due to bind validation),
+        # routing should skip the internal delayed queue
+        internal_queue_name = "amq.delayed.#{x_name}"
+        
+        # Publish a message without delay (should route normally)
+        x.publish "test message", "test.routing.key"
+        
+        # Message should reach the bound queue, not create a loop
+        queue = s.vhosts["/"].queues[q_name]
+        wait_for { queue.message_count == 1 }
+        queue.message_count.should eq 1
+        
+        # Internal delayed queue should remain empty
+        internal_queue = s.vhosts["/"].queues[internal_queue_name]
+        internal_queue.message_count.should eq 0
+      end
+    end
+  end
 end

@@ -20,6 +20,7 @@ module LavinMQ
       end
 
       def bind(destination : AMQP::Destination, routing_key, arguments = nil)
+        validate_delayed_binding(destination)
         binding_key = BindingKey.new(routing_key, arguments)
         return false unless @bindings[routing_key.split(".")].add?({destination, binding_key})
         data = BindingDetails.new(name, vhost.name, binding_key, destination)

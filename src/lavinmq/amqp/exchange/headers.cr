@@ -27,6 +27,7 @@ module LavinMQ
       end
 
       def bind(destination : Destination, routing_key, arguments)
+        validate_delayed_binding(destination)
         validate!(arguments)
         arguments ||= AMQP::Table.new
         binding_key = BindingKey.new(routing_key, arguments)

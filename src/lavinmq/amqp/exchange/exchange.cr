@@ -188,6 +188,14 @@ module LavinMQ
         raise AccessRefused.new(self)
       end
 
+      protected def validate_delayed_binding(destination : AMQP::Destination) : Bool
+        return true unless delayed?
+        if destination.is_a?(Queue) && destination.name == "amq.delayed.#{@name}"
+          raise LavinMQ::Error::PreconditionFailed.new("Cannot bind delayed exchange '#{@name}' to its internal delayed queue '#{destination.name}'")
+        end
+        true
+      end
+
       abstract def type : String
       abstract def bind(destination : AMQP::Destination, routing_key : String, arguments : AMQP::Table?)
       abstract def unbind(destination : AMQP::Destination, routing_key : String, arguments : AMQP::Table?)
@@ -249,7 +257,10 @@ module LavinMQ
         each_destination(routing_key, headers) do |d|
           case d
           in LavinMQ::Queue
-            queues.add(d)
+            # Prevent routing to own internal delayed queue to avoid infinite loops
+            unless delayed? && d.name == "amq.delayed.#{@name}"
+              queues.add(d)
+            end
           in LavinMQ::Exchange
             d.find_queues(routing_key, headers, queues, exchanges)
           end
