@@ -76,8 +76,8 @@ function renderTable (id, options = {}, renderRow) {
             t.insertBefore(foundRow, currentRow)
           }
         } else {
-          // New item, create new row
-          const tr = t.insertRow(i)
+          // New item, create new row (clamp i to allowed maximum for logs)
+          const tr = t.insertRow(Math.min(i, t.rows.length))
           setKeyAttributes(tr, item)
           renderRow(tr, item, true)
         }
@@ -101,24 +101,35 @@ function renderTable (id, options = {}, renderRow) {
     keyColumns.forEach(key => { tr.dataset[key] = JSON.stringify(item[key]) })
   }
 
-  function renderSearch (conatiner, dataSource) {
+  function renderSearch (container, dataSource) {
     const form = document.createElement('form')
     form.classList.add('form')
     form.addEventListener('submit', (e) => { e.preventDefault() })
+
     const filterInput = document.createElement('input')
     filterInput.classList.add('filter-table')
     filterInput.placeholder = 'Filter regex'
     filterInput.value = dataSource.searchTerm ?? ''
     form.appendChild(filterInput)
     container.insertBefore(form, container.children[0])
-    container.addEventListener('keyup', e => {
-      if (!e.target.classList.contains('filter-table')) return true
+    
+    const apply = () => {
+      dataSource.searchTerm = filterInput.value
+      dataSource.page = 1
+      reload()
+    }
+    let liveType 
+    filterInput.addEventListener('input', () => {
+      clearTimeout(liveType)
+      liveType = setTimeout(apply, 120)
+    })
+    filterInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
-        dataSource.searchTerm = e.target.value
-        dataSource.page = 1
-        reload()
+        e.preventDefault()
+        apply()
       }
     })
+
     dataSource.on('update', _ => {
       if (filterInput !== document.activeElement) {
         filterInput.value = dataSource.searchTerm
