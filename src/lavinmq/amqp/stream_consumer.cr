@@ -156,6 +156,10 @@ module LavinMQ
         @queue.as(StreamQueue)
       end
 
+      def waiting_for_messages?
+        (@offset + @prefetch_count) >= stream_queue.last_offset && accepts?
+      end
+
       def ack(sp)
         stream_queue.store_consumer_offset(@tag, @offset) if @track_offset
         super

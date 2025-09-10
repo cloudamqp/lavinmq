@@ -112,7 +112,7 @@ module LavinMQ::AMQP
     private def notify_all_stream_consumers
       @consumers.each do |consumer|
         if stream_consumer = consumer.as?(AMQP::StreamConsumer)
-          stream_consumer.notify_new_message
+          stream_consumer.notify_new_message if stream_consumer.waiting_for_messages?
         end
       end
     end
