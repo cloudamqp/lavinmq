@@ -188,7 +188,7 @@ module LavinMQ
         raise AccessRefused.new(self)
       end
 
-      protected def validate_delayed_binding(destination : AMQP::Destination) : Bool
+      protected def validate_delayed_binding!(destination : AMQP::Destination) : Bool
         return true unless delayed?
         if destination == @delayed_queue
           raise LavinMQ::Error::PreconditionFailed.new("Cannot bind delayed exchange '#{@name}' to its internal delayed queue '#{destination.name}'")
