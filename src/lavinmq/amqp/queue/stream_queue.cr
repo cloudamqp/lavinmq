@@ -55,6 +55,8 @@ module LavinMQ::AMQP
         @msg_store.push(msg)
         @publish_count.add(1, :relaxed)
       end
+      # Notify all waiting stream consumers about new messages
+      notify_all_stream_consumers
       true
     rescue ex : MessageStore::Error
       @log.error(ex) { "Queue closed due to error" }
@@ -105,6 +107,14 @@ module LavinMQ::AMQP
 
     private def drop_overflow : Nil
       # Overflow handling is done in StreamQueueMessageStore
+    end
+
+    private def notify_all_stream_consumers
+      @consumers.each do |consumer|
+        if stream_consumer = consumer.as?(AMQP::StreamConsumer)
+          stream_consumer.notify_new_message if stream_consumer.waiting_for_messages?
+        end
+      end
     end
 
     private def handle_arguments

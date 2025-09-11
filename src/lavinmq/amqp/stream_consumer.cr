@@ -134,8 +134,9 @@ module LavinMQ
         if @offset > stream_queue.last_offset && @requeued.empty?
           @log.debug { "Waiting for queue not to be empty" }
           select
-          when stream_queue.new_messages.receive
-            @log.debug { "Queue is not empty" }
+          when @new_message_available.when_true.receive
+            @log.debug { "Queue is not empty - new message notification received" }
+            @new_message_available.set(false) # Reset the flag
           when @has_requeued.when_true.receive
             @log.debug { "Got a requeued message" }
           when @notify_closed.receive
@@ -145,9 +146,18 @@ module LavinMQ
       end
 
       @has_requeued = BoolChannel.new(false)
+      @new_message_available = BoolChannel.new(false)
+
+      def notify_new_message
+        @new_message_available.set(true)
+      end
 
       private def stream_queue : StreamQueue
         @queue.as(StreamQueue)
+      end
+
+      def waiting_for_messages?
+        (@offset + @prefetch_count) >= stream_queue.last_offset && accepts?
       end
 
       def ack(sp)
@@ -161,6 +171,11 @@ module LavinMQ
           @requeued.push(sp)
           @has_requeued.set(true) if @requeued.size == 1
         end
+      end
+
+      def close
+        @new_message_available.close
+        super
       end
 
       def filter_match?(msg_headers) : Bool
