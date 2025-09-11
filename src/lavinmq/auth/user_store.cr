@@ -13,16 +13,35 @@ module LavinMQ
       end
 
       def initialize(@data_dir : String, @replicator : Clustering::Replicator)
-        @users = Hash(String, User).new
+        @users = Hash(String, User).new # CoW
+        @lock = Mutex.new
         load!
       end
-
-      forward_missing_to @users
 
       def each(&)
         @users.each do |kv|
           yield kv
         end
+      end
+
+      def each_value
+        @users.each_value
+      end
+
+      def select(*keys)
+        @users.select(*keys)
+      end
+
+      def capacity
+        @users.capacity
+      end
+
+      def []?(name : String) : User?
+        @users[name]?
+      end
+
+      def [](name : String) : User
+        @users[name]
       end
 
       # Adds a user to the use store
@@ -31,31 +50,42 @@ module LavinMQ
           return user
         end
         user = User.create(name, password, "SHA256", tags)
-        @users[name] = user
+        @lock.synchronize do
+          new_users = @users.dup
+          new_users[name] = user
+          @users = new_users
+          save! if save
+        end
         Log.info { "Created user=#{name}" }
-        save! if save
         user
       end
 
       def add(name, password_hash, password_algorithm, tags = Array(Tag).new, save = true)
+        if user = @users[name]?
+          return user
+        end
         user = User.new(name, password_hash, password_algorithm, tags)
-        @users[name] = user
-        save! if save
+        @lock.synchronize do
+          new_users = @users.dup
+          new_users[name] = user
+          @users = new_users
+          save! if save
+        end
         user
       end
 
       def add_permission(user, vhost, config, read, write)
         perm = {config: config, read: read, write: write}
-        if @users[user].permissions[vhost]? && @users[user].permissions[vhost] == perm
+        if @users[user].permission?(vhost) == perm
           return perm
         end
-        @users[user].permissions[vhost] = perm
+        @users[user].set_permission(vhost, perm)
         save!
         perm
       end
 
       def rm_permission(user, vhost)
-        if perm = @users[user].permissions.delete vhost
+        if perm = @users[user].remove_permission vhost
           Log.info { "Removed permissions for user=#{user} on vhost=#{vhost}" }
           save!
           perm
@@ -64,16 +94,21 @@ module LavinMQ
 
       def rm_vhost_permissions_for_all(vhost)
         @users.each_value do |user|
-          user.permissions.delete(vhost)
+          user.remove_permission(vhost)
         end
         save!
       end
 
       def delete(name, save = true) : User?
         return if name == DIRECT_USER
-        if user = @users.delete name
-          Log.info { "Deleted user=#{name}" }
-          save! if save
+        if user = @users[name]?
+          @lock.synchronize do
+            new_users = @users.dup
+            new_users.delete(name)
+            @users = new_users
+            Log.info { "Deleted user=#{name}" }
+            save! if save
+          end
           user
         end
       end
@@ -94,7 +129,7 @@ module LavinMQ
 
       def to_json(json : JSON::Builder)
         json.array do
-          each_value do |user|
+          @users.each_value do |user|
             next if user.hidden?
             user.to_json(json)
           end
@@ -135,7 +170,7 @@ module LavinMQ
       private def create_direct_user
         @users[DIRECT_USER] = User.create_hidden_user(DIRECT_USER)
         perm = {config: /.*/, read: /.*/, write: /.*/}
-        @users[DIRECT_USER].permissions["/"] = perm
+        @users[DIRECT_USER].set_permission("/", perm)
       end
 
       def save!

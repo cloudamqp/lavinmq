@@ -124,11 +124,12 @@ module LavinMQ
           @arguments == frame_args
       end
 
-      def in_use?
+      def in_use? : Bool
         return true unless bindings_details.empty?
-        @vhost.exchanges.any? do |_, x|
-          x.bindings_details.any? { |bd| bd.destination == self }
+        @vhost.each_exchange do |x|
+          return true if x.bindings_details.any? { |bd| bd.destination == self }
         end
+        false
       end
 
       MAX_NAME_LENGTH = 256
@@ -147,7 +148,7 @@ module LavinMQ
                          else
                            AMQP::DelayedExchangeQueue.new(@vhost, q_name, false, false, arguments)
                          end
-        @vhost.queues[q_name] = @delayed_queue.as(Queue)
+        @vhost.add_queue(q_name, @delayed_queue.as(Queue))
       end
 
       REPUBLISH_HEADERS = {"x-head", "x-tail", "x-from"}
@@ -191,7 +192,7 @@ module LavinMQ
       abstract def type : String
       abstract def bind(destination : AMQP::Destination, routing_key : String, arguments : AMQP::Table?)
       abstract def unbind(destination : AMQP::Destination, routing_key : String, arguments : AMQP::Table?)
-      abstract def bindings_details : Iterator(BindingDetails)
+      abstract def bindings_details : Enumerable(BindingDetails)
       abstract def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
 
       def publish(msg : Message, immediate : Bool,
@@ -261,8 +262,8 @@ module LavinMQ
           hdrs.delete "BCC"
         end
 
-        if queues.empty? && alternate_exchange
-          @vhost.exchanges[alternate_exchange]?.try do |ae|
+        if queues.empty? && (ae_name = alternate_exchange)
+          @vhost.exchange(ae_name).try do |ae|
             ae.find_queues(routing_key, headers, queues, exchanges)
           end
         end

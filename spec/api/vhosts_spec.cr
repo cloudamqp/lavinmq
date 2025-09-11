@@ -88,7 +88,7 @@ describe LavinMQ::HTTP::VHostsController do
         hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
         response = http.put("/api/vhosts/#{vhost}", headers: hdrs)
         response.status_code.should eq 201
-        p = user.permissions[vhost]
+        p = user.permission?(vhost).not_nil!
         p[:config].should eq /.*/
         p[:read].should eq /.*/
         p[:write].should eq /.*/

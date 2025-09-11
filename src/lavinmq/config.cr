@@ -74,6 +74,7 @@ module LavinMQ
     property default_user : String = ENV.fetch("LAVINMQ_DEFAULT_USER", "guest")
     property default_password : String = ENV.fetch("LAVINMQ_DEFAULT_PASSWORD", DEFAULT_PASSWORD_HASH) # Hashed password for default user
     property max_consumers_per_channel = 0
+    property? multi_threading = false
     @@instance : Config = self.new
 
     def self.instance : LavinMQ::Config
@@ -117,6 +118,7 @@ module LavinMQ
         end
         p.on("--no-data-dir-lock", "Don't put a file lock in the data directory (default: true)") { @data_dir_lock = false }
         p.on("--raise-gc-warn", "Raise on GC warnings (default: false)") { @raise_gc_warn = true }
+        p.on("--multi-threading", "Enable multi-threading support (default: false)") { @multi_threading = true }
 
         p.separator("\nBindings & TLS:")
         p.on("-b BIND", "--bind=BIND", "IP address that the AMQP, MQTT and HTTP servers will listen on (default: 127.0.0.1)") do |v|
@@ -382,6 +384,7 @@ module LavinMQ
         case config
         when "yield_each_delivered_bytes" then @yield_each_delivered_bytes = v.to_i32
         when "yield_each_received_bytes"  then @yield_each_received_bytes = v.to_i32
+        when "multi_threading"            then @multi_threading = true?(v)
         else
           STDERR.puts "WARNING: Unrecognized configuration 'experimental/#{config}'"
         end

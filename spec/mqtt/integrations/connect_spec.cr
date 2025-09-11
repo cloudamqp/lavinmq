@@ -314,7 +314,11 @@ module MqttSpecs
               disconnect(io)
             end
             sleep 100.milliseconds
-            server.vhosts["/"].queues["mqtt.client_id"].consumers.should be_empty
+            if q = server.vhosts["/"].queue("mqtt.client_id")
+              q.consumers_empty?.should be_true
+            else
+              fail("Expected queue to exist")
+            end
           end
         end
       end

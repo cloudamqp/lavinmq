@@ -128,8 +128,8 @@ describe LavinMQ::HTTP::QueuesController do
             2.times { q.publish "m1" }
             q.subscribe(no_ack: false) { }
 
-            wait_for { s.vhosts["/"].queues["unacked_q"].unacked_count == 2 }
-            s.vhosts["/"].queues["unacked_q"].basic_get_unacked.size.should eq 0
+            wait_for { s.vhosts["/"].queue("unacked_q").not_nil!.unacked_count == 2 }
+            s.vhosts["/"].queue("unacked_q").not_nil!.basic_get_unacked.size.should eq 0
             response = http.get("/api/queues/%2f/unacked_q/unacked?page=1&page_size=100")
             response.status_code.should eq 200
             body = JSON.parse(response.body)
@@ -147,7 +147,7 @@ describe LavinMQ::HTTP::QueuesController do
             q.subscribe(no_ack: false) do |msg|
               msg.ack
             end
-            wait_for { s.vhosts["/"].queues["unacked_q"].unacked_count == 0 }
+            wait_for { s.vhosts["/"].queue("unacked_q").not_nil!.unacked_count == 0 }
 
             response = http.get("/api/queues/%2f/unacked_q/unacked?page=1&page_size=100")
             response.status_code.should eq 200
@@ -166,7 +166,7 @@ describe LavinMQ::HTTP::QueuesController do
             q.subscribe(no_ack: false) do |msg|
               msg.reject
             end
-            wait_for { s.vhosts["/"].queues["unacked_q"].unacked_count == 0 }
+            wait_for { s.vhosts["/"].queue("unacked_q").not_nil!.unacked_count == 0 }
 
             response = http.get("/api/queues/%2f/unacked_q/unacked?page=1&page_size=100")
             response.status_code.should eq 200
@@ -185,7 +185,7 @@ describe LavinMQ::HTTP::QueuesController do
             q.publish "m1"
 
             q.get(no_ack: false)
-            wait_for { s.vhosts["/"].queues["unacked_q"].basic_get_unacked.size == 1 }
+            wait_for { s.vhosts["/"].queue("unacked_q").not_nil!.basic_get_unacked.size == 1 }
             response = http.get("/api/queues/%2f/unacked_q/unacked?page=1&page_size=100")
             response.status_code.should eq 200
             body = JSON.parse(response.body)
@@ -201,10 +201,10 @@ describe LavinMQ::HTTP::QueuesController do
             q.publish "m1"
             ch.prefetch(1)
             if msg = q.get(no_ack: false)
-              wait_for { s.vhosts["/"].queues["unacked_q"].unacked_count == 1 }
+              wait_for { s.vhosts["/"].queue("unacked_q").not_nil!.unacked_count == 1 }
               msg.ack
             end
-            wait_for { s.vhosts["/"].queues["unacked_q"].unacked_count == 0 }
+            wait_for { s.vhosts["/"].queue("unacked_q").not_nil!.unacked_count == 0 }
             response = http.get("/api/queues/%2f/unacked_q/unacked?page=1&page_size=100")
             response.status_code.should eq 200
             body = JSON.parse(response.body)
@@ -221,10 +221,10 @@ describe LavinMQ::HTTP::QueuesController do
 
             ch.prefetch(1)
             if msg = q.get(no_ack: false)
-              wait_for { s.vhosts["/"].queues["unacked_q"].unacked_count == 1 }
+              wait_for { s.vhosts["/"].queue("unacked_q").not_nil!.unacked_count == 1 }
               msg.reject
             end
-            wait_for { s.vhosts["/"].queues["unacked_q"].unacked_count == 0 }
+            wait_for { s.vhosts["/"].queue("unacked_q").not_nil!.unacked_count == 0 }
             response = http.get("/api/queues/%2f/unacked_q/unacked?page=1&page_size=100")
             response.status_code.should eq 200
             body = JSON.parse(response.body)
@@ -241,9 +241,9 @@ describe LavinMQ::HTTP::QueuesController do
 
             ch.prefetch(1)
             q.get(no_ack: false)
-            wait_for { s.vhosts["/"].queues["unacked_q"].unacked_count == 1 }
+            wait_for { s.vhosts["/"].queue("unacked_q").not_nil!.unacked_count == 1 }
           end
-          wait_for { s.vhosts["/"].queues["unacked_q"].unacked_count == 0 }
+          wait_for { s.vhosts["/"].queue("unacked_q").not_nil!.unacked_count == 0 }
           response = http.get("/api/queues/%2f/unacked_q/unacked?page=1&page_size=100")
           response.status_code.should eq 200
           body = JSON.parse(response.body)
@@ -364,7 +364,7 @@ describe LavinMQ::HTTP::QueuesController do
           keys = ["payload_bytes", "redelivered", "exchange", "routing_key", "message_count",
                   "properties", "payload", "payload_encoding"]
           body.as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
-          s.vhosts["/"].queues["q3"].message_count.should be > 0
+          s.vhosts["/"].queue("q3").not_nil!.message_count.should be > 0
         end
       end
     end
@@ -374,7 +374,7 @@ describe LavinMQ::HTTP::QueuesController do
       with_http_server do |http, s|
         with_channel(s) do |ch|
           q = ch.queue("q4")
-          q4 = s.vhosts["/"].queues["q4"]
+          q4 = s.vhosts["/"].queue("q4").not_nil!
           q.publish "m1"
           wait_for { q4.message_count == 1 }
           body = %({ "count": 1, "ack_mode": "get", "encoding": "auto" })
@@ -391,7 +391,7 @@ describe LavinMQ::HTTP::QueuesController do
       with_http_server do |http, s|
         with_channel(s) do |ch|
           q = ch.queue("q4")
-          q4 = s.vhosts["/"].queues["q4"]
+          q4 = s.vhosts["/"].queue("q4").not_nil!
           mem_io = IO::Memory.new
           Compress::Deflate::Writer.open(mem_io, Compress::Deflate::BEST_SPEED) { |deflate| deflate.print("m1") }
           encoded_msg = mem_io.to_s
@@ -502,7 +502,7 @@ describe LavinMQ::HTTP::QueuesController do
         with_channel(s) do |ch|
           ch.queue("confqueue")
 
-          q = s.vhosts["/"].queues["confqueue"]
+          q = s.vhosts["/"].queue("confqueue").not_nil!
           q.pause!
 
           response = http.get("/api/queues/%2f/confqueue")

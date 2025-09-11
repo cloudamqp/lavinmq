@@ -14,7 +14,7 @@ describe LavinMQ::AMQP::DurableQueue do
       config = LavinMQ::Config.new.tap &.data_dir = "/tmp/lavinmq-spec-index-v2"
       server = LavinMQ::Server.new(config)
       begin
-        q = server.vhosts["/"].queues["queue"].as(LavinMQ::AMQP::DurableQueue)
+        q = server.vhosts["/"].queue("queue").not_nil!.as(LavinMQ::AMQP::DurableQueue)
         q.basic_get(true) do |env|
           String.new(env.message.body).to_s.should eq "message"
         end.should be_true
@@ -31,7 +31,7 @@ describe LavinMQ::AMQP::DurableQueue do
           vhost = s.vhosts.create("corrupt_vhost")
           with_channel(s, vhost: vhost.name) do |ch|
             q = ch.queue("corrupt_q")
-            queue = vhost.queues["corrupt_q"].as(LavinMQ::AMQP::DurableQueue)
+            queue = vhost.queue("corrupt_q").not_nil!.as(LavinMQ::AMQP::DurableQueue)
             q.publish_confirm "test message"
 
             sleep 10.milliseconds
@@ -57,7 +57,7 @@ describe LavinMQ::AMQP::DurableQueue do
         enq_path = ""
         with_channel(s, vhost: vhost.name) do |ch|
           q = ch.queue("corrupt_q2")
-          queue = vhost.queues["corrupt_q2"].as(LavinMQ::AMQP::DurableQueue)
+          queue = vhost.queue("corrupt_q2").not_nil!.as(LavinMQ::AMQP::DurableQueue)
           enq_path = queue.@msg_store.@segments.last_value.path
           2.times do |i|
             q.publish_confirm "test message #{i}"
@@ -82,7 +82,7 @@ describe LavinMQ::AMQP::DurableQueue do
       with_channel(s) do |ch|
         q = ch.queue("corruption_test", durable: true)
         q.publish_confirm "Hello world"
-        queue = s.vhosts["/"].queues["corruption_test"].as(LavinMQ::AMQP::DurableQueue)
+        queue = s.vhosts["/"].queue("corruption_test").not_nil!.as(LavinMQ::AMQP::DurableQueue)
         enq_path = queue.@msg_store.@segments.last_value.path
       end
       s.stop
@@ -95,7 +95,7 @@ describe LavinMQ::AMQP::DurableQueue do
         q.publish_confirm "Hello world"
       end
       s.restart
-      queue = s.vhosts["/"].queues["corruption_test"].as(LavinMQ::AMQP::DurableQueue)
+      queue = s.vhosts["/"].queue("corruption_test").not_nil!.as(LavinMQ::AMQP::DurableQueue)
       queue.message_count.should eq 2
     end
   end
@@ -106,7 +106,7 @@ describe LavinMQ::AMQP::DurableQueue do
       vhost = s.vhosts.create("test_vhost")
       with_channel(s, vhost: vhost.name) do |ch|
         q = ch.queue(queue_name)
-        queue = vhost.queues[queue_name].as(LavinMQ::AMQP::DurableQueue)
+        queue = vhost.queue(queue_name).not_nil!.as(LavinMQ::AMQP::DurableQueue)
         mfile = queue.@msg_store.@segments.first_value
 
         # fill up one segment
@@ -136,7 +136,7 @@ describe LavinMQ::AMQP::DurableQueue do
       vhost = s.vhosts.create("test_vhost")
       with_channel(s, vhost: vhost.name) do |ch|
         q = ch.queue(queue_name)
-        queue = vhost.queues[queue_name].as(LavinMQ::AMQP::DurableQueue)
+        queue = vhost.queue(queue_name).not_nil!.as(LavinMQ::AMQP::DurableQueue)
         mfile = queue.@msg_store.@segments.first_value
 
         # fill up one segment
@@ -173,7 +173,7 @@ describe LavinMQ::AMQP::DurableQueue do
       vhost = s.vhosts.create("test_vhost")
       with_channel(s, vhost: vhost.name) do |ch|
         q = ch.queue(rk, durable: true)
-        queue = vhost.queues[rk].as(LavinMQ::AMQP::DurableQueue)
+        queue = vhost.queue(rk).not_nil!.as(LavinMQ::AMQP::DurableQueue)
         q.publish_confirm "a"
         store = LavinMQ::MessageStore.new(queue.@msg_store.@msg_dir, nil)
 

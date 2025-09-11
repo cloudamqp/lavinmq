@@ -12,20 +12,28 @@ module LavinMQ
       metadata = vhost ? ::Log::Metadata.build({vhost: vhost}) : ::Log::Metadata.empty
       @log = Logger.new(Log, metadata)
       @parameters = Hash(ParameterId?, T).new
+      @lock = Mutex.new
       load!
     end
 
-    forward_missing_to @parameters
-
     def create(parameter : T, save = true)
-      @parameters[parameter.name] = parameter
-      save! if save
+      @lock.synchronize do
+        parameters = @parameters.dup
+        parameters[parameter.name] = parameter
+        @parameters = parameters
+        save! if save
+      end
     end
 
     def delete(id, save = true) : T?
-      if parameter = @parameters.delete id
-        save! if save
-        parameter
+      @lock.synchronize do
+        if @parameters.has_key? id
+          parameters = @parameters.dup
+          parameter = parameters.delete id
+          @parameters = parameters
+          save! if save
+          parameter
+        end
       end
     end
 
@@ -48,6 +56,32 @@ module LavinMQ
       @parameters.each do |kv|
         yield kv
       end
+    end
+
+    def each_value(&)
+      @parameters.each_value do |v|
+        yield v
+      end
+    end
+
+    def each_value
+      @parameters.each_value
+    end
+
+    def values
+      @parameters.values
+    end
+
+    def []?(id : ParameterId?) : T?
+      @parameters[id]?
+    end
+
+    def [](id : ParameterId?) : T
+      @parameters[id]
+    end
+
+    def has_key?(id : ParameterId?) : Bool
+      @parameters.has_key? id
     end
 
     def to_json(json : JSON::Builder)

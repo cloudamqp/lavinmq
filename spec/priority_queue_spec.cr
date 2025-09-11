@@ -34,7 +34,7 @@ describe LavinMQ::AMQP::PriorityQueue do
 
           server = LavinMQ::Server.new(cluster.follower_config)
           begin
-            q = server.vhosts["/"].queues["repli"].as(LavinMQ::AMQP::DurablePriorityQueue)
+            q = server.vhosts["/"].queue("repli").not_nil!.as(LavinMQ::AMQP::DurablePriorityQueue)
             q.message_count.should eq 1
             q.basic_get(true) do |env|
               env.message.properties.priority.should eq 1
