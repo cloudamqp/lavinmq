@@ -1,6 +1,11 @@
-ARG build_image=84codes/crystal:latest-fedora-39
+ARG build_image=84codes/crystal:latest-fedora-42
 
 FROM $build_image AS builder
+# Enable CRB repository for el-9 to access help2man
+RUN if grep -q 'PLATFORM_ID="platform:el9"' /etc/os-release; then \
+      dnf install -y dnf-plugins-core && \
+      dnf config-manager --enable crb; \
+    fi
 RUN dnf install -y --nodocs --setopt=install_weak_deps=False \
     rpmdevtools rpmlint systemd-rpm-macros make help2man lz4-devel
 RUN rpmdev-setuptree
@@ -18,7 +23,7 @@ ARG MAKEFLAGS=-j2
 RUN rpmbuild -ba /root/rpmbuild/SPECS/lavinmq.spec
 RUN rpmlint /root/rpmbuild/RPMS/* || true
 
-FROM fedora:39 AS test
+FROM fedora:42 AS test
 COPY --from=builder /root/rpmbuild/RPMS /tmp/RPMS
 RUN find /tmp/RPMS -type f -exec dnf install -y {} \;
 RUN lavinmq --version
