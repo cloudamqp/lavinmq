@@ -461,4 +461,30 @@ describe LavinMQ::AMQP::Queue do
       end
     end
   end
+
+  describe "unacked_bytesize" do
+    it "should count bytes for all unacked messages" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue
+          sq = s.vhosts["/"].queues[q.name].should be_a LavinMQ::AMQP::Queue
+
+          q.publish_confirm "a"
+          q.publish_confirm "b"
+
+          msg_store = sq.@msg_store
+          bytesize = msg_store.bytesize
+
+          msg = q.get(no_ack: false).should_not be_nil
+          q.get(no_ack: false).should_not be_nil
+          sq.unacked_count.should eq 2
+          sq.unacked_bytesize.should eq bytesize
+          msg.ack
+          sleep 10.milliseconds
+          sq.unacked_count.should eq 1
+          sq.unacked_bytesize.should eq(bytesize/2)
+        end
+      end
+    end
+  end
 end
