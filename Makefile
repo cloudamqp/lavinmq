@@ -62,25 +62,25 @@ bin static/js/lib man1 static/js/lib/chunks:
 	mkdir -p $@
 
 static/js/lib/chart.js: | static/js/lib
-	curl --retry 5 -sL https://github.com/chartjs/Chart.js/releases/download/v4.0.1/chart.js-4.0.1.tgz | \
+	curl --fail --retry 5 -sL https://github.com/chartjs/Chart.js/releases/download/v4.0.1/chart.js-4.0.1.tgz | \
 		tar -zxOf- package/dist/chart.js > $@
 
 static/js/lib/chunks/helpers.segment.js: | static/js/lib/chunks
-	curl --retry 5 -sL https://github.com/chartjs/Chart.js/releases/download/v4.0.1/chart.js-4.0.1.tgz | \
+	curl --fail --retry 5 -sL https://github.com/chartjs/Chart.js/releases/download/v4.0.1/chart.js-4.0.1.tgz | \
 		tar -zxOf- package/dist/chunks/helpers.segment.js > $@
 
 static/js/lib/luxon.js: | static/js/lib
-	curl --retry 5 -sLo $@ https://moment.github.io/luxon/es6/luxon.mjs
+	curl --fail --retry 5 -sLo $@ https://moment.github.io/luxon/es6/luxon.mjs
 
 static/js/lib/chartjs-adapter-luxon.esm.js: | static/js/lib
-	curl --retry 5 -sLo $@ https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.esm.js
+	curl --fail --retry 5 -sLo $@ https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.esm.js
 	sed -i'' -e "s|\(import { _adapters } from\).*|\1 './chart.js'|; s|\(import { DateTime } from\).*|\1 './luxon.js'|" $@
 
 static/js/lib/elements-8.2.0.js: | static/js/lib
-	curl --retry 5 -sLo $@ https://unpkg.com/@stoplight/elements@8.2.0/web-components.min.js
+	curl --fail --retry 5 -sLo $@ https://unpkg.com/@stoplight/elements@8.2.0/web-components.min.js
 
 static/js/lib/elements-8.2.0.css: | static/js/lib
-	curl --retry 5 -sLo $@ https://unpkg.com/@stoplight/elements@8.2.0/styles.min.css
+	curl --fail --retry 5 -sLo $@ https://unpkg.com/@stoplight/elements@8.2.0/styles.min.css
 
 man1/lavinmq.1: bin/lavinmq | man1
 	help2man -Nn "fast and advanced message queue server" $< -o $@
