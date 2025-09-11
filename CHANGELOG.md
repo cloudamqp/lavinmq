@@ -10,7 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Broken javascript dependency [#1247](https://github.com/cloudamqp/lavinmq/pull/1247)
 - Queue `unacked_bytesize` return `unacked_count` [#1250](https://github.com/cloudamqp/lavinmq/pull/1250)
-- Fix bug where only one consumer got notified about new messages in a stream [#1253](https://github.com/cloudamqp/lavinmq/pull/1253)
+- Fix bug where only one consumer got notified about new messages in a stream [#1253](https://github.com/cloudamqp/lavinmq/pull/1253
+- Fix bug where a stream consumer's deliver loop could loop for infinity [#1254](https://github.com/cloudamqp/lavinmq/pull/1254)
 
 ## [2.4.2] - 2025-09-10
 
