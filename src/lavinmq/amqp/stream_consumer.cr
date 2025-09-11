@@ -137,15 +137,12 @@ module LavinMQ
           when @new_message_available.when_true.receive
             @log.debug { "Queue is not empty - new message notification received" }
             @new_message_available.set(false) # Reset the flag
-          when @has_requeued.when_true.receive
-            @log.debug { "Got a requeued message" }
           when @notify_closed.receive
           end
           return true
         end
       end
 
-      @has_requeued = BoolChannel.new(false)
       @new_message_available = BoolChannel.new(false)
 
       def notify_new_message
@@ -169,7 +166,7 @@ module LavinMQ
         super
         if requeue
           @requeued.push(sp)
-          @has_requeued.set(true) if @requeued.size == 1
+          @new_message_available.set(true) if @requeued.size == 1
         end
       end
 
