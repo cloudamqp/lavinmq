@@ -63,7 +63,7 @@ bin static/js/lib man1 static/js/lib/chunks:
 
 static/js/lib/chart.js: | static/js/lib
 	curl --fail --retry 5 -sL -o chart.js.tgz https://github.com/chartjs/Chart.js/releases/download/v4.0.1/chart.js-4.0.1.tgz && \
-		(echo "461dae2edc0eda7beeb16c7030ab630ab5129aedd3fc6de9a036f6dfe488556f chart.js.tgz" | sha256sum -c - && \
+		echo "461dae2edc0eda7beeb16c7030ab630ab5129aedd3fc6de9a036f6dfe488556f chart.js.tgz" | sha256sum -c - && \
 		tar -zxOf chart.js.tgz package/dist/chart.js > $@ ; \
 		(rm chart.js.tgz && echo "removed chart.js.tgz")
 
