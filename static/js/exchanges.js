@@ -8,9 +8,12 @@ Helpers.addVhostOptions('addExchange')
 HTTP.request('GET', 'api/overview').then(function (response) {
   const exchangeTypes = response.exchange_types
   const select = document.forms.addExchange.elements.type
-  exchangeTypes.forEach(type => {
+  exchangeTypes.forEach( item => {
+    const name  = (item && typeof item === 'object') ? item.name : item
+    const human = (item && typeof item === 'object' && 'human' in item) ? item.human : undefined
     const opt = document.createElement('option')
-    opt.text = type.name
+    opt.text = human || name
+    opt.value = name
     select.add(opt)
   })
 })

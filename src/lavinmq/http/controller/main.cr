@@ -8,9 +8,16 @@ module LavinMQ
       include StatsHelpers
 
       OVERVIEW_STATS = {"ack", "deliver", "get", "deliver_get", "publish", "confirm", "redeliver", "reject"}
-      EXCHANGE_TYPES = {"direct", "fanout", "topic", "headers", "x-federation-upstream", "x-consistent-hash"}
-      CHURN_STATS    = {"connection_created", "connection_closed", "channel_created", "channel_closed",
-                        "queue_declared", "queue_deleted"}
+      EXCHANGE_TYPES = {
+        {name: "direct", human: "Direct"},
+        {name: "fanout", human: "Fanout"},
+        {name: "topic", human: "Topic"},
+        {name: "headers", human: "Headers"},
+        {name: "x-federation-upstream", human: "Federation Upstream"},
+        {name: "x-consistent-hash", human: "Consistent Hash"},
+      }
+      CHURN_STATS = {"connection_created", "connection_closed", "channel_created", "channel_closed",
+                     "queue_declared", "queue_deleted"}
 
       private def register_routes
         get "/api/overview" do |context, _params|
@@ -105,7 +112,7 @@ module LavinMQ
               },
             {% end %} } {% end %},
             listeners:      @amqp_server.listeners,
-            exchange_types: EXCHANGE_TYPES.map { |name| {name: name} },
+            exchange_types: EXCHANGE_TYPES.map { |t| {name: t[:name], human: t[:human]} },
           }.to_json(context.response)
           context
         end
