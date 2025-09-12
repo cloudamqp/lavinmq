@@ -49,6 +49,7 @@ jobs:
             - Security concerns
             - Test coverage
 
+            Keep the review short and focus on if there are any issues or improvements needed.
             Be constructive and helpful in your feedback.
 
           # Optional: Use sticky comments to make Claude reuse the same comment on subsequent pushes to the same PR
