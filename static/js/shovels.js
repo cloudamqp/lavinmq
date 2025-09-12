@@ -57,20 +57,28 @@ const tableOptions = { keyColumns: ['vhost', 'name'], columnSelector: true, data
 Table.renderTable('table', tableOptions, (tr, item, all) => {
   Table.renderCell(tr, 0, item.vhost)
   Table.renderCell(tr, 1, item.name)
-  Table.renderCell(tr, 2, decodeURI(item.value['src-uri'].replace(/:([^:]+)@/, ':***@')))
+  if (Array.isArray(item.value['src-uri'])) {
+    Table.renderCell(tr, 2, item.value['src-uri'].map(uri => decodeURI(uri.replace(/:([^:]+)@/, ':***@'))).join(', '))
+  } else {
+    Table.renderCell(tr, 2, decodeURI(item.value['src-uri'].replace(/:([^:]+)@/, ':***@')))
+  }
   const srcDiv = document.createElement('span')
   if (item.value['src-queue']) {
     srcDiv.textContent = item.value['src-queue']
     srcDiv.appendChild(document.createElement('br'))
     srcDiv.appendChild(document.createElement('small')).textContent = 'queue'
   } else {
-    srcDiv.textContent = item.value['src-queue']
+    srcDiv.textContent = item.value['src-exchange']
     srcDiv.appendChild(document.createElement('br'))
-    srcDiv.appendChild(document.createElement('small')).textContent = 'queue'
+    srcDiv.appendChild(document.createElement('small')).textContent = 'exchange'
   }
   Table.renderCell(tr, 3, srcDiv)
   Table.renderCell(tr, 4, item.value['src-prefetch-count'])
-  Table.renderCell(tr, 5, decodeURI(item.value['dest-uri'].replace(/:([^:]+)@/, ':***@')))
+  if (Array.isArray(item.value['dest-uri'])) {
+    Table.renderCell(tr, 5, item.value['dest-uri'].map(uri => decodeURI(uri.replace(/:([^:]+)@/, ':***@'))).join(', '))
+  } else {
+    Table.renderCell(tr, 5, decodeURI(item.value['dest-uri'].replace(/:([^:]+)@/, ':***@')))
+  }
   const dest = document.createElement('span')
   if (item.value['dest-queue']) {
     dest.textContent = item.value['dest-queue']
@@ -125,11 +133,11 @@ Table.renderTable('table', tableOptions, (tr, item, all) => {
         HTTP.request('PUT', url)
           .then(() => {
             dataSource.reload()
-            DOM.toast(`Shovel ${item.name} ${isRunning ? 'resumed' : 'paused'}`)
+            DOM.toast(`Shovel ${item.name} ${isRunning ? 'paused' : 'resumed'}`)
           })
           .catch((err) => {
             console.error(err)
-            DOM.toast(`Shovel ${item.name} failed to ${isRunning ? 'resume' : 'pause'}`, 'error')
+            DOM.toast(`Shovel ${item.name} failed to ${isRunning ? 'pause' : 'resume'}`, 'error')
           })
       }
     },
