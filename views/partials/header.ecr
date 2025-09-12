@@ -51,24 +51,61 @@
 <nav id="menu">
   <button id="menu-button"></button>
   <ul id="menu-content">
-    <% {
-      ".":            "Overview",
-      "connections":  "Connections",
-      "channels":     "Channels",
-      "consumers":    "Consumers",
-      "exchanges":    "Exchanges",
-      "queues":       "Queues",
-      "policies":     "Policies",
-      "operator-policies": "Operator policies",
-      "shovels":      "Shovels",
-      "federation":   "Federation",
-      "vhosts":       "Virtual hosts",
-      "users":        "Users",
-      "nodes":        "Nodes",
-      "logs":         "Logs"
-      }.each do |href, label| -%>
-        <li<%= " class=\"active\"" if active_path?(href) %>><a href="<%=href%>"><%=label%></a></li>
-      <%-end-%>
-    <li><a href="docs/" target="_blank">HTTP API</a></li>
+    <% [
+      {
+        title: "Cluster",
+        items: [
+          { href: ".",           label: "Overview",   icon: "icon-overview" },
+          { href: "nodes", label: "Nodes", icon: "icon-nodes" },
+          { href: "logs",    label: "Logs",    icon: "icon-logs" },
+        ]
+      },
+      {
+        title: "Clients",
+        items: [
+          { href: "connections",   label: "Connections",   icon: "icon-connections" },
+          { href: "channels",   label: "Channels",   icon: "icon-channels" },
+          { href: "consumers",      label: "Consumers",      icon: "icon-consumers" },
+        ]
+      },
+      {
+        title: "Messaging",
+        items: [
+          { href: "exchanges",     label: "Exchanges",     icon: "icon-exchanges" },
+          { href: "queues",  label: "Queues",  icon: "icon-queues" },
+        ]
+      },
+      {
+        title: "Bridges",
+        items: [
+          { href: "shovels",     label: "Shovels",     icon: "icon-shovels" },
+          { href: "federation",  label: "Federation",  icon: "icon-federation" },
+        ]
+      },
+      {
+        title: "Administration",
+        items: [
+          { href: "vhosts",     label: "Virtual hosts",     icon: "icon-vhosts" },
+          { href: "policies",  label: "Policies",  icon: "icon-policies" },
+          { href: "operator-policies",  label: "Operator policies",  icon: "icon-opolicies" },
+          { href: "users",  label: "Users",  icon: "icon-users" },
+        ]
+      },
+    ].each do |group| -%>
+      
+      <li class="menu-group"><%= group[:title] %></li>
+      
+      <% group[:items].each do |item| -%>
+        <li<%= %( class="active") if active_path?(item[:href]) %>>
+          <a href="<%= item[:href] %>">
+            <i class="<%= item[:icon] %>"></i>
+            <%= item[:label] %>
+          </a>
+        </li>
+      <%- end -%>
+      
+    <%- end -%>
+
+    <li class="last-menu-item"><a href="docs/" target="_blank">HTTP API <i class="icon-blank"></i></a></li>
   </ul>
 </nav>
