@@ -20,6 +20,7 @@ module LavinMQ
       end
 
       def bind(destination : Destination, routing_key : String, headers : AMQP::Table?)
+        validate_delayed_binding!(destination)
         w = weight(routing_key)
         return false if @bindings.has_key? destination
         @bindings[destination] = routing_key

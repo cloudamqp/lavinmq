@@ -28,6 +28,7 @@ module LavinMQ
       end
 
       def bind(destination : Destination, routing_key, headers)
+        validate_delayed_binding!(destination)
         validate!(headers)
         args = headers ? @arguments.clone.merge!(headers) : @arguments
         return false unless @bindings[args].add? destination
