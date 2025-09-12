@@ -17,13 +17,13 @@ class LavinMQ::Clustering::Controller
     @id = clustering_id
     @advertised_uri = @config.clustering_advertised_uri ||
                       "tcp://#{System.hostname}:#{@config.clustering_port}"
+    @is_leader = BoolChannel.new(false)
   end
 
   # This method is called by the Launcher#run.
   # The block will be yielded when the controller's prerequisites for a leader
   # to start are met, i.e when the current node has been elected leader.
   # The method is blocking.
-  @is_leader = BoolChannel.new(false)
 
   def run(&)
     lease = @lease = @etcd.lease_grant(id: @id)

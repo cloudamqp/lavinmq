@@ -20,6 +20,7 @@ module LavinMQ
         offset = frame.arguments["x-stream-offset"]?
         @offset, @segment, @pos = stream_queue.find_offset(offset, @tag, @track_offset)
         super
+        @new_message_available = BoolChannel.new(false)
       end
 
       private def validate_preconditions(frame)
@@ -142,8 +143,6 @@ module LavinMQ
           return true
         end
       end
-
-      @new_message_available = BoolChannel.new(false)
 
       def notify_new_message
         @new_message_available.set(true)

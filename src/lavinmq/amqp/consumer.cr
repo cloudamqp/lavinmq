@@ -20,7 +20,7 @@ module LavinMQ
       @flow : Bool
       @metadata : ::Log::Metadata
       @unacked = Atomic(UInt32).new(0_u32)
-      getter has_capacity = BoolChannel.new(true)
+      getter has_capacity : BoolChannel
 
       def initialize(@channel : AMQP::Channel, @queue : Queue, frame : AMQP::Frame::Basic::Consume)
         @tag = frame.consumer_tag
@@ -29,10 +29,11 @@ module LavinMQ
         @priority = consumer_priority(frame) # Must be before ConsumeOk, can close channel
         @prefetch_count = @channel.prefetch_count
         @flow = @channel.flow?
-        @flow_change = BoolChannel.new(@flow)
         @metadata = @channel.@metadata.extend({consumer: @tag})
         @log = Logger.new(Log, @metadata)
         spawn deliver_loop, name: "Consumer deliver loop"
+        @flow_change = BoolChannel.new(@flow)
+        @has_capacity = BoolChannel.new(true)
       end
 
       def close
