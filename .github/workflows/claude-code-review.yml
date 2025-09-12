@@ -1,6 +1,8 @@
 name: Claude Code Review
 
 on:
+  push:
+    branches: [improve-claude-review]  # Temporary: for testing workflow changes
   pull_request:
     types: [opened, synchronize]
     # Optional: Only run on specific file changes
