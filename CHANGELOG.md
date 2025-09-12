@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Memory leak in StreamConsumer [#1266](https://github.com/cloudamqp/lavinmq/pull/1266)
 - Fixed some UI bugs [#1269](https://github.com/cloudamqp/lavinmq/pull/1269)
+- Prevent delayed exchanges to bind to its internal delayed queue [#1270](https://github.com/cloudamqp/lavinmq/pull/1270)
 
 ## [2.4.3] - 2025-09-11
 
