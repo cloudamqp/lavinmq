@@ -1,8 +1,6 @@
 name: Claude Code Review
 
 on:
-  push:
-    branches: [improve-claude-review]  # Temporary: for testing workflow changes
   pull_request:
     types: [opened, synchronize]
     # Optional: Only run on specific file changes
@@ -44,15 +42,16 @@ jobs:
 
           # Direct prompt for automated review (no @claude mention needed)
           direct_prompt: |
-            Please review this pull request and provide feedback on:
-            - Code quality and best practices
-            - Potential bugs or issues
-            - Performance considerations
-            - Security concerns
-            - Test coverage
+            Review this PR and report ONLY problems that need fixing. Skip positive feedback and confirmation of what's working correctly.
 
-            Keep the review short and focus on if there are any issues or improvements needed.
-            Be constructive and helpful in your feedback.
+            Report only:
+            - Bugs
+            - Security vulnerabilities
+            - Performance issues
+            - Missing error handling
+            - Crystal anti-patterns
+
+            If no problems found, say "No issues found."
 
           # Optional: Use sticky comments to make Claude reuse the same comment on subsequent pushes to the same PR
           use_sticky_comment: true
