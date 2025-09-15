@@ -47,10 +47,21 @@ class LiveLogDataSource {
   }
 }
 
+// Time normalizers:
+function toMs(time) {
+  if (time instanceof Date) return time.getTime()
+  const n = Number(time)
+  return Number.isFinite(n) ? n : 0
+}
+
+function formatLocal(time) {
+  return new Date(toMs(time)).toLocaleString()
+}
+
 // Let the filter regex match anywhere in the row.
 function joinFieldsForSearch (log) {
-  // const time = log.timestamp instanceof Date ? log.timestamp.getTime() : Number(log.timestamp)
-  return `${log.timestamp} ${log.severity} ${log.source} ${log.message ?? log.msg ?? ''}`
+  const isoTime = new Date(toMs(log.timestamp)).toISOString()
+  return `${isoTime} ${log.severity} ${log.source} ${log.message ?? log.msg ?? ''}`
 }
 
 function compareValues (a, b, direction) {
@@ -87,10 +98,7 @@ const tableOptions = {
 }
 
 const logsTable = Table.renderTable('table', tableOptions, (tr, item) => {
-  const ms = item.timestamp instanceof Date ? item.timestamp.getTime() : Number(item.timestamp)
-  const formTime = new Date(ms).toLocaleString()
-
-  Table.renderCell(tr, 0, formTime)
+  Table.renderCell(tr, 0, formatLocal(item.timestamp))
   Table.renderCell(tr, 1, item.severity)
   Table.renderCell(tr, 2, item.source)
   const pre = document.createElement('pre')
@@ -100,9 +108,9 @@ const logsTable = Table.renderTable('table', tableOptions, (tr, item) => {
 
 const evtSource = new window.EventSource('api/livelog')
 evtSource.onmessage = (event) => {
-  const timestamp = new Date(parseInt(event.lastEventId))
+  const timestampMs = parseInt(event.lastEventId, 10)
   const [severity, source, message] = JSON.parse(event.data)
-  logsDataSource.pushLog({ timestamp, severity, source, message })
+  logsDataSource.pushLog({ timestamp: timestampMs, severity, source, message })
 }
 
 evtSource.onerror = () => {
@@ -134,4 +142,4 @@ logsTable.on('updated', () => {
   livelog.scrollTop = livelog.scrollHeight
 })
 
-livelog.addEventListener('beforeunload', () => evtSource.close())
+window.addEventListener('beforeunload', () => evtSource.close())
