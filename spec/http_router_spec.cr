@@ -71,6 +71,18 @@ describe LavinMQ::HTTP::Router do
       router.call(create_request("GET", "/a/bar"))
       routed.should be_true
     end
+
+    it "should uri decode params" do
+      router = TestRouter.new
+      routed = false
+      router.get "/:foo" do |c, params|
+        params.should eq Hash(String, String){"foo" => "hello world"}
+        routed = true
+        c
+      end
+      router.call(create_request("GET", "/hello%20world"))
+      routed.should be_true
+    end
   end
 
   describe "#find_route" do

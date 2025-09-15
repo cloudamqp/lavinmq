@@ -1,5 +1,6 @@
 require "http/server/handler"
 require "http/server/context"
+require "uri"
 
 module LavinMQ::HTTP::Router
   include ::HTTP::Handler
@@ -38,7 +39,9 @@ module LavinMQ::HTTP::Router
         return {
           action: r.action,
           # reject and transform_value to go from Hash(String, String | Nil) to Hash(String, String)
-          params: res.named_captures.reject! { |_k, v| v.nil? }.transform_values &.to_s,
+          params: res.named_captures.reject! { |_k, v| v.nil? }.transform_values do |value|
+            URI.decode(value.to_s, plus_to_space: true)
+          end,
         }
       end
     end
