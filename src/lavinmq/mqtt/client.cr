@@ -135,7 +135,7 @@ module LavinMQ
         end
       rescue ex : LavinMQ::Exchange::AccessRefused
         @log.warn { "Access refused: #{ex.message}" }
-        close("Access refused")
+        close_socket
       end
 
       def recieve_puback(packet : MQTT::PubAck)
@@ -148,7 +148,7 @@ module LavinMQ
         send(MQTT::SubAck.new(qos, packet.packet_id))
       rescue ex : LavinMQ::Exchange::AccessRefused
         @log.warn { "Access refused: #{ex.message}" }
-        close("Access refused")
+        close_socket
       end
 
       def recieve_unsubscribe(packet : MQTT::Unsubscribe)
