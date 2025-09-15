@@ -96,7 +96,7 @@ module MqttSpecs
               will = MQTT::Protocol::Will.new(
                 topic: "denied/will", payload: "dead".to_slice, qos: 0u8, retain: false)
               connect(io2, username: "will_user", password: "pass".to_slice,
-                     client_id: "will_client", will: will, keepalive: 1u16)
+                client_id: "will_client", will: will, keepalive: 1u16)
               # Force unexpected disconnection to trigger will message
             end
 
@@ -126,7 +126,7 @@ module MqttSpecs
               will = MQTT::Protocol::Will.new(
                 topic: "allowed/will", payload: "dead".to_slice, qos: 0u8, retain: false)
               connect(io2, username: "will_user_allowed", password: "pass".to_slice,
-                     client_id: "will_client_allowed", will: will, keepalive: 1u16)
+                client_id: "will_client_allowed", will: will, keepalive: 1u16)
               # Force unexpected disconnection to trigger will message
             end
 
