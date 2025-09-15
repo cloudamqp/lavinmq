@@ -44,6 +44,11 @@ class LavinMQCtl
     {"set_permissions", "Set permissions for a user", "<username> <configure> <write> <read>"},
     {"hash_password", "Hash a password", "<password>"},
 
+    {"list_shovels", "Lists shovels", ""},
+    {"delete_shovel", "Delete a shovel", "<name>"},
+    {"list_federations", "Lists federation upstreams", ""},
+    {"delete_federation", "Delete a federation upstream", "<name>"},
+
   }
 
   def initialize
@@ -141,6 +146,77 @@ class LavinMQCtl
     @parser.on("definitions", "Generate definitions json from a data directory") do
       @cmd = "definitions"
     end
+    @parser.on("add_shovel", "Create a shovel") do
+      @cmd = "add_shovel"
+      self.banner = "Usage: #{PROGRAM_NAME} add_shovel <name> --src-uri=<uri> --dest-uri=<uri>"
+      @parser.on("--src-uri=URI", "Source URI (required)") do |v|
+        @args["src-uri"] = JSON::Any.new(v)
+      end
+      @parser.on("--dest-uri=URI", "Destination URI (required)") do |v|
+        @args["dest-uri"] = JSON::Any.new(v)
+      end
+      @parser.on("--src-queue=QUEUE", "Source queue name") do |v|
+        @args["src-queue"] = JSON::Any.new(v)
+      end
+      @parser.on("--dest-queue=QUEUE", "Destination queue name") do |v|
+        @args["dest-queue"] = JSON::Any.new(v)
+      end
+      @parser.on("--src-exchange=EXCHANGE", "Source exchange name") do |v|
+        @args["src-exchange"] = JSON::Any.new(v)
+      end
+      @parser.on("--dest-exchange=EXCHANGE", "Destination exchange name") do |v|
+        @args["dest-exchange"] = JSON::Any.new(v)
+      end
+      @parser.on("--src-exchange-key=KEY", "Source routing key") do |v|
+        @args["src-exchange-key"] = JSON::Any.new(v)
+      end
+      @parser.on("--dest-exchange-key=KEY", "Destination routing key") do |v|
+        @args["dest-exchange-key"] = JSON::Any.new(v)
+      end
+      @parser.on("--src-prefetch-count=COUNT", "Source prefetch count") do |v|
+        @args["src-prefetch-count"] = JSON::Any.new(v.to_i64)
+      end
+      @parser.on("--src-delete-after=AFTER", "Delete after mode (never, queue-length, count)") do |v|
+        @args["src-delete-after"] = JSON::Any.new(v)
+      end
+      @parser.on("--ack-mode=MODE", "Acknowledgment mode (on-confirm, on-publish, no-ack)") do |v|
+        @args["ack-mode"] = JSON::Any.new(v)
+      end
+      @parser.on("--reconnect-delay=SECONDS", "Reconnect delay in seconds") do |v|
+        @args["reconnect-delay"] = JSON::Any.new(v.to_i64)
+      end
+    end
+    @parser.on("add_federation", "Create a federation upstream") do
+      @cmd = "add_federation"
+      self.banner = "Usage: #{PROGRAM_NAME} add_federation <name> --uri=<uri>"
+      @parser.on("--uri=URI", "Upstream URI (required)") do |v|
+        @args["uri"] = JSON::Any.new(v)
+      end
+      @parser.on("--expires=SECONDS", "Expiry time for federation link") do |v|
+        @args["expires"] = JSON::Any.new(v.to_i64)
+      end
+      @parser.on("--message-ttl=MILLISECONDS", "Message TTL for federation") do |v|
+        @args["message-ttl"] = JSON::Any.new(v.to_i64)
+      end
+      @parser.on("--max-hops=COUNT", "Maximum hops for federation") do |v|
+        @args["max-hops"] = JSON::Any.new(v.to_i64)
+      end
+      @parser.on("--prefetch-count=COUNT", "Prefetch count for federation") do |v|
+        @args["prefetch-count"] = JSON::Any.new(v.to_i64)
+      end
+      @parser.on("--reconnect-delay=SECONDS", "Reconnect delay in seconds") do |v|
+        @args["reconnect-delay"] = JSON::Any.new(v.to_i64)
+      end
+      @parser.on("--trust-user-id", "Trust user ID") do
+        @args["trust-user-id"] = JSON::Any.new(true)
+      end
+      @parser.on("--exchange=EXCHANGE", "Exchange name to federate") do |v|
+        @args["exchange"] = JSON::Any.new(v)
+      end
+      @parser.on("--queue=QUEUE", "Queue name to federate") do |v|
+        @args["queue"] = JSON::Any.new(v)
+      end
+    end
     @parser.on("-v", "--version", "Show version") { puts LavinMQ::VERSION; exit 0 }
     @parser.on("--build-info", "Show build information") { puts LavinMQ::BUILD_INFO; exit 0 }
     @parser.on("-h", "--help", "Show this help") do
@@ -187,6 +263,12 @@ class LavinMQCtl
     when "set_permissions"       then set_permissions
     when "definitions"           then definitions
     when "hash_password"         then hash_password
+    when "list_shovels"          then list_shovels
+    when "add_shovel"            then add_shovel
+    when "delete_shovel"         then delete_shovel
+    when "list_federations"      then list_federations
+    when "add_federation"        then add_federation
+    when "delete_federation"     then delete_federation
     when "stop_app"
     when "start_app"
     else
@@ -746,6 +828,67 @@ class LavinMQCtl
     password = ARGV.shift?
     abort @banner unless password
     output LavinMQ::Auth::User.hash_password(password, "SHA256")
+  end
+
+  private def list_shovels
+    vhost = @options["vhost"]? || "/"
+    puts "Listing shovels for vhost #{vhost} ..." unless quiet?
+    ss = get("/api/shovels/#{URI.encode_www_form(vhost)}").map do |u|
+      next unless s = u.as_h?
+      {name: s["name"].to_s, state: s["state"].to_s}
+    end
+    output ss
+  end
+
+  private def add_shovel
+    name = ARGV.shift?
+    vhost = @options["vhost"]? || "/"
+    abort @banner unless name
+    abort "Fields '--src-uri' and '--dest-uri' are required" unless @args["src-uri"]? && @args["dest-uri"]?
+    
+    url = "/api/shovels/#{URI.encode_www_form(vhost)}/#{URI.encode_www_form(name)}"
+    resp = http.put url, @headers, @args.to_json
+    handle_response(resp, 201, 204)
+  end
+
+  private def delete_shovel
+    name = ARGV.shift?
+    vhost = @options["vhost"]? || "/"
+    abort @banner unless name
+    url = "/api/shovels/#{URI.encode_www_form(vhost)}/#{URI.encode_www_form(name)}"
+    resp = http.delete url
+    handle_response(resp, 204)
+  end
+
+  private def list_federations
+    vhost = @options["vhost"]? || "/"
+    puts "Listing federation upstreams for vhost #{vhost} ..." unless quiet?
+    ff = get("/api/parameters/federation-upstream/#{URI.encode_www_form(vhost)}").map do |u|
+      next unless f = u.as_h?
+      {name: f["name"].to_s, component: f["component"].to_s}
+    end
+    output ff
+  end
+
+  private def add_federation
+    name = ARGV.shift?
+    vhost = @options["vhost"]? || "/"
+    abort @banner unless name
+    abort "Field '--uri' is required" unless @args["uri"]?
+    
+    url = "/api/parameters/federation-upstream/#{URI.encode_www_form(vhost)}/#{URI.encode_www_form(name)}"
+    body = {"value" => @args}
+    resp = http.put url, @headers, body.to_json
+    handle_response(resp, 201, 204)
+  end
+
+  private def delete_federation
+    name = ARGV.shift?
+    vhost = @options["vhost"]? || "/"
+    abort @banner unless name
+    url = "/api/parameters/federation-upstream/#{URI.encode_www_form(vhost)}/#{URI.encode_www_form(name)}"
+    resp = http.delete url
+    handle_response(resp, 204)
   end
 end
 
