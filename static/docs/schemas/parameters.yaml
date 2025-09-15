@@ -12,17 +12,42 @@ parameter:
   properties:
     name:
       type: string
+      description: Name of the parameter
+      example: my-shovel
     value:
-      type: string
+      type: object
+      description: Configuration object for the component
+      examples:
+        - description: Shovel configuration example
+          value:
+            src-uri: amqp://guest:guest@localhost:5672
+            dest-uri: amqp://guest:guest@localhost:5672
+            src-queue: source-queue
+            dest-queue: destination-queue
+            src-prefetch-count: 1000
+            ack-mode: on-confirm
+            src-delete-after: never
+            reconnect-delay: 120
+        - description: Federation upstream configuration example
+          value:
+            uri: amqp://upstream.example.com
+            max-hops: 5
+            prefetch-count: 1000
+            reconnect-delay: 5
+            ack-mode: on-confirm
+            trust-user-id: false
     component:
       type: string
-      description: Name of component.
+      description: Name of component. Defines which LavinMQ feature this parameter configures.
       enum:
       - shovel
       - federation-upstream
       - federation-upstream-set
+      example: shovel
     vhost:
       type: string
+      description: Virtual host name
+      example: /
 global-parameter:
   type: object
   properties:
@@ -44,6 +69,31 @@ PutParameterRequestBody:
   type: object
   properties:
     value:
-      type: string
+      type: object
+      description: Configuration object for the component
+      examples:
+        - description: Shovel configuration example
+          value:
+            src-uri: amqp://guest:guest@localhost:5672
+            dest-uri: amqp://guest:guest@localhost:5672
+            src-queue: source-queue
+            dest-queue: destination-queue
+            src-prefetch-count: 1000
+            ack-mode: on-confirm
+            src-delete-after: never
+            reconnect-delay: 120
+        - description: Federation upstream configuration example
+          value:
+            uri: amqp://upstream.example.com
+            max-hops: 5
+            prefetch-count: 1000
+            reconnect-delay: 5
+            ack-mode: on-confirm
+            trust-user-id: false
+        - description: Federation upstream set configuration example
+          value:
+            upstreams:
+              - upstream-1
+              - upstream-2
   required:
   - value

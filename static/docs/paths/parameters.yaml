@@ -32,11 +32,15 @@
     required: true
     schema:
       type: string
-      description: Name of component.
+      description: Name of component. Allowed values are `shovel`, `federation-upstream`, or `federation-upstream-set`.
+      enum:
+      - shovel
+      - federation-upstream
+      - federation-upstream-set
   get:
     tags:
     - parameters
-    description: List all parameters for a specific component.
+    description: List all parameters for a specific component. Use this endpoint to manage shovels (`component=shovel`), federation upstreams (`component=federation-upstream`), or federation upstream sets (`component=federation-upstream-set`).
     summary: List parameters by component
     operationId: GetParametersComponent
     responses:
@@ -65,7 +69,11 @@
     required: true
     schema:
       type: string
-      description:  Name of component.
+      description: Name of component. Allowed values are `shovel`, `federation-upstream`, or `federation-upstream-set`.
+      enum:
+      - shovel
+      - federation-upstream
+      - federation-upstream-set
   - in: path
     name: vhost
     required: true
@@ -75,7 +83,7 @@
   get:
     tags:
     - parameters
-    description: List all parameters for a specific component and vhost.
+    description: List all parameters for a specific component and vhost. Use this endpoint to manage shovels, federation upstreams, or federation upstream sets within a specific virtual host.
     summary: List parameters by component and vhost
     operationId: GetParametersComponentVhost
     responses:
@@ -104,7 +112,11 @@
     required: true
     schema:
       type: string
-      description:  Name of component.
+      description: Name of component. Allowed values are `shovel`, `federation-upstream`, or `federation-upstream-set`.
+      enum:
+      - shovel
+      - federation-upstream
+      - federation-upstream-set
   - in: path
     name: vhost
     required: true
@@ -145,7 +157,7 @@
   put:
     tags:
     - parameters
-    description: Create or update a parameter.
+    description: Create or update a parameter. Use this endpoint to configure shovels, federation upstreams, or federation upstream sets. The request body should contain the appropriate configuration object for the component type.
     summary: Create/update parameter
     operationId: PutParameter
     requestBody:
