@@ -6,7 +6,7 @@ module LavinMQ
   module HTTP
     module ExchangeHelpers
       private def exchange(context, params, vhost, key = "name")
-        name = URI.decode_www_form(params[key])
+        name = params[key]
         name = "" if name == "amq.default"
         e = @amqp_server.vhosts[vhost].exchanges[name]?
         not_found(context) unless e

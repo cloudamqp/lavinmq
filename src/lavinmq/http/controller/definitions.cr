@@ -40,8 +40,7 @@ module LavinMQ
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
             refuse_unless_vhost_access(context, user(context), vhost)
-            unescaped_name = URI.decode_www_form(vhost)
-            VHostDefinitions.new(@amqp_server, @amqp_server.vhosts[unescaped_name]).export(context.response)
+            VHostDefinitions.new(@amqp_server, @amqp_server.vhosts[host]).export(context.response)
           end
         end
 
@@ -50,8 +49,7 @@ module LavinMQ
             refuse_unless_policymaker(context, user(context), vhost)
             refuse_unless_vhost_access(context, user(context), vhost)
             body = parse_body(context)
-            unescaped_name = URI.decode_www_form(vhost)
-            VHostDefinitions.new(@amqp_server, @amqp_server.vhosts[unescaped_name]).import(body)
+            VHostDefinitions.new(@amqp_server, @amqp_server.vhosts[vhost]).import(body)
           end
         end
 
@@ -62,8 +60,7 @@ module LavinMQ
             ::HTTP::FormData.parse(context.request) do |part|
               if part.name == "file"
                 body = JSON.parse(part.body)
-                unescaped_name = URI.decode_www_form(vhost)
-                VHostDefinitions.new(@amqp_server, @amqp_server.vhosts[unescaped_name]).import(body)
+                VHostDefinitions.new(@amqp_server, @amqp_server.vhosts[vhost]).import(body)
               end
             end
           end
