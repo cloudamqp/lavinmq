@@ -78,7 +78,6 @@ module LavinMQ
           {% unless flag?(:release) %}
             @log.debug { "Getting a new message" }
           {% end %}
-          puts "AAAAAAAAAAAAAAAAAAa"
           queue.consume_get(@no_ack) do |env|
             deliver(env.message, env.segment_position, env.redelivered)
             delivered_bytes &+= env.message.bytesize

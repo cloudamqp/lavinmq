@@ -10,15 +10,16 @@ module LavinMQ
     @offset_index = Hash(UInt32, Int64).new              # segment_id => offset of first msg
     @timestamp_index = Hash(UInt32, Int64).new           # segment_id => ts of first msg
 
-    @store : AMQP::StreamMessageStore?
-
-    def initialize(@consumer_offsets : MFile, @segments : Hash(UInt32, MFile), @replicator : Clustering::Replicator?)
+    def initialize(@store : AMQP::StreamMessageStore, @replicator : Clustering::Replicator? = nil)
+      p = File.join(@store.msg_dir, "consumer_offsets")
+      @consumer_offsets = MFile.new(p, Config.instance.segment_size)
+      @replicator.try &.register_file @consumer_offsets
       @last_offset = get_last_offset
       @consumer_offset_positions = restore_consumer_offset_positions
     end
 
-    def store=(store : StreamMessageStore)
-      @store = store
+    def close : Nil
+      @consumer_offsets.close
     end
 
     def next_offset
@@ -27,7 +28,7 @@ module LavinMQ
 
     private def get_last_offset : Int64
       bytesize = 0_u32
-      mfile = @segments.last_value
+      _, mfile = @store.last_segment
       loop do
         bytesize = BytesMessage.skip(mfile)
       rescue IO::EOFError
@@ -50,8 +51,8 @@ module LavinMQ
       end
 
       case offset
-      when "first" then offset_at(@segments.first_key, 4u32)
-      when "last"  then offset_at(@segments.last_key, 4u32)
+      when "first" then offset_at(@store.first_segment[0], 4u32)
+      when "last"  then offset_at(@store.last_segment[0], 4u32)
       when "next"  then last_offset_seg_pos
       when Time    then find_offset_in_segments(offset)
       when nil
@@ -68,18 +69,18 @@ module LavinMQ
     end
 
     private def offset_at(seg, pos, retried = false) : Offset
-      # pp @segments, seg, pos
-      # pp @last_offset
-      return Offset.new(@last_offset, seg, pos) # if @size.zero?
+      return Offset.new(@last_offset, seg, pos) if @store.empty?
 
-      mfile = @segments[seg]
+      mfile = @store.segment(seg)
+      unless mfile
+        return offset_at(seg + 1, 4_u32, true)
+      end
       msg = BytesMessage.from_bytes(mfile.to_slice + pos)
       offset = offset_from_headers(msg.properties.headers)
       Offset.new(offset, seg, pos)
-    rescue ex : IndexError # first segment can be empty if message size >= segment size
-      pp "offset_at retried=#{retried}", ex
-      return offset_at(seg + 1, 4_u32, true) unless retried
-      raise ex
+      # rescue ex : IndexError # first segment can be empty if message size >= segment size
+      #   return offset_at(seg + 1, 4_u32, true) unless retried
+      #   raise ex
     end
 
     private def offset_from_headers(headers) : Int64
@@ -87,7 +88,8 @@ module LavinMQ
     end
 
     private def last_offset_seg_pos
-      Offset.new(@last_offset + 1, @segments.last_key, @segments.last_value.size.to_u32)
+      seg = @store.last_segment
+      Offset.new(@last_offset, seg[0], seg[1].size.to_u32)
     end
 
     private def find_offset_in_segments(offset : Int | Time) : Offset
@@ -95,15 +97,15 @@ module LavinMQ
       pos = 4u32
       msg_offset = 0i64
       loop do
-        rfile = @segments[segment]?
+        rfile = @store.segment segment
         if rfile.nil? || pos == rfile.size
-          if segment = @segments.each_key.find { |sid| sid > segment }
-            rfile = @segments[segment]
+          seg = @store.each_segment.find { |v| v[0] > segment }
+          if v = seg
+            rfile = v[1]
             pos = 4_u32
-          else
-            return last_offset_seg_pos
           end
         end
+        return last_offset_seg_pos unless rfile
         msg = BytesMessage.from_bytes(rfile.to_slice + pos)
         msg_offset = offset_from_headers(msg.properties.headers)
         case offset
@@ -116,7 +118,7 @@ module LavinMQ
     end
 
     private def offset_index_lookup(offset) : UInt32
-      seg = @segments.first_key
+      seg, _ = @store.first_segment
       case offset
       when Int
         @offset_index.each do |seg_id, first_seg_offset|
@@ -172,9 +174,9 @@ module LavinMQ
 
     def cleanup_consumer_offsets
       return if @consumer_offsets.size.zero?
-
       offsets_to_save = Hash(String, Int64).new
-      lowest_offset_in_stream = offset_at(@segments.first_key, 4u32)
+      s = @store.first_segment
+      lowest_offset_in_stream = offset_at(s[0], 4u32)
       capacity = 0
       @consumer_offset_positions.each do |ctag, _pos|
         if offset = last_offset_by_consumer_tag(ctag)

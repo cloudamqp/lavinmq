@@ -89,7 +89,7 @@ describe LavinMQ::AMQP::Queue do
         s.vhosts.create("/")
         v = s.vhosts["/"].not_nil!
         v.declare_queue("q", true, false)
-        data_dir = s.vhosts["/"].queues["q"].as(LavinMQ::AMQP::Queue).@msg_store.@msg_dir
+        data_dir = s.vhosts["/"].queues["q"].as(LavinMQ::AMQP::Queue).@msg_store.as(LavinMQ::QueueMessageStore).@msg_dir
         s.vhosts["/"].queues["q"].pause!
         File.exists?(File.join(data_dir, "paused")).should be_true
         s.restart
@@ -292,7 +292,7 @@ describe LavinMQ::AMQP::Queue do
       with_channel(s) do |ch|
         ch.queue "transient", durable: false
       end
-      data_dir = s.vhosts["/"].queues["transient"].as(LavinMQ::AMQP::Queue).@msg_store.@msg_dir
+      data_dir = s.vhosts["/"].queues["transient"].as(LavinMQ::AMQP::Queue).@msg_store.as(LavinMQ::QueueMessageStore).@msg_dir
       s.stop
       Dir.exists?(data_dir).should be_false
     end
@@ -303,7 +303,7 @@ describe LavinMQ::AMQP::Queue do
       with_channel(s) do |ch|
         ch.queue "transient", durable: false
       end
-      data_dir = s.vhosts["/"].queues["transient"].as(LavinMQ::AMQP::Queue).@msg_store.@msg_dir
+      data_dir = s.vhosts["/"].queues["transient"].as(LavinMQ::AMQP::Queue).@msg_store.as(LavinMQ::QueueMessageStore).@msg_dir
       Dir.exists?(data_dir).should be_true
       File.exists?("#{data_dir}/msgs.0000000001").should be_false
     end
@@ -315,7 +315,7 @@ describe LavinMQ::AMQP::Queue do
       with_channel(s) do |ch|
         q = ch.queue "transient", durable: false
         q.publish_confirm "foobar"
-        data_dir = s.vhosts["/"].queues["transient"].as(LavinMQ::AMQP::Queue).@msg_store.@msg_dir
+        data_dir = s.vhosts["/"].queues["transient"].as(LavinMQ::AMQP::Queue).@msg_store.as(LavinMQ::QueueMessageStore).@msg_dir
         FileUtils.cp_r data_dir, "#{s.vhosts["/"].data_dir}.copy"
       end
       s.stop
@@ -335,7 +335,7 @@ describe LavinMQ::AMQP::Queue do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         q = ch.queue("q", auto_delete: true)
-        data_dir = s.vhosts["/"].queues["q"].as(LavinMQ::AMQP::Queue).@msg_store.@msg_dir
+        data_dir = s.vhosts["/"].queues["q"].as(LavinMQ::AMQP::Queue).@msg_store.as(LavinMQ::QueueMessageStore).@msg_dir
         sub = q.subscribe(no_ack: true) { |_| }
         Dir.exists?(data_dir).should be_true
         q.unsubscribe(sub)
@@ -365,7 +365,7 @@ describe LavinMQ::AMQP::Queue do
       data_dir = File.join(LavinMQ::Config.instance.data_dir, "msgstore")
       Dir.mkdir_p data_dir
       begin
-        store = LavinMQ::MessageStore.new(data_dir, nil)
+        store = LavinMQ::QueueMessageStore.new(data_dir, nil)
         body = IO::Memory.new(Random::DEFAULT.random_bytes(LavinMQ::Config.instance.segment_size), writeable: false)
         msg = LavinMQ::Message.new(0i64, "amq.topic", "rk", AMQ::Protocol::Properties.new, body.size.to_u64, body)
         sps = Array(LavinMQ::SegmentPosition).new(10) { store.push msg }
@@ -385,12 +385,12 @@ describe LavinMQ::AMQP::Queue do
         body = IO::Memory.new(Random::DEFAULT.random_bytes(LavinMQ::Config.instance.segment_size), writeable: false)
         msg = LavinMQ::Message.new(0i64, "amq.topic", "rk", AMQ::Protocol::Properties.new, body.size.to_u64, body)
 
-        store = LavinMQ::MessageStore.new(data_dir, nil)
+        store = LavinMQ::QueueMessageStore.new(data_dir, nil)
         2.times { store.push msg }
         store.close
 
         # recreate store to let it read the segments and cleanup
-        LavinMQ::MessageStore.new(data_dir, nil)
+        LavinMQ::QueueMessageStore.new(data_dir, nil)
         Dir.glob(File.join(data_dir, "acks.*")).should eq [] of String
       ensure
         FileUtils.rm_rf data_dir
@@ -400,9 +400,9 @@ describe LavinMQ::AMQP::Queue do
     it "should yield fiber while purging" do
       tmpdir = File.tempname "lavin", ".spec"
       Dir.mkdir_p tmpdir
-      store = LavinMQ::MessageStore.new(tmpdir, nil)
+      store = LavinMQ::QueueMessageStore.new(tmpdir, nil)
 
-      (LavinMQ::MessageStore::PURGE_YIELD_INTERVAL * 2 + 1).times do
+      (LavinMQ::QueueMessageStore::PURGE_YIELD_INTERVAL * 2 + 1).times do
         store.push(LavinMQ::Message.new(0i64, "a", "b", AMQ::Protocol::Properties.new, 0u64, IO::Memory.new(0)))
       end
 
@@ -434,7 +434,7 @@ describe LavinMQ::AMQP::Queue do
     it "should not raise NotFoundError if segment is gone when deleting" do
       tmpdir = File.tempname "lavin", ".spec"
       Dir.mkdir_p tmpdir
-      store = LavinMQ::MessageStore.new(tmpdir, nil)
+      store = LavinMQ::QueueMessageStore.new(tmpdir, nil)
       data = Random::Secure.hex(512)
       io = IO::Memory.new(data.to_slice)
 
