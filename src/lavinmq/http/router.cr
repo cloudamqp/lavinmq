@@ -40,7 +40,7 @@ module LavinMQ::HTTP::Router
           action: r.action,
           # reject and transform_value to go from Hash(String, String | Nil) to Hash(String, String)
           params: res.named_captures.reject! { |_k, v| v.nil? }.transform_values do |value|
-            URI.decode(value.to_s, plus_to_space: true)
+            URI.decode(value.to_s)
           end,
         }
       end
