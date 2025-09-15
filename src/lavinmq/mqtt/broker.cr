@@ -70,7 +70,10 @@ module LavinMQ
         @vhost.rm_connection(client)
       end
 
-      def publish(packet : MQTT::Publish)
+      def publish(user : Auth::User, packet : MQTT::Publish)
+        unless user.can_write?(@vhost.name, EXCHANGE)
+          raise LavinMQ::Exchange::AccessRefused.new(@exchange)
+        end
         @exchange.publish(packet)
       end
 
@@ -78,6 +81,9 @@ module LavinMQ
         session = sessions.declare(client)
         headers = AMQP::Table.new({RETAIN_HEADER => true})
         topics.map do |tf|
+          unless client.user.can_read?(@vhost.name, tf.topic)
+            raise LavinMQ::Exchange::AccessRefused.new(@exchange)
+          end
           session.subscribe(tf.topic, tf.qos)
           ts = RoughTime.unix_ms
           @retain_store.each(tf.topic) do |topic, body_io, body_bytesize|
