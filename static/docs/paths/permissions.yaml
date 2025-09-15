@@ -3,9 +3,10 @@
   get:
     tags:
     - permissions
-    description: List permissions for each vhost in the server.
-    summary: List all permissions
-    operationId: GetPermissions
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
+    parameters: []
+    operationId: CHANGEME-GetPermissions
     responses:
       '200':
         description: OK
@@ -26,32 +27,32 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/permissions/{vhost}/{user}":
-  parameters:
-  - in: path
-    name: vhost
-    required: true
-    schema:
-      type: string
-      description: Name of the vhost.
-  - in: path
-    name: user
-    required: true
-    schema:
-      type: string
-      description: Name of the user.
   get:
     tags:
     - permissions
-    description: List permissions by vhost and user.
-    summary: List permissions by vhost and user
-    operationId: GetPermissionsVhostUser
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: CHANGEME.
+    - in: path
+      name: user
+      required: true
+      schema:
+        type: string
+        description: CHANGEME.
+    operationId: CHANGEME-GetPermissions
     responses:
       '200':
         description: OK
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/permission"
+              "$ref": "../openapi.yaml#/components/schemas/permissions"
       4XX:
         description: Client Error
         content:
@@ -67,20 +68,29 @@
   put:
     tags:
     - permissions
-    description: Create or update permissions by vhost and user.
-    summary: Create/update permissions
-    operationId: PutPermissions
-    requestBody:
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
+    parameters:
+    - in: path
+      name: vhost
       required: true
-      content:
-        application/json:
-          schema:
-            "$ref": "../openapi.yaml#/components/schemas/permissions-PutPermissionsRequestBody"
+      schema:
+        type: string
+        description: CHANGEME.
+    - in: path
+      name: user
+      required: true
+      schema:
+        type: string
+        description: CHANGEME.
+    operationId: CHANGEME-PutPermissions
     responses:
-      '201':
-        description: The permissions were created successfully.
-      '204':
-        description: The permissions were updated successfully.
+      '200':
+        description: OK
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/permissions"
       4XX:
         description: Client Error
         content:
@@ -96,12 +106,29 @@
   delete:
     tags:
     - permissions
-    description: Delete permissions by vhost and user.
-    summary: Delete permissions
-    operationId: DeletePermissions
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: CHANGEME.
+    - in: path
+      name: user
+      required: true
+      schema:
+        type: string
+        description: CHANGEME.
+    operationId: CHANGEME-DeletePermissions
     responses:
-      '204':
-        description: The permissions were created successfully.
+      '200':
+        description: OK
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/permissions"
       4XX:
         description: Client Error
         content:

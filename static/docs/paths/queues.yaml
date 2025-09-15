@@ -3,9 +3,10 @@
   get:
     tags:
     - queues
-    description: List all queues in the server.
-    summary: List all queues
-    operationId: GetQueues
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
+    parameters: []
+    operationId: CHANGEME-GetQueues
     responses:
       '200':
         description: OK
@@ -26,19 +27,19 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/queues/{vhost}":
-  parameters:
-  - in: path
-    name: vhost
-    required: true
-    schema:
-      type: string
-      description: Name of vhost.
   get:
     tags:
     - queues
-    description: List all queues for specific vhost.
-    summary: List queues for vhost
-    operationId: GetQueuesVhost
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: CHANGEME.
+    operationId: CHANGEME-GetQueues
     responses:
       '200':
         description: OK
@@ -59,34 +60,32 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/queues/{vhost}/{name}":
-  parameters:
-  - in: path
-    name: vhost
-    required: true
-    schema:
-      type: string
-      description: Name of vhost.
-  - in: path
-    name: name
-    required: true
-    schema:
-      type: string
-      description: Name of queue.
   get:
     tags:
     - queues
-    description: Find specific queue by name and vhost.
-    summary: List queue
-    operationId: GetQueue
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: CHANGEME.
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: CHANGEME.
+    operationId: CHANGEME-GetQueues
     responses:
       '200':
         description: OK
         content:
           application/json:
             schema:
-              allOf:
-              - "$ref": "../openapi.yaml#/components/schemas/queue"
-              - "$ref": "../schemas/queues.yaml#/consumer_details"
+              "$ref": "../openapi.yaml#/components/schemas/queues"
       4XX:
         description: Client Error
         content:
@@ -102,20 +101,29 @@
   put:
     tags:
     - queues
-    description: Create new queue under given vhost, or update an existing queue.
-    summary: Create/update queue
-    operationId: PutQueue
-    requestBody:
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
+    parameters:
+    - in: path
+      name: vhost
       required: true
-      content:
-        application/json:
-          schema:
-            "$ref": "../openapi.yaml#/components/schemas/queues-PutQueueRequestBody"
+      schema:
+        type: string
+        description: CHANGEME.
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: CHANGEME.
+    operationId: CHANGEME-PutQueues
     responses:
-      '201':
-        description: The queue was created successfully.
-      '204':
-        description: The queue was updated successfully.
+      '200':
+        description: OK
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/queues"
       4XX:
         description: Client Error
         content:
@@ -131,12 +139,68 @@
   delete:
     tags:
     - queues
-    description: Remove a specific queue by name and vhost.
-    summary: Delete queue
-    operationId: DeleteQueue
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: CHANGEME.
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: CHANGEME.
+    operationId: CHANGEME-DeleteQueues
     responses:
-      '204':
-        description: The queue was deleted successfully.
+      '200':
+        description: OK
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/queues"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+"/queues/{vhost}/{name}/unacked":
+  get:
+    tags:
+    - queues
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: CHANGEME.
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: CHANGEME.
+    operationId: CHANGEME-GetQueues
+    responses:
+      '200':
+        description: OK
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/queues"
       4XX:
         description: Client Error
         content:
@@ -150,25 +214,25 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/queues/{vhost}/{name}/pause":
-  parameters:
-  - in: path
-    name: vhost
-    required: true
-    schema:
-      type: string
-      description: Name of vhost.
-  - in: path
-    name: name
-    required: true
-    schema:
-      type: string
-      description: Name of queue.
   put:
     tags:
     - queues
-    description: Pause the queue. When the queue is paused, messages are not delivered to consumers.
-    summary: Pause queue
-    operationId: PauseQueue
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: CHANGEME.
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: CHANGEME.
+    operationId: CHANGEME-PutQueues
     responses:
       '200':
         description: OK
@@ -189,25 +253,25 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/queues/{vhost}/{name}/resume":
-  parameters:
-  - in: path
-    name: vhost
-    required: true
-    schema:
-      type: string
-      description: Name of vhost.
-  - in: path
-    name: name
-    required: true
-    schema:
-      type: string
-      description: Name of queue.
   put:
     tags:
     - queues
-    description: Resume the queue. When the queue is paused, messages are not delivered to consumers.
-    summary: Resume queue
-    operationId: ResumeQueue
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: CHANGEME.
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: CHANGEME.
+    operationId: CHANGEME-PutQueues
     responses:
       '200':
         description: OK
@@ -228,32 +292,32 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/queues/{vhost}/{name}/bindings":
-  parameters:
-  - in: path
-    name: vhost
-    required: true
-    schema:
-      type: string
-      description: Name of vhost.
-  - in: path
-    name: name
-    required: true
-    schema:
-      type: string
-      description: Name of queue.
   get:
     tags:
     - queues
-    description: List bindings for a specific queue.
-    summary: List queue bindings
-    operationId: GetQueueBindings
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: CHANGEME.
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: CHANGEME.
+    operationId: CHANGEME-GetQueues
     responses:
       '200':
         description: OK
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/queue-bindings"
+              "$ref": "../openapi.yaml#/components/schemas/queues"
       4XX:
         description: Client Error
         content:
@@ -267,28 +331,32 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/queues/{vhost}/{name}/contents":
-  parameters:
-  - in: path
-    name: vhost
-    required: true
-    schema:
-      type: string
-      description: Name of vhost.
-  - in: path
-    name: name
-    required: true
-    schema:
-      type: string
-      description: Name of queue.
   delete:
     tags:
     - queues
-    description: Delete all contents of a queue.
-    summary: Purge queue
-    operationId: PurgeQueue
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: CHANGEME.
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: CHANGEME.
+    operationId: CHANGEME-DeleteQueues
     responses:
-      '204':
-        description: The queue was purged successfully.
+      '200':
+        description: OK
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/queues"
       4XX:
         description: Client Error
         content:
@@ -302,76 +370,32 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/queues/{vhost}/{name}/get":
-  parameters:
-  - in: path
-    name: vhost
-    required: true
-    schema:
-      type: string
-      description: Name of vhost.
-  - in: path
-    name: name
-    required: true
-    schema:
-      type: string
-      description: Name of queue.
   post:
     tags:
     - queues
-    description: Get one ore more messages from a specific queue.
-    summary: Get messages from queue
-    operationId: GetQueueMessages
-    requestBody:
-      content:
-        application/json:
-          schema:
-            "$ref": "../openapi.yaml#/components/schemas/queues-GetQueueMessagesRequestBody"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: CHANGEME.
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: CHANGEME.
+    operationId: CHANGEME-PostQueues
     responses:
       '200':
         description: OK
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/queue-messages"
-      4XX:
-        description: Client Error
-        content:
-          application/json:
-            schema:
-              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
-      5XX:
-        description: Server Error
-        content:
-          application/json:
-            schema:
-              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
-"/queues/{vhost}/{name}/unacked":
-  parameters:
-  - in: path
-    name: vhost
-    required: true
-    schema:
-      type: string
-      description: Name of vhost.
-  - in: path
-    name: name
-    required: true
-    schema:
-      type: string
-      description: Name of queue.
-  get:
-    tags:
-    - queues
-    description: List unacked messages for a specific queue.
-    summary: List unacked messages for queue
-    operationId: GetQueueUnacked
-    responses:
-      '200':
-        description: OK
-        content:
-          application/json:
-            schema:
-              "$ref": "../openapi.yaml#/components/schemas/queue-unacked"
+              "$ref": "../openapi.yaml#/components/schemas/queues"
       4XX:
         description: Client Error
         content:

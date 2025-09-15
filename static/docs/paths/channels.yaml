@@ -3,9 +3,10 @@
   get:
     tags:
     - channels
-    description: Details for all open channels.
-    summary: List all channels
-    operationId: GetChannels
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
+    parameters: []
+    operationId: CHANGEME-GetChannels
     responses:
       '200':
         description: OK
@@ -26,19 +27,19 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/vhosts/{vhost}/channels":
-  parameters:
-  - in: path
-    name: vhost
-    required: true
-    schema:
-      type: string
-      description: Name of vhost.
   get:
     tags:
     - channels
-    description: Details for all open channels for a specific vhost.
-    summary: List channels by vhost
-    operationId: GetChannelsVhost
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: CHANGEME.
+    operationId: CHANGEME-GetChannels
     responses:
       '200':
         description: OK
@@ -59,26 +60,58 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/channels/{name}":
-  parameters:
-  - in: path
-    name: name
-    required: true
-    schema:
-      type: string
-      description: Name of channel.
   get:
     tags:
     - channels
-    description: Details for a specific channel.
-    summary: List channel
-    operationId: GetChannel
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
+    parameters:
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: CHANGEME.
+    operationId: CHANGEME-GetChannels
     responses:
       '200':
         description: OK
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/channel-with-consumer-details"
+              "$ref": "../openapi.yaml#/components/schemas/channels"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+  put:
+    tags:
+    - channels
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
+    parameters:
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: CHANGEME.
+    operationId: CHANGEME-PutChannels
+    responses:
+      '200':
+        description: OK
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/channels"
       4XX:
         description: Client Error
         content:

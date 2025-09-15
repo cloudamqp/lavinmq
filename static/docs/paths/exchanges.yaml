@@ -3,9 +3,10 @@
   get:
     tags:
     - exchanges
-    description: List all exchanges.
-    summary: List all exchanges
-    operationId: GetExchanges
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
+    parameters: []
+    operationId: CHANGEME-GetExchanges
     responses:
       '200':
         description: OK
@@ -26,19 +27,19 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/exchanges/{vhost}":
-  parameters:
-  - in: path
-    name: vhost
-    required: true
-    schema:
-      type: string
-      description: Name of vhost
   get:
     tags:
     - exchanges
-    description: List all exchanges for a specific vhost.
-    summary: List exchanges by vhost
-    operationId: GetExchangesVhost
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: CHANGEME.
+    operationId: CHANGEME-GetExchanges
     responses:
       '200':
         description: OK
@@ -59,32 +60,32 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/exchanges/{vhost}/{name}":
-  parameters:
-  - in: path
-    name: vhost
-    required: true
-    schema:
-      type: string
-      description: Name of vhost.
-  - in: path
-    name: name
-    required: true
-    schema:
-      type: string
-      description: Name of exchange.
   get:
     tags:
     - exchanges
-    description: Find a specific exchange by vhost and name.
-    summary: List exchange
-    operationId: GetExchange
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: CHANGEME.
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: CHANGEME.
+    operationId: CHANGEME-GetExchanges
     responses:
       '200':
         description: OK
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/exchange"
+              "$ref": "../openapi.yaml#/components/schemas/exchanges"
       4XX:
         description: Client Error
         content:
@@ -100,20 +101,29 @@
   put:
     tags:
     - exchanges
-    description: Create a new exchange, or update an existing exchange.
-    summary: Create/update exchange
-    operationId: PutExchange
-    requestBody:
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
+    parameters:
+    - in: path
+      name: vhost
       required: true
-      content:
-        application/json:
-          schema:
-            "$ref": "../openapi.yaml#/components/schemas/exchanges-PutExchangeRequestBody"
+      schema:
+        type: string
+        description: CHANGEME.
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: CHANGEME.
+    operationId: CHANGEME-PutExchanges
     responses:
-      '201':
-        description: The exchange was created successfully.
-      '204':
-        description: The exchange was updated successfully.
+      '200':
+        description: OK
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/exchanges"
       4XX:
         description: Client Error
         content:
@@ -129,90 +139,29 @@
   delete:
     tags:
     - exchanges
-    description: Remove a specific exchange.
-    summary: Delete exchange
-    operationId: DeleteExchange
-    responses:
-      '204':
-        description: The exchange was deleted successfully.
-      4XX:
-        description: Client Error
-        content:
-          application/json:
-            schema:
-              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
-      5XX:
-        description: Server Error
-        content:
-          application/json:
-            schema:
-              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
-"/exchanges/{vhost}/{name}/bindings/source":
-  parameters:
-  - in: path
-    name: vhost
-    required: true
-    schema:
-      type: string
-      description: Name of vhost.
-  - in: path
-    name: name
-    required: true
-    schema:
-      type: string
-      description: Name of exchange.
-  get:
-    tags:
-    - exchanges
-    description: List all bindings where the specific exchange is the source.
-    summary: Bindings (source)
-    operationId: GetExchangeBindingsSource
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: CHANGEME.
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: CHANGEME.
+    operationId: CHANGEME-DeleteExchanges
     responses:
       '200':
         description: OK
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/bindings"
-      4XX:
-        description: Client Error
-        content:
-          application/json:
-            schema:
-              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
-      5XX:
-        description: Server Error
-        content:
-          application/json:
-            schema:
-              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
-"/exchanges/{vhost}/{name}/bindings/destination":
-  parameters:
-  - in: path
-    name: vhost
-    required: true
-    schema:
-      type: string
-      description: Name of vhost.
-  - in: path
-    name: name
-    required: true
-    schema:
-      type: string
-      description: Name of exchange.
-  get:
-    tags:
-    - exchanges
-    description: List all bindings where the specific exchange is the destination.
-    summary: Bindings (destination)
-    operationId: GetExchangeBindingsDestination
-    responses:
-      '200':
-        description: OK
-        content:
-          application/json:
-            schema:
-              "$ref": "../openapi.yaml#/components/schemas/bindings"
+              "$ref": "../openapi.yaml#/components/schemas/exchanges"
       4XX:
         description: Client Error
         content:
@@ -226,38 +175,32 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/exchanges/{vhost}/{name}/publish":
-  parameters:
-  - in: path
-    name: vhost
-    required: true
-    schema:
-      type: string
-      description: Name of vhost.
-  - in: path
-    name: name
-    required: true
-    schema:
-      type: string
-      description: Name of exchange.
   post:
     tags:
     - exchanges
-    description: Publish a message to the specific exchange. Check the response body to understand if the message was successfully routed or not.
-    summary: Publish message
-    operationId: PostExchangePublish
-    requestBody:
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
+    parameters:
+    - in: path
+      name: vhost
       required: true
-      content:
-        application/json:
-          schema:
-            "$ref": "../openapi.yaml#/components/schemas/exchanges-PublishRequestBody"
+      schema:
+        type: string
+        description: CHANGEME.
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: CHANGEME.
+    operationId: CHANGEME-PostExchanges
     responses:
       '200':
         description: OK
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/exchanges-publish"
+              "$ref": "../openapi.yaml#/components/schemas/exchanges"
       4XX:
         description: Client Error
         content:

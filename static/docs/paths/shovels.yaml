@@ -1,19 +1,19 @@
 ---
-"/vhosts":
+"/shovels":
   get:
     tags:
-    - vhosts
+    - shovels
     description: CHANGEME_LONG.
     summary: CHANGEME_SHORT
     parameters: []
-    operationId: CHANGEME-GetVhosts
+    operationId: CHANGEME-GetShovels
     responses:
       '200':
         description: OK
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/vhosts"
+              "$ref": "../openapi.yaml#/components/schemas/shovels"
       4XX:
         description: Client Error
         content:
@@ -26,27 +26,66 @@
           application/json:
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
-"/vhosts/{name}":
+"/shovels/{vhost}":
   get:
     tags:
-    - vhosts
+    - shovels
     description: CHANGEME_LONG.
     summary: CHANGEME_SHORT
     parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: CHANGEME.
+    operationId: CHANGEME-GetShovels
+    responses:
+      '200':
+        description: OK
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/shovels"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+"/shovels/{vhost}/{name}":
+  get:
+    tags:
+    - shovels
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: CHANGEME.
     - in: path
       name: name
       required: true
       schema:
         type: string
         description: CHANGEME.
-    operationId: CHANGEME-GetVhosts
+    operationId: CHANGEME-GetShovels
     responses:
       '200':
         description: OK
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/vhosts"
+              "$ref": "../openapi.yaml#/components/schemas/shovels"
       4XX:
         description: Client Error
         content:
@@ -59,26 +98,33 @@
           application/json:
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+"/shovels/{vhost}/{name}/pause":
   put:
     tags:
-    - vhosts
+    - shovels
     description: CHANGEME_LONG.
     summary: CHANGEME_SHORT
     parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: CHANGEME.
     - in: path
       name: name
       required: true
       schema:
         type: string
         description: CHANGEME.
-    operationId: CHANGEME-PutVhosts
+    operationId: CHANGEME-PutShovels
     responses:
       '200':
         description: OK
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/vhosts"
+              "$ref": "../openapi.yaml#/components/schemas/shovels"
       4XX:
         description: Client Error
         content:
@@ -91,59 +137,33 @@
           application/json:
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
-  delete:
+"/shovels/{vhost}/{name}/resume":
+  put:
     tags:
-    - vhosts
+    - shovels
     description: CHANGEME_LONG.
     summary: CHANGEME_SHORT
     parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: CHANGEME.
     - in: path
       name: name
       required: true
       schema:
         type: string
         description: CHANGEME.
-    operationId: CHANGEME-DeleteVhosts
+    operationId: CHANGEME-PutShovels
     responses:
       '200':
         description: OK
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/vhosts"
-      4XX:
-        description: Client Error
-        content:
-          application/json:
-            schema:
-              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
-      5XX:
-        description: Server Error
-        content:
-          application/json:
-            schema:
-              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
-"/vhosts/{name}/permissions":
-  get:
-    tags:
-    - vhosts
-    description: CHANGEME_LONG.
-    summary: CHANGEME_SHORT
-    parameters:
-    - in: path
-      name: name
-      required: true
-      schema:
-        type: string
-        description: CHANGEME.
-    operationId: CHANGEME-GetVhosts
-    responses:
-      '200':
-        description: OK
-        content:
-          application/json:
-            schema:
-              "$ref": "../openapi.yaml#/components/schemas/vhosts"
+              "$ref": "../openapi.yaml#/components/schemas/shovels"
       4XX:
         description: Client Error
         content:

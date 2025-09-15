@@ -3,16 +3,17 @@
   get:
     tags:
     - main
-    description: Various server information.
-    summary: Server info
-    operationId: Overview
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
+    parameters: []
+    operationId: CHANGEME-GetMain
     responses:
       '200':
         description: OK
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/main-overview"
+              "$ref": "../openapi.yaml#/components/schemas/main"
       4XX:
         description: Client Error
         content:
@@ -29,16 +30,17 @@
   get:
     tags:
     - main
-    description: Info about the authenticated user.
-    summary: User info
-    operationId: WhoAmI
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
+    parameters: []
+    operationId: CHANGEME-GetMain
     responses:
       '200':
         description: OK
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/user"
+              "$ref": "../openapi.yaml#/components/schemas/main"
       4XX:
         description: Client Error
         content:
@@ -52,85 +54,26 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/aliveness-test/{vhost}":
-  parameters:
-  - in: path
-    name: vhost
-    required: true
-    schema:
-      type: string
-      description: Name of vhost.
   get:
     tags:
     - main
-    description: "Declares a queue, publishes and consumes a message. Note: to prevent churn, the aliveness queue is not removed."
-    summary: Aliveness test
-    operationId: AlivenessTest
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: CHANGEME.
+    operationId: CHANGEME-GetMain
     responses:
       '200':
         description: OK
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/main-aliveness-test"
-      4XX:
-        description: Client Error
-        content:
-          application/json:
-            schema:
-              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
-      5XX:
-        description: Server Error
-        content:
-          application/json:
-            schema:
-              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
-"/shovels":
-  get:
-    tags:
-    - main
-    description: List all shovels.
-    summary: List shovels
-    operationId: GetShovels
-    responses:
-      '200':
-        description: OK
-        content:
-          application/json:
-            schema:
-              "$ref": "../openapi.yaml#/components/schemas/main-shovels"
-      4XX:
-        description: Client Error
-        content:
-          application/json:
-            schema:
-              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
-      5XX:
-        description: Server Error
-        content:
-          application/json:
-            schema:
-              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
-"/shovels/{vhost}":
-  parameters:
-  - in: path
-    name: vhost
-    required: true
-    schema:
-      type: string
-      description: Name of vhost.
-  get:
-    tags:
-    - main
-    description: List all shovels for specific vhost.
-    summary: List shovels by vhost
-    operationId: GetShovelsVhost
-    responses:
-      '200':
-        description: OK
-        content:
-          application/json:
-            schema:
-              "$ref": "../openapi.yaml#/components/schemas/main-shovels"
+              "$ref": "../openapi.yaml#/components/schemas/main"
       4XX:
         description: Client Error
         content:
@@ -147,16 +90,17 @@
   get:
     tags:
     - main
-    description: List all federation links.
-    summary: List federation links
-    operationId: GetFederationLinks
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
+    parameters: []
+    operationId: CHANGEME-GetMain
     responses:
       '200':
         description: OK
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/main-federation-links"
+              "$ref": "../openapi.yaml#/components/schemas/main"
       4XX:
         description: Client Error
         content:
@@ -170,26 +114,26 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/federation-links/{vhost}":
-  parameters:
-  - in: path
-    name: vhost
-    required: true
-    schema:
-      type: string
-      description: Name of vhost.
   get:
     tags:
     - main
-    description: List all federation links for specific vhost.
-    summary: List federation links by vhost
-    operationId: GetFederationLinksVhost
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: CHANGEME.
+    operationId: CHANGEME-GetMain
     responses:
       '200':
         description: OK
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/main-federation-links"
+              "$ref": "../openapi.yaml#/components/schemas/main"
       4XX:
         description: Client Error
         content:
@@ -206,16 +150,17 @@
   get:
     tags:
     - main
-    description: List all extensions.
-    summary: List extensions
-    operationId: GetExtensions
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
+    parameters: []
+    operationId: CHANGEME-GetMain
     responses:
       '200':
         description: OK
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/main-extensions"
+              "$ref": "../openapi.yaml#/components/schemas/main"
       4XX:
         description: Client Error
         content:

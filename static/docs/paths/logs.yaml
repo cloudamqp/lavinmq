@@ -1,19 +1,19 @@
 ---
-"/nodes":
+"/livelog":
   get:
     tags:
-    - nodes
+    - logs
     description: CHANGEME_LONG.
     summary: CHANGEME_SHORT
     parameters: []
-    operationId: CHANGEME-GetNodes
+    operationId: CHANGEME-GetLogs
     responses:
       '200':
         description: OK
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/nodes"
+              "$ref": "../openapi.yaml#/components/schemas/logs"
       4XX:
         description: Client Error
         content:
@@ -26,27 +26,21 @@
           application/json:
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
-"/nodes/{name}":
+"/logs":
   get:
     tags:
-    - nodes
+    - logs
     description: CHANGEME_LONG.
     summary: CHANGEME_SHORT
-    parameters:
-    - in: path
-      name: name
-      required: true
-      schema:
-        type: string
-        description: CHANGEME.
-    operationId: CHANGEME-GetNodes
+    parameters: []
+    operationId: CHANGEME-GetLogs
     responses:
       '200':
         description: OK
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/nodes"
+              "$ref": "../openapi.yaml#/components/schemas/logs"
       4XX:
         description: Client Error
         content:

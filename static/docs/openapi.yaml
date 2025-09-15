@@ -9,7 +9,7 @@ info:
     url: https://www.lavinmq.com/
     email: contact@lavinmq.com
 servers:
-- url: /api
+- url: "/api"
 security:
 - BasicAuth: []
 components:
@@ -133,6 +133,14 @@ components:
       "$ref": "./schemas/auth.yaml#/PutHashPasswordRequestBody"
     auth-PasswordHash:
       "$ref": "./schemas/auth.yaml#/PasswordHash"
+    logs:
+      "$ref": "./schemas/logs.yaml#/logs"
+    main:
+      "$ref": "./schemas/main.yaml#/main"
+    shovels:
+      "$ref": "./schemas/shovels.yaml#/shovels"
+    vhost-limits:
+      "$ref": "./schemas/vhost-limits.yaml#/vhost-limits"
 paths:
   "/bindings":
     "$ref": "./paths/bindings.yaml#/~1bindings"
@@ -146,6 +154,10 @@ paths:
     "$ref": "./paths/bindings.yaml#/~1bindings~1{vhost}~1e~1{name}~1e~1{destination}"
   "/bindings/{vhost}/e/{name}/e/{destination}/{props}":
     "$ref": "./paths/bindings.yaml#/~1bindings~1{vhost}~1e~1{name}~1e~1{destination}~1{props}"
+  "/exchanges/{vhost}/{name}/bindings/source":
+    "$ref": "./paths/bindings.yaml#/~1exchanges~1{vhost}~1{name}~1bindings~1source"
+  "/exchanges/{vhost}/{name}/bindings/destination":
+    "$ref": "./paths/bindings.yaml#/~1exchanges~1{vhost}~1{name}~1bindings~1destination"
   "/channels":
     "$ref": "./paths/channels.yaml#/~1channels"
   "/vhosts/{vhost}/channels":
@@ -160,7 +172,7 @@ paths:
     "$ref": "./paths/connections.yaml#/~1connections~1{name}"
   "/connections/{name}/channels":
     "$ref": "./paths/connections.yaml#/~1connections~1{name}~1channels"
-  "/api/connections/username/{username}":
+  "/connections/username/{username}":
     "$ref": "./paths/connections.yaml#/~1connections~1username~1{username}"
   "/consumers":
     "$ref": "./paths/consumers.yaml#/~1consumers"
@@ -182,22 +194,18 @@ paths:
     "$ref": "./paths/exchanges.yaml#/~1exchanges~1{vhost}"
   "/exchanges/{vhost}/{name}":
     "$ref": "./paths/exchanges.yaml#/~1exchanges~1{vhost}~1{name}"
-  "/exchanges/{vhost}/{name}/bindings/source":
-    "$ref": "./paths/exchanges.yaml#/~1exchanges~1{vhost}~1{name}~1bindings~1source"
-  "/exchanges/{vhost}/{name}/bindings/destination":
-    "$ref": "./paths/exchanges.yaml#/~1exchanges~1{vhost}~1{name}~1bindings~1destination"
   "/exchanges/{vhost}/{name}/publish":
     "$ref": "./paths/exchanges.yaml#/~1exchanges~1{vhost}~1{name}~1publish"
+  "/livelog":
+    "$ref": "./paths/logs.yaml#/~1livelog"
+  "/logs":
+    "$ref": "./paths/logs.yaml#/~1logs"
   "/overview":
     "$ref": "./paths/main.yaml#/~1overview"
   "/whoami":
     "$ref": "./paths/main.yaml#/~1whoami"
   "/aliveness-test/{vhost}":
     "$ref": "./paths/main.yaml#/~1aliveness-test~1{vhost}"
-  "/shovels":
-    "$ref": "./paths/main.yaml#/~1shovels"
-  "/shovels/{vhost}":
-    "$ref": "./paths/main.yaml#/~1shovels~1{vhost}"
   "/federation-links":
     "$ref": "./paths/main.yaml#/~1federation-links"
   "/federation-links/{vhost}":
@@ -221,11 +229,17 @@ paths:
   "/global-parameters/{name}":
     "$ref": "./paths/parameters.yaml#/~1global-parameters~1{name}"
   "/policies":
-    "$ref": "./paths/policies.yaml#/~1policies"
+    "$ref": "./paths/parameters.yaml#/~1policies"
   "/policies/{vhost}":
-    "$ref": "./paths/policies.yaml#/~1policies~1{vhost}"
+    "$ref": "./paths/parameters.yaml#/~1policies~1{vhost}"
   "/policies/{vhost}/{name}":
-    "$ref": "./paths/policies.yaml#/~1policies~1{vhost}~1{name}"
+    "$ref": "./paths/parameters.yaml#/~1policies~1{vhost}~1{name}"
+  "/operator-policies":
+    "$ref": "./paths/parameters.yaml#/~1operator-policies"
+  "/operator-policies/{vhost}":
+    "$ref": "./paths/parameters.yaml#/~1operator-policies~1{vhost}"
+  "/operator-policies/{vhost}/{name}":
+    "$ref": "./paths/parameters.yaml#/~1operator-policies~1{vhost}~1{name}"
   "/permissions":
     "$ref": "./paths/permissions.yaml#/~1permissions"
   "/permissions/{vhost}/{user}":
@@ -236,6 +250,8 @@ paths:
     "$ref": "./paths/queues.yaml#/~1queues~1{vhost}"
   "/queues/{vhost}/{name}":
     "$ref": "./paths/queues.yaml#/~1queues~1{vhost}~1{name}"
+  "/queues/{vhost}/{name}/unacked":
+    "$ref": "./paths/queues.yaml#/~1queues~1{vhost}~1{name}~1unacked"
   "/queues/{vhost}/{name}/pause":
     "$ref": "./paths/queues.yaml#/~1queues~1{vhost}~1{name}~1pause"
   "/queues/{vhost}/{name}/resume":
@@ -246,8 +262,16 @@ paths:
     "$ref": "./paths/queues.yaml#/~1queues~1{vhost}~1{name}~1contents"
   "/queues/{vhost}/{name}/get":
     "$ref": "./paths/queues.yaml#/~1queues~1{vhost}~1{name}~1get"
-  "/queues/{vhost}/{name}/unacked":
-    "$ref": "./paths/queues.yaml#/~1queues~1{vhost}~1{name}~1unacked"
+  "/shovels":
+    "$ref": "./paths/shovels.yaml#/~1shovels"
+  "/shovels/{vhost}":
+    "$ref": "./paths/shovels.yaml#/~1shovels~1{vhost}"
+  "/shovels/{vhost}/{name}":
+    "$ref": "./paths/shovels.yaml#/~1shovels~1{vhost}~1{name}"
+  "/shovels/{vhost}/{name}/pause":
+    "$ref": "./paths/shovels.yaml#/~1shovels~1{vhost}~1{name}~1pause"
+  "/shovels/{vhost}/{name}/resume":
+    "$ref": "./paths/shovels.yaml#/~1shovels~1{vhost}~1{name}~1resume"
   "/users":
     "$ref": "./paths/users.yaml#/~1users"
   "/users/without-permissions":
@@ -258,20 +282,22 @@ paths:
     "$ref": "./paths/users.yaml#/~1users~1{name}"
   "/users/{name}/permissions":
     "$ref": "./paths/users.yaml#/~1users~1{name}~1permissions"
-  "/vhosts":
-    "$ref": "./paths/vhosts.yaml#/~1vhosts"
-  "/vhosts/{name}":
-    "$ref": "./paths/vhosts.yaml#/~1vhosts~1{name}"
-  "/vhosts/{name}/permissions":
-    "$ref": "./paths/vhosts.yaml#/~1vhosts~1{name}~1permissions"
   "/auth/hash_password":
-    "$ref": "./paths/auth.yaml#/~1auth~1hash_password"
+    "$ref": "./paths/users.yaml#/~1auth~1hash_password"
   "/vhost-limits":
     "$ref": "./paths/vhost-limits.yaml#/~1vhost-limits"
   "/vhost-limits/{vhost}":
     "$ref": "./paths/vhost-limits.yaml#/~1vhost-limits~1{vhost}"
   "/vhost-limits/{vhost}/{type}":
     "$ref": "./paths/vhost-limits.yaml#/~1vhost-limits~1{vhost}~1{type}"
+  "/vhost-limits/{name}/{type}":
+    "$ref": "./paths/vhost-limits.yaml#/~1vhost-limits~1{name}~1{type}"
+  "/vhosts":
+    "$ref": "./paths/vhosts.yaml#/~1vhosts"
+  "/vhosts/{name}":
+    "$ref": "./paths/vhosts.yaml#/~1vhosts~1{name}"
+  "/vhosts/{name}/permissions":
+    "$ref": "./paths/vhosts.yaml#/~1vhosts~1{name}~1permissions"
 tags:
 - name: bindings
   description: Manage bindings.
@@ -286,13 +312,12 @@ tags:
 - name: exchanges
   description: Manage exchanges.
 - name: main
-  description: Query the server for various information (e.g. shovels, federation links, extensions).
+  description: Query the server for various information (e.g. shovels, federation
+    links, extensions).
 - name: nodes
   description: Get node statistics.
 - name: parameters
   description: Manage parameters.
-- name: policies
-  description: Manage policies.
 - name: permissions
   description: Manage permissions.
 - name: queues
@@ -301,7 +326,9 @@ tags:
   description: Manage users.
 - name: vhosts
   description: Manage vhosts.
-- name: auth
-  description: Hash a password.
 - name: vhost-limits
   description: Manage vhost limits.
+- name: logs
+  description: CHANGEME
+- name: shovels
+  description: CHANGEME

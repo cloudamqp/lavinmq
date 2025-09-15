@@ -1,44 +1,8 @@
 ---
 vhosts:
-  type: array
-  items:
-    "$ref": "#/vhost"
-vhost:
+  title: CHANGEME
   type: object
   properties:
-    name:
+    CHANGEME:
       type: string
-      description: Name of the vhost.
-    dir:
-      type: string
-      description: The directory on disk that maps to the vhost.
-    cluster_state:
-      type: object
-    messages:
-      type: integer
-      description: Number of messages in the vhost.
-    messages_unacknowledged:
-      type: integer
-      description: Number of unacknowledged messages in the vhost.
-    messages_ready:
-      type: integer
-      description: Number of ready messages in the vhost.
-    messages_stats:
-      type: object
-      properties:
-        ack:
-          type: integer
-        confirm:
-          type: integer
-        deliver:
-          type: integer
-        get:
-          type: integer
-        get_no_ack:
-          type: integer
-        publish:
-          type: integer
-        redeliver:
-          type: integer
-        return_unroutable:
-          type: integer
+      description: CHANGEME
