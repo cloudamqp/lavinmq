@@ -60,6 +60,13 @@
   --color-danger-hover: #f01e0f;
   --color-primary-green: #3c9368;
 
+  /* Topology colors */
+  --color-topology-exchange: #4589ff;
+  --color-topology-queue: #54be7e;
+  --color-topology-flow-active: #ff9900;
+  --color-topology-flow-medium: #ffb936;
+  --color-topology-flow-inactive: #666;
+
   /* Table and error colors */
   --color-table-row-odd: light-dark(#f9fafb, #242424);
   --color-table-row-even: light-dark(#ffffff, #1D1D1D);
@@ -2362,3 +2369,375 @@ html.theme-dark {
 }
 
 /* Theme Switcher end */
+
+/* Topology page styles */
+.topology-header {
+  margin-bottom: 40px;
+}
+
+/* Topology Controls */
+.topology-controls {
+  background: var(--color-bg-secondary);
+  border-radius: 0.75rem;
+  padding: 1rem 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.topology-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2rem;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.search-group {
+  position: relative;
+  display: inline-block;
+}
+
+.search-input {
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--color-border-secondary);
+  border-radius: 0.5rem;
+  background: var(--color-bg-input);
+  color: var(--color-text-primary);
+  font-size: 0.875rem;
+  min-width: 220px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: var(--color-primary-500, #4589ff);
+  box-shadow: 0 0 0 3px rgba(69, 137, 255, 0.1);
+}
+
+.filter-group {
+  display: flex;
+  gap: 1.5rem;
+  padding: 0.25rem 0;
+}
+
+.filter-group label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--color-text-primary);
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.375rem;
+  transition: background-color 0.2s;
+}
+
+.filter-group label:hover {
+  background-color: var(--color-bg-hover);
+}
+
+.filter-group input[type="checkbox"] {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--color-primary-500, #4589ff);
+}
+
+.view-controls {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.topology-info-popup {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  width: 350px;
+  height: 400px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-primary);
+  border-radius: 0.75rem;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.2), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  z-index: 100;
+  overflow: hidden;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.3s ease, visibility 0.3s ease;
+}
+
+.topology-info-popup.show {
+  opacity: 1;
+  visibility: visible;
+}
+
+.popup-content {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.popup-header {
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid var(--color-border-primary);
+  background: var(--color-bg-primary);
+  border-radius: 0.75rem 0.75rem 0 0;
+}
+
+.popup-header h3 {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  padding: 0;
+  width: 2rem;
+  height: 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.375rem;
+  transition: background-color 0.2s;
+}
+
+.close-btn:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.popup-body {
+  padding: 0;
+  overflow: hidden;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Responsive behavior for smaller screens */
+@media (max-width: 768px) {
+  .topology-info-popup {
+    width: 300px;
+    right: 0.5rem;
+    top: 0.5rem;
+    height: 400px;
+  }
+}
+
+.node-details .node-header {
+  border-bottom: 1px solid var(--color-border-primary);
+  padding-bottom: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.node-details .node-header h3 {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: 1.125rem;
+}
+
+.node-info {
+  padding: 1.5rem 1.5rem 1rem 1.5rem;
+  background: var(--color-bg-secondary);
+  border-bottom: 1px solid var(--color-border-primary);
+  flex-shrink: 0;
+}
+
+.node-info .info-group {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.25rem 0;
+  border-bottom: 1px solid var(--color-border-separator);
+}
+
+.node-info .info-group:last-child {
+  border-bottom: none;
+}
+
+.node-info label {
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
+}
+
+.node-info span {
+  color: var(--color-text-primary);
+  font-size: 0.875rem;
+}
+
+.connections-container {
+  overflow-y: auto;
+  flex: 1;
+  padding: 0 1.5rem 1.5rem 1.5rem;
+}
+
+.connections-section {
+  margin-top: 1.5rem;
+}
+
+.connections-section:first-child {
+  margin-top: 0;
+}
+
+.connections-section h4 {
+  margin: 0 0 0.5rem 0;
+  color: var(--color-text-primary);
+  font-size: 1rem;
+}
+
+.connection-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.connection-list li {
+  padding: 0.5rem;
+  margin-bottom: 0.25rem;
+  background: var(--color-bg-input);
+  border-radius: 0.375rem;
+  border: 1px solid var(--color-border-secondary);
+}
+
+.connection-list li strong {
+  color: var(--color-text-primary);
+}
+
+.connection-list li small {
+  color: var(--color-text-secondary);
+  font-size: 0.75rem;
+}
+
+/* Enhanced popup styling */
+.connection-name {
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin-bottom: 0.25rem;
+}
+
+.connection-detail {
+  font-size: 0.8125rem;
+  color: var(--color-text-secondary);
+  margin: 0.125rem 0;
+}
+
+.connection-flow {
+  font-size: 0.8125rem;
+  color: #198038;
+  font-weight: 500;
+}
+
+.connection-flow-inactive {
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.no-connections {
+  text-align: center;
+  padding: 2rem 1rem;
+  color: var(--color-text-secondary);
+}
+
+.no-connections p {
+  font-size: 1.125rem;
+  margin-bottom: 0.5rem;
+}
+
+.no-connections small {
+  font-size: 0.875rem;
+  opacity: 0.8;
+}
+
+.text-warning {
+  color: #d2a106 !important;
+  font-weight: 500;
+}
+
+.text-muted {
+  color: var(--color-text-muted) !important;
+  opacity: 0.7;
+}
+
+/* Topology page */
+
+.topology-graph-container {
+  width: 100%;
+  height: 68vh;
+  min-height: 500px;
+  overflow: visible;
+  position: relative;
+}
+
+.topology-help-text {
+  margin-top: 15px;
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.topology-help-list {
+  margin: 5px 0 0 20px;
+}
+
+/* Topology SVG styles */
+.topology-graph-container svg {
+  background-color: var(--color-bg-secondary);
+}
+
+.topology-link {
+  /* Stroke color and opacity are now set dynamically based on message flow */
+  /* Removed transitions to improve animation performance */
+}
+
+.topology-node-text {
+  fill: light-dark(#000, #fff);
+  font-weight: 400;
+}
+
+.topology-vhost-label {
+  fill: var(--color-text-primary);
+}
+
+.topology-arrow {
+  fill: light-dark(#666, #bbb);
+}
+
+.flow-particle {
+  pointer-events: none; /* Particles don't interfere with interactions */
+}
+
+/* Remove node borders and improve visibility */
+.topology-node-circle {
+  stroke: none !important;
+}
+
+/* Message Flow Legend styles */
+.topology-legend-bg {
+  fill: light-dark(#F4F4F4, #2D2C2C);
+  stroke: light-dark(#ccc, #414040);
+}
+
+.topology-legend-title {
+  fill: light-dark(#000, #fff);
+}
+
+.topology-legend-text {
+  fill: light-dark(#000, #fff);
+}
+
+.topology-legend-subtitle {
+  fill: light-dark(#666, #bbb);
+}
+
+/* VHost grouping boxes */
+.topology-vhost-box {
+  fill: light-dark(rgba(0, 0, 0, 0.03), rgba(255, 255, 255, 0.05));
+  stroke: light-dark(rgba(0, 0, 0, 0.1), rgba(255, 255, 255, 0.1));
+  stroke-width: 1;
+  stroke-dasharray: 5,5;
+}
