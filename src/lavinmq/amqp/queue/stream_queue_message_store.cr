@@ -119,7 +119,7 @@ module LavinMQ::AMQP
       end
 
       private def offset_index_lookup(offset) : UInt32
-        seg = @segments.first_key
+        seg = @offset_index.first_key
         case offset
         when Int
           @offset_index.each do |seg_id, first_seg_offset|
@@ -360,13 +360,6 @@ module LavinMQ::AMQP
           @timestamp_index[seg] = file.read_bytes(Int64)
           @segment_msg_count[seg] = count
           bytesize = mfile.size - 4
-          if deleted = @deleted[seg]?
-            deleted.each do |pos|
-              mfile.pos = pos
-              bytesize -= BytesMessage.skip(mfile)
-              count -= 1
-            end
-          end
           mfile.pos = 4
           mfile.dontneed
           @bytesize += bytesize
