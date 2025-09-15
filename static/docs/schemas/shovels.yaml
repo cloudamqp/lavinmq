@@ -1,8 +1,31 @@
 ---
 shovels:
-  title: CHANGEME
+  type: array
+  items:
+    "$ref": "#/shovel"
+shovel:
   type: object
   properties:
-    CHANGEME:
+    name:
       type: string
-      description: CHANGEME
+      description: Name of the shovel.
+    vhost:
+      type: string
+      description: Name of the vhost that the shovel belongs to.
+    state:
+      type: string
+      description: Current state of the shovel.
+      enum:
+        - starting
+        - running
+        - stopped
+        - paused
+        - terminated
+        - error
+    error:
+      type: string
+      nullable: true
+      description: Error message if the shovel is in error state, otherwise null.
+    message_count:
+      type: integer
+      description: Number of messages that have been shoveled by this shovel.

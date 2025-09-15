@@ -3,10 +3,9 @@
   get:
     tags:
     - shovels
-    description: CHANGEME_LONG.
-    summary: CHANGEME_SHORT
-    parameters: []
-    operationId: CHANGEME-GetShovels
+    description: List all shovels across all vhosts that the authenticated user has access to.
+    summary: List all shovels
+    operationId: GetShovels
     responses:
       '200':
         description: OK
@@ -30,16 +29,16 @@
   get:
     tags:
     - shovels
-    description: CHANGEME_LONG.
-    summary: CHANGEME_SHORT
+    description: List all shovels for a specific vhost.
+    summary: List shovels for vhost
     parameters:
     - in: path
       name: vhost
       required: true
       schema:
         type: string
-        description: CHANGEME.
-    operationId: CHANGEME-GetShovels
+        description: Name of the vhost.
+    operationId: GetShovelsVhost
     responses:
       '200':
         description: OK
@@ -63,29 +62,35 @@
   get:
     tags:
     - shovels
-    description: CHANGEME_LONG.
-    summary: CHANGEME_SHORT
+    description: Get details of a specific shovel by name and vhost.
+    summary: Get shovel details
     parameters:
     - in: path
       name: vhost
       required: true
       schema:
         type: string
-        description: CHANGEME.
+        description: Name of the vhost.
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: CHANGEME.
-    operationId: CHANGEME-GetShovels
+        description: Name of the shovel.
+    operationId: GetShovel
     responses:
       '200':
         description: OK
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/shovels"
+              "$ref": "../openapi.yaml#/components/schemas/shovel"
+      '404':
+        description: Shovel not found
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
       4XX:
         description: Client Error
         content:
@@ -102,29 +107,37 @@
   put:
     tags:
     - shovels
-    description: CHANGEME_LONG.
-    summary: CHANGEME_SHORT
+    description: Pause a shovel. When a shovel is paused, it stops processing messages but retains its configuration.
+    summary: Pause shovel
     parameters:
     - in: path
       name: vhost
       required: true
       schema:
         type: string
-        description: CHANGEME.
+        description: Name of the vhost.
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: CHANGEME.
-    operationId: CHANGEME-PutShovels
+        description: Name of the shovel.
+    operationId: PauseShovel
     responses:
-      '200':
-        description: OK
+      '204':
+        description: Shovel paused successfully
+      '404':
+        description: Shovel not found
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/shovels"
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      '422':
+        description: Shovel is not running (cannot pause a non-running shovel)
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
       4XX:
         description: Client Error
         content:
@@ -141,29 +154,37 @@
   put:
     tags:
     - shovels
-    description: CHANGEME_LONG.
-    summary: CHANGEME_SHORT
+    description: Resume a paused shovel. When a shovel is resumed, it continues processing messages from where it left off.
+    summary: Resume shovel
     parameters:
     - in: path
       name: vhost
       required: true
       schema:
         type: string
-        description: CHANGEME.
+        description: Name of the vhost.
     - in: path
       name: name
       required: true
       schema:
         type: string
-        description: CHANGEME.
-    operationId: CHANGEME-PutShovels
+        description: Name of the shovel.
+    operationId: ResumeShovel
     responses:
-      '200':
-        description: OK
+      '204':
+        description: Shovel resumed successfully
+      '404':
+        description: Shovel not found
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/shovels"
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      '422':
+        description: Shovel is not paused (cannot resume a non-paused shovel)
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
       4XX:
         description: Client Error
         content:

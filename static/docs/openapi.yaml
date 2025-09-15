@@ -137,6 +137,8 @@ components:
       "$ref": "./schemas/logs.yaml#/logs"
     main:
       "$ref": "./schemas/main.yaml#/main"
+    shovel:
+      "$ref": "./schemas/shovels.yaml#/shovel"
     shovels:
       "$ref": "./schemas/shovels.yaml#/shovels"
     vhost-limits:
@@ -331,4 +333,4 @@ tags:
 - name: logs
   description: CHANGEME
 - name: shovels
-  description: CHANGEME
+  description: Manage shovels for message forwarding between queues and exchanges.
