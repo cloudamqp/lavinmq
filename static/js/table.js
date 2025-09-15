@@ -107,28 +107,43 @@ function renderTable (id, options = {}, renderRow) {
     form.addEventListener('submit', (e) => { e.preventDefault() })
 
     const filterInput = document.createElement('input')
+    filterInput.type = 'search'
     filterInput.classList.add('filter-table')
     filterInput.placeholder = 'Filter regex'
+
+    if (container.dataset.clearSearch === '1') dataSource.searchTerm = ''
     filterInput.value = dataSource.searchTerm ?? ''
     form.appendChild(filterInput)
     container.insertBefore(form, container.children[0])
     
+    let liveType 
     const apply = () => {
       dataSource.searchTerm = filterInput.value
       dataSource.page = 1
+      clearTimeout(liveType)
       reload()
     }
-    let liveType 
     filterInput.addEventListener('input', () => {
       clearTimeout(liveType)
-      liveType = setTimeout(apply, 120)
+      liveType = setTimeout(apply, 500)
     })
     filterInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         e.preventDefault()
         apply()
+      } else if (e.key === 'Escape') {
+        if (filterInput.value) {
+          filterInput.value = ''
+          apply()
+        }
       }
     })
+
+    // Fires when the native clear “×” is clicked (because type="search")
+  filterInput.addEventListener('search', () => {
+    if (filterInput.value === '' && dataSource.searchTerm)
+      apply()
+  })
 
     dataSource.on('update', _ => {
       if (filterInput !== document.activeElement) {
