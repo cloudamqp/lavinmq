@@ -49,7 +49,6 @@ module LavinMQ
         @metadata = ::Log::Metadata.new(nil, {client: @client.connection_info.remote_address.to_s, channel: @id.to_i})
         @name = "#{@client.channel_name_prefix}[#{@id}]"
         @log = Logger.new(Log, @metadata)
-        puts "channel", @client
       end
 
       record Unack,
@@ -350,7 +349,6 @@ module LavinMQ
       end
 
       def consume(frame)
-        puts "ch consume"
         if @consumers.size >= Config.instance.max_consumers_per_channel > 0
           @client.send_resource_error(frame, "Max #{Config.instance.max_consumers_per_channel} consumers per channel reached")
           return
@@ -378,23 +376,19 @@ module LavinMQ
             @client.send_access_refused(frame, "Queue '#{frame.queue}' in vhost '#{@client.vhost.name}' in exclusive use")
             return
           end
-          puts "new consumer"
           c = if q.is_a? Stream
                 AMQP::StreamConsumer.new(self, q, frame)
               else
                 AMQP::Consumer.new(self, q, frame)
               end
-          pp "consumer", c
           @consumers.push(c)
           q.add_consumer(c)
-          puts "OKOK"
           unless frame.no_wait
             send AMQP::Frame::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag)
           end
         else
           @client.send_not_found(frame, "Queue '#{frame.queue}' not declared")
         end
-        puts "OKOKOKOKOKOKOK"
         Fiber.yield # Notify :add_consumer observers
       end
 

@@ -161,9 +161,9 @@ module LavinMQ::AMQP
     end
 
     # own method so that it can be overriden in other queue implementations
-    private def init_msg_store(data_dir)
+    private def init_msg_store(data_dir) : QueueMessageStore
       replicator = durable? ? @vhost.@replicator : nil
-      MessageStore.new(data_dir, replicator, durable?, metadata: @metadata)
+      QueueMessageStore.new(data_dir, replicator, durable?, metadata: @metadata)
     end
 
     private def make_data_dir : String
@@ -425,7 +425,7 @@ module LavinMQ::AMQP
         messages_ready:               @msg_store.size,
         ready_bytes:                  @msg_store.bytesize, # Deprecated, to be removed in next major version
         message_bytes_ready:          @msg_store.bytesize,
-        ready_avg_bytes:              @msg_store.avg_bytesize,
+        ready_avg_bytes:              @msg_store.as(QueueMessageStore).avg_bytesize,
         unacked:                      unacked_count, # Deprecated, to be removed in next major version
         messages_unacknowledged:      unacked_count,
         unacked_bytes:                unacked_bytesize, # Deprecated, to be removed in next major version
@@ -557,7 +557,7 @@ module LavinMQ::AMQP
     end
 
     private def has_expired?(sp : SegmentPosition, requeue = false) : Bool
-      msg = @msg_store_lock.synchronize { @msg_store[sp] }
+      msg = @msg_store_lock.synchronize { @msg_store.as(QueueMessageStore)[sp] }
       has_expired?(msg, requeue)
     end
 
@@ -607,7 +607,7 @@ module LavinMQ::AMQP
 
     private def expire_msg(sp : SegmentPosition, reason : Symbol)
       if sp.has_dlx? || @dlx
-        msg = @msg_store_lock.synchronize { @msg_store[sp] }
+        msg = @msg_store_lock.synchronize { @msg_store.as(QueueMessageStore)[sp] }
         env = Envelope.new(sp, msg, false)
         expire_msg(env, reason)
       else
@@ -776,7 +776,7 @@ module LavinMQ::AMQP
           begin
             yield env # deliver the message
           rescue ex   # requeue failed delivery
-            @msg_store_lock.synchronize { @msg_store.requeue(sp) }
+            @msg_store_lock.synchronize { @msg_store.as(QueueMessageStore).requeue(sp) }
             raise ex
           end
           delete_message(sp)
@@ -803,7 +803,7 @@ module LavinMQ::AMQP
       rescue ex
         @log.debug { "Not counting as unacked: #{sp}" }
         @msg_store_lock.synchronize do
-          @msg_store.requeue(sp)
+          @msg_store.as(QueueMessageStore).requeue(sp)
         end
         @unacked_count.sub(1, :relaxed)
         @unacked_bytesize.sub(sp.bytesize, :relaxed)
@@ -870,7 +870,7 @@ module LavinMQ::AMQP
             end
           end
           @msg_store_lock.synchronize do
-            @msg_store.requeue(sp)
+            @msg_store.as(QueueMessageStore).requeue(sp)
           end
           drop_overflow_if_no_immediate_delivery
         end
@@ -938,9 +938,9 @@ module LavinMQ::AMQP
       if unacked_count == 0 && max_count >= message_count
         # If there's no unacked and we're purging all messages, we can purge faster by deleting files
         delete_count = message_count
-        @msg_store_lock.synchronize { @msg_store.purge_all }
+        @msg_store_lock.synchronize { @msg_store.as(QueueMessageStore).purge_all }
       else
-        delete_count = @msg_store_lock.synchronize { @msg_store.purge(max_count) }
+        delete_count = @msg_store_lock.synchronize { @msg_store.as(QueueMessageStore).purge(max_count) }
       end
       @log.info { "Purged #{delete_count} messages" }
       delete_count
@@ -997,7 +997,7 @@ module LavinMQ::AMQP
     # Used for when channel recovers without requeue
     # eg. redelivers messages it already has unacked
     def read(sp : SegmentPosition) : Envelope
-      msg = @msg_store_lock.synchronize { @msg_store[sp] }
+      msg = @msg_store_lock.synchronize { @msg_store.as(QueueMessageStore)[sp] }
       msg_sp = SegmentPosition.make(sp.segment, sp.position, msg)
       Envelope.new(msg_sp, msg, redelivered: true)
     rescue ex : MessageStore::Error

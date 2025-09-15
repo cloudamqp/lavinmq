@@ -18,12 +18,7 @@ module LavinMQ
         @tag = frame.consumer_tag
         validate_preconditions(frame)
         offset = frame.arguments["x-stream-offset"]?
-        pp offset
-        offset = stream_queue.find_offset(offset, @tag, @track_offset)
-        @offset = offset.offset
-        @segment = offset.segment
-        @pos = offset.position
-        puts "super"
+        @offset, @segment, @pos = stream_queue.find_offset(offset, @tag, @track_offset)
         super
         @new_message_available = BoolChannel.new(false)
       end
@@ -162,7 +157,7 @@ module LavinMQ
       end
 
       def ack(sp)
-        stream_queue.stream_queue_msg_store.offsets.store_consumer_offset(@tag, @offset) if @track_offset
+        stream_queue.store_consumer_offset(@tag, @offset) if @track_offset
         super
       end
 

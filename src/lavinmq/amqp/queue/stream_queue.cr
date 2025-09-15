@@ -29,17 +29,7 @@ module LavinMQ::AMQP
       stream_queue_msg_store.drop_overflow
     end
 
-    delegate new_messages, to: @msg_store.as(StreamMessageStore)
-
-    def find_offset(offset, tag = nil, track_offset = false) : Offset
-      pp "find_offset offset=#{offset} tag=#{tag}, track=#{track_offset}"
-      raise ClosedError.new if @closed
-      stream_queue_msg_store.offsets.find_offset(offset, tag, track_offset)
-    end
-
-    def last_offset
-      stream_queue_msg_store.offsets.last_offset
-    end
+    delegate last_offset, new_messages, find_offset, to: @msg_store.as(StreamMessageStore)
 
     private def message_expire_loop
       # Streams doesn't handle message expiration
@@ -51,15 +41,10 @@ module LavinMQ::AMQP
 
     private def init_msg_store(data_dir)
       replicator = @vhost.@replicator
-      @offset_file = MFile.new(File.join(@msg_dir, "consumer_offsets"), Config.instance.segment_size)
-      @replicator.try &.register_file @offset_file
-      @offsets = OffsetStore.new(@offset_file, @segments, @replicator)
-      store = StreamMessageStore.new(data_dir, replicator, @offsets, metadata: @metadata)
-      @offsets.store = store
-      store
+      @msg_store = StreamMessageStore.new(data_dir, replicator, metadata: @metadata)
     end
 
-    def stream_queue_msg_store : StreamMessageStore
+    private def stream_queue_msg_store : StreamMessageStore
       @msg_store.as(StreamMessageStore)
     end
 
@@ -85,7 +70,6 @@ module LavinMQ::AMQP
     end
 
     def consume_get(consumer : AMQP::StreamConsumer, & : Envelope -> Nil) : Bool
-      pp "get", consumer
       get(consumer) do |env|
         yield env
         if env.redelivered
@@ -105,7 +89,6 @@ module LavinMQ::AMQP
     # returns true if a message was deliviered, false otherwise
     # if we encouncer an unrecoverable ReadError, close queue
     private def get(consumer : AMQP::StreamConsumer, & : Envelope -> Nil) : Bool
-      pp "get"
       raise ClosedError.new if @closed
       env = @msg_store_lock.synchronize { @msg_store.shift?(consumer) } || return false
       yield env # deliver the message

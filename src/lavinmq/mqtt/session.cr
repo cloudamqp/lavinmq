@@ -50,7 +50,7 @@ module LavinMQ
         unless clean_session?
           @msg_store_lock.synchronize do
             @unacked.values.each do |sp|
-              @msg_store.requeue(sp)
+              @msg_store.as(QueueMessageStore).requeue(sp)
             end
           end
         end
@@ -111,7 +111,7 @@ module LavinMQ
               packet = build_packet(env, nil)
               yield packet
             rescue ex # requeue failed delivery
-              @msg_store_lock.synchronize { @msg_store.requeue(sp) }
+              @msg_store_lock.synchronize { @msg_store.as(QueueMessageStore).requeue(sp) }
               raise ex
             end
             delete_message(sp)
