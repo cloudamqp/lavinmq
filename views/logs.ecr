@@ -9,7 +9,8 @@
     <% render "partials/header" %>
     <main class="main-grid">
       <div id="breadcrumbs" class="cols-12">
-          <h2 class="page-title"><span><%=pagename%></span></h2>
+          <h2 class="page-title"><span><%=pagename%></span>
+          <div class="tiny-badge" id="pagename-label"></div></h2>
       </div>
       <section id="livelog" class="card livelog">
         <button id="download-logs" class="btn btn-green"><a download href="api/logs">Download logs</a></button>
@@ -17,10 +18,10 @@
         <table id="table" class="table">
           <thead>
             <tr>
-              <th class="livelog-timestamp">Timestamp</th>
-              <th class="livelog-severity">Severity</th>
-              <th class="livelog-source">Source</th>
-              <th class="livelog-message">Message</th>
+              <th data-sort-key="timestamp" class="livelog-timestamp">Timestamp</th>
+              <th data-sort-key="severity" class="livelog-severity">Severity</th>
+              <th data-sort-key="source" class="livelog-source">Source</th>
+              <th data-sort-key="message" class="livelog-message">Message</th>
             </tr>
           </thead>
           <tbody id="livelog-body"></tbody>

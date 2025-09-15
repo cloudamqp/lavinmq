@@ -77,7 +77,7 @@ function renderTable (id, options = {}, renderRow) {
           }
         } else {
           // New item, create new row
-          const tr = t.insertRow(i)
+          const tr = t.insertRow(Math.min(i, t.rows.length))
           setKeyAttributes(tr, item)
           renderRow(tr, item, true)
         }

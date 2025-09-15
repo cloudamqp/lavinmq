@@ -1,28 +1,104 @@
-let shouldAutoScroll = true
-const evtSource = new window.EventSource('api/livelog')
-const livelog = document.getElementById('livelog')
-const tbody = document.getElementById('livelog-body')
+import * as Table from './table.js'
 
+class LiveLogDataSource {
+  constructor () {
+    this.items = []
+    this.totalCount = 0
+    this.page = 1
+    this.searchTerm = ''
+    this.sortKey = null
+    this.reverseOrder = false
+    
+    // Internal state:
+    this.allLogs = []
+    this._event = new EventTarget()
+  }
+  
+  on(eventName, handler) { 
+    this._event.addEventListener(eventName, handler) 
+  }
+
+  reload () {
+    let regex = null
+    if (this.searchTerm) {
+      try {
+        regex = new RegExp(this.searchTerm, 'i')
+      } catch (e) { 
+        regex = null }
+    }
+    let visible = regex 
+    ? this.allLogs.filter(log => regex.test(joinFieldsForSearch(log)))
+    : this.allLogs.slice()
+
+    if (this.sortKey) {
+      const direction= this.reverseOrder ? -1 : 1
+      visible.sort((a, b) => compareValues(a[this.sortKey], b[this.sortKey], direction))
+    }
+
+    this.items = visible
+    this.totalCount = visible.length
+    this._event.dispatchEvent( new CustomEvent('update'))
+  }
+
+  pushLog (log) {
+    this.allLogs.push(log)
+    this.reload()
+  }
+}
+
+// Let the filter regex match anywhere in the row.
+function joinFieldsForSearch (log) {
+  // const time = log.timestamp instanceof Date ? log.timestamp.getTime() : Number(log.timestamp)
+  return `${log.timestamp} ${log.severity} ${log.source} ${log.message ?? log.msg ?? ''}`
+}
+
+function compareValues (a, b, direction) {
+  const toNumber = (v) => 
+    v instanceof Date ? v.getTime()
+      : (typeof v === 'number' ? v
+      : (typeof v === 'string' && !Number.isNaN(+v) ? +v
+      : null))
+
+  const aNum = toNumber(a)
+  const bNum = toNumber(b)
+
+  if (aNum !== null && bNum !== null) {
+    return (aNum -bNum) * direction
+  }
+
+  const aStr= String(a ?? '').toLowerCase()
+  const bStr= String(b ?? '').toLowerCase()
+  return aStr.localeCompare(bStr) * direction
+}
+
+// Build table dynamically using table.js
+const logsDataSource = new LiveLogDataSource()
+const tableOptions = {
+  dataSource: logsDataSource,
+  keyColumns: ['timestamp', 'severity', 'source', 'message'],
+  pagination: false,
+  columnSelector: true, //TODO: improve position/placement
+  search: true,
+  countId: 'pagename-label'
+}
+
+const logsTable = Table.renderTable('table', tableOptions, (tr, item) => {
+  const ms = item.timestamp instanceof Date ? item.timestamp.getTime() : Number(item.timestamp)
+  const formTime = new Date(ms).toLocaleString()
+
+  Table.renderCell(tr, 0, formTime)
+  Table.renderCell(tr, 1, item.severity)
+  Table.renderCell(tr, 2, item.source)
+  const pre = document.createElement('pre')
+  pre.textContent = item.message
+  Table.renderCell(tr, 3, pre)
+})
+
+const evtSource = new window.EventSource('api/livelog')
 evtSource.onmessage = (event) => {
   const timestamp = new Date(parseInt(event.lastEventId))
   const [severity, source, message] = JSON.parse(event.data)
-
-  const tdTs = document.createElement('td')
-  tdTs.textContent = timestamp.toLocaleString()
-  const tdSev = document.createElement('td')
-  tdSev.textContent = severity
-  const tdSrc = document.createElement('td')
-  tdSrc.textContent = source
-  const preMsg = document.createElement('pre')
-  preMsg.textContent = message
-  const tdMsg = document.createElement('td')
-  tdMsg.appendChild(preMsg)
-
-  const tr = document.createElement('tr')
-  tr.append(tdTs, tdSev, tdSrc, tdMsg)
-  const row = tbody.appendChild(tr)
-
-  if (shouldAutoScroll) row.scrollIntoView()
+  logsDataSource.pushLog({ timestamp, severity, source, message })
 }
 
 evtSource.onerror = () => {
@@ -41,16 +117,18 @@ function forbidden () {
   tblError.style.display = 'block'
 }
 
-let lastScrollTop = livelog.pageYOffset || livelog.scrollTop
-livelog.addEventListener('scroll', event => {
-  const { scrollHeight, scrollTop, clientHeight } = event.target
-  const st = livelog.pageYOffset || livelog.scrollTop
-  if (st > lastScrollTop && shouldAutoScroll === false) {
-    shouldAutoScroll = (Math.abs(scrollHeight - clientHeight - scrollTop) < 3)
-  } else if (st < lastScrollTop) {
-    shouldAutoScroll = false
-  }
-  lastScrollTop = st <= 0 ? 0 : st
+// TODO: improve scroll fx but works for now
+let shouldAutoScroll = true
+const livelog = document.getElementById('livelog')
+livelog.addEventListener('scroll', () => {
+  const nearBottom = (livelog.scrollHeight - livelog.clientHeight - livelog.scrollTop < 3)
+  shouldAutoScroll = nearBottom
 })
 
-livelog.addEventListener('beforeunload', () => livelog.close())
+logsTable.on('updated', () => {
+  if (!shouldAutoScroll) return
+  livelog.scrollTop = livelog.scrollHeight
+})
+
+livelog.addEventListener('beforeunload', () => evtSource.close())
+

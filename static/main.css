@@ -2026,7 +2026,7 @@ pre.arguments .inactive-argument:before {
 
 #livelog table td,
 #livelog table th {
-  padding: 0;
+  padding: 4px 16px;
 }
 
 #livelog table thead .livelog-timestamp {
