@@ -40,7 +40,7 @@ module LavinMQ
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
             refuse_unless_vhost_access(context, user(context), vhost)
-            VHostDefinitions.new(@amqp_server, @amqp_server.vhosts[host]).export(context.response)
+            VHostDefinitions.new(@amqp_server, @amqp_server.vhosts[vhost]).export(context.response)
           end
         end
 
