@@ -8,14 +8,14 @@ class LiveLogDataSource {
     this.searchTerm = ''
     this.sortKey = null
     this.reverseOrder = false
-    
+
     // Internal state:
     this.allLogs = []
     this._event = new EventTarget()
   }
-  
-  on(eventName, handler) { 
-    this._event.addEventListener(eventName, handler) 
+
+  on (eventName, handler) {
+    this._event.addEventListener(eventName, handler)
   }
 
   reload () {
@@ -23,21 +23,22 @@ class LiveLogDataSource {
     if (this.searchTerm) {
       try {
         regex = new RegExp(this.searchTerm, 'i')
-      } catch (e) { 
-        regex = null }
+      } catch (e) {
+        regex = null
+      }
     }
-    let visible = regex 
-    ? this.allLogs.filter(log => regex.test(joinFieldsForSearch(log)))
-    : this.allLogs.slice()
+    const visible = regex
+      ? this.allLogs.filter(log => regex.test(joinFieldsForSearch(log)))
+      : this.allLogs.slice()
 
     if (this.sortKey) {
-      const direction= this.reverseOrder ? -1 : 1
+      const direction = this.reverseOrder ? -1 : 1
       visible.sort((a, b) => compareValues(a[this.sortKey], b[this.sortKey], direction))
     }
 
     this.items = visible
     this.totalCount = visible.length
-    this._event.dispatchEvent( new CustomEvent('update'))
+    this._event.dispatchEvent(new CustomEvent('update'))
   }
 
   pushLog (log) {
@@ -53,21 +54,24 @@ function joinFieldsForSearch (log) {
 }
 
 function compareValues (a, b, direction) {
-  const toNumber = (v) => 
-    v instanceof Date ? v.getTime()
-      : (typeof v === 'number' ? v
-      : (typeof v === 'string' && !Number.isNaN(+v) ? +v
-      : null))
+  const toNumber = (v) =>
+    v instanceof Date
+      ? v.getTime()
+      : (typeof v === 'number'
+          ? v
+          : (typeof v === 'string' && !Number.isNaN(+v)
+              ? +v
+              : null))
 
   const aNum = toNumber(a)
   const bNum = toNumber(b)
 
   if (aNum !== null && bNum !== null) {
-    return (aNum -bNum) * direction
+    return (aNum - bNum) * direction
   }
 
-  const aStr= String(a ?? '').toLowerCase()
-  const bStr= String(b ?? '').toLowerCase()
+  const aStr = String(a ?? '').toLowerCase()
+  const bStr = String(b ?? '').toLowerCase()
   return aStr.localeCompare(bStr) * direction
 }
 
@@ -77,7 +81,7 @@ const tableOptions = {
   dataSource: logsDataSource,
   keyColumns: ['timestamp', 'severity', 'source', 'message'],
   pagination: false,
-  columnSelector: true, //TODO: improve position/placement
+  columnSelector: true, // TODO: improve position/placement
   search: true,
   countId: 'pagename-label'
 }
@@ -131,4 +135,3 @@ logsTable.on('updated', () => {
 })
 
 livelog.addEventListener('beforeunload', () => evtSource.close())
-
