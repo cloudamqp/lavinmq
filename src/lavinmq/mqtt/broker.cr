@@ -71,7 +71,7 @@ module LavinMQ
       end
 
       def publish(user : Auth::User, packet : MQTT::Publish)
-        unless user.can_write?(@vhost.name, EXCHANGE)
+        unless user.can_write?(@vhost.name, packet.topic)
           raise LavinMQ::Exchange::AccessRefused.new(@exchange)
         end
         @exchange.publish(packet)
