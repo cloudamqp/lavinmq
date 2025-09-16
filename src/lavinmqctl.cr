@@ -833,9 +833,9 @@ class LavinMQCtl
   private def list_shovels
     vhost = @options["vhost"]? || "/"
     puts "Listing shovels for vhost #{vhost} ..." unless quiet?
-    ss = get("/api/shovels/#{URI.encode_www_form(vhost)}").map do |u|
+    ss = get("/api/parameters/shovel/#{URI.encode_www_form(vhost)}").map do |u|
       next unless s = u.as_h?
-      {name: s["name"].to_s, state: s["state"].to_s}
+      {name: s["name"].to_s, component: s["component"].to_s}
     end
     output ss
   end
@@ -846,8 +846,9 @@ class LavinMQCtl
     abort @banner unless name
     abort "Fields '--src-uri' and '--dest-uri' are required" unless @args["src-uri"]? && @args["dest-uri"]?
     
-    url = "/api/shovels/#{URI.encode_www_form(vhost)}/#{URI.encode_www_form(name)}"
-    resp = http.put url, @headers, @args.to_json
+    url = "/api/parameters/shovel/#{URI.encode_www_form(vhost)}/#{URI.encode_www_form(name)}"
+    body = {"value" => @args}
+    resp = http.put url, @headers, body.to_json
     handle_response(resp, 201, 204)
   end
 
@@ -855,7 +856,7 @@ class LavinMQCtl
     name = ARGV.shift?
     vhost = @options["vhost"]? || "/"
     abort @banner unless name
-    url = "/api/shovels/#{URI.encode_www_form(vhost)}/#{URI.encode_www_form(name)}"
+    url = "/api/parameters/shovel/#{URI.encode_www_form(vhost)}/#{URI.encode_www_form(name)}"
     resp = http.delete url
     handle_response(resp, 204)
   end

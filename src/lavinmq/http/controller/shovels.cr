@@ -61,37 +61,6 @@ module LavinMQ
             end
           end
         end
-
-        put "/api/shovels/:vhost/:name" do |context, params|
-          with_vhost(context, params) do |vhost|
-            shovel_name = params["name"]
-            body = parse_body(context)
-            
-            # Validate required fields
-            unless body["src-uri"]? && body["dest-uri"]?
-              bad_request(context, "Fields 'src-uri' and 'dest-uri' are required")
-            end
-            
-            is_update = @amqp_server.vhosts[vhost].shovels[shovel_name]?
-            begin
-              @amqp_server.vhosts[vhost].shovels.create(shovel_name, body)
-              context.response.status_code = is_update ? 204 : 201
-            rescue ex : JSON::Error
-              bad_request(context, ex.message)
-            end
-          end
-        end
-
-        delete "/api/shovels/:vhost/:name" do |context, params|
-          with_vhost(context, params) do |vhost|
-            shovel_name = params["name"]
-            if @amqp_server.vhosts[vhost].shovels.delete(shovel_name)
-              context.response.status_code = 204
-            else
-              context.response.status_code = 404
-            end
-          end
-        end
       end
     end
   end
