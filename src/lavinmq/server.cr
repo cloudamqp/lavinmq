@@ -134,9 +134,6 @@ module LavinMQ
 
     private def extract_conn_info(client) : ConnectionInfo
       remote_address = client.remote_address
-      # pp "Actual address sent in header: #{remote_address.address}"
-      # pp "@config.clustering? #{@config.clustering?}"
-      # pp "client.peek[0, 5]?  #{client.peek[0, 5]?}"
       case @config.tcp_proxy_protocol
       when 1 then ProxyProtocol::V1.parse(client)
       when 2 then ProxyProtocol::V2.parse(client)
@@ -153,7 +150,6 @@ module LavinMQ
           # Expect PROXY protocol header if remote address is a follower
           ProxyProtocol::V2.parse(client)
         else
-          # pp "no proxy protocol"
           ConnectionInfo.new(remote_address, client.local_address)
         end
       end
