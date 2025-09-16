@@ -163,13 +163,14 @@ module LavinMQ
 
     private def accept_unix(client, protocol)
       spawn(name: "Accept UNIX socket") do
+        Log.debug { "Accepted connection from #{client.remote_address}" }
         remote_address = client.remote_address
         set_buffer_size(client)
         conn_info =
           case @config.unix_proxy_protocol
           when 1 then ProxyProtocol::V1.parse(client)
           when 2 then ProxyProtocol::V2.parse(client)
-          else        ConnectionInfo.local # TODO: use unix socket address, don't fake local
+          else        ConnectionInfo.new(client.remote_address.path, client.local_address.path)
           end
         handle_connection(client, conn_info, protocol)
       rescue ex
