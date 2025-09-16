@@ -115,8 +115,8 @@ function renderTable (id, options = {}, renderRow) {
     filterInput.value = dataSource.searchTerm ?? ''
     form.appendChild(filterInput)
     container.insertBefore(form, container.children[0])
-    
-    let liveType 
+
+    let liveType
     const apply = () => {
       dataSource.searchTerm = filterInput.value
       dataSource.page = 1
@@ -140,10 +140,9 @@ function renderTable (id, options = {}, renderRow) {
     })
 
     // Fires when the native clear “×” is clicked (because type="search")
-  filterInput.addEventListener('search', () => {
-    if (filterInput.value === '' && dataSource.searchTerm)
-      apply()
-  })
+    filterInput.addEventListener('search', () => {
+      if (filterInput.value === '' && dataSource.searchTerm) { apply() }
+    })
 
     dataSource.on('update', _ => {
       if (filterInput !== document.activeElement) {
