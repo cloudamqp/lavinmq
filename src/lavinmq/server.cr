@@ -60,6 +60,14 @@ module LavinMQ
       @replicator.followers
     end
 
+    def syncing_followers
+      @replicator.syncing_followers
+    end
+
+    def all_followers
+      @replicator.all_followers
+    end
+
     def amqp_url
       addr = @listeners
         .select { |_, v| v.amqp? }
@@ -126,6 +134,9 @@ module LavinMQ
 
     private def extract_conn_info(client) : ConnectionInfo
       remote_address = client.remote_address
+      # pp "Actual address sent in header: #{remote_address.address}"
+      # pp "@config.clustering? #{@config.clustering?}"
+      # pp "client.peek[0, 5]?  #{client.peek[0, 5]?}"
       case @config.tcp_proxy_protocol
       when 1 then ProxyProtocol::V1.parse(client)
       when 2 then ProxyProtocol::V2.parse(client)
@@ -133,15 +144,16 @@ module LavinMQ
         # Allow proxy connection from followers
         if @config.clustering? &&
            client.peek[0, 5]? == "PROXY".to_slice &&
-           followers.any? { |f| f.remote_address.address == remote_address.address }
+           all_followers.any? { |f| f.remote_address.address == remote_address.address }
           # Expect PROXY protocol header if remote address is a follower
           ProxyProtocol::V1.parse(client)
         elsif @config.clustering? &&
               client.peek[0, 8]? == ProxyProtocol::V2::Signature.to_slice[0, 8] &&
-              followers.any? { |f| f.remote_address.address == remote_address.address }
+              all_followers.any? { |f| f.remote_address.address == remote_address.address }
           # Expect PROXY protocol header if remote address is a follower
           ProxyProtocol::V2.parse(client)
         else
+          # pp "no proxy protocol"
           ConnectionInfo.new(remote_address, client.local_address)
         end
       end
