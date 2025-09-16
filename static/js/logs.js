@@ -48,13 +48,13 @@ class LiveLogDataSource {
 }
 
 // Time normalizers:
-function toMs(time) {
+function toMs (time) {
   if (time instanceof Date) return time.getTime()
   const n = Number(time)
   return Number.isFinite(n) ? n : 0
 }
 
-function formatLocal(time) {
+function formatLocal (time) {
   return new Date(toMs(time)).toLocaleString()
 }
 
