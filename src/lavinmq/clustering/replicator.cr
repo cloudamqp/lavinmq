@@ -9,6 +9,8 @@ module LavinMQ
       abstract def append(path : String, obj)
       abstract def delete_file(path : String, wg : WaitGroup)
       abstract def followers : Array(Follower)
+      abstract def syncing_followers : Array(Follower)
+      abstract def all_followers : Array(Follower)
       abstract def close
       abstract def listen(server : TCPServer)
       abstract def clear
