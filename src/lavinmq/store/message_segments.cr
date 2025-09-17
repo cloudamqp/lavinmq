@@ -73,26 +73,6 @@ module LavinMQ
       end
     end
 
-    private def delete_unused_segments : Nil
-      current_seg = @segments.last_key
-      @segments.reject! do |seg, mfile|
-        next if seg == current_seg # don't the delete the segment still being written to
-
-        if (acks = @acks[seg]?) && @segment_msg_count[seg] == (acks.size // sizeof(UInt32))
-          @log.debug { "Deleting unused segment #{seg}" }
-          @segment_msg_count.delete seg
-          @deleted.delete seg
-          if ack = @acks.delete(seg)
-            delete_file(ack)
-          end
-          delete_file(mfile, including_meta: true)
-          true
-        else
-          false
-        end
-      end
-    end
-
     private def load_deleted_from_disk
       count = 0u32
       ack_files = 0u32

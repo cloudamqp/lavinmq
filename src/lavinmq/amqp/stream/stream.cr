@@ -43,10 +43,6 @@ module LavinMQ::AMQP
       @offsets.find_offset(offset, tag, track_offset)
     end
 
-    def last_offset
-      @offsets.last_offset
-    end
-
     private def message_expire_loop
       # Streams doesn't handle message expiration
     end
@@ -95,10 +91,6 @@ module LavinMQ::AMQP
           @deliver_get_count.add(1, :relaxed)
         end
       end
-    end
-
-    def store_consumer_offset(consumer_tag : String, offset : Int64) : Nil
-      stream_msg_store.store_consumer_offset(consumer_tag, offset)
     end
 
     # yield the next message in the ready queue

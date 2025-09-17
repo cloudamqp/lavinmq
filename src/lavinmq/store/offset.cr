@@ -27,6 +27,7 @@ module LavinMQ
     end
 
     private def get_last_offset : Int64
+      return 0i64 if @store.empty?
       bytesize = 0_u32
       _, mfile = @store.last_segment
       loop do
@@ -36,8 +37,6 @@ module LavinMQ
       end
       msg = BytesMessage.from_bytes(mfile.to_slice + (mfile.pos - bytesize))
       offset_from_headers(msg.properties.headers)
-    rescue e
-      0i64
     end
 
     # Used once when a consumer is started
