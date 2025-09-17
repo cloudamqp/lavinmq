@@ -19,13 +19,14 @@ module LavinMQ
         vh.queues.each do |_, q|
           puts "    #{q.name} #{q.durable? ? "durable" : ""} args=#{q.arguments}"
           if q = (q.as(LavinMQ::AMQP::Queue) || q.as(LavinMQ::MQTT::Session))
+            store = q.@msg_store.as(QueueMessageStore)
             puts_size_capacity q.@consumers, 6
             puts_size_capacity q.@deliveries, 6
-            puts_size_capacity q.@msg_store.@segments, 6
-            puts_size_capacity q.@msg_store.@acks, 6
-            puts_size_capacity q.@msg_store.@deleted, 6
-            puts_size_capacity q.@msg_store.@segment_msg_count, 6
-            puts_size_capacity q.@msg_store.@requeued, 6
+            puts_size_capacity store.@segments, 6
+            puts_size_capacity store.@acks, 6
+            puts_size_capacity store.@deleted, 6
+            puts_size_capacity store.@segment_msg_count, 6
+            puts_size_capacity store.@requeued, 6
           end
         end
         puts_size_capacity vh.@connections

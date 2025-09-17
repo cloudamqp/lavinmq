@@ -7,13 +7,13 @@ module LavinMQ::AMQP
       @effective_args << "x-max-priority"
     end
 
-    private def init_msg_store(msg_dir)
+    private def init_msg_store(msg_dir) : PriorityMessageStore
       replicator = durable? ? @vhost.@replicator : nil
       max_priority = @arguments["x-max-priority"]?.try(&.as?(Int)) || 0u8
       PriorityMessageStore.new(max_priority.to_u8, msg_dir, replicator, metadata: @metadata)
     end
 
-    class PriorityMessageStore < MessageStore
+    class PriorityMessageStore < QueueMessageStore
       # These are just to make the compiler happy. They are never used.
       @acks = uninitialized Hash(UInt32, MFile)
       @wfile = uninitialized MFile
@@ -41,7 +41,7 @@ module LavinMQ::AMQP
         0.upto(@max_priority) do |i|
           sub_msg_dir = File.join(@msg_dir, "prio.#{i.to_s.rjust(3, '0')}")
           Dir.mkdir_p sub_msg_dir
-          store = MessageStore.new(sub_msg_dir, @replicator, @durable, metadata: @metadata.extend({prio: i.to_s}))
+          store = QueueMessageStore.new(sub_msg_dir, @replicator, @durable, metadata: @metadata.extend({prio: i.to_s}))
           @size += store.size
           @bytesize += store.bytesize
           stores << store
@@ -54,7 +54,7 @@ module LavinMQ::AMQP
           raise "Message store #{@msg_dir} contains messages that should be migrated, " \
                 "but substores are not empty. Migration aborted, manually intervention needed."
         end
-        old_store = MessageStore.new(@msg_dir, @replicator, @durable, metadata: @metadata)
+        old_store = QueueMessageStore.new(@msg_dir, @replicator, @durable, metadata: @metadata)
         msg_count = old_store.size
         @log.info { "Migrating #{msg_count} message" }
         i = 0u32
@@ -130,7 +130,7 @@ module LavinMQ::AMQP
 
       def requeue(sp : SegmentPosition)
         raise ClosedError.new if @closed
-        store_for sp, &.requeue(sp)
+        store_for sp, &.as(PriorityMessageStore).requeue(sp)
         was_empty = @size.zero?
         @bytesize += sp.bytesize
         @size += 1
@@ -148,14 +148,14 @@ module LavinMQ::AMQP
       def shift?(consumer = nil) : Envelope?
         raise ClosedError.new if @closed
         @stores.reverse_each do |s|
-          envelope = s.shift?(consumer)
+          envelope = s.as(PriorityMessageStore).shift?(consumer)
           return envelope unless envelope.nil?
         end
       end
 
       def [](sp : SegmentPosition) : BytesMessage
         raise ClosedError.new if @closed
-        store_for sp, &.[sp]
+        store_for sp, &.as(PriorityMessageStore).[sp]
       end
 
       def delete(sp) : Nil
@@ -176,7 +176,7 @@ module LavinMQ::AMQP
       end
 
       def purge_all
-        @stores.each &.purge_all
+        @stores.each &.as(PriorityMessageStore).purge_all
       end
 
       def delete

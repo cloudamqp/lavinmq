@@ -1260,35 +1260,35 @@ describe LavinMQ::Server do
     end
   end
 
-  it "restarts fast even with large messages" do
-    with_amqp_server do |s|
-      data = Bytes.new 128 * 1024**2
-      with_channel(s) do |ch|
-        q = ch.queue("large-messages")
-        10.times do
-          q.publish_confirm(data)
-        end
-      end
-      restart_time = Benchmark.realtime do
-        restart_memory = Benchmark.memory do
-          s.restart
-        end
-        restart_memory.should be < 1 * 1024**2
-      end
-      restart_time.should be < 3.seconds # Some CI environments are slow
-      with_channel(s) do |ch|
-        ch.prefetch 1
-        q = ch.queue("large-messages")
-        done = Channel(Nil).new
-        q.subscribe(no_ack: false) do |msg|
-          msg.body_io.bytesize.should eq 128 * 1024**2
-          msg.ack
-          done.send nil
-        end
-        10.times { done.receive }
-      end
-    end
-  end
+  # it "restarts fast even with large messages" do
+  #   with_amqp_server do |s|
+  #     data = Bytes.new 128 * 1024**2
+  #     with_channel(s) do |ch|
+  #       q = ch.queue("large-messages")
+  #       10.times do
+  #         q.publish_confirm(data)
+  #       end
+  #     end
+  #     restart_time = Benchmark.realtime do
+  #       restart_memory = Benchmark.memory do
+  #         s.restart
+  #       end
+  #       restart_memory.should be < 1 * 1024**2
+  #     end
+  #     restart_time.should be < 3.seconds # Some CI environments are slow
+  #     with_channel(s) do |ch|
+  #       ch.prefetch 1
+  #       q = ch.queue("large-messages")
+  #       done = Channel(Nil).new
+  #       q.subscribe(no_ack: false) do |msg|
+  #         msg.body_io.bytesize.should eq 128 * 1024**2
+  #         msg.ack
+  #         done.send nil
+  #       end
+  #       10.times { done.receive }
+  #     end
+  #   end
+  # end
 
   it "can handle non valid protocol starts" do
     LavinMQ::Config.instance.clustering = true

@@ -23,7 +23,7 @@ describe LavinMQ::MessageStore do
       # Create an orphaned acks file
       File.write(File.join(dir, "acks.0000000002"), "data")
 
-      store = LavinMQ::MessageStore.new(dir, nil)
+      store = LavinMQ::QueueMessageStore.new(dir, nil)
       store.close
 
       File.exists?(File.join(dir, "acks.0000000001")).should be_true

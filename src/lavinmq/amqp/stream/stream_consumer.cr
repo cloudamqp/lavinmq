@@ -1,5 +1,5 @@
-require "./consumer"
-require "../segment_position"
+require "../consumer"
+require "../../segment_position"
 
 module LavinMQ
   module AMQP
@@ -14,11 +14,14 @@ module LavinMQ
       @match_unfiltered = false
       @track_offset = false
 
-      def initialize(@channel : Client::Channel, @queue : StreamQueue, frame : AMQP::Frame::Basic::Consume)
+      def initialize(@channel : Client::Channel, @queue : Stream, frame : AMQP::Frame::Basic::Consume)
         @tag = frame.consumer_tag
         validate_preconditions(frame)
         offset = frame.arguments["x-stream-offset"]?
-        @offset, @segment, @pos = stream_queue.find_offset(offset, @tag, @track_offset)
+        offset = stream_queue.find_offset(offset, @tag, @track_offset)
+        @offset = offset.offset
+        @segment = offset.segment
+        @pos = offset.position
         super
         @new_message_available = BoolChannel.new(false)
       end
@@ -132,7 +135,7 @@ module LavinMQ
       end
 
       private def wait_for_queue_ready
-        if @offset > stream_queue.last_offset && @requeued.empty?
+        if @offset > stream_queue.offsets.last_offset && @requeued.empty?
           @log.debug { "Waiting for queue not to be empty" }
           select
           when @new_message_available.when_true.receive
@@ -148,16 +151,16 @@ module LavinMQ
         @new_message_available.set(true)
       end
 
-      private def stream_queue : StreamQueue
-        @queue.as(StreamQueue)
+      private def stream_queue : Stream
+        @queue.as(Stream)
       end
 
       def waiting_for_messages?
-        (@offset + @prefetch_count) >= stream_queue.last_offset && accepts?
+        (@offset + @prefetch_count) >= stream_queue.offsets.last_offset && accepts?
       end
 
       def ack(sp)
-        stream_queue.store_consumer_offset(@tag, @offset) if @track_offset
+        stream_queue.offsets.not_nil!.store_consumer_offset(@tag, @offset) if @track_offset
         super
       end
 
