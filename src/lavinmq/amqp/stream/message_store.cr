@@ -1,9 +1,12 @@
 require "./stream"
 require "../consumer"
 require "../../store/offset"
+require "../../store/message"
+require "../../store/message_metadata"
+require "../../store/message_segments"
 
-module LavinMQ::AMQP::Stream
-  class MessageStore
+module LavinMQ::AMQP
+  class StreamMessageStore
     include MessageStore
     include MessageStoreMetadata
     include MessageStoreSegments

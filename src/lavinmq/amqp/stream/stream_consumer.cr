@@ -18,7 +18,10 @@ module LavinMQ
         @tag = frame.consumer_tag
         validate_preconditions(frame)
         offset = frame.arguments["x-stream-offset"]?
-        @offset, @segment, @pos = stream_queue.find_offset(offset, @tag, @track_offset)
+        offset = stream_queue.find_offset(offset, @tag, @track_offset)
+        @offset = offset.offset
+        @segment = offset.segment
+        @pos = offset.position
         super
         @new_message_available = BoolChannel.new(false)
       end
@@ -37,7 +40,7 @@ module LavinMQ
           raise LavinMQ::Error::PreconditionFailed.new("Stream consumers does not support global prefetch limit")
         end
         if frame.arguments.has_key? "x-priority"
-          raise LavinMQ::Error::PreconditionFailed.new("x-priority not supported on streams")
+          raise LavinMQ::Error::PreconditionFailed.new("x-priority not supported on stream queues")
         end
         validate_stream_offset(frame)
         validate_stream_filter(frame.arguments["x-stream-filter"]?)
@@ -157,7 +160,7 @@ module LavinMQ
       end
 
       def ack(sp)
-        stream_queue.store_consumer_offset(@tag, @offset) if @track_offset
+        stream_queue.offsets.not_nil!.store_consumer_offset(@tag, @offset) if @track_offset
         super
       end
 
