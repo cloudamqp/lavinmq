@@ -1,7 +1,7 @@
 require "./amqp/queue"
 require "./amqp/queue/priority_queue"
 require "./amqp/queue/durable_queue"
-require "./amqp/queue/stream_queue"
+require "./amqp/stream/stream"
 require "./mqtt/session"
 
 module LavinMQ

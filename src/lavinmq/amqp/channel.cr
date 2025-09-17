@@ -1,7 +1,7 @@
 require "../stats"
 require "./client"
 require "./consumer"
-require "./stream_consumer"
+require "./stream/stream_consumer"
 require "../error"
 require "../logger"
 require "./queue"

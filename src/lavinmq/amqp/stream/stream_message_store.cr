@@ -1,5 +1,5 @@
-require "./stream_queue"
-require "../stream_consumer"
+require "./stream"
+require "./stream_consumer"
 
 module LavinMQ::AMQP
   class StreamMessageStore < MessageStore

@@ -1,6 +1,6 @@
-require "./durable_queue"
-require "../stream_consumer"
-require "./stream_queue_message_store"
+require "../queue/durable_queue"
+require "./stream_consumer"
+require "./stream_message_store"
 
 module LavinMQ::AMQP
   class Stream < DurableQueue

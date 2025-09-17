@@ -1,5 +1,5 @@
-require "./consumer"
-require "../segment_position"
+require "../consumer"
+require "../../segment_position"
 
 module LavinMQ
   module AMQP
