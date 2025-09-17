@@ -51,6 +51,7 @@ module LavinMQ
         @log = Logger.new(Log, @metadata)
       end
 
+      #IDEA: Should we have a channel::AcknowledgementTracker here so we can map the deliverytag &msg to the right tracker?
       record Unack,
         tag : UInt64,
         queue : Queue,
@@ -413,7 +414,7 @@ module LavinMQ
             ok = q.basic_get(frame.no_ack) do |env|
               delivery_tag = next_delivery_tag(q, env.segment_position, frame.no_ack, nil)
               unless frame.no_ack # track unacked messages
-                q.basic_get_unacked << UnackedMessage.new(self, delivery_tag, RoughTime.monotonic)
+                q.acknowledgement_tracker.basic_get_unacked << UnackedMessage.new(self, delivery_tag, RoughTime.monotonic)
               end
               get_ok = AMQP::Frame::Basic::GetOk.new(frame.channel, delivery_tag,
                 env.redelivered, env.message.exchange_name,
@@ -509,7 +510,7 @@ module LavinMQ
           c.ack(unack.sp)
         end
         unack.queue.ack(unack.sp)
-        unack.queue.basic_get_unacked.reject! { |u| u.channel == self && u.delivery_tag == unack.tag }
+        unack.queue.acknowledgement_tracker.basic_get_unacked.reject! { |u| u.channel == self && u.delivery_tag == unack.tag }
         @client.vhost.event_tick(EventType::ClientAck)
         @ack_count.add(1, :relaxed)
       end
@@ -588,7 +589,7 @@ module LavinMQ
           c.reject(unack.sp, requeue)
         end
         unack.queue.reject(unack.sp, requeue)
-        unack.queue.basic_get_unacked.reject! { |u| u.channel == self && u.delivery_tag == unack.tag }
+        unack.queue.acknowledgement_tracker.basic_get_unacked.reject! { |u| u.channel == self && u.delivery_tag == unack.tag }
         @reject_count.add(1, :relaxed)
         @client.vhost.event_tick(EventType::ClientReject)
       end
@@ -662,7 +663,7 @@ module LavinMQ
           @unacked.each do |unack|
             @log.debug { "Requeing unacked msg #{unack.sp}" }
             unack.queue.reject(unack.sp, true)
-            unack.queue.basic_get_unacked.reject! { |u| u.channel == self && u.delivery_tag == unack.tag }
+            unack.queue.acknowledgement_tracker.basic_get_unacked.reject! { |u| u.channel == self && u.delivery_tag == unack.tag }
           end
           @unacked.clear
         end
