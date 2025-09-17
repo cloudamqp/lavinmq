@@ -51,7 +51,7 @@ module LavinMQ
         @log = Logger.new(Log, @metadata)
       end
 
-      #IDEA: Should we have a channel::AcknowledgementTracker here so we can map the deliverytag &msg to the right tracker?
+      # IDEA: Should we have a channel::AcknowledgementTracker here so we can map the deliverytag &msg to the right tracker?
       record Unack,
         tag : UInt64,
         queue : Queue,
