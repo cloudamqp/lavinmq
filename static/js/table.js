@@ -76,8 +76,8 @@ function renderTable (id, options = {}, renderRow) {
             t.insertBefore(foundRow, currentRow)
           }
         } else {
-          // New item, create new row (clamp i to allowed maximum for logs)
-          const tr = t.insertRow(Math.min(i, t.rows.length))
+          // New item, create new row
+          const tr = t.insertRow(i)
           setKeyAttributes(tr, item)
           renderRow(tr, item, true)
         }
