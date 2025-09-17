@@ -15,18 +15,18 @@ module LavinMQ::AMQP
       super
       if max_age_value = Policy.merge_definitions(policy, operator_policy)["max-age"]?
         if max_age_policy = parse_max_age(max_age_value.as_s?)
-          if current_max = stream_queue_msg_store.max_age
+          if current_max = stream_msg_store.max_age
             if current_max > max_age_policy
-              stream_queue_msg_store.max_age = max_age_policy
+              stream_msg_store.max_age = max_age_policy
             end
           else
-            stream_queue_msg_store.max_age = max_age_policy
+            stream_msg_store.max_age = max_age_policy
           end
         end
       end
-      stream_queue_msg_store.max_length = @max_length
-      stream_queue_msg_store.max_length_bytes = @max_length_bytes
-      stream_queue_msg_store.drop_overflow
+      stream_msg_store.max_length = @max_length
+      stream_msg_store.max_length_bytes = @max_length_bytes
+      stream_msg_store.drop_overflow
     end
 
     delegate last_offset, new_messages, find_offset, to: @msg_store.as(StreamMessageStore)
@@ -44,7 +44,7 @@ module LavinMQ::AMQP
       @msg_store = StreamMessageStore.new(data_dir, replicator, metadata: @metadata)
     end
 
-    private def stream_queue_msg_store : StreamMessageStore
+    private def stream_msg_store : StreamMessageStore
       @msg_store.as(StreamMessageStore)
     end
 
@@ -82,7 +82,7 @@ module LavinMQ::AMQP
     end
 
     def store_consumer_offset(consumer_tag : String, offset : Int64) : Nil
-      stream_queue_msg_store.store_consumer_offset(consumer_tag, offset)
+      stream_msg_store.store_consumer_offset(consumer_tag, offset)
     end
 
     # yield the next message in the ready queue
@@ -138,10 +138,10 @@ module LavinMQ::AMQP
       if @single_active_consumer_queue
         raise LavinMQ::Error::PreconditionFailed.new("x-single-active-consumer not allowed for streams")
       end
-      stream_queue_msg_store.max_age = parse_max_age(@arguments["x-max-age"]?)
-      stream_queue_msg_store.max_length = @max_length
-      stream_queue_msg_store.max_length_bytes = @max_length_bytes
-      stream_queue_msg_store.drop_overflow
+      stream_msg_store.max_age = parse_max_age(@arguments["x-max-age"]?)
+      stream_msg_store.max_length = @max_length
+      stream_msg_store.max_length_bytes = @max_length_bytes
+      stream_msg_store.drop_overflow
     end
 
     private def parse_max_age(value) : Time::Span | Time::MonthSpan | Nil
@@ -192,8 +192,8 @@ module LavinMQ::AMQP
         end
       end
       @msg_store_lock.synchronize do
-        stream_queue_msg_store.drop_overflow
-        stream_queue_msg_store.unmap_segments(except: used_segments)
+        stream_msg_store.drop_overflow
+        stream_msg_store.unmap_segments(except: used_segments)
       end
     end
   end
