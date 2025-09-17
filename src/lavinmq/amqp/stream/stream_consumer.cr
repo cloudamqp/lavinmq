@@ -37,7 +37,7 @@ module LavinMQ
           raise LavinMQ::Error::PreconditionFailed.new("Stream consumers does not support global prefetch limit")
         end
         if frame.arguments.has_key? "x-priority"
-          raise LavinMQ::Error::PreconditionFailed.new("x-priority not supported on stream queues")
+          raise LavinMQ::Error::PreconditionFailed.new("x-priority not supported on streams")
         end
         validate_stream_offset(frame)
         validate_stream_filter(frame.arguments["x-stream-filter"]?)

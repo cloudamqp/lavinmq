@@ -399,7 +399,7 @@ module LavinMQ
           elsif q.has_exclusive_consumer?
             @client.send_access_refused(frame, "Queue '#{frame.queue}' in vhost '#{@client.vhost.name}' in exclusive use")
           elsif q.is_a? Stream
-            @client.send_not_implemented(frame, "Stream queues does not support basic_get")
+            @client.send_not_implemented(frame, "Streams does not support basic_get")
           else
             case frame.no_ack
             when true

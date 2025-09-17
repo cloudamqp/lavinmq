@@ -266,9 +266,6 @@ module LavinMQ::AMQP
       @bytesize += sp.bytesize
       @size += 1
       @segment_last_ts[sp.segment] = msg.timestamp
-      # Consumer notification is handled by StreamQueue.publish directly
-      # to ensure all consumers are notified,
-      # not just one via the shared channel like other queue types
       sp
     end
 

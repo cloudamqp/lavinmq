@@ -64,7 +64,7 @@ module LavinMQ::AMQP
       raise ex
     end
 
-    # Stream queues does not support basic_get, so always returns `false`
+    # Streams does not support basic_get, so always returns `false`
     def basic_get(no_ack, force = false, & : Envelope -> Nil) : Bool
       false
     end
@@ -121,22 +121,22 @@ module LavinMQ::AMQP
       super
       @effective_args << "x-queue-type"
       if @dlx
-        raise LavinMQ::Error::PreconditionFailed.new("x-dead-letter-exchange not allowed for stream queues")
+        raise LavinMQ::Error::PreconditionFailed.new("x-dead-letter-exchange not allowed for streams")
       end
       if @dlrk
-        raise LavinMQ::Error::PreconditionFailed.new("x-dead-letter-exchange not allowed for stream queues")
+        raise LavinMQ::Error::PreconditionFailed.new("x-dead-letter-exchange not allowed for streams")
       end
       if @expires
-        raise LavinMQ::Error::PreconditionFailed.new("x-expires not allowed for stream queues")
+        raise LavinMQ::Error::PreconditionFailed.new("x-expires not allowed for streams")
       end
       if @delivery_limit
-        raise LavinMQ::Error::PreconditionFailed.new("x-delivery-limit not allowed for stream queues")
+        raise LavinMQ::Error::PreconditionFailed.new("x-delivery-limit not allowed for streams")
       end
       if @reject_on_overflow
-        raise LavinMQ::Error::PreconditionFailed.new("x-overflow not allowed for stream queues")
+        raise LavinMQ::Error::PreconditionFailed.new("x-overflow not allowed for streams")
       end
       if @single_active_consumer_queue
-        raise LavinMQ::Error::PreconditionFailed.new("x-single-active-consumer not allowed for stream queues")
+        raise LavinMQ::Error::PreconditionFailed.new("x-single-active-consumer not allowed for streams")
       end
       stream_queue_msg_store.max_age = parse_max_age(@arguments["x-max-age"]?)
       stream_queue_msg_store.max_length = @max_length
