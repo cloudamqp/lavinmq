@@ -135,7 +135,7 @@ module LavinMQ
       end
 
       private def wait_for_queue_ready
-        if @offset > stream_queue.last_offset && @requeued.empty?
+        if @offset > stream_queue.offsets.last_offset && @requeued.empty?
           @log.debug { "Waiting for queue not to be empty" }
           select
           when @new_message_available.when_true.receive
@@ -156,7 +156,7 @@ module LavinMQ
       end
 
       def waiting_for_messages?
-        (@offset + @prefetch_count) >= stream_queue.last_offset && accepts?
+        (@offset + @prefetch_count) >= stream_queue.offsets.last_offset && accepts?
       end
 
       def ack(sp)
