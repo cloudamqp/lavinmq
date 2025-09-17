@@ -8,13 +8,19 @@ describe "Alternate Exchange Regression" do
         args["alternate-exchange"] = "ae"
         x1 = ch.exchange("x1", "topic", args: args)
         ae = ch.exchange("ae", "topic")
-        q = ch.queue
-        q.bind(ae.name, "*")
+        alternate_q = ch.queue
+        alternate_q.bind(ae.name, "*")
+
+        # When we publish to x1 without bindings, the message should go thought the alternate exchange
         x1.publish("m1", "rk")
-        msg = q.get(no_ack: true)
+        msg = alternate_q.get(no_ack: true)
         msg.not_nil!.body_io.to_s.should eq("m1")
+
+        # When we publish to x1 with bindings, the message should not go through the alternate exchange
+        q = ch.queue
+        q.bind(x1.name, "*")
         x1.publish("m2", "rk2")
-        msg = q.get(no_ack: true)
+        msg = alternate_q.get(no_ack: true)
         msg.should be_nil
       end
     end
