@@ -1,13 +1,20 @@
 require "../queue/durable_queue"
 require "./stream_consumer"
-require "./stream_message_store"
+require "./message_store"
 
 module LavinMQ::AMQP
   class Stream < DurableQueue
+    getter offsets
+
     def initialize(@vhost : VHost, @name : String,
                    @exclusive = false, @auto_delete = false,
                    @arguments = AMQP::Table.new)
       super
+      replicator = @vhost.@replicator
+      offset_file = MFile.new(File.join(@data_dir, "consumer_offsets"), Config.instance.segment_size)
+      replicator.try &.register_file offset_file
+      @offsets = OffsetStore.new(stream_msg_store, replicator)
+      stream_msg_store.offset_store = @offsets
       spawn unmap_and_remove_segments_loop, name: "Stream#unmap_and_remove_segments_loop"
     end
 
@@ -29,7 +36,16 @@ module LavinMQ::AMQP
       stream_msg_store.drop_overflow
     end
 
-    delegate last_offset, new_messages, find_offset, to: @msg_store.as(StreamMessageStore)
+    delegate new_messages, to: @msg_store.as(StreamMessageStore)
+
+    def find_offset(offset, tag = nil, track_offset = false) : Offset
+      raise ClosedError.new if @closed
+      @offsets.find_offset(offset, tag, track_offset)
+    end
+
+    def last_offset
+      @offsets.last_offset
+    end
 
     private def message_expire_loop
       # Streams doesn't handle message expiration
@@ -41,7 +57,7 @@ module LavinMQ::AMQP
 
     private def init_msg_store(data_dir)
       replicator = @vhost.@replicator
-      @msg_store = StreamMessageStore.new(data_dir, replicator, metadata: @metadata)
+      StreamMessageStore.new(data_dir, replicator, metadata: @metadata)
     end
 
     private def stream_msg_store : StreamMessageStore

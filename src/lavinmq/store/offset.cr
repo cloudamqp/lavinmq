@@ -1,5 +1,5 @@
 require "../clustering/replicator"
-require "../amqp/queue/stream_queue_message_store"
+require "../amqp/stream/message_store"
 
 module LavinMQ
   record Offset, offset : Int64, segment : UInt32, position : UInt32

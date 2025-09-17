@@ -1,5 +1,5 @@
 require "./spec_helper"
-require "./../src/lavinmq/amqp/queue/stream_queue"
+require "./../src/lavinmq/amqp/stream/stream"
 require "./../src/lavinmq/store/offset"
 
 module StreamSpecHelpers

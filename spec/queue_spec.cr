@@ -104,7 +104,7 @@ describe LavinMQ::AMQP::Queue do
         s.vhosts.create("/")
         v = s.vhosts["/"].not_nil!
         v.declare_queue("q", true, false)
-        data_dir = s.vhosts["/"].queues["q"].as(LavinMQ::AMQP::Queue).@msg_store.@msg_dir
+        data_dir = s.vhosts["/"].queues["q"].as(LavinMQ::AMQP::Queue).@msg_store.as(LavinMQ::QueueMessageStore).@msg_dir
         File.touch(File.join(data_dir, ".paused"))
         s.restart
         File.exists?(File.join(data_dir, "paused")).should be_true
