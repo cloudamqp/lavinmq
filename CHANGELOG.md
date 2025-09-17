@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Human friendly exchange type names in controller and exchanges.js [#1238](https://github.com/cloudamqp/lavinmq/pull/1238)
+- Icons added to sidebar navigation and divided sidebar into groups [#1268](https://github.com/cloudamqp/lavinmq/pull/1268)
+- Table filter: search as you type functionality [#1274](https://github.com/cloudamqp/lavinmq/pull/1274)
+
+### Fixed
+- `list_connections`: don't fail on missing key [#1226](https://github.com/cloudamqp/lavinmq/pull/1226)
+- Fixed bug where proxying from a follower that is performing full sync does not work [#1283](https://github.com/cloudamqp/lavinmq/pull/1283)
+
+### Changed
+- Use paused instead of .paused as filename for paused queues [#1209](https://github.com/cloudamqp/lavinmq/pull/1209)
+- Use eventListener consistently across JS [#1220](https://github.com/cloudamqp/lavinmq/pull/1220)
+
+## [2.4.4] - 2025-09-16
+
+### Fixed
+- Memory leak in StreamConsumer [#1266](https://github.com/cloudamqp/lavinmq/pull/1266)
+- Fixed some UI bugs [#1269](https://github.com/cloudamqp/lavinmq/pull/1269)
+- Prevent delayed exchanges to bind to its internal delayed queue [#1270](https://github.com/cloudamqp/lavinmq/pull/1270)
+
+## [2.4.3] - 2025-09-11
+
+### Fixed
+- Broken javascript dependency [#1247](https://github.com/cloudamqp/lavinmq/pull/1247)
+- Queue `unacked_bytesize` return `unacked_count` [#1250](https://github.com/cloudamqp/lavinmq/pull/1250)
+- Fix bug where only one consumer got notified about new messages in a stream [#1253](https://github.com/cloudamqp/lavinmq/pull/1253)
+- Fix bug where a stream consumer's deliver loop could loop for infinity [#1254](https://github.com/cloudamqp/lavinmq/pull/1254)
+
+## [2.4.2] - 2025-09-10
+
+### Fixed
+- Memory leak in `MQTT::Consumer` [#1242](https://github.com/cloudamqp/lavinmq/pull/1242)
+
 ## [2.5.0-rc.1] - 2025-08-12
 
 This release brings significant improvements across multiple areas of LavinMQ. Key focus areas include major clustering and replication enhancements for better reliability and performance, a new light mode UI theme alongside numerous user interface improvements, substantial performance optimizations including faster boot times and improved memory management, and enhanced tooling with expanded MQTT support. The release also includes important bug fixes.
