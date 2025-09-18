@@ -1108,7 +1108,7 @@ describe LavinMQ::Server do
 
         Fiber.yield
         s.vhosts["/"].queues[qname].message_count.should eq 1
-        s.vhosts["/"].queues[qname].unacked_count.should eq 0
+        s.vhosts["/"].queues[qname].acknowledgement_tracker.unacked_count.should eq 0
       end
     end
   end

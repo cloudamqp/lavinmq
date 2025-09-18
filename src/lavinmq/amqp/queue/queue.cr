@@ -15,6 +15,7 @@ require "../../message_store"
 require "../../unacked_message"
 require "../../deduplication"
 require "../../bool_channel"
+require "./acknowledgement_tracker"
 
 module LavinMQ::AMQP
   class Queue < LavinMQ::Queue
@@ -34,20 +35,9 @@ module LavinMQ::AMQP
     @exclusive_consumer = false
     @deliveries = Hash(SegmentPosition, Int32).new
     @consumers = Array(Client::Channel::Consumer).new
+    @acknowledgement_tracker = AcknowledgementTracker.new
     @consumers_lock = Mutex.new
     @message_ttl_change = ::Channel(Nil).new
-
-    getter basic_get_unacked = Deque(UnackedMessage).new
-    @unacked_count = Atomic(UInt32).new(0u32)
-    @unacked_bytesize = Atomic(UInt64).new(0u64)
-
-    def unacked_count
-      @unacked_count.get(:relaxed)
-    end
-
-    def unacked_bytesize
-      @unacked_bytesize.get(:relaxed)
-    end
 
     @msg_store_lock = Mutex.new(:reentrant)
     @msg_store : MessageStore
@@ -119,9 +109,9 @@ module LavinMQ::AMQP
     # Creates @[x]_count and @[x]_rate and @[y]_log
     rate_stats(
       {"ack", "deliver", "deliver_no_ack", "deliver_get", "confirm", "get", "get_no_ack", "publish", "redeliver", "reject", "return_unroutable", "dedup"},
-      {"message_count", "unacked_count"})
+      {"message_count"})
 
-    getter name, arguments, vhost, consumers
+    getter name, arguments, vhost, consumers, acknowledgement_tracker
     getter? auto_delete, exclusive
     getter policy : Policy?
     getter operator_policy : OperatorPolicy?
@@ -407,8 +397,8 @@ module LavinMQ::AMQP
     end
 
     def details_tuple
-      unacked_count = unacked_count()
-      unacked_bytesize = unacked_bytesize()
+      unacked_count = @acknowledgement_tracker.unacked_count
+      unacked_bytesize = @acknowledgement_tracker.unacked_bytesize
       unacked_avg_bytes = unacked_count.zero? ? 0u64 : unacked_bytesize//unacked_count
       {
         name:                         @name,
@@ -796,8 +786,7 @@ module LavinMQ::AMQP
 
     private def mark_unacked(sp, &)
       @log.debug { "Counting as unacked: #{sp}" }
-      @unacked_count.add(1, :relaxed)
-      @unacked_bytesize.add(sp.bytesize, :relaxed)
+      @acknowledgement_tracker.add_unacked(sp.bytesize)
       begin
         yield
       rescue ex
@@ -805,8 +794,7 @@ module LavinMQ::AMQP
         @msg_store_lock.synchronize do
           @msg_store.requeue(sp)
         end
-        @unacked_count.sub(1, :relaxed)
-        @unacked_bytesize.sub(sp.bytesize, :relaxed)
+        @acknowledgement_tracker.remove_unacked(sp.bytesize)
         raise ex
       end
     end
@@ -820,7 +808,7 @@ module LavinMQ::AMQP
           end
         end
       end
-      unacked_messages.chain(self.basic_get_unacked.each)
+      unacked_messages.chain(@acknowledgement_tracker.basic_get_unacked.each)
     end
 
     private def with_delivery_count_header(env) : Envelope?
@@ -839,8 +827,7 @@ module LavinMQ::AMQP
       return if @deleted
       @log.debug { "Acking #{sp}" }
       @ack_count.add(1, :relaxed)
-      @unacked_count.sub(1, :relaxed)
-      @unacked_bytesize.sub(sp.bytesize, :relaxed)
+      @acknowledgement_tracker.remove_unacked(sp.bytesize)
       delete_message(sp)
     end
 
@@ -858,8 +845,7 @@ module LavinMQ::AMQP
       return if @deleted || @closed
       @log.debug { "Rejecting #{sp}, requeue: #{requeue}" }
       @reject_count.add(1, :relaxed)
-      @unacked_count.sub(1, :relaxed)
-      @unacked_bytesize.sub(sp.bytesize, :relaxed)
+      @acknowledgement_tracker.remove_unacked(sp.bytesize)
       if requeue
         if has_expired?(sp, requeue: true) # guarantee to not deliver expired messages
           expire_msg(sp, :expired)
@@ -935,7 +921,7 @@ module LavinMQ::AMQP
     end
 
     def purge(max_count : Int = UInt32::MAX) : UInt32
-      if unacked_count == 0 && max_count >= message_count
+      if @acknowledgement_tracker.unacked_count == 0 && max_count >= message_count
         # If there's no unacked and we're purging all messages, we can purge faster by deleting files
         delete_count = message_count
         @msg_store_lock.synchronize { @msg_store.purge_all }

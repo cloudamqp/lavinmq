@@ -115,7 +115,7 @@ describe LavinMQ::Shovel do
           spawn { source.each { |m| source.ack(m.delivery_tag) && wg.done } }
           wg.wait
           sleep 1.millisecond
-          s.vhosts["/"].queues["source"].unacked_count.should eq 0
+          s.vhosts["/"].queues["source"].acknowledgement_tracker.unacked_count.should eq 0
           source.stop
         end
       end
@@ -451,10 +451,10 @@ describe LavinMQ::Shovel do
           # Wait until four messages has been published to destination...
           wait_for { s.vhosts["/"].queues["prefetch2_q2"].message_count == 4 }
           # ... but only three has been acked (because batching)
-          wait_for { s.vhosts["/"].queues["prefetch2_q1"].unacked_count == 1 }
+          wait_for { s.vhosts["/"].queues["prefetch2_q1"].acknowledgement_tracker.unacked_count == 1 }
           # Now when we terminate the shovel it should ack the last message(s)
           shovel.terminate
-          wait_for { s.vhosts["/"].queues["prefetch2_q1"].unacked_count == 0 }
+          wait_for { s.vhosts["/"].queues["prefetch2_q1"].acknowledgement_tracker.unacked_count == 0 }
           s.vhosts["/"].queues["prefetch2_q2"].message_count.should eq 4
           s.vhosts["/"].queues["prefetch2_q1"].message_count.should eq 0
         end

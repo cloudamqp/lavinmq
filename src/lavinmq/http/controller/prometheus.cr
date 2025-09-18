@@ -428,7 +428,7 @@ module LavinMQ
           vhost.queues.each_value do |q|
             labels = {queue: q.name, vhost: vhost.name}
             ready = q.message_count
-            unacked = q.unacked_count
+            unacked = q.acknowledgement_tracker.unacked_count
             writer.write({name:   "detailed_queue_messages_ready",
                           value:  ready,
                           type:   "gauge",

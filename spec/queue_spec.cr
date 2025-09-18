@@ -259,10 +259,10 @@ describe LavinMQ::AMQP::Queue do
         msg = q.get(no_ack: false)
         msg.should_not be_nil
         sq = s.vhosts["/"].queues[q.name]
-        sq.unacked_count.should eq 1
+        sq.acknowledgement_tracker.unacked_count.should eq 1
         msg.not_nil!.ack
         sleep 10.milliseconds
-        sq.unacked_count.should eq 0
+        sq.acknowledgement_tracker.unacked_count.should eq 0
       end
     end
   end
@@ -279,10 +279,10 @@ describe LavinMQ::AMQP::Queue do
         end
         msg = done.receive
         sq = s.vhosts["/"].queues[q.name]
-        sq.unacked_count.should eq 1
+        sq.acknowledgement_tracker.unacked_count.should eq 1
         msg.ack
         sleep 10.milliseconds
-        sq.unacked_count.should eq 0
+        sq.acknowledgement_tracker.unacked_count.should eq 0
       end
     end
   end
@@ -489,12 +489,12 @@ describe LavinMQ::AMQP::Queue do
 
           msg = q.get(no_ack: false).should_not be_nil
           q.get(no_ack: false).should_not be_nil
-          sq.unacked_count.should eq 2
-          sq.unacked_bytesize.should eq bytesize
+          sq.acknowledgement_tracker.unacked_count.should eq 2
+          sq.acknowledgement_tracker.unacked_bytesize.should eq bytesize
           msg.ack
           sleep 10.milliseconds
-          sq.unacked_count.should eq 1
-          sq.unacked_bytesize.should eq(bytesize/2)
+          sq.acknowledgement_tracker.unacked_count.should eq 1
+          sq.acknowledgement_tracker.unacked_bytesize.should eq(bytesize/2)
         end
       end
     end
