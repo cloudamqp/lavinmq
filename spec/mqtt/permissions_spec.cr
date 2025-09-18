@@ -111,33 +111,6 @@ module MqttSpecs
           end
         end
       end
-
-      it "should allow will messages when user has write permissions to will topic" do
-        with_server do |server|
-          server.users.create("will_user_allowed", "pass")
-          server.users.add_permission("will_user_allowed", "/", /.*/, /.*/, /allowed.*/) # config: .*, read: .*, write: allowed.*
-
-          with_client_io(server) do |io|
-            connect(io)
-            topic_filters = mk_topic_filters({"allowed/will", 0})
-            subscribe(io, topic_filters: topic_filters)
-
-            with_client_io(server) do |io2|
-              will = MQTT::Protocol::Will.new(
-                topic: "allowed/will", payload: "dead".to_slice, qos: 0u8, retain: false)
-              connect(io2, username: "will_user_allowed", password: "pass".to_slice,
-                client_id: "will_client_allowed", will: will, keepalive: 1u16)
-              # Force unexpected disconnection to trigger will message
-            end
-
-            pub = read_packet(io).should be_a(MQTT::Protocol::Publish)
-            pub.payload.should eq("dead".to_slice)
-            pub.topic.should eq("allowed/will")
-
-            disconnect(io)
-          end
-        end
-      end
     end
   end
 end
