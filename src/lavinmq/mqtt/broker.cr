@@ -71,7 +71,7 @@ module LavinMQ
       end
 
       def publish(user : Auth::User, packet : MQTT::Publish)
-        unless user.can_write?(@vhost.name, packet.topic)
+        unless user.can_write?(@vhost.name, EXCHANGE)
           raise LavinMQ::Exchange::AccessRefused.new(@exchange)
         end
         @exchange.publish(packet)
@@ -81,7 +81,7 @@ module LavinMQ
         session = sessions.declare(client)
         headers = AMQP::Table.new({RETAIN_HEADER => true})
         topics.map do |tf|
-          unless client.user.can_read?(@vhost.name, tf.topic)
+          unless client.user.can_read?(@vhost.name, EXCHANGE)
             raise LavinMQ::Exchange::AccessRefused.new(@exchange)
           end
           session.subscribe(tf.topic, tf.qos)
