@@ -130,6 +130,44 @@ describe LavinMQ::Etcd do
       endpoints.each &.should start_with "127.0.0.1:23"
     end
   end
+
+  describe "basic auth and TLS support" do
+    it "maintains backwards compatibility with endpoints getter" do
+      etcd = LavinMQ::Etcd.new("http://user:pass@127.0.0.1:2379,localhost:2380")
+      endpoints = etcd.endpoints
+      endpoints.should eq ["127.0.0.1:2379", "localhost:2380"]
+    end
+
+    it "handles traditional host:port format" do
+      etcd = LavinMQ::Etcd.new("127.0.0.1:2379,localhost:2380")
+      endpoints = etcd.endpoints
+      endpoints.should eq ["127.0.0.1:2379", "localhost:2380"]
+    end
+
+    it "uses default port when not specified" do
+      etcd = LavinMQ::Etcd.new("127.0.0.1")
+      endpoints = etcd.endpoints
+      endpoints.should eq ["127.0.0.1:2379"]
+    end
+
+    it "supports HTTPS endpoints with auth" do
+      etcd = LavinMQ::Etcd.new("https://user:pass@etcd.example.com:2379")
+      endpoints = etcd.endpoints
+      endpoints.should eq ["etcd.example.com:2379"]
+    end
+
+    it "supports mixed HTTP/HTTPS endpoints" do
+      etcd = LavinMQ::Etcd.new("https://user:pass@secure.etcd.com:2379,http://insecure.etcd.com:2380,127.0.0.1:2381")
+      endpoints = etcd.endpoints
+      endpoints.should eq ["secure.etcd.com:2379", "insecure.etcd.com:2380", "127.0.0.1:2381"]
+    end
+
+    it "uses default port for HTTPS URLs" do
+      etcd = LavinMQ::Etcd.new("https://user:pass@etcd.example.com")
+      endpoints = etcd.endpoints
+      endpoints.should eq ["etcd.example.com:2379"]
+    end
+  end
 end
 
 class EtcdCluster
