@@ -29,7 +29,7 @@ module LavinMQ::AMQP
       stream_queue_msg_store.drop_overflow
     end
 
-    delegate last_offset, new_messages, find_offset, to: @msg_store.as(StreamQueueMessageStore)
+    delegate last_offset, new_messages, find_offset, bytesize, to: @msg_store.as(StreamQueueMessageStore)
 
     private def message_expire_loop
       # StreamQueues doesn't handle message expiration
@@ -83,6 +83,26 @@ module LavinMQ::AMQP
 
     def store_consumer_offset(consumer_tag : String, offset : Int64) : Nil
       stream_queue_msg_store.store_consumer_offset(consumer_tag, offset)
+    end
+
+    def consumer_reading_positions
+      positions = Hash(String, Int64).new
+      @consumers_lock.synchronize do
+        @consumers.each do |consumer|
+          stream_consumer = consumer.as(AMQP::StreamConsumer)
+          positions[consumer.tag] = stream_consumer.offset
+        end
+      end
+      positions
+    end
+
+    def details_tuple
+      tuple = super
+      tuple.merge({
+        consumer_reading_positions: consumer_reading_positions,
+        stream_last_offset:         last_offset,
+        stream_bytesize:            bytesize,
+      })
     end
 
     # yield the next message in the ready queue
