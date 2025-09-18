@@ -3,9 +3,10 @@
   get:
     tags:
     - definitions
-    description: Get all server definitions (vhosts, users, queues, bindings, etc.).
-    summary: Definitions
-    operationId: GetDefinitions
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
+    parameters: []
+    operationId: CHANGEME-GetDefinitions
     responses:
       '200':
         description: OK
@@ -28,15 +29,10 @@
   post:
     tags:
     - definitions
-    description: Import server definitions. Merged with existing definitions on the server.
-    summary: Import definitions
-    operationId: PostDefinitions
-    requestBody:
-      required: true
-      content:
-        application/json:
-          schema:
-            "$ref": "../openapi.yaml#/components/schemas/definitions-PostDefinitionsRequestBody"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
+    parameters: []
+    operationId: CHANGEME-PostDefinitions
     responses:
       '200':
         description: OK
@@ -60,18 +56,17 @@
   post:
     tags:
     - definitions
-    description: Upload file with server definitions. Merged with existing definitions on the server.
-    summary: Upload definitions
-    operationId: UploadDefinitions
-    requestBody:
-      required: true
-      content:
-        multipart/form-data:
-          schema:
-            "$ref": "../openapi.yaml#/components/schemas/definitions-UploadDefinitionsRequestBody"
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
+    parameters: []
+    operationId: CHANGEME-PostDefinitions
     responses:
       '200':
         description: OK
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/definitions"
       4XX:
         description: Client Error
         content:
@@ -85,26 +80,26 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/definitions/{vhost}":
-  parameters:
-  - in: path
-    name: vhost
-    required: true
-    schema:
-      type: string
-      description: Name of vhost.
   get:
     tags:
     - definitions
-    description: Get definitions for a specifc vhost.
-    summary: Definitions by vhost
-    operationId: GetDefinitionsVhost
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
+    parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: CHANGEME.
+    operationId: CHANGEME-GetDefinitions
     responses:
       '200':
         description: OK
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/definitions-vhost"
+              "$ref": "../openapi.yaml#/components/schemas/definitions"
       4XX:
         description: Client Error
         content:
@@ -120,15 +115,16 @@
   post:
     tags:
     - definitions
-    description: Import definitions for a specifc vhost. Merged with existing definitions on the server.
-    summary: Import definitions by vhost
-    operationId: PostDefinitionsVhost
-    requestBody:
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
+    parameters:
+    - in: path
+      name: vhost
       required: true
-      content:
-        multipart/form-data:
-          schema:
-            "$ref": "../openapi.yaml#/components/schemas/definitions-PostDefinitionsVhostRequestBody"
+      schema:
+        type: string
+        description: CHANGEME.
+    operationId: CHANGEME-PostDefinitions
     responses:
       '200':
         description: OK
@@ -149,28 +145,26 @@
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/definitions/{vhost}/upload":
-  parameters:
-  - in: path
-    name: vhost
-    required: true
-    schema:
-      type: string
-      description: Name of vhost.
   post:
     tags:
     - definitions
-    description: Upload file with vhost definitions. Merged with existing definitions on the server.
-    summary: Upload vhost definitions
-    operationId: UploadVhostDefinitions
-    requestBody:
+    description: CHANGEME_LONG.
+    summary: CHANGEME_SHORT
+    parameters:
+    - in: path
+      name: vhost
       required: true
-      content:
-        multipart/form-data:
-          schema:
-            "$ref": "../openapi.yaml#/components/schemas/definitions-UploadDefinitionsVhostRequestBody"
+      schema:
+        type: string
+        description: CHANGEME.
+    operationId: CHANGEME-PostDefinitions
     responses:
       '200':
         description: OK
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/definitions"
       4XX:
         description: Client Error
         content:

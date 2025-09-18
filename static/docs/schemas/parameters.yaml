@@ -1,49 +1,8 @@
 ---
 parameters:
-  type: array
-  items:
-    "$ref": "#/parameter"
-global-parameters:
-  type: array
-  items:
-    "$ref": "#/parameter"
-parameter:
+  title: CHANGEME
   type: object
   properties:
-    name:
+    CHANGEME:
       type: string
-    value:
-      type: string
-    component:
-      type: string
-      description: Name of component.
-      enum:
-      - shovel
-      - federation-upstream
-      - federation-upstream-set
-    vhost:
-      type: string
-global-parameter:
-  type: object
-  properties:
-    name:
-      type: string
-    value:
-      type: string
-    component:
-      nullable: true
-      type: string
-      enum:
-      - shovel
-      - federation-upstream
-      - federation-upstream-set
-    vhost:
-      nullable: true
-      type: string
-PutParameterRequestBody:
-  type: object
-  properties:
-    value:
-      type: string
-  required:
-  - value
+      description: CHANGEME

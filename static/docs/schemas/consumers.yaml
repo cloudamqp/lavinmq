@@ -1,42 +1,8 @@
 ---
 consumers:
-  type: array
-  items:
-    "$ref": "#/consumer"
-consumer:
+  title: CHANGEME
   type: object
   properties:
-    queue:
-      type: object
-      properties:
-        name:
-          type: string
-        vhost:
-          type: string
-    consumer_tag:
+    CHANGEME:
       type: string
-    exclusive:
-      type: boolean
-    ack_required:
-      type: boolean
-    prefetch_count:
-      type: integer
-    channel_details:
-      "$ref": "#/channel-details"
-
-channel-details:
-  type: object
-  properties:
-    peer_host:
-      type: string
-    peer_port:
-      type: integer
-    connection_name:
-      type: string
-    user:
-      type: string
-    number:
-      type: integer
-      description: The channel ID.
-    name:
-      type: string
+      description: CHANGEME

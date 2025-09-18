@@ -1,54 +1,8 @@
 ---
 users:
-  type: array
-  items:
-    "$ref": "#/user"
-user-properties:
+  title: CHANGEME
   type: object
   properties:
-    tags:
+    CHANGEME:
       type: string
-      description: List of tags (comma-separated).
-      enum:
-      - administrator
-      - monitoring
-      - management
-      - policymaker
-      - impersonator
-    hashing_algorithm:
-      type: string
-      description: Hashing algorithm used to generate the password hash (defaults to "SHA256" for PUT requests).
-      enum:
-      - SHA512
-      - SHA256
-      - Bcrypt
-      - MD5
-    password_hash:
-      type: string
-      description: The password hash.
-user:
-  allOf:
-  - "$ref": "#/user-properties"
-  - type: object
-    properties:
-      name:
-        type: string
-        description:  Name of the user.
-BulkDeleteUsersRequestBody:
-  type: object
-  properties:
-    users:
-      type: array
-      description: List of users to delete.
-      items:
-        type: string
-  required:
-  -  users
-PutUserRequestBody:
-  allOf:
-  - "$ref": "#/user-properties"
-  - type: object
-    properties:
-      password:
-        type: string
-        description: The password. Either this field or `password_hash` is required.
+      description: CHANGEME
