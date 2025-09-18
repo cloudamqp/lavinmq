@@ -201,21 +201,28 @@ module LavinMQ
     end
 
     def purge_all
-      @segments.each_value { |f| delete_file(f, including_meta: true) }
-      @segments = Hash(UInt32, MFile).new
-      @acks.each_value { |f| delete_file(f) }
-      @acks = Hash(UInt32, MFile).new { |acks, seg| acks[seg] = open_ack_file(seg) }
-      @deleted = Hash(UInt32, Array(UInt32)).new
-      @segment_msg_count = Hash(UInt32, UInt32).new(0u32)
+      # Delete all segments except the current rfile and wfile
+      @segments.reject! do |seg_id, file|
+        next false if seg_id == @rfile_id || seg_id == @wfile_id
+
+        delete_file(file, including_meta: true)
+        if msg_count = @segment_msg_count.delete(seg_id)
+          @size -= msg_count
+        end
+        if afile = @acks.delete(seg_id)
+          delete_file(afile)
+        end
+        @deleted.delete(seg_id)
+        true
+      end
+
+      # Purge @rfile and @wfile
+      while env = shift?
+        delete(env.segment_position)
+      end
+
       @requeued = Deque(SegmentPosition).new
       @bytesize = 0_u64
-      @size = 0_u32
-      @wfile_id = 0_u32
-
-      open_new_segment # sets @wfile and @wfile_id
-      @rfile_id = @segments.first_key
-      @rfile = @segments.first_value
-      @empty.set true
     end
 
     def delete
