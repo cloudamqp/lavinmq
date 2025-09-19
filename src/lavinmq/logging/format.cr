@@ -145,7 +145,9 @@ module LavinMQ
             # @io << before << '"' << ex.class.name << ": " << ex.message << '"'
             if ex.backtrace?
               if single_line?
-                @io << ' ' << before_backtrace << '"' << ex.backtrace.join(@io, Config.instance.log_backtrace_separator) << '"'
+                @io << ' ' << before_backtrace << '"'
+                ex.backtrace.join(@io, Config.instance.log_backtrace_separator)
+                @io << '"'
               else
                 backtrace_id = Time.monotonic.nanoseconds
                 @io << " " << before_backtrace
