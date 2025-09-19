@@ -8,6 +8,12 @@ class LiveLogDataSource {
     this.searchTerm = ''
     this.sortKey = null
     this.reverseOrder = false
+    this._debounceTimer = null
+    this._pendingCount = 0
+    this._lastRender = 0
+    this._DEBOUNCE_MS = 100
+    this._FORCE_BATCH = 200
+    this._MAX_LATENCY_MS = 500
 
     // Internal state:
     this.allLogs = []
@@ -43,24 +49,30 @@ class LiveLogDataSource {
 
   pushLog (log) {
     this.allLogs.push(log)
-    this.reload()
+    this._pendingCount++
+
+    const now = Date.now()
+    const tooLong = (now - this._lastRender) > this._MAX_LATENCY_MS
+
+    if (this._pendingCount >= this._FORCE_BATCH || tooLong) {
+      clearTimeout(this._debounceTimer)
+      this._pendingCount = 0
+      this._lastRender = now
+      this.reload()
+      return
+    }
+
+    clearTimeout(this._debounceTimer)
+    this._debounceTimer = setTimeout(() => {
+      this._pendingCount = 0
+      this.reload()
+    }, this._DEBOUNCE_MS)
   }
-}
-
-// Time normalizers:
-function toMs (time) {
-  if (time instanceof Date) return time.getTime()
-  const n = Number(time)
-  return Number.isFinite(n) ? n : 0
-}
-
-function formatLocal (time) {
-  return new Date(toMs(time)).toLocaleString()
 }
 
 // Let the filter regex match anywhere in the row.
 function joinFieldsForSearch (log) {
-  const isoTime = new Date(toMs(log.timestamp)).toISOString()
+  const isoTime = (log.timestamp).toISOString()
   return `${isoTime} ${log.severity} ${log.source} ${log.message ?? log.msg ?? ''}`
 }
 
@@ -98,7 +110,7 @@ const tableOptions = {
 }
 
 const logsTable = Table.renderTable('table', tableOptions, (tr, item) => {
-  Table.renderCell(tr, 0, formatLocal(item.timestamp))
+  Table.renderCell(tr, 0, (item.timestamp).toLocaleString())
   Table.renderCell(tr, 1, item.severity)
   Table.renderCell(tr, 2, item.source)
   const pre = document.createElement('pre')
@@ -108,9 +120,9 @@ const logsTable = Table.renderTable('table', tableOptions, (tr, item) => {
 
 const evtSource = new window.EventSource('api/livelog')
 evtSource.onmessage = (event) => {
-  const timestampMs = parseInt(event.lastEventId, 10)
+  const timestamp = new Date(parseInt(event.lastEventId, 10))
   const [severity, source, message] = JSON.parse(event.data)
-  logsDataSource.pushLog({ timestamp: timestampMs, severity, source, message })
+  logsDataSource.pushLog({ timestamp, severity, source, message })
 }
 
 evtSource.onerror = () => {
