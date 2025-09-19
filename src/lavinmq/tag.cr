@@ -10,4 +10,11 @@ module LavinMQ
       list.split(",").compact_map { |t| Tag.parse?(t.strip) }
     end
   end
+
+  module TagListConverter
+    def self.from_json(pull : JSON::PullParser) : Array(Tag)
+      list = pull.read_string
+      list.split(",").compact_map { |t| Tag.parse?(t.strip) }
+    end
+  end
 end
