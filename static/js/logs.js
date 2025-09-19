@@ -1,56 +1,164 @@
-let shouldAutoScroll = true
-const evtSource = new window.EventSource('api/livelog')
-const livelog = document.getElementById('livelog')
-const tbody = document.getElementById('livelog-body')
+import * as Table from './table.js'
 
-evtSource.onmessage = (event) => {
-  const timestamp = new Date(parseInt(event.lastEventId))
-  const [severity, source, message] = JSON.parse(event.data)
+class LiveLogDataSource {
+  constructor (streamUrl) {
+    this.items = []
+    this.totalCount = 0
+    this.page = 1
+    this.searchTerm = ''
+    this.sortKey = null
+    this.reverseOrder = false
+    this._debounceTimer = null
+    this._pendingCount = 0
+    this._lastRender = 0
+    this._DEBOUNCE_MS = 100
+    this._FORCE_BATCH = 200
+    this._MAX_LATENCY_MS = 500
 
-  const tdTs = document.createElement('td')
-  tdTs.textContent = timestamp.toLocaleString()
-  const tdSev = document.createElement('td')
-  tdSev.textContent = severity
-  const tdSrc = document.createElement('td')
-  tdSrc.textContent = source
-  const preMsg = document.createElement('pre')
-  preMsg.textContent = message
-  const tdMsg = document.createElement('td')
-  tdMsg.appendChild(preMsg)
+    // Internal state:
+    this.allLogs = []
+    this._event = new EventTarget()
 
-  const tr = document.createElement('tr')
-  tr.append(tdTs, tdSev, tdSrc, tdMsg)
-  const row = tbody.appendChild(tr)
+    // Event Source
+    this._evtSource = new window.EventSource(streamUrl)
+    this._evtSource.onmessage = (event) => {
+      const id = event.lastEventId
+      const timestamp = new Date(parseInt(id, 10))
+      const [severity, source, message] = JSON.parse(event.data)
+      this.pushLog({ id, timestamp, severity, source, message })
+    }
 
-  if (shouldAutoScroll) row.scrollIntoView()
+    this._evtSource.onerror = () => {
+      window.fetch('api/whoami')
+        .then(response => response.json())
+        .then(whoami => {
+          if (!whoami.tags.includes('administrator')) {
+            forbidden()
+          }
+        })
+    }
+
+    function forbidden () {
+      const tblError = document.getElementById('table-error')
+      tblError.textContent = 'Access denied, administator access required'
+      tblError.style.display = 'block'
+    }
 }
 
-evtSource.onerror = () => {
-  window.fetch('api/whoami')
-    .then(response => response.json())
-    .then(whoami => {
-      if (!whoami.tags.includes('administrator')) {
-        forbidden()
-      }
-    })
-}
-
-function forbidden () {
-  const tblError = document.getElementById('table-error')
-  tblError.textContent = 'Access denied, administator access required'
-  tblError.style.display = 'block'
-}
-
-let lastScrollTop = livelog.pageYOffset || livelog.scrollTop
-livelog.addEventListener('scroll', event => {
-  const { scrollHeight, scrollTop, clientHeight } = event.target
-  const st = livelog.pageYOffset || livelog.scrollTop
-  if (st > lastScrollTop && shouldAutoScroll === false) {
-    shouldAutoScroll = (Math.abs(scrollHeight - clientHeight - scrollTop) < 3)
-  } else if (st < lastScrollTop) {
-    shouldAutoScroll = false
+  on (eventName, handler) {
+    this._event.addEventListener(eventName, handler)
   }
-  lastScrollTop = st <= 0 ? 0 : st
+
+  close () {
+    this._evtSource?.close()
+  }
+
+  reload () {
+    let regex = null
+    if (this.searchTerm) {
+      try {
+        regex = new RegExp(this.searchTerm, 'i')
+      } catch (e) {
+        regex = null
+      }
+    }
+    const visible = regex
+      ? this.allLogs.filter(log => regex.test(joinFieldsForSearch(log)))
+      : this.allLogs.slice()
+
+    if (this.sortKey) {
+      const direction = this.reverseOrder ? -1 : 1
+      visible.sort((a, b) => compareValues(a[this.sortKey], b[this.sortKey], direction))
+    }
+
+    this.items = visible
+    this.totalCount = visible.length
+    this._event.dispatchEvent(new CustomEvent('update'))
+  }
+
+  pushLog (log) {
+    this.allLogs.push(log)
+    this._pendingCount++
+
+    const now = Date.now()
+    const tooLong = (now - this._lastRender) > this._MAX_LATENCY_MS
+
+    if (this._pendingCount >= this._FORCE_BATCH || tooLong) {
+      clearTimeout(this._debounceTimer)
+      this._pendingCount = 0
+      this._lastRender = now
+      this.reload()
+      return
+    }
+
+    clearTimeout(this._debounceTimer)
+    this._debounceTimer = setTimeout(() => {
+      this._pendingCount = 0
+      this.reload()
+    }, this._DEBOUNCE_MS)
+  }
+}
+
+// Let the filter regex match anywhere in the row.
+function joinFieldsForSearch (log) {
+  const isoTime = log.timestamp.toISOString()
+  return `${isoTime} ${log.severity} ${log.source} ${log.message ?? log.msg ?? ''}`
+}
+
+function compareValues (a, b, direction) {
+  const toNumber = (v) =>
+    v instanceof Date
+      ? v.getTime()
+      : (typeof v === 'number'
+          ? v
+          : (typeof v === 'string' && !Number.isNaN(+v)
+              ? +v
+              : null))
+
+  const aNum = toNumber(a)
+  const bNum = toNumber(b)
+
+  if (aNum !== null && bNum !== null) {
+    return (aNum - bNum) * direction
+  }
+
+  const aStr = String(a ?? '').toLowerCase()
+  const bStr = String(b ?? '').toLowerCase()
+  return aStr.localeCompare(bStr) * direction
+}
+
+// Build table dynamically using table.js
+const logsDataSource = new LiveLogDataSource('api/livelog')
+
+const tableOptions = {
+  dataSource: logsDataSource,
+  keyColumns: ['id'],
+  pagination: false,
+  columnSelector: true, // TODO: improve position/placement
+  search: true,
+  countId: 'pagename-label'
+}
+
+const logsTable = Table.renderTable('table', tableOptions, (tr, item) => {
+  Table.renderCell(tr, 0, item.timestamp.toLocaleString())
+  Table.renderCell(tr, 1, item.severity)
+  Table.renderCell(tr, 2, item.source)
+  const pre = document.createElement('pre')
+  pre.textContent = item.message
+  Table.renderCell(tr, 3, pre)
 })
 
-livelog.addEventListener('beforeunload', () => livelog.close())
+// TODO: improve scroll fx but works for now
+let shouldAutoScroll = true
+const livelog = document.getElementById('livelog')
+livelog.addEventListener('scroll', () => {
+  const nearBottom = (livelog.scrollHeight - livelog.clientHeight - livelog.scrollTop < 3)
+  shouldAutoScroll = nearBottom
+})
+
+logsTable.on('updated', () => {
+  if (!shouldAutoScroll) return
+  livelog.scrollTop = livelog.scrollHeight
+})
+
+window.addEventListener('beforeunload', () => logsDataSource.close())
