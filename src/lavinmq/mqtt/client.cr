@@ -134,7 +134,6 @@ module LavinMQ
           send(MQTT::PubAck.new(packet_id))
         end
       rescue ex : LavinMQ::Exchange::AccessRefused
-        @log.warn { "Access refused: #{ex.message}" }
         close_socket
       end
 
@@ -147,7 +146,6 @@ module LavinMQ
         qos = @broker.subscribe(self, packet.topic_filters)
         send(MQTT::SubAck.new(qos, packet.packet_id))
       rescue ex : LavinMQ::Exchange::AccessRefused
-        @log.warn { "Access refused: #{ex.message}" }
         close_socket
       end
 
@@ -195,7 +193,7 @@ module LavinMQ
           ))
         end
       rescue ex : LavinMQ::Exchange::AccessRefused
-        @log.warn { "Will message blocked: user '#{@user.name}' lacks write permissions" }
+        @log.warn { "Will message could not be published: user '#{@user.name}' lacks write permissions" }
       rescue ex
         @log.warn { "Failed to publish will: #{ex.message}" }
       end
