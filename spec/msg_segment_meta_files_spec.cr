@@ -53,7 +53,7 @@ describe "Message segment metadata files" do
         vhost = s.vhosts.create("test_vhost")
         with_channel(s, vhost: vhost.name) do |ch|
           q = ch.queue("stream_meta_test", args: AMQP::Client::Arguments.new({"x-queue-type" => "stream"}))
-          queue = vhost.queues["stream_meta_test"].as(LavinMQ::AMQP::StreamQueue)
+          queue = vhost.queues["stream_meta_test"].as(LavinMQ::AMQP::Stream)
 
           # Publish enough messages to trigger new segment creation
           segment_size = LavinMQ::Config.instance.segment_size
