@@ -1,4 +1,7 @@
+require "json"
+require "json/serialization"
 require "../controller"
+require "../../tag"
 
 module LavinMQ
   module HTTP
@@ -32,6 +35,16 @@ module LavinMQ
 
     class UsersController < Controller
       include UserHelpers
+
+      struct PutUser
+        include JSON::Serializable
+
+        property password_hash : String?
+        property password : String
+        @[JSON::Field(converter: ::LavinMQ::TagListConverter)]
+        property tags : Array(Tag)
+        property hashing_algorithm : String = "SHA256"
+      end
 
       private def register_routes # ameba:disable Metrics/CyclomaticComplexity
         get "/api/users" do |context, _params|
@@ -71,7 +84,7 @@ module LavinMQ
           context
         end
 
-        put "/api/users/:name" do |context, params|
+        put "/api/users/:name", model: PutUser do |context, params|
           refuse_unless_administrator(context, user(context))
           name = params["name"]
           bad_request(context, "Illegal user name") if Auth::UserStore.hidden?(name)

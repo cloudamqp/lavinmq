@@ -142,6 +142,21 @@ module LavinMQ
         halt(context, 302)
       end
 
+      private def parse_body(context, _t : T.class) : T forall T
+        if body = context.request.body
+          ct = context.request.headers["Content-Type"]?
+          if ct.nil? || ct.empty? || ct == "application/json"
+            T.from_json(body)
+          else
+            unsupported_content_type(context, ct)
+          end
+        else
+          bad_request(context, "Request body required")
+        end
+      rescue e : JSON::ParseException
+        bad_request(context, "Malformed JSON #{e.message}")
+      end
+
       private def parse_body(context) : JSON::Any
         if body = context.request.body
           ct = context.request.headers["Content-Type"]?
@@ -163,7 +178,8 @@ module LavinMQ
           bad_request(context, "Request body required")
         end
       rescue e : JSON::ParseException
-        bad_request(context, "Malformed JSON")
+        pp e.message
+        bad_request(context, "Malformed JSON #{e.message}")
       end
 
       private def not_found(context, message = "Not Found")
