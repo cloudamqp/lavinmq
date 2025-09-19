@@ -127,12 +127,14 @@ module LavinMQ
       end
 
       def recieve_publish(packet : MQTT::Publish)
-        @broker.publish(packet)
+        @broker.publish(@user, packet)
         vhost.event_tick(EventType::ClientPublish)
         # Ok to not send anything if qos = 0 (fire and forget)
         if packet.qos > 0 && (packet_id = packet.packet_id)
           send(MQTT::PubAck.new(packet_id))
         end
+      rescue ex : LavinMQ::Exchange::AccessRefused
+        close_socket
       end
 
       def recieve_puback(packet : MQTT::PubAck)
@@ -143,6 +145,8 @@ module LavinMQ
       def recieve_subscribe(packet : MQTT::Subscribe)
         qos = @broker.subscribe(self, packet.topic_filters)
         send(MQTT::SubAck.new(qos, packet.packet_id))
+      rescue ex : LavinMQ::Exchange::AccessRefused
+        close_socket
       end
 
       def recieve_unsubscribe(packet : MQTT::Unsubscribe)
@@ -179,15 +183,17 @@ module LavinMQ
 
       private def publish_will
         if will = @will
-          @broker.publish MQTT::Publish.new(
+          @broker.publish(@user, MQTT::Publish.new(
             topic: will.topic,
             payload: will.payload,
             packet_id: nil,
             qos: will.qos,
             retain: will.retain?,
             dup: false,
-          )
+          ))
         end
+      rescue ex : LavinMQ::Exchange::AccessRefused
+        @log.warn { "Will message could not be published: user '#{@user.name}' lacks write permissions" }
       rescue ex
         @log.warn { "Failed to publish will: #{ex.message}" }
       end
