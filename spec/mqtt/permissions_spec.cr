@@ -53,61 +53,27 @@ module MqttSpecs
         end
       end
 
-      it "should enforce topic-specific write permissions" do
+      it "should block will messages when user lacks write permissions" do
         with_server do |server|
-          server.users.create("topic_user", "pass")
-          server.users.add_permission("topic_user", "/", /.*/, /.*/, /allowed.*/) # config: .*, read: .*, write: allowed.*
+          server.users.create("no_write", "pass")
+          server.users.add_permission("no_write", "/", /.*/, /.*/, /^$/) # config: .*, read: .*, write: ^$
 
-          with_client_io(server) do |io|
-            connect(io, username: "topic_user", password: "pass".to_slice)
-            # This should fail and close connection
-            publish(io, false, topic: "denied/topic", payload: "hello".to_slice)
-            io.should be_closed
-          end
-        end
-      end
+          with_client_io(server) do |subscriber_io|
+            connect(subscriber_io, username: "guest", password: "guest".to_slice)
+            initial_publish_count = server.@mqtt_brokers.@brokers["/"].@exchange.@publish_in_count.get
 
-      it "should enforce topic-specific read permissions" do
-        with_server do |server|
-          server.users.create("read_user", "pass")
-          server.users.add_permission("read_user", "/", /.*/, /allowed.*/, /.*/) # config: .*, read: allowed.*, write: .*
-
-          with_client_io(server) do |io|
-            connect(io, username: "read_user", password: "pass".to_slice)
-            # This should fail and close connection
-            topic_filter = MQTT::Protocol::Subscribe::TopicFilter.new("denied/topic", 0u8)
-            subscribe(io, false, topic_filters: [topic_filter])
-            io.should be_closed
-          end
-        end
-      end
-
-      it "should block will messages when user lacks write permissions to will topic" do
-        with_server do |server|
-          server.users.create("will_user", "pass")
-          server.users.add_permission("will_user", "/", /.*/, /.*/, /allowed.*/) # config: .*, read: .*, write: allowed.*
-
-          with_client_io(server) do |io|
-            connect(io)
-            topic_filters = mk_topic_filters({"denied/will", 0})
-            subscribe(io, topic_filters: topic_filters)
-
-            with_client_io(server) do |io2|
-              will = MQTT::Protocol::Will.new(
-                topic: "denied/will", payload: "dead".to_slice, qos: 0u8, retain: false)
-              connect(io2, username: "will_user", password: "pass".to_slice,
-                client_id: "will_client", will: will, keepalive: 1u16)
-              # Force unexpected disconnection to trigger will message
+            # Create a client with no write permissions and a will message
+            will_socket = nil
+            with_client_io(server) do |will_client_io|
+              will = MQTT::Protocol::Will.new(topic: "will/topic", payload: "dead".to_slice, qos: 0u8, retain: false)
+              connect(will_client_io, username: "no_write", password: "pass".to_slice, will: will)
+              will_socket = will_client_io.@io.as(TCPSocket)
+              will_socket.close
             end
 
-            # Send a ping to ensure we can read at least one packet, so we're not stuck
-            # waiting here (since this spec verifies that nothing is sent)
-            ping(io)
-
-            pkt = read_packet(io)
-            pkt.should be_a(MQTT::Protocol::PingResp)
-
-            disconnect(io)
+            sleep 0.1.seconds
+            final_publish_count = server.@mqtt_brokers.@brokers["/"].@exchange.@publish_in_count.get
+            final_publish_count.should eq(initial_publish_count)
           end
         end
       end

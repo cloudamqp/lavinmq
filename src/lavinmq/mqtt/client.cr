@@ -194,6 +194,8 @@ module LavinMQ
             dup: false,
           ))
         end
+      rescue ex : LavinMQ::Exchange::AccessRefused
+        @log.warn { "Will message blocked: user '#{@user.name}' lacks write permissions" }
       rescue ex
         @log.warn { "Failed to publish will: #{ex.message}" }
       end

@@ -80,10 +80,10 @@ module LavinMQ
       def subscribe(client, topics)
         session = sessions.declare(client)
         headers = AMQP::Table.new({RETAIN_HEADER => true})
+        unless client.user.can_read?(@vhost.name, EXCHANGE)
+          raise LavinMQ::Exchange::AccessRefused.new(@exchange)
+        end
         topics.map do |tf|
-          unless client.user.can_read?(@vhost.name, EXCHANGE)
-            raise LavinMQ::Exchange::AccessRefused.new(@exchange)
-          end
           session.subscribe(tf.topic, tf.qos)
           ts = RoughTime.unix_ms
           @retain_store.each(tf.topic) do |topic, body_io, body_bytesize|
