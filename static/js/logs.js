@@ -1,7 +1,7 @@
 import * as Table from './table.js'
 
 class LiveLogDataSource {
-  constructor () {
+  constructor (streamUrl) {
     this.items = []
     this.totalCount = 0
     this.page = 1
@@ -18,10 +18,38 @@ class LiveLogDataSource {
     // Internal state:
     this.allLogs = []
     this._event = new EventTarget()
+
+    // Event Source
+    this._evtSource = new window.EventSource(streamUrl)
+    this._evtSource.onmessage = (event) => {
+    const timestamp = new Date(parseInt(event.lastEventId, 10))
+    const [severity, source, message] = JSON.parse(event.data)
+    this.pushLog({ timestamp, severity, source, message })
   }
+
+    this._evtSource.onerror = () => {
+      window.fetch('api/whoami')
+        .then(response => response.json())
+        .then(whoami => {
+          if (!whoami.tags.includes('administrator')) {
+            forbidden()
+          }
+        })
+    }
+
+    function forbidden () {
+      const tblError = document.getElementById('table-error')
+      tblError.textContent = 'Access denied, administator access required'
+      tblError.style.display = 'block'
+    }
+}
 
   on (eventName, handler) {
     this._event.addEventListener(eventName, handler)
+  }
+
+  close () {
+    this._evtSource?.close()
   }
 
   reload () {
@@ -99,10 +127,11 @@ function compareValues (a, b, direction) {
 }
 
 // Build table dynamically using table.js
-const logsDataSource = new LiveLogDataSource()
+const logsDataSource = new LiveLogDataSource('api/livelog')
+
 const tableOptions = {
   dataSource: logsDataSource,
-  keyColumns: ['timestamp', 'severity', 'source', 'message'],
+  keyColumns: ['timestamp'],
   pagination: false,
   columnSelector: true, // TODO: improve position/placement
   search: true,
@@ -118,29 +147,6 @@ const logsTable = Table.renderTable('table', tableOptions, (tr, item) => {
   Table.renderCell(tr, 3, pre)
 })
 
-const evtSource = new window.EventSource('api/livelog')
-evtSource.onmessage = (event) => {
-  const timestamp = new Date(parseInt(event.lastEventId, 10))
-  const [severity, source, message] = JSON.parse(event.data)
-  logsDataSource.pushLog({ timestamp, severity, source, message })
-}
-
-evtSource.onerror = () => {
-  window.fetch('api/whoami')
-    .then(response => response.json())
-    .then(whoami => {
-      if (!whoami.tags.includes('administrator')) {
-        forbidden()
-      }
-    })
-}
-
-function forbidden () {
-  const tblError = document.getElementById('table-error')
-  tblError.textContent = 'Access denied, administator access required'
-  tblError.style.display = 'block'
-}
-
 // TODO: improve scroll fx but works for now
 let shouldAutoScroll = true
 const livelog = document.getElementById('livelog')
@@ -154,4 +160,4 @@ logsTable.on('updated', () => {
   livelog.scrollTop = livelog.scrollHeight
 })
 
-window.addEventListener('beforeunload', () => evtSource.close())
+window.addEventListener('beforeunload', () => logsDataSource.close())
