@@ -22,10 +22,11 @@ class LiveLogDataSource {
     // Event Source
     this._evtSource = new window.EventSource(streamUrl)
     this._evtSource.onmessage = (event) => {
-    const timestamp = new Date(parseInt(event.lastEventId, 10))
-    const [severity, source, message] = JSON.parse(event.data)
-    this.pushLog({ timestamp, severity, source, message })
-  }
+      const id = event.lastEventId
+      const timestamp = new Date(parseInt(id, 10))
+      const [severity, source, message] = JSON.parse(event.data)
+      this.pushLog({ id, timestamp, severity, source, message })
+    }
 
     this._evtSource.onerror = () => {
       window.fetch('api/whoami')
@@ -100,7 +101,7 @@ class LiveLogDataSource {
 
 // Let the filter regex match anywhere in the row.
 function joinFieldsForSearch (log) {
-  const isoTime = (log.timestamp).toISOString()
+  const isoTime = log.timestamp.toISOString()
   return `${isoTime} ${log.severity} ${log.source} ${log.message ?? log.msg ?? ''}`
 }
 
@@ -131,7 +132,7 @@ const logsDataSource = new LiveLogDataSource('api/livelog')
 
 const tableOptions = {
   dataSource: logsDataSource,
-  keyColumns: ['timestamp'],
+  keyColumns: ['id'],
   pagination: false,
   columnSelector: true, // TODO: improve position/placement
   search: true,
@@ -139,7 +140,7 @@ const tableOptions = {
 }
 
 const logsTable = Table.renderTable('table', tableOptions, (tr, item) => {
-  Table.renderCell(tr, 0, (item.timestamp).toLocaleString())
+  Table.renderCell(tr, 0, item.timestamp.toLocaleString())
   Table.renderCell(tr, 1, item.severity)
   Table.renderCell(tr, 2, item.source)
   const pre = document.createElement('pre')
