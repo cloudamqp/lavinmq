@@ -70,7 +70,7 @@ describe LavinMQ::HTTP::ConnectionsController do
         with_channel(s) do
           response = http.get("/api/vhosts/%2f/connections")
           body = JSON.parse(response.body)
-          name = URI.encode_www_form(body.as_a.last["name"].as_s)
+          name = URI.encode_path(body.as_a.last["name"].as_s)
           response = http.get("/api/connections/#{name}")
           response.status_code.should eq 200
         end
@@ -91,7 +91,7 @@ describe LavinMQ::HTTP::ConnectionsController do
         with_channel(s) do
           response = http.get("/api/vhosts/%2f/connections")
           body = JSON.parse(response.body)
-          name = URI.encode_www_form(body.as_a.last["name"].as_s)
+          name = URI.encode_path(body.as_a.last["name"].as_s)
           response = http.get("/api/connections/#{name}", headers: hdrs)
           response.status_code.should eq 403
         end
@@ -106,7 +106,7 @@ describe LavinMQ::HTTP::ConnectionsController do
           response = http.get("/api/vhosts/%2f/connections")
           response.status_code.should eq 200
           body = JSON.parse(response.body)
-          name = URI.encode_www_form(body.as_a.last["name"].as_s)
+          name = URI.encode_path(body.as_a.last["name"].as_s)
           response = http.get("/api/connections/#{name}/channels")
           response.status_code.should eq 200
           body = JSON.parse(response.body)
