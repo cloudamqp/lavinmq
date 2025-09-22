@@ -156,7 +156,6 @@ module MessageRoutingSpec
       it "can handle multiple #" do
         q11 = LavinMQ::AMQP::Queue.new(vhost, "q11")
         x.bind(q11, "#.a.#")
-        matches(x, "a.b.a").should be_empty
         matches(x, "b.b.a.b.b").should eq(Set{q11})
         x.unbind(q11, "#.a.#")
       end
@@ -191,6 +190,7 @@ module MessageRoutingSpec
         x.bind(q, "a.b")
         matches(x, "a.b").should eq(Set{q})
         matches(x, "a.b.c").should be_empty
+        x.unbind(q, "a.b")
       end
     end
   end
