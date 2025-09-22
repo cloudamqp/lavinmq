@@ -43,7 +43,8 @@ class LiveLogDataSource {
       tblError.textContent = 'Access denied, administator access required'
       tblError.style.display = 'block'
     }
-}
+  }
+
 
   on (eventName, handler) {
     this._event.addEventListener(eventName, handler)
