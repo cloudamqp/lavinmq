@@ -45,7 +45,6 @@ class LiveLogDataSource {
     }
   }
 
-
   on (eventName, handler) {
     this._event.addEventListener(eventName, handler)
   }
