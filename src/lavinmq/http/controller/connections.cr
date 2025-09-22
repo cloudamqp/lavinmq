@@ -66,13 +66,12 @@ module LavinMQ
       end
 
       private def get_connections_by_username(context, username)
-        username = URI.decode_www_form(username)
         user = user(context)
         connections(user).select { |c| c.user.name == username }
       end
 
       private def with_connection(context, params, &)
-        name = URI.decode_www_form(params["name"])
+        name = params["name"]
         user = user(context)
         connection = @amqp_server.connections.find { |c| c.name == name }
         not_found(context, "Connection #{name} does not exist") unless connection

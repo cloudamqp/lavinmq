@@ -8,7 +8,7 @@ module LavinMQ
   module HTTP
     module QueueHelpers
       private def queue(context, params, vhost, key = "name")
-        name = URI.decode_www_form(params[key])
+        name = params[key]
         q = @amqp_server.vhosts[vhost].queues[name]?
         not_found(context, "Not Found") unless q
         q
@@ -56,7 +56,7 @@ module LavinMQ
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
             user = user(context)
-            name = URI.decode_www_form(params["name"])
+            name = params["name"]
             name = AMQP::Queue.generate_name if name.empty?
             body = parse_body(context)
             durable = body["durable"]?.try(&.as_bool?) || false

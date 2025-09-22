@@ -127,8 +127,7 @@ module LavinMQ
       end
 
       private def extract_search_term(params)
-        if raw_name = params["name"]?
-          term = URI.decode_www_form(raw_name)
+        if term = params["name"]?
           if params["use_regex"]? == "true"
             Regex.new(term)
           else
@@ -197,7 +196,7 @@ module LavinMQ
       end
 
       private def with_vhost(context, params, key = "vhost", &)
-        name = URI.decode_www_form(params[key])
+        name = params[key]
         if @amqp_server.vhosts[name]?
           yield name
         else

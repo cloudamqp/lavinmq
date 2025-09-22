@@ -34,7 +34,7 @@ module LavinMQ
         put "/api/vhosts/:name" do |context, params|
           u = user(context)
           refuse_unless_administrator(context, u)
-          name = URI.decode_www_form(params["name"])
+          name = params["name"]
           if context.request.body
             body = parse_body(context)
             tags = body["tags"]?.to_s.split(',').map(&.strip).reject(&.empty?)

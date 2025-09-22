@@ -78,7 +78,7 @@ module LavinMQ
             refuse_unless_management(context, user(context), vhost)
             e = exchange(context, params, vhost)
             q = queue(context, params, vhost, "queue")
-            props = URI.decode_www_form(params["props"])
+            props = params["props"]
             binding_for_props(context, e, q, props).to_json(context.response)
           end
         end
@@ -96,7 +96,7 @@ module LavinMQ
             elsif e.name.empty?
               access_refused(context, "Not allowed to unbind from the default exchange")
             end
-            props = URI.decode_www_form(params["props"])
+            props = params["props"]
             found = false
             e.bindings_details.each do |binding|
               next unless binding.destination == q && binding.binding_key.properties_key == props
@@ -159,7 +159,7 @@ module LavinMQ
             refuse_unless_management(context, user(context), vhost)
             source = exchange(context, params, vhost)
             destination = exchange(context, params, vhost, "destination")
-            props = URI.decode_www_form(params["props"])
+            props = params["props"]
             binding = binding_for_props(context, source, destination, props)
             binding.to_json(context.response)
           end
@@ -180,7 +180,7 @@ module LavinMQ
             elsif destination.internal?
               bad_request(context, "Not allowed to unbind from an internal exchange")
             end
-            props = URI.decode_www_form(params["props"])
+            props = params["props"]
             found = false
             source.bindings_details.each do |binding|
               next unless binding.destination == destination &&
