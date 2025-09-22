@@ -47,9 +47,9 @@ module LavinMQ
             queues += vhost.queues.size
             vhost.queues.each_value do |q|
               ready += q.message_count
-              unacked += q.acknowledgement_tracker.unacked_count
+              unacked += q.unacked_count
               add_logs!(ready_log, q.message_count_log)
-              add_logs!(unacked_log, q.acknowledgement_tracker.unacked_count_log)
+              add_logs!(unacked_log, q.unacked_count_log)
             end
             vhost_stats_details = vhost.stats_details
             {% for sm in OVERVIEW_STATS %}

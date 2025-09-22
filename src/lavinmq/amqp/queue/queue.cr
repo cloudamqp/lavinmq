@@ -109,7 +109,7 @@ module LavinMQ::AMQP
     # Creates @[x]_count and @[x]_rate and @[y]_log
     rate_stats(
       {"ack", "deliver", "deliver_no_ack", "deliver_get", "confirm", "get", "get_no_ack", "publish", "redeliver", "reject", "return_unroutable", "dedup"},
-      {"message_count"})
+      {"message_count", "unacked_count"})
 
     getter name, arguments, vhost, consumers, acknowledgement_tracker
     getter? auto_delete, exclusive
@@ -786,7 +786,7 @@ module LavinMQ::AMQP
 
     private def mark_unacked(sp, &)
       @log.debug { "Counting as unacked: #{sp}" }
-      @acknowledgement_tracker.add_unacked(sp.bytesize)
+      add_unacked(sp.bytesize)
       begin
         yield
       rescue ex
@@ -794,7 +794,7 @@ module LavinMQ::AMQP
         @msg_store_lock.synchronize do
           @msg_store.requeue(sp)
         end
-        @acknowledgement_tracker.remove_unacked(sp.bytesize)
+        remove_unacked(sp.bytesize)
         raise ex
       end
     end
@@ -827,7 +827,7 @@ module LavinMQ::AMQP
       return if @deleted
       @log.debug { "Acking #{sp}" }
       @ack_count.add(1, :relaxed)
-      @acknowledgement_tracker.remove_unacked(sp.bytesize)
+      remove_unacked(sp.bytesize)
       delete_message(sp)
     end
 
@@ -845,7 +845,7 @@ module LavinMQ::AMQP
       return if @deleted || @closed
       @log.debug { "Rejecting #{sp}, requeue: #{requeue}" }
       @reject_count.add(1, :relaxed)
-      @acknowledgement_tracker.remove_unacked(sp.bytesize)
+      remove_unacked(sp.bytesize)
       if requeue
         if has_expired?(sp, requeue: true) # guarantee to not deliver expired messages
           expire_msg(sp, :expired)
@@ -990,6 +990,22 @@ module LavinMQ::AMQP
       @log.error(ex) { "Queue closed due to error" }
       close
       raise ex
+    end
+
+    def add_unacked(bytesize : UInt64)
+      @acknowledgement_tracker.track_unacked(bytesize)
+    end
+
+    def remove_unacked(bytesize : UInt64)
+      @acknowledgement_tracker.untrack_unacked(bytesize)
+    end
+
+    def unacked_count
+      @acknowledgement_tracker.unacked_count
+    end
+
+    def unacked_bytesize
+      @acknowledgement_tracker.unacked_bytesize
     end
 
     def durable?
