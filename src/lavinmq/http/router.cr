@@ -76,11 +76,14 @@ module LavinMQ::HTTP::Router
     def {{method.id}}(path : String, &block : ActionBlock)
       @_routes << Route.new({{method.upcase}}, path, ActionSimple.new(block))
     end
-    def {{method.id}}(path : String, model : T.class,
-        &block : Proc(::HTTP::Server::Context, Params, T, ::HTTP::Server::Context)) forall T
-    @_routes << Route.new({{method.upcase}}, path, ActionWithModel(T).new(block))
+    def {{method.id}}(
+      path : String,
+      model : T.class,
+      &block : Proc(::HTTP::Server::Context, Params, T, ::HTTP::Server::Context)
+    ) forall T
+      @_routes << Route.new({{method.upcase}}, path, ActionWithModel(T).new(block))
     end
-    {% end %}
+  {% end %}
 
   # def find_route(method, path)
   def find_route(context)
