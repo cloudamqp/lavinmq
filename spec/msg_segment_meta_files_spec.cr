@@ -1,4 +1,5 @@
 require "./spec_helper"
+# require "../src/lavinmq/message_store"
 
 describe "Message segment metadata files" do
   describe "Metadata file creation" do
@@ -19,15 +20,16 @@ describe "Message segment metadata files" do
           end
 
           # Should have multiple segments or be able to verify metadata behavior
-          total_segments = queue.@msg_store.@segments.size
+          total_segments = queue.@msg_store.as(LavinMQ::QueueMessageStore).@segments.size
 
           # Check behavior: either we have multiple segments with .meta files,
           # or we can verify the metadata creation logic works
+          store = queue.@msg_store.as(LavinMQ::QueueMessageStore)
           if total_segments > 1
             # Check that .meta files exist for completed segments
             completed_segments_with_meta = 0
-            queue.@msg_store.@segments.each do |seg_id, mfile|
-              next if seg_id == queue.@msg_store.@segments.last_key # skip current writing segment
+            store.@segments.each do |seg_id, mfile|
+              next if seg_id == store.@segments.last_key # skip current writing segment
               meta_path = "#{mfile.path}.meta"
               if File.exists?(meta_path)
                 completed_segments_with_meta += 1
@@ -40,7 +42,7 @@ describe "Message segment metadata files" do
           else
             # If we only have one segment, verify that it doesn't have a .meta file
             # since it's the current writing segment
-            mfile = queue.@msg_store.@segments.first_value
+            mfile = store.@segments.first_value
             meta_path = "#{mfile.path}.meta"
             File.exists?(meta_path).should be_false
           end
@@ -53,26 +55,27 @@ describe "Message segment metadata files" do
         vhost = s.vhosts.create("test_vhost")
         with_channel(s, vhost: vhost.name) do |ch|
           q = ch.queue("stream_meta_test", args: AMQP::Client::Arguments.new({"x-queue-type" => "stream"}))
-          queue = vhost.queues["stream_meta_test"].as(LavinMQ::AMQP::StreamQueue)
+          queue = vhost.queues["stream_meta_test"].as(LavinMQ::AMQP::Stream)
 
           # Publish enough messages to trigger new segment creation
           segment_size = LavinMQ::Config.instance.segment_size
           message_size = 50
           messages_needed = (segment_size / message_size).to_i + 10
 
-          initial_segments = queue.@msg_store.@segments.size
+          store = queue.@msg_store.as(LavinMQ::AMQP::StreamMessageStore)
+          initial_segments = store.@segments.size
 
           messages_needed.times do |i|
             q.publish_confirm "message #{i}"
           end
 
           # Should have created new segments
-          final_segments = queue.@msg_store.@segments.size
+          final_segments = store.@segments.size
           final_segments.should be > initial_segments
 
           # Check meta file exists and contains stream-specific data
-          queue.@msg_store.@segments.each do |seg_id, mfile|
-            next if seg_id == queue.@msg_store.@segments.last_key # skip current writing segment
+          store.@segments.each do |seg_id, mfile|
+            next if seg_id == store.@segments.last_key # skip current writing segment
             meta_path = "#{mfile.path}.meta"
             File.exists?(meta_path).should be_true
 
@@ -99,13 +102,14 @@ describe "Message segment metadata files" do
         with_channel(s, vhost: vhost.name) do |ch|
           q = ch.queue("metadata_load_test")
           queue = vhost.queues["metadata_load_test"].as(LavinMQ::AMQP::DurableQueue)
+          store = queue.@msg_store.as(LavinMQ::QueueMessageStore)
 
           # Publish messages but not enough to trigger new segment
           50.times { |i| q.publish_confirm "message #{i}" }
 
           # Manually create a new message store to simulate restart behavior
-          msg_dir = queue.@msg_store.@msg_dir
-          new_store = LavinMQ::MessageStore.new(msg_dir, nil)
+          msg_dir = store.@msg_dir
+          new_store = LavinMQ::QueueMessageStore.new(msg_dir, nil)
 
           # Should have loaded messages correctly
           new_store.size.should eq 50
@@ -128,18 +132,19 @@ describe "Message segment metadata files" do
         with_channel(s, vhost: vhost.name) do |ch|
           q = ch.queue("fallback_test")
           queue = vhost.queues["fallback_test"].as(LavinMQ::AMQP::DurableQueue)
+          store = queue.@msg_store.as(LavinMQ::QueueMessageStore)
 
           # Publish messages
           25.times { |i| q.publish_confirm "message #{i}" }
 
           # Get message directory and create new store without metadata
-          msg_dir = queue.@msg_store.@msg_dir
+          msg_dir = store.@msg_dir
 
           # Remove any .meta files to simulate missing metadata
           Dir.glob(File.join(msg_dir, "*.meta")).each { |path| File.delete(path) }
 
           # Create new store - should fall back to message scanning
-          new_store = LavinMQ::MessageStore.new(msg_dir, nil)
+          new_store = LavinMQ::QueueMessageStore.new(msg_dir, nil)
           new_store.size.should eq 25
           new_store.close
         end
@@ -154,6 +159,7 @@ describe "Message segment metadata files" do
         with_channel(s, vhost: vhost.name) do |ch|
           q = ch.queue("delete_test")
           queue = vhost.queues["delete_test"].as(LavinMQ::AMQP::DurableQueue)
+          store = queue.@msg_store.as(LavinMQ::QueueMessageStore)
 
           # Fill multiple segments
           segment_size = LavinMQ::Config.instance.segment_size
@@ -163,12 +169,12 @@ describe "Message segment metadata files" do
           messages_needed.times { |i| q.publish_confirm "message #{i}" }
 
           # Should have multiple segments now
-          queue.@msg_store.@segments.size.should be > 1
+          store.@segments.size.should be > 1
 
           # Get paths before deletion (only for completed segments that have .meta files)
           existing_meta_paths = [] of String
-          queue.@msg_store.@segments.each do |seg_id, mfile|
-            next if seg_id == queue.@msg_store.@segments.last_key # skip current writing segment
+          store.@segments.each do |seg_id, mfile|
+            next if seg_id == store.@segments.last_key # skip current writing segment
             meta_path = "#{mfile.path}.meta"
             if File.exists?(meta_path)
               existing_meta_paths << meta_path
@@ -190,6 +196,7 @@ describe "Message segment metadata files" do
         with_channel(s, vhost: vhost.name) do |ch|
           q = ch.queue("purge_test")
           queue = vhost.queues["purge_test"].as(LavinMQ::AMQP::DurableQueue)
+          store = queue.@msg_store.as(LavinMQ::QueueMessageStore)
 
           # Fill segments enough to create multiple segments
           segment_size = LavinMQ::Config.instance.segment_size
@@ -200,8 +207,8 @@ describe "Message segment metadata files" do
 
           # Collect existing meta file paths
           existing_meta_paths = [] of String
-          queue.@msg_store.@segments.each do |seg_id, mfile|
-            next if seg_id == queue.@msg_store.@segments.last_key # skip current writing segment
+          store.@segments.each do |seg_id, mfile|
+            next if seg_id == store.@segments.last_key # skip current writing segment
             meta_path = "#{mfile.path}.meta"
             existing_meta_paths << meta_path if File.exists?(meta_path)
           end
@@ -221,6 +228,7 @@ describe "Message segment metadata files" do
         with_channel(s, vhost: vhost.name) do |ch|
           q = ch.queue("cleanup_test")
           queue = vhost.queues["cleanup_test"].as(LavinMQ::AMQP::DurableQueue)
+          store = queue.@msg_store.as(LavinMQ::QueueMessageStore)
 
           # Create enough messages to span multiple segments
           segment_size = LavinMQ::Config.instance.segment_size
@@ -229,14 +237,14 @@ describe "Message segment metadata files" do
 
           messages_needed.times { |i| q.publish_confirm "message #{i}" }
 
-          initial_segments = queue.@msg_store.@segments.size
+          initial_segments = store.@segments.size
           initial_segments.should be > 1
 
           # Verify only completed segments have .meta files
           completed_segments = 0
-          queue.@msg_store.@segments.each do |seg_id, mfile|
+          store.@segments.each do |seg_id, mfile|
             meta_path = "#{mfile.path}.meta"
-            if seg_id == queue.@msg_store.@segments.last_key
+            if seg_id == store.@segments.last_key
               # Current writing segment should not have .meta file
               File.exists?(meta_path).should be_false
             else
@@ -263,6 +271,7 @@ describe "Message segment metadata files" do
         with_channel(s, vhost: vhost.name) do |ch|
           q = ch.queue("count_test")
           queue = vhost.queues["count_test"].as(LavinMQ::AMQP::DurableQueue)
+          store = queue.@msg_store.as(LavinMQ::QueueMessageStore)
 
           # Create enough messages to fill multiple segments
           segment_size = LavinMQ::Config.instance.segment_size
@@ -272,8 +281,8 @@ describe "Message segment metadata files" do
           messages_needed.times { |i| q.publish_confirm "message #{i}" }
 
           # Verify .meta files contain message counts for completed segments
-          queue.@msg_store.@segments.each do |seg_id, mfile|
-            next if seg_id == queue.@msg_store.@segments.last_key # skip current writing segment
+          store.@segments.each do |seg_id, mfile|
+            next if seg_id == store.@segments.last_key # skip current writing segment
             meta_path = "#{mfile.path}.meta"
 
             if File.exists?(meta_path)
@@ -281,7 +290,7 @@ describe "Message segment metadata files" do
               count.should be > 0
 
               # The count should match what's stored in the segment
-              stored_count = queue.@msg_store.@segment_msg_count[seg_id]
+              stored_count = store.@segment_msg_count[seg_id]
               count.should eq stored_count
             end
           end
@@ -295,16 +304,17 @@ describe "Message segment metadata files" do
         with_channel(s, vhost: vhost.name) do |ch|
           q = ch.queue("init_test")
           queue = vhost.queues["init_test"].as(LavinMQ::AMQP::DurableQueue)
+          store = queue.@msg_store.as(LavinMQ::QueueMessageStore)
 
           # Publish messages
           message_count = 42
           message_count.times { |i| q.publish_confirm "message #{i}" }
 
           # Get the message directory
-          msg_dir = queue.@msg_store.@msg_dir
+          msg_dir = store.@msg_dir
 
           # Create a new message store instance - should use metadata files if available
-          new_store = LavinMQ::MessageStore.new(msg_dir, nil)
+          new_store = LavinMQ::QueueMessageStore.new(msg_dir, nil)
 
           # Should have correct message count
           new_store.size.should eq message_count

@@ -1,51 +1,63 @@
-require "./durable_queue"
-require "../stream_consumer"
-require "./stream_queue_message_store"
+require "../queue/durable_queue"
+require "./stream_consumer"
+require "./message_store"
 
 module LavinMQ::AMQP
-  class StreamQueue < DurableQueue
+  class Stream < DurableQueue
+    getter offsets
+
     def initialize(@vhost : VHost, @name : String,
                    @exclusive = false, @auto_delete = false,
                    @arguments = AMQP::Table.new)
       super
-      spawn unmap_and_remove_segments_loop, name: "StreamQueue#unmap_and_remove_segments_loop"
+      replicator = @vhost.@replicator
+      offset_file = MFile.new(File.join(@data_dir, "consumer_offsets"), Config.instance.segment_size)
+      replicator.try &.register_file offset_file
+      @offsets = OffsetStore.new(stream_msg_store, replicator)
+      stream_msg_store.offset_store = @offsets
+      spawn unmap_and_remove_segments_loop, name: "Stream#unmap_and_remove_segments_loop"
     end
 
     def apply_policy(policy : Policy?, operator_policy : OperatorPolicy?)
       super
       if max_age_value = Policy.merge_definitions(policy, operator_policy)["max-age"]?
         if max_age_policy = parse_max_age(max_age_value.as_s?)
-          if current_max = stream_queue_msg_store.max_age
+          if current_max = stream_msg_store.max_age
             if current_max > max_age_policy
-              stream_queue_msg_store.max_age = max_age_policy
+              stream_msg_store.max_age = max_age_policy
             end
           else
-            stream_queue_msg_store.max_age = max_age_policy
+            stream_msg_store.max_age = max_age_policy
           end
         end
       end
-      stream_queue_msg_store.max_length = @max_length
-      stream_queue_msg_store.max_length_bytes = @max_length_bytes
-      stream_queue_msg_store.drop_overflow
+      stream_msg_store.max_length = @max_length
+      stream_msg_store.max_length_bytes = @max_length_bytes
+      stream_msg_store.drop_overflow
     end
 
-    delegate last_offset, new_messages, find_offset, to: @msg_store.as(StreamQueueMessageStore)
+    delegate new_messages, to: @msg_store.as(StreamMessageStore)
+
+    def find_offset(offset, tag = nil, track_offset = false) : Offset
+      raise ClosedError.new if @closed
+      @offsets.find_offset(offset, tag, track_offset)
+    end
 
     private def message_expire_loop
-      # StreamQueues doesn't handle message expiration
+      # Streams doesn't handle message expiration
     end
 
     private def queue_expire_loop
-      # StreamQueues doesn't handle queue expiration
+      # Streams doesn't handle queue expiration
     end
 
     private def init_msg_store(data_dir)
       replicator = @vhost.@replicator
-      @msg_store = StreamQueueMessageStore.new(data_dir, replicator, metadata: @metadata)
+      StreamMessageStore.new(data_dir, replicator, metadata: @metadata)
     end
 
-    private def stream_queue_msg_store : StreamQueueMessageStore
-      @msg_store.as(StreamQueueMessageStore)
+    private def stream_msg_store : StreamMessageStore
+      @msg_store.as(StreamMessageStore)
     end
 
     # save message id / segment position
@@ -64,7 +76,7 @@ module LavinMQ::AMQP
       raise ex
     end
 
-    # Stream queues does not support basic_get, so always returns `false`
+    # Streams does not support basic_get, so always returns `false`
     def basic_get(no_ack, force = false, & : Envelope -> Nil) : Bool
       false
     end
@@ -79,10 +91,6 @@ module LavinMQ::AMQP
           @deliver_get_count.add(1, :relaxed)
         end
       end
-    end
-
-    def store_consumer_offset(consumer_tag : String, offset : Int64) : Nil
-      stream_queue_msg_store.store_consumer_offset(consumer_tag, offset)
     end
 
     # yield the next message in the ready queue
@@ -106,7 +114,7 @@ module LavinMQ::AMQP
     end
 
     private def drop_overflow : Nil
-      # Overflow handling is done in StreamQueueMessageStore
+      # Overflow handling is done in StreamMessageStore
     end
 
     private def notify_all_stream_consumers
@@ -121,27 +129,27 @@ module LavinMQ::AMQP
       super
       @effective_args << "x-queue-type"
       if @dlx
-        raise LavinMQ::Error::PreconditionFailed.new("x-dead-letter-exchange not allowed for stream queues")
+        raise LavinMQ::Error::PreconditionFailed.new("x-dead-letter-exchange not allowed for streams")
       end
       if @dlrk
-        raise LavinMQ::Error::PreconditionFailed.new("x-dead-letter-exchange not allowed for stream queues")
+        raise LavinMQ::Error::PreconditionFailed.new("x-dead-letter-exchange not allowed for streams")
       end
       if @expires
-        raise LavinMQ::Error::PreconditionFailed.new("x-expires not allowed for stream queues")
+        raise LavinMQ::Error::PreconditionFailed.new("x-expires not allowed for streams")
       end
       if @delivery_limit
-        raise LavinMQ::Error::PreconditionFailed.new("x-delivery-limit not allowed for stream queues")
+        raise LavinMQ::Error::PreconditionFailed.new("x-delivery-limit not allowed for streams")
       end
       if @reject_on_overflow
-        raise LavinMQ::Error::PreconditionFailed.new("x-overflow not allowed for stream queues")
+        raise LavinMQ::Error::PreconditionFailed.new("x-overflow not allowed for streams")
       end
       if @single_active_consumer_queue
-        raise LavinMQ::Error::PreconditionFailed.new("x-single-active-consumer not allowed for stream queues")
+        raise LavinMQ::Error::PreconditionFailed.new("x-single-active-consumer not allowed for streams")
       end
-      stream_queue_msg_store.max_age = parse_max_age(@arguments["x-max-age"]?)
-      stream_queue_msg_store.max_length = @max_length
-      stream_queue_msg_store.max_length_bytes = @max_length_bytes
-      stream_queue_msg_store.drop_overflow
+      stream_msg_store.max_age = parse_max_age(@arguments["x-max-age"]?)
+      stream_msg_store.max_length = @max_length
+      stream_msg_store.max_length_bytes = @max_length_bytes
+      stream_msg_store.drop_overflow
     end
 
     private def parse_max_age(value) : Time::Span | Time::MonthSpan | Nil
@@ -192,8 +200,8 @@ module LavinMQ::AMQP
         end
       end
       @msg_store_lock.synchronize do
-        stream_queue_msg_store.drop_overflow
-        stream_queue_msg_store.unmap_segments(except: used_segments)
+        stream_msg_store.drop_overflow
+        stream_msg_store.unmap_segments(except: used_segments)
       end
     end
   end

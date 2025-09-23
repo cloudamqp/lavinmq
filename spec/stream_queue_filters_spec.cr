@@ -1,7 +1,7 @@
 require "./spec_helper"
 require "./../src/lavinmq/amqp/queue"
 
-describe LavinMQ::AMQP::StreamQueue do
+describe LavinMQ::AMQP::Stream do
   describe "Filters" do
     it "should only get message matching filter" do
       with_amqp_server do |s|

@@ -54,7 +54,7 @@ module LavinMQ::AMQP
       delete_message sp
     end
 
-    class DelayedMessageStore < MessageStore
+    class DelayedMessageStore < QueueMessageStore
       def initialize(*args, **kwargs)
         super
         order_messages
