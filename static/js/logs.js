@@ -53,7 +53,7 @@ evtSource.onmessage = (event) => {
   buffer.push(log)
 
   if (matches(log)) {
-    const row = tbody.appendChild(buildRow(log))  
+    tbody.appendChild(buildRow(log))  
     if (shouldAutoScroll) livelog.scrollTop = livelog.scrollHeight
   }
 
@@ -100,6 +100,7 @@ filterInput.addEventListener('keydown', (e) => {
     e.preventDefault()
     rebuildFromBuffer()
   } else if (e.key === 'Escape' && filterInput.value) {
+    currentRegex = null
     filterInput.value = ''
     rebuildFromBuffer()
   }
