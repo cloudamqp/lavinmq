@@ -90,12 +90,11 @@ module LavinMQ::HTTP::Router
     search_path = "/#{method}/#{path.strip('/')}"
     @_routes.each do |r|
       if res = r.pattern.match(search_path)
-        ret = {
+        return {
           action: r.action,
           # reject and transform_value to go from Hash(String, String | Nil) to Hash(String, String)
           params: res.named_captures.reject! { |_k, v| v.nil? }.transform_values &.to_s,
         }
-        return ret
       end
     end
     nil
