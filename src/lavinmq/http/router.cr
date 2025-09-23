@@ -33,7 +33,7 @@ module LavinMQ::HTTP::Router
 
     def act(context : ::HTTP::Server::Context, params : Params) : ::HTTP::Server::Context
       request = context.request
-      model = if body = request.body
+      model = if (cl = request.content_length) && (cl.positive?) && (body = request.body)
                 ct = request.headers["Content-Type"]?
                 if ct.nil? || ct.empty? || ct == "application/json"
                   T.from_json(body)
@@ -49,9 +49,9 @@ module LavinMQ::HTTP::Router
               end
       @target.call(context, params, model)
     rescue e : JSON::SerializableError
-      halt(context, 400, {error: "bad_request", reason: "Invalid value for #{e.attribute}"})
+      halt(context, 400, {error: "bad_request", reason: "Field [CRYSTAL 1.18.1 REQUIRED e.attribute (#{e.message})] is required"})
     rescue e : JSON::ParseException
-      halt(context, 400, {error: "bad_request", reason: "Invalid request body"})
+      halt(context, 400, {error: "bad_request", reason: "Malformed JSON"})
     end
   end
 
@@ -76,6 +76,7 @@ module LavinMQ::HTTP::Router
     def {{method.id}}(path : String, &block : ActionBlock)
       @_routes << Route.new({{method.upcase}}, path, ActionSimple.new(block))
     end
+
     def {{method.id}}(
       path : String,
       model : T.class,
@@ -85,23 +86,15 @@ module LavinMQ::HTTP::Router
     end
   {% end %}
 
-  # def find_route(method, path)
-  def find_route(context)
-    method = context.request.method
-    path = context.request.path
+  def find_route(method, path)
     search_path = "/#{method}/#{path.strip('/')}"
     @_routes.each do |r|
       if res = r.pattern.match(search_path)
-        if model = r.model
-          model = parse_model(model, context)
-        end
         ret = {
           action: r.action,
           # reject and transform_value to go from Hash(String, String | Nil) to Hash(String, String)
           params: res.named_captures.reject! { |_k, v| v.nil? }.transform_values &.to_s,
-          model:  model,
         }
-
         return ret
       end
     end
@@ -109,8 +102,7 @@ module LavinMQ::HTTP::Router
   end
 
   def call(context)
-    # if route = find_route(context.request.method, context.request.path)
-    if route = find_route(context)
+    if route = find_route(context.request.method, context.request.path)
       route[:action].act(context, route[:params])
     else
       call_next(context)
