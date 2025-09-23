@@ -14,7 +14,7 @@ module LavinMQ
   module TagListConverter
     def self.from_json(pull : JSON::PullParser) : Array(Tag)
       list = pull.read_string
-      list.split(",").compact_map { |t| Tag.parse?(t.strip) }
+      list.split(",").compact_map { |t| Tag.parse?(t.strip) }.uniq!
     end
   end
 end
