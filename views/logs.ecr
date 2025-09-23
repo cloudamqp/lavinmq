@@ -15,6 +15,7 @@
       <section id="livelog" class="card livelog">
         <label for="log-filter" class="sr-only"></label>
         <input id="log-filter" class="filter-table" type="search" placeholder="Filter regex">
+        <button id="to-bottom" class="btn-outlined">⬇</button>
         <button id="download-logs" class="btn btn-green"><a download href="api/logs">Download logs</a></button>
         <div id="table-error"></div>
         <table id="table" class="table">
@@ -28,7 +29,7 @@
           </thead>
           <tbody id="livelog-body"></tbody>
         </table>
-        <button id="to-top" class="btn-outlined">🔝</button>
+        <button id="to-top" class="btn-outlined">⬆</button>
       </section>
     </main>
     <% render "partials/footer" %>

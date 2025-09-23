@@ -3,6 +3,7 @@ const livelog = document.getElementById('livelog')
 const tbody = document.getElementById('livelog-body')
 const filterInput = document.getElementById('log-filter')
 const btnToTop = document.getElementById('to-top')
+const btnToBottom = document.getElementById('to-bottom')
 const buffer = []
 let shouldAutoScroll = true
 let currentRegex = null
@@ -110,6 +111,11 @@ filterInput.addEventListener('keydown', (e) => {
 btnToTop?.addEventListener('click', () => {
   livelog.scrollTop = 0
   shouldAutoScroll = false
+})
+
+btnToBottom?.addEventListener('click', () => {
+  livelog.scrollTop = livelog.scrollHeight
+  shouldAutoScroll = true
 })
 
 let lastScrollTop = livelog.pageYOffset || livelog.scrollTop
