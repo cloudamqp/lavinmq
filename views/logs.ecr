@@ -10,8 +10,11 @@
     <main class="main-grid">
       <div id="breadcrumbs" class="cols-12">
           <h2 class="page-title"><span><%=pagename%></span></h2>
+          <div class="tiny-badge" id="pagename-label"></div></h2>
       </div>
       <section id="livelog" class="card livelog">
+        <label for="log-filter" class="sr-only"></label>
+        <input id="log-filter" class="filter-table" type="search" placeholder="Filter regex">
         <button id="download-logs" class="btn btn-green"><a download href="api/logs">Download logs</a></button>
         <div id="table-error"></div>
         <table id="table" class="table">
@@ -25,6 +28,7 @@
           </thead>
           <tbody id="livelog-body"></tbody>
         </table>
+        <button id="to-top" class="btn-outlined">🔝</button>
       </section>
     </main>
     <% render "partials/footer" %>
