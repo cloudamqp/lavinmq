@@ -4,40 +4,61 @@ require "http/server/context"
 module LavinMQ::HTTP::Router
   include ::HTTP::Handler
 
-  abstract struct Model
-    abstract def optional?
-    abstract def parse(str)
-  end
-
-  abstract struct ActionWrapper
-  end
-
   alias Routes = Array(Route)
   alias Params = Hash(String, String)
-  alias Action = Proc(::HTTP::Server::Context, Params, Model?, ::HTTP::Server::Context)
+  alias ActionBlock = Proc(::HTTP::Server::Context, Params, ::HTTP::Server::Context)
 
-  struct ModelWrapper(T) < Model
-    def initialize(@klass : T.class)
-      {% raise "@klass must include JSON::Serializable" unless T <= JSON::Serializable %}
+  abstract struct Action
+    abstract def act(context : ::HTTP::Server::Context, params : Params) : ::HTTP::Server::Context
+
+    private def halt(context, status_code, body = nil)
+      context.response.status_code = status_code
+      body.try &.to_json(context.response)
+      raise Controller::HaltRequest.new(body.try { |b| b[:reason] })
+    end
+  end
+
+  struct ActionSimple < Action
+    def initialize(@target : ActionBlock)
     end
 
-    def optional? : Bool
-      false
+    def act(context : ::HTTP::Server::Context, params : Params) : ::HTTP::Server::Context
+      @target.call(context, params)
+    end
+  end
+
+  struct ActionWithModel(T) < Action
+    def initialize(@target : Proc(::HTTP::Server::Context, Params, T, ::HTTP::Server::Context))
     end
 
-    def parse(str)
-      @klass.from_json(str)
+    def act(context : ::HTTP::Server::Context, params : Params) : ::HTTP::Server::Context
+      request = context.request
+      model = if body = request.body
+                ct = request.headers["Content-Type"]?
+                if ct.nil? || ct.empty? || ct == "application/json"
+                  T.from_json(body)
+                else
+                  halt(context, 415, {error: "unsupported_content_type", reason: "Unsupported content type #{ct}"})
+                end
+              else
+                {% if T.nilable? %}
+                  nil
+                {% else %}
+                  halt(context, 400, {error: "bad_request", reason: "Request body required"})
+                {% end %}
+              end
+      @target.call(context, params, model)
+    rescue e : JSON::SerializableError
+      halt(context, 400, {error: "bad_request", reason: "Invalid value for #{e.attribute}"})
+    rescue e : JSON::ParseException
+      halt(context, 400, {error: "bad_request", reason: "Invalid request body"})
     end
   end
 
   struct Route
     getter method, action, pattern
-    getter model : Model? = nil
 
-    def initialize(@method : String, @path : String, @action : Action, model_class)
-      if mc = model_class
-        @model = ModelWrapper.new mc
-      end
+    def initialize(@method : String, @path : String, @action : Action)
       path = @path.split("/").map do |part|
         case part[0]?
         when ':' then "(?<#{Regex.escape(part[1..])}>[^/]*)"
@@ -52,10 +73,14 @@ module LavinMQ::HTTP::Router
   @_routes = Routes.new
 
   {% for method in %w[delete get head options patch post put] %}
-    def {{method.id}}(path : String, model : Class? = nil, &block : Action)
-      @_routes << Route.new({{method.upcase}}, path, block, model_class: model)
+    def {{method.id}}(path : String, &block : ActionBlock)
+      @_routes << Route.new({{method.upcase}}, path, ActionSimple.new(block))
     end
-  {% end %}
+    def {{method.id}}(path : String, model : T.class,
+        &block : Proc(::HTTP::Server::Context, Params, T, ::HTTP::Server::Context)) forall T
+    @_routes << Route.new({{method.upcase}}, path, ActionWithModel(T).new(block))
+    end
+    {% end %}
 
   # def find_route(method, path)
   def find_route(context)
@@ -83,37 +108,9 @@ module LavinMQ::HTTP::Router
   def call(context)
     # if route = find_route(context.request.method, context.request.path)
     if route = find_route(context)
-      route[:action].call(context, route[:params])
+      route[:action].act(context, route[:params])
     else
       call_next(context)
     end
-  end
-
-  private def parse_model(model, context)
-    request = context.request
-    if body = request.body
-      ct = request.headers["Content-Type"]?
-      if ct.nil? || ct.empty? || ct == "application/json"
-        model.parse body
-      else
-        halt(context, 415, {error: "unsupported_content_type", reason: "Unsupported content type #{ct}"})
-      end
-    else
-      unless model.optional?
-        halt(context, 400, {error: "bad_request", reason: "Request body required"})
-      end
-    end
-  rescue e : JSON::SerializableError
-    puts e.inspect
-    pp e
-    halt(context, 400, {error: "bad_request", reason: "Invalid value for #{e.attribute}"})
-  rescue e : JSON::ParseException
-    halt(context, 400, {error: "bad_request", reason: "Invalid request body"})
-  end
-
-  private def halt(context, status_code, body = nil)
-    context.response.status_code = status_code
-    body.try &.to_json(context.response)
-    raise Controller::HaltRequest.new(body.try { |b| b[:reason] })
   end
 end

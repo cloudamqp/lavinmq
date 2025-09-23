@@ -84,15 +84,14 @@ module LavinMQ
           context
         end
 
-        put "/api/users/:name", model: PutUser do |context, params|
+        put "/api/users/:name", model: PutUser do |context, params, user|
           refuse_unless_administrator(context, user(context))
           name = params["name"]
           bad_request(context, "Illegal user name") if Auth::UserStore.hidden?(name)
-          body = parse_body(context)
-          password_hash = body["password_hash"]?.try &.as_s?
-          password = body["password"]?.try &.as_s?
-          tags = Tag.parse_list(body["tags"]?.try(&.as_s).to_s).uniq
-          hashing_algorithm = body["hashing_algorithm"]?.try &.as_s? || "SHA256"
+          password_hash = user.pasword_hash
+          password = user.password
+          tags = user.tags
+          hashing_algorithm = user.hashing_algorithm
           unless @amqp_server.flow?
             precondition_failed(context, "Server low on disk space, can not create new user")
           end
