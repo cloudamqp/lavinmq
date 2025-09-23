@@ -453,57 +453,30 @@ describe LavinMQ::AMQP::Queue do
       FileUtils.rm_rf tmpdir if tmpdir
     end
 
-    it "should not ack 'empty' msg if mfile.size is wrong" do
-      queue_args = AMQP::Client::Arguments.new({
-        "x-message-ttl" => 500,    # messages should expire quickly
-        "x-expires"     => 10_000, # queue should expire after test
-      })
+    it "should not ack 'empty' msg if mfile.size is too big" do
       with_amqp_server do |s|
-        with_channel(s) do |ch|
-          vhost = s.vhosts["/"]
-          vhost.declare_queue("expire_test_queue", true, false, queue_args)
-          queue = vhost.queues["expire_test_queue"].as(LavinMQ::AMQP::DurableQueue)
+        s.vhosts["/"].declare_queue("expire_test_queue", true, false, AMQP::Client::Arguments.new({
+          "x-message-ttl" => 600,
+        }))
+        queue = s.vhosts["/"].queues["expire_test_queue"].as(LavinMQ::AMQP::DurableQueue)
 
-          # Publish enough messages to span multiple segments
-          # Each message should be large enough to trigger segment rotation
-          large_body = "x" * 1000 # 1KB message
-          message_count = 10000
+        10_000.times do
+          queue.publish(LavinMQ::Message.new("ex", "rk", "body" * 250, AMQ::Protocol::Properties.new))
+        end
 
-          message_count.times do |i|
-            props = AMQ::Protocol::Properties.new
-            queue.publish(LavinMQ::Message.new("test.exchange", "routing.key", large_body, props))
-          end
+        # Change size of each segment to be bigger than actual size
+        queue.@msg_store.@segments.each_value do |mfile|
+          mfile.truncate(mfile.size + 100)
+        end
 
-          # Verify we have messages in the queue
-          queue.message_count.should be > 0
+        # Wait for messages to expire
+        wait_for(2.seconds) { queue.message_count == 0 }
+        Fiber.yield
 
-          # Change size of first segment to be bigger than actual size
-          # first_segment = queue.@msg_store.@segments.first_value
-          # first_segment.truncate(first_segment.size + 1000)
-          queue.@msg_store.@segments.each_value do |mfile|
-            mfile.truncate(mfile.size + 100)
-          end
-
-          # Wait for messages to expire (600ms should be enough for 500ms TTL)
-          # sleep 0.6.seconds
-          wait_for(2.seconds) { queue.message_count == 0 }
-          sleep 0.6.seconds
-
-          # Force expiration check by triggering the expire loop
-          # This should cause expire_messages to run and potentially hit the bug
-          # where first? returns empty messages that get acked
-          Fiber.yield
-
-          # All messages should be expired now
-          queue.message_count.should eq 0
-
-          # Verify that nr of acks matches nr of messages for each segment
-          # pp queue.@msg_store.@segments.size
-          queue.@msg_store.@segments.each do |seg, mfile|
-            acks = queue.@msg_store.@acks[seg]
-            msg_count = queue.@msg_store.@segment_msg_count[seg]
-            (acks.size // sizeof(UInt32)).should eq msg_count
-          end
+        queue.message_count.should eq 0
+        queue.@msg_store.@segments.each_key do |seg|
+          acks = queue.@msg_store.@acks[seg]
+          (acks.size // sizeof(UInt32)).should eq queue.@msg_store.@segment_msg_count[seg]
         end
       end
     end
