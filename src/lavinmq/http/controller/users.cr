@@ -88,27 +88,23 @@ module LavinMQ
           refuse_unless_administrator(context, user(context))
           name = params["name"]
           bad_request(context, "Illegal user name") if Auth::UserStore.hidden?(name)
-          password_hash = user.password_hash
-          password = user.password
-          hashing_algorithm = user.hashing_algorithm
-          tags = user.tags
           unless @amqp_server.flow?
             precondition_failed(context, "Server low on disk space, can not create new user")
           end
           if u = @amqp_server.users[name]?
-            if password_hash
-              u.update_password_hash(password_hash, hashing_algorithm)
-            elsif password
+            if password_hash = user.password_hash
+              u.update_password_hash(password_hash, user.hashing_algorithm)
+            elsif password = user.password
               u.update_password(password)
             end
-            u.tags = tags
+            u.tags = user.tags
             @amqp_server.users.save!
             context.response.status_code = 204
           else
-            if password_hash
-              @amqp_server.users.add(name, password_hash, hashing_algorithm, tags)
-            elsif password
-              @amqp_server.users.create(name, password, tags)
+            if password_hash = user.password_hash
+              @amqp_server.users.add(name, password_hash, user.hashing_algorithm, user.tags)
+            elsif password = user.password
+              @amqp_server.users.create(name, password, user.tags)
             else
               bad_request(context, "Field 'password_hash' or 'password' is required when creating new user")
             end
