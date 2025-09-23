@@ -92,6 +92,7 @@ module LavinMQ
           next
         end
         msg = BytesMessage.from_bytes(rfile.to_slice + pos)
+        raise IndexError.new("Message at segment #{seg} pos #{pos} has zero timestamp") if msg.timestamp.zero?
         sp = SegmentPosition.make(seg, pos, msg)
         return Envelope.new(sp, msg, redelivered: false)
       rescue ex : IndexError
@@ -133,6 +134,7 @@ module LavinMQ
           next
         end
         msg = BytesMessage.from_bytes(rfile.to_slice + pos)
+        raise IndexError.new("Message at segment #{seg} pos #{pos} has zero timestamp") if msg.timestamp.zero?
         sp = SegmentPosition.make(seg, pos, msg)
         rfile.seek(sp.bytesize, IO::Seek::Current)
         @bytesize -= sp.bytesize
@@ -472,8 +474,9 @@ module LavinMQ
       if deleted = @deleted[seg]?
         deleted.each do |pos|
           mfile.pos = pos
-          bytesize -= BytesMessage.skip(mfile)
-          count -= 1
+          bs = BytesMessage.skip(mfile)
+          bytesize -= bs if bytesize >= bs # Don't allow underflow
+          count -= 1 if count > 0          # Don't allow underflow
         end
       end
       mfile.pos = 4
