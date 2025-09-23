@@ -40,9 +40,9 @@ module LavinMQ
         include JSON::Serializable
 
         property password_hash : String?
-        property password : String
+        property password : String?
         @[JSON::Field(converter: ::LavinMQ::TagListConverter)]
-        property tags : Array(Tag)
+        property tags : Array(Tag) = Array(Tag).new
         property hashing_algorithm : String = "SHA256"
       end
 
@@ -88,10 +88,10 @@ module LavinMQ
           refuse_unless_administrator(context, user(context))
           name = params["name"]
           bad_request(context, "Illegal user name") if Auth::UserStore.hidden?(name)
-          password_hash = user.pasword_hash
+          password_hash = user.password_hash
           password = user.password
-          tags = user.tags
           hashing_algorithm = user.hashing_algorithm
+          tags = user.tags
           unless @amqp_server.flow?
             precondition_failed(context, "Server low on disk space, can not create new user")
           end
@@ -101,7 +101,7 @@ module LavinMQ
             elsif password
               u.update_password(password)
             end
-            u.tags = tags if body["tags"]?
+            u.tags = tags
             @amqp_server.users.save!
             context.response.status_code = 204
           else

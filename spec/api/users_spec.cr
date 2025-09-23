@@ -164,7 +164,7 @@ describe LavinMQ::HTTP::UsersController do
         response = http.put("/api/users/alice", body: "")
         response.status_code.should eq 400
         body = JSON.parse(response.body)
-        body["reason"].as_s.should match(/Field .+ is required/)
+        body["reason"].as_s.should match(/Request body required/)
       end
     end
 
