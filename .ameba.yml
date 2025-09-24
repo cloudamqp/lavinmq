@@ -24,6 +24,7 @@ Lint/NotNil:
   - src/lavinmq/shovel/shovel.cr
   - src/lavinmq/launcher.cr
   - src/lavinmq/vhost.cr
+  - src/lavinmq/auth/authenticators/basic.cr
   - src/lavinmqperf.cr
   - spec/api/http_api_spec.cr
   - spec/api/exchanges_spec.cr
@@ -41,6 +42,11 @@ Lint/NotNil:
   - spec/policies_spec.cr
   Enabled: true
   Severity: Warning
+
+Lint/SpecFilename:
+  IgnoredFilenames:
+  - spec_helper
+  - rough_time
 
 # Problems found: 3
 # Run `ameba --only Documentation/DocumentationAdmonition` for details

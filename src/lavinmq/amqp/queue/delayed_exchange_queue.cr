@@ -29,16 +29,15 @@ module LavinMQ::AMQP
       loop do
         if ttl = time_to_message_expiration
           select
-          when @msg_store.empty_change.receive # there's a new "first" message
+          when @msg_store.empty.when_true.receive # there's a new "first" message
           when timeout ttl
             expire_messages
           end
         else
-          @msg_store.empty_change.receive
+          @msg_store.empty.when_false.receive
         end
-      rescue ::Channel::ClosedError
-        break
       end
+    rescue ::Channel::ClosedError
     end
 
     # Overload to not ruin DLX header
@@ -50,7 +49,7 @@ module LavinMQ::AMQP
         headers.delete("x-delay")
         msg.properties.headers = headers
       end
-      @vhost.publish Message.new(msg.timestamp, @exchange_name, msg.routing_key,
+      @vhost.exchanges[@exchange_name].route_msg Message.new(msg.timestamp, @exchange_name, msg.routing_key,
         msg.properties, msg.bodysize, IO::Memory.new(msg.body))
       delete_message sp
     end
@@ -86,7 +85,7 @@ module LavinMQ::AMQP
         if idx
           @requeued.insert(idx, sp)
           if idx.zero?
-            notify_empty(false)
+            @empty.set false
           end
         else
           @requeued.push(sp)
@@ -110,7 +109,7 @@ module LavinMQ::AMQP
         was_empty = @size.zero?
         @bytesize += sp.bytesize
         @size += 1
-        notify_empty(false) if was_empty
+        @empty.set false if was_empty
       end
     end
   end

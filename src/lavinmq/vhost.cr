@@ -14,6 +14,7 @@ require "./schema"
 require "./event_type"
 require "./stats"
 require "./queue_factory"
+require "./mqtt/session"
 
 module LavinMQ
   class VHost
@@ -21,7 +22,7 @@ module LavinMQ
     include Stats
 
     rate_stats({"channel_closed", "channel_created", "connection_closed", "connection_created",
-                "queue_declared", "queue_deleted", "ack", "deliver", "deliver_get", "get", "publish", "confirm",
+                "queue_declared", "queue_deleted", "ack", "deliver", "deliver_no_ack", "deliver_get", "get", "get_no_ack", "publish", "confirm",
                 "redeliver", "reject", "consumer_added", "consumer_removed"})
 
     getter name, exchanges, queues, data_dir, operator_policies, policies, parameters, shovels,
@@ -43,7 +44,7 @@ module LavinMQ
     @definitions_deletes = 0
     Log = LavinMQ::Log.for "vhost"
 
-    def initialize(@name : String, @server_data_dir : String, @users : UserStore, @replicator : Clustering::Replicator, @description = "", @tags = Array(String).new(0))
+    def initialize(@name : String, @server_data_dir : String, @users : Auth::UserStore, @replicator : Clustering::Replicator, @description = "", @tags = Array(String).new(0))
       @log = Logger.new(Log, vhost: @name)
       @dir = Digest::SHA1.hexdigest(@name)
       @data_dir = File.join(@server_data_dir, @dir)
@@ -123,8 +124,7 @@ module LavinMQ
     def publish(msg : Message, immediate = false,
                 visited = Set(LavinMQ::Exchange).new, found_queues = Set(LavinMQ::Queue).new) : Bool
       ex = @exchanges[msg.exchange_name]? || return false
-      published_queue_count = ex.publish(msg, immediate, found_queues, visited)
-      !published_queue_count.zero?
+      ex.publish(msg, immediate, found_queues, visited)
     ensure
       visited.clear
       found_queues.clear
@@ -143,13 +143,14 @@ module LavinMQ
 
     def message_details
       ready = unacked = 0_u64
-      ack = confirm = deliver = get = get_no_ack = publish = redeliver = return_unroutable = deliver_get = 0_u64
+      ack = confirm = deliver = deliver_no_ack = get = get_no_ack = publish = redeliver = return_unroutable = deliver_get = 0_u64
       @queues.each_value do |q|
         ready += q.message_count
         unacked += q.unacked_count
         ack += q.ack_count
         confirm += q.confirm_count
         deliver += q.deliver_count
+        deliver_no_ack += q.deliver_no_ack_count
         deliver_get += q.deliver_get_count
         get += q.get_count
         get_no_ack += q.get_no_ack_count
@@ -165,6 +166,7 @@ module LavinMQ
           ack:               ack,
           confirm:           confirm,
           deliver:           deliver,
+          deliver_no_ack:    deliver_no_ack,
           get:               get,
           get_no_ack:        get_no_ack,
           deliver_get:       deliver_get,
@@ -183,7 +185,7 @@ module LavinMQ
 
     def delete_queue(name)
       apply AMQP::Frame::Queue::Delete.new(0_u16, 0_u16, name, false, false, false)
-      @log.info { "Deleted queue: #{name}" }
+      @log.debug { "Deleted queue: #{name}" }
     end
 
     def declare_exchange(name, type, durable, auto_delete, internal = false,
@@ -378,11 +380,12 @@ module LavinMQ
         @connections.each do |client|
           select
           when to_close.send client
-          else
+          else # spawn another fiber closing channels
             fiber_id = fiber_count &+= 1
             @log.trace { "spawning close conn fiber #{fiber_id} " }
+            client_inner = client
             wg.spawn do
-              client.close(reason)
+              client_inner.close(reason)
               while client_to_close = to_close.receive?
                 client_to_close.close(reason)
               end
@@ -552,7 +555,7 @@ module LavinMQ
     protected def load_apply(frame : AMQP::Frame)
       apply frame, loading: true
     rescue ex : LavinMQ::Error
-      raise Error::InvalidDefinitions.new("Invalid frame: #{frame.inspect}")
+      @log.error(exception: ex) { "Failed to apply frame #{frame.inspect}" }
     end
 
     private def load_default_definitions
@@ -657,23 +660,31 @@ module LavinMQ
 
     def event_tick(event_type)
       case event_type
-      in EventType::ChannelClosed        then @channel_closed_count += 1
-      in EventType::ChannelCreated       then @channel_created_count += 1
-      in EventType::ConnectionClosed     then @connection_closed_count += 1
-      in EventType::ConnectionCreated    then @connection_created_count += 1
-      in EventType::QueueDeclared        then @queue_declared_count += 1
-      in EventType::QueueDeleted         then @queue_deleted_count += 1
-      in EventType::ClientAck            then @ack_count += 1
-      in EventType::ClientPublish        then @publish_count += 1
-      in EventType::ClientPublishConfirm then @confirm_count += 1
-      in EventType::ClientRedeliver      then @redeliver_count += 1
-      in EventType::ClientReject         then @reject_count += 1
-      in EventType::ConsumerAdded        then @consumer_added_count += 1
-      in EventType::ConsumerRemoved      then @consumer_removed_count += 1
-      in EventType::ClientGet            then @get_count += 1
+      in EventType::ChannelClosed        then @channel_closed_count.add(1, :relaxed)
+      in EventType::ChannelCreated       then @channel_created_count.add(1, :relaxed)
+      in EventType::ConnectionClosed     then @connection_closed_count.add(1, :relaxed)
+      in EventType::ConnectionCreated    then @connection_created_count.add(1, :relaxed)
+      in EventType::QueueDeclared        then @queue_declared_count.add(1, :relaxed)
+      in EventType::QueueDeleted         then @queue_deleted_count.add(1, :relaxed)
+      in EventType::ClientAck            then @ack_count.add(1, :relaxed)
+      in EventType::ClientPublish        then @publish_count.add(1, :relaxed)
+      in EventType::ClientPublishConfirm then @confirm_count.add(1, :relaxed)
+      in EventType::ClientRedeliver      then @redeliver_count.add(1, :relaxed)
+      in EventType::ClientReject         then @reject_count.add(1, :relaxed)
+      in EventType::ConsumerAdded        then @consumer_added_count.add(1, :relaxed)
+      in EventType::ConsumerRemoved      then @consumer_removed_count.add(1, :relaxed)
+      in EventType::ClientGet
+        @get_count.add(1, :relaxed)
+        @deliver_get_count.add(1, :relaxed)
+      in EventType::ClientGetNoAck
+        @get_no_ack_count.add(1, :relaxed)
+        @deliver_get_count.add(1, :relaxed)
       in EventType::ClientDeliver
-        @deliver_count += 1
-        @deliver_get_count += 1
+        @deliver_count.add(1, :relaxed)
+        @deliver_get_count.add(1, :relaxed)
+      in EventType::ClientDeliverNoAck
+        @deliver_no_ack_count.add(1, :relaxed)
+        @deliver_get_count.add(1, :relaxed)
       end
     end
 

@@ -14,6 +14,7 @@ describe LavinMQ::VHost do
     "max-length"         => JSON::Any.new(10_i64),
     "alternate-exchange" => JSON::Any.new("dead-letters"),
     "unsupported"        => JSON::Any.new("unsupported"),
+    "delivery-limit"     => JSON::Any.new(10_i64),
   }
 
   it "should be able to add policy" do
@@ -124,18 +125,24 @@ describe LavinMQ::VHost do
     end
   end
 
-  it "should refresh queue last_get_time when expire policy applied" do
+  it "should update queue expiration" do
     with_amqp_server do |s|
-      defs = {"expires" => JSON::Any.new(50_i64)} of String => JSON::Any
       with_channel(s) do |ch|
-        ch.queue("qttl")
-        queue = s.vhosts["/"].queues["qttl"]
-        first = queue.last_get_time
-        sleep 0.1.seconds
-        s.vhosts["/"].add_policy("qttl", "^.*$", "all", defs, 12_i8)
-        sleep 0.1.seconds
-        last = queue.last_get_time
-        last.should be > first
+        ch.queue("qttl", args: AMQP::Client::Arguments.new({"x-expires" => 1000}))
+        queue = s.vhosts["/"].queues["qttl"].as(LavinMQ::AMQP::Queue)
+        Fiber.yield
+        expire_before = queue.@expires
+        expire_before.should eq 1000
+        s.vhosts["/"].add_policy("qttl", "^.*$", "all", {"expires" => JSON::Any.new(100)}, 2_i8)
+        Fiber.yield
+        expire_after = queue.@expires
+        expire_after.should eq 100
+        select
+        when queue.@paused.when_true.receive?
+          fail "queue state not closed?" unless queue.closed?
+        when timeout 500.milliseconds
+          fail "queue not closed, probably not expired on time?"
+        end
       end
     end
   end
@@ -193,6 +200,25 @@ describe LavinMQ::VHost do
         q.get(no_ack: true).try(&.body_io.to_s).should eq("short1")
         q.get(no_ack: true).try(&.body_io.to_s).should eq("short2")
         s.vhosts["/"].delete_policy("max-length-bytes")
+      end
+    end
+  end
+
+  it "should drop messages if above delivery-limit" do
+    with_amqp_server do |s|
+      defs = {"delivery-limit" => JSON::Any.new(0_i64)} of String => JSON::Any
+      with_channel(s) do |ch|
+        args = AMQP::Client::Arguments.new
+        args["x-delivery-limit"] = 5
+        q = ch.queue("delivery-limit", exclusive: true, args: args)
+        q.publish_confirm "m1"
+        q.publish_confirm "m2"
+        q.get(no_ack: false).not_nil!.reject(requeue: true)
+        ch.queue_declare("delivery-limit", passive: true)[:message_count].should eq 2
+        s.vhosts["/"].add_policy("delivery-limit", "^.*$", "all", defs, 12_i8)
+        sleep 10.milliseconds
+        ch.queue_declare("delivery-limit", passive: true)[:message_count].should eq 1
+        s.vhosts["/"].delete_policy("delivery-limit")
       end
     end
   end
@@ -294,6 +320,24 @@ describe LavinMQ::VHost do
         sleep 10.milliseconds
         vhost.queues["test1"].as(LavinMQ::AMQP::Queue).@max_length.should eq 1
         vhost.queues["test2"].as(LavinMQ::AMQP::Queue).@max_length.should eq 11
+      end
+    end
+
+    it "should use the lowest value for delivery-limit" do
+      PoliciesSpec.with_vhost do |vhost|
+        vhost.queues["test1"] = LavinMQ::AMQP::Queue.new(vhost, "test1", arguments: LavinMQ::AMQP::Table.new({"x-delivery-limit" => 1_i64}))
+        vhost.queues["test2"] = LavinMQ::AMQP::Queue.new(vhost, "test2", arguments: LavinMQ::AMQP::Table.new({"x-delivery-limit" => 11_i64}))
+        vhost.queues["test3"] = LavinMQ::AMQP::Queue.new(vhost, "test3")
+        vhost.add_policy("test", ".*", "all", definitions, 100_i8)
+        sleep 10.milliseconds
+        vhost.queues["test1"].as(LavinMQ::AMQP::Queue).@delivery_limit.should eq 1
+        vhost.queues["test2"].as(LavinMQ::AMQP::Queue).@delivery_limit.should eq 10
+        vhost.queues["test3"].as(LavinMQ::AMQP::Queue).@delivery_limit.should eq 10
+        vhost.delete_policy("test")
+        sleep 10.milliseconds
+        vhost.queues["test1"].as(LavinMQ::AMQP::Queue).@delivery_limit.should eq 1
+        vhost.queues["test2"].as(LavinMQ::AMQP::Queue).@delivery_limit.should eq 11
+        vhost.queues["test3"].as(LavinMQ::AMQP::Queue).@delivery_limit.should eq nil
       end
     end
   end

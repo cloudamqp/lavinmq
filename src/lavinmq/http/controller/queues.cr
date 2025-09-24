@@ -2,12 +2,13 @@ require "uri"
 require "../controller"
 require "../binding_helpers"
 require "../../unacked_message"
+require "../../name_validator"
 
 module LavinMQ
   module HTTP
     module QueueHelpers
       private def queue(context, params, vhost, key = "name")
-        name = URI.decode_www_form(params[key])
+        name = params[key]
         q = @amqp_server.vhosts[vhost].queues[name]?
         not_found(context, "Not Found") unless q
         q
@@ -46,15 +47,7 @@ module LavinMQ
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
             q = queue(context, params, vhost)
-            unacked_messages = q.consumers.each.flat_map do |c|
-              c.unacked_messages.each.compact_map do |u|
-                next unless u.queue == q
-                if consumer = u.consumer
-                  UnackedMessage.new(c.channel, u.tag, u.delivered_at, consumer.tag)
-                end
-              end
-            end
-            unacked_messages = unacked_messages.chain(q.basic_get_unacked.each)
+            unacked_messages = q.unacked_messages
             page(context, unacked_messages)
           end
         end
@@ -63,7 +56,7 @@ module LavinMQ
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
             user = user(context)
-            name = URI.decode_www_form(params["name"])
+            name = params["name"]
             name = AMQP::Queue.generate_name if name.empty?
             body = parse_body(context)
             durable = body["durable"]?.try(&.as_bool?) || false
@@ -80,8 +73,8 @@ module LavinMQ
                 bad_request(context, "Existing queue declared with other arguments arg")
               end
               context.response.status_code = 204
-            elsif name.starts_with? "amq."
-              bad_request(context, "Not allowed to use the amq. prefix")
+            elsif NameValidator.reserved_prefix?(name)
+              bad_request(context, "Prefix #{NameValidator::PREFIX_LIST} forbidden, please choose another name")
             elsif name.bytesize > UInt8::MAX
               bad_request(context, "Queue name too long, can't exceed 255 characters")
             else

@@ -1,8 +1,9 @@
 require "../../server"
 
 module LavinMQ
-  class AMQPWebsocket
-    def self.new(amqp_server : Server)
+  # Acts as a proxy between websocket clients and the normal TCP servers
+  class WebsocketProxy
+    def self.new(server : Server)
       ::HTTP::WebSocketHandler.new do |ws, ctx|
         req = ctx.request
         local_address = req.local_address.as?(Socket::IPAddress) ||
@@ -11,7 +12,12 @@ module LavinMQ
                          Socket::IPAddress.new("127.0.0.1", 0) # Fake when UNIXAddress
         connection_info = ConnectionInfo.new(remote_address, local_address)
         io = WebSocketIO.new(ws)
-        spawn amqp_server.handle_connection(io, connection_info), name: "HandleWSconnection #{remote_address}"
+        case req.path
+        when "/mqtt", "/ws/mqtt"
+          spawn server.handle_connection(io, connection_info, Server::Protocol::MQTT), name: "HandleWSconnection MQTT #{remote_address}"
+        else
+          spawn server.handle_connection(io, connection_info, Server::Protocol::AMQP), name: "HandleWSconnection AMQP #{remote_address}"
+        end
       end
     end
   end
@@ -52,11 +58,6 @@ module LavinMQ
       @r.close
       @w.close
       @ws.close
-    end
-
-    # TODO: remove when amqp-client is updated
-    def read_timeout=(timeout : Number)
-      self.read_timeout = timeout.seconds
     end
 
     def read_timeout=(timeout : Time::Span?)

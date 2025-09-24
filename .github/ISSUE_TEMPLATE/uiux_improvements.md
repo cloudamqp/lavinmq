@@ -2,9 +2,11 @@
 name: UI/UX improvement
 about: Create a report to help us improve
 title: ''
-labels: 'UI/UX'
+labels: UI/UX
 assignees: ''
+
 ---
+
 **Summary**  
 Provide a brief description of the issue or improvement.
 

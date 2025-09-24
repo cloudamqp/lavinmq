@@ -1,6 +1,49 @@
 require "./spec_helper"
 
 describe LavinMQ::Exchange do
+  describe "binding arguments" do
+    {
+      {"x-consistent-hash", "1"},
+      {"direct", "routing.key"},
+      {"fanout", "routing.key"},
+      {"headers", "routing.key"},
+      {"topic", "routing.key"},
+    }.each do |exchange_type, routing_key|
+      describe "exchange #{exchange_type}" do
+        it "are saved" do
+          with_amqp_server do |s|
+            with_channel(s) do |ch|
+              x = ch.exchange("test", exchange_type)
+              q = ch.queue("q")
+              q.bind(x.name, routing_key, args: LavinMQ::AMQP::Table.new({"x-foo": "bar"}))
+              ex = s.vhosts["/"].exchanges["test"]
+              q = s.vhosts["/"].queues["q"]
+              bd = ex.bindings_details.find { |b| b.destination == q }.should_not be_nil
+              bd.binding_key.arguments.should eq LavinMQ::AMQP::Table.new({"x-foo": "bar"})
+            end
+          end
+        end
+
+        it "arguments must match when unbinding" do
+          with_amqp_server do |s|
+            with_channel(s) do |ch|
+              x = ch.exchange("test", exchange_type)
+              ch_q = ch.queue("q")
+              bd_args = LavinMQ::AMQP::Table.new({"x-foo": "bar"})
+              ch_q.bind(x.name, routing_key, args: bd_args)
+              ex = s.vhosts["/"].exchanges["test"]
+              q = s.vhosts["/"].queues["q"]
+              ex.bindings_details.find { |b| b.destination == q }.should_not be_nil
+              ch_q.unbind(x.name, routing_key)
+              ex.bindings_details.find { |b| b.destination == q }.should_not be_nil
+              ch_q.unbind(x.name, routing_key, args: bd_args)
+              ex.bindings_details.find { |b| b.destination == q }.should be_nil
+            end
+          end
+        end
+      end
+    end
+  end
   describe "Exchange => Exchange binding" do
     it "should allow multiple e2e bindings" do
       with_amqp_server do |s|
@@ -63,7 +106,7 @@ describe LavinMQ::Exchange do
     end
   end
   describe "auto delete exchange" do
-    it "should delete the exhchange when the last binding is removed" do
+    it "should delete the exchange when the last binding is removed" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           x = ch.exchange("ad", "topic", auto_delete: true)
@@ -166,6 +209,110 @@ describe LavinMQ::Exchange do
           s.vhosts["/"].exchanges["e1"].in_use?.should be_true
           x2.unbind(x1.name, "#")
           s.vhosts["/"].exchanges["e1"].in_use?.should be_false
+        end
+      end
+    end
+  end
+  describe "message deduplication" do
+    it "should handle message deduplication" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          args = AMQP::Client::Arguments.new({
+            "x-message-deduplication" => true,
+          })
+          ch.exchange("test", "topic", args: args)
+          ch.queue.bind("test", "#")
+          ex = s.vhosts["/"].exchanges["test"]
+          q = s.vhosts["/"].queues.first_value
+          props = LavinMQ::AMQP::Properties.new(headers: LavinMQ::AMQP::Table.new({
+            "x-deduplication-header" => "msg1",
+          }))
+          msg = LavinMQ::Message.new("ex", "rk", "body", props)
+          ex.publish(msg, false).should eq true
+          ex.dedup_count.should eq 0
+          props = LavinMQ::AMQP::Properties.new(headers: LavinMQ::AMQP::Table.new({
+            "x-deduplication-header" => "msg1",
+          }))
+          msg = LavinMQ::Message.new("ex", "rk", "body", props)
+          ex.publish(msg, false).should eq false
+          ex.dedup_count.should eq 1
+
+          q.message_count.should eq 1
+        end
+      end
+    end
+
+    it "should handle message deduplication, on custom header" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          args = AMQP::Client::Arguments.new({
+            "x-message-deduplication" => true,
+            "x-deduplication-header"  => "custom",
+          })
+          ch.exchange("test", "topic", args: args)
+          ch.queue.bind("test", "#")
+          ex = s.vhosts["/"].exchanges["test"]
+          q = s.vhosts["/"].queues.first_value
+          props = LavinMQ::AMQP::Properties.new(headers: LavinMQ::AMQP::Table.new({
+            "custom" => "msg1",
+          }))
+          msg = LavinMQ::Message.new("ex", "rk", "body", props)
+          ex.publish(msg, false).should eq true
+          ex.dedup_count.should eq 0
+          props = LavinMQ::AMQP::Properties.new(headers: LavinMQ::AMQP::Table.new({
+            "custom" => "msg1",
+          }))
+          msg = LavinMQ::Message.new("ex", "rk", "body", props)
+          ex.publish(msg, false).should eq false
+          ex.dedup_count.should eq 1
+
+          q.message_count.should eq 1
+        end
+      end
+    end
+
+    describe "#apply_policy" do
+      describe "without federation-upstream" do
+        it "stop existing link" do
+          with_amqp_server do |s|
+            downstream_vhost = s.vhosts.create("downstream")
+            config = {"uri": JSON::Any.new("#{s.amqp_url}/upstream")}
+            downstream_vhost.upstreams.create_upstream("upstream", config)
+            definition = {"federation-upstream" => JSON::Any.new("upstream")}
+            downstream_vhost.add_policy("fed", "^amq.topic", "exchanges", definition, 1i8)
+            wait_for(100.milliseconds) { downstream_vhost.upstreams.@upstreams["upstream"]?.try &.links.present? }
+
+            downstream_vhost.delete_policy("fed")
+            wait_for(100.milliseconds) { downstream_vhost.upstreams.@upstreams["upstream"]?.try &.links.empty? }
+          end
+        end
+      end
+    end
+
+    describe "with federation-upstream" do
+      it "will start link" do
+        with_amqp_server do |s|
+          downstream_vhost = s.vhosts.create("downstream")
+          config = {"uri": JSON::Any.new("#{s.amqp_url}/upstream")}
+          downstream_vhost.upstreams.create_upstream("upstream", config)
+          definition = {"federation-upstream" => JSON::Any.new("upstream")}
+          downstream_vhost.add_policy("fed", "^amq.topic", "exchanges", definition, 1i8)
+          wait_for(100.milliseconds) { downstream_vhost.upstreams.@upstreams["upstream"]?.try &.links.present? }
+        end
+      end
+
+      describe "when exchange is internal" do
+        it "won't start link" do
+          with_amqp_server do |s|
+            downstream_vhost = s.vhosts.create("downstream")
+            config = {"uri": JSON::Any.new("#{s.amqp_url}/upstream")}
+            downstream_vhost.upstreams.create_upstream("upstream", config)
+            definition = {"federation-upstream" => JSON::Any.new("upstream")}
+            downstream_vhost.add_policy("fed", "^fed", "exchanges", definition, 1i8)
+            downstream_vhost.declare_exchange("fed.internal", "topic", durable: true, auto_delete: false, internal: true)
+            wait_for(100.milliseconds) { downstream_vhost.exchanges["fed.internal"].policy.try &.name == "fed" }
+            downstream_vhost.upstreams.@upstreams["upstream"].links.empty?.should be_true
+          end
         end
       end
     end

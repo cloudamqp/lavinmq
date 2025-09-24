@@ -436,8 +436,9 @@ describe LavinMQ::Server do
         hdrs["x-match"] = "all"
         hdrs["org"] = "84codes"
         hdrs["user"] = "test"
-        x = ch.exchange("asdasdasd", "headers", passive: false, args: hdrs)
-        q.bind(x.name, "")
+        x = ch.exchange("asdasdasd", "headers", passive: false)
+        q.bind(x.name, "", args: hdrs)
+        hdrs.delete("x-match")
         x.publish_confirm "m1", q.name, props: AMQP::Client::Properties.new(headers: hdrs)
         hdrs["user"] = "hest"
         x.publish_confirm "m2", q.name, props: AMQP::Client::Properties.new(headers: hdrs)
@@ -455,8 +456,9 @@ describe LavinMQ::Server do
         hdrs["x-match"] = "any"
         hdrs["org"] = "84codes"
         hdrs["user"] = "test"
-        x = ch.exchange("hx1", "headers", passive: false, args: hdrs)
-        q.bind(x.name, "")
+        x = ch.exchange("hx1", "headers", passive: false)
+        q.bind(x.name, "", args: hdrs)
+        hdrs.delete("x-match")
         x.publish "m1", q.name, props: AMQP::Client::Properties.new(headers: hdrs)
         hdrs["user"] = "hest"
         x.publish "m2", q.name, props: AMQP::Client::Properties.new(headers: hdrs)
@@ -678,7 +680,7 @@ describe LavinMQ::Server do
     end
   end
 
-  it "only allow one consumer on when exlusive consumers flag is set" do
+  it "only allow one consumer when exclusive consumers flag is set" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         q = ch.queue("exlusive_consumer", auto_delete: true)
@@ -959,17 +961,16 @@ describe LavinMQ::Server do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         args = AMQP::Client::Arguments.new
-        args["x-delivery-limit"] = 2
+        args["x-delivery-limit"] = 1
         q = ch.queue("delivery_limit", args: args)
         q.publish "m1"
         msg = q.get(no_ack: false).not_nil!
-        msg.properties.headers.not_nil!["x-delivery-count"].as(Int32).should eq 1
+        msg.properties.headers.not_nil!.has_key?("x-delivery-count").should be_false # x-delivery-count is not set on first delivery
         msg.reject(requeue: true)
         msg = q.get(no_ack: false).not_nil!
-        msg.properties.headers.not_nil!["x-delivery-count"].as(Int32).should eq 2
+        msg.properties.headers.not_nil!["x-delivery-count"].as(Int32).should eq 1
         msg.reject(requeue: true)
         Fiber.yield
-        q.get(no_ack: false).should be_nil
         s.vhosts["/"].queues["delivery_limit"].empty?.should be_true
       end
     end

@@ -11,8 +11,10 @@ require "../../error"
 require "../../queue"
 require "./state"
 require "./event"
-require "./message_store"
+require "../../message_store"
 require "../../unacked_message"
+require "../../deduplication"
+require "../../bool_channel"
 
 module LavinMQ::AMQP
   class Queue < LavinMQ::Queue
@@ -36,112 +38,123 @@ module LavinMQ::AMQP
     @message_ttl_change = ::Channel(Nil).new
 
     getter basic_get_unacked = Deque(UnackedMessage).new
-    getter unacked_count = 0u32
-    getter unacked_bytesize = 0u64
-    @unacked_lock = Mutex.new(:unchecked)
+    @unacked_count = Atomic(UInt32).new(0u32)
+    @unacked_bytesize = Atomic(UInt64).new(0u64)
+
+    def unacked_count
+      @unacked_count.get(:relaxed)
+    end
+
+    def unacked_bytesize
+      @unacked_bytesize.get(:relaxed)
+    end
 
     @msg_store_lock = Mutex.new(:reentrant)
     @msg_store : MessageStore
 
-    getter? paused = false
-    getter paused_change = ::Channel(Bool).new
+    getter paused = BoolChannel.new(false)
 
     getter consumer_timeout : UInt64? = Config.instance.consumer_timeout
 
-    @consumers_empty_change = ::Channel(Bool).new
+    getter consumers_empty = BoolChannel.new(true)
+    @queue_expiration_ttl_change = ::Channel(Nil).new
+    @effective_args = Array(String).new
 
     private def queue_expire_loop
       loop do
         break unless @expires
-        if @consumers.empty? && (ttl = queue_expiration_ttl)
-          @log.debug { "Queue expires in #{ttl}" }
-          select
-          when @queue_expiration_ttl_change.receive
-          when @consumers_empty_change.receive
-          when timeout ttl
-            expire_queue
-            close
-            break
-          end
-        else
-          select
-          when @queue_expiration_ttl_change.receive
-          when @consumers_empty_change.receive
-          end
+        @consumers_empty.when_true.receive
+        break unless ttl = @expires
+        @log.debug { "Queue expires in #{ttl}ms" }
+        select
+        when @queue_expiration_ttl_change.receive
+        when @consumers_empty.when_false.receive
+        when timeout ttl.milliseconds
+          expire_queue
+          close
+          break
         end
-      rescue ::Channel::ClosedError
-        break
       end
+    rescue ::Channel::ClosedError
     end
 
     private def message_expire_loop
       loop do
-        if @msg_store.empty?
-          @msg_store.empty_change.receive
+        @consumers_empty.when_true.receive
+        @log.debug { "Consumers empty" }
+        @msg_store.empty.when_false.receive
+        @log.debug { "Message store not empty" }
+        next unless @consumers.empty?
+        if ttl = time_to_message_expiration
+          @log.debug { "Next message TTL: #{ttl}" }
+          select
+          when @message_ttl_change.receive
+            @log.debug { "Message TTL changed" }
+          when @msg_store.empty.when_true.receive # might be empty now (from basic get)
+            @log.debug { "Message store is empty" }
+          when @consumers_empty.when_false.receive
+            @log.debug { "Got consumers" }
+          when timeout ttl
+            @log.debug { "Message TTL reached" }
+            expire_messages
+          end
         else
-          if @consumers.empty?
-            if ttl = time_to_message_expiration
-              select
-              when @message_ttl_change.receive
-              when @msg_store.empty_change.receive # might be empty now (from basic get)
-              when @consumers_empty_change.receive
-              when timeout ttl
-                expire_messages
-              end
-            else
-              # first message in queue should not be expired
-              # wait for empty queue or TTL change
-              select
-              when @message_ttl_change.receive
-              when @msg_store.empty_change.receive
-              end
-            end
-          else
-            @consumers_empty_change.receive
+          # first message in queue should not be expired
+          # wait for empty queue or TTL change
+          select
+          when @message_ttl_change.receive
+            @log.debug { "Message TTL changed" }
+          when @msg_store.empty.when_true.receive
+            @log.debug { "Msg store is empty" }
           end
         end
-      rescue ::Channel::ClosedError
-        break
       end
     rescue ex : MessageStore::Error
       @log.error(ex) { "Queue closed due to error" }
       close
       raise ex
+    rescue ::Channel::ClosedError
     end
 
     # Creates @[x]_count and @[x]_rate and @[y]_log
     rate_stats(
-      {"ack", "deliver", "deliver_get", "confirm", "get", "get_no_ack", "publish", "redeliver", "reject", "return_unroutable"},
+      {"ack", "deliver", "deliver_no_ack", "deliver_get", "confirm", "get", "get_no_ack", "publish", "redeliver", "reject", "return_unroutable", "dedup"},
       {"message_count", "unacked_count"})
 
-    getter name, arguments, vhost, consumers, last_get_time
+    getter name, arguments, vhost, consumers
     getter? auto_delete, exclusive
     getter policy : Policy?
     getter operator_policy : OperatorPolicy?
     getter? closed = false
     getter state = QueueState::Running
-    getter empty_change : ::Channel(Bool)
+    getter empty : BoolChannel
     getter single_active_consumer : Client::Channel::Consumer? = nil
     getter single_active_consumer_change = ::Channel(Client::Channel::Consumer).new
     @single_active_consumer_queue = false
     @data_dir : String
     Log = LavinMQ::Log.for "queue"
     @metadata : ::Log::Metadata
+    @deduper : Deduplication::Deduper?
 
     def initialize(@vhost : VHost, @name : String,
                    @exclusive = false, @auto_delete = false,
                    @arguments = AMQP::Table.new)
-      @last_get_time = RoughTime.monotonic
       @data_dir = make_data_dir
       @metadata = ::Log::Metadata.new(nil, {queue: @name, vhost: @vhost.name})
       @log = Logger.new(Log, @metadata)
       File.open(File.join(@data_dir, ".queue"), "w") { |f| f.sync = true; f.print @name }
-      @state = QueueState::Paused if File.exists?(File.join(@data_dir, ".paused"))
+      if File.exists?(File.join(@data_dir, ".paused")) # Migrate '.paused' files to 'paused'
+        File.rename(File.join(@data_dir, ".paused"), File.join(@data_dir, "paused"))
+      end
+      if File.exists?(File.join(@data_dir, "paused"))
+        @state = QueueState::Paused
+        @paused.set(true)
+      end
       @msg_store = init_msg_store(@data_dir)
       if @msg_store.closed
         close
       end
-      @empty_change = @msg_store.empty_change
+      @empty = @msg_store.empty
       handle_arguments
       spawn queue_expire_loop, name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}" if @expires
       spawn message_expire_loop, name: "Queue#message_expire_loop #{@vhost.name}/#{@name}"
@@ -184,7 +197,6 @@ module LavinMQ::AMQP
     end
 
     def redeclare
-      @last_get_time = RoughTime.monotonic
       @queue_expiration_ttl_change.try_send? nil
     end
 
@@ -215,7 +227,6 @@ module LavinMQ::AMQP
         when "expires"
           unless @expires.try &.< v.as_i64
             @expires = v.as_i64
-            @last_get_time = RoughTime.monotonic
             spawn queue_expire_loop, name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}"
             @queue_expiration_ttl_change.try_send? nil
           end
@@ -226,7 +237,10 @@ module LavinMQ::AMQP
         when "dead-letter-routing-key"
           @dlrk ||= v.as_s
         when "delivery-limit"
-          @delivery_limit ||= v.as_i64
+          unless @delivery_limit.try &.< v.as_i64
+            @delivery_limit = v.as_i64
+            drop_redelivered
+          end
         when "federation-upstream"
           @vhost.upstreams.try &.link(v.as_s, self)
         when "federation-upstream-set"
@@ -250,27 +264,56 @@ module LavinMQ::AMQP
     end
 
     private def handle_arguments
+      @effective_args = Array(String).new
       @dlx = parse_header("x-dead-letter-exchange", String)
+      @effective_args << "x-dead-letter-exchange" if @dlx
       @dlrk = parse_header("x-dead-letter-routing-key", String)
+      @effective_args << "x-dead-letter-routing-key" if @dlrk
+      @expires = parse_header("x-expires", Int).try &.to_i64
+      @queue_expiration_ttl_change.try_send? nil
+      @max_length = parse_header("x-max-length", Int).try &.to_i64
+      @max_length_bytes = parse_header("x-max-length-bytes", Int).try &.to_i64
+      @message_ttl = parse_header("x-message-ttl", Int).try &.to_i64
+      @message_ttl_change.try_send? nil
+      @delivery_limit = parse_header("x-delivery-limit", Int).try &.to_i64
+      @reject_on_overflow = parse_header("x-overflow", String) == "reject-publish"
+      @effective_args << "x-overflow" if @reject_on_overflow
+      @single_active_consumer_queue = parse_header("x-single-active-consumer", Bool) == true
+      @effective_args << "x-single-active-consumer" if @single_active_consumer_queue
+      @consumer_timeout = parse_header("x-consumer-timeout", Int).try &.to_u64
+      if parse_header("x-message-deduplication", Bool)
+        @effective_args << "x-message-deduplication"
+        size = parse_header("x-cache-size", Int).try(&.to_u32)
+        @effective_args << "x-cache-size" if size
+        ttl = parse_header("x-cache-ttl", Int).try(&.to_u32)
+        @effective_args << "x-cache-ttl" if ttl
+        header_key = parse_header("x-deduplication-header", String)
+        @effective_args << "x-deduplication-header" if header_key
+        cache = Deduplication::MemoryCache(AMQ::Protocol::Field).new(size)
+        @deduper = Deduplication::Deduper.new(cache, ttl, header_key)
+      end
+      validate_arguments
+    end
+
+    private def validate_arguments
       if @dlrk && @dlx.nil?
         raise LavinMQ::Error::PreconditionFailed.new("x-dead-letter-exchange required if x-dead-letter-routing-key is defined")
       end
-      @expires = parse_header("x-expires", Int).try &.to_i64
-      validate_gt_zero("x-expires", @expires)
-      @queue_expiration_ttl_change.try_send? nil
-      @max_length = parse_header("x-max-length", Int).try &.to_i64
-      validate_positive("x-max-length", @max_length)
-      @max_length_bytes = parse_header("x-max-length-bytes", Int).try &.to_i64
-      validate_positive("x-max-length-bytes", @max_length_bytes)
-      @message_ttl = parse_header("x-message-ttl", Int).try &.to_i64
-      validate_positive("x-message-ttl", @message_ttl)
-      @message_ttl_change.try_send? nil
-      @delivery_limit = parse_header("x-delivery-limit", Int).try &.to_i64
-      validate_positive("x-delivery-limit", @delivery_limit)
-      @reject_on_overflow = parse_header("x-overflow", String) == "reject-publish"
-      @single_active_consumer_queue = parse_header("x-single-active-consumer", Bool) == true
-      @consumer_timeout = parse_header("x-consumer-timeout", Int).try &.to_u64
-      validate_positive("x-consumer-timeout", @consumer_timeout)
+      validate_number("x-expires", @expires, 1)
+      validate_number("x-max-length", @max_length)
+      validate_number("x-max-length-bytes", @max_length_bytes)
+      validate_number("x-message-ttl", @message_ttl)
+      validate_number("x-delivery-limit", @delivery_limit)
+      validate_number("x-consumer-timeout", @consumer_timeout)
+    end
+
+    private def validate_number(header, value, min_value = 0)
+      if min_value == 0
+        validate_positive(header, value)
+      else
+        validate_gt_zero(header, value)
+      end
+      @effective_args << header
     end
 
     private macro parse_header(header, type)
@@ -313,33 +356,16 @@ module LavinMQ::AMQP
       return unless @state.running?
       @state = QueueState::Paused
       @log.debug { "Paused" }
-      @paused = true
-      while @paused_change.try_send? true
-      end
-      File.touch(File.join(@data_dir, ".paused"))
+      @paused.set(true)
+      File.touch(File.join(@data_dir, "paused"))
     end
 
     def resume!
       return unless @state.paused?
       @state = QueueState::Running
       @log.debug { "Resuming" }
-      @paused = false
-      while @paused_change.try_send? false
-      end
-      File.delete(File.join(@data_dir, ".paused"))
-    end
-
-    @queue_expiration_ttl_change = ::Channel(Nil).new
-
-    private def queue_expiration_ttl : Time::Span?
-      if e = @expires
-        expires_in = @last_get_time + e.milliseconds - RoughTime.monotonic
-        if expires_in > Time::Span.zero
-          expires_in
-        else
-          Time::Span.zero
-        end
-      end
+      @paused.set(false)
+      File.delete(File.join(@data_dir, "paused"))
     end
 
     def close : Bool
@@ -348,8 +374,8 @@ module LavinMQ::AMQP
       @state = QueueState::Closed
       @queue_expiration_ttl_change.close
       @message_ttl_change.close
-      @paused_change.close
-      @consumers_empty_change.close
+      @paused.close
+      @consumers_empty.close
       @consumers_lock.synchronize do
         @consumers.each &.cancel
         @consumers.clear
@@ -377,42 +403,43 @@ module LavinMQ::AMQP
       @vhost.delete_queue(@name)
       @log.info { "(messages=#{message_count}) Deleted" }
       notify_observers(QueueEvent::Deleted)
-      @vhost.users.each do |_, user|
-        user.remove_queue_from_acl_caches(@vhost.name, @name)
-      end
       true
     end
 
     def details_tuple
+      unacked_count = unacked_count()
+      unacked_bytesize = unacked_bytesize()
+      unacked_avg_bytes = unacked_count.zero? ? 0u64 : unacked_bytesize//unacked_count
       {
-        name:                        @name,
-        durable:                     durable?,
-        exclusive:                   @exclusive,
-        auto_delete:                 @auto_delete,
-        arguments:                   @arguments,
-        consumers:                   @consumers.size,
-        vhost:                       @vhost.name,
-        messages:                    @msg_store.size + @unacked_count,
-        messages_persistent:         durable? ? @msg_store.size + @unacked_count : 0,
-        ready:                       @msg_store.size,
-        ready_bytes:                 @msg_store.bytesize,
-        ready_avg_bytes:             @msg_store.avg_bytesize,
-        unacked:                     @unacked_count,
-        unacked_bytes:               @unacked_bytesize,
-        unacked_avg_bytes:           unacked_avg_bytes,
-        operator_policy:             @operator_policy.try &.name,
-        policy:                      @policy.try &.name,
-        exclusive_consumer_tag:      @exclusive ? @consumers_lock.synchronize { @consumers.first?.try(&.tag) } : nil,
-        single_active_consumer_tag:  @single_active_consumer.try &.tag,
-        state:                       @state.to_s,
-        effective_policy_definition: Policy.merge_definitions(@policy, @operator_policy),
-        message_stats:               current_stats_details,
+        name:                         @name,
+        durable:                      durable?,
+        exclusive:                    @exclusive,
+        auto_delete:                  @auto_delete,
+        arguments:                    @arguments,
+        consumers:                    @consumers.size,
+        vhost:                        @vhost.name,
+        messages:                     @msg_store.size + unacked_count,
+        total_bytes:                  @msg_store.bytesize + unacked_bytesize,
+        messages_persistent:          durable? ? @msg_store.size + unacked_count : 0,
+        ready:                        @msg_store.size, # Deprecated, to be removed in next major version
+        messages_ready:               @msg_store.size,
+        ready_bytes:                  @msg_store.bytesize, # Deprecated, to be removed in next major version
+        message_bytes_ready:          @msg_store.bytesize,
+        ready_avg_bytes:              @msg_store.avg_bytesize,
+        unacked:                      unacked_count, # Deprecated, to be removed in next major version
+        messages_unacknowledged:      unacked_count,
+        unacked_bytes:                unacked_bytesize, # Deprecated, to be removed in next major version
+        message_bytes_unacknowledged: unacked_bytesize,
+        unacked_avg_bytes:            unacked_avg_bytes,
+        operator_policy:              @operator_policy.try &.name,
+        policy:                       @policy.try &.name,
+        exclusive_consumer_tag:       @exclusive ? @consumers.first?.try(&.tag) : nil,
+        single_active_consumer_tag:   @single_active_consumer.try &.tag,
+        state:                        @state,
+        effective_policy_definition:  Policy.merge_definitions(@policy, @operator_policy),
+        message_stats:                current_stats_details,
+        effective_arguments:          @effective_args,
       }
-    end
-
-    private def unacked_avg_bytes : UInt64
-      return 0u64 if @unacked_count.zero?
-      @unacked_bytesize // @unacked_count
     end
 
     class RejectOverFlow < Exception; end
@@ -421,12 +448,19 @@ module LavinMQ::AMQP
 
     def publish(msg : Message) : Bool
       return false if @deleted || @state.closed?
+      if d = @deduper
+        if d.duplicate?(msg)
+          @dedup_count.add(1, :relaxed)
+          return false
+        end
+        d.add(msg)
+      end
       reject_on_overflow(msg)
       @msg_store_lock.synchronize do
         @msg_store.push(msg)
-        @publish_count += 1
       end
-      drop_overflow unless immediate_delivery?
+      @publish_count.add(1, :relaxed)
+      drop_overflow_if_no_immediate_delivery
       true
     rescue ex : MessageStore::Error
       @log.error(ex) { "Queue closed due to error" }
@@ -449,6 +483,10 @@ module LavinMQ::AMQP
           raise RejectOverFlow.new
         end
       end
+    end
+
+    private def drop_overflow_if_no_immediate_delivery : Nil
+      drop_overflow if (@max_length || @max_length_bytes) && !immediate_delivery?
     end
 
     private def drop_overflow : Nil
@@ -474,6 +512,27 @@ module LavinMQ::AMQP
             env = @msg_store.shift? || break
             @log.debug { "Overflow drop head sp=#{env.segment_position}" }
             expire_msg(env, :maxlenbytes)
+            counter &+= 1
+            if counter >= 16 * 1024
+              Fiber.yield
+              counter = 0
+            end
+          end
+        end
+      end
+    end
+
+    private def drop_redelivered : Nil
+      counter = 0
+      if limit = @delivery_limit
+        @msg_store_lock.synchronize do
+          loop do
+            env = @msg_store.first? || break
+            delivery_count = @deliveries.fetch(env.segment_position, 0) || break
+            break unless delivery_count > limit
+            env = @msg_store.shift? || break
+            @log.debug { "Over delivery limit, drop sp=#{env.segment_position}" }
+            expire_msg(env, :delivery_limit)
             counter &+= 1
             if counter >= 16 * 1024
               Fiber.yield
@@ -575,19 +634,25 @@ module LavinMQ::AMQP
     # checks if the message has been dead lettered to the same queue
     # for the same reason already
     private def dead_letter_loop?(headers, reason) : Bool
-      return false if headers.nil?
-      if xdeaths = headers["x-death"]?.as?(Array(AMQ::Protocol::Field))
-        xdeaths.each do |xd|
-          if xd = xd.as?(AMQ::Protocol::Table)
-            break if xd["reason"]? == "rejected"
-            if xd["queue"]? == @name && xd["reason"]? == reason.to_s
-              @log.debug { "preventing dead letter loop" }
-              return true
-            end
-          end
-        end
+      xdeaths = headers.try &.["x-death"]?.as?(Array(AMQ::Protocol::Field))
+      return false unless xdeaths
+
+      queue_matches, has_rejected = 0, false
+      xdeaths.each do |xd|
+        next unless table = xd.as?(AMQ::Protocol::Table)
+        has_rejected = true if table["reason"]? == "rejected"
+        queue_matches += 1 if table["queue"]? == @name
       end
-      false
+
+      # For maxlen/maxlenbytes, prevent loop on first occurrence (threshold=0) since they trigger immediately
+      # For other reasons like TTL, allow one occurrence before blocking (threshold=1)
+      threshold = reason.in?(:maxlen, :maxlenbytes) ? 0 : 1
+      if queue_matches > threshold && !has_rejected
+        @log.debug { "preventing dead letter loop" }
+        true
+      else
+        false
+      end
     end
 
     private def handle_dlx_header(msg, reason) : AMQP::Properties
@@ -671,24 +736,23 @@ module LavinMQ::AMQP
 
     def basic_get(no_ack, force = false, & : Envelope -> Nil) : Bool
       return false if !@state.running? && (@state.paused? && !force)
-      @last_get_time = RoughTime.monotonic
       @queue_expiration_ttl_change.try_send? nil
-      @get_count += 1
-      @deliver_get_count += 1
+      @deliver_get_count.add(1, :relaxed)
+      no_ack ? @get_no_ack_count.add(1, :relaxed) : @get_count.add(1, :relaxed)
       get(no_ack) do |env|
         yield env
       end
     end
 
     # If nil is returned it means that the delivery limit is reached
-    def consume_get(consumer, & : Envelope -> Nil) : Bool
-      get(consumer.no_ack?) do |env|
+    def consume_get(no_ack, & : Envelope -> Nil) : Bool
+      get(no_ack) do |env|
         yield env
         if env.redelivered
-          @redeliver_count += 1
+          @redeliver_count.add(1, :relaxed)
         else
-          @deliver_count += 1
-          @deliver_get_count += 1
+          no_ack ? @deliver_no_ack_count.add(1, :relaxed) : @deliver_count.add(1, :relaxed)
+          @deliver_get_count.add(1, :relaxed)
         end
       end
     end
@@ -732,10 +796,8 @@ module LavinMQ::AMQP
 
     private def mark_unacked(sp, &)
       @log.debug { "Counting as unacked: #{sp}" }
-      @unacked_lock.synchronize do
-        @unacked_count += 1
-        @unacked_bytesize += sp.bytesize
-      end
+      @unacked_count.add(1, :relaxed)
+      @unacked_bytesize.add(sp.bytesize, :relaxed)
       begin
         yield
       rescue ex
@@ -743,25 +805,31 @@ module LavinMQ::AMQP
         @msg_store_lock.synchronize do
           @msg_store.requeue(sp)
         end
-        @unacked_lock.synchronize do
-          @unacked_count -= 1
-          @unacked_bytesize -= sp.bytesize
-        end
+        @unacked_count.sub(1, :relaxed)
+        @unacked_bytesize.sub(sp.bytesize, :relaxed)
         raise ex
       end
     end
 
+    def unacked_messages
+      unacked_messages = consumers.each.select(AMQP::Consumer).flat_map do |c|
+        c.unacked_messages.each.compact_map do |u|
+          next unless u.queue == self
+          if consumer = u.consumer
+            UnackedMessage.new(c.channel, u.tag, u.delivered_at, consumer.tag)
+          end
+        end
+      end
+      unacked_messages.chain(self.basic_get_unacked.each)
+    end
+
     private def with_delivery_count_header(env) : Envelope?
-      if limit = @delivery_limit
+      if @delivery_limit
         sp = env.segment_position
         headers = env.message.properties.headers || AMQP::Table.new
         delivery_count = @deliveries.fetch(sp, 0)
-        # @log.debug { "Delivery count: #{delivery_count} Delivery limit: #{@delivery_limit}" }
-        if delivery_count >= limit
-          expire_msg(env, :delivery_limit)
-          return nil
-        end
-        headers["x-delivery-count"] = @deliveries[sp] = delivery_count + 1
+        headers["x-delivery-count"] = delivery_count if delivery_count > 0 # x-delivery-count not included in first delivery
+        @deliveries[sp] = delivery_count + 1
         env.message.properties.headers = headers
       end
       env
@@ -770,11 +838,9 @@ module LavinMQ::AMQP
     def ack(sp : SegmentPosition) : Nil
       return if @deleted
       @log.debug { "Acking #{sp}" }
-      @unacked_lock.synchronize do
-        @ack_count += 1
-        @unacked_count -= 1
-        @unacked_bytesize -= sp.bytesize
-      end
+      @ack_count.add(1, :relaxed)
+      @unacked_count.sub(1, :relaxed)
+      @unacked_bytesize.sub(sp.bytesize, :relaxed)
       delete_message(sp)
     end
 
@@ -791,19 +857,22 @@ module LavinMQ::AMQP
     def reject(sp : SegmentPosition, requeue : Bool)
       return if @deleted || @closed
       @log.debug { "Rejecting #{sp}, requeue: #{requeue}" }
-      @unacked_lock.synchronize do
-        @reject_count += 1
-        @unacked_count -= 1
-        @unacked_bytesize -= sp.bytesize
-      end
+      @reject_count.add(1, :relaxed)
+      @unacked_count.sub(1, :relaxed)
+      @unacked_bytesize.sub(sp.bytesize, :relaxed)
       if requeue
         if has_expired?(sp, requeue: true) # guarantee to not deliver expired messages
           expire_msg(sp, :expired)
         else
+          if delivery_limit = @delivery_limit
+            if @deliveries.fetch(sp, 0) > delivery_limit
+              return expire_msg(sp, :delivery_limit)
+            end
+          end
           @msg_store_lock.synchronize do
             @msg_store.requeue(sp)
           end
-          drop_overflow unless immediate_delivery?
+          drop_overflow_if_no_immediate_delivery
         end
       else
         expire_msg(sp, :rejected)
@@ -816,7 +885,6 @@ module LavinMQ::AMQP
 
     def add_consumer(consumer : Client::Channel::Consumer)
       return if @closed
-      @last_get_time = RoughTime.monotonic
       @consumers_lock.synchronize do
         was_empty = @consumers.empty?
         @consumers << consumer
@@ -863,12 +931,17 @@ module LavinMQ::AMQP
     end
 
     private def notify_consumers_empty(is_empty)
-      while @consumers_empty_change.try_send? is_empty
-      end
+      @consumers_empty.set(is_empty)
     end
 
     def purge(max_count : Int = UInt32::MAX) : UInt32
-      delete_count = @msg_store_lock.synchronize { @msg_store.purge(max_count) }
+      if unacked_count == 0 && max_count >= message_count
+        # If there's no unacked and we're purging all messages, we can purge faster by deleting files
+        delete_count = message_count
+        @msg_store_lock.synchronize { @msg_store.purge_all }
+      else
+        delete_count = @msg_store_lock.synchronize { @msg_store.purge(max_count) }
+      end
       @log.info { "Purged #{delete_count} messages" }
       delete_count
     rescue ex : MessageStore::Error
@@ -897,8 +970,15 @@ module LavinMQ::AMQP
 
     def to_json(json : JSON::Builder, consumer_limit : Int32 = -1)
       json.object do
-        details_tuple.merge(message_stats: stats_details).each do |k, v|
+        details_tuple.each do |k, v|
           json.field(k, v) unless v.nil?
+        end
+        json.field("message_stats") do
+          json.object do
+            stats_details.each do |k, v|
+              json.field(k, v) unless v.nil?
+            end
+          end
         end
         json.field("consumer_details") do
           json.array do

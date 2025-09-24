@@ -5,13 +5,12 @@ import * as DOM from './dom.js'
 const vhost = window.sessionStorage.getItem('vhost')
 let url = 'api/consumers'
 if (vhost && vhost !== '_all') {
-  url = `api/consumers/${encodeURIComponent(vhost)}`
+  url = HTTP.url`api/consumers/${vhost}`
 }
 
 const tableOptions = {
   url,
   keyColumns: ['channel_details', 'consumer_tag'],
-  interval: 5000,
   pagination: true,
   columnSelector: true,
   search: true
@@ -20,22 +19,22 @@ const tableOptions = {
 Table.renderTable('table', tableOptions, function (tr, item, firstRender) {
   if (!firstRender) return
   const channelLink = document.createElement('a')
-  channelLink.href = 'channel#name=' + encodeURIComponent(item.channel_details.name)
+  channelLink.href = HTTP.url`channel#name=${item.channel_details.name}`
   channelLink.textContent = item.channel_details.name
   const ack = item.ack_required ? '●' : '○'
   const exclusive = item.exclusive ? '●' : '○'
   const cancelForm = document.createElement('form')
-  const btn = document.createElement('button')
-  btn.classList.add('btn-small-outlined-danger')
-  btn.type = 'submit'
-  btn.textContent = 'Cancel'
+  const btn = DOM.button.delete({
+    text: 'Cancel',
+    type: 'submit'
+  })
 
   cancelForm.appendChild(btn)
-  const urlEncodedVhost = encodeURIComponent(item.queue.vhost)
-  const urlEncodedConsumerTag = encodeURIComponent(item.consumer_tag)
-  const conn = encodeURIComponent(item.channel_details.connection_name)
-  const ch = encodeURIComponent(item.channel_details.number)
-  const actionPath = `api/consumers/${urlEncodedVhost}/${conn}/${ch}/${urlEncodedConsumerTag}`
+  const vhost = item.queue.vhost
+  const consumerTag = item.consumer_tag
+  const conn = item.channel_details.connection_name
+  const ch = item.channel_details.number
+  const actionPath = HTTP.url`api/consumers/${vhost}/${conn}/${ch}/${consumerTag}`
   cancelForm.addEventListener('submit', function (evt) {
     evt.preventDefault()
     if (!window.confirm('Are you sure?')) return false

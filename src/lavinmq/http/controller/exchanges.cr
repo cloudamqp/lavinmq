@@ -6,7 +6,7 @@ module LavinMQ
   module HTTP
     module ExchangeHelpers
       private def exchange(context, params, vhost, key = "name")
-        name = URI.decode_www_form(params[key])
+        name = params[key]
         name = "" if name == "amq.default"
         e = @amqp_server.vhosts[vhost].exchanges[name]?
         not_found(context) unless e
@@ -69,8 +69,8 @@ module LavinMQ
                 bad_request(context, "Not allowed to publish to internal exchange")
               end
               context.response.status_code = 204
-            elsif name.starts_with? "amq."
-              bad_request(context, "Not allowed to use the amq. prefix")
+            elsif NameValidator.reserved_prefix?(name)
+              bad_request(context, "Prefix #{NameValidator::PREFIX_LIST} forbidden, please choose another name")
             elsif name.bytesize > UInt8::MAX
               bad_request(context, "Exchange name too long, can't exceed 255 characters")
             else
@@ -102,23 +102,6 @@ module LavinMQ
           end
         end
 
-        get "/api/exchanges/:vhost/:name/bindings/source" do |context, params|
-          with_vhost(context, params) do |vhost|
-            refuse_unless_management(context, user(context), vhost)
-            e = exchange(context, params, vhost)
-            page(context, e.bindings_details.each)
-          end
-        end
-
-        get "/api/exchanges/:vhost/:name/bindings/destination" do |context, params|
-          with_vhost(context, params) do |vhost|
-            refuse_unless_management(context, user(context), vhost)
-            e = exchange(context, params, vhost)
-            itr = bindings(e.vhost).select { |b| b.destination.name == e.name }
-            page(context, itr)
-          end
-        end
-
         post "/api/exchanges/:vhost/:name/publish" do |context, params|
           with_vhost(context, params) do |vhost|
             user = user(context)
@@ -137,6 +120,15 @@ module LavinMQ
             payload_encoding = body["payload_encoding"]?.try(&.as_s)
             unless properties && routing_key && payload && payload_encoding
               bad_request(context, "Fields 'properties', 'routing_key', 'payload' and 'payload_encoding' are required")
+            end
+            if exp = properties["expiration"]?
+              if exp = (exp.as_i? || exp.as_s?.try(&.to_i?))
+                if exp.negative?
+                  bad_request(context, "Negative expiration not allowed")
+                end
+              else
+                bad_request(context, "Expiration not a number")
+              end
             end
             case payload_encoding
             when "string"

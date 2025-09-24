@@ -2,41 +2,31 @@ require "../spec_helper"
 require "lz4"
 
 module FollowerSpec
-  def self.sha1(str : String)
-    sha1 = Digest::SHA1.new
-    hash = Bytes.new(sha1.digest_size)
-    sha1.update str.to_slice
-    sha1.final hash
-    sha1.reset
-    hash
-  end
-
   class FakeFileIndex
     include LavinMQ::Clustering::FileIndex
 
     alias FileType = MFile | File
 
-    DEFAULT_WITH_FILE = {} of String => FileType
-
-    @files_with_hash : Hash(String, Bytes)
-
-    def initialize(data_dir : String, files_with_hash : Hash(String, Bytes)? = nil,
-                   @with_file : Hash(String, FileType) = DEFAULT_WITH_FILE)
-      @files_with_hash = files_with_hash || Hash(String, Bytes){
-        File.join(data_dir, "file1") => FollowerSpec.sha1("hash1"),
-        File.join(data_dir, "file2") => FollowerSpec.sha1("hash2"),
-        File.join(data_dir, "file3") => FollowerSpec.sha1("hash3"),
+    def initialize(@data_dir : String)
+      @files_with_hash = {
+        "file1" => Digest::SHA1.digest("hash1"),
+        "file2" => Digest::SHA1.digest("hash2"),
+        "file3" => Digest::SHA1.digest("hash3"),
       }
     end
 
-    def files_with_hash(& : Tuple(String, Bytes) -> Nil)
+    def files_with_hash(& : Tuple(String, Bytes) -> _)
       @files_with_hash.each do |values|
         yield values
       end
     end
 
-    def with_file(filename : String, &) : Nil
-      yield @with_file[filename]?
+    def with_file(filename : String, &)
+      yield nil
+    end
+
+    def nr_of_files
+      @files_with_hash.size
     end
   end
 
@@ -47,7 +37,7 @@ module FollowerSpec
     end
 
     def initialize(@io : UNIXSocket)
-      super(Family::INET, Type::STREAM, Protocol::TCP, false)
+      super(Family::INET, Type::STREAM, Protocol::TCP)
     end
 
     delegate read, write, to: @io
@@ -144,10 +134,6 @@ module FollowerSpec
         when done.receive
         when timeout(1.second)
           fail "timeout reading file list"
-        end
-
-        file_list = file_list.transform_keys do |k|
-          File.join data_dir, k
         end
 
         file_list.should eq file_index.@files_with_hash

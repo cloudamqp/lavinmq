@@ -38,8 +38,8 @@ module LavinMQ
     def self.skip(io, format = IO::ByteFormat::SystemEndian) : UInt64
       skipped = 0_u64
       skipped += io.skip(sizeof(UInt64))                             # ts
-      skipped += io.skip(io.read_byte || raise IO::EOFError.new) + 1 # ex
-      skipped += io.skip(io.read_byte || raise IO::EOFError.new) + 1 # rk
+      skipped += 1 + io.skip(io.read_byte || raise IO::EOFError.new) # ex
+      skipped += 1 + io.skip(io.read_byte || raise IO::EOFError.new) # rk
       skipped += AMQ::Protocol::Properties.skip(io, format)
       skipped += io.skip(UInt64.from_io io, format) + sizeof(UInt64)
       skipped
@@ -85,7 +85,9 @@ module LavinMQ
       io.write_bytes @properties, format
       io.write_bytes @bodysize, format
       if io_mem = @body_io.as?(IO::Memory)
-        io.write(io_mem.to_slice)
+        slice = io_mem.to_slice
+        raise IO::Error.new("Unexpected body size: #{slice.bytesize} != #{@bodysize}") if slice.bytesize != @bodysize
+        io.write(slice)
         io_mem.pos = @bodysize # necessary for rewinding in Vhost#publish
       else
         copied = IO.copy(@body_io, io, @bodysize)

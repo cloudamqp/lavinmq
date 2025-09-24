@@ -1,34 +1,23 @@
 require "../controller"
 require "../../version"
+require "../stats_helper"
 
 module LavinMQ
   module HTTP
-    module StatsHelpers
-      def add_logs!(logs_a, logs_b)
-        until logs_a.size >= logs_b.size
-          logs_a.unshift 0
-        end
-        until logs_b.size >= logs_a.size
-          logs_b.unshift 0
-        end
-        logs_a.size.times do |i|
-          logs_a[i] += logs_b[i]
-        end
-        logs_a
-      end
-
-      private def add_logs(logs_a, logs_b)
-        add_logs!(logs_a.dup, logs_b)
-      end
-    end
-
     class MainController < Controller
       include StatsHelpers
 
       OVERVIEW_STATS = {"ack", "deliver", "get", "deliver_get", "publish", "confirm", "redeliver", "reject"}
-      EXCHANGE_TYPES = {"direct", "fanout", "topic", "headers", "x-federation-upstream", "x-consistent-hash"}
-      CHURN_STATS    = {"connection_created", "connection_closed", "channel_created", "channel_closed",
-                        "queue_declared", "queue_deleted"}
+      EXCHANGE_TYPES = {
+        {name: "direct", human: "Direct"},
+        {name: "fanout", human: "Fanout"},
+        {name: "topic", human: "Topic"},
+        {name: "headers", human: "Headers"},
+        {name: "x-federation-upstream", human: "Federation Upstream"},
+        {name: "x-consistent-hash", human: "Consistent Hash"},
+      }
+      CHURN_STATS = {"connection_created", "connection_closed", "channel_created", "channel_closed",
+                     "queue_declared", "queue_deleted"}
 
       private def register_routes
         get "/api/overview" do |context, _params|
@@ -55,10 +44,11 @@ module LavinMQ
               connections += 1
               channels += c.channels.size
               consumers += c.channels.each_value.sum &.consumers.size
-              recv_rate += c.stats_details[:recv_oct_details][:rate]
-              send_rate += c.stats_details[:send_oct_details][:rate]
-              add_logs!(recv_rate_log, c.stats_details[:recv_oct_details][:log])
-              add_logs!(send_rate_log, c.stats_details[:send_oct_details][:log])
+              stats_details = c.stats_details
+              recv_rate += stats_details[:recv_oct_details][:rate]
+              send_rate += stats_details[:send_oct_details][:rate]
+              add_logs!(recv_rate_log, stats_details[:recv_oct_details][:log])
+              add_logs!(send_rate_log, stats_details[:send_oct_details][:log])
             end
             exchanges += vhost.exchanges.size
             queues += vhost.queues.size
@@ -75,8 +65,8 @@ module LavinMQ
               add_logs!({{sm.id}}_log, vhost_stats_details[:{{sm.id}}_details][:log])
             {% end %}
             {% for sm in CHURN_STATS %}
-            {{sm.id}} += vhost.stats_details[:{{sm.id}}]
-            {{sm.id}}_rate += vhost.stats_details[:{{sm.id}}_details][:rate]
+            {{sm.id}} += vhost_stats_details[:{{sm.id}}]
+            {{sm.id}}_rate += vhost_stats_details[:{{sm.id}}_details][:rate]
             {% end %}
           end
           {
@@ -122,7 +112,7 @@ module LavinMQ
               },
             {% end %} } {% end %},
             listeners:      @amqp_server.listeners,
-            exchange_types: EXCHANGE_TYPES.map { |name| {name: name} },
+            exchange_types: EXCHANGE_TYPES.map { |t| {name: t[:name], human: t[:human]} },
           }.to_json(context.response)
           context
         end
@@ -147,19 +137,6 @@ module LavinMQ
             @amqp_server.vhosts[vhost].queues["aliveness-test"].basic_get(true) { |e| env = e }
             ok = ok && env && String.new(env.message.body) == "test"
             {status: ok ? "ok" : "failed"}.to_json(context.response)
-          end
-        end
-
-        get "/api/shovels" do |context, _params|
-          itrs = vhosts(user(context)).flat_map do |v|
-            v.shovels.not_nil!.each_value
-          end
-          page(context, itrs)
-        end
-
-        get "/api/shovels/:vhost" do |context, params|
-          with_vhost(context, params) do |vhost|
-            page(context, @amqp_server.vhosts[vhost].shovels.not_nil!.each_value)
           end
         end
 

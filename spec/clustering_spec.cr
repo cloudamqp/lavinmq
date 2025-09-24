@@ -3,105 +3,83 @@ require "../src/lavinmq/launcher"
 require "../src/lavinmq/clustering/client"
 require "../src/lavinmq/clustering/controller"
 
+alias IndexTree = LavinMQ::MQTT::TopicTree(String)
+
 describe LavinMQ::Clustering::Client do
-  follower_data_dir = "/tmp/lavinmq-follower"
+  add_etcd_around_each
 
-  around_each do |spec|
-    FileUtils.rm_rf follower_data_dir
-    p = Process.new("etcd", {
-      "--data-dir=/tmp/clustering-spec.etcd",
-      "--logger=zap",
-      "--log-level=error",
-      "--unsafe-no-fsync=true",
-      "--force-new-cluster=true",
-      "--listen-peer-urls=http://127.0.0.1:12380",
-      "--listen-client-urls=http://127.0.0.1:12379",
-      "--advertise-client-urls=http://127.0.0.1:12379",
-    }, output: STDOUT, error: STDERR)
-
-    client = HTTP::Client.new("127.0.0.1", 12379)
-    i = 0
-    loop do
-      sleep 0.02.seconds
-      response = client.get("/version")
-      if response.status.ok?
-        next if response.body.includes? "not_decided"
-        break
+  it "can stream changes" do
+    with_clustering do |cluster|
+      with_amqp_server(replicator: cluster.replicator) do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("repli")
+          q.publish_confirm "hello world"
+        end
+        cluster.stop
       end
-    rescue e : Socket::ConnectError
-      i += 1
-      raise "Cant connect to etcd on port 12379. Giving up after 100 tries. (#{e.message})" if i >= 100
-      next
-    end
-    client.close
-    begin
-      spec.run
-    ensure
-      p.terminate(graceful: false) rescue nil
-      FileUtils.rm_rf "/tmp/clustering-spec.etcd"
-      FileUtils.rm_rf follower_data_dir
+
+      server = LavinMQ::Server.new(cluster.follower_config)
+      begin
+        q = server.vhosts["/"].queues["repli"].as(LavinMQ::AMQP::DurableQueue)
+        q.message_count.should eq 1
+        q.basic_get(true) do |env|
+          String.new(env.message.body).to_s.should eq "hello world"
+        end.should be_true
+      ensure
+        server.close
+      end
     end
   end
 
-  it "can stream changes" do
-    replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Etcd.new("localhost:12379"), 0)
-    tcp_server = TCPServer.new("localhost", 0)
-    spawn(replicator.listen(tcp_server), name: "repli server spec")
-    config = LavinMQ::Config.new.tap &.data_dir = follower_data_dir
-    repli = LavinMQ::Clustering::Client.new(config, 1, replicator.password, proxy: false)
-    done = Channel(Nil).new
-    spawn(name: "follow spec") do
-      repli.follow("localhost", tcp_server.local_address.port)
-      done.send nil
-    end
-    wait_for { replicator.followers.size == 1 }
-    with_amqp_server(replicator: replicator) do |s|
-      with_channel(s) do |ch|
-        q = ch.queue("repli")
-        q.publish_confirm "hello world"
-      end
-      repli.close
-      done.receive
-    end
+  it "replicates and streams retained messages to followers" do
+    with_clustering do |cluster|
+      replicator = cluster.replicator
+      retain_store = LavinMQ::MQTT::RetainStore.new("#{cluster.config.data_dir}/retain_store", replicator)
+      # This wait is needed for the initial replace of index to be synced.
+      # If we don't do this data may have been appended to the file before it's
+      # written to socket, meaning that the lag_size has changed.
+      wait_for { replicator.followers.first?.try &.lag_in_bytes == 0 }
 
-    server = LavinMQ::Server.new(config)
-    begin
-      q = server.vhosts["/"].queues["repli"].as(LavinMQ::AMQP::DurableQueue)
-      q.message_count.should eq 1
-      q.basic_get(true) do |env|
-        String.new(env.message.body).to_s.should eq "hello world"
-      end.should be_true
+      props = LavinMQ::AMQP::Properties.new
+      msg1 = LavinMQ::Message.new(100, "test", "rk", props, 5, IO::Memory.new("body1"))
+      msg2 = LavinMQ::Message.new(100, "test", "rk", props, 5, IO::Memory.new("body2"))
+      retain_store.retain("topic1", msg1.body_io, msg1.bodysize)
+      retain_store.retain("topic2", msg2.body_io, msg2.bodysize)
+
+      wait_for { replicator.followers.first?.try &.lag_in_bytes == 0 }
+      cluster.stop
+
+      follower_retain_store = LavinMQ::MQTT::RetainStore.new("#{cluster.follower_config.data_dir}/retain_store", LavinMQ::Clustering::NoopServer.new)
+      a = Array(String).new(2)
+      b = Array(String).new(2)
+      follower_retain_store.each("#") do |topic, body_io, body_bytesize|
+        a << topic
+        b << body_io.read_string(body_bytesize)
+      end
+
+      a.sort!.should eq(["topic1", "topic2"])
+      b.sort!.should eq(["body1", "body2"])
+      follower_retain_store.@index.size.should eq(2)
     ensure
-      server.close
+      follower_retain_store.try &.close
+      retain_store.try &.close
     end
-  ensure
-    replicator.try &.close
   end
 
   it "can stream full file" do
-    replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Etcd.new("localhost:12379"), 0)
-    tcp_server = TCPServer.new("localhost", 0)
-    spawn(replicator.listen(tcp_server), name: "repli server spec")
-    config = LavinMQ::Config.new.tap &.data_dir = follower_data_dir
-    repli = LavinMQ::Clustering::Client.new(config, 1, replicator.password, proxy: false)
-    done = Channel(Nil).new
-    spawn(name: "follow spec") do
-      repli.follow("localhost", tcp_server.local_address.port)
-      done.send nil
-    end
-    wait_for { replicator.followers.size == 1 }
-    with_amqp_server(replicator: replicator) do |s|
-      s.users.create("u1", "p1")
-      wait_for { replicator.followers.first?.try &.lag_in_bytes == 0 }
-      repli.close
-      done.receive
-    end
+    with_clustering do |cluster|
+      with_amqp_server(replicator: cluster.replicator) do |s|
+        s.users.create("u1", "p1")
+        wait_for { cluster.replicator.followers.first?.try &.lag_in_bytes == 0 }
+        cluster.stop
+      end
 
-    server = LavinMQ::Server.new(config)
-    begin
-      server.users["u1"].should_not be_nil
-    ensure
-      server.close
+      server = LavinMQ::Server.new(cluster.follower_config)
+      begin
+        server.users["u1"].should_not be_nil
+      ensure
+        server.close
+      end
     end
   end
 
@@ -124,13 +102,13 @@ describe LavinMQ::Clustering::Client do
     config2.http_port = 15672
     controller2 = LavinMQ::Clustering::Controller.new(config2)
 
-    listen = Channel(String).new
+    listen = Channel(String?).new
     spawn(name: "etcd elect leader spec") do
       etcd = LavinMQ::Etcd.new("localhost:12379")
       etcd.elect_listen("lavinmq/leader") do |value|
         listen.send value
       end
-    rescue LavinMQ::Etcd::Error
+    rescue SpecExit
       # expect this when etcd nodes are terminated
     end
     sleep 0.5.seconds
@@ -177,7 +155,7 @@ describe LavinMQ::Clustering::Client do
     election_done.receive?
 
     # The spec gets a lease to use in an election campaign
-    lease_id, _ttl = etcd.lease_grant(5)
+    lease = etcd.lease_grant(5)
 
     # graceful stop...
     spawn { launcher.stop }
@@ -185,7 +163,7 @@ describe LavinMQ::Clustering::Client do
     # Let the spec campaign for leadership...
     elected = Channel(Nil).new
     spawn do
-      etcd.election_campaign("lavinmq/leader", "spec", lease_id)
+      etcd.election_campaign("lavinmq/leader", "spec", lease.id)
       elected.close
     end
 
@@ -195,5 +173,77 @@ describe LavinMQ::Clustering::Client do
     when timeout(1.seconds)
       fail("election campaign did not finish in time, leadership not released on launcher stop?")
     end
+  end
+
+  it "won't deadlock under high load when a follower disconnects [#926]" do
+    LavinMQ::Config.instance.clustering_max_unsynced_actions = 1
+    replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Etcd.new("localhost:12379"), 0)
+    tcp_server = TCPServer.new("localhost", 0)
+    spawn(replicator.listen(tcp_server), name: "repli server spec")
+
+    client_io = TCPSocket.new("localhost", tcp_server.local_address.port)
+    # This is raw clustering negotiation
+    client_io.write LavinMQ::Clustering::Start
+    client_io.write_bytes replicator.password.bytesize.to_u8, IO::ByteFormat::LittleEndian
+    client_io.write replicator.password.to_slice
+    # Read the password accepted byte (we assume it's correct)
+    client_io.read_byte
+    # Send the follower id
+    client_io.write_bytes 2i32, IO::ByteFormat::LittleEndian
+    client_io.flush
+    client_lz4 = Compress::LZ4::Reader.new(client_io)
+    # Two full syncs
+    sha1_size = Digest::SHA1.new.digest_size
+    2.times do
+      loop do
+        filename_len = client_lz4.read_bytes Int32, IO::ByteFormat::LittleEndian
+        break if filename_len.zero?
+        client_lz4.skip filename_len
+        client_lz4.skip sha1_size
+      end
+      # 0 means we're done requesting files for this full sync
+      client_io.write_bytes 0i32
+      client_io.flush
+    end
+
+    appended = Channel(Bool).new
+    spawn do
+      # Fill the action queue
+      loop do
+        replicator.append("#{LavinMQ::Config.instance.data_dir}/path", 1)
+        appended.send true
+      rescue Channel::ClosedError
+        break
+      end
+    end
+
+    # Wait for the action queue to fill up
+    loop do
+      select
+      when appended.receive?
+      when timeout 0.1.seconds
+        # @action is a Channel. Let's look at its internal deque
+        action_queue = replicator.@followers.first.@actions.@queue.not_nil!("no deque? no follower?")
+        break if action_queue.size == action_queue.@capacity # full?
+      end
+    end
+
+    # Now disconnect the follower. Our "fill action queue" fiber should continue
+    client_io.close
+
+    select
+    when appended.receive?
+    when timeout 0.1.seconds
+      replicator.@followers.first.@actions.close
+      deadlock = true
+    end
+
+    appended.close
+    if deadlock
+      fail "deadlock detected"
+    end
+  ensure
+    FileUtils.mkdir_p LavinMQ::Config.instance.data_dir
+    replicator.try &.close
   end
 end

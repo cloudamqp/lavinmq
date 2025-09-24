@@ -2,6 +2,7 @@ require "../clustering"
 require "./file_index"
 require "./replicator"
 require "./follower"
+require "./checksums"
 require "../config"
 require "../message"
 require "../mfile"
@@ -39,58 +40,84 @@ module LavinMQ
         @config = config
         @data_dir = @config.data_dir
         @password = password
+        @checksums = Checksums.new(@data_dir)
       end
 
       def clear
         @files.clear
+        @checksums.clear
       end
 
       def register_file(file : File)
-        @files[file.path] = nil
+        path = strip_datadir file.path
+        @files[path] = nil
       end
 
       def register_file(mfile : MFile)
-        @files[mfile.path] = mfile
+        path = strip_datadir mfile.path
+        @files[path] = mfile
       end
 
       def replace_file(path : String) # only non mfiles are ever replaced
+        path = strip_datadir path
         @files[path] = nil
-        each_follower &.add(path)
-      end
-
-      def append(path : String, file : MFile, position : Int32, length : Int32)
-        append path, FileRange.new(file, position, length)
+        @checksums.delete(path)
+        each_follower &.replace(path)
       end
 
       def append(path : String, obj)
+        path = strip_datadir path
+        @checksums.delete(path)
         each_follower &.append(path, obj)
       end
 
-      def delete_file(path : String)
+      def delete_file(path : String, wg)
+        path = strip_datadir path
         @files.delete(path)
-        each_follower &.delete(path)
+        @checksums.delete(path)
+        each_follower &.delete(path, wg)
+      end
+
+      def nr_of_files
+        @files.size
       end
 
       def files_with_hash(& : Tuple(String, Bytes) -> Nil)
         sha1 = Digest::SHA1.new
-        hash = Bytes.new(sha1.digest_size)
-        @files.each_key do |path|
-          sha1.file path
-          sha1.final hash
-          sha1.reset
-          yield({path, hash})
+        @files.each do |path, mfile|
+          if calculated_hash = @checksums[path]?
+            yield({path, calculated_hash})
+          else
+            if file = mfile
+              sha1.update file.to_slice
+              file.dontneed
+            else
+              filename = File.join(@data_dir, path)
+              next unless File.exists? filename
+              sha1.file filename
+            end
+            hash = sha1.final
+            @checksums[path] = hash
+            sha1.reset
+            Fiber.yield # CPU bound so allow other fibers to run here
+            yield({path, hash})
+          end
         end
       end
 
-      def with_file(filename, & : MFile | File | Nil -> Nil) : Nil
-        path = File.join(@data_dir, filename)
-        if @files.has_key? path
-          if mfile = @files[path]
+      def with_file(filename, & : MFile | File | Nil -> _)
+        if @files.has_key? filename
+          if mfile = @files[filename]
             yield mfile
           else
-            File.open(path) do |f|
-              f.read_buffering = false
-              yield f
+            path = File.join(@data_dir, filename)
+            if File.exists? path
+              File.open(path) do |f|
+                f.read_buffering = false
+                yield f
+              end
+            else
+              yield nil
             end
           end
         else
@@ -100,25 +127,37 @@ module LavinMQ
 
       def followers : Array(Follower)
         @lock.synchronize do
+          @followers.select(&.synced?).dup # for thread safety
+        end
+      end
+
+      def syncing_followers : Array(Follower)
+        @lock.synchronize do
+          @followers.select(&.syncing?).dup # for thread safety
+        end
+      end
+
+      def all_followers : Array(Follower)
+        @lock.synchronize do
           @followers.dup # for thread safety
         end
       end
 
       def password : String
         key = "#{@config.clustering_etcd_prefix}/clustering_secret"
-        @etcd.get(key) ||
-          begin
-            Log.info { "Generating new clustering secret" }
-            secret = Random::Secure.base64(32)
-            @etcd.put(key, secret)
-            secret
-          end
+        secret = Random::Secure.base64(32)
+        stored_secret = @etcd.put_or_get(key, secret)
+        if stored_secret == secret
+          Log.info { "Generated new clustering secret" }
+        end
+        stored_secret
       end
 
       @listeners = Array(TCPServer).new(1)
 
       def listen(server : TCPServer)
         server.listen
+        @checksums.restore
         Log.info { "Listening on #{server.local_address}" }
         @listeners << server
         while socket = server.accept?
@@ -134,14 +173,18 @@ module LavinMQ
           Log.error { "Disconnecting follower with the clustering id of the leader" }
           return
         end
-        if stale_follower = @followers.find { |f| f.id == follower.id }
-          Log.error { "Disconnecting stale follower with id #{follower.id.to_s(36)}" }
-          stale_follower.close
+        @lock.synchronize do
+          if stale_follower = @followers.find { |f| f.id == follower.id }
+            Log.error { "Disconnecting stale follower with id #{follower.id.to_s(36)}" }
+            @followers.delete(stale_follower)
+            stale_follower.close
+          end
+          @followers << follower # Starts in Syncing state
         end
         follower.full_sync # sync the bulk
         @lock.synchronize do
-          follower.full_sync # sync the last
-          @followers << follower
+          follower.full_sync    # sync the last
+          follower.mark_synced! # Change state to Synced
           update_isr
         end
         begin
@@ -159,7 +202,7 @@ module LavinMQ
       rescue ex : IO::EOFError
         Log.info { "Follower disconnected" }
       rescue ex : IO::Error
-        Log.warn { "Follower disonnected: #{ex.message}" }
+        Log.warn(exception: ex) { "Follower disonnected: #{ex.message}" }
       ensure
         follower.try &.close
       end
@@ -167,7 +210,7 @@ module LavinMQ
       private def update_isr
         isr_key = "#{@config.clustering_etcd_prefix}/isr"
         ids = String.build do |str|
-          @followers.each { |f| f.id.to_s(str, 36); str << "," }
+          @followers.each { |f| f.id.to_s(str, 36); str << "," if f.synced? }
           @id.to_s(str, 36)
         end
         Log.info { "In-sync replicas: #{ids}" }
@@ -182,17 +225,23 @@ module LavinMQ
           @followers.clear
         end
         Fiber.yield # required for follower/listener fibers to actually finish
+        @checksums.store
       end
 
       private def each_follower(& : Follower -> Nil) : Nil
         @lock.synchronize do
           update_isr if @dirty_isr
           @followers.each do |f|
+            next unless f.synced?
             yield f
           rescue Channel::ClosedError
             Fiber.yield # Allow other fiber to run to remove the follower from array
           end
         end
+      end
+
+      private def strip_datadir(path : String) : String
+        path[@data_dir.bytesize + 1..]
       end
     end
 
@@ -208,16 +257,21 @@ module LavinMQ
       def replace_file(path : String) # only non mfiles are ever replaced
       end
 
-      def append(path : String, file : MFile, position : Int32, length : Int32)
-      end
-
       def append(path : String, obj)
       end
 
-      def delete_file(path : String)
+      def delete_file(path : String, wg : WaitGroup)
       end
 
       def followers : Array(Follower)
+        Array(Follower).new(0)
+      end
+
+      def syncing_followers : Array(Follower)
+        Array(Follower).new(0)
+      end
+
+      def all_followers : Array(Follower)
         Array(Follower).new(0)
       end
 

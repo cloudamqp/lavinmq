@@ -1,17 +1,5 @@
 name: RPM
 on:
-  pull_request:
-    paths:
-      - .github/workflows/rpm.yml
-      - Makefile
-      - Dockerfile.rpm
-      - build/lavinmq.spec
-      - shard.lock
-      - src/**
-      - static/**
-      - views/**
-      - openapi/**
-      - lavinmq.spec
   push:
     branches:
       - main
@@ -20,14 +8,13 @@ on:
     paths:
       - .github/workflows/rpm.yml
       - Makefile
-      - Dockerfile.rpm
-      - build/lavinmq.spec
       - shard.lock
       - src/**
       - static/**
       - views/**
       - openapi/**
-      - lavinmq.spec
+      - packaging/rpm/**
+  workflow_dispatch:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -36,7 +23,7 @@ jobs:
     name: Build RPM
     strategy:
       matrix:
-        os: ['fedora-41', 'fedora-40', 'el-9']
+        os: ['fedora-42','fedora-41', 'fedora-40', 'el-9']
     runs-on: ubuntu-latest
     # Set permissions if you're using OIDC token authentication
     permissions:
@@ -49,12 +36,12 @@ jobs:
           fetch-depth: 0
 
       - name: Generate version string
-        run: echo "version=$(./rpm-version)" >> $GITHUB_ENV
+        run: echo "version=$(./packaging/rpm/rpm-version)" >> $GITHUB_ENV
 
       - uses: depot/setup-action@v1
       - uses: depot/build-push-action@v1
         with:
-          file: Dockerfile.rpm
+          file: packaging/rpm/Dockerfile
           platforms: linux/amd64,linux/arm64
           pull: true
           build-args: |
@@ -82,9 +69,9 @@ jobs:
                   -F "package[package_file]=@${PKG_FILE}" \
                   https://packagecloud.io/api/v1/repos/${{ github.repository }}/packages.json
           done
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-rc') && !contains(github.ref, '-beta') && !contains(github.ref, '-alpha')
 
-      - name: Upload to Packagecloud head repo
+      - name: Upload to Packagecloud pre-release repo
         run: |
           set -eux
           curl -fsSO -u "${{ secrets.packagecloud_token }}:" https://packagecloud.io/api/v1/distributions.json
@@ -95,6 +82,6 @@ jobs:
           do curl -fsS -u "${{ secrets.packagecloud_token }}:" -XPOST \
                   -F "package[distro_version_id]=${DIST_ID}" \
                   -F "package[package_file]=@${PKG_FILE}" \
-                  https://packagecloud.io/api/v1/repos/${{ github.repository }}-head/packages.json
+                  https://packagecloud.io/api/v1/repos/${{ github.repository }}-prerelease/packages.json
           done
-        if: github.event_name != 'pull_request'
+        if: startsWith(github.ref, 'refs/tags/v') && (contains(github.ref, '-rc') || contains(github.ref, '-beta') || contains(github.ref, '-alpha'))

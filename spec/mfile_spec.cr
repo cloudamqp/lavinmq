@@ -4,7 +4,9 @@ require "../src/lavinmq/mfile"
 describe MFile do
   it "can be double closed" do
     file = File.tempfile "mfile_spec"
+    file.sync = true
     begin
+      file.puts "foobar" # can't mmap empty file
       mfile = MFile.new file.path
       mfile.close
       mfile.close

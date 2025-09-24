@@ -5,10 +5,9 @@ import * as DOM from './dom.js'
 import * as Form from './form.js'
 
 const user = new URLSearchParams(window.location.hash.substring(1)).get('name')
-const urlEncodedUsername = encodeURIComponent(user)
 
 function updateUser () {
-  const userUrl = 'api/users/' + urlEncodedUsername
+  const userUrl = HTTP.url`api/users/${user}`
   HTTP.request('GET', userUrl)
     .then(item => {
       const hasPassword = item.password_hash ? '●' : '○'
@@ -26,8 +25,8 @@ function tagHelper (tags) {
   })
 }
 
-const permissionsUrl = 'api/users/' + urlEncodedUsername + '/permissions'
-const tableOptions = { url: permissionsUrl, keyColumns: ['vhost'], interval: 0, countId: 'permissions-count' }
+const permissionsUrl = HTTP.url`api/users/${user}/permissions`
+const tableOptions = { url: permissionsUrl, keyColumns: ['vhost'], autoReloadTimeout: 0, countId: 'permissions-count' }
 const permissionsTable = Table.renderTable('permissions', tableOptions, (tr, item, all) => {
   Table.renderCell(tr, 1, item.configure)
   Table.renderCell(tr, 2, item.write)
@@ -35,24 +34,21 @@ const permissionsTable = Table.renderTable('permissions', tableOptions, (tr, ite
   if (all) {
     const buttons = document.createElement('div')
     buttons.classList.add('buttons')
-    const deleteBtn = document.createElement('button')
-    deleteBtn.classList.add('btn-small-outlined-danger')
-    deleteBtn.innerText = 'Clear'
-    deleteBtn.onclick = function () {
-      const username = encodeURIComponent(item.user)
-      const vhost = encodeURIComponent(item.vhost)
-      const url = 'api/permissions/' + vhost + '/' + username
-      HTTP.request('DELETE', url)
-        .then(() => {
-          tr.parentNode.removeChild(tr)
-        })
-    }
-    const editBtn = document.createElement('button')
-    editBtn.classList.add('btn-small')
-    editBtn.innerText = 'Edit'
-    editBtn.onclick = function () {
-      Form.editItem('#setPermission', item)
-    }
+    const deleteBtn = DOM.button.delete({
+      text: 'Clear',
+      click: function () {
+        const url = HTTP.url`api/permissions/${item.vhost}/${item.user}`
+        HTTP.request('DELETE', url)
+          .then(() => {
+            tr.parentNode.removeChild(tr)
+          })
+      }
+    })
+    const editBtn = DOM.button.edit({
+      click: function () {
+        Form.editItem('#setPermission', item)
+      }
+    })
     buttons.append(editBtn, deleteBtn)
     Table.renderCell(tr, 0, item.vhost)
     Table.renderCell(tr, 4, buttons, 'right')
@@ -64,8 +60,8 @@ Helpers.addVhostOptions('setPermission')
 document.querySelector('#setPermission').addEventListener('submit', function (evt) {
   evt.preventDefault()
   const data = new window.FormData(this)
-  const vhost = encodeURIComponent(data.get('vhost'))
-  const url = 'api/permissions/' + vhost + '/' + urlEncodedUsername
+  const vhost = data.get('vhost')
+  const url = HTTP.url`api/permissions/${vhost}/${user}`
   const body = {
     configure: data.get('configure'),
     write: data.get('write'),
@@ -92,7 +88,7 @@ document.querySelector('#updateUser').addEventListener('submit', function (evt) 
   evt.preventDefault()
   const pwd = document.querySelector('[name=password]')
   const data = new window.FormData(this)
-  const url = 'api/users/' + urlEncodedUsername
+  const url = HTTP.url`api/users/${user}`
   const body = {
     tags: data.get('tags')
   }
@@ -111,13 +107,13 @@ document.querySelector('#updateUser').addEventListener('submit', function (evt) 
     })
 })
 
-document.querySelector('#dataTags').onclick = e => {
+document.querySelector('#dataTags').addEventListener('click', e => {
   Helpers.argumentHelper('updateUser', 'tags', e)
-}
+})
 
 document.querySelector('#deleteUser').addEventListener('submit', function (evt) {
   evt.preventDefault()
-  const url = 'api/users/' + urlEncodedUsername
+  const url = HTTP.url`api/users/${user}`
   if (window.confirm('Are you sure? This object cannot be recovered after deletion.')) {
     HTTP.request('DELETE', url)
       .then(() => { window.location = 'users' })

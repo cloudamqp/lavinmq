@@ -8,9 +8,12 @@ Helpers.addVhostOptions('addExchange')
 HTTP.request('GET', 'api/overview').then(function (response) {
   const exchangeTypes = response.exchange_types
   const select = document.forms.addExchange.elements.type
-  exchangeTypes.forEach(type => {
+  exchangeTypes.forEach(item => {
+    const name = (item && typeof item === 'object') ? item.name : item
+    const human = (item && typeof item === 'object' && 'human' in item) ? item.human : undefined
     const opt = document.createElement('option')
-    opt.text = type.name
+    opt.text = human || name
+    opt.value = name
     select.add(opt)
   })
 })
@@ -18,12 +21,11 @@ HTTP.request('GET', 'api/overview').then(function (response) {
 const vhost = window.sessionStorage.getItem('vhost')
 let url = 'api/exchanges'
 if (vhost && vhost !== '_all') {
-  url += '/' + encodeURIComponent(vhost)
+  url += HTTP.url`/${vhost}`
 }
 const tableOptions = {
   url,
   keyColumns: ['vhost', 'name'],
-  interval: 5000,
   pagination: true,
   columnSelector: true,
   search: true
@@ -33,13 +35,34 @@ const exchangeTable = Table.renderTable('table', tableOptions, function (tr, ite
     if (item.name === '') {
       item.name = 'amq.default'
     }
-    let features = ''
-    features += item.durable ? ' D' : ''
-    features += item.auto_delete ? ' AD' : ''
-    features += item.internal ? ' I' : ''
-    features += item.arguments['x-delayed-exchange'] ? ' d' : ''
+    const features = document.createElement('span')
+    features.className = 'features'
+    if (item.durable) {
+      const durable = document.createElement('span')
+      durable.textContent = 'D'
+      durable.title = 'Durable'
+      features.appendChild(durable)
+    }
+    if (item.auto_delete) {
+      const autoDelete = document.createElement('span')
+      autoDelete.textContent = ' AD'
+      autoDelete.title = 'Auto Delete'
+      features.appendChild(autoDelete)
+    }
+    if (item.internal) {
+      const internal = document.createElement('span')
+      internal.textContent = ' I'
+      internal.title = 'Internal'
+      features.appendChild(internal)
+    }
+    if (item.arguments['x-delayed-exchange']) {
+      const delayed = document.createElement('span')
+      delayed.textContent = ' d'
+      delayed.title = 'Delayed'
+      features.appendChild(delayed)
+    }
     const exchangeLink = document.createElement('a')
-    exchangeLink.href = `exchange#vhost=${encodeURIComponent(item.vhost)}&name=${encodeURIComponent(item.name)}`
+    exchangeLink.href = HTTP.url`exchange#vhost=${item.vhost}&name=${item.name}`
     exchangeLink.textContent = item.name
     Table.renderCell(tr, 0, item.vhost)
     Table.renderCell(tr, 1, exchangeLink)
@@ -49,18 +72,20 @@ const exchangeTable = Table.renderTable('table', tableOptions, function (tr, ite
   let policyLink = ''
   if (item.policy) {
     policyLink = document.createElement('a')
-    policyLink.href = 'policies#name=' + encodeURIComponent(item.policy) + '&vhost=' + encodeURIComponent(item.vhost)
+    policyLink.href = HTTP.url`policies#name=${item.policy}&vhost=${item.vhost}`
     policyLink.textContent = item.policy
   }
   Table.renderCell(tr, 4, policyLink, 'center')
+  Table.renderCell(tr, 5, item.message_stats.publish_in_details.rate, 'center')
+  Table.renderCell(tr, 6, item.message_stats.publish_out_details.rate, 'center')
 })
 
 document.querySelector('#addExchange').addEventListener('submit', function (evt) {
   evt.preventDefault()
   const data = new window.FormData(this)
-  const vhost = encodeURIComponent(data.get('vhost'))
-  const exchange = encodeURIComponent(data.get('name').trim())
-  const url = 'api/exchanges/' + vhost + '/' + exchange
+  const vhost = data.get('vhost')
+  const exchange = data.get('name').trim()
+  const url = HTTP.url`api/exchanges/${vhost}/${exchange}`
   const body = {
     durable: data.get('durable') === '1',
     auto_delete: data.get('auto_delete') === '1',
@@ -77,6 +102,6 @@ document.querySelector('#addExchange').addEventListener('submit', function (evt)
     })
 })
 
-document.querySelector('#dataTags').onclick = e => {
+document.querySelector('#dataTags').addEventListener('click', e => {
   Helpers.argumentHelperJSON('addExchange', 'arguments', e)
-}
+})

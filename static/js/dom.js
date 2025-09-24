@@ -33,8 +33,35 @@ function toast (text, type = 'success') {
   }, 7000)
 }
 
+function createButton (type, text, classes, click) {
+  const btn = document.createElement('button')
+  btn.type = type
+  btn.textContent = text
+  btn.classList.add(...classes)
+  if (click) {
+    btn.addEventListener('click', click)
+  }
+  return btn
+}
+
+const button = {
+  delete: ({ click, text = 'Delete', type = 'button' }) => {
+    return createButton(type, text, ['btn-small-outlined-danger'], click)
+  },
+  edit: ({ click, text = 'Edit', type = 'button' }) => {
+    return createButton(type, text, ['btn-small'], click)
+  },
+  submit: ({ text = 'Save' } = {}) => {
+    return createButton('submit', text, ['btn-icon', 'btn-submit'])
+  },
+  reset: ({ text = 'Reset' } = {}) => {
+    return createButton('reset', text, ['btn-icon', 'btn-reset'])
+  }
+}
+
 export {
   jsonToText,
   parseJSON,
-  toast
+  toast,
+  button
 }

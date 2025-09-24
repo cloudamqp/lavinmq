@@ -71,17 +71,25 @@ module LavinMQ
         end
 
         def details_tuple
-          value = Hash(String, Int32).new
+          value = NamedTuple.new
           if max = @vhost.max_connections
-            value["max-connections"] = max
+            value = value.merge({"max-connections": max})
           end
           if max = @vhost.max_queues
-            value["max-queues"] = max
+            value = value.merge({"max-queues": max})
           end
           {
             vhost: @vhost.name,
             value: value,
           }
+        end
+
+        def search_match?(value : String) : Bool
+          @vhost.name.includes? value
+        end
+
+        def search_match?(value : Regex) : Bool
+          value === @vhost.name
         end
       end
     end

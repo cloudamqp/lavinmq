@@ -66,7 +66,7 @@ describe LavinMQ::Shovel do
         end
       end
 
-      it "wont start ack timeout loop when not needed" do
+      it "won't start ack timeout loop when not needed" do
         with_amqp_server do |s|
           source_name = Random::Secure.base64(32)
           source = LavinMQ::Shovel::AMQPSource.new(
@@ -121,7 +121,7 @@ describe LavinMQ::Shovel do
       end
     end
 
-    it "will wait to ack all msgs before deleting it self" do
+    it "will wait to ack all msgs before deleting itself" do
       with_amqp_server do |s|
         source = LavinMQ::Shovel::AMQPSource.new(
           "spec",
@@ -485,7 +485,7 @@ describe LavinMQ::Shovel do
           wait_for { shovel.details_tuple[:error] }
           shovel.details_tuple[:error].not_nil!.should contain "ACCESS_REFUSED"
           shovel.terminate
-          shovel.state.should eq "Terminated"
+          shovel.state.to_s.should eq "Terminated"
         end
       end
     end
@@ -515,7 +515,7 @@ describe LavinMQ::Shovel do
           wait_for { s.vhosts["/"].queues["c_q2"].message_count == 10 }
           shovel.details_tuple[:message_count].should eq 10
         end
-        shovel.state.should eq "Running"
+        shovel.state.to_s.should eq "Running"
       end
     end
 
@@ -598,6 +598,67 @@ describe LavinMQ::Shovel do
           q2.get(no_ack: true).try(&.body_io.to_s).should eq "shovel me 2"
           s.vhosts["/"].shovels.empty?.should be_true
         end
+      end
+    end
+
+    it "should pause and resume shovel" do
+      with_amqp_server do |s|
+        vhost = s.vhosts.create("pause:resume:vhost")
+        queue_name = "shovel:pause:resume"
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "#{queue_name}q1",
+          [URI.parse(s.amqp_url)],
+          "#{queue_name}q1",
+          delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
+          direct_user: s.users.direct_user
+        )
+        dest = LavinMQ::Shovel::AMQPDestination.new(
+          "#{queue_name}q2",
+          URI.parse(s.amqp_url),
+          "#{queue_name}q2",
+          direct_user: s.users.direct_user
+        )
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "pause:resume:shovel", vhost)
+        with_channel(s) do |ch|
+          q1, q2 = ShovelSpecHelpers.setup_qs ch, queue_name
+          q1.publish_confirm "shovel me 1", "#{queue_name}q1"
+          q1.publish_confirm "shovel me 2", "#{queue_name}q1"
+          shovel.run
+          q2.get(no_ack: true).try(&.body_io.to_s).should eq "shovel me 1"
+          q2.get(no_ack: true).try(&.body_io.to_s).should eq "shovel me 2"
+          shovel.pause
+          shovel.paused?.should eq true
+
+          q1.publish_confirm "shovel me 3", "#{queue_name}q1"
+          q1.publish_confirm "shovel me 4", "#{queue_name}q1"
+          q2.get(no_ack: true).try(&.body_io.to_s).should eq nil
+
+          spawn shovel.resume
+          wait_for { shovel.running? } # Ensure it gets back to Running state
+          wait_for { shovel.terminated? }
+          q2.get(no_ack: true).try(&.body_io.to_s).should eq "shovel me 3"
+          q2.get(no_ack: true).try(&.body_io.to_s).should eq "shovel me 4"
+          s.vhosts["/"].shovels.empty?.should be_true
+        end
+      end
+    end
+
+    it "should keep paused even on broker restarts" do
+      with_amqp_server do |s|
+        vhost = s.vhosts.create("pause:resume:vhost")
+        shovel_name = "shovel:pause:resume"
+        config = %({
+        "src-uri": "#{s.amqp_url}",
+        "src-queue": "#{shovel_name}_q1",
+        "dest-uri": "#{s.amqp_url}",
+        "dest-queue": "#{shovel_name}_q2" })
+        p = LavinMQ::Parameter.new("shovel", shovel_name, JSON.parse(config))
+        s.vhosts[vhost.name].add_parameter(p)
+        shovel = s.vhosts[vhost.name].shovels[shovel_name]
+        shovel.pause
+        shovel.paused?.should eq true
+        s.restart
+        should_eventually(be_true) { s.vhosts[vhost.name].shovels[shovel.name].paused? }
       end
     end
   end

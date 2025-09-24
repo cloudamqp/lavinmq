@@ -26,9 +26,8 @@ const vhost = window.sessionStorage.getItem('vhost')
 let url = 'api/parameters/shovel'
 let statusUrl = 'api/shovels'
 if (vhost && vhost !== '_all') {
-  const urlEncodedVhost = encodeURIComponent(vhost)
-  url += '/' + urlEncodedVhost
-  statusUrl += '/' + urlEncodedVhost
+  url += HTTP.url`/${vhost}`
+  statusUrl += HTTP.url`/${vhost}`
 }
 
 class ShovelsDataSource extends UrlDataSource {
@@ -58,20 +57,28 @@ const tableOptions = { keyColumns: ['vhost', 'name'], columnSelector: true, data
 Table.renderTable('table', tableOptions, (tr, item, all) => {
   Table.renderCell(tr, 0, item.vhost)
   Table.renderCell(tr, 1, item.name)
-  Table.renderCell(tr, 2, decodeURI(item.value['src-uri'].replace(/:([^:]+)@/, ':***@')))
+  if (Array.isArray(item.value['src-uri'])) {
+    Table.renderCell(tr, 2, item.value['src-uri'].map(uri => decodeURI(uri.replace(/:([^:]+)@/, ':***@'))).join(', '))
+  } else {
+    Table.renderCell(tr, 2, decodeURI(item.value['src-uri'].replace(/:([^:]+)@/, ':***@')))
+  }
   const srcDiv = document.createElement('span')
   if (item.value['src-queue']) {
     srcDiv.textContent = item.value['src-queue']
     srcDiv.appendChild(document.createElement('br'))
     srcDiv.appendChild(document.createElement('small')).textContent = 'queue'
   } else {
-    srcDiv.textContent = item.value['src-queue']
+    srcDiv.textContent = item.value['src-exchange']
     srcDiv.appendChild(document.createElement('br'))
-    srcDiv.appendChild(document.createElement('small')).textContent = 'queue'
+    srcDiv.appendChild(document.createElement('small')).textContent = 'exchange'
   }
   Table.renderCell(tr, 3, srcDiv)
   Table.renderCell(tr, 4, item.value['src-prefetch-count'])
-  Table.renderCell(tr, 5, decodeURI(item.value['dest-uri'].replace(/:([^:]+)@/, ':***@')))
+  if (Array.isArray(item.value['dest-uri'])) {
+    Table.renderCell(tr, 5, item.value['dest-uri'].map(uri => decodeURI(uri.replace(/:([^:]+)@/, ':***@'))).join(', '))
+  } else {
+    Table.renderCell(tr, 5, decodeURI(item.value['dest-uri'].replace(/:([^:]+)@/, ':***@')))
+  }
   const dest = document.createElement('span')
   if (item.value['dest-queue']) {
     dest.textContent = item.value['dest-queue']
@@ -91,33 +98,52 @@ Table.renderTable('table', tableOptions, (tr, item, all) => {
   Table.renderCell(tr, 10, renderState(item))
   const btns = document.createElement('div')
   btns.classList.add('buttons')
-  const deleteBtn = document.createElement('button')
-  deleteBtn.classList.add('btn-danger')
-  deleteBtn.textContent = 'Delete'
-  deleteBtn.onclick = function () {
-    const name = encodeURIComponent(item.name)
-    const vhost = encodeURIComponent(item.vhost)
-    const url = 'api/parameters/shovel/' + vhost + '/' + name
-    if (window.confirm('Are you sure? This shovel can not be restored after deletion.')) {
-      HTTP.request('DELETE', url)
-        .then(() => {
-          tr.parentNode.removeChild(tr)
-          DOM.toast(`Shovel ${item.name} deleted`)
-        })
+  const deleteBtn = DOM.button.delete({
+    click: function () {
+      const url = HTTP.url`api/parameters/shovel/${item.vhost}/${item.name}`
+      if (window.confirm('Are you sure? This shovel can not be restored after deletion.')) {
+        HTTP.request('DELETE', url)
+          .then(() => {
+            tr.parentNode.removeChild(tr)
+            DOM.toast(`Shovel ${item.name} deleted`)
+          })
+      }
     }
-  }
-  const editBtn = document.createElement('button')
-  editBtn.classList.add('btn-secondary')
-  editBtn.textContent = 'Edit'
-  editBtn.onclick = function () {
-    Form.editItem('#createShovel', item, {
-      'src-type': (item) => item.value['src-queue'] ? 'queue' : 'exchange',
-      'dest-type': (item) => item.value['dest-queue'] ? 'queue' : 'exchange',
-      'src-endpoint': (item) => item.value['src-queue'] || item.value['src-exchange'],
-      'dest-endpoint': (item) => item.value['dest-queue'] || item.value['dest-exchange']
-    })
-  }
-  btns.append(editBtn, deleteBtn)
+  })
+  const editBtn = DOM.button.edit({
+    click: function () {
+      Form.editItem('#createShovel', item, {
+        'src-type': (item) => item.value['src-queue'] ? 'queue' : 'exchange',
+        'dest-type': (item) => item.value['dest-queue'] ? 'queue' : 'exchange',
+        'src-endpoint': (item) => item.value['src-queue'] || item.value['src-exchange'],
+        'dest-endpoint': (item) => item.value['dest-queue'] || item.value['dest-exchange']
+      })
+    }
+  })
+
+  const pauseLabel = ['Running', 'Starting'].includes(item.state) ? 'Pause' : 'Resume'
+  const pauseBtn = DOM.button.edit({
+    click: function () {
+      const isRunning = item.state === 'Running'
+      const action = isRunning ? 'pause' : 'resume'
+
+      const url = HTTP.url`api/shovels/${item.vhost}/${item.name}/${action}`
+
+      if (window.confirm('Are you sure?')) {
+        HTTP.request('PUT', url)
+          .then(() => {
+            dataSource.reload()
+            DOM.toast(`Shovel ${item.name} ${isRunning ? 'paused' : 'resumed'}`)
+          })
+          .catch((err) => {
+            console.error(err)
+            DOM.toast(`Shovel ${item.name} failed to ${isRunning ? 'pause' : 'resume'}`, 'error')
+          })
+      }
+    },
+    text: pauseLabel
+  })
+  btns.append(editBtn, pauseBtn, deleteBtn)
   Table.renderCell(tr, 11, btns, 'right')
 })
 
@@ -135,9 +161,9 @@ document.querySelector('[name=dest-uri]').addEventListener('change', function ()
 document.querySelector('#createShovel').addEventListener('submit', function (evt) {
   evt.preventDefault()
   const data = new window.FormData(this)
-  const name = encodeURIComponent(data.get('name').trim())
-  const vhost = encodeURIComponent(data.get('vhost'))
-  const url = 'api/parameters/shovel/' + vhost + '/' + name
+  const name = data.get('name').trim()
+  const vhost = data.get('vhost')
+  const url = HTTP.url`api/parameters/shovel/${vhost}/${name}`
   const body = {
     value: {
       'src-uri': data.get('src-uri'),

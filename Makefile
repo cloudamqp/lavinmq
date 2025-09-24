@@ -1,11 +1,13 @@
 BINS := bin/lavinmq bin/lavinmqctl bin/lavinmqperf
-SOURCES := $(shell find src/lavinmq src/stdlib -name '*.cr' 2> /dev/null)
+SOURCES := $(shell find src/ -name '*.cr' 2> /dev/null)
+PERF_SOURCES := $(shell find src/lavinmqperf -name '*.cr' 2> /dev/null)
 VIEW_SOURCES := $(wildcard views/*.ecr)
 VIEW_TARGETS := $(patsubst views/%.ecr,static/views/%.html,$(VIEW_SOURCES))
 VIEW_PARTIALS := $(wildcard views/partials/*.ecr)
-JS := static/js/lib/chunks/helpers.segment.js static/js/lib/chart.js static/js/lib/amqp-websocket-client.mjs static/js/lib/amqp-websocket-client.mjs.map static/js/lib/luxon.js static/js/lib/chartjs-adapter-luxon.esm.js static/js/lib/elements-8.2.0.js static/js/lib/elements-8.2.0.css
-CRYSTAL_FLAGS := --release --stats
-override CRYSTAL_FLAGS += --error-on-warnings --link-flags=-pie
+JS := static/js/lib/chunks/helpers.segment.js static/js/lib/chart.js static/js/lib/luxon.js static/js/lib/chartjs-adapter-luxon.esm.js static/js/lib/elements-8.2.0.js static/js/lib/elements-8.2.0.css
+LDFLAGS := $(shell (dpkg-buildflags --get LDFLAGS || rpm -E "%{build_ldflags}" || echo "-pie") 2>/dev/null)
+CRYSTAL_FLAGS := --release
+override CRYSTAL_FLAGS += --stats --error-on-warnings -Dpreview_mt -Dexecution_context --link-flags="$(LDFLAGS)"
 
 .DEFAULT_GOAL := all
 
@@ -50,41 +52,47 @@ bin/%: src/%.cr $(SOURCES) lib $(JS) $(DOCS) | bin
 bin/%-debug: src/%.cr $(SOURCES) lib $(JS) $(DOCS) | bin
 	crystal build $< -o $@ --debug $(CRYSTAL_FLAGS)
 
-bin/lavinmqperf: src/lavinmqperf.cr lib | bin
-	crystal build $< -o $@ -Dpreview_mt $(CRYSTAL_FLAGS)
-
 bin/lavinmqctl: src/lavinmqctl.cr lib | bin
 	crystal build $< -o $@ -Dgc_none $(CRYSTAL_FLAGS)
 
 lib: shard.yml shard.lock
-	shards install --production $(if $(nocolor),--no-color)
+	shards install --production
 
 bin static/js/lib man1 static/js/lib/chunks:
 	mkdir -p $@
 
-static/js/lib/%: | static/js/lib
-	curl --retry 5 -sLo $@ https://github.com/cloudamqp/amqp-client.js/releases/download/v3.1.1/$(@F)
-
 static/js/lib/chart.js: | static/js/lib
-	curl --retry 5 -sL https://github.com/chartjs/Chart.js/releases/download/v4.0.1/chart.js-4.0.1.tgz | \
-		tar -zxOf- package/dist/chart.js > $@
+	curl --fail --retry 5 -sL -o chart.js.tgz https://github.com/chartjs/Chart.js/releases/download/v4.0.1/chart.js-4.0.1.tgz && \
+		echo "461dae2edc0eda7beeb16c7030ab630ab5129aedd3fc6de9a036f6dfe488556f chart.js.tgz" | sha256sum -c - && \
+		tar -zxOf chart.js.tgz package/dist/chart.js > $@ ; \
+		(rm -f chart.js.tgz && echo "removed chart.js.tgz")
 
 static/js/lib/chunks/helpers.segment.js: | static/js/lib/chunks
-	curl --retry 5 -sL https://github.com/chartjs/Chart.js/releases/download/v4.0.1/chart.js-4.0.1.tgz | \
-		tar -zxOf- package/dist/chunks/helpers.segment.js > $@
+	curl --fail --retry 5 -sL -o chart.js.tgz https://github.com/chartjs/Chart.js/releases/download/v4.0.1/chart.js-4.0.1.tgz && \
+		echo "461dae2edc0eda7beeb16c7030ab630ab5129aedd3fc6de9a036f6dfe488556f chart.js.tgz" | sha256sum -c - && \
+		tar -zxOf chart.js.tgz package/dist/chunks/helpers.segment.js > $@ ; \
+		(rm -f chart.js.tgz && echo "removed chart.js.tgz")
 
 static/js/lib/luxon.js: | static/js/lib
-	curl --retry 5 -sLo $@ https://moment.github.io/luxon/es6/luxon.js
+	curl --fail --retry 5 -sLo $@ https://moment.github.io/luxon/es6/luxon.mjs && \
+		echo "b495ad5cabea3439d04387e6622f2c3fa81d319424d9d76d9e7f874ac5a0807a $@" | \
+		sha256sum -c - || (echo "SHA256 checksum mismatch for $@"; rm -f $@; exit 1)
 
 static/js/lib/chartjs-adapter-luxon.esm.js: | static/js/lib
-	curl --retry 5 -sLo $@ https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.esm.js
-	sed -i'' -e "s|\(import { _adapters } from\).*|\1 './chart.js'|; s|\(import { DateTime } from\).*|\1 './luxon.js'|" $@
+	curl --fail --retry 5 -sLo $@ https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.esm.js && \
+	echo "fa02364f717191a48067215aaf9ff93b54ff52e2de64704270742e1d15d1b6df $@" | sha256sum -c - && \
+	sed -i'' -e "s|\(import { _adapters } from\).*|\1 './chart.js'|; s|\(import { DateTime } from\).*|\1 './luxon.js'|" $@ || \
+	(echo "SHA256 checksum mismatch for $@"; rm -f $@; exit 1) ;
 
 static/js/lib/elements-8.2.0.js: | static/js/lib
-	curl --retry 5 -sLo $@ https://unpkg.com/@stoplight/elements@8.2.0/web-components.min.js
+	curl --fail --retry 5 -sLo $@ https://unpkg.com/@stoplight/elements@8.2.0/web-components.min.js && \
+	echo "598862da6d551769ebad9d61d4e3037535de573a13d3e0bd1ded4c5fc65c5885 $@" | sha256sum -c - || \
+	(echo "SHA256 checksum mismatch for $@"; rm -f $@; exit 1)
 
 static/js/lib/elements-8.2.0.css: | static/js/lib
-	curl --retry 5 -sLo $@ https://unpkg.com/@stoplight/elements@8.2.0/styles.min.css
+	curl --fail --retry 5 -sLo $@ https://unpkg.com/@stoplight/elements@8.2.0/styles.min.css && \
+	echo "119784e23ffc39b6fa3fdb3df93f391f8250e8af141b78dfc3b6bed86079f93b $@" | sha256sum -c - || \
+	(echo "SHA256 checksum mismatch for $@"; rm -f $@; exit 1)
 
 man1/lavinmq.1: bin/lavinmq | man1
 	help2man -Nn "fast and advanced message queue server" $< -o $@
@@ -108,7 +116,7 @@ deps: js lib
 
 .PHONY: lint
 lint: lib
-	lib/ameba/bin/ameba src/
+	lib/ameba/bin/ameba src/ spec/
 
 .PHONY: lint-js
 lint-js:
@@ -120,7 +128,7 @@ lint-openapi:
 
 .PHONY: test
 test: lib
-	crystal spec --order random $(if $(nocolor),--no-color) --verbose
+	crystal spec --order random --verbose -Dpreview_mt -Dexecution_context $(SPEC)
 
 .PHONY: format
 format:
@@ -143,7 +151,8 @@ install: $(BINS) $(MANPAGES) extras/lavinmq.ini extras/lavinmq.service README.md
 	install -D -m 0644 extras/lavinmq.service $(DESTDIR)$(UNITDIR)/lavinmq.service
 	install -D -m 0644 -t $(DESTDIR)$(DOCDIR)/lavinmq README.md NOTICE
 	install -D -m 0644 CHANGELOG.md $(DESTDIR)$(DOCDIR)/lavinmq/changelog
-	install -d -m 0755 $(DESTDIR)$(SHAREDSTATEDIR)/lavinmq
+	getent passwd lavinmq >/dev/null || useradd --system --user-group --home $(SHAREDSTATEDIR)/lavinmq lavinmq
+	install -d -m 0750 -o lavinmq -g lavinmq $(DESTDIR)$(SHAREDSTATEDIR)/lavinmq
 
 .PHONY: uninstall
 uninstall:
@@ -151,16 +160,18 @@ uninstall:
 	$(RM) $(DESTDIR)$(MANDIR)/man1/lavinmq{,ctl,perf}.1
 	$(RM) $(DESTDIR)$(SYSCONFDIR)/lavinmq/lavinmq.ini
 	$(RM) $(DESTDIR)$(UNITDIR)/lavinmq.service
-	$(RM) $(DESTDIR)$(DOCDIR)/{lavinmq,README.md,CHANGELOG.md,NOTICE}
-	$(RM) $(DESTDIR)$(SHAREDSTATEDIR)/lavinmq
+	$(RM) -r $(DESTDIR)$(DOCDIR)/lavinmq
 
 .PHONY: rpm
 rpm:
 	rpmdev-setuptree
 	git archive --prefix lavinmq/ --output ~/rpmbuild/SOURCES/lavinmq.tar.gz HEAD
-	sed -E "s/^(Version:).*/\1 $(shell ./rpm-version)/" lavinmq.spec > ~/rpmbuild/SPECS/lavinmq.spec
-	rpmbuild -bb ~/rpmbuild/SPECS/lavinmq.spec
+	env version="$(shell ./packaging/rpm/rpm-version)" rpmbuild -bb packaging/rpm/lavinmq.spec
 
 .PHONY: clean
 clean:
 	$(RM) $(BINS) $(DOCS) $(JS) $(MANPAGES) $(VIEW_TARGETS)
+
+.PHONY: watch
+watch:
+	while true; do inotifywait -qqr -e modify -e create -e delete src/ && $(MAKE); done

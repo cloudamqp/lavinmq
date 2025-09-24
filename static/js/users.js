@@ -8,7 +8,7 @@ HTTP.request('GET', 'api/permissions').then(permissions => {
   const tableOptions = {
     url: 'api/users',
     keyColumns: ['vhost', 'name'],
-    interval: 0,
+    autoReloadTimeout: 0,
     pagination: true,
     columnSelector: true,
     search: true
@@ -16,7 +16,7 @@ HTTP.request('GET', 'api/permissions').then(permissions => {
   usersTable = Table.renderTable('users', tableOptions, (tr, item, all) => {
     if (all) {
       const userLink = document.createElement('a')
-      userLink.href = 'user#name=' + encodeURIComponent(item.name)
+      userLink.href = HTTP.url`user#name=${item.name}`
       userLink.textContent = item.name
       Table.renderCell(tr, 0, userLink)
     }
@@ -33,8 +33,8 @@ HTTP.request('GET', 'api/permissions').then(permissions => {
 document.querySelector('#createUser').addEventListener('submit', function (evt) {
   evt.preventDefault()
   const data = new window.FormData(this)
-  const username = encodeURIComponent(data.get('username').trim())
-  const url = 'api/users/' + username
+  const username = data.get('username').trim()
+  const url = HTTP.url`api/users/${username}`
   let toastText = `User created: '${username}'`
   const trs = document.querySelectorAll('#table tbody tr')
   trs.forEach((tr) => {
@@ -58,6 +58,25 @@ document.querySelector('#createUser').addEventListener('submit', function (evt) 
     })
 })
 
-document.querySelector('#dataTags').onclick = e => {
+document.querySelector('#dataTags').addEventListener('click', e => {
   Helpers.argumentHelper('createUser', 'tags', e)
+})
+
+document.querySelector('#generatePassword').addEventListener('click', generatePassword)
+
+document.querySelector('.password-toggle').addEventListener('click', togglePasswordAsPlainText)
+
+function generatePassword () {
+  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+-=[]{}|;:,.<>?'
+  const password = Array.from(window.crypto.getRandomValues(new Uint8Array(16)), x => chars[x % chars.length]).join('')
+  const input = document.querySelector('#createUser input[name="password"]')
+  input.value = password
+  input.type = 'text'
+  setTimeout(() => { input.type = 'password' }, 500)
+}
+
+function togglePasswordAsPlainText () {
+  const input = document.querySelector('#createUser input[name="password"]')
+  const isPassword = input.type === 'password'
+  input.type = isPassword ? 'text' : 'password'
 }

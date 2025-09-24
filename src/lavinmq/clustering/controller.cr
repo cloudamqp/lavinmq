@@ -17,28 +17,35 @@ class LavinMQ::Clustering::Controller
     @id = clustering_id
     @advertised_uri = @config.clustering_advertised_uri ||
                       "tcp://#{System.hostname}:#{@config.clustering_port}"
+    @is_leader = BoolChannel.new(false)
   end
 
   # This method is called by the Launcher#run.
   # The block will be yielded when the controller's prerequisites for a leader
   # to start are met, i.e when the current node has been elected leader.
   # The method is blocking.
+
   def run(&)
+    lease = @lease = @etcd.lease_grant(id: @id)
     spawn(follow_leader, name: "Follower monitor")
     wait_to_be_insync
-    @lease = lease = @etcd.elect("#{@config.clustering_etcd_prefix}/leader", @advertised_uri) # blocks until becoming leader
+    @etcd.election_campaign("#{@config.clustering_etcd_prefix}/leader", @advertised_uri, lease: @id) # blocks until becoming leader
+    @is_leader.set(true)
     @repli_client.try &.close
     # TODO: make sure we still are in the ISR set
     yield
     loop do
-      if lease.wait(30.seconds)
-        break if @stopped
-        Log.fatal { "Lost cluster leadership" }
-        exit 3
-      else
-        GC.collect
-      end
+      lease.wait(30.seconds)
+      GC.collect
     end
+  rescue Etcd::Lease::Lost
+    unless @stopped
+      Log.fatal { "Lost cluster leadership" }
+      exit 3
+    end
+  rescue Etcd::LeaseAlreadyExists
+    Log.fatal { "Cluster ID #{@id.to_s(36)} used by another node" }
+    exit 3
   end
 
   @stopped = false
@@ -58,21 +65,35 @@ class LavinMQ::Clustering::Controller
       id = rand(Int32::MAX)
       Dir.mkdir_p @config.data_dir
       File.write(id_file_path, id.to_s(36))
+      Log.info { "Generated new clustering ID" }
     end
-    Log.info { "ID: #{id.to_s(36)}" }
     id
   end
 
   # Replicate from the leader
   # Listens for leader change events
   private def follow_leader
-    repli_client = nil
     @etcd.elect_listen("#{@config.clustering_etcd_prefix}/leader") do |uri|
-      next if repli_client.try &.follows?(uri) # if lost connection to etcd we continue follow the leader as is
-      repli_client.try &.close
+      if repli_client = @repli_client # is currently following a leader
+        if repli_client.follows? uri
+          next # if lost connection to etcd we continue follow the leader as is
+        else
+          repli_client.close
+        end
+      end
+      if uri.nil? # no leader yet
+        Log.warn { "No leader available" }
+        next
+      end
       if uri == @advertised_uri # if this instance has become leader
-        Log.debug { "Is leader, don't replicate from self" }
-        return
+        select
+        when @is_leader.when_true.receive
+          Log.debug { "Is leader, don't replicate from self" }
+          @is_leader.close
+          return
+        when timeout(1.second)
+          raise Error.new("Another node in the cluster is advertising the same URI")
+        end
       end
       Log.info { "Leader: #{uri}" }
       key = "#{@config.clustering_etcd_prefix}/clustering_secret"
@@ -84,10 +105,13 @@ class LavinMQ::Clustering::Controller
           break
         end
       end
-      @repli_client = repli_client = r = Clustering::Client.new(@config, @id, secret)
+      @repli_client = r = Clustering::Client.new(@config, @id, secret)
       spawn r.follow(uri), name: "Clustering client #{uri}"
       SystemD.notify_ready
     end
+  rescue ex : Error
+    Log.fatal { ex.message }
+    exit 36 # 36 for CF (Cluster Follower)
   rescue ex
     Log.fatal(exception: ex) { "Unhandled exception while following leader" }
     exit 36 # 36 for CF (Cluster Follower)
@@ -105,4 +129,6 @@ class LavinMQ::Clustering::Controller
       end
     end
   end
+
+  class Error < Exception; end
 end

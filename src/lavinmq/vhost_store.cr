@@ -1,13 +1,21 @@
 require "json"
 require "./vhost"
-require "./user"
+require "./auth/user"
+require "./observable"
 
 module LavinMQ
   class VHostStore
+    enum Event
+      Added
+      Deleted
+      Closed
+    end
     include Enumerable({String, VHost})
+    include Observable(Event)
+
     Log = LavinMQ::Log.for "vhost_store"
 
-    def initialize(@data_dir : String, @users : UserStore, @replicator : Clustering::Replicator)
+    def initialize(@data_dir : String, @users : Auth::UserStore, @replicator : Clustering::Replicator)
       @vhosts = Hash(String, VHost).new
       load!
     end
@@ -20,32 +28,38 @@ module LavinMQ
       end
     end
 
-    def create(name : String, user : User = @users.default_user, description = "", tags = Array(String).new(0), save : Bool = true)
+    def create(name : String, user : Auth::User = @users.default_user, description = "", tags = Array(String).new(0), save : Bool = true)
       if v = @vhosts[name]?
         return v
       end
       vhost = VHost.new(name, @data_dir, @users, @replicator, description, tags)
       Log.info { "Created vhost #{name}" }
       @users.add_permission(user.name, name, /.*/, /.*/, /.*/)
-      @users.add_permission(UserStore::DIRECT_USER, name, /.*/, /.*/, /.*/)
+      @users.add_permission(Auth::UserStore::DIRECT_USER, name, /.*/, /.*/, /.*/)
       @vhosts[name] = vhost
       save! if save
+      notify_observers(Event::Added, name)
       vhost
     end
 
-    def delete(name) : Nil
+    def delete(name) : VHost?
       if vhost = @vhosts.delete name
-        Log.info { "Deleted vhost #{name}" }
         @users.rm_vhost_permissions_for_all(name)
         vhost.delete
+        notify_observers(Event::Deleted, name)
+        Log.info { "Deleted vhost #{name}" }
         save!
+        vhost
       end
     end
 
     def close
       WaitGroup.wait do |wg|
         @vhosts.each_value do |vhost|
-          wg.spawn &->vhost.close
+          wg.spawn do
+            vhost.close
+            notify_observers(Event::Closed, vhost.name)
+          end
         end
       end
     end
@@ -68,7 +82,7 @@ module LavinMQ
             tags = vhost["tags"]?.try(&.as_a.map(&.to_s)) || [] of String
             description = vhost["description"]?.try &.as_s || ""
             @vhosts[name] = VHost.new(name, @data_dir, @users, @replicator, description, tags)
-            @users.add_permission(UserStore::DIRECT_USER, name, /.*/, /.*/, /.*/)
+            @users.add_permission(Auth::UserStore::DIRECT_USER, name, /.*/, /.*/, /.*/)
           end
           @replicator.register_file(f)
         end
@@ -77,6 +91,9 @@ module LavinMQ
         create("/")
       end
       Log.debug { "#{size} vhosts loaded" }
+    rescue ex
+      Log.error(exception: ex) { "Failed to load vhosts" }
+      raise ex
     end
 
     private def save!

@@ -63,15 +63,13 @@ const channelsDataSource = new UrlDataSource(connectionUrl + '/channels', { useQ
 const tableOptions = {
   dataSource: channelsDataSource,
   keyColumns: ['name'],
-  interval: 5000,
   countId: 'table-count'
 }
 Table.renderTable('table', tableOptions, function (tr, item, all) {
   if (all) {
     const channelLink = document.createElement('a')
-    const urlEncodedChannel = encodeURIComponent(item.name)
     channelLink.textContent = item.name
-    channelLink.href = `channel#name=${urlEncodedChannel}`
+    channelLink.href = HTTP.url`channel#name=${item.name}`
     Table.renderCell(tr, 0, channelLink)
     Table.renderCell(tr, 1, item.vhost)
     Table.renderCell(tr, 2, item.username)

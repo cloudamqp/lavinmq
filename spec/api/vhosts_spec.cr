@@ -37,7 +37,8 @@ describe LavinMQ::HTTP::VHostsController do
       end
     end
   end
-  describe "GET /api/vhosts/vhost" do
+
+  describe "GET /api/vhosts/:vhost" do
     it "should return vhost" do
       with_http_server do |http, _|
         response = http.get("/api/vhosts/%2f")
@@ -52,6 +53,7 @@ describe LavinMQ::HTTP::VHostsController do
       end
     end
   end
+
   describe "PUT /api/vhosts/vhost" do
     it "should create vhost" do
       with_http_server do |http, _|
@@ -93,12 +95,20 @@ describe LavinMQ::HTTP::VHostsController do
       end
     end
   end
-  describe "DELETE /api/vhosts/vhost" do
-    it "should delete vhost" do
+
+  describe "DELETE /api/vhosts/:vhost" do
+    it "should return 204 when deleting vhost" do
       with_http_server do |http, s|
         s.vhosts.create("test")
         response = http.delete("/api/vhosts/test")
         response.status_code.should eq 204
+      end
+    end
+
+    it "should return 404 when trying to delete non existing vhost" do
+      with_http_server do |http, _|
+        response = http.delete("/api/vhosts/nonexisting")
+        response.status_code.should eq 404
       end
     end
 
@@ -111,6 +121,7 @@ describe LavinMQ::HTTP::VHostsController do
       end
     end
   end
+
   describe "GET /api/vhosts/vhost/permissions" do
     it "should return permissions for vhosts" do
       with_http_server do |http, _|

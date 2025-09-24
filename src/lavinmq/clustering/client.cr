@@ -1,6 +1,7 @@
-require "../clustering"
-require "../clustering/proxy"
 require "../data_dir_lock"
+require "../clustering"
+require "./checksums"
+require "./proxy"
 require "lz4"
 
 module LavinMQ
@@ -11,8 +12,10 @@ module LavinMQ
       @closed = false
       @amqp_proxy : Proxy?
       @http_proxy : Proxy?
+      @mqtt_proxy : Proxy?
       @unix_amqp_proxy : Proxy?
       @unix_http_proxy : Proxy?
+      @unix_mqtt_proxy : Proxy?
       @socket : TCPSocket?
       @streamed_bytes = 0_u64
 
@@ -27,12 +30,16 @@ module LavinMQ
         Dir.mkdir_p @data_dir
         @data_dir_lock = DataDirLock.new(@data_dir).tap &.acquire
         @backup_dir = File.join(@data_dir, "backups", Time.utc.to_rfc3339)
+        @checksums = Checksums.new(@data_dir)
+        @checksums.restore
 
         if proxy
           @amqp_proxy = Proxy.new(@config.amqp_bind, @config.amqp_port)
           @http_proxy = Proxy.new(@config.http_bind, @config.http_port)
+          @mqtt_proxy = Proxy.new(@config.mqtt_bind, @config.mqtt_port)
           @unix_amqp_proxy = Proxy.new(@config.unix_path) unless @config.unix_path.empty?
           @unix_http_proxy = Proxy.new(@config.http_unix_path) unless @config.http_unix_path.empty?
+          @unix_mqtt_proxy = Proxy.new(@config.mqtt_unix_path) unless @config.mqtt_unix_path.empty?
         end
         HTTP::Server.follower_internal_socket_http_server
       end
@@ -57,16 +64,22 @@ module LavinMQ
         if http_proxy = @http_proxy
           spawn http_proxy.forward_to(host, @config.http_port), name: "HTTP proxy"
         end
+        if mqtt_proxy = @mqtt_proxy
+          spawn mqtt_proxy.forward_to(host, @config.mqtt_port), name: "MQTT proxy"
+        end
         if unix_amqp_proxy = @unix_amqp_proxy
           spawn unix_amqp_proxy.forward_to(host, @config.amqp_port), name: "AMQP proxy"
         end
         if unix_http_proxy = @unix_http_proxy
           spawn unix_http_proxy.forward_to(host, @config.http_port), name: "HTTP proxy"
         end
+        if unix_mqtt_proxy = @unix_mqtt_proxy
+          spawn unix_mqtt_proxy.forward_to(host, @config.mqtt_port), name: "MQTT proxy"
+        end
         loop do
           @socket = socket = TCPSocket.new(host, port)
           socket.sync = true
-          socket.read_buffering = false
+          socket.read_buffering = false # use lz4 buffering
           lz4 = Compress::LZ4::Reader.new(socket)
           sync(socket, lz4)
           Log.info { "Streaming changes" }
@@ -78,6 +91,10 @@ module LavinMQ
           Log.info { "Disconnected from server #{host}:#{port} (#{ex}), retrying..." }
           sleep 1.seconds
         end
+      end
+
+      def follows?(_nil : Nil) : Bool
+        false
       end
 
       def follows?(uri : String) : Bool
@@ -118,9 +135,8 @@ module LavinMQ
         Log.info { "Waiting for list of files" }
         sha1 = Digest::SHA1.new
         remote_hash = Bytes.new(sha1.digest_size)
-        local_hash = Bytes.new(sha1.digest_size)
         files_to_delete = ls_r(@data_dir)
-        missing_files = Array(String).new
+        requested_files = Array(String).new
         loop do
           filename_len = lz4.read_bytes Int32, IO::ByteFormat::LittleEndian
           break if filename_len.zero?
@@ -130,25 +146,34 @@ module LavinMQ
           path = File.join(@data_dir, filename)
           files_to_delete.delete(path)
           if File.exists? path
-            sha1.file(path)
-            sha1.final(local_hash)
-            sha1.reset
+            unless local_hash = @checksums[filename]?
+              Log.info { "Calculating checksum for #{filename}" }
+              sha1.file(path)
+              local_hash = sha1.final
+              @checksums[filename] = local_hash
+              sha1.reset
+              Fiber.yield # CPU bound, so allow other fibers to run
+            end
             if local_hash != remote_hash
               Log.info { "Mismatching hash: #{path}" }
               move_to_backup path
-              missing_files << filename
+              requested_files << filename
+              request_file(filename, socket)
+            else
+              Log.info { "Matching hash: #{path}" }
             end
           else
-            missing_files << filename
+            requested_files << filename
+            request_file(filename, socket)
           end
         end
+        end_of_file_list(socket)
         Log.info { "List of files received" }
         files_to_delete.each do |path|
           Log.info { "File not on leader: #{path}" }
           move_to_backup path
         end
-        spawn(request_missing_files(missing_files, socket), name: "Request missing files")
-        missing_files.each do |filename|
+        requested_files.each do |filename|
           file_from_socket(filename, lz4)
         end
       end
@@ -180,23 +205,36 @@ module LavinMQ
         end
       end
 
-      private def request_missing_files(missing_files, socket)
-        missing_files.each do |filename|
-          Log.info { "Requesting #{filename}" }
-          socket.write_bytes filename.bytesize, IO::ByteFormat::LittleEndian
-          socket.write filename.to_slice
-        end
-        socket.write_bytes 0i32
+      private def request_file(filename, socket)
+        Log.info { "Requesting #{filename}" }
+        socket.write_bytes filename.bytesize, IO::ByteFormat::LittleEndian
+        socket.write filename.to_slice
+      end
+
+      private def end_of_file_list(socket)
+        socket.write_bytes 0, IO::ByteFormat::LittleEndian
       end
 
       private def file_from_socket(filename, lz4)
+        Log.debug { "Waiting for #{filename}" }
         path = File.join(@data_dir, filename)
         Dir.mkdir_p File.dirname(path)
         length = lz4.read_bytes Int64, IO::ByteFormat::LittleEndian
+        Log.debug { "Receiving #{filename}, #{length.humanize_bytes}" }
         File.open(path, "w") do |f|
-          IO.copy(lz4, f, length) == length || raise IO::EOFError.new
+          buffer = uninitialized UInt8[65536]
+          remaining = length
+          sha1 = Digest::SHA1.new
+          while (len = lz4.read(buffer.to_slice[0, Math.min(buffer.size, Math.max(remaining, 0))])) > 0
+            bytes = buffer.to_slice[0, len]
+            f.write bytes
+            sha1.update bytes
+            remaining &-= len
+          end
+          remaining.zero? || raise IO::EOFError.new
+          @checksums[filename] = sha1.final
         end
-        Log.info { "Received #{filename}, #{length} bytes" }
+        Log.info { "Received #{filename}, #{length.humanize_bytes}" }
       end
 
       private def stream_changes(socket, lz4)
@@ -211,23 +249,11 @@ module LavinMQ
           len = lz4.read_bytes Int64, IO::ByteFormat::LittleEndian
           case len
           when .negative? # append bytes to file
-            Log.debug { "Appending #{len.abs} bytes to #{filename}" }
-            f = @files[filename]
-            IO.copy(lz4, f, len.abs) == len.abs || raise IO::EOFError.new("Full append not received")
+            append(filename, len, lz4)
           when .zero? # file is deleted
-            Log.debug { "Deleting #{filename}" }
-            if f = @files.delete(filename)
-              f.delete
-              f.close
-            else
-              File.delete? File.join(@data_dir, filename)
-            end
+            delete(filename)
           when .positive? # replace file
-            Log.debug { "Replacing file #{filename} (#{len} bytes)" }
-            f = @files["#{filename}.tmp"]
-            IO.copy(lz4, f, len) == len || raise IO::EOFError.new("Full file not received")
-            f.rename f.path[0..-5]
-            @files.delete("#{filename}.tmp").try &.close
+            replace(filename, len, lz4)
           end
           ack_bytes = len.abs + sizeof(Int64) + filename_len + sizeof(Int32)
           @streamed_bytes &+= ack_bytes
@@ -235,6 +261,34 @@ module LavinMQ
         end
       ensure
         acks.try &.close
+      end
+
+      private def append(filename, len, lz4)
+        Log.debug { "Appending #{len.abs} bytes to #{filename}" }
+        f = @files[filename]
+        IO.copy(lz4, f, len.abs) == len.abs || raise IO::EOFError.new("Full append not received")
+      end
+
+      private def delete(filename)
+        Log.debug { "Deleting #{filename}" }
+        if f = @files.delete(filename)
+          f.delete
+          f.close
+        else
+          File.delete? File.join(@data_dir, filename)
+        end
+      end
+
+      private def replace(filename, len, lz4)
+        Log.debug { "Replacing file #{filename} (#{len} bytes)" }
+        @files.delete(filename).try &.close
+        path = File.join(@data_dir, "#{filename}.tmp")
+        Dir.mkdir_p File.dirname(path)
+        File.open(path, "w") do |f|
+          f.sync = true
+          IO.copy(lz4, f, len) == len || raise IO::EOFError.new("Full file not received")
+          f.rename f.path[0..-5]
+        end
       end
 
       # Concatenate as many acks as possible to generate few TCP packets
@@ -277,9 +331,12 @@ module LavinMQ
         @closed = true
         @amqp_proxy.try &.close
         @http_proxy.try &.close
+        @mqtt_proxy.try &.close
         @unix_amqp_proxy.try &.close
         @unix_http_proxy.try &.close
+        @unix_mqtt_proxy.try &.close
         @files.each_value &.close
+        @checksums.store
         @data_dir_lock.release
         @socket.try &.close
       end

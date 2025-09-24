@@ -15,7 +15,7 @@ on:
     branches:
       - main
     tags:
-      - 'v*'
+      - v*
     paths:
       - .github/workflows/docker.yml
       - Makefile
@@ -25,6 +25,7 @@ on:
       - static/**
       - views/**
       - openapi/**
+  workflow_dispatch:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -44,9 +45,10 @@ jobs:
         with:
           images: cloudamqp/lavinmq
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=semver,pattern={{version}}
+            type=ref,event=branch
             type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
 
       - name: Set up Depot CLI
         uses: depot/setup-action@v1
@@ -63,6 +65,8 @@ jobs:
           platforms: linux/amd64,linux/arm64
           pull: true
           push: true
+          sbom: true
+          provenance: mode=max
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |

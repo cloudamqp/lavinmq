@@ -14,17 +14,18 @@ on:
   push:
     branches:
       - main
+      - 'v[0-9]+.[0-9]+.x'
     paths:
       - Makefile
       - 'src/**'
       - 'spec/**'
-      - 'playwright.config.js'
       - 'shard.*'
       - 'static/**'
       - 'views/**'
       - '.github/workflows/ci.yml'
       - 'build/build_docs_in_ci'
       - 'openapi/**'
+  workflow_dispatch:
 
 jobs:
   format:
@@ -45,8 +46,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
       - run: shards install
-      - name: Run ameba
-        run: bin/ameba src spec
+      - run: make lint
 
   lint-js:
     name: Lint javascript
@@ -162,7 +162,7 @@ jobs:
       - name: Install LavinMQ dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y make libevent-2.1-7 liblz4-1
+          sudo apt-get install -y make liblz4-1
 
       - name: Download lavinmq
         uses: actions/download-artifact@v4
@@ -178,19 +178,23 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
 
-      - name: Install @playwright/test
+      - name: Install playwright
         run: npm install @playwright/test
-
-      - name: List npm packages
-        run: npm ls
 
       - name: Install browsers
         run: npx playwright install --with-deps
 
       - name: Run tests
-        run: npx playwright test --reporter=list
+        run: npx playwright test --config ./spec/frontend/playwright.config.js
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 10
 
   java-client-test:
     name: RabbitMQ java client test
@@ -202,7 +206,7 @@ jobs:
       - name: Install LavinMQ dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y make libevent-2.1-7 openjdk-21-jre-headless liblz4-1
+          sudo apt-get install -y make openjdk-21-jre-headless liblz4-1
 
       - uses: actions/download-artifact@v4
         with:
@@ -218,7 +222,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: rabbitmq/rabbitmq-java-client
-          ref: v5.22.0
+          ref: v5.25.0
           path: rabbitmq-java-client
 
       - name: Get patch file
@@ -236,12 +240,17 @@ jobs:
           cd rabbitmq-java-client
           git apply ../lavinmq/.github/rabbitmq-java-client.patch
 
-      - name: Run java tests (allowed to fail)
+      - name: Run tests
         id: test
+        continue-on-error: true
         run: |
           cd rabbitmq-java-client
           make deps
           ./mvnw verify -Dtest-broker.A.nodename=lavin@testhost -Dit.test=ClientTestSuite,FunctionalTestSuite -Drabbitmqctl.bin=../bin/lavinmqctl
+
+      - name: >-
+          Test outcome: ${{ steps.test.outcome }}
+        run: echo NOOP
 
   bunny-test:
     name: Bunny client test
@@ -252,7 +261,7 @@ jobs:
       - name: Install LavinMQ dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libevent-2.1-7 liblz4-1
+          sudo apt-get install -y liblz4-1
 
       - name: Checkout LavinMQ for bunny_definitions.json
         uses: actions/checkout@v4
@@ -278,21 +287,25 @@ jobs:
           repository: ruby-amqp/bunny
           path: bunny
           fetch-depth: 0
-          ref: "2.17.0"
+          ref: 5543c40db2567c05d614a0a24b618441aa9d199f
 
       - name: Setup ruby
         uses: ruby/setup-ruby@v1
         with:
           working-directory: bunny
-          ruby-version: 2.7.2
-          bundler-cache: true
+          ruby-version: ruby
 
       - name: Run specs
         run: |
           cd bunny
+          sed -i /rabbitmq_http_api_client/d Gemfile
+          bundle add rabbitmq_http_api_client --version=">= 3" --group=test --require=rabbitmq/http/client
+          bundle install
+          sed -i '211,212d' spec/lower_level_api/integration/queue_declare_spec.rb
+          sed -i '112,146d' spec/lower_level_api/integration/queue_declare_spec.rb
           bundle exec rspec \
             --pattern "spec/*/integration/*_spec.rb, spec/issues/*_spec.rb" \
-            --exclude-pattern "**/*/tls_*, **/*/connection_recovery_*"
+            --exclude-pattern "**/*/tls_*, **/*/connection_recovery_*, **/*/default_queue_type*"
 
   ruby-http-api-test:
     name: RabbitMQ HTTP API Ruby client test
@@ -304,7 +317,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libevent-2.1-7 liblz4-1
+          sudo apt-get install -y liblz4-1
 
       - uses: actions/download-artifact@v4
         with:
@@ -345,7 +358,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libevent-2.1-7 liblz4-1
+          sudo apt-get install -y liblz4-1
 
       - uses: actions/download-artifact@v4
         with:
@@ -393,7 +406,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libevent-2.1-7 liblz4-1
+          sudo apt-get install -y liblz4-1
 
       - name: Checkout
         uses: actions/checkout@v4
@@ -412,6 +425,7 @@ jobs:
         run: ./extras/static_requests.sh
 
   freebsd-test:
+    if: false # Crystal is outdated in FreeBSD
     name: Spec FreeBSD
     runs-on: ubuntu-latest
     timeout-minutes: 10

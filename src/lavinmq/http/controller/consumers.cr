@@ -7,10 +7,6 @@ module LavinMQ
     class ConsumersController < Controller
       include ConnectionsHelper
 
-      protected def match_value(value)
-        value[:consumer_tag]? || value["consumer_tag"]?
-      end
-
       private def register_routes
         get "/api/consumers" do |context, _params|
           page(context, all_consumers(user(context)))
@@ -32,9 +28,9 @@ module LavinMQ
           with_vhost(context, params) do |vhost|
             user = user(context)
             refuse_unless_management(context, user, vhost)
-            consumer_tag = URI.decode_www_form(params["consumer_tag"])
-            conn_id = URI.decode_www_form(params["connection"])
-            ch_id = URI.decode_www_form(params["channel"]).to_i
+            consumer_tag = params["consumer_tag"]
+            conn_id = params["connection"]
+            ch_id = params["channel"].to_i
             connection = connections(user).find { |conn| conn.vhost.name == vhost && conn.name == conn_id }
             unless connection
               context.response.status_code = 404

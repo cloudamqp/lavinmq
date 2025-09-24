@@ -28,6 +28,19 @@ module LavinMQ
             }).to_json(context.response)
           end
         end
+
+        put "/api/channels/:name" do |context, params|
+          with_channel(context, params) do |channel|
+            body = parse_body(context)
+            if prefetch = body["prefetch"]?.try(&.as_i?)
+              unless 0 <= prefetch <= UInt16::MAX
+                bad_request(context, "prefetch must be between 0 and #{UInt16::MAX}")
+              end
+              channel.prefetch_count = prefetch.to_u16
+            end
+            context.response.status_code = 204
+          end
+        end
       end
 
       private def all_channels(user)
@@ -35,7 +48,7 @@ module LavinMQ
       end
 
       private def with_channel(context, params, &)
-        name = URI.decode_www_form(params["name"])
+        name = params["name"]
         channel = all_channels(user(context)).find { |c| c.name == name }
         not_found(context, "Channel #{name} does not exist") unless channel
         yield channel

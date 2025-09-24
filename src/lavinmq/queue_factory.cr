@@ -1,13 +1,14 @@
 require "./amqp/queue"
 require "./amqp/queue/priority_queue"
 require "./amqp/queue/durable_queue"
-require "./amqp/queue/stream_queue"
+require "./amqp/stream/stream"
+require "./mqtt/session"
 
 module LavinMQ
   class QueueFactory
     def self.make(vhost : VHost, frame : AMQP::Frame)
       if prio_queue?(frame) && stream_queue?(frame)
-        raise Error::PreconditionFailed.new("A queue cannot be both a priority queue and a stream queue")
+        raise Error::PreconditionFailed.new("A queue cannot be both a priority queue and a stream")
       elsif frame.durable
         make_durable(vhost, frame)
       else
@@ -20,11 +21,13 @@ module LavinMQ
         AMQP::DurablePriorityQueue.new(vhost, frame.queue_name, frame.exclusive, frame.auto_delete, frame.arguments)
       elsif stream_queue? frame
         if frame.exclusive
-          raise Error::PreconditionFailed.new("A stream queue cannot be exclusive")
+          raise Error::PreconditionFailed.new("A stream cannot be exclusive")
         elsif frame.auto_delete
-          raise Error::PreconditionFailed.new("A stream queue cannot be auto-delete")
+          raise Error::PreconditionFailed.new("A stream cannot be auto-delete")
         end
-        AMQP::StreamQueue.new(vhost, frame.queue_name, frame.exclusive, frame.auto_delete, frame.arguments)
+        AMQP::Stream.new(vhost, frame.queue_name, frame.exclusive, frame.auto_delete, frame.arguments)
+      elsif mqtt_session? frame
+        MQTT::Session.new(vhost, frame.queue_name, frame.auto_delete, frame.arguments)
       else
         warn_if_unsupported_queue_type frame
         AMQP::DurableQueue.new(vhost, frame.queue_name, frame.exclusive, frame.auto_delete, frame.arguments)
@@ -35,7 +38,9 @@ module LavinMQ
       if prio_queue? frame
         AMQP::PriorityQueue.new(vhost, frame.queue_name, frame.exclusive, frame.auto_delete, frame.arguments)
       elsif stream_queue? frame
-        raise Error::PreconditionFailed.new("A stream queue cannot be non-durable")
+        raise Error::PreconditionFailed.new("A stream cannot be non-durable")
+      elsif mqtt_session? frame
+        MQTT::Session.new(vhost, frame.queue_name, frame.auto_delete, frame.arguments)
       else
         warn_if_unsupported_queue_type frame
         AMQP::Queue.new(vhost, frame.queue_name, frame.exclusive, frame.auto_delete, frame.arguments)
@@ -59,6 +64,10 @@ module LavinMQ
       if frame.arguments["x-queue-type"]?
         Log.info { "The queue type #{frame.arguments["x-queue-type"]} is not supported by LavinMQ and will be changed to the default queue type" }
       end
+    end
+
+    private def self.mqtt_session?(frame) : Bool
+      frame.arguments["x-queue-type"]? == "mqtt"
     end
   end
 end

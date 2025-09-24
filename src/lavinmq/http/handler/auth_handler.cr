@@ -11,7 +11,7 @@ module LavinMQ
 
       def call(context)
         if internal_unix_socket?(context)
-          context.authenticated_username = UserStore::DIRECT_USER
+          context.authenticated_username = Auth::UserStore::DIRECT_USER
           return call_next(context)
         end
 
@@ -59,7 +59,7 @@ module LavinMQ
         if user = @server.users[username]?
           if user_password = user.password
             if user_password.verify(password)
-              if guest_only_loopback?(remote_address, username)
+              if default_user_only_loopback?(remote_address, username)
                 return false if user.tags.empty?
                 return true
               end
@@ -80,9 +80,9 @@ module LavinMQ
         context.response.status_code = 401
       end
 
-      private def guest_only_loopback?(remote_address, username) : Bool
-        return true unless Config.instance.guest_only_loopback?
-        return true unless username == "guest"
+      private def default_user_only_loopback?(remote_address, username) : Bool
+        return true unless Config.instance.default_user_only_loopback?
+        return true unless username == Config.instance.default_user
         case remote_address
         when Socket::IPAddress   then remote_address.loopback?
         when Socket::UNIXAddress then true

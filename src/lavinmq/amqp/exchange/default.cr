@@ -11,19 +11,17 @@ module LavinMQ
         Iterator(BindingDetails).empty
       end
 
-      protected def bindings(routing_key, headers) : Iterator(Destination)
+      protected def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
         if q = @vhost.queues[routing_key]?
-          Tuple(Destination).new(q).each
-        else
-          Iterator(Destination).empty
+          yield q
         end
       end
 
-      def bind(destination, routing_key, headers = nil)
+      def bind(destination, routing_key, arguments = nil)
         raise LavinMQ::Exchange::AccessRefused.new(self)
       end
 
-      def unbind(destination, routing_key, headers = nil)
+      def unbind(destination, routing_key, arguments = nil)
         raise LavinMQ::Exchange::AccessRefused.new(self)
       end
     end

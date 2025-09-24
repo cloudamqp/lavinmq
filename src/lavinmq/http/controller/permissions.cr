@@ -7,11 +7,19 @@ module LavinMQ
     struct PermissionsView
       include SortableJSON
 
-      def initialize(@user : User, @vhost : String, @p : User::Permissions)
+      def initialize(@user : Auth::User, @vhost : String, @p : Auth::User::Permissions)
       end
 
       def details_tuple
         @user.permissions_details(@vhost, @p)
+      end
+
+      def search_match?(value : String) : Bool
+        @user.name.includes? value
+      end
+
+      def search_match?(value : Regex) : Bool
+        value === @user.name
       end
     end
 

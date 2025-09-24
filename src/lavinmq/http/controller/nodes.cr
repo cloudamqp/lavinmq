@@ -1,4 +1,5 @@
 require "../controller"
+require "../stats_helper"
 
 module LavinMQ
   module HTTP
@@ -18,12 +19,14 @@ module LavinMQ
           {{sm.id}}_log = Deque(Float64).new(LavinMQ::Config.instance.stats_log_size)
         {% end %}
         vhosts.each do |vhost|
-          messages_unacknowledged += vhost.message_details[:messages_unacknowledged]
-          messages_ready += vhost.message_details[:messages_ready]
+          message_details = vhost.message_details
+          messages_unacknowledged += message_details[:messages_unacknowledged]
+          messages_ready += message_details[:messages_ready]
+          stats_details = vhost.stats_details
           {% for sm in SERVER_METRICS %}
-            {{sm.id}} += vhost.stats_details[:{{sm.id}}]
-            {{sm.id}}_rate += vhost.stats_details[:{{sm.id}}_details][:rate]
-            add_logs!({{sm.id}}_log, vhost.stats_details[:{{sm.id}}_details][:log])
+            {{sm.id}} += stats_details[:{{sm.id}}]
+            {{sm.id}}_rate += stats_details[:{{sm.id}}_details][:rate]
+            add_logs!({{sm.id}}_log, stats_details[:{{sm.id}}_details][:log])
           {% end %}
         end
         {% begin %}

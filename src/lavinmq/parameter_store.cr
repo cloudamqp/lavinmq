@@ -76,6 +76,9 @@ module LavinMQ
         end
       end
       @log.debug { "#{size} items loaded from #{@file_name}" }
+    rescue ex
+      @log.error(exception: ex) { "Failed to load #{@file_name}" }
+      raise ex
     end
   end
 end

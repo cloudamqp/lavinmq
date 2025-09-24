@@ -10,9 +10,6 @@ module LavinMQ
         puts "User #{name}"
         puts_size_capacity user.@tags, 4
         puts_size_capacity user.@permissions, 4
-        puts_size_capacity user.@acl_read_cache, 4
-        puts_size_capacity user.@acl_write_cache, 4
-        puts_size_capacity user.@acl_config_cache, 4
       end
       puts_size_capacity s.@vhosts
       s.vhosts.each do |name, vh|
@@ -21,7 +18,7 @@ module LavinMQ
         puts_size_capacity vh.@queues, 4
         vh.queues.each do |_, q|
           puts "    #{q.name} #{q.durable? ? "durable" : ""} args=#{q.arguments}"
-          if q = q.as(LavinMQ::AMQP::Queue)
+          if q = (q.as(LavinMQ::AMQP::Queue) || q.as(LavinMQ::MQTT::Session))
             puts_size_capacity q.@consumers, 6
             puts_size_capacity q.@deliveries, 6
             puts_size_capacity q.@msg_store.@segments, 6
@@ -35,6 +32,10 @@ module LavinMQ
         vh.connections.each do |c|
           puts "  #{c.name}"
           puts_size_capacity c.channels, 4
+          case c
+          when LavinMQ::AMQP::Client
+            puts_size_capacity c.@acl_cache, 4
+          end
           c.channels.each_value do |ch|
             puts "    #{ch.id} global_prefetch=#{ch.global_prefetch_count} prefetch=#{ch.prefetch_count}"
             puts_size_capacity ch.consumers, 8

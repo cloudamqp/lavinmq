@@ -2,6 +2,22 @@ require "./spec_helper"
 require "./../src/lavinmq/amqp/queue"
 
 describe LavinMQ::AMQP::Queue do
+  it "should expire itself after last consumer disconnects" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("qexpires", args: AMQP::Client::Arguments.new({"x-expires" => 100}))
+        queue = s.vhosts["/"].queues["qexpires"]
+        tag = q.subscribe { }
+        sleep 110.milliseconds
+        queue.closed?.should be_false
+        ch.basic_cancel(tag)
+        start = Time.monotonic
+        should_eventually(be_true) { queue.closed? }
+        (Time.monotonic - start).total_milliseconds.should be_close 100, 50
+      end
+    end
+  end
+
   it "Should dead letter expired messages" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
@@ -18,7 +34,7 @@ describe LavinMQ::AMQP::Queue do
     end
   end
 
-  it "Should not dead letter messages to it self due to queue length" do
+  it "Should not dead letter messages to itself due to queue length" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         q1 = ch.queue("", args: AMQP::Client::Arguments.new(
@@ -32,7 +48,7 @@ describe LavinMQ::AMQP::Queue do
     end
   end
 
-  it "Should dead letter messages to it self only if rejected" do
+  it "Should dead letter messages to itself only if rejected" do
     queue_name = Random::Secure.hex
     with_amqp_server do |s|
       with_channel(s) do |ch|
@@ -73,13 +89,26 @@ describe LavinMQ::AMQP::Queue do
         s.vhosts.create("/")
         v = s.vhosts["/"].not_nil!
         v.declare_queue("q", true, false)
-        data_dir = s.vhosts["/"].queues["q"].as(LavinMQ::AMQP::Queue).@msg_store.@queue_data_dir
+        data_dir = s.vhosts["/"].queues["q"].as(LavinMQ::AMQP::Queue).@msg_store.@msg_dir
         s.vhosts["/"].queues["q"].pause!
-        File.exists?(File.join(data_dir, ".paused")).should be_true
+        File.exists?(File.join(data_dir, "paused")).should be_true
         s.restart
         s.vhosts["/"].queues["q"].state.paused?.should be_true
         s.vhosts["/"].queues["q"].resume!
-        File.exists?(File.join(data_dir, ".paused")).should be_false
+        File.exists?(File.join(data_dir, "paused")).should be_false
+      end
+    end
+
+    it "should handle '.paused' files and rename to 'paused'" do
+      with_amqp_server do |s|
+        s.vhosts.create("/")
+        v = s.vhosts["/"].not_nil!
+        v.declare_queue("q", true, false)
+        data_dir = s.vhosts["/"].queues["q"].as(LavinMQ::AMQP::Queue).@msg_store.@msg_dir
+        File.touch(File.join(data_dir, ".paused"))
+        s.restart
+        File.exists?(File.join(data_dir, "paused")).should be_true
+        s.vhosts["/"].queues["q"].state.paused?.should be_true
       end
     end
 
@@ -238,7 +267,7 @@ describe LavinMQ::AMQP::Queue do
     end
   end
 
-  it "should keep track of unacked deliviered messages" do
+  it "should keep track of unacked delivered messages" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         q = ch.queue
@@ -263,7 +292,7 @@ describe LavinMQ::AMQP::Queue do
       with_channel(s) do |ch|
         ch.queue "transient", durable: false
       end
-      data_dir = s.vhosts["/"].queues["transient"].as(LavinMQ::AMQP::Queue).@msg_store.@queue_data_dir
+      data_dir = s.vhosts["/"].queues["transient"].as(LavinMQ::AMQP::Queue).@msg_store.@msg_dir
       s.stop
       Dir.exists?(data_dir).should be_false
     end
@@ -274,7 +303,7 @@ describe LavinMQ::AMQP::Queue do
       with_channel(s) do |ch|
         ch.queue "transient", durable: false
       end
-      data_dir = s.vhosts["/"].queues["transient"].as(LavinMQ::AMQP::Queue).@msg_store.@queue_data_dir
+      data_dir = s.vhosts["/"].queues["transient"].as(LavinMQ::AMQP::Queue).@msg_store.@msg_dir
       Dir.exists?(data_dir).should be_true
       File.exists?("#{data_dir}/msgs.0000000001").should be_false
     end
@@ -286,7 +315,7 @@ describe LavinMQ::AMQP::Queue do
       with_channel(s) do |ch|
         q = ch.queue "transient", durable: false
         q.publish_confirm "foobar"
-        data_dir = s.vhosts["/"].queues["transient"].as(LavinMQ::AMQP::Queue).@msg_store.@queue_data_dir
+        data_dir = s.vhosts["/"].queues["transient"].as(LavinMQ::AMQP::Queue).@msg_store.@msg_dir
         FileUtils.cp_r data_dir, "#{s.vhosts["/"].data_dir}.copy"
       end
       s.stop
@@ -306,7 +335,7 @@ describe LavinMQ::AMQP::Queue do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         q = ch.queue("q", auto_delete: true)
-        data_dir = s.vhosts["/"].queues["q"].as(LavinMQ::AMQP::Queue).@msg_store.@queue_data_dir
+        data_dir = s.vhosts["/"].queues["q"].as(LavinMQ::AMQP::Queue).@msg_store.@msg_dir
         sub = q.subscribe(no_ack: true) { |_| }
         Dir.exists?(data_dir).should be_true
         q.unsubscribe(sub)
@@ -319,8 +348,8 @@ describe LavinMQ::AMQP::Queue do
   describe "Flow" do
     it "should stop queues from being declared when disk is full" do
       with_amqp_server do |s|
-        s.flow(false)
         with_channel(s) do |ch|
+          s.flow(false)
           expect_raises(AMQP::Client::Channel::ClosedException, "PRECONDITION_FAILED") do
             ch.queue("test_queue_flow", durable: true)
           end
@@ -336,7 +365,7 @@ describe LavinMQ::AMQP::Queue do
       data_dir = File.join(LavinMQ::Config.instance.data_dir, "msgstore")
       Dir.mkdir_p data_dir
       begin
-        store = LavinMQ::Queue::MessageStore.new(data_dir, nil)
+        store = LavinMQ::MessageStore.new(data_dir, nil)
         body = IO::Memory.new(Random::DEFAULT.random_bytes(LavinMQ::Config.instance.segment_size), writeable: false)
         msg = LavinMQ::Message.new(0i64, "amq.topic", "rk", AMQ::Protocol::Properties.new, body.size.to_u64, body)
         sps = Array(LavinMQ::SegmentPosition).new(10) { store.push msg }
@@ -356,12 +385,12 @@ describe LavinMQ::AMQP::Queue do
         body = IO::Memory.new(Random::DEFAULT.random_bytes(LavinMQ::Config.instance.segment_size), writeable: false)
         msg = LavinMQ::Message.new(0i64, "amq.topic", "rk", AMQ::Protocol::Properties.new, body.size.to_u64, body)
 
-        store = LavinMQ::Queue::MessageStore.new(data_dir, nil)
+        store = LavinMQ::MessageStore.new(data_dir, nil)
         2.times { store.push msg }
         store.close
 
         # recreate store to let it read the segments and cleanup
-        LavinMQ::Queue::MessageStore.new(data_dir, nil)
+        LavinMQ::MessageStore.new(data_dir, nil)
         Dir.glob(File.join(data_dir, "acks.*")).should eq [] of String
       ensure
         FileUtils.rm_rf data_dir
@@ -371,9 +400,9 @@ describe LavinMQ::AMQP::Queue do
     it "should yield fiber while purging" do
       tmpdir = File.tempname "lavin", ".spec"
       Dir.mkdir_p tmpdir
-      store = LavinMQ::Queue::MessageStore.new(tmpdir, nil)
+      store = LavinMQ::MessageStore.new(tmpdir, nil)
 
-      (LavinMQ::Queue::MessageStore::PURGE_YIELD_INTERVAL * 2 + 1).times do
+      (LavinMQ::MessageStore::PURGE_YIELD_INTERVAL * 2 + 1).times do
         store.push(LavinMQ::Message.new(0i64, "a", "b", AMQ::Protocol::Properties.new, 0u64, IO::Memory.new(0)))
       end
 
@@ -405,7 +434,7 @@ describe LavinMQ::AMQP::Queue do
     it "should not raise NotFoundError if segment is gone when deleting" do
       tmpdir = File.tempname "lavin", ".spec"
       Dir.mkdir_p tmpdir
-      store = LavinMQ::Queue::MessageStore.new(tmpdir, nil)
+      store = LavinMQ::MessageStore.new(tmpdir, nil)
       data = Random::Secure.hex(512)
       io = IO::Memory.new(data.to_slice)
 
@@ -422,6 +451,52 @@ describe LavinMQ::AMQP::Queue do
       store.purge
     ensure
       FileUtils.rm_rf tmpdir if tmpdir
+    end
+  end
+
+  describe "deduplication" do
+    it "should not accept message if it's a duplicate" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          queue_name = "dedup-queue"
+          q1 = ch.queue(queue_name, args: AMQP::Client::Arguments.new({
+            "x-message-deduplication" => true,
+          }))
+          props = LavinMQ::AMQP::Properties.new(headers: LavinMQ::AMQP::Table.new({
+            "x-deduplication-header" => "msg1",
+          }))
+          ch.default_exchange.publish_confirm("body", queue_name, props: props)
+          ch.default_exchange.publish_confirm("body", queue_name, props: props)
+          q1.get(no_ack: false).not_nil!.body_io.to_s.should eq "body"
+          q1.get(no_ack: false).should be_nil
+        end
+      end
+    end
+  end
+
+  describe "unacked_bytesize" do
+    it "should count bytes for all unacked messages" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue
+          sq = s.vhosts["/"].queues[q.name].should be_a LavinMQ::AMQP::Queue
+
+          q.publish_confirm "a"
+          q.publish_confirm "b"
+
+          msg_store = sq.@msg_store
+          bytesize = msg_store.bytesize
+
+          msg = q.get(no_ack: false).should_not be_nil
+          q.get(no_ack: false).should_not be_nil
+          sq.unacked_count.should eq 2
+          sq.unacked_bytesize.should eq bytesize
+          msg.ack
+          sleep 10.milliseconds
+          sq.unacked_count.should eq 1
+          sq.unacked_bytesize.should eq(bytesize/2)
+        end
+      end
     end
   end
 end

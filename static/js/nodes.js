@@ -8,17 +8,11 @@ const numFormatter = new Intl.NumberFormat()
 let url = 'api/nodes'
 const vhost = window.sessionStorage.getItem('vhost')
 if (vhost && vhost !== '_all') {
-  url += '?vhost=' + encodeURIComponent(vhost)
-}
-let data = null
-
-if (data === null) {
-  update(render)
+  url += HTTP.url`?vhost=${vhost}`
 }
 
 function update (cb) {
   HTTP.request('GET', url).then((response) => {
-    data = response
     render(response)
     if (cb) {
       cb(response)
@@ -36,7 +30,7 @@ function render (data) {
 
 function start (cb) {
   update(cb)
-  setInterval(() => update(cb), 5000)
+  setInterval(update, 5000, cb)
 }
 
 const updateDetails = (nodeStats) => {
@@ -133,7 +127,7 @@ const stats = [
         key: 'messages_ready'
       },
       {
-        heading: 'Unacked',
+        heading: 'Unacknowledged',
         key: 'messages_unacknowledged'
       }
     ]

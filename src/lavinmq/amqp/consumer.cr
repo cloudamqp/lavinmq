@@ -1,6 +1,9 @@
 require "log"
+require "wait_group"
+require "../amqp"
 require "../client/channel/consumer"
 require "../logger"
+require "../bool_channel"
 
 module LavinMQ
   module AMQP
@@ -13,11 +16,11 @@ module LavinMQ
       getter? no_ack : Bool
       getter channel, queue
       getter prefetch_count : UInt16
-      getter unacked = 0_u32
       getter? closed = false
       @flow : Bool
       @metadata : ::Log::Metadata
-      @deliver_wg = WaitGroup.new
+      @unacked = Atomic(UInt32).new(0_u32)
+      getter has_capacity : BoolChannel
 
       def initialize(@channel : AMQP::Channel, @queue : Queue, frame : AMQP::Frame::Basic::Consume)
         @tag = frame.consumer_tag
@@ -28,12 +31,13 @@ module LavinMQ
         @flow = @channel.flow?
         @metadata = @channel.@metadata.extend({consumer: @tag})
         @log = Logger.new(Log, @metadata)
-        spawn deliver_loop, name: "Consumer deliver loop", same_thread: true
+        spawn deliver_loop, name: "Consumer deliver loop"
+        @flow_change = BoolChannel.new(@flow)
+        @has_capacity = BoolChannel.new(true)
       end
 
       def close
         @closed = true
-        @deliver_wg.wait
         @queue.rm_consumer(self)
         @notify_closed.close
         @has_capacity.close
@@ -41,16 +45,19 @@ module LavinMQ
       end
 
       @notify_closed = ::Channel(Nil).new
-      @flow_change = ::Channel(Bool).new
 
       def flow(active : Bool)
         @flow = active
-        @flow_change.try_send? active
+        @flow_change.set(active)
       end
 
       def prefetch_count=(prefetch_count : UInt16)
         @prefetch_count = prefetch_count
-        notify_has_capacity(@prefetch_count > @unacked)
+        @has_capacity.set(@prefetch_count > @unacked.get(:relaxed))
+      end
+
+      def unacked
+        @unacked.get(:relaxed)
       end
 
       private def deliver_loop
@@ -71,9 +78,10 @@ module LavinMQ
           {% unless flag?(:release) %}
             @log.debug { "Getting a new message" }
           {% end %}
-          queue.consume_get(self) do |env|
+          queue.consume_get(@no_ack) do |env|
             deliver(env.message, env.segment_position, env.redelivered)
             delivered_bytes &+= env.message.bytesize
+            @channel.increment_deliver_count(env.redelivered, @no_ack)
           end
           if delivered_bytes > Config.instance.yield_each_delivered_bytes
             delivered_bytes = 0
@@ -88,8 +96,9 @@ module LavinMQ
         ch = @channel
         return if ch.has_capacity?
         @log.debug { "Waiting for global prefetch capacity" }
+        flush
         select
-        when ch.has_capacity.receive
+        when ch.has_capacity.when_true.receive
         when @notify_closed.receive
         end
         true
@@ -103,6 +112,7 @@ module LavinMQ
           @log.debug { "The queue isn't a single active consumer queue" }
         else
           @log.debug { "Waiting for this consumer to become the single active consumer" }
+          flush
           loop do
             select
             when sca = @queue.single_active_consumer_change.receive
@@ -122,23 +132,29 @@ module LavinMQ
       private def wait_for_priority_consumers
         # single active consumer queues can't have priority consumers
         if @queue.has_priority_consumers? && @queue.single_active_consumer.nil?
-          if @queue.consumers.any? { |c| c.priority > @priority && c.accepts? }
-            @log.debug { "Waiting for higher priority consumers to not have capacity" }
-            begin
-              ::Channel.receive_first(@queue.consumers.map(&.has_capacity))
-            rescue ::Channel::ClosedError
-            end
-            return true
+          @log.debug { "Waiting for higher priority consumers to not have capacity" }
+          flush
+          higher_prio_consumers = @queue.consumers.select { |c| c.priority > @priority }
+          return false unless higher_prio_consumers.any? &.accepts?
+          loop do
+            # FIXME: doesnt take into account that new higher prio consumer might connect
+            ::Channel.receive_first(higher_prio_consumers.map(&.has_capacity.when_false))
+            break
+          rescue ::Channel::ClosedError
+            higher_prio_consumers = @queue.consumers.select { |c| c.priority > @priority }
+            break if higher_prio_consumers.empty?
+            next
           end
+          return true
         end
       end
 
       private def wait_for_queue_ready
         if @queue.empty?
           @log.debug { "Waiting for queue not to be empty" }
+          flush
           select
-          when is_empty = @queue.empty_change.receive
-            @log.debug { "Queue is #{is_empty ? "" : "not"} empty" }
+          when @queue.empty.when_false.receive
           when @notify_closed.receive
           end
           return true
@@ -146,11 +162,12 @@ module LavinMQ
       end
 
       private def wait_for_paused_queue
-        if @queue.paused?
+        if @queue.state.paused?
           @log.debug { "Waiting for queue not to be paused" }
+          flush
           select
-          when is_paused = @queue.paused_change.receive
-            @log.debug { "Queue is #{is_paused ? "" : "not"} paused" }
+          when @queue.paused.when_false.receive
+            @log.debug { "Queue is not paused" }
           when @notify_closed.receive
           end
           return true
@@ -160,8 +177,9 @@ module LavinMQ
       private def wait_for_flow
         unless @flow
           @log.debug { "Waiting for flow" }
-          is_flow = @flow_change.receive
-          @log.debug { "Channel flow=#{is_flow}" }
+          flush
+          @flow_change.when_true.receive
+          @log.debug { "Channel flow=true" }
           return true
         end
       end
@@ -169,55 +187,42 @@ module LavinMQ
       # blocks until the consumer can accept more messages
       private def wait_for_capacity : Nil
         if @prefetch_count > 0
-          until @unacked < @prefetch_count
+          until @unacked.get(:relaxed) < @prefetch_count
             @log.debug { "Waiting for prefetch capacity" }
-            @has_capacity.receive
+            flush
+            @has_capacity.when_true.receive
           end
         end
       end
 
       def accepts? : Bool
         return false unless @flow
-        return false if @prefetch_count > 0 && @unacked >= @prefetch_count
-        return false if @channel.global_prefetch_count > 0 && @channel.consumers.sum(&.unacked) >= @channel.global_prefetch_count
+        return false if @prefetch_count > 0 && @unacked.get(:relaxed) >= @prefetch_count
+        return false if @channel.global_prefetch_count > 0 && @channel.unacked.size >= @channel.global_prefetch_count
         true
-      end
-
-      getter has_capacity = ::Channel(Bool).new
-
-      private def notify_has_capacity(value)
-        while @has_capacity.try_send? value
-        end
       end
 
       def deliver(msg, sp, redelivered = false, recover = false)
         unless @no_ack || recover
-          @unacked += 1
-          notify_has_capacity(false) if @unacked == @prefetch_count
+          unacked = @unacked.add(1, :relaxed)
+          @has_capacity.set(false) if (unacked + 1) == @prefetch_count
         end
         delivery_tag = @channel.next_delivery_tag(@queue, sp, @no_ack, self)
         deliver = AMQP::Frame::Basic::Deliver.new(@channel.id, @tag,
           delivery_tag,
           redelivered,
           msg.exchange_name, msg.routing_key)
-        begin
-          @deliver_wg.add
-          @channel.deliver(deliver, msg, redelivered)
-        ensure
-          @deliver_wg.done
-        end
+        @channel.deliver(deliver, msg, redelivered, flush: false)
       end
 
       def ack(sp)
-        was_full = @unacked == @prefetch_count
-        @unacked -= 1
-        notify_has_capacity(true) if was_full
+        unacked = @unacked.sub(1, :relaxed)
+        @has_capacity.set(true) if unacked == @prefetch_count
       end
 
       def reject(sp, requeue = false)
-        was_full = @unacked == @prefetch_count
-        @unacked -= 1
-        notify_has_capacity(true) if was_full
+        unacked = @unacked.sub(1, :relaxed)
+        @has_capacity.set(true) if unacked == @prefetch_count
       end
 
       def cancel
@@ -241,10 +246,6 @@ module LavinMQ
         @channel.unacked
       end
 
-      def channel_name
-        @channel.name
-      end
-
       def details_tuple
         channel_details = @channel.details_tuple
         {
@@ -258,14 +259,19 @@ module LavinMQ
           prefetch_count:  @prefetch_count,
           priority:        @priority,
           channel_details: {
-            peer_host:       channel_details[:connection_details][:peer_host]?,
-            peer_port:       channel_details[:connection_details][:peer_port]?,
+            peer_host:       channel_details[:connection_details][:peer_host],
+            peer_port:       channel_details[:connection_details][:peer_port],
             connection_name: channel_details[:connection_details][:name],
             user:            channel_details[:user],
             number:          channel_details[:number],
             name:            channel_details[:name],
           },
         }
+      end
+
+      def flush
+        @channel.flush
+        Fiber.yield # We are waiting so might as well let other fibers run to improve fairness
       end
 
       class ClosedError < Error; end

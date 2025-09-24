@@ -49,6 +49,14 @@ module LavinMQ
           }
         end
 
+        def search_match?(value : String) : Bool
+          @upstream.name.includes? value
+        end
+
+        def search_match?(value : Regex) : Bool
+          value === @upstream.name
+        end
+
         def run
           @log.info { "Starting" }
           spawn(run_loop, name: "Federation link #{@upstream.vhost.name}/#{name}")
@@ -92,7 +100,7 @@ module LavinMQ
         end
 
         private def federate(msg, upstream_ch, exchange, routing_key, immediate = false)
-          @log.debug { "Federating routing_key=#{routing_key}" }
+          @log.debug { "Federating routing_key=#{routing_key} exchange=#{exchange}" }
           status = @upstream.vhost.publish(
             Message.new(
               RoughTime.unix_ms, exchange, routing_key, msg.properties,
@@ -134,9 +142,9 @@ module LavinMQ
         end
 
         private def received_from_header(msg)
-          headers = msg.properties.headers || ::AMQP::Client::Arguments.new
-          received_from = headers["x-received-from"]?.try(&.as?(Array(::AMQP::Client::Arguments)))
-          received_from ||= Array(::AMQP::Client::Arguments).new(1)
+          headers = msg.properties.headers || AMQP::Table.new
+          received_from = headers["x-received-from"]?.try(&.as?(Array(AMQP::Field)))
+          received_from ||= Array(AMQP::Table).new
           {headers, received_from}
         end
 
@@ -265,7 +273,7 @@ module LavinMQ
 
       class ExchangeLink < Link
         include Observer(ExchangeEvent)
-        @consumer_q : ::AMQP::Client::Queue?
+        @consumer_ex : ::AMQP::Client::Exchange?
 
         def initialize(@upstream : Upstream, @federated_ex : Exchange, @upstream_q : String,
                        @upstream_exchange : String)
@@ -277,6 +285,13 @@ module LavinMQ
           @federated_ex.name
         end
 
+        private def should_forward?(headers)
+          return true if headers.nil?
+          x_received_from = headers["x-received-from"]?.try(&.as?(Array(AMQP::Field)))
+          return true unless x_received_from
+          x_received_from.size < @upstream.max_hops
+        end
+
         def on(event : ExchangeEvent, data)
           return if @state.terminated? || @state.terminating?
           @log.debug { "event=#{event} data=#{data}" }
@@ -284,16 +299,20 @@ module LavinMQ
           in .deleted?
             @upstream.stop_link(@federated_ex)
           in .bind?
-            with_consumer_q do |q|
-              b = data_as_binding_details(data)
-              args = b.arguments || ::AMQP::Client::Arguments.new
-              q.bind(@upstream_exchange, b.routing_key, args: args)
+            b = data_as_binding_details(data)
+            updated, args = update_bound_from?(b.arguments)
+            if updated
+              with_consumer_ex do |ex|
+                ex.bind(@upstream_exchange, b.routing_key, args: args)
+              end
             end
           in .unbind?
-            with_consumer_q do |q|
-              b = data_as_binding_details(data)
-              args = b.arguments || ::AMQP::Client::Arguments.new
-              q.unbind(@upstream_exchange, b.routing_key, args: args)
+            b = data_as_binding_details(data)
+            updated, args = update_bound_from?(b.arguments)
+            if updated
+              with_consumer_ex do |ex|
+                ex.unbind(@upstream_exchange, b.routing_key, args: args)
+              end
             end
           end
         rescue e
@@ -306,9 +325,9 @@ module LavinMQ
           b
         end
 
-        private def with_consumer_q(&)
-          if q = @consumer_q
-            yield q
+        private def with_consumer_ex(&)
+          if ex = @consumer_ex
+            yield ex
           else
             @log.warn { "No upstream connection for exchange event" }
           end
@@ -346,10 +365,6 @@ module LavinMQ
             "x-internal-purpose" => "federation",
             "x-max-hops"         => @upstream.max_hops,
           })
-          ch, _ = try_passive(upstream_client, ch) do |uch, passive|
-            uch.exchange(@upstream_q, type: "x-federation-upstream",
-              args: args2, passive: passive)
-          end
           q_args = ::AMQP::Client::Arguments.new({"x-internal-purpose" => "federation"})
           if expires = @upstream.expires
             q_args["x-expires"] = expires
@@ -357,24 +372,37 @@ module LavinMQ
           if msg_ttl = @upstream.msg_ttl
             q_args["x-message-ttl"] = msg_ttl
           end
-          ch, q = try_passive(upstream_client, ch) do |uch, passive|
+          ch, _ = try_passive(upstream_client, ch) do |uch, passive|
             uch.queue(@upstream_q, args: q_args, passive: passive)
+          end
+          ch, consumer_ex = try_passive(upstream_client, ch) do |uch, passive|
+            ex = uch.exchange(@upstream_q, type: "x-federation-upstream",
+              args: args2, passive: passive)
+            ch.queue_bind(@upstream_q, @upstream_q, routing_key: "")
+            ex
           end
           @federated_ex.register_observer(self)
           @federated_ex.bindings_details.each do |binding|
-            args = binding.arguments || ::AMQP::Client::Arguments.new
-            q.bind(@upstream_exchange, binding.routing_key, args: args)
+            updated, args = update_bound_from?(binding.arguments)
+            if updated
+              consumer_ex.bind(@upstream_exchange, binding.routing_key, args: args)
+            end
           end
-          {ch, q}
+          {ch, consumer_ex}
         end
 
         private def start_link
           setup_connection do |upstream_connection|
-            upstream_channel, @consumer_q = setup(upstream_connection)
+            upstream_channel, @consumer_ex = setup(upstream_connection)
             upstream_channel.prefetch(count: @upstream.prefetch)
             no_ack = @upstream.ack_mode.no_ack?
             state(State::Running)
             upstream_channel.basic_consume(@upstream_q, no_ack: no_ack, tag: @upstream.consumer_tag, block: true) do |msg|
+              unless should_forward?(msg.properties.headers)
+                @log.debug { "Skipping message, max hops reached" }
+                ack(msg.delivery_tag, upstream_channel)
+                next
+              end
               @last_changed = RoughTime.unix_ms
               headers, received_from = received_from_header(msg)
               received_from << ::AMQP::Client::Arguments.new({
@@ -387,8 +415,42 @@ module LavinMQ
               federate(msg, upstream_channel.not_nil!, @federated_ex.name, msg.routing_key)
             end
           ensure
-            @consumer_q = nil
+            @consumer_ex = nil
           end
+        end
+
+        # This methods returns a tuple where the first element is a boolean
+        # indicating whether the arguments were updated, and the second
+        # element is the updated arguments.
+        # If the arguments were not updated, it means that max hops has been reached
+        # and the binding should not be created.
+        private def update_bound_from?(arguments : ::AMQP::Client::Arguments?)
+          # Arguments may be a reference to the arguments in a binding, and we don't
+          # want to be changed, therefore we clone it.
+          arguments = arguments.try &.clone || ::AMQP::Client::Arguments.new
+          bound_from = arguments["x-bound-from"]?.try(&.as?(Array(AMQP::Field)))
+          bound_from ||= Array(AMQP::Field).new
+          hops = get_binding_hops(bound_from)
+          return {false, arguments} if hops == 0
+          bound_from.unshift AMQP::Table.new({
+            "vhost":    @upstream.vhost.name,
+            "exchange": @federated_ex.name,
+            "hops":     hops,
+          })
+          arguments["x-bound-from"] = bound_from
+          {true, arguments}
+        end
+
+        # Calculate the number of hops for the binding. It will use the lowest value
+        # from the previous hops in the binding or the max hops configured on the current
+        # exchange.
+        private def get_binding_hops(x_bound_from)
+          if prev = x_bound_from.first?.try(&.as?(AMQP::Table))
+            if hops = prev["hops"]?.try(&.as?(Int64))
+              return {hops - 1, @upstream.max_hops}.min
+            end
+          end
+          @upstream.max_hops
         end
       end
     end

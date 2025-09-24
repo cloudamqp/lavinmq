@@ -11,7 +11,9 @@ assignees: ''
 A clear and concise description of what the bug is.
 
 **Describe your setup**
-Please describe the environment you are using, e.g. LavinMQ version, operating system, client software. 
+Please describe the environment you are using by including the build info. Please also include any relevant information about the client software or amqp libraries that you may be using. 
+
+To retrieve the build info: `bin/lavinmq --build-info`
 
 **How to reproduce**
 Please provide steps to reproduce the behavior.

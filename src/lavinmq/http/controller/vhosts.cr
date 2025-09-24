@@ -5,8 +5,10 @@ module LavinMQ
   module HTTP
     struct VHostView
       include SortableJSON
+      @name : String
 
       def initialize(@vhost : VHost)
+        @name = @vhost.name
       end
 
       def details_tuple
@@ -32,7 +34,7 @@ module LavinMQ
         put "/api/vhosts/:name" do |context, params|
           u = user(context)
           refuse_unless_administrator(context, u)
-          name = URI.decode_www_form(params["name"])
+          name = params["name"]
           if context.request.body
             body = parse_body(context)
             tags = body["tags"]?.to_s.split(',').map(&.strip).reject(&.empty?)
@@ -52,9 +54,18 @@ module LavinMQ
 
         delete "/api/vhosts/:name" do |context, params|
           refuse_unless_administrator(context, user(context))
-          with_vhost(context, params, "name") do |vhost|
-            @amqp_server.vhosts.delete(vhost)
-            context.response.status_code = 204
+          with_vhost(context, params, "name") do |vhost_name|
+            if vhost = @amqp_server.vhosts.delete(vhost_name)
+              message_stats = vhost.message_details[:message_stats]
+              # Add stats to global stats for accurate prometheus metrics counters
+              @amqp_server.deleted_vhosts_messages_delivered_total += message_stats[:deliver]
+              @amqp_server.deleted_vhosts_messages_redelivered_total += message_stats[:redeliver]
+              @amqp_server.deleted_vhosts_messages_acknowledged_total += message_stats[:ack]
+              @amqp_server.deleted_vhosts_messages_confirmed_total += message_stats[:confirm]
+              context.response.status_code = 204
+            else
+              context.response.status_code = 404
+            end
           end
         end
 

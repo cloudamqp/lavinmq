@@ -1,0 +1,7 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: lavinmq
+Upstream-Contact: contact@84codes.com
+Source: https://github.com/cloudamqp/lavinmq
+Files: *
+Copyright: 2025, 84codes AB
+License: Apache-2.0

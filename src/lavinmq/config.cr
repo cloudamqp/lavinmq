@@ -5,6 +5,7 @@ require "ini"
 require "./version"
 require "./log_formatter"
 require "./in_memory_backend"
+require "./auth/password"
 
 module LavinMQ
   class Config
@@ -12,7 +13,8 @@ module LavinMQ
     annotation IniOpt; end
     annotation EnvOpt; end
 
-    DEFAULT_LOG_LEVEL = ::Log::Severity::Info
+    DEFAULT_LOG_LEVEL     = ::Log::Severity::Info
+    DEFAULT_PASSWORD_HASH = "+pHuxkR9fCyrrwXjOD4BP4XbzO3l8LJr8YkThMgJ0yVHFRE+" # Hash of 'guest'
 
     @[CliOpt("-D DIRECTORY", "--data-dir=DIRECTORY", "Data directory")]
     @[IniOpt(section: "main")]
@@ -50,6 +52,17 @@ module LavinMQ
 
     @[CliOpt("", "--amqp-unix-path=PATH", "AMQP UNIX path to listen to")]
     @[IniOpt(ini_name: unix_path, section: "amqp")]
+
+
+    @[IniOpt(section: "mqtt")]
+    property mqtt_bind = "127.0.0.1"
+    @[IniOpt(section: "mqtt")]
+    property mqtt_port = 1883
+    @[IniOpt(section: "mqtt")]
+    property mqtts_port = -1
+    @[IniOpt(section: "mqtt")]
+    property mqtt_unix_path = ""
+    @[IniOpt(section: "mqtt")]
     property unix_path = ""
 
     @[IniOpt(section: "amqp")]
@@ -133,6 +146,12 @@ module LavinMQ
     @[CliOpt("", "--raise-gc-warn", "Raise on GC warnings")]
     property? raise_gc_warn : Bool = false
 
+    @[IniOpt(section: "mqtt")]
+    property max_inflight_messages : UInt16 = 65_535 # mqtt messages
+
+    @[IniOpt(section: "mqtt")]
+    property default_mqtt_vhost = "/"
+
     @[CliOpt("", "--no-data-dir-lock", "Don't put a file lock in the data directory (default true)")]
     @[IniOpt(section: "main")]
     property? data_dir_lock : Bool = true
@@ -149,6 +168,9 @@ module LavinMQ
     @[CliOpt("", "--guest-only-loopback=BOOL", "Limit guest user to only connect from loopback address")]
     @[IniOpt(section: "main")]
     property? guest_only_loopback : Bool = true
+
+    @[IniOpt(section: "amqp")]
+    property? default_user_only_loopback : Bool = true
 
     @[IniOpt(section: "amqp")]
     property max_message_size = 128 * 1024**2
@@ -216,6 +238,10 @@ module LavinMQ
 
     @[IniOpt(section: "experimental")]
     property yield_each_delivered_bytes = 1_048_576 # max number of bytes sent to a client without tending to other tasks in the server
+    property auth_backends : Array(String) = ["basic"]
+    property default_user : String = ENV.fetch("LAVINMQ_DEFAULT_USER", "guest")
+    property default_password : String = ENV.fetch("LAVINMQ_DEFAULT_PASSWORD", DEFAULT_PASSWORD_HASH) # Hashed password for default user
+    property max_consumers_per_channel = 0
     @@instance : Config = self.new
 
     def self.instance : LavinMQ::Config
@@ -308,6 +334,8 @@ module LavinMQ
           parse_section("clustering", settings)
         when "experimental"
           parse_section("experimental", settings)
+        when "replication"
+            abort("#{file}: [replication] is deprecated and replaced with [clustering], see the README for more information"
         else
           raise "Unknown configuration section: #{section}"
         end
@@ -352,9 +380,9 @@ module LavinMQ
       log_file = (path = @log_file) ? File.open(path, "a") : STDOUT
       broadcast_backend = ::Log::BroadcastBackend.new
       backend = if ENV.has_key?("JOURNAL_STREAM")
-                  ::Log::IOBackend.new(io: log_file, formatter: JournalLogFormat, dispatcher: ::Log::DirectDispatcher)
+                  ::Log::IOBackend.new(io: log_file, formatter: JournalLogFormat)
                 else
-                  ::Log::IOBackend.new(io: log_file, formatter: StdoutLogFormat, dispatcher: ::Log::DirectDispatcher)
+                  ::Log::IOBackend.new(io: log_file, formatter: StdoutLogFormat)
                 end
 
       broadcast_backend.append(backend, @log_level)

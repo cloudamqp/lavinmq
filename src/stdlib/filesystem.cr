@@ -17,7 +17,11 @@ lib LibC
       spare : StaticArray(Long, 4)
     end
 
-    fun statfs64(file : Char*, buf : Statfs*) : Int
+    {% if flag?(:musl) %}
+      fun statfs(file : Char*, buf : Statfs*) : Int
+    {% else %}
+      fun statfs64(file : Char*, buf : Statfs*) : Int
+    {% end %}
   {% elsif flag?(:darwin) %}
     struct Statfs
       bsize : UInt32
@@ -85,7 +89,7 @@ struct FilesystemInfo
   getter total : UInt64
 end
 
-{% if flag?(:linux) || flag?(:darwin) %}
+{% if (flag?(:linux) && !flag?(:musl)) || flag?(:darwin) %}
   module Filesystem
     def self.info(path)
       statfs = uninitialized LibC::Statfs
@@ -95,7 +99,7 @@ end
       FilesystemInfo.new(statfs)
     end
   end
-{% elsif flag?(:freebsd) %}
+{% elsif flag?(:freebsd) || flag?(:musl) %}
   module Filesystem
     def self.info(path)
       statfs = uninitialized LibC::Statfs
