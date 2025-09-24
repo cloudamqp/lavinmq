@@ -360,7 +360,8 @@ module LavinMQ
         next unless child.starts_with? "acks."
         seg = child[5, 10].to_u32
         acked = Array(UInt32).new
-        File.open(File.join(@msg_dir, child), "a+") do |file|
+        ack_file_path = File.join(@msg_dir, child)
+        File.open(ack_file_path, "a+") do |file|
           loop do
             pos = UInt32.from_io(file, IO::ByteFormat::SystemEndian)
             if pos.zero? # pos 0 doesn't exists (first valid is 4), must be a sparse file
@@ -371,9 +372,10 @@ module LavinMQ
           rescue IO::EOFError
             break
           end
-          @acks[seg] = MFile.new(file.path)
           @replicator.try &.register_file(file)
         end
+        capacity = Config.instance.segment_size // BytesMessage::MIN_BYTESIZE * 4 + 4
+        @acks[seg] = MFile.new(ack_file_path, capacity, writeonly: true)
         @log.debug { "Loaded #{count}/#{ack_files} ack files" } if (count += 1) % 128 == 0
         @deleted[seg] = acked.sort! unless acked.empty?
         Fiber.yield
