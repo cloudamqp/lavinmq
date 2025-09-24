@@ -243,9 +243,7 @@ module LavinMQ
       tcp << "POST " << path << " HTTP/1.1\r\n"
       tcp << "Host: " << address << "\r\n"
       tcp << "Content-Length: " << body.bytesize << "\r\n"
-      if auth
-        tcp << "Authorization: " << auth << "\r\n"
-      end
+      tcp << "Authorization: " << auth << "\r\n" if auth
       tcp << "\r\n"
       tcp << body
       tcp.flush
