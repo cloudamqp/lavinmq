@@ -475,8 +475,8 @@ module LavinMQ
         deleted.each do |pos|
           mfile.pos = pos
           bs = BytesMessage.skip(mfile)
-          bytesize -= bs if bytesize >= bs # Don't allow underflow
-          count -= 1 if count > 0          # Don't allow underflow
+          bytesize = bs < bytesize ? bytesize - bs : 0 # Don't allow underflow
+          count -= 1 if count > 0                      # Don't allow underflow
         end
       end
       mfile.pos = 4
