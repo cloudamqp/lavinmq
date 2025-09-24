@@ -86,7 +86,13 @@ components:
     parameters:
       "$ref": "./schemas/parameters.yaml#/parameters"
     parameters-PutParameterRequestBody:
-      "$ref": "./schemas/parameters.yaml#/PutParameterRequestBody"
+      "$ref": "./schemas/parameters.yaml#/PutParameterRequestBody" 
+    parameters-shovel-value:
+      "$ref": "./schemas/parameters.yaml#/shovel-value"
+    parameters-federation-upstream-value:
+      "$ref": "./schemas/parameters.yaml#/federation-upstream-value"
+    parameters-federation-upstream-set-value:
+      "$ref": "./schemas/parameters.yaml#/federation-upstream-set-value"
     global-parameter:
       "$ref": "./schemas/parameters.yaml#/global-parameter"
     global-parameters:
