@@ -274,7 +274,7 @@ module LavinMQ
     def parse
       @config_file = File.exists?(
         File.join(ENV.fetch("LAVINMQ_CONFIGURATION_DIRECTORY", "/etc/lavinmq"), "lavinmq.ini")) ? File.join(ENV.fetch("LAVINMQ_CONFIGURATION_DIRECTORY", "/etc/lavinmq"), "lavinmq.ini") : ""
-      parse_argv() # get config_file
+      parse_argv(warn_deprecated: true) # get config_file
       parse_ini(@config_file)
       parse_env()
       parse_argv()
@@ -289,7 +289,7 @@ module LavinMQ
       {% end %}
     end
 
-    private def parse_argv
+    private def parse_argv(*, warn_deprecated = false)
       parser = OptionParser.new
       parser.banner = "Usage: #{PROGRAM_NAME} [arguments]"
       parser.on("-h", "--help", "Show this help") { puts parser; exit 0 }
@@ -299,22 +299,23 @@ module LavinMQ
         {%
           anno = ivar.annotation(CliOpt)
           short_flag, long_flag, description, value_parser = anno.args
+          value_parser = ivar.type if value_parser.nil?
           warn_msg = nil
           if deprecated = anno[:deprecated]
             ivar = @type.instance_vars.find &.name.== deprecated
             use_short, use_long = ivar.annotation(CliOpt).args
             warn_msg = ""
-            unless short_flag.empty?
-              warn_msg += "#{short_flag}/"
-            end
-            warn_msg += "#{long_flag} is deprecated, use #{use_long} instead"
+            warn_msg += "#{short_flag}/" unless short_flag.empty?
+            warn_msg += "#{long_flag} is deprecated, use "
+            warn_msg += "#{use_short}/" unless use_short.empty?
+            warn_msg += "#{use_long} instead"
           end
         %}
         parser.on({{short_flag}}, {{long_flag}}, {{description}}) do |v|
           {% if warn_msg %}
-            Log.warn { {{warn_msg}} }
+            Log.warn { {{warn_msg}} } if warn_deprecated
           {% end %}
-          @{{ivar.name.id}} = parse_value(v, {{value_parser || ivar.type}})
+          @{{ivar.name.id}} = parse_value(v, {{value_parser}})
         end
       {% end %}
       parser.parse(ARGV.dup)
@@ -411,7 +412,7 @@ module LavinMQ
                deprecated: anno[:deprecated],
              }
            %}
-           Log.warn { "{{var[:ini_name]}} is depricated, use {{use_ivar[:ini_name]}} instead" }
+           Log.warn { "Config {{var[:ini_name]}} is depricated, use {{use_ivar[:ini_name]}} instead" }
            {% var = use_ivar %}
          {% end %}
          @{{var[:var_name]}} = parse_value(v, {{var[:transform]}})
