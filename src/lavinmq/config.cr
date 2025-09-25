@@ -376,6 +376,9 @@ module LavinMQ
           raise "Unknown configuration section: #{section}"
         end
       end
+    rescue ex : ::INI::ParseException
+      abort "Failed to parse config file '#{file}'. " \
+            "Error on line #{ex.line_number}, column #{ex.column_number}"
     end
 
     private macro parse_section(section, settings)
