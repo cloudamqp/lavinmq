@@ -57,22 +57,22 @@ evtSource.onmessage = (event) => {
     tbody.appendChild(buildRow(log))
     if (shouldAutoScroll) livelog.scrollTop = livelog.scrollHeight
   }
+}
 
-  evtSource.onerror = () => {
-    window.fetch('api/whoami')
-      .then(response => response.json())
-      .then(whoami => {
-        if (!whoami.tags.includes('administrator')) {
-          forbidden()
-        }
-      })
-  }
+evtSource.onerror = () => {
+  window.fetch('api/whoami')
+    .then(response => response.json())
+    .then(whoami => {
+      if (!whoami.tags.includes('administrator')) {
+        forbidden()
+      }
+    })
+}
 
-  function forbidden () {
-    const tblError = document.getElementById('table-error')
-    tblError.textContent = 'Access denied, administator access required'
-    tblError.style.display = 'block'
-  }
+function forbidden () {
+  const tblError = document.getElementById('table-error')
+  tblError.textContent = 'Access denied, administator access required'
+  tblError.style.display = 'block'
 }
 
 // Live typing: compile & rebuild
