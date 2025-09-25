@@ -52,18 +52,19 @@ module LavinMQ
 
     @[CliOpt("", "--amqp-unix-path=PATH", "AMQP UNIX path to listen to")]
     @[IniOpt(ini_name: unix_path, section: "amqp")]
+    property unix_path : String = ""
 
-
-    @[IniOpt(section: "mqtt")]
+    @[IniOpt(ini_name: bind, section: "mqtt")]
     property mqtt_bind = "127.0.0.1"
-    @[IniOpt(section: "mqtt")]
+
+    @[IniOpt(ini_name: port, section: "mqtt")]
     property mqtt_port = 1883
-    @[IniOpt(section: "mqtt")]
+
+    @[IniOpt(ini_name: tls_port, section: "mqtt")]
     property mqtts_port = -1
-    @[IniOpt(section: "mqtt")]
+
+    @[IniOpt(ini_name: unix_path, section: "mqtt")]
     property mqtt_unix_path = ""
-    @[IniOpt(section: "mqtt")]
-    property unix_path = ""
 
     @[IniOpt(section: "amqp")]
     property unix_proxy_protocol = 1_u8 # PROXY protocol version on unix domain socket connections
@@ -165,10 +166,11 @@ module LavinMQ
     @[IniOpt(section: "main")]
     property tcp_send_buffer_size : Int32? = nil
 
-    @[CliOpt("", "--guest-only-loopback=BOOL", "Limit guest user to only connect from loopback address")]
-    @[IniOpt(section: "main")]
+    @[CliOpt("", "--guest-only-loopback=BOOL", "Limit guest user to only connect from loopback address", deprecated: "default_user_only_loopback")]
+    @[IniOpt(section: "main", deprecated: "default_user_only_loopback")]
     property? guest_only_loopback : Bool = true
 
+    @[CliOpt("", "--default-user-only-loopback=BOOL", "Limit guest user to only connect from loopback address")]
     @[IniOpt(section: "amqp")]
     property? default_user_only_loopback : Bool = true
 
@@ -185,22 +187,22 @@ module LavinMQ
     property free_disk_warn : Int64 = 0 # bytes
 
     @[CliOpt("", "--clustering", "Enable clustering")]
-    @[IniOpt(section: "clustering")]
+    @[IniOpt(ini_name: enabled, section: "clustering")]
     @[EnvOpt("LAVINMQ_CLUSTERING")]
     property? clustering = false
 
     @[CliOpt("", "--clustering-etcd-prefix=KEY", "Key prefix used in etcd (default: lavinmq")]
-    @[IniOpt(section: "clustering")]
+    @[IniOpt(ini_name: etcd_prefix, section: "clustering")]
     @[EnvOpt("LAVINMQ_CLUSTERING_ETCD_PREFIX")]
     property clustering_etcd_prefix = "lavinmq"
 
     @[CliOpt("", "--clustering-etcd-endpoints=URIs", "Comma separeted host/port pairs (default: 127.0.0.1:2379)")]
-    @[IniOpt(section: "clustering")]
+    @[IniOpt(ini_name: etcd_endpoints, section: "clustering")]
     @[EnvOpt("LAVINMQ_CLUSTERING_ETCD_ENDPOINTS")]
     property clustering_etcd_endpoints = "localhost:2379"
 
     @[CliOpt("", "--clustering-advertised-uri=URI", "Advertised URI for the clustering server")]
-    @[IniOpt(section: "clustering")]
+    @[IniOpt(ini_section: clustering)]
     @[EnvOpt("LAVINMQ_CLUSTERING_ADVERTISED_URI")]
     property clustering_advertised_uri : String? = nil
 
@@ -210,12 +212,12 @@ module LavinMQ
     property clustering_bind = "127.0.0.1"
 
     @[CliOpt("", "--clustering-port=PORT", "Listen for clustering followers on this port (default: 5679)")]
-    @[IniOpt(section: "clustering")]
+    @[IniOpt(ini_name: port, section: "clustering")]
     @[EnvOpt("LAVINMQ_CLUSTERING_PORT")]
     property clustering_port = 5679
 
     @[CliOpt("", "--clustering-max-unsynced-actions=ACTIONS", "Maximum unsynced actions")]
-    @[IniOpt(section: "clustering")]
+    @[IniOpt(ini_name: max_unsynced_actions, section: "clustering")]
     @[EnvOpt("LAVINMQ_CLUSTERING_MAX_UNSYNCED_ACTIONS")]
     property clustering_max_unsynced_actions = 8192 # number of unsynced clustering actions
 
@@ -238,9 +240,24 @@ module LavinMQ
 
     @[IniOpt(section: "experimental")]
     property yield_each_delivered_bytes = 1_048_576 # max number of bytes sent to a client without tending to other tasks in the server
+
+    @[IniOpt(section: "main", transform: ->(s : String) { s.split(",").map(&.strip) })]
     property auth_backends : Array(String) = ["basic"]
-    property default_user : String = ENV.fetch("LAVINMQ_DEFAULT_USER", "guest")
-    property default_password : String = ENV.fetch("LAVINMQ_DEFAULT_PASSWORD", DEFAULT_PASSWORD_HASH) # Hashed password for default user
+
+    @[CliOpt("", "--default-user=USER", "Default user (default: guest")]
+    @[IniOpt(section: "main")]
+    @[EnvOpt("LAVINMQ_DEFAULT_USER")]
+    property default_user = "guest"
+
+    @[CliOpt("", "--default-password-hash=PASSWORD-HASH", "Hashed password for default user (default: '+pHuxkR9fCyrrwXjOD4BP4XbzO3l8LJr8YkThMgJ0yVHFRE+' (guest))")]
+    @[IniOpt(section: "main")]
+    @[EnvOpt("LAVINMQ_DEFAULT_PASSWORD")]
+    property default_password_hash = DEFAULT_PASSWORD_HASH # Hashed password for default user
+
+    @[CliOpt("", "--default-password=PASSWORD-HASH", "(Deprecated) Hashed password for default user (default: '+pHuxkR9fCyrrwXjOD4BP4XbzO3l8LJr8YkThMgJ0yVHFRE+' (guest))", deprecated: "default_password_hash")]
+    @[IniOpt(section: "main", deprecated: "default_password_hash")]
+    property default_password = DEFAULT_PASSWORD_HASH # Hashed password for default user
+
     property max_consumers_per_channel = 0
     @@instance : Config = self.new
 
@@ -279,9 +296,25 @@ module LavinMQ
       parser.on("-v", "--version", "Show version") { puts LavinMQ::VERSION; exit 0 }
       parser.on("--build-info", "Show build information") { puts LavinMQ::BUILD_INFO; exit 0 }
       {% for ivar in @type.instance_vars.select(&.annotation(CliOpt)) %}
-        {% short_flag, long_flag, description, value_parser = ivar.annotation(CliOpt).args %}
+        {%
+          anno = ivar.annotation(CliOpt)
+          short_flag, long_flag, description, value_parser = anno.args
+          warn_msg = nil
+          if deprecated = anno[:deprecated]
+            ivar = @type.instance_vars.find &.name.== deprecated
+            use_short, use_long = ivar.annotation(CliOpt).args
+            warn_msg = ""
+            unless short_flag.empty?
+              warn_msg += "#{short_flag}/"
+            end
+            warn_msg += "#{long_flag} is deprecated, use #{use_long} instead"
+          end
+        %}
         parser.on({{short_flag}}, {{long_flag}}, {{description}}) do |v|
-          @{{ivar}} = parse_value(v, {{value_parser || ivar.type}})
+          {% if warn_msg %}
+            Log.warn { {{warn_msg}} }
+          {% end %}
+          @{{ivar.name.id}} = parse_value(v, {{value_parser || ivar.type}})
         end
       {% end %}
       parser.parse(ARGV.dup)
@@ -328,14 +361,16 @@ module LavinMQ
           parse_section("main", settings)
         when "amqp"
           parse_section("amqp", settings)
+        when "mqtt"
+          parse_section("mqtt", settings)
         when "mgmt"
           parse_section("mgmt", settings)
         when "clustering"
           parse_section("clustering", settings)
+        when "replication"
+          abort("#{file}: [replication] is deprecated and replaced with [clustering], see the README for more information")
         when "experimental"
           parse_section("experimental", settings)
-        when "replication"
-            abort("#{file}: [replication] is deprecated and replaced with [clustering], see the README for more information"
         else
           raise "Unknown configuration section: #{section}"
         end
@@ -351,10 +386,12 @@ module LavinMQ
         .select(&.annotation(IniOpt)[:section].== section)
         # This is just to get simpler objects to work with
         .map do |ivar|
+          anno = ivar.annotation(IniOpt)
           {
-            var_name:  ivar.name,
-            ini_name:  ivar.annotation(IniOpt)[:ini_name] || ivar.name,
-            transform: ivar.annotation(IniOpt)[:transform] || ivar.type,
+            var_name:   ivar.name,
+            ini_name:   anno[:ini_name] || ivar.name,
+            transform:  anno[:transform] || ivar.type,
+            deprecated: anno[:deprecated],
           }
         end
     %}
@@ -362,11 +399,29 @@ module LavinMQ
     settings.each do |name, v|
       case name
         {% for var in ivars_in_section %}
-          when "{{var[:ini_name]}}" then @{{var[:var_name]}} = parse_value(v, {{var[:transform]}})
+         when "{{var[:ini_name]}}"
+         {% if (deprecated = var[:deprecated]) %}
+           {%
+             use_ivar = @type.instance_vars.find &.name.== deprecated
+             anno = use_ivar.annotation(IniOpt)
+             use_ivar = {
+               var_name:   use_ivar.name,
+               ini_name:   anno[:ini_name] || use_ivar.name,
+               transform:  anno[:transform] || use_ivar.type,
+               deprecated: anno[:deprecated],
+             }
+           %}
+           Log.warn { "{{var[:ini_name]}} is depricated, use {{use_ivar[:ini_name]}} instead" }
+           {% var = use_ivar %}
+         {% end %}
+         @{{var[:var_name]}} = parse_value(v, {{var[:transform]}})
         {% end %}
-      else
-        raise "Unknown setting in section [#{section}]: #{name} (ivars_in_section: {{ivars_in_section}})"
+     else
+       raise "Unknown setting in section (ivars_in_section: {{ivars_in_section.map(&.[](:var_name)).join(", ").id}})"
       end
+    rescue ex
+      Log.error { "Failed to handle value for '#{name}' in [{{section.id}}]: #{ex.message}" }
+      abort
     end
   {% end %}
     end
