@@ -2157,47 +2157,30 @@ pre.arguments .inactive-argument:before {
 }
 
 #livelog {
-  max-height: 75vh;
+  max-height: 50vh;
   overflow: auto;
   scrollbar-gutter: stable both-edges;
-  padding:0 1.5rem 1.5rem;
 }
 
-#livelog td {
-  white-space: normal;
-}
-
-.log-toolbar {
+#livelog table {
   width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+}
+
+#livelog thead th {
+  position: sticky;
+  top: 0;
   background: var(--color-bg-secondary);
-  border-bottom: 1px solid rgba(0,0,0,0.08);
-  box-shadow: 0 1px 0 rgba(0,0,0,0.04);
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  flex-wrap: wrap;
-  padding: 0.75rem 1.5rem;
-}
-
-.log-toolbar .toolbar-actions {
-  display: flex;
-  gap: 0.5rem;
-  margin-left: auto;
-}
-
-.btn-primary a,
-.btn-primary a:visited {
-  color: var(--color-text-inverse);
-}
-
-#download-logs {
-  margin: 5px 0 16px 0;
-  text-decoration: none;
+  border-bottom: 2px solid rgba(0,0,0,0.08);
+  z-index: 2;
 }
 
 #livelog table td,
 #livelog table th {
   padding: 4px 8px;
+  text-align: left;
 }
 
 #livelog table thead .livelog-timestamp {
@@ -2216,8 +2199,42 @@ pre.arguments .inactive-argument:before {
   width: auto;
 }
 
-#livelog table th {
-  text-align: left;
+#livelog td {
+  white-space: normal;
+}
+
+.log-toolbar-container {
+  width: 100%;
+  background: var(--color-bg-secondary);
+  border-bottom: 1px solid rgba(0,0,0,0.08);
+  box-shadow: 0 1px 0 rgba(0,0,0,0.04);
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0.75rem 1.5rem;
+}
+
+.log-toolbar {
+  flex: 0 1 auto;
+}
+
+.toolbar-action {
+  flex: 0 0 auto;
+}
+
+#download-logs {
+  margin: 5px 0 16px 0;
+  text-decoration: none;
+}
+
+#to-top {
+  margin: 0.5rem 1.5rem;
+}
+
+.btn-primary a,
+.btn-primary a:visited {
+  color: var(--color-text-inverse);
 }
 
 .version-tab {

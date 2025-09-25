@@ -13,11 +13,11 @@
           <div class="tiny-badge" id="pagename-label"></div></h2>
       </div>
       <section class="card">
-       <div class="log-toolbar">
+       <div class="log-toolbar-container">
+            <button id="to-bottom" class="btn-outlined log-toolbar">⬇</button>
           <label for="log-filter" class="sr-only"></label>
-            <input id="log-filter" class="filter-table" type="search" placeholder="Filter regex">
-            <button id="to-bottom" class="btn-outlined">⬇</button>
-            <a id="download-logs" class="btn btn-green toolbar-actions" download href="api/logs">Download logs</a>
+            <input id="log-filter" class="filter-table log-toolbar" type="search" placeholder="Filter regex">
+            <a id="download-logs" class="btn btn-green toolbar-action" download href="api/logs">Download logs</a>
         </div>
         <div id="livelog" class="livelog">
         <div id="table-error"></div>
