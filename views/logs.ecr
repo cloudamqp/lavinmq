@@ -12,11 +12,14 @@
           <h2 class="page-title"><span><%=pagename%></span></h2>
           <div class="tiny-badge" id="pagename-label"></div></h2>
       </div>
-      <section id="livelog" class="card livelog">
-        <label for="log-filter" class="sr-only"></label>
-        <input id="log-filter" class="filter-table" type="search" placeholder="Filter regex">
-        <button id="to-bottom" class="btn-outlined">⬇</button>
-        <button id="download-logs" class="btn btn-green"><a download href="api/logs">Download logs</a></button>
+      <section class="card">
+       <div class="log-toolbar">
+          <label for="log-filter" class="sr-only"></label>
+            <input id="log-filter" class="filter-table" type="search" placeholder="Filter regex">
+            <button id="to-bottom" class="btn-outlined">⬇</button>
+            <a id="download-logs" class="btn btn-green toolbar-actions" download href="api/logs">Download logs</a>
+        </div>
+        <div id="livelog" class="livelog">
         <div id="table-error"></div>
         <table id="table" class="table">
           <thead>
@@ -29,6 +32,7 @@
           </thead>
           <tbody id="livelog-body"></tbody>
         </table>
+        </div>
         <button id="to-top" class="btn-outlined">⬆</button>
       </section>
     </main>

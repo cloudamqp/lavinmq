@@ -2157,12 +2157,32 @@ pre.arguments .inactive-argument:before {
 }
 
 #livelog {
-  max-height: 85vh;
-  overflow-y: scroll;
+  max-height: 75vh;
+  overflow: auto;
+  scrollbar-gutter: stable both-edges;
+  padding:0 1.5rem 1.5rem;
 }
 
 #livelog td {
   white-space: normal;
+}
+
+.log-toolbar {
+  width: 100%;
+  background: var(--color-bg-secondary);
+  border-bottom: 1px solid rgba(0,0,0,0.08);
+  box-shadow: 0 1px 0 rgba(0,0,0,0.04);
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 0.75rem 1.5rem;
+}
+
+.log-toolbar .toolbar-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-left: auto;
 }
 
 .btn-primary a,
@@ -2172,9 +2192,6 @@ pre.arguments .inactive-argument:before {
 
 #download-logs {
   margin: 5px 0 16px 0;
-}
-
-#download-logs a {
   text-decoration: none;
 }
 
