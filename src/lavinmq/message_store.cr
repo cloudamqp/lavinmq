@@ -374,8 +374,7 @@ module LavinMQ
           end
           @replicator.try &.register_file(file)
         end
-        capacity = Config.instance.segment_size // BytesMessage::MIN_BYTESIZE * 4 + 4
-        @acks[seg] = MFile.new(ack_file_path, capacity, writeonly: true)
+        @acks[seg] = open_ack_file(seg)
         @log.debug { "Loaded #{count}/#{ack_files} ack files" } if (count += 1) % 128 == 0
         @deleted[seg] = acked.sort! unless acked.empty?
         Fiber.yield
