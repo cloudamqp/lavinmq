@@ -50,4 +50,25 @@ describe LavinMQ::MessageStore do
       store.close
     end
   end
+
+  # create an ack file with a size of 4
+  # create msg file
+  # start msg store
+  # publish a msg
+  # do get + delete
+  it "can ack messages after restart" do
+    mktmpdir do |dir|
+      File.write(File.join(dir, "msgs.0000000001"), "")
+      File.write(File.join(dir, "acks.0000000001"), "\x00\x00\x00\x04")
+      store = LavinMQ::MessageStore.new(dir, nil)
+      body_io = IO::Memory.new("hello")
+      message = LavinMQ::Message.new(RoughTime.unix_ms, "test_exchange", "test_key", AMQ::Protocol::Properties.new, 5u64, body_io)
+      store.push(message)
+      env = store.shift?
+      env.should_not be_nil
+      String.new(env.not_nil!.message.body).should eq "hello"
+      store.delete(env.not_nil!.segment_position)
+      store.close
+    end
+  end
 end
