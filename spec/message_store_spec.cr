@@ -30,4 +30,24 @@ describe LavinMQ::MessageStore do
       File.exists?(File.join(dir, "acks.0000000002")).should be_false
     end
   end
+
+  it "first? should return nil from empty segment" do
+    mktmpdir do |dir|
+      File.write(File.join(dir, "msgs.0000000001"), "")
+      store = LavinMQ::MessageStore.new(dir, nil)
+      store.@segments.first_value.truncate(1000)
+      store.first?.should be_nil
+      store.close
+    end
+  end
+
+  it "shift? should return nil from empty segment" do
+    mktmpdir do |dir|
+      File.write(File.join(dir, "msgs.0000000001"), "")
+      store = LavinMQ::MessageStore.new(dir, nil)
+      store.@segments.first_value.truncate(1000)
+      store.shift?.should be_nil
+      store.close
+    end
+  end
 end

@@ -367,7 +367,7 @@ describe LavinMQ::AMQP::Queue do
       begin
         store = LavinMQ::MessageStore.new(data_dir, nil)
         body = IO::Memory.new(Random::DEFAULT.random_bytes(LavinMQ::Config.instance.segment_size), writeable: false)
-        msg = LavinMQ::Message.new(0i64, "amq.topic", "rk", AMQ::Protocol::Properties.new, body.size.to_u64, body)
+        msg = LavinMQ::Message.new(1i64, "amq.topic", "rk", AMQ::Protocol::Properties.new, body.size.to_u64, body)
         sps = Array(LavinMQ::SegmentPosition).new(10) { store.push msg }
         sps.each { |sp| store.delete sp }
         Fiber.yield
@@ -383,7 +383,7 @@ describe LavinMQ::AMQP::Queue do
       Dir.mkdir_p data_dir
       begin
         body = IO::Memory.new(Random::DEFAULT.random_bytes(LavinMQ::Config.instance.segment_size), writeable: false)
-        msg = LavinMQ::Message.new(0i64, "amq.topic", "rk", AMQ::Protocol::Properties.new, body.size.to_u64, body)
+        msg = LavinMQ::Message.new(1i64, "amq.topic", "rk", AMQ::Protocol::Properties.new, body.size.to_u64, body)
 
         store = LavinMQ::MessageStore.new(data_dir, nil)
         2.times { store.push msg }
@@ -403,7 +403,7 @@ describe LavinMQ::AMQP::Queue do
       store = LavinMQ::MessageStore.new(tmpdir, nil)
 
       (LavinMQ::MessageStore::PURGE_YIELD_INTERVAL * 2 + 1).times do
-        store.push(LavinMQ::Message.new(0i64, "a", "b", AMQ::Protocol::Properties.new, 0u64, IO::Memory.new(0)))
+        store.push(LavinMQ::Message.new(1i64, "a", "b", AMQ::Protocol::Properties.new, 0u64, IO::Memory.new(0)))
       end
 
       yields = 0
@@ -441,7 +441,7 @@ describe LavinMQ::AMQP::Queue do
       # Publish enough data to have more than one segment
       until store.@segments.size > 1
         io.rewind
-        store.push(LavinMQ::Message.new(0i64, "a", "b", AMQ::Protocol::Properties.new, data.bytesize.to_u64, io))
+        store.push(LavinMQ::Message.new(1i64, "a", "b", AMQ::Protocol::Properties.new, data.bytesize.to_u64, io))
       end
 
       Dir.glob(File.join(tmpdir, "msgs.*")).each do |f|
@@ -451,6 +451,34 @@ describe LavinMQ::AMQP::Queue do
       store.purge
     ensure
       FileUtils.rm_rf tmpdir if tmpdir
+    end
+
+    it "should not ack 'empty' msg if mfile.size is too big" do
+      with_amqp_server do |s|
+        s.vhosts["/"].declare_queue("expire_test_queue", true, false, AMQP::Client::Arguments.new({
+          "x-message-ttl" => 600,
+        }))
+        queue = s.vhosts["/"].queues["expire_test_queue"].as(LavinMQ::AMQP::DurableQueue)
+
+        10_000.times do
+          queue.publish(LavinMQ::Message.new("ex", "rk", "body" * 250, AMQ::Protocol::Properties.new))
+        end
+
+        # Change size of each segment to be bigger than actual size
+        queue.@msg_store.@segments.each_value do |mfile|
+          mfile.truncate(mfile.size + 100)
+        end
+
+        # Wait for messages to expire
+        wait_for(2.seconds) { queue.message_count == 0 }
+        Fiber.yield
+
+        queue.message_count.should eq 0
+        queue.@msg_store.@segments.each_key do |seg|
+          acks = queue.@msg_store.@acks[seg]
+          (acks.size // sizeof(UInt32)).should eq queue.@msg_store.@segment_msg_count[seg]
+        end
+      end
     end
   end
 
