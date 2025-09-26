@@ -59,10 +59,9 @@ describe LavinMQ::MessageStore do
       body_io = IO::Memory.new("hello")
       message = LavinMQ::Message.new(RoughTime.unix_ms, "test_exchange", "test_key", AMQ::Protocol::Properties.new, 5u64, body_io)
       store.push(message)
-      env = store.shift?
-      env.should_not be_nil
-      String.new(env.not_nil!.message.body).should eq "hello"
-      store.delete(env.not_nil!.segment_position)
+      env = store.shift?.should_not be_nil
+      String.new(env.message.body).should eq "hello"
+      store.delete(env.segment_position)
       store.close
     end
   end
