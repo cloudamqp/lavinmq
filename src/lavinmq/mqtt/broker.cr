@@ -72,24 +72,12 @@ module LavinMQ
       end
 
       def publish(user : Auth::User, packet : MQTT::Publish)
-        unless user.can_write?(@vhost.name, EXCHANGE)
-          Log.warn { "Access refused: user '#{user.name}' doesn't have write permissions to exchange '#{EXCHANGE}'" }
-          raise LavinMQ::Exchange::AccessRefused.new(@exchange)
-        end
         @exchange.publish(packet)
       end
 
       def subscribe(client, topics)
         session = sessions.declare(client)
         headers = AMQP::Table.new({RETAIN_HEADER => true})
-        unless client.user.can_read?(@vhost.name, EXCHANGE)
-          Log.warn { "Access refused: user '#{client.user.name}' doesn't have read permissions to exchange '#{EXCHANGE}'" }
-          raise LavinMQ::Exchange::AccessRefused.new(@exchange)
-        end
-        unless client.user.can_write?(@vhost.name, session.name)
-          Log.warn { "Access refused: user '#{client.user.name}' doesn't have write permissions to session '#{session.name}'" }
-          raise LavinMQ::Exchange::AccessRefused.new(@exchange)
-        end
         topics.map do |tf|
           session.subscribe(tf.topic, tf.qos)
           ts = RoughTime.unix_ms
