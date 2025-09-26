@@ -33,6 +33,7 @@ module LavinMQ
         static_view "/user"
         static_view "/policies"
         static_view "/operator-policies"
+        static_view "/topology"
       end
 
       # Generate a get handler for given path. If no view is specified, path without initial

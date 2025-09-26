@@ -57,6 +57,7 @@
         items: [
           { href: ".", label: "Overview", icon: "icon-overview" },
           { href: "nodes", label: "Nodes", icon: "icon-nodes" },
+          { href: "topology", label: "Topology", icon: "icon-topology" },
           { href: "logs", label: "Logs", icon: "icon-logs" },
         ]
       },
@@ -92,9 +93,9 @@
         ]
       },
     ].each do |group| -%>
-      
+
       <li class="menu-group"><%= group[:title] %></li>
-      
+
       <% group[:items].each do |item| -%>
         <li<%= %( class="active") if active_path?(item[:href]) %>>
           <a href="<%= item[:href] %>">
@@ -103,7 +104,7 @@
           </a>
         </li>
       <%- end -%>
-      
+
     <%- end -%>
 
     <li class="last-menu-item"><a href="docs/" target="_blank">HTTP API <i class="icon-blank"></i></a></li>
