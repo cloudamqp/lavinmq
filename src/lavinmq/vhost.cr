@@ -146,7 +146,7 @@ module LavinMQ
       ack = confirm = deliver = deliver_no_ack = get = get_no_ack = publish = redeliver = return_unroutable = deliver_get = 0_u64
       @queues.each_value do |q|
         ready += q.message_count
-        unacked += q.unacked_count
+        unacked += q.acknowledgement_tracker.unacked_count
         ack += q.ack_count
         confirm += q.confirm_count
         deliver += q.deliver_count
