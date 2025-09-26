@@ -127,7 +127,12 @@ module LavinMQ
       end
 
       def recieve_publish(packet : MQTT::Publish)
-        @broker.publish(packet)
+        unless user.can_write?(@broker.vhost.name, EXCHANGE)
+          Log.debug { "Access refused: user '#{self.user.name}' doesn't have permissions to session" }
+          close_socket
+          return
+        end
+        @broker.publish(@user, packet)
         vhost.event_tick(EventType::ClientPublish)
         # Ok to not send anything if qos = 0 (fire and forget)
         if packet.qos > 0 && (packet_id = packet.packet_id)
@@ -141,6 +146,12 @@ module LavinMQ
       end
 
       def recieve_subscribe(packet : MQTT::Subscribe)
+        unless self.user.can_read?(@broker.vhost.name, EXCHANGE) &&
+               self.user.can_write?(@broker.vhost.name, "mqtt.#{self.client_id}")
+          Log.debug { "Access refused: user '#{self.user.name}' doesn't have permissions for this action" }
+          close_socket
+          return
+        end
         qos = @broker.subscribe(self, packet.topic_filters)
         send(MQTT::SubAck.new(qos, packet.packet_id))
       end
@@ -179,15 +190,17 @@ module LavinMQ
 
       private def publish_will
         if will = @will
-          @broker.publish MQTT::Publish.new(
+          @broker.publish(@user, MQTT::Publish.new(
             topic: will.topic,
             payload: will.payload,
             packet_id: nil,
             qos: will.qos,
             retain: will.retain?,
             dup: false,
-          )
+          ))
         end
+      rescue ex : LavinMQ::Exchange::AccessRefused
+        @log.warn { "Will message could not be published: user '#{@user.name}' lacks write permissions" }
       rescue ex
         @log.warn { "Failed to publish will: #{ex.message}" }
       end
