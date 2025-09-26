@@ -2157,9 +2157,10 @@ pre.arguments .inactive-argument:before {
 }
 
 #livelog {
-  max-height: 50vh;
+  max-height: 85vh;
   overflow: auto;
   scrollbar-gutter: stable both-edges;
+  scroll-behavior: auto;
 }
 
 #livelog table {
