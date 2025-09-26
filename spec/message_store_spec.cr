@@ -51,11 +51,6 @@ describe LavinMQ::MessageStore do
     end
   end
 
-  # create an ack file with a size of 4
-  # create msg file
-  # start msg store
-  # publish a msg
-  # do get + delete
   it "can ack messages after restart" do
     mktmpdir do |dir|
       File.write(File.join(dir, "msgs.0000000001"), "")
