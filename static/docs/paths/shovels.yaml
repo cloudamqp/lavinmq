@@ -1,18 +1,18 @@
 ---
-"/overview":
+"/api/shovels":
   get:
     tags:
-    - main
-    description: Various server information.
-    summary: Server info
-    operationId: Overview
+      - shovels
+    description: List all shovels across all vhosts.
+    summary: List all shovels
+    operationId: GetShovels
     responses:
       '200':
         description: OK
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/main-overview"
+              "$ref": "../openapi.yaml#/components/schemas/ShovelList"
       4XX:
         description: Client Error
         content:
@@ -25,53 +25,28 @@
           application/json:
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
-"/whoami":
-  get:
-    tags:
-    - main
-    description: Info about the authenticated user.
-    summary: User info
-    operationId: WhoAmI
-    responses:
-      '200':
-        description: OK
-        content:
-          application/json:
-            schema:
-              "$ref": "../openapi.yaml#/components/schemas/user"
-      4XX:
-        description: Client Error
-        content:
-          application/json:
-            schema:
-              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
-      5XX:
-        description: Server Error
-        content:
-          application/json:
-            schema:
-              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
-"/aliveness-test/{vhost}":
+
+"/api/shovels/{vhost}":
   parameters:
-  - in: path
-    name: vhost
-    required: true
-    schema:
-      type: string
-      description: Name of vhost.
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: Name of vhost.
   get:
     tags:
-    - main
-    description: "Declares a queue, publishes and consumes a message. Note: to prevent churn, the aliveness queue is not removed."
-    summary: Aliveness test
-    operationId: AlivenessTest
+      - shovels
+    description: List all shovels for specific vhost.
+    summary: List shovels by vhost
+    operationId: GetShovelsVhost
     responses:
       '200':
         description: OK
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/main-aliveness-test"
+              "$ref": "../openapi.yaml#/components/schemas/ShovelList"
       4XX:
         description: Client Error
         content:
@@ -84,53 +59,40 @@
           application/json:
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
-"/federation-links":
-  get:
-    tags:
-    - main
-    description: List all federation links.
-    summary: List federation links
-    operationId: GetFederationLinks
-    responses:
-      '200':
-        description: OK
-        content:
-          application/json:
-            schema:
-              "$ref": "../openapi.yaml#/components/schemas/main-federation-links"
-      4XX:
-        description: Client Error
-        content:
-          application/json:
-            schema:
-              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
-      5XX:
-        description: Server Error
-        content:
-          application/json:
-            schema:
-              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
-"/federation-links/{vhost}":
+
+"/api/shovels/{vhost}/{name}":
   parameters:
-  - in: path
-    name: vhost
-    required: true
-    schema:
-      type: string
-      description: Name of vhost.
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: Name of vhost.
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: Name of shovel.
   get:
     tags:
-    - main
-    description: List all federation links for specific vhost.
-    summary: List federation links by vhost
-    operationId: GetFederationLinksVhost
+      - shovels
+    description: Get specific shovel details.
+    summary: Get shovel
+    operationId: GetShovel
     responses:
       '200':
         description: OK
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/main-federation-links"
+              "$ref": "../openapi.yaml#/components/schemas/Shovel"
+      '404':
+        description: Shovel not found
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
       4XX:
         description: Client Error
         content:
@@ -143,20 +105,90 @@
           application/json:
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
-"/extensions":
-  get:
+
+"/api/shovels/{vhost}/{name}/pause":
+  parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: Name of vhost.
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: Name of shovel.
+  put:
     tags:
-    - main
-    description: List all extensions.
-    summary: List extensions
-    operationId: GetExtensions
+      - shovels
+    description: Pause a running shovel.
+    summary: Pause shovel
+    operationId: PauseShovel
     responses:
-      '200':
-        description: OK
+      '204':
+        description: Shovel paused successfully
+      '404':
+        description: Shovel not found
         content:
           application/json:
             schema:
-              "$ref": "../openapi.yaml#/components/schemas/main-extensions"
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      '422':
+        description: Shovel is not in running state
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+
+"/api/shovels/{vhost}/{name}/resume":
+  parameters:
+    - in: path
+      name: vhost
+      required: true
+      schema:
+        type: string
+        description: Name of vhost.
+    - in: path
+      name: name
+      required: true
+      schema:
+        type: string
+        description: Name of shovel.
+  put:
+    tags:
+      - shovels
+    description: Resume a paused shovel.
+    summary: Resume shovel
+    operationId: ResumeShovel
+    responses:
+      '204':
+        description: Shovel resumed successfully
+      '404':
+        description: Shovel not found
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      '422':
+        description: Shovel is not in paused state
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
       4XX:
         description: Client Error
         content:
