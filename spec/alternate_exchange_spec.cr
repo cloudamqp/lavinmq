@@ -22,7 +22,7 @@ describe "Alternate Exchange" do
         # the message should go through the alternate exchange and the queue
         # (same behavior as RMQ)
         secondary_ex = ch.exchange("secondary", "headers", args: args)
-        ch.exchange_bind(secondary_ex.name, topic_ex.name, "#")
+        ch.exchange_bind(topic_ex.name, secondary_ex.name, "#")
         target_q = ch.queue("q")
         target_q.bind(topic_ex.name, "*")
         topic_ex.publish("m3", "rk3")
