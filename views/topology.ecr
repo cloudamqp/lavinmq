@@ -1,0 +1,91 @@
+<%- pagename = "Topology" -%>
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <% render "partials/head" %>
+    <script type="module" src="js/topology.js"></script>
+  </head>
+  <body class="topology-page">
+    <% render "partials/header" %>
+    <main class="main-grid">
+      <div id="breadcrumbs" class="cols-12">
+        <h2 class="page-title"><%=pagename%></h2>
+      </div>
+
+      <section class="card">
+        <div class="topology-controls">
+          <div class="topology-toolbar">
+            <div class="search-group">
+              <input type="text" id="topology-search" placeholder="Search nodes..." class="search-input">
+            </div>
+            <div class="view-controls">
+              <button id="fit-view" class="btn btn-sm">Center</button>
+            </div>
+          </div>
+        </div>
+        <div id="topology-graph" class="topology-graph-container"></div>
+
+        <!-- Node Details Panel -->
+        <div id="topology-info-popup" class="topology-info-popup">
+          <div class="popup-content">
+            <div id="popup-header" class="popup-header">
+              <h3 id="popup-title">Node Details</h3>
+            </div>
+            <div id="popup-body" class="popup-body">
+              <div class="node-info">
+                <div class="info-group">
+                  <label>Type:</label>
+                  <span id="node-type"></span>
+                </div>
+                <div class="info-group">
+                  <label>VHost:</label>
+                  <span id="node-vhost"></span>
+                </div>
+                <div class="info-group">
+                  <label>Durable:</label>
+                  <span id="node-durable"></span>
+                </div>
+                <div class="info-group hidden" id="policy-group">
+                  <label>Policy:</label>
+                  <span id="node-policy"></span>
+                </div>
+                <div class="info-group hidden" id="queue-messages-group">
+                  <label>Messages:</label>
+                  <span id="node-messages"></span>
+                </div>
+                <div class="info-group hidden" id="queue-consumers-group">
+                  <label>Consumers:</label>
+                  <span id="node-consumers"></span>
+                </div>
+              </div>
+
+              <div class="connections-container">
+                <div id="incoming-connections" class="connections-section hidden">
+                  <h4 class="collapsible-header">
+                    <span class="toggle-icon">▶</span> 📥 Incoming Bindings (<span id="incoming-count">0</span>)
+                  </h4>
+                  <ul id="incoming-list" class="connection-list hidden"></ul>
+                </div>
+
+                <div id="outgoing-connections" class="connections-section hidden">
+                  <h4 class="collapsible-header">
+                    <span class="toggle-icon">▶</span> 📤 Outgoing Bindings (<span id="outgoing-count">0</span>)
+                  </h4>
+                  <ul id="outgoing-list" class="connection-list hidden"></ul>
+                </div>
+
+                <div id="no-connections" class="connections-section hidden">
+                  <div class="no-connections">
+                    <p>🔌 No bindings found</p>
+                    <small>This <span id="no-connections-type"></span> is not bound to any other components</small>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+    <% render "partials/footer" %>
+  </body>
+</html>
