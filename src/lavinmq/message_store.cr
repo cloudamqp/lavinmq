@@ -360,7 +360,8 @@ module LavinMQ
         next unless child.starts_with? "acks."
         seg = child[5, 10].to_u32
         acked = Array(UInt32).new
-        File.open(File.join(@msg_dir, child), "a+") do |file|
+        ack_file_path = File.join(@msg_dir, child)
+        File.open(ack_file_path, "a+") do |file|
           loop do
             pos = UInt32.from_io(file, IO::ByteFormat::SystemEndian)
             if pos.zero? # pos 0 doesn't exists (first valid is 4), must be a sparse file
@@ -373,6 +374,7 @@ module LavinMQ
           end
           @replicator.try &.register_file(file)
         end
+        @acks[seg] = open_ack_file(seg)
         @log.debug { "Loaded #{count}/#{ack_files} ack files" } if (count += 1) % 128 == 0
         @deleted[seg] = acked.sort! unless acked.empty?
         Fiber.yield
@@ -507,7 +509,7 @@ module LavinMQ
       @segments.reject! do |seg, mfile|
         next if seg == current_seg # don't the delete the segment still being written to
 
-        if (acks = @acks[seg]?) && @segment_msg_count[seg] == (acks.size // sizeof(UInt32))
+        if (acks = @acks[seg]?) && @segment_msg_count[seg] <= (acks.size // sizeof(UInt32))
           @log.debug { "Deleting unused segment #{seg}" }
           @segment_msg_count.delete seg
           @deleted.delete seg
