@@ -360,8 +360,7 @@ module LavinMQ
         next unless child.starts_with? "acks."
         seg = child[5, 10].to_u32
         acked = Array(UInt32).new
-        ack_file_path = File.join(@msg_dir, child)
-        File.open(ack_file_path, "a+") do |file|
+        File.open(File.join(@msg_dir, child), "a+") do |file|
           loop do
             pos = UInt32.from_io(file, IO::ByteFormat::SystemEndian)
             if pos.zero? # pos 0 doesn't exists (first valid is 4), must be a sparse file
