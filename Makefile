@@ -4,7 +4,7 @@ PERF_SOURCES := $(shell find src/lavinmqperf -name '*.cr' 2> /dev/null)
 VIEW_SOURCES := $(wildcard views/*.ecr)
 VIEW_TARGETS := $(patsubst views/%.ecr,static/views/%.html,$(VIEW_SOURCES))
 VIEW_PARTIALS := $(wildcard views/partials/*.ecr)
-JS := static/js/lib/chunks/helpers.segment.js static/js/lib/chart.js static/js/lib/luxon.js static/js/lib/chartjs-adapter-luxon.esm.js static/js/lib/elements-8.2.0.js static/js/lib/elements-8.2.0.css
+JS := static/js/lib/chunks/helpers.segment.js static/js/lib/chart.js static/js/lib/d3.v7.min.js static/js/lib/luxon.js static/js/lib/chartjs-adapter-luxon.esm.js static/js/lib/elements-8.2.0.js static/js/lib/elements-8.2.0.css
 LDFLAGS := $(shell (dpkg-buildflags --get LDFLAGS || rpm -E "%{build_ldflags}" || echo "-pie") 2>/dev/null)
 CRYSTAL_FLAGS := --release
 override CRYSTAL_FLAGS += --stats --error-on-warnings -Dpreview_mt -Dexecution_context --link-flags="$(LDFLAGS)"
@@ -79,6 +79,11 @@ static/js/lib/luxon.js: | static/js/lib
 	curl --fail --retry 5 -sLo $@ https://moment.github.io/luxon/es6/luxon.mjs && \
 		echo "b495ad5cabea3439d04387e6622f2c3fa81d319424d9d76d9e7f874ac5a0807a $@" | \
 		sha256sum -c - || (echo "SHA256 checksum mismatch for $@"; rm -f $@; exit 1)
+
+static/js/lib/d3.v7.min.js: | static/js/lib
+	curl --fail --retry 5 -sLo $@ https://d3js.org/d3.v7.min.js && \
+	echo "f2094bbf6141b359722c4fe454eb6c4b0f0e42cc10cc7af921fc158fceb86539 $@" | sha256sum -c - || \
+	(echo "SHA256 checksum mismatch for $@"; rm -f $@; exit 1)
 
 static/js/lib/chartjs-adapter-luxon.esm.js: | static/js/lib
 	curl --fail --retry 5 -sLo $@ https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.esm.js && \
