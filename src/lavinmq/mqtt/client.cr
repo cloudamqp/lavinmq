@@ -193,7 +193,6 @@ module LavinMQ
         if will = @will
           unless user.can_write?(@broker.vhost.name, EXCHANGE)
             Log.debug { "Access refused: user '#{self.user.name}' does not have permissions" }
-            close_socket
             return
           end
           @broker.publish(MQTT::Publish.new(
