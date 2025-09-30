@@ -172,6 +172,8 @@ describe LavinMQ::Deduplication::Deduper do
       })
       q_name = "delayed_q"
       with_amqp_server do |s|
+        sleep 0.1.seconds
+
         with_channel(s) do |ch|
           x = ch.exchange("delayed_ex", "topic", args: x_args)
           q = ch.queue(q_name)
