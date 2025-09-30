@@ -2,12 +2,7 @@ require "./stream"
 require "./stream_consumer"
 
 module LavinMQ::AMQP
-  module StreamStore
-    abstract def read(segment, position) : Envelope?
-  end
-
   class StreamMessageStore < MessageStore
-    include StreamStore
     getter new_messages = ::Channel(Bool).new
     property max_length : Int64?
     property max_length_bytes : Int64?
@@ -218,7 +213,7 @@ module LavinMQ::AMQP
       end
     end
 
-    def read(segment, position) : Envelope?
+    def read(segment : UInt32, position : UInt32) : Envelope?
       return nil if @closed
       rfile = @segments[segment]
       return if position == rfile.size
@@ -270,8 +265,12 @@ module LavinMQ::AMQP
       end
     end
 
+    def next_segment_id(segment) : UInt32?
+      @segments.each_key.find { |sid| sid > segment }
+    end
+
     private def next_segment(consumer) : MFile?
-      if seg_id = @segments.each_key.find { |sid| sid > consumer.segment }
+      if seg_id = next_segment_id(consumer.segment)
         consumer.segment = seg_id
         consumer.pos = 4u32
         @segments[seg_id]
