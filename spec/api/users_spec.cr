@@ -48,7 +48,7 @@ describe LavinMQ::HTTP::UsersController do
 
     it "should handle request with empty body" do
       with_http_server do |http, _|
-        response = http.put("/api/users/bulk-delete", body: "")
+        response = http.post("/api/users/bulk-delete", body: "")
         response.status_code.should eq 400
         body = JSON.parse(response.body)
         body["reason"].as_s.should match(/Field .+ is required/)
@@ -57,14 +57,14 @@ describe LavinMQ::HTTP::UsersController do
 
     it "should handle unexpected input" do
       with_http_server do |http, _|
-        response = http.put("/api/users/bulk-delete", body: "\"{}\"")
+        response = http.post("/api/users/bulk-delete", body: "\"{}\"")
         response.status_code.should eq 400
       end
     end
 
     it "should handle invalid JSON" do
       with_http_server do |http, _|
-        response = http.put("/api/users/bulk-delete", body: "a")
+        response = http.post("/api/users/bulk-delete", body: "a")
         response.status_code.should eq 400
         body = JSON.parse(response.body)
         body["reason"].as_s.should eq("Malformed JSON")
