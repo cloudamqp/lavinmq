@@ -373,6 +373,7 @@ module LavinMQ
           end
           @replicator.try &.register_file(file)
         end
+        @acks[seg] = open_ack_file(seg)
         @log.debug { "Loaded #{count}/#{ack_files} ack files" } if (count += 1) % 128 == 0
         @deleted[seg] = acked.sort! unless acked.empty?
         Fiber.yield
@@ -507,7 +508,7 @@ module LavinMQ
       @segments.reject! do |seg, mfile|
         next if seg == current_seg # don't the delete the segment still being written to
 
-        if (acks = @acks[seg]?) && @segment_msg_count[seg] == (acks.size // sizeof(UInt32))
+        if (acks = @acks[seg]?) && @segment_msg_count[seg] <= (acks.size // sizeof(UInt32))
           @log.debug { "Deleting unused segment #{seg}" }
           @segment_msg_count.delete seg
           @deleted.delete seg
