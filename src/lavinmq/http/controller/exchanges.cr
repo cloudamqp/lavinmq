@@ -91,6 +91,9 @@ module LavinMQ
             unless user.can_config?(e.vhost.name, e.name)
               access_refused(context, "User doesn't have permissions to delete exchange '#{e.name}'")
             end
+            if NameValidator.reserved_prefix?(e.name)
+              access_refused(context, "Can not delete exchange with prefix #{NameValidator::PREFIX_LIST}")
+            end
             if context.request.query_params["if-unused"]? == "true"
               bad_request(context, "Exchange #{e.name} in vhost #{e.vhost.name} in use") if e.in_use?
             end
