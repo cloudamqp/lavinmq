@@ -172,6 +172,8 @@ describe LavinMQ::Deduplication::Deduper do
       })
       q_name = "delayed_q"
       with_amqp_server do |s|
+        # This sleep seems to be necessary for all policies and parameters to be applied.
+        sleep 0.1.seconds
         with_channel(s) do |ch|
           x = ch.exchange("delayed_ex", "topic", args: x_args)
           q = ch.queue(q_name)
@@ -180,22 +182,34 @@ describe LavinMQ::Deduplication::Deduper do
             "x-delay"                => cache_ttl,
             "x-deduplication-header" => "msg1",
           })
-          x.publish "test message", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
-          queue = s.vhosts["/"].queues[q_name]
-          queue.message_count.should eq 0 # no message yet, delayed exchange
 
-          # second publish should be deduplicated
-          sleep 100.milliseconds # wait for first publish to be processed
-          x.publish "test message", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
-          wait_for { queue.message_count == 1 }
+          exchange = s.vhosts["/"].exchanges["delayed_ex"].should be_a(LavinMQ::AMQP::Exchange)
+          delay_q = exchange.@delayed_queue.should be_a(LavinMQ::AMQP::DelayedExchangeQueue)
 
-          # get message, message_count should be 0
-          ch.basic_get(q_name, no_ack: true)
-          wait_for { queue.message_count == 0 }
-
-          # cache_ttl has passed, message should be delivered
+          # Publish a message and verify it has been delayed and not thrown away
           x.publish "test message", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
-          wait_for { queue.message_count == 1 }
+
+          select
+          when delay_q.empty.when_false.receive
+          end
+
+          exchange.dedup_count.should eq 0
+
+          # Publish a second message, verify that it's thrown away
+          x.publish "test message", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
+          wait_for { exchange.dedup_count == 1 }
+          delay_q.message_count.should eq 1
+
+          # wait for the delayed message to be delivered
+          # now the dedup cache should also be empty
+          select
+          when delay_q.empty.when_true.receive
+          end
+
+          # Publish a third message and verify it's not thrown away
+          x.publish "test message", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
+          wait_for { delay_q.message_count == 1 }
+          exchange.dedup_count.should eq 1
         end
       end
     end

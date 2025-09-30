@@ -289,8 +289,10 @@ module LavinMQ::AMQP
         @effective_args << "x-cache-ttl" if ttl
         header_key = parse_header("x-deduplication-header", String)
         @effective_args << "x-deduplication-header" if header_key
-        cache = Deduplication::MemoryCache(AMQ::Protocol::Field).new(size)
-        @deduper = Deduplication::Deduper.new(cache, ttl, header_key)
+        @deduper ||= begin
+          cache = Deduplication::MemoryCache(AMQ::Protocol::Field).new(size)
+          Deduplication::Deduper.new(cache, ttl, header_key)
+        end
       end
       validate_arguments
     end

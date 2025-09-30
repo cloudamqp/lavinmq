@@ -83,8 +83,10 @@ module LavinMQ
           @effective_args << "x-cache-size" if size
           header_key = parse_header("x-deduplication-header", String)
           @effective_args << "x-deduplication-header" if header_key
-          cache = Deduplication::MemoryCache(AMQ::Protocol::Field).new(size)
-          @deduper = Deduplication::Deduper.new(cache, ttl, header_key)
+          @deduper ||= begin
+            cache = Deduplication::MemoryCache(AMQ::Protocol::Field).new(size)
+            Deduplication::Deduper.new(cache, ttl, header_key)
+          end
         end
       end
 
