@@ -126,6 +126,15 @@ describe LavinMQ::Server do
     end
   end
 
+  it "can delete internal exchange" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        x = ch.exchange("test_delete_exchange", "topic", durable: true, internal: true)
+        x.delete
+      end
+    end
+  end
+
   it "can auto delete exchange" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
