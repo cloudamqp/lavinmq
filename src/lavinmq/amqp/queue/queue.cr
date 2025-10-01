@@ -38,12 +38,12 @@ module LavinMQ::AMQP
     @message_ttl_change = ::Channel(Nil).new
 
     getter basic_get_unacked = Deque(UnackedMessage).new
-    @unacked_count = Atomic(UInt32).new(0u32)
     @unacked_bytesize = Atomic(UInt64).new(0u64)
-    @unacked_sps = Set(SegmentPosition).new # SP-index: single source of truth for tracked messages
+    @unacked_sps = Set(SegmentPosition).new
+    @unacked_sps_lock = Mutex.new
 
     def unacked_count
-      @unacked_count.get(:relaxed)
+      @unacked_sps.size.to_u32
     end
 
     def unacked_bytesize
@@ -799,21 +799,21 @@ module LavinMQ::AMQP
 
     private def mark_unacked(sp, &)
       @log.debug { "Counting as unacked: #{sp}" }
-      @unacked_sps << sp
-      @unacked_count.add(1, :relaxed)
+      @unacked_sps_lock.synchronize do
+        @unacked_sps << sp
+      end
       @unacked_bytesize.add(sp.bytesize, :relaxed)
       begin
         yield
       rescue ex
+        if @unacked_sps_lock.synchronize { @unacked_sps.delete(sp) }
+          @unacked_bytesize.sub(sp.bytesize, :relaxed)
+        end
         @log.debug { "Not counting as unacked: #{sp}" }
         @msg_store_lock.synchronize do
           @msg_store.requeue(sp)
         end
-        if @unacked_sps.delete(sp)
-          @unacked_count.sub(1, :relaxed)
-        end
-        @unacked_bytesize.sub(sp.bytesize, :relaxed)
-        raise ex
+      raise ex
       end
     end
 
@@ -845,11 +845,10 @@ module LavinMQ::AMQP
       return if @deleted
       @log.debug { "Acking #{sp}" }
       @ack_count.add(1, :relaxed)
-      if @unacked_sps.delete(sp)
-        @unacked_count.sub(1, :relaxed)
+      if @unacked_sps_lock.synchronize { @unacked_sps.delete(sp) }
+        @unacked_bytesize.sub(sp.bytesize, :relaxed)
+        delete_message(sp)
       end
-      @unacked_bytesize.sub(sp.bytesize, :relaxed)
-      delete_message(sp)
     end
 
     protected def delete_message(sp : SegmentPosition) : Nil
@@ -864,12 +863,10 @@ module LavinMQ::AMQP
 
     def reject(sp : SegmentPosition, requeue : Bool)
       return if @deleted || @closed
+      return unless @unacked_sps_lock.synchronize { @unacked_sps.delete(sp) }
+      @unacked_bytesize.sub(sp.bytesize, :relaxed)
       @log.debug { "Rejecting #{sp}, requeue: #{requeue}" }
       @reject_count.add(1, :relaxed)
-      if @unacked_sps.delete(sp)
-        @unacked_count.sub(1, :relaxed)
-      end
-      @unacked_bytesize.sub(sp.bytesize, :relaxed)
       if requeue
         if has_expired?(sp, requeue: true) # guarantee to not deliver expired messages
           expire_msg(sp, :expired)
