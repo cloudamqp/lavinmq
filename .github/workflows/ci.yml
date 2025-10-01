@@ -34,7 +34,7 @@ jobs:
     continue-on-error: true
     container: 84codes/crystal:latest-ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - run: crystal tool format --check
 
   lint:
@@ -44,7 +44,7 @@ jobs:
     container: 84codes/crystal:latest-ubuntu-24.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - run: shards install
       - run: make lint
 
@@ -53,8 +53,8 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: latest
       - name: Run standard
@@ -65,8 +65,8 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: latest
       - name: Run spectral
@@ -85,7 +85,7 @@ jobs:
         run: apt-get update && apt-get install -y liblz4-dev etcd-server
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Spec
         run: make test
@@ -106,7 +106,7 @@ jobs:
 
       - run: crystal --version
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Spec
         run: make test
@@ -121,7 +121,7 @@ jobs:
         run: apt-get update && apt-get install -y liblz4-dev
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Build lavinmq
         run: make -j bin/lavinmq bin/lavinmqctl DOCS= CRYSTAL_FLAGS=-Dbake_static
@@ -143,7 +143,7 @@ jobs:
       js: ${{ steps.changes.outputs.js }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - uses: dorny/paths-filter@v3
         id: changes
         with:
@@ -165,7 +165,7 @@ jobs:
           sudo apt-get install -y make liblz4-1
 
       - name: Download lavinmq
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: bin
           path: bin
@@ -175,8 +175,8 @@ jobs:
           chmod +x bin/*
           bin/lavinmq --data-dir=/tmp/amqp --bind=:: &
 
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 24
 
@@ -208,7 +208,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y make openjdk-21-jre-headless liblz4-1
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           name: bin
           path: bin
@@ -219,14 +219,14 @@ jobs:
           bin/lavinmq --data-dir=/tmp/amqp --bind=:: &
 
       - name: Clone java client
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: rabbitmq/rabbitmq-java-client
           ref: v5.25.0
           path: rabbitmq-java-client
 
       - name: Get patch file
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: cloudamqp/lavinmq
           path: lavinmq
@@ -264,9 +264,9 @@ jobs:
           sudo apt-get install -y liblz4-1
 
       - name: Checkout LavinMQ for bunny_definitions.json
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           name: bin
           path: bin
@@ -282,7 +282,7 @@ jobs:
           bin/lavinmqctl import_definitions .github/bunny_definitions.json
 
       - name: Clone Bunny
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: ruby-amqp/bunny
           path: bunny
@@ -319,7 +319,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y liblz4-1
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           name: bin
           path: bin
@@ -330,7 +330,7 @@ jobs:
           bin/lavinmq --data-dir /tmp/amqp &
 
       - name: Clone HTTP API client
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: cloudamqp/rabbitmq_http_api_client
           token: ${{ secrets.PRIVATE_REPO_ACCESS }}
@@ -360,7 +360,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y liblz4-1
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           name: bin
           path: bin
@@ -371,12 +371,12 @@ jobs:
           bin/lavinmq --data-dir /tmp/amqp &
 
       - name: Install Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: 1.22.3
 
       - name: Clone http client
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: michaelklishin/rabbit-hole
           ref: 37defcefa36b528b024f0b377435b459eb8eb9fc
@@ -409,9 +409,9 @@ jobs:
           sudo apt-get install -y liblz4-1
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           name: bin
           path: bin
@@ -430,7 +430,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Spec
         uses: vmactions/freebsd-vm@v1
         with:
