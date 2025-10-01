@@ -576,7 +576,7 @@ describe LavinMQ::AMQP::Queue do
 
         # unacked_count should not have been decremented below 0
         # In the buggy scenario, this would underflow or cause issues
-        sq.unacked_count.should eq 0  # Should remain 0, not underflow
+        sq.unacked_count.should eq 0 # Should remain 0, not underflow
       end
     end
   end

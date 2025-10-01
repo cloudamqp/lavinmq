@@ -813,7 +813,7 @@ module LavinMQ::AMQP
         @msg_store_lock.synchronize do
           @msg_store.requeue(sp)
         end
-      raise ex
+        raise ex
       end
     end
 
