@@ -90,6 +90,8 @@ module LavinMQ
         end
       rescue ex : ClosedError | Queue::ClosedError | AMQP::Channel::ClosedError | ::Channel::ClosedError
         @log.debug { "deliver loop exiting: #{ex.inspect}" }
+      rescue ex
+        @log.error(exception: ex) { "deliver loop error: #{ex.message}" }
       end
 
       private def wait_for_global_capacity
