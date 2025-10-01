@@ -137,8 +137,8 @@ module LavinMQ::AMQP
     @deduper : Deduplication::Deduper?
 
     def initialize(@vhost : VHost, @name : String,
-                   @exclusive = false, @auto_delete = false,
-                   @arguments = AMQP::Table.new)
+                   @exclusive : Bool = false, @auto_delete : Bool = false,
+                   @arguments : AMQP::Table = AMQP::Table.new)
       @data_dir = make_data_dir
       @metadata = ::Log::Metadata.new(nil, {queue: @name, vhost: @vhost.name})
       @log = Logger.new(Log, @metadata)
@@ -294,28 +294,6 @@ module LavinMQ::AMQP
           Deduplication::Deduper.new(cache, ttl, header_key)
         end
       end
-      validate_arguments
-    end
-
-    private def validate_arguments
-      if @dlrk && @dlx.nil?
-        raise LavinMQ::Error::PreconditionFailed.new("x-dead-letter-exchange required if x-dead-letter-routing-key is defined")
-      end
-      validate_number("x-expires", @expires, 1)
-      validate_number("x-max-length", @max_length)
-      validate_number("x-max-length-bytes", @max_length_bytes)
-      validate_number("x-message-ttl", @message_ttl)
-      validate_number("x-delivery-limit", @delivery_limit)
-      validate_number("x-consumer-timeout", @consumer_timeout)
-    end
-
-    private def validate_number(header, value, min_value = 0)
-      if min_value == 0
-        validate_positive(header, value)
-      else
-        validate_gt_zero(header, value)
-      end
-      @effective_args << header
     end
 
     private macro parse_header(header, type)
@@ -324,16 +302,10 @@ module LavinMQ::AMQP
       end
     end
 
-    private def validate_positive(header, value) : Nil
-      return if value.nil?
-      return if value >= 0
-      raise LavinMQ::Error::PreconditionFailed.new("#{header} has to be positive")
-    end
-
-    private def validate_gt_zero(header, value) : Nil
-      return if value.nil?
-      return if value > 0
-      raise LavinMQ::Error::PreconditionFailed.new("#{header} has to be larger than 0")
+    private def validate_arguments
+      if @dlrk && @dlx.nil?
+        raise LavinMQ::Error::PreconditionFailed.new("x-dead-letter-exchange required if x-dead-letter-routing-key is defined")
+      end
     end
 
     def immediate_delivery?
