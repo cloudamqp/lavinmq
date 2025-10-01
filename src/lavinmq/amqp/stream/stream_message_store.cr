@@ -213,6 +213,20 @@ module LavinMQ::AMQP
       end
     end
 
+    def read(segment : UInt32, position : UInt32) : Envelope?
+      return nil if @closed
+      rfile = @segments[segment]
+      return if position == rfile.size
+      begin
+        msg = BytesMessage.from_bytes(rfile.to_slice + position)
+        sp = SegmentPosition.new(segment, position, msg.bytesize.to_u32)
+        Envelope.new(sp, msg, redelivered: false)
+      rescue ex
+        puts "read segment=#{segment} position=#{position}"
+        raise Error.new(rfile, cause: ex)
+      end
+    end
+
     def shift?(consumer : AMQP::StreamConsumer) : Envelope?
       raise ClosedError.new if @closed
 
@@ -251,8 +265,12 @@ module LavinMQ::AMQP
       end
     end
 
+    def next_segment_id(segment) : UInt32?
+      @segments.each_key.find { |sid| sid > segment }
+    end
+
     private def next_segment(consumer) : MFile?
-      if seg_id = @segments.each_key.find { |sid| sid > consumer.segment }
+      if seg_id = next_segment_id(consumer.segment)
         consumer.segment = seg_id
         consumer.pos = 4u32
         @segments[seg_id]
