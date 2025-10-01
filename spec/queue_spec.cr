@@ -527,4 +527,57 @@ describe LavinMQ::AMQP::Queue do
       end
     end
   end
+
+  it "should handle unacked_count correctly when connection is lost during message delivery" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue("test-double-decrement")
+        q.publish_confirm "test message"
+
+        sq = s.vhosts["/"].queues[q.name]
+        sq.unacked_count.should eq 0
+
+        # Simulate getting a message but having an error during delivery
+        # This tests the scenario where mark_unacked increments unacked_count,
+        # but then an exception occurs during yield causing it to be decremented
+        msg_envelope = nil
+        exception_occurred = false
+
+        begin
+          # Access the queue's get method directly to simulate the issue
+          sq.as(LavinMQ::AMQP::Queue).consume_get(false) do |env|
+            msg_envelope = env
+            # Simulate an error that would happen during message delivery
+            # like a connection being closed
+            raise IO::Error.new("Connection reset by peer")
+          end
+        rescue IO::Error
+          exception_occurred = true
+        end
+
+        exception_occurred.should be_true
+        msg_envelope.should_not be_nil
+
+        # At this point, unacked_count should be 0 because the exception
+        # handler in mark_unacked decremented it after the initial increment
+        sq.unacked_count.should eq 0
+
+        # Now simulate what would happen if the client still tries to ack
+        # the message it received before the connection error
+        # This would cause unacked_count to go negative (though it's unsigned)
+        delivery_tag = msg_envelope.not_nil!.segment_position
+
+        # Manually simulate the ack call that would happen from the client
+        # This should not decrement unacked_count since it's already 0
+        initial_count = sq.unacked_count
+
+        # Directly call ack on the queue to simulate the double-decrement scenario
+        sq.ack(delivery_tag)
+
+        # unacked_count should not have been decremented below 0
+        # In the buggy scenario, this would underflow or cause issues
+        sq.unacked_count.should eq 0  # Should remain 0, not underflow
+      end
+    end
+  end
 end

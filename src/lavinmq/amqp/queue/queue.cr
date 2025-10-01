@@ -40,6 +40,7 @@ module LavinMQ::AMQP
     getter basic_get_unacked = Deque(UnackedMessage).new
     @unacked_count = Atomic(UInt32).new(0u32)
     @unacked_bytesize = Atomic(UInt64).new(0u64)
+    @unacked_sps = Set(SegmentPosition).new # SP-index: single source of truth for tracked messages
 
     def unacked_count
       @unacked_count.get(:relaxed)
@@ -798,6 +799,7 @@ module LavinMQ::AMQP
 
     private def mark_unacked(sp, &)
       @log.debug { "Counting as unacked: #{sp}" }
+      @unacked_sps << sp
       @unacked_count.add(1, :relaxed)
       @unacked_bytesize.add(sp.bytesize, :relaxed)
       begin
@@ -807,7 +809,9 @@ module LavinMQ::AMQP
         @msg_store_lock.synchronize do
           @msg_store.requeue(sp)
         end
-        @unacked_count.sub(1, :relaxed)
+        if @unacked_sps.delete(sp)
+          @unacked_count.sub(1, :relaxed)
+        end
         @unacked_bytesize.sub(sp.bytesize, :relaxed)
         raise ex
       end
@@ -841,7 +845,9 @@ module LavinMQ::AMQP
       return if @deleted
       @log.debug { "Acking #{sp}" }
       @ack_count.add(1, :relaxed)
-      @unacked_count.sub(1, :relaxed)
+      if @unacked_sps.delete(sp)
+        @unacked_count.sub(1, :relaxed)
+      end
       @unacked_bytesize.sub(sp.bytesize, :relaxed)
       delete_message(sp)
     end
@@ -860,7 +866,9 @@ module LavinMQ::AMQP
       return if @deleted || @closed
       @log.debug { "Rejecting #{sp}, requeue: #{requeue}" }
       @reject_count.add(1, :relaxed)
-      @unacked_count.sub(1, :relaxed)
+      if @unacked_sps.delete(sp)
+        @unacked_count.sub(1, :relaxed)
+      end
       @unacked_bytesize.sub(sp.bytesize, :relaxed)
       if requeue
         if has_expired?(sp, requeue: true) # guarantee to not deliver expired messages
