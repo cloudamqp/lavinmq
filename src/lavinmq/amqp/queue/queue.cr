@@ -136,9 +136,9 @@ module LavinMQ::AMQP
     @metadata : ::Log::Metadata
     @deduper : Deduplication::Deduper?
 
-    def initialize(@vhost : VHost, @name : String,
-                   @exclusive : Bool = false, @auto_delete : Bool = false,
-                   @arguments : AMQP::Table = AMQP::Table.new)
+    protected def initialize(@vhost : VHost, @name : String,
+                             @exclusive : Bool = false, @auto_delete : Bool = false,
+                             @arguments : AMQP::Table = AMQP::Table.new)
       @data_dir = make_data_dir
       @metadata = ::Log::Metadata.new(nil, {queue: @name, vhost: @vhost.name})
       @log = Logger.new(Log, @metadata)

@@ -21,7 +21,7 @@ module LavinMQ::AMQP
       @wfile_id = 0
       @rfile_id = 0
 
-      def initialize(
+      protected def initialize(
         @max_priority : UInt8,
         @msg_dir : String,
         @replicator : Clustering::Replicator?,
