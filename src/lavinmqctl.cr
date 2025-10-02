@@ -1,6 +1,8 @@
 require "./lavinmq/version"
 require "./lavinmq/http/constants"
 require "./lavinmq/definitions_generator"
+require "./lavinmq/shovel/shovel"
+require "./lavinmq/federation/upstream"
 require "http/client"
 require "json"
 require "option_parser"
@@ -850,10 +852,10 @@ class LavinMQCtl
     abort "Fields '--src-uri' and '--dest-uri' are required" unless @args["src-uri"]? && @args["dest-uri"]?
     
     # Set default values if not provided
-    @args["src-prefetch-count"] ||= JSON::Any.new(1000_i64)
-    @args["reconnect-delay"] ||= JSON::Any.new(5_i64)
-    @args["ack-mode"] ||= JSON::Any.new("on-confirm")
-    @args["src-delete-after"] ||= JSON::Any.new("never")
+    @args["src-prefetch-count"] ||= JSON::Any.new(LavinMQ::Shovel::DEFAULT_PREFETCH.to_i64)
+    @args["reconnect-delay"] ||= JSON::Any.new(LavinMQ::Shovel::DEFAULT_RECONNECT_DELAY.total_seconds.to_i64)
+    @args["ack-mode"] ||= JSON::Any.new(LavinMQ::Shovel::DEFAULT_ACK_MODE.to_s.underscore.gsub("_", "-"))
+    @args["src-delete-after"] ||= JSON::Any.new(LavinMQ::Shovel::DEFAULT_DELETE_AFTER.to_s.underscore.gsub("_", "-"))
     
     url = "/api/parameters/shovel/#{URI.encode_www_form(vhost)}/#{URI.encode_www_form(name)}"
     body = {"value" => @args}
@@ -887,10 +889,10 @@ class LavinMQCtl
     abort "Field '--uri' is required" unless @args["uri"]?
     
     # Set default values if not provided
-    @args["prefetch-count"] ||= JSON::Any.new(1000_i64)
-    @args["reconnect-delay"] ||= JSON::Any.new(1_i64)
-    @args["ack-mode"] ||= JSON::Any.new("on-confirm")
-    @args["max-hops"] ||= JSON::Any.new(1_i64)
+    @args["prefetch-count"] ||= JSON::Any.new(LavinMQ::Federation::Upstream::DEFAULT_PREFETCH.to_i64)
+    @args["reconnect-delay"] ||= JSON::Any.new(LavinMQ::Federation::Upstream::DEFAULT_RECONNECT_DELAY.to_i64)
+    @args["ack-mode"] ||= JSON::Any.new(LavinMQ::Federation::Upstream::DEFAULT_ACK_MODE.to_s.underscore.gsub("_", "-"))
+    @args["max-hops"] ||= JSON::Any.new(LavinMQ::Federation::Upstream::DEFAULT_MAX_HOPS)
     
     url = "/api/parameters/federation-upstream/#{URI.encode_www_form(vhost)}/#{URI.encode_www_form(name)}"
     body = {"value" => @args}
