@@ -182,7 +182,7 @@ module LavinMQCtl
           @options["durable"] = "true"
         end
         @parser.on("--internal", "Make the exchange internal") do
-          @options["durable"] = "true"
+          @options["internal"] = "true"
         end
         @parser.on("--delayed", "Make the exchange delayed") do
           @options["delayed"] = "true"
