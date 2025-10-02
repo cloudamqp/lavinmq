@@ -22,7 +22,7 @@ views: $(VIEW_TARGETS)
 
 .PHONY: watch-views
 watch-views:
-	while true; do $(MAKE) -q -s views || $(MAKE) -j views; sleep 0.5; done
+	while true; do $(MAKE) -q -s views || $(MAKE) views; sleep 0.5; done
 
 .PHONY: dev-ui
 dev-ui:

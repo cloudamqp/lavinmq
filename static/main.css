@@ -85,17 +85,7 @@
   --color-theme-switcher-active: light-dark(#ffffff, rgba(255, 255, 255, 0.15));
 
   scrollbar-width: thin;
-
-  /* Icons */
-  --icon-suffix: "dark";
 }
-
-@media (prefers-color-scheme: dark) {
-  :root { --icon-suffix: "light"; }
-}
-
-.theme-dark { --icon-suffix: "light"; }
-.theme-light { --icon-suffix: "dark"; }
 
 *,
 ::before,
@@ -1348,7 +1338,7 @@ footer .logo {
 }
 
 /* Menu icons */
-#menu ul li a i {
+#menu ul li a img {
   width: 1.5rem;
   height: 1.5rem;
   margin-right: 1rem;
@@ -1363,27 +1353,9 @@ footer .logo {
   }
 }
 
-#menu ul li.active a i, #menu ul li a:hover i {
+#menu ul li.active a i, #menu ul li a:hover img {
   opacity: 1;
 }
-
-/* Menu icons */
-.icon-overview   { background-image: url("img/icons/icon-overview-" var(--icon-suffix) ".svg"); }
-.icon-nodes      { background-image: url("img/icons/icon-nodes-" var(--icon-suffix) ".svg"); }
-.icon-logs       { background-image: url("img/icons/icon-logs-" var(--icon-suffix) ".svg"); }
-.icon-connections{ background-image: url("img/icons/icon-connections-" var(--icon-suffix) ".svg"); }
-.icon-channels   { background-image: url("img/icons/icon-channels-" var(--icon-suffix) ".svg"); }
-.icon-consumers  { background-image: url("img/icons/icon-consumers-" var(--icon-suffix) ".svg"); }
-.icon-exchanges  { background-image: url("img/icons/icon-exchanges-" var(--icon-suffix) ".svg"); }
-.icon-queues     { background-image: url("img/icons/icon-queues-" var(--icon-suffix) ".svg"); }
-.icon-shovels    { background-image: url("img/icons/icon-shovels-" var(--icon-suffix) ".svg");}
-.icon-federation { background-image: url("img/icons/icon-federation-" var(--icon-suffix) ".svg"); }
-.icon-vhosts     { background-image: url("img/icons/icon-vhosts-" var(--icon-suffix) ".svg"); }
-.icon-policies   { background-image: url("img/icons/icon-policies-" var(--icon-suffix) ".svg"); }
-.icon-opolicies  { background-image: url("img/icons/icon-opolicies-" var(--icon-suffix) ".svg"); }
-.icon-users      { background-image: url("img/icons/icon-users-" var(--icon-suffix) ".svg"); }
-.icon-blank      { background-image: url("img/icons/icon-external-" var(--icon-suffix) ".svg"); }
-/* Menu icons */
 
 .table-wrapper {
   overflow: auto;
@@ -2262,11 +2234,19 @@ pre.arguments .inactive-argument:before {
   .password-toggle img {
     filter: brightness(0) saturate(100%) invert(0%) sepia(1%) saturate(4454%) hue-rotate(319deg) brightness(90%) contrast(84%);
   }
+
+  #menu ul li a img {
+    filter: brightness(0) saturate(100%) invert(0%) sepia(1%) saturate(4454%) hue-rotate(319deg) brightness(90%) contrast(84%);
+  }
 }
 
 @media (prefers-color-scheme: light) {
   html:not(.theme-dark) {
     .password-toggle img {
+      filter: brightness(0) saturate(100%) invert(0%) sepia(1%) saturate(4454%) hue-rotate(319deg) brightness(90%) contrast(84%);
+    }
+
+    #menu ul li a img {
       filter: brightness(0) saturate(100%) invert(0%) sepia(1%) saturate(4454%) hue-rotate(319deg) brightness(90%) contrast(84%);
     }
   }
