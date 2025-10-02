@@ -28,6 +28,7 @@ watch-views:
 .PHONY: dev-ui
 dev-ui:
 	@trap '$(MAKE) clean-views; trap - EXIT' EXIT INT TERM; \
+   $(MAKE) bin/lavinmq CRYSTAL_FLAGS= ; \
 	 $(MAKE) livereload & \
 	 livereload_pid=$$!; \
 	 $(MAKE) -s watch-views; \
