@@ -15,7 +15,7 @@ const joinForSearch = (log) => {
 const matches = (log) => {
   return !currentRegex || currentRegex.test(joinForSearch(log))
 }
-  
+
 // Build Table
 const buildRow = (log) => {
   const tdTs = document.createElement('td')
@@ -39,7 +39,7 @@ const rebuildFromBuffer = () => {
   const frag = document.createDocumentFragment()
   for (const log of buffer) {
     if (matches(log)) frag.appendChild(buildRow(log))
-    }
+  }
   tbody.textContent = ''
   tbody.appendChild(frag)
   if (shouldAutoScroll) livelog.scrollTop = livelog.scrollHeight
@@ -53,7 +53,7 @@ evtSource.onmessage = (event) => {
   buffer.push(log)
 
   if (matches(log)) {
-    tbody.appendChild(buildRow(log))  
+    tbody.appendChild(buildRow(log))
     if (shouldAutoScroll) livelog.scrollTop = livelog.scrollHeight
   }
 
@@ -77,11 +77,11 @@ evtSource.onmessage = (event) => {
 // Live typing: compile & rebuild
 filterInput.addEventListener('input', () => {
   const q = filterInput.value.trim()
-  try { 
-    currentRegex = q ? new RegExp(q, 'i') : null 
+  try {
+    currentRegex = q ? new RegExp(q, 'i') : null
     filterInput.classList.toggle('invalid', false)
-  } catch { 
-    currentRegex = null 
+  } catch {
+    currentRegex = null
     filterInput.classList.toggle('invalid', true)
   }
   rebuildFromBuffer()
@@ -106,7 +106,7 @@ filterInput.addEventListener('keydown', (e) => {
   }
 })
 
-// Scrolling 
+// Scrolling
 btnToTop?.addEventListener('click', () => {
   livelog.scrollTop = 0
   shouldAutoScroll = false
