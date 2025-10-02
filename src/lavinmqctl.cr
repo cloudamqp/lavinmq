@@ -207,8 +207,11 @@ class LavinMQCtl
       @parser.on("--reconnect-delay=SECONDS", "Reconnect delay in seconds") do |v|
         @args["reconnect-delay"] = JSON::Any.new(v.to_i64)
       end
-      @parser.on("--trust-user-id", "Trust user ID") do
-        @args["trust-user-id"] = JSON::Any.new(true)
+      @parser.on("--ack-mode=MODE", "Acknowledgment mode (on-confirm, on-publish, no-ack)") do |v|
+        @args["ack-mode"] = JSON::Any.new(v)
+      end
+      @parser.on("--consumer-tag=TAG", "Consumer tag for federation link") do |v|
+        @args["consumer-tag"] = JSON::Any.new(v)
       end
       @parser.on("--exchange=EXCHANGE", "Exchange name to federate") do |v|
         @args["exchange"] = JSON::Any.new(v)
