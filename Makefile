@@ -22,7 +22,8 @@ views: $(VIEW_TARGETS)
 
 .PHONY: watch-views
 watch-views:
-	while true; do $(MAKE) -q -s views || $(MAKE) -j views; sleep 0.5; done
+	@MAKE_FLAGS=$$([ "$$(uname)" = "Darwin" ] || echo "-j"); \
+	while true; do $(MAKE) -q -s views || $(MAKE) $$MAKE_FLAGS views; sleep 0.5; done
 
 .PHONY: dev-ui
 dev-ui:
