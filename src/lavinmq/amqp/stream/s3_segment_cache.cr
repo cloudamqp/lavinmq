@@ -1,5 +1,5 @@
 require "./s3_storage_client"
-require "./stream_s3_message_store"
+require "./s3_message_store"
 require "../../mfile"
 require "../../rough_time"
 require "../../config"

@@ -1,5 +1,5 @@
 require "./spec_helper"
-require "./../src/lavinmq/amqp/queue/stream_s3_message_store"
+require "./../src/lavinmq/amqp/stream/s3_message_store"
 DATA_DIR = "42099b4af021e53fd8fd4e056c2568d7c2e3ffa8/77d9712623c4368721b466d1c24d447e9c53c8d3"
 
 module S3SpecHelper
@@ -131,7 +131,7 @@ class LavinMQ::AMQP::S3StorageClient
   end
 end
 
-describe LavinMQ::AMQP::StreamQueue::StreamS3MessageStore do
+describe LavinMQ::AMQP::Stream::S3MessageStore do
   before_each do
     LavinMQ::Config.instance.streams_s3_storage = true
     LavinMQ::Config.instance.streams_s3_storage_bucket = "test_bucket"
@@ -150,7 +150,7 @@ describe LavinMQ::AMQP::StreamQueue::StreamS3MessageStore do
     FileUtils.rm_rf(msg_dir)
     Dir.mkdir_p(msg_dir)
     S3SpecHelper.responses = S3SpecHelper.setup_responses
-    msg_store = LavinMQ::AMQP::StreamQueue::StreamS3MessageStore.new(msg_dir, nil, true, ::Log::Metadata.empty)
+    msg_store = LavinMQ::AMQP::Stream::S3MessageStore.new(msg_dir, nil, true, ::Log::Metadata.empty)
 
     msg_store.@s3_segments.size.should eq 2
     msg_store.@segments.size.should eq 2
@@ -163,7 +163,7 @@ describe LavinMQ::AMQP::StreamQueue::StreamS3MessageStore do
     Dir.mkdir_p(msg_dir)
     File.write(File.join(msg_dir, "msgs.0000000003"), S3SpecHelper.segment_bytes(200_i64))
     S3SpecHelper.responses = S3SpecHelper.setup_responses
-    msg_store = LavinMQ::AMQP::StreamQueue::StreamS3MessageStore.new(msg_dir, nil, true, ::Log::Metadata.empty)
+    msg_store = LavinMQ::AMQP::Stream::S3MessageStore.new(msg_dir, nil, true, ::Log::Metadata.empty)
 
     msg_store.@s3_segments.size.should eq 3
     msg_store.@segments.size.should eq 3
@@ -227,7 +227,7 @@ describe LavinMQ::AMQP::StreamQueue::StreamS3MessageStore do
         "/tmp/lavinmq-spec/#{DATA_DIR}"                        => RESPONSE_UPLOAD,
       }
       S3SpecHelper.responses = responses
-      msg_store = LavinMQ::AMQP::StreamQueue::StreamS3MessageStore.new(msg_dir, nil, true, ::Log::Metadata.empty)
+      msg_store = LavinMQ::AMQP::Stream::S3MessageStore.new(msg_dir, nil, true, ::Log::Metadata.empty)
 
       msg_store.@s3_segments.size.should eq 2
       msg_store.@segments.size.should eq 3
@@ -258,7 +258,7 @@ describe LavinMQ::AMQP::StreamQueue::StreamS3MessageStore do
         "/tmp/lavinmq-spec/#{DATA_DIR}"                        => RESPONSE_UPLOAD,
       }
       S3SpecHelper.responses = responses
-      msg_store = LavinMQ::AMQP::StreamQueue::StreamS3MessageStore.new(msg_dir, nil, true, ::Log::Metadata.empty)
+      msg_store = LavinMQ::AMQP::Stream::S3MessageStore.new(msg_dir, nil, true, ::Log::Metadata.empty)
 
       msg_store.@s3_segments.size.should eq 2
       msg_store.@segments.size.should eq 3
@@ -291,7 +291,7 @@ describe LavinMQ::AMQP::StreamQueue::StreamS3MessageStore do
         "/tmp/lavinmq-spec/#{DATA_DIR}"                        => RESPONSE_UPLOAD,
       }
       S3SpecHelper.responses = responses
-      msg_store = LavinMQ::AMQP::StreamQueue::StreamS3MessageStore.new(msg_dir, nil, true, ::Log::Metadata.empty)
+      msg_store = LavinMQ::AMQP::Stream::S3MessageStore.new(msg_dir, nil, true, ::Log::Metadata.empty)
       msg_store.@s3_segments.size.should eq 2
       msg_store.@segments.size.should eq 3
       msg_store.@size.should eq 200
@@ -401,7 +401,7 @@ describe LavinMQ::AMQP::StreamQueue::StreamS3MessageStore do
     S3SpecHelper.responses = S3SpecHelper.setup_responses
 
     expect_raises(SpecExit) do
-      LavinMQ::AMQP::StreamQueue::StreamS3MessageStore.new(msg_dir, nil, true, ::Log::Metadata.empty)
+      LavinMQ::AMQP::Stream::S3MessageStore.new(msg_dir, nil, true, ::Log::Metadata.empty)
     end
   end
 end

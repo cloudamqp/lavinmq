@@ -1,13 +1,13 @@
-require "./stream_queue"
-require "../stream_consumer"
+require "./stream"
+require "./stream_consumer"
 require "../../mfile"
 require "../../schema"
 require "./s3_storage_client"
 require "./s3_segment_cache"
 
 module LavinMQ::AMQP
-  class StreamQueue < DurableQueue
-    class StreamS3MessageStore < StreamQueueMessageStore
+  class Stream < DurableQueue
+    class S3MessageStore < StreamMessageStore
       @s3_segments = Hash(UInt32, NamedTuple(path: String, etag: String, size: Int64, meta: Bool)).new
       property storage_client : S3StorageClient
       @segment_cache : S3SegmentCache
