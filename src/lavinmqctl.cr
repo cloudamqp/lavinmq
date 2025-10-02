@@ -849,6 +849,12 @@ class LavinMQCtl
     abort @banner unless name
     abort "Fields '--src-uri' and '--dest-uri' are required" unless @args["src-uri"]? && @args["dest-uri"]?
     
+    # Set default values if not provided
+    @args["src-prefetch-count"] ||= JSON::Any.new(1000_i64)
+    @args["reconnect-delay"] ||= JSON::Any.new(5_i64)
+    @args["ack-mode"] ||= JSON::Any.new("on-confirm")
+    @args["src-delete-after"] ||= JSON::Any.new("never")
+    
     url = "/api/parameters/shovel/#{URI.encode_www_form(vhost)}/#{URI.encode_www_form(name)}"
     body = {"value" => @args}
     resp = http.put url, @headers, body.to_json
@@ -879,6 +885,12 @@ class LavinMQCtl
     vhost = @options["vhost"]? || "/"
     abort @banner unless name
     abort "Field '--uri' is required" unless @args["uri"]?
+    
+    # Set default values if not provided
+    @args["prefetch-count"] ||= JSON::Any.new(1000_i64)
+    @args["reconnect-delay"] ||= JSON::Any.new(1_i64)
+    @args["ack-mode"] ||= JSON::Any.new("on-confirm")
+    @args["max-hops"] ||= JSON::Any.new(1_i64)
     
     url = "/api/parameters/federation-upstream/#{URI.encode_www_form(vhost)}/#{URI.encode_www_form(name)}"
     body = {"value" => @args}
