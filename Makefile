@@ -15,7 +15,7 @@ override CRYSTAL_FLAGS += --stats --error-on-warnings -Dpreview_mt -Dexecution_c
 livereload:
 	@echo "Starting livereload server..."
 	@which livereload > /dev/null || npm install -g livereload
-	@(pid=$$!; trap 'kill -TERM $$pid' INT; livereload static &)
+	@(pid=$$!; trap 'kill -TERM $$pid' INT; livereload -p 35629 static &)
 
 .PHONY: views
 views: $(VIEW_TARGETS)
