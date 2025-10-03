@@ -131,6 +131,20 @@ module MessageRoutingSpec
         x.unbind(q9, "#.a")
       end
 
+      it "# should consider what's comes after" do
+        q9 = LavinMQ::AMQP::Queue.new(vhost, "q9")
+        x.bind(q9, "#.a.a.a")
+        matches(x, "a.a.b.a.a").should be_empty
+        matches(x, "a.a.a.a").should eq(Set{q9})
+        x.unbind(q9, "#.a.a.a")
+      end
+      it "# should consider what's comes after" do
+        q9 = LavinMQ::AMQP::Queue.new(vhost, "q9")
+        x.bind(q9, "#.a.b.c")
+        matches(x, "a.a.a.a.b.c").should eq(Set{q9})
+        x.unbind(q9, "#.a.b.c")
+      end
+
       it "# can be followed by *" do
         q0 = LavinMQ::AMQP::Queue.new(vhost, "q0")
         x.bind(q0, "#.*.d")
@@ -142,7 +156,6 @@ module MessageRoutingSpec
       it "can handle multiple #" do
         q11 = LavinMQ::AMQP::Queue.new(vhost, "q11")
         x.bind(q11, "#.a.#")
-        matches(x, "a.b.a").should be_empty
         matches(x, "b.b.a.b.b").should eq(Set{q11})
         x.unbind(q11, "#.a.#")
       end
@@ -152,6 +165,13 @@ module MessageRoutingSpec
         x.bind(q12, "c.*.*")
         matches(x, "c.a.d").should eq(Set{q12})
         x.unbind(q12, "c.*.*")
+      end
+
+      it "should not match single star on multiple segments" do
+        q = LavinMQ::AMQP::Queue.new(vhost, "q123")
+        x.bind(q, "c.*")
+        matches(x, "c.a.d").should be_empty
+        x.unbind(q, "c.*")
       end
 
       it "should match triple star-wildcards" do
@@ -170,6 +190,7 @@ module MessageRoutingSpec
         x.bind(q, "a.b")
         matches(x, "a.b").should eq(Set{q})
         matches(x, "a.b.c").should be_empty
+        x.unbind(q, "a.b")
       end
     end
   end
