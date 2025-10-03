@@ -70,6 +70,7 @@ module LavinMQ
       setup_log_exchange(amqp_server)
       start_listeners(amqp_server, http_server)
       start_metrics_server(amqp_server) unless @config.metrics_http_port == -1
+      Deprecation.log_startup_warnings
       SystemD.notify_ready
       Fiber.yield # Yield to let listeners spawn before logging startup time
       Log.info { "Finished startup in #{(Time.monotonic - started_at).total_seconds}s" }
