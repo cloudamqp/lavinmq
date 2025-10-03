@@ -128,8 +128,8 @@ describe LavinMQ::HTTP::QueuesController do
             2.times { q.publish "m1" }
             q.subscribe(no_ack: false) { }
 
-            wait_for { s.vhosts["/"].queues["unacked_q"].unacked_count == 2 }
-            s.vhosts["/"].queues["unacked_q"].basic_get_unacked.size.should eq 0
+            wait_for { s.vhosts["/"].queues["unacked_q"].acknowledgement_tracker.unacked_count == 2 }
+            s.vhosts["/"].queues["unacked_q"].acknowledgement_tracker.basic_get_unacked.size.should eq 0
             response = http.get("/api/queues/%2f/unacked_q/unacked?page=1&page_size=100")
             response.status_code.should eq 200
             body = JSON.parse(response.body)
@@ -147,7 +147,7 @@ describe LavinMQ::HTTP::QueuesController do
             q.subscribe(no_ack: false) do |msg|
               msg.ack
             end
-            wait_for { s.vhosts["/"].queues["unacked_q"].unacked_count == 0 }
+            wait_for { s.vhosts["/"].queues["unacked_q"].acknowledgement_tracker.unacked_count == 0 }
 
             response = http.get("/api/queues/%2f/unacked_q/unacked?page=1&page_size=100")
             response.status_code.should eq 200
@@ -166,7 +166,7 @@ describe LavinMQ::HTTP::QueuesController do
             q.subscribe(no_ack: false) do |msg|
               msg.reject
             end
-            wait_for { s.vhosts["/"].queues["unacked_q"].unacked_count == 0 }
+            wait_for { s.vhosts["/"].queues["unacked_q"].acknowledgement_tracker.unacked_count == 0 }
 
             response = http.get("/api/queues/%2f/unacked_q/unacked?page=1&page_size=100")
             response.status_code.should eq 200
@@ -185,7 +185,7 @@ describe LavinMQ::HTTP::QueuesController do
             q.publish "m1"
 
             q.get(no_ack: false)
-            wait_for { s.vhosts["/"].queues["unacked_q"].basic_get_unacked.size == 1 }
+            wait_for { s.vhosts["/"].queues["unacked_q"].acknowledgement_tracker.basic_get_unacked.size == 1 }
             response = http.get("/api/queues/%2f/unacked_q/unacked?page=1&page_size=100")
             response.status_code.should eq 200
             body = JSON.parse(response.body)
@@ -201,10 +201,10 @@ describe LavinMQ::HTTP::QueuesController do
             q.publish "m1"
             ch.prefetch(1)
             if msg = q.get(no_ack: false)
-              wait_for { s.vhosts["/"].queues["unacked_q"].unacked_count == 1 }
+              wait_for { s.vhosts["/"].queues["unacked_q"].acknowledgement_tracker.unacked_count == 1 }
               msg.ack
             end
-            wait_for { s.vhosts["/"].queues["unacked_q"].unacked_count == 0 }
+            wait_for { s.vhosts["/"].queues["unacked_q"].acknowledgement_tracker.unacked_count == 0 }
             response = http.get("/api/queues/%2f/unacked_q/unacked?page=1&page_size=100")
             response.status_code.should eq 200
             body = JSON.parse(response.body)
@@ -221,10 +221,10 @@ describe LavinMQ::HTTP::QueuesController do
 
             ch.prefetch(1)
             if msg = q.get(no_ack: false)
-              wait_for { s.vhosts["/"].queues["unacked_q"].unacked_count == 1 }
+              wait_for { s.vhosts["/"].queues["unacked_q"].acknowledgement_tracker.unacked_count == 1 }
               msg.reject
             end
-            wait_for { s.vhosts["/"].queues["unacked_q"].unacked_count == 0 }
+            wait_for { s.vhosts["/"].queues["unacked_q"].acknowledgement_tracker.unacked_count == 0 }
             response = http.get("/api/queues/%2f/unacked_q/unacked?page=1&page_size=100")
             response.status_code.should eq 200
             body = JSON.parse(response.body)
@@ -241,9 +241,9 @@ describe LavinMQ::HTTP::QueuesController do
 
             ch.prefetch(1)
             q.get(no_ack: false)
-            wait_for { s.vhosts["/"].queues["unacked_q"].unacked_count == 1 }
+            wait_for { s.vhosts["/"].queues["unacked_q"].acknowledgement_tracker.unacked_count == 1 }
           end
-          wait_for { s.vhosts["/"].queues["unacked_q"].unacked_count == 0 }
+          wait_for { s.vhosts["/"].queues["unacked_q"].acknowledgement_tracker.unacked_count == 0 }
           response = http.get("/api/queues/%2f/unacked_q/unacked?page=1&page_size=100")
           response.status_code.should eq 200
           body = JSON.parse(response.body)
