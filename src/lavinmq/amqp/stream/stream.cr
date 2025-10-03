@@ -4,9 +4,24 @@ require "./stream_message_store"
 
 module LavinMQ::AMQP
   class Stream < DurableQueue
-    def initialize(@vhost : VHost, @name : String,
-                   @exclusive = false, @auto_delete = false,
-                   @arguments = AMQP::Table.new)
+    def self.create(vhost : VHost, name : String,
+                    exclusive : Bool = false, auto_delete : Bool = false,
+                    arguments : AMQP::Table = AMQP::Table.new)
+      self.validate_arguments!(arguments)
+
+      if arguments.has_key?("x-max-priority")
+        raise LavinMQ::Error::PreconditionFailed.new("A queue cannot be both a priority queue and a stream")
+      end
+      new vhost, name, exclusive, auto_delete, arguments
+    end
+
+    def self.validate_arguments!(arguments)
+      super
+    end
+
+    protected def initialize(@vhost : VHost, @name : String,
+                             @exclusive = false, @auto_delete = false,
+                             @arguments = AMQP::Table.new)
       super
       spawn unmap_and_remove_segments_loop, name: "Stream#unmap_and_remove_segments_loop"
     end
