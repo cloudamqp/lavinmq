@@ -1390,6 +1390,7 @@ footer .logo {
 .icon-opolicies  { background-image: url("img/icons/icon-opolicies-" var(--icon-suffix) ".svg"); }
 .icon-users      { background-image: url("img/icons/icon-users-" var(--icon-suffix) ".svg"); }
 .icon-blank      { background-image: url("img/icons/icon-external-" var(--icon-suffix) ".svg"); }
+.icon-topology   { background-image: url("img/icons/icon-topology-" var(--icon-suffix) ".svg"); }
 /* Menu icons */
 
 .table-wrapper {

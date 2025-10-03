@@ -12,8 +12,7 @@ const CONFIG = {
   MARGINS: { DEFAULT: 80, VHOST: { X: 40, Y: 60 } },
   NODES: { EXCHANGE_RADIUS: 20, QUEUE_RADIUS: 15, NAME_MAX_LENGTH: 20 },
   LAYOUT: { START_SCALE_FACTOR: 1.8, BASE_X_OFFSET: 200 },
-  MAX_NODES_THRESHOLD: 200,
-  ANIMATION: { DASH_SPEED: 0.5, MAX_SPEED_MULTIPLIER: 2 }
+  MAX_NODES_THRESHOLD: 200
 }
 
 // Global state
@@ -21,7 +20,6 @@ let nodes = [], links = [], nodeMap = new Map()
 let svg, g, zoom, nodeElements, linkElements
 let selectedNode = null
 let width = CONFIG.DEFAULT_WIDTH, height = CONFIG.DEFAULT_HEIGHT
-let animationId = null
 
 // Cached DOM elements
 const domCache = {}
@@ -44,6 +42,9 @@ function init () {
   setupControls()
   setupResize()
   loadData()
+
+  // Refresh every 5 seconds
+  setInterval(loadData, 5000)
 }
 
 function setupSVG () {
@@ -285,7 +286,6 @@ function renderGraph () {
 
   updateLinkPositions()
   addLegend()
-  startAnimation()
 
   // Simple fit to view
   setTimeout(fitToView, 100)
@@ -465,10 +465,7 @@ function updateConnections (node) {
 
 function formatConnectionItem (conn) {
   const routingKey = conn.routing_key ? `<div class="connection-detail">🔑 ${conn.routing_key}</div>` : ''
-  const flow = conn.flowRate > 0
-    ? `<div class="connection-flow">⚡ ${conn.flowRate.toFixed(2)} msg/sec</div>`
-    : `<div class="connection-flow-inactive">💤 No activity</div>`
-  return `<li><div class="connection-name">${conn.name}</div>${routingKey}${flow}</li>`
+  return `<li><div class="connection-name">${conn.name}</div>${routingKey}</li>`
 }
 
 function setupCollapsibleHeader (section, list) {
@@ -564,34 +561,6 @@ function addLegend () {
       .text(item.text)
   })
 
-  legend.append('text')
-    .attr('x', x + 5).attr('y', y + 75)
-    .attr('class', 'topology-legend-subtitle')
-    .text('Animated lines show message flow')
-}
-
-function startAnimation () {
-  if (animationId) cancelAnimationFrame(animationId)
-
-  linkElements.style('stroke-dasharray', d => d.flowRate > 0 ? '5,3' : d.dash || 'none')
-
-  let dashOffset = 0
-  const maxFlow = Math.max(...links.map(l => l.flowRate || 0))
-
-  function animate() {
-    dashOffset -= CONFIG.ANIMATION.DASH_SPEED
-
-    linkElements.style('stroke-dashoffset', d => {
-      if (d.flowRate > 0) {
-        const speed = CONFIG.ANIMATION.DASH_SPEED + (d.flowRate / maxFlow) * CONFIG.ANIMATION.MAX_SPEED_MULTIPLIER
-        return dashOffset * speed
-      }
-      return 0
-    })
-
-    animationId = requestAnimationFrame(animate)
-  }
-  animate()
 }
 
 function showError (message) {
