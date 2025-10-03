@@ -6,11 +6,16 @@ require "./version"
 require "./log_formatter"
 require "./in_memory_backend"
 require "./auth/password"
+require "./deprecation"
 
 module LavinMQ
   class Config
     DEFAULT_LOG_LEVEL     = ::Log::Severity::Info
     DEFAULT_PASSWORD_HASH = "+pHuxkR9fCyrrwXjOD4BP4XbzO3l8LJr8YkThMgJ0yVHFRE+" # Hash of 'guest'
+
+    # Register deprecated config options
+    Deprecation.deprecated("guest_only_loopback", "2.2.0", "3.0.0", "Use 'default_user_only_loopback' instead")
+    Deprecation.deprecated("default_password", "2.2.0", "3.0.0", "Use 'default_password_hash' instead")
 
     property data_dir : String = ENV.fetch("STATE_DIRECTORY", "/var/lib/lavinmq")
     property config_file = File.exists?(File.join(ENV.fetch("CONFIGURATION_DIRECTORY", "/etc/lavinmq"), "lavinmq.ini")) ? File.join(ENV.fetch("CONFIGURATION_DIRECTORY", "/etc/lavinmq"), "lavinmq.ini") : ""
@@ -100,8 +105,6 @@ module LavinMQ
           @default_user_only_loopback = {"true", "yes", "y", "1"}.includes? v.to_s
         end
         p.on("--guest-only-loopback=BOOL", "(Deprecated) Limit default user to only connect from loopback address") do |v|
-          # TODO: guest-only-loopback was deprecated in 2.2.x, remove in 3.0
-          STDERR.puts "WARNING: 'guest_only_loopback' is deprecated, use '--default-user-only-loopback' instead"
           @default_user_only_loopback = {"true", "yes", "y", "1"}.includes? v.to_s
         end
         p.on("--default-consumer-prefetch=NUMBER", "Default consumer prefetch (default: 65535)") do |v|
@@ -114,7 +117,6 @@ module LavinMQ
           @default_password = v
         end
         p.on("--default-password=PASSWORD-HASH", "(Deprecated) Hashed password for default user (default: '+pHuxkR9fCyrrwXjOD4BP4XbzO3l8LJr8YkThMgJ0yVHFRE+' (guest))") do |v|
-          STDERR.puts "WARNING: 'default-password' is deprecated, use '--default-password-hash' instead"
           @default_password = v
         end
         p.on("--no-data-dir-lock", "Don't put a file lock in the data directory (default: true)") { @data_dir_lock = false }
@@ -301,11 +303,9 @@ module LavinMQ
         when "default_user"              then @default_user = v
         when "default_password_hash"     then @default_password = v
         when "default_password"
-          STDERR.puts "WARNING: 'default_password' is deprecated, use 'default_password_hash' instead"
           @default_password = v
         when "default_user_only_loopback" then @default_user_only_loopback = true?(v)
-        when "guest_only_loopback" # TODO: guest_only_loopback was deprecated in 2.2.x, remove in 3.0
-          STDERR.puts "WARNING: 'guest_only_loopback' is deprecated, use 'default_user_only_loopback' instead"
+        when "guest_only_loopback"
           @default_user_only_loopback = true?(v)
         else
           STDERR.puts "WARNING: Unrecognized configuration 'main/#{config}'"
