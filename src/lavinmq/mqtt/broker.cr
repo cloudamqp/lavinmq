@@ -11,6 +11,7 @@ module LavinMQ
   module MQTT
     class Broker
       getter vhost, sessions
+      Log = LavinMQ::Log.for "mqtt.broker"
 
       # The `Broker` class acts as an intermediary between the `Server` and MQTT connections.
       # It is initialized by the `Server` and manages client connections, sessions, and message exchange.

@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Use eventListener consistently across JS [#1220](https://github.com/cloudamqp/lavinmq/pull/1220)
 - Prometheus metrics can nowbe served on a different port to allow unauthenticated requests for metrics [#1217](https://github.com/cloudamqp/lavinmq/pull/1217)
 - Followers no longer forward requests to the unauthenticated `/metrics` to leader and instead show their own metrics [#1217](https://github.com/cloudamqp/lavinmq/pull/1217)
+- MQTT client now uses permissions to authorize write operations on publish and read/write operations on subscribe [#1275](https://github.com/cloudamqp/lavinmq/pull/1275)
 
 ## [2.4.4] - 2025-09-16
 
