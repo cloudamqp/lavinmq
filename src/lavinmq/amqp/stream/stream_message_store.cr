@@ -71,7 +71,7 @@ module LavinMQ::AMQP
         else
           find_offset_in_segments(offset)
         end
-      else raise "Invalid offset parameter: #{offset}"
+      else raise OffsetError.new(offset)
       end
     end
 
@@ -378,6 +378,12 @@ module LavinMQ::AMQP
     private def read_extra_metadata_fields(file : File, seg : UInt32)
       @offset_index[seg] = file.read_bytes(Int64)
       @timestamp_index[seg] = file.read_bytes(Int64)
+    end
+
+    class OffsetError < Exception
+      def initialize(offset)
+        super("invalid offset #{offset}")
+      end
     end
   end
 end
