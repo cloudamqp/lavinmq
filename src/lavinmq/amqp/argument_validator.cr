@@ -15,13 +15,11 @@ module LavinMQ
         raise LavinMQ::Error::PreconditionFailed.new(msg)
       end
 
-      struct DeadLetterRoutingKeyValidator
+      struct DeadLetteringValidator
         include ArgumentValidator
 
         def validate!(header : String, value : AMQP::Field, arguments) : Nil
           return if value.nil?
-          puts "VALIDATE #{caller}"
-          sleep 2.seconds
           dlrk = value.as?(String)
           raise_invalid!("#{header} header not a string") if dlrk.nil?
           dlx = arguments["x-dead-letter-exchange"]?.try &.as?(String)
@@ -32,6 +30,7 @@ module LavinMQ
         end
       end
 
+      # Validates that value is an Int and optionally greater and/or smaller than given valuea
       struct IntValidator
         include ArgumentValidator
 
