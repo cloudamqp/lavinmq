@@ -2043,22 +2043,33 @@ pre.arguments .inactive-argument:before {
   white-space: normal;
 }
 
-.btn-primary a,
-.btn-primary a:visited {
-  color: var(--color-text-inverse);
+#livelog {
+  max-height: 65vh;
+  overflow: auto;
+  overflow-anchor: none;
+  scrollbar-gutter: stable both-edges;
+  scroll-behavior: auto;
 }
 
-#download-logs {
-  margin: 5px 0 16px 0;
+#livelog table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
 }
 
-#download-logs a {
-  text-decoration: none;
+#livelog thead th {
+  position: sticky;
+  top: 0;
+  background: var(--color-bg-secondary);
+  border-bottom: 2px solid rgba(0,0,0,0.08);
+  z-index: 2;
 }
 
 #livelog table td,
 #livelog table th {
-  padding: 0;
+  padding: 4px 8px;
+  text-align: left;
 }
 
 #livelog table thead .livelog-timestamp {
@@ -2077,8 +2088,33 @@ pre.arguments .inactive-argument:before {
   width: auto;
 }
 
-#livelog table th {
-  text-align: left;
+#livelog td {
+  white-space: normal;
+}
+
+.log-toolbar-container {
+  width: 100%;
+  background: var(--color-bg-secondary);
+  border-bottom: 1px solid rgba(0,0,0,0.08);
+  box-shadow: 0 1px 0 rgba(0,0,0,0.04);
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0.75rem 1.5rem;
+}
+
+.log-toolbar {
+  flex: 0 1 auto;
+}
+
+.toolbar-action {
+  flex: 0 0 auto;
+}
+
+.btn-primary a,
+.btn-primary a:visited {
+  color: var(--color-text-inverse);
 }
 
 .version-tab {
