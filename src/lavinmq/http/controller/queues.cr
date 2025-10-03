@@ -13,6 +13,13 @@ module LavinMQ
         not_found(context, "Not Found") unless q
         q
       end
+
+      private def stream(context, vhost, name)
+        q = @amqp_server.vhosts[vhost].queues[name]?
+        not_found(context, "Not Found") unless q
+        not_found(context, "Not Found") unless q.is_a?(LavinMQ::AMQP::Stream)
+        q.as(LavinMQ::AMQP::Stream)
+      end
     end
 
     class QueuesController < Controller
@@ -211,6 +218,63 @@ module LavinMQ
                 raise e
               end
             end
+          end
+        end
+
+        post "/api/queues/:vhost/:name/read" do |context, params|
+          with_vhost(context, params) do |vhost|
+            user = user(context)
+            refuse_unless_management(context, user, vhost)
+            q = stream(context, vhost, params["name"])
+            unless user.can_read?(q.vhost.name, q.name)
+              access_refused(context, "User doesn't have permissions to read stream '#{q.name}'")
+            end
+            if q.state != QueueState::Running && q.state != QueueState::Paused
+              forbidden(context, "Can't get from stream that is not in running state")
+            end
+            body = parse_body(context)
+            count = body["count"]?.try(&.as_i) || 1
+            count = 0 if count < 0
+            offset = body["offset"]?.try(&.as_s) || "first"
+            offset = offset.to_i64 if /^\d+$/.match(offset)
+            encoding = body["encoding"]?.try(&.as_s) || "auto"
+            truncate = body["truncate"]?.try(&.as_i)
+            reader = q.reader(offset)
+            JSON.build(context.response) do |j|
+              j.array do
+                reader.each do |env|
+                  break if count.zero?
+                  size = truncate ? Math.min(truncate, env.message.bodysize) : env.message.bodysize
+                  payload = String.new(env.message.body[0, size])
+                  case encoding
+                  when "base64"
+                    content = Base64.urlsafe_encode(payload)
+                    payload_encoding = "base64"
+                  else
+                    if payload.valid_encoding?
+                      content = payload
+                      payload_encoding = "string"
+                    else
+                      content = Base64.urlsafe_encode(payload)
+                      payload_encoding = "base64"
+                    end
+                  end
+                  j.object do
+                    j.field("payload_bytes", env.message.bodysize)
+                    j.field("redelivered", env.redelivered)
+                    j.field("exchange", env.message.exchange_name)
+                    j.field("routing_key", env.message.routing_key)
+                    j.field("message_count", q.message_count)
+                    j.field("properties", env.message.properties)
+                    j.field("payload", content)
+                    j.field("payload_encoding", payload_encoding)
+                  end
+                  count -= 1
+                end
+              end
+            end
+          rescue e : LavinMQ::AMQP::StreamMessageStore::OffsetError
+            bad_request(context, e.message)
           end
         end
       end
