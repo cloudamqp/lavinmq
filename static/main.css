@@ -29,6 +29,7 @@
   --color-text-muted: light-dark(#374151, #CDCBC9);
   --color-text-inverse: light-dark(#fafafa, #fafafa);
   --color-link: light-dark(#2c2c2c, #fafafa);
+  --color-text-tertiary: light-dark(#414141, #B6B6B6);
 
   --color-bg-primary: light-dark(#F4F4F4, #181818);
   --color-bg-secondary: light-dark(#FFFFFF, #1D1D1D);
@@ -590,19 +591,19 @@ body.login main {
 
 /* Components */
 .page-title {
-  font-size: 18px;
+  font-size: 14px;
   line-height: 20px;
   margin: 1.5rem 0 0.5rem;
   font-weight: 600;
-  color: var(--color-text-primary);
+  color: var(--color-text-tertiary);
   display: flex;
   flex-direction: row;
   align-items: center;
 }
 
 .subpage-title::before {
-  content: '/';
-  margin: 0 0.5rem;
+  content: '\203A';
+  margin: 0 1rem;
 }
 
 .card {
