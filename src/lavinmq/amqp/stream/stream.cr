@@ -7,11 +7,9 @@ module LavinMQ::AMQP
     def self.create(vhost : VHost, name : String,
                     exclusive : Bool = false, auto_delete : Bool = false,
                     arguments : AMQP::Table = AMQP::Table.new)
-      if exclusive
-        raise LavinMQ::Error::PreconditionFailed.new("A stream cannot be exclusive")
-      elsif auto_delete
-        raise LavinMQ::Error::PreconditionFailed.new("A stream cannot be auto-delete")
-      end
+      # Validate non-arguments first
+      raise LavinMQ::Error::PreconditionFailed.new("A stream cannot be exclusive") if exclusive
+      raise LavinMQ::Error::PreconditionFailed.new("A stream cannot be auto-delete") if auto_delete
 
       self.validate_arguments!(arguments)
       new vhost, name, exclusive, auto_delete, arguments
@@ -33,13 +31,7 @@ module LavinMQ::AMQP
           raise LavinMQ::Error::PreconditionFailed.new("Argument #{key} not allowed for streams")
         end
         if key == "x-max-age"
-          if max_age = value.as?(String)
-            if !max_age.matches? /\A(\d+)([YMDhms])\z/
-              raise LavinMQ::Error::PreconditionFailed.new("max-age format invalid")
-            end
-          else
-            raise LavinMQ::Error::PreconditionFailed.new("max-age must be a string")
-          end
+          ArgumentValidator::MaxAgeValidator.new.validate!(key, value)
         end
       end
 

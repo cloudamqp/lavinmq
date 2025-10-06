@@ -74,6 +74,15 @@ module LavinMQ
           nil
         end
       end
+
+      struct MaxAgeValidator
+        include ArgumentValidator
+
+        def validate!(header : String, value : AMQP::Field) : Nil
+          max_age = value.as?(String) || raise_invalid! "#{header} must be a string"
+          max_age.matches? /\A(\d+)([YMDhms])\z/ || raise_invalid! "#{header} format invalid"
+        end
+      end
     end
   end
 end
