@@ -7,11 +7,10 @@ module LavinMQ::AMQP
     def self.create(vhost : VHost, name : String,
                     exclusive : Bool = false, auto_delete : Bool = false,
                     arguments : AMQP::Table = AMQP::Table.new)
-      self.validate_arguments!(arguments)
-
       if arguments.has_key?("x-max-priority")
         raise LavinMQ::Error::PreconditionFailed.new("A queue cannot be both a priority queue and a stream")
       end
+      self.validate_arguments!(arguments)
       new vhost, name, exclusive, auto_delete, arguments
     end
 
