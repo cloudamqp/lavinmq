@@ -50,7 +50,7 @@ module LavinMQ::AMQP
 
       arguments.each do |k, v|
         if validator = headers[k]?
-          validator.validate!(k, v, arguments)
+          validator.validate!(k, v)
         end
       end
     end

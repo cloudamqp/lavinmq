@@ -1,15 +1,7 @@
 module LavinMQ
   module AMQP
     module ArgumentValidator
-      # Most validators only requires header and value...
-      def validate!(header : String, value : AMQP::Field) : Nil
-        raise NotImplementedError.new("validate! must be implemented in #{self.class}")
-      end
-
-      # ...but if they need arguments this method can be overloaded
-      def validate!(header : String, value : AMQP::Field, arguments) : Nil
-        validate!(header, value)
-      end
+      abstract def validate!(header : String, value : AMQP::Field) : Nil
 
       def raise_invalid!(msg)
         raise LavinMQ::Error::PreconditionFailed.new(msg)
@@ -24,7 +16,7 @@ module LavinMQ
           @dlx = arguments["x-dead-letter-exchange"]?.try &.as?(String)
         end
 
-        def validate!(header : String, value : AMQP::Field, arguments) : Nil
+        def validate!(header : String, value : AMQP::Field) : Nil
           return if value.nil?
           dlrk = value.as?(String)
           raise_invalid!("#{header} header not a string") if dlrk.nil?
