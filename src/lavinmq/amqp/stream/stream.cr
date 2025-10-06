@@ -7,14 +7,33 @@ module LavinMQ::AMQP
     def self.create(vhost : VHost, name : String,
                     exclusive : Bool = false, auto_delete : Bool = false,
                     arguments : AMQP::Table = AMQP::Table.new)
-      if arguments.has_key?("x-max-priority")
-        raise LavinMQ::Error::PreconditionFailed.new("A queue cannot be both a priority queue and a stream")
+      if exclusive
+        raise LavinMQ::Error::PreconditionFailed.new("A stream cannot be exclusive")
+      elsif auto_delete
+        raise LavinMQ::Error::PreconditionFailed.new("A stream cannot be auto-delete")
       end
+
       self.validate_arguments!(arguments)
       new vhost, name, exclusive, auto_delete, arguments
     end
 
     def self.validate_arguments!(arguments)
+      invalid_arguments = {
+        "x-dead-letter-exchange",
+        "x-dead-letter-routing-key",
+        "x-expires",
+        "x-delivery-limit",
+        "x-overflow",
+        "x-single-active-consumer",
+        "x-max-priority",
+      }
+
+      arguments.each do |key, _value|
+        if invalid_arguments.includes?(key)
+          raise LavinMQ::Error::PreconditionFailed.new("Argument #{key} not allowed for streams")
+        end
+      end
+
       super
     end
 

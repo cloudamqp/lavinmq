@@ -19,28 +19,26 @@ module LavinMQ
     end
 
     private def self.make_durable(vhost, frame)
-      if prio_queue? frame
-        AMQP::DurablePriorityQueue.create(vhost, frame.queue_name, frame.exclusive, frame.auto_delete, frame.arguments)
-      elsif stream_queue? frame
-        if frame.exclusive
-          raise Error::PreconditionFailed.new("A stream cannot be exclusive")
-        elsif frame.auto_delete
-          raise Error::PreconditionFailed.new("A stream cannot be auto-delete")
-        end
+      if stream_queue? frame
         AMQP::Stream.create(vhost, frame.queue_name, frame.exclusive, frame.auto_delete, frame.arguments)
       else
         warn_if_unsupported_queue_type frame
-        AMQP::DurableQueue.create(vhost, frame.queue_name, frame.exclusive, frame.auto_delete, frame.arguments)
+        if prio_queue? frame
+          AMQP::DurablePriorityQueue.create(vhost, frame.queue_name, frame.exclusive, frame.auto_delete, frame.arguments)
+        else
+          AMQP::DurableQueue.create(vhost, frame.queue_name, frame.exclusive, frame.auto_delete, frame.arguments)
+        end
       end
     end
 
     private def self.make_queue(vhost, frame)
+      if stream_queue? frame
+        raise Error::PreconditionFailed.new("A stream cannot be non-durable")
+      end
+      warn_if_unsupported_queue_type frame
       if prio_queue? frame
         AMQP::PriorityQueue.create(vhost, frame.queue_name, frame.exclusive, frame.auto_delete, frame.arguments)
-      elsif stream_queue? frame
-        raise Error::PreconditionFailed.new("A stream cannot be non-durable")
       else
-        warn_if_unsupported_queue_type frame
         AMQP::Queue.create(vhost, frame.queue_name, frame.exclusive, frame.auto_delete, frame.arguments)
       end
     end
