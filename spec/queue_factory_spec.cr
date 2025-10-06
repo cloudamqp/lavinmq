@@ -29,6 +29,20 @@ describe LavinMQ::QueueFactory do
         q = LavinMQ::QueueFactory.make(vhost, "q1", arguments: queue_args, durable: true)
         q.is_a?(LavinMQ::AMQP::PriorityQueue).should be_true
       end
+
+      it "should reject x-max-priority < 0" do
+        queue_args = AMQ::Protocol::Table.new({"x-max-priority": -1})
+        expect_raises(LavinMQ::Error::PreconditionFailed) do
+          LavinMQ::QueueFactory.make(vhost, "q1", arguments: queue_args)
+        end
+      end
+
+      it "should reject x-max-priority > 255" do
+        queue_args = AMQ::Protocol::Table.new({"x-max-priority": 256})
+        expect_raises(LavinMQ::Error::PreconditionFailed) do
+          LavinMQ::QueueFactory.make(vhost, "q1", arguments: queue_args)
+        end
+      end
     end
 
     describe "with x-queue-type=stream" do
