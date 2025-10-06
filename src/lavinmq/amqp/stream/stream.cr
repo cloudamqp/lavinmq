@@ -79,7 +79,7 @@ module LavinMQ::AMQP
       @msg_store = StreamMessageStore.new(data_dir, replicator, metadata: @metadata)
     end
 
-    private def stream_msg_store : StreamMessageStore
+    def stream_msg_store : StreamMessageStore
       @msg_store.as(StreamMessageStore)
     end
 
@@ -105,7 +105,7 @@ module LavinMQ::AMQP
     end
 
     def reader(offset)
-      StreamReader.new(stream_msg_store, offset)
+      StreamReader.new(self, offset)
     end
 
     def consume_get(consumer : AMQP::StreamConsumer, & : Envelope -> Nil) : Bool

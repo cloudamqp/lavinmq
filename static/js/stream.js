@@ -209,7 +209,7 @@ document.querySelector('#publishMessage').addEventListener('submit', function (e
 document.querySelector('#getMessages').addEventListener('submit', function (evt) {
   evt.preventDefault()
   const data = new window.FormData(this)
-  const url = HTTP.url`api/queues/${vhost}/${queue}/read`
+  const url = HTTP.url`api/queues/${vhost}/${queue}/stream`
   const body = {
     count: parseInt(data.get('messages')),
     offset: data.get('offset'),
