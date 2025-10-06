@@ -21,11 +21,9 @@ describe LavinMQ::AMQP::Queue do
   it "Should dead letter expired messages" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
-        puts "BEFORE QUEUE"
         q = ch.queue("ttl", args: AMQP::Client::Arguments.new(
           {"x-message-ttl" => 1, "x-dead-letter-exchange" => "", "x-dead-letter-routing-key" => "dlq"}
         ))
-        puts "AFTER QUEUE"
         dlq = ch.queue("dlq")
         x = ch.default_exchange
         x.publish_confirm("ttl", q.name)
