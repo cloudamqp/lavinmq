@@ -35,7 +35,7 @@ module LavinMQ
         end
       end
 
-      # Validates that value is an Int and optionally greater and/or smaller than given valuea
+      # Validates that value is an Int and optionally greater and/or smaller than given values
       struct IntValidator
         include ArgumentValidator
 
