@@ -72,14 +72,44 @@ describe LavinMQ::QueueFactory do
         end
       end
 
-      # Argument name, {valid values}, {invalid values}
+      # {Argument name, {valid values}, {invalid values}}
       matrix = {
-        {"x-expires", {1, 10}, {0, -1}},
-        {"x-max-length", {0, 10}, {-1, -10}},
-        {"x-max-length-bytes", {0, 10}, {-1, -10}},
-        {"x-message-ttl", {0, 10}, {-1, -10}},
-        {"x-delivery-limit", {0, 10}, {-1, -10}},
-        {"x-consumer-timeout", {0, 10}, {-1, -10}},
+        {"x-expires",
+         {1, 10},
+         {0, -1, "str", true}},
+        {"x-max-length",
+         {0, 10},
+         {-1, -10, "str", true}},
+        {"x-max-length-bytes",
+         {0, 10},
+         {-1, -10, "str", true}},
+        {"x-message-ttl",
+         {0, 10},
+         {-1, -10, "str", true}},
+        {"x-delivery-limit",
+         {0, 10},
+         {-1, -10, "str", true}},
+        {"x-consumer-timeout",
+         {0, 10},
+         {-1, -10, "str", true}},
+        {"x-cache-size",
+         {0, 10},
+         {-1, -10, "str", true}},
+        {"x-cache-ttl",
+         {0, 10},
+         {-1, -10, "str", true}},
+        {"x-dead-letter-exchange",
+         {"str", ""},
+         {1, -10, true}},
+        {"x-dead-letter-routing-key",
+         {"str", ""},
+         {1, -10, true}},
+        {"x-overflow",
+         {"str", ""},
+         {1, -10, true}},
+        {"x-deduplication-header",
+         {"str", ""},
+         {1, -10, true}},
       }
 
       matrix.each do |header, valid, invalid|
