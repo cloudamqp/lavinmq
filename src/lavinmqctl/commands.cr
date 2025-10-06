@@ -5,7 +5,7 @@ require "./definitions_generator"
 
 module LavinMQCtl
   class Commands
-    def initialize(@client : Client, @parser : Parser)
+    def initialize(@client : Client, @parser : Parser, @io : IO = STDOUT)
     end
 
     # ameba:disable Metrics/CyclomaticComplexity
@@ -161,7 +161,7 @@ module LavinMQCtl
         end
         @client.output cc
       else
-        puts columns.join(STDOUT, "\t")
+        puts columns.join(@io, "\t")
         conns.each do |u|
           if conn = u.as_h?
             columns.each_with_index do |c, i|
@@ -391,7 +391,7 @@ module LavinMQCtl
 
     private def definitions
       data_dir = ARGV.shift? || abort "definitions <datadir>"
-      DefinitionsGenerator.new(data_dir).generate(STDOUT)
+      DefinitionsGenerator.new(data_dir).generate(@io)
     end
 
     private def hash_password

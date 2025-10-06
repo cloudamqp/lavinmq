@@ -61,8 +61,8 @@ module LavinMQCtl
       @parser.banner = new_banner
     end
 
-    def parse
-      @parser.parse
+    def parse(args = ARGV)
+      @parser.parse(args)
     rescue ex : OptionParser::MissingOption
       abort ex
     end

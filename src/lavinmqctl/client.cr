@@ -9,7 +9,7 @@ module LavinMQCtl
     @headers = HTTP::Headers{"Content-Type" => "application/json"}
     getter options
 
-    def initialize(@options : Hash(String, String))
+    def initialize(@options : Hash(String, String), @io : IO = STDOUT)
     end
 
     def connect
@@ -87,13 +87,13 @@ module LavinMQCtl
 
     def output(data, columns = nil)
       if @options["format"]? == "json"
-        data.to_json(STDOUT)
+        data.to_json(@io)
         puts
       else
         case data
         when Hash, NamedTuple
           data.each do |k, v|
-            STDOUT << k << ": " << v << "\n"
+            @io << k << ": " << v << "\n"
           end
         when Array
           output_array(data, columns)
@@ -105,25 +105,25 @@ module LavinMQCtl
 
     def output_array(data : Array, columns : Array(String)?)
       if columns
-        puts columns.join(STDOUT, "\t")
+        puts columns.join(@io, "\t")
       else
         case first = data.first?
         when NamedTuple
-          puts first.keys.join(STDOUT, "\t")
+          puts first.keys.join(@io, "\t")
         when JSON::Any
-          puts first.as_h.each_key.join(STDOUT, "\t")
+          puts first.as_h.each_key.join(@io, "\t")
         end
       end
       data.each do |item|
         case item
         when Hash
-          item.each_value.join(STDOUT, "\t")
+          item.each_value.join(@io, "\t")
         when JSON::Any
-          item.as_h.each_value.join(STDOUT, "\t")
+          item.as_h.each_value.join(@io, "\t")
         when NamedTuple
-          item.values.join(STDOUT, "\t")
+          item.values.join(@io, "\t")
         else
-          item.to_s(STDOUT)
+          item.to_s(@io)
         end
         puts
       end

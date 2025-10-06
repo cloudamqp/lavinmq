@@ -1,36 +1,54 @@
 require "./spec_helper"
+require "../src/lavinmqctl/*"
 
-# Build lavinmqctl binary before running tests
-unless File.exists?("./bin/lavinmqctl")
-  puts "Building lavinmqctl..."
-  status = Process.run("make", ["bin/lavinmqctl"], output: STDOUT, error: STDERR)
-  abort "Failed to build lavinmqctl" unless status.success?
+# Monkey-patch Client and Commands to redirect puts/print to captured IO
+class LavinMQCtl::Client
+  def puts(*args, **options)
+    @io.puts(*args, **options)
+  end
+
+  def print(*args)
+    @io.print(*args)
+  end
+end
+
+class LavinMQCtl::Commands
+  def puts(*args, **options)
+    @io.puts(*args, **options)
+  end
+
+  def print(*args)
+    @io.print(*args)
+  end
 end
 
 # Helper to run lavinmqctl commands against test server
 def run_lavinmqctl(http_addr : String, argv : Array(String))
-  stdout = IO::Memory.new
-  stderr = IO::Memory.new
+  stdout_capture = IO::Memory.new
+  stderr = ""
 
-  args = ["--uri", "http://#{http_addr}", "--user", "guest", "--password", "guest"] + argv
+  exit_code = 0
+  original_argv = ARGV.dup
+  begin
+    ARGV.clear
+    ARGV.concat(argv)
 
-  status = Process.run(
-    "./bin/lavinmqctl",
-    args: args,
-    output: stdout,
-    error: stderr
-  )
+    parser = LavinMQCtl::Parser.new
+    parser.parse
+    client = LavinMQCtl::Client.new(parser.options, stdout_capture)
+    LavinMQCtl::Commands.new(client, parser, stdout_capture).run
+  rescue ex
+    stderr = ex.message
+    exit_code = 1
+  ensure
+    ARGV.clear
+    ARGV.concat(original_argv)
+  end
 
   {
-    stdout: stdout.to_s,
-    stderr: stderr.to_s,
-    exit:   status.exit_code,
-  }
-rescue ex
-  {
-    stdout: "",
-    stderr: ex.message.to_s,
-    exit:   1,
+    stdout: stdout_capture.to_s,
+    stderr: stderr,
+    exit:   exit_code,
   }
 end
 
@@ -272,7 +290,6 @@ describe "LavinMQCtl" do
     end
 
     it "should handle connection errors gracefully" do
-      # Test with invalid hostname
       result = run_lavinmqctl("localhost:99999", ["list_users"])
       result[:exit].should eq(1)
     end
