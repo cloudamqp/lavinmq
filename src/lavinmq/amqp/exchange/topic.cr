@@ -4,21 +4,32 @@ module LavinMQ
   module AMQP
     class TopicBindingKey
       abstract class Segment
-        abstract def match?(rk : Array(String)) : Bool
+        abstract def match?(rk : RkPart) : Bool
+      end
+
+      class RkPart
+        getter :value, :next
+
+        def self.from(rk : Array(String)) : RkPart?
+          rk.reverse_each.reduce(nil) do |prev, v|
+            RkPart.new(v, prev)
+          end
+        end
+
+        def initialize(@value : String, @next : RkPart?)
+        end
       end
 
       class HashSegment < Segment
         def initialize(@next : Segment?)
         end
 
-        def match?(rk : Array(String)) : Bool
+        def match?(rk : RkPart) : Bool
           if n = @next
-            i = 0
             loop do
-              rest = rk[i..]?
-              break unless rest
-              return true if n.match?(rest)
-              i += 1
+              return true if n.match?(rk)
+              rk = rk.next
+              break unless rk
             end
             return false
           end
@@ -30,38 +41,34 @@ module LavinMQ
         def initialize(@next : Segment?)
         end
 
-        def match?(rk : Array(String)) : Bool
-          v = rk.first?
-          return false unless v
-          rest = rk[1..]
+        def match?(rk : RkPart) : Bool
           if check = @next
-            check.match? rest
+            if n = rk.next
+              check.match?(n)
+            else
+              false
+            end
           else
-            rest.empty?
+            rk.next.nil?
           end
         end
       end
 
-      class StringSegment < Segment
+      class StringSegment < StarSegment
         def initialize(@s : String, @next : Segment?)
+          super(@next)
         end
 
-        def match?(rk : Array(String)) : Bool
-          v = rk.first?
-          return false unless v
-          rest = rk[1..]
-          if check = @next
-            v == @s && check.match?(rest)
-          else
-            v == @s && rest.empty?
-          end
+        def match?(rk : RkPart) : Bool
+          return false unless rk.value == @s
+          super(rk)
         end
       end
 
       @checker : Segment?
 
       def initialize(@key : Array(String))
-        @checker = key.reverse.reduce(nil) do |prev, v|
+        @checker = @key.reverse_each.reduce(nil) do |prev, v|
           case v
           when "#" then HashSegment.new(prev)
           when "*" then StarSegment.new(prev)
@@ -71,14 +78,16 @@ module LavinMQ
       end
 
       def matches?(rk : Array(String)) : Bool
+        part = RkPart.from(rk)
+        return false unless part
         if checker = @checker
-          checker.match?(rk)
+          checker.match?(part)
         else
           false
         end
       end
 
-      def as_fanout?
+      def acts_as_fanout?
         @key.size == 1 && @key.first == "#"
       end
 
@@ -135,7 +144,7 @@ module LavinMQ
         # optimize the case where the only binding key is '#'
         if bindings.size == 1
           bk, destinations = bindings.first
-          if bk.as_fanout?
+          if bk.acts_as_fanout?
             destinations.each do |destination, _binding_key|
               yield destination
             end
