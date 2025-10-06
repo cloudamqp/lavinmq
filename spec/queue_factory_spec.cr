@@ -75,6 +75,16 @@ describe LavinMQ::QueueFactory do
           LavinMQ::QueueFactory.make(vhost, "q1", arguments: queue_args, durable: true)
         end
       end
+
+      it "should reject invalid x-max-age" do
+        queue_args = AMQ::Protocol::Table.new({
+          "x-queue-type": "stream",
+          "x-max-age":    "invalid",
+        })
+        expect_raises(LavinMQ::Error::PreconditionFailed) do
+          LavinMQ::QueueFactory.make(vhost, "q1", arguments: queue_args, durable: true)
+        end
+      end
     end
 
     describe "amqp argument" do
