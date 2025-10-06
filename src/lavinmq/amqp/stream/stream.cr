@@ -28,9 +28,18 @@ module LavinMQ::AMQP
         "x-max-priority",
       }
 
-      arguments.each do |key, _value|
+      arguments.each do |key, value|
         if invalid_arguments.includes?(key)
           raise LavinMQ::Error::PreconditionFailed.new("Argument #{key} not allowed for streams")
+        end
+        if key == "x-max-age"
+          if max_age = value.as?(String)
+            if !max_age.matches? /\A(\d+)([YMDhms])\z/
+              raise LavinMQ::Error::PreconditionFailed.new("max-age format invalid")
+            end
+          else
+            raise LavinMQ::Error::PreconditionFailed.new("max-age must be a string")
+          end
         end
       end
 
