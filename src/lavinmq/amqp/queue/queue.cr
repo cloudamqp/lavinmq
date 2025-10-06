@@ -29,10 +29,11 @@ module LavinMQ::AMQP
       int_one = ArgumentValidator::IntValidator.new(min_value: 1)
       string = ArgumentValidator::StringValidator.new
       bool = ArgumentValidator::BoolValidator.new
+      dlrk = ArgumentValidator::DeadLetteringValidator.new(arguments)
 
       headers = {
         "x-dead-letter-exchange":    string,
-        "x-dead-letter-routing-key": string,
+        "x-dead-letter-routing-key": dlrk,
         "x-expires":                 int_one,
         "x-max-length":              int_zero,
         "x-max-length-bytes":        int_zero,
@@ -51,12 +52,6 @@ module LavinMQ::AMQP
         if validator = headers[k]?
           validator.validate!(k, v, arguments)
         end
-      end
-
-      if value = arguments["x-dead-letter-routing-key"]?
-        key = "x-dead-letter-routing-key"
-        validator = ArgumentValidator::DeadLetteringValidator.new
-        validator.validate!(key, value, arguments)
       end
     end
 
