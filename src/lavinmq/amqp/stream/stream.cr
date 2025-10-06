@@ -153,24 +153,6 @@ module LavinMQ::AMQP
     private def handle_arguments
       super
       @effective_args << "x-queue-type"
-      if @dlx
-        raise LavinMQ::Error::PreconditionFailed.new("x-dead-letter-exchange not allowed for streams")
-      end
-      if @dlrk
-        raise LavinMQ::Error::PreconditionFailed.new("x-dead-letter-exchange not allowed for streams")
-      end
-      if @expires
-        raise LavinMQ::Error::PreconditionFailed.new("x-expires not allowed for streams")
-      end
-      if @delivery_limit
-        raise LavinMQ::Error::PreconditionFailed.new("x-delivery-limit not allowed for streams")
-      end
-      if @reject_on_overflow
-        raise LavinMQ::Error::PreconditionFailed.new("x-overflow not allowed for streams")
-      end
-      if @single_active_consumer_queue
-        raise LavinMQ::Error::PreconditionFailed.new("x-single-active-consumer not allowed for streams")
-      end
       stream_msg_store.max_age = parse_max_age(@arguments["x-max-age"]?)
       stream_msg_store.max_length = @max_length
       stream_msg_store.max_length_bytes = @max_length_bytes
