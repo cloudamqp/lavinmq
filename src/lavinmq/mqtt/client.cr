@@ -234,11 +234,6 @@ module LavinMQ
         socket.close
       rescue ::IO::Error
       end
-
-      private def permission_check_enabled?(&block)
-        return true unless Config.instance.mqtt_permission_check_enabled?
-        yield
-      end
     end
 
     class Consumer < LavinMQ::Client::Channel::Consumer
