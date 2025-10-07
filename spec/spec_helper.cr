@@ -93,13 +93,6 @@ def wait_for(timeout = 5.seconds, file = __FILE__, line = __LINE__, &)
   fail "Execution expired", file: file, line: line
 end
 
-def test_headers(headers = nil)
-  req_hdrs = HTTP::Headers{"Content-Type"  => "application/json",
-                           "Authorization" => "Basic Z3Vlc3Q6Z3Vlc3Q="} # guest:guest
-  req_hdrs.merge!(headers) if headers
-  req_hdrs
-end
-
 def with_amqp_server(tls = false, replicator = LavinMQ::Clustering::NoopServer.new,
                      config = LavinMQ::Config.instance, & : LavinMQ::Server -> Nil)
   LavinMQ::Config.instance = init_config(config)
@@ -131,7 +124,7 @@ def with_http_server(&)
       addr = h.bind_tcp("::1", ENV.has_key?("NATIVE_PORTS") ? 15672 : 0)
       spawn(name: "http listen") { h.listen }
       Fiber.yield
-      yield({HTTPSpecHelper.new(addr.to_s), s})
+      yield({HTTPSpecHelper.new(addr), s})
     ensure
       h.close
     end
@@ -145,7 +138,7 @@ def with_metrics_server(&)
       addr = h.bind_tcp("::1", ENV.has_key?("NATIVE_PORTS") ? 15692 : 0)
       spawn(name: "http listen") { h.listen }
       Fiber.yield
-      yield({HTTPSpecHelper.new(addr.to_s), s})
+      yield({HTTPSpecHelper.new(addr), s})
     ensure
       h.close
     end
@@ -153,25 +146,40 @@ def with_metrics_server(&)
 end
 
 struct HTTPSpecHelper
-  def initialize(@addr : String)
+  def initialize(@addr : Socket::IPAddress)
   end
 
   getter addr
 
+  def test_headers(headers = nil)
+    req_hdrs = HTTP::Headers{"Content-Type"  => "application/json",
+                             "Authorization" => "Basic Z3Vlc3Q6Z3Vlc3Q="} # guest:guest
+    req_hdrs.merge!(headers) if headers
+    req_hdrs
+  end
+
+  def test_uri(path)
+    "http://#{@addr}#{path}"
+  end
+
   def get(path, headers = nil)
-    HTTP::Client.get("http://#{@addr}#{path}", headers: test_headers(headers))
+    HTTP::Client.get(test_uri(path), headers: test_headers(headers))
   end
 
   def post(path, headers = nil, body = nil)
-    HTTP::Client.post("http://#{@addr}#{path}", headers: test_headers(headers), body: body)
+    HTTP::Client.post(test_uri(path), headers: test_headers(headers), body: body)
   end
 
   def put(path, headers = nil, body = nil)
-    HTTP::Client.put("http://#{@addr}#{path}", headers: test_headers(headers), body: body)
+    HTTP::Client.put(test_uri(path), headers: test_headers(headers), body: body)
   end
 
   def delete(path, headers = nil, body = nil)
-    HTTP::Client.delete("http://#{@addr}#{path}", headers: test_headers(headers), body: body)
+    HTTP::Client.delete(test_uri(path), headers: test_headers(headers), body: body)
+  end
+
+  def exec(request : HTTP::Request)
+    HTTP::Client.new(URI.parse "http://#{@addr}").exec(request)
   end
 end
 
