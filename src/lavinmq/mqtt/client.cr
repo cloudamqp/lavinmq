@@ -128,8 +128,8 @@ module LavinMQ
       end
 
       def recieve_publish(packet : MQTT::Publish)
-        unless user.can_write?(@broker.vhost.name, EXCHANGE)
-          Log.debug { "Access refused: user '#{self.user.name}' does not have permissions" }
+        if Config.instance.mqtt_permission_check_enabled? && !user.can_write?(@broker.vhost.name, EXCHANGE)
+          Log.debug { "Access refused: user '#{user.name}' does not have permissions" }
           close_socket
           return
         end
@@ -147,11 +147,12 @@ module LavinMQ
       end
 
       def recieve_subscribe(packet : MQTT::Subscribe)
-        unless self.user.can_read?(@broker.vhost.name, EXCHANGE) &&
-               self.user.can_write?(@broker.vhost.name, "mqtt.#{self.client_id}")
-          Log.debug { "Access refused: user '#{self.user.name}' does not have permissions" }
-          close_socket
-          return
+        if Config.instance.mqtt_permission_check_enabled?
+          if !user.can_read?(@broker.vhost.name, EXCHANGE) && !user.can_write?(@broker.vhost.name, "mqtt.#{client_id}")
+            Log.debug { "Access refused: user '#{user.name}' does not have permissions" }
+            close_socket
+            return
+          end
         end
         qos = @broker.subscribe(self, packet.topic_filters)
         send(MQTT::SubAck.new(qos, packet.packet_id))
@@ -191,8 +192,8 @@ module LavinMQ
 
       private def publish_will
         if will = @will
-          unless user.can_write?(@broker.vhost.name, EXCHANGE)
-            Log.debug { "Access refused: user '#{self.user.name}' does not have permissions" }
+          if Config.instance.mqtt_permission_check_enabled? && !user.can_write?(@broker.vhost.name, EXCHANGE)
+            Log.debug { "Access refused: user '#{user.name}' does not have permissions" }
             return
           end
           @broker.publish(MQTT::Publish.new(
@@ -232,6 +233,11 @@ module LavinMQ
         end
         socket.close
       rescue ::IO::Error
+      end
+
+      private def permission_check_enabled?(&block)
+        return true unless Config.instance.mqtt_permission_check_enabled?
+        yield
       end
     end
 

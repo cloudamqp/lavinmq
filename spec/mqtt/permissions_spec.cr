@@ -5,6 +5,10 @@ module MqttSpecs
   extend MqttMatchers
   describe LavinMQ::MQTT do
     describe "permissions" do
+      before_each do
+        LavinMQ::Config.instance.mqtt_permission_check_enabled = true
+      end
+
       it "should block publish when user has no write permissions" do
         with_server do |server|
           server.users.create("no_write", "pass")
