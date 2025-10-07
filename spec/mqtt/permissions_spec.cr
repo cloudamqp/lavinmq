@@ -26,7 +26,7 @@ module MqttSpecs
       it "should block subscribe when user has no read permissions" do
         with_server do |server|
           server.users.create("no_read", "pass")
-          server.users.add_permission("no_read", "/", /.*/, /^$/, /.*/) # config: .*, read: ^$, write: .*
+          server.users.add_permission("no_read", "/", /.*/, /^$/, /^$/) # config: .*, read: ^$, write: ^$
 
           with_client_io(server) do |io|
             connect(io, username: "no_read", password: "pass".to_slice)
