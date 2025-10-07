@@ -185,6 +185,18 @@ document.querySelector('#createShovel').addEventListener('submit', function (evt
   } else {
     body.value['dest-exchange'] = data.get('dest-endpoint')
   }
+  const offset = data.get('src-offset')
+  if (offset.length) {
+    const args = body.value['src-consumer-args'] || {}
+    if (/^\d+$/.test(offset)) {
+      args['x-stream-offset'] = parseInt(offset)
+    } else {
+      args['x-stream-offset'] = offset
+    }
+    body.value['src-consumer-args'] = args
+  }
+  console.log(body)
+
   HTTP.request('PUT', url, { body })
     .then(() => {
       dataSource.reload()
