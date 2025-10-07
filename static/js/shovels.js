@@ -54,7 +54,7 @@ class ShovelsDataSource extends UrlDataSource {
 }
 const dataSource = new ShovelsDataSource(url, statusUrl)
 const tableOptions = { keyColumns: ['vhost', 'name'], columnSelector: true, dataSource }
-Table.renderTable('table', tableOptions, (tr, item, all) => {
+Table.renderTable('table', tableOptions, (tr, item, _all) => {
   Table.renderCell(tr, 0, item.vhost)
   Table.renderCell(tr, 1, item.name)
   if (Array.isArray(item.value['src-uri'])) {
@@ -64,19 +64,20 @@ Table.renderTable('table', tableOptions, (tr, item, all) => {
   }
   const srcDiv = document.createElement('span')
   const consumerArgs = item.value['src-consumer-args'] || {}
+  let srcType = 'exchange'
   if (consumerArgs['x-stream-offset']) {
-    srcDiv.textContent = item.value['src-queue']
-    srcDiv.appendChild(document.createElement('br'))
-    srcDiv.appendChild(document.createElement('small')).textContent = 'stream'
+    srcType = 'stream'
   } else if (item.value['src-queue']) {
-    srcDiv.textContent = item.value['src-queue']
-    srcDiv.appendChild(document.createElement('br'))
-    srcDiv.appendChild(document.createElement('small')).textContent = 'queue'
-  } else {
-    srcDiv.textContent = item.value['src-exchange']
-    srcDiv.appendChild(document.createElement('br'))
-    srcDiv.appendChild(document.createElement('small')).textContent = 'exchange'
+    srcType = 'queue'
   }
+  if (srcType === 'exchange') {
+    srcDiv.textContent = item.value['src-exchange']
+  } else {
+    srcDiv.textContent = item.value['src-queue']
+  }
+  srcDiv.appendChild(document.createElement('br'))
+  srcDiv.appendChild(document.createElement('small')).textContent = srcType
+
   Table.renderCell(tr, 3, srcDiv)
   Table.renderCell(tr, 4, item.value['src-prefetch-count'])
   if (Array.isArray(item.value['dest-uri'])) {
@@ -117,12 +118,12 @@ Table.renderTable('table', tableOptions, (tr, item, all) => {
   })
   const editBtn = DOM.button.edit({
     click: function () {
-      console.log(item)
       Form.editItem('#createShovel', item, {
-        'src-type': (item) => item.value['src-queue'] ? 'queue' : 'exchange',
+        'src-type': (_item) => srcType,
         'dest-type': (item) => item.value['dest-queue'] ? 'queue' : 'exchange',
         'src-endpoint': (item) => item.value['src-queue'] || item.value['src-exchange'],
-        'dest-endpoint': (item) => item.value['dest-queue'] || item.value['dest-exchange']
+        'dest-endpoint': (item) => item.value['dest-queue'] || item.value['dest-exchange'],
+        'src-offset': (_item) => consumerArgs['x-stream-offset']
       })
     }
   })
@@ -204,29 +205,11 @@ document.querySelector('#createShovel').addEventListener('submit', function (evt
       }
       break
   }
-  // if (data.get('src-type') === 'queue') {
-  //   body.value['src-queue'] = data.get('src-endpoint')
-  // } else {
-  //   body.value['src-exchange'] = data.get('src-endpoint')
-  //   body.value['src-exchange-key'] = data.get('src-exchange-key')
-  // }
   if (data.get('dest-type') === 'queue') {
     body.value['dest-queue'] = data.get('dest-endpoint')
   } else {
     body.value['dest-exchange'] = data.get('dest-endpoint')
   }
-  // const offset = data.get('src-offset')
-  // if (offset.length) {
-  //   const args = body.value['src-consumer-args'] || {}
-  //   if (/^\d+$/.test(offset)) {
-  //     args['x-stream-offset'] = parseInt(offset)
-  //   } else {
-  //     args['x-stream-offset'] = offset
-  //   }
-  //   body.value['src-consumer-args'] = args
-  // }
-  // console.log(body)
-
   HTTP.request('PUT', url, { body })
     .then(() => {
       dataSource.reload()
