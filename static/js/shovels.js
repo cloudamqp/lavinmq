@@ -63,7 +63,12 @@ Table.renderTable('table', tableOptions, (tr, item, all) => {
     Table.renderCell(tr, 2, decodeURI(item.value['src-uri'].replace(/:([^:]+)@/, ':***@')))
   }
   const srcDiv = document.createElement('span')
-  if (item.value['src-queue']) {
+  const consumerArgs = item.value['src-consumer-args'] || {}
+  if (consumerArgs['x-stream-offset']) {
+    srcDiv.textContent = item.value['src-queue']
+    srcDiv.appendChild(document.createElement('br'))
+    srcDiv.appendChild(document.createElement('small')).textContent = 'stream'
+  } else if (item.value['src-queue']) {
     srcDiv.textContent = item.value['src-queue']
     srcDiv.appendChild(document.createElement('br'))
     srcDiv.appendChild(document.createElement('small')).textContent = 'queue'
@@ -112,6 +117,7 @@ Table.renderTable('table', tableOptions, (tr, item, all) => {
   })
   const editBtn = DOM.button.edit({
     click: function () {
+      console.log(item)
       Form.editItem('#createShovel', item, {
         'src-type': (item) => item.value['src-queue'] ? 'queue' : 'exchange',
         'dest-type': (item) => item.value['dest-queue'] ? 'queue' : 'exchange',
@@ -148,7 +154,8 @@ Table.renderTable('table', tableOptions, (tr, item, all) => {
 })
 
 document.querySelector('[name=src-type]').addEventListener('change', function () {
-  document.getElementById('srcRoutingKey').classList.toggle('hide', this.value === 'queue')
+  document.getElementById('srcRoutingKey').classList.toggle('hide', this.value !== 'exchange')
+  document.getElementById('srcOffset').classList.toggle('hide', this.value !== 'stream')
 })
 
 document.querySelector('[name=dest-uri]').addEventListener('change', function () {
@@ -174,28 +181,51 @@ document.querySelector('#createShovel').addEventListener('submit', function (evt
       'ack-mode': data.get('ack-mode')
     }
   }
-  if (data.get('src-type') === 'queue') {
-    body.value['src-queue'] = data.get('src-endpoint')
-  } else {
-    body.value['src-exchange'] = data.get('src-endpoint')
-    body.value['src-exchange-key'] = data.get('src-exchange-key')
+  const srcType = data.get('src-type')
+  const offset = data.get('src-offset')
+  switch (srcType) {
+    case 'queue':
+      body.value['src-queue'] = data.get('src-endpoint')
+      break
+    case 'exchange':
+      body.value['src-exchange'] = data.get('src-endpoint')
+      body.value['src-exchange-key'] = data.get('src-exchange-key')
+      break
+    case 'stream':
+      body.value['src-queue'] = data.get('src-endpoint')
+      if (offset.length) {
+        const args = body.value['src-consumer-args'] || {}
+        if (/^\d+$/.test(offset)) {
+          args['x-stream-offset'] = parseInt(offset)
+        } else {
+          args['x-stream-offset'] = offset
+        }
+        body.value['src-consumer-args'] = args
+      }
+      break
   }
+  // if (data.get('src-type') === 'queue') {
+  //   body.value['src-queue'] = data.get('src-endpoint')
+  // } else {
+  //   body.value['src-exchange'] = data.get('src-endpoint')
+  //   body.value['src-exchange-key'] = data.get('src-exchange-key')
+  // }
   if (data.get('dest-type') === 'queue') {
     body.value['dest-queue'] = data.get('dest-endpoint')
   } else {
     body.value['dest-exchange'] = data.get('dest-endpoint')
   }
-  const offset = data.get('src-offset')
-  if (offset.length) {
-    const args = body.value['src-consumer-args'] || {}
-    if (/^\d+$/.test(offset)) {
-      args['x-stream-offset'] = parseInt(offset)
-    } else {
-      args['x-stream-offset'] = offset
-    }
-    body.value['src-consumer-args'] = args
-  }
-  console.log(body)
+  // const offset = data.get('src-offset')
+  // if (offset.length) {
+  //   const args = body.value['src-consumer-args'] || {}
+  //   if (/^\d+$/.test(offset)) {
+  //     args['x-stream-offset'] = parseInt(offset)
+  //   } else {
+  //     args['x-stream-offset'] = offset
+  //   }
+  //   body.value['src-consumer-args'] = args
+  // }
+  // console.log(body)
 
   HTTP.request('PUT', url, { body })
     .then(() => {
