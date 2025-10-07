@@ -26,10 +26,11 @@ class Chart {
     // Clear any existing content
     container.selectAll('*').remove()
 
-    // Create SVG with viewBox for scaling
+    // Create SVG with fixed dimensions
     this.svg = container
       .append('svg')
-      .attr('viewBox', `0 0 ${this.width + this.margin.left + this.margin.right} ${this.height + this.margin.top + this.margin.bottom}`)
+      .attr('width', this.width + this.margin.left + this.margin.right)
+      .attr('height', this.height + this.margin.top + this.margin.bottom)
 
     // Create main group with clipping path
     this.svg.append('defs').append('clipPath')
@@ -140,11 +141,11 @@ class Chart {
       .style('pointer-events', 'none')
       .style('z-index', '1000')
 
-    // Add invisible overlay for mouse tracking (covers entire SVG including margins)
-    this.overlay = this.svg.append('rect')
+    // Add invisible overlay for mouse tracking (only over chart area)
+    this.overlay = this.g.append('rect')
       .attr('class', 'overlay')
-      .attr('width', this.width + this.margin.left + this.margin.right)
-      .attr('height', this.height + this.margin.top + this.margin.bottom)
+      .attr('width', this.width)
+      .attr('height', this.height)
       .style('fill', 'none')
       .style('pointer-events', 'all')
       .on('mouseover', () => this.tooltip.style('visibility', 'visible'))
@@ -192,12 +193,19 @@ class Chart {
         .attr('fill-opacity', 0.7)
         .attr('stroke', color)
         .attr('stroke-width', 1)
+        .style('pointer-events', 'all')
+        .on('mouseover', () => this.tooltip.style('visibility', 'visible'))
+        .on('mouseout', () => this.tooltip.style('visibility', 'hidden'))
+        .on('mousemove', (event) => this.showTooltip(event))
     } else {
       metricData.path = this.g.append('path')
         .attr('class', `metric-line-${metricKey}`)
         .attr('fill', 'none')
         .attr('stroke', color)
         .attr('stroke-width', 2)
+        .on('mouseover', () => this.tooltip.style('visibility', 'visible'))
+        .on('mouseout', () => this.tooltip.style('visibility', 'hidden'))
+        .on('mousemove', (event) => this.showTooltip(event))
     }
 
     this.metrics.set(metricKey, metricData)
@@ -205,70 +213,87 @@ class Chart {
   }
 
   updateLegend () {
-    // Clear existing legend
-    this.legend.selectAll('*').remove()
-
-    let xOffset = 0
-    let yOffset = 0
     const itemWidth = 150
     const itemsPerRow = Math.floor(this.width / itemWidth) || 1
 
-    let itemCount = 0
-    this.metrics.forEach((metric, key) => {
-      // Calculate position with wrapping
-      if (itemCount > 0 && itemCount % itemsPerRow === 0) {
-        xOffset = 0
-        yOffset += 25
+    // Convert Map to array for D3 data binding
+    const metricsArray = Array.from(this.metrics.entries()).map(([key, metric]) => ({
+      key,
+      ...metric
+    }))
+
+    // Bind data to legend item groups
+    const legendItems = this.legend.selectAll('.legend-item')
+      .data(metricsArray, d => d.key)
+
+    // Enter: create new legend items
+    const legendEnter = legendItems.enter()
+      .append('g')
+      .attr('class', 'legend-item')
+
+    legendEnter.append('line')
+      .attr('class', 'legend-line')
+      .attr('x1', 0)
+      .attr('x2', 20)
+      .attr('stroke-width', 4)
+
+    legendEnter.append('text')
+      .attr('class', 'legend-text')
+      .attr('x', 25)
+      .attr('y', 4)
+      .style('font-size', '12px')
+      .style('alignment-baseline', 'middle')
+      .style('fill', 'var(--color-text-primary)')
+
+    // Update: merge enter and existing selections
+    const legendMerge = legendEnter.merge(legendItems)
+
+    // Position all legend items
+    legendMerge.attr('transform', (d, i) => {
+      const row = Math.floor(i / itemsPerRow)
+      const col = i % itemsPerRow
+      const xOffset = col * itemWidth
+      const yOffset = row * 25
+      return `translate(${xOffset}, ${yOffset})`
+    })
+
+    // Update line colors
+    legendMerge.select('.legend-line')
+      .attr('stroke', d => d.color)
+
+    // Update text content
+    legendMerge.select('.legend-text')
+      .text(d => `${d.name}: --`)
+
+    // Exit: remove old legend items
+    legendItems.exit().remove()
+
+    // Store references back to metrics Map for value updates
+    legendMerge.each((d, i, nodes) => {
+      const metric = this.metrics.get(d.key)
+      if (metric) {
+        metric.legendLine = d3.select(nodes[i]).select('.legend-line')
+        metric.legendText = d3.select(nodes[i]).select('.legend-text')
       }
-
-      // Add legend line
-      metric.legendLine = this.legend.append('line')
-        .attr('x1', xOffset)
-        .attr('x2', xOffset + 20)
-        .attr('y1', yOffset)
-        .attr('y2', yOffset)
-        .attr('stroke', metric.color)
-        .attr('stroke-width', 4)
-
-      // Add legend text
-      metric.legendText = this.legend.append('text')
-        .attr('x', xOffset + 25)
-        .attr('y', yOffset + 4)
-        .text(`${metric.name}: --`)
-        .style('font-size', '12px')
-        .style('alignment-baseline', 'middle')
-        .style('fill', 'var(--color-text-primary)')
-
-      xOffset += itemWidth
-      itemCount++
     })
   }
 
   showTooltip (event) {
-    const [mouseX] = d3.pointer(event, this.svg.node())
-    const adjustedMouseX = mouseX - this.margin.left
-    const dataIndex = Math.round(this.xScale.invert(adjustedMouseX))
+    const [mouseX] = d3.pointer(event, this.g.node())
+    const dataIndex = Math.round(this.xScale.invert(mouseX))
 
-    if (dataIndex < 0 || dataIndex >= this.maxDataPoints || adjustedMouseX < 0 || adjustedMouseX > this.width) return
+    if (dataIndex < 0 || dataIndex >= this.maxDataPoints) return
 
     const secondsAgo = Math.max(0, this.maxDataPoints - dataIndex)
     const now = new Date()
     const timestamp = new Date(now.getTime() - secondsAgo * 1000)
-    const timeLabel = timestamp.toLocaleString(undefined, {
-      hour12: false,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit'
-    })
+    const timeLabel = timestamp.toLocaleString()
 
     let tooltipContent = `<b>${timeLabel}</b><br>`
 
     this.metrics.forEach((metric, key) => {
       const value = metric.data[dataIndex]
-      const displayValue = value !== null ? Math.round(value) : '--'
+      const displayValue = value !== null ? Math.round(value).toLocaleString() : '--'
       tooltipContent += `${metric.name}: ${displayValue}<br>`
     })
 
@@ -417,7 +442,8 @@ class Chart {
     // Update legend with current values (common for both types)
     this.metrics.forEach((metric, key) => {
       const currentValue = metric.data.length > 0 ? metric.data[metric.data.length - 1] : null
-      metric.legendText.text(`${metric.name}: ${currentValue !== null ? Math.round(currentValue) : '--'}`)
+      const formattedValue = currentValue !== null ? Math.round(currentValue).toLocaleString() : '--'
+      metric.legendText.text(`${metric.name}: ${formattedValue}`)
     })
   }
 
