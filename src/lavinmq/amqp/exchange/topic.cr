@@ -54,14 +54,21 @@ module LavinMQ
         end
       end
 
-      class StringSegment < StarSegment
+      class StringSegment < Segment
         def initialize(@s : String, @next : Segment?)
-          super(@next)
         end
 
         def match?(rk : RkPart) : Bool
           return false unless rk.value == @s
-          super(rk)
+          if check = @next
+            if n = rk.next
+              check.match?(n)
+            else
+              false
+            end
+          else
+            rk.next.nil?
+          end
         end
       end
 
