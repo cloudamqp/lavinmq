@@ -198,6 +198,9 @@ describe LavinMQ::AMQP::Queue do
         with_channel(s) do |ch|
           ch.has_subscriber?(tag).should eq false
         end
+
+        # Queue is closed, delete to prevent spec failure becuase of closed queue
+        s.vhosts["/"].queues[q_name].try &.delete
       end
     end
   end

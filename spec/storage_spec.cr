@@ -47,6 +47,8 @@ describe LavinMQ::AMQP::DurableQueue do
 
             should_eventually(be_true) { queue.state.closed? }
           end
+
+          vhost.queues["corrupt_q"].try &.delete
         end
       end
     end
