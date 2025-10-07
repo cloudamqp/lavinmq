@@ -199,7 +199,7 @@ describe LavinMQ::AMQP::Queue do
           ch.has_subscriber?(tag).should eq false
         end
 
-        # Queue is closed, delete to prevent spec failure becuase of closed queue
+        # Queue is closed, delete to prevent spec failure because of closed queue
         s.vhosts["/"].queues[q_name].try &.delete
       end
     end

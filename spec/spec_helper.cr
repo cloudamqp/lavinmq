@@ -122,10 +122,10 @@ def with_amqp_server(tls = false, replicator = LavinMQ::Clustering::NoopServer.n
     # A closed queue indicates that something failed that shouldn't. However, the error may be
     # silent and not causing a spec to fail. It's not even sure that the failing queue is related
     # to what the spec tests, but by failing on closed queues we may find bugs.
-    # If a queue is suppsoed to be closed, it should be deleted in the end of the spec.
+    # If a queue is supposed to be closed, it should be deleted in the end of the spec.
 
     # We yield a few times (if necessary) to make sure things has really settled, e.g.
-    # everything has been cleaned up after a `woth_channel` inside the `with_amqp_server`.
+    # everything has been cleaned up after a `with_channel` inside the `with_amqp_server`.
     closed_queues = 3.times do
       Fiber.yield
       queues = s.vhosts.flat_map { |_, vhost| vhost.queues.values.select &.closed? }
