@@ -10,7 +10,7 @@ require "../bool_channel"
 module LavinMQ
   module MQTT
     class Client < LavinMQ::Client
-      include Stats
+      include StatsRB
       include SortableJSON
 
       getter channels, log, name, user, client_id, socket, connection_info

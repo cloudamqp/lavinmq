@@ -42,7 +42,7 @@ module LavinMQ
     property frame_max = 131_072_u32                 # bytes
     property channel_max = 2048_u16                  # number
     property stats_interval = 5000                   # millisecond
-    property stats_log_size = 120                    # 10 mins at 5s interval
+    property stats_log_size = 128                    # 10 mins at 5s interval (power of 2)
     property? set_timestamp = false                  # in message headers when receive
     property socket_buffer_size = 16384              # bytes
     property? tcp_nodelay = false                    # bool

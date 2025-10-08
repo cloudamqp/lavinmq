@@ -6,7 +6,7 @@ require "../../error"
 require "../../exchange"
 require "../../observable"
 require "../../policy"
-require "../../stats"
+require "../../stats_rb"
 require "../../sortable_json"
 require "../queue"
 require "./event"
@@ -15,7 +15,7 @@ module LavinMQ
   module AMQP
     abstract class Exchange < LavinMQ::Exchange
       include PolicyTarget
-      include Stats
+      include StatsRB
       include SortableJSON
       include Observable(ExchangeEvent)
 
