@@ -16,43 +16,43 @@ module LavinMQ
     DEFAULT_LOG_LEVEL     = ::Log::Severity::Info
     DEFAULT_PASSWORD_HASH = "+pHuxkR9fCyrrwXjOD4BP4XbzO3l8LJr8YkThMgJ0yVHFRE+" # Hash of 'guest'
 
-    @[CliOpt("-D DIRECTORY", "--data-dir=DIRECTORY", "Data directory")]
+    @[CliOpt("-c CONFIG", "--config=CONFIG", "Path to config file", section: "options")]
+    @[EnvOpt("LAVINMQ_CONFIGURATION_DIRECTORY")]
+    property config_file = ""
+
+    @[CliOpt("-D DIRECTORY", "--data-dir=DIRECTORY", "Data directory", section: "options")]
     @[IniOpt(section: "main")]
     @[EnvOpt("LAVINMQ_DATADIR")]
     property data_dir : String = "/var/lib/lavinmq"
 
-    @[CliOpt("-c CONFIG", "--config=CONFIG", "Path to config file")]
-    @[EnvOpt("LAVINMQ_CONFIGURATION_DIRECTORY")]
-    property config_file = ""
-
-    @[IniOpt(section: "main")]
-    property log_file : String? = nil
-
-    @[CliOpt("-l LEVEL", "--log-level=LEVEL", "Log level (Default: info)", ->::Log::Severity.parse(String))]
+    @[CliOpt("-l LEVEL", "--log-level=LEVEL", "Log level (Default: info)", ->::Log::Severity.parse(String), section: "options")]
     @[IniOpt(section: "main", transform: ->::Log::Severity.parse(String))]
     property log_level : ::Log::Severity = DEFAULT_LOG_LEVEL
 
-    @[CliOpt("-b BIND", "--bind=BIND", "IP address that both the AMQP and HTTP servers will listen on (default: 127.0.0.1)", ->parse_bind(String))]
+    @[CliOpt("-b BIND", "--bind=BIND", "IP address that both the AMQP and HTTP servers will listen on (default: 127.0.0.1)", ->parse_bind(String), section: "bindings")]
     property bind = "127.0.0.1"
 
-    @[CliOpt("", "--amqp-bind=BIND", "IP address that the AMQP server will listen on (default: 127.0.0.1)")]
-    @[IniOpt(ini_name: bind, section: "amqp")]
-    @[EnvOpt("LAVINMQ_AMQP_BIND")]
-    property amqp_bind = "127.0.0.1"
-
-    @[CliOpt("-p PORT", "--port=PORT", "AMQP port to listen on (default: 5672)")]
+    @[CliOpt("-p PORT", "--port=PORT", "AMQP port to listen on (default: 5672)", section: "bindings")]
     @[IniOpt(ini_name: port, section: "amqp")]
     @[EnvOpt("LAVINMQ_AMQP_PORT")]
     property amqp_port = 5672
 
-    @[CliOpt("", "--amqps-port=PORT", "AMQPS port to listen on (default: -1)")]
+    @[IniOpt(section: "main")]
+    property log_file : String? = nil
+
+    @[CliOpt("", "--amqp-bind=BIND", "IP address that the AMQP server will listen on (default: 127.0.0.1)", section: "bindings")]
+    @[IniOpt(ini_name: bind, section: "amqp")]
+    @[EnvOpt("LAVINMQ_AMQP_BIND")]
+    property amqp_bind = "127.0.0.1"
+
+    @[CliOpt("", "--amqp-unix-path=PATH", "AMQP UNIX path to listen to", section: "bindings")]
+    @[IniOpt(ini_name: unix_path, section: "amqp")]
+    property unix_path : String = ""
+
+    @[CliOpt("", "--amqps-port=PORT", "AMQPS port to listen on (default: -1)", section: "bindings")]
     @[IniOpt(ini_name: tls_port, section: "amqp")]
     @[EnvOpt("LAVINMQ_AMQPS_PORT")]
     property amqps_port = -1
-
-    @[CliOpt("", "--amqp-unix-path=PATH", "AMQP UNIX path to listen to")]
-    @[IniOpt(ini_name: unix_path, section: "amqp")]
-    property unix_path : String = ""
 
     @[IniOpt(ini_name: bind, section: "mqtt")]
     property mqtt_bind = "127.0.0.1"
@@ -72,44 +72,44 @@ module LavinMQ
     @[IniOpt(section: "amqp")]
     property tcp_proxy_protocol = 0_u8 # PROXY protocol version on amqp tcp connections
 
-    @[CliOpt("", "--cert FILE", "TLS certificate (including chain)")]
-    @[IniOpt(section: "main")]
-    @[EnvOpt("LAVINMQ_TLS_CERT_PATH")]
-    property tls_cert_path = ""
-
-    @[CliOpt("", "--key FILE", "Private key for the TLS certificate")]
-    @[IniOpt(section: "main")]
-    @[EnvOpt("LAVINMQ_TLS_KEY_PATH")]
-    property tls_key_path = ""
-
-    @[CliOpt("", "--ciphers CIPHERS", "List of TLS ciphers to allow")]
-    @[IniOpt(section: "main")]
-    @[EnvOpt("LAVINMQ_TLS_CIPHERS")]
-    property tls_ciphers = ""
-
-    @[CliOpt("", "--tls-min-version=VERSION", "Mininum allowed TLS version (default 1.2)")]
-    @[IniOpt(section: "main")]
-    @[EnvOpt("LAVINMQ_TLS_MIN_VERSION")]
-    property tls_min_version = ""
-
-    @[CliOpt("", "--http-bind=BIND", "IP address that the HTTP server will listen on (default: 127.0.0.1)")]
+    @[CliOpt("", "--http-bind=BIND", "IP address that the HTTP server will listen on (default: 127.0.0.1)", section: "bindings")]
     @[IniOpt(ini_name: bind, section: "mgmt")]
     @[EnvOpt("LAVINMQ_HTTP_BIND")]
     property http_bind = "127.0.0.1"
 
-    @[CliOpt("", "--http-port=PORT", "HTTP port to listen on (default: 15672)")]
+    @[CliOpt("", "--http-port=PORT", "HTTP port to listen on (default: 15672)", section: "bindings")]
     @[IniOpt(ini_name: port, section: "mgmt")]
     @[EnvOpt("LAVINMQ_HTTP_PORT")]
     property http_port = 15672
 
-    @[CliOpt("", "--https-port=PORT", "HTTPS port to listen on (default: -1)")]
+    @[CliOpt("", "--http-unix-path=PATH", "HTTP UNIX path to listen to", section: "bindings")]
+    @[IniOpt(ini_name: unix_path, section: "mgmt")]
+    property http_unix_path = ""
+
+    @[CliOpt("", "--https-port=PORT", "HTTPS port to listen on (default: -1)", section: "bindings")]
     @[IniOpt(ini_name: tls_port, section: "mgmt")]
     @[EnvOpt("LAVINMQ_HTTPS_PORT")]
     property https_port = -1
 
-    @[CliOpt("", "--http-unix-path=PATH", "HTTP UNIX path to listen to")]
-    @[IniOpt(ini_name: unix_path, section: "mgmt")]
-    property http_unix_path = ""
+    @[CliOpt("", "--cert FILE", "TLS certificate (including chain)", section: "tls")]
+    @[IniOpt(section: "main")]
+    @[EnvOpt("LAVINMQ_TLS_CERT_PATH")]
+    property tls_cert_path = ""
+
+    @[CliOpt("", "--ciphers CIPHERS", "List of TLS ciphers to allow", section: "tls")]
+    @[IniOpt(section: "main")]
+    @[EnvOpt("LAVINMQ_TLS_CIPHERS")]
+    property tls_ciphers = ""
+
+    @[CliOpt("", "--key FILE", "Private key for the TLS certificate", section: "tls")]
+    @[IniOpt(section: "main")]
+    @[EnvOpt("LAVINMQ_TLS_KEY_PATH")]
+    property tls_key_path = ""
+
+    @[CliOpt("", "--tls-min-version=VERSION", "Mininum allowed TLS version (default 1.2)", section: "tls")]
+    @[IniOpt(section: "main")]
+    @[EnvOpt("LAVINMQ_TLS_MIN_VERSION")]
+    property tls_min_version = ""
 
     @[IniOpt(section: "mgmt")]
     property http_systemd_socket_name = "lavinmq-http.socket"
@@ -144,18 +144,11 @@ module LavinMQ
     @[IniOpt(section: "main")]
     property segment_size : Int32 = 8 * 1024**2 # bytes
 
-    @[CliOpt("", "--raise-gc-warn", "Raise on GC warnings")]
-    property? raise_gc_warn : Bool = false
-
     @[IniOpt(section: "mqtt")]
     property max_inflight_messages : UInt16 = 65_535 # mqtt messages
 
     @[IniOpt(section: "mqtt")]
     property default_mqtt_vhost = "/"
-
-    @[CliOpt("", "--no-data-dir-lock", "Don't put a file lock in the data directory (default true)")]
-    @[IniOpt(section: "main")]
-    property? data_dir_lock : Bool = true
 
     @[IniOpt(section: "main", transform: ->tcp_keepalive?(String))]
     property tcp_keepalive : Tuple(Int32, Int32, Int32)? = {60, 10, 3} # idle, interval, probes/count
@@ -165,14 +158,6 @@ module LavinMQ
 
     @[IniOpt(section: "main")]
     property tcp_send_buffer_size : Int32? = nil
-
-    @[CliOpt("", "--guest-only-loopback=BOOL", "Limit guest user to only connect from loopback address", deprecated: "default_user_only_loopback")]
-    @[IniOpt(section: "main", deprecated: "default_user_only_loopback")]
-    property? guest_only_loopback : Bool = true
-
-    @[CliOpt("", "--default-user-only-loopback=BOOL", "Limit guest user to only connect from loopback address")]
-    @[IniOpt(section: "amqp")]
-    property? default_user_only_loopback : Bool = true
 
     @[IniOpt(section: "amqp")]
     property max_message_size = 128 * 1024**2
@@ -186,41 +171,6 @@ module LavinMQ
     @[IniOpt(section: "main")]
     property free_disk_warn : Int64 = 0 # bytes
 
-    @[CliOpt("", "--clustering", "Enable clustering")]
-    @[IniOpt(ini_name: enabled, section: "clustering")]
-    @[EnvOpt("LAVINMQ_CLUSTERING")]
-    property? clustering = false
-
-    @[CliOpt("", "--clustering-etcd-prefix=KEY", "Key prefix used in etcd (default: lavinmq")]
-    @[IniOpt(ini_name: etcd_prefix, section: "clustering")]
-    @[EnvOpt("LAVINMQ_CLUSTERING_ETCD_PREFIX")]
-    property clustering_etcd_prefix = "lavinmq"
-
-    @[CliOpt("", "--clustering-etcd-endpoints=URIs", "Comma separeted host/port pairs (default: 127.0.0.1:2379)")]
-    @[IniOpt(ini_name: etcd_endpoints, section: "clustering")]
-    @[EnvOpt("LAVINMQ_CLUSTERING_ETCD_ENDPOINTS")]
-    property clustering_etcd_endpoints = "localhost:2379"
-
-    @[CliOpt("", "--clustering-advertised-uri=URI", "Advertised URI for the clustering server")]
-    @[IniOpt(ini_section: clustering)]
-    @[EnvOpt("LAVINMQ_CLUSTERING_ADVERTISED_URI")]
-    property clustering_advertised_uri : String? = nil
-
-    @[CliOpt("", "--clustering-bind=BIND", "Listen for clustering followers on this address (default: localhost)")]
-    @[IniOpt(ini_name: bind, section: "clustering")]
-    @[EnvOpt("LAVINMQ_CLUSTERING_BIND")]
-    property clustering_bind = "127.0.0.1"
-
-    @[CliOpt("", "--clustering-port=PORT", "Listen for clustering followers on this port (default: 5679)")]
-    @[IniOpt(ini_name: port, section: "clustering")]
-    @[EnvOpt("LAVINMQ_CLUSTERING_PORT")]
-    property clustering_port = 5679
-
-    @[CliOpt("", "--clustering-max-unsynced-actions=ACTIONS", "Maximum unsynced actions")]
-    @[IniOpt(ini_name: max_unsynced_actions, section: "clustering")]
-    @[EnvOpt("LAVINMQ_CLUSTERING_MAX_UNSYNCED_ACTIONS")]
-    property clustering_max_unsynced_actions = 8192 # number of unsynced clustering actions
-
     @[IniOpt(section: "main")]
     property max_deleted_definitions = 8192 # number of deleted queues, unbinds etc that compacts the definitions file
 
@@ -229,11 +179,6 @@ module LavinMQ
 
     @[IniOpt(section: "main")]
     property consumer_timeout_loop_interval = 60 # seconds
-
-    @[CliOpt("", "--default-consumer-prefetch=NUMBER", "Default consumer prefetch (default 65535)")]
-    @[IniOpt(section: "main")]
-    @[EnvOpt("LAVINMQ_DEFAULT_CONSUMER_PREFETCH")]
-    property default_consumer_prefetch = UInt16::MAX
 
     @[IniOpt(section: "experimental")]
     property yield_each_received_bytes = 131_072 # max number of bytes to read from a client connection without letting other tasks in the server do any work
@@ -244,19 +189,74 @@ module LavinMQ
     @[IniOpt(section: "main", transform: ->(s : String) { s.split(",").map(&.strip) })]
     property auth_backends : Array(String) = ["basic"]
 
-    @[CliOpt("", "--default-user=USER", "Default user (default: guest")]
+    @[CliOpt("", "--default-consumer-prefetch=NUMBER", "Default consumer prefetch (default 65535)", section: "options")]
     @[IniOpt(section: "main")]
-    @[EnvOpt("LAVINMQ_DEFAULT_USER")]
-    property default_user = "guest"
+    @[EnvOpt("LAVINMQ_DEFAULT_CONSUMER_PREFETCH")]
+    property default_consumer_prefetch = UInt16::MAX
 
-    @[CliOpt("", "--default-password-hash=PASSWORD-HASH", "Hashed password for default user (default: '+pHuxkR9fCyrrwXjOD4BP4XbzO3l8LJr8YkThMgJ0yVHFRE+' (guest))")]
+    @[CliOpt("", "--default-password=PASSWORD-HASH", "(Deprecated) Hashed password for default user (default: '+pHuxkR9fCyrrwXjOD4BP4XbzO3l8LJr8YkThMgJ0yVHFRE+' (guest))", deprecated: "default_password_hash", section: "options")]
+    @[IniOpt(section: "main", deprecated: "default_password_hash")]
+    property default_password = DEFAULT_PASSWORD_HASH # Hashed password for default user
+
+    @[CliOpt("", "--default-password-hash=PASSWORD-HASH", "Hashed password for default user (default: '+pHuxkR9fCyrrwXjOD4BP4XbzO3l8LJr8YkThMgJ0yVHFRE+' (guest))", section: "options")]
     @[IniOpt(section: "main")]
     @[EnvOpt("LAVINMQ_DEFAULT_PASSWORD")]
     property default_password_hash = DEFAULT_PASSWORD_HASH # Hashed password for default user
 
-    @[CliOpt("", "--default-password=PASSWORD-HASH", "(Deprecated) Hashed password for default user (default: '+pHuxkR9fCyrrwXjOD4BP4XbzO3l8LJr8YkThMgJ0yVHFRE+' (guest))", deprecated: "default_password_hash")]
-    @[IniOpt(section: "main", deprecated: "default_password_hash")]
-    property default_password = DEFAULT_PASSWORD_HASH # Hashed password for default user
+    @[CliOpt("", "--default-user=USER", "Default user (default: guest)", section: "options")]
+    @[IniOpt(section: "main")]
+    @[EnvOpt("LAVINMQ_DEFAULT_USER")]
+    property default_user = "guest"
+
+    @[CliOpt("", "--default-user-only-loopback=BOOL", "Limit guest user to only connect from loopback address", section: "options")]
+    @[IniOpt(section: "amqp")]
+    property? default_user_only_loopback : Bool = true
+
+    @[CliOpt("", "--guest-only-loopback=BOOL", "Limit guest user to only connect from loopback address", deprecated: "default_user_only_loopback", section: "options")]
+    @[IniOpt(section: "main", deprecated: "default_user_only_loopback")]
+    property? guest_only_loopback : Bool = true
+
+    @[CliOpt("", "--no-data-dir-lock", "Don't put a file lock in the data directory (default true)", section: "options")]
+    @[IniOpt(section: "main")]
+    property? data_dir_lock : Bool = true
+
+    @[CliOpt("", "--raise-gc-warn", "Raise on GC warnings", section: "options")]
+    property? raise_gc_warn : Bool = false
+
+    @[CliOpt("", "--clustering", "Enable clustering", section: "clustering")]
+    @[IniOpt(ini_name: enabled, section: "clustering")]
+    @[EnvOpt("LAVINMQ_CLUSTERING")]
+    property? clustering = false
+
+    @[CliOpt("", "--clustering-advertised-uri=URI", "Advertised URI for the clustering server", section: "clustering")]
+    @[IniOpt(ini_section: clustering)]
+    @[EnvOpt("LAVINMQ_CLUSTERING_ADVERTISED_URI")]
+    property clustering_advertised_uri : String? = nil
+
+    @[CliOpt("", "--clustering-bind=BIND", "Listen for clustering followers on this address (default: localhost)", section: "clustering")]
+    @[IniOpt(ini_name: bind, section: "clustering")]
+    @[EnvOpt("LAVINMQ_CLUSTERING_BIND")]
+    property clustering_bind = "127.0.0.1"
+
+    @[CliOpt("", "--clustering-etcd-endpoints=URIs", "Comma separeted host/port pairs (default: 127.0.0.1:2379)", section: "clustering")]
+    @[IniOpt(ini_name: etcd_endpoints, section: "clustering")]
+    @[EnvOpt("LAVINMQ_CLUSTERING_ETCD_ENDPOINTS")]
+    property clustering_etcd_endpoints = "localhost:2379"
+
+    @[CliOpt("", "--clustering-etcd-prefix=KEY", "Key prefix used in etcd (default: lavinmq", section: "clustering")]
+    @[IniOpt(ini_name: etcd_prefix, section: "clustering")]
+    @[EnvOpt("LAVINMQ_CLUSTERING_ETCD_PREFIX")]
+    property clustering_etcd_prefix = "lavinmq"
+
+    @[CliOpt("", "--clustering-max-unsynced-actions=ACTIONS", "Maximum unsynced actions", section: "clustering")]
+    @[IniOpt(ini_name: max_unsynced_actions, section: "clustering")]
+    @[EnvOpt("LAVINMQ_CLUSTERING_MAX_UNSYNCED_ACTIONS")]
+    property clustering_max_unsynced_actions = 8192 # number of unsynced clustering actions
+
+    @[CliOpt("", "--clustering-port=PORT", "Listen for clustering followers on this port (default: 5679)", section: "clustering")]
+    @[IniOpt(ini_name: port, section: "clustering")]
+    @[EnvOpt("LAVINMQ_CLUSTERING_PORT")]
+    property clustering_port = 5679
 
     property max_consumers_per_channel = 0
     @@instance : Config = self.new
@@ -292,15 +292,28 @@ module LavinMQ
     private def parse_argv(*, warn_deprecated = false)
       parser = OptionParser.new
       parser.banner = "Usage: #{PROGRAM_NAME} [arguments]"
-      parser.on("-h", "--help", "Show this help") { puts parser; exit 0 }
-      parser.on("-v", "--version", "Show version") { puts LavinMQ::VERSION; exit 0 }
-      parser.on("--build-info", "Show build information") { puts LavinMQ::BUILD_INFO; exit 0 }
+      {% begin %}
+      {%
+        opts_per_section = {} of String=>Array(Tuple)
+        sections = {
+          options: "Options",
+          bindings: "Bindings",
+          tls: "TLS",
+          clustering: "Clustering"
+        }
+      %}
       {% for ivar in @type.instance_vars.select(&.annotation(CliOpt)) %}
         {%
           anno = ivar.annotation(CliOpt)
           short_flag, long_flag, description, value_parser = anno.args
+          parser_arg = if short_flag.empty?
+            {long_flag, description}
+          else
+            {short_flag, long_flag, description}
+          end
           value_parser = ivar.type if value_parser.nil?
           warn_msg = nil
+          section = anno[:section] || "options"
           if deprecated = anno[:deprecated]
             ivar = @type.instance_vars.find &.name.== deprecated
             use_short, use_long = ivar.annotation(CliOpt).args
@@ -310,20 +323,43 @@ module LavinMQ
             warn_msg += "#{use_short}/" unless use_short.empty?
             warn_msg += "#{use_long} instead"
           end
+          if !opts_per_section.has_key?(section.id)
+            opts_per_section[section.id] = [] of Tuple
+          end
+          opts_per_section[section.id] << {ivar: ivar.name.id, parser_arg: parser_arg, value_parser: value_parser, warn_msg: warn_msg}
         %}
-        parser.on({{short_flag}}, {{long_flag}}, {{description}}) do |v|
-          {% if warn_msg %}
-            Log.warn { {{warn_msg}} } if warn_deprecated
-          {% end %}
-          @{{ivar.name.id}} = parse_value(v, {{value_parser}})
-        end
       {% end %}
+        {% for section, description in sections %}
+          {%
+            opts_in_section = opts_per_section[section].sort_by do |opt|
+              parser_arg = opt[:parser_arg]
+              a = if parser_arg.size == 2
+                "z" + parser_arg[0].downcase
+              else
+                parser_arg[0]
+              end
+            end
+          %}
+          parser.separator "\n{{description.id}}"
+          {% for opt in opts_in_section %}
+            parser.on({{opt[:parser_arg].splat}}) do |v|
+              {% if opt[:warn_msg] %}
+                Log.warn { {{opt[:warn_msg]}} } if warn_deprecated
+              {% end %}
+              @{{opt[:ivar]}} = parse_value(v, {{opt[:value_parser]}})
+            end
+          {% end %}
+        {% end %}
+      {% end %}
+      parser.separator "\nMiscellaneous"
+      parser.on("-h", "--help", "Show this help") { puts parser; exit 0 }
+      parser.on("-v", "--version", "Show version") { puts LavinMQ::VERSION; exit 0 }
+      parser.on("--build-info", "Show build information") { puts LavinMQ::BUILD_INFO; exit 0 }
       parser.parse(ARGV.dup)
     end
 
     # Generate parse_value methods for all Int and UInt
     {% for int in [Int8, Int16, Int32, Int64, UInt8, UInt16, UInt32, UInt64] %}
-      # IntX
       private def parse_value(value, type : {{int}}.class)
         {{int}}.new(value)
       end
