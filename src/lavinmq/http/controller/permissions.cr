@@ -7,7 +7,7 @@ module LavinMQ
     struct PermissionsView
       include SortableJSON
 
-      def initialize(@user : Auth::User, @vhost : String, @p : Auth::User::Permissions)
+      def initialize(@user : Auth::User, @vhost : String, @p : Auth::Users::BasicUser::Permissions)
       end
 
       def details_tuple

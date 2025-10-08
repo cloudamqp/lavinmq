@@ -1,10 +1,10 @@
 require "json"
-require "./user"
+require "./users/basic_user"
 
 module LavinMQ
   module Auth
     class UserStore
-      include Enumerable({String, User})
+      include Enumerable({String, Users::BasicUser})
       DIRECT_USER = "__direct"
       Log         = LavinMQ::Log.for "user_store"
 
@@ -13,7 +13,7 @@ module LavinMQ
       end
 
       def initialize(@data_dir : String, @replicator : Clustering::Replicator?)
-        @users = Hash(String, User).new
+        @users = Hash(String, Users::BasicUser).new
         load!
       end
 
@@ -30,7 +30,7 @@ module LavinMQ
         if user = @users[name]?
           return user
         end
-        user = User.create(name, password, "SHA256", tags)
+        user = Users::BasicUser.create(name, password, "SHA256", tags)
         @users[name] = user
         Log.info { "Created user=#{name}" }
         save! if save
@@ -38,7 +38,7 @@ module LavinMQ
       end
 
       def add(name, password_hash, password_algorithm, tags = Array(Tag).new, save = true)
-        user = User.new(name, password_hash, password_algorithm, tags)
+        user = Users::BasicUser.new(name, password_hash, password_algorithm, tags)
         @users[name] = user
         save! if save
         user
@@ -72,7 +72,7 @@ module LavinMQ
         save!
       end
 
-      def delete(name, save = true) : User?
+      def delete(name, save = true) : Users::BasicUser?
         return if name == DIRECT_USER
         if user = @users.delete name
           user.permissions.clear
@@ -83,7 +83,7 @@ module LavinMQ
         end
       end
 
-      def default_user : User
+      def default_user : Users::BasicUser
         @users.each_value do |u|
           if u.tags.includes?(Tag::Administrator) && !u.hidden?
             return u
@@ -115,7 +115,7 @@ module LavinMQ
         if File.exists? path
           Log.debug { "Loading users from file" }
           File.open(path) do |f|
-            Array(User).from_json(f) do |user|
+            Array(Users::BasicUser).from_json(f) do |user|
               @users[user.name] = user
             end
             @replicator.try &.register_file f
@@ -138,7 +138,7 @@ module LavinMQ
       end
 
       private def create_direct_user
-        @users[DIRECT_USER] = User.create_hidden_user(DIRECT_USER)
+        @users[DIRECT_USER] = Users::BasicUser.create_hidden_user(DIRECT_USER)
         perm = {config: /.*/, read: /.*/, write: /.*/}
         @users[DIRECT_USER].permissions["/"] = perm
       end
