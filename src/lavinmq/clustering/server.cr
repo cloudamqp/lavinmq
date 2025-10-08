@@ -210,7 +210,11 @@ module LavinMQ
       private def update_isr
         isr_key = "#{@config.clustering_etcd_prefix}/isr"
         ids = String.build do |str|
-          @followers.each { |f| f.id.to_s(str, 36); str << "," if f.synced? }
+          @followers.each do |f|
+            next unless f.synced?
+            f.id.to_s(str, 36)
+            str << ","
+          end
           @id.to_s(str, 36)
         end
         Log.info { "In-sync replicas: #{ids}" }
