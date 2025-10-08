@@ -1,5 +1,5 @@
 require "./authenticator"
-require "./authenticators/basic"
+require "./authenticators/*"
 
 module LavinMQ
   module Auth
@@ -10,7 +10,7 @@ module LavinMQ
         @backends = backends
       end
 
-      def self.create(config : Config, users : UserStore) : Chain
+      def self.create(config : Config, users : UserStore, temp_users : TempUserStore) : Chain
         backends = config.auth_backends
         authenticators = Array(Authenticator).new
         if backends.nil? || backends.empty?
@@ -20,6 +20,8 @@ module LavinMQ
             case backend
             when "basic"
               authenticators << BasicAuthenticator.new(users)
+            when "oauth"
+              authenticators << OAuthAuthenticator.new(temp_users)
             else
               raise "Unsupported authentication backend: #{backend}"
             end
