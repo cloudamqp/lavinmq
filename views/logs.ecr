@@ -10,9 +10,14 @@
     <main class="main-grid">
       <div id="breadcrumbs" class="cols-12">
           <h2 class="page-title"><span><%=pagename%></span></h2>
+          <div class="tiny-badge" id="pagename-label"></div>
       </div>
-      <section id="livelog" class="card livelog">
-        <button id="download-logs" class="btn btn-green"><a download href="api/logs">Download logs</a></button>
+      <section class="card">
+          <label for="log-filter" class="sr-only"></label>
+            <input id="log-filter" class="filter-table log-toolbar" type="search" placeholder="Filter regex">
+            <a id="download-logs" class="btn btn-green toolbar-action" download href="api/logs">Download logs</a>
+        </div>
+        <div id="livelog" class="livelog">
         <div id="table-error"></div>
         <table id="table" class="table">
           <thead>
