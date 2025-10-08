@@ -2,29 +2,34 @@ require "./exchange"
 
 module LavinMQ
   module AMQP
-    class TopicBindingKey
-      abstract class Segment
-        abstract def match?(rk : RkPart) : Bool
+    struct RkIterator
+      getter value : Bytes
+
+      def initialize(raw : Bytes)
+        if first_dot = raw.index '.'.ord
+          @value = raw[0, first_dot]
+          @raw = raw[(first_dot + 1)..]
+        else
+          @value = raw
+          @raw = Bytes.empty
+        end
       end
 
-      class RkPart
-        getter :value, :next
+      def next : RkIterator?
+        self.class.new(@raw) unless @raw.empty?
+      end
+    end
 
-        def self.from(rk : Array(String)) : RkPart?
-          rk.reverse_each.reduce(nil) do |prev, v|
-            RkPart.new(v, prev)
-          end
-        end
-
-        def initialize(@value : String, @next : RkPart?)
-        end
+    class TopicBindingKey
+      abstract class Segment
+        abstract def match?(rk) : Bool
       end
 
       class HashSegment < Segment
         def initialize(@next : Segment?)
         end
 
-        def match?(rk : RkPart) : Bool
+        def match?(rk) : Bool
           if n = @next
             loop do
               return true if n.match?(rk)
@@ -41,7 +46,7 @@ module LavinMQ
         def initialize(@next : Segment?)
         end
 
-        def match?(rk : RkPart) : Bool
+        def match?(rk) : Bool
           if check = @next
             if n = rk.next
               check.match?(n)
@@ -55,10 +60,10 @@ module LavinMQ
       end
 
       class StringSegment < Segment
-        def initialize(@s : String, @next : Segment?)
+        def initialize(@s : Bytes, @next : Segment?)
         end
 
-        def match?(rk : RkPart) : Bool
+        def match?(rk) : Bool
           return false unless rk.value == @s
           if check = @next
             if n = rk.next
@@ -79,16 +84,15 @@ module LavinMQ
           case v
           when "#" then HashSegment.new(prev)
           when "*" then StarSegment.new(prev)
-          else          StringSegment.new(v, prev)
+          else          StringSegment.new(v.to_slice, prev)
           end
         end
       end
 
-      def matches?(rk : Array(String)) : Bool
-        part = RkPart.from(rk)
-        return false unless part
+      def matches?(rk) : Bool
+        return false unless rk
         if checker = @checker
-          checker.match?(part)
+          checker.match?(rk)
         else
           false
         end
@@ -159,9 +163,9 @@ module LavinMQ
           end
         end
 
-        rk_parts = routing_key.split(".")
+        rk = RkIterator.new(routing_key.to_slice)
         bindings.each do |bks, dests|
-          if bks.matches? rk_parts
+          if bks.matches? rk
             dests.each do |destination, _binding_key|
               yield destination
             end
