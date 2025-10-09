@@ -191,13 +191,36 @@ module LavinMQ::AMQP
         @paused.set(true)
       end
       @msg_store = init_msg_store(@data_dir)
+      @empty = @msg_store.empty
+      start
+    end
+
+    private def start
       if @msg_store.closed
         close
       end
-      @empty = @msg_store.empty
       handle_arguments
       spawn queue_expire_loop, name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}" if @expires
       spawn message_expire_loop, name: "Queue#message_expire_loop #{@vhost.name}/#{@name}"
+    end
+
+    def restart!
+      return unless @closed
+      reset_queue_state
+      @msg_store = init_msg_store(@data_dir)
+      @empty = @msg_store.empty
+      start
+    end
+
+    private def reset_queue_state
+      @closed = false
+      @state = QueueState::Running
+      # Recreate channels that were closed
+      @queue_expiration_ttl_change = ::Channel(Nil).new
+      @message_ttl_change = ::Channel(Nil).new
+      @paused = BoolChannel.new(false)
+      @consumers_empty = BoolChannel.new(true)
+      @single_active_consumer_change = ::Channel(Client::Channel::Consumer).new
     end
 
     # own method so that it can be overriden in other queue implementations
@@ -420,6 +443,9 @@ module LavinMQ::AMQP
       @msg_store_lock.synchronize do
         @msg_store.close
       end
+      @deliveries.clear
+      @basic_get_unacked.clear
+      @deduper = nil
       # TODO: When closing due to ReadError, queue is deleted if exclusive
       delete if !durable? || @exclusive
       Fiber.yield
