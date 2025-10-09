@@ -32,6 +32,7 @@ class LavinMQCtl
     {"purge_queue", "Purges a queue (removes all messages in it)", "<queue>"},
     {"pause_queue", "Pause all consumers on a queue", "<queue>"},
     {"resume_queue", "Resume all consumers on a queue", "<queue>"},
+    {"restart_queue", "Restarts a closed queue", "<queue>"},
     {"delete_queue", "Delete queue", "<queue>"},
     {"export_definitions", "Exports definitions in JSON", ""},
     {"import_definitions", "Import definitions in JSON", "<file>"},
@@ -250,6 +251,9 @@ class LavinMQCtl
     when "change_password"       then change_password
     when "list_queues"           then list_queues
     when "purge_queue"           then purge_queue
+    when "pause_queue"           then pause_queue
+    when "resume_queue"          then resume_queue
+    when "restart_queue"         then restart_queue
     when "list_vhosts"           then list_vhosts
     when "add_vhost"             then add_vhost
     when "delete_vhost"          then delete_vhost
@@ -564,6 +568,14 @@ class LavinMQCtl
     queue = ARGV.shift?
     abort @banner unless queue
     resp = http.put "/api/queues/#{URI.encode_www_form(vhost)}/#{URI.encode_www_form(queue)}/resume", @headers
+    handle_response(resp, 204)
+  end
+
+  private def restart_queue
+    vhost = @options["vhost"]? || "/"
+    queue = ARGV.shift?
+    abort @banner unless queue
+    resp = http.put "/api/queues/#{URI.encode_www_form(vhost)}/#{URI.encode_www_form(queue)}/restart", @headers
     handle_response(resp, 204)
   end
 
