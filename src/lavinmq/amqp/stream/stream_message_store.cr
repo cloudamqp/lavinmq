@@ -71,7 +71,7 @@ module LavinMQ::AMQP
         else
           find_offset_in_segments(offset)
         end
-      else raise "Invalid offset parameter: #{offset}"
+      else raise OffsetError.new(offset)
       end
     end
 
@@ -394,6 +394,12 @@ module LavinMQ::AMQP
         @bytesize += bytesize
         @size += count
         @log.debug { "Reading count from #{mfile.path}.meta: #{count}" }
+      end
+    end
+
+    class OffsetError < Exception
+      def initialize(offset)
+        super("invalid offset #{offset}")
       end
     end
   end
