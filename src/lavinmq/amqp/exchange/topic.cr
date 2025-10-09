@@ -8,7 +8,7 @@ module LavinMQ
       def initialize(raw : Bytes)
         if first_dot = raw.index '.'.ord
           @value = raw[0, first_dot]
-          @raw = raw[(first_dot + 1)..]
+          @raw = raw[(first_dot + 1)..]? || Bytes.empty
         else
           @value = raw
           @raw = Bytes.empty
