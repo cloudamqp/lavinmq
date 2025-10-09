@@ -148,6 +148,7 @@ def with_http_server(file = __FILE__, line = __LINE__, &)
     h = LavinMQ::HTTP::Server.new(s)
     begin
       addr = h.bind_tcp("::1", ENV.has_key?("NATIVE_PORTS") ? 15672 : 0)
+      h.bind_internal_unix
       spawn(name: "http listen") { h.listen }
       Fiber.yield
       yield({HTTPSpecHelper.new(addr.to_s), s})
