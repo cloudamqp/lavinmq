@@ -533,6 +533,7 @@ describe LavinMQ::HTTP::QueuesController do
       end
     end
   end
+
   describe "PUT /api/queues/vhost/name/pause" do
     it "should pause the queue" do
       with_http_server do |http, s|
@@ -548,6 +549,7 @@ describe LavinMQ::HTTP::QueuesController do
       end
     end
   end
+
   describe "PUT /api/queues/vhost/name/resume" do
     it "should resume the queue" do
       with_http_server do |http, s|
@@ -573,6 +575,7 @@ describe LavinMQ::HTTP::QueuesController do
       end
     end
   end
+
   describe "GET /api/queues/vhost/name effective_arguments" do
     it "should include x-max-age in effective_arguments for streams" do
       with_http_server do |http, s|
@@ -585,6 +588,32 @@ describe LavinMQ::HTTP::QueuesController do
           body = JSON.parse(response.body)
           body["effective_arguments"].as_a.should contain("x-max-age")
           body["effective_arguments"].as_a.should contain("x-queue-type")
+        end
+      end
+    end
+  end
+
+  describe "PUT /api/queues/vhost/name/restart" do
+    it "should restart a queue" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          ch.queue("confqueue")
+
+          q = s.vhosts["/"].queues["confqueue"]
+          q.close
+
+          response = http.get("/api/queues/%2f/confqueue")
+          response.status_code.should eq 200
+          body = JSON.parse(response.body)
+          body["state"].should eq "closed"
+
+          response = http.put("/api/queues/%2f/confqueue/restart")
+          response.status_code.should eq 204
+
+          response = http.get("/api/queues/%2f/confqueue")
+          response.status_code.should eq 200
+          body = JSON.parse(response.body)
+          body["state"].should eq "running"
         end
       end
     end
