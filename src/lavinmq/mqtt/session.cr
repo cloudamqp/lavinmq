@@ -116,12 +116,19 @@ module LavinMQ
             end
             delete_message(sp)
           else
-            id = next_id
-            return false unless id
-            packet = build_packet(env, id)
-            mark_unacked(sp) do
+            begin
+              id = next_id
+              return false unless id
+              packet = build_packet(env, id)
+              @unacked_count.add(1, :relaxed)
+              @unacked_bytesize.add(sp.bytesize, :relaxed)
               yield packet
               @unacked[id] = sp
+            rescue ex # requeue failed delivery
+              @msg_store_lock.synchronize { @msg_store.requeue(sp) }
+              @unacked_count.sub(1, :relaxed)
+              @unacked_bytesize.sub(sp.bytesize, :relaxed)
+              raise ex
             end
           end
           return true

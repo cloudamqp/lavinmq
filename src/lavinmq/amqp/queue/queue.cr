@@ -783,9 +783,10 @@ module LavinMQ::AMQP
           end
           delete_message(sp)
         else
-          mark_unacked(sp) do
-            yield env # deliver the message
-          end
+          @unacked_count.add(1, :relaxed)
+          @unacked_bytesize.add(sp.bytesize, :relaxed)
+          yield env # deliver the message
+          # requeuing of failed delivery is up to the consumer
         end
         return true
       end
@@ -794,23 +795,6 @@ module LavinMQ::AMQP
       @log.error(ex) { "Queue closed due to error" }
       close
       raise ClosedError.new(cause: ex)
-    end
-
-    private def mark_unacked(sp, &)
-      @log.debug { "Counting as unacked: #{sp}" }
-      @unacked_count.add(1, :relaxed)
-      @unacked_bytesize.add(sp.bytesize, :relaxed)
-      begin
-        yield
-      rescue ex
-        @log.debug { "Not counting as unacked: #{sp}" }
-        @msg_store_lock.synchronize do
-          @msg_store.requeue(sp)
-        end
-        @unacked_count.sub(1, :relaxed)
-        @unacked_bytesize.sub(sp.bytesize, :relaxed)
-        raise ex
-      end
     end
 
     def unacked_messages
