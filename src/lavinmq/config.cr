@@ -77,10 +77,10 @@ module LavinMQ
     property max_consumers_per_channel = 0
 
     # OAuth2 settings
-    property oauth_public_key : String = ""
-    property oauth_resource_server_id : String? = nil
+    property oidc_issuer_url = "https://test-giant-beige-hawk.rmq7.cloudamqp.com/realms/lavinmq-dev/"
+    property oauth_resource_server_id = "kickster-lavin"
     property oauth_preferred_username_claims : Array(String) = ["preferred_username", "username", "email", "sub"]
-    # property oauth_additional_scopes_claim : String? = nil
+    property oauth_additional_scopes_key : String? = nil
     # property oauth_scope_prefix : String = ""
     # property oauth_scope_aliases : Hash(String, String) = {} of String => String
     # property oauth_scopes : Array(String) = [] of String
@@ -418,10 +418,10 @@ module LavinMQ
     private def parse_oauth(settings)
       settings.each do |config, v|
         case config
-        when "public_key"                then @oauth_public_key = v
+        when "oidc_issuer_url"           then @oidc_issuer_url = v
         when "resource_server_id"        then @oauth_resource_server_id = v
         when "preferred_username_claims" then @oauth_preferred_username_claims = v.split(",").map(&.strip)
-          # when "additional_scopes_claim"   then @oauth_additional_scopes_claim = v
+        when "additional_scopes_key"     then @oauth_additional_scopes_key = v
           # when "scope_prefix"              then @oauth_scope_prefix = v
           # when "scope_aliases"             then # TODO: Parse JSON object
           # when "client_id"                 then @oauth_client_id = v
