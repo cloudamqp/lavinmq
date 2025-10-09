@@ -553,6 +553,10 @@ module LavinMQ
     private def metafile_from_path(path : String) : String
       # We assume the path ends with "msgs.<10 chars>"
       raw = path.to_slice
+
+      # This is basically the same as using sub("msgs.", "meta.") but with #sub
+      # the first occurrence of "msgs." would be replaced, not the last one.
+      # This also requires only one allocation.
       String.build(path.size) do |io|
         io.write raw[0, raw.size - 15]
         io.write "meta.".to_slice
