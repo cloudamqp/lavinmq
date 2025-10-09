@@ -83,8 +83,10 @@ module LavinMQ
           @effective_args << "x-cache-size" if size
           header_key = parse_header("x-deduplication-header", String)
           @effective_args << "x-deduplication-header" if header_key
-          cache = Deduplication::MemoryCache(AMQ::Protocol::Field).new(size)
-          @deduper = Deduplication::Deduper.new(cache, ttl, header_key)
+          @deduper ||= begin
+            cache = Deduplication::MemoryCache(AMQ::Protocol::Field).new(size)
+            Deduplication::Deduper.new(cache, ttl, header_key)
+          end
         end
       end
 
@@ -188,6 +190,14 @@ module LavinMQ
         raise AccessRefused.new(self)
       end
 
+      protected def validate_delayed_binding!(destination : AMQP::Destination) : Bool
+        return true unless delayed?
+        if destination == @delayed_queue
+          raise LavinMQ::Error::PreconditionFailed.new("Cannot bind delayed exchange '#{@name}' to its internal delayed queue '#{destination.name}'")
+        end
+        true
+      end
+
       abstract def type : String
       abstract def bind(destination : AMQP::Destination, routing_key : String, arguments : AMQP::Table?)
       abstract def unbind(destination : AMQP::Destination, routing_key : String, arguments : AMQP::Table?)
@@ -249,7 +259,10 @@ module LavinMQ
         each_destination(routing_key, headers) do |d|
           case d
           in LavinMQ::Queue
-            queues.add(d)
+            # Prevent routing to own internal delayed queue to avoid infinite loops
+            unless delayed? && d == @delayed_queue
+              queues.add(d)
+            end
           in LavinMQ::Exchange
             d.find_queues(routing_key, headers, queues, exchanges)
           end

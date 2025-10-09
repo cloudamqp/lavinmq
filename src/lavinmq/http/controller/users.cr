@@ -23,7 +23,7 @@ module LavinMQ
 
     module UserHelpers
       private def user(context, params, key = "name")
-        name = URI.decode_www_form(params[key])
+        name = params[key]
         u = @amqp_server.users[name]?
         not_found(context, "Not Found") if u.nil? || u.hidden?
         u

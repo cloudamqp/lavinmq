@@ -6,11 +6,11 @@ shards:
 
   amq-protocol:
     git: https://github.com/cloudamqp/amq-protocol.cr.git
-    version: 1.1.15
+    version: 1.1.16
 
   amqp-client:
     git: https://github.com/cloudamqp/amqp-client.cr.git
-    version: 1.3.1
+    version: 1.3.2
 
   lz4:
     git: https://github.com/84codes/lz4.cr.git

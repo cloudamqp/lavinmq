@@ -14,6 +14,7 @@ require "file_utils"
 require "../src/lavinmq/config" # have to be required first
 require "../src/lavinmq/server"
 require "../src/lavinmq/http/http_server"
+require "../src/lavinmq/http/metrics_server"
 require "http/client"
 require "amqp-client"
 require "./support/*"
@@ -100,7 +101,8 @@ def test_headers(headers = nil)
 end
 
 def with_amqp_server(tls = false, replicator = LavinMQ::Clustering::NoopServer.new,
-                     config = LavinMQ::Config.instance, & : LavinMQ::Server -> Nil)
+                     config = LavinMQ::Config.instance,
+                     file = __FILE__, line = __LINE__, & : LavinMQ::Server -> Nil)
   LavinMQ::Config.instance = init_config(config)
   FileUtils.rm_rf(config.data_dir)
   tcp_server = TCPServer.new("localhost", ENV.has_key?("NATIVE_PORTS") ? 5672 : 0)
@@ -117,17 +119,49 @@ def with_amqp_server(tls = false, replicator = LavinMQ::Clustering::NoopServer.n
     Fiber.yield
     yield s
   ensure
+    # A closed queue indicates that something failed that shouldn't. However, the error may be
+    # silent and not causing a spec to fail. It's not even sure that the failing queue is related
+    # to what the spec tests, but by failing on closed queues we may find bugs.
+    # If a queue is supposed to be closed, it should be deleted in the end of the spec.
+
+    # We yield a few times (if necessary) to make sure things has really settled, e.g.
+    # everything has been cleaned up after a `with_channel` inside the `with_amqp_server`.
+    closed_queues = 3.times do
+      Fiber.yield
+      queues = s.vhosts.flat_map { |_, vhost| vhost.queues.values.select &.closed? }
+      break if queues.empty?
+      queues
+    end
+    if closed_queues && !closed_queues.empty?
+      msg = "Closed queues detected: #{closed_queues.map(&.name).join(", ")}\n\n" \
+            "If they should be closed, please delete them in the end of the spec."
+      raise Spec::AssertionFailed.new(msg, file, line)
+    end
     s.close
     FileUtils.rm_rf(config.data_dir)
     LavinMQ::Config.instance = init_config(LavinMQ::Config.new)
   end
 end
 
-def with_http_server(&)
-  with_amqp_server do |s|
+def with_http_server(file = __FILE__, line = __LINE__, &)
+  with_amqp_server(file: file, line: line) do |s|
     h = LavinMQ::HTTP::Server.new(s)
     begin
       addr = h.bind_tcp("::1", ENV.has_key?("NATIVE_PORTS") ? 15672 : 0)
+      spawn(name: "http listen") { h.listen }
+      Fiber.yield
+      yield({HTTPSpecHelper.new(addr.to_s), s})
+    ensure
+      h.close
+    end
+  end
+end
+
+def with_metrics_server(file = __FILE__, line = __LINE__, &)
+  with_amqp_server(file: file, line: line) do |s|
+    h = LavinMQ::HTTP::MetricsServer.new(s)
+    begin
+      addr = h.bind_tcp("::1", ENV.has_key?("NATIVE_PORTS") ? 15692 : 0)
       spawn(name: "http listen") { h.listen }
       Fiber.yield
       yield({HTTPSpecHelper.new(addr.to_s), s})

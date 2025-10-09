@@ -92,6 +92,7 @@ module LavinMQ
           next
         end
         msg = BytesMessage.from_bytes(rfile.to_slice + pos)
+        raise IndexError.new("Message at segment #{seg} pos #{pos} has zero timestamp") if msg.timestamp.zero?
         sp = SegmentPosition.make(seg, pos, msg)
         return Envelope.new(sp, msg, redelivered: false)
       rescue ex : IndexError
@@ -133,6 +134,7 @@ module LavinMQ
           next
         end
         msg = BytesMessage.from_bytes(rfile.to_slice + pos)
+        raise IndexError.new("Message at segment #{seg} pos #{pos} has zero timestamp") if msg.timestamp.zero?
         sp = SegmentPosition.make(seg, pos, msg)
         rfile.seek(sp.bytesize, IO::Seek::Current)
         @bytesize -= sp.bytesize
@@ -201,21 +203,28 @@ module LavinMQ
     end
 
     def purge_all
-      @segments.each_value { |f| delete_file(f, including_meta: true) }
-      @segments = Hash(UInt32, MFile).new
-      @acks.each_value { |f| delete_file(f) }
-      @acks = Hash(UInt32, MFile).new { |acks, seg| acks[seg] = open_ack_file(seg) }
-      @deleted = Hash(UInt32, Array(UInt32)).new
-      @segment_msg_count = Hash(UInt32, UInt32).new(0u32)
+      # Delete all segments except the current rfile and wfile
+      @segments.reject! do |seg_id, file|
+        next false if seg_id == @rfile_id || seg_id == @wfile_id
+
+        delete_file(file, including_meta: true)
+        if msg_count = @segment_msg_count.delete(seg_id)
+          @size -= msg_count
+        end
+        if afile = @acks.delete(seg_id)
+          delete_file(afile)
+        end
+        @deleted.delete(seg_id)
+        true
+      end
+
+      # Purge @rfile and @wfile
+      while env = shift?
+        delete(env.segment_position)
+      end
+
       @requeued = Deque(SegmentPosition).new
       @bytesize = 0_u64
-      @size = 0_u32
-      @wfile_id = 0_u32
-
-      open_new_segment # sets @wfile and @wfile_id
-      @rfile_id = @segments.first_key
-      @rfile = @segments.first_value
-      @empty.set true
     end
 
     def delete
@@ -270,15 +279,6 @@ module LavinMQ
     def avg_bytesize : UInt32
       return 0u32 if @size.zero?
       (@bytesize / @size).to_u32
-    end
-
-    # Used by StreamQueue
-    def unmap_segments(except : Enumerable(UInt32) = StaticArray(UInt32, 0).new(0u32))
-      @segments.each do |seg_id, mfile|
-        next if mfile == @wfile
-        next if except.includes? seg_id
-        mfile.dontneed
-      end
     end
 
     private def select_next_read_segment : MFile?
@@ -373,6 +373,7 @@ module LavinMQ
           end
           @replicator.try &.register_file(file)
         end
+        @acks[seg] = open_ack_file(seg)
         @log.debug { "Loaded #{count}/#{ack_files} ack files" } if (count += 1) % 128 == 0
         @deleted[seg] = acked.sort! unless acked.empty?
         Fiber.yield
@@ -465,8 +466,9 @@ module LavinMQ
       if deleted = @deleted[seg]?
         deleted.each do |pos|
           mfile.pos = pos
-          bytesize -= BytesMessage.skip(mfile)
-          count -= 1
+          bs = BytesMessage.skip(mfile)
+          bytesize = bs < bytesize ? bytesize - bs : 0 # Don't allow underflow
+          count -= 1 if count > 0                      # Don't allow underflow
         end
       end
       mfile.pos = 4
@@ -506,7 +508,7 @@ module LavinMQ
       @segments.reject! do |seg, mfile|
         next if seg == current_seg # don't the delete the segment still being written to
 
-        if (acks = @acks[seg]?) && @segment_msg_count[seg] == (acks.size // sizeof(UInt32))
+        if (acks = @acks[seg]?) && @segment_msg_count[seg] <= (acks.size // sizeof(UInt32))
           @log.debug { "Deleting unused segment #{seg}" }
           @segment_msg_count.delete seg
           @deleted.delete seg

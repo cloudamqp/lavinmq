@@ -34,7 +34,7 @@ module LavinMQ::AMQP
         init_sub_stores(@stores)
         migrate_from_single_store
 
-        @empty.set empty?
+        @empty = BoolChannel.new(empty?)
       end
 
       private def init_sub_stores(stores)

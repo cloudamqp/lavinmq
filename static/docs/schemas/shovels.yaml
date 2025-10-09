@@ -1,0 +1,45 @@
+---
+ShovelList:
+  type: array
+  description: List of shovels
+  items:
+    "$ref": "#/Shovel"
+
+Shovel:
+  type: object
+  description: A shovel configuration and status
+  properties:
+    name:
+      type: string
+      description: Name of the shovel
+      example: "my-shovel"
+    vhost:
+      type: string
+      description: Name of the virtual host
+      example: "/"
+    state:
+      type: string
+      description: Current state of the shovel
+      enum:
+        - Starting
+        - Running
+        - Stopped
+        - Paused
+        - Terminated
+        - Error
+      example: "Running"
+    error:
+      type: string
+      nullable: true
+      description: Error message if the shovel is in error state
+      example: null
+    message_count:
+      type: integer
+      description: Number of messages processed by the shovel
+      minimum: 0
+      example: 1542
+  required:
+    - name
+    - vhost
+    - state
+    - message_count

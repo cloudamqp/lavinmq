@@ -38,6 +38,8 @@ end
 def with_clustering(config = LavinMQ::Config.instance, &)
   follower_data_dir = File.tempname
   Dir.mkdir follower_data_dir
+  config = config.dup
+  config.metrics_http_port = 0
   yield clustering = SpecClustering.new(config, follower_data_dir)
 ensure
   clustering.stop if clustering

@@ -86,6 +86,10 @@ Start the container by running `docker compose up`
 
 For an example on setting up a multi-node LavinMQ cluster with Docker Compose, see [Setting up a LavinMQ cluster with Docker Compose](https://lavinmq.com/documentation/docker-compose-cluster)
 
+### Windows
+
+For running LavinMQ on Windows, we recommend using WSL (Windows Subsystem for Linux). Install your preferred Linux distribution through WSL, then follow the installation instructions for that distribution above.
+
 ### From Source
 
 Begin with installing Crystal. Refer to

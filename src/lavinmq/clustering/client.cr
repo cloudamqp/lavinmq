@@ -41,7 +41,16 @@ module LavinMQ
           @unix_http_proxy = Proxy.new(@config.http_unix_path) unless @config.http_unix_path.empty?
           @unix_mqtt_proxy = Proxy.new(@config.mqtt_unix_path) unless @config.mqtt_unix_path.empty?
         end
+        start_metrics_server unless @config.metrics_http_port == -1
         HTTP::Server.follower_internal_socket_http_server
+      end
+
+      private def start_metrics_server
+        @metrics_server = metrics_server = LavinMQ::HTTP::MetricsServer.new
+        metrics_server.bind_tcp(@config.metrics_http_bind, @config.metrics_http_port)
+        spawn(name: "HTTP metrics listener") do
+          metrics_server.listen
+        end
       end
 
       def follow(uri : String)

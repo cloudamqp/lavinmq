@@ -143,7 +143,10 @@ module LavinMQ::AMQP
       @metadata = ::Log::Metadata.new(nil, {queue: @name, vhost: @vhost.name})
       @log = Logger.new(Log, @metadata)
       File.open(File.join(@data_dir, ".queue"), "w") { |f| f.sync = true; f.print @name }
-      if File.exists?(File.join(@data_dir, ".paused"))
+      if File.exists?(File.join(@data_dir, ".paused")) # Migrate '.paused' files to 'paused'
+        File.rename(File.join(@data_dir, ".paused"), File.join(@data_dir, "paused"))
+      end
+      if File.exists?(File.join(@data_dir, "paused"))
         @state = QueueState::Paused
         @paused.set(true)
       end
@@ -286,8 +289,10 @@ module LavinMQ::AMQP
         @effective_args << "x-cache-ttl" if ttl
         header_key = parse_header("x-deduplication-header", String)
         @effective_args << "x-deduplication-header" if header_key
-        cache = Deduplication::MemoryCache(AMQ::Protocol::Field).new(size)
-        @deduper = Deduplication::Deduper.new(cache, ttl, header_key)
+        @deduper ||= begin
+          cache = Deduplication::MemoryCache(AMQ::Protocol::Field).new(size)
+          Deduplication::Deduper.new(cache, ttl, header_key)
+        end
       end
       validate_arguments
     end
@@ -354,7 +359,7 @@ module LavinMQ::AMQP
       @state = QueueState::Paused
       @log.debug { "Paused" }
       @paused.set(true)
-      File.touch(File.join(@data_dir, ".paused"))
+      File.touch(File.join(@data_dir, "paused"))
     end
 
     def resume!
@@ -362,7 +367,7 @@ module LavinMQ::AMQP
       @state = QueueState::Running
       @log.debug { "Resuming" }
       @paused.set(false)
-      File.delete(File.join(@data_dir, ".paused"))
+      File.delete(File.join(@data_dir, "paused"))
     end
 
     def close : Bool
