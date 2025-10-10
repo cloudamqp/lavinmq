@@ -236,10 +236,10 @@ module LavinMQ
     end
 
     private def delete_file(file : MFile, including_meta = false)
-      File.delete?(metafile_from_mfile(file)) if including_meta
+      File.delete?(meta_file_name(file)) if including_meta
       file.delete(raise_on_missing: false)
       if replicator = @replicator
-        replicator.delete_file(metafile_from_mfile(file), WaitGroup.new) if including_meta
+        replicator.delete_file(meta_file_name(file), WaitGroup.new) if including_meta
         wg = WaitGroup.new
         replicator.delete_file(file.path, wg)
         spawn(name: "wait for file deletion is replicated") do
@@ -327,7 +327,7 @@ module LavinMQ
     end
 
     private def write_metadata_file(seg : UInt32, wfile : MFile)
-      metafile = metafile_from_mfile(wfile)
+      metafile = meta_file_name(wfile)
       @log.debug { "Write message segment meta file #{metafile}" }
       File.open(metafile, "w") do |f|
         f.buffer_size = 4096
@@ -461,7 +461,7 @@ module LavinMQ
     end
 
     private def read_metadata_file(seg, mfile)
-      metafile = metafile_from_mfile(mfile)
+      metafile = meta_file_name(mfile)
       count = File.open(metafile, &.read_bytes(UInt32))
       @segment_msg_count[seg] = count
       bytesize = mfile.size - 4
@@ -546,11 +546,11 @@ module LavinMQ
       end
     end
 
-    private def metafile_from_mfile(mfile : MFile) : String
-      metafile_from_path(mfile.path)
+    private def meta_file_name(mfile : MFile) : String
+      meta_file_name(mfile.path)
     end
 
-    private def metafile_from_path(path : String) : String
+    private def meta_file_name(path : String) : String
       # We assume the path ends with "msgs.<10 chars>"
       raw = path.to_slice
 
