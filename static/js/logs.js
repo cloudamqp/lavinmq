@@ -2,6 +2,8 @@ let shouldAutoScroll = true
 const evtSource = new window.EventSource('api/livelog')
 const livelog = document.getElementById('livelog')
 const tbody = document.getElementById('livelog-body')
+const btnToTop = document.getElementById('to-top')
+const btnToBottom = document.getElementById('to-bottom')
 
 evtSource.onmessage = (event) => {
   const timestamp = new Date(parseInt(event.lastEventId))
@@ -40,6 +42,21 @@ function forbidden () {
   tblError.textContent = 'Access denied, administator access required'
   tblError.style.display = 'block'
 }
+
+// Scrolling
+btnToTop?.addEventListener('click', () => {
+  btnToTop.setAttribute('aria-pressed', 'true')
+  btnToBottom.setAttribute('aria-pressed', 'false')
+  livelog.scrollTop = 0
+  shouldAutoScroll = false
+})
+
+btnToBottom?.addEventListener('click', () => {
+  btnToBottom.setAttribute('aria-pressed', 'true')
+  btnToTop.setAttribute('aria-pressed', 'false')
+  livelog.scrollTop = livelog.scrollHeight
+  shouldAutoScroll = true
+})
 
 let lastScrollTop = livelog.pageYOffset || livelog.scrollTop
 livelog.addEventListener('scroll', event => {

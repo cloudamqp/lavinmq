@@ -2034,31 +2034,38 @@ pre.arguments .inactive-argument:before {
   float: right;
 }
 
-#livelog {
-  max-height: 85vh;
-  overflow-y: scroll;
-}
-
 #livelog td {
   white-space: normal;
 }
 
-.btn-primary a,
-.btn-primary a:visited {
-  color: var(--color-text-inverse);
+#livelog {
+  max-height: 65vh;
+  overflow: auto;
+  overflow-anchor: none;
+  scrollbar-gutter: stable both-edges;
+  scroll-behavior: auto;
 }
 
-#download-logs {
-  margin: 5px 0 16px 0;
+#livelog table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
 }
 
-#download-logs a {
-  text-decoration: none;
+#livelog thead th {
+  position: sticky;
+  top: 0;
+  background: var(--color-bg-secondary);
+  border-bottom: 2px solid var(--color-theme-switcher-border);
+  z-index: 2;
+  font-weight: 600;
 }
 
 #livelog table td,
 #livelog table th {
-  padding: 0;
+  padding: 4px 8px;
+  text-align: left;
 }
 
 #livelog table thead .livelog-timestamp {
@@ -2077,8 +2084,45 @@ pre.arguments .inactive-argument:before {
   width: auto;
 }
 
-#livelog table th {
-  text-align: left;
+#livelog td {
+  white-space: normal;
+}
+
+.log-toolbar-container {
+  width: 100%;
+  background: var(--color-bg-secondary);
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 1rem 1.5rem;
+}
+
+.log-toolbar {
+  flex: 0 1 auto;
+}
+
+.toolbar-action {
+  flex: 0 0 auto;
+}
+
+#download-logs {
+  margin: 5px 0;
+  text-decoration: none;
+}
+
+.btn-toggle {
+  transition: border-color .18s ease;
+}
+
+.btn-toggle[aria-pressed="true"] {
+  border-bottom: 2px solid transparent;
+  border-bottom-color: var(--color-primary-green);
+}
+
+.btn-primary a,
+.btn-primary a:visited {
+  color: var(--color-text-inverse);
 }
 
 .version-tab {
