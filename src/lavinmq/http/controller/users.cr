@@ -24,7 +24,7 @@ module LavinMQ
     module UserHelpers
       private def user(context, params, key = "name")
         name = params[key]
-        u = @amqp_server.users[name]? || @amqp_server.temp_users[name]?
+        u = @amqp_server.users[name]?
         not_found(context, "Not Found") if u.nil? || u.hidden?
         u
       end
@@ -37,7 +37,7 @@ module LavinMQ
         get "/api/users" do |context, _params|
           refuse_unless_administrator(context, user(context))
           regular_users = @amqp_server.users.each_value.reject(&.hidden?).map { |u| UserView.new(u) }
-          temp_users = @amqp_server.temp_users.each_value.map { |u| UserView.new(u) }
+          temp_users = @amqp_server.users.each_temp_user.map { |u| UserView.new(u) }
           page(context, regular_users.chain(temp_users))
         end
 
@@ -132,7 +132,7 @@ module LavinMQ
         put "/api/auth/hash_password" do |context, _params|
           body = parse_body(context)
           if password = body["password"]?.try &.as_s?
-            hash = Auth::Users::BasicUser.hash_password(password, "SHA256")
+            hash = Auth::User.hash_password(password, "SHA256")
             {password_hash: hash.to_s}.to_json(context.response)
             context
           else

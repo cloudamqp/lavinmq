@@ -1,6 +1,6 @@
 require "../authenticator"
-require "../users/temp_user"
-require "../temp_user_store"
+require "../temp_user"
+require "../user_store"
 require "../../config"
 require "jwt"
 require "openssl"
@@ -11,20 +11,18 @@ module LavinMQ
     class OAuthAuthenticator < Authenticator
       Log = LavinMQ::Log.for "oauth2"
 
-      def initialize(@temp_users : Auth::TempUserStore)
+      def initialize(@users : Auth::UserStore)
         @config = Config.instance
       end
 
-      def authenticate(username : String, password : Bytes) : Users::TempUser?
+      def authenticate(username : String, password : Bytes) : TempUser?
         payload, headers = parse_jwks(String.new(password))
         pp payload
         pp headers
         username, tags, permissions, expires_at = parse_jwt_payload(payload)
         Log.info { "OAuth2 user authenticated: #{username}" }
 
-        temp_user = Users::TempUser.new(username, tags, permissions, Time.unix(expires_at))
-        @temp_users.add(temp_user)
-        temp_user
+        @users.add(username, tags, permissions, Time.unix(expires_at))
       rescue ex : JWT::ExpiredSignatureError
         Log.warn { "OAuth2 authentication failed: Token expired" }
         nil
@@ -60,7 +58,7 @@ module LavinMQ
 
       private def parse_roles(payload)
         tags = Set(Tag).new
-        permissions = Hash(String, Users::TempUser::Permissions).new
+        permissions = Hash(String, TempUser::Permissions).new
 
         # Extract roles from resource_access
         if resource_id = @config.oauth_resource_server_id
