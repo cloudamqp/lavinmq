@@ -53,7 +53,7 @@ describe LavinMQ::MessageStore do
       end
 
       store = LavinMQ::MessageStore.new(dir, nil, durable: true)
-      segment_files = Dir.glob(File.join(dir, "msgs.*")).count { |f| !f.ends_with?(".meta") }
+      segment_files = Dir.glob(File.join(dir, "msgs.*")).count &.match(/msgs.\d{10}$/)
       store.@segments.size.should eq 1
       segment_files.should eq 1
       store.close

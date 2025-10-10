@@ -236,10 +236,10 @@ module LavinMQ
     end
 
     private def delete_file(file : MFile, including_meta = false)
-      File.delete?("#{file.path}.meta") if including_meta
+      File.delete?(meta_file_name(file)) if including_meta
       file.delete(raise_on_missing: false)
       if replicator = @replicator
-        replicator.delete_file("#{file.path}.meta", WaitGroup.new) if including_meta
+        replicator.delete_file(meta_file_name(file), WaitGroup.new) if including_meta
         wg = WaitGroup.new
         replicator.delete_file(file.path, wg)
         spawn(name: "wait for file deletion is replicated") do
@@ -327,12 +327,13 @@ module LavinMQ
     end
 
     private def write_metadata_file(seg : UInt32, wfile : MFile)
-      @log.debug { "Write message segment meta file #{wfile.path}.meta" }
-      File.open("#{wfile.path}.meta", "w") do |f|
+      metafile = meta_file_name(wfile)
+      @log.debug { "Write message segment meta file #{metafile}" }
+      File.open(metafile, "w") do |f|
         f.buffer_size = 4096
         write_metadata(f, seg)
       end
-      @replicator.try &.replace_file "#{wfile.path}.meta"
+      @replicator.try &.replace_file metafile
     end
 
     private def write_metadata(io, seg)
@@ -384,7 +385,7 @@ module LavinMQ
     private def load_segments_from_disk : Nil
       ids = Array(UInt32).new
       Dir.each_child(@msg_dir) do |f|
-        if f.starts_with?("msgs.") && !f.ends_with?(".meta")
+        if f.starts_with?("msgs.") && f.size == 15
           ids << f[5, 10].to_u32
         end
       end
@@ -460,7 +461,8 @@ module LavinMQ
     end
 
     private def read_metadata_file(seg, mfile)
-      count = File.open("#{mfile.path}.meta", &.read_bytes(UInt32))
+      metafile = meta_file_name(mfile)
+      count = File.open(metafile, &.read_bytes(UInt32))
       @segment_msg_count[seg] = count
       bytesize = mfile.size - 4
       if deleted = @deleted[seg]?
@@ -475,7 +477,7 @@ module LavinMQ
       mfile.dontneed
       @bytesize += bytesize
       @size += count
-      @log.debug { "Reading count from #{mfile.path}.meta: #{count}" }
+      @log.debug { "Reading count from #{metafile}: #{count}" }
     end
 
     private def produce_metadata(seg, mfile)
@@ -541,6 +543,24 @@ module LavinMQ
         del.bsearch { |dpos| dpos >= pos } == pos
       else
         false
+      end
+    end
+
+    private def meta_file_name(mfile : MFile) : String
+      meta_file_name(mfile.path)
+    end
+
+    private def meta_file_name(path : String) : String
+      # We assume the path ends with "msgs.<10 chars>"
+      raw = path.to_slice
+
+      # This is basically the same as using sub("msgs.", "meta.") but with #sub
+      # the first occurrence of "msgs." would be replaced, not the last one.
+      # This also requires only one allocation.
+      String.build(path.size) do |io|
+        io.write raw[0, raw.size - 15]
+        io.write "meta.".to_slice
+        io.write raw[-10..]
       end
     end
 

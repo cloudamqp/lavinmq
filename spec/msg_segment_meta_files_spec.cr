@@ -28,7 +28,7 @@ describe "Message segment metadata files" do
             completed_segments_with_meta = 0
             queue.@msg_store.@segments.each do |seg_id, mfile|
               next if seg_id == queue.@msg_store.@segments.last_key # skip current writing segment
-              meta_path = "#{mfile.path}.meta"
+              meta_path = mfile.path.sub("msgs.", "meta.")
               if File.exists?(meta_path)
                 completed_segments_with_meta += 1
                 # Verify meta file contains message count
@@ -41,7 +41,7 @@ describe "Message segment metadata files" do
             # If we only have one segment, verify that it doesn't have a .meta file
             # since it's the current writing segment
             mfile = queue.@msg_store.@segments.first_value
-            meta_path = "#{mfile.path}.meta"
+            meta_path = mfile.path.sub("msgs.", "meta.")
             File.exists?(meta_path).should be_false
           end
         end
@@ -73,7 +73,7 @@ describe "Message segment metadata files" do
           # Check meta file exists and contains stream-specific data
           queue.@msg_store.@segments.each do |seg_id, mfile|
             next if seg_id == queue.@msg_store.@segments.last_key # skip current writing segment
-            meta_path = "#{mfile.path}.meta"
+            meta_path = mfile.path.sub("msgs.", "meta.")
             File.exists?(meta_path).should be_true
 
             # Verify meta file format for stream queue (count + offset + timestamp)
@@ -136,7 +136,7 @@ describe "Message segment metadata files" do
           msg_dir = queue.@msg_store.@msg_dir
 
           # Remove any .meta files to simulate missing metadata
-          Dir.glob(File.join(msg_dir, "*.meta")).each { |path| File.delete(path) }
+          Dir.glob(File.join(msg_dir, "meta.*")).each { |path| File.delete(path) }
 
           # Create new store - should fall back to message scanning
           new_store = LavinMQ::MessageStore.new(msg_dir, nil)
@@ -169,7 +169,7 @@ describe "Message segment metadata files" do
           existing_meta_paths = [] of String
           queue.@msg_store.@segments.each do |seg_id, mfile|
             next if seg_id == queue.@msg_store.@segments.last_key # skip current writing segment
-            meta_path = "#{mfile.path}.meta"
+            meta_path = mfile.path.sub("msgs.", "meta.")
             if File.exists?(meta_path)
               existing_meta_paths << meta_path
             end
@@ -202,7 +202,7 @@ describe "Message segment metadata files" do
           existing_meta_paths = [] of String
           queue.@msg_store.@segments.each do |seg_id, mfile|
             next if seg_id == queue.@msg_store.@segments.last_key # skip current writing segment
-            meta_path = "#{mfile.path}.meta"
+            meta_path = mfile.path.sub("msgs.", "meta.")
             existing_meta_paths << meta_path if File.exists?(meta_path)
           end
 
@@ -235,7 +235,7 @@ describe "Message segment metadata files" do
           # Verify only completed segments have .meta files
           completed_segments = 0
           queue.@msg_store.@segments.each do |seg_id, mfile|
-            meta_path = "#{mfile.path}.meta"
+            meta_path = mfile.path.sub("msgs.", "meta.")
             if seg_id == queue.@msg_store.@segments.last_key
               # Current writing segment should not have .meta file
               File.exists?(meta_path).should be_false
@@ -274,7 +274,7 @@ describe "Message segment metadata files" do
           # Verify .meta files contain message counts for completed segments
           queue.@msg_store.@segments.each do |seg_id, mfile|
             next if seg_id == queue.@msg_store.@segments.last_key # skip current writing segment
-            meta_path = "#{mfile.path}.meta"
+            meta_path = mfile.path.sub("msgs.", "meta.")
 
             if File.exists?(meta_path)
               count = File.open(meta_path, &.read_bytes(UInt32))
