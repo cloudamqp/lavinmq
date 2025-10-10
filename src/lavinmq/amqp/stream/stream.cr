@@ -4,9 +4,43 @@ require "./stream_message_store"
 
 module LavinMQ::AMQP
   class Stream < DurableQueue
-    def initialize(@vhost : VHost, @name : String,
-                   @exclusive = false, @auto_delete = false,
-                   @arguments = AMQP::Table.new)
+    def self.create(vhost : VHost, name : String,
+                    exclusive : Bool = false, auto_delete : Bool = false,
+                    arguments : AMQP::Table = AMQP::Table.new)
+      # Validate non-arguments first
+      raise LavinMQ::Error::PreconditionFailed.new("A stream cannot be exclusive") if exclusive
+      raise LavinMQ::Error::PreconditionFailed.new("A stream cannot be auto-delete") if auto_delete
+
+      self.validate_arguments!(arguments)
+      new vhost, name, exclusive, auto_delete, arguments
+    end
+
+    def self.validate_arguments!(arguments)
+      invalid_arguments = {
+        "x-dead-letter-exchange",
+        "x-dead-letter-routing-key",
+        "x-expires",
+        "x-delivery-limit",
+        "x-overflow",
+        "x-single-active-consumer",
+        "x-max-priority",
+      }
+
+      arguments.each do |key, value|
+        if invalid_arguments.includes?(key)
+          raise LavinMQ::Error::PreconditionFailed.new("Argument #{key} not allowed for streams")
+        end
+        if key == "x-max-age"
+          ArgumentValidator::MaxAgeValidator.new.validate!(key, value)
+        end
+      end
+
+      super
+    end
+
+    protected def initialize(@vhost : VHost, @name : String,
+                             @exclusive = false, @auto_delete = false,
+                             @arguments = AMQP::Table.new)
       super
       spawn unmap_and_remove_segments_loop, name: "Stream#unmap_and_remove_segments_loop"
     end
@@ -124,24 +158,6 @@ module LavinMQ::AMQP
     private def handle_arguments
       super
       @effective_args << "x-queue-type"
-      if @dlx
-        raise LavinMQ::Error::PreconditionFailed.new("x-dead-letter-exchange not allowed for streams")
-      end
-      if @dlrk
-        raise LavinMQ::Error::PreconditionFailed.new("x-dead-letter-exchange not allowed for streams")
-      end
-      if @expires
-        raise LavinMQ::Error::PreconditionFailed.new("x-expires not allowed for streams")
-      end
-      if @delivery_limit
-        raise LavinMQ::Error::PreconditionFailed.new("x-delivery-limit not allowed for streams")
-      end
-      if @reject_on_overflow
-        raise LavinMQ::Error::PreconditionFailed.new("x-overflow not allowed for streams")
-      end
-      if @single_active_consumer_queue
-        raise LavinMQ::Error::PreconditionFailed.new("x-single-active-consumer not allowed for streams")
-      end
       stream_msg_store.max_age = parse_max_age(@arguments["x-max-age"]?)
       stream_msg_store.max_length = @max_length
       stream_msg_store.max_length_bytes = @max_length_bytes
