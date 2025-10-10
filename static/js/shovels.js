@@ -54,7 +54,7 @@ class ShovelsDataSource extends UrlDataSource {
 }
 const dataSource = new ShovelsDataSource(url, statusUrl)
 const tableOptions = { keyColumns: ['vhost', 'name'], columnSelector: true, dataSource }
-Table.renderTable('table', tableOptions, (tr, item, all) => {
+Table.renderTable('table', tableOptions, (tr, item, _all) => {
   Table.renderCell(tr, 0, item.vhost)
   Table.renderCell(tr, 1, item.name)
   if (Array.isArray(item.value['src-uri'])) {
@@ -63,15 +63,21 @@ Table.renderTable('table', tableOptions, (tr, item, all) => {
     Table.renderCell(tr, 2, decodeURI(item.value['src-uri'].replace(/:([^:]+)@/, ':***@')))
   }
   const srcDiv = document.createElement('span')
-  if (item.value['src-queue']) {
-    srcDiv.textContent = item.value['src-queue']
-    srcDiv.appendChild(document.createElement('br'))
-    srcDiv.appendChild(document.createElement('small')).textContent = 'queue'
-  } else {
-    srcDiv.textContent = item.value['src-exchange']
-    srcDiv.appendChild(document.createElement('br'))
-    srcDiv.appendChild(document.createElement('small')).textContent = 'exchange'
+  const consumerArgs = item.value['src-consumer-args'] || {}
+  let srcType = 'exchange'
+  if (consumerArgs['x-stream-offset']) {
+    srcType = 'stream'
+  } else if (item.value['src-queue']) {
+    srcType = 'queue'
   }
+  if (srcType === 'exchange') {
+    srcDiv.textContent = item.value['src-exchange']
+  } else {
+    srcDiv.textContent = item.value['src-queue']
+  }
+  srcDiv.appendChild(document.createElement('br'))
+  srcDiv.appendChild(document.createElement('small')).textContent = srcType
+
   Table.renderCell(tr, 3, srcDiv)
   Table.renderCell(tr, 4, item.value['src-prefetch-count'])
   if (Array.isArray(item.value['dest-uri'])) {
@@ -113,10 +119,11 @@ Table.renderTable('table', tableOptions, (tr, item, all) => {
   const editBtn = DOM.button.edit({
     click: function () {
       Form.editItem('#createShovel', item, {
-        'src-type': (item) => item.value['src-queue'] ? 'queue' : 'exchange',
+        'src-type': (_item) => srcType,
         'dest-type': (item) => item.value['dest-queue'] ? 'queue' : 'exchange',
         'src-endpoint': (item) => item.value['src-queue'] || item.value['src-exchange'],
-        'dest-endpoint': (item) => item.value['dest-queue'] || item.value['dest-exchange']
+        'dest-endpoint': (item) => item.value['dest-queue'] || item.value['dest-exchange'],
+        'src-offset': (_item) => consumerArgs['x-stream-offset']
       })
     }
   })
@@ -148,7 +155,8 @@ Table.renderTable('table', tableOptions, (tr, item, all) => {
 })
 
 document.querySelector('[name=src-type]').addEventListener('change', function () {
-  document.getElementById('srcRoutingKey').classList.toggle('hide', this.value === 'queue')
+  document.getElementById('srcRoutingKey').classList.toggle('hide', this.value !== 'exchange')
+  document.getElementById('srcOffset').classList.toggle('hide', this.value !== 'stream')
 })
 
 document.querySelector('[name=dest-uri]').addEventListener('change', function () {
@@ -174,11 +182,28 @@ document.querySelector('#createShovel').addEventListener('submit', function (evt
       'ack-mode': data.get('ack-mode')
     }
   }
-  if (data.get('src-type') === 'queue') {
-    body.value['src-queue'] = data.get('src-endpoint')
-  } else {
-    body.value['src-exchange'] = data.get('src-endpoint')
-    body.value['src-exchange-key'] = data.get('src-exchange-key')
+  const srcType = data.get('src-type')
+  const offset = data.get('src-offset')
+  switch (srcType) {
+    case 'queue':
+      body.value['src-queue'] = data.get('src-endpoint')
+      break
+    case 'exchange':
+      body.value['src-exchange'] = data.get('src-endpoint')
+      body.value['src-exchange-key'] = data.get('src-exchange-key')
+      break
+    case 'stream':
+      body.value['src-queue'] = data.get('src-endpoint')
+      if (offset.length) {
+        const args = body.value['src-consumer-args'] || {}
+        if (/^\d+$/.test(offset)) {
+          args['x-stream-offset'] = parseInt(offset)
+        } else {
+          args['x-stream-offset'] = offset
+        }
+        body.value['src-consumer-args'] = args
+      }
+      break
   }
   if (data.get('dest-type') === 'queue') {
     body.value['dest-queue'] = data.get('dest-endpoint')

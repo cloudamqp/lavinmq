@@ -15,6 +15,7 @@ function editItem (form, item, valueFactories) {
     } else {
       input.value = value
     }
+    input.dispatchEvent(new Event('change'))
   })
 }
 document.addEventListener('DOMContentLoaded', function () {
