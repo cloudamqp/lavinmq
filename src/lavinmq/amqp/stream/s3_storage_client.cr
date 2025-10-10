@@ -63,7 +63,7 @@ module LavinMQ::AMQP
 
       if key_node = content.xpath_node(".//*[local-name()='Key']")
         path = key_node.content
-        if match = path.match(/\/msgs\.(\d{10})\.meta$/)
+        if match = path.match(/\/meta\.(\d{10})$/)
           id = match[1].to_u32
           update_s3_segment_list(s3_segments, id, "", "", 0_i64, true)
           return
@@ -133,7 +133,7 @@ module LavinMQ::AMQP
       @log.debug { "Downloading meta for segment: #{segment_id}" }
       return unless s3_segments[segment_id]?
 
-      s3_meta_path = "#{s3_segments[segment_id][:path]}.meta"
+      s3_meta_path = meta_file_name(s3_segments[segment_id][:path])
       path = File.join(Config.instance.data_dir, s3_meta_path)
 
       h.get("/#{s3_meta_path}") do |response|
@@ -166,7 +166,7 @@ module LavinMQ::AMQP
     def delete_from_s3(s3_seg)
       h = http_client
       delete_from_s3(h, s3_seg[:path])
-      delete_from_s3(h, "#{s3_seg[:path]}.meta")
+      delete_from_s3(h, meta_file_name(s3_seg[:path]))
     end
 
     def delete_from_s3(h : ::HTTP::Client, path : String)
@@ -215,6 +215,20 @@ module LavinMQ::AMQP
         i += 1
       end
       temp_path
+    end
+
+    private def meta_file_name(path : String) : String
+      # We assume the path ends with "msgs.<10 chars>"
+      raw = path.to_slice
+
+      # This is basically the same as using sub("msgs.", "meta.") but with #sub
+      # the first occurrence of "msgs." would be replaced, not the last one.
+      # This also requires only one allocation.
+      String.build(path.size) do |io|
+        io.write raw[0, raw.size - 15]
+        io.write "meta.".to_slice
+        io.write raw[-10..]
+      end
     end
   end
 end

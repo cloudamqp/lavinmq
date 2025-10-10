@@ -70,7 +70,7 @@ module LavinMQ::AMQP
       private def load_stats_from_local_files(segments, is_long_queue)
         counter = segments.size
         @segments.each do |seg, mfile|
-          if @segment_msg_count[seg].zero? # only load segment if stats not already read from .meta file
+          if @segment_msg_count[seg].zero? # only load segment if stats not already read from meta file
             @log.debug { "Loading stats for local segment: #{seg}, not uploaded to S3 yet" }
             begin
               read_metadata_file(seg, mfile)
@@ -125,8 +125,9 @@ module LavinMQ::AMQP
                   produce_metadata(seg, mfile)
                   write_metadata_file(seg, mfile)
                   slice = Bytes.new(20)
-                  File.open("#{path}.meta", &.read_fully(slice))
-                  @storage_client.upload_file_to_s3("/#{path[Config.instance.data_dir.bytesize + 1..]}.meta", slice)
+                  File.open(meta_file_name(path), &.read_fully(slice))
+                  meta_s3_path = meta_file_name(path[Config.instance.data_dir.bytesize + 1..])
+                  @storage_client.upload_file_to_s3("/#{meta_s3_path}", slice)
                 else
                   @log.error { "Failed to load segment #{path}" }
                 end
@@ -147,22 +148,24 @@ module LavinMQ::AMQP
       end
 
       private def load_stats_from_meta_file(path, seg, s3file)
-        if File.exists?("#{path}.meta")
-          read_metadata_file(seg, path, s3file[:size])
+        meta_path = meta_file_name(path)
+        if File.exists?(meta_path)
+          read_metadata_file(seg, meta_path, s3file[:size])
           unless s3file[:meta] # upload to s3 unless it exists there
             Log.info { "Uploading metadata file for segment #{seg} to S3" }
             slice = Bytes.new(20)
-            File.open("#{path}.meta", &.read_fully(slice))
-            @storage_client.upload_file_to_s3("/#{path[Config.instance.data_dir.bytesize + 1..]}.meta", slice)
+            File.open(meta_path, &.read_fully(slice))
+            meta_s3_path = meta_file_name(path[Config.instance.data_dir.bytesize + 1..])
+            @storage_client.upload_file_to_s3("/#{meta_s3_path}", slice)
           end
         elsif meta_file = @storage_client.download_meta_file(seg, @s3_segments, @storage_client.http_client)
           read_metadata_file_from_s3(seg, meta_file)
         end
       end
 
-      private def read_metadata_file(seg, path, bytesize)
-        return unless File.exists?("#{path}.meta")
-        File.open("#{path}.meta") do |file|
+      private def read_metadata_file(seg, meta_path, bytesize)
+        return unless File.exists?(meta_path)
+        File.open(meta_path) do |file|
           read_metadata(file, seg)
           @bytesize += bytesize
         end
@@ -268,9 +271,9 @@ module LavinMQ::AMQP
         @log.debug { "Uploading file to s3: /#{segment.path[Config.instance.data_dir.bytesize + 1..]}" }
         path = "/#{segment.path[Config.instance.data_dir.bytesize + 1..]}"
         etag = @storage_client.upload_file_to_s3(path, segment.to_slice)
-        meta_path = "#{segment.path}.meta"
+        meta_path = meta_file_name(segment.path)
         if File.exists?(meta_path)
-          @storage_client.upload_file_to_s3("#{path}.meta", File.open(meta_path, &.getb_to_end))
+          @storage_client.upload_file_to_s3(meta_file_name(path), File.open(meta_path, &.getb_to_end))
         end
 
         @s3_segments[seg_id] = {

@@ -33,8 +33,8 @@ module S3SpecHelper
       "?delimiter=%2F&encoding-type=url&list-type=2&prefix=" => RESPONSE_FILE_LIST,
       "/#{DATA_DIR}/msgs.0000000001"                         => S3SpecHelper.segment_bytes(0_i64),
       "/#{DATA_DIR}/msgs.0000000002"                         => S3SpecHelper.segment_bytes(100_i64),
-      "/#{DATA_DIR}/msgs.0000000001.meta"                    => S3SpecHelper.meta_bytes(0_i64),
-      "/#{DATA_DIR}/msgs.0000000002.meta"                    => S3SpecHelper.meta_bytes(100_i64),
+      "/#{DATA_DIR}/meta.0000000001"                    => S3SpecHelper.meta_bytes(0_i64),
+      "/#{DATA_DIR}/meta.0000000002"                    => S3SpecHelper.meta_bytes(100_i64),
       "/tmp/lavinmq-spec#{DATA_DIR}"                         => RESPONSE_UPLOAD,
     }
   end
@@ -54,12 +54,12 @@ RESPONSE_FILE_LIST = <<-XML
               <Size>5647</Size>
             </Contents>
             <Contents>
-              <Key>#{DATA_DIR}/msgs.0000000001.meta</Key>
+              <Key>#{DATA_DIR}/meta.0000000001</Key>
               <ETag>"meta123"</ETag>
               <Size>20</Size>
             </Contents>
             <Contents>
-              <Key>#{DATA_DIR}/msgs.0000000002.meta</Key>
+              <Key>#{DATA_DIR}/meta.0000000002</Key>
               <ETag>"meta456"</ETag>
               <Size>20</Size>
             </Contents>
@@ -330,27 +330,27 @@ describe LavinMQ::AMQP::Stream::S3MessageStore do
               <Size>5647</Size>
             </Contents>
             <Contents>
-              <Key>#{DATA_DIR}/msgs.0000000001.meta</Key>
+              <Key>#{DATA_DIR}/meta.0000000001</Key>
               <ETag>"meta123"</ETag>
               <Size>20</Size>
             </Contents>
             <Contents>
-              <Key>#{DATA_DIR}/msgs.0000000002.meta</Key>
+              <Key>#{DATA_DIR}/meta.0000000002</Key>
               <ETag>"meta123"</ETag>
               <Size>20</Size>
             </Contents>
             <Contents>
-              <Key>#{DATA_DIR}/msgs.0000000003.meta</Key>
+              <Key>#{DATA_DIR}/meta.0000000003</Key>
               <ETag>"meta123"</ETag>
               <Size>20</Size>
             </Contents>
             <Contents>
-              <Key>#{DATA_DIR}/msgs.0000000004.meta</Key>
+              <Key>#{DATA_DIR}/meta.0000000004</Key>
               <ETag>"meta123"</ETag>
               <Size>20</Size>
             </Contents>
             <Contents>
-              <Key>#{DATA_DIR}/msgs.0000000005.meta</Key>
+              <Key>#{DATA_DIR}/meta.0000000005</Key>
               <ETag>"meta123"</ETag>
               <Size>20</Size>
             </Contents>
@@ -363,11 +363,11 @@ describe LavinMQ::AMQP::Stream::S3MessageStore do
         "/#{DATA_DIR}/msgs.0000000003"                         => S3SpecHelper.segment_bytes(200_i64),
         "/#{DATA_DIR}/msgs.0000000004"                         => S3SpecHelper.segment_bytes(300_i64),
         "/#{DATA_DIR}/msgs.0000000005"                         => S3SpecHelper.segment_bytes(400_i64),
-        "/#{DATA_DIR}/msgs.0000000001.meta"                    => S3SpecHelper.meta_bytes(0_i64),
-        "/#{DATA_DIR}/msgs.0000000002.meta"                    => S3SpecHelper.meta_bytes(100_i64),
-        "/#{DATA_DIR}/msgs.0000000003.meta"                    => S3SpecHelper.meta_bytes(200_i64),
-        "/#{DATA_DIR}/msgs.0000000004.meta"                    => S3SpecHelper.meta_bytes(300_i64),
-        "/#{DATA_DIR}/msgs.0000000005.meta"                    => S3SpecHelper.meta_bytes(400_i64),
+        "/#{DATA_DIR}/meta.0000000001"                    => S3SpecHelper.meta_bytes(0_i64),
+        "/#{DATA_DIR}/meta.0000000002"                    => S3SpecHelper.meta_bytes(100_i64),
+        "/#{DATA_DIR}/meta.0000000003"                    => S3SpecHelper.meta_bytes(200_i64),
+        "/#{DATA_DIR}/meta.0000000004"                    => S3SpecHelper.meta_bytes(300_i64),
+        "/#{DATA_DIR}/meta.0000000005"                    => S3SpecHelper.meta_bytes(400_i64),
         "/tmp/lavinmq-spec/#{DATA_DIR}"                        => RESPONSE_UPLOAD,
       }
       S3SpecHelper.responses = responses
