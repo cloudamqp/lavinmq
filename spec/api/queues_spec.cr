@@ -1,3 +1,5 @@
+require "socket"
+require "socket/tcp_socket"
 require "../spec_helper"
 require "compress/deflate"
 
@@ -287,10 +289,26 @@ describe LavinMQ::HTTP::QueuesController do
       end
     end
 
-    it "should not require any body" do
+    it "should not require any body (1)" do
       with_http_server do |http, _|
         response = http.put("/api/queues/%2f/okq")
         response.status_code.should eq 201
+      end
+    end
+
+    it "should not require any body (2)" do
+      with_http_server do |http, _|
+        # Use raw socket to make a request without body and content-length
+        addr = http.addr
+        TCPSocket.open addr.address, addr.port do |io|
+          io.write "PUT /api/queues/%2f/okq2 HTTP/1.1\r\n".to_slice
+          http.test_headers.serialize(io)
+          io.write "\r\n".to_slice
+          io.flush
+          response = HTTP::Client::Response.from_io?(io, ignore_body: false, decompress: false)
+          response = response.should_not be_nil
+          response.status_code.should eq 201
+        end
       end
     end
 

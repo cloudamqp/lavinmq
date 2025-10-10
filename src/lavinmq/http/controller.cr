@@ -142,14 +142,13 @@ module LavinMQ
       end
 
       private def parse_body(context) : JSON::Any
+        if context.request.content_length == 0
+          return JSON::Any.new(Hash(String, JSON::Any).new)
+        end
         if body = context.request.body
           ct = context.request.headers["Content-Type"]?
           if ct.nil? || ct.empty? || ct == "application/json"
-            json = if context.request.content_length == 0
-                     JSON::Any.new(Hash(String, JSON::Any).new)
-                   else
-                     JSON.parse(body)
-                   end
+            json = JSON.parse(body)
             if json.as_h?
               json
             else
