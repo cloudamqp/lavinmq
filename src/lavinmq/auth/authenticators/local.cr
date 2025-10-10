@@ -7,7 +7,7 @@ module LavinMQ
       def initialize(@users : Auth::UserStore)
       end
 
-      def authenticate(username : String, password : Bytes) : Users::BasicUser?
+      def authenticate(username : String, password : Bytes) : User?
         if user = @users[username]?
           if passwd = user.password
             if passwd.verify(password)

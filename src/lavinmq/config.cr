@@ -69,9 +69,9 @@ module LavinMQ
     property consumer_timeout : UInt64? = nil
     property consumer_timeout_loop_interval = 60 # seconds
     property default_consumer_prefetch = UInt16::MAX
-    property yield_each_received_bytes = 131_072    # max number of bytes to read from a client connection without letting other tasks in the server do any work
-    property yield_each_delivered_bytes = 1_048_576 # max number of bytes sent to a client without tending to other tasks in the server
-    property auth_backends : Array(String) = ["local"]
+    property yield_each_received_bytes = 131_072       # max number of bytes to read from a client connection without letting other tasks in the server do any work
+    property yield_each_delivered_bytes = 1_048_576    # max number of bytes sent to a client without tending to other tasks in the server
+    property auth_backends : Array(String) = ["oauth", "local"] # JUST FOR TESTING THIS PR
     property default_user : String = ENV.fetch("LAVINMQ_DEFAULT_USER", "guest")
     property default_password : String = ENV.fetch("LAVINMQ_DEFAULT_PASSWORD", DEFAULT_PASSWORD_HASH) # Hashed password for default user
     property max_consumers_per_channel = 0
