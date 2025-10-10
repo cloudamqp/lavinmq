@@ -6,6 +6,7 @@ require "../rough_time"
 require "./session"
 require "./protocol"
 require "../bool_channel"
+require "./consts"
 
 module LavinMQ
   module MQTT
@@ -127,6 +128,11 @@ module LavinMQ
       end
 
       def recieve_publish(packet : MQTT::Publish)
+        if Config.instance.mqtt_permission_check_enabled? && !user.can_write?(@broker.vhost.name, EXCHANGE)
+          Log.debug { "Access refused: user '#{user.name}' does not have permissions" }
+          close_socket
+          return
+        end
         @broker.publish(packet)
         vhost.event_tick(EventType::ClientPublish)
         # Ok to not send anything if qos = 0 (fire and forget)
@@ -141,6 +147,13 @@ module LavinMQ
       end
 
       def recieve_subscribe(packet : MQTT::Subscribe)
+        if Config.instance.mqtt_permission_check_enabled?
+          if !user.can_read?(@broker.vhost.name, EXCHANGE) && !user.can_write?(@broker.vhost.name, "mqtt.#{client_id}")
+            Log.debug { "Access refused: user '#{user.name}' does not have permissions" }
+            close_socket
+            return
+          end
+        end
         qos = @broker.subscribe(self, packet.topic_filters)
         send(MQTT::SubAck.new(qos, packet.packet_id))
       end
@@ -179,14 +192,18 @@ module LavinMQ
 
       private def publish_will
         if will = @will
-          @broker.publish MQTT::Publish.new(
+          if Config.instance.mqtt_permission_check_enabled? && !user.can_write?(@broker.vhost.name, EXCHANGE)
+            Log.debug { "Access refused: user '#{user.name}' does not have permissions" }
+            return
+          end
+          @broker.publish(MQTT::Publish.new(
             topic: will.topic,
             payload: will.payload,
             packet_id: nil,
             qos: will.qos,
             retain: will.retain?,
             dup: false,
-          )
+          ))
         end
       rescue ex
         @log.warn { "Failed to publish will: #{ex.message}" }
