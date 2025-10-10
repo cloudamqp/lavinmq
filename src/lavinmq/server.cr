@@ -7,7 +7,6 @@ require "./rough_time"
 require "../stdlib/*"
 require "./vhost_store"
 require "./auth/user_store"
-require "./auth/temp_user_store"
 require "./exchange"
 require "./amqp/queue"
 require "./parameter"
@@ -28,7 +27,7 @@ module LavinMQ
       MQTT
     end
 
-    getter vhosts, users, temp_users, data_dir, parameters
+    getter vhosts, users, data_dir, parameters
     getter? closed, flow
     include ParameterTarget
 
@@ -45,7 +44,6 @@ module LavinMQ
       Dir.mkdir_p @data_dir
       Schema.migrate(@data_dir, @replicator)
       @users = Auth::UserStore.new(@data_dir, @replicator)
-      @temp_users = Auth::TempUserStore.new
       @vhosts = VHostStore.new(@data_dir, @users, @replicator)
       @mqtt_brokers = MQTT::Brokers.new(@vhosts, @replicator)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator)
