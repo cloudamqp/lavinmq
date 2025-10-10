@@ -2034,11 +2034,6 @@ pre.arguments .inactive-argument:before {
   float: right;
 }
 
-#livelog {
-  max-height: 85vh;
-  overflow-y: scroll;
-}
-
 #livelog td {
   white-space: normal;
 }
@@ -2114,6 +2109,15 @@ pre.arguments .inactive-argument:before {
 #download-logs {
   margin: 5px 0;
   text-decoration: none;
+}
+
+.btn-toggle {
+  transition: border-color .18s ease;
+}
+
+.btn-toggle[aria-pressed="true"] {
+  border-bottom: 2px solid transparent;
+  border-bottom-color: var(--color-primary-green);
 }
 
 .btn-primary a,

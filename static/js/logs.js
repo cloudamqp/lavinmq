@@ -45,11 +45,15 @@ function forbidden () {
 
 // Scrolling
 btnToTop?.addEventListener('click', () => {
+  btnToTop.setAttribute('aria-pressed', 'true')
+  btnToBottom.setAttribute('aria-pressed', 'false')
   livelog.scrollTop = 0
   shouldAutoScroll = false
 })
 
 btnToBottom?.addEventListener('click', () => {
+  btnToBottom.setAttribute('aria-pressed', 'true')
+  btnToTop.setAttribute('aria-pressed', 'false')
   livelog.scrollTop = livelog.scrollHeight
   shouldAutoScroll = true
 })
