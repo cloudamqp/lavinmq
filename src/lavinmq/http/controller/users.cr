@@ -36,8 +36,9 @@ module LavinMQ
       private def register_routes # ameba:disable Metrics/CyclomaticComplexity
         get "/api/users" do |context, _params|
           refuse_unless_administrator(context, user(context))
-          page(context, @amqp_server.users.each_value.reject(&.hidden?)
-            .map { |u| UserView.new(u) })
+          regular_users = @amqp_server.users.each_value.reject(&.hidden?).map { |u| UserView.new(u) }
+          temp_users = @amqp_server.users.each_temp_user.map { |u| UserView.new(u) }
+          page(context, regular_users.chain(temp_users))
         end
 
         get "/api/users/without-permissions" do |context, _params|

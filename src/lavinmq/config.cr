@@ -70,12 +70,21 @@ module LavinMQ
     property consumer_timeout : UInt64? = nil
     property consumer_timeout_loop_interval = 60 # seconds
     property default_consumer_prefetch = UInt16::MAX
-    property yield_each_received_bytes = 131_072    # max number of bytes to read from a client connection without letting other tasks in the server do any work
-    property yield_each_delivered_bytes = 1_048_576 # max number of bytes sent to a client without tending to other tasks in the server
-    property auth_backends : Array(String) = ["basic"]
+    property yield_each_received_bytes = 131_072                # max number of bytes to read from a client connection without letting other tasks in the server do any work
+    property yield_each_delivered_bytes = 1_048_576             # max number of bytes sent to a client without tending to other tasks in the server
+    property auth_backends : Array(String) = ["oauth", "basic"] # JUST FOR TESTING THIS PR
     property default_user : String = ENV.fetch("LAVINMQ_DEFAULT_USER", "guest")
     property default_password : String = ENV.fetch("LAVINMQ_DEFAULT_PASSWORD", DEFAULT_PASSWORD_HASH) # Hashed password for default user
     property max_consumers_per_channel = 0
+
+    # OAuth2 settings
+    property oidc_issuer_url = "https://test-giant-beige-hawk.rmq7.cloudamqp.com/realms/lavinmq-dev/"
+    property oauth_resource_server_id = "kickster-lavin"
+    property oauth_preferred_username_claims : Array(String) = ["preferred_username", "username", "email", "sub"]
+    property oauth_additional_scopes_key : String? = nil
+    # property oauth_scope_prefix : String = ""
+    # property oauth_scope_aliases : Hash(String, String) = {} of String => String
+    # property oauth_scopes : Array(String) = [] of String
     @@instance : Config = self.new
 
     def self.instance : LavinMQ::Config
@@ -233,6 +242,7 @@ module LavinMQ
         when "mqtt"         then parse_mqtt(settings)
         when "mgmt", "http" then parse_mgmt(settings)
         when "clustering"   then parse_clustering(settings)
+        when "oauth"        then parse_oauth(settings)
         when "experimental" then parse_experimental(settings)
         when "replication"  then abort("#{file}: [replication] is deprecated and replaced with [clustering], see the README for more information")
         else
@@ -383,6 +393,23 @@ module LavinMQ
         when "systemd_socket_name" then @http_systemd_socket_name = v
         else
           STDERR.puts "WARNING: Unrecognized configuration 'mgmt/#{config}'"
+        end
+      end
+    end
+
+    private def parse_oauth(settings)
+      settings.each do |config, v|
+        case config
+        when "oidc_issuer_url"           then @oidc_issuer_url = v
+        when "resource_server_id"        then @oauth_resource_server_id = v
+        when "preferred_username_claims" then @oauth_preferred_username_claims = v.split(",").map(&.strip)
+        when "additional_scopes_key"     then @oauth_additional_scopes_key = v
+          # when "scope_prefix"              then @oauth_scope_prefix = v
+          # when "scope_aliases"             then # TODO: Parse JSON object
+          # when "client_id"                 then @oauth_client_id = v
+          # when "scopes"                    then @oauth_scopes = v.split(",").map(&.strip)
+        else
+          STDERR.puts "WARNING: Unrecognized configuration 'oauth/#{config}'"
         end
       end
     end
