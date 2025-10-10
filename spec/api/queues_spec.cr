@@ -426,6 +426,48 @@ describe LavinMQ::HTTP::QueuesController do
       end
     end
 
+    it "should reject messages on error" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("q4")
+          q4 = s.vhosts["/"].queues["q4"]
+          message_count = 5
+          message_count.times { q.publish "m1" * 100000 }  # Larger messages to slow down JSON serialization
+          wait_for { q4.message_count == message_count }
+          body = %({ "count": #{message_count}, "ack_mode": "get", "encoding": "json" })
+          client = HTTP::Client.new(URI.parse http.test_uri(""))
+
+          # Use multi-threaded execution context to close the client while the request is in progress
+          mt = Fiber::ExecutionContext::Parallel.new("Clients", maximum: 2)
+
+          mt.spawn do
+            client.post("/api/queues/%2f/q4/get", body: body, headers: http.test_headers)
+          end
+
+          wg = WaitGroup.new(1)
+          mt.spawn do
+            loop do
+              if q4.unacked_count > 0
+                # Simulate an error by closing the client while there are unacked messages
+                client.close
+                wg.done
+                break
+              elsif q4.message_count == 0 # All messages were acked, nothing to test
+                fail("All messages were acked, nothing to test")
+                wg.done
+                break
+              end
+              Fiber.yield
+            end
+          end
+          wg.wait
+
+          # All unacked messages should be requeued
+          q4.unacked_count.should eq 0
+        end
+      end
+    end
+
     it "should handle count > message_count" do
       with_http_server do |http, s|
         with_channel(s) do |ch|
