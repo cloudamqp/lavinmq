@@ -4,6 +4,7 @@ const tbody = document.getElementById('livelog-body')
 const filterInput = document.getElementById('log-filter')
 const table = document.getElementById('table')
 const loading = document.getElementById('log-loading')
+const bootTime = performance.now()
 
 const allLogs = []
 const pendingLogs = []
@@ -18,7 +19,6 @@ const FLUSH_MS = 1000
 let shouldAutoScroll = true
 let currentRegex = null
 let booting = true
-let bootTime = performance.now()
 let flushTimer = null
 
 // SSE
@@ -62,7 +62,7 @@ const buildRow = (log) => {
   preMsg.textContent = log.message
   const tdMsg = document.createElement('td')
   tdMsg.appendChild(preMsg)
-  
+
   const tr = document.createElement('tr')
   tr.append(tdTs, tdSev, tdSrc, tdMsg)
   return tr
@@ -96,7 +96,7 @@ const paintIncoming = () => {
 
     tbody.textContent = ''
     if (frag.childNodes.length) tbody.appendChild(frag)
-    
+
     while (tbody.rows.length > MAX_ROWS) tbody.deleteRow(0)
 
     table.style.visibility = 'visible'
@@ -104,10 +104,10 @@ const paintIncoming = () => {
     booting = false
 
     livelog.scrollTop = livelog.scrollHeight
-  
+
     if (pendingLogs.length) scheduleFlush()
     return
-  } 
+  }
 
   // STREAM PHASE: small batches regularly
   if (pendingLogs.length === 0) return
@@ -126,7 +126,7 @@ const paintIncoming = () => {
 
   while (tbody.rows.length > MAX_ROWS) tbody.deleteRow(0)
 
-  livelog.scrollTop = livelog.scrollHeight  
+  livelog.scrollTop = livelog.scrollHeight
 
   if (pendingLogs.length) {
     scheduleFlush()
@@ -135,9 +135,9 @@ const paintIncoming = () => {
 
 // Helpers
 const scheduleFlush = () => {
-    if (flushTimer) return
-    flushTimer = setTimeout(paintIncoming, FLUSH_MS)
-  }
+  if (flushTimer) return
+  flushTimer = setTimeout(paintIncoming, FLUSH_MS)
+}
 
 const matches = (log) => {
   if (!currentRegex) return true
@@ -151,12 +151,12 @@ const rebuildFromAllLogs = () => {
   for (const log of allLogs) {
     if (matches(log)) frag.appendChild(buildRow(log))
   }
-    tbody.textContent = ''
-    tbody.appendChild(frag)
+  tbody.textContent = ''
+  tbody.appendChild(frag)
 
-    while (tbody.rows.length > MAX_ROWS) {
-      tbody.deleteRow(0)
-    }
+  while (tbody.rows.length > MAX_ROWS) {
+    tbody.deleteRow(0)
+  }
 
   if (shouldAutoScroll) livelog.scrollTop = livelog.scrollHeight
 }
