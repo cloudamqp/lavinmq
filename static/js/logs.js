@@ -2,6 +2,8 @@ const evtSource = new window.EventSource('api/livelog')
 const livelog = document.getElementById('livelog')
 const tbody = document.getElementById('livelog-body')
 const filterInput = document.getElementById('log-filter')
+const table = document.getElementById('table')
+const loading = document.getElementById('log-loading')
 
 const allLogs = []
 const pendingLogs = []
@@ -26,7 +28,8 @@ evtSource.onmessage = (event) => {
   const log = { timestamp, severity, source, message }
   pendingLogs.push(log)
   if (booting) {
-    tbody.style.visibility = 'hidden'
+    table.style.visibility = 'hidden'
+    loading.hidden = false
   }
   scheduleFlush()
 }
@@ -96,7 +99,8 @@ const paintIncoming = () => {
     
     while (tbody.rows.length > MAX_ROWS) tbody.deleteRow(0)
 
-    tbody.style.visibility = 'visible'
+    table.style.visibility = 'visible'
+    loading.hidden = true
     booting = false
 
     livelog.scrollTop = livelog.scrollHeight
