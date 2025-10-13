@@ -272,10 +272,18 @@ describe LavinMQ::Federation::Upstream do
           wait_for { upstream.links.first?.try &.state.running? }
 
           msgs = Channel(String).new
-          downstream_q.subscribe do |msg|
+          downstream_q.subscribe(tag: "c", no_ack: false) do |msg|
             msgs.send msg.body_io.to_s
+            msgs.close
+            downstream_q.unsubscribe "c"
+            msg.ack
           end
-          msgs.receive.should eq "msg1"
+          select
+          when msg = msgs.receive
+            msg.should eq "msg1"
+          when timeout 1.second
+            fail "Timeout waiting for msg1"
+          end
           wait_for { s.vhosts[ds_vhost.name].queues[ds_queue_name].message_count == 0 }
         end
 
@@ -287,13 +295,24 @@ describe LavinMQ::Federation::Upstream do
           upstream_q.publish "msg2"
         end
 
+        wait_for { s.vhosts[us_vhost.name].queues[us_queue_name].message_count == 1 }
+
         # resume consuming on downstream, should get 1 message
         with_channel(s, vhost: ds_vhost.name) do |downstream_ch|
           msgs = Channel(String).new
-          downstream_ch.queue(ds_queue_name).subscribe do |msg|
+          downstream_q = downstream_ch.queue(ds_queue_name)
+          downstream_q.subscribe(tag: "c2", no_ack: false) do |msg|
             msgs.send msg.body_io.to_s
+            msgs.close
+            downstream_q.unsubscribe "c2"
+            msg.ack
           end
-          msgs.receive.should eq "msg2"
+          select
+          when msg = msgs.receive
+            msg.should eq "msg2"
+          when timeout 1.second
+            fail "Timeout waiting for msg2"
+          end
         end
       end
     end
@@ -326,13 +345,15 @@ describe LavinMQ::Federation::Upstream do
 
         us_queue.message_count.should eq message_count
 
-        wg = WaitGroup.new(1)
+        wg_consumers = WaitGroup.new(1)
+        wg_message = WaitGroup.new(1)
         spawn do
           # Wait for queue to receive one consumer (subscribe)
           ds_queue.@consumers_empty.when_false.receive
+          wg_message.wait
           # Wait for queue to lose consumer (unsubscribe)
           ds_queue.@consumers_empty.when_true.receive
-          wg.done
+          wg_consumers.done
         end
         Fiber.yield # yield so our receive? above is called
 
@@ -341,13 +362,13 @@ describe LavinMQ::Federation::Upstream do
           downstream_ch.prefetch(1)
           downstream_q = downstream_ch.queue(ds_queue_name)
           downstream_q.subscribe(tag: "c", no_ack: false, block: true) do |msg|
-            Fiber.yield # to let the sync fiber above run to call receive? a second time
-            msg.ack
+            wg_message.done # to let the sync fiber above run to call receive? a second time
             downstream_q.unsubscribe("c")
+            msg.ack
           end
         end
 
-        wg.wait
+        wg_consumers.wait
         Fiber.yield # let things happen?
 
         # One message has been transferred?
@@ -934,7 +955,7 @@ describe LavinMQ::Federation::Upstream do
 
             # We have no good synchronization point, so we yield a few times (instead of sleep)
             # to make sure the message has been processed all the way
-            10.times { Fiber.yield }
+            100.times { Fiber.yield }
 
             v1fe.publish_in_count.should eq 1
             v2fe.publish_in_count.should eq 1
