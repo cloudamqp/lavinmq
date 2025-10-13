@@ -2,9 +2,23 @@ require "../authenticator"
 require "../temp_user"
 require "../user_store"
 require "../../config"
-require "jwt"
+require "../jwt"
 require "openssl"
 require "http/client"
+
+lib LibCrypto
+  alias BIGNUM = Void*
+  type RSA = Void*
+
+  fun bn_bin2bn = BN_bin2bn(s : UInt8*, len : Int32, ret : BIGNUM) : BIGNUM
+  fun rsa_new = RSA_new : RSA
+  fun rsa_free = RSA_free(rsa : RSA)
+  fun rsa_set0_key = RSA_set0_key(rsa : RSA, n : BIGNUM, e : BIGNUM, d : BIGNUM) : Int32
+  fun pem_write_bio_rsa_pubkey = PEM_write_bio_RSA_PUBKEY(bio : Bio*, rsa : RSA) : Int32
+  fun bio_s_mem = BIO_s_mem : BioMethod*
+  fun bio_read = BIO_read(bio : Bio*, data : UInt8*, len : Int32) : Int32
+  fun bio_ctrl = BIO_ctrl(bio : Bio*, cmd : Int32, larg : LibC::Long, parg : Void*) : LibC::Long
+end
 
 module LavinMQ
   module Auth
@@ -16,19 +30,13 @@ module LavinMQ
       end
 
       def authenticate(username : String, password : Bytes) : TempUser?
-        payload, headers = parse_jwks(String.new(password))
-        pp payload
-        pp headers
-        username, tags, permissions, expires_at = parse_jwt_payload(payload)
+        token = parse_and_verify_jwks(String.new(password))
+        pp token.header
+        pp token.payload
+        username, tags, permissions, expires_at = parse_jwt_payload(token.payload)
         Log.info { "OAuth2 user authenticated: #{username}" }
 
         @users.add(username, tags, permissions, Time.unix(expires_at))
-      rescue ex : JWT::ExpiredSignatureError
-        Log.warn { "OAuth2 authentication failed: Token expired" }
-        nil
-      rescue ex : JWT::InvalidIssuerError
-        Log.warn { "OAuth2 authentication failed: Invalid issuer - #{ex.message}" }
-        nil
       rescue ex : JWT::DecodeError
         Log.warn { "OAuth2 authentication failed: Could not decode token - #{ex.message}" }
         nil
@@ -111,7 +119,7 @@ module LavinMQ
         end
       end
 
-      private def parse_jwks(password : String)
+      private def parse_and_verify_jwks(password : String) : JWT::Token
         oidc_url = @config.oidc_issuer_url.chomp("/") + "/.well-known/openid-configuration"
         oidc_config = fetch_url(oidc_url)
         jwks_uri = oidc_config["jwks_uri"]?.try(&.as_s)
@@ -122,8 +130,9 @@ module LavinMQ
 
         jwks["keys"].as_a.each do |key|
           next unless key["n"]? && key["e"]?
-          public_key = to_pem(key["n"].as_s, key["e"].as_s)
-          return JWT.decode(password, public_key, JWT::Algorithm::RS256, verify: true, validate: true)
+          public_key_pem = to_pem(key["n"].as_s, key["e"].as_s)
+          pp public_key_pem
+          return JWT::RS256Parser.decode(password, public_key_pem, verify: true)
         rescue JWT::DecodeError | JWT::VerificationError
           next
         end
@@ -144,17 +153,62 @@ module LavinMQ
         end
       end
 
-      private def to_pem(n, e) : String
-        modulus = OpenSSL::BN.from_bin(Base64.decode(n))
-        exponent = OpenSSL::BN.from_bin(Base64.decode(e))
+      private def to_pem(n : String, e : String) : String
+        # Decode base64url-encoded modulus and exponent
+        n_bytes = base64url_decode(n)
+        e_bytes = base64url_decode(e)
+
+        # Convert bytes to BIGNUMs
+        modulus = LibCrypto.bn_bin2bn(n_bytes, n_bytes.size, nil)
+        exponent = LibCrypto.bn_bin2bn(e_bytes, e_bytes.size, nil)
+
+        # Create RSA structure
         rsa = LibCrypto.rsa_new
-        io = IO::Memory.new
+        raise "Failed to create RSA structure" if rsa.null?
 
-        LibCrypto.rsa_set0_key(rsa, modulus, exponent, nil)
-        bio = OpenSSL::GETS_BIO.new(io) # also works OpenSSL::BIO.new(io)
-        LibCrypto.pem_write_bio_rsa_pub_key(bio, rsa)
+        # Set the key components (this takes ownership of the BIGNUMs)
+        result = LibCrypto.rsa_set0_key(rsa, modulus, exponent, nil)
+        unless result == 1
+          LibCrypto.rsa_free(rsa)
+          raise "Failed to set RSA key components"
+        end
 
-        io.to_s
+        # Create a memory BIO
+        bio = LibCrypto.BIO_new(LibCrypto.bio_s_mem)
+        raise "Failed to create BIO" if bio.null?
+
+        begin
+          # Write the public key to the BIO in PEM format
+          result = LibCrypto.pem_write_bio_rsa_pubkey(bio, rsa)
+          unless result == 1
+            raise "Failed to write PEM"
+          end
+
+          # Get the length of data in the BIO (BIO_CTRL_PENDING = 10)
+          length = LibCrypto.bio_ctrl(bio, 10, 0, nil)
+
+          # Read the PEM data from the BIO
+          buffer = Bytes.new(length)
+          LibCrypto.bio_read(bio, buffer, length.to_i32)
+
+          String.new(buffer)
+        ensure
+          LibCrypto.BIO_free(bio)
+          LibCrypto.rsa_free(rsa)
+        end
+      end
+
+      private def base64url_decode(input : String) : Bytes
+        # Add padding if needed
+        padded = case input.size % 4
+                 when 2 then input + "=="
+                 when 3 then input + "="
+                 else        input
+                 end
+
+        # Replace URL-safe characters
+        standard = padded.tr("-_", "+/")
+        Base64.decode(standard)
       end
     end
   end
