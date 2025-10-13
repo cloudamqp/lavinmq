@@ -11,16 +11,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Human friendly exchange type names in controller and exchanges.js [#1238](https://github.com/cloudamqp/lavinmq/pull/1238)
 - Icons added to sidebar navigation and divided sidebar into groups [#1268](https://github.com/cloudamqp/lavinmq/pull/1268)
 - Table filter: search as you type functionality [#1274](https://github.com/cloudamqp/lavinmq/pull/1274)
-
-### Fixed
-- `list_connections`: don't fail on missing key [#1226](https://github.com/cloudamqp/lavinmq/pull/1226)
-- Fixed bug where proxying from a follower that is performing full sync does not work [#1283](https://github.com/cloudamqp/lavinmq/pull/1283)
+- Read messages from stream [#1236](https://github.com/cloudamqp/lavinmq/pull/1236)
+- Support Basic Auth and HTTPS for etcd endpoints [#1212](https://github.com/cloudamqp/lavinmq/pull/1212)
+- Add checksum verification for JavaScript dependencies [#1257](https://github.com/cloudamqp/lavinmq/pull/1257)
 
 ### Changed
 - Use paused instead of .paused as filename for paused queues [#1209](https://github.com/cloudamqp/lavinmq/pull/1209)
 - Use eventListener consistently across JS [#1220](https://github.com/cloudamqp/lavinmq/pull/1220)
 - Prometheus metrics can nowbe served on a different port to allow unauthenticated requests for metrics [#1217](https://github.com/cloudamqp/lavinmq/pull/1217)
 - Followers no longer forward requests to the unauthenticated `/metrics` to leader and instead show their own metrics [#1217](https://github.com/cloudamqp/lavinmq/pull/1217)
+- Rename message segment meta files to `meta.SEGMENT` [#1343](https://github.com/cloudamqp/lavinmq/pull/1343)
+- Switch from slash to chevron right in title bar breadcrumbs [#1334](https://github.com/cloudamqp/lavinmq/pull/1334)
+
+### Fixed
+- `list_connections`: don't fail on missing key [#1226](https://github.com/cloudamqp/lavinmq/pull/1226)
+- Fixed bug where proxying from a follower that is performing full sync does not work [#1283](https://github.com/cloudamqp/lavinmq/pull/1283)
+- Fix condition if follower should be written to ISR [#1341](https://github.com/cloudamqp/lavinmq/pull/1341)
+- Manage shovels on streams in the GUI [#1337](https://github.com/cloudamqp/lavinmq/pull/1337)
+- API endpoint should accept empty/no body [#1338](https://github.com/cloudamqp/lavinmq/pull/1338)
+- Don't double requeue messages on delivery failure [#1344](https://github.com/cloudamqp/lavinmq/pull/1344)
+- Topic exchange doesn't route messages properly [#1300](https://github.com/cloudamqp/lavinmq/pull/1300)
+- Specs should fail on closed queues [#1339](https://github.com/cloudamqp/lavinmq/pull/1339)
+- Fix for sidebar icons light and dark mode [#1329](https://github.com/cloudamqp/lavinmq/pull/1329)
+- Don't allow deletion of default (amq.x / mqtt.x) exchanges [#1321](https://github.com/cloudamqp/lavinmq/pull/1321)
+- Allow deleting internal exchange via HTTP [#1319](https://github.com/cloudamqp/lavinmq/pull/1319)
+- Make sure unused segments are properly deleted [#1297](https://github.com/cloudamqp/lavinmq/pull/1297)
+- Don't return empty messages from first? and shift? [#1298](https://github.com/cloudamqp/lavinmq/pull/1298)
+- Fix segfault in purge_all [#1289](https://github.com/cloudamqp/lavinmq/pull/1289)
+- Always decode path params [#1273](https://github.com/cloudamqp/lavinmq/pull/1273)
+- Move initialization of some BoolChannel to prevent leaks [#1263](https://github.com/cloudamqp/lavinmq/pull/1263)
+- Fix some UI bugs in shovels: handle src and dest as arrays, properly display src-exchange, properly show paused/resume state [#1265](https://github.com/cloudamqp/lavinmq/pull/1265)
+- Added missing documentation [#1304](https://github.com/cloudamqp/lavinmq/pull/1304) & [#1306](https://github.com/cloudamqp/lavinmq/pull/1306)
 
 ## [2.4.4] - 2025-09-16
 
