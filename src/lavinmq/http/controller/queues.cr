@@ -211,6 +211,14 @@ module LavinMQ
                     q.reject(sp, requeue)
                   end
                 end
+              rescue e : Exception
+                # Requeue all unacked messages on error
+                if unacked_sps = sps
+                  unacked_sps.each do |sp|
+                    q.reject(sp, true)
+                  end
+                end
+                raise e
               end
             end
           end
