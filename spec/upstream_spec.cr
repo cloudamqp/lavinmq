@@ -259,11 +259,30 @@ describe LavinMQ::Federation::Upstream do
         s.users.add_permission("guest", us_vhost.name, /.*/, /.*/, /.*/)
         s.users.add_permission("guest", ds_vhost.name, /.*/, /.*/, /.*/)
 
+        ds_vhost.declare_queue(ds_queue_name, true, false)
+        ds_queue = ds_vhost.queues[ds_queue_name].as(LavinMQ::AMQP::Queue)
+
+        wait_for { ds_queue.policy.try(&.name) == "FE" }
+        wait_for { upstream.links.first?.try &.state.running? }
+
         # publish 1 message
         with_channel(s, vhost: us_vhost.name) do |upstream_ch|
           upstream_q = upstream_ch.queue(us_queue_name)
           upstream_q.publish_confirm "msg1"
         end
+
+        wg_consumers = WaitGroup.new(1)
+        wg_message = WaitGroup.new(1)
+        spawn(name: "sync helper") do
+          # Wait for queue to receive one consumer (subscribe)
+          ds_queue.@consumers_empty.when_false.receive
+          wg_message.wait
+          # Wait for queue to lose consumer (unsubscribe)
+          ds_queue.@consumers_empty.when_true.receive
+          wg_consumers.done
+        end
+
+        Fiber.yield # yield so our receive? above is called
 
         # consume 1 message
         with_channel(s, vhost: ds_vhost.name) do |downstream_ch|
@@ -273,7 +292,9 @@ describe LavinMQ::Federation::Upstream do
 
           msgs = Channel(String).new
           downstream_q.subscribe(tag: "c", no_ack: false) do |msg|
+            wg_message.done
             downstream_q.unsubscribe "c"
+            wg_consumers.wait
             msg.ack
             msgs.send msg.body_io.to_s
             msgs.close
