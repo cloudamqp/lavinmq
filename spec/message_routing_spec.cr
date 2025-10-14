@@ -132,14 +132,14 @@ module MessageRoutingSpec
       end
 
       it "# should consider what's comes after" do
-        q9 = LavinMQ::AMQP::Queue.new(vhost, "q9")
+        q9 = LavinMQ::QueueFactory.make(vhost, "q9")
         x.bind(q9, "#.a.a.a")
         matches(x, "a.a.b.a.a").should be_empty
         matches(x, "a.a.a.a").should eq(Set{q9})
         x.unbind(q9, "#.a.a.a")
       end
       it "# should consider what's comes after" do
-        q9 = LavinMQ::AMQP::Queue.new(vhost, "q9")
+        q9 = LavinMQ::QueueFactory.make(vhost, "q9")
         x.bind(q9, "#.a.b.c")
         matches(x, "a.a.a.a.b.c").should eq(Set{q9})
         x.unbind(q9, "#.a.b.c")
@@ -168,7 +168,7 @@ module MessageRoutingSpec
       end
 
       it "should not match single star on multiple segments" do
-        q = LavinMQ::AMQP::Queue.new(vhost, "q123")
+        q = LavinMQ::QueueFactory.make(vhost, "q123")
         x.bind(q, "c.*")
         matches(x, "c.a.d").should be_empty
         x.unbind(q, "c.*")
