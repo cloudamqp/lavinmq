@@ -262,7 +262,7 @@ describe LavinMQ::Federation::Upstream do
         # publish 1 message
         with_channel(s, vhost: us_vhost.name) do |upstream_ch|
           upstream_q = upstream_ch.queue(us_queue_name)
-          upstream_q.publish "msg1"
+          upstream_q.publish_confirm "msg1"
         end
 
         # consume 1 message
@@ -292,7 +292,7 @@ describe LavinMQ::Federation::Upstream do
         # publish another message
         with_channel(s, vhost: us_vhost.name) do |upstream_ch|
           upstream_q = upstream_ch.queue(us_queue_name)
-          upstream_q.publish "msg2"
+          upstream_q.publish_confirm "msg2"
         end
 
         wait_for { s.vhosts[us_vhost.name].queues[us_queue_name].message_count == 1 }
