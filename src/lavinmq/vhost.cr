@@ -12,14 +12,14 @@ require "digest/sha1"
 require "./amqp/queue"
 require "./schema"
 require "./event_type"
-require "./stats_rb"
+require "./stats"
 require "./queue_factory"
 require "./mqtt/session"
 
 module LavinMQ
   class VHost
     include SortableJSON
-    include StatsRB
+    include Stats
 
     rate_stats({"channel_closed", "channel_created", "connection_closed", "connection_created",
                 "queue_declared", "queue_deleted", "ack", "deliver", "deliver_no_ack", "deliver_get", "get", "get_no_ack", "publish", "confirm",

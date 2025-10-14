@@ -3,7 +3,7 @@ require "../../logger"
 require "../../segment_position"
 require "../../policy"
 require "../../observable"
-require "../../stats_rb"
+require "../../stats"
 require "../../sortable_json"
 require "../../client/channel/consumer"
 require "../../message"
@@ -20,7 +20,7 @@ module LavinMQ::AMQP
   class Queue < LavinMQ::Queue
     include PolicyTarget
     include Observable(QueueEvent)
-    include StatsRB
+    include Stats
     include SortableJSON
 
     @message_ttl : Int64?

@@ -17,7 +17,7 @@ require "./client/client"
 require "./client/connection_factory"
 require "./amqp/connection_factory"
 require "./mqtt/connection_factory"
-require "./stats_rb"
+require "./stats"
 require "./auth/chain"
 
 module LavinMQ

@@ -1,4 +1,4 @@
-require "../stats_rb"
+require "../stats"
 require "./client"
 require "./consumer"
 require "./stream/stream_consumer"
@@ -14,7 +14,7 @@ require "../bool_channel"
 module LavinMQ
   module AMQP
     class Channel < LavinMQ::Client::Channel
-      include StatsRB
+      include Stats
       include SortableJSON
 
       getter id, name

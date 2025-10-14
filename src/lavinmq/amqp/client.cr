@@ -13,7 +13,7 @@ require "../connection_info"
 module LavinMQ
   module AMQP
     class Client < LavinMQ::Client
-      include StatsRB
+      include Stats
       include SortableJSON
 
       getter vhost, channels, log, name
