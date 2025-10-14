@@ -378,7 +378,7 @@ describe LavinMQ::Federation::Upstream do
         # Fiber.yield # let things happen?
 
         # One message has been transferred?
-        wait_for { us_queue.message_count == 1 }
+        eventually { us_queue.message_count.should eq 1 }
 
         # resume consuming on downstream, federation should start again
         with_channel(s, vhost: ds_vhost.name) do |downstream_ch|

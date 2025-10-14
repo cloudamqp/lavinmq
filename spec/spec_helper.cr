@@ -93,6 +93,23 @@ def wait_for(timeout = 5.seconds, file = __FILE__, line = __LINE__, &)
   fail "Execution expired", file: file, line: line
 end
 
+# Use this instead of wait_for and should_eventually
+#
+# eventually { var.should eq 3 }
+#
+def eventually(timeout = 3.seconds, wait_for = 0.seconds, file = __FILE__, line = __LINE__, &)
+  sec = Time.monotonic
+  loop do
+    begin
+      yield
+      break
+    rescue ex : Spec::AssertionFailed
+      raise ex if Time.monotonic - sec > timeout
+      sleep wait_for
+    end
+  end
+end
+
 def with_amqp_server(tls = false, replicator = LavinMQ::Clustering::NoopServer.new,
                      config = LavinMQ::Config.instance,
                      file = __FILE__, line = __LINE__, & : LavinMQ::Server -> Nil)
