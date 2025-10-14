@@ -204,6 +204,7 @@ describe LavinMQ::Deduplication::Deduper do
           # now the dedup cache should also be empty
           select
           when delay_q.empty.when_true.receive
+            Fiber.yield
           end
 
           # Publish a third message and verify it's not thrown away

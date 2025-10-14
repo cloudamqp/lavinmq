@@ -259,41 +259,66 @@ describe LavinMQ::Federation::Upstream do
         s.users.add_permission("guest", us_vhost.name, /.*/, /.*/, /.*/)
         s.users.add_permission("guest", ds_vhost.name, /.*/, /.*/, /.*/)
 
-        # publish 1 message
+        ds_vhost.declare_queue(ds_queue_name, true, false)
+        ds_queue = ds_vhost.queues[ds_queue_name].as(LavinMQ::AMQP::Queue)
+
+        eventually { upstream.links.first?.try(&.state.running?).should be_true }
+
+        # Declare upstream queue and publish 1 message
         with_channel(s, vhost: us_vhost.name) do |upstream_ch|
           upstream_q = upstream_ch.queue(us_queue_name)
-          upstream_q.publish "msg1"
+          upstream_q.publish_confirm "msg1"
         end
 
-        # consume 1 message
+        us_queue = us_vhost.queues[us_queue_name].as(LavinMQ::AMQP::Queue)
+        eventually { us_queue.message_count.should eq 1 }
+
+        # Start consumer on downstream queue, and federation should federate the message we published
         with_channel(s, vhost: ds_vhost.name) do |downstream_ch|
+          downstream_ch.prefetch(1)
           downstream_q = downstream_ch.queue(ds_queue_name)
-          wait_for { ds_vhost.queues[ds_queue_name].policy.try(&.name) == "FE" }
-          wait_for { upstream.links.first?.try &.state.running? }
-
-          msgs = Channel(String).new
-          downstream_q.subscribe do |msg|
-            msgs.send msg.body_io.to_s
+          ch = Channel(AMQP::Client::DeliverMessage).new
+          downstream_q.subscribe(tag: "c", no_ack: false) do |msg|
+            downstream_q.unsubscribe "c"
+            msg.ack
+            ch.send msg
           end
-          msgs.receive.should eq "msg1"
-          wait_for { s.vhosts[ds_vhost.name].queues[ds_queue_name].message_count == 0 }
+
+          select
+          when msg = ch.receive
+            msg.body_io.to_s.should eq "msg1"
+          when timeout 1.seconds
+            fail "timeout waiting for msg1 on downstream queue"
+          end
         end
 
-        wait_for { s.vhosts[ds_vhost.name].queues[ds_queue_name].consumers.empty? }
+        us_queue.message_count.should eq 0
 
-        # publish another message
+        # Verify the consumer is gone, which means new publishes shouldn't be federated
+        ds_queue.consumers.empty?.should be_true
         with_channel(s, vhost: us_vhost.name) do |upstream_ch|
           upstream_q = upstream_ch.queue(us_queue_name)
-          upstream_q.publish "msg2"
+          upstream_q.publish_confirm "msg2"
         end
+        us_queue.message_count.should eq 1
 
-        # resume consuming on downstream, should get 1 message
+        # Verify the federation starts again
         with_channel(s, vhost: ds_vhost.name) do |downstream_ch|
-          msgs = Channel(String).new
-          downstream_ch.queue(ds_queue_name).subscribe do |msg|
-            msgs.send msg.body_io.to_s
+          downstream_ch.prefetch(1)
+          downstream_q = downstream_ch.queue(ds_queue_name)
+          ch = Channel(AMQP::Client::DeliverMessage).new
+          downstream_q.subscribe(tag: "c", no_ack: false) do |msg|
+            downstream_q.unsubscribe "c"
+            msg.ack
+            ch.send msg
           end
-          msgs.receive.should eq "msg2"
+
+          select
+          when msg = ch.receive
+            msg.body_io.to_s.should eq "msg2"
+          when timeout 1.seconds
+            fail "timeout waiting for msg2 on downstream queue"
+          end
         end
       end
     end
@@ -326,40 +351,48 @@ describe LavinMQ::Federation::Upstream do
 
         us_queue.message_count.should eq message_count
 
-        wg = WaitGroup.new(1)
-        spawn do
+        wg_consumers = WaitGroup.new(1)
+        wg_message = WaitGroup.new(1)
+        spawn(name: "sync helper") do
           # Wait for queue to receive one consumer (subscribe)
           ds_queue.@consumers_empty.when_false.receive
+          wg_message.wait
           # Wait for queue to lose consumer (unsubscribe)
           ds_queue.@consumers_empty.when_true.receive
-          wg.done
+          wg_consumers.done
         end
         Fiber.yield # yield so our receive? above is called
 
+        wg_message_consumed = WaitGroup.new(1)
         # consume 1 message from downstream queue
         with_channel(s, vhost: ds_vhost.name) do |downstream_ch|
           downstream_ch.prefetch(1)
           downstream_q = downstream_ch.queue(ds_queue_name)
           downstream_q.subscribe(tag: "c", no_ack: false, block: true) do |msg|
-            Fiber.yield # to let the sync fiber above run to call receive? a second time
-            msg.ack
+            # tell the sync helper that we're actually subcsribed
+            wg_message.done
             downstream_q.unsubscribe("c")
+            # Wait for the unsubscribe to take effekt before acking message
+            wg_consumers.wait
+            msg.ack
+            wg_message_consumed.done
           end
         end
 
-        wg.wait
+        wg_message_consumed.wait
+
         Fiber.yield # let things happen?
 
         # One message has been transferred?
-        wait_for { us_queue.message_count == 1 }
+        eventually { us_queue.message_count.should eq 1 }
 
         # resume consuming on downstream, federation should start again
         with_channel(s, vhost: ds_vhost.name) do |downstream_ch|
           ch = Channel(Nil).new
           downstream_q = downstream_ch.queue(ds_queue_name)
           downstream_q.subscribe(tag: "c2", no_ack: false) do |msg|
-            msg.ack
             downstream_q.unsubscribe("c2")
+            msg.ack
             ch.close
           end
 
@@ -934,7 +967,7 @@ describe LavinMQ::Federation::Upstream do
 
             # We have no good synchronization point, so we yield a few times (instead of sleep)
             # to make sure the message has been processed all the way
-            10.times { Fiber.yield }
+            sleep 10.milliseconds
 
             v1fe.publish_in_count.should eq 1
             v2fe.publish_in_count.should eq 1
