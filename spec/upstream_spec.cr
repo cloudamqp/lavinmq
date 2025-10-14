@@ -273,10 +273,10 @@ describe LavinMQ::Federation::Upstream do
 
           msgs = Channel(String).new
           downstream_q.subscribe(tag: "c", no_ack: false) do |msg|
-            msgs.send msg.body_io.to_s
             msgs.close
             downstream_q.unsubscribe "c"
             msg.ack
+            msgs.send msg.body_io.to_s
           end
           select
           when msg = msgs.receive
