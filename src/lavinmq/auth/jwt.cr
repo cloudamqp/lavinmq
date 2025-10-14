@@ -1,22 +1,7 @@
 require "base64"
 require "json"
 require "openssl"
-
-lib LibCrypto
-  type EVP_PKEY = Void*
-  type EVP_PKEY_CTX = Void*
-
-  fun evp_pkey_new = EVP_PKEY_new : EVP_PKEY
-  fun evp_pkey_free = EVP_PKEY_free(pkey : EVP_PKEY)
-  fun pem_read_bio_pubkey = PEM_read_bio_PUBKEY(bio : Bio*, x : EVP_PKEY*, cb : Void*, u : Void*) : EVP_PKEY
-  fun bio_write = BIO_write(bio : Bio*, data : UInt8*, len : Int32) : Int32
-
-  fun evp_digestverify_init = EVP_DigestVerifyInit(ctx : EVP_MD_CTX, pctx : EVP_PKEY_CTX*, type : EVP_MD, e : Void*, pkey : EVP_PKEY) : Int32
-  fun evp_digestverify = EVP_DigestVerify(ctx : EVP_MD_CTX, sig : UInt8*, siglen : LibC::SizeT, tbs : UInt8*, tbslen : LibC::SizeT) : Int32
-  fun evp_md_ctx_new = EVP_MD_CTX_new : EVP_MD_CTX
-  fun evp_md_ctx_free = EVP_MD_CTX_free(ctx : EVP_MD_CTX)
-  fun bio_s_mem = BIO_s_mem : BioMethod*
-end
+require "./lib_crypto_ext"
 
 module JWT
   class DecodeError < Exception; end
