@@ -5,20 +5,7 @@ require "../../config"
 require "../jwt"
 require "openssl"
 require "http/client"
-
-lib LibCrypto
-  alias BIGNUM = Void*
-  type RSA = Void*
-
-  fun bn_bin2bn = BN_bin2bn(s : UInt8*, len : Int32, ret : BIGNUM) : BIGNUM
-  fun rsa_new = RSA_new : RSA
-  fun rsa_free = RSA_free(rsa : RSA)
-  fun rsa_set0_key = RSA_set0_key(rsa : RSA, n : BIGNUM, e : BIGNUM, d : BIGNUM) : Int32
-  fun pem_write_bio_rsa_pubkey = PEM_write_bio_RSA_PUBKEY(bio : Bio*, rsa : RSA) : Int32
-  fun bio_s_mem = BIO_s_mem : BioMethod*
-  fun bio_read = BIO_read(bio : Bio*, data : UInt8*, len : Int32) : Int32
-  fun bio_ctrl = BIO_ctrl(bio : Bio*, cmd : Int32, larg : LibC::Long, parg : Void*) : LibC::Long
-end
+require "../lib_crypto_ext"
 
 module LavinMQ
   module Auth
@@ -31,8 +18,6 @@ module LavinMQ
 
       def authenticate(username : String, password : Bytes) : TempUser?
         token = parse_and_verify_jwks(String.new(password))
-        pp token.header
-        pp token.payload
         username, tags, permissions, expires_at = parse_jwt_payload(token.payload)
         Log.info { "OAuth2 user authenticated: #{username}" }
 
@@ -120,8 +105,8 @@ module LavinMQ
       end
 
       private def parse_and_verify_jwks(password : String) : JWT::Token
-        oidc_url = @config.oidc_issuer_url.chomp("/") + "/.well-known/openid-configuration"
-        oidc_config = fetch_url(oidc_url)
+        discovery_url = @config.oidc_issuer_url.chomp("/") + "/.well-known/openid-configuration"
+        oidc_config = fetch_url(discovery_url)
         jwks_uri = oidc_config["jwks_uri"]?.try(&.as_s)
         raise "No jwks_uri found in OIDC configuration" unless jwks_uri
 
@@ -131,12 +116,10 @@ module LavinMQ
         jwks["keys"].as_a.each do |key|
           next unless key["n"]? && key["e"]?
           public_key_pem = to_pem(key["n"].as_s, key["e"].as_s)
-          pp public_key_pem
           return JWT::RS256Parser.decode(password, public_key_pem, verify: true)
         rescue JWT::DecodeError | JWT::VerificationError
           next
         end
-
         raise "Could not verify JWT with any key from JWKS"
       end
 
