@@ -14,7 +14,7 @@ module LavinMQ
         STDERR.puts "WARNING: RingBuffer capacity #{capacity} rounded up to #{@capacity} (must be power of 2)"
       end
       @mask = @capacity - 1
-      @buffer = Pointer(T).malloc(@capacity)
+      @buffer = GC.malloc_atomic(@capacity * sizeof(T)).as(Pointer(T))
     end
 
     def push(value : T) : Nil
