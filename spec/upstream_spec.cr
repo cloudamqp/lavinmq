@@ -284,10 +284,10 @@ describe LavinMQ::Federation::Upstream do
           when timeout 1.second
             fail "Timeout waiting for msg1"
           end
-          wait_for { s.vhosts[ds_vhost.name].queues[ds_queue_name].message_count == 0 }
+          eventually { s.vhosts[ds_vhost.name].queues[ds_queue_name].message_count.should eq 0 }
         end
 
-        wait_for { s.vhosts[ds_vhost.name].queues[ds_queue_name].consumers.empty? }
+        eventually { s.vhosts[ds_vhost.name].queues[ds_queue_name].consumers.empty?.should be_true }
 
         # publish another message
         with_channel(s, vhost: us_vhost.name) do |upstream_ch|
@@ -295,7 +295,7 @@ describe LavinMQ::Federation::Upstream do
           upstream_q.publish_confirm "msg2"
         end
 
-        wait_for { s.vhosts[us_vhost.name].queues[us_queue_name].message_count == 1 }
+        eventually { s.vhosts[us_vhost.name].queues[us_queue_name].message_count.should eq 1 }
 
         # resume consuming on downstream, should get 1 message
         with_channel(s, vhost: ds_vhost.name) do |downstream_ch|
