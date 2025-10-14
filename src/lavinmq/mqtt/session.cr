@@ -8,10 +8,10 @@ module LavinMQ
       include SortableJSON
       Log = ::LavinMQ::Log.for "mqtt.session"
 
-      def initialize(@vhost : VHost,
-                     @name : String,
-                     @auto_delete = false,
-                     arguments : ::AMQ::Protocol::Table = AMQP::Table.new)
+      protected def initialize(@vhost : VHost,
+                               @name : String,
+                               @auto_delete = false,
+                               arguments : ::AMQ::Protocol::Table = AMQP::Table.new)
         @count = 0u16
         @unacked = Hash(UInt16, SegmentPosition).new
 

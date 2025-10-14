@@ -2,6 +2,24 @@ require "./durable_queue"
 
 module LavinMQ::AMQP
   class PriorityQueue < Queue
+    def self.create(vhost : VHost, name : String,
+                    exclusive : Bool = false, auto_delete : Bool = false,
+                    arguments : AMQP::Table = AMQP::Table.new)
+      self.validate_arguments!(arguments)
+      new vhost, name, exclusive, auto_delete, arguments
+    end
+
+    def self.validate_arguments!(arguments)
+      int_zero_255 = ArgumentValidator::IntValidator.new(min_value: 0, max_value: 255)
+      if value = arguments["x-max-priority"]?
+        int_zero_255.validate!("x-max-priority", value)
+      else
+        # should never end up here
+        raise LavinMQ::Error::PreconditionFailed.new("x-max-priority argument is required for priority queues")
+      end
+      super
+    end
+
     private def handle_arguments
       super
       @effective_args << "x-max-priority"
@@ -21,7 +39,7 @@ module LavinMQ::AMQP
       @wfile_id = 0
       @rfile_id = 0
 
-      def initialize(
+      protected def initialize(
         @max_priority : UInt8,
         @msg_dir : String,
         @replicator : Clustering::Replicator?,
@@ -196,6 +214,13 @@ module LavinMQ::AMQP
   end
 
   class DurablePriorityQueue < PriorityQueue
+    def self.create(vhost : VHost, name : String,
+                    exclusive : Bool = false, auto_delete : Bool = false,
+                    arguments : AMQP::Table = AMQP::Table.new)
+      self.validate_arguments!(arguments)
+      new vhost, name, exclusive, auto_delete, arguments
+    end
+
     def durable?
       true
     end

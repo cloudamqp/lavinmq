@@ -15,6 +15,7 @@ require "../../message_store"
 require "../../unacked_message"
 require "../../deduplication"
 require "../../bool_channel"
+require "../argument_validator"
 
 module LavinMQ::AMQP
   class Queue < LavinMQ::Queue
@@ -22,6 +23,44 @@ module LavinMQ::AMQP
     include Observable(QueueEvent)
     include Stats
     include SortableJSON
+
+    def self.validate_arguments!(arguments : AMQP::Table)
+      int_zero = ArgumentValidator::IntValidator.new(min_value: 0)
+      int_one = ArgumentValidator::IntValidator.new(min_value: 1)
+      string = ArgumentValidator::StringValidator.new
+      bool = ArgumentValidator::BoolValidator.new
+      dlrk = ArgumentValidator::DeadLetteringValidator.new(arguments)
+
+      headers = {
+        "x-dead-letter-exchange":    string,
+        "x-dead-letter-routing-key": dlrk,
+        "x-expires":                 int_one,
+        "x-max-length":              int_zero,
+        "x-max-length-bytes":        int_zero,
+        "x-message-ttl":             int_zero,
+        "x-overflow":                string,
+        "x-delivery-limit":          int_zero,
+        "x-consumer-timeout":        int_zero,
+        "x-single-active-consumer":  bool,
+        "x-message-deduplication":   bool,
+        "x-cache-size":              int_zero,
+        "x-cache-ttl":               int_zero,
+        "x-deduplication-header":    string,
+      }
+
+      arguments.each do |k, v|
+        if validator = headers[k]?
+          validator.validate!(k, v)
+        end
+      end
+    end
+
+    def self.create(vhost : VHost, name : String,
+                    exclusive : Bool = false, auto_delete : Bool = false,
+                    arguments : AMQP::Table = AMQP::Table.new)
+      self.validate_arguments!(arguments)
+      new vhost, name, exclusive, auto_delete, arguments
+    end
 
     @message_ttl : Int64?
     @max_length : Int64?
@@ -136,9 +175,9 @@ module LavinMQ::AMQP
     @metadata : ::Log::Metadata
     @deduper : Deduplication::Deduper?
 
-    def initialize(@vhost : VHost, @name : String,
-                   @exclusive = false, @auto_delete = false,
-                   @arguments = AMQP::Table.new)
+    protected def initialize(@vhost : VHost, @name : String,
+                             @exclusive : Bool = false, @auto_delete : Bool = false,
+                             @arguments : AMQP::Table = AMQP::Table.new)
       @data_dir = make_data_dir
       @metadata = ::Log::Metadata.new(nil, {queue: @name, vhost: @vhost.name})
       @log = Logger.new(Log, @metadata)
@@ -294,46 +333,12 @@ module LavinMQ::AMQP
           Deduplication::Deduper.new(cache, ttl, header_key)
         end
       end
-      validate_arguments
-    end
-
-    private def validate_arguments
-      if @dlrk && @dlx.nil?
-        raise LavinMQ::Error::PreconditionFailed.new("x-dead-letter-exchange required if x-dead-letter-routing-key is defined")
-      end
-      validate_number("x-expires", @expires, 1)
-      validate_number("x-max-length", @max_length)
-      validate_number("x-max-length-bytes", @max_length_bytes)
-      validate_number("x-message-ttl", @message_ttl)
-      validate_number("x-delivery-limit", @delivery_limit)
-      validate_number("x-consumer-timeout", @consumer_timeout)
-    end
-
-    private def validate_number(header, value, min_value = 0)
-      if min_value == 0
-        validate_positive(header, value)
-      else
-        validate_gt_zero(header, value)
-      end
-      @effective_args << header
     end
 
     private macro parse_header(header, type)
       if value = @arguments["{{ header.id }}"]?
         value.as?({{ type }}) || raise LavinMQ::Error::PreconditionFailed.new("{{ header.id }} header not a {{ type.id }}")
       end
-    end
-
-    private def validate_positive(header, value) : Nil
-      return if value.nil?
-      return if value >= 0
-      raise LavinMQ::Error::PreconditionFailed.new("#{header} has to be positive")
-    end
-
-    private def validate_gt_zero(header, value) : Nil
-      return if value.nil?
-      return if value > 0
-      raise LavinMQ::Error::PreconditionFailed.new("#{header} has to be larger than 0")
     end
 
     def immediate_delivery?
