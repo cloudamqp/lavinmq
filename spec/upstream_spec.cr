@@ -955,7 +955,7 @@ describe LavinMQ::Federation::Upstream do
 
             # We have no good synchronization point, so we yield a few times (instead of sleep)
             # to make sure the message has been processed all the way
-            100.times { Fiber.yield }
+            sleep 10.milliseconds
 
             v1fe.publish_in_count.should eq 1
             v2fe.publish_in_count.should eq 1
