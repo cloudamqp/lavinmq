@@ -22,15 +22,15 @@ module LavinMQ
 
       def update_password_hash(password_hash, hash_algorithm)
         # Temp users cannot have passwords
-        return nil
+        nil
       end
 
       def update_password(password, hash_algorithm = "sha256")
         # Temp users cannot have passwords
-        return nil
+        nil
       end
 
-      def set_expiration(time : Time)
+      def expiration=(time : Time)
         @expires_at = time
       end
 

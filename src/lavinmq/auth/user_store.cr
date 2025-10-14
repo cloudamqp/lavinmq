@@ -192,7 +192,7 @@ module LavinMQ
           sleep 60.seconds
           expired = @temp_users.select { |_, u| u.expired? }
           expired.each_key { |name| @temp_users.delete(name) }
-          Log.debug { "Cleaned up #{expired.size} expired temp users" } if expired.any?
+          Log.debug { "Cleaned up #{expired.size} expired temp users" } unless expired.empty?
         end
       end
 
