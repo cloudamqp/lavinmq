@@ -1,3 +1,5 @@
+/* global localStorage */
+
 let shouldAutoScroll = true
 const evtSource = new window.EventSource('api/livelog')
 const livelog = document.getElementById('livelog')
@@ -44,18 +46,25 @@ function forbidden () {
 }
 
 // Scrolling
+function setScrollMode (toBottom) {
+  shouldAutoScroll = toBottom
+  localStorage.setItem('logScrollMode', toBottom ? 'bottom' : 'top')
+  if (btnToBottom && btnToTop) {
+    btnToBottom.setAttribute('aria-pressed', String(toBottom))
+    btnToTop.setAttribute('aria-pressed', String(!toBottom))
+  }
+}
+// Initialize from saved preference, default to newest
+const savedMode = localStorage.getItem('logScrollMode')
+const initialMode = savedMode ? savedMode === 'bottom' : true
+setScrollMode(initialMode)
 btnToTop?.addEventListener('click', () => {
-  btnToTop.setAttribute('aria-pressed', 'true')
-  btnToBottom.setAttribute('aria-pressed', 'false')
+  setScrollMode(false)
   livelog.scrollTop = 0
-  shouldAutoScroll = false
 })
-
 btnToBottom?.addEventListener('click', () => {
-  btnToBottom.setAttribute('aria-pressed', 'true')
-  btnToTop.setAttribute('aria-pressed', 'false')
+  setScrollMode(true)
   livelog.scrollTop = livelog.scrollHeight
-  shouldAutoScroll = true
 })
 
 let lastScrollTop = livelog.pageYOffset || livelog.scrollTop
