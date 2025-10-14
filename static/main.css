@@ -1358,6 +1358,67 @@ footer .logo {
   opacity: 1;
 }
 
+.card:has(.table-header) {
+  padding: 0 0 1.5rem;
+
+  .table-wrapper {
+    padding: 0 1.5rem;
+  }
+}
+
+.table-header {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  border: 1px solid var(--color-border-separator);
+  border-top-left-radius: 0.75rem;
+  border-top-right-radius: 0.75rem;
+
+  h2 {
+    order: -1;
+    flex: 1;
+    margin: 0;
+    font-size: 1rem;
+    line-height: 1.5rem;
+    color: var(--color-header-text);
+  }
+
+  form {
+    flex: 1;
+    justify-content: center;
+    display: flex;
+    
+    input {
+      display: inline-block;
+      margin: 0;
+      border-top-left-radius: 0;
+      border-bottom-left-radius: 0;
+      width: 100%;
+    }
+
+    &::before {
+      content: '';
+      background-image: url('/img/icons/icon-filter-light.svg');
+      background-repeat: no-repeat;
+      background-position: center center;
+      font-size: 16px;
+      width: 44px;
+      height: 44px;
+      display: inline-block;
+      border: 1px solid var(--color-border-primary);
+      border-right: 0;
+      background-color: light-dark(#8d8d8d, #292929);
+      border-top-left-radius: 0.375rem;
+      border-bottom-left-radius: 0.375rem;
+    }
+  }
+
+  .btn-holder {
+    flex: 1;
+  }
+}
+
 .table-wrapper {
   overflow: auto;
   scrollbar-color: var(--color-scrollbar);

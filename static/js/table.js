@@ -6,7 +6,9 @@ function renderTable (id, options = {}, renderRow) {
   const countId = options.countId ?? 'pagename-label'
   const dataSource = options.dataSource ?? new UrlDataSource(options.url)
   const table = document.getElementById(id)
-  const container = table.parentElement
+  const grandparent = table.parentElement && table.parentElement.parentElement;
+  const tableHeader = grandparent ? grandparent.querySelector(':scope > .table-header') : null;
+  const container = tableHeader || table.parentElement;
   const keyColumns = options.keyColumns
   const events = new EventTarget()
 
