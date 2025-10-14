@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.5.0-rc.2] - 2025-10-14
 
 ### Added
 - Human friendly exchange type names in controller and exchanges.js [#1238](https://github.com/cloudamqp/lavinmq/pull/1238)
@@ -41,6 +41,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Always decode path params [#1273](https://github.com/cloudamqp/lavinmq/pull/1273)
 - Move initialization of some BoolChannel to prevent leaks [#1263](https://github.com/cloudamqp/lavinmq/pull/1263)
 - Fix some UI bugs in shovels: handle src and dest as arrays, properly display src-exchange, properly show paused/resume state [#1265](https://github.com/cloudamqp/lavinmq/pull/1265)
+- Fixed a raise condition in `MFile#close` [816bfb3](https://github.com/cloudamqp/lavinmq/commit/816bfb3c254f0340acf7a52172c170bb0d7a1556)
+- Reject unacked messages on error when getting messages via HTTP [#1349](https://github.com/cloudamqp/lavinmq/pull/1349)
 - Added missing documentation [#1304](https://github.com/cloudamqp/lavinmq/pull/1304) & [#1306](https://github.com/cloudamqp/lavinmq/pull/1306)
 
 ## [2.4.4] - 2025-09-16
