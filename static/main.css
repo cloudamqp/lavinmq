@@ -2102,24 +2102,36 @@ pre.arguments .inactive-argument:before {
   flex: 0 1 auto;
 }
 
-.toolbar-action {
-  flex: 0 0 auto;
-}
-
 #download-logs {
   margin: 5px 0;
   text-decoration: none;
+  margin-left: auto;
 }
 
-#to-top::before {
-  content: url(img/arrow-up-dark.svg);
-}
-
+#to-top::before,
 #to-bottom::before {
-  content: url(img/arrow-down-dark.svg);
+  content: "";
+  display: inline-block;
+  width: 1.2rem;
+  height: 1.2rem;
+
+  -webkit-mask: var(--icon-mask) no-repeat center / 100% 100%;
+  mask: var(--icon-mask) no-repeat center / 100% 100%;
+  background-color: currentColor;
+}
+
+#to-top {
+  --icon-mask: url(img/arrow-up.svg);
+}
+
+#to-bottom {
+  --icon-mask: url(img/arrow-down.svg);
 }
 
 .btn-toggle {
+  display: flex;
+  flex-basis: 90px;
+  align-items: center;
   transition: border-color .18s ease;
 }
 
