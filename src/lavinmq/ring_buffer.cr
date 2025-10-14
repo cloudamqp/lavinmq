@@ -55,6 +55,5 @@ module LavinMQ
       end
       result
     end
-
   end
 end
