@@ -9,16 +9,12 @@ module LavinMQ
     def initialize(capacity : Int32)
       raise ArgumentError.new("Capacity must be at least 2") if capacity < 2
       # Round up to next power of 2 for fast modulo via bitwise AND
-      @capacity = next_power_of_two(capacity)
+      @capacity = Math.pw2ceil(capacity)
       if capacity != @capacity
         STDERR.puts "WARNING: RingBuffer capacity #{capacity} rounded up to #{@capacity} (must be power of 2)"
       end
       @mask = @capacity - 1
       @buffer = Pointer(T).malloc(@capacity)
-    end
-
-    private def next_power_of_two(n : Int32) : Int32
-      2 ** Math.log2(n).ceil.to_i
     end
 
     def push(value : T) : Nil
