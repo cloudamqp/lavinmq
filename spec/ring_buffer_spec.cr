@@ -173,6 +173,29 @@ describe LavinMQ::RingBuffer do
 
       rb.to_a.should eq [6, 7, 8, 9]
     end
+
+    it "handles edge case: full buffer where tail equals head" do
+      # This tests the case where @size == @capacity and tail == @head
+      # After exactly @capacity pushes, tail wraps around to equal @head
+      rb = LavinMQ::RingBuffer(Int32).new(4)
+      4.times { |i| rb.push(i) }
+
+      # At this point: @size == 4, @head == 0, tail == 0
+      # Condition: @size < @capacity (false) || tail > @head (false)
+      # Should use two-segment copy path
+      rb.to_a.should eq [0, 1, 2, 3]
+      rb.size.should eq 4
+    end
+
+    it "handles edge case: full buffer after exact capacity wraps" do
+      # Fill buffer, then add exactly capacity more to wrap completely
+      rb = LavinMQ::RingBuffer(Int32).new(4)
+      8.times { |i| rb.push(i) }
+
+      # @head == 0, tail == 0, @size == 4 (wrapped exactly once)
+      rb.to_a.should eq [4, 5, 6, 7]
+      rb.size.should eq 4
+    end
   end
 
   describe "different types" do
