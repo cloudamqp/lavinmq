@@ -2111,12 +2111,20 @@ pre.arguments .inactive-argument:before {
   text-decoration: none;
 }
 
+#to-top::before {
+  content: url(img/arrow-up-dark.svg);
+}
+
+#to-bottom::before {
+  content: url(img/arrow-down-dark.svg);
+}
+
 .btn-toggle {
   transition: border-color .18s ease;
 }
 
 .btn-toggle[aria-pressed="true"] {
-  border-bottom: 2px solid transparent;
+  border-bottom: 3px solid transparent;
   border-bottom-color: var(--color-primary-green);
 }
 
