@@ -74,6 +74,7 @@ module LavinMQ
         {tags.to_a, permissions}
       end
 
+      # ameba:disable Metrics/CyclomaticComplexity
       private def parse_role(role, tags, permissions)
         if idx = role.index(".tag:")
           tag_name = role.byte_slice(idx + 5)

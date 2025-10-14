@@ -5,6 +5,7 @@ require "./lib_crypto_ext"
 
 module JWT
   class DecodeError < Exception; end
+
   class VerificationError < Exception; end
 
   struct Token
