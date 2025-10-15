@@ -332,6 +332,7 @@ module LavinMQ
       File.open(metafile, "w") do |f|
         f.buffer_size = 4096
         write_metadata(f, seg)
+        @replicator.try &.register_file(f)
       end
       @replicator.try &.replace_file metafile
     end
@@ -462,7 +463,10 @@ module LavinMQ
 
     private def read_metadata_file(seg, mfile)
       metafile = meta_file_name(mfile)
-      count = File.open(metafile, &.read_bytes(UInt32))
+      count = File.open(metafile) do |f|
+        @replicator.try &.register_file(f)
+        f.read_bytes(UInt32)
+      end
       @segment_msg_count[seg] = count
       bytesize = mfile.size - 4
       if deleted = @deleted[seg]?
