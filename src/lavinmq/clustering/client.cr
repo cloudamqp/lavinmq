@@ -348,6 +348,7 @@ module LavinMQ
         @checksums.store
         @data_dir_lock.release
         @socket.try &.close
+        @metrics_server.try &.close
       end
 
       class Error < Exception; end
