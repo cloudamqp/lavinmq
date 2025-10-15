@@ -58,7 +58,7 @@ module LavinMQ
             if vhost = @amqp_server.vhosts.delete(vhost_name)
               message_stats = vhost.message_details[:message_stats]
               # Add stats to global stats for accurate prometheus metrics counters
-              @amqp_server.deleted_vhosts_messages_delivered_total += message_stats[:deliver] + message_stats[:deliver_get]
+              @amqp_server.deleted_vhosts_messages_delivered_total += message_stats[:deliver_get]
               @amqp_server.deleted_vhosts_messages_redelivered_total += message_stats[:redeliver]
               @amqp_server.deleted_vhosts_messages_acknowledged_total += message_stats[:ack]
               @amqp_server.deleted_vhosts_messages_confirmed_total += message_stats[:confirm]
