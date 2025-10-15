@@ -206,7 +206,10 @@ module LavinMQ
               pass_hash = u["password_hash"].as_s
               hash_algo = u["hashing_algorithm"]?.try(&.as_s)
 
-              if tags = u["tags"]?.try &.as_a?
+              # Support both array and comma-separated string formats for tags
+              if tags = u["tags"]?.try &.as_s?
+                parsed_tags = tags.split(",").compact_map { |t| Tag.parse?(t.strip) }
+              elsif tags = u["tags"]?.try &.as_a?
                 parsed_tags = tags.compact_map { |t| Tag.parse?(t.as_s) }
               else
                 parsed_tags = [] of LavinMQ::Tag
