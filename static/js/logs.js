@@ -51,7 +51,7 @@ function forbidden () {
 }
 
 // Build Table
-const buildRow = (log) => {
+function buildRow (log) {
   const tdTs = document.createElement('td')
   tdTs.textContent = log.timestamp.toLocaleString()
   const tdSev = document.createElement('td')
@@ -69,7 +69,7 @@ const buildRow = (log) => {
 }
 
 // Paint table with Document Fragment. Batches depend on booting or streaming.
-const paintIncoming = () => {
+function paintIncoming () {
   flushTimer = null
   const now = performance.now()
 
@@ -134,19 +134,19 @@ const paintIncoming = () => {
 }
 
 // Helpers
-const scheduleFlush = () => {
+function scheduleFlush () {
   if (flushTimer) return
   flushTimer = setTimeout(paintIncoming, FLUSH_MS)
 }
 
-const matches = (log) => {
+function matches (log) {
   if (!currentRegex) return true
   const searchString = `${log.timestamp.toISOString()} ${log.severity} ${log.source}${log.message ?? ''}`
   return currentRegex.test(searchString)
 }
 
 // On filter change:
-const rebuildFromAllLogs = () => {
+function rebuildFromAllLogs () {
   const frag = document.createDocumentFragment()
   for (const log of allLogs) {
     if (matches(log)) frag.appendChild(buildRow(log))
