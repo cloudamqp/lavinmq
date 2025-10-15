@@ -411,7 +411,7 @@ describe LavinMQ::AMQP::Queue do
 
       yields = 0
       done = Channel(Nil).new
-      spawn(name: "yield counter", same_thread: true) do
+      spawn(name: "yield counter") do
         loop do
           select
           when timeout(0.seconds)
@@ -422,7 +422,7 @@ describe LavinMQ::AMQP::Queue do
         end
       end
 
-      spawn(name: "purger", same_thread: true) do
+      spawn(name: "purger") do
         store.purge
         2.times { done.send nil }
       end
