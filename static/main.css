@@ -51,6 +51,7 @@
   --color-menu-button: light-dark(#111827, white);
   --color-btn-outlined: light-dark(#111827, #F7F5F2);
   --color-btn-hover-bg: light-dark(#f3f4f6, #2D2C2C);
+  --color-input-icon-bg: light-dark(#8d8d8d, #292929);
 
   /* Brand colors that don't change with theme */
   --color-success: #54BE7E;
@@ -1408,7 +1409,7 @@ footer .logo {
       display: inline-block;
       border: 1px solid var(--color-border-primary);
       border-right: 0;
-      background-color: light-dark(#8d8d8d, #292929);
+      background-color: var(--color-input-icon-bg);
       border-top-left-radius: 0.375rem;
       border-bottom-left-radius: 0.375rem;
     }
@@ -1434,7 +1435,8 @@ footer .logo {
   background: var(--color-bg-input);
   border: 1px solid var(--color-border-secondary);
   color: var(--color-text-primary);
-  max-width: 300px !important;
+  width: 100%;
+  max-width: 500px;
 }
 
 .table {
@@ -1695,7 +1697,7 @@ a[data-tag] {
   color: var(--color-text-primary);
 }
 
-.form input:not([type="radio"]):not([type="checkbox"]),
+.form input:not([type="radio"]):not([type="checkbox"]):not(.filter-table),
 .form select {
   max-width: 400px;
   width: calc(100% - 160px);
@@ -2450,6 +2452,20 @@ html.theme-dark #theme-switcher button.active .theme-icon-light {
 
   #theme-switcher button:hover::after {
     display: none;
+  }
+
+  .table-header {
+    padding: 1rem;
+    flex-direction: column;
+  }
+
+  .table-header h2 {
+    width: 100%;
+    margin-bottom: 1rem;
+  }
+
+  .table-header form {
+    width: 100%;
   }
 }
 
