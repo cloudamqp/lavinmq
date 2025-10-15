@@ -52,9 +52,9 @@ describe LavinMQ::HTTP::PrometheusController do
 
           # Deliver 2 messages via subscribe (push consumer)
           delivered_count = 0
-          q.subscribe(no_ack: false) do |msg|
+          q.subscribe(no_ack: false) do |delivery|
             delivered_count += 1
-            msg.ack
+            delivery.ack
           end
           wait_for { delivered_count == 2 }
 
