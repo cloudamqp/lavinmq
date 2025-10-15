@@ -30,6 +30,23 @@ describe LavinMQ::HTTP::PrometheusController do
       end
     end
 
+    it "should count delivered messages including deliver_get" do
+      with_metrics_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("test_deliver")
+          q.publish "test message"
+          msg = q.get(no_ack: false)
+          msg.should_not be_nil
+          msg.try &.ack
+          raw = http.get("/metrics").body
+          parsed_metrics = PrometheusSpecHelper.parse_prometheus(raw)
+          delivered = parsed_metrics.find { |m| m[:key] == "lavinmq_global_messages_delivered_total" }
+          delivered.should_not be_nil
+          delivered.try { |m| m[:value].should be > 0 }
+        end
+      end
+    end
+
     it "should support specifying prefix" do
       with_metrics_server do |http, _|
         prefix = "testing"

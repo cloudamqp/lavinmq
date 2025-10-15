@@ -295,7 +295,7 @@ module LavinMQ
         message_stats = @amqp_server.vhosts.map { |_, v| v.message_details[:message_stats] }
         writer.write({name:  "global_messages_delivered_total",
                       value: @amqp_server.deleted_vhosts_messages_delivered_total +
-                             message_stats.sum { |ms| ms[:deliver] },
+                             message_stats.sum { |ms| ms[:deliver] + ms[:deliver_get] },
                       type: "counter",
                       help: "Total number of messaged delivered to consumers"})
         writer.write({name:  "global_messages_redelivered_total",
