@@ -42,7 +42,7 @@ describe LavinMQ::HTTP::PrometheusController do
           parsed_metrics = PrometheusSpecHelper.parse_prometheus(raw)
           delivered = parsed_metrics.find { |m| m[:key] == "lavinmq_global_messages_delivered_total" }
           delivered.should_not be_nil
-          delivered.try { |m| m[:value].should be > 0 }
+          delivered.try(&.[:value].should(be > 0))
         end
       end
     end
