@@ -30,19 +30,40 @@ describe LavinMQ::HTTP::PrometheusController do
       end
     end
 
-    it "should count delivered messages including deliver_get" do
+    it "should count all delivered messages (both get and deliver)" do
       with_metrics_server do |http, s|
         with_channel(s) do |ch|
           q = ch.queue("test_deliver")
-          q.publish "test message"
+          ch.prefetch(1)
+
+          # Get baseline
+          raw = http.get("/metrics").body
+          parsed_metrics = PrometheusSpecHelper.parse_prometheus(raw)
+          delivered = parsed_metrics.find { |m| m[:key] == "lavinmq_global_messages_delivered_total" }
+          baseline = delivered.try(&.[:value]) || 0
+
+          # Publish 3 messages
+          3.times { q.publish "test message" }
+
+          # Deliver 1 message via get (polling consumer)
           msg = q.get(no_ack: false)
           msg.should_not be_nil
           msg.try &.ack
+
+          # Deliver 2 messages via subscribe (push consumer)
+          delivered_count = 0
+          q.subscribe(no_ack: false) do |msg|
+            delivered_count += 1
+            msg.ack
+          end
+          wait_for { delivered_count == 2 }
+
+          # Check metrics - should count all 3 deliveries
           raw = http.get("/metrics").body
           parsed_metrics = PrometheusSpecHelper.parse_prometheus(raw)
           delivered = parsed_metrics.find { |m| m[:key] == "lavinmq_global_messages_delivered_total" }
           delivered.should_not be_nil
-          delivered.try(&.[:value].should(be > 0))
+          delivered.try(&.[:value].should eq(baseline + 3))
         end
       end
     end
