@@ -205,8 +205,14 @@ module LavinMQ
               name = u["name"].as_s
               pass_hash = u["password_hash"].as_s
               hash_algo = u["hashing_algorithm"]?.try(&.as_s)
-              tags = u["tags"]?.to_s.gsub(/[\[\]"\s]/, "").split(",").compact_map { |t| Tag.parse?(t) }
-              @amqp_server.users.add(name, pass_hash, hash_algo, tags, save: false)
+
+              if tags = u["tags"]?.try &.as_a?
+                parsed_tags = tags.compact_map { |t| Tag.parse?(t.as_s) }
+              else
+                parsed_tags = [] of LavinMQ::Tag
+              end
+
+              @amqp_server.users.add(name, pass_hash, hash_algo, parsed_tags, save: false)
             end
             @amqp_server.users.save!
           end
