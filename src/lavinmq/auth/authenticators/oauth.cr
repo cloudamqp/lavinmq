@@ -34,10 +34,26 @@ module LavinMQ
       end
 
       private def parse_jwt_payload(payload)
+        validate_audience(payload) if @config.oauth_verify_aud
         username = extract_username(payload)
         tags, permissions = parse_roles(payload)
         exp = payload["exp"]?.try(&.as_i64?) || raise "No expiration time found in JWT token"
         {username, tags, permissions, exp}
+      end
+
+      private def validate_audience(payload)
+        aud = payload["aud"]?
+        return unless aud
+
+        audiences = case aud
+                    when .as_a? then aud.as_a.map(&.as_s)
+                    when .as_s? then [aud.as_s]
+                    else             return
+                    end
+        expected = @config.oauth_audience || @config.oauth_resource_server_id
+        unless audiences.includes?(expected)
+          raise "Token audience mismatch: expected '#{expected}', got #{audiences.inspect}"
+        end
       end
 
       private def extract_username(payload) : String
@@ -53,60 +69,82 @@ module LavinMQ
         tags = Set(Tag).new
         permissions = Hash(String, TempUser::Permissions).new
 
-        # Extract roles from resource_access
+        # Extract roles from resource_access (Keycloak format)
         if resource_id = @config.oauth_resource_server_id
           if arr = payload.dig?("resource_access", resource_id, "roles").try(&.as_a?)
             arr.each { |r| parse_role(r.as_s, tags, permissions) }
           end
         end
 
-        # Extract roles from additional scopes
+        if scope_str = payload["scope"]?.try(&.as_s?)
+          scope_str.split.each { |r| parse_role(r, tags, permissions) }
+        end
+
+        # Extract from additional_scopes_key
         if key = @config.oauth_additional_scopes_key
-          if scopes = payload[key]?
-            if scopes_arr = scopes.as_a?
-              scopes_arr.each { |r| parse_role(r.as_s, tags, permissions) }
-            elsif scopes_str = scopes.as_s?
-              scopes_str.split.each { |r| parse_role(r, tags, permissions) }
-            end
+          if claim = payload[key]?
+            extract_scopes_from_claim(claim).each { |r| parse_role(r, tags, permissions) }
           end
         end
 
         {tags.to_a, permissions}
       end
 
-      # ameba:disable Metrics/CyclomaticComplexity
-      private def parse_role(role, tags, permissions)
-        if idx = role.index(".tag:")
-          tag_name = role.byte_slice(idx + 5)
-          tags << Tag::Administrator if tag_name == "administrator"
-          tags << Tag::Monitoring if tag_name == "monitoring"
-          tags << Tag::Management if tag_name == "management"
-        elsif parts = role.split(/[.:\/]/, 4)
-          return unless parts.size == 4
-          perm_type, vhost, pattern = parts[1], parts[2], parts[3]
-          return unless perm_type.in?("configure", "read", "write")
-
-          vhost = "/" if vhost == "*"
-          pattern = ".*" if pattern == "*"
-
-          permissions[vhost] ||= {
-            config: Regex.new(".*"),
-            read:   Regex.new(".*"),
-            write:  Regex.new(".*"),
-          }
-
-          regex = Regex.new(pattern)
-          permissions[vhost] = case perm_type
-                               when "configure" then permissions[vhost].merge({config: regex})
-                               when "read"      then permissions[vhost].merge({read: regex})
-                               when "write"     then permissions[vhost].merge({write: regex})
-                               else                  permissions[vhost]
-                               end
+      private def extract_scopes_from_claim(claim)
+        case claim
+        when .as_h? # Nested map - check if indexed by resource_server_id
+          if scopes = claim.as_h[@config.oauth_resource_server_id]?
+            extract_scopes_from_claim(scopes)
+          else
+            [] of String
+          end
+        when .as_a? # Array of scopes
+          claim.as_a.map(&.as_s)
+        when .as_s? # Space-separated string
+          claim.as_s.split
+        else
+          [] of String
         end
       end
 
+      # ameba:disable Metrics/CyclomaticComplexity
+      private def parse_role(role, tags, permissions)
+        # Strip scope prefix
+        prefix = @config.oauth_scope_prefix || "#{@config.oauth_resource_server_id}."
+        role = role[prefix.size..] if role.starts_with?(prefix)
+
+        if role.starts_with?("tag:")
+          tag_name = role[4..]
+          tags << Tag::Administrator if tag_name == "administrator"
+          tags << Tag::Monitoring if tag_name == "monitoring"
+          tags << Tag::Management if tag_name == "management"
+          return
+        end
+        parts = role.split(/[.:\/]/)
+        return unless parts.size == 3
+        perm_type, vhost, pattern = parts[0], parts[1], parts[2]
+        return unless perm_type.in?("configure", "read", "write")
+
+        vhost = "/" if vhost == "*"
+        pattern = ".*" if pattern == "*"
+
+        permissions[vhost] ||= {
+          config: Regex.new("^$"),
+          read:   Regex.new("^$"),
+          write:  Regex.new("^$"),
+        }
+
+        regex = Regex.new(pattern)
+        permissions[vhost] = case perm_type
+                             when "configure" then permissions[vhost].merge({config: regex})
+                             when "read"      then permissions[vhost].merge({read: regex})
+                             when "write"     then permissions[vhost].merge({write: regex})
+                             else                  permissions[vhost]
+                             end
+      end
+
       private def parse_and_verify_jwks(password : String) : JWT::Token
-        discovery_url = @config.oidc_issuer_url.chomp("/") + "/.well-known/openid-configuration"
+        discovery_url = @config.oauth_issuer_url.chomp("/") + "/.well-known/openid-configuration"
         oidc_config = fetch_url(discovery_url)
         jwks_uri = oidc_config["jwks_uri"]?.try(&.as_s)
         raise "No jwks_uri found in OIDC configuration" unless jwks_uri

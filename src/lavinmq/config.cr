@@ -79,14 +79,13 @@ module LavinMQ
     property default_user : String = ENV.fetch("LAVINMQ_DEFAULT_USER", "guest")
     property default_password : String = ENV.fetch("LAVINMQ_DEFAULT_PASSWORD", DEFAULT_PASSWORD_HASH) # Hashed password for default user
     property max_consumers_per_channel = 0
-    # OAuth2 settings
-    property oidc_issuer_url = "https://test-giant-beige-hawk.rmq7.cloudamqp.com/realms/lavinmq-dev/"
+    property oauth_issuer_url = "https://test-giant-beige-hawk.rmq7.cloudamqp.com/realms/lavinmq-dev/"
     property oauth_resource_server_id = "kickster-lavin"
     property oauth_preferred_username_claims : Array(String) = ["preferred_username", "username", "email", "sub"]
     property oauth_additional_scopes_key : String? = nil
-    # property oauth_scope_prefix : String = ""
-    # property oauth_scope_aliases : Hash(String, String) = {} of String => String
-    # property oauth_scopes : Array(String) = [] of String
+    property oauth_scope_prefix : String? = nil # Defaults to "{resource_server_id}." if not set
+    property oauth_verify_aud : Bool = true     # Whether to verify audience claim
+    property oauth_audience : String? = nil     # Expected audience (Auth0 requirement)
     getter sni_manager : SNIManager = SNIManager.new
     @@instance : Config = self.new
 
@@ -433,14 +432,13 @@ module LavinMQ
     private def parse_oauth(settings)
       settings.each do |config, v|
         case config
-        when "oidc_issuer_url"           then @oidc_issuer_url = v
-        when "resource_server_id"        then @oauth_resource_server_id = v
-        when "preferred_username_claims" then @oauth_preferred_username_claims = v.split(",").map(&.strip)
-        when "additional_scopes_key"     then @oauth_additional_scopes_key = v
-          # when "scope_prefix"              then @oauth_scope_prefix = v
-          # when "scope_aliases"             then # TODO: Parse JSON object
-          # when "client_id"                 then @oauth_client_id = v
-          # when "scopes"                    then @oauth_scopes = v.split(",").map(&.strip)
+        when "oauth_issuer_url", "issuer" then @oauth_issuer_url = v
+        when "resource_server_id"         then @oauth_resource_server_id = v
+        when "preferred_username_claims"  then @oauth_preferred_username_claims = v.split(",").map(&.strip)
+        when "additional_scopes_key"      then @oauth_additional_scopes_key = v
+        when "scope_prefix"               then @oauth_scope_prefix = v
+        when "verify_aud"                 then @oauth_verify_aud = true?(v)
+        when "audience"                   then @oauth_audience = v
         else
           STDERR.puts "WARNING: Unrecognized configuration 'oauth/#{config}'"
         end
