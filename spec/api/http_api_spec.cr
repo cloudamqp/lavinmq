@@ -237,23 +237,27 @@ describe LavinMQ::HTTP::Server do
     end
 
     it "should sort results by nested keys" do
+      stats_interval = LavinMQ::Config.instance.stats_interval
+      LavinMQ::Config.instance.stats_interval = 1000
       with_http_server do |http, s|
         vhost = s.vhosts["/"]
         vhost.declare_exchange "b-exchange", "direct", durable: true, auto_delete: false
         vhost.declare_exchange "a-exchange", "direct", durable: true, auto_delete: false
         vhost.declare_queue "b-queue", durable: true, auto_delete: false
+        message_count = 100
         spawn do
           with_channel(s) do |ch|
             x = ch.exchange("b-exchange", "direct")
             q = ch.queue("b-queue", durable: true)
             q.bind(x.name, q.name)
 
-            5.times do
-              x.publish_confirm("msg", q.name)
+            message_count.times do
+              x.publish("msg", q.name)
+              sleep 10.milliseconds
             end
           end
         end
-        wait_for { vhost.queues["b-queue"].message_count == 5 }
+        wait_for { vhost.queues["b-queue"].message_count >= 100 }
         response = http.get("/api/exchanges?page=1&sort=message_stats.publish_in_details.rate&sort_reverse=false")
         response.status_code.should eq 200
         items = JSON.parse(response.body).as_h["items"].as_a
@@ -264,6 +268,8 @@ describe LavinMQ::HTTP::Server do
         items = JSON.parse(response.body).as_h["items"].as_a
         items.first["name"].should eq "b-exchange"
       end
+    ensure
+      LavinMQ::Config.instance.stats_interval = stats_interval if stats_interval
     end
   end
 end
