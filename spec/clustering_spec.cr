@@ -31,6 +31,45 @@ describe LavinMQ::Clustering::Client do
     end
   end
 
+  # Opens a message store, publishes some messages, then saves replicator.@files
+  # Then opens a new message store in the same directory and verifies that the same
+  # files are registered in the new replicator (verifies that meta files are registered and replicated).
+  it "registers meta files on startup" do
+    etcd = LavinMQ::Etcd.new("localhost:12379")
+    msg_dir = File.join(LavinMQ::Config.instance.data_dir, "meta_test_queue")
+    FileUtils.mkdir_p(msg_dir)
+    node_id = 0
+
+    begin
+      replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, etcd, node_id)
+      msg_store = LavinMQ::MessageStore.new(msg_dir, replicator)
+      segment_size = LavinMQ::Config.instance.segment_size
+      msg_size = 1000_u64
+      num_messages = (segment_size // msg_size) + 100 # ensure we create multiple segments
+      props = LavinMQ::AMQP::Properties.new
+      msg = LavinMQ::Message.new(Time.utc.to_unix_ms, "exchange", "rk", props, msg_size, IO::Memory.new("x" * msg_size.to_i))
+      num_messages.times { msg_store.push(msg) }
+      msg_store.@segments.size.should be > 1
+
+      msg_store.close
+      files_before = replicator.@files.keys.sort!
+      replicator.close
+
+      # Re-open the message store and verify the same files are registered
+      replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, etcd, node_id + 1)
+      msg_store = LavinMQ::MessageStore.new(msg_dir, replicator)
+      msg_store.close
+      files_after = replicator.@files.keys.sort!
+
+      files_before.size.should be > 2
+      files_before.find(&.ends_with?("meta.0000000001")).should_not be_nil
+      files_before.should eq files_after
+      replicator.close
+    ensure
+      FileUtils.rm_rf(msg_dir)
+    end
+  end
+
   it "replicates and streams retained messages to followers" do
     with_clustering do |cluster|
       replicator = cluster.replicator
