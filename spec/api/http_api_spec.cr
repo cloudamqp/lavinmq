@@ -235,5 +235,35 @@ describe LavinMQ::HTTP::Server do
         items.last["name"].should eq "/"
       end
     end
+
+    it "should sort results by nested keys" do
+      with_http_server do |http, s|
+        vhost = s.vhosts["/"]
+        vhost.declare_exchange "b-exchange", "direct", durable: true, auto_delete: false
+        vhost.declare_exchange "a-exchange", "direct", durable: true, auto_delete: false
+        vhost.declare_queue "b-queue", durable: true, auto_delete: false
+        spawn do
+          with_channel(s) do |ch|
+            x = ch.exchange("b-exchange", "direct")
+            q = ch.queue("b-queue", durable: true)
+            q.bind(x.name, q.name)
+
+            5.times do
+              x.publish_confirm("msg", q.name)
+            end
+          end
+        end
+        wait_for { vhost.queues["b-queue"].message_count == 5 }
+        response = http.get("/api/exchanges?page=1&sort=message_stats.publish_in&sort_reverse=false")
+        response.status_code.should eq 200
+        items = JSON.parse(response.body).as_h["items"].as_a
+        items.last["name"].should eq "b-exchange"
+
+        response = http.get("/api/exchanges?page=1&sort=message_stats.publish_in&sort_reverse=true")
+        response.status_code.should eq 200
+        items = JSON.parse(response.body).as_h["items"].as_a
+        items.first["name"].should eq "b-exchange"
+      end
+    end
   end
 end
