@@ -408,6 +408,7 @@ module LavinMQ
             @message_count += 1
             @destination.push(msg, @source)
           end
+          break if should_stop_loop? # Don't delete shovel if paused/terminated
           @vhost.delete_parameter("shovel", @name) if @source.delete_after.queue_length?
           break
         rescue ex : ::AMQP::Client::Connection::ClosedException | ::AMQP::Client::Channel::ClosedException | Socket::ConnectError
