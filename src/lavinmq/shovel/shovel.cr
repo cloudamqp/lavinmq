@@ -72,6 +72,10 @@ module LavinMQ
       end
 
       def start
+        return if started?
+        if @last_unacked
+          Log.error { "Restarted with unacked messages, message duplication possible" }
+        end
         if c = @conn
           c.close
         end
@@ -216,6 +220,7 @@ module LavinMQ
       end
 
       def start
+        return if started?
         next_dest = @destinations.sample
         return unless next_dest
         next_dest.start
@@ -266,6 +271,7 @@ module LavinMQ
       end
 
       def start
+        return if started?
         if c = @conn
           c.close
         end
@@ -317,6 +323,7 @@ module LavinMQ
       end
 
       def start
+        return if started?
         client = ::HTTP::Client.new @uri
         client.connect_timeout = 10.seconds
         client.read_timeout = 30.seconds
@@ -392,13 +399,8 @@ module LavinMQ
         loop do
           break if should_stop_loop?
           @state = State::Starting
-          unless @source.started?
-            if @source.last_unacked
-              Log.error { "Restarted with unacked messages, message duplication possible" }
-            end
-            @source.start
-          end
-          @destination.start unless @destination.started?
+          @source.start
+          @destination.start
 
           break if should_stop_loop?
           Log.info { "started" }
@@ -456,6 +458,7 @@ module LavinMQ
       end
 
       def resume
+        return unless paused?
         delete_paused_file
         @state = State::Starting
         Log.info { "Resuming shovel #{@name} vhost=#{@vhost.name}" }
@@ -463,6 +466,7 @@ module LavinMQ
       end
 
       def pause
+        return if terminated?
         File.write(@paused_file_path, @name)
         Log.info { "Pausing shovel #{@name} vhost=#{@vhost.name}" }
         @state = State::Paused
