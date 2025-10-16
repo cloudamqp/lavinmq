@@ -254,12 +254,12 @@ describe LavinMQ::HTTP::Server do
           end
         end
         wait_for { vhost.queues["b-queue"].message_count == 5 }
-        response = http.get("/api/exchanges?page=1&sort=message_stats.publish_in&sort_reverse=false")
+        response = http.get("/api/exchanges?page=1&sort=message_stats.publish_in_details.rate&sort_reverse=false")
         response.status_code.should eq 200
         items = JSON.parse(response.body).as_h["items"].as_a
         items.last["name"].should eq "b-exchange"
 
-        response = http.get("/api/exchanges?page=1&sort=message_stats.publish_in&sort_reverse=true")
+        response = http.get("/api/exchanges?page=1&sort=message_stats.publish_in_details.rate&sort_reverse=true")
         response.status_code.should eq 200
         items = JSON.parse(response.body).as_h["items"].as_a
         items.first["name"].should eq "b-exchange"
