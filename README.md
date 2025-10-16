@@ -19,7 +19,7 @@ Discover more at [LavinMQ.com](https://lavinmq.com)
 
 ## Installation
 
-See [Installation guide](https://lavinmq.com/documentation/installation-guide) for more information on installing LavinMQ. 
+See [Installation guide](https://lavinmq.com/documentation/installation-guide) for more information on installing LavinMQ. See the [LavinMQ Operator](https://github.com/cloudamqp/lavinmq-operator) for instructions on running the Kubernetes operator.
 
 ### Debian/Ubuntu
 
