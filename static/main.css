@@ -1609,7 +1609,7 @@ label {
   text-align: center;
 }
 
-.right {
+.right, th.right {
   text-align: right;
 }
 
