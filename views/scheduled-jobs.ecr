@@ -1,0 +1,79 @@
+<%- pagename = "Scheduled Jobs" -%>
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <% render "partials/head" %>
+    <script type="module" src="js/scheduled-jobs.js"></script>
+  </head>
+  <body>
+    <% render "partials/header" %>
+    <main class="main-grid">
+      <div id="breadcrumbs" class="cols-12">
+          <h2 class="page-title"><span><%=pagename%></span><div class="tiny-badge" id="pagename-label"></div></h2>
+      </div>
+      <section class="card">
+        <div class="table-wrapper">
+          <div id="table-error"></div>
+          <table id="table" class="table">
+            <thead>
+              <tr>
+                <th>Virtual host</th>
+                <th class="left" data-sort-key="name">Name</th>
+                <th class="left">Exchange</th>
+                <th class="left">Routing key</th>
+                <th class="left">Schedule</th>
+                <th>Enabled</th>
+                <th>State</th>
+                <th>Last run</th>
+                <th>Next run</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+      <form method="put" id="createScheduledJob" class="form card">
+        <h3>
+          <span class="when-create">Add a new scheduled job</span>
+          <span class="when-edit">Edit scheduled job</span>
+        </h3>
+        <label class="when-create">
+          <span>Virtual host</span>
+          <select class="dropdown" name="vhost" required></select>
+        </label>
+        <label>
+          <span>Name</span>
+          <input type="text" name="name" required data-primary-key="">
+        </label>
+        <label>
+          <span>Exchange</span>
+          <input type="text" name="exchange" required>
+        </label>
+        <label>
+          <span>Routing key</span>
+          <input type="text" name="routing_key" required>
+        </label>
+        <label>
+          <span>Message body (JSON string)</span>
+          <textarea name="body" required rows="5" placeholder='{"message": "hello"}'></textarea>
+        </label>
+        <label>
+          <span>Schedule (CRON expression)</span>
+          <input type="text" name="schedule" required placeholder="*/5 * * * *">
+          <small>Format: minute hour day month weekday (e.g., "*/5 * * * *" for every 5 minutes)</small>
+        </label>
+        <label>
+          <span>Enabled</span>
+          <input type="checkbox" name="enabled" checked>
+        </label>
+        <button type="submit" class="btn btn-green when-create">Add scheduled job</button>
+        <div class="when-edit flex gap-2">
+          <button type="submit" class="btn btn-green">Update</button>
+          <button type="reset" class="btn btn-outlined cancel">Cancel</button>
+        </div>
+      </form>
+    </main>
+    <% render "partials/footer" %>
+  </body>
+</html>
