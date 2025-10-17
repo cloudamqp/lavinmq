@@ -6,6 +6,7 @@ require "./parameter_store"
 require "./parameter"
 require "./shovel/shovel_store"
 require "./federation/upstream_store"
+require "./scheduled_job/scheduled_job_store"
 require "./sortable_json"
 require "./amqp/exchange/*"
 require "digest/sha1"
@@ -26,7 +27,7 @@ module LavinMQ
                 "redeliver", "reject", "consumer_added", "consumer_removed"})
 
     getter name, exchanges, queues, data_dir, operator_policies, policies, parameters, shovels,
-      direct_reply_consumers, connections, dir, users
+      direct_reply_consumers, connections, dir, users, scheduled_jobs
     property? flow = true
     getter? closed = false
     property max_connections : Int32?
@@ -37,6 +38,7 @@ module LavinMQ
     @direct_reply_consumers = Hash(String, Client::Channel).new
     @shovels : ShovelStore?
     @upstreams : Federation::UpstreamStore?
+    @scheduled_jobs : ScheduledJobStore?
     @connections = Array(Client).new(512)
     @definitions_file : File
     @definitions_lock = Mutex.new(:reentrant)
@@ -60,6 +62,7 @@ module LavinMQ
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator, vhost: @name)
       @shovels = ShovelStore.new(self)
       @upstreams = Federation::UpstreamStore.new(self)
+      @scheduled_jobs = ScheduledJobStore.new(self)
       load!
       spawn check_consumer_timeouts_loop, name: "Consumer timeouts loop"
     end
@@ -344,6 +347,7 @@ module LavinMQ
     SHOVEL                  = "shovel"
     FEDERATION_UPSTREAM     = "federation-upstream"
     FEDERATION_UPSTREAM_SET = "federation-upstream-set"
+    SCHEDULED_JOB           = "scheduled-job"
 
     def add_parameter(p : Parameter)
       @log.debug { "Add parameter #{p.name}" }
@@ -362,6 +366,8 @@ module LavinMQ
         upstreams.delete_upstream(parameter_name)
       when FEDERATION_UPSTREAM_SET
         upstreams.delete_upstream_set(parameter_name)
+      when SCHEDULED_JOB
+        scheduled_jobs.try &.delete(parameter_name)
       else
         @log.warn { "No action when deleting parameter #{component_name}" }
       end
@@ -404,6 +410,7 @@ module LavinMQ
       @closed = true
       stop_shovels
       stop_upstream_links
+      scheduled_jobs.try &.close
 
       @log.info { "Closing connections" }
       close_done = Channel(Nil).new
@@ -462,6 +469,8 @@ module LavinMQ
           upstreams.create_upstream(p.parameter_name, p.value)
         when FEDERATION_UPSTREAM_SET
           upstreams.create_upstream_set(p.parameter_name, p.value)
+        when SCHEDULED_JOB
+          scheduled_jobs.try &.create(p.parameter_name, p.value)
         else
           @log.warn { "No action when applying parameter #{p.component_name}" }
         end

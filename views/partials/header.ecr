@@ -80,6 +80,7 @@
         items: [
           { href: "shovels", label: "Shovels", icon: "img/icons/icon-shovels-light.svg" },
           { href: "federation", label: "Federation", icon: "img/icons/icon-federation-light.svg" },
+          { href: "scheduled-jobs", label: "Scheduled Jobs", icon: "img/icons/icon-scheduled-jobs" },
         ]
       },
       {
@@ -92,9 +93,9 @@
         ]
       },
     ].each do |group| -%>
-      
+
       <li class="menu-group"><%= group[:title] %></li>
-      
+
       <% group[:items].each do |item| -%>
         <li<%= " class=\"active\"" if active_path?(item[:href]) %>>
           <a href="<%= item[:href] %>">
@@ -103,7 +104,7 @@
           </a>
         </li>
       <%- end -%>
-      
+
     <%- end -%>
 
     <li class="last-menu-item"><a href="docs/" target="_blank">HTTP API <img class="icon-blank" src="img/icons/icon-external-light.svg" /></a></li>
