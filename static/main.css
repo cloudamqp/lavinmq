@@ -2034,31 +2034,38 @@ pre.arguments .inactive-argument:before {
   float: right;
 }
 
-#livelog {
-  max-height: 85vh;
-  overflow-y: scroll;
-}
-
 #livelog td {
   white-space: normal;
 }
 
-.btn-primary a,
-.btn-primary a:visited {
-  color: var(--color-text-inverse);
+#livelog {
+  max-height: 65vh;
+  overflow: auto;
+  overflow-anchor: none;
+  scrollbar-gutter: stable both-edges;
+  scroll-behavior: auto;
 }
 
-#download-logs {
-  margin: 5px 0 16px 0;
+#livelog table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
 }
 
-#download-logs a {
-  text-decoration: none;
+#livelog thead th {
+  position: sticky;
+  top: 0;
+  background: var(--color-bg-secondary);
+  border-bottom: 2px solid var(--color-theme-switcher-border);
+  z-index: 2;
+  font-weight: 600;
 }
 
 #livelog table td,
 #livelog table th {
-  padding: 0;
+  padding: 4px 8px;
+  text-align: left;
 }
 
 #livelog table thead .livelog-timestamp {
@@ -2077,8 +2084,65 @@ pre.arguments .inactive-argument:before {
   width: auto;
 }
 
-#livelog table th {
-  text-align: left;
+#livelog td {
+  white-space: normal;
+}
+
+.log-toolbar-container {
+  width: 100%;
+  background: var(--color-bg-secondary);
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 1rem 1.5rem;
+}
+
+.log-toolbar {
+  flex: 0 1 auto;
+}
+
+#download-logs {
+  margin: 5px 0;
+  text-decoration: none;
+  margin-left: auto;
+}
+
+#to-top::before,
+#to-bottom::before {
+  content: "";
+  display: inline-block;
+  width: 1.2rem;
+  height: 1.2rem;
+
+  -webkit-mask: var(--icon-mask) no-repeat center / 100% 100%;
+  mask: var(--icon-mask) no-repeat center / 100% 100%;
+  background-color: currentColor;
+}
+
+#to-top {
+  --icon-mask: url(img/arrow-up.svg);
+}
+
+#to-bottom {
+  --icon-mask: url(img/arrow-down.svg);
+}
+
+.btn-toggle {
+  display: flex;
+  flex-basis: 90px;
+  align-items: center;
+  transition: border-color .18s ease;
+}
+
+.btn-toggle[aria-pressed="true"] {
+  border-bottom: 3px solid transparent;
+  border-bottom-color: var(--color-primary-green);
+}
+
+.btn-primary a,
+.btn-primary a:visited {
+  color: var(--color-text-inverse);
 }
 
 .version-tab {
