@@ -252,7 +252,7 @@ describe LavinMQ::HTTP::Server do
             100.times { x.publish("msg", q.name) }
           end
         end
-        wait_for { vhost.exchanges["b-exchange"].details_tuple["message_stats"]["publish_in_details"]["rate"] > 0}
+        wait_for { vhost.exchanges["b-exchange"].details_tuple["message_stats"]["publish_in_details"]["rate"] > 0 }
         response = http.get("/api/exchanges?page=1&sort=message_stats.publish_in_details.rate&sort_reverse=false")
         response.status_code.should eq 200
         items = JSON.parse(response.body).as_h["items"].as_a
