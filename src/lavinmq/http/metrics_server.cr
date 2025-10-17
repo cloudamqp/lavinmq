@@ -11,6 +11,7 @@ module LavinMQ
       Log = LavinMQ::Log.for "metrics.server"
 
       def initialize(amqp_server : LavinMQ::Server? = nil)
+        @closed = false
         controller = if s = amqp_server
                        PrometheusController.new(s)
                      else
@@ -36,6 +37,8 @@ module LavinMQ
       end
 
       def close
+        return if @closed
+        @closed = true
         @http.try &.close
       end
     end
