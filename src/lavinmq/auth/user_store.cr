@@ -1,5 +1,6 @@
 require "json"
 require "./user"
+require "./temp_user"
 
 module LavinMQ
   module Auth
@@ -14,7 +15,9 @@ module LavinMQ
 
       def initialize(@data_dir : String, @replicator : Clustering::Replicator)
         @users = Hash(String, User).new
+        @temp_users = Hash(String, TempUser).new
         load!
+        spawn cleanup_expired_users
       end
 
       forward_missing_to @users
@@ -44,6 +47,42 @@ module LavinMQ
         user
       end
 
+      def add(name : String, tags : Array(Tag), permissions : Hash(String, User::Permissions), expires_at : Time)
+        if cached = @temp_users[name]?
+          return cached unless cached.expired?
+          @temp_users.delete(name)
+          Log.debug { "Removed expired temp user=#{name}" }
+        end
+        user = TempUser.new(name, tags, permissions, expires_at)
+        @temp_users[user.name] = user
+        Log.info { "Added temp user=#{user.name}" }
+        user
+      end
+
+      def temp_user_count
+        @temp_users.size
+      end
+
+      def each_temp_user
+        @temp_users.each_value.reject(&.expired?)
+      end
+
+      # override forward_missing_to and check for all types of users
+      def []?(name : String) : User?
+        if user = @users[name]?
+          return user
+        end
+        if temp_user = @temp_users[name]?
+          if temp_user.expired?
+            @temp_users.delete(name)
+            Log.debug { "Removed expired temp user=#{name}" }
+            return nil
+          end
+          return temp_user
+        end
+        nil
+      end
+
       def add_permission(user, vhost, config, read, write)
         perm = {config: config, read: read, write: write}
         if @users[user].permissions[vhost]? && @users[user].permissions[vhost] == perm
@@ -71,6 +110,11 @@ module LavinMQ
 
       def delete(name, save = true) : User?
         return if name == DIRECT_USER
+        if user = @temp_users[name]?
+          @temp_users.delete(name)
+          Log.info { "Deleted temp user=#{name}" }
+          return user
+        end
         if user = @users.delete name
           Log.info { "Deleted user=#{name}" }
           save! if save
@@ -136,6 +180,15 @@ module LavinMQ
         @users[DIRECT_USER] = User.create_hidden_user(DIRECT_USER)
         perm = {config: /.*/, read: /.*/, write: /.*/}
         @users[DIRECT_USER].permissions["/"] = perm
+      end
+
+      private def cleanup_expired_users
+        loop do
+          sleep 60.seconds
+          expired = @temp_users.select { |_, u| u.expired? }
+          expired.each_key { |name| @temp_users.delete(name) }
+          Log.debug { "Cleaned up #{expired.size} expired temp users" } unless expired.empty?
+        end
       end
 
       def save!
