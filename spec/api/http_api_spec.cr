@@ -244,20 +244,15 @@ describe LavinMQ::HTTP::Server do
         vhost.declare_exchange "b-exchange", "direct", durable: true, auto_delete: false
         vhost.declare_exchange "a-exchange", "direct", durable: true, auto_delete: false
         vhost.declare_queue "b-queue", durable: true, auto_delete: false
-        message_count = 100
         spawn do
           with_channel(s) do |ch|
             x = ch.exchange("b-exchange", "direct")
             q = ch.queue("b-queue", durable: true)
             q.bind(x.name, q.name)
-
-            message_count.times do
-              x.publish("msg", q.name)
-              sleep 10.milliseconds
-            end
+            100.times { x.publish("msg", q.name) }
           end
         end
-        wait_for { vhost.queues["b-queue"].message_count >= 100 }
+        wait_for { vhost.exchanges["b-exchange"].details_tuple["message_stats"]["publish_in_details"]["rate"] > 0}
         response = http.get("/api/exchanges?page=1&sort=message_stats.publish_in_details.rate&sort_reverse=false")
         response.status_code.should eq 200
         items = JSON.parse(response.body).as_h["items"].as_a
