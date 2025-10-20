@@ -67,6 +67,8 @@ module LavinMQ
                 sorted_items.sort_by! { |i| dig(i, sort_by).as(Number) }
               when String
                 sorted_items.sort_by! { |i| dig(i, sort_by).as(String).downcase }
+              when QueueState
+                sorted_items.sort_by! { |i| dig(i, sort_by).as(QueueState) }
               else
                 bad_request(context, "Can't sort on type #{v.class}")
               end
@@ -88,7 +90,7 @@ module LavinMQ
           nt = tuple[keys.first].as?(NamedTuple) || raise KeyError.new("'#{keys.first}' is not a nested tuple")
           dig(nt, keys[1..])
         else
-          tuple[keys.first] || 0
+          tuple[keys.first]? || 0
         end
       end
 
