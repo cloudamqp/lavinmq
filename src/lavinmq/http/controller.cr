@@ -68,7 +68,7 @@ module LavinMQ
               when String
                 sorted_items.sort_by! { |i| dig(i, sort_by).as(String).downcase }
               when QueueState
-                sorted_items.sort_by! { |i| dig(i, sort_by).as(QueueState).to_s.downcase }
+                sorted_items.sort_by! { |i| dig(i, sort_by).as(QueueState) }
               else
                 bad_request(context, "Can't sort on type #{v.class}")
               end
