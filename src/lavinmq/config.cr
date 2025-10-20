@@ -49,6 +49,7 @@ module LavinMQ
     property segment_size : Int32 = 8 * 1024**2      # bytes
     property max_inflight_messages : UInt16 = 65_535 # mqtt messages
     property default_mqtt_vhost = "/"
+    property? mqtt_permission_check_enabled : Bool = false
     property? raise_gc_warn : Bool = false
     property? data_dir_lock : Bool = true
     property tcp_keepalive : Tuple(Int32, Int32, Int32)? = {60, 10, 3} # idle, interval, probes/count
@@ -359,12 +360,13 @@ module LavinMQ
     private def parse_mqtt(settings)
       settings.each do |config, v|
         case config
-        when "bind"                  then @mqtt_bind = v
-        when "port"                  then @mqtt_port = v.to_i32
-        when "tls_port"              then @mqtts_port = v.to_i32
-        when "unix_path"             then @mqtt_unix_path = v
-        when "max_inflight_messages" then @max_inflight_messages = v.to_u16
-        when "default_vhost"         then @default_mqtt_vhost = v
+        when "bind"                     then @mqtt_bind = v
+        when "port"                     then @mqtt_port = v.to_i32
+        when "tls_port"                 then @mqtts_port = v.to_i32
+        when "unix_path"                then @mqtt_unix_path = v
+        when "max_inflight_messages"    then @max_inflight_messages = v.to_u16
+        when "default_vhost"            then @default_mqtt_vhost = v
+        when "permission_check_enabled" then @mqtt_permission_check_enabled = true?(v)
         else
           STDERR.puts "WARNING: Unrecognized configuration 'mqtt/#{config}'"
         end
