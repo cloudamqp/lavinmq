@@ -2056,6 +2056,19 @@ pre.arguments .inactive-argument:before {
   text-decoration: none;
 }
 
+#log-loading[hidden] { display: none; }
+
+#log-loading {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  justify-content: center;
+  padding: .5rem .75rem;
+  background: var(--color-bg-secondary);
+  border-bottom: 1px solid var(--color-theme-switcher-border);
+}
+
 #livelog table td,
 #livelog table th {
   padding: 0;
