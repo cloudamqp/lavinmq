@@ -1378,7 +1378,7 @@ footer .logo {
 
   h2 {
     order: -1;
-    flex: 1;
+    width: 30%;
     margin: 0;
     font-size: 1rem;
     line-height: 1.5rem;
@@ -1386,7 +1386,7 @@ footer .logo {
   }
 
   form {
-    flex: 1;
+    width: 40%;
     justify-content: center;
     display: flex;
     
@@ -1416,7 +1416,7 @@ footer .logo {
   }
 
   .btn-holder {
-    flex: 1;
+    width: 30%;
   }
 }
 
