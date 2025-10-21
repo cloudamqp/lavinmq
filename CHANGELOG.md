@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.0-rc.3] - 2025-10-21
+
+### Added
+- MQTT client now uses permissions to authorize write operations on publish and read/write operations on subscribe [#1275](https://github.com/cloudamqp/lavinmq/pull/1275)
+
+### Changed
+- Crystal 1.18.0 compatibility [#1356](https://github.com/cloudamqp/lavinmq/pull/1356), [#1360](https://github.com/cloudamqp/lavinmq/pull/1360)
+- Sticky header on logs page [#1333](https://github.com/cloudamqp/lavinmq/pull/1333)
+- Less scary logging if cleaning up upstream resources fails [#1379](https://github.com/cloudamqp/lavinmq/pull/1379)
+
+### Fixed
+- UI sorting bugs [#1374](https://github.com/cloudamqp/lavinmq/pull/1374)
+- Don't delete shovel with DeleteAfter::QueueLength when pausing it [#1376](https://github.com/cloudamqp/lavinmq/pull/1376)
+- Federations: Use correct variable to prevent channel error and reconnect [#1378](https://github.com/cloudamqp/lavinmq/pull/1378)
+- Right-aligned columns display in UI tables [97f093e](https://github.com/cloudamqp/lavinmq/commit/da51e805f14c18d1e63f78e191871582ab94166c)
+- Close metrics_server on clustering client close [#1367](https://github.com/cloudamqp/lavinmq/pull/1367) & [#1380](https://github.com/cloudamqp/lavinmq/pull/1380)
+- Replicate meta files in clustering [#1365](https://github.com/cloudamqp/lavinmq/pull/1365)
+- Use the right counters for lavinmq_global_messages_delivered_total [#1358](https://github.com/cloudamqp/lavinmq/pull/1358)
+
 ## [2.5.0-rc.2] - 2025-10-14
 
 ### Added
@@ -20,7 +39,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Use eventListener consistently across JS [#1220](https://github.com/cloudamqp/lavinmq/pull/1220)
 - Prometheus metrics can nowbe served on a different port to allow unauthenticated requests for metrics [#1217](https://github.com/cloudamqp/lavinmq/pull/1217)
 - Followers no longer forward requests to the unauthenticated `/metrics` to leader and instead show their own metrics [#1217](https://github.com/cloudamqp/lavinmq/pull/1217)
-- MQTT client now uses permissions to authorize write operations on publish and read/write operations on subscribe [#1275](https://github.com/cloudamqp/lavinmq/pull/1275)
 - Rename message segment meta files to `meta.SEGMENT` [#1343](https://github.com/cloudamqp/lavinmq/pull/1343)
 - Switch from slash to chevron right in title bar breadcrumbs [#1334](https://github.com/cloudamqp/lavinmq/pull/1334)
 
