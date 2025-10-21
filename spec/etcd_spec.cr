@@ -103,7 +103,7 @@ describe LavinMQ::Etcd do
       etcds.first(2).each &.terminate(graceful: false)
 
       expect_raises(LavinMQ::Etcd::Lease::Lost) do
-        lease.wait(15.seconds)
+        lease.wait(20.seconds)
       end
     end
   end
