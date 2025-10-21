@@ -505,6 +505,12 @@ module LavinMQ
         close_channel(frame, ChannelReplyCode::NOT_FOUND, text)
       end
 
+      def send_passive_not_found(frame, text = "")
+        @log.info { "Not found channel=#{frame.channel} reason=\"#{text}\"" }
+        close_channel(frame, ChannelReplyCode::NOT_FOUND, text)
+      end
+
+
       def send_resource_locked(frame, text)
         @log.warn { "Resource locked channel=#{frame.channel} reason=\"#{text}\"" }
         close_channel(frame, ChannelReplyCode::RESOURCE_LOCKED, text)
@@ -552,7 +558,7 @@ module LavinMQ
         elsif e = @vhost.exchanges.fetch(frame.exchange_name, nil)
           redeclare_exchange(e, frame)
         elsif frame.passive
-          send_not_found(frame, "Exchange '#{frame.exchange_name}' doesn't exists")
+          send_passive_not_found(frame, "Exchange '#{frame.exchange_name}' doesn't exists")
         elsif NameValidator.reserved_prefix?(frame.exchange_name)
           send_access_refused(frame, "Prefix #{NameValidator::PREFIX_LIST} forbidden, please choose another name")
         else
@@ -650,7 +656,7 @@ module LavinMQ
             send_not_found(frame, "Queue '#{frame.queue_name}' doesn't exists")
           end
         elsif frame.passive
-          send_not_found(frame, "Queue '#{frame.queue_name}' doesn't exists")
+          send_passive_not_found(frame, "Queue '#{frame.queue_name}' doesn't exists")
         elsif NameValidator.reserved_prefix?(frame.queue_name)
           send_access_refused(frame, "Prefix #{NameValidator::PREFIX_LIST} forbidden, please choose another name")
         elsif @vhost.max_queues.try { |max| @vhost.queues.size >= max }
