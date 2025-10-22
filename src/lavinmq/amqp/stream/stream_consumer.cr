@@ -134,6 +134,7 @@ module LavinMQ
       private def wait_for_queue_ready
         if @offset > stream_queue.last_offset && @requeued.empty?
           @log.debug { "Waiting for queue not to be empty" }
+          flush
           select
           when @new_message_available.when_true.receive
             @log.debug { "Queue is not empty - new message notification received" }
