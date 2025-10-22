@@ -2,6 +2,8 @@ require "../consumer"
 require "../../segment_position"
 require "./filters/kv"
 require "./filters/x_stream_filter"
+require "./filters/gis"
+require "./filters/kv"
 
 module LavinMQ
   module AMQP
@@ -42,7 +44,7 @@ module LavinMQ
           raise LavinMQ::Error::PreconditionFailed.new("x-priority not supported on streams")
         end
         validate_stream_offset(frame)
-        validate_stream_filter(frame.arguments["x-stream-filter"]?)
+        @filters = StreamFilter.from_arguments(frame.arguments)
         validate_filter_match_type(frame)
         case match_unfiltered = frame.arguments["x-stream-match-unfiltered"]?
         when Bool
@@ -65,32 +67,6 @@ module LavinMQ
             @track_offset = frame.arguments["x-stream-automatic-offset-tracking"]? == "true"
           end
         else raise LavinMQ::Error::PreconditionFailed.new("x-stream-offset must be an integer, a timestamp, 'first', 'next' or 'last'")
-        end
-      end
-
-      private def validate_stream_filter(arg)
-        case arg
-        when String
-          arg.split(',').each do |f|
-            @filters << XStreamFilter.new(f.strip)
-          end
-        when AMQ::Protocol::Table
-          arg.each do |k, v|
-            if k.to_s == "x-stream-filter"
-              v.to_s.split(',').each do |f|
-                @filters << XStreamFilter.new(f.strip)
-              end
-            else
-              @filters << KVFilter.new(k.to_s, v.to_s)
-            end
-          end
-        when Array
-          arg.each do |f|
-            validate_stream_filter(f)
-          end
-        when Nil
-          # noop
-        else raise LavinMQ::Error::PreconditionFailed.new("x-stream-filter must be a string, table, or array")
         end
       end
 
