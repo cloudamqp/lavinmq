@@ -249,7 +249,6 @@ module LavinMQ::AMQP
         @log.debug { "Filter matched: #{msg.properties.headers} delivering message" }
         Envelope.new(sp, msg, redelivered: false)
       rescue ex
-        puts "shift? error"
         raise Error.new(rfile, cause: ex)
       end
     end

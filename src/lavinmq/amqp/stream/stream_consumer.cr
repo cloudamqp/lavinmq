@@ -161,7 +161,6 @@ module LavinMQ
             @log.debug { "Getting a new message" }
           {% end %}
           stream_queue.consume_get(self) do |env|
-            puts "Going to deliver message, #{env.redelivered}" # DEBUG
             deliver(env.message, env.segment_position, env.redelivered)
           end
           Fiber.yield if (i &+= 1) % 32768 == 0

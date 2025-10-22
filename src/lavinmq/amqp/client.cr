@@ -277,7 +277,6 @@ module LavinMQ
             pos += length
           end
           socket.flush if flush && !websocket # Websockets need to send one frame per WS frame
-          puts "Socket flushed: #{flush}"
           @last_sent_frame = RoughTime.monotonic
         end
         true
