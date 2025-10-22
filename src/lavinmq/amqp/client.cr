@@ -510,7 +510,6 @@ module LavinMQ
         close_channel(frame, ChannelReplyCode::NOT_FOUND, text)
       end
 
-
       def send_resource_locked(frame, text)
         @log.warn { "Resource locked channel=#{frame.channel} reason=\"#{text}\"" }
         close_channel(frame, ChannelReplyCode::RESOURCE_LOCKED, text)
