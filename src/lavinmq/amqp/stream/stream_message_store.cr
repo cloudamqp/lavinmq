@@ -246,8 +246,10 @@ module LavinMQ::AMQP
         consumer.pos += sp.bytesize
         consumer.offset += 1
         return unless consumer.filter_match?(msg.properties.headers)
+        @log.debug { "Filter matched: #{msg.properties.headers} delivering message" }
         Envelope.new(sp, msg, redelivered: false)
       rescue ex
+        puts "shift? error"
         raise Error.new(rfile, cause: ex)
       end
     end

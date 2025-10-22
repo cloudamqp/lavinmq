@@ -1,5 +1,6 @@
 require "../consumer"
 require "../../segment_position"
+require "./gis_filter"
 
 module LavinMQ
   module AMQP
@@ -13,6 +14,10 @@ module LavinMQ
       @filter_match_all = true
       @match_unfiltered = false
       @track_offset = false
+      # GIS filter storage
+      @gis_radius_filter : Tuple(StreamGISFilter::Point, Float64)?
+      @gis_bbox_filter : StreamGISFilter::BoundingBox?
+      @gis_polygon_filter : StreamGISFilter::Polygon?
 
       def initialize(@channel : Client::Channel, @queue : Stream, frame : AMQP::Frame::Basic::Consume)
         @tag = frame.consumer_tag
@@ -41,6 +46,7 @@ module LavinMQ
         end
         validate_stream_offset(frame)
         validate_stream_filter(frame.arguments["x-stream-filter"]?)
+        validate_gis_filters(frame.arguments)
         validate_filter_match_type(frame)
         case match_unfiltered = frame.arguments["x-stream-match-unfiltered"]?
         when Bool
@@ -92,6 +98,38 @@ module LavinMQ
         end
       end
 
+      private def validate_gis_filters(arguments : AMQ::Protocol::Table)
+        # Validate and store radius filter
+        if radius_arg = arguments["x-geo-within-radius"]?
+          @gis_radius_filter = StreamGISFilter.parse_radius_filter(radius_arg)
+          if @gis_radius_filter.nil?
+            raise LavinMQ::Error::PreconditionFailed.new(
+              "x-geo-within-radius must be a table with 'lat', 'lon', and 'radius_km' (positive number)"
+            )
+          end
+        end
+
+        # Validate and store bounding box filter
+        if bbox_arg = arguments["x-geo-bbox"]?
+          @gis_bbox_filter = StreamGISFilter.parse_bbox_filter(bbox_arg)
+          if @gis_bbox_filter.nil?
+            raise LavinMQ::Error::PreconditionFailed.new(
+              "x-geo-bbox must be a table with 'min_lat', 'max_lat', 'min_lon', and 'max_lon'"
+            )
+          end
+        end
+
+        # Validate and store polygon filter
+        if polygon_arg = arguments["x-geo-polygon"]?
+          @gis_polygon_filter = StreamGISFilter.parse_polygon_filter(polygon_arg)
+          if @gis_polygon_filter.nil?
+            raise LavinMQ::Error::PreconditionFailed.new(
+              "x-geo-polygon must be a table with 'points' array of [lat, lon] pairs (at least 3 points)"
+            )
+          end
+        end
+      end
+
       private def validate_filter_match_type(frame)
         case filter_match_type = frame.arguments["x-filter-match-type"]?
         when String
@@ -123,6 +161,7 @@ module LavinMQ
             @log.debug { "Getting a new message" }
           {% end %}
           stream_queue.consume_get(self) do |env|
+            puts "Going to deliver message, #{env.redelivered}" # DEBUG
             deliver(env.message, env.segment_position, env.redelivered)
           end
           Fiber.yield if (i &+= 1) % 32768 == 0
@@ -175,23 +214,45 @@ module LavinMQ
       end
 
       def filter_match?(msg_headers) : Bool
-        return true if @consumer_filters.empty? # No consumer filters, always match
-        if @match_unfiltered
+        has_standard_filters = !@consumer_filters.empty?
+        has_gis_filters = @gis_radius_filter || @gis_bbox_filter || @gis_polygon_filter
+
+        # No filters at all - always match
+        return true unless has_standard_filters || has_gis_filters
+
+        # Handle unfiltered message matching (only for standard filters)
+        if @match_unfiltered && has_standard_filters && !has_gis_filters
           return true unless msg_headers.try &.has_key?("x-stream-filter-value")
         end
+
         return false unless headers = msg_headers
 
+        # If only standard filters exist, use original logic
+        return filter_match_standard?(headers) unless has_gis_filters
+
+        # If only GIS filters exist, use GIS logic
+        return match_gis_filters?(headers) unless has_standard_filters
+
+        @log.debug { "Both standard and GIS filters present - combining results" }
+
+        # Both filter types exist - combine them
+        standard_match = filter_match_standard?(headers)
+        gis_match = match_gis_filters?(headers)
+
+        case @filter_match_all
+        when false # ANY: At least one filter type must match
+          standard_match || gis_match
+        else # ALL: All filter types must match
+          standard_match && gis_match
+        end
+      end
+
+      private def filter_match_standard?(headers : AMQ::Protocol::Table) : Bool
         case @filter_match_all
         when false # ANY: Return true on first match
-          @consumer_filters.each do |key, value|
-            return true if match_header_filter?(key, value, headers)
-          end
-          false
+          @consumer_filters.any? { |key, value| match_header_filter?(key, value, headers) }
         else # ALL: Return false on first non-match
-          @consumer_filters.each do |key, value|
-            return false unless match_header_filter?(key, value, headers)
-          end
-          true
+          @consumer_filters.all? { |key, value| match_header_filter?(key, value, headers) }
         end
       end
 
@@ -204,6 +265,35 @@ module LavinMQ
           end
         end
         false
+      end
+
+      private def match_gis_filters?(msg_headers : AMQ::Protocol::Table) : Bool
+        # If no GIS filters are set, they pass
+        return true unless @gis_radius_filter || @gis_bbox_filter || @gis_polygon_filter
+
+        # Check each GIS filter type
+        results = [] of Bool
+
+        if radius_filter = @gis_radius_filter
+          center, radius_km = radius_filter
+          results << StreamGISFilter.match_radius?(msg_headers, center, radius_km)
+        end
+
+        if bbox_filter = @gis_bbox_filter
+          results << StreamGISFilter.match_bbox?(msg_headers, bbox_filter)
+        end
+
+        if polygon_filter = @gis_polygon_filter
+          results << StreamGISFilter.match_polygon?(msg_headers, polygon_filter)
+        end
+
+        # Apply ALL/ANY logic to GIS filters
+        case @filter_match_all
+        when false # ANY: At least one GIS filter must match
+          results.any?
+        else
+          results.all?
+        end
       end
     end
   end

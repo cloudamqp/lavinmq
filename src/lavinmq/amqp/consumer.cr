@@ -208,6 +208,7 @@ module LavinMQ
           @has_capacity.set(false) if (unacked + 1) == @prefetch_count
         end
         delivery_tag = @channel.next_delivery_tag(@queue, sp, @no_ack, self)
+        @log.debug { "Delivering message: delivery_tag=#{delivery_tag}, redelivered=#{redelivered}, no_ack=#{@no_ack}, consumer_tag=#{@tag}" }
         deliver = AMQP::Frame::Basic::Deliver.new(@channel.id, @tag,
           delivery_tag,
           redelivered,
