@@ -158,7 +158,10 @@ module LavinMQ::AMQP
     private def handle_arguments
       super
       @effective_args << "x-queue-type"
-      stream_msg_store.max_age = parse_max_age(@arguments["x-max-age"]?)
+      if max_age = parse_max_age(@arguments["x-max-age"]?)
+        stream_msg_store.max_age = max_age
+        @effective_args << "x-max-age"
+      end
       stream_msg_store.max_length = @max_length
       stream_msg_store.max_length_bytes = @max_length_bytes
       stream_msg_store.drop_overflow
