@@ -127,7 +127,7 @@ module LavinMQ
         conn_info = extract_conn_info(client)
         handle_connection(client, conn_info, protocol)
       rescue ex
-        Log.warn(exception: ex) { "Error accepting connection from #{remote_address}" }
+        Log.warn { "Error accepting connection from #{remote_address}: #{ex.message}" }
         client.close rescue nil
       end
     end
