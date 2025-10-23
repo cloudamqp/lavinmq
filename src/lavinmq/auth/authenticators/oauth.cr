@@ -51,6 +51,8 @@ module LavinMQ
                     else             return
                     end
         expected = @config.oauth_audience || @config.oauth_resource_server_id
+        return unless expected
+
         unless audiences.includes?(expected)
           raise "Token audience mismatch: expected '#{expected}', got #{audiences.inspect}"
         end
@@ -68,39 +70,62 @@ module LavinMQ
       private def parse_roles(payload)
         tags = Set(Tag).new
         permissions = Hash(String, TempUser::Permissions).new
+        scopes = [] of String
 
-        # Extract roles from resource_access (Keycloak format)
         if resource_id = @config.oauth_resource_server_id
           if arr = payload.dig?("resource_access", resource_id, "roles").try(&.as_a?)
-            arr.each { |r| parse_role(r.as_s, tags, permissions) }
+            scopes.concat(arr.map(&.as_s))
           end
         end
 
         if scope_str = payload["scope"]?.try(&.as_s?)
-          scope_str.split.each { |r| parse_role(r, tags, permissions) }
+          scopes.concat(scope_str.split)
         end
 
-        # Extract from additional_scopes_key
         if key = @config.oauth_additional_scopes_key
           if claim = payload[key]?
-            extract_scopes_from_claim(claim).each { |r| parse_role(r, tags, permissions) }
+            scopes.concat(extract_scopes_from_claim(claim))
           end
         end
 
+        filter_scopes(scopes).each { |scope| parse_role(scope, tags, permissions) }
         {tags.to_a, permissions}
       end
 
-      private def extract_scopes_from_claim(claim)
-        case claim
-        when .as_h? # Nested map - check if indexed by resource_server_id
-          if scopes = claim.as_h[@config.oauth_resource_server_id]?
-            extract_scopes_from_claim(scopes)
-          else
-            [] of String
+      private def filter_scopes(scopes : Array(String)) : Array(String)
+        prefix = @config.oauth_scope_prefix
+        if prefix.nil?
+          if resource_id = @config.oauth_resource_server_id
+            prefix = "#{resource_id}."
           end
-        when .as_a? # Array of scopes
-          claim.as_a.map(&.as_s)
-        when .as_s? # Space-separated string
+        end
+
+        return scopes if prefix.nil? || prefix.empty?
+
+        scopes.compact_map do |scope|
+          scope[prefix.size..] if scope.starts_with?(prefix)
+        end
+      end
+
+      private def extract_scopes_from_claim(claim) : Array(String)
+        case claim
+        when .as_h?
+          result = [] of String
+          claim.as_h.each do |key, value|
+            if resource_id = @config.oauth_resource_server_id
+              result.concat(extract_scopes_from_claim(value)) if key == resource_id
+            else
+              result.concat(extract_scopes_from_claim(value))
+            end
+          end
+          result
+        when .as_a?
+          result = [] of String
+          claim.as_a.each do |item|
+            result.concat(extract_scopes_from_claim(item))
+          end
+          result
+        when .as_s?
           claim.as_s.split
         else
           [] of String
@@ -109,10 +134,6 @@ module LavinMQ
 
       # ameba:disable Metrics/CyclomaticComplexity
       private def parse_role(role, tags, permissions)
-        # Strip scope prefix
-        prefix = @config.oauth_scope_prefix || "#{@config.oauth_resource_server_id}."
-        role = role[prefix.size..] if role.starts_with?(prefix)
-
         if role.starts_with?("tag:")
           tag_name = role[4..]
           tags << Tag::Administrator if tag_name == "administrator"
@@ -120,6 +141,7 @@ module LavinMQ
           tags << Tag::Management if tag_name == "management"
           return
         end
+
         parts = role.split(/[.:\/]/)
         return unless parts.size == 3
         perm_type, vhost, pattern = parts[0], parts[1], parts[2]
@@ -144,7 +166,10 @@ module LavinMQ
       end
 
       private def parse_and_verify_jwks(password : String) : JWT::Token
-        discovery_url = @config.oauth_issuer_url.chomp("/") + "/.well-known/openid-configuration"
+        issuer_url = @config.oauth_issuer_url
+        raise "OAuth issuer URL not configured" unless issuer_url
+
+        discovery_url = issuer_url.chomp("/") + "/.well-known/openid-configuration"
         oidc_config = fetch_url(discovery_url)
         jwks_uri = oidc_config["jwks_uri"]?.try(&.as_s)
         raise "No jwks_uri found in OIDC configuration" unless jwks_uri
