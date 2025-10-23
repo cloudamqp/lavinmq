@@ -177,29 +177,19 @@ module LavinMQ
                 get_count.times do
                   q.basic_get(false, true) do |env|
                     sps << env.segment_position
-                    size = truncate ? Math.min(truncate, env.message.bodysize) : env.message.bodysize
-                    payload = String.new(env.message.body[0, size])
-                    case encoding
-                    when "base64"
-                      content = Base64.urlsafe_encode(payload)
-                      payload_encoding = "base64"
-                    else
-                      if payload.valid_encoding?
-                        content = payload
-                        payload_encoding = "string"
-                      else
-                        content = Base64.urlsafe_encode(payload)
-                        payload_encoding = "base64"
-                      end
-                    end
                     j.object do
+                      payload_encoding = "string"
                       j.field("payload_bytes", env.message.bodysize)
                       j.field("redelivered", env.redelivered)
                       j.field("exchange", env.message.exchange_name)
                       j.field("routing_key", env.message.routing_key)
                       j.field("message_count", q.message_count)
                       j.field("properties", env.message.properties)
-                      j.field("payload", content)
+                      j.field("payload") do
+                        j.string do |io|
+                          payload_encoding = encode_body(env.message, truncate, encoding, io)
+                        end
+                      end
                       j.field("payload_encoding", payload_encoding)
                     end
                   end || break
@@ -222,6 +212,18 @@ module LavinMQ
               end
             end
           end
+        end
+      end
+
+      private def encode_body(message, truncate, encoding, io) : String
+        size = truncate ? Math.min(truncate, message.bodysize) : message.bodysize
+        payload = message.body[0, size]
+        if encoding == "base64" || !Unicode.valid?(payload)
+          Base64.urlsafe_encode(payload, io)
+          "base64"
+        else
+          io.write payload
+          "string"
         end
       end
     end
