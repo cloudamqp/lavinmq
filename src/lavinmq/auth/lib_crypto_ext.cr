@@ -16,7 +16,6 @@ lib LibCrypto
   fun pem_write_bio_rsa_pubkey = PEM_write_bio_RSA_PUBKEY(bio : Bio*, rsa : RSA) : Int32
 
   # EVP (high-level crypto) functions
-  fun evp_pkey_new = EVP_PKEY_new : EVP_PKEY
   fun evp_pkey_free = EVP_PKEY_free(pkey : EVP_PKEY)
   fun pem_read_bio_pubkey = PEM_read_bio_PUBKEY(bio : Bio*, x : EVP_PKEY*, cb : Void*, u : Void*) : EVP_PKEY
   fun evp_digestverify_init = EVP_DigestVerifyInit(ctx : EVP_MD_CTX, pctx : EVP_PKEY_CTX*, type : EVP_MD, e : Void*, pkey : EVP_PKEY) : Int32
