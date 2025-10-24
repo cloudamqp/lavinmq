@@ -5,7 +5,7 @@ module LavinMQ
     struct UserView
       include SortableJSON
 
-      def initialize(@user : Auth::User)
+      def initialize(@user : Auth::BasicUser)
       end
 
       def details_tuple
@@ -36,9 +36,8 @@ module LavinMQ
       private def register_routes # ameba:disable Metrics/CyclomaticComplexity
         get "/api/users" do |context, _params|
           refuse_unless_administrator(context, user(context))
-          regular_users = @amqp_server.users.each_value.reject(&.hidden?).map { |u| UserView.new(u) }
-          temp_users = @amqp_server.users.each_temp_user.map { |u| UserView.new(u) }
-          page(context, regular_users.chain(temp_users))
+          users = @amqp_server.users.each_value.reject(&.hidden?).map { |u| UserView.new(u) }
+          page(context, users)
         end
 
         get "/api/users/without-permissions" do |context, _params|
@@ -132,7 +131,7 @@ module LavinMQ
         put "/api/auth/hash_password" do |context, _params|
           body = parse_body(context)
           if password = body["password"]?.try &.as_s?
-            hash = Auth::User.hash_password(password, "SHA256")
+            hash = Auth::BasicUser.hash_password(password, "SHA256")
             {password_hash: hash.to_s}.to_json(context.response)
             context
           else

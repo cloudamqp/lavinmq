@@ -1,11 +1,10 @@
 require "json"
-require "./user"
-require "./temp_user"
+require "./users/basic_user"
 
 module LavinMQ
   module Auth
     class UserStore
-      include Enumerable({String, User})
+      include Enumerable({String, BasicUser})
       DIRECT_USER = "__direct"
       Log         = LavinMQ::Log.for "user_store"
 
@@ -14,10 +13,8 @@ module LavinMQ
       end
 
       def initialize(@data_dir : String, @replicator : Clustering::Replicator?)
-        @users = Hash(String, User).new
-        @temp_users = Hash(String, TempUser).new
+        @users = Hash(String, BasicUser).new
         load!
-        spawn cleanup_expired_users
       end
 
       forward_missing_to @users
@@ -33,7 +30,7 @@ module LavinMQ
         if user = @users[name]?
           return user
         end
-        user = User.create(name, password, "SHA256", tags)
+        user = BasicUser.create(name, password, "SHA256", tags)
         @users[name] = user
         Log.info { "Created user=#{name}" }
         save! if save
@@ -41,46 +38,10 @@ module LavinMQ
       end
 
       def add(name, password_hash, password_algorithm, tags = Array(Tag).new, save = true)
-        user = User.new(name, password_hash, password_algorithm, tags)
+        user = BasicUser.new(name, password_hash, password_algorithm, tags)
         @users[name] = user
         save! if save
         user
-      end
-
-      def add(name : String, tags : Array(Tag), permissions : Hash(String, User::Permissions), expires_at : Time)
-        if cached = @temp_users[name]?
-          return cached unless cached.expired?
-          @temp_users.delete(name)
-          Log.debug { "Removed expired temp user=#{name}" }
-        end
-        user = TempUser.new(name, tags, permissions, expires_at)
-        @temp_users[user.name] = user
-        Log.info { "Added temp user=#{user.name}" }
-        user
-      end
-
-      def temp_user_count
-        @temp_users.size
-      end
-
-      def each_temp_user
-        @temp_users.each_value.reject(&.expired?)
-      end
-
-      # override forward_missing_to and check for all types of users
-      def []?(name : String) : User?
-        if user = @users[name]?
-          return user
-        end
-        if temp_user = @temp_users[name]?
-          if temp_user.expired?
-            @temp_users.delete(name)
-            Log.debug { "Removed expired temp user=#{name}" }
-            return nil
-          end
-          return temp_user
-        end
-        nil
       end
 
       def add_permission(user, vhost, config, read, write)
@@ -111,13 +72,8 @@ module LavinMQ
         save!
       end
 
-      def delete(name, save = true) : User?
+      def delete(name, save = true) : BasicUser?
         return if name == DIRECT_USER
-        if user = @temp_users[name]?
-          @temp_users.delete(name)
-          Log.info { "Deleted temp user=#{name}" }
-          return user
-        end
         if user = @users.delete name
           Log.info { "Deleted user=#{name}" }
           save! if save
@@ -125,7 +81,7 @@ module LavinMQ
         end
       end
 
-      def default_user : User
+      def default_user : BasicUser
         @users.each_value do |u|
           if u.tags.includes?(Tag::Administrator) && !u.hidden?
             return u
@@ -157,7 +113,7 @@ module LavinMQ
         if File.exists? path
           Log.debug { "Loading users from file" }
           File.open(path) do |f|
-            Array(User).from_json(f) do |user|
+            Array(BasicUser).from_json(f) do |user|
               @users[user.name] = user
             end
             @replicator.try &.register_file f
@@ -180,18 +136,9 @@ module LavinMQ
       end
 
       private def create_direct_user
-        @users[DIRECT_USER] = User.create_hidden_user(DIRECT_USER)
+        @users[DIRECT_USER] = BasicUser.create_hidden_user(DIRECT_USER)
         perm = {config: /.*/, read: /.*/, write: /.*/}
         @users[DIRECT_USER].permissions["/"] = perm
-      end
-
-      private def cleanup_expired_users
-        loop do
-          sleep 60.seconds
-          expired = @temp_users.select { |_, u| u.expired? }
-          expired.each_key { |name| @temp_users.delete(name) }
-          Log.debug { "Cleaned up #{expired.size} expired temp users" } unless expired.empty?
-        end
       end
 
       def save!
