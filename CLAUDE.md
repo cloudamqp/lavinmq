@@ -7,7 +7,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 LavinMQ is a high-performance message queue server implementing AMQP 0-9-1 and MQTT 3.1.1 protocols, built with Crystal. It features clustering, stream queues, federation, and extensive AMQP functionality.
 
 ## Development Commands
-please try to make unbiased analysis, comments and suggestions
 ### Building
 - `make` - Build all binaries (lavinmq, lavinmqctl, lavinmqperf) in release mode
 - `make bin/lavinmq CRYSTAL_FLAGS=` - Build debug version of the main server binary
