@@ -205,7 +205,7 @@ module LavinMQ
         context
       end
 
-      private def user(context) : Auth::User
+      private def user(context) : Auth::BasicUser
         user = nil
         if username = context.authenticated_username?
           user = @amqp_server.users[username]?
@@ -217,7 +217,7 @@ module LavinMQ
         user
       end
 
-      def vhosts(user : Auth::User)
+      def vhosts(user : Auth::BasicUser)
         @amqp_server.vhosts.each_value.select do |v|
           full_view_vhosts_access = user.tags.any? { |t| t.administrator? || t.monitoring? }
           amqp_access = user.permissions.has_key?(v.name)
