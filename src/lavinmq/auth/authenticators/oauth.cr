@@ -1,6 +1,5 @@
 require "../authenticator"
-require "../temp_user"
-require "../user_store"
+require "../users/oauth_user"
 require "../../config"
 require "../jwt"
 require "openssl"
@@ -12,16 +11,15 @@ module LavinMQ
     class OAuthAuthenticator < Authenticator
       Log = LavinMQ::Log.for "oauth2"
 
-      def initialize(@users : Auth::UserStore)
-        @config = Config.instance
+      def initialize(@users : Auth::UserStore, @config = Config.instance)
       end
 
-      def authenticate(username : String, password : Bytes) : TempUser?
+      def authenticate(username : String, password : Bytes) : OAuthUser?
         token = parse_and_verify_jwks(String.new(password))
         username, tags, permissions, expires_at = parse_jwt_payload(token.payload)
         Log.info { "OAuth2 user authenticated: #{username}" }
 
-        @users.add(username, tags, permissions, Time.unix(expires_at))
+        OAuthUser.new(username, tags, permissions, Time.unix(expires_at))
       rescue ex : JWT::DecodeError
         Log.warn { "OAuth2 authentication failed: Could not decode token - #{ex.message}" }
         nil
@@ -69,7 +67,7 @@ module LavinMQ
 
       private def parse_roles(payload)
         tags = Set(Tag).new
-        permissions = Hash(String, TempUser::Permissions).new
+        permissions = Hash(String, User::Permissions).new
         scopes = [] of String
 
         if resource_id = @config.oauth_resource_server_id
