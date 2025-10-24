@@ -1,0 +1,170 @@
+<%- pagename = "Job Queues" -%>
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <% render "partials/head" %>
+    <script type="module" src="js/job-queues.js"></script>
+  </head>
+  <body>
+    <% render "partials/header" %>
+    <main class="main-grid">
+      <div id="breadcrumbs" class="cols-12">
+          <h2 class="page-title"><span><%=pagename%></span></h2>
+      </div>
+
+      <!-- Dashboard Stats -->
+      <section class="card cols-12">
+        <h3>Dashboard</h3>
+        <div class="stats-grid">
+          <div class="stat-card">
+            <span class="stat-label">Processed Today</span>
+            <span class="stat-value" id="processed-today">-</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">Failed Today</span>
+            <span class="stat-value" id="failed-today">-</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">Scheduled Jobs</span>
+            <span class="stat-value" id="scheduled-count">-</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">Retries</span>
+            <span class="stat-value" id="retry-count">-</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">Dead Jobs</span>
+            <span class="stat-value" id="dead-count">-</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">Active Processes</span>
+            <span class="stat-value" id="active-processes">-</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">Busy Workers</span>
+            <span class="stat-value" id="busy-workers">-</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">Total Workers</span>
+            <span class="stat-value" id="total-workers">-</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Tabs -->
+      <section class="card cols-12">
+        <div class="tabs">
+          <button class="tab-btn active" data-tab="scheduled">Scheduled Jobs</button>
+          <button class="tab-btn" data-tab="retries">Retries</button>
+          <button class="tab-btn" data-tab="dead">Dead Jobs</button>
+          <button class="tab-btn" data-tab="processes">Worker Processes</button>
+          <button class="tab-btn" data-tab="metrics">Metrics</button>
+        </div>
+
+        <!-- Scheduled Jobs Tab -->
+        <div id="tab-scheduled" class="tab-content active">
+          <div class="table-wrapper">
+            <div id="scheduled-error"></div>
+            <table id="scheduled-table" class="table">
+              <thead>
+                <tr>
+                  <th class="left">Job ID</th>
+                  <th class="left">Job Class</th>
+                  <th class="left">Queue</th>
+                  <th>Scheduled At</th>
+                  <th>Arguments</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Retries Tab -->
+        <div id="tab-retries" class="tab-content">
+          <div class="table-wrapper">
+            <div id="retries-error"></div>
+            <table id="retries-table" class="table">
+              <thead>
+                <tr>
+                  <th class="left">Job ID</th>
+                  <th class="left">Job Class</th>
+                  <th class="left">Queue</th>
+                  <th>Retry At</th>
+                  <th>Retry Count</th>
+                  <th>Failed At</th>
+                  <th class="left">Error</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Dead Jobs Tab -->
+        <div id="tab-dead" class="tab-content">
+          <div class="table-wrapper">
+            <div id="dead-error"></div>
+            <table id="dead-table" class="table">
+              <thead>
+                <tr>
+                  <th class="left">Job ID</th>
+                  <th class="left">Job Class</th>
+                  <th class="left">Queue</th>
+                  <th>Died At</th>
+                  <th>Retry Count</th>
+                  <th class="left">Error</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Processes Tab -->
+        <div id="tab-processes" class="tab-content">
+          <div class="table-wrapper">
+            <div id="processes-error"></div>
+            <table id="processes-table" class="table">
+              <thead>
+                <tr>
+                  <th class="left">Identity</th>
+                  <th class="left">Hostname</th>
+                  <th>PID</th>
+                  <th>Concurrency</th>
+                  <th>Busy</th>
+                  <th>Last Beat</th>
+                  <th class="left">Queues</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Metrics Tab -->
+        <div id="tab-metrics" class="tab-content">
+          <div class="table-wrapper">
+            <div id="metrics-error"></div>
+            <table id="metrics-table" class="table">
+              <thead>
+                <tr>
+                  <th class="left">Job Class</th>
+                  <th>Total Count</th>
+                  <th>Success</th>
+                  <th>Failed</th>
+                  <th>Avg Duration (ms)</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </main>
+    <% render "partials/footer" %>
+  </body>
+</html>

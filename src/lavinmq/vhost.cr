@@ -7,6 +7,7 @@ require "./parameter"
 require "./shovel/shovel_store"
 require "./federation/upstream_store"
 require "./scheduled_job/scheduled_job_store"
+require "./job_queue/job_tracker"
 require "./sortable_json"
 require "./amqp/exchange/*"
 require "digest/sha1"
@@ -27,7 +28,7 @@ module LavinMQ
                 "redeliver", "reject", "consumer_added", "consumer_removed"})
 
     getter name, exchanges, queues, data_dir, operator_policies, policies, parameters, shovels,
-      direct_reply_consumers, connections, dir, users, scheduled_jobs
+      direct_reply_consumers, connections, dir, users, scheduled_jobs, job_tracker
     property? flow = true
     getter? closed = false
     property max_connections : Int32?
@@ -39,6 +40,7 @@ module LavinMQ
     @shovels : ShovelStore?
     @upstreams : Federation::UpstreamStore?
     @scheduled_jobs : ScheduledJobStore?
+    @job_tracker : JobQueue::JobTracker?
     @connections = Array(Client).new(512)
     @definitions_file : File
     @definitions_lock = Mutex.new(:reentrant)
@@ -63,7 +65,10 @@ module LavinMQ
       @shovels = ShovelStore.new(self)
       @upstreams = Federation::UpstreamStore.new(self)
       @scheduled_jobs = ScheduledJobStore.new(self)
+      initialize_job_queue_streams
+      @job_tracker = JobQueue::JobTracker.new(self)
       load!
+      @job_tracker.try &.start
       spawn check_consumer_timeouts_loop, name: "Consumer timeouts loop"
     end
 
@@ -409,6 +414,7 @@ module LavinMQ
       stop_shovels
       stop_upstream_links
       scheduled_jobs.try &.close
+      job_tracker.try &.close
 
       @log.info { "Closing connections" }
       close_done = Channel(Nil).new
@@ -704,6 +710,40 @@ module LavinMQ
       {% else %}
         LibC.sync
       {% end %}
+    end
+
+    private def initialize_job_queue_streams
+      # Create stream queues for job queue system
+      declare_stream_queue("scheduled_jobs", max_age: 30.days)
+      declare_stream_queue("retries", max_age: 30.days)
+      declare_stream_queue("dead_jobs", max_age: 180.days, max_length: 10_000)
+      declare_stream_queue("heartbeats", max_age: 5.minutes)
+      declare_stream_queue("job_metrics", max_age: 1825.days) # ~5 years
+    end
+
+    private def declare_stream_queue(name : String, max_age : Time::Span? = nil, max_length : Int32? = nil)
+      return if @queues.has_key?(name)
+
+      arguments = AMQP::Table.new
+      arguments["x-queue-type"] = "stream"
+      arguments["x-max-age"] = "#{max_age.total_seconds.to_i}s" if max_age
+      arguments["x-max-length"] = max_length if max_length
+
+      frame = AMQP::Frame::Queue::Declare.new(
+        channel: 0_u16,
+        reserved1: 0_u16,
+        queue_name: name,
+        passive: false,
+        durable: true,
+        exclusive: false,
+        auto_delete: false,
+        no_wait: false,
+        arguments: arguments
+      )
+
+      queue = QueueFactory.make(self, frame)
+      @queues[name] = queue
+      @log.info { "Created job queue stream: #{name}" }
     end
   end
 end
