@@ -11,15 +11,16 @@ module LavinMQ
       end
 
       def self.create(config : Config, users : UserStore) : Chain
-        backends = config.auth_backends
         authenticators = Array(Authenticator).new
-        if backends.nil? || backends.empty?
-          authenticators << BasicAuthenticator.new(users)
-        else
+        # Always try Basic Auth first
+        authenticators << BasicAuthenticator.new(users)
+
+        backends = config.auth_backends
+        if backends && !backends.empty?
           backends.each do |backend|
             case backend
             when "basic"
-              authenticators << BasicAuthenticator.new(users)
+              next
             when "oauth"
               authenticators << OAuthAuthenticator.new(users)
             else
