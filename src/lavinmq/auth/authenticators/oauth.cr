@@ -134,9 +134,9 @@ module LavinMQ
       private def parse_role(role, tags, permissions)
         if role.starts_with?("tag:")
           tag_name = role[4..]
-          tags << Tag::Administrator if tag_name == "administrator"
-          tags << Tag::Monitoring if tag_name == "monitoring"
-          tags << Tag::Management if tag_name == "management"
+          if tag = Tag.parse?(tag_name)
+            tags << tag
+           end
           return
         end
 
