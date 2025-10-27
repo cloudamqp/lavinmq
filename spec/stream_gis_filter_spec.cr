@@ -137,6 +137,29 @@ describe LavinMQ::AMQP::GISFilter do
       brooklyn = GISFilterSpecHelper.point_from_hash(GISFilterSpecHelper::BROOKLYN)
       polygon.contains?(brooklyn).should be_false
     end
+
+    it "handles polygon with vertical edges without division by zero" do
+      # Rectangle with vertical edges (same longitude for consecutive points)
+      points = [
+        LavinMQ::AMQP::GISFilter::Point.new(40.0, -75.0),
+        LavinMQ::AMQP::GISFilter::Point.new(41.0, -75.0), # Vertical edge: lon=-75.0
+        LavinMQ::AMQP::GISFilter::Point.new(41.0, -73.0),
+        LavinMQ::AMQP::GISFilter::Point.new(40.0, -73.0), # Vertical edge: lon=-73.0
+      ]
+      polygon = LavinMQ::AMQP::GISFilter::Polygon.new(points)
+
+      # Point inside the rectangle
+      inside_point = LavinMQ::AMQP::GISFilter::Point.new(40.5, -74.0)
+      polygon.contains?(inside_point).should be_true
+
+      # Point outside to the left of the left vertical edge
+      outside_left = LavinMQ::AMQP::GISFilter::Point.new(40.5, -76.0)
+      polygon.contains?(outside_left).should be_false
+
+      # Point outside to the right of the right vertical edge
+      outside_right = LavinMQ::AMQP::GISFilter::Point.new(40.5, -72.0)
+      polygon.contains?(outside_right).should be_false
+    end
   end
 
   describe "Point#distance_to" do

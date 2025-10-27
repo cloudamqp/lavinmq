@@ -153,6 +153,8 @@ module LavinMQ::AMQP
           pi = @points[i]
           pj = @points[j]
 
+          # Check if the edge crosses the ray from point to the right
+          # The first condition ensures pj.lon != pi.lon (no vertical edges)
           if ((pi.lon > point.lon) != (pj.lon > point.lon)) &&
              (point.lat < (pj.lat - pi.lat) * (point.lon - pi.lon) / (pj.lon - pi.lon) + pi.lat)
             inside = !inside
