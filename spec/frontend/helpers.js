@@ -1,4 +1,4 @@
-function waitForPathRequest(page, path, {response = {}, method = 'GET'} = {}) {
+function waitForPathRequest(page, path, {response = {}, method = 'GET', times = 1} = {}) {
   const matchUrl = new URL(path, 'http://example.com')
   return new Promise((resolve, reject) => {
     const handler = (route, request) => {
@@ -9,13 +9,18 @@ function waitForPathRequest(page, path, {response = {}, method = 'GET'} = {}) {
       if (decodeURIComponent(requestedUrl.pathname) !== decodeURIComponent(matchUrl.pathname)) {
         return route.continue()
       }
-      page.unroute('**/*', handler)
       route.fulfill({ json: response })
-      resolve(request)
+      times--
+      if (times == 0) {
+        page.unroute('**/*', handler)
+        resolve(request)
+      }
     }
     page.route('**/*', handler)
   })
 }
+
+
 
 
 export { waitForPathRequest }

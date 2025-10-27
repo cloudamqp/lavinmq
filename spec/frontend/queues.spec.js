@@ -12,11 +12,21 @@ test.describe("queues", _ => {
       await queuesLoaded
     })
 
+  test('are refreshed automatically', async({ page }) => {
+    page.clock.install()
+    // Verify that at least 3 requests are made in 60 seconds (60000ms)
+    const apiQueuesRequest = helpers.waitForPathRequest(page, '/api/queues', { times: 3 })
+    await page.goto('/queues')
+    page.clock.runFor(60000)
+    await expect(apiQueuesRequest).toBeRequested()
+  })
+
+
   // Test that different combination of hash params are sent in the request
   test.describe('are loaded with params when hash params', _ => {
     test('are empty', async ({ page, baseURL }) => {
       await expect(page.locator('#pagename-label')).toHaveText('100') // total_count
-   })
+    })
 
     test('are page_size=10, page=2', async ({ page }) => {
       const apiQueuesRequest = helpers.waitForPathRequest(page, '/api/queues')
