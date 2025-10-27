@@ -1,0 +1,285 @@
+<%- pagename = "Stream" -%>
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <% render "partials/head" %>
+    <script type="module" src="js/stream.js"></script>
+  </head>
+  <body>
+    <% render "partials/header" %>
+    <main class="queue-main main-grid">
+      <div id="breadcrumbs" class="cols-12">
+          <h2 class="page-title"><%=pagename%><div id="pagename-label" class="subpage-title"></div></h2>
+      </div>
+      <section class="card cols-4">
+        <h3>Details</h3>
+        <table class="details-table">
+          <tr>
+            <th>Features</th>
+            <td id="q-features"></td>
+          </tr>
+          <tr>
+            <th>State</th>
+            <td id="q-state"></td>
+          </tr>
+          <tr>
+            <th>Consumers</th>
+            <td id="q-consumers"></td>
+          </tr>
+          <tr>
+            <th>Policy</th>
+            <td id="q-policy"></td>
+          </tr>
+          <tr>
+            <th>Operator policy</th>
+            <td id="q-operator-policy"></td>
+          </tr>
+          <tr>
+            <th>Effective policy definition</th>
+            <td id="q-effective-policy-definition"></td>
+          </tr>
+        </table>
+      </section>
+      <section class="card cols-5">
+        <h3>Messages</h3>
+        <table class="details-table">
+          <tr>
+            <th></th>
+            <th>Count</th>
+            <th>Bytesize</th>
+            <th>Average</th>
+          </tr>
+          <tr>
+            <th>Total</th>
+            <td id="q-total"></td>
+            <td id="q-total-bytes"></td>
+            <td id="q-total-avg-bytes"></td>
+          </tr>
+        </table>
+      </section>
+      <section class="card cols-3">
+        <h3>Arguments</h3>
+        <pre class="arguments" id="q-arguments"></pre>
+      </section>
+      <section class="card">
+        <h3>Rates</h3>
+        <div class="chart-container" id="chart"></div>
+      </section>
+      <section class="card">
+        <h3 class="has-badge">
+          Consumers
+          <small class="tiny-badge counter-pill" id="consumer-count"></small>
+        </h3>
+        <div class="table-wrapper">
+          <div id="table-error"></div>
+          <table id="table" class="table">
+            <thead>
+              <tr>
+                <th class="left">Channel</th>
+                <th class="left">Consumer tag</th>
+                <th>Ack required</th>
+                <th>Exclusive</th>
+                <th class="right">Prefetch count</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <button class="load-more" id="load-more-consumers"></button>
+      </section>
+      <section class="card">
+        <h3 class="has-badge">
+          Bindings
+          <small class="tiny-badge counter-pill" id="bindings-count"></small>
+        </h3>
+        <div class="table-wrapper">
+          <div id="bindings-table-error"></div>
+          <table id="bindings-table" class="table">
+            <thead>
+              <tr>
+                <th class="left">From</th>
+                <th class="left">Routing key</th>
+                <th class="left">Arguments</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+      <form method="post" id="addBinding" class="form card cols-6">
+        <h3>Add a binding to this stream</h3>
+        <label>
+          <span>From exchange</span>
+          <input name="source" type="text" required list="exchange-list">
+          <datalist id="exchange-list"></datalist>
+        </label>
+        <label>
+          <span>Routing key</span>
+          <input name="routing_key" type="text">
+        </label>
+        <label>
+          <span>Arguments</span>
+          <textarea name="arguments" placeholder='{ "key": value }'></textarea>
+        </label>
+        <button type="submit" class="btn btn-outlined">Bind</button>
+      </form>
+      <form method="post" id="publishMessage" class="form card cols-6">
+        <h3 class="with-desc">Publish message</h3>
+        <p class="card-desc pre-form">
+          Message will be published to the default exchange with routing key <span class="queue"></span>, routing it to
+          this stream.
+        </p>
+        <label>
+          <span>Delivery mode</span>
+          <select class="dropdown" name="delivery_mode">
+            <option value="2">Persistent</option>
+          </select>
+        </label>
+        <label>
+          <span>Headers</span>
+          <textarea name="headers" placeholder='{ "key": value }'></textarea>
+        </label>
+        <label>
+          <span>Properties</span>
+          <textarea name="properties" placeholder='{ "key": value }'></textarea>
+          <div id="dataTags" class="label">
+            <a class="arg-tooltip" data-tag="content_type" data-value="&quot;application/json&quot;">Content Type
+              <span class="tooltiptext">Type of the content used by application. Default set to 'application/json'</span>
+            </a> |
+            <a class="arg-tooltip" data-tag="content_encoding">Content Encoding
+              <span class="tooltiptext">Encoding of the content used by application.</span>
+            </a> |
+            <a class="arg-tooltip" data-tag="expiration" data-value="0">Message TTL
+              <span class="tooltiptext">How long a message published to a queue can live before it is discarded
+                (milliseconds).</span>
+            </a> |
+            <a class="arg-tooltip" data-tag="priority" data-value="1">Priority
+              <span class="tooltiptext">Priority of the message in the queue.</span>
+            </a> |
+            <a class="arg-tooltip" data-tag="message_id">Message ID
+              <span class="tooltiptext">Message identifier of the message used by application.</span>
+            </a> |
+            <a class="arg-tooltip" data-tag="timestamp">Timestamp
+              <span class="tooltiptext">Timestamp of the message used by application.</span>
+            </a> |
+            <a class="arg-tooltip" data-tag="type">Type
+              <span class="tooltiptext">Type of the message used by application.</span>
+            </a> |
+            <a class="arg-tooltip" data-tag="user_id">User ID
+              <span class="tooltiptext">User identifier when impersonate another user.</span>
+            </a> |
+            <a class="arg-tooltip" data-tag="app_id">App ID
+              <span class="tooltiptext">Application identifier.</span>
+            </a> |
+            <a class="arg-tooltip" data-tag="correlation_id">Correlation ID
+              <span class="tooltiptext">Correlation identifier for RPC</span>
+            </a> |
+            <a class="arg-tooltip" data-tag="reply_to">Reply To
+              <span class="tooltiptext">Reply to queue for RPC</span>
+            </a>
+          </div>
+        </label>
+        <label>
+          <span>Payload</span>
+          <textarea name="payload"></textarea>
+        </label>
+        <label>
+          <span>Payload encoding</span>
+          <select class="dropdown" name="payload_encoding">
+            <option value="string">String</option>
+            <option value="base64">Base64</option>
+          </select>
+        </label>
+        <button type="submit" class="btn btn-outlined">Publish message</button>
+      </form>
+      <section class="card cols-6">
+        <form method="post" id="getMessages" class="form">
+          <h3>Get messages</h3>
+          <label>
+            <span>Offset</span>
+            <input type="text" name="offset" value="first">
+          </label>
+          <label>
+            <span>Count</span>
+            <input type="number" name="messages" value=1>
+          </label>
+          <label>
+            <span>Encoding</span>
+            <select class="dropdown" name="encoding">
+              <option value="auto">Auto string/base64</option>
+              <option value="base64">Base64</option>
+            </select>
+          </label>
+          <button type="submit" class="btn btn-outlined">Get message(s)</button>
+        </form>
+      </section>
+      <!--
+      <form method="post" id="moveMessages" class="form card cols-6">
+        <h3>Copy messages</h3>
+        <label>
+          <span>Destination queue</span>
+          <input type="text" name="shovel-destination" list="queue-list">
+          <datalist id="queue-list">
+          </datalist>
+        </label>
+        <button type="submit" class="btn btn-outlined">Move messages</button>
+      </form>
+      -->
+      <div id="message-template" class="hide message card">
+        <h4 class="message-header">Offset <span class="message-number"></span></h4>
+        <table>
+          <tr>
+            <th>Exchange</th>
+            <td class="message-exchange"></td>
+          </tr>
+          <tr>
+            <th>Routing key</th>
+            <td class="message-routing-key"></td>
+          </tr>
+          <tr>
+            <th>Properties</th>
+            <td>
+              <pre class="message-properties"></pre>
+            </td>
+          </tr>
+          <tr>
+            <th>
+              Payload
+              <div><small><span class="message-size"></span> bytes</small></div>
+              <div><small>Encoding: <span class="message-encoding"></span></small></div>
+            </th>
+            <td>
+              <pre class="message-payload"></pre>
+            </td>
+          </tr>
+        </table>
+      </div>
+      <div id="messages" class="cols-12"></div>
+      <section class="card cols-4">
+        <h3>Pause Stream</h3>
+        <form method="put" id="pauseQueue" class="form">
+          <label>
+            <button type="submit" class="btn btn-yellow">Pause stream</button>
+          </label>
+        </form>
+        <form method="put" id="resumeQueue" class="form hide">
+          <label>
+            <button type="submit" class="btn btn-yellow">Resume stream</button>
+          </label>
+        </form>
+        <p class="card-desc">Pausing a stream will stop deliveries to all consumers.</p>
+      </section>
+      <section class="card cols-4">
+        <h3>Delete stream</h3>
+        <form method="delete" id="deleteQueue" class="form">
+          <label>
+            <button type="submit" class="btn btn-red">Delete stream</button>
+          </label>
+        </form>
+      </section>
+    </main>
+    <% render "partials/footer" %>
+  </body>
+</html>
