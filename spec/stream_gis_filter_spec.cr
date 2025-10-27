@@ -3,11 +3,11 @@ require "../src/lavinmq/amqp/stream/filters/gis.cr"
 
 module GISFilterSpecHelper
   # Common test points
-  NYC = {lat: 40.7128, lon: -74.0060}
-  LA = {lat: 34.0522, lon: -118.2437}
-  LONDON = {lat: 51.5074, lon: -0.1278}
-  PARIS = {lat: 48.8566, lon: 2.3522}
-  BROOKLYN = {lat: 40.6782, lon: -73.9442}
+  NYC              = {lat: 40.7128, lon: -74.0060}
+  LA               = {lat: 34.0522, lon: -118.2437}
+  LONDON           = {lat: 51.5074, lon: -0.1278}
+  PARIS            = {lat: 48.8566, lon: 2.3522}
+  BROOKLYN         = {lat: 40.6782, lon: -73.9442}
   MANHATTAN_CENTER = {lat: 40.7589, lon: -73.9851}
 
   # Triangle polygon points
@@ -189,24 +189,30 @@ describe LavinMQ::AMQP::GISFilter do
       headers = GISFilterSpecHelper.geo_headers(40.7128, -74.0060)
       point = LavinMQ::AMQP::GISFilter::Point.from_headers(headers)
       point.should_not be_nil
-      point.not_nil!.lat.should eq 40.7128
-      point.not_nil!.lon.should eq -74.0060
+      if p = point
+        p.lat.should eq 40.7128
+        p.lon.should eq -74.0060
+      end
     end
 
     it "extracts point from headers with Int values" do
       headers = GISFilterSpecHelper.geo_headers(40, -74)
       point = LavinMQ::AMQP::GISFilter::Point.from_headers(headers)
       point.should_not be_nil
-      point.not_nil!.lat.should eq 40.0
-      point.not_nil!.lon.should eq -74.0
+      if p = point
+        p.lat.should eq 40.0
+        p.lon.should eq -74.0
+      end
     end
 
     it "extracts point from headers with String values" do
       headers = GISFilterSpecHelper.geo_headers("40.7128", "-74.0060")
       point = LavinMQ::AMQP::GISFilter::Point.from_headers(headers)
       point.should_not be_nil
-      point.not_nil!.lat.should eq 40.7128
-      point.not_nil!.lon.should eq -74.0060
+      if p = point
+        p.lat.should eq 40.7128
+        p.lon.should eq -74.0060
+      end
     end
 
     it "returns nil for missing headers" do
@@ -242,10 +248,11 @@ describe LavinMQ::AMQP::GISFilter do
       })
       result = LavinMQ::AMQP::GISFilter.parse_radius_filter(table)
       result.should_not be_nil
-      filter = result.not_nil!
-      filter.center.lat.should eq GISFilterSpecHelper::NYC[:lat]
-      filter.center.lon.should eq GISFilterSpecHelper::NYC[:lon]
-      filter.radius_km.should eq 10.0
+      if filter = result
+        filter.center.lat.should eq GISFilterSpecHelper::NYC[:lat]
+        filter.center.lon.should eq GISFilterSpecHelper::NYC[:lon]
+        filter.radius_km.should eq 10.0
+      end
     end
 
     it "returns nil for missing fields" do
@@ -303,11 +310,12 @@ describe LavinMQ::AMQP::GISFilter do
       })
       result = LavinMQ::AMQP::GISFilter.parse_bbox_filter(table)
       result.should_not be_nil
-      filter = result.not_nil!
-      filter.bbox.min_lat.should eq 40.0
-      filter.bbox.max_lat.should eq 41.0
-      filter.bbox.min_lon.should eq -75.0
-      filter.bbox.max_lon.should eq -73.0
+      if filter = result
+        filter.bbox.min_lat.should eq 40.0
+        filter.bbox.max_lat.should eq 41.0
+        filter.bbox.min_lon.should eq -75.0
+        filter.bbox.max_lon.should eq -73.0
+      end
     end
 
     it "returns nil for missing fields" do
@@ -354,8 +362,9 @@ describe LavinMQ::AMQP::GISFilter do
       table = AMQ::Protocol::Table.new({"points" => points_array})
       result = LavinMQ::AMQP::GISFilter.parse_polygon_filter(table)
       result.should_not be_nil
-      filter = result.not_nil!
-      filter.polygon.points.size.should eq 3
+      if filter = result
+        filter.polygon.points.size.should eq 3
+      end
     end
 
     it "returns nil for fewer than 3 points" do

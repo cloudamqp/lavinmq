@@ -60,7 +60,7 @@ describe LavinMQ::AMQP::Stream do
           # Should NOT receive Brooklyn message
           select
           when msg = msgs.receive
-            fail "Should not receive message: #{msg.body_io.to_s}"
+            fail "Should not receive message: #{msg.body_io}"
           when timeout(100.milliseconds)
             # Expected - no more messages
           end
@@ -128,7 +128,7 @@ describe LavinMQ::AMQP::Stream do
           # Should NOT receive Brooklyn message
           select
           when msg = msgs.receive
-            fail "Should not receive message: #{msg.body_io.to_s}"
+            fail "Should not receive message: #{msg.body_io}"
           when timeout(100.milliseconds)
             # Expected - no more messages
           end
@@ -185,7 +185,7 @@ describe LavinMQ::AMQP::Stream do
           # Should NOT receive outside message
           select
           when msg = msgs.receive
-            fail "Should not receive message: #{msg.body_io.to_s}"
+            fail "Should not receive message: #{msg.body_io}"
           when timeout(100.milliseconds)
             # Expected - no more messages
           end
@@ -250,7 +250,7 @@ describe LavinMQ::AMQP::Stream do
           # Should NOT receive other messages
           select
           when msg = msgs.receive
-            fail "Should not receive message: #{msg.body_io.to_s}"
+            fail "Should not receive message: #{msg.body_io}"
           when timeout(100.milliseconds)
             # Expected - no more messages
           end
@@ -331,7 +331,7 @@ describe LavinMQ::AMQP::Stream do
           # Should NOT receive museum_far
           select
           when msg = msgs.receive
-            fail "Should not receive message: #{msg.body_io.to_s}"
+            fail "Should not receive message: #{msg.body_io}"
           when timeout(100.milliseconds)
             # Expected - no more messages
           end
@@ -390,7 +390,7 @@ describe LavinMQ::AMQP::Stream do
           # Should NOT receive radius_only message
           select
           when msg = msgs.receive
-            fail "Should not receive message: #{msg.body_io.to_s}"
+            fail "Should not receive message: #{msg.body_io}"
           when timeout(100.milliseconds)
             # Expected - no more messages
           end
@@ -441,7 +441,7 @@ describe LavinMQ::AMQP::Stream do
           # Should NOT receive message without coordinates
           select
           when msg = msgs.receive
-            fail "Should not receive message: #{msg.body_io.to_s}"
+            fail "Should not receive message: #{msg.body_io}"
           when timeout(100.milliseconds)
             # Expected - no more messages
           end
