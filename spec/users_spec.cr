@@ -94,6 +94,46 @@ describe LavinMQ::Server do
     end
   end
 
+  it "allows publish after updating permissions without reconnecting" do
+    with_amqp_server do |s|
+      s.vhosts.create("v1")
+      with_channel(s, vhost: "v1") do |ch|
+        x = ch.exchange("test-x", "direct")
+        q = ch.queue("test-queue")
+        q.bind(x.name, "key")
+      end
+
+      s.users.create("u1", "p1")
+      s.users.add_permission("u1", "v1", /.*/, /.*/, /^$/) # config, read, write - no write permission
+      Fiber.yield
+
+      # Connect once and keep connection open
+      conn = AMQP::Client.new(port: amqp_port(s), vhost: "v1", user: "u1", password: "p1").connect
+      begin
+        ch = conn.channel
+        x = ch.exchange("test-x", "direct", passive: true)
+
+        # Try to publish without write permission - should fail
+        expect_raises(AMQP::Client::Channel::ClosedException, /403/) do
+          x.publish_confirm "msg1", "key"
+        end
+
+        # Update permissions to allow write
+        s.users.add_permission("u1", "v1", /.*/, /.*/, /.*/) # config, read, write - all allowed
+        Fiber.yield
+        s.users.@users["u1"].permissions["v1"].should eq({config: /.*/, read: /.*/, write: /.*/})
+
+        # Try to publish again - will fail because of cache
+        x.publish_confirm "msg1", "key"
+
+        ch.close
+        x.delete
+      ensure
+        conn.close
+      end
+    end
+  end
+
   it "prohibits consuming if user doesn't have access" do
     with_amqp_server do |s|
       s.vhosts.create("v1")
