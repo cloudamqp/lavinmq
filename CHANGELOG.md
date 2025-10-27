@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.0-rc.4] - 2025-10-27
+
+### Fixed
+- Stream Basic Get responses over HTTP API [c1b8ec3](https://github.com/cloudamqp/lavinmq/commit/c1b8ec39c4d2d91cf80ad9bf0eb6f9805fd51a0b)
+- Fixed a bug where stream consumers sometimes did not flush messages to socket [#1385](https://github.com/cloudamqp/lavinmq/pull/1385)
+- Log Info instead of Warning on passive declare [#1384](https://github.com/cloudamqp/lavinmq/pull/1384)
+- Log which user is being denied permission [#1392](https://github.com/cloudamqp/lavinmq/pull/1392)
+
 ## [2.4.5] - 2025-10-22
 
 ### Fixed
