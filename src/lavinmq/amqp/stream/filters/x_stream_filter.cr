@@ -1,7 +1,7 @@
 require "./filter"
 
 module LavinMQ::AMQP
-  class LegacyStreamFilter
+  struct XStreamFilter
     include StreamFilter
 
     getter value : String

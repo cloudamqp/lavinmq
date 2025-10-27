@@ -1,7 +1,7 @@
 require "../consumer"
 require "../../segment_position"
 require "./filters/kv"
-require "./filters/legacy_stream_filter"
+require "./filters/x_stream_filter"
 
 module LavinMQ
   module AMQP
@@ -72,13 +72,13 @@ module LavinMQ
         case arg
         when String
           arg.split(',').each do |f|
-            @filters << LegacyStreamFilter.new(f.strip)
+            @filters << XStreamFilter.new(f.strip)
           end
         when AMQ::Protocol::Table
           arg.each do |k, v|
             if k.to_s == "x-stream-filter"
               v.to_s.split(',').each do |f|
-                @filters << LegacyStreamFilter.new(f.strip)
+                @filters << XStreamFilter.new(f.strip)
               end
             else
               @filters << KVFilter.new(k.to_s, v.to_s)

@@ -1,7 +1,7 @@
 require "./filter"
 
 module LavinMQ::AMQP
-  class KVFilter
+  struct KVFilter
     include StreamFilter
 
     getter key : String
