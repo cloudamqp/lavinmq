@@ -814,7 +814,7 @@ module LavinMQ
         elsif !@user.can_read?(@vhost.name, frame.source)
           send_access_refused(frame, "User '#{@user.name}' doesn't have read permissions to exchange '#{frame.source}'")
         elsif !@user.can_write?(@vhost.name, frame.destination)
-          send_access_refused(frame, "User '#{@user.name}'  doesn't have write permissions to exchange '#{frame.destination}'")
+          send_access_refused(frame, "User '#{@user.name}' doesn't have write permissions to exchange '#{frame.destination}'")
         elsif frame.source.empty? || frame.destination.empty? || frame.source == DEFAULT_EX || frame.destination == DEFAULT_EX
           send_access_refused(frame, "Not allowed to unbind from the default exchange")
         else
