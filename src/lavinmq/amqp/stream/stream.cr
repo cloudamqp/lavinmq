@@ -42,7 +42,6 @@ module LavinMQ::AMQP
                              @exclusive = false, @auto_delete = false,
                              @arguments = AMQP::Table.new)
       super
-      spawn unmap_and_remove_segments_loop, name: "Stream#unmap_and_remove_segments_loop"
     end
 
     def apply_policy(policy : Policy?, operator_policy : OperatorPolicy?)
@@ -71,6 +70,14 @@ module LavinMQ::AMQP
 
     private def queue_expire_loop
       # Streams doesn't handle queue expiration
+    end
+
+    private def start
+      if @msg_store.closed
+        close
+      end
+      handle_arguments
+      spawn unmap_and_remove_segments_loop, name: "Stream#unmap_and_remove_segments_loop"
     end
 
     private def init_msg_store(data_dir)
