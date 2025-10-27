@@ -50,6 +50,7 @@ function updateExchange () {
   })
 }
 updateExchange()
+setInterval(updateExchange, 5000)
 
 const tableOptions = {
   dataSource: new UrlDataSource(exchangeUrl + '/bindings/source', { useQueryState: false }),
