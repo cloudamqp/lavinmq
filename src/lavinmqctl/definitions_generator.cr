@@ -1,9 +1,9 @@
-require "./version"
+require "../lavinmq/version"
 require "../stdlib/slice"
 require "json"
 require "amq-protocol"
 
-class LavinMQCtl
+module LavinMQCtl
   class DefinitionsGenerator
     def initialize(@data_dir : String)
       {"vhosts.json", "users.json"}.each do |f|
