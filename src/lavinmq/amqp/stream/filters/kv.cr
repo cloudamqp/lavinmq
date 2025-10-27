@@ -11,8 +11,11 @@ module LavinMQ::AMQP
     end
 
     def match?(headers : AMQP::Table) : Bool
-      msg_value = headers[@key]?
-      msg_value.to_s == @value
+      if msg_value = headers[@key]?
+        msg_value.to_s == @value
+      else
+        false
+      end
     end
   end
 end
