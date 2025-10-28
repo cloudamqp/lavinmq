@@ -23,7 +23,6 @@ test.describe("connection", _ => {
     }
   })
 
-
   test('channels are loaded', async ({ page, baseURL }) => {
     const apiChannelsRequest = helpers.waitForPathRequest(page, `${apiPath}/channels`)
     await page.goto(pagePath)
@@ -37,11 +36,9 @@ test.describe("connection", _ => {
     for (let i=0; i<3; i++) {
       const apiChannelsRequest = helpers.waitForPathRequest(page, `${apiPath}/channels`)
       page.clock.runFor(10000) // advance time by 10 seconds
-      await expect(apiChannelsRequest).toBeRequested()
+      await expect(apiChannelsReques).toBeRequested()
     }
   })
-
-
 
   test('close button trigger DELETE to api/connections/<name>', async ({ page, baseURL }) => {
     const response = {}
@@ -50,5 +47,4 @@ test.describe("connection", _ => {
     await page.locator('#closeConnection').getByRole('button').click()
     await expect(apiDeleteRequest).toBeRequested()
   })
-
 })
