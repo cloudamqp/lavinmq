@@ -1,19 +1,19 @@
-function waitForPathRequest(page, path, {response = {}, method = 'GET'} = {}) {
+async function waitForPathRequest(page, path, {response = {}, method = 'GET'} = {}) {
   const matchUrl = new URL(path, 'http://example.com')
-  return new Promise((resolve, reject) => {
-    const handler = (route, request) => {
+  return new Promise(async (resolve, reject) => {
+    const handler = async (route, request) => {
       const requestedUrl = new URL(request.url())
       if (request.method() !== method) {
-        return route.continue()
+        return await route.continue()
       }
       if (decodeURIComponent(requestedUrl.pathname) !== decodeURIComponent(matchUrl.pathname)) {
-        return route.continue()
+        return await route.continue()
       }
-      route.fulfill({ json: response })
-      page.unroute('**/*', handler)
+      await route.fulfill({ json: response })
+      await page.unroute('**/*', handler)
       resolve(request)
     }
-    page.route('**/*', handler)
+    await page.route('**/*', handler)
   })
 }
 
