@@ -7,4 +7,15 @@ test.describe("exchanges", _ => {
     await page.goto('/exchanges')
     await expect(apiExchangesRequest).toBeRequested()
   })
+
+  test('are refreshed automatically', async({ page }) => {
+    await page.clock.install()
+    await page.goto('/exchanges')
+    // Verify that at least 3 requests are made
+    for (let i=0; i<3; i++) {
+      const apiQueuesRequest = helpers.waitForPathRequest(page, '/api/exchanges')
+      await page.clock.runFor(10000) // advance time by 10 seconds
+      await expect(apiQueuesRequest).toBeRequested()
+    }
+  })
 })
