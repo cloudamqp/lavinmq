@@ -13,12 +13,12 @@ test.describe("connection", _ => {
   })
 
   test('is refreshed automatically', async({ page }) => {
-    page.clock.install()
+    await page.clock.install()
     await page.goto(pagePath)
     // Verify that at least 3 requests are made
     for (let i=0; i<3; i++) {
       const apiConnectionRequest = helpers.waitForPathRequest(page, apiPath)
-      page.clock.runFor(10000) // advance time by 10 seconds
+      await page.clock.runFor(10000) // advance time by 10 seconds
       await expect(apiConnectionRequest).toBeRequested()
     }
   })
@@ -30,12 +30,12 @@ test.describe("connection", _ => {
   })
 
   test('channels are refreshed automatically', async({ page }) => {
-    page.clock.install()
+    await page.clock.install()
     await page.goto(pagePath)
     // Verify that at least 3 requests are made
     for (let i=0; i<3; i++) {
       const apiChannelsRequest = helpers.waitForPathRequest(page, `${apiPath}/channels`)
-      page.clock.runFor(10000) // advance time by 10 seconds
+      await page.clock.runFor(10000) // advance time by 10 seconds
       await expect(apiChannelsReques).toBeRequested()
     }
   })

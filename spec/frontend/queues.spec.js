@@ -13,12 +13,12 @@ test.describe("queues", _ => {
     })
 
   test('are refreshed automatically', async({ page }) => {
-    page.clock.install()
+    await page.clock.install()
     await page.goto('/queues')
     // Verify that at least 3 requests are made
     for (let i=0; i<3; i++) {
       const apiQueuesRequest = helpers.waitForPathRequest(page, '/api/queues')
-      page.clock.runFor(10000) // advance time by 10 seconds
+      await page.clock.runFor(10000) // advance time by 10 seconds
       await expect(apiQueuesRequest).toBeRequested()
     }
   })
