@@ -350,7 +350,7 @@ describe LavinMQ::HTTP::ExchangesController do
 
   describe "GET /api/exchanges/vhost/name with x-hash-on argument" do
     it "should include x-hash-on in effective_arguments for consistent hash exchange" do
-      with_http_server do |http, s|
+      with_http_server do |http, _|
         body = %({
         "type": "x-consistent-hash",
         "durable": false,
@@ -368,7 +368,7 @@ describe LavinMQ::HTTP::ExchangesController do
     end
 
     it "should not include x-hash-on in effective_arguments when not set" do
-      with_http_server do |http, s|
+      with_http_server do |http, _|
         body = %({
         "type": "x-consistent-hash",
         "durable": false
