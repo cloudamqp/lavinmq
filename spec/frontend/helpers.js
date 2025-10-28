@@ -1,4 +1,4 @@
-function waitForPathRequest(page, path, {response = {}, method = 'GET', times = 1} = {}) {
+function waitForPathRequest(page, path, {response = {}, method = 'GET'} = {}) {
   const matchUrl = new URL(path, 'http://example.com')
   return new Promise((resolve, reject) => {
     const handler = (route, request) => {
@@ -10,17 +10,11 @@ function waitForPathRequest(page, path, {response = {}, method = 'GET', times = 
         return route.continue()
       }
       route.fulfill({ json: response })
-      times--
-      if (times == 0) {
-        page.unroute('**/*', handler)
-        resolve(request)
-      }
+      page.unroute('**/*', handler)
+      resolve(request)
     }
     page.route('**/*', handler)
   })
 }
-
-
-
 
 export { waitForPathRequest }
