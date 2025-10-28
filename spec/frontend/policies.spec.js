@@ -10,10 +10,9 @@ test.describe("policies", _ => {
   }
 
   test.beforeEach(async ({ apimap, page }) => {
-    await page.clock.install()
     const policiesLoaded = apimap.get(`/api/policies`, policiesResponse)
+    await page.clock.install()
     await page.goto(`/policies`)
-    await page.clock.runFor(10000)
     await policiesLoaded
   })
 
