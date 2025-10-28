@@ -13,9 +13,9 @@ test.describe("exchanges", _ => {
     await page.goto('/exchanges')
     // Verify that at least 3 requests are made
     for (let i=0; i<3; i++) {
-      const apiQueuesRequest = helpers.waitForPathRequest(page, '/api/exchanges')
+      const apiExchangesRequest = helpers.waitForPathRequest(page, '/api/exchanges')
       await page.clock.runFor(10000) // advance time by 10 seconds
-      await expect(apiQueuesRequest).toBeRequested()
+      await expect(apiExchangesRequest).toBeRequested()
     }
   })
 })
