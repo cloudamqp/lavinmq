@@ -20,10 +20,11 @@ module LavinMQ
         metadata = ::Log::Metadata.build({address: connection_info.remote_address.to_s})
         logger = Logger.new(Log, metadata)
         if confirm_header(socket, logger)
-          if start_ok = start(socket, logger)
-            if user = authenticate(socket, connection_info.remote_address, start_ok, logger)
-              if tune_ok = tune(socket, logger)
-                if vhost = open(socket, user, logger)
+          stream = AMQ::Protocol::Stream.new(socket)
+          if start_ok = start(stream, logger)
+            if user = authenticate(stream, connection_info.remote_address, start_ok, logger)
+              if tune_ok = tune(stream, logger)
+                if vhost = open(stream, user, logger)
                   socket.read_timeout = heartbeat_timeout(tune_ok)
                   return LavinMQ::AMQP::Client.new(socket, connection_info, vhost, user, tune_ok, start_ok)
                 end
@@ -31,7 +32,7 @@ module LavinMQ
             end
           end
         end
-      rescue ex : IO::TimeoutError | IO::Error | OpenSSL::SSL::Error | AMQ::Protocol::Error::FrameDecode
+      rescue ex : IO::TimeoutError | IO::Error | OpenSSL::SSL::Error | AMQ::Protocol::Error
         Log.warn { "#{ex} when #{connection_info.remote_address} tried to establish connection" }
         nil
       rescue ex
@@ -81,7 +82,7 @@ module LavinMQ
         start = AMQP::Frame::Connection::Start.new(server_properties: SERVER_PROPERTIES)
         socket.write_bytes start, ::IO::ByteFormat::NetworkEndian
         socket.flush
-        start_ok = AMQP::Frame.from_io(socket) { |f| f.as(AMQP::Frame::Connection::StartOk) }
+        start_ok = socket.next_frame.as(AMQP::Frame::Connection::StartOk)
         if start_ok.bytesize > 4096
           log.warn { "StartOk frame was #{start_ok.bytesize} bytes, max allowed is 4096 bytes" }
           return
@@ -137,35 +138,33 @@ module LavinMQ
           frame_max: frame_max,
           heartbeat: Config.instance.heartbeat), IO::ByteFormat::NetworkEndian
         socket.flush
-        tune_ok = AMQP::Frame.from_io(socket) do |frame|
-          case frame
-          when AMQP::Frame::Connection::TuneOk
-            if LOW_FRAME_MAX_RANGE.includes? frame.frame_max
-              log.warn { "Suggested Frame max (#{frame.frame_max}) too low, closing connection" }
-              reply_text = "failed to negotiate connection parameters: negotiated frame_max = #{frame.frame_max} is lower than the minimum allowed value (#{MIN_FRAME_MAX})"
-              return close_connection(socket, ConnectionReplyCode::NOT_ALLOWED, reply_text, frame)
-            end
-            if too_high?(frame.frame_max, Config.instance.frame_max)
-              log.warn { "Suggested Frame max (#{frame.frame_max}) too high, closing connection" }
-              reply_text = "failed to negotiate connection parameters: negotiated frame_max = #{frame.frame_max} is higher than the maximum allowed value (#{Config.instance.frame_max})"
-              return close_connection(socket, ConnectionReplyCode::NOT_ALLOWED, reply_text, frame)
-            end
-            if too_high?(frame.channel_max, Config.instance.channel_max)
-              log.warn { "Suggested Channel max (#{frame.channel_max}) too high, closing connection" }
-              reply_text = "failed to negotiate connection parameters: negotiated channel_max = #{frame.channel_max} is higher than the maximum allowed value (#{Config.instance.channel_max})"
-              return close_connection(socket, ConnectionReplyCode::NOT_ALLOWED, reply_text, frame)
-            end
-            frame
-          else
-            log.warn { "Expected TuneOk Frame got #{frame.inspect}" }
-            return
+        frame = socket.next_frame
+        case frame
+        when AMQP::Frame::Connection::TuneOk
+          if LOW_FRAME_MAX_RANGE.includes? frame.frame_max
+            log.warn { "Suggested Frame max (#{frame.frame_max}) too low, closing connection" }
+            reply_text = "failed to negotiate connection parameters: negotiated frame_max = #{frame.frame_max} is lower than the minimum allowed value (#{MIN_FRAME_MAX})"
+            return close_connection(socket, ConnectionReplyCode::NOT_ALLOWED, reply_text, frame)
           end
+          if too_high?(frame.frame_max, Config.instance.frame_max)
+            log.warn { "Suggested Frame max (#{frame.frame_max}) too high, closing connection" }
+            reply_text = "failed to negotiate connection parameters: negotiated frame_max = #{frame.frame_max} is higher than the maximum allowed value (#{Config.instance.frame_max})"
+            return close_connection(socket, ConnectionReplyCode::NOT_ALLOWED, reply_text, frame)
+          end
+          if too_high?(frame.channel_max, Config.instance.channel_max)
+            log.warn { "Suggested Channel max (#{frame.channel_max}) too high, closing connection" }
+            reply_text = "failed to negotiate connection parameters: negotiated channel_max = #{frame.channel_max} is higher than the maximum allowed value (#{Config.instance.channel_max})"
+            return close_connection(socket, ConnectionReplyCode::NOT_ALLOWED, reply_text, frame)
+          end
+          frame
+        else
+          log.warn { "Expected TuneOk Frame got #{frame.inspect}" }
+          return
         end
-        tune_ok
       end
 
       def open(socket, user, log)
-        open = AMQP::Frame.from_io(socket) { |f| f.as(AMQP::Frame::Connection::Open) }
+        open = socket.next_frame.as(AMQP::Frame::Connection::Open)
         vhost_name = open.vhost.empty? ? "/" : open.vhost
         if vhost = @vhosts[vhost_name]?
           if user.permissions[vhost_name]?
