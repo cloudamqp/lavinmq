@@ -117,9 +117,9 @@ module LavinMQ
 
       private def read_loop
         received_bytes = 0_u32
-        socket = @socket
+        stream = AMQ::Protocol::Stream.new(@socket, @max_frame_size)
         loop do
-          AMQP::Frame.from_io(socket) do |frame|
+          stream.next_frame do |frame|
             {% unless flag?(:release) %}
               @log.trace { "Received #{frame.inspect}" }
             {% end %}
@@ -155,6 +155,10 @@ module LavinMQ
           end
         rescue IO::TimeoutError
           send_heartbeat || break
+        rescue ex : AMQ::Protocol::Error::FrameSizeError
+          @log.error { ex.inspect }
+          send_frame_error(ex.message)
+          break
         rescue ex : AMQ::Protocol::Error::NotImplemented
           @log.error { ex.inspect }
           send_not_implemented(ex)
