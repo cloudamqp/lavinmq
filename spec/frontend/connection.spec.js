@@ -36,7 +36,7 @@ test.describe("connection", _ => {
     for (let i=0; i<3; i++) {
       const apiChannelsRequest = helpers.waitForPathRequest(page, `${apiPath}/channels`)
       await page.clock.runFor(10000) // advance time by 10 seconds
-      await expect(apiChannelsReques).toBeRequested()
+      await expect(apiChannelsRequest).toBeRequested()
     }
   })
 
