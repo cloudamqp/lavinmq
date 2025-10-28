@@ -30,6 +30,19 @@ test.describe("connection", _ => {
     await expect(apiChannelsRequest).toBeRequested()
   })
 
+  test('channels are refreshed automatically', async({ page }) => {
+    page.clock.install()
+    await page.goto(pagePath)
+    // Verify that at least 3 requests are made
+    for (let i=0; i<3; i++) {
+      const apiChannelsRequest = helpers.waitForPathRequest(page, `${apiPath}/channels`)
+      page.clock.runFor(10000) // advance time by 10 seconds
+      await expect(apiChannelsRequest).toBeRequested()
+    }
+  })
+
+
+
   test('close button trigger DELETE to api/connections/<name>', async ({ page, baseURL }) => {
     const response = {}
     await page.goto(pagePath)
