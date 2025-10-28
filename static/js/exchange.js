@@ -76,12 +76,6 @@ const bindingsTable = Table.renderTable('bindings-table', tableOptions, function
 
     const destinationLink = document.createElement('a')
     destinationLink.href = HTTP.url`${item.destination_type}#vhost=${vhost}&name=${item.destination}`
-    if (item.destination_type === 'exchange') {
-      destinationLink.addEventListener('click', function (e) {
-        window.location.href = this.href
-        window.location.reload()
-      })
-    }
     destinationLink.textContent = item.destination
     const argsPre = document.createElement('pre')
     argsPre.textContent = JSON.stringify(item.arguments || {})
@@ -148,4 +142,9 @@ document.getElementById('dest-type').addEventListener('change', (e) => updateAut
 
 document.querySelector('#dataTags').addEventListener('click', e => {
   Helpers.argumentHelperJSON('publishMessage', 'properties', e)
+})
+
+// Handle navigation to another exchange via hash change
+window.addEventListener('hashchange', () => {
+  window.location.reload()
 })
