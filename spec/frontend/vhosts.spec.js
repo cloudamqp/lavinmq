@@ -10,7 +10,7 @@ test.describe("vhosts", _ => {
 
   test('can be added through form', async ({ page }) => {
     const vhostName = 'baz'
-    const formRequest = helpers.waitForPathRequest(page, `/api/vhostsi/${vhostName}`, { method: 'PUT' })
+    const formRequest = helpers.waitForPathRequest(page, `/api/vhosts/${vhostName}`, { method: 'PUT' })
     await page.goto('/vhosts')
     const form = await page.locator('#createVhost')
     await form.getByLabel('Name').fill(vhostName)

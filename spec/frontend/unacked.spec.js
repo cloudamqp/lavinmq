@@ -13,7 +13,7 @@ test.describe("queue/unacked", _ => {
     await expect(apiUnackedRequest).toBeRequested()
   })
 
-  test('refreshed automatically', async ({ page, baseURL }) => {
+  test('is refreshed automatically', async ({ page, baseURL }) => {
     await page.clock.install()
     await page.goto(pagePath)
     // Verify that at least 3 requests are made
