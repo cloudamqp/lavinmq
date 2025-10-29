@@ -26,6 +26,16 @@ test.describe("vhost", _ => {
     await expect(apiPermissionsRequest).toBeRequested()
   })
 
+  test('permissions are refreshed automatically', async ({ page }) => {
+    await page.clock.install()
+    await page.goto(`/vhost#name=${vhostName}`)
+    for (let i = 0; i < 3; i++) {
+      const apiPermissionsRequest = helpers.waitForPathRequest(page, `/api/vhosts/${vhostName}/permissions`)
+      await page.clock.runFor(10000)
+      await expect(apiPermissionsRequest).toBeRequested()
+    }
+  })
+
   test('set permission form works', async ({ page }) => {
     const apiPermissionsRequest = helpers.waitForPathRequest(page, `/api/vhosts/${vhostName}/permissions`, { response: permissionsResponse })
     const apiUsersRequest = helpers.waitForPathRequest(page, '/api/users', { response: usersResponse })
