@@ -197,12 +197,12 @@ class EtcdCluster
     end
   end
 
-  def start_process(port, i)
+  def start_process(port, node_number)
     initial_cluster = @ports.map_with_index { |p, i| "l#{i}=http://127.0.0.1:24#{p}" }.join(",")
-    FileUtils.rm_rf "/tmp/l#{i}.etcd"
+    FileUtils.rm_rf "/tmp/l#{node_number}.etcd"
     Process.new("etcd", {
-      "--name=l#{i}",
-      "--data-dir=/tmp/l#{i}.etcd",
+      "--name=l#{node_number}",
+      "--data-dir=/tmp/l#{node_number}.etcd",
       "--listen-peer-urls=http://127.0.0.1:24#{port}",
       "--listen-client-urls=http://127.0.0.1:23#{port}",
       "--advertise-client-urls=http://127.0.0.1:23#{port}",
