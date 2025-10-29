@@ -38,13 +38,13 @@ const test = base.extend(
         path = RegExp.escape(path)
         method = method.toUpperCase()
         const pathExpr = new RegExp(`${path}(?!\/)`)
-        return new Promise(async (resolve, reject) => {
-          await page.route(pathExpr, async route => {
+        return new Promise((resolve, reject) => {
+          page.route(pathExpr, async route => {
             if (route.request().method() == method) {
               await route.fulfill({ json: response })
               resolve()
             } else {
-              await route.continue()
+              await route.fallback()
             }
           })
         })
