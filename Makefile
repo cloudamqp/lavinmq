@@ -28,7 +28,7 @@ watch-views:
 .PHONY: dev-ui
 dev-ui:
 	@trap '$(MAKE) clean-views; trap - EXIT' EXIT INT TERM; \
-   $(MAKE) bin/lavinmq CRYSTAL_FLAGS= ; \
+   $(MAKE) bin/lavinmq CRYSTAL_FLAGS=-Dlivereloadjs ; \
 	 $(MAKE) livereload & \
 	 livereload_pid=$$!; \
 	 $(MAKE) -s watch-views; \
@@ -37,7 +37,7 @@ dev-ui:
 static/views/%.html: views/%.ecr $(VIEW_PARTIALS)
 	@mkdir -p static/views
 	@TEMP_FILE=$$(mktemp) && \
-	INPUT=$< crystal run views/_render.cr > $$TEMP_FILE && \
+	INPUT=$< crystal run views/_render.cr -Dlivereloadjs > $$TEMP_FILE && \
 	mv $$TEMP_FILE $@ && \
 	echo "Rendered $< to $@"
 
