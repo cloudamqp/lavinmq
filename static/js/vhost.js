@@ -8,9 +8,9 @@ document.querySelector('#pagename-label').textContent = vhost
 
 const vhostUrl = HTTP.url`api/vhosts/${vhost}`
 HTTP.request('GET', vhostUrl).then(item => {
-  document.getElementById('ready').textContent = item.messages_ready.toLocaleString()
-  document.getElementById('unacked').textContent = item.messages_unacknowledged.toLocaleString()
-  document.getElementById('total').textContent = item.messages.toLocaleString()
+  document.getElementById('messages_ready').textContent = item.messages_ready.toLocaleString()
+  document.getElementById('messages_unacknowledged').textContent = item.messages_unacknowledged.toLocaleString()
+  document.getElementById('messages_total').textContent = item.messages.toLocaleString()
 })
 
 function fetchLimits () {
