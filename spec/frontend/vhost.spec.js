@@ -54,7 +54,8 @@ test.describe("vhost", _ => {
     await expect(apiSetPermissionRequest).toBeRequested()
   })
 
-  test('set limits form works', async ({ page }) => {
+  test('set limits form works', async ({ page, apimap }) => {
+    apimap.get(`/api/vhost/${vhostName}/permissions`, permissionsResponse)
     await page.goto(`/vhost#name=${vhostName}`)
     const apiSetMaxConnectionsRequest = helpers.waitForPathRequest(page, `/api/vhost-limits/${vhostName}/max-connections`, { method: 'PUT' })
     const apiSetMaxQueuesRequest = helpers.waitForPathRequest(page, `/api/vhost-limits/${vhostName}/max-queues`, { method: 'PUT' })
