@@ -5,10 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.5.0-rc.5] - 2025-10-30
 
 ### Fixed
+- Remove leftover apostrophe after refactoring [#1415](https://github.com/cloudamqp/lavinmq/pull/1415)
+- Don't crash when reading metadata [#1416](https://github.com/cloudamqp/lavinmq/pull/1416)
+- Fix x-max-age not showing as effective argument for stream queues in UI [#1389](https://github.com/cloudamqp/lavinmq/pull/1389)
+- Add x-hash-on to effective_arguments for Consistent Hash Exchange [#1405](https://github.com/cloudamqp/lavinmq/pull/1405)
+- Bugfix: mismatch between ids in view and script [#1409](https://github.com/cloudamqp/lavinmq/pull/1409)
 - Exchange view will auto refresh data [#1399](https://github.com/cloudamqp/lavinmq/pull/1399)
+- Handle AMQPLAIN authentication without required keys [035b8fdf](https://github.com/cloudamqp/lavinmq/commit/035b8fdf)
+- Respect --pmessages/--cmessages also for multiple publishers/consumers in lavinmqperf [03604792](https://github.com/cloudamqp/lavinmq/commit/03604792)
+- Only include livereload.js if flag livereloadjs is set [#1411](https://github.com/cloudamqp/lavinmq/pull/1411)
 
 ## [2.5.0-rc.4] - 2025-10-27
 
