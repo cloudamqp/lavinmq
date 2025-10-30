@@ -347,4 +347,39 @@ describe LavinMQ::HTTP::ExchangesController do
       end
     end
   end
+
+  describe "GET /api/exchanges/vhost/name with x-hash-on argument" do
+    it "should include x-hash-on in effective_arguments for consistent hash exchange" do
+      with_http_server do |http, _|
+        body = %({
+        "type": "x-consistent-hash",
+        "durable": false,
+        "arguments": {
+          "x-hash-on": "cluster"
+        }
+      })
+        response = http.put("/api/exchanges/%2f/test-hash", body: body)
+        response.status_code.should eq 201
+        response = http.get("/api/exchanges/%2f/test-hash")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        body["effective_arguments"].as_a.should contain("x-hash-on")
+      end
+    end
+
+    it "should not include x-hash-on in effective_arguments when not set" do
+      with_http_server do |http, _|
+        body = %({
+        "type": "x-consistent-hash",
+        "durable": false
+      })
+        response = http.put("/api/exchanges/%2f/test-hash-2", body: body)
+        response.status_code.should eq 201
+        response = http.get("/api/exchanges/%2f/test-hash-2")
+        response.status_code.should eq 200
+        body = JSON.parse(response.body)
+        body["effective_arguments"].as_a.should_not contain("x-hash-on")
+      end
+    end
+  end
 end
