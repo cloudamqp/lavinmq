@@ -217,9 +217,15 @@ document.querySelector('#publishMessage').addEventListener('submit', function (e
 document.querySelector('#getMessages').addEventListener('submit', function (evt) {
   evt.preventDefault()
   const data = new window.FormData(this)
+  const count = parseInt(data.get('messages'))
+  if (count < 1 || count > 1000) {
+    window.alert('Please enter a number between 1 and 1000 messages')
+    return
+  }
+
   const url = HTTP.url`api/queues/${vhost}/${queue}/get`
   const body = {
-    count: parseInt(data.get('messages')),
+    count: count,
     ack_mode: data.get('mode'),
     encoding: data.get('encoding'),
     truncate: 50000
