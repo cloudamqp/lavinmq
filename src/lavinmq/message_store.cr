@@ -447,7 +447,7 @@ module LavinMQ
       @segments.each do |seg, mfile|
         begin
           read_metadata_file(seg, mfile)
-        rescue File::NotFoundError
+        rescue File::NotFoundError | MetadataError
           produce_metadata(seg, mfile)
           write_metadata_file(seg, mfile) unless seg == @segments.last_key # this segment is not full yet
         end
@@ -473,8 +473,12 @@ module LavinMQ
         deleted.each do |pos|
           mfile.pos = pos
           bs = BytesMessage.skip(mfile)
-          bytesize = bs < bytesize ? bytesize - bs : 0 # Don't allow underflow
-          count -= 1 if count > 0                      # Don't allow underflow
+          # don't allow underflow
+          bytesize = bs < bytesize ? bytesize - bs : 0
+          count -= 1 if count > 0
+        rescue ex
+          @log.error { "Error reading metadata file #{metafile}, pos: #{pos}, seg: #{seg}, count: #{count}, bytesize: #{bytesize}" }
+          raise ex
         end
       end
       mfile.pos = 4
@@ -482,6 +486,11 @@ module LavinMQ
       @bytesize += bytesize
       @size += count
       @log.debug { "Reading count from #{metafile}: #{count}" }
+    rescue ex : File::NotFoundError
+      raise ex
+    rescue ex
+      @log.error(exception: ex) { "Metadata file #{metafile} is incorrect" }
+      raise MetadataError.new("Metadata file #{metafile} is incorrect")
     end
 
     private def produce_metadata(seg, mfile)
@@ -569,6 +578,8 @@ module LavinMQ
     end
 
     class ClosedError < ::Channel::ClosedError; end
+
+    class MetadataError < Exception; end
 
     class Error < Exception
       def initialize(mfile : MFile, cause = nil)
