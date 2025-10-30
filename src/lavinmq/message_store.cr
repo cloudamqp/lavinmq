@@ -495,6 +495,7 @@ module LavinMQ
 
     private def produce_metadata(seg, mfile)
       count = 0u32
+      mfile.pos = 4
       loop do
         pos = mfile.pos
         ts = IO::ByteFormat::SystemEndian.decode(Int64, mfile.to_slice(pos, 8))
