@@ -348,6 +348,7 @@ module LavinMQ
         private def export_users(json)
           json.array do
             @amqp_server.users.each_value.reject(&.hidden?).each do |u|
+              # Skip OAuth users - they can't be persisted
               {
                 "hashing_algorithm": u.user_details["hashing_algorithm"],
                 "name":              u.name,
