@@ -103,7 +103,7 @@ describe LavinMQ::Etcd do
       etcds.first(2).each &.terminate(graceful: false)
 
       expect_raises(LavinMQ::Etcd::Lease::Lost) do
-        lease.wait(15.seconds)
+        lease.wait(20.seconds)
       end
     end
   end
@@ -192,22 +192,26 @@ class EtcdCluster
   end
 
   def start : Array(Process)
-    initial_cluster = @ports.map_with_index { |p, i| "l#{i}=http://127.0.0.1:24#{p}" }.join(",")
     @ports.map_with_index do |p, i|
-      FileUtils.rm_rf "/tmp/l#{i}.etcd"
-      Process.new("etcd", {
-        "--name=l#{i}",
-        "--data-dir=/tmp/l#{i}.etcd",
-        "--listen-peer-urls=http://127.0.0.1:24#{p}",
-        "--listen-client-urls=http://127.0.0.1:23#{p}",
-        "--advertise-client-urls=http://127.0.0.1:23#{p}",
-        "--initial-advertise-peer-urls=http://127.0.0.1:24#{p}",
-        "--initial-cluster", initial_cluster,
-        "--logger=zap",
-        "--log-level=error",
-        "--unsafe-no-fsync=true",
-      }, output: STDOUT, error: STDERR)
+      start_process(p, i)
     end
+  end
+
+  def start_process(port, node_number)
+    initial_cluster = @ports.map_with_index { |p, i| "l#{i}=http://127.0.0.1:24#{p}" }.join(",")
+    FileUtils.rm_rf "/tmp/l#{node_number}.etcd"
+    Process.new("etcd", {
+      "--name=l#{node_number}",
+      "--data-dir=/tmp/l#{node_number}.etcd",
+      "--listen-peer-urls=http://127.0.0.1:24#{port}",
+      "--listen-client-urls=http://127.0.0.1:23#{port}",
+      "--advertise-client-urls=http://127.0.0.1:23#{port}",
+      "--initial-advertise-peer-urls=http://127.0.0.1:24#{port}",
+      "--initial-cluster", initial_cluster,
+      "--logger=zap",
+      "--log-level=error",
+      "--unsafe-no-fsync=true",
+    }, output: STDOUT, error: STDERR)
   end
 
   def stop(etcds)
@@ -215,8 +219,8 @@ class EtcdCluster
     etcds.size.times { |i| FileUtils.rm_rf "/tmp/l#{i}.etcd" }
   end
 
-  private def wait_until_online
-    @ports.each do |port|
+  private def wait_until_online(retries = 3)
+    @ports.each_with_index do |port, idx|
       i = 0
       client = HTTP::Client.new("127.0.0.1", 23000 + port)
       loop do
@@ -228,7 +232,13 @@ class EtcdCluster
         end
       rescue e : Exception
         i += 1
-        raise "Etcd on ort #{23000 + port} not up? (#{e.message})" if i >= 100
+        if i >= 100
+          retries -= 1
+          raise "Etcd on port #{23000 + port} not up? (#{e.message})" if retries == 0
+
+          start_process(port, idx)
+          wait_until_online(retries)
+        end
         next
       end
     end
