@@ -573,4 +573,20 @@ describe LavinMQ::HTTP::QueuesController do
       end
     end
   end
+  describe "GET /api/queues/vhost/name effective_arguments" do
+    it "should include x-max-age in effective_arguments for streams" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          args = {"x-queue-type": "stream", "x-max-age": "1h"}
+          ch.queue("stream-with-max-age", args: AMQP::Client::Arguments.new(args))
+
+          response = http.get("/api/queues/%2f/stream-with-max-age")
+          response.status_code.should eq 200
+          body = JSON.parse(response.body)
+          body["effective_arguments"].as_a.should contain("x-max-age")
+          body["effective_arguments"].as_a.should contain("x-queue-type")
+        end
+      end
+    end
+  end
 end
