@@ -49,20 +49,21 @@ function forbidden () {
 function setScrollMode (toBottom) {
   shouldAutoScroll = toBottom
   localStorage.setItem('logScrollMode', toBottom ? 'bottom' : 'top')
-  if (btnToBottom && btnToTop) {
-    btnToBottom.setAttribute('aria-pressed', String(toBottom))
-    btnToTop.setAttribute('aria-pressed', String(!toBottom))
-  }
+  btnToBottom.setAttribute('aria-pressed', String(toBottom))
+  btnToTop.setAttribute('aria-pressed', String(!toBottom))
 }
+
 // Initialize from saved preference, default to newest
 const savedMode = localStorage.getItem('logScrollMode')
 const initialMode = savedMode ? savedMode === 'bottom' : true
 setScrollMode(initialMode)
-btnToTop?.addEventListener('click', () => {
+
+btnToTop.addEventListener('click', () => {
   setScrollMode(false)
   livelog.scrollTop = 0
 })
-btnToBottom?.addEventListener('click', () => {
+
+btnToBottom.addEventListener('click', () => {
   setScrollMode(true)
   livelog.scrollTop = livelog.scrollHeight
 })
