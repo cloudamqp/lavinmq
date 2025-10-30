@@ -17,25 +17,37 @@ const test = base.extend(
       })
       await use(ret)
     },
-    page: async ({ page }, use) => {
-      await page.route(/.*\/api\/vhosts(\?.*)?$/, async route => {
+    // This is just to get rid of error livereload.js
+    blockLivereload: [async ({ page }, use) => {
+      await page.route('**/livereload.js', async route => {
+        await route.abort()
+      })
+      use()
+    }, { auto: true }],
+    // Setup vhost api response since it's a part of the layout
+    loadVhosts: [async ({ page }, use) => {
+      function isApiVhost(url) {
+        return url.pathname == '/api/vhosts'
+      }
+      await page.route(isApiVhost, async route => {
         await route.fulfill({ json: vhostResponse })
       })
-      await use(page);
-    },
+      await use()
+    }, { auto: true }],
     // Use to map api requests to responses
+    // Maybe this should be a helper...
     apimap: async({ page }, use) => {
       function map(method, path, response) {
         path = RegExp.escape(path)
         method = method.toUpperCase()
         const pathExpr = new RegExp(`${path}(?!\/)`)
-        return new Promise(async (resolve, reject) => {
-          await page.route(pathExpr, async route => {
+        return new Promise((resolve, reject) => {
+          page.route(pathExpr, async route => {
             if (route.request().method() == method) {
               await route.fulfill({ json: response })
               resolve()
             } else {
-              await route.continue()
+              await route.fallback()
             }
           })
         })
