@@ -98,7 +98,7 @@ document.forms.setLimits.addEventListener('submit', function (evt) {
   evt.preventDefault()
   const maxConnectionsUrl = HTTP.url`api/vhost-limits/${vhost}/max-connections`
   const maxConnectionsBody = { value: Number(this['max-connections'].value || -1) }
-  const maxQueuesUrl = HTTP.url`'api/vhost-limits/${vhost}/max-queues`
+  const maxQueuesUrl = HTTP.url`api/vhost-limits/${vhost}/max-queues`
   const maxQueuesBody = { value: Number(this['max-queues'].value || -1) }
   Promise.all([
     HTTP.request('PUT', maxConnectionsUrl, { body: maxConnectionsBody }),
