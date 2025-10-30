@@ -30,13 +30,10 @@ module LavinMQ::AMQP
 
         lat = headers["x-geo-lat"]?
         lon = headers["x-geo-lon"]?
-
         return nil unless lat && lon
 
-        # Convert to Float64
         lat_f = GISFilter.to_float64?(lat)
         lon_f = GISFilter.to_float64?(lon)
-
         return nil unless lat_f && lon_f
 
         Point.new(lat_f, lon_f)
@@ -75,10 +72,11 @@ module LavinMQ::AMQP
       end
 
       def match?(headers : AMQP::Table) : Bool
-        msg_point = Point.from_headers(headers)
-        return false unless msg_point
+        if msg_point = Point.from_headers(headers)
+          return center.distance_to(msg_point) <= radius_km
+        end
 
-        center.distance_to(msg_point) <= radius_km
+        false
       end
 
       def to_s(io : IO)
@@ -95,10 +93,11 @@ module LavinMQ::AMQP
       end
 
       def match?(headers : AMQP::Table) : Bool
-        msg_point = Point.from_headers(headers)
-        return false unless msg_point
+        if msg_point = Point.from_headers(headers)
+          return bbox.contains?(msg_point)
+        end
 
-        bbox.contains?(msg_point)
+        false
       end
 
       def to_s(io : IO)
@@ -138,31 +137,48 @@ module LavinMQ::AMQP
     # Represents a polygon as an array of points
     struct Polygon
       getter points : Array(Point)
+      getter bbox : BoundingBox | Nil
 
       def initialize(@points : Array(Point))
         raise ArgumentError.new("Polygon must have at least 3 points") if @points.size < 3
+
+        # Create bounding box pre-filter for quick rejection if polygon is large
+        if @points.size > 50
+          min_lat, max_lat = @points[0].lat, @points[0].lat
+          min_lon, max_lon = @points[0].lon, @points[0].lon
+
+          @points.each do |pt|
+            min_lat = pt.lat if pt.lat < min_lat
+            max_lat = pt.lat if pt.lat > max_lat
+            min_lon = pt.lon if pt.lon < min_lon
+            max_lon = pt.lon if pt.lon > max_lon
+          end
+
+          @bbox = BoundingBox.new(min_lat, max_lat, min_lon, max_lon)
+        end
       end
 
       # Point-in-polygon test using ray casting algorithm
       # https://en.wikipedia.org/wiki/Point_in_polygon
       def contains?(point : Point) : Bool
+        # Use bounding box pre-filter if available (for large polygons)
+        if bbox = @bbox
+          return false unless bbox.contains?(point)
+        end
+
         inside = false
         j = @points.size - 1
-
         @points.size.times do |i|
           pi = @points[i]
           pj = @points[j]
-
           # Check if the edge crosses the ray from point to the right
           # The first condition ensures pj.lon != pi.lon (no vertical edges)
           if ((pi.lon > point.lon) != (pj.lon > point.lon)) &&
              (point.lat < (pj.lat - pi.lat) * (point.lon - pi.lon) / (pj.lon - pi.lon) + pi.lat)
             inside = !inside
           end
-
           j = i
         end
-
         inside
       end
 
@@ -180,10 +196,11 @@ module LavinMQ::AMQP
       end
 
       def match?(headers : AMQP::Table) : Bool
-        msg_point = Point.from_headers(headers)
-        return false unless msg_point
+        if msg_point = Point.from_headers(headers)
+          return polygon.contains?(msg_point)
+        end
 
-        polygon.contains?(msg_point)
+        false
       end
 
       def to_s(io : IO)
@@ -199,13 +216,11 @@ module LavinMQ::AMQP
       lat = value["lat"]?
       lon = value["lon"]?
       radius = value["radius_km"]?
-
       return nil unless lat && lon && radius
 
       lat_f = to_float64?(lat)
       lon_f = to_float64?(lon)
       radius_f = to_float64?(radius)
-
       return nil unless lat_f && lon_f && radius_f
       return nil if radius_f <= 0
 
@@ -223,7 +238,6 @@ module LavinMQ::AMQP
       max_lat = to_float64?(value["max_lat"]?)
       min_lon = to_float64?(value["min_lon"]?)
       max_lon = to_float64?(value["max_lon"]?)
-
       return nil unless min_lat && max_lat && min_lon && max_lon
 
       bbox = BoundingBox.new(min_lat, max_lat, min_lon, max_lon)
@@ -241,14 +255,12 @@ module LavinMQ::AMQP
       return nil unless points_field.is_a?(Array)
 
       points = [] of Point
-
       points_field.each do |point_field|
         next unless point_field.is_a?(Array)
         next unless point_field.size == 2
 
         lat = to_float64?(point_field[0])
         lon = to_float64?(point_field[1])
-
         return nil unless lat && lon
 
         points << Point.new(lat, lon)
