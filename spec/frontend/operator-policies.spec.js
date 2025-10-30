@@ -1,6 +1,15 @@
 import * as helpers from './helpers.js'
 import { test, expect } from './fixtures.js';
 
+const helperLinks = [
+  { tag: 'max-length', value: 0 },
+  { tag: 'max-length-bytes', value: 0 },
+  { tag: 'message-ttl', value: 0 },
+  { tag: 'expires', value: 0 },
+  { tag: 'delivery-limit', value: 0 },
+  { tag: 'max-age', value: '1M' }
+]
+
 test.describe("operator-policies", _ => {
   test('are loaded', async ({ page, baseURL }) => {
     const apiPoliciesRequest = helpers.waitForPathRequest(page, '/api/operator-policies')
@@ -37,5 +46,24 @@ test.describe("operator-policies", _ => {
     await page.getByLabel('Definition').fill(JSON.stringify(expectedBody.definition))
     await page.getByRole('button', { name: /add operator policy/i }).click()
     await expect(apiAddPolicyRequest).toBeRequested()
+  })
+
+  test.describe('definition helper links', () => {
+    test('correct number of definition helper links', async ({ page }) => {
+      await page.goto('/operator-policies')
+      const helperLinksInView = await page.locator('#dataTags a[data-tag]').count()
+      expect(helperLinksInView).toBe(helperLinks.length)
+    })
+
+    for (const helper of helperLinks) {
+      test(`${helper.tag} works`, async ({ page }) => {
+        await page.goto('/operator-policies')
+        const definitionTextarea = page.getByLabel('Definition')
+        await page.locator(`#dataTags a[data-tag="${helper.tag}"]`).click()
+        const currentValue = await definitionTextarea.inputValue()
+        const definition = JSON.parse(currentValue)
+        expect(definition[helper.tag]).toBe(helper.value)
+      })
+    }
   })
 })
