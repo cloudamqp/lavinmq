@@ -490,7 +490,7 @@ module LavinMQ
       raise ex
     rescue ex
       @log.error(exception: ex) { "Metadata file #{metafile} is incorrect" }
-      raise MetadataError.new("Metadata file #{metafile} is incorrect")
+      raise MetadataError.new("Metadata file #{metafile} is incorrect", cause: ex)
     end
 
     private def produce_metadata(seg, mfile)
