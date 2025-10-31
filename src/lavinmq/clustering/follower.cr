@@ -145,7 +145,7 @@ module LavinMQ
           total_requested_bytes -= file_size
           total_time_taken = (Time.monotonic - start).total_seconds
           bps = (sent_bytes / total_time_taken).round.to_u64
-          time_left = (total_requested_bytes / bps).round(1)
+          time_left = bps > 0 ? (total_requested_bytes / bps).round(1) : 0
           Log.info { "Uploaded #{filename} in #{bps.humanize_bytes}/s" }
           Log.info { "#{total_requested_bytes.humanize_bytes} left, expected #{time_left}s left" }
           Fiber.yield
