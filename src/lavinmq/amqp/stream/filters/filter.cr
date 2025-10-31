@@ -43,35 +43,39 @@ module LavinMQ::AMQP
     end
 
     private def self.parse_gis_filters(arguments : AMQ::Protocol::Table, filters)
-      if radius_arg = arguments["x-geo-within-radius"]?
-        gis_radius_filter = GISFilter.parse_radius_filter(radius_arg)
-        if gis_radius_filter.nil?
-          raise LavinMQ::Error::PreconditionFailed.new(
-            "x-geo-within-radius must be a table with 'lat', 'lon', and 'radius_km' (positive number)"
-          )
+      if radius_arg = validate_filter_table(arguments, "x-geo-within-radius")
+        begin
+          filters << GISFilter.parse_radius_filter(radius_arg)
+        rescue ex : ArgumentError
+          raise LavinMQ::Error::PreconditionFailed.new("x-geo-within-radius: #{ex.message}", cause: ex)
         end
-        filters << gis_radius_filter
       end
 
-      if bbox_arg = arguments["x-geo-bbox"]?
-        gis_bbox_filter = GISFilter.parse_bbox_filter(bbox_arg)
-        if gis_bbox_filter.nil?
-          raise LavinMQ::Error::PreconditionFailed.new(
-            "x-geo-bbox must be a table with 'min_lat', 'max_lat', 'min_lon', and 'max_lon'"
-          )
+      if bbox_arg = validate_filter_table(arguments, "x-geo-bbox")
+        begin
+          filters << GISFilter.parse_bbox_filter(bbox_arg)
+        rescue ex : ArgumentError
+          raise LavinMQ::Error::PreconditionFailed.new("x-geo-bbox: #{ex.message}", cause: ex)
         end
-        filters << gis_bbox_filter
       end
 
-      if polygon_arg = arguments["x-geo-polygon"]?
-        gis_polygon_filter = GISFilter.parse_polygon_filter(polygon_arg)
-        if gis_polygon_filter.nil?
-          raise LavinMQ::Error::PreconditionFailed.new(
-            "x-geo-polygon must be a table with 'points' array of [lat, lon] pairs (at least 3 points)"
-          )
+      if polygon_arg = validate_filter_table(arguments, "x-geo-polygon")
+        begin
+          filters << GISFilter.parse_polygon_filter(polygon_arg)
+        rescue ex : ArgumentError
+          raise LavinMQ::Error::PreconditionFailed.new("x-geo-polygon: #{ex.message}", cause: ex)
         end
-        filters << gis_polygon_filter
       end
+    end
+
+    private def self.validate_filter_table(field : AMQ::Protocol::Table, key : String) : AMQ::Protocol::Table | Nil
+      if value = field["#{key}"]?
+        unless value.is_a?(AMQ::Protocol::Table)
+          raise LavinMQ::Error::PreconditionFailed.new("Expected AMQ::Protocol::Table for #{key}")
+        end
+        return value
+      end
+      nil
     end
   end
 end

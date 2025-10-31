@@ -25,15 +25,15 @@ module LavinMQ::AMQP
         io << "Point(lat=" << @lat << ", lon=" << @lon << ")"
       end
 
-      def self.from_headers(headers : ::AMQ::Protocol::Table?) : Point?
+      def self.from_headers(headers : AMQP::Table | Nil) : Point | Nil
         return nil unless headers
 
         lat = headers["x-geo-lat"]?
         lon = headers["x-geo-lon"]?
         return nil unless lat && lon
 
-        lat_f = GISFilter.to_float64?(lat)
-        lon_f = GISFilter.to_float64?(lon)
+        lat_f = GISFilter.to_float64(lat)
+        lon_f = GISFilter.to_float64(lon)
         return nil unless lat_f && lon_f
 
         Point.new(lat_f, lon_f)
@@ -137,34 +137,29 @@ module LavinMQ::AMQP
     # Represents a polygon as an array of points
     struct Polygon
       getter points : Array(Point)
-      getter bbox : BoundingBox | Nil
+      getter bbox : BoundingBox
 
       def initialize(@points : Array(Point))
         raise ArgumentError.new("Polygon must have at least 3 points") if @points.size < 3
 
-        # Create bounding box pre-filter for quick rejection if polygon is large
-        if @points.size > 50
-          min_lat, max_lat = @points[0].lat, @points[0].lat
-          min_lon, max_lon = @points[0].lon, @points[0].lon
+        # Create bounding box pre-filter for quick rejection if polygon is small
+        min_lat, max_lat = @points[0].lat, @points[0].lat
+        min_lon, max_lon = @points[0].lon, @points[0].lon
 
-          @points.each do |pt|
-            min_lat = pt.lat if pt.lat < min_lat
-            max_lat = pt.lat if pt.lat > max_lat
-            min_lon = pt.lon if pt.lon < min_lon
-            max_lon = pt.lon if pt.lon > max_lon
-          end
-
-          @bbox = BoundingBox.new(min_lat, max_lat, min_lon, max_lon)
+        @points.each do |pt|
+          min_lat = pt.lat if pt.lat < min_lat
+          max_lat = pt.lat if pt.lat > max_lat
+          min_lon = pt.lon if pt.lon < min_lon
+          max_lon = pt.lon if pt.lon > max_lon
         end
+
+        @bbox = BoundingBox.new(min_lat, max_lat, min_lon, max_lon)
       end
 
       # Point-in-polygon test using ray casting algorithm
       # https://en.wikipedia.org/wiki/Point_in_polygon
       def contains?(point : Point) : Bool
-        # Use bounding box pre-filter if available (for large polygons)
-        if bbox = @bbox
-          return false unless bbox.contains?(point)
-        end
+        return false unless bbox.contains?(point)
 
         inside = false
         j = @points.size - 1
@@ -210,81 +205,64 @@ module LavinMQ::AMQP
 
     # Parse radius filter from consumer arguments
     # Expected format: {"lat": Float64, "lon": Float64, "radius_km": Float64}
-    def self.parse_radius_filter(value : ::AMQ::Protocol::Field) : RadiusFilter?
-      return nil unless value.is_a?(::AMQ::Protocol::Table)
+    def self.parse_radius_filter(value : ::AMQ::Protocol::Table) : RadiusFilter
+      lat_f = to_float64(value["lat"])
+      lon_f = to_float64(value["lon"])
+      radius_f = to_float64(value["radius_km"])
 
-      lat = value["lat"]?
-      lon = value["lon"]?
-      radius = value["radius_km"]?
-      return nil unless lat && lon && radius
-
-      lat_f = to_float64?(lat)
-      lon_f = to_float64?(lon)
-      radius_f = to_float64?(radius)
-      return nil unless lat_f && lon_f && radius_f
-      return nil if radius_f <= 0
+      raise ArgumentError.new("Radius must be positive") if radius_f <= 0
 
       RadiusFilter.new(Point.new(lat_f, lon_f), radius_f)
-    rescue ArgumentError
-      nil
+    rescue ex : KeyError
+      raise ArgumentError.new(ex.message)
     end
 
     # Parse bounding box filter from consumer arguments
     # Expected format: {"min_lat": Float64, "max_lat": Float64, "min_lon": Float64, "max_lon": Float64}
-    def self.parse_bbox_filter(value : ::AMQ::Protocol::Field) : BoundingBoxFilter?
-      return nil unless value.is_a?(::AMQ::Protocol::Table)
-
-      min_lat = to_float64?(value["min_lat"]?)
-      max_lat = to_float64?(value["max_lat"]?)
-      min_lon = to_float64?(value["min_lon"]?)
-      max_lon = to_float64?(value["max_lon"]?)
-      return nil unless min_lat && max_lat && min_lon && max_lon
+    def self.parse_bbox_filter(value : ::AMQ::Protocol::Table) : BoundingBoxFilter
+      min_lat = to_float64(value["min_lat"])
+      max_lat = to_float64(value["max_lat"])
+      min_lon = to_float64(value["min_lon"])
+      max_lon = to_float64(value["max_lon"])
 
       bbox = BoundingBox.new(min_lat, max_lat, min_lon, max_lon)
       BoundingBoxFilter.new(bbox)
-    rescue ArgumentError
-      nil
+    rescue ex : KeyError
+      raise ArgumentError.new(ex.message)
     end
 
     # Parse polygon filter from consumer arguments
     # Expected format: {"points": [[lat1, lon1], [lat2, lon2], ...]}
-    def self.parse_polygon_filter(value : ::AMQ::Protocol::Field) : PolygonFilter?
-      return nil unless value.is_a?(::AMQ::Protocol::Table)
-
+    def self.parse_polygon_filter(value : ::AMQ::Protocol::Table) : PolygonFilter
       points_field = value["points"]?
-      return nil unless points_field.is_a?(Array)
+      raise ArgumentError.new("Missing required field: points") unless points_field
+      raise ArgumentError.new("Points must be an array") unless points_field.is_a?(Array)
+      raise ArgumentError.new("Polygon must have at least 3 points, got #{points_field.size}") if points_field.size < 3
 
       points = [] of Point
-      points_field.each do |point_field|
-        next unless point_field.is_a?(Array)
-        next unless point_field.size == 2
+      points_field.each_with_index do |point_field, idx|
+        raise ArgumentError.new("Point at index #{idx} must be an array") unless point_field.is_a?(Array)
+        raise ArgumentError.new("Point at index #{idx} must have exactly 2 elements [lat, lon]") unless point_field.size == 2
 
-        lat = to_float64?(point_field[0])
-        lon = to_float64?(point_field[1])
-        return nil unless lat && lon
+        lat = to_float64(point_field[0])
+        lon = to_float64(point_field[1])
 
         points << Point.new(lat, lon)
       end
 
-      return nil if points.size < 3
-
       polygon = Polygon.new(points)
       PolygonFilter.new(polygon)
-    rescue ArgumentError
-      nil
+    rescue ex : KeyError
+      raise ArgumentError.new(ex.message)
     end
 
-    # Helper to convert AMQ::Protocol::Field to Float64
-    def self.to_float64?(value : ::AMQ::Protocol::Field?) : Float64?
-      return nil unless value
-
+    # Helper to convert numeric AMQ::Protocol::Field to Float64
+    def self.to_float64(value : ::AMQ::Protocol::Field) : Float64
       case value
       when Int32, Int64, Float32, Float64
         value.to_f64
-      when String
-        value.to_f64?
       else
-        nil
+        raise ArgumentError.new("Expected numeric value, got #{value.class}")
       end
     end
   end

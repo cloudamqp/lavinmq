@@ -205,16 +205,6 @@ describe LavinMQ::AMQP::GISFilter do
       end
     end
 
-    it "extracts point from headers with String values" do
-      headers = GISFilterSpecHelper.geo_headers("40.7128", "-74.0060")
-      point = LavinMQ::AMQP::GISFilter::Point.from_headers(headers)
-      point.should_not be_nil
-      if p = point
-        p.lat.should eq 40.7128
-        p.lon.should eq -74.0060
-      end
-    end
-
     it "returns nil for missing headers" do
       headers = AMQ::Protocol::Table.new({"foo" => "bar"})
       point = LavinMQ::AMQP::GISFilter::Point.from_headers(headers)
@@ -255,48 +245,47 @@ describe LavinMQ::AMQP::GISFilter do
       end
     end
 
-    it "returns nil for missing fields" do
+    it "raises for missing fields" do
       table = AMQ::Protocol::Table.new({
         "lat" => GISFilterSpecHelper::NYC[:lat],
         "lon" => GISFilterSpecHelper::NYC[:lon],
       })
-      result = LavinMQ::AMQP::GISFilter.parse_radius_filter(table)
-      result.should be_nil
+      expect_raises(ArgumentError, /Missing hash key/) do
+        LavinMQ::AMQP::GISFilter.parse_radius_filter(table)
+      end
     end
 
-    it "returns nil for zero radius" do
+    it "raises for zero radius" do
       table = AMQ::Protocol::Table.new({
         "lat"       => GISFilterSpecHelper::NYC[:lat],
         "lon"       => GISFilterSpecHelper::NYC[:lon],
         "radius_km" => 0.0,
       })
-      result = LavinMQ::AMQP::GISFilter.parse_radius_filter(table)
-      result.should be_nil
+      expect_raises(ArgumentError, /Radius must be positive/) do
+        LavinMQ::AMQP::GISFilter.parse_radius_filter(table)
+      end
     end
 
-    it "returns nil for negative radius" do
+    it "raises for negative radius" do
       table = AMQ::Protocol::Table.new({
         "lat"       => GISFilterSpecHelper::NYC[:lat],
         "lon"       => GISFilterSpecHelper::NYC[:lon],
         "radius_km" => -5.0,
       })
-      result = LavinMQ::AMQP::GISFilter.parse_radius_filter(table)
-      result.should be_nil
+      expect_raises(ArgumentError, /Radius must be positive/) do
+        LavinMQ::AMQP::GISFilter.parse_radius_filter(table)
+      end
     end
 
-    it "returns nil for non-table input" do
-      result = LavinMQ::AMQP::GISFilter.parse_radius_filter("not a table")
-      result.should be_nil
-    end
-
-    it "returns nil for invalid numeric values" do
+    it "raises for invalid numeric values" do
       table = AMQ::Protocol::Table.new({
         "lat"       => "not-a-number",
         "lon"       => GISFilterSpecHelper::NYC[:lon],
         "radius_km" => 10.0,
       })
-      result = LavinMQ::AMQP::GISFilter.parse_radius_filter(table)
-      result.should be_nil
+      expect_raises(ArgumentError, /Expected numeric value/) do
+        LavinMQ::AMQP::GISFilter.parse_radius_filter(table)
+      end
     end
   end
 
@@ -318,37 +307,35 @@ describe LavinMQ::AMQP::GISFilter do
       end
     end
 
-    it "returns nil for missing fields" do
+    it "raises for missing fields" do
       table = AMQ::Protocol::Table.new({"min_lat" => 40.0, "max_lat" => 41.0})
-      result = LavinMQ::AMQP::GISFilter.parse_bbox_filter(table)
-      result.should be_nil
+      expect_raises(ArgumentError, /Missing hash key/) do
+        LavinMQ::AMQP::GISFilter.parse_bbox_filter(table)
+      end
     end
 
-    it "returns nil for invalid bounds" do
+    it "raises for invalid bounds" do
       table = AMQ::Protocol::Table.new({
         "min_lat" => 50.0,
         "max_lat" => 40.0, # Invalid: min > max
         "min_lon" => -75.0,
         "max_lon" => -73.0,
       })
-      result = LavinMQ::AMQP::GISFilter.parse_bbox_filter(table)
-      result.should be_nil
+      expect_raises(ArgumentError, /min_lat must be <= max_lat/) do
+        LavinMQ::AMQP::GISFilter.parse_bbox_filter(table)
+      end
     end
 
-    it "returns nil for non-table input" do
-      result = LavinMQ::AMQP::GISFilter.parse_bbox_filter("not a table")
-      result.should be_nil
-    end
-
-    it "returns nil for invalid numeric values" do
+    it "raises for invalid numeric values" do
       table = AMQ::Protocol::Table.new({
         "min_lat" => "invalid",
         "max_lat" => 41.0,
         "min_lon" => -75.0,
         "max_lon" => -73.0,
       })
-      result = LavinMQ::AMQP::GISFilter.parse_bbox_filter(table)
-      result.should be_nil
+      expect_raises(ArgumentError, /Expected numeric value/) do
+        LavinMQ::AMQP::GISFilter.parse_bbox_filter(table)
+      end
     end
   end
 
@@ -367,41 +354,39 @@ describe LavinMQ::AMQP::GISFilter do
       end
     end
 
-    it "returns nil for fewer than 3 points" do
+    it "raises for fewer than 3 points" do
       points_array = [
         [40.0, -74.0] of AMQ::Protocol::Field,
         [41.0, -74.0] of AMQ::Protocol::Field,
       ] of AMQ::Protocol::Field
       table = AMQ::Protocol::Table.new({"points" => points_array})
-      result = LavinMQ::AMQP::GISFilter.parse_polygon_filter(table)
-      result.should be_nil
+      expect_raises(ArgumentError, /Polygon must have at least 3 points/) do
+        LavinMQ::AMQP::GISFilter.parse_polygon_filter(table)
+      end
     end
 
-    it "returns nil for invalid point format" do
+    it "raises for invalid point format" do
       points_array = [
         [40.0] of AMQ::Protocol::Field, # Only 1 coordinate
         [41.0, -74.0] of AMQ::Protocol::Field,
         [40.5, -73.0] of AMQ::Protocol::Field,
       ] of AMQ::Protocol::Field
       table = AMQ::Protocol::Table.new({"points" => points_array})
-      result = LavinMQ::AMQP::GISFilter.parse_polygon_filter(table)
-      result.should be_nil
+      expect_raises(ArgumentError, /must have exactly 2 elements/) do
+        LavinMQ::AMQP::GISFilter.parse_polygon_filter(table)
+      end
     end
 
-    it "returns nil for non-table input" do
-      result = LavinMQ::AMQP::GISFilter.parse_polygon_filter("not a table")
-      result.should be_nil
-    end
-
-    it "returns nil for invalid numeric values" do
+    it "raises for invalid numeric values" do
       points_array = [
         ["invalid", -74.0] of AMQ::Protocol::Field,
         [41.0, -74.0] of AMQ::Protocol::Field,
         [40.5, -73.0] of AMQ::Protocol::Field,
       ] of AMQ::Protocol::Field
       table = AMQ::Protocol::Table.new({"points" => points_array})
-      result = LavinMQ::AMQP::GISFilter.parse_polygon_filter(table)
-      result.should be_nil
+      expect_raises(ArgumentError, /Expected numeric value/) do
+        LavinMQ::AMQP::GISFilter.parse_polygon_filter(table)
+      end
     end
   end
 
