@@ -126,7 +126,7 @@ module LavinMQ::AMQP
     end
 
     private def offset_index_lookup(offset) : UInt32
-      seg = @segments.first_key
+      seg = @offset_index.first_key
       case offset
       when Int
         @offset_index.each do |seg_id, first_seg_offset|
@@ -376,24 +376,18 @@ module LavinMQ::AMQP
     end
 
     private def read_metadata_file(seg, mfile)
-      File.open("#{mfile.path}.meta") do |file|
+      meta_path = meta_file_name(mfile.path)
+      File.open(meta_path) do |file|
         count = file.read_bytes(UInt32)
         @offset_index[seg] = file.read_bytes(Int64)
         @timestamp_index[seg] = file.read_bytes(Int64)
         @segment_msg_count[seg] = count
         bytesize = mfile.size - 4
-        if deleted = @deleted[seg]?
-          deleted.each do |pos|
-            mfile.pos = pos
-            bytesize -= BytesMessage.skip(mfile)
-            count -= 1
-          end
-        end
         mfile.pos = 4
         mfile.dontneed
         @bytesize += bytesize
         @size += count
-        @log.debug { "Reading count from #{mfile.path}.meta: #{count}" }
+        @log.debug { "Reading count from #{meta_path}: #{count}" }
       end
     end
   end
