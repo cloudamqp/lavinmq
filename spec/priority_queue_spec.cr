@@ -168,6 +168,7 @@ describe LavinMQ::AMQP::PriorityQueue do
           100u8.times do
             store.shift?
             store.bytesize.should be < bytesize
+            bytesize = store.bytesize
           end
           store.bytesize.should eq 0
         end
