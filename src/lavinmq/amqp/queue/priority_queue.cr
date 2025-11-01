@@ -95,8 +95,9 @@ module LavinMQ::AMQP
         old_store.close
         i = 0u32
         delete_wg = WaitGroup.new
+        pattern = %r{^(msgs|acks|meta)\.}
         Dir.each_child(@msg_dir) do |f|
-          if f.starts_with?("msgs.") || f.starts_with?("acks.")
+          if f.matches? pattern
             filepath = File.join(@msg_dir, f)
             File.delete? filepath
             @replicator.try &.delete_file(filepath, delete_wg)
