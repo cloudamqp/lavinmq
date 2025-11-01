@@ -361,16 +361,19 @@ module LavinMQ
                  "/"
                end
         
-        # Read body into string for signature calculation
-        body = msg.body_io.gets_to_end
-        
-        # Add signature header if secret is configured
+        # Compute signature if secret is configured
+        # Note: This requires reading the entire body into memory to compute HMAC.
+        # For webhook use cases, messages are typically small event notifications.
         if secret = @signature_secret
+          body = msg.body_io.gets_to_end
           signature = OpenSSL::HMAC.hexdigest(OpenSSL::Algorithm::SHA256, secret, body)
           headers["X-LavinMQ-Signature-256"] = "sha256=#{signature}"
+          response = c.post(path, headers: headers, body: body)
+        else
+          # Stream body directly when signature is not needed
+          response = c.post(path, headers: headers, body: msg.body_io)
         end
         
-        response = c.post(path, headers: headers, body: body)
         case @ack_mode
         in AckMode::OnConfirm, AckMode::OnPublish
           raise FailedDeliveryError.new unless response.success?
