@@ -2,6 +2,7 @@ require "./spec_helper"
 require "../src/lavinmq/shovel"
 require "http/server"
 require "wait_group"
+require "openssl/hmac"
 
 module ShovelSpecHelpers
   def self.setup_qs(ch, prefix = "") : {AMQP::Client::Exchange, AMQP::Client::Queue}
@@ -796,6 +797,107 @@ describe LavinMQ::Shovel do
           shovel.run
           sleep 10.milliseconds # better when than sleep?
           path.should eq "/some_path"
+        end
+      end
+    end
+
+    it "should include signature header when secret is configured" do
+      with_amqp_server do |s|
+        # Setup HTTP server
+        h = Hash(String, String).new
+        body = "<no body>"
+        server = HTTP::Server.new do |context|
+          context.request.headers.each do |k, v|
+            h[k] = v.first
+          end
+          body = context.request.body.try &.gets_to_end
+          context.response.content_type = "text/plain"
+          context.response.print "ok"
+          context
+        end
+        addr = server.bind_unused_port
+        spawn server.listen
+
+        vhost = s.vhosts.create("x")
+        # Setup shovel source and destination with signature secret
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec",
+          [URI.parse(s.amqp_url)],
+          "sig_q1",
+          delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
+          direct_user: s.users.direct_user
+        )
+        secret = "my-secret-key"
+        dest = LavinMQ::Shovel::HTTPDestination.new(
+          "spec",
+          URI.parse("http://#{addr}/webhook"),
+          signature_secret: secret
+        )
+
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "sig_shovel", vhost)
+        with_channel(s) do |ch|
+          x, _ = ShovelSpecHelpers.setup_qs ch, "sig_"
+          props = AMQP::Client::Properties.new("text/plain")
+          x.publish_confirm "test message", "sig_q1", props: props
+          shovel.run
+          sleep 10.milliseconds
+
+          # Verify signature header is present
+          h["X-Lavinmq-Signature-256"]?.should_not be_nil
+          signature_header = h["X-Lavinmq-Signature-256"]
+          signature_header.should start_with "sha256="
+          
+          # Verify signature is correct
+          expected_signature = OpenSSL::HMAC.hexdigest(OpenSSL::Algorithm::SHA256, secret, body || "")
+          signature_header.should eq "sha256=#{expected_signature}"
+          body.should eq "test message"
+
+          s.vhosts["/"].shovels.empty?.should be_true
+        end
+      end
+    end
+
+    it "should not include signature header when secret is not configured" do
+      with_amqp_server do |s|
+        # Setup HTTP server
+        h = Hash(String, String).new
+        server = HTTP::Server.new do |context|
+          context.request.headers.each do |k, v|
+            h[k] = v.first
+          end
+          context.response.content_type = "text/plain"
+          context.response.print "ok"
+          context
+        end
+        addr = server.bind_unused_port
+        spawn server.listen
+
+        vhost = s.vhosts.create("x")
+        # Setup shovel source and destination without signature secret
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec",
+          [URI.parse(s.amqp_url)],
+          "nosig_q1",
+          delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
+          direct_user: s.users.direct_user
+        )
+        dest = LavinMQ::Shovel::HTTPDestination.new(
+          "spec",
+          URI.parse("http://#{addr}/webhook")
+        )
+
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "nosig_shovel", vhost)
+        with_channel(s) do |ch|
+          x, _ = ShovelSpecHelpers.setup_qs ch, "nosig_"
+          props = AMQP::Client::Properties.new("text/plain")
+          x.publish_confirm "test message", "nosig_q1", props: props
+          shovel.run
+          sleep 10.milliseconds
+
+          # Verify signature header is NOT present
+          h["X-Lavinmq-Signature-256"]?.should be_nil
+
+          s.vhosts["/"].shovels.empty?.should be_true
         end
       end
     end
