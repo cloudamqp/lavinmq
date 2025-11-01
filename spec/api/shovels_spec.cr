@@ -1,5 +1,6 @@
 require "../spec_helper.cr"
 require "uri"
+require "openssl/hmac"
 
 def create_shovel(server, name = "spec-shovel", config = NamedTuple.new, paused = false)
   config = NamedTuple.new(
@@ -80,6 +81,57 @@ describe LavinMQ::HTTP::ShovelsController do
         vhost_url_encoded = URI.encode_path_segment(shovel.vhost.name)
         status_code = http.put("/api/shovels/#{vhost_url_encoded}/#{shovel.name}/resume").status_code
         status_code.should eq 422
+      end
+    end
+  end
+
+  describe "HTTP shovel with signature secret" do
+    it "should accept dest-signature-secret parameter" do
+      with_http_server do |http, s|
+        # Setup HTTP server to receive webhook
+        h = Hash(String, String).new
+        received_body = ""
+        server = HTTP::Server.new do |context|
+          context.request.headers.each do |k, v|
+            h[k] = v.first
+          end
+          received_body = context.request.body.try(&.gets_to_end) || ""
+          context.response.content_type = "text/plain"
+          context.response.print "ok"
+        end
+        addr = server.bind_unused_port
+        spawn server.listen
+
+        # Create HTTP shovel with signature secret via store
+        with_channel(s) do |ch|
+          ch.queue("http_sig_src")
+        end
+
+        secret = "test-secret-123"
+        config = {
+          "src-uri":               s.amqp_url,
+          "src-queue":             "http_sig_src",
+          "dest-uri":              "http://#{addr}/webhook",
+          "dest-signature-secret": secret,
+          "src-delete-after":      "queue-length",
+        }
+        shovel = s.vhosts["/"].shovels.create("http-sig-shovel", JSON.parse(config.to_json))
+
+        # Publish a message
+        with_channel(s) do |ch|
+          x = ch.exchange("", "direct", passive: true)
+          x.publish_confirm "test payload", "http_sig_src"
+        end
+
+        # Wait for shovel to process
+        wait_for { shovel.state.terminated? }
+        sleep 10.milliseconds
+
+        # Verify signature was sent
+        h["X-Lavinmq-Signature-256"]?.should_not be_nil
+        signature_header = h["X-Lavinmq-Signature-256"]
+        expected_signature = OpenSSL::HMAC.hexdigest(OpenSSL::Algorithm::SHA256, secret, received_body)
+        signature_header.should eq "sha256=#{expected_signature}"
       end
     end
   end
