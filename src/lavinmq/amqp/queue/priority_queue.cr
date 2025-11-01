@@ -117,8 +117,6 @@ module LavinMQ::AMQP
         unless 0 <= prio <= @max_priority
           raise ArgumentError.new "Priority must be between 0 and #{@max_priority}, got #{prio}"
         end
-        # Since @stores is sorted with highets prio first, we do lookup from
-        # end of the array. We must add one step because last item is -1 not -0.
         yield @stores[prio]
       end
 
