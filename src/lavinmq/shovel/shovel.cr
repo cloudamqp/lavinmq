@@ -2,6 +2,7 @@ require "../sortable_json"
 require "amqp-client"
 require "http/client"
 require "wait_group"
+require "openssl/hmac"
 
 module LavinMQ
   module Shovel
@@ -319,7 +320,7 @@ module LavinMQ
     class HTTPDestination < Destination
       @client : ::HTTP::Client?
 
-      def initialize(@name : String, @uri : URI, @ack_mode = DEFAULT_ACK_MODE)
+      def initialize(@name : String, @uri : URI, @ack_mode = DEFAULT_ACK_MODE, @signature_secret : String? = nil)
       end
 
       def start
@@ -359,7 +360,17 @@ module LavinMQ
                else
                  "/"
                end
-        response = c.post(path, headers: headers, body: msg.body_io)
+        
+        # Read body into string for signature calculation
+        body = msg.body_io.gets_to_end
+        
+        # Add signature header if secret is configured
+        if secret = @signature_secret
+          signature = OpenSSL::HMAC.hexdigest(OpenSSL::Algorithm::SHA256, secret, body)
+          headers["X-LavinMQ-Signature-256"] = "sha256=#{signature}"
+        end
+        
+        response = c.post(path, headers: headers, body: body)
         case @ack_mode
         in AckMode::OnConfirm, AckMode::OnPublish
           raise FailedDeliveryError.new unless response.success?
