@@ -92,6 +92,12 @@ describe LavinMQ::AMQP::PriorityQueue do
         end
         old_store.close
 
+        # Create a metadata file manually, we've written to little data
+        # for the message store to create it
+        File.open("#{data_dir}/meta.0000000001", "w") do |f|
+          f.write_bytes 60u32
+        end
+
         store = LavinMQ::AMQP::PriorityQueue::PriorityMessageStore.new(5u8, data_dir, nil, durable: true)
         store.size.should eq 60
 
