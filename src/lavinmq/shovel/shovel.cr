@@ -335,17 +335,16 @@ module LavinMQ
                else
                  "/"
                end
-
-        # Read body into string for signature calculation
-        body = msg.body_io.gets_to_end
-
-        # Add signature header if secret is configured
         if secret = @signature_secret
+          # Read body into memory for HMAC computation
+          body = msg.body_io.gets_to_end
           signature = OpenSSL::HMAC.hexdigest(OpenSSL::Algorithm::SHA256, secret, body)
           headers["X-LavinMQ-Signature-256"] = "sha256=#{signature}"
+          response = c.post(path, headers: headers, body: body)
+        else
+          # Stream body directly when signature is not needed
+          response = c.post(path, headers: headers, body: msg.body_io)
         end
-
-        response = c.post(path, headers: headers, body: body)
         case @ack_mode
         in AckMode::OnConfirm, AckMode::OnPublish
           raise FailedDeliveryError.new unless response.success?

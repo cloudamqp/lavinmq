@@ -846,7 +846,7 @@ describe LavinMQ::Shovel do
           h["X-Lavinmq-Signature-256"]?.should_not be_nil
           signature_header = h["X-Lavinmq-Signature-256"]
           signature_header.should start_with "sha256="
-          
+
           # Verify signature is correct
           expected_signature = OpenSSL::HMAC.hexdigest(OpenSSL::Algorithm::SHA256, secret, body || "")
           signature_header.should eq "sha256=#{expected_signature}"

@@ -87,7 +87,7 @@ describe LavinMQ::HTTP::ShovelsController do
 
   describe "HTTP shovel with signature secret" do
     it "should accept dest-signature-secret parameter" do
-      with_http_server do |http, s|
+      with_http_server do |_http, s|
         # Setup HTTP server to receive webhook
         h = Hash(String, String).new
         received_body = ""
