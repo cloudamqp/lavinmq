@@ -1,9 +1,19 @@
 require "./spec_helper"
 
+module PrioSpec
+  # PriorityMessageStore constructor is protected, so make a subclass
+  # with public constructor for testing
+  class PrioQueue < LavinMQ::AMQP::PriorityQueue::PriorityMessageStore
+    def initialize(*args, **kwargs)
+      super(*args, **kwargs)
+    end
+  end
+end
+
 def with_prio_store(max_prio, &)
   data_dir = File.tempname
   Dir.mkdir data_dir
-  store = LavinMQ::AMQP::PriorityQueue::PriorityMessageStore.new(max_prio.to_u8, data_dir, nil, metadata: ::Log::Metadata.empty)
+  store = PrioSpec::PrioQueue.new(max_prio.to_u8, data_dir, nil, metadata: ::Log::Metadata.empty)
   yield store
 ensure
   store.delete if store
@@ -58,14 +68,14 @@ describe LavinMQ::AMQP::PriorityQueue do
           old_store.close
 
           # Trigger migration
-          store = LavinMQ::AMQP::PriorityQueue::PriorityMessageStore.new(5u8, cluster.config.data_dir, cluster.replicator, durable: true)
+          store = PrioSpec::PrioQueue.new(5u8, cluster.config.data_dir, cluster.replicator, durable: true)
           store.size.should eq 60
           store.close
 
           cluster.stop
 
           # Verify the replicated store
-          replicated_store = LavinMQ::AMQP::PriorityQueue::PriorityMessageStore.new(5u8, cluster.follower_config.data_dir, nil, durable: true)
+          replicated_store = PrioSpec::PrioQueue.new(5u8, cluster.follower_config.data_dir, nil, durable: true)
           replicated_store.size.should eq 60
           6.times do |i|
             replicated_store.@stores[i].size.should eq 10
@@ -92,7 +102,7 @@ describe LavinMQ::AMQP::PriorityQueue do
         end
         old_store.close
 
-        store = LavinMQ::AMQP::PriorityQueue::PriorityMessageStore.new(5u8, data_dir, nil, durable: true)
+        store = PrioSpec::PrioQueue.new(5u8, data_dir, nil, durable: true)
         store.size.should eq 60
 
         6.times do |i|
@@ -111,6 +121,66 @@ describe LavinMQ::AMQP::PriorityQueue do
     it "should use sub stores" do
       with_prio_store(5) do |store|
         store.@stores.size.should eq 6
+      end
+    end
+
+    describe "#size" do
+      it "is increased on push" do
+        with_prio_store(5) do |store|
+          100u8.times do |prio|
+            props = AMQP::Client::Properties.new(priority: prio % 5)
+            msg = LavinMQ::Message.new("ex", "rk", "body", properties: props)
+            store.push msg
+            store.size.should eq(prio + 1)
+          end
+        end
+      end
+      it "is decreased on shift?" do
+        with_prio_store(5) do |store|
+          100u8.times do |prio|
+            props = AMQP::Client::Properties.new(priority: prio % 5)
+            msg = LavinMQ::Message.new("ex", "rk", "body", properties: props)
+            store.push msg
+          end
+
+          100u8.times do |i|
+            store.size.should eq(100 - i)
+            store.shift?
+          end
+          store.size.should eq 0
+        end
+      end
+    end
+
+    describe "#bytesize" do
+      it "is increased on push" do
+        with_prio_store(5) do |store|
+          bytesize = 0
+          100u8.times do |prio|
+            props = AMQP::Client::Properties.new(priority: prio % 5)
+            msg = LavinMQ::Message.new("ex", "rk", "body", properties: props)
+            store.push msg
+            store.bytesize.should be > bytesize
+            bytesize = store.bytesize
+          end
+        end
+      end
+
+      it "is decreased on shift?" do
+        with_prio_store(5) do |store|
+          100u8.times do |prio|
+            props = AMQP::Client::Properties.new(priority: prio % 5)
+            msg = LavinMQ::Message.new("ex", "rk", "body", properties: props)
+            store.push msg
+          end
+
+          bytesize = store.bytesize
+          100u8.times do
+            store.shift?
+            store.bytesize.should be < bytesize
+          end
+          store.bytesize.should eq 0
+        end
       end
     end
 

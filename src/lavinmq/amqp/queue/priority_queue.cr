@@ -60,8 +60,6 @@ module LavinMQ::AMQP
           sub_msg_dir = File.join(@msg_dir, "prio.#{i.to_s.rjust(3, '0')}")
           Dir.mkdir_p sub_msg_dir
           store = MessageStore.new(sub_msg_dir, @replicator, @durable, metadata: @metadata.extend({prio: i.to_s}))
-          @size += store.size
-          @bytesize += store.bytesize
           stores << store
         end
       end
@@ -95,8 +93,9 @@ module LavinMQ::AMQP
         old_store.close
         i = 0u32
         delete_wg = WaitGroup.new
+        files_to_delete_pattern = %r{\A(msgs\.|acks\.|meta\.)}
         Dir.each_child(@msg_dir) do |f|
-          if f.starts_with?("msgs.") || f.starts_with?("acks.")
+          if f.matches? files_to_delete_pattern
             filepath = File.join(@msg_dir, f)
             File.delete? filepath
             @replicator.try &.delete_file(filepath, delete_wg)
@@ -135,13 +134,19 @@ module LavinMQ::AMQP
         end
       end
 
+      def size
+        @stores.sum(&.size)
+      end
+
+      def bytesize
+        @stores.sum(&.bytesize)
+      end
+
       def push(msg) : SegmentPosition
         raise ClosedError.new if @closed
         prio = Math.min(msg.properties.priority || 0u8, @max_priority)
         sp = store_for prio, &.push(msg)
-        was_empty = @size.zero?
-        @bytesize += sp.bytesize
-        @size += 1
+        was_empty = size.zero?
         @empty.set false if was_empty
         sp
       end
@@ -149,9 +154,7 @@ module LavinMQ::AMQP
       def requeue(sp : SegmentPosition)
         raise ClosedError.new if @closed
         store_for sp, &.requeue(sp)
-        was_empty = @size.zero?
-        @bytesize += sp.bytesize
-        @size += 1
+        was_empty = size.zero?
         @empty.set false if was_empty
       end
 
