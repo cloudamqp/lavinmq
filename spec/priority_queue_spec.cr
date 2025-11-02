@@ -114,6 +114,67 @@ describe LavinMQ::AMQP::PriorityQueue do
       end
     end
 
+    describe "#size" do
+      it "is increased on push" do
+        with_prio_store(5) do |store|
+          100u8.times do |prio|
+            props = AMQP::Client::Properties.new(priority: prio % 5)
+            msg = LavinMQ::Message.new("ex", "rk", "body", properties: props)
+            store.push msg
+            store.size.should eq(prio + 1)
+          end
+        end
+      end
+      it "is decreased on shift?" do
+        with_prio_store(5) do |store|
+          100u8.times do |prio|
+            props = AMQP::Client::Properties.new(priority: prio % 5)
+            msg = LavinMQ::Message.new("ex", "rk", "body", properties: props)
+            store.push msg
+          end
+
+          100u8.times do |i|
+            store.size.should eq(100 - i)
+            store.shift?
+          end
+          store.size.should eq 0
+        end
+      end
+    end
+
+    describe "#bytesize" do
+      it "is increased on push" do
+        with_prio_store(5) do |store|
+          bytesize = 0
+          100u8.times do |prio|
+            props = AMQP::Client::Properties.new(priority: prio % 5)
+            msg = LavinMQ::Message.new("ex", "rk", "body", properties: props)
+            store.push msg
+            store.bytesize.should be > bytesize
+            bytesize = store.bytesize
+          end
+        end
+      end
+
+      it "is decreased on shift?" do
+        with_prio_store(5) do |store|
+          100u8.times do |prio|
+            props = AMQP::Client::Properties.new(priority: prio % 5)
+            msg = LavinMQ::Message.new("ex", "rk", "body", properties: props)
+            store.push msg
+          end
+
+          bytesize = store.bytesize
+          100u8.times do
+            store.shift?
+            store.bytesize.should be < bytesize
+            bytesize = store.bytesize
+          end
+          store.bytesize.should eq 0
+        end
+      end
+    end
+
     describe "#push" do
       it "should publish to the right sub store" do
         with_prio_store(5) do |store|
