@@ -35,11 +35,6 @@ module LavinMQ
       nil
     end
 
-    def bytesize
-      sizeof(Int64) + 1 + @exchange_name.bytesize + 1 + @routing_key.bytesize +
-        @properties.bytesize + sizeof(UInt64) + @bodysize
-    end
-
     def to_io(io : IO, format = IO::ByteFormat::SystemEndian)
       io.write_bytes @timestamp, format
       io.write_bytes AMQ::Protocol::ShortString.new(@exchange_name), format
