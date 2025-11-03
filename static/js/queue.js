@@ -192,6 +192,11 @@ document.querySelector('#addBinding').addEventListener('submit', function (evt) 
       evt.target.reset()
       DOM.toast('Exchange ' + e + ' bound to queue')
     })
+    .catch(err => {
+      if (err.status === 404) {
+        DOM.toast(`Exchange '${e}' does not exist and needs to be created first.`, 'error')
+      }
+    })
 })
 
 document.querySelector('#publishMessage').addEventListener('submit', function (evt) {

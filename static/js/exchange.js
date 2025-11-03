@@ -109,6 +109,12 @@ document.querySelector('#addBinding').addEventListener('submit', function (evt) 
       bindingsTable.reload()
       evt.target.reset()
     })
+    .catch(e => {
+      if (e.status === 404) {
+        const type = t === 'q' ? 'Queue' : 'Exchange'
+        DOM.toast(`${type} '${d}' does not exist and needs to be created first.`, 'error')
+      }
+    })
 })
 
 document.querySelector('#publishMessage').addEventListener('submit', function (evt) {
