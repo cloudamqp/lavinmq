@@ -77,15 +77,7 @@ module LavinMQ::AMQP
         @log.info { "Migrating #{msg_count} message" }
         i = 0u32
         while env = old_store.shift?
-          msg = env.message
-          push LavinMQ::Message.new(
-            msg.timestamp,
-            msg.exchange_name,
-            msg.routing_key,
-            msg.properties,
-            msg.bodysize,
-            IO::Memory.new(msg.body)
-          )
+          push env.message
           Fiber.yield if ((i &+= 1) % 8096).zero?
         end
         if size != msg_count
