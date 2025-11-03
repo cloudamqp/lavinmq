@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Fixed a bug where LavinMQ could end up in an infinte loop in a priority queue [#1420](https://github.com/cloudamqp/lavinmq/pull/1420)
+- Remove meta files after priority queue store migration [#1421](https://github.com/cloudamqp/lavinmq/pull/1421)
 - Show all channels for a specific vhost in the GUI [#1413](https://github.com/cloudamqp/lavinmq/pull/1413)
 - Don't log 'NaN' during follower sync if bps is 0 [#1418](https://github.com/cloudamqp/lavinmq/pull/1418)
 - Fixed a flaky spec [#1383](https://github.com/cloudamqp/lavinmq/pull/1383)
