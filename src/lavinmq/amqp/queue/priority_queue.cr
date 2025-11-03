@@ -86,7 +86,7 @@ module LavinMQ::AMQP
             msg.bodysize,
             IO::Memory.new(msg.body)
           )
-          Fiber.yield if (i &+= 8096).zero?
+          Fiber.yield if ((i &+= 1) % 8096).zero?
         end
         if size != msg_count
           raise "Message count mismatch when migration message store #{@msg_dir}. #{msg_count} messages before migration, #{size} after."
@@ -101,7 +101,7 @@ module LavinMQ::AMQP
             filepath = File.join(@msg_dir, f)
             File.delete? filepath
             @replicator.try &.delete_file(filepath, delete_wg)
-            Fiber.yield if (i &+= 8096).zero?
+            Fiber.yield if ((i &+= 1) % 8096).zero?
           end
         end
         delete_wg.wait
