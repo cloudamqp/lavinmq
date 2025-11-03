@@ -75,16 +75,8 @@ module LavinMQ::AMQP
         @log.info { "Migrating #{msg_count} message" }
         i = 0u32
         while env = old_store.shift?
-          msg = env.message
-          push LavinMQ::Message.new(
-            msg.timestamp,
-            msg.exchange_name,
-            msg.routing_key,
-            msg.properties,
-            msg.bodysize,
-            IO::Memory.new(msg.body)
-          )
-          Fiber.yield if (i &+= 8096).zero?
+          push env.message
+          Fiber.yield if ((i &+= 1) % 8096).zero?
         end
         if size != msg_count
           raise "Message count mismatch when migration message store #{@msg_dir}. #{msg_count} messages before migration, #{size} after."
@@ -93,12 +85,13 @@ module LavinMQ::AMQP
         old_store.close
         i = 0u32
         delete_wg = WaitGroup.new
+        pattern = %r{^(msgs|acks|meta)\.}
         Dir.each_child(@msg_dir) do |f|
-          if f.starts_with?("msgs.") || f.starts_with?("acks.")
+          if f.matches? pattern
             filepath = File.join(@msg_dir, f)
             File.delete? filepath
             @replicator.try &.delete_file(filepath, delete_wg)
-            Fiber.yield if (i &+= 8096).zero?
+            Fiber.yield if ((i &+= 1) % 8096).zero?
           end
         end
         delete_wg.wait
