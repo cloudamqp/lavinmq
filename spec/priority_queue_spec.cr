@@ -1,9 +1,17 @@
 require "./spec_helper"
 
+module PrioSpec
+  class PrioMessageStore < LavinMQ::AMQP::PriorityQueue::PriorityMessageStore
+    def initialize(*args, **kwargs)
+      super(*args, **kwargs)
+    end
+  end
+end
+
 def with_prio_store(max_prio, &)
   data_dir = File.tempname
   Dir.mkdir data_dir
-  store = LavinMQ::AMQP::PriorityQueue::PriorityMessageStore.new(max_prio.to_u8, data_dir, nil, metadata: ::Log::Metadata.empty)
+  store = PrioSpec::PrioMessageStore.new(max_prio.to_u8, data_dir, nil, metadata: ::Log::Metadata.empty)
   yield store
 ensure
   store.delete if store
@@ -58,14 +66,14 @@ describe LavinMQ::AMQP::PriorityQueue do
           old_store.close
 
           # Trigger migration
-          store = LavinMQ::AMQP::PriorityQueue::PriorityMessageStore.new(5u8, cluster.config.data_dir, cluster.replicator, durable: true)
+          store = PrioSpec::PrioMessageStore.new(5u8, cluster.config.data_dir, cluster.replicator, durable: true)
           store.size.should eq 60
           store.close
 
           cluster.stop
 
           # Verify the replicated store
-          replicated_store = LavinMQ::AMQP::PriorityQueue::PriorityMessageStore.new(5u8, cluster.follower_config.data_dir, nil, durable: true)
+          replicated_store = PrioSpec::PrioMessageStore.new(5u8, cluster.follower_config.data_dir, nil, durable: true)
           replicated_store.size.should eq 60
           6.times do |i|
             replicated_store.@stores[i].size.should eq 10
@@ -98,7 +106,7 @@ describe LavinMQ::AMQP::PriorityQueue do
           f.write_bytes 60u32
         end
 
-        store = LavinMQ::AMQP::PriorityQueue::PriorityMessageStore.new(5u8, data_dir, nil, durable: true)
+        store = PrioSpec::PrioMessageStore.new(5u8, data_dir, nil, durable: true)
         store.size.should eq 60
 
         6.times do |i|
