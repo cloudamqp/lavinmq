@@ -120,6 +120,7 @@ class MFile < IO
   end
 
   def truncate(size = @size) : Nil
+    return if @capacity == size # already truncated
     @size = size.to_i64
     @pos = size.to_i64 if @pos > size
     @capacity = size.to_i64
