@@ -30,4 +30,19 @@ test.describe("user", _ => {
     await page.locator(`#permissions tr[data-vhost='"${permission.vhost}"']`).getByRole('button', { name: /clear/i }).click()
     await expect(apiDeletePermissionsRequest).toBeRequested()
   })
+
+  test('permission can be set', async ({ page, vhosts }) => {
+    const user = 'guest'
+    const vhost = vhosts[0]
+    const apiPermissionRequest = helpers.waitForPathRequest(page, `/api/users/${user}/permissions`, { response: permissionsResponse })
+    await page.goto(`/user#name=${user}`)
+    await expect(apiPermissionRequest).toBeRequested()
+    const apiSetPermissionsRequest = helpers.waitForPathRequest(page, `/api/permissions/${vhost}/${user}`, { method: 'PUT' })
+    await page.getByLabel('Virtual host').selectOption(vhost)
+    await page.getByLabel('Configure').fill('^test.*')
+    await page.getByLabel('Read').fill('^read.*')
+    await page.getByLabel('Write').fill('^write.*')
+    await page.getByRole('button', { name: /set permission/i }).click()
+    await expect(apiSetPermissionsRequest).toBeRequested()
+  })
 })
