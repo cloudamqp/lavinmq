@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## Unreleased
+
+### Fixed
+- Fixed a bug where LavinMQ could end up in an infinte loop in a priority queue [#1420](https://github.com/cloudamqp/lavinmq/pull/1420)
+- Show all channels for a specific vhost in the GUI [#1413](https://github.com/cloudamqp/lavinmq/pull/1413)
+- Fixed a flaky spec [#1383](https://github.com/cloudamqp/lavinmq/pull/1383)
+- Add builds for Debian 13 & Fedora 43. Remove builds for Fedora 40 [#1410](https://github.com/cloudamqp/lavinmq/pull/1410)
+
 ## [2.5.0-rc.6] - 2025-10-30
 
 ### Fixed
