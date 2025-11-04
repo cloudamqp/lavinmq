@@ -2,6 +2,12 @@ require "../user"
 
 module LavinMQ
   module Auth
+    class OAuthTokenExpiredError < Exception
+      def initialize(username : String)
+        super("OAuth token expired for user '#{username}'")
+      end
+    end
+
     class OAuthUser < User
       getter name : String
       getter tags : Array(Tag)
@@ -21,22 +27,22 @@ module LavinMQ
       end
 
       def can_write?(vhost : String, name : String) : Bool
-        return false if expired?
+        raise OAuthTokenExpiredError.new(@name) if expired?
         super
       end
 
       def can_read?(vhost : String, name : String) : Bool
-        return false if expired?
+        raise OAuthTokenExpiredError.new(@name) if expired?
         super
       end
 
       def can_config?(vhost : String, name : String) : Bool
-        return false if expired?
+        raise OAuthTokenExpiredError.new(@name) if expired?
         super
       end
 
       def can_impersonate? : Bool
-        return false if expired?
+        raise OAuthTokenExpiredError.new(@name) if expired?
         super
       end
 

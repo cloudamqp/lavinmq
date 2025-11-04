@@ -169,6 +169,10 @@ module LavinMQ
         rescue ex : IO::Error | OpenSSL::SSL::Error
           @log.debug(exception: ex) { "Lost connection, while reading (#{ex.inspect})" } unless closed?
           break
+        rescue ex : Auth::OAuthTokenExpiredError
+          @log.info { ex.message }
+          close(ex.message)
+          break
         rescue ex : Exception
           @log.error(exception: ex) { "Unexpected error, while reading: #{ex.message}" }
           send_internal_error(ex.message)

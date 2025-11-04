@@ -210,7 +210,6 @@ module LavinMQ
       end
 
       private def extract_jwks_ttl(headers : ::HTTP::Headers) : Time::Span
-        pp headers
         if cache_control = headers["Cache-Control"]?
           if match = cache_control.match(/max-age=(\d+)/)
             return match[1].to_i.seconds
