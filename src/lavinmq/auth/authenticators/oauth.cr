@@ -11,11 +11,15 @@ module LavinMQ
     class OAuthAuthenticator < Authenticator
       Log = LavinMQ::Log.for "oauth2"
 
+      @cached_key : String?
+      @cache_expires_at : Time?
+      @cache_mutex : Mutex = Mutex.new
+
       def initialize(@users : Auth::UserStore, @config = Config.instance)
       end
 
       def authenticate(username : String, password : Bytes) : OAuthUser?
-        token = parse_and_verify_jwks(String.new(password))
+        token = fetch_and_verify_jwks(String.new(password))
         username, tags, permissions, expires_at = parse_jwt_payload(token.payload)
         Log.info { "OAuth2 user authenticated: #{username}" }
 
@@ -48,10 +52,10 @@ module LavinMQ
                     when .as_s? then [aud.as_s]
                     else             return
                     end
-        expected = @config.oauth_audience || @config.oauth_resource_server_id
-        return unless expected
+        expected = @config.oauth_audience.empty? ? @config.oauth_resource_server_id : @config.oauth_audience
+        return if expected.empty?
 
-        unless audiences.includes?(expected)
+        if !audiences.includes?(expected)
           raise "Token audience mismatch: expected '#{expected}', got #{audiences.inspect}"
         end
       end
@@ -70,8 +74,8 @@ module LavinMQ
         permissions = Hash(String, User::Permissions).new
         scopes = [] of String
 
-        if resource_id = @config.oauth_resource_server_id
-          if arr = payload.dig?("resource_access", resource_id, "roles").try(&.as_a?)
+        if !@config.oauth_resource_server_id.empty?
+          if arr = payload.dig?("resource_access", @config.oauth_resource_server_id, "roles").try(&.as_a?)
             scopes.concat(arr.map(&.as_s))
           end
         end
@@ -80,8 +84,8 @@ module LavinMQ
           scopes.concat(scope_str.split)
         end
 
-        if key = @config.oauth_additional_scopes_key
-          if claim = payload[key]?
+        if !@config.oauth_additional_scopes_key.empty?
+          if claim = payload[@config.oauth_additional_scopes_key]?
             scopes.concat(extract_scopes_from_claim(claim))
           end
         end
@@ -92,13 +96,11 @@ module LavinMQ
 
       private def filter_scopes(scopes : Array(String)) : Array(String)
         prefix = @config.oauth_scope_prefix
-        if prefix.nil?
-          if resource_id = @config.oauth_resource_server_id
-            prefix = "#{resource_id}."
-          end
+        if prefix.empty? && !@config.oauth_resource_server_id.empty?
+          prefix = "#{@config.oauth_resource_server_id}."
         end
 
-        return scopes if prefix.nil? || prefix.empty?
+        return scopes if prefix.empty?
 
         scopes.compact_map do |scope|
           scope[prefix.size..] if scope.starts_with?(prefix)
@@ -110,9 +112,9 @@ module LavinMQ
         when .as_h?
           result = [] of String
           claim.as_h.each do |key, value|
-            if resource_id = @config.oauth_resource_server_id
-              result.concat(extract_scopes_from_claim(value)) if key == resource_id
-            else
+            if @config.oauth_resource_server_id.empty?
+              result.concat(extract_scopes_from_claim(value))
+            elsif key == @config.oauth_resource_server_id
               result.concat(extract_scopes_from_claim(value))
             end
           end
@@ -141,9 +143,9 @@ module LavinMQ
         end
 
         parts = role.split(/[.:\/]/)
-        return unless parts.size == 3
+        return if parts.size != 3
         perm_type, vhost, pattern = parts[0], parts[1], parts[2]
-        return unless perm_type.in?("configure", "read", "write")
+        return if !perm_type.in?("configure", "read", "write")
 
         vhost = "/" if vhost == "*"
         pattern = ".*" if pattern == "*"
@@ -163,38 +165,70 @@ module LavinMQ
                              end
       end
 
-      private def parse_and_verify_jwks(password : String) : JWT::Token
-        issuer_url = @config.oauth_issuer_url
-        raise "OAuth issuer URL not configured" unless issuer_url
+      private def update_cache(key : String, ttl : Time::Span)
+        @cache_mutex.synchronize do
+          @cached_key = key
+          @cache_expires_at = Time.utc + ttl
+          Log.debug { "Updated JWKS cache with TTL=#{ttl}" }
+        end
+      end
 
-        discovery_url = issuer_url.chomp("/") + "/.well-known/openid-configuration"
-        oidc_config = fetch_url(discovery_url)
-        jwks_uri = oidc_config["jwks_uri"]?.try(&.as_s)
-        raise "No jwks_uri found in OIDC configuration" unless jwks_uri
+      private def get_cached_key : String?
+        @cache_mutex.synchronize do
+          return nil if @cached_key.nil?
+          return nil if @cache_expires_at.try { |exp| Time.utc >= exp }
+          @cached_key
+        end
+      end
 
-        Log.debug { "Fetching JWKS from #{jwks_uri}" }
-        jwks = fetch_url(jwks_uri)
+      private def try_cached_jwks(password : String) : JWT::Token?
+        return nil unless cached_key = get_cached_key
+        JWT::RS256Parser.decode(password, cached_key, verify: true)
+      rescue JWT::DecodeError | JWT::VerificationError
+        Log.debug { "Cached key verification failed" }
+        nil
+      end
 
+      private def fetch_and_verify_jwks(password : String) : JWT::Token
+        if token = try_cached_jwks(password)
+          return token
+        end
+
+        Log.debug { "No valid tokens in cache, try fetching JWKS from issuer" }
+        oidc_config, _ = fetch_url(@config.oauth_issuer_url.chomp("/") + "/.well-known/openid-configuration")
+        jwks, headers = fetch_url(oidc_config["jwks_uri"].as_s)
         jwks["keys"].as_a.each do |key|
           next unless key["n"]? && key["e"]?
-          public_key_pem = to_pem(key["n"].as_s, key["e"].as_s)
-          return JWT::RS256Parser.decode(password, public_key_pem, verify: true)
+          public_key = to_pem(key["n"].as_s, key["e"].as_s)
+          token = JWT::RS256Parser.decode(password, public_key, verify: true)
+          update_cache(public_key, extract_jwks_ttl(headers))
+          return token
         rescue JWT::DecodeError | JWT::VerificationError
           next
         end
         raise "Could not verify JWT with any key from JWKS"
       end
 
-      private def fetch_url(url : String, timeout : Time::Span = 10.seconds)
+      private def extract_jwks_ttl(headers : ::HTTP::Headers) : Time::Span
+        pp headers
+        if cache_control = headers["Cache-Control"]?
+          if match = cache_control.match(/max-age=(\d+)/)
+            return match[1].to_i.seconds
+          end
+        end
+        @config.oauth_jwks_cache_ttl
+      end
+
+      private def fetch_url(url : String, timeout : Time::Span = 10.seconds) : {JSON::Any, ::HTTP::Headers}
         uri = URI.parse(url)
         ::HTTP::Client.new(uri) do |client|
           client.connect_timeout = timeout
           client.read_timeout = timeout
           response = client.get(uri.request_target)
-          unless response.success?
+          if !response.success?
             raise "HTTP request failed with status #{response.status_code}: #{response.body}"
           end
-          JSON.parse(response.body)
+          {JSON.parse(response.body), response.headers}
         end
       end
 
@@ -213,7 +247,7 @@ module LavinMQ
 
         # Set the key components (this takes ownership of the BIGNUMs)
         result = LibCrypto.rsa_set0_key(rsa, modulus, exponent, nil)
-        unless result == 1
+        if result != 1
           LibCrypto.rsa_free(rsa)
           raise "Failed to set RSA key components"
         end
@@ -225,7 +259,7 @@ module LavinMQ
         begin
           # Write the public key to the BIO in PEM format
           result = LibCrypto.pem_write_bio_rsa_pubkey(bio, rsa)
-          unless result == 1
+          if result != 1
             raise "Failed to write PEM"
           end
 

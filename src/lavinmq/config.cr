@@ -75,13 +75,14 @@ module LavinMQ
     property default_user : String = ENV.fetch("LAVINMQ_DEFAULT_USER", "guest")
     property default_password : String = ENV.fetch("LAVINMQ_DEFAULT_PASSWORD", DEFAULT_PASSWORD_HASH) # Hashed password for default user
     property max_consumers_per_channel = 0
-    property oauth_issuer_url : String? = "https://test-giant-beige-hawk.rmq7.cloudamqp.com/realms/lavinmq-dev/"
-    property oauth_resource_server_id : String? = "kickster-lavin"
+    property oauth_issuer_url : String = "https://test-giant-beige-hawk.rmq7.cloudamqp.com/realms/lavinmq-dev/"
+    property oauth_resource_server_id : String = "kickster-lavin"
     property oauth_preferred_username_claims : Array(String) = ["sub"]
-    property oauth_additional_scopes_key : String? = nil
-    property oauth_scope_prefix : String? = nil
+    property oauth_additional_scopes_key : String = ""
+    property oauth_scope_prefix : String = ""
     property oauth_verify_aud : Bool = true
-    property oauth_audience : String? = nil
+    property oauth_audience : String = ""
+    property oauth_jwks_cache_ttl : Time::Span = 24.hours
     @@instance : Config = self.new
 
     def self.instance : LavinMQ::Config
@@ -423,6 +424,7 @@ module LavinMQ
         when "scope_prefix"              then @oauth_scope_prefix = v
         when "verify_aud"                then @oauth_verify_aud = true?(v)
         when "audience"                  then @oauth_audience = v
+        when "jwks_cache_ttl"            then @oauth_jwks_cache_ttl = v.to_i.seconds
         else
           STDERR.puts "WARNING: Unrecognized configuration 'oauth/#{config}'"
         end
