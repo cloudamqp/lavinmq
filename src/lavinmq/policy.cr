@@ -13,7 +13,9 @@ module LavinMQ
       Policy.merge_definitions(policy, operator_policy).each do |key, value|
         apply_policy_argument(key, value)
       rescue ex
-        # This isn't good. Sometimes @log should be used, but we can't know that here. With the new L
+        # We rescue exceptions and ignore the argument, continuing on the next one.
+        #
+        # This log line isn't very good. Sometimes @log should be used, but we can't know that here. With the new L
         # logging it's not as important.
         Log.warn(exception: ex) { "Error applying policy argument #{key}=#{value}: #{ex.message}" }
       end
