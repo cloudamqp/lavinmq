@@ -6,7 +6,7 @@ module LavinMQ
 
         def validate!(header : String, value : AMQP::Field) : Nil
           return if value.nil?
-          value.as?(Bool) || raise_invalid!("#{header} header not a boolean")
+          value.is_a?(Bool) || raise_invalid!("#{header} header not a boolean")
           nil
         end
       end
