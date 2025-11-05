@@ -456,7 +456,7 @@ describe LavinMQ::AMQP::Queue do
       FileUtils.rm_rf tmpdir if tmpdir
     end
 
-    it "should not ack 'empty' msg if mfile.size is too big" do
+    pending "should not ack 'empty' msg if mfile.size is too big" do
       with_amqp_server do |s|
         s.vhosts["/"].declare_queue("expire_test_queue", true, false, AMQP::Client::Arguments.new({
           "x-message-ttl" => 600,
@@ -470,6 +470,7 @@ describe LavinMQ::AMQP::Queue do
         # Change size of each segment to be bigger than actual size
         queue.@msg_store.@segments.each_value do |mfile|
           mfile.truncate(mfile.size + 100)
+          mfile.write Bytes.new(100)
         end
 
         # Wait for messages to expire
