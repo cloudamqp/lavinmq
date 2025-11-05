@@ -140,8 +140,8 @@ module LavinMQ::AMQP
         raise ClosedError.new if @closed
         prio = Math.min(msg.properties.priority || 0u8, @max_priority)
         was_empty = size.zero?
-        @empty.set false if was_empty
         sp = store_for prio, &.push(msg)
+        @empty.set false if was_empty
         sp
       end
 
