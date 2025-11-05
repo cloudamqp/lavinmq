@@ -376,8 +376,10 @@ module LavinMQ::AMQP
     end
 
     private def read_metadata_file(seg, mfile)
-      File.open("#{mfile.path}.meta") do |file|
+      metafile = meta_file_name(mfile)
+      File.open(metafile) do |file|
         count = file.read_bytes(UInt32)
+        @replicator.try &.register_file(file)
         @offset_index[seg] = file.read_bytes(Int64)
         @timestamp_index[seg] = file.read_bytes(Int64)
         @segment_msg_count[seg] = count
@@ -393,8 +395,13 @@ module LavinMQ::AMQP
         mfile.dontneed
         @bytesize += bytesize
         @size += count
-        @log.debug { "Reading count from #{mfile.path}.meta: #{count}" }
+        @log.debug { "Reading count from #{metafile}: #{count}" }
       end
+    rescue ex : File::NotFoundError
+      raise ex
+    rescue ex
+      @log.error(exception: ex) { "Metadata file #{metafile} is incorrect" }
+      raise MetadataError.new("Metadata file #{metafile} is incorrect", cause: ex)
     end
   end
 end
