@@ -435,17 +435,17 @@ module LavinMQ
     end
 
     private def apply_policies(resources : Array(Queue | Exchange) | Nil = nil)
-      itr = if resources
-              resources.each
-            else
-              Iterator.chain({@queues.each_value, @exchanges.each_value})
-            end
+      resources = if resources
+                    resources.each
+                  else
+                    Iterator.chain({@queues.each_value, @exchanges.each_value})
+                  end
       policies = @policies.values.sort_by!(&.priority).reverse
       operator_policies = @operator_policies.values.sort_by!(&.priority).reverse
-      itr.each do |r|
-        policy = policies.find &.match?(r)
-        operator_policy = operator_policies.find &.match?(r)
-        r.apply_policy(policy, operator_policy)
+      resources.each do |resource|
+        policy = policies.find &.match?(resource)
+        operator_policy = operator_policies.find &.match?(resource)
+        resource.apply_policy(policy, operator_policy)
       end
     rescue ex : TypeCastError
       @log.error { "Invalid policy. #{ex.message}" }

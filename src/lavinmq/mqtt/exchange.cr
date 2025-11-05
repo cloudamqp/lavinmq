@@ -113,10 +113,10 @@ module LavinMQ
         raise LavinMQ::Exchange::AccessRefused.new(self)
       end
 
-      def apply_policy(policy : Policy?, operator_policy : OperatorPolicy?)
+      private def apply_policy_argument(key : String, value : JSON::Any)
       end
 
-      def clear_policy
+      private def clear_policy
       end
 
       def handle_arguments
