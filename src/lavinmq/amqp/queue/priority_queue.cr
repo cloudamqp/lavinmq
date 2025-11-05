@@ -148,8 +148,8 @@ module LavinMQ::AMQP
       def requeue(sp : SegmentPosition)
         raise ClosedError.new if @closed
         was_empty = size.zero?
-        @empty.set false if was_empty
         store_for sp, &.requeue(sp)
+        @empty.set false if was_empty
       end
 
       def first? : Envelope?
