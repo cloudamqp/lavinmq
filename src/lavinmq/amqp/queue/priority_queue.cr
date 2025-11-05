@@ -132,19 +132,23 @@ module LavinMQ::AMQP
         @stores.sum(&.bytesize)
       end
 
+      def empty? : Bool
+        size.zero?
+      end
+
       def push(msg) : SegmentPosition
         raise ClosedError.new if @closed
         prio = Math.min(msg.properties.priority || 0u8, @max_priority)
-        sp = store_for prio, &.push(msg)
         was_empty = size.zero?
+        sp = store_for prio, &.push(msg)
         @empty.set false if was_empty
         sp
       end
 
       def requeue(sp : SegmentPosition)
         raise ClosedError.new if @closed
-        store_for sp, &.requeue(sp)
         was_empty = size.zero?
+        store_for sp, &.requeue(sp)
         @empty.set false if was_empty
       end
 
@@ -159,8 +163,10 @@ module LavinMQ::AMQP
       def shift?(consumer = nil) : Envelope?
         raise ClosedError.new if @closed
         @stores.reverse_each do |s|
-          envelope = s.shift?(consumer)
-          return envelope unless envelope.nil?
+          if envelope = s.shift?(consumer)
+            @empty.set true if size.zero?
+            return envelope
+          end
         end
       end
 
