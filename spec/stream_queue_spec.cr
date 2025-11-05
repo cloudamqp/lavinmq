@@ -289,6 +289,21 @@ describe LavinMQ::AMQP::Stream do
         end
       end
     end
+
+    it "meta files should be removed when segment is removed" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          args = {"x-queue-type": "stream", "x-max-length": 1}
+          q = ch.queue("stream-max-length", args: AMQP::Client::Arguments.new(args))
+          data = Bytes.new(LavinMQ::Config.instance.segment_size)
+          3.times { q.publish_confirm data }
+          dir = s.vhosts["/"].queues["stream-max-length"].as(LavinMQ::AMQP::Stream).@data_dir
+          File.exists?(File.join(dir, "msgs.0000000001")).should be_false
+          File.exists?(File.join(dir, "meta.0000000001")).should be_false
+          q.message_count.should eq 1
+        end
+      end
+    end
   end
 
   it "doesn't support basic_get" do
