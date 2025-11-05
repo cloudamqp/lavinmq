@@ -163,8 +163,10 @@ module LavinMQ::AMQP
       def shift?(consumer = nil) : Envelope?
         raise ClosedError.new if @closed
         @stores.reverse_each do |s|
-          envelope = s.shift?(consumer)
-          return envelope unless envelope.nil?
+          if envelope = s.shift?(consumer)
+            @empty.set true if size.zero?
+            return envelope
+          end
         end
       end
 
