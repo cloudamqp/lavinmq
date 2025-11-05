@@ -22,6 +22,7 @@ jobs:
   build_rpm:
     name: Build RPM
     strategy:
+      fail-fast: false
       matrix:
         os: ['fedora-43', 'fedora-42', 'fedora-41', 'el-9']
     runs-on: ubuntu-latest
