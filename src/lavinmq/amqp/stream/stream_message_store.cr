@@ -333,7 +333,7 @@ module LavinMQ::AMQP
         @offset_index.delete(seg_id)
         @timestamp_index.delete(seg_id)
         @bytesize -= mfile.size - 4
-        delete_file(mfile)
+        delete_file(mfile, including_meta: true)
         true
       end
     end
