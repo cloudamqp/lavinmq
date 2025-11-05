@@ -17,11 +17,11 @@ describe LavinMQ::MessageStore do
   it "deletes orphaned ack files" do
     mktmpdir do |dir|
       # Create a dummy msgs file
-      File.write(File.join(dir, "msgs.0000000001"), "")
+      File.write(File.join(dir, "msgs.0000000001"), "\x04\x00\x00\x00")
       # Create a corresponding acks file
-      File.write(File.join(dir, "acks.0000000001"), "data")
+      File.write(File.join(dir, "acks.0000000001"), "")
       # Create an orphaned acks file
-      File.write(File.join(dir, "acks.0000000002"), "data")
+      File.write(File.join(dir, "acks.0000000002"), "")
 
       store = LavinMQ::MessageStore.new(dir, nil)
       store.close
@@ -62,7 +62,7 @@ describe LavinMQ::MessageStore do
 
   it "first? should return nil from empty segment" do
     mktmpdir do |dir|
-      File.write(File.join(dir, "msgs.0000000001"), "")
+      File.write(File.join(dir, "msgs.0000000001"), "\x04\x00\x00\x00")
       store = LavinMQ::MessageStore.new(dir, nil)
       store.@segments.first_value.truncate(1000)
       store.first?.should be_nil
@@ -72,7 +72,7 @@ describe LavinMQ::MessageStore do
 
   it "shift? should return nil from empty segment" do
     mktmpdir do |dir|
-      File.write(File.join(dir, "msgs.0000000001"), "")
+      File.write(File.join(dir, "msgs.0000000001"), "\x04\x00\x00\x00")
       store = LavinMQ::MessageStore.new(dir, nil)
       store.@segments.first_value.truncate(1000)
       store.shift?.should be_nil
@@ -82,8 +82,8 @@ describe LavinMQ::MessageStore do
 
   it "can ack messages after restart" do
     mktmpdir do |dir|
-      File.write(File.join(dir, "msgs.0000000001"), "")
-      File.write(File.join(dir, "acks.0000000001"), "\x00\x00\x00\x04")
+      File.write(File.join(dir, "msgs.0000000001"), "\x04\x00\x00\x00")
+      File.write(File.join(dir, "acks.0000000001"), "")
       store = LavinMQ::MessageStore.new(dir, nil)
       body_io = IO::Memory.new("hello")
       message = LavinMQ::Message.new(RoughTime.unix_ms, "test_exchange", "test_key", AMQ::Protocol::Properties.new, 5u64, body_io)
