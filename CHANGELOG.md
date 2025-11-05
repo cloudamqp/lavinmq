@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Boolean queue arguments validated as invalid if set to false [#1429](https://github.com/cloudamqp/lavinmq/pull/1429)
 - Use the correct path for meta files in streams [#1438](https://github.com/cloudamqp/lavinmq/pull/1438)
+- Remove meta files when segments are removed in streams [#1435](https://github.com/cloudamqp/lavinmq/pull/1435)
 
 ## [2.5.0] - 2025-11-04
 
