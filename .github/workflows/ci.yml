@@ -92,7 +92,7 @@ jobs:
 
   spec_osx:
     name: Spec OS X
-    runs-on: macos-14
+    runs-on: depot-macos-15
     timeout-minutes: 10
     steps:
       - name: Install dependencies
