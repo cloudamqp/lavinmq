@@ -271,6 +271,127 @@ describe LavinMQ::AMQP::PriorityQueue do
         end
       end
     end
+
+    describe "empty?" do
+      it "should be true for a fresh store" do
+        with_prio_store(5) do |store|
+          store.empty?.should be_true
+        end
+      end
+
+      it "should be false after push" do
+        with_prio_store(5) do |store|
+          [3u8, 2u8, 4u8, 1u8, 0u8].each do |prio|
+            props = AMQP::Client::Properties.new(priority: prio)
+            store.push LavinMQ::Message.new("ex", "rk", "body", properties: props)
+          end
+          store.empty?.should be_false
+        end
+      end
+
+      it "should be true after all messages has been shifted" do
+        with_prio_store(5) do |store|
+          [3u8, 2u8, 4u8, 1u8, 0u8].each do |prio|
+            props = AMQP::Client::Properties.new(priority: prio)
+            store.push LavinMQ::Message.new("ex", "rk", "body", properties: props)
+          end
+
+          while store.shift?
+          end
+
+          store.empty?.should be_true
+        end
+      end
+    end
+
+    describe "#empty" do
+      it "should be true for a new store" do
+        with_prio_store(5) do |store|
+          store.empty.should be_true
+        end
+      end
+
+      it "should be true after all messages has been shifted" do
+        with_prio_store(5) do |store|
+          [3u8, 2u8, 4u8, 1u8, 0u8].each do |prio|
+            props = AMQP::Client::Properties.new(priority: prio)
+            store.push LavinMQ::Message.new("ex", "rk", "body", properties: props)
+          end
+
+          while store.shift?
+          end
+
+          store.empty.should be_true
+        end
+      end
+
+      it "should be false on after a push to a new store" do
+        with_prio_store(5) do |store|
+          props = AMQP::Client::Properties.new(priority: 1u8)
+          store.push LavinMQ::Message.new("ex", "rk", "body", properties: props)
+
+          store.empty.should be_false
+        end
+      end
+
+      it "should be false after push to an empty store" do
+        with_prio_store(5) do |store|
+          3u8.times do |prio|
+            props = AMQP::Client::Properties.new(priority: prio)
+            store.push LavinMQ::Message.new("ex", "rk", "body", properties: props)
+          end
+
+          while store.shift?
+          end
+
+          3u8.times do |prio|
+            props = AMQP::Client::Properties.new(priority: prio)
+            store.push LavinMQ::Message.new("ex", "rk", "body", properties: props)
+          end
+
+          store.empty.should be_false
+        end
+      end
+
+      it "should be false after requeue" do
+        with_prio_store(5) do |store|
+          props = AMQP::Client::Properties.new(priority: 1u8)
+          store.push LavinMQ::Message.new("ex", "rk", "body", properties: props)
+          env = store.shift?.should_not be_nil
+          store.empty.should be_true
+          store.requeue env.segment_position
+          store.empty.should be_false
+        end
+      end
+
+      it "should be true after last message has been purged" do
+        with_prio_store(5) do |store|
+          3u8.times do |prio|
+            props = AMQP::Client::Properties.new(priority: prio)
+            store.push LavinMQ::Message.new("ex", "rk", "body", properties: props)
+          end
+
+          store.empty.should be_false
+          store.purge(10)
+
+          store.empty.should be_true
+        end
+      end
+
+      it "should be true after purge_all" do
+        with_prio_store(5) do |store|
+          3u8.times do |prio|
+            props = AMQP::Client::Properties.new(priority: prio)
+            store.push LavinMQ::Message.new("ex", "rk", "body", properties: props)
+          end
+
+          store.empty.should be_false
+          store.purge_all
+
+          store.empty.should be_true
+        end
+      end
+    end
   end
 
   it "should prioritize messages" do
