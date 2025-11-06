@@ -189,11 +189,14 @@ module LavinMQ::AMQP
           break if count >= max_count
           Fiber.yield if (count % PURGE_YIELD_INTERVAL).zero?
         end
+        # Only signal if something was purged, hence count > 0
+        @empty.set true if empty? && count > 0
         count
       end
 
       def purge_all
         @stores.each &.purge_all
+        @empty.set true
       end
 
       def delete
