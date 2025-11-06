@@ -4,9 +4,9 @@ require "../../src/lavinmq/bool_channel"
 class BoolChannel
   private def _spec_value
     select
-    when when_true.receive?
+    when when_true.receive
       true
-    when when_false.receive?
+    when when_false.receive
       false
     end
   end
