@@ -846,8 +846,7 @@ module LavinMQ
       end
 
       private def start_publish(frame)
-        cache_key = {@vhost.name, frame.exchange}
-        if @user.can_write?(*cache_key, cache_key)
+        if @user.can_write?(@vhost.name, frame.exchange)
           with_channel frame, &.start_publish(frame)
         else
           send_access_refused(frame, "User '#{@user.name}' not allowed to publish to exchange '#{frame.exchange}'")

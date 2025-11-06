@@ -17,7 +17,7 @@ module LavinMQ
       @password : Auth::Password? = nil
       @plain_text_password : String?
       @tags = Array(Tag).new
-      @acl_cache = Hash(CacheKey, Bool).new
+      @acl_write_cache = Hash(CacheKey, Bool).new
 
       def initialize(pull : JSON::PullParser)
         loc = pull.location
@@ -132,15 +132,14 @@ module LavinMQ
         }
       end
 
-      def can_write?(vhost : String, name : String, cache_key : CacheKey? = nil) : Bool
-        if cache_key
-          cached = @acl_cache[cache_key]?
-          return cached unless cached.nil?
-        end
+      def can_write?(vhost : String, name : String) : Bool
+        cache_key = {vhost, name}
+        cached = @acl_write_cache[cache_key]?
+        return cached unless cached.nil?
 
         perm = permissions[vhost]?
         result = perm ? perm_match?(perm[:write], name) : false
-        @acl_cache[cache_key] = result if cache_key
+        @acl_write_cache[cache_key] = result
         result
       end
 
@@ -159,7 +158,7 @@ module LavinMQ
       end
 
       def clear_acl_cache
-        @acl_cache.clear
+        @acl_write_cache.clear
       end
 
       private def parse_permissions(pull)
