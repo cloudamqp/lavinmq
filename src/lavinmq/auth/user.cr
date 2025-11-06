@@ -10,12 +10,14 @@ module LavinMQ
       getter name, password, permissions
       property tags, plain_text_password
       alias Permissions = NamedTuple(config: Regex, read: Regex, write: Regex)
+      alias CacheKey = Tuple(String, String)
 
       @name : String
       @permissions = Hash(String, Permissions).new
       @password : Auth::Password? = nil
       @plain_text_password : String?
       @tags = Array(Tag).new
+      @acl_cache = Hash(CacheKey, Bool).new
 
       def initialize(pull : JSON::PullParser)
         loc = pull.location
@@ -130,9 +132,16 @@ module LavinMQ
         }
       end
 
-      def can_write?(vhost, name) : Bool
+      def can_write?(vhost : String, name : String, cache_key : CacheKey? = nil) : Bool
+        if cache_key
+          cached = @acl_cache[cache_key]?
+          return cached unless cached.nil?
+        end
+
         perm = permissions[vhost]?
-        perm ? perm_match?(perm[:write], name) : false
+        result = perm ? perm_match?(perm[:write], name) : false
+        @acl_cache[cache_key] = result if cache_key
+        result
       end
 
       def can_read?(vhost, name) : Bool
@@ -147,6 +156,10 @@ module LavinMQ
 
       def can_impersonate?
         @tags.includes? Tag::Impersonator
+      end
+
+      def clear_acl_cache
+        @acl_cache.clear
       end
 
       private def parse_permissions(pull)

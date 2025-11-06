@@ -50,12 +50,14 @@ module LavinMQ
           return perm
         end
         @users[user].permissions[vhost] = perm
+        @users[user].clear_acl_cache
         save!
         perm
       end
 
       def rm_permission(user, vhost)
         if perm = @users[user].permissions.delete vhost
+          @users[user].clear_acl_cache
           Log.info { "Removed permissions for user=#{user} on vhost=#{vhost}" }
           save!
           perm
@@ -65,6 +67,7 @@ module LavinMQ
       def rm_vhost_permissions_for_all(vhost)
         @users.each_value do |user|
           user.permissions.delete(vhost)
+          user.clear_acl_cache
         end
         save!
       end
