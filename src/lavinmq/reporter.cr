@@ -34,7 +34,7 @@ module LavinMQ
           puts_size_capacity c.channels, 4
           case c
           when LavinMQ::AMQP::Client
-            puts_size_capacity c.user.@acl_write_cache, 4
+            puts_size_capacity c.user.@acl_write_cache.get(:relaxed), 4
           end
           c.channels.each_value do |ch|
             puts "    #{ch.id} global_prefetch=#{ch.global_prefetch_count} prefetch=#{ch.prefetch_count}"
