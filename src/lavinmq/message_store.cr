@@ -463,9 +463,11 @@ module LavinMQ
 
     private def read_metadata_file(seg, mfile)
       metafile = meta_file_name(mfile)
-      count = File.open(metafile) do |f|
-        @replicator.try &.register_file(f)
-        f.read_bytes(UInt32)
+      count = File.open(metafile) do |file|
+        msg_count = file.read_bytes(UInt32)
+        @replicator.try &.register_file(file)
+        read_extra_metadata_fields(file, seg)
+        msg_count
       end
       @segment_msg_count[seg] = count
       bytesize = mfile.size - 4
@@ -491,6 +493,10 @@ module LavinMQ
     rescue ex
       @log.error(exception: ex) { "Metadata file #{metafile} is incorrect" }
       raise MetadataError.new("Metadata file #{metafile} is incorrect", cause: ex)
+    end
+
+    private def read_extra_metadata_fields(file : File, seg : UInt32)
+      # Used in subclasses of MessageStore to read additional metadata fields
     end
 
     private def produce_metadata(seg, mfile)

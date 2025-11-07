@@ -375,33 +375,9 @@ module LavinMQ::AMQP
       @timestamp_index[seg] = RoughTime.unix_ms
     end
 
-    private def read_metadata_file(seg, mfile)
-      metafile = meta_file_name(mfile)
-      File.open(metafile) do |file|
-        count = file.read_bytes(UInt32)
-        @replicator.try &.register_file(file)
-        @offset_index[seg] = file.read_bytes(Int64)
-        @timestamp_index[seg] = file.read_bytes(Int64)
-        @segment_msg_count[seg] = count
-        bytesize = mfile.size - 4
-        if deleted = @deleted[seg]?
-          deleted.each do |pos|
-            mfile.pos = pos
-            bytesize -= BytesMessage.skip(mfile)
-            count -= 1
-          end
-        end
-        mfile.pos = 4
-        mfile.dontneed
-        @bytesize += bytesize
-        @size += count
-        @log.debug { "Reading count from #{metafile}: #{count}" }
-      end
-    rescue ex : File::NotFoundError
-      raise ex
-    rescue ex
-      @log.error(exception: ex) { "Metadata file #{metafile} is incorrect" }
-      raise MetadataError.new("Metadata file #{metafile} is incorrect", cause: ex)
+    private def read_extra_metadata_fields(file : File, seg : UInt32)
+      @offset_index[seg] = file.read_bytes(Int64)
+      @timestamp_index[seg] = file.read_bytes(Int64)
     end
   end
 end
