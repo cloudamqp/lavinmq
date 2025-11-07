@@ -5,6 +5,15 @@ require "../tag"
 
 module LavinMQ
   module Auth
+    alias CacheKey = Tuple(String, String)
+
+    class PermissionCache
+      @cache = Hash(CacheKey, Bool).new
+      property revision = 0_u32
+
+      forward_missing_to @cache
+    end
+
     class User
       include SortableJSON
       getter name, password, permissions
@@ -17,7 +26,7 @@ module LavinMQ
       @password : Auth::Password? = nil
       @plain_text_password : String?
       @tags = Array(Tag).new
-      @acl_write_cache : Atomic(Hash(CacheKey, Bool)) = Atomic.new(Hash(CacheKey, Bool).new)
+      @permission_revision = Atomic(UInt32).new(0u32)
 
       def initialize(pull : JSON::PullParser)
         loc = pull.location
@@ -132,19 +141,21 @@ module LavinMQ
         }
       end
 
+      def can_write?(vhost : String, name : String, cache : PermissionCache) : Bool
+        permission_revision = @permission_revision.lazy_get
+        if permission_revision != cache.revision
+          cache.clear
+          cache.revision = permission_revision
+        else
+          result = cache[{vhost, name}]?
+          return result unless result.nil?
+        end
+        return cache[{vhost, name}] = can_write?(vhost, name)
+      end
+
       def can_write?(vhost : String, name : String) : Bool
-        cache_key = {vhost, name}
-        cache = @acl_write_cache.get(:relaxed)
-        cached = cache[cache_key]?
-        return cached unless cached.nil?
-
         perm = permissions[vhost]?
-        result = perm ? perm_match?(perm[:write], name) : false
-
-        new_cache = cache.dup
-        new_cache[cache_key] = result
-        @acl_write_cache.set(new_cache, :relaxed)
-        result
+        perm ? perm_match?(perm[:write], name) : false
       end
 
       def can_read?(vhost, name) : Bool
@@ -161,8 +172,8 @@ module LavinMQ
         @tags.includes? Tag::Impersonator
       end
 
-      def clear_acl_cache
-        @acl_write_cache.set(Hash(CacheKey, Bool).new, :relaxed)
+      def clear_permissions_cache
+        @permission_revision.add(1, :relaxed)
       end
 
       private def parse_permissions(pull)
