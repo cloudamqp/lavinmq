@@ -330,15 +330,10 @@ module LavinMQ
       metafile = meta_file_name(wfile)
       @log.debug { "Write message segment meta file #{metafile}" }
       File.open(metafile, "w") do |f|
-        f.buffer_size = 4096
-        write_metadata(f, seg)
-        @replicator.try &.register_file(f)
+        f.sync = true
+        f.write_bytes @segment_msg_count[seg]
       end
       @replicator.try &.replace_file metafile
-    end
-
-    private def write_metadata(io, seg)
-      io.write_bytes @segment_msg_count[seg]
     end
 
     private def open_ack_file(id) : MFile
