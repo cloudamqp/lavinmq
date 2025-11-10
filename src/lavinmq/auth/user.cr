@@ -150,7 +150,7 @@ module LavinMQ
         result = cache[{vhost, name}]?
         return result unless result.nil?
 
-        return cache[{vhost, name}] = can_write?(vhost, name)
+        cache[{vhost, name}] = can_write?(vhost, name)
       end
 
       def can_write?(vhost : String, name : String) : Bool
