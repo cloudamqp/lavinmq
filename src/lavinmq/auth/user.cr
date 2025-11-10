@@ -142,12 +142,14 @@ module LavinMQ
 
       def can_write?(vhost : String, name : String, cache : PermissionCache) : Bool
         permission_revision = @permission_revision.lazy_get
-        if permission_revision == cache.revision
-          result = cache[{vhost, name}]?
-          return result unless result.nil?
+        if permission_revision != cache.revision
+          cache.clear
+          cache.revision = permission_revision
         end
-        cache.clear
-        cache.revision = permission_revision
+
+        result = cache[{vhost, name}]?
+        return result unless result.nil?
+
         return cache[{vhost, name}] = can_write?(vhost, name)
       end
 
