@@ -19,7 +19,6 @@ module LavinMQ
       getter name, password, permissions
       property tags, plain_text_password
       alias Permissions = NamedTuple(config: Regex, read: Regex, write: Regex)
-      alias CacheKey = Tuple(String, String)
 
       @name : String
       @permissions = Hash(String, Permissions).new
