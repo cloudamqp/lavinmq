@@ -218,12 +218,13 @@ document.querySelector('#getMessages').addEventListener('submit', function (evt)
   }
   HTTP.request('POST', url, { body })
     .then(messages => {
+      const messagesContainer = document.getElementById('messages')
+      messagesContainer.textContent = ''
       if (messages.length === 0) {
+        window.alert('No messages found')
         return
       }
       updateQueue(false)
-      const messagesContainer = document.getElementById('messages')
-      messagesContainer.textContent = ''
       const template = document.getElementById('message-template')
       for (let i = 0; i < messages.length; i++) {
         const message = messages[i]

@@ -230,7 +230,7 @@ module LavinMQ
               access_refused(context, "User doesn't have permissions to read stream '#{q.name}'")
             end
             if q.state != QueueState::Running && q.state != QueueState::Paused
-              forbidden(context, "Can't get from stream that is not in running state")
+              forbidden(context, "Can't read from stream that is not in running state")
             end
             body = parse_body(context)
             count = body["count"]?.try(&.as_i) || 1
@@ -244,21 +244,7 @@ module LavinMQ
               j.array do
                 reader.each do |env|
                   break if count.zero?
-                  size = truncate ? Math.min(truncate, env.message.bodysize) : env.message.bodysize
-                  payload = String.new(env.message.body[0, size])
-                  case encoding
-                  when "base64"
-                    content = Base64.urlsafe_encode(payload)
-                    payload_encoding = "base64"
-                  else
-                    if payload.valid_encoding?
-                      content = payload
-                      payload_encoding = "string"
-                    else
-                      content = Base64.urlsafe_encode(payload)
-                      payload_encoding = "base64"
-                    end
-                  end
+                  payload_encoding = "string"
                   j.object do
                     j.field("payload_bytes", env.message.bodysize)
                     j.field("redelivered", env.redelivered)
@@ -266,7 +252,11 @@ module LavinMQ
                     j.field("routing_key", env.message.routing_key)
                     j.field("message_count", q.message_count)
                     j.field("properties", env.message.properties)
-                    j.field("payload", content)
+                    j.field("payload") do
+                      j.string do |io|
+                        payload_encoding = encode_body(env.message, truncate, encoding, io)
+                      end
+                    end
                     j.field("payload_encoding", payload_encoding)
                   end
                   count -= 1
