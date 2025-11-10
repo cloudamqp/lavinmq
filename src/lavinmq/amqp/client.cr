@@ -845,9 +845,9 @@ module LavinMQ
         end
       end
 
-      @acl_write_cache = Auth::PermissionCache.new()
-      private def start_publish(frame)
+      @acl_write_cache = Auth::PermissionCache.new
 
+      private def start_publish(frame)
         if @user.can_write?(@vhost.name, frame.exchange, @acl_write_cache)
           with_channel frame, &.start_publish(frame)
         else
