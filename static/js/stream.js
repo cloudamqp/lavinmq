@@ -3,7 +3,6 @@ import * as Helpers from './helpers.js'
 import * as DOM from './dom.js'
 import * as Table from './table.js'
 import * as Chart from './chart.js'
-import * as Auth from './auth.js'
 import { UrlDataSource, DataSource } from './datasource.js'
 
 const search = new URLSearchParams(window.location.hash.substring(1))
@@ -82,24 +81,13 @@ const queueUrl = HTTP.url`api/queues/${vhost}/${queue}`
 function updateQueue (all) {
   HTTP.request('GET', queueUrl + '?consumer_list_length=' + consumerListLength)
     .then(item => {
-      const qType = item.arguments['x-queue-type']
-      if (qType === 'stream') {
-        window.location.href = `/stream#vhost=${encodeURIComponent(vhost)}&name=${encodeURIComponent(queue)}`
-      }
       Chart.update(chart, item.message_stats)
       handleQueueState(item.state)
-      document.getElementById('q-messages-unacknowledged').textContent = item.messages_unacknowledged
-      document.getElementById('q-message-bytes-unacknowledged').textContent = Helpers.nFormatter(item.message_bytes_unacknowledged) + 'B'
-      document.getElementById('q-unacked-avg-bytes').textContent = Helpers.nFormatter(item.unacked_avg_bytes) + 'B'
       document.getElementById('q-total').textContent = Helpers.formatNumber(item.messages)
       document.getElementById('q-total-bytes').textContent = Helpers.nFormatter(item.total_bytes) + 'B'
       const totalAvgBytes = item.messages !== 0 ? (item.message_bytes_unacknowledged + item.message_bytes_ready) / item.messages : 0
       document.getElementById('q-total-avg-bytes').textContent = Helpers.nFormatter(totalAvgBytes) + 'B'
-      document.getElementById('q-messages-ready').textContent = Helpers.formatNumber(item.ready)
-      document.getElementById('q-message-bytes-ready').textContent = Helpers.nFormatter(item.ready_bytes) + 'B'
-      document.getElementById('q-ready-avg-bytes').textContent = Helpers.nFormatter(item.ready_avg_bytes) + 'B'
       document.getElementById('q-consumers').textContent = Helpers.formatNumber(item.consumers)
-      document.getElementById('unacked-link').href = HTTP.url`/unacked#name=${queue}&vhost=${item.vhost}`
       item.consumer_details.filtered_count = item.consumers
       consumersDataSource.setConsumers(item.consumer_details)
       const hasMoreConsumers = item.consumer_details.length < item.consumers
@@ -221,33 +209,32 @@ document.querySelector('#publishMessage').addEventListener('submit', function (e
 document.querySelector('#getMessages').addEventListener('submit', function (evt) {
   evt.preventDefault()
   const data = new window.FormData(this)
-  const url = HTTP.url`api/queues/${vhost}/${queue}/get`
+  const url = HTTP.url`api/queues/${vhost}/${queue}/stream`
   const body = {
     count: parseInt(data.get('messages')),
-    ack_mode: data.get('mode'),
+    offset: data.get('offset'),
     encoding: data.get('encoding'),
     truncate: 50000
   }
   HTTP.request('POST', url, { body })
     .then(messages => {
+      const messagesContainer = document.getElementById('messages')
+      messagesContainer.textContent = ''
       if (messages.length === 0) {
-        window.alert('No messages in queue')
+        window.alert('No messages found')
         return
       }
       updateQueue(false)
-      const messagesContainer = document.getElementById('messages')
-      messagesContainer.textContent = ''
       const template = document.getElementById('message-template')
       for (let i = 0; i < messages.length; i++) {
         const message = messages[i]
         const msgNode = template.cloneNode(true)
         msgNode.removeAttribute('id')
-        msgNode.querySelector('.message-number').textContent = i + 1
-        msgNode.querySelector('.messages-remaining').textContent = message.message_count
+        const offset = message.properties.headers['x-stream-offset']
+        msgNode.querySelector('.message-number').textContent = offset
         const exchange = message.exchange === '' ? '(AMQP default)' : message.exchange
         msgNode.querySelector('.message-exchange').textContent = exchange
         msgNode.querySelector('.message-routing-key').textContent = message.routing_key
-        msgNode.querySelector('.message-redelivered').textContent = message.redelivered
         msgNode.querySelector('.message-properties').textContent = JSON.stringify(message.properties)
         msgNode.querySelector('.message-size').textContent = message.payload_bytes
         msgNode.querySelector('.message-encoding').textContent = message.payload_encoding
@@ -256,47 +243,6 @@ document.querySelector('#getMessages').addEventListener('submit', function (evt)
         messagesContainer.appendChild(msgNode)
       }
     })
-})
-
-document.querySelector('#moveMessages').addEventListener('submit', function (evt) {
-  evt.preventDefault()
-  const username = Auth.getUsername()
-  const password = Auth.getPassword()
-  const uri = HTTP.url`amqp://${username}:${password}@localhost/${vhost}`
-  const dest = document.querySelector('[name=shovel-destination]').value.trim()
-  const name = 'Move ' + queue + ' to ' + dest
-  const url = HTTP.url`api/parameters/shovel/${vhost}/${name}`
-  const body = {
-    name,
-    value: {
-      'src-uri': uri,
-      'src-queue': queue,
-      'dest-uri': uri,
-      'dest-queue': dest,
-      'src-prefetch-count': 1000,
-      'ack-mode': 'on-confirm',
-      'src-delete-after': 'queue-length'
-    }
-  }
-  HTTP.request('PUT', url, { body })
-    .then(() => {
-      evt.target.reset()
-      DOM.toast('Moving messages to ' + dest)
-    })
-})
-
-document.querySelector('#purgeQueue').addEventListener('submit', function (evt) {
-  evt.preventDefault()
-  let params = ''
-  const countElem = evt.target.querySelector("input[name='count']")
-  if (countElem && countElem.value) {
-    params = `?count=${countElem.value}`
-  }
-  const url = HTTP.url`api/queues/${vhost}/${queue}/contents${HTTP.noencode(params)}`
-  if (window.confirm('Are you sure? Messages cannot be recovered after purging.')) {
-    HTTP.request('DELETE', url)
-      .then(() => { DOM.toast('Queue purged!') })
-  }
 })
 
 document.querySelector('#deleteQueue').addEventListener('submit', function (evt) {
@@ -333,7 +279,6 @@ resumeQueueForm.addEventListener('submit', function (evt) {
 })
 
 Helpers.autoCompleteDatalist('exchange-list', 'exchanges', vhost)
-Helpers.autoCompleteDatalist('queue-list', 'queues', vhost)
 
 document.querySelector('#dataTags').addEventListener('click', e => {
   Helpers.argumentHelperJSON('publishMessage', 'properties', e)
