@@ -29,7 +29,6 @@ function updateExchange (all) {
       Object.keys(item.arguments).forEach(key => {
         if (key === 'x-delayed-exchange' && item.arguments[key] === false) {
           return
-
         }
         const el = document.createElement('div')
         el.textContent = key + ' = ' + item.arguments[key]
@@ -69,12 +68,12 @@ const bindingsTable = Table.renderTable('bindings-table', tableOptions, function
     td.setAttribute('colspan', 5)
   } else {
     const btn = DOM.button.delete({
-                                  text: 'Unbind',
-                                  click: function () {
-                                    const type = item.destination_type === 'exchange' ? 'e' : 'q'
-                                    const url = HTTP.url`api/bindings/${vhost}/e/${item.source}/${type}/${item.destination}/${item.properties_key}`
-                                    HTTP.request('DELETE', url).then(() => { tr.parentNode.removeChild(tr) })
-                                  }
+      text: 'Unbind',
+      click: function () {
+        const type = item.destination_type === 'exchange' ? 'e' : 'q'
+        const url = HTTP.url`api/bindings/${vhost}/e/${item.source}/${type}/${item.destination}/${item.properties_key}`
+        HTTP.request('DELETE', url).then(() => { tr.parentNode.removeChild(tr) })
+      }
     })
 
     const destinationLink = document.createElement('a')
