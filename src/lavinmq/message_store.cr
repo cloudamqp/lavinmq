@@ -238,7 +238,10 @@ module LavinMQ
     private def delete_file(file : MFile, including_meta = false)
       File.delete?(meta_file_name(file)) if including_meta
       file.delete(raise_on_missing: false)
-      if replicator = @replicator
+      case replicator = @replicator
+      when nil, Clustering::NoopServer
+        file.close
+      else
         replicator.delete_file(meta_file_name(file), WaitGroup.new) if including_meta
         wg = WaitGroup.new
         replicator.delete_file(file.path, wg)
@@ -246,8 +249,6 @@ module LavinMQ
           wg.wait
           file.close
         end
-      else
-        file.close
       end
     end
 
