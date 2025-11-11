@@ -41,6 +41,7 @@ module LavinMQ
                      @connection_info : ConnectionInfo,
                      @vhost : VHost,
                      @user : Auth::User,
+                     @authenticator : Auth::Authenticator,
                      tune_ok,
                      start_ok)
         @max_frame_size = tune_ok.frame_max
@@ -138,6 +139,9 @@ module LavinMQ
               @log.debug { "Confirmed disconnect" }
               @running = false
               return
+            when AMQP::Frame::Connection::UpdateSecret
+              handle_update_secret(frame)
+              next
             end
             if @running
               process_frame(frame)
@@ -169,10 +173,10 @@ module LavinMQ
         rescue ex : IO::Error | OpenSSL::SSL::Error
           @log.debug(exception: ex) { "Lost connection, while reading (#{ex.inspect})" } unless closed?
           break
-        rescue ex : Auth::OAuthTokenExpiredError
-          @log.info { ex.message }
-          close(ex.message)
-          break
+          # rescue ex : Auth::OAuthTokenExpiredError
+          #   @log.info { ex.message }
+          #   close(ex.message)
+          #   break
         rescue ex : Exception
           @log.error(exception: ex) { "Unexpected error, while reading: #{ex.message}" }
           send_internal_error(ex.message)
@@ -200,6 +204,28 @@ module LavinMQ
         else
           send AMQP::Frame::Heartbeat.new
         end
+      end
+
+      private def handle_update_secret(frame : AMQP::Frame::Connection::UpdateSecret)
+        @log.info { "Received UpdateSecret request#{frame.reason.empty? ? "" : ": #{frame.reason}"}" }
+        new_user = @authenticator.authenticate(@user.name, frame.@secret)
+        if new_user.nil?
+          @log.warn { "UpdateSecret failed: authentication failed for user '#{@user.name}'" }
+          close("Invalid credentials in update-secret")
+          return
+        end
+        unless new_user.permissions[@vhost.name]?
+          @log.warn { "UpdateSecret failed: user '#{@user.name}' no longer has access to vhost '#{@vhost.name}'" }
+          close("No vhost access after update-secret")
+          return
+        end
+        @user = new_user
+        @log.info { "Successfully updated secret for user '#{@user.name}'" }
+
+        send AMQP::Frame::Connection::UpdateSecretOk.new(0_u16)
+      rescue ex : Exception
+        @log.error(exception: ex) { "Error handling UpdateSecret: #{ex.message}" }
+        close("Error processing update-secret: #{ex.message}")
       end
 
       def send(frame : AMQP::Frame, channel_is_open : Bool? = nil) : Bool
