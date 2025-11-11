@@ -77,8 +77,6 @@ module LavinMQ
       rescue ex : ::IO::Error
         @log.error { "Client unexpectedly closed connection: #{ex.message}" } unless @closed
         publish_will
-      rescue ex : Auth::OAuthTokenExpiredError
-        @log.info { ex.message }
       rescue ex
         @log.error(exception: ex) { "Read Loop error" }
         publish_will

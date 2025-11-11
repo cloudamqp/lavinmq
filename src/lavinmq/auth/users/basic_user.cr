@@ -3,7 +3,6 @@ require "../password"
 require "../../sortable_json"
 require "../../tag"
 
-
 module LavinMQ
   module Auth
     class BasicUser < User
@@ -17,6 +16,7 @@ module LavinMQ
       @password : Password? = nil
       @plain_text_password : String?
       @tags = Array(Tag).new
+      @permission_revision = Atomic(UInt32).new(0u32)
 
       def initialize(pull : JSON::PullParser)
         loc = pull.location
