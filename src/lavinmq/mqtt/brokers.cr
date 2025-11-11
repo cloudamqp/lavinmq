@@ -8,7 +8,7 @@ module LavinMQ
     class Brokers
       include Observer(VHostStore::Event)
 
-      def initialize(@vhosts : VHostStore, @replicator : Clustering::Replicator)
+      def initialize(@vhosts : VHostStore, @replicator : Clustering::Replicator?)
         @brokers = Hash(String, Broker).new(initial_capacity: @vhosts.size)
         @vhosts.each do |(name, vhost)|
           @brokers[name] = Broker.new(vhost, @replicator)

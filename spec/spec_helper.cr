@@ -93,7 +93,7 @@ def wait_for(timeout = 5.seconds, file = __FILE__, line = __LINE__, &)
   fail "Execution expired", file: file, line: line
 end
 
-def with_amqp_server(tls = false, replicator = LavinMQ::Clustering::NoopServer.new,
+def with_amqp_server(tls = false, replicator = nil,
                      config = LavinMQ::Config.instance,
                      file = __FILE__, line = __LINE__, & : LavinMQ::Server -> Nil)
   LavinMQ::Config.instance = init_config(config)

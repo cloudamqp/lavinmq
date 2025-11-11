@@ -88,7 +88,7 @@ describe LavinMQ::Clustering::Client do
       wait_for { replicator.followers.first?.try &.lag_in_bytes == 0 }
       cluster.stop
 
-      follower_retain_store = LavinMQ::MQTT::RetainStore.new("#{cluster.follower_config.data_dir}/retain_store", LavinMQ::Clustering::NoopServer.new)
+      follower_retain_store = LavinMQ::MQTT::RetainStore.new("#{cluster.follower_config.data_dir}/retain_store", nil)
       a = Array(String).new(2)
       b = Array(String).new(2)
       follower_retain_store.each("#") do |topic, body_io, body_bytesize|
