@@ -1,19 +1,119 @@
 require "./spec_helper"
 
-describe LavinMQ::User do
+describe LavinMQ::Auth::User do
   describe "#update_password" do
     it "should not update password hash when given same password as current" do
-      u = LavinMQ::User.create("username", "password", "sha256", [] of LavinMQ::Tag)
+      u = LavinMQ::Auth::User.create("username", "password", "sha256", [] of LavinMQ::Tag)
       password_hash_before = u.password
       u.update_password("password")
       u.password.should eq password_hash_before
     end
 
     it "should update password hash when given other password than current" do
-      u = LavinMQ::User.create("username", "password", "sha256", [] of LavinMQ::Tag)
+      u = LavinMQ::Auth::User.create("username", "password", "sha256", [] of LavinMQ::Tag)
       password_hash_before = u.password
       u.update_password("other")
       u.password.should_not eq password_hash_before
+    end
+  end
+
+  describe "Permission cache" do
+    it "should have initial revision of 0" do
+      cache = LavinMQ::Auth::PermissionCache.new
+      cache.revision.should eq 0
+    end
+
+    it "should actually use cached results (returns stale data until revision changes)" do
+      user = LavinMQ::Auth::User.create("username", "password", "sha256", [] of LavinMQ::Tag)
+      user.permissions["vhost1"] = {config: /.*/, read: /.*/, write: /^queue.*/}
+      cache = LavinMQ::Auth::PermissionCache.new
+
+      # Cache the result - queue1 should be allowed
+      user.can_write?("vhost1", "queue1", cache).should be_true
+
+      # Change permissions directly WITHOUT clearing cache
+      # Now only exchanges should be allowed, not queues
+      user.permissions["vhost1"] = {config: /.*/, read: /.*/, write: /^exchange.*/}
+
+      # Should return OLD cached result (stale data), proving cache is actually used
+      user.can_write?("vhost1", "queue1", cache).should be_true
+
+      # Now clear the cache - should reflect new permissions
+      user.clear_permissions_cache
+
+      # Should now return false based on new permissions
+      user.can_write?("vhost1", "queue1", cache).should be_false
+      # And exchanges should now be allowed
+      user.can_write?("vhost1", "exchange1", cache).should be_true
+    end
+
+    it "should clear cache when revision changes" do
+      user = LavinMQ::Auth::User.create("username", "password", "sha256", [] of LavinMQ::Tag)
+      user.permissions["vhost1"] = {config: /.*/, read: /.*/, write: /^queue.*/}
+      cache = LavinMQ::Auth::PermissionCache.new
+
+      # First call populates cache
+      user.can_write?("vhost1", "queue1", cache).should be_true
+      cache.size.should eq 1
+
+      # Clear permissions cache - increments revision
+      user.clear_permissions_cache
+
+      # Next call should detect revision mismatch, clear cache, and recalculate
+      user.can_write?("vhost1", "queue1", cache).should be_true
+      cache.size.should eq 1
+      cache.revision.should eq 1
+    end
+
+    it "should handle multiple cache clears" do
+      user = LavinMQ::Auth::User.create("username", "password", "sha256", [] of LavinMQ::Tag)
+      user.permissions["vhost1"] = {config: /.*/, read: /.*/, write: /^queue.*/}
+      cache = LavinMQ::Auth::PermissionCache.new
+
+      user.can_write?("vhost1", "queue1", cache)
+
+      # Multiple clears
+      user.clear_permissions_cache
+      user.clear_permissions_cache
+      user.clear_permissions_cache
+
+      # Revision should be updated
+      user.can_write?("vhost1", "queue1", cache)
+      cache.revision.should eq 3
+    end
+
+    it "should handle multiple vhosts in the same cache" do
+      user = LavinMQ::Auth::User.create("username", "password", "sha256", [] of LavinMQ::Tag)
+      user.permissions["vhost1"] = {config: /.*/, read: /.*/, write: /^queue.*/}
+      user.permissions["vhost2"] = {config: /.*/, read: /.*/, write: /^exchange.*/}
+      cache = LavinMQ::Auth::PermissionCache.new
+
+      # Same resource name but different vhosts should have different results
+      user.can_write?("vhost1", "queue1", cache).should be_true
+      user.can_write?("vhost2", "queue1", cache).should be_false
+
+      # Different resources in different vhosts
+      user.can_write?("vhost2", "exchange1", cache).should be_true
+      user.can_write?("vhost1", "exchange1", cache).should be_false
+
+      # All four checks should be cached independently
+      cache.size.should eq 4
+    end
+
+    it "should handle vhost with no permissions" do
+      user = LavinMQ::Auth::User.create("username", "password", "sha256", [] of LavinMQ::Tag)
+      cache = LavinMQ::Auth::PermissionCache.new
+
+      # Check permission for vhost with no permissions defined
+      user.can_write?("nonexistent", "queue1", cache).should be_false
+
+      # Change to allow everything and verify cache still returns false (stale)
+      user.permissions["nonexistent"] = {config: /.*/, read: /.*/, write: /.*/}
+      user.can_write?("nonexistent", "queue1", cache).should be_false
+
+      # After clearing, should reflect new permissions
+      user.clear_permissions_cache
+      user.can_write?("nonexistent", "queue1", cache).should be_true
     end
   end
 end
@@ -276,18 +376,18 @@ describe LavinMQ::Server do
 
   it "allows changing default user" do
     LavinMQ::Config.instance.default_user = "spec"
-    LavinMQ::Config.instance.default_password = LavinMQ::User.hash_password("spec", "SHA256").to_s
+    LavinMQ::Config.instance.default_password = LavinMQ::Auth::User.hash_password("spec", "SHA256").to_s
     with_amqp_server do |s|
       with_channel(s, user: "spec", password: "spec") { }
     end
   ensure
     LavinMQ::Config.instance.default_user = "guest"
-    LavinMQ::Config.instance.default_password = LavinMQ::User.hash_password("guest", "SHA256").to_s
+    LavinMQ::Config.instance.default_password = LavinMQ::Auth::User.hash_password("guest", "SHA256").to_s
   end
 
   it "disallows 'guest' if default user is changed" do
     LavinMQ::Config.instance.default_user = "spec"
-    LavinMQ::Config.instance.default_password = LavinMQ::User.hash_password("spec", "SHA256").to_s
+    LavinMQ::Config.instance.default_password = LavinMQ::Auth::User.hash_password("spec", "SHA256").to_s
     with_amqp_server do |s|
       expect_raises(AMQP::Client::Connection::ClosedException) do
         with_channel(s, user: "guest", password: "guest") { }
@@ -295,7 +395,7 @@ describe LavinMQ::Server do
     end
   ensure
     LavinMQ::Config.instance.default_user = "guest"
-    LavinMQ::Config.instance.default_password = LavinMQ::User.hash_password("guest", "SHA256").to_s
+    LavinMQ::Config.instance.default_password = LavinMQ::Auth::User.hash_password("guest", "SHA256").to_s
   end
 end
 

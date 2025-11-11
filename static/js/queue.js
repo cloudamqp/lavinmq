@@ -82,6 +82,10 @@ const queueUrl = HTTP.url`api/queues/${vhost}/${queue}`
 function updateQueue (all) {
   HTTP.request('GET', queueUrl + '?consumer_list_length=' + consumerListLength)
     .then(item => {
+      const qType = item.arguments['x-queue-type']
+      if (qType === 'stream') {
+        window.location.href = `/stream#vhost=${encodeURIComponent(vhost)}&name=${encodeURIComponent(queue)}`
+      }
       Chart.update(chart, item.message_stats)
       handleQueueState(item.state)
       document.getElementById('q-messages-unacknowledged').textContent = item.messages_unacknowledged
@@ -331,6 +335,6 @@ resumeQueueForm.addEventListener('submit', function (evt) {
 Helpers.autoCompleteDatalist('exchange-list', 'exchanges', vhost)
 Helpers.autoCompleteDatalist('queue-list', 'queues', vhost)
 
-document.querySelector('#dataTags').onclick = e => {
+document.querySelector('#dataTags').addEventListener('click', e => {
   Helpers.argumentHelperJSON('publishMessage', 'properties', e)
-}
+})

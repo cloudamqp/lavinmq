@@ -119,7 +119,7 @@ module LavinMQPerf
       def run
         super
 
-        mt = Fiber::ExecutionContext::MultiThreaded.new("Clients", maximum: System.cpu_count.to_i)
+        mt = Fiber::ExecutionContext::Parallel.new("Clients", maximum: System.cpu_count.to_i)
         connected = WaitGroup.new(@consumers + @publishers)
         done = WaitGroup.new(@consumers + @publishers)
         @consumers.times do
@@ -213,7 +213,7 @@ module LavinMQPerf
             end
             pubs = @pubs.add(1, :relaxed)
             ch.tx_commit if @pub_in_transaction > 0 && (pubs % @pub_in_transaction) == 0
-            break if (pubs + 1) == @pmessages
+            break if (pubs + 1) >= @pmessages > 0
             unless @rate.zero?
               pubs_this_second += 1
               if pubs_this_second >= @rate
@@ -252,7 +252,7 @@ module LavinMQPerf
             raise "Invalid data: #{m.body_io.to_slice}" if @verify && m.body_io.to_slice != data
             m.ack(multiple: true) if @ack > 0 && (consumes + 1) % @ack == 0
             ch.tx_commit if @ack_in_transaction > 0 && ((consumes + 1) % @ack_in_transaction) == 0
-            if @stopped || (consumes + 1) == @cmessages
+            if @stopped || (consumes + 1) >= @cmessages > 0
               ch.close
             end
             if @consume_rate.zero?
@@ -292,7 +292,7 @@ module LavinMQPerf
             if msg = q.get(no_ack: @ack.zero?)
               consumes = @consumes.add(1, :relaxed)
               msg.ack(multiple: true) if @ack > 0 && (consumes + 1) % @ack == 0
-              break if @stopped || (consumes + 1) == @cmessages
+              break if @stopped || (consumes + 1) >= @cmessages > 0
             end
             unless @consume_rate.zero?
               consumes_this_second += 1

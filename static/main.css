@@ -29,6 +29,7 @@
   --color-text-muted: light-dark(#374151, #CDCBC9);
   --color-text-inverse: light-dark(#fafafa, #fafafa);
   --color-link: light-dark(#2c2c2c, #fafafa);
+  --color-text-tertiary: light-dark(#414141, #B6B6B6);
 
   --color-bg-primary: light-dark(#F4F4F4, #181818);
   --color-bg-secondary: light-dark(#FFFFFF, #1D1D1D);
@@ -50,6 +51,7 @@
   --color-menu-button: light-dark(#111827, white);
   --color-btn-outlined: light-dark(#111827, #F7F5F2);
   --color-btn-hover-bg: light-dark(#f3f4f6, #2D2C2C);
+  --color-input-icon-bg: light-dark(#8d8d8d, #292929);
 
   /* Brand colors that don't change with theme */
   --color-success: #54BE7E;
@@ -590,19 +592,19 @@ body.login main {
 
 /* Components */
 .page-title {
-  font-size: 18px;
+  font-size: 14px;
   line-height: 20px;
   margin: 1.5rem 0 0.5rem;
   font-weight: 600;
-  color: var(--color-text-primary);
+  color: var(--color-text-tertiary);
   display: flex;
   flex-direction: row;
   align-items: center;
 }
 
 .subpage-title::before {
-  content: '/';
-  margin: 0 0.5rem;
+  content: '\203A';
+  margin: 0 1rem;
 }
 
 .card {
@@ -1283,30 +1285,42 @@ footer .logo {
 
 #menu ul {
   list-style: none;
-  padding: 0;
+  padding: 0 1.5rem;
 }
 
-#menu ul li {
-  padding: 0 16px;
+#menu ul li.menu-group {
+  font-size: 12px;
+  line-height: 16px;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  margin-bottom: 0.5rem;
+}
+
+#menu ul li.menu-group:not(:first-child) {
+  margin-top: 0.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--color-border-separator);
+}
+
+#menu ul li.last-menu-item {
+  margin-top: 1rem;
+  border-top: 1px solid var(--color-border-separator);
+
+  a {
+    margin-top: 0.5rem;
+  }
 }
 
 #menu ul li a {
-  display: block;
-  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  padding: 0.5rem;
   font-size: 0.875rem;
   line-height: 1.25rem;
   border-radius: 8px;
   font-weight: 600;
   text-decoration: none;
-}
-
-#menu ul ul li a {
-  padding: 4px 20px 4px 40px;
-  font-size: small;
-}
-
-#menu ul ul li a:hover {
-  background-color: var(--color-bg-hover);
+  margin: 2px auto;
 }
 
 #menu ul a,
@@ -1325,6 +1339,87 @@ footer .logo {
   color: var(--color-text-primary);
 }
 
+/* Menu icons */
+#menu ul li a img {
+  width: 1.5rem;
+  height: 1.5rem;
+  margin-right: 1rem;
+  opacity: .7;
+
+  &.icon-blank {
+    width: 1.25rem;
+    height: 1.25rem;
+    margin-left: 0.5rem;
+    position: relative;
+    bottom: 0.125rem;
+  }
+}
+
+#menu ul li.active a i, #menu ul li a:hover img {
+  opacity: 1;
+}
+
+.card:has(.table-header) {
+  padding: 0 0 1.5rem;
+
+  .table-wrapper {
+    padding: 0 1.5rem;
+  }
+}
+
+.table-header {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  border: 1px solid var(--color-border-separator);
+  border-top-left-radius: 0.75rem;
+  border-top-right-radius: 0.75rem;
+
+  h2 {
+    order: -1;
+    width: 30%;
+    margin: 0;
+    font-size: 1rem;
+    line-height: 1.5rem;
+    color: var(--color-header-text);
+  }
+
+  form {
+    width: 40%;
+    justify-content: center;
+    display: flex;
+    
+    input {
+      display: inline-block;
+      margin: 0;
+      border-top-left-radius: 0;
+      border-bottom-left-radius: 0;
+      width: 100%;
+    }
+
+    &::before {
+      content: '';
+      background-image: url('/img/icons/icon-filter-light.svg');
+      background-repeat: no-repeat;
+      background-position: center center;
+      font-size: 16px;
+      width: 44px;
+      height: 44px;
+      display: inline-block;
+      border: 1px solid var(--color-border-primary);
+      border-right: 0;
+      background-color: var(--color-input-icon-bg);
+      border-top-left-radius: 0.375rem;
+      border-bottom-left-radius: 0.375rem;
+    }
+  }
+
+  .btn-holder {
+    width: 30%;
+  }
+}
+
 .table-wrapper {
   overflow: auto;
   scrollbar-color: var(--color-scrollbar);
@@ -1340,7 +1435,8 @@ footer .logo {
   background: var(--color-bg-input);
   border: 1px solid var(--color-border-secondary);
   color: var(--color-text-primary);
-  max-width: 300px !important;
+  width: 100%;
+  max-width: 500px;
 }
 
 .table {
@@ -1473,7 +1569,6 @@ footer .logo {
 .details-table {
   width: 100%;
   border-collapse: collapse;
-  table-layout: fixed;
   font-size: 0.875rem;
   color: var(--color-text-primary);
 }
@@ -1512,8 +1607,17 @@ footer .logo {
   color: var(--color-text-muted);
 }
 
-#q-features span {
+#q-features span,
+#e-features span {
   cursor: help;
+}
+
+.features span {
+  background: var(--color-bg-hover);
+  border-radius: 0.25rem;
+  padding: 0.125rem 0.25rem;
+  margin-right: 0.125rem;
+  font-size: 0.75rem;
 }
 
 .small-table {
@@ -1569,7 +1673,7 @@ label {
   text-align: center;
 }
 
-.right {
+.right, th.right {
   text-align: right;
 }
 
@@ -1594,7 +1698,7 @@ a[data-tag] {
   color: var(--color-text-primary);
 }
 
-.form input:not([type="radio"]):not([type="checkbox"]),
+.form input:not([type="radio"]):not([type="checkbox"]):not(.filter-table),
 .form select {
   max-width: 400px;
   width: calc(100% - 160px);
@@ -1994,31 +2098,38 @@ pre.arguments .inactive-argument:before {
   float: right;
 }
 
-#livelog {
-  max-height: 85vh;
-  overflow-y: scroll;
-}
-
 #livelog td {
   white-space: normal;
 }
 
-.btn-primary a,
-.btn-primary a:visited {
-  color: var(--color-text-inverse);
+#livelog {
+  max-height: 65vh;
+  overflow: auto;
+  overflow-anchor: none;
+  scrollbar-gutter: stable both-edges;
+  scroll-behavior: auto;
 }
 
-#download-logs {
-  margin: 5px 0 16px 0;
+#livelog table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
 }
 
-#download-logs a {
-  text-decoration: none;
+#livelog thead th {
+  position: sticky;
+  top: 0;
+  background: var(--color-bg-secondary);
+  border-bottom: 2px solid var(--color-theme-switcher-border);
+  z-index: 2;
+  font-weight: 600;
 }
 
 #livelog table td,
 #livelog table th {
-  padding: 0;
+  padding: 4px 8px;
+  text-align: left;
 }
 
 #livelog table thead .livelog-timestamp {
@@ -2037,8 +2148,65 @@ pre.arguments .inactive-argument:before {
   width: auto;
 }
 
-#livelog table th {
-  text-align: left;
+#livelog td {
+  white-space: normal;
+}
+
+.log-toolbar-container {
+  width: 100%;
+  background: var(--color-bg-secondary);
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 1rem 1.5rem;
+}
+
+.log-toolbar {
+  flex: 0 1 auto;
+}
+
+#download-logs {
+  margin: 5px 0;
+  text-decoration: none;
+  margin-left: auto;
+}
+
+#to-top::before,
+#to-bottom::before {
+  content: "";
+  display: inline-block;
+  width: 1.2rem;
+  height: 1.2rem;
+
+  -webkit-mask: var(--icon-mask) no-repeat center / 100% 100%;
+  mask: var(--icon-mask) no-repeat center / 100% 100%;
+  background-color: currentColor;
+}
+
+#to-top {
+  --icon-mask: url(img/arrow-up.svg);
+}
+
+#to-bottom {
+  --icon-mask: url(img/arrow-down.svg);
+}
+
+.btn-toggle {
+  display: flex;
+  flex-basis: 90px;
+  align-items: center;
+  transition: border-color .18s ease;
+}
+
+.btn-toggle[aria-pressed="true"] {
+  border-bottom: 3px solid transparent;
+  border-bottom-color: var(--color-primary-green);
+}
+
+.btn-primary a,
+.btn-primary a:visited {
+  color: var(--color-text-inverse);
 }
 
 .version-tab {
@@ -2195,11 +2363,19 @@ pre.arguments .inactive-argument:before {
   .password-toggle img {
     filter: brightness(0) saturate(100%) invert(0%) sepia(1%) saturate(4454%) hue-rotate(319deg) brightness(90%) contrast(84%);
   }
+
+  #menu ul li a img {
+    filter: brightness(0) saturate(100%) invert(0%) sepia(1%) saturate(4454%) hue-rotate(319deg) brightness(90%) contrast(84%);
+  }
 }
 
 @media (prefers-color-scheme: light) {
   html:not(.theme-dark) {
     .password-toggle img {
+      filter: brightness(0) saturate(100%) invert(0%) sepia(1%) saturate(4454%) hue-rotate(319deg) brightness(90%) contrast(84%);
+    }
+
+    #menu ul li a img {
       filter: brightness(0) saturate(100%) invert(0%) sepia(1%) saturate(4454%) hue-rotate(319deg) brightness(90%) contrast(84%);
     }
   }
@@ -2341,6 +2517,20 @@ html.theme-dark #theme-switcher button.active .theme-icon-light {
 
   #theme-switcher button:hover::after {
     display: none;
+  }
+
+  .table-header {
+    padding: 1rem;
+    flex-direction: column;
+  }
+
+  .table-header h2 {
+    width: 100%;
+    margin-bottom: 1rem;
+  }
+
+  .table-header form {
+    width: 100%;
   }
 }
 

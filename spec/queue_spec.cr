@@ -91,11 +91,24 @@ describe LavinMQ::AMQP::Queue do
         v.declare_queue("q", true, false)
         data_dir = s.vhosts["/"].queues["q"].as(LavinMQ::AMQP::Queue).@msg_store.@msg_dir
         s.vhosts["/"].queues["q"].pause!
-        File.exists?(File.join(data_dir, ".paused")).should be_true
+        File.exists?(File.join(data_dir, "paused")).should be_true
         s.restart
         s.vhosts["/"].queues["q"].state.paused?.should be_true
         s.vhosts["/"].queues["q"].resume!
-        File.exists?(File.join(data_dir, ".paused")).should be_false
+        File.exists?(File.join(data_dir, "paused")).should be_false
+      end
+    end
+
+    it "should handle '.paused' files and rename to 'paused'" do
+      with_amqp_server do |s|
+        s.vhosts.create("/")
+        v = s.vhosts["/"].not_nil!
+        v.declare_queue("q", true, false)
+        data_dir = s.vhosts["/"].queues["q"].as(LavinMQ::AMQP::Queue).@msg_store.@msg_dir
+        File.touch(File.join(data_dir, ".paused"))
+        s.restart
+        File.exists?(File.join(data_dir, "paused")).should be_true
+        s.vhosts["/"].queues["q"].state.paused?.should be_true
       end
     end
 
@@ -185,6 +198,9 @@ describe LavinMQ::AMQP::Queue do
         with_channel(s) do |ch|
           ch.has_subscriber?(tag).should eq false
         end
+
+        # Queue is closed, delete to prevent spec failure because of closed queue
+        s.vhosts["/"].queues[q_name].try &.delete
       end
     end
   end
@@ -335,8 +351,8 @@ describe LavinMQ::AMQP::Queue do
   describe "Flow" do
     it "should stop queues from being declared when disk is full" do
       with_amqp_server do |s|
-        s.flow(false)
         with_channel(s) do |ch|
+          s.flow(false)
           expect_raises(AMQP::Client::Channel::ClosedException, "PRECONDITION_FAILED") do
             ch.queue("test_queue_flow", durable: true)
           end
@@ -354,7 +370,7 @@ describe LavinMQ::AMQP::Queue do
       begin
         store = LavinMQ::MessageStore.new(data_dir, nil)
         body = IO::Memory.new(Random::DEFAULT.random_bytes(LavinMQ::Config.instance.segment_size), writeable: false)
-        msg = LavinMQ::Message.new(0i64, "amq.topic", "rk", AMQ::Protocol::Properties.new, body.size.to_u64, body)
+        msg = LavinMQ::Message.new(1i64, "amq.topic", "rk", AMQ::Protocol::Properties.new, body.size.to_u64, body)
         sps = Array(LavinMQ::SegmentPosition).new(10) { store.push msg }
         sps.each { |sp| store.delete sp }
         Fiber.yield
@@ -370,7 +386,7 @@ describe LavinMQ::AMQP::Queue do
       Dir.mkdir_p data_dir
       begin
         body = IO::Memory.new(Random::DEFAULT.random_bytes(LavinMQ::Config.instance.segment_size), writeable: false)
-        msg = LavinMQ::Message.new(0i64, "amq.topic", "rk", AMQ::Protocol::Properties.new, body.size.to_u64, body)
+        msg = LavinMQ::Message.new(1i64, "amq.topic", "rk", AMQ::Protocol::Properties.new, body.size.to_u64, body)
 
         store = LavinMQ::MessageStore.new(data_dir, nil)
         2.times { store.push msg }
@@ -390,12 +406,12 @@ describe LavinMQ::AMQP::Queue do
       store = LavinMQ::MessageStore.new(tmpdir, nil)
 
       (LavinMQ::MessageStore::PURGE_YIELD_INTERVAL * 2 + 1).times do
-        store.push(LavinMQ::Message.new(0i64, "a", "b", AMQ::Protocol::Properties.new, 0u64, IO::Memory.new(0)))
+        store.push(LavinMQ::Message.new(1i64, "a", "b", AMQ::Protocol::Properties.new, 0u64, IO::Memory.new(0)))
       end
 
       yields = 0
       done = Channel(Nil).new
-      spawn(name: "yield counter", same_thread: true) do
+      spawn(name: "yield counter") do
         loop do
           select
           when timeout(0.seconds)
@@ -406,7 +422,7 @@ describe LavinMQ::AMQP::Queue do
         end
       end
 
-      spawn(name: "purger", same_thread: true) do
+      spawn(name: "purger") do
         store.purge
         2.times { done.send nil }
       end
@@ -428,7 +444,7 @@ describe LavinMQ::AMQP::Queue do
       # Publish enough data to have more than one segment
       until store.@segments.size > 1
         io.rewind
-        store.push(LavinMQ::Message.new(0i64, "a", "b", AMQ::Protocol::Properties.new, data.bytesize.to_u64, io))
+        store.push(LavinMQ::Message.new(1i64, "a", "b", AMQ::Protocol::Properties.new, data.bytesize.to_u64, io))
       end
 
       Dir.glob(File.join(tmpdir, "msgs.*")).each do |f|
@@ -438,6 +454,34 @@ describe LavinMQ::AMQP::Queue do
       store.purge
     ensure
       FileUtils.rm_rf tmpdir if tmpdir
+    end
+
+    it "should not ack 'empty' msg if mfile.size is too big" do
+      with_amqp_server do |s|
+        s.vhosts["/"].declare_queue("expire_test_queue", true, false, AMQP::Client::Arguments.new({
+          "x-message-ttl" => 600,
+        }))
+        queue = s.vhosts["/"].queues["expire_test_queue"].as(LavinMQ::AMQP::DurableQueue)
+
+        10_000.times do
+          queue.publish(LavinMQ::Message.new("ex", "rk", "body" * 250, AMQ::Protocol::Properties.new))
+        end
+
+        # Change size of each segment to be bigger than actual size
+        queue.@msg_store.@segments.each_value do |mfile|
+          mfile.truncate(mfile.size + 100)
+        end
+
+        # Wait for messages to expire
+        wait_for(2.seconds) { queue.message_count == 0 }
+        Fiber.yield
+
+        queue.message_count.should eq 0
+        queue.@msg_store.@segments.each_key do |seg|
+          acks = queue.@msg_store.@acks[seg]
+          (acks.size // sizeof(UInt32)).should eq queue.@msg_store.@segment_msg_count[seg]
+        end
+      end
     end
   end
 
@@ -456,6 +500,32 @@ describe LavinMQ::AMQP::Queue do
           ch.default_exchange.publish_confirm("body", queue_name, props: props)
           q1.get(no_ack: false).not_nil!.body_io.to_s.should eq "body"
           q1.get(no_ack: false).should be_nil
+        end
+      end
+    end
+  end
+
+  describe "unacked_bytesize" do
+    it "should count bytes for all unacked messages" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue
+          sq = s.vhosts["/"].queues[q.name].should be_a LavinMQ::AMQP::Queue
+
+          q.publish_confirm "a"
+          q.publish_confirm "b"
+
+          msg_store = sq.@msg_store
+          bytesize = msg_store.bytesize
+
+          msg = q.get(no_ack: false).should_not be_nil
+          q.get(no_ack: false).should_not be_nil
+          sq.unacked_count.should eq 2
+          sq.unacked_bytesize.should eq bytesize
+          msg.ack
+          sleep 10.milliseconds
+          sq.unacked_count.should eq 1
+          sq.unacked_bytesize.should eq(bytesize/2)
         end
       end
     end

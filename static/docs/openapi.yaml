@@ -1,7 +1,7 @@
 ---
 openapi: 3.0.3
 info:
-  version: v2.4.0-rc.1
+  version: v2.5.0-rc.6
   title: LavinMQ HTTP API
   description: HTTP API to programmatically manage all aspects of LavinMQ.
   contact:
@@ -71,8 +71,10 @@ components:
       "$ref": "./schemas/main.yaml#/overview"
     main-aliveness-test:
       "$ref": "./schemas/main.yaml#/aliveness-test"
-    main-shovels:
-      "$ref": "./schemas/main.yaml#/shovels"
+    ShovelList:
+      "$ref": "./schemas/shovels.yaml#/ShovelList"
+    Shovel:
+      "$ref": "./schemas/shovels.yaml#/Shovel"
     main-federation-links:
       "$ref": "./schemas/main.yaml#/federation-links"
     main-extensions:
@@ -86,7 +88,13 @@ components:
     parameters:
       "$ref": "./schemas/parameters.yaml#/parameters"
     parameters-PutParameterRequestBody:
-      "$ref": "./schemas/parameters.yaml#/PutParameterRequestBody"
+      "$ref": "./schemas/parameters.yaml#/PutParameterRequestBody" 
+    parameters-shovel-value:
+      "$ref": "./schemas/parameters.yaml#/shovel-value"
+    parameters-federation-upstream-value:
+      "$ref": "./schemas/parameters.yaml#/federation-upstream-value"
+    parameters-federation-upstream-set-value:
+      "$ref": "./schemas/parameters.yaml#/federation-upstream-set-value"
     global-parameter:
       "$ref": "./schemas/parameters.yaml#/global-parameter"
     global-parameters:
@@ -194,10 +202,16 @@ paths:
     "$ref": "./paths/main.yaml#/~1whoami"
   "/aliveness-test/{vhost}":
     "$ref": "./paths/main.yaml#/~1aliveness-test~1{vhost}"
-  "/shovels":
-    "$ref": "./paths/main.yaml#/~1shovels"
-  "/shovels/{vhost}":
-    "$ref": "./paths/main.yaml#/~1shovels~1{vhost}"
+  "/api/shovels":
+    "$ref": "./paths/shovels.yaml#/~1api~1shovels"
+  "/api/shovels/{vhost}":
+    "$ref": "./paths/shovels.yaml#/~1api~1shovels~1{vhost}"
+  "/api/shovels/{vhost}/{name}":
+    "$ref": "./paths/shovels.yaml#/~1api~1shovels~1{vhost}~1{name}"
+  "/api/shovels/{vhost}/{name}/pause":
+    "$ref": "./paths/shovels.yaml#/~1api~1shovels~1{vhost}~1{name}~1pause"
+  "/api/shovels/{vhost}/{name}/resume":
+    "$ref": "./paths/shovels.yaml#/~1api~1shovels~1{vhost}~1{name}~1resume"
   "/federation-links":
     "$ref": "./paths/main.yaml#/~1federation-links"
   "/federation-links/{vhost}":
@@ -286,7 +300,9 @@ tags:
 - name: exchanges
   description: Manage exchanges.
 - name: main
-  description: Query the server for various information (e.g. shovels, federation links, extensions).
+  description: Query the server for various information (e.g. federation links, extensions).
+- name: shovels
+  description: Manage shovels.
 - name: nodes
   description: Get node statistics.
 - name: parameters

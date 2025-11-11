@@ -1,3 +1,5 @@
+require "socket"
+require "socket/tcp_socket"
 require "../spec_helper"
 require "compress/deflate"
 
@@ -287,10 +289,26 @@ describe LavinMQ::HTTP::QueuesController do
       end
     end
 
-    it "should not require any body" do
+    it "should not require any body (1)" do
       with_http_server do |http, _|
         response = http.put("/api/queues/%2f/okq")
         response.status_code.should eq 201
+      end
+    end
+
+    it "should not require any body (2)" do
+      with_http_server do |http, _|
+        # Use raw socket to make a request without body and content-length
+        addr = http.addr
+        TCPSocket.open addr.address, addr.port do |io|
+          io.write "PUT /api/queues/%2f/okq2 HTTP/1.1\r\n".to_slice
+          http.test_headers.serialize(io)
+          io.write "\r\n".to_slice
+          io.flush
+          response = HTTP::Client::Response.from_io?(io, ignore_body: false, decompress: false)
+          response = response.should_not be_nil
+          response.status_code.should eq 201
+        end
       end
     end
 
@@ -408,6 +426,40 @@ describe LavinMQ::HTTP::QueuesController do
       end
     end
 
+    it "should reject on error while getting messages" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("q4")
+          q4 = s.vhosts["/"].queues["q4"]
+          message_count = 100
+          message_count.times { q.publish "m1" * 100000 } # Larger messages to slow down JSON serialization
+          wait_for { q4.message_count == message_count }
+          body = %({ "count": #{message_count}, "ack_mode": "get", "encoding": "json" })
+          client = HTTP::Client.new(URI.parse http.test_uri(""))
+
+          spawn do
+            client.post("/api/queues/%2f/q4/get", body: body, headers: http.test_headers)
+          rescue # Ignore errors from closing the client
+          end
+
+          loop do
+            if q4.unacked_count > 0
+              # Simulate an error by closing the client while there are unacked messages
+              client.close
+              break
+            elsif q4.message_count == 0
+              fail("All messages already acked, failed to test scenario")
+              break
+            end
+            Fiber.yield
+          end
+
+          # All unacked messages should be requeued
+          wait_for { q4.unacked_count == 0 }
+        end
+      end
+    end
+
     it "should handle count > message_count" do
       with_http_server do |http, s|
         with_channel(s) do |ch|
@@ -517,6 +569,22 @@ describe LavinMQ::HTTP::QueuesController do
           response.status_code.should eq 200
           body = JSON.parse(response.body)
           body["state"].should eq "running"
+        end
+      end
+    end
+  end
+  describe "GET /api/queues/vhost/name effective_arguments" do
+    it "should include x-max-age in effective_arguments for streams" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          args = {"x-queue-type": "stream", "x-max-age": "1h"}
+          ch.queue("stream-with-max-age", args: AMQP::Client::Arguments.new(args))
+
+          response = http.get("/api/queues/%2f/stream-with-max-age")
+          response.status_code.should eq 200
+          body = JSON.parse(response.body)
+          body["effective_arguments"].as_a.should contain("x-max-age")
+          body["effective_arguments"].as_a.should contain("x-queue-type")
         end
       end
     end

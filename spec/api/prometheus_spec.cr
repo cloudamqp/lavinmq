@@ -1,10 +1,10 @@
 require "../spec_helper"
 require "string_scanner"
 
-describe LavinMQ::HTTP::ConsumersController do
+describe LavinMQ::HTTP::PrometheusController do
   describe "GET /metrics" do
     it "should return metrics in prometheus style" do
-      with_http_server do |http, _|
+      with_metrics_server do |http, _|
         response = http.get("/metrics")
         response.status_code.should eq 200
         response.body.lines.any?(&.starts_with? "telemetry_scrape_duration_seconds").should be_true
@@ -12,7 +12,7 @@ describe LavinMQ::HTTP::ConsumersController do
     end
 
     it "should perform sanity check on sampled metrics" do
-      with_http_server do |http, s|
+      with_metrics_server do |http, s|
         vhost = s.vhosts.create("pmths")
         vhost.declare_queue("test1", true, false)
         vhost.delete_queue("test1")
@@ -30,8 +30,46 @@ describe LavinMQ::HTTP::ConsumersController do
       end
     end
 
+    it "should count all delivered messages (both get and deliver)" do
+      with_metrics_server do |http, s|
+        with_channel(s) do |ch|
+          q = ch.queue("test_deliver")
+          ch.prefetch(1)
+
+          # Get baseline
+          raw = http.get("/metrics").body
+          parsed_metrics = PrometheusSpecHelper.parse_prometheus(raw)
+          delivered = parsed_metrics.find { |m| m[:key] == "lavinmq_global_messages_delivered_total" }
+          baseline = delivered.try(&.[:value]) || 0
+
+          # Publish 3 messages
+          3.times { q.publish "test message" }
+
+          # Deliver 1 message via get (polling consumer)
+          msg = q.get(no_ack: false)
+          msg.should_not be_nil
+          msg.try &.ack
+
+          # Deliver 2 messages via subscribe (push consumer)
+          delivered_count = 0
+          q.subscribe(no_ack: false) do |delivery|
+            delivered_count += 1
+            delivery.ack
+          end
+          wait_for { delivered_count == 2 }
+
+          # Check metrics - should count all 3 deliveries
+          raw = http.get("/metrics").body
+          parsed_metrics = PrometheusSpecHelper.parse_prometheus(raw)
+          delivered = parsed_metrics.find { |m| m[:key] == "lavinmq_global_messages_delivered_total" }
+          delivered.should_not be_nil
+          delivered.try(&.[:value].should eq(baseline + 3))
+        end
+      end
+    end
+
     it "should support specifying prefix" do
-      with_http_server do |http, _|
+      with_metrics_server do |http, _|
         prefix = "testing"
         response = http.get("/metrics?prefix=#{prefix}")
         lines = response.body.lines
@@ -43,7 +81,7 @@ describe LavinMQ::HTTP::ConsumersController do
     end
 
     it "should not support a prefix longer than 20" do
-      with_http_server do |http, _|
+      with_metrics_server do |http, _|
         prefix = "abcdefghijklmnopqrstuvwxyz"
         response = http.get("/metrics?prefix=#{prefix}")
         response.status_code.should eq 400
@@ -54,7 +92,7 @@ describe LavinMQ::HTTP::ConsumersController do
 
   describe "GET /metrics/detailed" do
     it "should support specifying families" do
-      with_http_server do |http, _|
+      with_metrics_server do |http, _|
         response = http.get("/metrics/detailed?family=connection_churn_metrics")
         response.status_code.should eq 200
         lines = response.body.lines
@@ -68,7 +106,7 @@ describe LavinMQ::HTTP::ConsumersController do
     end
 
     it "should perform sanity check on sampled metrics" do
-      with_http_server do |http, s|
+      with_metrics_server do |http, s|
         with_channel(s) do |_|
         end
         with_channel(s) do |_|

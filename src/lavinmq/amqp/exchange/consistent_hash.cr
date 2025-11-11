@@ -12,6 +12,11 @@ module LavinMQ
         "x-consistent-hash"
       end
 
+      def handle_arguments
+        super
+        @effective_args << "x-hash-on" if @arguments["x-hash-on"]?
+      end
+
       def bindings_details : Iterator(BindingDetails)
         @bindings.each.map do |destination, binding_key|
           BindingDetails.new(name, vhost.name, binding_key, destination)
@@ -19,6 +24,7 @@ module LavinMQ
       end
 
       def bind(destination : Destination, routing_key : String, arguments : AMQP::Table?)
+        validate_delayed_binding!(destination)
         w = weight(routing_key)
         binding_key = BindingKey.new(routing_key, arguments)
         return false unless @bindings.add?({destination, binding_key})

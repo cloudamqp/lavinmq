@@ -40,7 +40,7 @@ module LavinMQ
       def initialize(@socket : IO,
                      @connection_info : ConnectionInfo,
                      @vhost : VHost,
-                     @user : User,
+                     @user : Auth::User,
                      tune_ok,
                      start_ok)
         @max_frame_size = tune_ok.frame_max
@@ -505,6 +505,11 @@ module LavinMQ
         close_channel(frame, ChannelReplyCode::NOT_FOUND, text)
       end
 
+      def send_passive_not_found(frame, text = "")
+        @log.info { "Not found channel=#{frame.channel} reason=\"#{text}\"" }
+        close_channel(frame, ChannelReplyCode::NOT_FOUND, text)
+      end
+
       def send_resource_locked(frame, text)
         @log.warn { "Resource locked channel=#{frame.channel} reason=\"#{text}\"" }
         close_channel(frame, ChannelReplyCode::RESOURCE_LOCKED, text)
@@ -552,14 +557,14 @@ module LavinMQ
         elsif e = @vhost.exchanges.fetch(frame.exchange_name, nil)
           redeclare_exchange(e, frame)
         elsif frame.passive
-          send_not_found(frame, "Exchange '#{frame.exchange_name}' doesn't exists")
+          send_passive_not_found(frame, "Exchange '#{frame.exchange_name}' doesn't exists")
         elsif NameValidator.reserved_prefix?(frame.exchange_name)
           send_access_refused(frame, "Prefix #{NameValidator::PREFIX_LIST} forbidden, please choose another name")
         else
           ae = frame.arguments["x-alternate-exchange"]?.try &.as?(String)
           ae_ok = ae.nil? || (@user.can_write?(@vhost.name, ae) && @user.can_read?(@vhost.name, frame.exchange_name))
           unless ae_ok && @user.can_config?(@vhost.name, frame.exchange_name)
-            send_access_refused(frame, "User doesn't have permissions to declare exchange '#{frame.exchange_name}'")
+            send_access_refused(frame, "User '#{@user.name}' doesn't have permissions to declare exchange '#{frame.exchange_name}'")
             return
           end
           begin
@@ -592,7 +597,7 @@ module LavinMQ
           # should return not_found according to spec but we make it idempotent
           send AMQP::Frame::Exchange::DeleteOk.new(frame.channel) unless frame.no_wait
         elsif !@user.can_config?(@vhost.name, frame.exchange_name)
-          send_access_refused(frame, "User doesn't have permissions to delete exchange '#{frame.exchange_name}'")
+          send_access_refused(frame, "User '#{@user.name}' doesn't have permissions to delete exchange '#{frame.exchange_name}'")
         elsif frame.if_unused && @vhost.exchanges[frame.exchange_name].in_use?
           send_precondition_failed(frame, "Exchange '#{frame.exchange_name}' in use")
         else
@@ -620,7 +625,7 @@ module LavinMQ
         elsif frame.if_empty && !q.message_count.zero?
           send_precondition_failed(frame, "Queue '#{q.name}' is not empty")
         elsif !@user.can_config?(@vhost.name, frame.queue_name)
-          send_access_refused(frame, "User doesn't have permissions to delete queue '#{q.name}'")
+          send_access_refused(frame, "User '#{@user.name}' doesn't have permissions to delete queue '#{q.name}'")
         else
           size = q.message_count
           @vhost.apply(frame)
@@ -650,7 +655,7 @@ module LavinMQ
             send_not_found(frame, "Queue '#{frame.queue_name}' doesn't exists")
           end
         elsif frame.passive
-          send_not_found(frame, "Queue '#{frame.queue_name}' doesn't exists")
+          send_passive_not_found(frame, "Queue '#{frame.queue_name}' doesn't exists")
         elsif NameValidator.reserved_prefix?(frame.queue_name)
           send_access_refused(frame, "Prefix #{NameValidator::PREFIX_LIST} forbidden, please choose another name")
         elsif @vhost.max_queues.try { |max| @vhost.queues.size >= max }
@@ -693,7 +698,7 @@ module LavinMQ
         dlx = frame.arguments["x-dead-letter-exchange"]?.try &.as?(String)
         dlx_ok = dlx.nil? || (@user.can_write?(@vhost.name, dlx) && @user.can_read?(@vhost.name, name))
         unless dlx_ok && @user.can_config?(@vhost.name, frame.queue_name)
-          send_access_refused(frame, "User doesn't have permissions to queue '#{frame.queue_name}'")
+          send_access_refused(frame, "User '#{@user.name}' doesn't have permissions to queue '#{frame.queue_name}'")
           return
         end
         @vhost.apply(frame)
@@ -723,9 +728,9 @@ module LavinMQ
         elsif !@vhost.exchanges.has_key? frame.exchange_name
           send_not_found frame, "Exchange '#{frame.exchange_name}' not found"
         elsif !@user.can_read?(@vhost.name, frame.exchange_name)
-          send_access_refused(frame, "User doesn't have read permissions to exchange '#{frame.exchange_name}'")
+          send_access_refused(frame, "User '#{@user.name}' doesn't have read permissions to exchange '#{frame.exchange_name}'")
         elsif !@user.can_write?(@vhost.name, frame.queue_name)
-          send_access_refused(frame, "User doesn't have write permissions to queue '#{frame.queue_name}'")
+          send_access_refused(frame, "User '#{@user.name}' doesn't have write permissions to queue '#{frame.queue_name}'")
         elsif queue_exclusive_to_other_client?(q)
           send_resource_locked(frame, "Exclusive queue")
         else
@@ -786,9 +791,9 @@ module LavinMQ
         elsif source.nil?
           send_not_found frame, "Exchange '#{frame.source}' doesn't exists"
         elsif !@user.can_read?(@vhost.name, frame.source)
-          send_access_refused(frame, "User doesn't have read permissions to exchange '#{frame.source}'")
+          send_access_refused(frame, "User '#{@user.name}' doesn't have read permissions to exchange '#{frame.source}'")
         elsif !@user.can_write?(@vhost.name, frame.destination)
-          send_access_refused(frame, "User doesn't have write permissions to exchange '#{frame.destination}'")
+          send_access_refused(frame, "User '#{@user.name}' doesn't have write permissions to exchange '#{frame.destination}'")
         elsif frame.source.empty? || frame.destination.empty?
           send_access_refused(frame, "Not allowed to bind to the default exchange")
         else
@@ -807,9 +812,9 @@ module LavinMQ
           # should return not_found according to spec but we make it idempotent
           send AMQP::Frame::Exchange::UnbindOk.new(frame.channel)
         elsif !@user.can_read?(@vhost.name, frame.source)
-          send_access_refused(frame, "User doesn't have read permissions to exchange '#{frame.source}'")
+          send_access_refused(frame, "User '#{@user.name}' doesn't have read permissions to exchange '#{frame.source}'")
         elsif !@user.can_write?(@vhost.name, frame.destination)
-          send_access_refused(frame, "User doesn't have write permissions to exchange '#{frame.destination}'")
+          send_access_refused(frame, "User '#{@user.name}' doesn't have write permissions to exchange '#{frame.destination}'")
         elsif frame.source.empty? || frame.destination.empty? || frame.source == DEFAULT_EX || frame.destination == DEFAULT_EX
           send_access_refused(frame, "Not allowed to unbind from the default exchange")
         else
@@ -823,7 +828,7 @@ module LavinMQ
           frame.queue_name = @last_queue_name.not_nil!
         end
         unless @user.can_read?(@vhost.name, frame.queue_name)
-          send_access_refused(frame, "User doesn't have write permissions to queue '#{frame.queue_name}'")
+          send_access_refused(frame, "User '#{@user.name}' doesn't have write permissions to queue '#{frame.queue_name}'")
           return
         end
         if !NameValidator.valid_entity_name?(frame.queue_name)
@@ -840,18 +845,13 @@ module LavinMQ
         end
       end
 
-      @acl_cache = Hash({String, String}, Bool).new
+      @acl_write_cache = Auth::PermissionCache.new
 
       private def start_publish(frame)
-        cache_key = {@vhost.name, frame.exchange}
-        allowed = @acl_cache[cache_key]?
-        if allowed.nil?
-          allowed = @acl_cache[cache_key] = @user.can_write?(*cache_key)
-        end
-        if allowed
+        if @user.can_write?(@vhost.name, frame.exchange, @acl_write_cache)
           with_channel frame, &.start_publish(frame)
         else
-          send_access_refused(frame, "User not allowed to publish to exchange '#{frame.exchange}'")
+          send_access_refused(frame, "User '#{@user.name}' not allowed to publish to exchange '#{frame.exchange}'")
         end
       end
 
@@ -864,7 +864,7 @@ module LavinMQ
           return
         end
         unless @user.can_read?(@vhost.name, frame.queue)
-          send_access_refused(frame, "User doesn't have permissions to queue '#{frame.queue}'")
+          send_access_refused(frame, "User '#{@user.name}' doesn't have permissions to queue '#{frame.queue}'")
           return
         end
         with_channel frame, &.consume(frame)
@@ -879,7 +879,7 @@ module LavinMQ
           return
         end
         unless @user.can_read?(@vhost.name, frame.queue)
-          send_access_refused(frame, "User doesn't have permissions to queue '#{frame.queue}'")
+          send_access_refused(frame, "User '#{@user.name}' doesn't have permissions to queue '#{frame.queue}'")
           return
         end
         # yield so that msg expiration, consumer delivery etc gets priority

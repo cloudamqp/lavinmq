@@ -101,7 +101,9 @@ module LavinMQ
         when "AMQPLAIN"
           io = ::IO::Memory.new(start_ok.response)
           tbl = AMQP::Table.from_io(io, ::IO::ByteFormat::NetworkEndian, io.bytesize.to_u32)
-          {tbl["LOGIN"].as(String), tbl["PASSWORD"].as(String)}
+          user = tbl["LOGIN"]?.as(String?) || ""
+          password = tbl["PASSWORD"]?.as(String?) || ""
+          {user, password}
         else raise "Unsupported authentication mechanism: #{start_ok.mechanism}"
         end
       end

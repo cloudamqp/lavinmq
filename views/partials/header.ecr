@@ -41,7 +41,7 @@
       </li>
       <li>
         <a id="signoutLink" href="#">
-          <span class="head">🙈&nbsp; Sign out</span>
+          <span class="head"> Sign out</span>
         </a>
       </li>
     </ul>
@@ -51,24 +51,61 @@
 <nav id="menu">
   <button id="menu-button"></button>
   <ul id="menu-content">
-    <% {
-      ".":            "Overview",
-      "connections":  "Connections",
-      "channels":     "Channels",
-      "consumers":    "Consumers",
-      "exchanges":    "Exchanges",
-      "queues":       "Queues",
-      "policies":     "Policies",
-      "operator-policies": "Operator policies",
-      "shovels":      "Shovels",
-      "federation":   "Federation",
-      "vhosts":       "Virtual hosts",
-      "users":        "Users",
-      "nodes":        "Nodes",
-      "logs":         "Logs"
-      }.each do |href, label| -%>
-        <li<%= " class=\"active\"" if active_path?(href) %>><a href="<%=href%>"><%=label%></a></li>
-      <%-end-%>
-    <li><a href="docs/" target="_blank">HTTP API</a></li>
+    <% [
+      {
+        title: "Cluster",
+        items: [
+          { href: ".", label: "Overview", icon: "img/icons/icon-overview-light.svg" },
+          { href: "nodes", label: "Nodes", icon: "img/icons/icon-nodes-light.svg" },
+          { href: "logs", label: "Logs", icon: "img/icons/icon-logs-light.svg" },
+        ]
+      },
+      {
+        title: "Clients",
+        items: [
+          { href: "connections", label: "Connections", icon: "img/icons/icon-connections-light.svg" },
+          { href: "channels", label: "Channels", icon: "img/icons/icon-channels-light.svg" },
+          { href: "consumers", label: "Consumers", icon: "img/icons/icon-consumers-light.svg" },
+        ]
+      },
+      {
+        title: "Messaging",
+        items: [
+          { href: "exchanges", label: "Exchanges", icon: "img/icons/icon-exchanges-light.svg" },
+          { href: "queues", label: "Queues", icon: "img/icons/icon-queues-light.svg" },
+        ]
+      },
+      {
+        title: "Bridges",
+        items: [
+          { href: "shovels", label: "Shovels", icon: "img/icons/icon-shovels-light.svg" },
+          { href: "federation", label: "Federation", icon: "img/icons/icon-federation-light.svg" },
+        ]
+      },
+      {
+        title: "Administration",
+        items: [
+          { href: "vhosts", label: "Virtual hosts", icon: "img/icons/icon-vhosts-light.svg" },
+          { href: "policies", label: "Policies", icon: "img/icons/icon-policies-light.svg" },
+          { href: "operator-policies", label: "Operator policies", icon: "img/icons/icon-opolicies-light.svg" },
+          { href: "users", label: "Users", icon: "img/icons/icon-users-light.svg" },
+        ]
+      },
+    ].each do |group| -%>
+      
+      <li class="menu-group"><%= group[:title] %></li>
+      
+      <% group[:items].each do |item| -%>
+        <li<%= %( class="active") if active_path?(item[:href]) || (item[:href] == "." && active_path?("/")) %>>
+          <a href="<%= item[:href] %>">
+            <img src="<%= item[:icon] %>"/>
+            <%= item[:label] %>
+          </a>
+        </li>
+      <%- end -%>
+      
+    <%- end -%>
+
+    <li class="last-menu-item"><a href="docs/" target="_blank">HTTP API <img class="icon-blank" src="img/icons/icon-external-light.svg" /></a></li>
   </ul>
 </nav>

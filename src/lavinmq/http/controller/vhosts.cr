@@ -34,7 +34,7 @@ module LavinMQ
         put "/api/vhosts/:name" do |context, params|
           u = user(context)
           refuse_unless_administrator(context, u)
-          name = URI.decode_www_form(params["name"])
+          name = params["name"]
           if context.request.body
             body = parse_body(context)
             tags = body["tags"]?.to_s.split(',').map(&.strip).reject(&.empty?)
@@ -58,7 +58,7 @@ module LavinMQ
             if vhost = @amqp_server.vhosts.delete(vhost_name)
               message_stats = vhost.message_details[:message_stats]
               # Add stats to global stats for accurate prometheus metrics counters
-              @amqp_server.deleted_vhosts_messages_delivered_total += message_stats[:deliver]
+              @amqp_server.deleted_vhosts_messages_delivered_total += message_stats[:deliver_get]
               @amqp_server.deleted_vhosts_messages_redelivered_total += message_stats[:redeliver]
               @amqp_server.deleted_vhosts_messages_acknowledged_total += message_stats[:ack]
               @amqp_server.deleted_vhosts_messages_confirmed_total += message_stats[:confirm]

@@ -104,8 +104,9 @@ class MFile < IO
   # The file will be truncated to the current position unless readonly or deleted
   def close(truncate_to_size = true)
     if (fd = @fd.swap(-1, :relaxed)) != -1
-      munmap
-      @closed = true # munmap checks if open so have to set closed here
+      @closed = true
+      code = LibC.munmap(@buffer, @capacity)
+      raise RuntimeError.from_errno("Error unmapping file") if code == -1
       begin
         if truncate_to_size && !@readonly && !@deleted
           code = LibC.ftruncate(fd, @size)
@@ -134,14 +135,9 @@ class MFile < IO
     msync(@buffer, @size, LibC::MS_SYNC)
   end
 
-  private def munmap(addr = @buffer, length = @capacity)
-    check_open
-    code = LibC.munmap(addr, length)
-    raise RuntimeError.from_errno("Error unmapping file") if code == -1
-  end
-
   private def msync(addr, len, flag) : Nil
     return if len.zero?
+    check_open
     code = LibC.msync(addr, len, flag)
     raise RuntimeError.from_errno("msync") if code < 0
   end

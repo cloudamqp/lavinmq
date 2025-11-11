@@ -13,43 +13,47 @@ const chart = Chart.render('chart', 'msgs/s')
 document.title = exchange + ' | LavinMQ'
 
 const exchangeUrl = HTTP.url`api/exchanges/${vhost}/${exchange}`
-function updateExchange () {
+function updateExchange (all) {
   HTTP.request('GET', exchangeUrl).then(item => {
     Chart.update(chart, item.message_stats)
-    let features = ''
-    features += item.durable ? ' D' : ''
-    features += item.auto_delete ? ' AD' : ''
-    features += item.internal ? ' I' : ''
-    features += item.arguments['x-delayed-exchange'] ? ' d' : ''
-    document.getElementById('e-features').textContent = features
-    document.getElementById('e-type').textContent = item.type
-    document.querySelector('#pagename-label').textContent = exchange + ' in virtual host ' + item.vhost
-    const argList = document.createElement('div')
-    Object.keys(item.arguments).forEach(key => {
-      if (key === 'x-delayed-exchange' && item.arguments[key] === false) {
-        return
+    if (all) {
+      let features = ''
+      features += item.durable ? ' <span title="Durable">D</span>' : ''
+      features += item.auto_delete ? ' <span title="Auto delete">AD</span>' : ''
+      features += item.internal ? ' <span title="Internal">I</span>' : ''
+      features += item.arguments['x-delayed-exchange'] ? ' <span title="Delayed">d</span>' : ''
+      document.getElementById('e-features').innerHTML = features
+      document.getElementById('e-type').textContent = item.type
+      document.querySelector('#pagename-label').textContent = exchange + ' in virtual host ' + item.vhost
+      const argList = document.createElement('div')
+      Object.keys(item.arguments).forEach(key => {
+        if (key === 'x-delayed-exchange' && item.arguments[key] === false) {
+          return
+
+        }
+        const el = document.createElement('div')
+        el.textContent = key + ' = ' + item.arguments[key]
+        if (item.effective_arguments.includes(key)) {
+          el.classList.add('active-argument')
+          el.title = 'Active argument'
+        } else {
+          el.classList.add('inactive-argument')
+          el.title = 'Inactive argument'
+        }
+        argList.appendChild(el)
+      })
+      document.getElementById('e-arguments').appendChild(argList)
+      if (item.policy) {
+        const policyLink = document.createElement('a')
+        policyLink.href = HTTP.url`policies#name=${item.policy}&vhost=${item.vhost}`
+        policyLink.textContent = item.policy
+        document.getElementById('e-policy').appendChild(policyLink)
       }
-      const el = document.createElement('div')
-      el.textContent = key + ' = ' + item.arguments[key]
-      if (item.effective_arguments.includes(key)) {
-        el.classList.add('active-argument')
-        el.title = 'Active argument'
-      } else {
-        el.classList.add('inactive-argument')
-        el.title = 'Inactive argument'
-      }
-      argList.appendChild(el)
-    })
-    document.getElementById('e-arguments').appendChild(argList)
-    if (item.policy) {
-      const policyLink = document.createElement('a')
-      policyLink.href = HTTP.url`policies#name=${item.policy}&vhost=${item.vhost}`
-      policyLink.textContent = item.policy
-      document.getElementById('e-policy').appendChild(policyLink)
     }
   })
 }
-updateExchange()
+updateExchange(true)
+setInterval(updateExchange, 5000)
 
 const tableOptions = {
   dataSource: new UrlDataSource(exchangeUrl + '/bindings/source', { useQueryState: false }),
@@ -65,16 +69,22 @@ const bindingsTable = Table.renderTable('bindings-table', tableOptions, function
     td.setAttribute('colspan', 5)
   } else {
     const btn = DOM.button.delete({
-      text: 'Unbind',
-      click: function () {
-        const type = item.destination_type === 'exchange' ? 'e' : 'q'
-        const url = HTTP.url`api/bindings/${vhost}/e/${item.source}/${type}/${item.destination}/${item.properties_key}`
-        HTTP.request('DELETE', url).then(() => { tr.parentNode.removeChild(tr) })
-      }
+                                  text: 'Unbind',
+                                  click: function () {
+                                    const type = item.destination_type === 'exchange' ? 'e' : 'q'
+                                    const url = HTTP.url`api/bindings/${vhost}/e/${item.source}/${type}/${item.destination}/${item.properties_key}`
+                                    HTTP.request('DELETE', url).then(() => { tr.parentNode.removeChild(tr) })
+                                  }
     })
 
     const destinationLink = document.createElement('a')
     destinationLink.href = HTTP.url`${item.destination_type}#vhost=${vhost}&name=${item.destination}`
+    if (item.destination_type === 'exchange') {
+      destinationLink.addEventListener('click', function (e) {
+        window.location.href = this.href
+        window.location.reload()
+      })
+    }
     destinationLink.textContent = item.destination
     const argsPre = document.createElement('pre')
     argsPre.textContent = JSON.stringify(item.arguments || {})
@@ -137,8 +147,8 @@ function updateAutocomplete (val) {
   Helpers.autoCompleteDatalist('exchange-dest-list', type, vhost)
 }
 updateAutocomplete('q')
-document.getElementById('dest-type').onchange = (e) => updateAutocomplete(e.target.value)
+document.getElementById('dest-type').addEventListener('change', (e) => updateAutocomplete(e.target.value))
 
-document.querySelector('#dataTags').onclick = e => {
+document.querySelector('#dataTags').addEventListener('click', e => {
   Helpers.argumentHelperJSON('publishMessage', 'properties', e)
-}
+})

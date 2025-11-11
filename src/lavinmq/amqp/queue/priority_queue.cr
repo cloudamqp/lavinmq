@@ -2,6 +2,24 @@ require "./durable_queue"
 
 module LavinMQ::AMQP
   class PriorityQueue < Queue
+    def self.create(vhost : VHost, name : String,
+                    exclusive : Bool = false, auto_delete : Bool = false,
+                    arguments : AMQP::Table = AMQP::Table.new)
+      self.validate_arguments!(arguments)
+      new vhost, name, exclusive, auto_delete, arguments
+    end
+
+    def self.validate_arguments!(arguments)
+      int_zero_255 = ArgumentValidator::IntValidator.new(min_value: 0, max_value: 255)
+      if value = arguments["x-max-priority"]?
+        int_zero_255.validate!("x-max-priority", value)
+      else
+        # should never end up here
+        raise LavinMQ::Error::PreconditionFailed.new("x-max-priority argument is required for priority queues")
+      end
+      super
+    end
+
     private def handle_arguments
       super
       @effective_args << "x-max-priority"
@@ -21,7 +39,7 @@ module LavinMQ::AMQP
       @wfile_id = 0
       @rfile_id = 0
 
-      def initialize(
+      protected def initialize(
         @max_priority : UInt8,
         @msg_dir : String,
         @replicator : Clustering::Replicator?,
@@ -34,7 +52,7 @@ module LavinMQ::AMQP
         init_sub_stores(@stores)
         migrate_from_single_store
 
-        @empty.set empty?
+        @empty = BoolChannel.new(empty?)
       end
 
       private def init_sub_stores(stores)
@@ -42,8 +60,6 @@ module LavinMQ::AMQP
           sub_msg_dir = File.join(@msg_dir, "prio.#{i.to_s.rjust(3, '0')}")
           Dir.mkdir_p sub_msg_dir
           store = MessageStore.new(sub_msg_dir, @replicator, @durable, metadata: @metadata.extend({prio: i.to_s}))
-          @size += store.size
-          @bytesize += store.bytesize
           stores << store
         end
       end
@@ -59,16 +75,8 @@ module LavinMQ::AMQP
         @log.info { "Migrating #{msg_count} message" }
         i = 0u32
         while env = old_store.shift?
-          msg = env.message
-          push LavinMQ::Message.new(
-            msg.timestamp,
-            msg.exchange_name,
-            msg.routing_key,
-            msg.properties,
-            msg.bodysize,
-            IO::Memory.new(msg.body)
-          )
-          Fiber.yield if (i &+= 8096).zero?
+          push env.message
+          Fiber.yield if ((i &+= 1) % 8096).zero?
         end
         if size != msg_count
           raise "Message count mismatch when migration message store #{@msg_dir}. #{msg_count} messages before migration, #{size} after."
@@ -77,12 +85,13 @@ module LavinMQ::AMQP
         old_store.close
         i = 0u32
         delete_wg = WaitGroup.new
+        pattern = %r{^(msgs|acks|meta)\.}
         Dir.each_child(@msg_dir) do |f|
-          if f.starts_with?("msgs.") || f.starts_with?("acks.")
+          if f.matches? pattern
             filepath = File.join(@msg_dir, f)
             File.delete? filepath
             @replicator.try &.delete_file(filepath, delete_wg)
-            Fiber.yield if (i &+= 8096).zero?
+            Fiber.yield if ((i &+= 1) % 8096).zero?
           end
         end
         delete_wg.wait
@@ -100,8 +109,6 @@ module LavinMQ::AMQP
         unless 0 <= prio <= @max_priority
           raise ArgumentError.new "Priority must be between 0 and #{@max_priority}, got #{prio}"
         end
-        # Since @stores is sorted with highets prio first, we do lookup from
-        # end of the array. We must add one step because last item is -1 not -0.
         yield @stores[prio]
       end
 
@@ -117,23 +124,31 @@ module LavinMQ::AMQP
         end
       end
 
+      def size
+        @stores.sum(&.size)
+      end
+
+      def bytesize
+        @stores.sum(&.bytesize)
+      end
+
+      def empty? : Bool
+        size.zero?
+      end
+
       def push(msg) : SegmentPosition
         raise ClosedError.new if @closed
         prio = Math.min(msg.properties.priority || 0u8, @max_priority)
+        was_empty = size.zero?
         sp = store_for prio, &.push(msg)
-        was_empty = @size.zero?
-        @bytesize += sp.bytesize
-        @size += 1
         @empty.set false if was_empty
         sp
       end
 
       def requeue(sp : SegmentPosition)
         raise ClosedError.new if @closed
+        was_empty = size.zero?
         store_for sp, &.requeue(sp)
-        was_empty = @size.zero?
-        @bytesize += sp.bytesize
-        @size += 1
         @empty.set false if was_empty
       end
 
@@ -148,8 +163,10 @@ module LavinMQ::AMQP
       def shift?(consumer = nil) : Envelope?
         raise ClosedError.new if @closed
         @stores.reverse_each do |s|
-          envelope = s.shift?(consumer)
-          return envelope unless envelope.nil?
+          if envelope = s.shift?(consumer)
+            @empty.set true if size.zero?
+            return envelope
+          end
         end
       end
 
@@ -177,6 +194,7 @@ module LavinMQ::AMQP
 
       def purge_all
         @stores.each &.purge_all
+        @empty.set true
       end
 
       def delete
@@ -196,6 +214,13 @@ module LavinMQ::AMQP
   end
 
   class DurablePriorityQueue < PriorityQueue
+    def self.create(vhost : VHost, name : String,
+                    exclusive : Bool = false, auto_delete : Bool = false,
+                    arguments : AMQP::Table = AMQP::Table.new)
+      self.validate_arguments!(arguments)
+      new vhost, name, exclusive, auto_delete, arguments
+    end
+
     def durable?
       true
     end

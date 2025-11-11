@@ -30,6 +30,11 @@ def with_etcd(&)
   ensure
     p.terminate(graceful: false) rescue nil
     FileUtils.rm_rf "/tmp/clustering-spec.etcd"
+    i = 0
+    until p.terminated?
+      break if (i &+= 1) > 20
+      sleep 0.1.seconds
+    end
   end
 end
 

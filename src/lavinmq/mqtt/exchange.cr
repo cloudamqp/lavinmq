@@ -37,7 +37,6 @@ module LavinMQ
 
       def initialize(vhost : VHost, name : String, @retain_store : MQTT::RetainStore)
         super(vhost, name, false, false, true)
-        @body = ::IO::Memory.new
       end
 
       def publish(packet : MQTT::Publish) : UInt32
@@ -47,16 +46,14 @@ module LavinMQ
 
         timestamp = RoughTime.unix_ms
         bodysize = packet.payload.bytesize.to_u64
-        @body.clear
-        @body.write(packet.payload)
-        @body.rewind
+        body = ::IO::Memory.new(packet.payload, writeable: false)
 
         if packet.retain?
-          @retain_store.retain(packet.topic, @body, bodysize)
-          @body.rewind
+          @retain_store.retain(packet.topic, body, bodysize)
+          body.rewind
         end
 
-        msg = Message.new(timestamp, EXCHANGE, packet.topic, properties, bodysize, @body)
+        msg = Message.new(timestamp, EXCHANGE, packet.topic, properties, bodysize, body)
         count = 0u32
         @tree.each_entry(packet.topic) do |queue, qos|
           msg.properties.delivery_mode = qos

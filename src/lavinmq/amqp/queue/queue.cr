@@ -15,6 +15,7 @@ require "../../message_store"
 require "../../unacked_message"
 require "../../deduplication"
 require "../../bool_channel"
+require "../argument_validator"
 
 module LavinMQ::AMQP
   class Queue < LavinMQ::Queue
@@ -22,6 +23,44 @@ module LavinMQ::AMQP
     include Observable(QueueEvent)
     include Stats
     include SortableJSON
+
+    def self.validate_arguments!(arguments : AMQP::Table)
+      int_zero = ArgumentValidator::IntValidator.new(min_value: 0)
+      int_one = ArgumentValidator::IntValidator.new(min_value: 1)
+      string = ArgumentValidator::StringValidator.new
+      bool = ArgumentValidator::BoolValidator.new
+      dlrk = ArgumentValidator::DeadLetteringValidator.new(arguments)
+
+      headers = {
+        "x-dead-letter-exchange":    string,
+        "x-dead-letter-routing-key": dlrk,
+        "x-expires":                 int_one,
+        "x-max-length":              int_zero,
+        "x-max-length-bytes":        int_zero,
+        "x-message-ttl":             int_zero,
+        "x-overflow":                string,
+        "x-delivery-limit":          int_zero,
+        "x-consumer-timeout":        int_zero,
+        "x-single-active-consumer":  bool,
+        "x-message-deduplication":   bool,
+        "x-cache-size":              int_zero,
+        "x-cache-ttl":               int_zero,
+        "x-deduplication-header":    string,
+      }
+
+      arguments.each do |k, v|
+        if validator = headers[k]?
+          validator.validate!(k, v)
+        end
+      end
+    end
+
+    def self.create(vhost : VHost, name : String,
+                    exclusive : Bool = false, auto_delete : Bool = false,
+                    arguments : AMQP::Table = AMQP::Table.new)
+      self.validate_arguments!(arguments)
+      new vhost, name, exclusive, auto_delete, arguments
+    end
 
     @message_ttl : Int64?
     @max_length : Int64?
@@ -46,7 +85,7 @@ module LavinMQ::AMQP
     end
 
     def unacked_bytesize
-      @unacked_count.get(:relaxed)
+      @unacked_bytesize.get(:relaxed)
     end
 
     @msg_store_lock = Mutex.new(:reentrant)
@@ -136,14 +175,17 @@ module LavinMQ::AMQP
     @metadata : ::Log::Metadata
     @deduper : Deduplication::Deduper?
 
-    def initialize(@vhost : VHost, @name : String,
-                   @exclusive = false, @auto_delete = false,
-                   @arguments = AMQP::Table.new)
+    protected def initialize(@vhost : VHost, @name : String,
+                             @exclusive : Bool = false, @auto_delete : Bool = false,
+                             @arguments : AMQP::Table = AMQP::Table.new)
       @data_dir = make_data_dir
       @metadata = ::Log::Metadata.new(nil, {queue: @name, vhost: @vhost.name})
       @log = Logger.new(Log, @metadata)
       File.open(File.join(@data_dir, ".queue"), "w") { |f| f.sync = true; f.print @name }
-      if File.exists?(File.join(@data_dir, ".paused"))
+      if File.exists?(File.join(@data_dir, ".paused")) # Migrate '.paused' files to 'paused'
+        File.rename(File.join(@data_dir, ".paused"), File.join(@data_dir, "paused"))
+      end
+      if File.exists?(File.join(@data_dir, "paused"))
         @state = QueueState::Paused
         @paused.set(true)
       end
@@ -286,49 +328,17 @@ module LavinMQ::AMQP
         @effective_args << "x-cache-ttl" if ttl
         header_key = parse_header("x-deduplication-header", String)
         @effective_args << "x-deduplication-header" if header_key
-        cache = Deduplication::MemoryCache(AMQ::Protocol::Field).new(size)
-        @deduper = Deduplication::Deduper.new(cache, ttl, header_key)
+        @deduper ||= begin
+          cache = Deduplication::MemoryCache(AMQ::Protocol::Field).new(size)
+          Deduplication::Deduper.new(cache, ttl, header_key)
+        end
       end
-      validate_arguments
-    end
-
-    private def validate_arguments
-      if @dlrk && @dlx.nil?
-        raise LavinMQ::Error::PreconditionFailed.new("x-dead-letter-exchange required if x-dead-letter-routing-key is defined")
-      end
-      validate_number("x-expires", @expires, 1)
-      validate_number("x-max-length", @max_length)
-      validate_number("x-max-length-bytes", @max_length_bytes)
-      validate_number("x-message-ttl", @message_ttl)
-      validate_number("x-delivery-limit", @delivery_limit)
-      validate_number("x-consumer-timeout", @consumer_timeout)
-    end
-
-    private def validate_number(header, value, min_value = 0)
-      if min_value == 0
-        validate_positive(header, value)
-      else
-        validate_gt_zero(header, value)
-      end
-      @effective_args << header
     end
 
     private macro parse_header(header, type)
       if value = @arguments["{{ header.id }}"]?
         value.as?({{ type }}) || raise LavinMQ::Error::PreconditionFailed.new("{{ header.id }} header not a {{ type.id }}")
       end
-    end
-
-    private def validate_positive(header, value) : Nil
-      return if value.nil?
-      return if value >= 0
-      raise LavinMQ::Error::PreconditionFailed.new("#{header} has to be positive")
-    end
-
-    private def validate_gt_zero(header, value) : Nil
-      return if value.nil?
-      return if value > 0
-      raise LavinMQ::Error::PreconditionFailed.new("#{header} has to be larger than 0")
     end
 
     def immediate_delivery?
@@ -354,7 +364,7 @@ module LavinMQ::AMQP
       @state = QueueState::Paused
       @log.debug { "Paused" }
       @paused.set(true)
-      File.touch(File.join(@data_dir, ".paused"))
+      File.touch(File.join(@data_dir, "paused"))
     end
 
     def resume!
@@ -362,7 +372,7 @@ module LavinMQ::AMQP
       @state = QueueState::Running
       @log.debug { "Resuming" }
       @paused.set(false)
-      File.delete(File.join(@data_dir, ".paused"))
+      File.delete(File.join(@data_dir, "paused"))
     end
 
     def close : Bool
@@ -631,19 +641,25 @@ module LavinMQ::AMQP
     # checks if the message has been dead lettered to the same queue
     # for the same reason already
     private def dead_letter_loop?(headers, reason) : Bool
-      return false if headers.nil?
-      if xdeaths = headers["x-death"]?.as?(Array(AMQ::Protocol::Field))
-        xdeaths.each do |xd|
-          if xd = xd.as?(AMQ::Protocol::Table)
-            break if xd["reason"]? == "rejected"
-            if xd["queue"]? == @name && xd["reason"]? == reason.to_s
-              @log.debug { "preventing dead letter loop" }
-              return true
-            end
-          end
-        end
+      xdeaths = headers.try &.["x-death"]?.as?(Array(AMQ::Protocol::Field))
+      return false unless xdeaths
+
+      queue_matches, has_rejected = 0, false
+      xdeaths.each do |xd|
+        next unless table = xd.as?(AMQ::Protocol::Table)
+        has_rejected = true if table["reason"]? == "rejected"
+        queue_matches += 1 if table["queue"]? == @name
       end
-      false
+
+      # For maxlen/maxlenbytes, prevent loop on first occurrence (threshold=0) since they trigger immediately
+      # For other reasons like TTL, allow one occurrence before blocking (threshold=1)
+      threshold = reason.in?(:maxlen, :maxlenbytes) ? 0 : 1
+      if queue_matches > threshold && !has_rejected
+        @log.debug { "preventing dead letter loop" }
+        true
+      else
+        false
+      end
     end
 
     private def handle_dlx_header(msg, reason) : AMQP::Properties
@@ -772,9 +788,10 @@ module LavinMQ::AMQP
           end
           delete_message(sp)
         else
-          mark_unacked(sp) do
-            yield env # deliver the message
-          end
+          @unacked_count.add(1, :relaxed)
+          @unacked_bytesize.add(sp.bytesize, :relaxed)
+          yield env # deliver the message
+          # requeuing of failed delivery is up to the consumer
         end
         return true
       end
@@ -783,23 +800,6 @@ module LavinMQ::AMQP
       @log.error(ex) { "Queue closed due to error" }
       close
       raise ClosedError.new(cause: ex)
-    end
-
-    private def mark_unacked(sp, &)
-      @log.debug { "Counting as unacked: #{sp}" }
-      @unacked_count.add(1, :relaxed)
-      @unacked_bytesize.add(sp.bytesize, :relaxed)
-      begin
-        yield
-      rescue ex
-        @log.debug { "Not counting as unacked: #{sp}" }
-        @msg_store_lock.synchronize do
-          @msg_store.requeue(sp)
-        end
-        @unacked_count.sub(1, :relaxed)
-        @unacked_bytesize.sub(sp.bytesize, :relaxed)
-        raise ex
-      end
     end
 
     def unacked_messages

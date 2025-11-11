@@ -83,8 +83,10 @@ module LavinMQ
           @effective_args << "x-cache-size" if size
           header_key = parse_header("x-deduplication-header", String)
           @effective_args << "x-deduplication-header" if header_key
-          cache = Deduplication::MemoryCache(AMQ::Protocol::Field).new(size)
-          @deduper = Deduplication::Deduper.new(cache, ttl, header_key)
+          @deduper ||= begin
+            cache = Deduplication::MemoryCache(AMQ::Protocol::Field).new(size)
+            Deduplication::Deduper.new(cache, ttl, header_key)
+          end
         end
       end
 
@@ -188,6 +190,14 @@ module LavinMQ
         raise AccessRefused.new(self)
       end
 
+      protected def validate_delayed_binding!(destination : AMQP::Destination) : Bool
+        return true unless delayed?
+        if destination == @delayed_queue
+          raise LavinMQ::Error::PreconditionFailed.new("Cannot bind delayed exchange '#{@name}' to its internal delayed queue '#{destination.name}'")
+        end
+        true
+      end
+
       abstract def type : String
       abstract def bind(destination : AMQP::Destination, routing_key : String, arguments : AMQP::Table?)
       abstract def unbind(destination : AMQP::Destination, routing_key : String, arguments : AMQP::Table?)
@@ -196,43 +206,50 @@ module LavinMQ
 
       def publish(msg : Message, immediate : Bool,
                   queues : Set(LavinMQ::Queue) = Set(LavinMQ::Queue).new,
-                  exchanges : Set(LavinMQ::Exchange) = Set(LavinMQ::Exchange).new) : UInt32
+                  exchanges : Set(LavinMQ::Exchange) = Set(LavinMQ::Exchange).new) : Bool
         @publish_in_count.add(1, :relaxed)
         if d = @deduper
           if d.duplicate?(msg)
             @dedup_count.add(1, :relaxed)
-            return 0u32
+            return false
           end
           d.add(msg)
         end
-        count = do_publish(msg, immediate, queues, exchanges)
-        @unroutable_count.add(1, :relaxed) if count.zero?
-        @publish_out_count.add(count, :relaxed)
-        count
-      end
-
-      private def do_publish(msg : Message, immediate : Bool, queues : Set(LavinMQ::Queue), exchanges : Set(LavinMQ::Exchange)) : UInt32
-        headers = msg.properties.headers
-        if should_delay_message?(headers)
+        if should_delay_message?(msg.properties.headers)
           if q = @delayed_queue
             q.publish(msg)
-            return 1u32
+            @publish_out_count.add(1, :relaxed)
+            return true
           else
-            return 0u32
+            @unroutable_count.add(1, :relaxed)
+            return false
           end
         end
+        route_msg(msg, immediate, queues, exchanges)
+      end
+
+      def route_msg(msg : Message) : Bool
+        route_msg(msg, false, Set(LavinMQ::Queue).new, Set(LavinMQ::Exchange).new)
+      end
+
+      private def route_msg(msg : Message, immediate : Bool, queues : Set(LavinMQ::Queue), exchanges : Set(LavinMQ::Exchange)) : Bool
+        headers = msg.properties.headers
         find_queues(msg.routing_key, headers, queues, exchanges)
-        return 0u32 if queues.empty?
-        return 0u32 if immediate && !queues.any? &.immediate_delivery?
+        if queues.empty? || (immediate && !queues.any? &.immediate_delivery?)
+          @unroutable_count.add(1, :relaxed)
+          return false
+        end
 
         count = 0u32
         queues.each do |queue|
           if queue.publish(msg)
-            count += 1u32
+            count += 1
             msg.body_io.seek(-msg.bodysize.to_i64, IO::Seek::Current) # rewind
           end
         end
-        count
+        @publish_out_count.add(count, :relaxed)
+        @unroutable_count.add(1, :relaxed) if count.zero?
+        count.positive?
       end
 
       def find_queues(routing_key : String, headers : AMQP::Table?,
@@ -242,7 +259,10 @@ module LavinMQ
         each_destination(routing_key, headers) do |d|
           case d
           in LavinMQ::Queue
-            queues.add(d)
+            # Prevent routing to own internal delayed queue to avoid infinite loops
+            unless delayed? && d == @delayed_queue
+              queues.add(d)
+            end
           in LavinMQ::Exchange
             d.find_queues(routing_key, headers, queues, exchanges)
           end

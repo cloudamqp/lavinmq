@@ -41,7 +41,7 @@ module LavinMQ
         get "/api/parameters/:component" do |context, params|
           user = user(context)
           refuse_unless_policymaker(context, user)
-          component = URI.decode_www_form(params["component"])
+          component = params["component"]
           itr = vhosts(user).flat_map do |v|
             v.parameters.each_value
               .select { |p| p.component_name == component }
@@ -53,7 +53,7 @@ module LavinMQ
         get "/api/parameters/:component/:vhost" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_policymaker(context, user(context), vhost)
-            component = URI.decode_www_form(params["component"])
+            component = params["component"]
             itr = @amqp_server.vhosts[vhost].parameters.each_value
               .select { |p| p.component_name == component }
               .map { |p| map_parameter(vhost, p) }
@@ -64,8 +64,8 @@ module LavinMQ
         get "/api/parameters/:component/:vhost/:name" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_policymaker(context, user(context), vhost)
-            component = URI.decode_www_form(params["component"])
-            name = URI.decode_www_form(params["name"])
+            component = params["component"]
+            name = params["name"]
             param = param(context, @amqp_server.vhosts[vhost].parameters, {component, name})
             map_parameter(vhost, param).to_json(context.response)
           end
@@ -74,8 +74,8 @@ module LavinMQ
         put "/api/parameters/:component/:vhost/:name" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_policymaker(context, user(context), vhost)
-            component = URI.decode_www_form(params["component"])
-            name = URI.decode_www_form(params["name"])
+            component = params["component"]
+            name = params["name"]
             body = parse_body(context)
             value = body["value"]?
             unless value
@@ -91,8 +91,8 @@ module LavinMQ
         delete "/api/parameters/:component/:vhost/:name" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_policymaker(context, user(context), vhost)
-            component = URI.decode_www_form(params["component"])
-            name = URI.decode_www_form(params["name"])
+            component = params["component"]
+            name = params["name"]
             param(context, @amqp_server.vhosts[vhost].parameters, {component, name})
             @amqp_server.vhosts[vhost].delete_parameter(component, name)
             context.response.status_code = 204
@@ -106,7 +106,7 @@ module LavinMQ
 
         get "/api/global-parameters/:name" do |context, params|
           refuse_unless_administrator(context, user(context))
-          name = URI.decode_www_form(params["name"])
+          name = params["name"]
           param = param(context, @amqp_server.parameters, {nil, name})
           map_parameter(nil, param).to_json(context.response)
           context
@@ -114,7 +114,7 @@ module LavinMQ
 
         put "/api/global-parameters/:name" do |context, params|
           refuse_unless_administrator(context, user(context))
-          name = URI.decode_www_form(params["name"])
+          name = params["name"]
           body = parse_body(context)
           value = body["value"]?
           unless value
@@ -129,7 +129,7 @@ module LavinMQ
 
         delete "/api/global-parameters/:name" do |context, params|
           refuse_unless_policymaker(context, user(context))
-          name = URI.decode_www_form(params["name"])
+          name = params["name"]
           param(context, @amqp_server.parameters, {nil, name})
           @amqp_server.delete_parameter(nil, name)
           context.response.status_code = 204
@@ -153,7 +153,7 @@ module LavinMQ
         get "/api/policies/:vhost/:name" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_policymaker(context, user(context), vhost)
-            name = URI.decode_www_form(params["name"])
+            name = params["name"]
             policy(context, name, vhost).to_json(context.response)
           end
         end
@@ -161,7 +161,7 @@ module LavinMQ
         put "/api/policies/:vhost/:name" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_policymaker(context, user(context), vhost)
-            name = URI.decode_www_form(params["name"])
+            name = params["name"]
             body = parse_body(context)
             pattern = body["pattern"]?.try &.as_s?
             definition = body["definition"]?.try &.as_h
@@ -188,7 +188,7 @@ module LavinMQ
         delete "/api/policies/:vhost/:name" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_policymaker(context, user(context), vhost)
-            name = URI.decode_www_form(params["name"])
+            name = params["name"]
             policy(context, name, vhost)
             @amqp_server.vhosts[vhost].delete_policy(name)
             context.response.status_code = 204
@@ -212,7 +212,7 @@ module LavinMQ
         get "/api/operator-policies/:vhost/:name" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_policymaker(context, user(context))
-            name = URI.decode_www_form(params["name"])
+            name = params["name"]
             operator_policy(context, name, vhost).to_json(context.response)
           end
         end
@@ -220,7 +220,7 @@ module LavinMQ
         put "/api/operator-policies/:vhost/:name" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_administrator(context, user(context))
-            name = URI.decode_www_form(params["name"])
+            name = params["name"]
             body = parse_body(context)
             pattern = body["pattern"]?.try &.as_s?
             definition = body["definition"]?.try &.as_h
@@ -228,6 +228,14 @@ module LavinMQ
             apply_to = body["apply-to"]?.try &.as_s? || "all"
             unless pattern && definition
               bad_request(context, "Fields 'pattern' and 'definition' are required")
+            end
+            definition.keys.all? do |k|
+              case k
+              when "max-length", "max-length-bytes", "message-ttl", "expires", "delivery-limit"
+                bad_request(context, "Policy definition '#{k}' should be of type Int") unless definition[k].as_i64?
+              else
+                bad_request(context, "Policy definition '#{k}' should be of type String") unless definition[k].as_s?
+              end
             end
             is_update = @amqp_server.vhosts[vhost].operator_policies[name]?
             @amqp_server.vhosts[vhost]
@@ -239,7 +247,7 @@ module LavinMQ
         delete "/api/operator-policies/:vhost/:name" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_administrator(context, user(context))
-            name = URI.decode_www_form(params["name"])
+            name = params["name"]
             operator_policy(context, name, vhost)
             @amqp_server.vhosts[vhost].delete_operator_policy(name)
             context.response.status_code = 204

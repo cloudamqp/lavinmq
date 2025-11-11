@@ -67,6 +67,8 @@ module LavinMQ
                 sorted_items.sort_by! { |i| dig(i, sort_by).as(Number) }
               when String
                 sorted_items.sort_by! { |i| dig(i, sort_by).as(String).downcase }
+              when QueueState
+                sorted_items.sort_by! { |i| dig(i, sort_by).as(QueueState) }
               else
                 bad_request(context, "Can't sort on type #{v.class}")
               end
@@ -88,7 +90,7 @@ module LavinMQ
           nt = tuple[keys.first].as?(NamedTuple) || raise KeyError.new("'#{keys.first}' is not a nested tuple")
           dig(nt, keys[1..])
         else
-          tuple[keys.first] || 0
+          tuple[keys.first]? || 0
         end
       end
 
@@ -127,8 +129,7 @@ module LavinMQ
       end
 
       private def extract_search_term(params)
-        if raw_name = params["name"]?
-          term = URI.decode_www_form(raw_name)
+        if term = params["name"]?
           if params["use_regex"]? == "true"
             Regex.new(term)
           else
@@ -143,14 +144,13 @@ module LavinMQ
       end
 
       private def parse_body(context) : JSON::Any
+        if context.request.content_length == 0
+          return JSON::Any.new(Hash(String, JSON::Any).new)
+        end
         if body = context.request.body
           ct = context.request.headers["Content-Type"]?
           if ct.nil? || ct.empty? || ct == "application/json"
-            json = if context.request.content_length == 0
-                     JSON::Any.new(Hash(String, JSON::Any).new)
-                   else
-                     JSON.parse(body)
-                   end
+            json = JSON.parse(body)
             if json.as_h?
               json
             else
@@ -197,7 +197,7 @@ module LavinMQ
       end
 
       private def with_vhost(context, params, key = "vhost", &)
-        name = URI.decode_www_form(params[key])
+        name = params[key]
         if @amqp_server.vhosts[name]?
           yield name
         else
@@ -206,7 +206,7 @@ module LavinMQ
         context
       end
 
-      private def user(context) : User
+      private def user(context) : Auth::User
         user = nil
         if username = context.authenticated_username?
           user = @amqp_server.users[username]?
@@ -218,7 +218,7 @@ module LavinMQ
         user
       end
 
-      def vhosts(user : User)
+      def vhosts(user : Auth::User)
         @amqp_server.vhosts.each_value.select do |v|
           full_view_vhosts_access = user.tags.any? { |t| t.administrator? || t.monitoring? }
           amqp_access = user.permissions.has_key?(v.name)
@@ -250,7 +250,7 @@ module LavinMQ
         end
       end
 
-      private def refuse_unless_administrator(context, user : User)
+      private def refuse_unless_administrator(context, user : Auth::User)
         unless user.tags.any? &.administrator?
           Log.warn { "user=#{user.name} does not have administrator access" }
           access_refused(context)

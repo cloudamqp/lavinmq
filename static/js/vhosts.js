@@ -5,7 +5,6 @@ import * as Table from './table.js'
 const tableOptions = {
   url: 'api/vhosts',
   keyColumns: ['name'],
-  interval: 5000,
   pagination: true,
   columnSelector: true,
   search: true

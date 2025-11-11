@@ -49,7 +49,7 @@ module LavinMQ::AMQP
         headers.delete("x-delay")
         msg.properties.headers = headers
       end
-      @vhost.publish Message.new(msg.timestamp, @exchange_name, msg.routing_key,
+      @vhost.exchanges[@exchange_name].route_msg Message.new(msg.timestamp, @exchange_name, msg.routing_key,
         msg.properties, msg.bodysize, IO::Memory.new(msg.body))
       delete_message sp
     end

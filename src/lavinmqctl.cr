@@ -501,7 +501,7 @@ class LavinMQCtl
             when "client_properties"
               print_erlang_terms(conn[c].as_h)
             else
-              print conn[c]
+              print conn[c]?
             end
             print "\t" unless i == columns.size - 1
           end
@@ -745,7 +745,7 @@ class LavinMQCtl
   private def hash_password
     password = ARGV.shift?
     abort @banner unless password
-    output LavinMQ::User.hash_password(password, "SHA256")
+    output LavinMQ::Auth::User.hash_password(password, "SHA256")
   end
 end
 

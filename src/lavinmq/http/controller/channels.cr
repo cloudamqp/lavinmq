@@ -15,8 +15,8 @@ module LavinMQ
         get "/api/vhosts/:vhost/channels" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            c = @amqp_server.connections.find { |conn| conn.vhost.name == vhost }
-            channels = c.try(&.channels.each_value) || ([] of Client::Channel).each
+            conns = @amqp_server.vhosts[vhost].connections.each
+            channels = conns.flat_map(&.channels.each_value)
             page(context, channels)
           end
         end
@@ -48,7 +48,7 @@ module LavinMQ
       end
 
       private def with_channel(context, params, &)
-        name = URI.decode_www_form(params["name"])
+        name = params["name"]
         channel = all_channels(user(context)).find { |c| c.name == name }
         not_found(context, "Channel #{name} does not exist") unless channel
         yield channel

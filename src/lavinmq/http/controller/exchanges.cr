@@ -6,7 +6,7 @@ module LavinMQ
   module HTTP
     module ExchangeHelpers
       private def exchange(context, params, vhost, key = "name")
-        name = URI.decode_www_form(params[key])
+        name = params[key]
         name = "" if name == "amq.default"
         e = @amqp_server.vhosts[vhost].exchanges[name]?
         not_found(context) unless e
@@ -91,11 +91,11 @@ module LavinMQ
             unless user.can_config?(e.vhost.name, e.name)
               access_refused(context, "User doesn't have permissions to delete exchange '#{e.name}'")
             end
+            if NameValidator.reserved_prefix?(e.name)
+              access_refused(context, "Can not delete exchange with prefix #{NameValidator::PREFIX_LIST}")
+            end
             if context.request.query_params["if-unused"]? == "true"
               bad_request(context, "Exchange #{e.name} in vhost #{e.vhost.name} in use") if e.in_use?
-            end
-            if e.internal?
-              bad_request(context, "Not allowed to delete internal exchange")
             end
             @amqp_server.vhosts[vhost].delete_exchange(e.name)
             context.response.status_code = 204

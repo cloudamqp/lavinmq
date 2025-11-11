@@ -17,7 +17,13 @@ jobs:
           fetch-depth: 0
 
       - name: Create Release
-        run: gh release create "${{ github.ref }}" --notes "$(./.github/generate-release-notes)"
+        run: |
+          VERSION="${{ github.ref_name }}"
+          PRERELEASE_FLAG=""
+          if [[ "$VERSION" =~ (alpha|beta|rc) ]]; then
+            PRERELEASE_FLAG="--prerelease"
+          fi
+          gh release create "${{ github.ref }}" --notes "$(./.github/generate-release-notes)" $PRERELEASE_FLAG
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

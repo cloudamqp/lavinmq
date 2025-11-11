@@ -63,7 +63,6 @@ const channelsDataSource = new UrlDataSource(connectionUrl + '/channels', { useQ
 const tableOptions = {
   dataSource: channelsDataSource,
   keyColumns: ['name'],
-  interval: 5000,
   countId: 'table-count'
 }
 Table.renderTable('table', tableOptions, function (tr, item, all) {

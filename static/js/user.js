@@ -26,7 +26,7 @@ function tagHelper (tags) {
 }
 
 const permissionsUrl = HTTP.url`api/users/${user}/permissions`
-const tableOptions = { url: permissionsUrl, keyColumns: ['vhost'], interval: 0, countId: 'permissions-count' }
+const tableOptions = { url: permissionsUrl, keyColumns: ['vhost'], autoReloadTimeout: 0, countId: 'permissions-count' }
 const permissionsTable = Table.renderTable('permissions', tableOptions, (tr, item, all) => {
   Table.renderCell(tr, 1, item.configure)
   Table.renderCell(tr, 2, item.write)
@@ -107,9 +107,9 @@ document.querySelector('#updateUser').addEventListener('submit', function (evt) 
     })
 })
 
-document.querySelector('#dataTags').onclick = e => {
+document.querySelector('#dataTags').addEventListener('click', e => {
   Helpers.argumentHelper('updateUser', 'tags', e)
-}
+})
 
 document.querySelector('#deleteUser').addEventListener('submit', function (evt) {
   evt.preventDefault()

@@ -8,9 +8,12 @@ Helpers.addVhostOptions('addExchange')
 HTTP.request('GET', 'api/overview').then(function (response) {
   const exchangeTypes = response.exchange_types
   const select = document.forms.addExchange.elements.type
-  exchangeTypes.forEach(type => {
+  exchangeTypes.forEach(item => {
+    const name = (item && typeof item === 'object') ? item.name : item
+    const human = (item && typeof item === 'object' && 'human' in item) ? item.human : undefined
     const opt = document.createElement('option')
-    opt.text = type.name
+    opt.text = human || name
+    opt.value = name
     select.add(opt)
   })
 })
@@ -23,7 +26,6 @@ if (vhost && vhost !== '_all') {
 const tableOptions = {
   url,
   keyColumns: ['vhost', 'name'],
-  interval: 5000,
   pagination: true,
   columnSelector: true,
   search: true
@@ -33,11 +35,32 @@ const exchangeTable = Table.renderTable('table', tableOptions, function (tr, ite
     if (item.name === '') {
       item.name = 'amq.default'
     }
-    let features = ''
-    features += item.durable ? ' D' : ''
-    features += item.auto_delete ? ' AD' : ''
-    features += item.internal ? ' I' : ''
-    features += item.arguments['x-delayed-exchange'] ? ' d' : ''
+    const features = document.createElement('span')
+    features.className = 'features'
+    if (item.durable) {
+      const durable = document.createElement('span')
+      durable.textContent = 'D'
+      durable.title = 'Durable'
+      features.appendChild(durable)
+    }
+    if (item.auto_delete) {
+      const autoDelete = document.createElement('span')
+      autoDelete.textContent = ' AD'
+      autoDelete.title = 'Auto Delete'
+      features.appendChild(autoDelete)
+    }
+    if (item.internal) {
+      const internal = document.createElement('span')
+      internal.textContent = ' I'
+      internal.title = 'Internal'
+      features.appendChild(internal)
+    }
+    if (item.arguments['x-delayed-exchange']) {
+      const delayed = document.createElement('span')
+      delayed.textContent = ' d'
+      delayed.title = 'Delayed'
+      features.appendChild(delayed)
+    }
     const exchangeLink = document.createElement('a')
     exchangeLink.href = HTTP.url`exchange#vhost=${item.vhost}&name=${item.name}`
     exchangeLink.textContent = item.name
@@ -79,6 +102,6 @@ document.querySelector('#addExchange').addEventListener('submit', function (evt)
     })
 })
 
-document.querySelector('#dataTags').onclick = e => {
+document.querySelector('#dataTags').addEventListener('click', e => {
   Helpers.argumentHelperJSON('addExchange', 'arguments', e)
-}
+})

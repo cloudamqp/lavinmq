@@ -7,14 +7,20 @@ require "wait_group"
 module LavinMQ
   module Clustering
     class Follower
+      enum State
+        Syncing
+        Synced
+      end
       Log = LavinMQ::Log.for "clustering.follower"
 
       @acked_bytes = 0_i64
       @sent_bytes = 0_i64
       @actions = Channel(Action).new(Config.instance.clustering_max_unsynced_actions)
       @running = WaitGroup.new
+      @state = State::Syncing
       getter id = -1
       getter remote_address
+      getter state
 
       def initialize(@socket : TCPSocket, @data_dir : String, @file_index : FileIndex)
         @socket.sync = true # Use buffering in lz4
@@ -97,13 +103,13 @@ module LavinMQ
       end
 
       private def send_file_list(lz4 = @lz4)
-        Log.info { "Calculating hashes" }
+        Log.info { "Calculating hashes for #{@file_index.nr_of_files} files" }
         count = 0
         @file_index.files_with_hash do |path, hash|
-          count &+= 1
           lz4.write_bytes path.bytesize.to_i32, IO::ByteFormat::LittleEndian
           lz4.write path.to_slice
           lz4.write hash
+          Log.info { "Calculated hash for #{count}/#{@file_index.nr_of_files} files" } if (count &+= 1) % 32 == 0
         end
         lz4.write_bytes 0i32 # 0 means end of file list
         lz4.flush
@@ -139,7 +145,7 @@ module LavinMQ
           total_requested_bytes -= file_size
           total_time_taken = (Time.monotonic - start).total_seconds
           bps = (sent_bytes / total_time_taken).round.to_u64
-          time_left = (total_requested_bytes / bps).round(1)
+          time_left = bps > 0 ? (total_requested_bytes / bps).round(1) : 0
           Log.info { "Uploaded #{filename} in #{bps.humanize_bytes}/s" }
           Log.info { "#{total_requested_bytes.humanize_bytes} left, expected #{time_left}s left" }
           Fiber.yield
@@ -220,6 +226,18 @@ module LavinMQ
 
       def lag_in_bytes : Int64
         @sent_bytes - @acked_bytes
+      end
+
+      def syncing?
+        @state.syncing?
+      end
+
+      def synced?
+        @state.synced?
+      end
+
+      def mark_synced!
+        @state = State::Synced
       end
     end
   end

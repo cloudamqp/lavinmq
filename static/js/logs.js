@@ -1,7 +1,11 @@
+/* global localStorage */
+
 let shouldAutoScroll = true
 const evtSource = new window.EventSource('api/livelog')
 const livelog = document.getElementById('livelog')
 const tbody = document.getElementById('livelog-body')
+const btnToTop = document.getElementById('to-top')
+const btnToBottom = document.getElementById('to-bottom')
 
 evtSource.onmessage = (event) => {
   const timestamp = new Date(parseInt(event.lastEventId))
@@ -40,6 +44,29 @@ function forbidden () {
   tblError.textContent = 'Access denied, administator access required'
   tblError.style.display = 'block'
 }
+
+// Scrolling
+function setScrollMode (toBottom) {
+  shouldAutoScroll = toBottom
+  localStorage.setItem('logScrollMode', toBottom ? 'bottom' : 'top')
+  btnToBottom.setAttribute('aria-pressed', String(toBottom))
+  btnToTop.setAttribute('aria-pressed', String(!toBottom))
+}
+
+// Initialize from saved preference, default to newest
+const savedMode = localStorage.getItem('logScrollMode')
+const initialMode = savedMode ? savedMode === 'bottom' : true
+setScrollMode(initialMode)
+
+btnToTop.addEventListener('click', () => {
+  setScrollMode(false)
+  livelog.scrollTop = 0
+})
+
+btnToBottom.addEventListener('click', () => {
+  setScrollMode(true)
+  livelog.scrollTop = livelog.scrollHeight
+})
 
 let lastScrollTop = livelog.pageYOffset || livelog.scrollTop
 livelog.addEventListener('scroll', event => {

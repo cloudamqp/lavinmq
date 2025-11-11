@@ -8,28 +8,28 @@ describe LavinMQ::HTTP::Server do
         "users":[{
           "name":"sha256",
           "password_hash":"nEeL9j6VAMtdsehezoLxjI655S4vkTWs1/EJcsjVY7o",
-          "hashing_algorithm":"rabbit_password_hashing_sha256","tags":""
+          "hashing_algorithm":"rabbit_password_hashing_sha256","tags":[]
         },
         {
           "name":"sha512",
           "password_hash":"wiwLjmFjJauaeABIerBxpPx2548gydUaqj9wpxyeio7+gmye+/KuGaLeAqrV1Tx1pk6bwYGR0gHMx+whOqxD6Q",
-          "hashing_algorithm":"rabbit_password_hashing_sha512","tags":""
+          "hashing_algorithm":"rabbit_password_hashing_sha512","tags":[]
         },
         {
           "name":"bcrypt",
           "password_hash":"$2a$04$g5IMwYwvgDLACYdAQxCpCulKuK/Ym2I56Tz6T9Wi9DGdKQG.DE8Gi",
-          "hashing_algorithm":"Bcrypt","tags":""
+          "hashing_algorithm":"Bcrypt","tags":[]
         },
         {
           "name":"md5",
           "password_hash":"VBxXlgu5l5QmVdFOO5YH+Q==",
-          "hashing_algorithm":"rabbit_password_hashing_md5","tags":""
+          "hashing_algorithm":"rabbit_password_hashing_md5","tags":[]
         }]
       })
         response = http.post("/api/definitions", body: body)
         response.status_code.should eq 200
         s.users.select("sha256", "sha512", "bcrypt", "md5").each do |_, u|
-          u.should be_a(LavinMQ::User)
+          u.should be_a(LavinMQ::Auth::User)
           ok = u.not_nil!.password.not_nil!.verify "hej"
           {u.name, ok}.should(eq({u.name, true}))
         end
@@ -638,7 +638,7 @@ describe LavinMQ::HTTP::Server do
       "users":[{
         "name":"#{name}",
         "password_hash":"$2a$04$g5IMwYwvgDLACYdAQxCpCulKuK/Ym2I56Tz6T9Wi9DGdKQG.DE8Gi",
-        "hashing_algorithm":"Bcrypt","tags":""
+        "hashing_algorithm":"Bcrypt","tags":[]
       }]
     })
 
@@ -646,7 +646,7 @@ describe LavinMQ::HTTP::Server do
       response.status_code.should eq 200
 
       u = s.users[name]
-      u.should be_a(LavinMQ::User)
+      u.should be_a(LavinMQ::Auth::User)
       ok = u.not_nil!.password.not_nil!.verify "hej"
       {u.name, ok}.should eq({name, true})
 
@@ -654,14 +654,14 @@ describe LavinMQ::HTTP::Server do
       "users":[{
         "name":"#{name}",
         "password_hash":"$2a$04$PuoK2zgHy/NHRU3CRUCidOKaSTwFkv97Sm.zTspKZRWJkn6l37YOe",
-        "hashing_algorithm":"Bcrypt","tags":""
+        "hashing_algorithm":"Bcrypt","tags":[]
       }]
     })
       response = http.post("/api/definitions", body: update_body)
       response.status_code.should eq 200
 
       u = s.users[name]
-      u.should be_a(LavinMQ::User)
+      u.should be_a(LavinMQ::Auth::User)
       ok = u.not_nil!.password.not_nil!.verify "test"
       {u.name, ok}.should eq({name, true})
     end

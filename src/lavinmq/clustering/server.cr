@@ -78,6 +78,10 @@ module LavinMQ
         each_follower &.delete(path, wg)
       end
 
+      def nr_of_files
+        @files.size
+      end
+
       def files_with_hash(& : Tuple(String, Bytes) -> Nil)
         sha1 = Digest::SHA1.new
         @files.each do |path, mfile|
@@ -123,6 +127,18 @@ module LavinMQ
 
       def followers : Array(Follower)
         @lock.synchronize do
+          @followers.select(&.synced?).dup # for thread safety
+        end
+      end
+
+      def syncing_followers : Array(Follower)
+        @lock.synchronize do
+          @followers.select(&.syncing?).dup # for thread safety
+        end
+      end
+
+      def all_followers : Array(Follower)
+        @lock.synchronize do
           @followers.dup # for thread safety
         end
       end
@@ -157,14 +173,18 @@ module LavinMQ
           Log.error { "Disconnecting follower with the clustering id of the leader" }
           return
         end
-        if stale_follower = @followers.find { |f| f.id == follower.id }
-          Log.error { "Disconnecting stale follower with id #{follower.id.to_s(36)}" }
-          stale_follower.close
+        @lock.synchronize do
+          if stale_follower = @followers.find { |f| f.id == follower.id }
+            Log.error { "Disconnecting stale follower with id #{follower.id.to_s(36)}" }
+            @followers.delete(stale_follower)
+            stale_follower.close
+          end
+          @followers << follower # Starts in Syncing state
         end
         follower.full_sync # sync the bulk
         @lock.synchronize do
-          follower.full_sync # sync the last
-          @followers << follower
+          follower.full_sync    # sync the last
+          follower.mark_synced! # Change state to Synced
           update_isr
         end
         begin
@@ -190,7 +210,11 @@ module LavinMQ
       private def update_isr
         isr_key = "#{@config.clustering_etcd_prefix}/isr"
         ids = String.build do |str|
-          @followers.each { |f| f.id.to_s(str, 36); str << "," }
+          @followers.each do |f|
+            next unless f.synced?
+            f.id.to_s(str, 36)
+            str << ","
+          end
           @id.to_s(str, 36)
         end
         Log.info { "In-sync replicas: #{ids}" }
@@ -212,6 +236,7 @@ module LavinMQ
         @lock.synchronize do
           update_isr if @dirty_isr
           @followers.each do |f|
+            next unless f.synced?
             yield f
           rescue Channel::ClosedError
             Fiber.yield # Allow other fiber to run to remove the follower from array
@@ -243,6 +268,14 @@ module LavinMQ
       end
 
       def followers : Array(Follower)
+        Array(Follower).new(0)
+      end
+
+      def syncing_followers : Array(Follower)
+        Array(Follower).new(0)
+      end
+
+      def all_followers : Array(Follower)
         Array(Follower).new(0)
       end
 

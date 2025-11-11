@@ -26,6 +26,7 @@ module LavinMQ
         static_view "/vhost"
         static_view "/queues"
         static_view "/queue"
+        static_view "/stream"
         static_view "/unacked"
         static_view "/nodes"
         static_view "/logs"
@@ -60,6 +61,7 @@ module LavinMQ
             context.response.headers.add("ETag", ETag)
             context.response.headers.add("X-Frame-Options", "SAMEORIGIN")
             context.response.headers.add("Referrer-Policy", "same-origin")
+            # The sha256 hash below is for the inline script in views/partials/head.ecr
             context.response.headers.add("Content-Security-Policy", "default-src 'none'; style-src 'self'; font-src 'self'; img-src 'self'; connect-src 'self'; script-src 'self' 'sha256-9nCxy0qjWUXfAqDk5MjMKgu+tHDTvI8ZUAmbmYoCEF8='")
             {{block.body if block}}
             render {{view}}

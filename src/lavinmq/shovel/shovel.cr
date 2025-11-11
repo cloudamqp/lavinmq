@@ -46,7 +46,7 @@ module LavinMQ
                      @exchange_key : String? = nil,
                      @delete_after = DEFAULT_DELETE_AFTER, @prefetch = DEFAULT_PREFETCH,
                      @ack_mode = DEFAULT_ACK_MODE, consumer_args : Hash(String, JSON::Any)? = nil,
-                     direct_user : User? = nil, @batch_ack_timeout : Time::Span = DEFAULT_BATCH_ACK_TIMEOUT)
+                     direct_user : Auth::User? = nil, @batch_ack_timeout : Time::Span = DEFAULT_BATCH_ACK_TIMEOUT)
         @tag = "Shovel"
         raise ArgumentError.new("At least one source uri is required") if @uris.empty?
         @uris.each do |uri|
@@ -72,6 +72,10 @@ module LavinMQ
       end
 
       def start
+        return if started?
+        if @last_unacked
+          Log.error { "Restarted with unacked messages, message duplication possible" }
+        end
         if c = @conn
           c.close
         end
@@ -216,6 +220,7 @@ module LavinMQ
       end
 
       def start
+        return if started?
         next_dest = @destinations.sample
         return unless next_dest
         next_dest.start
@@ -244,7 +249,7 @@ module LavinMQ
       @ch : ::AMQP::Client::Channel?
 
       def initialize(@name : String, @uri : URI, @queue : String?, @exchange : String? = nil,
-                     @exchange_key : String? = nil, @ack_mode = DEFAULT_ACK_MODE, direct_user : User? = nil)
+                     @exchange_key : String? = nil, @ack_mode = DEFAULT_ACK_MODE, direct_user : Auth::User? = nil)
         unless @uri.user
           if direct_user
             @uri.user = direct_user.name
@@ -266,6 +271,7 @@ module LavinMQ
       end
 
       def start
+        return if started?
         if c = @conn
           c.close
         end
@@ -317,6 +323,7 @@ module LavinMQ
       end
 
       def start
+        return if started?
         client = ::HTTP::Client.new @uri
         client.connect_timeout = 10.seconds
         client.read_timeout = 30.seconds
@@ -405,13 +412,8 @@ module LavinMQ
         loop do
           break if should_stop_loop?
           @state = State::Starting
-          unless @source.started?
-            if @source.last_unacked
-              Log.error { "Restarted with unacked messages, message duplication possible" }
-            end
-            @source.start
-          end
-          @destination.start unless @destination.started?
+          @source.start
+          @destination.start
 
           break if should_stop_loop?
           Log.info { "started" }
@@ -421,6 +423,7 @@ module LavinMQ
             @message_count += 1
             @destination.push(msg, @source)
           end
+          break if should_stop_loop? # Don't delete shovel if paused/terminated
           @vhost.delete_parameter("shovel", @name) if @source.delete_after.queue_length?
           break
         rescue ex : ::AMQP::Client::Connection::ClosedException | ::AMQP::Client::Channel::ClosedException | Socket::ConnectError
@@ -468,6 +471,7 @@ module LavinMQ
       end
 
       def resume
+        return unless paused?
         delete_paused_file
         @state = State::Starting
         Log.info { "Resuming shovel #{@name} vhost=#{@vhost.name}" }
@@ -475,6 +479,7 @@ module LavinMQ
       end
 
       def pause
+        return if terminated?
         File.write(@paused_file_path, @name)
         Log.info { "Pausing shovel #{@name} vhost=#{@vhost.name}" }
         @state = State::Paused

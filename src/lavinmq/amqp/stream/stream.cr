@@ -1,51 +1,86 @@
-require "./durable_queue"
-require "../stream_consumer"
-require "./stream_queue_message_store"
+require "../queue/durable_queue"
+require "./stream_consumer"
+require "./stream_message_store"
+require "./stream_reader"
 
 module LavinMQ::AMQP
-  class StreamQueue < DurableQueue
-    def initialize(@vhost : VHost, @name : String,
-                   @exclusive = false, @auto_delete = false,
-                   @arguments = AMQP::Table.new)
+  class Stream < DurableQueue
+    def self.create(vhost : VHost, name : String,
+                    exclusive : Bool = false, auto_delete : Bool = false,
+                    arguments : AMQP::Table = AMQP::Table.new)
+      # Validate non-arguments first
+      raise LavinMQ::Error::PreconditionFailed.new("A stream cannot be exclusive") if exclusive
+      raise LavinMQ::Error::PreconditionFailed.new("A stream cannot be auto-delete") if auto_delete
+
+      self.validate_arguments!(arguments)
+      new vhost, name, exclusive, auto_delete, arguments
+    end
+
+    def self.validate_arguments!(arguments)
+      invalid_arguments = {
+        "x-dead-letter-exchange",
+        "x-dead-letter-routing-key",
+        "x-expires",
+        "x-delivery-limit",
+        "x-overflow",
+        "x-single-active-consumer",
+        "x-max-priority",
+      }
+
+      arguments.each do |key, value|
+        if invalid_arguments.includes?(key)
+          raise LavinMQ::Error::PreconditionFailed.new("Argument #{key} not allowed for streams")
+        end
+        if key == "x-max-age"
+          ArgumentValidator::MaxAgeValidator.new.validate!(key, value)
+        end
+      end
+
       super
-      spawn unmap_and_remove_segments_loop, name: "StreamQueue#unmap_and_remove_segments_loop"
+    end
+
+    protected def initialize(@vhost : VHost, @name : String,
+                             @exclusive = false, @auto_delete = false,
+                             @arguments = AMQP::Table.new)
+      super
+      spawn unmap_and_remove_segments_loop, name: "Stream#unmap_and_remove_segments_loop"
     end
 
     def apply_policy(policy : Policy?, operator_policy : OperatorPolicy?)
       super
       if max_age_value = Policy.merge_definitions(policy, operator_policy)["max-age"]?
         if max_age_policy = parse_max_age(max_age_value.as_s?)
-          if current_max = stream_queue_msg_store.max_age
+          if current_max = stream_msg_store.max_age
             if current_max > max_age_policy
-              stream_queue_msg_store.max_age = max_age_policy
+              stream_msg_store.max_age = max_age_policy
             end
           else
-            stream_queue_msg_store.max_age = max_age_policy
+            stream_msg_store.max_age = max_age_policy
           end
         end
       end
-      stream_queue_msg_store.max_length = @max_length
-      stream_queue_msg_store.max_length_bytes = @max_length_bytes
-      stream_queue_msg_store.drop_overflow
+      stream_msg_store.max_length = @max_length
+      stream_msg_store.max_length_bytes = @max_length_bytes
+      stream_msg_store.drop_overflow
     end
 
-    delegate last_offset, new_messages, find_offset, to: @msg_store.as(StreamQueueMessageStore)
+    delegate last_offset, new_messages, find_offset, to: @msg_store.as(StreamMessageStore)
 
     private def message_expire_loop
-      # StreamQueues doesn't handle message expiration
+      # Streams doesn't handle message expiration
     end
 
     private def queue_expire_loop
-      # StreamQueues doesn't handle queue expiration
+      # Streams doesn't handle queue expiration
     end
 
     private def init_msg_store(data_dir)
       replicator = @vhost.@replicator
-      @msg_store = StreamQueueMessageStore.new(data_dir, replicator, metadata: @metadata)
+      @msg_store = StreamMessageStore.new(data_dir, replicator, metadata: @metadata)
     end
 
-    private def stream_queue_msg_store : StreamQueueMessageStore
-      @msg_store.as(StreamQueueMessageStore)
+    def stream_msg_store : StreamMessageStore
+      @msg_store.as(StreamMessageStore)
     end
 
     # save message id / segment position
@@ -55,6 +90,8 @@ module LavinMQ::AMQP
         @msg_store.push(msg)
         @publish_count.add(1, :relaxed)
       end
+      # Notify all waiting stream consumers about new messages
+      notify_all_stream_consumers
       true
     rescue ex : MessageStore::Error
       @log.error(ex) { "Queue closed due to error" }
@@ -62,9 +99,13 @@ module LavinMQ::AMQP
       raise ex
     end
 
-    # Stream queues does not support basic_get, so always returns `false`
+    # Streams does not support basic_get, so always returns `false`
     def basic_get(no_ack, force = false, & : Envelope -> Nil) : Bool
       false
+    end
+
+    def reader(offset)
+      StreamReader.new(self, offset)
     end
 
     def consume_get(consumer : AMQP::StreamConsumer, & : Envelope -> Nil) : Bool
@@ -80,7 +121,7 @@ module LavinMQ::AMQP
     end
 
     def store_consumer_offset(consumer_tag : String, offset : Int64) : Nil
-      stream_queue_msg_store.store_consumer_offset(consumer_tag, offset)
+      stream_msg_store.store_consumer_offset(consumer_tag, offset)
     end
 
     # yield the next message in the ready queue
@@ -104,34 +145,27 @@ module LavinMQ::AMQP
     end
 
     private def drop_overflow : Nil
-      # Overflow handling is done in StreamQueueMessageStore
+      # Overflow handling is done in StreamMessageStore
+    end
+
+    private def notify_all_stream_consumers
+      @consumers.each do |consumer|
+        if stream_consumer = consumer.as?(AMQP::StreamConsumer)
+          stream_consumer.notify_new_message if stream_consumer.waiting_for_messages?
+        end
+      end
     end
 
     private def handle_arguments
       super
       @effective_args << "x-queue-type"
-      if @dlx
-        raise LavinMQ::Error::PreconditionFailed.new("x-dead-letter-exchange not allowed for stream queues")
+      if max_age = parse_max_age(@arguments["x-max-age"]?)
+        stream_msg_store.max_age = max_age
+        @effective_args << "x-max-age"
       end
-      if @dlrk
-        raise LavinMQ::Error::PreconditionFailed.new("x-dead-letter-exchange not allowed for stream queues")
-      end
-      if @expires
-        raise LavinMQ::Error::PreconditionFailed.new("x-expires not allowed for stream queues")
-      end
-      if @delivery_limit
-        raise LavinMQ::Error::PreconditionFailed.new("x-delivery-limit not allowed for stream queues")
-      end
-      if @reject_on_overflow
-        raise LavinMQ::Error::PreconditionFailed.new("x-overflow not allowed for stream queues")
-      end
-      if @single_active_consumer_queue
-        raise LavinMQ::Error::PreconditionFailed.new("x-single-active-consumer not allowed for stream queues")
-      end
-      stream_queue_msg_store.max_age = parse_max_age(@arguments["x-max-age"]?)
-      stream_queue_msg_store.max_length = @max_length
-      stream_queue_msg_store.max_length_bytes = @max_length_bytes
-      stream_queue_msg_store.drop_overflow
+      stream_msg_store.max_length = @max_length
+      stream_msg_store.max_length_bytes = @max_length_bytes
+      stream_msg_store.drop_overflow
     end
 
     private def parse_max_age(value) : Time::Span | Time::MonthSpan | Nil
@@ -182,8 +216,8 @@ module LavinMQ::AMQP
         end
       end
       @msg_store_lock.synchronize do
-        stream_queue_msg_store.drop_overflow
-        stream_queue_msg_store.unmap_segments(except: used_segments)
+        stream_msg_store.drop_overflow
+        stream_msg_store.unmap_segments(except: used_segments)
       end
     end
   end

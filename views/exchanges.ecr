@@ -12,6 +12,9 @@
           <h2 class="page-title"><%=pagename%><div class="tiny-badge" id="pagename-label"></div></h2>
       </div>
       <section class="card">
+        <div class="table-header">
+          <h2>Manage exchanges</h2>
+        </div>
         <div class="table-wrapper">
           <div id="table-error"></div>
           <table id="table" class="table">
@@ -22,8 +25,8 @@
                 <th data-sort-key="type" class="left">Type</th>
                 <th>Features</th>
                 <th data-sort-key="policy">Policy</th>
-                <th data-sort-key="publish_in">Message rate in</th>
-                <th data-sort-key="publish_out">Message rate out</th>
+                <th data-sort-key="message_stats.publish_in_details.rate">Message rate in</th>
+                <th data-sort-key="message_stats.publish_out_details.rate">Message rate out</th>
               </tr>
             </thead>
             <tbody></tbody>

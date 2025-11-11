@@ -40,6 +40,7 @@ Lint/NotNil:
   - spec/upstream_spec.cr
   - spec/dlx_spec.cr
   - spec/policies_spec.cr
+  - spec/alternate_exchange_spec.cr
   Enabled: true
   Severity: Warning
 

@@ -1,5 +1,5 @@
 name: lavinmq
-version: 2.4.0-rc.1
+version: 2.5.0-rc.6
 
 authors:
   - Carl Hörberg <carl@cloudamqp.com>
@@ -39,6 +39,6 @@ development_dependencies:
   ameba:
     github: crystal-ameba/ameba
 
-crystal: 1.16.1
+crystal: 1.17.0
 
 license: Apache-2.0

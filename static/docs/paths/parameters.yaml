@@ -3,7 +3,10 @@
   get:
     tags:
     - parameters
-    description: List all parameters.
+    description: |
+      List all parameters across all virtual hosts and components.
+      
+      Parameters configure LavinMQ components like shovels (message forwarding) and federation (upstream connections).
     summary: List all parameters
     operationId: GetParameters
     responses:
@@ -32,12 +35,23 @@
     required: true
     schema:
       type: string
-      description: Name of component.
+      description: Type of component. Must be one of 'shovel', 'federation-upstream', or 'federation-upstream-set'.
+      enum:
+        - shovel
+        - federation-upstream
+        - federation-upstream-set
+      example: shovel
   get:
     tags:
     - parameters
-    description: List all parameters for a specific component.
-    summary: List parameters by component
+    description: |
+      List all parameters for a specific component type.
+      
+      **Component Types:**
+      - `shovel`: Parameters that configure message shoveling between queues/exchanges
+      - `federation-upstream`: Parameters that configure upstream connections for federation 
+      - `federation-upstream-set`: Parameters that define sets of upstream connections for high availability
+    summary: List parameters by component type
     operationId: GetParametersComponent
     responses:
       '200':
@@ -65,17 +79,26 @@
     required: true
     schema:
       type: string
-      description:  Name of component.
+      description: Type of component. Must be one of 'shovel', 'federation-upstream', or 'federation-upstream-set'.
+      enum:
+        - shovel
+        - federation-upstream
+        - federation-upstream-set
+      example: shovel
   - in: path
     name: vhost
     required: true
     schema:
       type: string
-      description:  Name of vhost.
+      description: Name of virtual host.
+      example: /
   get:
     tags:
     - parameters
-    description: List all parameters for a specific component and vhost.
+    description: |
+      List all parameters for a specific component type within a virtual host.
+      
+      Filters parameters by both component type and virtual host for more targeted results.
     summary: List parameters by component and vhost
     operationId: GetParametersComponentVhost
     responses:
@@ -104,24 +127,34 @@
     required: true
     schema:
       type: string
-      description:  Name of component.
+      description: Type of component. Must be one of 'shovel', 'federation-upstream', or 'federation-upstream-set'.
+      enum:
+        - shovel
+        - federation-upstream
+        - federation-upstream-set
+      example: shovel
   - in: path
     name: vhost
     required: true
     schema:
       type: string
-      description:  Name of vhost.
+      description: Name of virtual host.
+      example: /
   - in: path
     name: name
     required: true
     schema:
       type: string
-      description: Name of parameter.
+      description: Name of the parameter.
+      example: my-shovel
   get:
     tags:
     - parameters
-    description: List a specific parameter.
-    summary: List parameter
+    description: |
+      Get configuration details for a specific parameter.
+      
+      Returns the complete parameter configuration including its name, component type, virtual host, and value structure.
+    summary: Get parameter details
     operationId: GetParameter
     responses:
       '200':
@@ -145,7 +178,19 @@
   put:
     tags:
     - parameters
-    description: Create or update a parameter.
+    description: |
+      Create or update a parameter. Parameters configure various LavinMQ components:
+      
+      **Shovel Parameters** (`component: shovel`):
+      Configure message forwarding from a source queue/exchange to a destination queue/exchange.
+      Common use cases include moving messages between different vhosts, servers, or for message routing.
+      
+      **Federation Upstream Parameters** (`component: federation-upstream`):
+      Configure upstream broker connections for exchange or queue federation.
+      Allows exchanges and queues to receive messages from remote brokers.
+      
+      **Federation Upstream Set Parameters** (`component: federation-upstream-set`):
+      Define groups of upstream connections for high availability federation scenarios.
     summary: Create/update parameter
     operationId: PutParameter
     requestBody:
@@ -154,6 +199,33 @@
         application/json:
           schema:
             "$ref": "../openapi.yaml#/components/schemas/parameters-PutParameterRequestBody"
+          examples:
+            shovel:
+              summary: Shovel configuration example
+              value:
+                value:
+                  src-uri: "amqp://guest:guest@localhost:5672/%2f"
+                  dest-uri: "amqp://guest:guest@remote-host:5672/%2f"
+                  src-queue: "source-queue"
+                  dest-queue: "dest-queue"
+                  src-prefetch-count: 1000
+                  reconnect-delay: 5
+                  ack-mode: "on-confirm"
+            federation-upstream:
+              summary: Federation upstream configuration example
+              value:
+                value:
+                  uri: "amqp://guest:guest@upstream-host:5672/%2f"
+                  prefetch-count: 1000
+                  reconnect-delay: 5
+                  ack-mode: "on-confirm"
+                  exchange: "upstream-exchange"
+                  max-hops: 1
+            federation-upstream-set:
+              summary: Federation upstream set configuration example  
+              value:
+                value:
+                  upstreams: ["upstream-1", "upstream-2", "upstream-3"]
     responses:
       '201':
         description: The parameter was created successfully.
@@ -174,7 +246,11 @@
   delete:
     tags:
     - parameters
-    description: Remove a specific parameter.
+    description: |
+      Remove a parameter and stop any associated component.
+      
+      **Warning:** This will immediately stop any running shovels or federation links configured by this parameter.
+      Make sure you understand the impact before deleting production parameters.
     summary: Delete parameter
     operationId: DeleteParameter
     responses:

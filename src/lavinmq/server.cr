@@ -43,7 +43,7 @@ module LavinMQ
       @data_dir = @config.data_dir
       Dir.mkdir_p @data_dir
       Schema.migrate(@data_dir, @replicator)
-      @users = UserStore.new(@data_dir, @replicator)
+      @users = Auth::UserStore.new(@data_dir, @replicator)
       @vhosts = VHostStore.new(@data_dir, @users, @replicator)
       @mqtt_brokers = MQTT::Brokers.new(@vhosts, @replicator)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator)
@@ -58,6 +58,14 @@ module LavinMQ
 
     def followers
       @replicator.followers
+    end
+
+    def syncing_followers
+      @replicator.syncing_followers
+    end
+
+    def all_followers
+      @replicator.all_followers
     end
 
     def amqp_url
@@ -82,7 +90,7 @@ module LavinMQ
       stop
       Dir.mkdir_p @data_dir
       Schema.migrate(@data_dir, @replicator)
-      @users = UserStore.new(@data_dir, @replicator)
+      @users = Auth::UserStore.new(@data_dir, @replicator)
       authenticator = Auth::Chain.create(@config, @users)
       @vhosts = VHostStore.new(@data_dir, @users, @replicator)
       @connection_factories[Protocol::AMQP] = AMQP::ConnectionFactory.new(authenticator, @vhosts)
@@ -119,7 +127,7 @@ module LavinMQ
         conn_info = extract_conn_info(client)
         handle_connection(client, conn_info, protocol)
       rescue ex
-        Log.warn(exception: ex) { "Error accepting connection from #{remote_address}" }
+        Log.warn { "Error accepting connection from #{remote_address}: #{ex.message}" }
         client.close rescue nil
       end
     end
@@ -133,12 +141,12 @@ module LavinMQ
         # Allow proxy connection from followers
         if @config.clustering? &&
            client.peek[0, 5]? == "PROXY".to_slice &&
-           followers.any? { |f| f.remote_address.address == remote_address.address }
+           all_followers.any? { |f| f.remote_address.address == remote_address.address }
           # Expect PROXY protocol header if remote address is a follower
           ProxyProtocol::V1.parse(client)
         elsif @config.clustering? &&
               client.peek[0, 8]? == ProxyProtocol::V2::Signature.to_slice[0, 8] &&
-              followers.any? { |f| f.remote_address.address == remote_address.address }
+              all_followers.any? { |f| f.remote_address.address == remote_address.address }
           # Expect PROXY protocol header if remote address is a follower
           ProxyProtocol::V2.parse(client)
         else

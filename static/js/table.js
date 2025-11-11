@@ -6,7 +6,9 @@ function renderTable (id, options = {}, renderRow) {
   const countId = options.countId ?? 'pagename-label'
   const dataSource = options.dataSource ?? new UrlDataSource(options.url)
   const table = document.getElementById(id)
-  const container = table.parentElement
+  const grandparent = table.parentElement && table.parentElement.parentElement
+  const tableHeader = grandparent ? grandparent.querySelector(':scope > .table-header') : null
+  const container = tableHeader || table.parentElement
   const keyColumns = options.keyColumns
   const events = new EventTarget()
 
@@ -101,24 +103,49 @@ function renderTable (id, options = {}, renderRow) {
     keyColumns.forEach(key => { tr.dataset[key] = JSON.stringify(item[key]) })
   }
 
-  function renderSearch (conatiner, dataSource) {
+  function renderSearch (container, dataSource) {
     const form = document.createElement('form')
     form.classList.add('form')
     form.addEventListener('submit', (e) => { e.preventDefault() })
+
     const filterInput = document.createElement('input')
+    filterInput.type = 'search'
     filterInput.classList.add('filter-table')
     filterInput.placeholder = 'Filter regex'
+
+    if (container.dataset.clearSearch === '1') dataSource.searchTerm = ''
     filterInput.value = dataSource.searchTerm ?? ''
     form.appendChild(filterInput)
     container.insertBefore(form, container.children[0])
-    container.addEventListener('keyup', e => {
-      if (!e.target.classList.contains('filter-table')) return true
+
+    let liveType
+    const apply = () => {
+      dataSource.searchTerm = filterInput.value
+      dataSource.page = 1
+      clearTimeout(liveType)
+      reload()
+    }
+    filterInput.addEventListener('input', () => {
+      clearTimeout(liveType)
+      liveType = setTimeout(apply, 500)
+    })
+    filterInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
-        dataSource.searchTerm = e.target.value
-        dataSource.page = 1
-        reload()
+        e.preventDefault()
+        apply()
+      } else if (e.key === 'Escape') {
+        if (filterInput.value) {
+          filterInput.value = ''
+          apply()
+        }
       }
     })
+
+    // Fires when the native clear “×” is clicked (because type="search")
+    filterInput.addEventListener('search', () => {
+      if (filterInput.value === '' && dataSource.searchTerm) { apply() }
+    })
+
     dataSource.on('update', _ => {
       if (filterInput !== document.activeElement) {
         filterInput.value = dataSource.searchTerm

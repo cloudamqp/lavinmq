@@ -277,6 +277,9 @@ module MqttSpecs
               connect[7] = 'x'.ord.to_u8
               io.write_bytes_raw connect
 
+              packet = MQTT::Protocol::Packet.from_io(io)
+              packet.should be_a(MQTT::Protocol::Connack)
+              packet.as(MQTT::Protocol::Connack).return_code.should eq(MQTT::Protocol::Connack::ReturnCode::UnacceptableProtocolVersion)
               io.should be_closed
             end
           end

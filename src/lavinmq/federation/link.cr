@@ -350,6 +350,8 @@ module LavinMQ
             ch = c.channel
             ch.queue_delete(@upstream_q)
             ch.exchange_delete(@upstream_q)
+          rescue ex : ::AMQP::Client::Error
+            @log.warn { "Failed to clean up upstream resources: #{ex.message}" }
           end
         rescue e
           @log.warn(e) { "cleanup interrupted " }
@@ -378,7 +380,7 @@ module LavinMQ
           ch, consumer_ex = try_passive(upstream_client, ch) do |uch, passive|
             ex = uch.exchange(@upstream_q, type: "x-federation-upstream",
               args: args2, passive: passive)
-            ch.queue_bind(@upstream_q, @upstream_q, routing_key: "")
+            uch.queue_bind(@upstream_q, @upstream_q, routing_key: "")
             ex
           end
           @federated_ex.register_observer(self)

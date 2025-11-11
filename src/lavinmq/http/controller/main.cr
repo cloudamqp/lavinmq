@@ -8,9 +8,16 @@ module LavinMQ
       include StatsHelpers
 
       OVERVIEW_STATS = {"ack", "deliver", "get", "deliver_get", "publish", "confirm", "redeliver", "reject"}
-      EXCHANGE_TYPES = {"direct", "fanout", "topic", "headers", "x-federation-upstream", "x-consistent-hash"}
-      CHURN_STATS    = {"connection_created", "connection_closed", "channel_created", "channel_closed",
-                        "queue_declared", "queue_deleted"}
+      EXCHANGE_TYPES = {
+        {name: "direct", human: "Direct"},
+        {name: "fanout", human: "Fanout"},
+        {name: "topic", human: "Topic"},
+        {name: "headers", human: "Headers"},
+        {name: "x-federation-upstream", human: "Federation Upstream"},
+        {name: "x-consistent-hash", human: "Consistent Hash"},
+      }
+      CHURN_STATS = {"connection_created", "connection_closed", "channel_created", "channel_closed",
+                     "queue_declared", "queue_deleted"}
 
       private def register_routes
         get "/api/overview" do |context, _params|
@@ -37,10 +44,11 @@ module LavinMQ
               connections += 1
               channels += c.channels.size
               consumers += c.channels.each_value.sum &.consumers.size
-              recv_rate += c.stats_details[:recv_oct_details][:rate]
-              send_rate += c.stats_details[:send_oct_details][:rate]
-              add_logs!(recv_rate_log, c.stats_details[:recv_oct_details][:log])
-              add_logs!(send_rate_log, c.stats_details[:send_oct_details][:log])
+              stats_details = c.stats_details
+              recv_rate += stats_details[:recv_oct_details][:rate]
+              send_rate += stats_details[:send_oct_details][:rate]
+              add_logs!(recv_rate_log, stats_details[:recv_oct_details][:log])
+              add_logs!(send_rate_log, stats_details[:send_oct_details][:log])
             end
             exchanges += vhost.exchanges.size
             queues += vhost.queues.size
@@ -57,8 +65,8 @@ module LavinMQ
               add_logs!({{sm.id}}_log, vhost_stats_details[:{{sm.id}}_details][:log])
             {% end %}
             {% for sm in CHURN_STATS %}
-            {{sm.id}} += vhost.stats_details[:{{sm.id}}]
-            {{sm.id}}_rate += vhost.stats_details[:{{sm.id}}_details][:rate]
+            {{sm.id}} += vhost_stats_details[:{{sm.id}}]
+            {{sm.id}}_rate += vhost_stats_details[:{{sm.id}}_details][:rate]
             {% end %}
           end
           {
@@ -104,7 +112,7 @@ module LavinMQ
               },
             {% end %} } {% end %},
             listeners:      @amqp_server.listeners,
-            exchange_types: EXCHANGE_TYPES.map { |name| {name: name} },
+            exchange_types: EXCHANGE_TYPES.map { |t| {name: t[:name], human: t[:human]} },
           }.to_json(context.response)
           context
         end

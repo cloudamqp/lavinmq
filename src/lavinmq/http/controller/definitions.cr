@@ -40,8 +40,7 @@ module LavinMQ
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
             refuse_unless_vhost_access(context, user(context), vhost)
-            unescaped_name = URI.decode_www_form(vhost)
-            VHostDefinitions.new(@amqp_server, @amqp_server.vhosts[unescaped_name]).export(context.response)
+            VHostDefinitions.new(@amqp_server, @amqp_server.vhosts[vhost]).export(context.response)
           end
         end
 
@@ -50,8 +49,7 @@ module LavinMQ
             refuse_unless_policymaker(context, user(context), vhost)
             refuse_unless_vhost_access(context, user(context), vhost)
             body = parse_body(context)
-            unescaped_name = URI.decode_www_form(vhost)
-            VHostDefinitions.new(@amqp_server, @amqp_server.vhosts[unescaped_name]).import(body)
+            VHostDefinitions.new(@amqp_server, @amqp_server.vhosts[vhost]).import(body)
           end
         end
 
@@ -62,8 +60,7 @@ module LavinMQ
             ::HTTP::FormData.parse(context.request) do |part|
               if part.name == "file"
                 body = JSON.parse(part.body)
-                unescaped_name = URI.decode_www_form(vhost)
-                VHostDefinitions.new(@amqp_server, @amqp_server.vhosts[unescaped_name]).import(body)
+                VHostDefinitions.new(@amqp_server, @amqp_server.vhosts[vhost]).import(body)
               end
             end
           end
@@ -208,8 +205,17 @@ module LavinMQ
               name = u["name"].as_s
               pass_hash = u["password_hash"].as_s
               hash_algo = u["hashing_algorithm"]?.try(&.as_s)
-              tags = u["tags"]?.to_s.gsub(/[\[\]"\s]/, "").split(",").compact_map { |t| Tag.parse?(t) }
-              @amqp_server.users.add(name, pass_hash, hash_algo, tags, save: false)
+
+              # Support both array and comma-separated string formats for tags
+              if tags = u["tags"]?.try &.as_s?
+                parsed_tags = tags.split(",").compact_map { |t| Tag.parse?(t.strip) }
+              elsif tags = u["tags"]?.try &.as_a?
+                parsed_tags = tags.compact_map { |t| Tag.parse?(t.as_s) }
+              else
+                parsed_tags = [] of LavinMQ::Tag
+              end
+
+              @amqp_server.users.add(name, pass_hash, hash_algo, parsed_tags, save: false)
             end
             @amqp_server.users.save!
           end
