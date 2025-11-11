@@ -471,7 +471,7 @@ module MessageRoutingSpec
         q1 = LavinMQ::QueueFactory.make(vhost, "q1")
         s1 = LavinMQ::QueueFactory.make(vhost, "q1", arguments: LavinMQ::AMQP::Table.new({"x-queue-type": "mqtt"}))
         index = LavinMQ::MQTT::TopicTree(String).new
-        store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", LavinMQ::Clustering::NoopServer.new, index)
+        store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil, index)
         x = LavinMQ::MQTT::Exchange.new(vhost, "", store)
         x.bind(s1, "s1", LavinMQ::AMQP::Table.new)
         expect_raises(LavinMQ::Exchange::AccessRefused) do

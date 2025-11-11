@@ -33,6 +33,7 @@ module LavinMQ
     @first_shutdown_attempt = true
     @data_dir_lock : DataDirLock?
     @closed = false
+    @replicator : Clustering::Server?
 
     def initialize(@config : Config)
       print_environment_info
@@ -53,7 +54,6 @@ module LavinMQ
         @runner = controller = Clustering::Controller.new(@config, etcd)
         @replicator = Clustering::Server.new(@config, etcd, controller.id)
       else
-        @replicator = Clustering::NoopServer.new
         @runner = StandaloneRunner.new
       end
 
@@ -80,7 +80,7 @@ module LavinMQ
       @runner.run do
         start
       end
-      @replicator.close
+      @replicator.try &.close
       @data_dir_lock.try &.release
     end
 

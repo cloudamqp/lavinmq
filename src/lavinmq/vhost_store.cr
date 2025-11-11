@@ -15,7 +15,7 @@ module LavinMQ
 
     Log = LavinMQ::Log.for "vhost_store"
 
-    def initialize(@data_dir : String, @users : Auth::UserStore, @replicator : Clustering::Replicator)
+    def initialize(@data_dir : String, @users : Auth::UserStore, @replicator : Clustering::Replicator?)
       @vhosts = Hash(String, VHost).new
       load!
     end
@@ -84,7 +84,7 @@ module LavinMQ
             @vhosts[name] = VHost.new(name, @data_dir, @users, @replicator, description, tags)
             @users.add_permission(Auth::UserStore::DIRECT_USER, name, /.*/, /.*/, /.*/)
           end
-          @replicator.register_file(f)
+          @replicator.try &.register_file(f)
         end
       else
         Log.debug { "Loading default vhosts" }
@@ -101,7 +101,7 @@ module LavinMQ
       path = File.join(@data_dir, "vhosts.json")
       File.open("#{path}.tmp", "w") { |f| to_pretty_json(f); f.fsync }
       File.rename "#{path}.tmp", path
-      @replicator.replace_file path
+      @replicator.try &.replace_file path
     end
   end
 end

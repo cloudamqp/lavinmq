@@ -39,7 +39,7 @@ module MqttHelpers
   def with_server(clean_dir = true, & : LavinMQ::Server -> Nil)
     mqtt_server = TCPServer.new("localhost", 0)
     amqp_server = TCPServer.new("localhost", 0)
-    s = LavinMQ::Server.new(LavinMQ::Config.instance, LavinMQ::Clustering::NoopServer.new)
+    s = LavinMQ::Server.new(LavinMQ::Config.instance, nil)
     begin
       spawn(name: "amqp tcp listen") { s.listen(amqp_server, LavinMQ::Server::Protocol::AMQP) }
       spawn(name: "mqtt tcp listen") { s.listen(mqtt_server, LavinMQ::Server::Protocol::MQTT) }
