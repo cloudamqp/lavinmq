@@ -5,6 +5,15 @@ require "../tag"
 
 module LavinMQ
   module Auth
+    alias CacheKey = Tuple(String, String)
+
+    class PermissionCache
+      @cache = Hash(CacheKey, Bool).new
+      property revision = 0_u32
+
+      forward_missing_to @cache
+    end
+
     class User
       include SortableJSON
       getter name, password, permissions
@@ -16,6 +25,7 @@ module LavinMQ
       @password : Auth::Password? = nil
       @plain_text_password : String?
       @tags = Array(Tag).new
+      @permission_revision = Atomic(UInt32).new(0u32)
 
       def initialize(pull : JSON::PullParser)
         loc = pull.location
@@ -130,7 +140,20 @@ module LavinMQ
         }
       end
 
-      def can_write?(vhost, name) : Bool
+      def can_write?(vhost : String, name : String, cache : PermissionCache) : Bool
+        permission_revision = @permission_revision.lazy_get
+        if permission_revision != cache.revision
+          cache.clear
+          cache.revision = permission_revision
+        end
+
+        result = cache[{vhost, name}]?
+        return result unless result.nil?
+
+        cache[{vhost, name}] = can_write?(vhost, name)
+      end
+
+      def can_write?(vhost : String, name : String) : Bool
         perm = permissions[vhost]?
         perm ? perm_match?(perm[:write], name) : false
       end
@@ -147,6 +170,10 @@ module LavinMQ
 
       def can_impersonate?
         @tags.includes? Tag::Impersonator
+      end
+
+      def clear_permissions_cache
+        @permission_revision.add(1, :relaxed)
       end
 
       private def parse_permissions(pull)

@@ -845,15 +845,10 @@ module LavinMQ
         end
       end
 
-      @acl_cache = Hash({String, String}, Bool).new
+      @acl_write_cache = Auth::PermissionCache.new
 
       private def start_publish(frame)
-        cache_key = {@vhost.name, frame.exchange}
-        allowed = @acl_cache[cache_key]?
-        if allowed.nil?
-          allowed = @acl_cache[cache_key] = @user.can_write?(*cache_key)
-        end
-        if allowed
+        if @user.can_write?(@vhost.name, frame.exchange, @acl_write_cache)
           with_channel frame, &.start_publish(frame)
         else
           send_access_refused(frame, "User '#{@user.name}' not allowed to publish to exchange '#{frame.exchange}'")
