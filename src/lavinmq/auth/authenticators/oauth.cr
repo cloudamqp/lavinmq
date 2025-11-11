@@ -21,9 +21,16 @@ module LavinMQ
       def authenticate(username : String, password : Bytes) : OAuthUser?
         token = fetch_and_verify_jwks(String.new(password))
         username, tags, permissions, expires_at = parse_jwt_payload(token.payload)
-        Log.info { "OAuth2 user authenticated: #{username}" }
 
-        OAuthUser.new(username, tags, permissions, Time.unix(expires_at))
+        # Validate token expiration
+        expiration_time = Time.unix(expires_at)
+        if expiration_time <= Time.utc
+          Log.warn { "OAuth2 authentication failed: Token has already expired" }
+          return nil
+        end
+
+        Log.info { "OAuth2 user authenticated: #{username}" }
+        OAuthUser.new(username, tags, permissions, expiration_time)
       rescue ex : JWT::DecodeError
         Log.warn { "OAuth2 authentication failed: Could not decode token - #{ex.message}" }
         nil
@@ -138,7 +145,7 @@ module LavinMQ
           tag_name = role[4..]
           if tag = Tag.parse?(tag_name)
             tags << tag
-           end
+          end
           return
         end
 

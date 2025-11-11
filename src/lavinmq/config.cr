@@ -418,13 +418,13 @@ module LavinMQ
       settings.each do |config, v|
         case config
         when "oauth_issuer_url", "issuer" then @oauth_issuer_url = v
-        when "resource_server_id"        then @oauth_resource_server_id = v
-        when "preferred_username_claims" then @oauth_preferred_username_claims = v.split(",").map(&.strip)
-        when "additional_scopes_key"     then @oauth_additional_scopes_key = v
-        when "scope_prefix"              then @oauth_scope_prefix = v
-        when "verify_aud"                then @oauth_verify_aud = true?(v)
-        when "audience"                  then @oauth_audience = v
-        when "jwks_cache_ttl"            then @oauth_jwks_cache_ttl = v.to_i.seconds
+        when "resource_server_id"         then @oauth_resource_server_id = v
+        when "preferred_username_claims"  then @oauth_preferred_username_claims = v.split(",").map(&.strip)
+        when "additional_scopes_key"      then @oauth_additional_scopes_key = v
+        when "scope_prefix"               then @oauth_scope_prefix = v
+        when "verify_aud"                 then @oauth_verify_aud = true?(v)
+        when "audience"                   then @oauth_audience = v
+        when "jwks_cache_ttl"             then @oauth_jwks_cache_ttl = v.to_i.seconds
         else
           STDERR.puts "WARNING: Unrecognized configuration 'oauth/#{config}'"
         end
