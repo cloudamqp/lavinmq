@@ -12,7 +12,7 @@ module LavinMQ
         DIRECT_USER == name
       end
 
-      def initialize(@data_dir : String, @replicator : Clustering::Replicator)
+      def initialize(@data_dir : String, @replicator : Clustering::Replicator?)
         @users = Hash(String, User).new
         load!
       end
@@ -113,7 +113,7 @@ module LavinMQ
             Array(User).from_json(f) do |user|
               @users[user.name] = user
             end
-            @replicator.register_file f
+            @replicator.try &.register_file f
           end
         else
           Log.debug { "Loading default users" }
@@ -144,7 +144,7 @@ module LavinMQ
         tmpfile = "#{path}.tmp"
         File.open(tmpfile, "w") { |f| to_pretty_json(f); f.fsync }
         File.rename tmpfile, path
-        @replicator.replace_file path
+        @replicator.try &.replace_file path
       end
     end
   end
