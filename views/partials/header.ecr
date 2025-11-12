@@ -96,7 +96,7 @@
       <li class="menu-group"><%= group[:title] %></li>
       
       <% group[:items].each do |item| -%>
-        <li<%= %( class="active") if active_path?(item[:href]) || (item[:href] == "." && active_path?("/")) %>>
+        <li<%= " class=\"active\"" if active_path?(item[:href]) %>>
           <a href="<%= item[:href] %>">
             <img src="<%= item[:icon] %>"/>
             <%= item[:label] %>
