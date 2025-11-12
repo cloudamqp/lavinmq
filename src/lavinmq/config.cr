@@ -80,7 +80,7 @@ module LavinMQ
     property oauth_preferred_username_claims : Array(String) = ["sub"]
     property oauth_additional_scopes_key : String = ""
     property oauth_scope_prefix : String = ""
-    property oauth_verify_aud : Bool = true
+    property? oauth_verify_aud : Bool = true
     property oauth_audience : String = ""
     property oauth_jwks_cache_ttl : Time::Span = 24.hours
     @@instance : Config = self.new
