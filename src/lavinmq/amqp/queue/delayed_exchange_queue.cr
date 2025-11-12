@@ -8,8 +8,14 @@ module LavinMQ::AMQP
     @exchange_name : String
 
     def self.create(vhost : VHost, exchange_name : String, durable : Bool, auto_delete : Bool)
-      q_name = "amq.delayed.#{exchange_name}"
+      q_name = "amq.delayed-#{exchange_name}"
       raise "Exchange name too long" if q_name.bytesize > MAX_NAME_LENGTH
+
+      legacy_q_name = "amq.delayed.#{exchange_name}"
+      if use_legacy_name?(vhost.data_dir, legacy_q_name)
+        q_name = legacy_q_name
+      end
+
       arguments = AMQP::Table.new({
         "x-dead-letter-exchange" => exchange_name,
         "auto-delete"            => auto_delete,
@@ -19,6 +25,11 @@ module LavinMQ::AMQP
       else
         DelayedExchangeQueue.new(vhost, q_name, false, false, arguments)
       end
+    end
+
+    private def self.use_legacy_name?(vhost_data_dir, legacy_q_name)
+      q_dir_name = Digest::SHA1.hexdigest(legacy_q_name)
+      Dir.exists?(Path[vhost_data_dir] / q_dir_name)
     end
 
     protected def initialize(*args)
