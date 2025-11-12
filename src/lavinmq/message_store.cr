@@ -26,7 +26,7 @@ module LavinMQ
     getter bytesize = 0u64
     getter size = 0u32
     getter empty = BoolChannel.new(true)
-    @lock = Mutex.new(:reentrant)
+    @lock = Mutex.new
 
     def initialize(@msg_dir : String, @replicator : Clustering::Replicator?, durable : Bool = true, metadata : ::Log::Metadata = ::Log::Metadata.empty)
       @log = Logger.new(Log, metadata)
@@ -112,51 +112,55 @@ module LavinMQ
       end
     end
 
-    def shift?(consumer = nil) : Envelope? # ameba:disable Metrics/CyclomaticComplexity
+    def shift?(consumer = nil) : Envelope?
       @lock.synchronize do
-        raise ClosedError.new if @closed
-        if sp = @requeued.shift?
-          segment = @segments[sp.segment]
-          begin
-            msg = BytesMessage.from_bytes(segment.to_slice + sp.position)
-            @bytesize -= sp.bytesize
-            @size -= 1
-            @empty.set true if @size.zero?
-            return Envelope.new(sp, msg, redelivered: true)
-          rescue ex
-            raise Error.new(segment, cause: ex)
-          end
-        end
+        unsafe_shift?(consumer)
+      end
+    end
 
-        loop do
-          rfile = @rfile
-          seg = @rfile_id
-          pos = rfile.pos.to_u32
-          if pos == rfile.size # EOF?
-            select_next_read_segment && next
-            return if @size.zero?
-            raise IO::EOFError.new("EOF but @size=#{@size}")
-          end
-          if deleted?(seg, pos)
-            BytesMessage.skip(rfile)
-            next
-          end
-          msg = BytesMessage.from_bytes(rfile.to_slice + pos)
-          raise IndexError.new("Message at segment #{seg} pos #{pos} has zero timestamp") if msg.timestamp.zero?
-          sp = SegmentPosition.make(seg, pos, msg)
-          rfile.seek(sp.bytesize, IO::Seek::Current)
+    private def unsafe_shift?(consumer = nil) : Envelope? # ameba:disable Metrics/CyclomaticComplexity
+      raise ClosedError.new if @closed
+      if sp = @requeued.shift?
+        segment = @segments[sp.segment]
+        begin
+          msg = BytesMessage.from_bytes(segment.to_slice + sp.position)
           @bytesize -= sp.bytesize
           @size -= 1
           @empty.set true if @size.zero?
-          return Envelope.new(sp, msg, redelivered: false)
-        rescue ex : IndexError
-          @log.warn(exception: ex) { "Msg file size does not match expected value, moving on to next segment" }
+          return Envelope.new(sp, msg, redelivered: true)
+        rescue ex
+          raise Error.new(segment, cause: ex)
+        end
+      end
+
+      loop do
+        rfile = @rfile
+        seg = @rfile_id
+        pos = rfile.pos.to_u32
+        if pos == rfile.size # EOF?
           select_next_read_segment && next
           return if @size.zero?
-          raise Error.new(@rfile, cause: ex)
-        rescue ex
-          raise Error.new(@rfile, cause: ex)
+          raise IO::EOFError.new("EOF but @size=#{@size}")
         end
+        if deleted?(seg, pos)
+          BytesMessage.skip(rfile)
+          next
+        end
+        msg = BytesMessage.from_bytes(rfile.to_slice + pos)
+        raise IndexError.new("Message at segment #{seg} pos #{pos} has zero timestamp") if msg.timestamp.zero?
+        sp = SegmentPosition.make(seg, pos, msg)
+        rfile.seek(sp.bytesize, IO::Seek::Current)
+        @bytesize -= sp.bytesize
+        @size -= 1
+        @empty.set true if @size.zero?
+        return Envelope.new(sp, msg, redelivered: false)
+      rescue ex : IndexError
+        @log.warn(exception: ex) { "Msg file size does not match expected value, moving on to next segment" }
+        select_next_read_segment && next
+        return if @size.zero?
+        raise Error.new(@rfile, cause: ex)
+      rescue ex
+        raise Error.new(@rfile, cause: ex)
       end
     end
 
@@ -174,31 +178,35 @@ module LavinMQ
 
     def delete(sp) : Nil
       @lock.synchronize do
-        raise ClosedError.new if @closed
-        afile = @acks[sp.segment]
-        begin
-          afile.write_bytes sp.position
-          @replicator.try &.append(afile.path, sp.position)
+        unsafe_delete(sp)
+      end
+    end
 
-          # if all msgs in a segment are deleted then delete the segment
-          return if sp.segment == @wfile_id # don't try to delete a segment we still write to
-          ack_count = afile.size // sizeof(UInt32)
-          msg_count = @segment_msg_count[sp.segment]
-          if ack_count == msg_count
-            @log.debug { "Deleting segment #{sp.segment}" }
-            select_next_read_segment if sp.segment == @rfile_id
-            if a = @acks.delete(sp.segment)
-              delete_file(a)
-            end
-            if seg = @segments.delete(sp.segment)
-              delete_file(seg, including_meta: true)
-            end
-            @segment_msg_count.delete(sp.segment)
-            @deleted.delete(sp.segment)
+    private def unsafe_delete(sp) : Nil
+      raise ClosedError.new if @closed
+      afile = @acks[sp.segment]
+      begin
+        afile.write_bytes sp.position
+        @replicator.try &.append(afile.path, sp.position)
+
+        # if all msgs in a segment are deleted then delete the segment
+        return if sp.segment == @wfile_id # don't try to delete a segment we still write to
+        ack_count = afile.size // sizeof(UInt32)
+        msg_count = @segment_msg_count[sp.segment]
+        if ack_count == msg_count
+          @log.debug { "Deleting segment #{sp.segment}" }
+          select_next_read_segment if sp.segment == @rfile_id
+          if a = @acks.delete(sp.segment)
+            delete_file(a)
           end
-        rescue ex
-          raise Error.new(afile, cause: ex)
+          if seg = @segments.delete(sp.segment)
+            delete_file(seg, including_meta: true)
+          end
+          @segment_msg_count.delete(sp.segment)
+          @deleted.delete(sp.segment)
         end
+      rescue ex
+        raise Error.new(afile, cause: ex)
       end
     end
 
@@ -207,8 +215,8 @@ module LavinMQ
       @lock.synchronize do
         raise ClosedError.new if @closed
         count = 0u32
-        while count < max_count && (env = shift?)
-          delete(env.segment_position)
+        while count < max_count && (env = unsafe_shift?)
+          unsafe_delete(env.segment_position)
           count += 1
           break if count >= max_count
           Fiber.yield if (count % PURGE_YIELD_INTERVAL).zero?
@@ -235,8 +243,8 @@ module LavinMQ
         end
 
         # Purge @rfile and @wfile
-        while env = shift?
-          delete(env.segment_position)
+        while env = unsafe_shift?
+          unsafe_delete(env.segment_position)
         end
 
         @requeued = Deque(SegmentPosition).new
