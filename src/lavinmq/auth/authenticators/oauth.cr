@@ -81,7 +81,7 @@ module LavinMQ
           return JWT::RS256Parser.decode(password, key, verify: true)
         rescue JWT::DecodeError | JWT::VerificationError
         end
-        raise "Could not verify JWT with any key"
+        raise JWT::VerificationError.new("Could not verify JWT with any key")
       end
 
       private def fetch_url(url : String, timeout : Time::Span = 10.seconds) : {JSON::Any, ::HTTP::Headers}
