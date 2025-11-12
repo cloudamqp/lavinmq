@@ -112,7 +112,6 @@ module LavinMQ
         @config.oauth_jwks_cache_ttl
       end
 
-
       private def parse_jwt_payload(payload)
         validate_audience(payload) if @config.oauth_verify_aud
         username = extract_username(payload)
