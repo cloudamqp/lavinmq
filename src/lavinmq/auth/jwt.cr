@@ -26,6 +26,12 @@ module JWT
   end
 
   class RS256Parser
+    def self.decode_header(token : String) : JSON::Any
+      parts = token.split('.')
+      raise DecodeError.new("Invalid JWT format: expected 3 parts") unless parts.size == 3
+      JSON.parse(base64url_decode(parts[0]))
+    end
+
     def self.decode(token : String, public_key : String, verify : Bool = true) : Token
       parts = token.split('.')
       raise DecodeError.new("Invalid JWT format: expected 3 parts") unless parts.size == 3
