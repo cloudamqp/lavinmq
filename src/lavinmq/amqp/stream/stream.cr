@@ -83,9 +83,10 @@ module LavinMQ::AMQP
     private def start
       if @msg_store.closed
         close
+      else
+        handle_arguments
+        spawn unmap_and_remove_segments_loop, name: "Stream#unmap_and_remove_segments_loop"
       end
-      handle_arguments
-      spawn unmap_and_remove_segments_loop, name: "Stream#unmap_and_remove_segments_loop"
     end
 
     private def init_msg_store(data_dir)

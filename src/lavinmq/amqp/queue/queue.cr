@@ -198,10 +198,11 @@ module LavinMQ::AMQP
     private def start
       if @msg_store.closed
         close
+      else
+        handle_arguments
+        spawn queue_expire_loop, name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}" if @expires
+        spawn message_expire_loop, name: "Queue#message_expire_loop #{@vhost.name}/#{@name}"
       end
-      handle_arguments
-      spawn queue_expire_loop, name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}" if @expires
-      spawn message_expire_loop, name: "Queue#message_expire_loop #{@vhost.name}/#{@name}"
     end
 
     def restart!
