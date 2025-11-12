@@ -113,7 +113,7 @@ module LavinMQ
       end
 
       private def parse_jwt_payload(payload)
-        validate_audience(payload) if @config.oauth_verify_aud
+        validate_audience(payload) if @config.oauth_verify_aud?
         username = extract_username(payload)
         tags, permissions = parse_roles(payload)
         exp = payload["exp"]?.try(&.as_i64?) || raise "No expiration time found in JWT token"
@@ -209,7 +209,6 @@ module LavinMQ
         end
       end
 
-      # ameba:disable Metrics/CyclomaticComplexity
       private def parse_role(role, tags, permissions)
         if role.starts_with?("tag:")
           tag_name = role[4..]
