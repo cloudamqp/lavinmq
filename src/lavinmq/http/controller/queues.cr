@@ -117,7 +117,7 @@ module LavinMQ
         put "/api/queues/:vhost/:name/restart" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            q = queue(context, params, vhost)
+            q = find_queue(context, params, vhost)
             q.restart!
             context.response.status_code = 204
           end
