@@ -93,6 +93,7 @@ module LavinMQ
         limits = JSON.parse(f)
         @max_queues = limits["max-queues"]?.try &.as_i?
         @max_connections = limits["max-connections"]?.try &.as_i?
+        @replicator.try &.register_file(f)
       end
     rescue File::NotFoundError
     end
@@ -106,6 +107,7 @@ module LavinMQ
           end
         end
       end
+      @replicator.try &.replace_file(File.join(@data_dir, "limits.json"))
     end
 
     def inspect(io : IO)
