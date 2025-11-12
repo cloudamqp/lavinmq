@@ -480,7 +480,7 @@ module LavinMQ
           bytesize = bs < bytesize ? bytesize - bs : 0
           count -= 1 if count > 0
         rescue ex
-          @log.error { "Error reading metadata file #{metafile}, pos: #{pos}, seg: #{seg}, count: #{count}, bytesize: #{bytesize}" }
+          L.error "Error reading metadata file #{metafile}, pos: #{pos}, seg: #{seg}, count: #{count}, bytesize: #{bytesize}"
           raise ex
         end
       end

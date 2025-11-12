@@ -76,7 +76,7 @@ module LavinMQ::AMQP
 
     private def init_msg_store(data_dir)
       replicator = @vhost.@replicator
-      @msg_store = StreamQueueMessageStore.new(data_dir, replicator, metadata: L.context)
+      @msg_store = StreamMessageStore.new(data_dir, replicator, metadata: L.context)
     end
 
     def stream_msg_store : StreamMessageStore

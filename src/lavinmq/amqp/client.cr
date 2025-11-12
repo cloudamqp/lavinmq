@@ -505,7 +505,7 @@ module LavinMQ
       end
 
       def send_passive_not_found(frame, text = "")
-        @log.info { "Not found channel=#{frame.channel} reason=\"#{text}\"" }
+        L.info "Not found channel=#{frame.channel} reason=\"#{text}\""
         close_channel(frame, ChannelReplyCode::NOT_FOUND, text)
       end
 

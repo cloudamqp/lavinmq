@@ -178,7 +178,7 @@ module LavinMQ::AMQP
     protected def initialize(@vhost : VHost, @name : String,
                              @exclusive : Bool = false, @auto_delete : Bool = false,
                              @arguments : AMQP::Table = AMQP::Table.new)
-      L.set_metadata(queue: @name, vhost: @vhost.name)
+      L.context(queue: @name, vhost: @vhost.name)
       @data_dir = make_data_dir
       L.context(queue: @name, vhost: @vhost.name)
       File.open(File.join(@data_dir, ".queue"), "w") { |f| f.sync = true; f.print @name }

@@ -352,7 +352,7 @@ module LavinMQ
             ch.queue_delete(@upstream_q)
             ch.exchange_delete(@upstream_q)
           rescue ex : ::AMQP::Client::Error
-            @log.warn { "Failed to clean up upstream resources: #{ex.message}" }
+            L.warn "Failed to clean up upstream resources: #{ex.message}"
           end
         rescue e
           L.warn "cleanup interrupted", exception: e
