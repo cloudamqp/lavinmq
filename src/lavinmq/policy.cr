@@ -23,9 +23,7 @@ module LavinMQ
       @operator_policy = operator_policy
     end
 
-    def clear_policy
-    end
-
+    abstract def clear_policy
     abstract def apply_policy_argument(key : String, value : JSON::Any)
   end
 
