@@ -133,23 +133,13 @@ module LavinMQ
         end
       end
 
-      MAX_NAME_LENGTH = 256
-
       private def init_delayed_queue
         return if @delayed_queue
         return unless @delayed
-        q_name = "amq.delayed.#{@name}"
-        raise "Exchange name too long" if q_name.bytesize > MAX_NAME_LENGTH
-        arguments = AMQP::Table.new({
-          "x-dead-letter-exchange" => @name,
-          "auto-delete"            => @auto_delete,
-        })
-        @delayed_queue = if durable?
-                           AMQP::DurableDelayedExchangeQueue.new(@vhost, q_name, false, false, arguments)
-                         else
-                           AMQP::DelayedExchangeQueue.new(@vhost, q_name, false, false, arguments)
-                         end
-        @vhost.queues[q_name] = @delayed_queue.as(Queue)
+
+        @delayed_queue = queue = AMQP::DelayedExchangeQueue.create(@vhost, @name, durable: durable?, auto_delete: @auto_delete)
+
+        @vhost.queues[queue.name] = queue
       end
 
       REPUBLISH_HEADERS = {"x-head", "x-tail", "x-from"}

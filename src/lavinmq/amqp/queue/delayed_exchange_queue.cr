@@ -2,11 +2,26 @@ require "./queue"
 
 module LavinMQ::AMQP
   class DelayedExchangeQueue < Queue
-    @internal = true
+    MAX_NAME_LENGTH = 256
 
+    @internal = true
     @exchange_name : String
 
-    def initialize(*args)
+    def self.create(vhost : VHost, exchange_name : String, durable : Bool, auto_delete : Bool)
+      q_name = "amq.delayed.#{exchange_name}"
+      raise "Exchange name too long" if q_name.bytesize > MAX_NAME_LENGTH
+      arguments = AMQP::Table.new({
+        "x-dead-letter-exchange" => exchange_name,
+        "auto-delete"            => auto_delete,
+      })
+      if durable
+        DurableDelayedExchangeQueue.new(vhost, q_name, false, false, arguments)
+      else
+        DelayedExchangeQueue.new(vhost, q_name, false, false, arguments)
+      end
+    end
+
+    protected def initialize(*args)
       super(*args)
       @exchange_name = arguments["x-dead-letter-exchange"]?.try(&.to_s) || raise "Missing x-dead-letter-exchange"
     end
@@ -14,6 +29,9 @@ module LavinMQ::AMQP
     private def init_msg_store(data_dir)
       replicator = durable? ? @vhost.@replicator : nil
       DelayedMessageStore.new(data_dir, replicator, durable?, metadata: @metadata)
+    end
+
+    private def migrate_data_dir
     end
 
     private def expire_at(msg : BytesMessage) : Int64?
