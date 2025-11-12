@@ -20,6 +20,10 @@ module LavinMQ
         Time.utc > @expires_at
       end
 
+      def same_identity?(other : OAuthUser) : Bool
+        @name == other.name && @permissions == other.permissions && @tags == other.tags
+      end
+
       def can_write?(vhost : String, name : String, cache : PermissionCache) : Bool
         return false if expired?
         super
