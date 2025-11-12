@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Only render exchange info once [#1447](https://github.com/cloudamqp/lavinmq/pull/1447)
 - Add tooltips to exchange features [#1448](https://github.com/cloudamqp/lavinmq/pull/1448)
 - Remove NoopServer from Clustering::Server [#1457](https://github.com/cloudamqp/lavinmq/pull/1457)
+- GUI: Navigate between exchanges [#1454](https://github.com/cloudamqp/lavinmq/pull/1454)
 
 ## [2.5.1] - 2025-11-05
 
