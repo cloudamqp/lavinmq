@@ -5,6 +5,8 @@ require "http/client"
 require "json"
 require "option_parser"
 require "./lavinmq/auth/user"
+require "./lavinmq/auth/password"
+require "./lavinmq/auth/users/basic_user"
 
 class LavinMQCtl
   @options = {} of String => String
@@ -745,7 +747,7 @@ class LavinMQCtl
   private def hash_password
     password = ARGV.shift?
     abort @banner unless password
-    output LavinMQ::Auth::User.hash_password(password, "SHA256")
+    output LavinMQ::Auth::BasicUser.hash_password(password, "SHA256")
   end
 end
 
