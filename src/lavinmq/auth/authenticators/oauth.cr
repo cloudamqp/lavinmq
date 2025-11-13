@@ -15,7 +15,7 @@ module LavinMQ
       @cache_expires_at : Time?
       @cache_mutex : Mutex = Mutex.new
 
-      def initialize(@users : Auth::UserStore, @config = Config.instance)
+      def initialize(@config = Config.instance)
       end
 
       def authenticate(username : String, password : Bytes) : OAuthUser?
