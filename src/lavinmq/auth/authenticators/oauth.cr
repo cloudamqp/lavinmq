@@ -84,7 +84,7 @@ module LavinMQ
         raise JWT::VerificationError.new("Could not verify JWT with any key")
       end
 
-      private def fetch_url(url : String, timeout : Time::Span = 10.seconds) : {JSON::Any, ::HTTP::Headers}
+      private def fetch_url(url : String) : {JSON::Any, ::HTTP::Headers}
         uri = URI.parse(url)
         ::HTTP::Client.new(uri) do |client|
           response = client.get(uri.request_target)
@@ -113,11 +113,24 @@ module LavinMQ
       end
 
       private def parse_jwt_payload(payload)
+        validate_issuer(payload)
         validate_audience(payload) if @config.oauth_verify_aud?
         username = extract_username(payload)
         tags, permissions = parse_roles(payload)
         exp = payload["exp"]?.try(&.as_i64?) || raise "No expiration time found in JWT token"
         {username, tags, permissions, exp}
+      end
+
+      private def validate_issuer(payload)
+        iss = payload["iss"]?.try(&.as_s?)
+        return unless iss
+
+        expected = @config.oauth_issuer_url.chomp("/")
+        actual = iss.chomp("/")
+
+        if actual != expected
+          raise "Token issuer mismatch: expected '#{expected}', got '#{actual}'"
+        end
       end
 
       private def validate_audience(payload)
@@ -254,9 +267,10 @@ module LavinMQ
         rsa = LibCrypto.rsa_new
         raise "Failed to create RSA structure" if rsa.null?
 
-        # Set the key components (this takes ownership of the BIGNUMs)
         result = LibCrypto.rsa_set0_key(rsa, modulus, exponent, nil)
         if result != 1
+          LibCrypto.bn_free(modulus)
+          LibCrypto.bn_free(exponent)
           LibCrypto.rsa_free(rsa)
           raise "Failed to set RSA key components"
         end
