@@ -26,7 +26,7 @@ module LavinMQ
                 "redeliver", "reject", "consumer_added", "consumer_removed"})
 
     getter name, exchanges, queues, data_dir, operator_policies, policies, parameters, shovels,
-      direct_reply_consumers, connections, dir, users
+      direct_reply_consumers, connections, dir, users, execution_context
     property? flow = true
     getter? closed = false
     property max_connections : Int32?
@@ -42,9 +42,11 @@ module LavinMQ
     @definitions_lock = Mutex.new(:reentrant)
     @definitions_file_path : String
     @definitions_deletes = 0
+    @execution_context : Fiber::ExecutionContext::Parallel
     Log = LavinMQ::Log.for "vhost"
 
     def initialize(@name : String, @server_data_dir : String, @users : Auth::UserStore, @replicator : Clustering::Replicator?, @description = "", @tags = Array(String).new(0))
+      @execution_context = Fiber::ExecutionContext::Parallel.new("vhost-#{@name}", 1)
       @log = Logger.new(Log, vhost: @name)
       @dir = Digest::SHA1.hexdigest(@name)
       @data_dir = File.join(@server_data_dir, @dir)
@@ -61,7 +63,7 @@ module LavinMQ
       @shovels = ShovelStore.new(self)
       @upstreams = Federation::UpstreamStore.new(self)
       load!
-      spawn check_consumer_timeouts_loop, name: "Consumer timeouts loop"
+      @execution_context.spawn(name: "Consumer timeouts loop") { check_consumer_timeouts_loop }
     end
 
     private def check_consumer_timeouts_loop

@@ -105,15 +105,13 @@ module LavinMQ
       Iterator(Client).chain(@vhosts.each_value.map(&.connections.each))
     end
 
-    MT = Fiber::ExecutionContext::Parallel.new("clients", 20)
-
     def listen(s : TCPServer, protocol : Protocol)
       @listeners[s] = protocol
       Log.info { "Listening for #{protocol} on #{s.local_address}" }
       loop do
         client = s.accept? || break
         next client.close if @closed
-        MT.spawn(name: "Accept TCP socket") { accept_tcp(client, protocol) }
+        spawn(name: "Accept TCP socket") { accept_tcp(client, protocol) }
       end
     rescue ex : IO::Error
       abort "Unrecoverable error in listener: #{ex.inspect_with_backtrace}"
@@ -161,7 +159,7 @@ module LavinMQ
       loop do # do not try to use while
         client = s.accept? || break
         next client.close if @closed
-        MT.spawn(name: "Accept UNIX socket") { accept_unix(client, protocol) }
+        spawn(name: "Accept UNIX socket") { accept_unix(client, protocol) }
       end
     rescue ex : IO::Error
       abort "Unrecoverable error in unix listener: #{ex.inspect_with_backtrace}"
@@ -195,7 +193,7 @@ module LavinMQ
       loop do # do not try to use while
         client = s.accept? || break
         next client.close if @closed
-        MT.spawn(name: "Accept TLS socket") { accept_tls(client, context, protocol) }
+        spawn(name: "Accept TLS socket") { accept_tls(client, context, protocol) }
       end
     rescue ex : IO::Error | OpenSSL::Error
       abort "Unrecoverable error in TLS listener: #{ex.inspect_with_backtrace}"
