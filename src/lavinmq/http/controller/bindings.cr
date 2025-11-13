@@ -31,7 +31,7 @@ module LavinMQ
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
             e = exchange(context, params, vhost)
-            q = queue(context, params, vhost, "queue")
+            q = find_queue(context, params, vhost, "queue")
             itr = Iterator(BindingDetails).chain({e.bindings_details.select { |db| db.destination == q }})
             if e.name.empty?
               binding_key = BindingKey.new(q.name)
@@ -46,7 +46,7 @@ module LavinMQ
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
             e = exchange(context, params, vhost)
-            q = queue(context, params, vhost, "queue")
+            q = find_queue(context, params, vhost, "queue")
             user = user(context)
             if !user.can_read?(vhost, e.name)
               access_refused(context, "User doesn't have read permissions to exchange '#{e.name}'")
@@ -77,7 +77,7 @@ module LavinMQ
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
             e = exchange(context, params, vhost)
-            q = queue(context, params, vhost, "queue")
+            q = find_queue(context, params, vhost, "queue")
             props = params["props"]
             binding_for_props(context, e, q, props).to_json(context.response)
           end
@@ -87,7 +87,7 @@ module LavinMQ
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
             e = exchange(context, params, vhost)
-            q = queue(context, params, vhost, "queue")
+            q = find_queue(context, params, vhost, "queue")
             user = user(context)
             if !user.can_read?(vhost, e.name)
               access_refused(context, "User doesn't have read permissions to exchange '#{e.name}'")

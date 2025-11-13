@@ -7,11 +7,18 @@ require "../../name_validator"
 module LavinMQ
   module HTTP
     module QueueHelpers
-      private def queue(context, params, vhost, key = "name")
+      private def find_queue(context, params, vhost, key = "name")
         name = params[key]
         q = @amqp_server.vhosts[vhost].queues[name]?
         not_found(context, "Not Found") unless q
         q
+      end
+
+      private def find_stream(context, vhost, name)
+        q = @amqp_server.vhosts[vhost].queues[name]?
+        not_found(context, "Not Found") unless q
+        not_found(context, "Not Found") unless q.is_a?(LavinMQ::AMQP::Stream)
+        q.as(LavinMQ::AMQP::Stream)
       end
     end
 
@@ -38,7 +45,7 @@ module LavinMQ
             refuse_unless_management(context, user(context), vhost)
             consumer_limit = context.request.query_params["consumer_list_length"]?.try &.to_i || -1
             JSON.build(context.response) do |json|
-              queue(context, params, vhost).to_json(json, consumer_limit)
+              find_queue(context, params, vhost).to_json(json, consumer_limit)
             end
           end
         end
@@ -46,7 +53,7 @@ module LavinMQ
         get "/api/queues/:vhost/:name/unacked" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            q = queue(context, params, vhost)
+            q = find_queue(context, params, vhost)
             unacked_messages = q.unacked_messages
             page(context, unacked_messages)
           end
@@ -92,7 +99,7 @@ module LavinMQ
         put "/api/queues/:vhost/:name/pause" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            q = queue(context, params, vhost)
+            q = find_queue(context, params, vhost)
             q.pause!
             context.response.status_code = 204
           end
@@ -101,7 +108,7 @@ module LavinMQ
         put "/api/queues/:vhost/:name/resume" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            q = queue(context, params, vhost)
+            q = find_queue(context, params, vhost)
             q.resume!
             context.response.status_code = 204
           end
@@ -110,7 +117,7 @@ module LavinMQ
         delete "/api/queues/:vhost/:name" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            q = queue(context, params, vhost)
+            q = find_queue(context, params, vhost)
             user = user(context)
             unless user.can_config?(q.vhost.name, q.name)
               access_refused(context, "User doesn't have permissions to delete queue '#{q.name}'")
@@ -126,7 +133,7 @@ module LavinMQ
         get "/api/queues/:vhost/:name/bindings" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            queue = queue(context, params, vhost)
+            queue = find_queue(context, params, vhost)
             page(context, queue.bindings)
           end
         end
@@ -135,7 +142,7 @@ module LavinMQ
           with_vhost(context, params) do |vhost|
             user = user(context)
             refuse_unless_management(context, user, vhost)
-            q = queue(context, params, vhost)
+            q = find_queue(context, params, vhost)
             unless user.can_read?(vhost, q.name)
               access_refused(context, "User doesn't have permissions to read queue '#{q.name}'")
             end
@@ -156,7 +163,7 @@ module LavinMQ
           with_vhost(context, params) do |vhost|
             user = user(context)
             refuse_unless_management(context, user, vhost)
-            q = queue(context, params, vhost)
+            q = find_queue(context, params, vhost)
             unless user.can_read?(q.vhost.name, q.name)
               access_refused(context, "User doesn't have permissions to read queue '#{q.name}'")
             end
@@ -211,6 +218,53 @@ module LavinMQ
                 raise e
               end
             end
+          end
+        end
+
+        post "/api/queues/:vhost/:name/stream" do |context, params|
+          with_vhost(context, params) do |vhost|
+            user = user(context)
+            refuse_unless_management(context, user, vhost)
+            q = find_stream(context, vhost, params["name"])
+            unless user.can_read?(q.vhost.name, q.name)
+              access_refused(context, "User doesn't have permissions to read stream '#{q.name}'")
+            end
+            if q.state != QueueState::Running && q.state != QueueState::Paused
+              forbidden(context, "Can't read from stream that is not in running state")
+            end
+            body = parse_body(context)
+            count = body["count"]?.try(&.as_i) || 1
+            count = 0 if count < 0
+            offset = body["offset"]?.try(&.as_s) || "first"
+            offset = offset.to_i64 if /^\d+$/.match(offset)
+            encoding = body["encoding"]?.try(&.as_s) || "auto"
+            truncate = body["truncate"]?.try(&.as_i)
+            reader = q.reader(offset)
+            JSON.build(context.response) do |j|
+              j.array do
+                reader.each do |env|
+                  break if count.zero?
+                  payload_encoding = "string"
+                  j.object do
+                    j.field("payload_bytes", env.message.bodysize)
+                    j.field("redelivered", env.redelivered)
+                    j.field("exchange", env.message.exchange_name)
+                    j.field("routing_key", env.message.routing_key)
+                    j.field("message_count", q.message_count)
+                    j.field("properties", env.message.properties)
+                    j.field("payload") do
+                      j.string do |io|
+                        payload_encoding = encode_body(env.message, truncate, encoding, io)
+                      end
+                    end
+                    j.field("payload_encoding", payload_encoding)
+                  end
+                  count -= 1
+                end
+              end
+            end
+          rescue e : LavinMQ::AMQP::StreamMessageStore::OffsetError
+            bad_request(context, e.message)
           end
         end
       end

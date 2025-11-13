@@ -194,6 +194,7 @@ module LavinMQ::AMQP
 
       def purge_all
         @stores.each &.purge_all
+        @empty.set true
       end
 
       def delete

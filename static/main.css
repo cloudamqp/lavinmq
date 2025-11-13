@@ -1607,7 +1607,8 @@ footer .logo {
   color: var(--color-text-muted);
 }
 
-#q-features span {
+#q-features span,
+#e-features span {
   cursor: help;
 }
 

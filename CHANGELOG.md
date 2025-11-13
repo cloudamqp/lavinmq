@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.2] - 2025-11-12
+
+### Fixed
+- Prevent MFile leakage in clustering when follower disconnects [#1450](https://github.com/cloudamqp/lavinmq/pull/1450)
+- Don't keep FDs open for MFiles [#1428](https://github.com/cloudamqp/lavinmq/pull/1428)
+- Signal empty after purge all in Priority queue message store [#1442](https://github.com/cloudamqp/lavinmq/pull/1442)
+- Only render exchange info once [#1447](https://github.com/cloudamqp/lavinmq/pull/1447)
+- Add tooltips to exchange features [#1448](https://github.com/cloudamqp/lavinmq/pull/1448)
+- Remove NoopServer from Clustering::Server [#1457](https://github.com/cloudamqp/lavinmq/pull/1457)
+- GUI: Navigate between exchanges [#1454](https://github.com/cloudamqp/lavinmq/pull/1454)
+
 ## [2.5.1] - 2025-11-05
 
 ### Fixed

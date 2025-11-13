@@ -26,6 +26,7 @@ module LavinMQ
         static_view "/vhost"
         static_view "/queues"
         static_view "/queue"
+        static_view "/stream"
         static_view "/unacked"
         static_view "/nodes"
         static_view "/logs"
@@ -84,7 +85,7 @@ module LavinMQ
       macro active_path?(path)
         context.request.path == "/#{{{path}}}" ||
           context.request.path == "/#{{{path}}}".chomp('s') ||
-          (context.request.path == "/" && {{path}} == :".")
+          (context.request.path == "/" && {{path}} == ".")
       end
     end
   end

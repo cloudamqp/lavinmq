@@ -5,11 +5,12 @@ module LavinMQ::AMQP
   class StreamReader
     Log = LavinMQ::Log.for "stream_reader"
 
-    def initialize(@store : StreamMessageStore, @start_offset : String | Int64 | Time)
+    def initialize(@stream : Stream, @start_offset : String | Int64 | Time)
     end
 
     def each(&)
-      store = @store
+      stream = @stream
+      store = stream.stream_msg_store
       _, segment, position = store.find_offset(@start_offset)
       loop do
         break if store.closed
@@ -24,6 +25,7 @@ module LavinMQ::AMQP
           next
         end
         yield env
+        stream.@deliver_get_count.add(1, :relaxed)
       end
     end
   end

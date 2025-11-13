@@ -16,6 +16,106 @@ describe LavinMQ::Auth::User do
       u.password.should_not eq password_hash_before
     end
   end
+
+  describe "Permission cache" do
+    it "should have initial revision of 0" do
+      cache = LavinMQ::Auth::PermissionCache.new
+      cache.revision.should eq 0
+    end
+
+    it "should actually use cached results (returns stale data until revision changes)" do
+      user = LavinMQ::Auth::User.create("username", "password", "sha256", [] of LavinMQ::Tag)
+      user.permissions["vhost1"] = {config: /.*/, read: /.*/, write: /^queue.*/}
+      cache = LavinMQ::Auth::PermissionCache.new
+
+      # Cache the result - queue1 should be allowed
+      user.can_write?("vhost1", "queue1", cache).should be_true
+
+      # Change permissions directly WITHOUT clearing cache
+      # Now only exchanges should be allowed, not queues
+      user.permissions["vhost1"] = {config: /.*/, read: /.*/, write: /^exchange.*/}
+
+      # Should return OLD cached result (stale data), proving cache is actually used
+      user.can_write?("vhost1", "queue1", cache).should be_true
+
+      # Now clear the cache - should reflect new permissions
+      user.clear_permissions_cache
+
+      # Should now return false based on new permissions
+      user.can_write?("vhost1", "queue1", cache).should be_false
+      # And exchanges should now be allowed
+      user.can_write?("vhost1", "exchange1", cache).should be_true
+    end
+
+    it "should clear cache when revision changes" do
+      user = LavinMQ::Auth::User.create("username", "password", "sha256", [] of LavinMQ::Tag)
+      user.permissions["vhost1"] = {config: /.*/, read: /.*/, write: /^queue.*/}
+      cache = LavinMQ::Auth::PermissionCache.new
+
+      # First call populates cache
+      user.can_write?("vhost1", "queue1", cache).should be_true
+      cache.size.should eq 1
+
+      # Clear permissions cache - increments revision
+      user.clear_permissions_cache
+
+      # Next call should detect revision mismatch, clear cache, and recalculate
+      user.can_write?("vhost1", "queue1", cache).should be_true
+      cache.size.should eq 1
+      cache.revision.should eq 1
+    end
+
+    it "should handle multiple cache clears" do
+      user = LavinMQ::Auth::User.create("username", "password", "sha256", [] of LavinMQ::Tag)
+      user.permissions["vhost1"] = {config: /.*/, read: /.*/, write: /^queue.*/}
+      cache = LavinMQ::Auth::PermissionCache.new
+
+      user.can_write?("vhost1", "queue1", cache)
+
+      # Multiple clears
+      user.clear_permissions_cache
+      user.clear_permissions_cache
+      user.clear_permissions_cache
+
+      # Revision should be updated
+      user.can_write?("vhost1", "queue1", cache)
+      cache.revision.should eq 3
+    end
+
+    it "should handle multiple vhosts in the same cache" do
+      user = LavinMQ::Auth::User.create("username", "password", "sha256", [] of LavinMQ::Tag)
+      user.permissions["vhost1"] = {config: /.*/, read: /.*/, write: /^queue.*/}
+      user.permissions["vhost2"] = {config: /.*/, read: /.*/, write: /^exchange.*/}
+      cache = LavinMQ::Auth::PermissionCache.new
+
+      # Same resource name but different vhosts should have different results
+      user.can_write?("vhost1", "queue1", cache).should be_true
+      user.can_write?("vhost2", "queue1", cache).should be_false
+
+      # Different resources in different vhosts
+      user.can_write?("vhost2", "exchange1", cache).should be_true
+      user.can_write?("vhost1", "exchange1", cache).should be_false
+
+      # All four checks should be cached independently
+      cache.size.should eq 4
+    end
+
+    it "should handle vhost with no permissions" do
+      user = LavinMQ::Auth::User.create("username", "password", "sha256", [] of LavinMQ::Tag)
+      cache = LavinMQ::Auth::PermissionCache.new
+
+      # Check permission for vhost with no permissions defined
+      user.can_write?("nonexistent", "queue1", cache).should be_false
+
+      # Change to allow everything and verify cache still returns false (stale)
+      user.permissions["nonexistent"] = {config: /.*/, read: /.*/, write: /.*/}
+      user.can_write?("nonexistent", "queue1", cache).should be_false
+
+      # After clearing, should reflect new permissions
+      user.clear_permissions_cache
+      user.can_write?("nonexistent", "queue1", cache).should be_true
+    end
+  end
 end
 
 describe LavinMQ::Server do
