@@ -309,17 +309,24 @@ module LavinMQ::AMQP
       @dlrk = parse_header("x-dead-letter-routing-key", String)
       @effective_args << "x-dead-letter-routing-key" if @dlrk
       @expires = parse_header("x-expires", Int).try &.to_i64
+      @effective_args << "x-expires" if @expires
       @queue_expiration_ttl_change.try_send? nil
       @max_length = parse_header("x-max-length", Int).try &.to_i64
+      @effective_args << "x-max-length" if @max_length
       @max_length_bytes = parse_header("x-max-length-bytes", Int).try &.to_i64
+      @effective_args << "x-max-length-bytes" if @max_length_bytes
       @message_ttl = parse_header("x-message-ttl", Int).try &.to_i64
+      @effective_args << "x-message-ttl" if @message_ttl
       @message_ttl_change.try_send? nil
       @delivery_limit = parse_header("x-delivery-limit", Int).try &.to_i64
-      @reject_on_overflow = parse_header("x-overflow", String) == "reject-publish"
-      @effective_args << "x-overflow" if @reject_on_overflow
+      @effective_args << "x-delivery-limit" if @delivery_limit
+      overflow = parse_header("x-overflow", String)
+      @reject_on_overflow = overflow == "reject-publish"
+      @effective_args << "x-overflow" if @reject_on_overflow || overflow == "drop-head"
       @single_active_consumer_queue = parse_header("x-single-active-consumer", Bool) == true
       @effective_args << "x-single-active-consumer" if @single_active_consumer_queue
       @consumer_timeout = parse_header("x-consumer-timeout", Int).try &.to_u64
+      @effective_args << "x-consumer-timeout" if @consumer_timeout
       if parse_header("x-message-deduplication", Bool)
         @effective_args << "x-message-deduplication"
         size = parse_header("x-cache-size", Int).try(&.to_u32)
