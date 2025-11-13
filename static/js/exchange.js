@@ -17,12 +17,12 @@ function updateExchange (all) {
   HTTP.request('GET', exchangeUrl).then(item => {
     Chart.update(chart, item.message_stats)
     if (all) {
-      let features = ''
-      features += item.durable ? ' <span title="Durable">D</span>' : ''
-      features += item.auto_delete ? ' <span title="Auto delete">AD</span>' : ''
-      features += item.internal ? ' <span title="Internal">I</span>' : ''
-      features += item.arguments['x-delayed-exchange'] ? ' <span title="Delayed">d</span>' : ''
-      document.getElementById('e-features').innerHTML = features
+      const features = []
+      if (item.durable) features.push('Durable')
+      if (item.auto_delete) features.push('Auto delete')
+      if (item.internal) features.push('Internal')
+      if (item.arguments['x-delayed-exchange']) features.push('Delayed')
+      document.getElementById('e-features').innerText = features.join(', ')
       document.getElementById('e-type').textContent = item.type
       document.querySelector('#pagename-label').textContent = exchange + ' in virtual host ' + item.vhost
       const argList = document.createElement('div')
