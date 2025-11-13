@@ -108,7 +108,7 @@ document.querySelector('#addBinding').addEventListener('submit', function (evt) 
     .catch(e => {
       if (e.status === 404) {
         const type = t === 'q' ? 'Queue' : 'Exchange'
-        DOM.toast(`${type} '${d}' does not exist and needs to be created first.`, 'error')
+        DOM.toast.error(`${type} '${d}' does not exist and needs to be created first.`)
       }
     })
 })

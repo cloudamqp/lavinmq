@@ -198,7 +198,7 @@ document.querySelector('#addBinding').addEventListener('submit', function (evt) 
     })
     .catch(err => {
       if (err.status === 404) {
-        DOM.toast(`Exchange '${e}' does not exist and needs to be created first.`, 'error')
+        DOM.toast.error(`Exchange '${e}' does not exist and needs to be created first.`)
       }
     })
 })

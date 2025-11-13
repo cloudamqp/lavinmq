@@ -33,6 +33,12 @@ function toast (text, type = 'success') {
   }, 7000)
 }
 
+Object.assign(toast, {
+  success: function toast_success(text) { toast(text, 'success') },
+  warn: function toast_warn(text) { toast(text, 'warn') },
+  error: function toast_error(text) { toast(text, 'error') },
+})
+
 function createButton (type, text, classes, click) {
   const btn = document.createElement('button')
   btn.type = type
