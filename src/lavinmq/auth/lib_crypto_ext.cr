@@ -8,6 +8,7 @@ lib LibCrypto
 
   # BIGNUM functions
   fun bn_bin2bn = BN_bin2bn(s : UInt8*, len : Int32, ret : BIGNUM) : BIGNUM
+  fun bn_free = BN_free(bn : BIGNUM)
 
   # RSA functions
   fun rsa_new = RSA_new : RSA
@@ -23,8 +24,10 @@ lib LibCrypto
   fun evp_md_ctx_new = EVP_MD_CTX_new : EVP_MD_CTX
   fun evp_md_ctx_free = EVP_MD_CTX_free(ctx : EVP_MD_CTX)
 
-  # BIO functions (shared)
+  # BIO functions
+  fun BIO_new = BIO_new(type : BioMethod*) : Bio*
   fun bio_s_mem = BIO_s_mem : BioMethod*
+  fun BIO_free = BIO_free(bio : Bio*) : Int32
   fun bio_write = BIO_write(bio : Bio*, data : UInt8*, len : Int32) : Int32
   fun bio_read = BIO_read(bio : Bio*, data : UInt8*, len : Int32) : Int32
   fun bio_ctrl = BIO_ctrl(bio : Bio*, cmd : Int32, larg : LibC::Long, parg : Void*) : LibC::Long

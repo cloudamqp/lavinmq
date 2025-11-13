@@ -125,7 +125,7 @@ module LavinMQ
         @config.oauth_jwks_cache_ttl
       end
 
-      private def parse_jwt_payload(payload)
+      protected def parse_jwt_payload(payload)
         validate_issuer(payload)
         validate_audience(payload) if @config.oauth_verify_aud?
         username = extract_username(payload)
@@ -134,7 +134,7 @@ module LavinMQ
         {username, tags, permissions, exp}
       end
 
-      private def validate_issuer(payload)
+      protected def validate_issuer(payload)
         iss = payload["iss"]?.try(&.as_s?)
         return unless iss
 
@@ -146,7 +146,7 @@ module LavinMQ
         end
       end
 
-      private def validate_audience(payload)
+      protected def validate_audience(payload)
         aud = payload["aud"]?
         return unless aud
 
