@@ -114,12 +114,15 @@ module LavinMQ
       end
 
       private def apply_policy_argument(key : String, value : JSON::Any)
+        # mqtt exchange doesn't support policies, make this a noop
       end
 
-      private def clear_policy
+      private def clear_policy_arguments
+        # mqtt exchange doesn't support policies, make this a noop
       end
 
       def handle_arguments
+        # mqtt exchange doesn't support arguments, make this a noop
       end
     end
   end
