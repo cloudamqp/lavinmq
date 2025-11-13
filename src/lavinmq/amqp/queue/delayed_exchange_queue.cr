@@ -42,9 +42,6 @@ module LavinMQ::AMQP
       DelayedMessageStore.new(data_dir, replicator, durable?, metadata: @metadata)
     end
 
-    private def migrate_data_dir
-    end
-
     private def expire_at(msg : BytesMessage) : Int64?
       msg.timestamp + (msg.delay || 0u32)
     end
