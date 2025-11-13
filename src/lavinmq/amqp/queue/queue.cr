@@ -302,7 +302,7 @@ module LavinMQ::AMQP
       @vhost.upstreams.try &.stop_link(self)
     end
 
-    private def handle_arguments
+    private def handle_arguments # ameba:disable Metrics/CyclomaticComplexity
       @effective_args = Array(String).new
       @dlx = parse_header("x-dead-letter-exchange", String)
       @effective_args << "x-dead-letter-exchange" if @dlx
