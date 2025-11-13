@@ -205,7 +205,7 @@ module LavinMQ
       private def handle_update_secret(frame : AMQP::Frame::Connection::UpdateSecret)
         current_user = @user
         if !current_user.is_a?(Auth::OAuthUser)
-          close_connection(frame, ConnectionReplyCode::NOT_ALLOWED, "update-secret only supported for OAuth authentication")
+          close_connection(frame, ConnectionReplyCode::NOT_ALLOWED, "update-secret not supported for current authentication mechanism")
         elsif (new_user = @authenticator.authenticate(current_user.name, frame.@secret)).nil?
           close_connection(frame, ConnectionReplyCode::ACCESS_REFUSED, "Invalid credentials in update-secret")
         elsif !new_user.is_a?(Auth::OAuthUser)
