@@ -112,7 +112,7 @@ function updateQueue (all) {
         if (item.durable) features.push('Durable')
         if (item.auto_delete) features.push('Auto delete')
         if (item.exclusive) features.push('Exclusive')
-        document.getElementById('q-features').innerHTML = features.join(', ')
+        document.getElementById('q-features').innerText = features.join(', ')
         document.querySelector('#pagename-label').textContent = queue + ' in virtual host ' + item.vhost
         document.querySelector('.queue').textContent = queue
         if (item.policy) {
