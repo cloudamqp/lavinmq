@@ -19,28 +19,27 @@ module LavinMQ
       end
 
       def authenticate(username : String, password : Bytes) : OAuthUser?
-        # raise JWT::DecodeError.new("Invalid credentials")
-        prevalidate_jwt(String.new(password))
-        token = fetch_and_verify_jwks(String.new(password))
-        username, tags, permissions, expires_at = parse_jwt_payload(token.payload)
+        password_str = String.new(password)
+        extracted_username = nil
 
-        # Validate token expiration
+        prevalidate_jwt(password_str)  # Validates format, algorithm, and expiration
+        token = fetch_and_verify_jwks(password_str)
+        extracted_username, tags, permissions, expires_at = parse_jwt_payload(token.payload)
+
         expiration_time = Time.unix(expires_at)
-        if expiration_time <= Time.utc
-          Log.warn { "OAuth2 authentication failed for user \"#{username}\": Token has already expired" }
-          return nil
-        end
-
-        Log.info { "OAuth2 user authenticated: #{username}" }
-        OAuthUser.new(username, tags, permissions, expiration_time)
+        Log.info { "OAuth2 user authenticated: #{extracted_username}" }
+        OAuthUser.new(extracted_username, tags, permissions, expiration_time)
       rescue ex : JWT::DecodeError
-        Log.warn { "OAuth2 authentication failed for user \"#{username}\": Could not decode token - #{ex.message}" }
+        user = extracted_username || username
+        Log.warn { "OAuth2 authentication failed for user \"#{user}\": Could not decode token - #{ex.message}" }
         nil
       rescue ex : JWT::VerificationError
-        Log.warn { "OAuth2 authentication failed for user \"#{username}\": Token verification failed - #{ex.message}" }
+        user = extracted_username || username
+        Log.warn { "OAuth2 authentication failed for user \"#{user}\": Token verification failed - #{ex.message}" }
         nil
       rescue ex : Exception
-        Log.error(exception: ex) { "OAuth2 authentication failed for user \"#{username}\": #{ex.message}" }
+        user = extracted_username || username
+        Log.error(exception: ex) { "OAuth2 authentication failed for user \"#{user}\": #{ex.message}" }
         nil
       end
 
@@ -52,6 +51,12 @@ module LavinMQ
         alg = header["alg"]?.try(&.as_s)
         raise JWT::DecodeError.new("Missing algorithm in header") unless alg
         raise JWT::DecodeError.new("Expected RS256, got #{alg}") unless alg == "RS256"
+
+        payload_bytes = base64url_decode(parts[1])
+        payload = JSON.parse(String.new(payload_bytes))
+        exp = payload["exp"]?.try(&.as_i64?)
+        raise JWT::DecodeError.new("Missing exp claim in token") unless exp
+        raise JWT::DecodeError.new("Token has expired") if Time.unix(exp) <= Time.utc
       end
 
       private def fetch_and_verify_jwks(password : String) : JWT::Token
