@@ -10,8 +10,6 @@ module LavinMQ::AMQP
         parse_stream_filter(stream_filter, filters)
       end
 
-      parse_gis_filters(arguments, filters)
-
       filters
     end
 
@@ -23,13 +21,7 @@ module LavinMQ::AMQP
         end
       when AMQ::Protocol::Table
         arg.each do |k, v|
-          if k.to_s == "x-stream-filter"
-            v.to_s.split(',').each do |f|
-              filters << XStreamFilter.new(f.strip)
-            end
-          else
-            filters << KVFilter.new(k.to_s, v.to_s)
-          end
+          parse_table_filter(k.to_s, v, filters)
         end
       when Array
         arg.each do |f|
@@ -42,40 +34,35 @@ module LavinMQ::AMQP
       end
     end
 
-    private def self.parse_gis_filters(arguments : AMQ::Protocol::Table, filters)
-      if radius_arg = validate_filter_table(arguments, "x-geo-within-radius")
-        begin
-          filters << GISFilter.parse_radius_filter(radius_arg)
-        rescue ex : ArgumentError
-          raise LavinMQ::Error::PreconditionFailed.new("x-geo-within-radius: #{ex.message}", cause: ex)
+    private def self.parse_table_filter(key : String, value, filters)
+      case key
+      when "x-stream-filter"
+        if value.is_a?(String)
+          value.split(',').each do |v|
+            filters << XStreamFilter.new(v.strip)
+          end
         end
+      when "geo-within-radius"
+        table_value = validate_table_value(value, key)
+        filters << GISFilter.parse_radius_filter(table_value)
+      when "geo-bbox"
+        table_value = validate_table_value(value, key)
+        filters << GISFilter.parse_bbox_filter(table_value)
+      when "geo-polygon"
+        table_value = validate_table_value(value, key)
+        filters << GISFilter.parse_polygon_filter(table_value)
+      else
+        filters << KVFilter.new(key, value.to_s)
       end
-
-      if bbox_arg = validate_filter_table(arguments, "x-geo-bbox")
-        begin
-          filters << GISFilter.parse_bbox_filter(bbox_arg)
-        rescue ex : ArgumentError
-          raise LavinMQ::Error::PreconditionFailed.new("x-geo-bbox: #{ex.message}", cause: ex)
-        end
-      end
-
-      if polygon_arg = validate_filter_table(arguments, "x-geo-polygon")
-        begin
-          filters << GISFilter.parse_polygon_filter(polygon_arg)
-        rescue ex : ArgumentError
-          raise LavinMQ::Error::PreconditionFailed.new("x-geo-polygon: #{ex.message}", cause: ex)
-        end
-      end
+    rescue e : ArgumentError
+      raise LavinMQ::Error::PreconditionFailed.new("Invalid value for filter #{key}: #{e.message}")
     end
 
-    private def self.validate_filter_table(field : AMQ::Protocol::Table, key : String) : AMQ::Protocol::Table | Nil
-      if value = field["#{key}"]?
-        unless value.is_a?(AMQ::Protocol::Table)
-          raise LavinMQ::Error::PreconditionFailed.new("Expected AMQ::Protocol::Table for #{key}")
-        end
-        return value
+    private def self.validate_table_value(value, key : String) : AMQ::Protocol::Table
+      unless value.is_a?(AMQ::Protocol::Table)
+        raise LavinMQ::Error::PreconditionFailed.new("Expected AMQ::Protocol::Table for #{key}")
       end
-      nil
+      value
     end
   end
 end

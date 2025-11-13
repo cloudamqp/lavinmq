@@ -38,11 +38,13 @@ describe LavinMQ::AMQP::Stream do
           # Subscribe with 5km radius filter around Times Square
           msgs = Channel(AMQP::Client::DeliverMessage).new
           q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({
-            "x-stream-offset"     => "first",
-            "x-geo-within-radius" => {
-              "lat"       => times_square_lat,
-              "lon"       => times_square_lon,
-              "radius_km" => 5.0,
+            "x-stream-offset" => "first",
+            "x-stream-filter" => {
+              "geo-within-radius" => {
+                "lat"       => times_square_lat,
+                "lon"       => times_square_lon,
+                "radius_km" => 5.0,
+              },
             },
           })) do |msg|
             msgs.send msg
@@ -111,7 +113,9 @@ describe LavinMQ::AMQP::Stream do
           msgs = Channel(AMQP::Client::DeliverMessage).new
           q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({
             "x-stream-offset" => "first",
-            "x-geo-bbox"      => manhattan_bbox,
+            "x-stream-filter" => {
+              "geo-bbox" => manhattan_bbox,
+            },
           })) do |msg|
             msgs.send msg
           end
@@ -172,7 +176,9 @@ describe LavinMQ::AMQP::Stream do
           msgs = Channel(AMQP::Client::DeliverMessage).new
           q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({
             "x-stream-offset" => "first",
-            "x-geo-polygon"   => delivery_zone,
+            "x-stream-filter" => {
+              "geo-polygon" => delivery_zone,
+            },
           })) do |msg|
             msgs.send msg
           end
@@ -230,14 +236,16 @@ describe LavinMQ::AMQP::Stream do
           # Subscribe with both GIS and standard filters (ALL logic)
           msgs = Channel(AMQP::Client::DeliverMessage).new
           q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({
-            "x-stream-offset"     => "first",
-            "x-stream-filter"     => "food",
-            "x-filter-match-type" => "ALL",
-            "x-geo-within-radius" => {
-              "lat"       => 40.7580,
-              "lon"       => -73.9855,
-              "radius_km" => 5.0,
+            "x-stream-offset" => "first",
+            "x-stream-filter" => {
+              "x-stream-filter"   => "food",
+              "geo-within-radius" => {
+                "lat"       => 40.7580,
+                "lon"       => -73.9855,
+                "radius_km" => 5.0,
+              },
             },
+            "x-filter-match-type" => "ALL",
           })) do |msg|
             msgs.send msg
           end
@@ -304,14 +312,16 @@ describe LavinMQ::AMQP::Stream do
           # Subscribe with both GIS and standard filters (ANY logic)
           msgs = Channel(AMQP::Client::DeliverMessage).new
           q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({
-            "x-stream-offset"     => "first",
-            "x-stream-filter"     => "food",
-            "x-filter-match-type" => "ANY",
-            "x-geo-within-radius" => {
-              "lat"       => 40.7580,
-              "lon"       => -73.9855,
-              "radius_km" => 5.0,
+            "x-stream-offset" => "first",
+            "x-stream-filter" => {
+              "x-stream-filter"   => "food",
+              "geo-within-radius" => {
+                "lat"       => 40.7580,
+                "lon"       => -73.9855,
+                "radius_km" => 5.0,
+              },
             },
+            "x-filter-match-type" => "ANY",
           })) do |msg|
             msgs.send msg
           end
@@ -365,19 +375,21 @@ describe LavinMQ::AMQP::Stream do
           # Subscribe with both radius and bbox filters (ALL logic)
           msgs = Channel(AMQP::Client::DeliverMessage).new
           q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({
-            "x-stream-offset"     => "first",
+            "x-stream-offset" => "first",
+            "x-stream-filter" => {
+              "geo-within-radius" => {
+                "lat"       => 40.7580,
+                "lon"       => -73.9855,
+                "radius_km" => 10.0,
+              },
+              "geo-bbox" => {
+                "min_lat" => 40.7000,
+                "max_lat" => 40.8000,
+                "min_lon" => -74.0200,
+                "max_lon" => -73.9000,
+              },
+            },
             "x-filter-match-type" => "ALL",
-            "x-geo-within-radius" => {
-              "lat"       => 40.7580,
-              "lon"       => -73.9855,
-              "radius_km" => 10.0,
-            },
-            "x-geo-bbox" => {
-              "min_lat" => 40.7000,
-              "max_lat" => 40.8000,
-              "min_lon" => -74.0200,
-              "max_lon" => -73.9000,
-            },
           })) do |msg|
             msgs.send msg
           end
@@ -423,11 +435,13 @@ describe LavinMQ::AMQP::Stream do
           # Subscribe with GIS filter
           msgs = Channel(AMQP::Client::DeliverMessage).new
           q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({
-            "x-stream-offset"     => "first",
-            "x-geo-within-radius" => {
-              "lat"       => 40.7580,
-              "lon"       => -73.9855,
-              "radius_km" => 10.0,
+            "x-stream-offset" => "first",
+            "x-stream-filter" => {
+              "geo-within-radius" => {
+                "lat"       => 40.7580,
+                "lon"       => -73.9855,
+                "radius_km" => 10.0,
+              },
             },
           })) do |msg|
             msgs.send msg
@@ -457,13 +471,15 @@ describe LavinMQ::AMQP::Stream do
           q = ch.queue("gis-invalid", args: AMQP::Client::Arguments.new({"x-queue-type" => "stream"}))
 
           # Invalid radius filter (missing radius_km)
-          expect_raises(AMQP::Client::Channel::ClosedException, /x-geo-within-radius/) do
+          expect_raises(AMQP::Client::Channel::ClosedException, /geo-within-radius/) do
             q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({
-              "x-stream-offset"     => "first",
-              "x-geo-within-radius" => {
-                "lat" => 40.7580,
-                "lon" => -73.9855,
-                # Missing radius_km
+              "x-stream-offset" => "first",
+              "x-stream-filter" => {
+                "geo-within-radius" => {
+                  "lat" => 40.7580,
+                  "lon" => -73.9855,
+                  # Missing radius_km
+                },
               },
             })) { }
           end
