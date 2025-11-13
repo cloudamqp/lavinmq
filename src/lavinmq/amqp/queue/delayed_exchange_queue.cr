@@ -37,6 +37,23 @@ module LavinMQ::AMQP
       @exchange_name = arguments["x-dead-letter-exchange"]?.try(&.to_s) || raise "Missing x-dead-letter-exchange"
     end
 
+    def publish(message : Message) : Bool
+      false
+    end
+
+    def delay(msg : Message) : Bool
+      return false if @deleted || @state.closed?
+      @msg_store_lock.synchronize do
+        @msg_store.push(msg)
+      end
+      @publish_count.add(1, :relaxed)
+      true
+    rescue ex : MessageStore::Error
+      @log.error(ex) { "Queue closed due to error" }
+      close
+      raise ex
+    end
+
     private def init_msg_store(data_dir)
       replicator = durable? ? @vhost.@replicator : nil
       DelayedMessageStore.new(data_dir, replicator, durable?, metadata: @metadata)
