@@ -296,7 +296,8 @@ module LavinMQ
         return false unless x_delay
         x_deaths = headers["x-death"]?.try(&.as?(Array(AMQP::Field)))
         x_death = x_deaths.try(&.first).try(&.as?(AMQP::Table))
-        x_death.nil? || (x_death["queue"]? != "amq.delayed.#{@name}")
+        return true if x_death.nil?
+        !!@delayed_queue.try { |q| q.name != x_death["queue"]? }
       end
 
       def to_json(json : JSON::Builder)
