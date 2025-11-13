@@ -20,15 +20,15 @@ module LavinMQ
         metadata = ::Log::Metadata.build({address: connection_info.remote_address.to_s})
         logger = Logger.new(Log, metadata)
         begin
-          io = MQTT::IO.new(socket)
-          if packet = Packet.from_io(socket).as?(Connect)
+          io = MQTT::IO.new(socket, @config.mqtt_max_packet_size)
+          if packet = io.read_packet.as?(Connect)
             logger.trace { "recv #{packet.inspect}" }
             if user_and_broker = authenticate(io, packet)
               user, broker = user_and_broker
               packet = assign_client_id(packet) if packet.client_id.empty?
               session_present = broker.session_present?(packet.client_id, packet.clean_session?)
               connack io, session_present, Connack::ReturnCode::Accepted
-              return broker.add_client(socket, connection_info, user, packet)
+              return broker.add_client(io, connection_info, user, packet)
             else
               logger.warn { "Authentication failure for user \"#{packet.username}\"" }
               connack io, false, Connack::ReturnCode::NotAuthorized
