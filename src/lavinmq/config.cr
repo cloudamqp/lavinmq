@@ -77,6 +77,7 @@ module LavinMQ
     property default_user : String = ENV.fetch("LAVINMQ_DEFAULT_USER", "guest")
     property default_password : String = ENV.fetch("LAVINMQ_DEFAULT_PASSWORD", DEFAULT_PASSWORD_HASH) # Hashed password for default user
     property max_consumers_per_channel = 0
+    property mqtt_max_packet_size = 268_435_455_u32 # bytes
     @@instance : Config = self.new
 
     def self.instance : LavinMQ::Config
@@ -367,6 +368,7 @@ module LavinMQ
         when "max_inflight_messages"    then @max_inflight_messages = v.to_u16
         when "default_vhost"            then @default_mqtt_vhost = v
         when "permission_check_enabled" then @mqtt_permission_check_enabled = true?(v)
+        when "max_packet_size"          then @mqtt_max_packet_size = v.to_u32
         else
           STDERR.puts "WARNING: Unrecognized configuration 'mqtt/#{config}'"
         end
