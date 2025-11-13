@@ -19,6 +19,7 @@ module LavinMQ
       end
 
       def authenticate(username : String, password : Bytes) : OAuthUser?
+        # raise JWT::DecodeError.new("Invalid credentials")
         prevalidate_jwt(String.new(password))
         token = fetch_and_verify_jwks(String.new(password))
         username, tags, permissions, expires_at = parse_jwt_payload(token.payload)
@@ -61,10 +62,12 @@ module LavinMQ
         end
         Log.debug { "Cache expired, fetching JWKS from issuer" }
         oidc_config, _ = fetch_url(@config.oauth_issuer_url.chomp("/") + "/.well-known/openid-configuration")
-        jwks, headers = fetch_url(oidc_config["jwks_uri"].as_s)
+        jwks_uri = oidc_config["jwks_uri"]?.try(&.as_s?) || raise "Missing jwks_uri in OIDC configuration"
+        jwks, headers = fetch_url(jwks_uri)
+        keys_array = jwks["keys"]?.try(&.as_a?) || raise "Missing or invalid keys array in JWKS response"
 
         keys = Hash(String, String).new
-        jwks["keys"].as_a.each do |key|
+        keys_array.each do |key|
           next unless key["n"]? && key["e"]?
           kid = key["kid"]?.try(&.as_s) || "unknown-#{keys.size}"
           keys[kid] = to_pem(key["n"].as_s, key["e"].as_s)
@@ -100,6 +103,8 @@ module LavinMQ
       private def fetch_url(url : String) : {JSON::Any, ::HTTP::Headers}
         uri = URI.parse(url)
         ::HTTP::Client.new(uri) do |client|
+          client.connect_timeout = 5.seconds
+          client.read_timeout = 10.seconds
           response = client.get(uri.request_target)
           if !response.success?
             raise "HTTP request failed with status #{response.status_code}: #{response.body}"
@@ -258,7 +263,13 @@ module LavinMQ
           write:  Regex.new("^$"),
         }
 
-        regex = Regex.new(pattern)
+        begin
+          regex = Regex.new(pattern)
+        rescue ex : ArgumentError
+          Log.warn { "Skipping scope '#{role}' due to invalid regex pattern: #{ex.message}" }
+          return
+        end
+
         permissions[vhost] = case perm_type
                              when "configure" then permissions[vhost].merge({config: regex})
                              when "read"      then permissions[vhost].merge({read: regex})
@@ -274,11 +285,21 @@ module LavinMQ
 
         # Convert bytes to BIGNUMs
         modulus = LibCrypto.bn_bin2bn(n_bytes, n_bytes.size, nil)
+        raise "Failed to create modulus" if modulus.null?
+
         exponent = LibCrypto.bn_bin2bn(e_bytes, e_bytes.size, nil)
+        if exponent.null?
+          LibCrypto.bn_free(modulus)
+          raise "Failed to create exponent"
+        end
 
         # Create RSA structure
         rsa = LibCrypto.rsa_new
-        raise "Failed to create RSA structure" if rsa.null?
+        if rsa.null?
+          LibCrypto.bn_free(modulus)
+          LibCrypto.bn_free(exponent)
+          raise "Failed to create RSA structure"
+        end
 
         result = LibCrypto.rsa_set0_key(rsa, modulus, exponent, nil)
         if result != 1
@@ -290,7 +311,10 @@ module LavinMQ
 
         # Create a memory BIO
         bio = LibCrypto.BIO_new(LibCrypto.bio_s_mem)
-        raise "Failed to create BIO" if bio.null?
+        if bio.null?
+          LibCrypto.rsa_free(rsa)
+          raise "Failed to create BIO"
+        end
 
         begin
           # Write the public key to the BIO in PEM format
