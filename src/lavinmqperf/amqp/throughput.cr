@@ -31,6 +31,9 @@ module LavinMQPerf
       @pub_in_transaction = 0
       @ack_in_transaction = 0
       @random_bodies = false
+      @queue_pattern : String? = nil
+      @queue_pattern_from = 1
+      @queue_pattern_to = 1
 
       def initialize
         super
@@ -110,11 +113,30 @@ module LavinMQPerf
         @parser.on("--random-bodies", "Each message body is random") do
           @random_bodies = true
         end
+        @parser.on("--queue-pattern=PATTERN", "Queue name pattern (use % as placeholder, e.g. queue-%)") do |v|
+          @queue_pattern = v
+        end
+        @parser.on("--queue-pattern-from=NUMBER", "Queue pattern start index (default 1)") do |v|
+          @queue_pattern_from = v.to_i
+        end
+        @parser.on("--queue-pattern-to=NUMBER", "Queue pattern end index (default 1)") do |v|
+          @queue_pattern_to = v.to_i
+        end
       end
 
       @pubs = Atomic(UInt64).new(0_u64)
       @consumes = Atomic(UInt64).new(0_u64)
       @stopped = false
+
+      private def queue_names : Array(String)
+        if pattern = @queue_pattern
+          (@queue_pattern_from..@queue_pattern_to).map do |i|
+            pattern.sub("%", i.to_s)
+          end.to_a
+        else
+          [@queue]
+        end
+      end
 
       def run
         super
@@ -122,11 +144,13 @@ module LavinMQPerf
         mt = Fiber::ExecutionContext::Parallel.new("Clients", maximum: System.cpu_count.to_i)
         connected = WaitGroup.new(@consumers + @publishers)
         done = WaitGroup.new(@consumers + @publishers)
-        @consumers.times do
+        queues = queue_names
+        @consumers.times do |i|
+          queue_name = queues[i % queues.size]
           if @poll
-            mt.spawn { rerun_on_exception(done) { poll_consume(connected) } }
+            mt.spawn { rerun_on_exception(done) { poll_consume(connected, queue_name) } }
           else
-            mt.spawn { rerun_on_exception(done) { consume(connected) } }
+            mt.spawn { rerun_on_exception(done) { consume(connected, queue_name) } }
           end
         end
 
@@ -201,16 +225,25 @@ module LavinMQPerf
           wait_until_all_are_connected(connected)
           start = Time.monotonic
           pubs_this_second = 0
+          queues = queue_names
+          queue_idx = 0
           until @stopped
             Random::DEFAULT.random_bytes(data) if @random_bodies
+            # When using queue pattern, rotate through queues using queue name as routing key
+            routing_key = if @queue_pattern
+                            queues[queue_idx % queues.size]
+                          else
+                            @routing_key
+                          end
             if @max_unconfirm > 0
               unconfirmed.send nil
-              ch.basic_publish(data, @exchange, @routing_key, props: props) do
+              ch.basic_publish(data, @exchange, routing_key, props: props) do
                 unconfirmed.receive
               end
             else
-              ch.basic_publish(data, @exchange, @routing_key, props: props)
+              ch.basic_publish(data, @exchange, routing_key, props: props)
             end
+            queue_idx += 1 if @queue_pattern
             pubs = @pubs.add(1, :relaxed)
             ch.tx_commit if @pub_in_transaction > 0 && (pubs % @pub_in_transaction) == 0
             break if (pubs + 1) >= @pmessages > 0
@@ -229,15 +262,15 @@ module LavinMQPerf
         end
       end
 
-      private def consume(connected) # ameba:disable Metrics/CyclomaticComplexity
+      private def consume(connected, queue_name : String) # ameba:disable Metrics/CyclomaticComplexity
         data = Bytes.new(@size) { |i| ((i % 27 + 64)).to_u8 }
         ::AMQP::Client.start(@uri) do |a|
           ch = a.channel
           q = begin
-            ch.queue @queue, durable: !@queue.empty?, auto_delete: @queue.empty?, args: @queue_args
+            ch.queue queue_name, durable: !queue_name.empty?, auto_delete: queue_name.empty?, args: @queue_args
           rescue
             ch = a.channel
-            ch.queue(@queue, passive: true)
+            ch.queue(queue_name, passive: true)
           end
           ch.tx_select if @ack_in_transaction > 0
           if prefetch = @prefetch
@@ -272,14 +305,14 @@ module LavinMQPerf
         end
       end
 
-      private def poll_consume(connected)
+      private def poll_consume(connected, queue_name : String)
         ::AMQP::Client.start(@uri) do |a|
           ch = a.channel
           q = begin
-            ch.queue @queue
+            ch.queue queue_name
           rescue
             ch = a.channel
-            ch.queue(@queue, passive: true)
+            ch.queue(queue_name, passive: true)
           end
           if prefetch = @prefetch
             ch.prefetch prefetch
