@@ -292,12 +292,13 @@ module LavinMQ
       private def should_delay_message?(headers)
         return false if headers.nil? || headers.empty?
         return false unless delayed?
+        return false unless q = @delayed_queue
         x_delay = headers["x-delay"]?
         return false unless x_delay
         x_deaths = headers["x-death"]?.try(&.as?(Array(AMQP::Field)))
         x_death = x_deaths.try(&.first).try(&.as?(AMQP::Table))
         return true if x_death.nil?
-        !!@delayed_queue.try { |q| q.name != x_death["queue"]? }
+        q.name != x_death["queue"]?
       end
 
       def to_json(json : JSON::Builder)
