@@ -289,7 +289,7 @@ module LavinMQ::AMQP
       end
     end
 
-    private def clear_policy
+    private def clear_policy_arguments
       handle_arguments
       @vhost.upstreams.try &.stop_link(self)
     end

@@ -7,8 +7,6 @@ module LavinMQ
     getter operator_policy : OperatorPolicy?
 
     def apply_policy(policy : Policy?, operator_policy : OperatorPolicy?)
-      @policy = nil
-      @operator_policy = nil
       clear_policy
       Policy.merge_definitions(policy, operator_policy).each do |key, value|
         apply_policy_argument(key, value)
@@ -23,7 +21,13 @@ module LavinMQ
       @operator_policy = operator_policy
     end
 
-    abstract def clear_policy
+    def clear_policy
+      clear_policy_arguments
+      @policy = nil
+      @operator_policy = nil
+    end
+
+    abstract def clear_policy_arguments
     abstract def apply_policy_argument(key : String, value : JSON::Any)
   end
 
