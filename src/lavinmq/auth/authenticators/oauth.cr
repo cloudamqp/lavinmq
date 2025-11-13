@@ -19,6 +19,7 @@ module LavinMQ
       end
 
       def authenticate(username : String, password : Bytes) : OAuthUser?
+        prevalidate_jwt(String.new(password))
         token = fetch_and_verify_jwks(String.new(password))
         username, tags, permissions, expires_at = parse_jwt_payload(token.payload)
 
@@ -42,7 +43,19 @@ module LavinMQ
         nil
       end
 
+      private def prevalidate_jwt(token : String)
+        parts = token.split('.')
+        raise JWT::DecodeError.new("Invalid JWT format") unless parts.size == 3
+
+        header = JWT::RS256Parser.decode_header(token)
+        alg = header["alg"]?.try(&.as_s)
+        raise JWT::DecodeError.new("Missing algorithm in header") unless alg
+        raise JWT::DecodeError.new("Expected RS256, got #{alg}") unless alg == "RS256"
+      end
+
       private def fetch_and_verify_jwks(password : String) : JWT::Token
+
+
         if cached_keys = get_cached_keys
           return verify_with_keys(password, cached_keys)
         end
