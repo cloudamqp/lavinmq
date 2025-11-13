@@ -2,10 +2,26 @@ require "./spec_helper"
 
 describe "Delayed Message Exchange" do
   x_name = "delayed-topic"
-  delay_q_name = "amq.delayed.#{x_name}"
+  delay_q_name = "amq.delayed-#{x_name}"
   x_args = AMQP::Client::Arguments.new({"x-delayed-exchange" => true})
 
   describe "internal queue" do
+    it "should use old name if dir exists" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        legacy_q_name = "amq.delayed.#{x_name}"
+        legacy_q_dir = Digest::SHA1.hexdigest(legacy_q_name)
+        data_dir = Path[vhost.data_dir]
+        Dir.mkdir data_dir / legacy_q_dir
+
+        with_channel(s) do |ch|
+          ch.exchange(x_name, "topic", args: x_args)
+          q = s.vhosts["/"].queues[legacy_q_name]?
+          q.should_not be_nil
+        end
+      end
+    end
+
     it "should be created with x-dead-letter-exchange" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
@@ -161,28 +177,25 @@ describe "Delayed Message Exchange" do
       with_channel(s) do |ch|
         ch.exchange(x_name, "topic", args: x_args)
         # The internal delayed queue should exist
-        internal_queue_name = "amq.delayed.#{x_name}"
-        internal_queue = s.vhosts["/"].queues[internal_queue_name]?
+        internal_queue = s.vhosts["/"].queues[delay_q_name]?
         internal_queue.should_not be_nil
 
         # Attempting to bind the delayed exchange to its internal queue should raise an error
         expect_raises(AMQP::Client::Channel::ClosedException, /Cannot bind delayed exchange/) do
-          ch.queue_bind(internal_queue_name, x_name, "#")
+          ch.queue_bind(delay_q_name, x_name, "#")
         end
       end
     end
   end
 
+  # Verify that a message isn't routed to the internal queue
   it "should not route messages to its own internal queue even if bound" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         x = ch.exchange(x_name, "topic", args: x_args)
+        # Queue that should receive messages
         q = ch.queue(q_name)
         q.bind(x.name, "#")
-
-        # Even if somehow a binding existed (shouldn't happen due to bind validation),
-        # routing should skip the internal delayed queue
-        internal_queue_name = "amq.delayed.#{x_name}"
 
         # Publish a message without delay (should route normally)
         x.publish "test message", "test.routing.key"
@@ -193,7 +206,7 @@ describe "Delayed Message Exchange" do
         queue.message_count.should eq 1
 
         # Internal delayed queue should remain empty
-        internal_queue = s.vhosts["/"].queues[internal_queue_name]
+        internal_queue = s.vhosts["/"].queues[delay_q_name]
         internal_queue.message_count.should eq 0
       end
     end
