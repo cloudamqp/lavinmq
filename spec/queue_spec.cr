@@ -530,4 +530,57 @@ describe LavinMQ::AMQP::Queue do
       end
     end
   end
+
+  describe "effective arguments" do
+    arguments = {
+      {"x-dead-letter-exchange": "dlx", "x-dead-letter-routing-key": "dlrk"},
+      {"x-expires": 100},
+      {"x-max-length": 200},
+      {"x-max-length-bytes": 300},
+      {"x-message-ttl": 400},
+      {"x-overflow": "drop-head"},
+      {"x-overflow": "reject-publish"},
+      {"x-delivery-limit": 500},
+      {"x-consumer-timeout": 600},
+      {"x-single-active-consumer": true},
+      {"x-message-deduplication": true, "x-cache-size": 700},
+      {"x-message-deduplication": true, "x-cache-ttl": 800},
+      {"x-message-deduplication": true, "x-deduplication-header": "foo"},
+    }
+    arguments.each do |args|
+      it "should contain #{args.keys.join(", ")} when args is #{args}" do
+        with_amqp_server do |s|
+          q = s.vhosts["/"].try do |vhost|
+            vhost.declare_queue("q", durable: true, auto_delete: false, arguments: AMQP::Client::Arguments.new(args))
+            vhost.queues["q"]
+          end
+
+          effective_arguments = q.details_tuple[:effective_arguments]
+          args.keys.map(&.to_s).each do |key|
+            effective_arguments.should contain key
+          end
+        end
+      end
+    end
+
+    invalid_arguments = {
+      {"x-overflow": "drop-arm"},
+      {"x-overflow": "reject-ack"},
+    }
+    invalid_arguments.each do |args|
+      it "should not contain #{args.keys.join(", ")} when args is #{args}" do
+        with_amqp_server do |s|
+          q = s.vhosts["/"].try do |vhost|
+            vhost.declare_queue("q", durable: true, auto_delete: false, arguments: AMQP::Client::Arguments.new(args))
+            vhost.queues["q"]
+          end
+
+          effective_arguments = q.details_tuple[:effective_arguments]
+          args.keys.map(&.to_s).each do |key|
+            effective_arguments.should_not contain key
+          end
+        end
+      end
+    end
+  end
 end
