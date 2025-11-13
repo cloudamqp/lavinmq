@@ -114,13 +114,18 @@ module LavinMQPerf
           @random_bodies = true
         end
         @parser.on("--queue-pattern=PATTERN", "Queue name pattern (use % as placeholder, e.g. queue-%)") do |v|
+          abort "Queue pattern must contain '%' placeholder" unless v.includes?("%")
           @queue_pattern = v
         end
         @parser.on("--queue-pattern-from=NUMBER", "Queue pattern start index (default 1)") do |v|
-          @queue_pattern_from = v.to_i
+          from = v.to_i
+          abort "Queue pattern from must be >= 1, got #{from}" if from < 1
+          @queue_pattern_from = from
         end
         @parser.on("--queue-pattern-to=NUMBER", "Queue pattern end index (default 1)") do |v|
-          @queue_pattern_to = v.to_i
+          to = v.to_i
+          abort "Queue pattern to must be >= 1, got #{to}" if to < 1
+          @queue_pattern_to = to
         end
       end
 
@@ -130,9 +135,12 @@ module LavinMQPerf
 
       private def queue_names : Array(String)
         if pattern = @queue_pattern
-          (@queue_pattern_from..@queue_pattern_to).map do |i|
+          abort "Queue pattern from (#{@queue_pattern_from}) must be <= to (#{@queue_pattern_to})" if @queue_pattern_from > @queue_pattern_to
+          queues = (@queue_pattern_from..@queue_pattern_to).map do |i|
             pattern.sub("%", i.to_s)
           end.to_a
+          abort "Queue pattern generated empty queue list" if queues.empty?
+          queues
         else
           [@queue]
         end
@@ -145,6 +153,7 @@ module LavinMQPerf
         connected = WaitGroup.new(@consumers + @publishers)
         done = WaitGroup.new(@consumers + @publishers)
         queues = queue_names
+        abort "No queues available for consumers" if queues.empty?
         @consumers.times do |i|
           queue_name = queues[i % queues.size]
           if @poll
