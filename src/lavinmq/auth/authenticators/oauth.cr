@@ -25,20 +25,20 @@ module LavinMQ
         # Validate token expiration
         expiration_time = Time.unix(expires_at)
         if expiration_time <= Time.utc
-          Log.warn { "OAuth2 authentication failed: Token has already expired" }
+          Log.warn { "OAuth2 authentication failed for user \"#{username}\": Token has already expired" }
           return nil
         end
 
         Log.info { "OAuth2 user authenticated: #{username}" }
         OAuthUser.new(username, tags, permissions, expiration_time)
       rescue ex : JWT::DecodeError
-        Log.warn { "OAuth2 authentication failed: Could not decode token - #{ex.message}" }
+        Log.warn { "OAuth2 authentication failed for user \"#{username}\": Could not decode token - #{ex.message}" }
         nil
       rescue ex : JWT::VerificationError
-        Log.warn { "OAuth2 authentication failed: Token verification failed - #{ex.message}" }
+        Log.warn { "OAuth2 authentication failed for user \"#{username}\": Token verification failed - #{ex.message}" }
         nil
       rescue ex : Exception
-        Log.error { "OAuth2 authentication failed: #{ex.message}" }
+        Log.error(exception: ex) { "OAuth2 authentication failed for user \"#{username}\": #{ex.message}" }
         nil
       end
 

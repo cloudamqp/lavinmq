@@ -22,7 +22,7 @@ module LavinMQ
             when "local"
               next
             when "oauth"
-              authenticators << OAuthAuthenticator.new(users)
+              authenticators << OAuthAuthenticator.new
             else
               raise "Unsupported authentication backend: #{backend}"
             end
