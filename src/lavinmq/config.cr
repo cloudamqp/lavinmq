@@ -71,12 +71,12 @@ module LavinMQ
     property default_consumer_prefetch = UInt16::MAX
     property yield_each_received_bytes = 131_072                # max number of bytes to read from a client connection without letting other tasks in the server do any work
     property yield_each_delivered_bytes = 1_048_576             # max number of bytes sent to a client without tending to other tasks in the server
-    property auth_backends : Array(String) = ["oauth", "local"] # JUST FOR TESTING THIS PR
+    property auth_backends : Array(String).new
     property default_user : String = ENV.fetch("LAVINMQ_DEFAULT_USER", "guest")
     property default_password : String = ENV.fetch("LAVINMQ_DEFAULT_PASSWORD", DEFAULT_PASSWORD_HASH) # Hashed password for default user
     property max_consumers_per_channel = 0
-    property oauth_issuer_url : String = "https://test-giant-beige-hawk.rmq7.cloudamqp.com/realms/lavinmq-dev/"
-    property oauth_resource_server_id : String = "kickster-lavin"
+    property oauth_issuer_url : String = ""
+    property oauth_resource_server_id : String = ""
     property oauth_preferred_username_claims : Array(String) = ["sub"]
     property oauth_additional_scopes_key : String = ""
     property oauth_scope_prefix : String = ""
