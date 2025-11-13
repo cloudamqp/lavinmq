@@ -1,5 +1,19 @@
 require "./spec_helper"
 require "./../src/lavinmq/amqp/queue"
+require "./../src/lavinmq/policy"
+
+alias Policy = LavinMQ::Policy
+
+def with_queue(&)
+  with_amqp_server do |s|
+    vhost = s.vhosts["/"]
+    vhost.declare_queue("q", durable: true, auto_delete: false)
+    q = vhost.queues["q"]
+    yield q
+  ensure
+    q.try &.delete
+  end
+end
 
 describe LavinMQ::AMQP::Queue do
   it "should expire itself after last consumer disconnects" do
@@ -580,6 +594,49 @@ describe LavinMQ::AMQP::Queue do
           args.keys.map(&.to_s).each do |key|
             effective_arguments.should_not contain key
           end
+        end
+      end
+    end
+  end
+
+  describe "PolicyTarget" do
+    definition = {
+      "max-length" => JSON::Any.new(100),
+    }
+    policy = Policy.new("p1", "/", %r{.*}, Policy::Target::Queues, definition, 0i8)
+    definition2 = {
+      "message-ttl" => JSON::Any.new(1337),
+    }
+    policy2 = Policy.new("p2", "/", %r{.*}, Policy::Target::Queues, definition2, 0i8)
+    describe "#apply_policy" do
+      it "should apply policy" do
+        with_queue do |q|
+          q.apply_policy(policy, nil)
+          q.details_tuple[:effective_policy_definition].keys.should contain "max-length"
+          q.details_tuple[:effective_policy_definition]["max-length"].should eq 100
+        end
+      end
+
+      it "should replace policy" do
+        with_queue do |q|
+          q.apply_policy(policy, nil)
+          q.details_tuple[:effective_policy_definition].keys.should contain "max-length"
+          q.apply_policy(policy2, nil)
+          q.details_tuple[:effective_policy_definition].keys.should_not contain "max-length"
+          q.details_tuple[:effective_policy_definition].keys.should contain "message-ttl"
+          q.details_tuple[:effective_policy_definition]["message-ttl"].should eq 1337
+        end
+      end
+    end
+
+    describe "#clear_policy" do
+      policy = Policy.new("p1", "/", %r{.*}, Policy::Target::Queues, definition, 0i8)
+      it "should clear policy" do
+        with_queue do |q|
+          q.apply_policy(policy, nil)
+          q.details_tuple[:effective_policy_definition].keys.should contain "max-length"
+          q.clear_policy
+          q.details_tuple[:effective_policy_definition].keys.should_not contain "max-length"
         end
       end
     end
