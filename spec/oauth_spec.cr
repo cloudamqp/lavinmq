@@ -1,13 +1,16 @@
 require "./spec_helper"
 
 describe LavinMQ::Auth::OAuthUser do
+  mock_auth = LavinMQ::Auth::OAuthAuthenticator.new
+
   describe "#expired?" do
     it "returns true for expired tokens" do
       user = LavinMQ::Auth::OAuthUser.new(
         "testuser",
         [] of LavinMQ::Tag,
         {} of String => LavinMQ::Auth::User::Permissions,
-        Time.utc - 1.hour
+        Time.utc - 1.hour,
+        mock_auth
       )
       user.expired?.should be_true
     end
@@ -17,7 +20,8 @@ describe LavinMQ::Auth::OAuthUser do
         "testuser",
         [] of LavinMQ::Tag,
         {} of String => LavinMQ::Auth::User::Permissions,
-        Time.utc + 1.hour
+        Time.utc + 1.hour,
+        mock_auth
       )
       user.expired?.should be_false
     end
@@ -29,7 +33,8 @@ describe LavinMQ::Auth::OAuthUser do
         "testuser",
         [] of LavinMQ::Tag,
         {"/" => {config: /.*/, read: /.*/, write: /.*/}},
-        Time.utc - 1.hour
+        Time.utc - 1.hour,
+        mock_auth
       )
       cache = LavinMQ::Auth::PermissionCache.new
       user.can_write?("/", "queue1", cache).should be_false
@@ -40,7 +45,8 @@ describe LavinMQ::Auth::OAuthUser do
         "testuser",
         [] of LavinMQ::Tag,
         {"/" => {config: /.*/, read: /.*/, write: /.*/}},
-        Time.utc + 1.hour
+        Time.utc + 1.hour,
+        mock_auth
       )
       cache = LavinMQ::Auth::PermissionCache.new
       user.can_write?("/", "queue1", cache).should be_true
@@ -53,7 +59,8 @@ describe LavinMQ::Auth::OAuthUser do
         "testuser",
         [] of LavinMQ::Tag,
         {"/" => {config: /.*/, read: /.*/, write: /.*/}},
-        Time.utc - 1.hour
+        Time.utc - 1.hour,
+        mock_auth
       )
       user.can_read?("/", "queue1").should be_false
     end
@@ -63,7 +70,8 @@ describe LavinMQ::Auth::OAuthUser do
         "testuser",
         [] of LavinMQ::Tag,
         {"/" => {config: /.*/, read: /.*/, write: /.*/}},
-        Time.utc + 1.hour
+        Time.utc + 1.hour,
+        mock_auth
       )
       user.can_read?("/", "queue1").should be_true
     end
@@ -75,7 +83,8 @@ describe LavinMQ::Auth::OAuthUser do
         "testuser",
         [] of LavinMQ::Tag,
         {"/" => {config: /.*/, read: /.*/, write: /.*/}},
-        Time.utc - 1.hour
+        Time.utc - 1.hour,
+        mock_auth
       )
       user.can_config?("/", "queue1").should be_false
     end
@@ -85,75 +94,10 @@ describe LavinMQ::Auth::OAuthUser do
         "testuser",
         [] of LavinMQ::Tag,
         {"/" => {config: /.*/, read: /.*/, write: /.*/}},
-        Time.utc + 1.hour
+        Time.utc + 1.hour,
+        mock_auth
       )
       user.can_config?("/", "queue1").should be_true
-    end
-  end
-
-  describe "#same_identity?" do
-    it "returns true for identical users" do
-      user1 = LavinMQ::Auth::OAuthUser.new(
-        "testuser",
-        [LavinMQ::Tag::Administrator],
-        {"/" => {config: /.*/, read: /.*/, write: /.*/}},
-        Time.utc + 1.hour
-      )
-      user2 = LavinMQ::Auth::OAuthUser.new(
-        "testuser",
-        [LavinMQ::Tag::Administrator],
-        {"/" => {config: /.*/, read: /.*/, write: /.*/}},
-        Time.utc + 2.hours
-      )
-      user1.same_identity?(user2).should be_true
-    end
-
-    it "returns false for different usernames" do
-      user1 = LavinMQ::Auth::OAuthUser.new(
-        "user1",
-        [LavinMQ::Tag::Administrator],
-        {"/" => {config: /.*/, read: /.*/, write: /.*/}},
-        Time.utc + 1.hour
-      )
-      user2 = LavinMQ::Auth::OAuthUser.new(
-        "user2",
-        [LavinMQ::Tag::Administrator],
-        {"/" => {config: /.*/, read: /.*/, write: /.*/}},
-        Time.utc + 1.hour
-      )
-      user1.same_identity?(user2).should be_false
-    end
-
-    it "returns false for different permissions" do
-      user1 = LavinMQ::Auth::OAuthUser.new(
-        "testuser",
-        [LavinMQ::Tag::Administrator],
-        {"/" => {config: /.*/, read: /.*/, write: /.*/}},
-        Time.utc + 1.hour
-      )
-      user2 = LavinMQ::Auth::OAuthUser.new(
-        "testuser",
-        [LavinMQ::Tag::Administrator],
-        {"/" => {config: /^$/, read: /^$/, write: /^$/}},
-        Time.utc + 1.hour
-      )
-      user1.same_identity?(user2).should be_false
-    end
-
-    it "returns false for different tags" do
-      user1 = LavinMQ::Auth::OAuthUser.new(
-        "testuser",
-        [LavinMQ::Tag::Administrator],
-        {"/" => {config: /.*/, read: /.*/, write: /.*/}},
-        Time.utc + 1.hour
-      )
-      user2 = LavinMQ::Auth::OAuthUser.new(
-        "testuser",
-        [LavinMQ::Tag::Monitoring],
-        {"/" => {config: /.*/, read: /.*/, write: /.*/}},
-        Time.utc + 1.hour
-      )
-      user1.same_identity?(user2).should be_false
     end
   end
 end

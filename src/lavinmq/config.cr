@@ -82,7 +82,7 @@ module LavinMQ
     property oauth_scope_prefix : String = ""
     property? oauth_verify_aud : Bool = true
     property oauth_audience : String = ""
-    property oauth_jwks_cache_ttl : Time::Span = 24.hours
+    property oauth_jwks_cache_ttl : Time::Span = 1.hours
     @@instance : Config = self.new
 
     def self.instance : LavinMQ::Config
