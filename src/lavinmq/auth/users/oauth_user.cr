@@ -8,8 +8,9 @@ module LavinMQ
       getter permissions : Hash(String, Permissions)
 
       @expires_at : Time
+      @authenticator : OAuthAuthenticator
 
-      def initialize(@name, @tags, @permissions, @expires_at)
+      def initialize(@name, @tags, @permissions, @expires_at, @authenticator)
       end
 
       def expiration=(time : Time)
@@ -20,8 +21,17 @@ module LavinMQ
         Time.utc > @expires_at
       end
 
-      def same_identity?(other : OAuthUser) : Bool
-        @name == other.name && @permissions == other.permissions && @tags == other.tags
+      def update_secret(new_secret : Bytes) : Bool
+        username, tags, permissions, expiration = @authenticator.validate_and_extract_claims(@name, new_secret)
+
+        # Update authorization and expiration (trust new token)
+        @tags = tags
+        @permissions = permissions
+        @expires_at = expiration
+        clear_permissions_cache
+        true
+      rescue
+        false
       end
 
       def can_write?(vhost : String, name : String, cache : PermissionCache) : Bool
