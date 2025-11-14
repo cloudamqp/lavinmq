@@ -194,8 +194,12 @@ module LavinMQ::AMQP
       end
       @empty = @msg_store.empty
       handle_arguments
-      spawn queue_expire_loop, name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}" if @expires
-      spawn message_expire_loop, name: "Queue#message_expire_loop #{@vhost.name}/#{@name}"
+      @vhost.execution_context.spawn(name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}") do
+        queue_expire_loop
+      end if @expires
+      @vhost.execution_context.spawn(name: "Queue#message_expire_loop #{@vhost.name}/#{@name}") do
+        message_expire_loop
+      end
     end
 
     # own method so that it can be overriden in other queue implementations
@@ -263,7 +267,7 @@ module LavinMQ::AMQP
       when "expires"
         unless @expires.try &.< value.as_i64
           @expires = value.as_i64
-          spawn queue_expire_loop, name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}"
+          @vhost.execution_context.spawn(name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}") { queue_expire_loop }
           @queue_expiration_ttl_change.try_send? nil
         end
       when "overflow"
