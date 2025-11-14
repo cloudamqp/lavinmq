@@ -77,7 +77,7 @@ module LavinMQ
     property max_consumers_per_channel = 0
     property oauth_issuer_url : String = ""
     property oauth_resource_server_id : String = ""
-    property oauth_preferred_username_claims : Array(String) = ["sub"]
+    property oauth_preferred_username_claims = Array(String).new
     property oauth_additional_scopes_key : String = ""
     property oauth_scope_prefix : String = ""
     property? oauth_verify_aud : Bool = true
