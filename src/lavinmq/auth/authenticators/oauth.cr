@@ -60,8 +60,6 @@ module LavinMQ
       end
 
       private def fetch_and_verify_jwks(password : String) : JWT::Token
-
-
         if cached_keys = get_cached_keys
           return verify_with_keys(password, cached_keys)
         end
