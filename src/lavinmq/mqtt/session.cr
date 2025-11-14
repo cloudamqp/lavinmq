@@ -156,27 +156,22 @@ module LavinMQ
         )
       end
 
-      def apply_policy(policy : Policy?, operator_policy : OperatorPolicy?)
-        clear_policy
-        Policy.merge_definitions(policy, operator_policy).each do |k, v|
-          @log.debug { "Applying policy #{k}: #{v}" }
-          case k
-          when "max-length"
-            unless @max_length.try &.< v.as_i64
-              @max_length = v.as_i64
-              drop_overflow
-            end
-          when "max-length-bytes"
-            unless @max_length_bytes.try &.< v.as_i64
-              @max_length_bytes = v.as_i64
-              drop_overflow
-            end
-          when "overflow"
-            @reject_on_overflow ||= v.as_s == "reject-publish"
+      private def apply_policy_argument(key : String, value : JSON::Any)
+        @log.debug { "Applying policy #{key}: #{value}" }
+        case key
+        when "max-length"
+          unless @max_length.try &.< value.as_i64
+            @max_length = value.as_i64
+            drop_overflow
           end
+        when "max-length-bytes"
+          unless @max_length_bytes.try &.< value.as_i64
+            @max_length_bytes = value.as_i64
+            drop_overflow
+          end
+        when "overflow"
+          @reject_on_overflow ||= value.as_s == "reject-publish"
         end
-        @policy = policy
-        @operator_policy = operator_policy
       end
 
       def ack(packet : MQTT::PubAck) : Nil

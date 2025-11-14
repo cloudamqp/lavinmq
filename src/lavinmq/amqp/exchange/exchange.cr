@@ -39,30 +39,23 @@ module LavinMQ
         handle_arguments
       end
 
-      def apply_policy(policy : Policy?, operator_policy : OperatorPolicy?)
-        clear_policy
-        Policy.merge_definitions(policy, operator_policy).each do |k, v|
-          case k
-          when "alternate-exchange"
-            @alternate_exchange ||= v.as_s?
-          when "delayed-message"
-            @delayed ||= v.as?(Bool) == true
-            init_delayed_queue if @delayed
-          when "federation-upstream"
-            @vhost.upstreams.try &.link(v.as_s, self) unless internal?
-          when "federation-upstream-set"
-            @vhost.upstreams.try &.link_set(v.as_s, self) unless internal?
-          else nil
-          end
+      private def apply_policy_argument(key : String, value : JSON::Any)
+        case key
+        when "alternate-exchange"
+          @alternate_exchange ||= value.as_s?
+        when "delayed-message"
+          @delayed ||= value.as?(Bool) == true
+          init_delayed_queue if @delayed
+        when "federation-upstream"
+          @vhost.upstreams.try &.link(value.as_s, self) unless internal?
+        when "federation-upstream-set"
+          @vhost.upstreams.try &.link_set(value.as_s, self) unless internal?
+        else nil
         end
-        @policy = policy
-        @operator_policy = operator_policy
       end
 
-      def clear_policy
+      private def clear_policy_arguments
         handle_arguments
-        @policy = nil
-        @operator_policy = nil
         @vhost.upstreams.try &.stop_link(self)
       end
 
