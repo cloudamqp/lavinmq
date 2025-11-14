@@ -1,6 +1,5 @@
 require "openssl"
 require "crypto/bcrypt/password"
-require "./user"
 
 module LavinMQ
   module Auth
