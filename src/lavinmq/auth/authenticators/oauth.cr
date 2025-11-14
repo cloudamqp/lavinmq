@@ -228,7 +228,7 @@ module LavinMQ
         when .as_s?
           claim.as_s.split
         else
-          [] of String
+          Array(String).new(0)
         end
       end
 
