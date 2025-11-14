@@ -85,7 +85,7 @@ module LavinMQ
         @cache_mutex.synchronize do
           return nil if @cached_keys.nil?
           return nil if @cache_expires_at.try { |exp| Time.utc >= exp }
-          @cached_keys
+          @cached_keys.dup
         end
       end
 
@@ -208,21 +208,15 @@ module LavinMQ
       private def extract_scopes_from_claim(claim) : Array(String)
         case claim
         when .as_h?
-          result = [] of String
-          claim.as_h.each do |key, value|
-            if @config.oauth_resource_server_id.empty?
-              result.concat(extract_scopes_from_claim(value))
-            elsif key == @config.oauth_resource_server_id
-              result.concat(extract_scopes_from_claim(value))
+          claim.as_h.compact_map do |key, value|
+            if @config.oauth_resource_server_id.empty? || key == @config.oauth_resource_server_id
+              extract_scopes_from_claim(value)
             end
-          end
-          result
+          end.flatten
         when .as_a?
-          result = [] of String
-          claim.as_a.each do |item|
-            result.concat(extract_scopes_from_claim(item))
+          claim.as_a.flat_map do |item|
+            extract_scopes_from_claim(item)
           end
-          result
         when .as_s?
           claim.as_s.split
         else
