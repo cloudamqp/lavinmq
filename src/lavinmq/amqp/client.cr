@@ -41,7 +41,6 @@ module LavinMQ
                      @connection_info : ConnectionInfo,
                      @vhost : VHost,
                      @user : Auth::User,
-                     @authenticator : Auth::Authenticator,
                      tune_ok,
                      start_ok)
         @max_frame_size = tune_ok.frame_max

@@ -18,28 +18,28 @@ module LavinMQ
       def initialize(@config = Config.instance)
       end
 
-      def authenticate(username : String, password : Bytes) : OAuthUser?
+      def validate_and_extract_claims(username : String, password : Bytes)
         password_str = String.new(password)
-        extracted_username = nil
-
-        prevalidate_jwt(password_str)  # Validates format, algorithm, and expiration
+        prevalidate_jwt(password_str)
         token = fetch_and_verify_jwks(password_str)
         extracted_username, tags, permissions, expires_at = parse_jwt_payload(token.payload)
-
         expiration_time = Time.unix(expires_at)
+        {extracted_username, tags, permissions, expiration_time}
+      end
+
+      def authenticate(username : String, password : Bytes) : OAuthUser?
+        extracted_username, tags, permissions, expiration_time = validate_and_extract_claims(username, password)
         Log.info { "OAuth2 user authenticated: #{extracted_username}" }
-        OAuthUser.new(extracted_username, tags, permissions, expiration_time)
+
+        OAuthUser.new(extracted_username, tags, permissions, expiration_time, self)
       rescue ex : JWT::DecodeError
-        user = extracted_username || username
-        Log.warn { "OAuth2 authentication failed for user \"#{user}\": Could not decode token - #{ex.message}" }
+        Log.warn { "OAuth2 authentication failed for user \"#{username}\": Could not decode token - #{ex.message}" }
         nil
       rescue ex : JWT::VerificationError
-        user = extracted_username || username
-        Log.warn { "OAuth2 authentication failed for user \"#{user}\": Token verification failed - #{ex.message}" }
+        Log.warn { "OAuth2 authentication failed for user \"#{username}\": Token verification failed - #{ex.message}" }
         nil
       rescue ex : Exception
-        user = extracted_username || username
-        Log.error(exception: ex) { "OAuth2 authentication failed for user \"#{user}\": #{ex.message}" }
+        Log.error(exception: ex) { "OAuth2 authentication failed for user \"#{username}\": #{ex.message}" }
         nil
       end
 
