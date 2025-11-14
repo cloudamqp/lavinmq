@@ -55,6 +55,10 @@ module LavinMQ
         tags.includes? Tag::Impersonator
       end
 
+      def update_secret(new_secret : Bytes) : Bool
+        false
+      end
+
       def clear_permissions_cache
         @permission_revision.add(1, :relaxed)
       end
