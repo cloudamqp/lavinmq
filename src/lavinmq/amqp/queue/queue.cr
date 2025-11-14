@@ -716,6 +716,8 @@ module LavinMQ::AMQP
     end
 
     private def dead_letter_msg(msg : BytesMessage, props, dlx, dlrk)
+      # Don't dead letter during shutdown to avoid reading from closed message stores
+      return if @vhost.closed? || @closed
       @log.debug { "Dead lettering ex=#{dlx} rk=#{dlrk} body_size=#{msg.bodysize} props=#{props}" }
       @vhost.publish Message.new(RoughTime.unix_ms, dlx.to_s, dlrk.to_s,
         props, msg.bodysize, IO::Memory.new(msg.body))
