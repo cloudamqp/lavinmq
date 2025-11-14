@@ -203,19 +203,17 @@ module LavinMQ
       end
 
       private def handle_update_secret(frame : AMQP::Frame::Connection::UpdateSecret)
-        current_user = @user
-        if !current_user.is_a?(Auth::OAuthUser)
+        user = @user
+        unless user.is_a?(Auth::OAuthUser)
           close_connection(frame, ConnectionReplyCode::NOT_ALLOWED, "update-secret not supported for current authentication mechanism")
-        elsif (new_user = @authenticator.authenticate(current_user.name, frame.@secret)).nil?
-          close_connection(frame, ConnectionReplyCode::ACCESS_REFUSED, "Invalid credentials in update-secret")
-        elsif !new_user.is_a?(Auth::OAuthUser)
-          close_connection(frame, ConnectionReplyCode::INTERNAL_ERROR, "Authentication returned invalid user type")
-        elsif !current_user.same_identity?(new_user)
-          close_connection(frame, ConnectionReplyCode::NOT_ALLOWED, "UpdateSecret is not allowed to change identity of the user")
-        else
-          @user = new_user
-          @log.info { "Updated secret for user '#{new_user.name}'" }
+          return
+        end
+
+        if user.update_secret(frame.@secret.to_slice)
+          @log.info { "Updated secret for user '#{user.name}'" }
           send AMQP::Frame::Connection::UpdateSecretOk.new(0_u16)
+        else
+          close_connection(frame, ConnectionReplyCode::ACCESS_REFUSED, "Invalid credentials in update-secret")
         end
       end
 
