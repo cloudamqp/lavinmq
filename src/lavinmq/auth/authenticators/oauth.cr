@@ -152,7 +152,7 @@ module LavinMQ
         actual = iss.chomp("/")
 
         if actual != expected
-          raise "Token issuer mismatch: expected '#{expected}', got '#{actual}'"
+          raise "Token issuer does not match expected value"
         end
       end
 
@@ -169,7 +169,7 @@ module LavinMQ
         return if expected.empty?
 
         if !audiences.includes?(expected)
-          raise "Token audience mismatch: expected '#{expected}', got #{audiences.inspect}"
+          raise "Token audience does not match expected value"
         end
       end
 
