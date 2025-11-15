@@ -69,7 +69,7 @@ module LavinMQ::AMQP
     # Overload to not ruin DLX header
     private def expire_msg(env : Envelope, reason : Symbol)
       # Don't republish during shutdown to avoid reading from closed message stores
-      return if @vhost.closed? || @closed
+      return if @vhost.closed? || closed?
       sp = env.segment_position
       msg = env.message
       @log.debug { "Expiring #{sp} now due to #{reason}" }

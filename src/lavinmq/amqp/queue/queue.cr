@@ -163,8 +163,13 @@ module LavinMQ::AMQP
     getter? auto_delete, exclusive
     getter policy : Policy?
     getter operator_policy : OperatorPolicy?
-    getter? closed = false
+    @closed = Atomic(Bool).new(false)
     getter state = QueueState::Running
+
+    def closed?
+      @closed.get(:acquire)
+    end
+
     getter empty : BoolChannel
     getter single_active_consumer : Client::Channel::Consumer? = nil
     getter single_active_consumer_change = ::Channel(Client::Channel::Consumer).new
@@ -378,8 +383,7 @@ module LavinMQ::AMQP
     end
 
     def close : Bool
-      return false if @closed
-      @closed = true
+      return false if @closed.swap(true, :acquire_release)
       @state = QueueState::Closed
       @queue_expiration_ttl_change.close
       @message_ttl_change.close
@@ -717,7 +721,7 @@ module LavinMQ::AMQP
 
     private def dead_letter_msg(msg : BytesMessage, props, dlx, dlrk)
       # Don't dead letter during shutdown to avoid reading from closed message stores
-      return if @vhost.closed? || @closed
+      return if @vhost.closed? || closed?
       @log.debug { "Dead lettering ex=#{dlx} rk=#{dlrk} body_size=#{msg.bodysize} props=#{props}" }
       @vhost.publish Message.new(RoughTime.unix_ms, dlx.to_s, dlrk.to_s,
         props, msg.bodysize, IO::Memory.new(msg.body))
@@ -758,7 +762,7 @@ module LavinMQ::AMQP
     # returns true if a message was deliviered, false otherwise
     # if we encouncer an unrecoverable ReadError, close queue
     private def get(no_ack : Bool, & : Envelope -> Nil) : Bool
-      raise ClosedError.new if @closed
+      raise ClosedError.new if closed?
       loop do # retry if msg expired or deliver limit hit
         env = @msg_store.shift? || break
         if has_expired?(env.message) # guarantee to not deliver expired messages
@@ -834,7 +838,7 @@ module LavinMQ::AMQP
     end
 
     def reject(sp : SegmentPosition, requeue : Bool)
-      return if @deleted || @closed
+      return if @deleted || closed?
       @log.debug { "Rejecting #{sp}, requeue: #{requeue}" }
       @reject_count.add(1, :relaxed)
       @unacked_count.sub(1, :relaxed)
@@ -861,7 +865,7 @@ module LavinMQ::AMQP
     end
 
     def add_consumer(consumer : Client::Channel::Consumer)
-      return if @closed
+      return if closed?
       @consumers_lock.synchronize do
         was_empty = @consumers.empty?
         @consumers << consumer
@@ -880,7 +884,7 @@ module LavinMQ::AMQP
     getter? has_priority_consumers = false
 
     def rm_consumer(consumer : Client::Channel::Consumer)
-      return if @closed
+      return if closed?
       @consumers_lock.synchronize do
         deleted = @consumers.delete consumer
         @has_priority_consumers = @consumers.any? { |c| !c.priority.zero? }
