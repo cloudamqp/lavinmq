@@ -43,9 +43,6 @@ module LavinMQ
         case key
         when "alternate-exchange"
           @alternate_exchange ||= value.as_s?
-        when "delayed-message"
-          @delayed ||= value.as?(Bool) == true
-          init_delayed_queue if @delayed
         when "federation-upstream"
           @vhost.upstreams.try &.link(value.as_s, self) unless internal?
         when "federation-upstream-set"
