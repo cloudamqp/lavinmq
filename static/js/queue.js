@@ -222,7 +222,7 @@ document.querySelector('#publishMessage').addEventListener('submit', function (e
         DOM.toast('Message published')
         updateQueue(false)
       } else {
-        DOM.toast('Message not published', 'warn')
+        DOM.toast.warn('Message not published')
       }
     })
 })
