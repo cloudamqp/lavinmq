@@ -26,7 +26,7 @@ module LavinMQ
       getter? delayed = false
 
       @alternate_exchange : String?
-      @delayed_queue : Queue?
+      @delayed_queue : DelayedExchangeQueue?
       @deleted = false
       @deduper : Deduplication::Deduper?
       @effective_args = Array(String).new
@@ -197,7 +197,7 @@ module LavinMQ
         end
         if should_delay_message?(msg.properties.headers)
           if q = @delayed_queue
-            q.publish(msg)
+            q.delay(msg)
             @publish_out_count.add(1, :relaxed)
             return true
           else

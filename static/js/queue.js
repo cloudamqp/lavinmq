@@ -217,9 +217,13 @@ document.querySelector('#publishMessage').addEventListener('submit', function (e
     properties
   }
   HTTP.request('POST', url, { body })
-    .then(() => {
-      DOM.toast('Published message to ' + queue)
-      updateQueue(false)
+    .then((res) => {
+      if (res.routed) {
+        DOM.toast('Message published')
+        updateQueue(false)
+      } else {
+        DOM.toast.warn('Message not published')
+      }
     })
 })
 

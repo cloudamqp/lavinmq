@@ -33,6 +33,18 @@ describe "Delayed Message Exchange" do
         end
       end
     end
+
+    it "should deny publish via amqp (default exchange)" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          # Declare exchange
+          ch.exchange(x_name, "topic", args: x_args)
+          ch.exchange("", delay_q_name, args: x_args)
+          ch.basic_publish_confirm "test", exchange: "", routing_key: delay_q_name
+          s.vhosts["/"].queues[delay_q_name].message_count.should eq 0
+        end
+      end
+    end
   end
 
   q_name = "delayed_q"
