@@ -6,7 +6,7 @@ require "json"
 require "option_parser"
 require "./lavinmq/auth/user"
 require "./lavinmq/auth/password"
-require "./lavinmq/auth/users/basic_user"
+require "./lavinmq/auth/users/local_user"
 
 class LavinMQCtl
   @options = {} of String => String
