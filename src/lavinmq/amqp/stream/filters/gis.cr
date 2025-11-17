@@ -3,7 +3,7 @@ require "./filter"
 
 module LavinMQ::AMQP
   # GIS filtering module for geographical data in stream queues.
-  # Provides PostGIS-like spatial operations for filtering messages based on coordinates.
+  # Provides spatial operations for filtering messages based on coordinates.
   module GISFilter
     EARTH_RADIUS_KM = 6371.0
 
