@@ -44,7 +44,7 @@ module LavinMQ
       end
 
       private def prevalidate_jwt(token : String)
-        parts = token.split('.')
+        parts = token.split('.', 4)
         raise JWT::DecodeError.new("Invalid JWT format") unless parts.size == 3
 
         header = JWT::RS256Parser.decode_header(token)
