@@ -12,8 +12,8 @@ module LavinMQ
 
       def self.create(config : Config, users : UserStore) : Chain
         authenticators = Array(Authenticator).new
-        # Always try local Auth first
-        authenticators << localAuthenticator.new(users)
+        # Always try Local Auth first
+        authenticators << LocalAuthenticator.new(users)
 
         backends = config.auth_backends
         if backends && !backends.empty?

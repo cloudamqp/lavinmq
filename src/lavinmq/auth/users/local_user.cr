@@ -5,7 +5,7 @@ require "../../tag"
 
 module LavinMQ
   module Auth
-    class BasicUser < User
+    class LocalUser < User
       include SortableJSON
       getter name : String
       getter permissions : Hash(String, Permissions) = Hash(String, Permissions).new
