@@ -60,8 +60,8 @@ module LavinMQ
       end
 
       private def fetch_and_verify_jwks(password : String) : JWT::Token
-        if cached_keys = get_cached_keys
-          return verify_with_keys(password, cached_keys)
+        if token = with_cached_keys { |keys| verify_with_keys(password, keys) }
+          return token
         end
         Log.debug { "Cache expired, fetching JWKS from issuer" }
         oidc_config, _ = fetch_url(@config.oauth_issuer_url.chomp("/") + "/.well-known/openid-configuration")
@@ -81,11 +81,12 @@ module LavinMQ
         token
       end
 
-      private def get_cached_keys : Hash(String, String)?
+      private def with_cached_keys(&block : Hash(String, String) -> JWT::Token)
         @cache_mutex.synchronize do
-          return nil if @cached_keys.nil?
+          keys = @cached_keys
+          return nil if keys.nil?
           return @cached_keys = nil if @cache_expires_at.try { |exp| Time.utc >= exp }
-          @cached_keys.dup
+          yield keys
         end
       end
 
