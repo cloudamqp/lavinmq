@@ -55,7 +55,7 @@ module LavinMQ
         tags.includes? Tag::Impersonator
       end
 
-      def update_secret(new_secret : Bytes) : Bool
+      def update_secret(new_secret : String) : Bool
         false
       end
 
