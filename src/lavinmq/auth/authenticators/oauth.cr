@@ -144,13 +144,13 @@ module LavinMQ
 
       protected def validate_issuer(payload)
         iss = payload["iss"]?.try(&.as_s?)
-        return unless iss
+        raise JWT::DecodeError.new("Missing or invalid iss claim in token") unless iss
 
         expected = @config.oauth_issuer_url.chomp("/")
         actual = iss.chomp("/")
 
         if actual != expected
-          raise "Token issuer does not match expected value"
+          raise JWT::DecodeError.new("Token issuer does not match the expected issuer")
         end
       end
 
