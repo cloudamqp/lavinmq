@@ -293,7 +293,7 @@ module LavinMQ::AMQP
     private def open_new_segment(next_msg_size = 0) : MFile
       super.tap do
         drop_overflow
-        @offset_index[@segments.last_key] = @last_offset
+        @offset_index[@segments.last_key] = @last_offset unless @last_offset.zero?
         @timestamp_index[@segments.last_key] = RoughTime.unix_ms
       end
     end
