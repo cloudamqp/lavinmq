@@ -21,7 +21,7 @@ module LavinMQ
         Time.utc > @expires_at
       end
 
-      def update_secret(new_secret : Bytes) : Bool
+      def update_secret(new_secret : String) : Bool
         _, tags, permissions, expiration = @authenticator.validate_and_extract_claims(@name, new_secret)
 
         # Update authorization and expiration (trust new token)
