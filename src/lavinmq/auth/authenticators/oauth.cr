@@ -239,13 +239,20 @@ module LavinMQ
 
       private def parse_role(role, tags, permissions)
         if role.starts_with?("tag:")
-          tag_name = role[4..]
-          if tag = Tag.parse?(tag_name)
-            tags << tag
-          end
-          return
+          parse_tag_role(role, tags)
+        else
+          parse_permission_role(role, permissions)
         end
+      end
 
+      private def parse_tag_role(role, tags)
+        tag_name = role[4..]
+        if tag = Tag.parse?(tag_name)
+          tags << tag
+        end
+      end
+
+      private def parse_permission_role(role, permissions)
         parts = role.split(/[.:\/]/)
         return if parts.size != 3
         perm_type, vhost, pattern = parts[0], parts[1], parts[2]
