@@ -287,7 +287,6 @@ module LavinMQ::AMQP
       @bytesize += sp.bytesize
       @size += 1
       @segment_last_ts[sp.segment] = msg.timestamp
-      @offset_index[sp.segment] = @last_offset if (@offset_index[sp.segment]? || 0i64).zero?
       sp
     end
 
@@ -367,15 +366,16 @@ module LavinMQ::AMQP
 
     private def produce_metadata(seg, mfile)
       super
-      previous_segment_last_offset = @offset_index[seg - 1]? || 0i64
-      previous_segment_last_offset += @segment_msg_count[seg - 1]? || 0i64
-
-      msg = BytesMessage.from_bytes(mfile.to_slice + 4u32)
-      @offset_index[seg] = previous_segment_last_offset + 1
-      @timestamp_index[seg] = msg.timestamp
-    rescue IndexError
-      @offset_index[seg] = @last_offset
-      @timestamp_index[seg] = RoughTime.unix_ms
+      if @empty
+        @offset_index[seg] = @last_offset + 1
+        @timestamp_index[seg] = RoughTime.unix_ms
+      else
+        previous_segment_last_offset = @offset_index[seg - 1]? || 0i64
+        previous_segment_last_offset += @segment_msg_count[seg - 1]? || 0i64
+        msg = BytesMessage.from_bytes(mfile.to_slice + 4u32)
+        @offset_index[seg] = previous_segment_last_offset + 1
+        @timestamp_index[seg] = msg.timestamp
+      end
     end
 
     private def read_extra_metadata_fields(file : File, seg : UInt32)
