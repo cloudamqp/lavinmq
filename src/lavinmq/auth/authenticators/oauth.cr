@@ -84,7 +84,7 @@ module LavinMQ
       private def get_cached_keys : Hash(String, String)?
         @cache_mutex.synchronize do
           return nil if @cached_keys.nil?
-          return nil if @cache_expires_at.try { |exp| Time.utc >= exp }
+          return @cached_keys = nil if @cache_expires_at.try { |exp| Time.utc >= exp }
           @cached_keys.dup
         end
       end
