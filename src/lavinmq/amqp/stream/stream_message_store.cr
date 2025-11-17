@@ -85,8 +85,6 @@ module LavinMQ::AMQP
       while mfile.pos < pos
         BytesMessage.skip(mfile)
         offset += 1
-      rescue IO::Error
-        break
       end
       {offset, seg, pos}
     rescue ex : IndexError # first segment can be empty if message size >= segment size
