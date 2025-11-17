@@ -381,9 +381,9 @@ module LavinMQPerf
               ch.basic_publish(data, @exchange, routing_key, props: props)
             end
             queue_idx += 1 if @queue_pattern
-            pubs = @pubs.add(1, :relaxed)
+            pubs = @pubs.add(1, :relaxed) + 1
             ch.tx_commit if @pub_in_transaction > 0 && (pubs % @pub_in_transaction) == 0
-            break if (pubs + 1) >= @pmessages > 0
+            break if pubs >= @pmessages > 0
             unless @rate.zero?
               pubs_this_second += 1
               if pubs_this_second >= @rate
@@ -424,13 +424,13 @@ module LavinMQPerf
       end
 
       private def handle_consumed_message(ch, m, data, rate_limiter)
-        consumes = @consumes.add(1, :relaxed)
+        consumes = @consumes.add(1, :relaxed) + 1
         body = m.body_io.to_slice
         record_latency(body) if @measure_latency
         verify_message_body(body, data) if @verify
-        m.ack(multiple: true) if @ack > 0 && (consumes + 1) % @ack == 0
-        ch.tx_commit if @ack_in_transaction > 0 && ((consumes + 1) % @ack_in_transaction) == 0
-        if @stopped || (consumes + 1) >= @cmessages > 0
+        m.ack(multiple: true) if @ack > 0 && consumes % @ack == 0
+        ch.tx_commit if @ack_in_transaction > 0 && (consumes % @ack_in_transaction) == 0
+        if @stopped || consumes >= @cmessages > 0
           ch.close
         end
         rate_limiter.limit(consumes)
@@ -454,10 +454,10 @@ module LavinMQPerf
           rate_limiter = RateLimiter.new(@consume_rate)
           loop do
             if msg = q.get(no_ack: @ack.zero?)
-              consumes = @consumes.add(1, :relaxed)
+              consumes = @consumes.add(1, :relaxed) + 1
               record_latency(msg.body_io.to_slice) if @measure_latency
-              msg.ack(multiple: true) if @ack > 0 && (consumes + 1) % @ack == 0
-              break if @stopped || (consumes + 1) >= @cmessages > 0
+              msg.ack(multiple: true) if @ack > 0 && consumes % @ack == 0
+              break if @stopped || consumes >= @cmessages > 0
               rate_limiter.limit
             end
           end
