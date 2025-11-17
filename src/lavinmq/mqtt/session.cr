@@ -28,7 +28,7 @@ module LavinMQ
       private def deliver_loop
         i = 0
         loop do
-          break if @closed
+          break if closed?
           next @msg_store.empty.when_false.receive? if @msg_store.empty?
           next @consumers_empty.when_false.receive? if @consumers.empty?
           consumer = @consumers.first.as(MQTT::Consumer)
@@ -44,14 +44,12 @@ module LavinMQ
       end
 
       def client=(client : MQTT::Client?)
-        return if @closed
+        return if closed?
         @last_get_time = RoughTime.monotonic
 
         unless clean_session?
-          @msg_store_lock.synchronize do
-            @unacked.values.each do |sp|
-              @msg_store.requeue(sp)
-            end
+          @unacked.values.each do |sp|
+            @msg_store.requeue(sp)
           end
         end
         @unacked.clear
@@ -101,9 +99,9 @@ module LavinMQ
       end
 
       private def get_packet(& : MQTT::Publish -> Nil) : Bool
-        raise ClosedError.new if @closed
+        raise ClosedError.new if closed?
         loop do
-          env = @msg_store_lock.synchronize { @msg_store.shift? } || break
+          env = @msg_store.shift? || break
           sp = env.segment_position
           no_ack = env.message.properties.delivery_mode == 0
           if no_ack
@@ -111,7 +109,7 @@ module LavinMQ
               packet = build_packet(env, nil)
               yield packet
             rescue ex # requeue failed delivery
-              @msg_store_lock.synchronize { @msg_store.requeue(sp) }
+              @msg_store.requeue(sp)
               raise ex
             end
             delete_message(sp)
@@ -125,7 +123,7 @@ module LavinMQ
               yield packet
               @unacked[id] = sp
             rescue ex # requeue failed delivery
-              @msg_store_lock.synchronize { @msg_store.requeue(sp) }
+              @msg_store.requeue(sp)
               @unacked_count.sub(1, :relaxed)
               @unacked_bytesize.sub(sp.bytesize, :relaxed)
               raise ex

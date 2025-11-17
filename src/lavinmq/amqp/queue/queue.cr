@@ -88,7 +88,6 @@ module LavinMQ::AMQP
       @unacked_bytesize.get(:relaxed)
     end
 
-    @msg_store_lock = Mutex.new(:reentrant)
     @msg_store : MessageStore
 
     getter paused = BoolChannel.new(false)
@@ -109,8 +108,9 @@ module LavinMQ::AMQP
         when @queue_expiration_ttl_change.receive
         when @consumers_empty.when_false.receive
         when timeout ttl.milliseconds
-          expire_queue
-          close
+          next unless @consumers.empty? # double check
+          @log.info { "Queue expired" }
+          @vhost.delete_queue(@name) # will in turn call `delete`
           break
         end
       end
@@ -164,8 +164,13 @@ module LavinMQ::AMQP
     getter? auto_delete, exclusive
     getter policy : Policy?
     getter operator_policy : OperatorPolicy?
-    getter? closed = false
+    @closed = Atomic(Bool).new(false)
     getter state = QueueState::Running
+
+    def closed?
+      @closed.get(:acquire)
+    end
+
     getter empty : BoolChannel
     getter single_active_consumer : Client::Channel::Consumer? = nil
     getter single_active_consumer_change = ::Channel(Client::Channel::Consumer).new
@@ -195,8 +200,12 @@ module LavinMQ::AMQP
       end
       @empty = @msg_store.empty
       handle_arguments
-      spawn queue_expire_loop, name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}" if @expires
-      spawn message_expire_loop, name: "Queue#message_expire_loop #{@vhost.name}/#{@name}"
+      @vhost.execution_context.spawn(name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}") do
+        queue_expire_loop
+      end if @expires
+      @vhost.execution_context.spawn(name: "Queue#message_expire_loop #{@vhost.name}/#{@name}") do
+        message_expire_loop
+      end
     end
 
     # own method so that it can be overriden in other queue implementations
@@ -264,7 +273,7 @@ module LavinMQ::AMQP
       when "expires"
         unless @expires.try &.< value.as_i64
           @expires = value.as_i64
-          spawn queue_expire_loop, name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}"
+          @vhost.execution_context.spawn(name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}") { queue_expire_loop }
           @queue_expiration_ttl_change.try_send? nil
         end
       when "overflow"
@@ -375,8 +384,7 @@ module LavinMQ::AMQP
     end
 
     def close : Bool
-      return false if @closed
-      @closed = true
+      return false if @closed.swap(true, :acquire_release)
       @state = QueueState::Closed
       @queue_expiration_ttl_change.close
       @message_ttl_change.close
@@ -387,9 +395,7 @@ module LavinMQ::AMQP
         @consumers.clear
       end
       Fiber.yield # Allow all consumers to cancel before closing mmap:s
-      @msg_store_lock.synchronize do
-        @msg_store.close
-      end
+      @msg_store.close
       # TODO: When closing due to ReadError, queue is deleted if exclusive
       delete if !durable? || @exclusive
       Fiber.yield
@@ -399,13 +405,10 @@ module LavinMQ::AMQP
     end
 
     def delete : Bool
-      return false if @deleted
-      @deleted = true
+      return false if closed?
       close
       @state = QueueState::Deleted
-      @msg_store_lock.synchronize do
-        @msg_store.delete
-      end
+      @msg_store.delete
       @vhost.delete_queue(@name)
       @log.info { "(messages=#{message_count}) Deleted" }
       notify_observers(QueueEvent::Deleted)
@@ -453,7 +456,7 @@ module LavinMQ::AMQP
     class Closed < Exception; end
 
     def publish(msg : Message) : Bool
-      return false if @deleted || @state.closed?
+      return false if closed?
       if d = @deduper
         if d.duplicate?(msg)
           @dedup_count.add(1, :relaxed)
@@ -462,9 +465,7 @@ module LavinMQ::AMQP
         d.add(msg)
       end
       reject_on_overflow(msg)
-      @msg_store_lock.synchronize do
-        @msg_store.push(msg)
-      end
+      @msg_store.push(msg)
       @publish_count.add(1, :relaxed)
       drop_overflow_if_no_immediate_delivery
       true
@@ -498,31 +499,27 @@ module LavinMQ::AMQP
     private def drop_overflow : Nil
       counter = 0
       if ml = @max_length
-        @msg_store_lock.synchronize do
-          while @msg_store.size > ml
-            env = @msg_store.shift? || break
-            @log.debug { "Overflow drop head sp=#{env.segment_position}" }
-            expire_msg(env, :maxlen)
-            counter &+= 1
-            if counter >= 16 * 1024
-              Fiber.yield
-              counter = 0
-            end
+        while @msg_store.size > ml
+          env = @msg_store.shift? || break
+          @log.debug { "Overflow drop head sp=#{env.segment_position}" }
+          expire_msg(env, :maxlen)
+          counter &+= 1
+          if counter >= 16 * 1024
+            Fiber.yield
+            counter = 0
           end
         end
       end
 
       if mlb = @max_length_bytes
-        @msg_store_lock.synchronize do
-          while @msg_store.bytesize > mlb
-            env = @msg_store.shift? || break
-            @log.debug { "Overflow drop head sp=#{env.segment_position}" }
-            expire_msg(env, :maxlenbytes)
-            counter &+= 1
-            if counter >= 16 * 1024
-              Fiber.yield
-              counter = 0
-            end
+        while @msg_store.bytesize > mlb
+          env = @msg_store.shift? || break
+          @log.debug { "Overflow drop head sp=#{env.segment_position}" }
+          expire_msg(env, :maxlenbytes)
+          counter &+= 1
+          if counter >= 16 * 1024
+            Fiber.yield
+            counter = 0
           end
         end
       end
@@ -531,26 +528,24 @@ module LavinMQ::AMQP
     private def drop_redelivered : Nil
       counter = 0
       if limit = @delivery_limit
-        @msg_store_lock.synchronize do
-          loop do
-            env = @msg_store.first? || break
-            delivery_count = @deliveries.fetch(env.segment_position, 0) || break
-            break unless delivery_count > limit
-            env = @msg_store.shift? || break
-            @log.debug { "Over delivery limit, drop sp=#{env.segment_position}" }
-            expire_msg(env, :delivery_limit)
-            counter &+= 1
-            if counter >= 16 * 1024
-              Fiber.yield
-              counter = 0
-            end
+        loop do
+          env = @msg_store.first? || break
+          delivery_count = @deliveries.fetch(env.segment_position, 0) || break
+          break unless delivery_count > limit
+          env = @msg_store.shift? || break
+          @log.debug { "Over delivery limit, drop sp=#{env.segment_position}" }
+          expire_msg(env, :delivery_limit)
+          counter &+= 1
+          if counter >= 16 * 1024
+            Fiber.yield
+            counter = 0
           end
         end
       end
     end
 
     private def time_to_message_expiration : Time::Span?
-      env = @msg_store_lock.synchronize { @msg_store.first? } || return
+      env = @msg_store.first? || return
       @log.debug { "Checking if message #{env.message} has to be expired" }
       if expire_at = expire_at(env.message)
         expire_in = expire_at - RoughTime.unix_ms
@@ -563,7 +558,7 @@ module LavinMQ::AMQP
     end
 
     private def has_expired?(sp : SegmentPosition, requeue = false) : Bool
-      msg = @msg_store_lock.synchronize { @msg_store[sp] }
+      msg = @msg_store[sp]
       has_expired?(msg, requeue)
     end
 
@@ -593,19 +588,17 @@ module LavinMQ::AMQP
 
     private def expire_messages : Nil
       i = 0
-      @msg_store_lock.synchronize do
-        loop do
-          env = @msg_store.first? || break
-          msg = env.message
-          @log.debug { "Checking if next message #{msg} has expired" }
-          if has_expired?(msg)
-            # shift it out from the msgs store, first time was just a peek
-            env = @msg_store.shift? || break
-            expire_msg(env, :expired)
-            i += 1
-          else
-            break
-          end
+      loop do
+        env = @msg_store.first? || break
+        msg = env.message
+        @log.debug { "Checking if next message #{msg} has expired" }
+        if has_expired?(msg)
+          # shift it out from the msgs store, first time was just a peek
+          env = @msg_store.shift? || break
+          expire_msg(env, :expired)
+          i += 1
+        else
+          break
         end
       end
       @log.info { "Expired #{i} messages" } if i > 0
@@ -613,7 +606,7 @@ module LavinMQ::AMQP
 
     private def expire_msg(sp : SegmentPosition, reason : Symbol)
       if sp.has_dlx? || @dlx
-        msg = @msg_store_lock.synchronize { @msg_store[sp] }
+        msg = @msg_store[sp]
         env = Envelope.new(sp, msg, false)
         expire_msg(env, reason)
       else
@@ -622,6 +615,7 @@ module LavinMQ::AMQP
     end
 
     private def expire_msg(env : Envelope, reason : Symbol)
+      return if closed?
       sp = env.segment_position
       msg = env.message
       @log.debug { "Expiring #{sp} now due to #{reason}" }
@@ -732,16 +726,8 @@ module LavinMQ::AMQP
         props, msg.bodysize, IO::Memory.new(msg.body))
     end
 
-    private def expire_queue : Bool
-      @log.debug { "Trying to expire queue" }
-      return false unless @consumers.empty?
-      @log.debug { "Queue expired" }
-      @vhost.delete_queue(@name)
-      true
-    end
-
     def basic_get(no_ack, force = false, & : Envelope -> Nil) : Bool
-      return false if !@state.running? && (@state.paused? && !force)
+      return false if closed? || (@state.paused? && !force)
       @queue_expiration_ttl_change.try_send? nil
       @deliver_get_count.add(1, :relaxed)
       no_ack ? @get_no_ack_count.add(1, :relaxed) : @get_count.add(1, :relaxed)
@@ -767,9 +753,9 @@ module LavinMQ::AMQP
     # returns true if a message was deliviered, false otherwise
     # if we encouncer an unrecoverable ReadError, close queue
     private def get(no_ack : Bool, & : Envelope -> Nil) : Bool
-      raise ClosedError.new if @closed
+      raise ClosedError.new if closed?
       loop do # retry if msg expired or deliver limit hit
-        env = @msg_store_lock.synchronize { @msg_store.shift? } || break
+        env = @msg_store.shift? || break
         if has_expired?(env.message) # guarantee to not deliver expired messages
           expire_msg(env, :expired)
           next
@@ -782,7 +768,7 @@ module LavinMQ::AMQP
           begin
             yield env # deliver the message
           rescue ex   # requeue failed delivery
-            @msg_store_lock.synchronize { @msg_store.requeue(sp) }
+            @msg_store.requeue(sp)
             raise ex
           end
           delete_message(sp)
@@ -826,7 +812,7 @@ module LavinMQ::AMQP
     end
 
     def ack(sp : SegmentPosition) : Nil
-      return if @deleted
+      return if closed?
       @log.debug { "Acking #{sp}" }
       @ack_count.add(1, :relaxed)
       @unacked_count.sub(1, :relaxed)
@@ -839,13 +825,11 @@ module LavinMQ::AMQP
         @log.debug { "Deleting: #{sp}" }
       {% end %}
       @deliveries.delete(sp) if @delivery_limit
-      @msg_store_lock.synchronize do
-        @msg_store.delete(sp)
-      end
+      @msg_store.delete(sp)
     end
 
     def reject(sp : SegmentPosition, requeue : Bool)
-      return if @deleted || @closed
+      return if closed?
       @log.debug { "Rejecting #{sp}, requeue: #{requeue}" }
       @reject_count.add(1, :relaxed)
       @unacked_count.sub(1, :relaxed)
@@ -859,9 +843,7 @@ module LavinMQ::AMQP
               return expire_msg(sp, :delivery_limit)
             end
           end
-          @msg_store_lock.synchronize do
-            @msg_store.requeue(sp)
-          end
+          @msg_store.requeue(sp)
           drop_overflow_if_no_immediate_delivery
         end
       else
@@ -874,7 +856,7 @@ module LavinMQ::AMQP
     end
 
     def add_consumer(consumer : Client::Channel::Consumer)
-      return if @closed
+      return if closed?
       @consumers_lock.synchronize do
         was_empty = @consumers.empty?
         @consumers << consumer
@@ -893,7 +875,7 @@ module LavinMQ::AMQP
     getter? has_priority_consumers = false
 
     def rm_consumer(consumer : Client::Channel::Consumer)
-      return if @closed
+      return if closed?
       @consumers_lock.synchronize do
         deleted = @consumers.delete consumer
         @has_priority_consumers = @consumers.any? { |c| !c.priority.zero? }
@@ -928,9 +910,9 @@ module LavinMQ::AMQP
       if unacked_count == 0 && max_count >= message_count
         # If there's no unacked and we're purging all messages, we can purge faster by deleting files
         delete_count = message_count
-        @msg_store_lock.synchronize { @msg_store.purge_all }
+        @msg_store.purge_all
       else
-        delete_count = @msg_store_lock.synchronize { @msg_store.purge(max_count) }
+        delete_count = @msg_store.purge(max_count)
       end
       @log.info { "Purged #{delete_count} messages" }
       delete_count
@@ -987,7 +969,7 @@ module LavinMQ::AMQP
     # Used for when channel recovers without requeue
     # eg. redelivers messages it already has unacked
     def read(sp : SegmentPosition) : Envelope
-      msg = @msg_store_lock.synchronize { @msg_store[sp] }
+      msg = @msg_store[sp]
       msg_sp = SegmentPosition.make(sp.segment, sp.position, msg)
       Envelope.new(msg_sp, msg, redelivered: true)
     rescue ex : MessageStore::Error

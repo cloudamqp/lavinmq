@@ -28,10 +28,9 @@ describe LavinMQ::HTTP::Server do
       })
         response = http.post("/api/definitions", body: body)
         response.status_code.should eq 200
-        s.users.select("sha256", "sha512", "bcrypt", "md5").each do |_, u|
-          u.should be_a(LavinMQ::Auth::User)
-          ok = u.not_nil!.password.not_nil!.verify "hej"
-          {u.name, ok}.should(eq({u.name, true}))
+        {"sha256", "sha512", "bcrypt", "md5"}.each do |name|
+          u = s.users[name]
+          u.password.not_nil!.verify("hej").should be_true
         end
       end
     end

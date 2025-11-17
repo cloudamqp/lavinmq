@@ -86,11 +86,9 @@ module LavinMQ::AMQP
 
     # save message id / segment position
     def publish(msg : Message) : Bool
-      return false if @state.closed?
-      @msg_store_lock.synchronize do
-        @msg_store.push(msg)
-        @publish_count.add(1, :relaxed)
-      end
+      return false if closed?
+      @msg_store.push(msg)
+      @publish_count.add(1, :relaxed)
       # Notify all waiting stream consumers about new messages
       notify_all_stream_consumers
       true
@@ -129,8 +127,8 @@ module LavinMQ::AMQP
     # returns true if a message was deliviered, false otherwise
     # if we encouncer an unrecoverable ReadError, close queue
     private def get(consumer : AMQP::StreamConsumer, & : Envelope -> Nil) : Bool
-      raise ClosedError.new if @closed
-      env = @msg_store_lock.synchronize { @msg_store.shift?(consumer) } || return false
+      raise ClosedError.new if closed?
+      env = @msg_store.shift?(consumer) || return false
       yield env # deliver the message
       true
     rescue ex : MessageStore::Error
@@ -192,7 +190,7 @@ module LavinMQ::AMQP
     end
 
     def purge(max_count : Int = UInt32::MAX) : UInt32
-      delete_count = @msg_store_lock.synchronize { @msg_store.purge(max_count) }
+      delete_count = @msg_store.purge(max_count)
       @log.info { "Purged #{delete_count} messages" }
       delete_count
     rescue ex : MessageStore::Error
@@ -216,10 +214,8 @@ module LavinMQ::AMQP
           used_segments << consumer.as(AMQP::StreamConsumer).segment
         end
       end
-      @msg_store_lock.synchronize do
-        stream_msg_store.drop_overflow
-        stream_msg_store.unmap_segments(except: used_segments)
-      end
+      stream_msg_store.drop_overflow
+      stream_msg_store.unmap_segments(except: used_segments)
     end
   end
 end
