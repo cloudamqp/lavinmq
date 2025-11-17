@@ -329,6 +329,8 @@ module LavinMQ
 
           # Get the length of data in the BIO (BIO_CTRL_PENDING = 10)
           length = LibCrypto.bio_ctrl(bio, 10, 0, nil)
+          # RSA-16384 (max) is ~4KB in PEM format, 10KB covers all RSA keys with margin
+          raise "Suspiciously large PEM length: #{length}" if length > 10_000
 
           # Read the PEM data from the BIO
           buffer = Bytes.new(length)
