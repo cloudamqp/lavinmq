@@ -5,7 +5,7 @@ module LavinMQ
     struct UserView
       include SortableJSON
 
-      def initialize(@user : Auth::BasicUser)
+      def initialize(@user : Auth::LocalUser)
       end
 
       def details_tuple
@@ -131,7 +131,7 @@ module LavinMQ
         put "/api/auth/hash_password" do |context, _params|
           body = parse_body(context)
           if password = body["password"]?.try &.as_s?
-            hash = Auth::BasicUser.hash_password(password, "SHA256")
+            hash = Auth::LocalUser.hash_password(password, "SHA256")
             {password_hash: hash.to_s}.to_json(context.response)
             context
           else
