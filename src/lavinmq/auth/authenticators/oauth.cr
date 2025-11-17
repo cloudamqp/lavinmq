@@ -52,8 +52,8 @@ module LavinMQ
         raise JWT::DecodeError.new("Missing algorithm in header") unless alg
         raise JWT::DecodeError.new("Expected RS256, got #{alg}") unless alg == "RS256"
 
-        payload_bytes = base64url_decode(parts[1])
-        payload = JSON.parse(String.new(payload_bytes))
+        payload_str = base64url_decode(parts[1])
+        payload = JSON.parse(payload_str)
         exp = payload["exp"]?.try(&.as_i64?)
         raise JWT::DecodeError.new("Missing exp claim in token") unless exp
         raise JWT::DecodeError.new("Token has expired") if Time.unix(exp) <= Time.utc
@@ -284,8 +284,8 @@ module LavinMQ
 
       private def to_pem(n : String, e : String) : String
         # Decode base64url-encoded modulus and exponent
-        n_bytes = base64url_decode(n)
-        e_bytes = base64url_decode(e)
+        n_bytes = base64url_decode_bytes(n)
+        e_bytes = base64url_decode_bytes(e)
 
         # Convert bytes to BIGNUMs
         modulus = LibCrypto.bn_bin2bn(n_bytes, n_bytes.size, nil)
@@ -341,7 +341,7 @@ module LavinMQ
         end
       end
 
-      private def base64url_decode(input : String) : Bytes
+      private def prepare_base64url(input : String) : String
         # Add padding if needed
         padded = case input.size % 4
                  when 2 then input + "=="
@@ -350,8 +350,15 @@ module LavinMQ
                  end
 
         # Replace URL-safe characters
-        standard = padded.tr("-_", "+/")
-        Base64.decode(standard)
+        padded.tr("-_", "+/")
+      end
+
+      private def base64url_decode(input : String) : String
+        Base64.decode_string(prepare_base64url(input))
+      end
+
+      private def base64url_decode_bytes(input : String) : Bytes
+        Base64.decode(prepare_base64url(input))
       end
     end
   end
