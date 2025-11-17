@@ -156,7 +156,7 @@ describe "Delayed Message Exchange" do
         q.bind(x.name, "#")
         ex = s.vhosts["/"].exchanges[x_name].as(LavinMQ::AMQP::Exchange)
 
-        delayed_q_name = ex.@delayed_queue.try &.name || raise "No delay queue?"
+        delayed_q = ex.@delayed_queue.should_not be_nil
 
         msgs = Channel(AMQP::Client::DeliverMessage).new
         q.subscribe { |msg| msgs.send msg }
@@ -167,8 +167,8 @@ describe "Delayed Message Exchange" do
           }),
         )
 
-        # Publish direct to the delayed queue which leaves exchange empty
-        ch.basic_publish "body", exchange: "", routing_key: delayed_q_name, props: props
+        # "Publish" direct to the delayed queue which leaves exchange empty
+        delayed_q.delay(LavinMQ::Message.new("", delayed_q.name, "foo", props))
 
         # Wait for the message to be expired. Just receiving it actually verifies that
         # exchange has been set to x-dead-letter-exchange
