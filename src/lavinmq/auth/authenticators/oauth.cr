@@ -81,7 +81,7 @@ module LavinMQ
         token
       end
 
-      private def with_cached_keys(&block : Hash(String, String) -> JWT::Token)
+      private def with_cached_keys(& : Hash(String, String) -> JWT::Token)
         @cache_mutex.synchronize do
           keys = @cached_keys
           return nil if keys.nil?
