@@ -18,17 +18,17 @@ module LavinMQ
       def initialize(@config = Config.instance)
       end
 
-      def validate_and_extract_claims(username : String, password : Bytes)
-        password_str = String.new(password)
-        prevalidate_jwt(password_str)
-        token = fetch_and_verify_jwks(password_str)
+      def validate_and_extract_claims(username : String, password : String)
+        prevalidate_jwt(password)
+        token = fetch_and_verify_jwks(password)
         extracted_username, tags, permissions, expires_at = parse_jwt_payload(token.payload)
         expiration_time = Time.unix(expires_at)
         {extracted_username, tags, permissions, expiration_time}
       end
 
       def authenticate(username : String, password : Bytes) : OAuthUser?
-        extracted_username, tags, permissions, expiration_time = validate_and_extract_claims(username, password)
+        password_str = String.new(password)
+        extracted_username, tags, permissions, expiration_time = validate_and_extract_claims(username, password_str)
         Log.info { "OAuth2 user authenticated: #{extracted_username}" }
 
         OAuthUser.new(extracted_username, tags, permissions, expiration_time, self)
