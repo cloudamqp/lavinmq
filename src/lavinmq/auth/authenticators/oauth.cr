@@ -70,9 +70,9 @@ module LavinMQ
         keys_array = jwks["keys"]?.try(&.as_a?) || raise "Missing or invalid keys array in JWKS response"
 
         keys = Hash(String, String).new
-        keys_array.each do |key|
+        keys_array.each_with_index do |key, idx|
           next unless key["n"]? && key["e"]?
-          kid = key["kid"]?.try(&.as_s) || "unknown-#{keys.size}"
+          kid = key["kid"]?.try(&.as_s) || "unknown-#{idx}"
           keys[kid] = to_pem(key["n"].as_s, key["e"].as_s)
         end
 
