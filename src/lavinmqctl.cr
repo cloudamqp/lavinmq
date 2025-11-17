@@ -332,7 +332,7 @@ class LavinMQCtl
     c = HTTP::Client.new(uri)
     uri.user = @options["user"] if @options["user"]?
     uri.password = @options["password"] if @options["password"]?
-    c.local_auth(uri.user, uri.password) if uri.user
+    c.basic_auth(uri.user, uri.password) if uri.user
     c
   end
 
