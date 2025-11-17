@@ -88,7 +88,7 @@ module LavinMQ
             Fiber.yield
           end
         end
-      rescue ex : ClosedError | Queue::ClosedError | AMQP::Channel::ClosedError | ::Channel::ClosedError
+      rescue ex : ClosedError | Queue::ClosedError | AMQP::Channel::ClosedError | ::Channel::ClosedError | IO::Error
         @log.debug { "deliver loop exiting: #{ex.inspect}" }
       end
 
