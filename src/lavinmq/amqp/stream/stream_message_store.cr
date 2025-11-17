@@ -82,9 +82,8 @@ module LavinMQ::AMQP
       mfile = @segments[seg]
       offset = @offset_index[seg]
       mfile.pos = 4
-      loop do
+      while mfile.pos < pos
         BytesMessage.skip(mfile)
-        break if mfile.pos >= pos
         offset += 1
       rescue IO::Error
         break
