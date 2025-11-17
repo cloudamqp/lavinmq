@@ -241,7 +241,7 @@ class LavinMQCtl
     c = HTTP::Client.new(uri)
     uri.user = @options["user"] if @options["user"]?
     uri.password = @options["password"] if @options["password"]?
-    c.basic_auth(uri.user, uri.password) if uri.user
+    c.local_auth(uri.user, uri.password) if uri.user
     c
   end
 
@@ -747,7 +747,7 @@ class LavinMQCtl
   private def hash_password
     password = ARGV.shift?
     abort @banner unless password
-    output LavinMQ::Auth::BasicUser.hash_password(password, "SHA256")
+    output LavinMQ::Auth::LocalUser.hash_password(password, "SHA256")
   end
 end
 
