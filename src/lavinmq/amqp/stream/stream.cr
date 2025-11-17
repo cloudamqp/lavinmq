@@ -86,7 +86,7 @@ module LavinMQ::AMQP
 
     # save message id / segment position
     def publish(msg : Message) : Bool
-      return false if @state.closed?
+      return false if closed?
       @msg_store.push(msg)
       @publish_count.add(1, :relaxed)
       # Notify all waiting stream consumers about new messages

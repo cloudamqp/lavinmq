@@ -108,8 +108,9 @@ module LavinMQ::AMQP
         when @queue_expiration_ttl_change.receive
         when @consumers_empty.when_false.receive
         when timeout ttl.milliseconds
-          expire_queue
-          close
+          next unless @consumers.empty? # double check
+          @log.info { "Queue expired" }
+          @vhost.delete_queue(@name) # will in turn call `delete`
           break
         end
       end
@@ -404,8 +405,7 @@ module LavinMQ::AMQP
     end
 
     def delete : Bool
-      return false if @deleted
-      @deleted = true
+      return false if closed?
       close
       @state = QueueState::Deleted
       @msg_store.delete
@@ -456,7 +456,7 @@ module LavinMQ::AMQP
     class Closed < Exception; end
 
     def publish(msg : Message) : Bool
-      return false if @deleted || @state.closed?
+      return false if closed?
       if d = @deduper
         if d.duplicate?(msg)
           @dedup_count.add(1, :relaxed)
@@ -615,6 +615,7 @@ module LavinMQ::AMQP
     end
 
     private def expire_msg(env : Envelope, reason : Symbol)
+      return if closed?
       sp = env.segment_position
       msg = env.message
       @log.debug { "Expiring #{sp} now due to #{reason}" }
@@ -720,23 +721,13 @@ module LavinMQ::AMQP
     end
 
     private def dead_letter_msg(msg : BytesMessage, props, dlx, dlrk)
-      # Don't dead letter during shutdown to avoid reading from closed message stores
-      return if @vhost.closed? || closed?
       @log.debug { "Dead lettering ex=#{dlx} rk=#{dlrk} body_size=#{msg.bodysize} props=#{props}" }
       @vhost.publish Message.new(RoughTime.unix_ms, dlx.to_s, dlrk.to_s,
         props, msg.bodysize, IO::Memory.new(msg.body))
     end
 
-    private def expire_queue : Bool
-      @log.debug { "Trying to expire queue" }
-      return false unless @consumers.empty?
-      @log.debug { "Queue expired" }
-      @vhost.delete_queue(@name)
-      true
-    end
-
     def basic_get(no_ack, force = false, & : Envelope -> Nil) : Bool
-      return false if !@state.running? && (@state.paused? && !force)
+      return false if closed? || (@state.paused? && !force)
       @queue_expiration_ttl_change.try_send? nil
       @deliver_get_count.add(1, :relaxed)
       no_ack ? @get_no_ack_count.add(1, :relaxed) : @get_count.add(1, :relaxed)
@@ -821,7 +812,7 @@ module LavinMQ::AMQP
     end
 
     def ack(sp : SegmentPosition) : Nil
-      return if @deleted
+      return if closed?
       @log.debug { "Acking #{sp}" }
       @ack_count.add(1, :relaxed)
       @unacked_count.sub(1, :relaxed)
@@ -838,7 +829,7 @@ module LavinMQ::AMQP
     end
 
     def reject(sp : SegmentPosition, requeue : Bool)
-      return if @deleted || closed?
+      return if closed?
       @log.debug { "Rejecting #{sp}, requeue: #{requeue}" }
       @reject_count.add(1, :relaxed)
       @unacked_count.sub(1, :relaxed)
