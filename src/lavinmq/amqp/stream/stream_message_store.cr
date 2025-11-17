@@ -9,8 +9,8 @@ module LavinMQ::AMQP
     property max_age : Time::Span | Time::MonthSpan | Nil
     getter last_offset : Int64
     @segment_last_ts = Hash(UInt32, Int64).new(0i64) # used for max-age
-    @offset_index = Hash(UInt32, Int64).new          # segment_id => offset of first msg
-    @timestamp_index = Hash(UInt32, Int64).new       # segment_id => ts of first msg
+    @segment_first_offset = Hash(UInt32, Int64).new  # segment_id => offset of first msg
+    @segment_first_ts = Hash(UInt32, Int64).new      # segment_id => ts of first msg
     @consumer_offsets : MFile
     @consumer_offset_positions = Hash(String, Int64).new # used for consumer offsets
 
@@ -35,7 +35,7 @@ module LavinMQ::AMQP
 
     private def get_last_offset : Int64
       return 0i64 if @size.zero?
-      offset = @offset_index.last_value
+      offset = @segment_first_offset.last_value
       offset += @segment_msg_count.last_value
       offset
     end
@@ -80,7 +80,7 @@ module LavinMQ::AMQP
     private def offset_at(seg, pos, retried = false) : Tuple(Int64, UInt32, UInt32)
       return {@last_offset, seg, pos} if @size.zero?
       mfile = @segments[seg]
-      offset = @offset_index[seg]
+      offset = @segment_first_offset[seg]
       mfile.pos = 4
       while mfile.pos < pos
         BytesMessage.skip(mfile)
@@ -99,13 +99,13 @@ module LavinMQ::AMQP
     private def find_offset_in_segments(offset : Int | Time) : Tuple(Int64, UInt32, UInt32)
       segment = offset_index_lookup(offset)
       pos = 4u32
-      msg_offset = @offset_index[segment] || 0i64
+      msg_offset = @segment_first_offset[segment] || 0i64
       loop do
         rfile = @segments[segment]?
         if rfile.nil? || pos == rfile.size
           if segment = @segments.each_key.find { |sid| sid > segment }
             rfile = @segments[segment]
-            msg_offset = @offset_index[segment]
+            msg_offset = @segment_first_offset[segment]
           else
             return last_offset_seg_pos
           end
@@ -128,12 +128,12 @@ module LavinMQ::AMQP
       seg = @segments.first_key
       case offset
       when Int
-        @offset_index.each do |seg_id, first_seg_offset|
+        @segment_first_offset.each do |seg_id, first_seg_offset|
           break if first_seg_offset > offset
           seg = seg_id
         end
       when Time
-        @timestamp_index.each do |seg_id, first_seg_ts|
+        @segment_first_ts.each do |seg_id, first_seg_ts|
           break if Time.unix_ms(first_seg_ts) > offset
           seg = seg_id
         end
@@ -292,15 +292,15 @@ module LavinMQ::AMQP
     private def open_new_segment(next_msg_size = 0) : MFile
       super.tap do
         drop_overflow
-        @offset_index[@segments.last_key] = @last_offset unless @last_offset.zero?
-        @timestamp_index[@segments.last_key] = RoughTime.unix_ms
+        @segment_first_offset[@segments.last_key] = @last_offset unless @last_offset.zero?
+        @segment_first_ts[@segments.last_key] = RoughTime.unix_ms
       end
     end
 
     private def write_metadata(io, seg)
       super
-      io.write_bytes @offset_index[seg]
-      io.write_bytes @timestamp_index[seg]
+      io.write_bytes @segment_first_offset[seg]
+      io.write_bytes @segment_first_ts[seg]
     end
 
     def drop_overflow
@@ -332,8 +332,8 @@ module LavinMQ::AMQP
         msg_count = @segment_msg_count.delete(seg_id)
         @size -= msg_count if msg_count
         @segment_last_ts.delete(seg_id)
-        @offset_index.delete(seg_id)
-        @timestamp_index.delete(seg_id)
+        @segment_first_offset.delete(seg_id)
+        @segment_first_ts.delete(seg_id)
         @bytesize -= mfile.size - 4
         delete_file(mfile, including_meta: true)
         true
@@ -366,20 +366,20 @@ module LavinMQ::AMQP
     private def produce_metadata(seg, mfile)
       super
       if @empty
-        @offset_index[seg] = @last_offset + 1
-        @timestamp_index[seg] = RoughTime.unix_ms
+        @segment_first_offset[seg] = @last_offset + 1
+        @segment_first_ts[seg] = RoughTime.unix_ms
       else
-        previous_segment_last_offset = @offset_index[seg - 1]? || 0i64
+        previous_segment_last_offset = @segment_first_offset[seg - 1]? || 0i64
         previous_segment_last_offset += @segment_msg_count[seg - 1]? || 0i64
         msg = BytesMessage.from_bytes(mfile.to_slice + 4u32)
-        @offset_index[seg] = previous_segment_last_offset + 1
-        @timestamp_index[seg] = msg.timestamp
+        @segment_first_offset[seg] = previous_segment_last_offset + 1
+        @segment_first_ts[seg] = msg.timestamp
       end
     end
 
     private def read_extra_metadata_fields(file : File, seg : UInt32)
-      @offset_index[seg] = file.read_bytes(Int64)
-      @timestamp_index[seg] = file.read_bytes(Int64)
+      @segment_first_offset[seg] = file.read_bytes(Int64)
+      @segment_first_ts[seg] = file.read_bytes(Int64)
     end
 
     class OffsetError < Exception
