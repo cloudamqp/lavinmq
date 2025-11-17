@@ -71,6 +71,7 @@ module LavinMQ
           end
           {
             lavinmq_version: LavinMQ::VERSION,
+            product_name:    "LavinMQ",
             node:            System.hostname,
             uptime:          @amqp_server.uptime.to_i,
             object_totals:   {

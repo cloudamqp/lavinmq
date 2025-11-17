@@ -17,19 +17,18 @@ function updateExchange (all) {
   HTTP.request('GET', exchangeUrl).then(item => {
     Chart.update(chart, item.message_stats)
     if (all) {
-      let features = ''
-      features += item.durable ? ' <span title="Durable">D</span>' : ''
-      features += item.auto_delete ? ' <span title="Auto delete">AD</span>' : ''
-      features += item.internal ? ' <span title="Internal">I</span>' : ''
-      features += item.arguments['x-delayed-exchange'] ? ' <span title="Delayed">d</span>' : ''
-      document.getElementById('e-features').innerHTML = features
+      const features = []
+      if (item.durable) features.push('Durable')
+      if (item.auto_delete) features.push('Auto delete')
+      if (item.internal) features.push('Internal')
+      if (item.arguments['x-delayed-exchange']) features.push('Delayed')
+      document.getElementById('e-features').innerText = features.join(', ')
       document.getElementById('e-type').textContent = item.type
       document.querySelector('#pagename-label').textContent = exchange + ' in virtual host ' + item.vhost
       const argList = document.createElement('div')
       Object.keys(item.arguments).forEach(key => {
         if (key === 'x-delayed-exchange' && item.arguments[key] === false) {
           return
-
         }
         const el = document.createElement('div')
         el.textContent = key + ' = ' + item.arguments[key]
@@ -69,22 +68,16 @@ const bindingsTable = Table.renderTable('bindings-table', tableOptions, function
     td.setAttribute('colspan', 5)
   } else {
     const btn = DOM.button.delete({
-                                  text: 'Unbind',
-                                  click: function () {
-                                    const type = item.destination_type === 'exchange' ? 'e' : 'q'
-                                    const url = HTTP.url`api/bindings/${vhost}/e/${item.source}/${type}/${item.destination}/${item.properties_key}`
-                                    HTTP.request('DELETE', url).then(() => { tr.parentNode.removeChild(tr) })
-                                  }
+      text: 'Unbind',
+      click: function () {
+        const type = item.destination_type === 'exchange' ? 'e' : 'q'
+        const url = HTTP.url`api/bindings/${vhost}/e/${item.source}/${type}/${item.destination}/${item.properties_key}`
+        HTTP.request('DELETE', url).then(() => { tr.parentNode.removeChild(tr) })
+      }
     })
 
     const destinationLink = document.createElement('a')
     destinationLink.href = HTTP.url`${item.destination_type}#vhost=${vhost}&name=${item.destination}`
-    if (item.destination_type === 'exchange') {
-      destinationLink.addEventListener('click', function (e) {
-        window.location.href = this.href
-        window.location.reload()
-      })
-    }
     destinationLink.textContent = item.destination
     const argsPre = document.createElement('pre')
     argsPre.textContent = JSON.stringify(item.arguments || {})
@@ -111,6 +104,12 @@ document.querySelector('#addBinding').addEventListener('submit', function (evt) 
     .then(() => {
       bindingsTable.reload()
       evt.target.reset()
+    })
+    .catch(e => {
+      if (e.status === 404) {
+        const type = t === 'q' ? 'Queue' : 'Exchange'
+        DOM.toast.error(`${type} '${d}' does not exist and needs to be created first.`)
+      }
     })
 })
 
@@ -151,4 +150,9 @@ document.getElementById('dest-type').addEventListener('change', (e) => updateAut
 
 document.querySelector('#dataTags').addEventListener('click', e => {
   Helpers.argumentHelperJSON('publishMessage', 'properties', e)
+})
+
+// Handle navigation to another exchange via hash change
+window.addEventListener('hashchange', () => {
+  window.location.reload()
 })

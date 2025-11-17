@@ -192,6 +192,9 @@ module LavinMQ
         @sent_bytes += lag_size
         @actions.send action
         lag_size
+      rescue ex : Channel::ClosedError
+        action.done
+        raise ex
       end
 
       def close

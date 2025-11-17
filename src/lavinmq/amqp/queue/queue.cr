@@ -243,83 +243,82 @@ module LavinMQ::AMQP
       @exclusive_consumer
     end
 
-    def apply_policy(policy : Policy?, operator_policy : OperatorPolicy?) # ameba:disable Metrics/CyclomaticComplexity
-      clear_policy
-      Policy.merge_definitions(policy, operator_policy).each do |k, v|
-        @log.debug { "Applying policy #{k}: #{v}" }
-        case k
-        when "max-length"
-          unless @max_length.try &.< v.as_i64
-            @max_length = v.as_i64
-            drop_overflow
-          end
-        when "max-length-bytes"
-          unless @max_length_bytes.try &.< v.as_i64
-            @max_length_bytes = v.as_i64
-            drop_overflow
-          end
-        when "message-ttl"
-          unless @message_ttl.try &.< v.as_i64
-            @message_ttl = v.as_i64
-            @message_ttl_change.try_send? nil
-          end
-        when "expires"
-          unless @expires.try &.< v.as_i64
-            @expires = v.as_i64
-            spawn queue_expire_loop, name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}"
-            @queue_expiration_ttl_change.try_send? nil
-          end
-        when "overflow"
-          @reject_on_overflow ||= v.as_s == "reject-publish"
-        when "dead-letter-exchange"
-          @dlx ||= v.as_s
-        when "dead-letter-routing-key"
-          @dlrk ||= v.as_s
-        when "delivery-limit"
-          unless @delivery_limit.try &.< v.as_i64
-            @delivery_limit = v.as_i64
-            drop_redelivered
-          end
-        when "federation-upstream"
-          @vhost.upstreams.try &.link(v.as_s, self)
-        when "federation-upstream-set"
-          @vhost.upstreams.try &.link_set(v.as_s, self)
-        when "consumer-timeout"
-          unless @consumer_timeout.try &.< v.as_i64
-            @consumer_timeout = v.as_i64.to_u64
-          end
+    private def apply_policy_argument(key : String, value : JSON::Any) # ameba:disable Metrics/CyclomaticComplexity
+      @log.debug { "Applying policy #{key}: #{value}" }
+      case key
+      when "max-length"
+        unless @max_length.try &.< value.as_i64
+          @max_length = value.as_i64
+          drop_overflow
+        end
+      when "max-length-bytes"
+        unless @max_length_bytes.try &.< value.as_i64
+          @max_length_bytes = value.as_i64
+          drop_overflow
+        end
+      when "message-ttl"
+        unless @message_ttl.try &.< value.as_i64
+          @message_ttl = value.as_i64
+          @message_ttl_change.try_send? nil
+        end
+      when "expires"
+        unless @expires.try &.< value.as_i64
+          @expires = value.as_i64
+          spawn queue_expire_loop, name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}"
+          @queue_expiration_ttl_change.try_send? nil
+        end
+      when "overflow"
+        @reject_on_overflow ||= value.as_s == "reject-publish"
+      when "dead-letter-exchange"
+        @dlx ||= value.as_s
+      when "dead-letter-routing-key"
+        @dlrk ||= value.as_s
+      when "delivery-limit"
+        unless @delivery_limit.try &.< value.as_i64
+          @delivery_limit = value.as_i64
+          drop_redelivered
+        end
+      when "federation-upstream"
+        @vhost.upstreams.try &.link(value.as_s, self)
+      when "federation-upstream-set"
+        @vhost.upstreams.try &.link_set(value.as_s, self)
+      when "consumer-timeout"
+        unless @consumer_timeout.try &.< value.as_i64
+          @consumer_timeout = value.as_i64.to_u64
         end
       end
-      @policy = policy
-      @operator_policy = operator_policy
     end
 
-    private def clear_policy
+    private def clear_policy_arguments
       handle_arguments
-      @operator_policy = nil
-      return if @policy.nil?
-      @policy = nil
       @vhost.upstreams.try &.stop_link(self)
     end
 
-    private def handle_arguments
+    private def handle_arguments # ameba:disable Metrics/CyclomaticComplexity
       @effective_args = Array(String).new
       @dlx = parse_header("x-dead-letter-exchange", String)
       @effective_args << "x-dead-letter-exchange" if @dlx
       @dlrk = parse_header("x-dead-letter-routing-key", String)
       @effective_args << "x-dead-letter-routing-key" if @dlrk
       @expires = parse_header("x-expires", Int).try &.to_i64
+      @effective_args << "x-expires" if @expires
       @queue_expiration_ttl_change.try_send? nil
       @max_length = parse_header("x-max-length", Int).try &.to_i64
+      @effective_args << "x-max-length" if @max_length
       @max_length_bytes = parse_header("x-max-length-bytes", Int).try &.to_i64
+      @effective_args << "x-max-length-bytes" if @max_length_bytes
       @message_ttl = parse_header("x-message-ttl", Int).try &.to_i64
+      @effective_args << "x-message-ttl" if @message_ttl
       @message_ttl_change.try_send? nil
       @delivery_limit = parse_header("x-delivery-limit", Int).try &.to_i64
-      @reject_on_overflow = parse_header("x-overflow", String) == "reject-publish"
-      @effective_args << "x-overflow" if @reject_on_overflow
+      @effective_args << "x-delivery-limit" if @delivery_limit
+      overflow = parse_header("x-overflow", String)
+      @reject_on_overflow = overflow == "reject-publish"
+      @effective_args << "x-overflow" if @reject_on_overflow || overflow == "drop-head"
       @single_active_consumer_queue = parse_header("x-single-active-consumer", Bool) == true
       @effective_args << "x-single-active-consumer" if @single_active_consumer_queue
       @consumer_timeout = parse_header("x-consumer-timeout", Int).try &.to_u64
+      @effective_args << "x-consumer-timeout" if @consumer_timeout
       if parse_header("x-message-deduplication", Bool)
         @effective_args << "x-message-deduplication"
         size = parse_header("x-cache-size", Int).try(&.to_u32)

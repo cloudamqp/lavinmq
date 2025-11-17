@@ -244,6 +244,7 @@ module LavinMQ
         replicator.delete_file(file.path, wg)
         spawn(name: "wait for file deletion is replicated") do
           wg.wait
+        ensure
           file.close
         end
       else

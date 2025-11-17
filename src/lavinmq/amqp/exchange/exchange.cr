@@ -26,7 +26,7 @@ module LavinMQ
       getter? delayed = false
 
       @alternate_exchange : String?
-      @delayed_queue : Queue?
+      @delayed_queue : DelayedExchangeQueue?
       @deleted = false
       @deduper : Deduplication::Deduper?
       @effective_args = Array(String).new
@@ -39,30 +39,20 @@ module LavinMQ
         handle_arguments
       end
 
-      def apply_policy(policy : Policy?, operator_policy : OperatorPolicy?)
-        clear_policy
-        Policy.merge_definitions(policy, operator_policy).each do |k, v|
-          case k
-          when "alternate-exchange"
-            @alternate_exchange ||= v.as_s?
-          when "delayed-message"
-            @delayed ||= v.as?(Bool) == true
-            init_delayed_queue if @delayed
-          when "federation-upstream"
-            @vhost.upstreams.try &.link(v.as_s, self) unless internal?
-          when "federation-upstream-set"
-            @vhost.upstreams.try &.link_set(v.as_s, self) unless internal?
-          else nil
-          end
+      private def apply_policy_argument(key : String, value : JSON::Any)
+        case key
+        when "alternate-exchange"
+          @alternate_exchange ||= value.as_s?
+        when "federation-upstream"
+          @vhost.upstreams.try &.link(value.as_s, self) unless internal?
+        when "federation-upstream-set"
+          @vhost.upstreams.try &.link_set(value.as_s, self) unless internal?
+        else nil
         end
-        @policy = policy
-        @operator_policy = operator_policy
       end
 
-      def clear_policy
+      private def clear_policy_arguments
         handle_arguments
-        @policy = nil
-        @operator_policy = nil
         @vhost.upstreams.try &.stop_link(self)
       end
 
@@ -133,23 +123,13 @@ module LavinMQ
         end
       end
 
-      MAX_NAME_LENGTH = 256
-
       private def init_delayed_queue
         return if @delayed_queue
         return unless @delayed
-        q_name = "amq.delayed.#{@name}"
-        raise "Exchange name too long" if q_name.bytesize > MAX_NAME_LENGTH
-        arguments = AMQP::Table.new({
-          "x-dead-letter-exchange" => @name,
-          "auto-delete"            => @auto_delete,
-        })
-        @delayed_queue = if durable?
-                           AMQP::DurableDelayedExchangeQueue.new(@vhost, q_name, false, false, arguments)
-                         else
-                           AMQP::DelayedExchangeQueue.new(@vhost, q_name, false, false, arguments)
-                         end
-        @vhost.queues[q_name] = @delayed_queue.as(Queue)
+
+        @delayed_queue = queue = AMQP::DelayedExchangeQueue.create(@vhost, @name, durable: durable?, auto_delete: @auto_delete)
+
+        @vhost.queues[queue.name] = queue
       end
 
       REPUBLISH_HEADERS = {"x-head", "x-tail", "x-from"}
@@ -217,7 +197,7 @@ module LavinMQ
         end
         if should_delay_message?(msg.properties.headers)
           if q = @delayed_queue
-            q.publish(msg)
+            q.delay(msg)
             @publish_out_count.add(1, :relaxed)
             return true
           else
@@ -302,11 +282,13 @@ module LavinMQ
       private def should_delay_message?(headers)
         return false if headers.nil? || headers.empty?
         return false unless delayed?
+        return false unless q = @delayed_queue
         x_delay = headers["x-delay"]?
         return false unless x_delay
         x_deaths = headers["x-death"]?.try(&.as?(Array(AMQP::Field)))
         x_death = x_deaths.try(&.first).try(&.as?(AMQP::Table))
-        x_death.nil? || (x_death["queue"]? != "amq.delayed.#{@name}")
+        return true if x_death.nil?
+        q.name != x_death["queue"]?
       end
 
       def to_json(json : JSON::Builder)

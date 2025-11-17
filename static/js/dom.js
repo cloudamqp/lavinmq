@@ -15,7 +15,7 @@ function jsonToText (obj) {
   return JSON.stringify(obj, undefined, 2).replace(/["{},]/g, '').trim()
 }
 
-function toast (text, type = 'success') {
+function toastImpl (text, type = 'success') {
   // Delete all previous toasts
   document.querySelectorAll('.toast').forEach(t => t.parentNode.removeChild(t))
 
@@ -32,6 +32,16 @@ function toast (text, type = 'success') {
     }
   }, 7000)
 }
+
+function toast (text) {
+  toastImpl(text, 'success')
+}
+
+Object.assign(toast, {
+  success: function toastSuccess (text) { toastImpl(text, 'success') },
+  warn: function toastWarn (text) { toastImpl(text, 'warn') },
+  error: function toastError (text) { toastImpl(text, 'error') }
+})
 
 function createButton (type, text, classes, click) {
   const btn = document.createElement('button')

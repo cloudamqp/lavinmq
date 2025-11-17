@@ -36,10 +36,10 @@ module LavinMQ
     @flow = true
     @listeners = Hash(Socket::Server, Protocol).new # Socket => protocol
     @connection_factories = Hash(Protocol, ConnectionFactory).new
-    @replicator : Clustering::Replicator
+    @replicator : Clustering::Replicator?
     Log = LavinMQ::Log.for "server"
 
-    def initialize(@config : Config, @replicator = Clustering::NoopServer.new)
+    def initialize(@config : Config, @replicator = nil)
       @data_dir = @config.data_dir
       Dir.mkdir_p @data_dir
       Schema.migrate(@data_dir, @replicator)
@@ -57,15 +57,15 @@ module LavinMQ
     end
 
     def followers
-      @replicator.followers
+      @replicator.try(&.followers) || Array(Clustering::Follower).new
     end
 
     def syncing_followers
-      @replicator.syncing_followers
+      @replicator.try(&.syncing_followers) || Array(Clustering::Follower).new
     end
 
     def all_followers
-      @replicator.all_followers
+      @replicator.try(&.all_followers) || Array(Clustering::Follower).new
     end
 
     def amqp_url
@@ -82,7 +82,7 @@ module LavinMQ
       return if @closed
       @closed = true
       @vhosts.close
-      @replicator.clear
+      @replicator.try &.clear
       Fiber.yield
     end
 
@@ -235,11 +235,11 @@ module LavinMQ
     end
 
     def listen_clustering(bind, port)
-      @replicator.listen(TCPServer.new(bind, port))
+      @replicator.try &.listen(TCPServer.new(bind, port))
     end
 
     def listen_clustering(server : TCPServer)
-      @replicator.listen(server)
+      @replicator.try &.listen(server)
     end
 
     def close

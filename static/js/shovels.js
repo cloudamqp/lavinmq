@@ -144,7 +144,7 @@ Table.renderTable('table', tableOptions, (tr, item, _all) => {
           })
           .catch((err) => {
             console.error(err)
-            DOM.toast(`Shovel ${item.name} failed to ${isRunning ? 'pause' : 'resume'}`, 'error')
+            DOM.toast.error(`Shovel ${item.name} failed to ${isRunning ? 'pause' : 'resume'}`)
           })
       }
     },

@@ -44,7 +44,7 @@ module LavinMQ
     @definitions_deletes = 0
     Log = LavinMQ::Log.for "vhost"
 
-    def initialize(@name : String, @server_data_dir : String, @users : Auth::UserStore, @replicator : Clustering::Replicator, @description = "", @tags = Array(String).new(0))
+    def initialize(@name : String, @server_data_dir : String, @users : Auth::UserStore, @replicator : Clustering::Replicator?, @description = "", @tags = Array(String).new(0))
       @log = Logger.new(Log, vhost: @name)
       @dir = Digest::SHA1.hexdigest(@name)
       @data_dir = File.join(@server_data_dir, @dir)
@@ -52,7 +52,7 @@ module LavinMQ
       FileUtils.rm_rf File.join(@data_dir, "transient")
       @definitions_file_path = File.join(@data_dir, "definitions.amqp")
       @definitions_file = File.open(@definitions_file_path, "a+")
-      @replicator.register_file(@definitions_file)
+      @replicator.try &.register_file(@definitions_file)
       File.write(File.join(@data_dir, ".vhost"), @name)
       load_limits
       @operator_policies = ParameterStore(OperatorPolicy).new(@data_dir, "operator_policies.json", @replicator, vhost: @name)
@@ -93,6 +93,7 @@ module LavinMQ
         limits = JSON.parse(f)
         @max_queues = limits["max-queues"]?.try &.as_i?
         @max_connections = limits["max-connections"]?.try &.as_i?
+        @replicator.try &.register_file(f)
       end
     rescue File::NotFoundError
     end
@@ -106,6 +107,7 @@ module LavinMQ
           end
         end
       end
+      @replicator.try &.replace_file(File.join(@data_dir, "limits.json"))
     end
 
     def inspect(io : IO)
@@ -435,17 +437,17 @@ module LavinMQ
     end
 
     private def apply_policies(resources : Array(Queue | Exchange) | Nil = nil)
-      itr = if resources
-              resources.each
-            else
-              Iterator.chain({@queues.each_value, @exchanges.each_value})
-            end
+      resources = if resources
+                    resources.each
+                  else
+                    Iterator.chain({@queues.each_value, @exchanges.each_value})
+                  end
       policies = @policies.values.sort_by!(&.priority).reverse
       operator_policies = @operator_policies.values.sort_by!(&.priority).reverse
-      itr.each do |r|
-        policy = policies.find &.match?(r)
-        operator_policy = operator_policies.find &.match?(r)
-        r.apply_policy(policy, operator_policy)
+      resources.each do |resource|
+        policy = policies.find &.match?(resource)
+        operator_policy = operator_policies.find &.match?(resource)
+        resource.apply_policy(policy, operator_policy)
       end
     rescue ex : TypeCastError
       @log.error { "Invalid policy. #{ex.message}" }
@@ -602,7 +604,7 @@ module LavinMQ
         end
         io.fsync
         File.rename io.path, @definitions_file_path
-        @replicator.replace_file @definitions_file_path
+        @replicator.try &.replace_file @definitions_file_path
         @definitions_file.close
         @definitions_file = io
       end
@@ -612,7 +614,7 @@ module LavinMQ
       @log.debug { "Storing definition: #{frame.inspect}" }
       bytes = frame.to_slice
       @definitions_file.write bytes
-      @replicator.append @definitions_file_path, bytes
+      @replicator.try &.append @definitions_file_path, bytes
       @definitions_file.fsync
       if dirty
         if (@definitions_deletes += 1) >= Config.instance.max_deleted_definitions

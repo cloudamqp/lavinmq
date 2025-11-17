@@ -108,11 +108,11 @@ function updateQueue (all) {
         loadMoreConsumersBtn.textContent = `Showing ${item.consumer_details.length} of total ${item.consumers} consumers, click to load more`
       }
       if (all) {
-        let features = ''
-        features += item.durable ? ' <span title="Durable">D</span>' : ''
-        features += item.auto_delete ? ' <span title="Auto delete">AD</span>' : ''
-        features += item.exclusive ? ' <span title="Exclusive">E</span>' : ''
-        document.getElementById('q-features').innerHTML = features
+        const features = []
+        if (item.durable) features.push('Durable')
+        if (item.auto_delete) features.push('Auto delete')
+        if (item.exclusive) features.push('Exclusive')
+        document.getElementById('q-features').innerText = features.join(', ')
         document.querySelector('#pagename-label').textContent = queue + ' in virtual host ' + item.vhost
         document.querySelector('.queue').textContent = queue
         if (item.policy) {
@@ -196,6 +196,11 @@ document.querySelector('#addBinding').addEventListener('submit', function (evt) 
       evt.target.reset()
       DOM.toast('Exchange ' + e + ' bound to queue')
     })
+    .catch(err => {
+      if (err.status === 404) {
+        DOM.toast.error(`Exchange '${e}' does not exist and needs to be created first.`)
+      }
+    })
 })
 
 document.querySelector('#publishMessage').addEventListener('submit', function (evt) {
@@ -212,9 +217,13 @@ document.querySelector('#publishMessage').addEventListener('submit', function (e
     properties
   }
   HTTP.request('POST', url, { body })
-    .then(() => {
-      DOM.toast('Published message to ' + queue)
-      updateQueue(false)
+    .then((res) => {
+      if (res.routed) {
+        DOM.toast('Message published')
+        updateQueue(false)
+      } else {
+        DOM.toast.warn('Message not published')
+      }
     })
 })
 

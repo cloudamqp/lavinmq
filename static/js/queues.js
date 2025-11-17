@@ -44,7 +44,7 @@ const performMultiAction = (el) => {
         queuesTable.reload()
       }
     }).catch(e => {
-      DOM.toast(`Failed to perform action on ${data.name}`, 'error')
+      DOM.toast.error(`Failed to perform action on ${data.name}`)
       queuesTable.reload()
     })
   })
