@@ -105,7 +105,6 @@ module LavinMQ::AMQP
         if rfile.nil? || pos == rfile.size
           if segment = @segments.each_key.find { |sid| sid > segment }
             rfile = @segments[segment]
-            rfile.pos = 4u32
             msg_offset = @offset_index[segment]
           else
             return last_offset_seg_pos
