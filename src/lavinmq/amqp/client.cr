@@ -205,7 +205,7 @@ module LavinMQ
         user = @user
         if user.update_secret(frame.@secret.to_slice)
           @log.info { "Updated secret for user '#{user.name}'" }
-          send AMQP::Frame::Connection::UpdateSecretOk.new(0_u16)
+          send AMQP::Frame::Connection::UpdateSecretOk.new
         else
           close_connection(frame, ConnectionReplyCode::ACCESS_REFUSED, "update-secret not supported for current authentication mechanism or invalid credentials")
         end
