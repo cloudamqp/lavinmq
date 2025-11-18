@@ -11,7 +11,7 @@ describe LavinMQ::Auth::Chain do
     end
   end
 
-  it "Successfully authenticates and returns a basic user" do
+  it "Successfully authenticates and returns a local user" do
     with_amqp_server do |s|
       chain = LavinMQ::Auth::Chain.create(s.@config, s.@users)
       user = chain.authenticate("guest", "guest")
