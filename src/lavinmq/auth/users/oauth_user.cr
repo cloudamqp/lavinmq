@@ -22,12 +22,12 @@ module LavinMQ
       end
 
       def update_secret(new_secret : String) : Bool
-        _, tags, permissions, expiration = @authenticator.validate_and_extract_claims(@name, new_secret)
+        _, tags, permissions, expires_at = @authenticator.verify_token(new_secret)
 
         # Update authorization and expiration (trust new token)
         @tags = tags
         @permissions = permissions
-        @expires_at = expiration
+        @expires_at = expires_at
         clear_permissions_cache
         true
       rescue
