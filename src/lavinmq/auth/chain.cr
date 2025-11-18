@@ -18,7 +18,7 @@ module LavinMQ
         else
           backends.each do |backend|
             case backend
-            when "basic"
+            when "local"
               authenticators << LocalAuthenticator.new(users)
             else
               raise "Unsupported authentication backend: #{backend}"
