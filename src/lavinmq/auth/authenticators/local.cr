@@ -3,7 +3,7 @@ require "../../server"
 
 module LavinMQ
   module Auth
-    class BasicAuthenticator < Authenticator
+    class LocalAuthenticator < Authenticator
       def initialize(@users : UserStore)
       end
 

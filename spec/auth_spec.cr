@@ -1,6 +1,6 @@
 require "./spec_helper"
 require "../src/lavinmq/auth/chain"
-require "../src/lavinmq/auth/authenticators/basic"
+require "../src/lavinmq/auth/authenticators/local"
 
 describe LavinMQ::Auth::Chain do
   it "Creates a default authentication chain if not configured" do

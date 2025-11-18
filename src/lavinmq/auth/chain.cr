@@ -1,5 +1,5 @@
 require "./authenticator"
-require "./authenticators/basic"
+require "./authenticators/local"
 
 module LavinMQ
   module Auth
@@ -14,12 +14,12 @@ module LavinMQ
         backends = config.auth_backends
         authenticators = Array(Authenticator).new
         if backends.nil? || backends.empty?
-          authenticators << BasicAuthenticator.new(users)
+          authenticators << LocalAuthenticator.new(users)
         else
           backends.each do |backend|
             case backend
             when "basic"
-              authenticators << BasicAuthenticator.new(users)
+              authenticators << LocalAuthenticator.new(users)
             else
               raise "Unsupported authentication backend: #{backend}"
             end
