@@ -95,7 +95,24 @@ module LavinMQ
       @runner.stop
     end
 
+    private def print_ascii_logo
+      logo = <<-LOGO
+
+            ██╗      █████╗ ██╗   ██╗██╗███╗   ██╗███╗   ███╗ ██████╗
+            ██║     ██╔══██╗██║   ██║██║████╗  ██║████╗ ████║██╔═══██╗
+            ██║     ███████║██║   ██║██║██╔██╗ ██║██╔████╔██║██║   ██║
+            ██║     ██╔══██║╚██╗ ██╔╝██║██║╚██╗██║██║╚██╔╝██║██║▄▄ ██║
+            ███████╗██║  ██║ ╚████╔╝ ██║██║ ╚████║██║ ╚═╝ ██║╚██████╔╝
+            ╚══════╝╚═╝  ╚═╝  ╚═══╝  ╚═╝╚═╝  ╚═══╝╚═╝     ╚═╝ ╚══▀▀═╝
+
+                     The message broker built for peaks
+
+        LOGO
+      STDOUT.puts logo
+    end
+
     private def print_environment_info
+      print_ascii_logo unless @config.journald_stream? || @config.log_file
       LavinMQ::BUILD_INFO.each_line do |line|
         Log.info { line }
       end
