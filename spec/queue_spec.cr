@@ -599,10 +599,27 @@ describe LavinMQ::AMQP::Queue do
     end
 
     overriden_arguments = {
-      { {"x-message-ttl": 100}, {"message-ttl": 50} },
+      {
+        args:     {"x-message-ttl": 100},
+        policy:   {"message-ttl": 50},
+        expected: Tuple.new,
+      },
+      {
+        args:     {"x-message-ttl": 10},
+        policy:   {"message-ttl": 50},
+        expected: {"x-message-ttl"},
+      },
+      {
+        args:     {"x-message-ttl": 100, "x-max-length": 10},
+        policy:   {"message-ttl": 50, "x-max-length": 100},
+        expected: {"x-max-length"},
+      },
     }
-    overriden_arguments.each do |(args, policy_args)|
-      it "should not contain #{args.keys.join(", ")} when policy #{policy_args}" do
+    overriden_arguments.each do |value|
+      args = value[:args]
+      policy_args = value[:policy]
+      expected = value[:expected]
+      it "should be #{expected.join(", ")} with args #{args} and policy #{policy_args}" do
         with_amqp_server do |s|
           q = s.vhosts["/"].try do |vhost|
             vhost.declare_queue("q", durable: true, auto_delete: false, arguments: AMQP::Client::Arguments.new(args))
@@ -612,8 +629,8 @@ describe LavinMQ::AMQP::Queue do
           policy = LavinMQ::Policy.new("p1", "/", %r{"."}, LavinMQ::Policy::Target::All, definition, 1i8)
           q.apply_policy(policy, nil)
           effective_arguments = q.details_tuple[:effective_arguments]
-          args.keys.map(&.to_s).each do |key|
-            effective_arguments.should_not contain key
+          expected.each do |key|
+            effective_arguments.should contain key
           end
         end
       end
