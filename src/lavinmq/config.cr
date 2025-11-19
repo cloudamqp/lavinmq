@@ -16,10 +16,10 @@ module LavinMQ
     property config_file = File.exists?(File.join(ENV.fetch("CONFIGURATION_DIRECTORY", "/etc/lavinmq"), "lavinmq.ini")) ? File.join(ENV.fetch("CONFIGURATION_DIRECTORY", "/etc/lavinmq"), "lavinmq.ini") : ""
     property log_file : String? = nil
     property log_level : ::Log::Severity = DEFAULT_LOG_LEVEL
-    property amqp_bind = "localhost"
+    property amqp_bind = "127.0.0.1"
     property amqp_port = 5672
     property amqps_port = -5671
-    property mqtt_bind = "localhost"
+    property mqtt_bind = "127.0.0.1"
     property mqtt_port = 1883
     property mqtts_port = 8883
     property mqtt_unix_path = ""
@@ -30,11 +30,11 @@ module LavinMQ
     property tls_key_path = ""
     property tls_ciphers = ""
     property tls_min_version = ""
-    property http_bind = "localhost"
+    property http_bind = "127.0.0.1"
     property http_port = 15672
     property https_port = 15671
     property http_unix_path = ""
-    property metrics_http_bind = "localhost"
+    property metrics_http_bind = "127.0.0.1"
     property metrics_http_port = 15692
     property heartbeat = 300_u16                     # second
     property frame_max = 131_072_u32                 # bytes
@@ -62,7 +62,7 @@ module LavinMQ
     property clustering_etcd_prefix = "lavinmq"
     property clustering_etcd_endpoints = "localhost:2379"
     property clustering_advertised_uri : String? = nil
-    property clustering_bind = "localhost"
+    property clustering_bind = "127.0.0.1"
     property clustering_port = 5679
     property clustering_max_unsynced_actions = 8192 # number of unsynced clustering actions
     property max_deleted_definitions = 8192         # number of deleted queues, unbinds etc that compacts the definitions file
