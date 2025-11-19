@@ -332,6 +332,27 @@ module LavinMQ
         tls.load_crl(@config.tls_crl_file)
         Log.info { "CRL checking enabled: #{@config.tls_crl_file}" }
       end
+
+      # Automatic CRL fetching from CDP (CRL Distribution Point) URLs
+      # If mTLS is enabled with a CA certificate, try to extract and fetch CRLs from CDP
+      if @config.tls_verify_peer? && !@config.tls_ca_cert_path.empty?
+        begin
+          cdp_urls = OpenSSL::X509.extract_crl_urls_from_cert(@config.tls_ca_cert_path)
+          unless cdp_urls.empty?
+            Log.info { "Found CRL Distribution Points in CA certificate: #{cdp_urls.join(", ")}" }
+            cdp_urls.each do |url|
+              begin
+                tls.load_crl(url)
+                Log.info { "Successfully loaded CRL from CDP: #{url}" }
+              rescue ex
+                Log.warn { "Failed to load CRL from CDP #{url}: #{ex.message}" }
+              end
+            end
+          end
+        rescue ex
+          Log.debug { "Could not extract CDP URLs from CA certificate: #{ex.message}" }
+        end
+      end
     end
   end
 end

@@ -9,7 +9,7 @@
 *.swp
 shard.override.yml
 config.ini
-*.pem
+/*.pem
 perf.data*
 massif.*
 node_modules

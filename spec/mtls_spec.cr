@@ -156,4 +156,19 @@ describe LavinMQ::Server do
       end
     end
   end
+
+  describe "CDP (CRL Distribution Point)" do
+    it "should extract CDP URLs from CA certificates" do
+      # Test that CDP URL extraction works
+      urls = OpenSSL::X509.extract_crl_urls_from_cert("spec/resources/ca_with_cdp_certificate.pem")
+      urls.should_not be_empty
+      urls.first.should eq "http://localhost:8080/test_crl.pem"
+    end
+
+    it "should handle CA certificates without CDP extensions gracefully" do
+      # Test that extraction works on certificates without CDP
+      urls = OpenSSL::X509.extract_crl_urls_from_cert("spec/resources/ca_certificate.pem")
+      urls.should be_empty
+    end
+  end
 end
