@@ -60,6 +60,7 @@ module LavinMQ
       @tls_context = create_tls_context if @config.tls_configured?
       reload_tls_context
       setup_signal_traps
+      SystemD::MemoryPressure.monitor { GC.collect }
     end
 
     private def start : self
