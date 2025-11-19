@@ -8,9 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [2.5.3] - 2025-11-19
 
 ### Fixed
-- Improved packet size accounting in MQTT #1477
-- Improved frame size accounting in AMQP #1485
-- Replicate `limits.json` #1466
+- Improved packet size accounting in MQTT [#1477](https://gitbub.com/cloudamqp/lavinmq/pull/1477)
+- Improved frame size accounting in AMQP [#1485](https://github.com/cloudamqp/lavinmq/pull/1485)
+- Replicate `limits.json` [#1466](https://github.com/cloudamqp/lavinmq/pull/1466)
 
 ## [2.5.2] - 2025-11-12
 
