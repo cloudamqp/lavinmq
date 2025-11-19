@@ -33,6 +33,13 @@ module LavinMQ
     property tls_ca_cert_path = ""
     property? tls_verify_peer = false
     property? tls_fail_if_no_peer_cert = false
+    property tls_trust_store_directory = ""
+    property tls_trust_store_url = ""
+    property tls_trust_store_refresh_interval = 30
+    property tls_trust_store_http_cert = ""
+    property tls_trust_store_http_key = ""
+    property tls_trust_store_http_ca = ""
+    property tls_trust_store_http_headers = Hash(String, String).new
     property http_bind = "127.0.0.1"
     property http_port = 15672
     property https_port = -1
@@ -179,6 +186,9 @@ module LavinMQ
         p.on("--tls-ca-cert FILE", "CA certificate for verifying client certificates (mTLS)") { |v| @tls_ca_cert_path = v }
         p.on("--tls-verify-peer", "Verify client certificates (mTLS)") { @tls_verify_peer = true }
         p.on("--tls-fail-if-no-peer-cert", "Require client certificates (mTLS)") { @tls_fail_if_no_peer_cert = true }
+        p.on("--tls-trust-store-dir=DIR", "Trust store directory (enables trust store)") { |v| @tls_trust_store_directory = v }
+        p.on("--tls-trust-store-url=URL", "Trust store HTTP URL (enables trust store)") { |v| @tls_trust_store_url = v }
+        p.on("--tls-trust-store-refresh=SECONDS", "Trust store refresh interval in seconds (default: 30)") { |v| @tls_trust_store_refresh_interval = v.to_i }
 
         p.separator("\nClustering:")
         p.on("--clustering", "Enable clustering") do
@@ -319,6 +329,12 @@ module LavinMQ
         when "tls_ca_cert"               then @tls_ca_cert_path = v
         when "tls_verify_peer"           then @tls_verify_peer = true?(v)
         when "tls_fail_if_no_peer_cert"  then @tls_fail_if_no_peer_cert = true?(v)
+        when "tls_trust_store_directory" then @tls_trust_store_directory = v
+        when "tls_trust_store_url"       then @tls_trust_store_url = v
+        when "tls_trust_store_refresh_interval" then @tls_trust_store_refresh_interval = v.to_i32
+        when "tls_trust_store_http_cert" then @tls_trust_store_http_cert = v
+        when "tls_trust_store_http_key"  then @tls_trust_store_http_key = v
+        when "tls_trust_store_http_ca"   then @tls_trust_store_http_ca = v
         when "log_exchange"              then @log_exchange = true?(v)
         when "free_disk_min"             then @free_disk_min = v.to_i64
         when "free_disk_warn"            then @free_disk_warn = v.to_i64

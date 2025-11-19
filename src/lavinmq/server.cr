@@ -19,6 +19,7 @@ require "./amqp/connection_factory"
 require "./mqtt/connection_factory"
 require "./stats"
 require "./auth/chain"
+require "./trust_store"
 
 module LavinMQ
   class Server
@@ -39,7 +40,7 @@ module LavinMQ
     @replicator : Clustering::Replicator?
     Log = LavinMQ::Log.for "server"
 
-    def initialize(@config : Config, @replicator = nil)
+    def initialize(@config : Config, @replicator = nil, _trust_store = nil)
       @data_dir = @config.data_dir
       Dir.mkdir_p @data_dir
       Schema.migrate(@data_dir, @replicator)

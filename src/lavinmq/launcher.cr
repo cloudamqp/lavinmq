@@ -9,6 +9,7 @@ require "./in_memory_backend"
 require "./data_dir_lock"
 require "./etcd"
 require "./clustering/controller"
+require "./trust_store"
 
 module LavinMQ
   struct StandaloneRunner
@@ -30,6 +31,7 @@ module LavinMQ
   class Launcher
     Log = LavinMQ::Log.for "launcher"
     @tls_context : OpenSSL::SSL::Context::Server?
+    @trust_store : TrustStore?
     @first_shutdown_attempt = true
     @data_dir_lock : DataDirLock?
     @closed = false
@@ -58,6 +60,12 @@ module LavinMQ
       end
 
       @tls_context = create_tls_context if @config.tls_configured?
+      # Auto-enable trust store if directory or URL is configured
+      if !@config.tls_trust_store_directory.empty? || !@config.tls_trust_store_url.empty?
+        @trust_store = TrustStore.new(@config)
+        # Set callback to reload TLS context when trust store refreshes
+        @trust_store.try &.on_reload = ->{ reload_tls_context }
+      end
       reload_tls_context
       setup_signal_traps
     end
@@ -65,7 +73,7 @@ module LavinMQ
     private def start : self
       started_at = Time.monotonic
       @data_dir_lock.try &.acquire
-      @amqp_server = amqp_server = LavinMQ::Server.new(@config, @replicator)
+      @amqp_server = amqp_server = LavinMQ::Server.new(@config, @replicator, @trust_store)
       @http_server = http_server = LavinMQ::HTTP::Server.new(amqp_server)
       setup_log_exchange(amqp_server)
       start_listeners(amqp_server, http_server)
@@ -252,7 +260,8 @@ module LavinMQ
       else
         Log.info { "Reloading configuration file '#{@config.config_file}'" }
         @config.reload
-        reload_tls_context
+        @trust_store.try &.reload  # Reload trust store first (updates certificate file)
+        reload_tls_context         # Then reload TLS context (reads new certificate file)
       end
       SystemD.notify_ready
     end
@@ -311,7 +320,11 @@ module LavinMQ
 
       # Configure mTLS (mutual TLS) client certificate verification
       if @config.tls_verify_peer?
-        unless @config.tls_ca_cert_path.empty?
+        # Use trust store if available (includes local CA + remote CAs)
+        if trust_store = @trust_store
+          tls.ca_certificates = trust_store.certificate_file
+          Log.info { "mTLS enabled: verifying client certificates using trust store: #{trust_store.certificate_file}" }
+        elsif !@config.tls_ca_cert_path.empty?
           tls.ca_certificates = @config.tls_ca_cert_path
           Log.info { "mTLS enabled: verifying client certificates using CA: #{@config.tls_ca_cert_path}" }
         end
