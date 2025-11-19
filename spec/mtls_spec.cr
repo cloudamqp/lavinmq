@@ -75,7 +75,7 @@ describe LavinMQ::Server do
     end
 
     it "should work with MQTT over mTLS" do
-      with_mqtts_server(verify_peer: true, require_peer_cert: true) do |s, port|
+      with_mqtts_server(verify_peer: true, require_peer_cert: true) do |_s, port|
         client_ctx = OpenSSL::SSL::Context::Client.new
         client_ctx.certificate_chain = "spec/resources/client_certificate.pem"
         client_ctx.private_key = "spec/resources/client_key.pem"
