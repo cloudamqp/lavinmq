@@ -103,10 +103,10 @@ module LavinMQ
           STDERR.puts "WARNING: 'guest_only_loopback' is deprecated, use '--default-user-only-loopback' instead"
           @default_user_only_loopback = {"true", "yes", "y", "1"}.includes? v.to_s
         end
-        p.on("--default-consumer-prefetch=NUMBER", "Default consumer prefetch (default: 65535)") do |v|
+        p.on("--default-consumer-prefetch=NUMBER", "Default consumer prefetch (default: #{@default_consumer_prefetch})") do |v|
           @default_consumer_prefetch = v.to_u16
         end
-        p.on("--default-user=USER", "Default user (default: guest)") do |v|
+        p.on("--default-user=USER", "Default user (default: #{@default_user})") do |v|
           @default_user = v
         end
         p.on("--default-password-hash=PASSWORD-HASH", "Hashed password for default user (default: '+pHuxkR9fCyrrwXjOD4BP4XbzO3l8LJr8YkThMgJ0yVHFRE+' (guest))") do |v|
@@ -116,40 +116,40 @@ module LavinMQ
           STDERR.puts "WARNING: 'default-password' is deprecated, use '--default-password-hash' instead"
           @default_password = v
         end
-        p.on("--no-data-dir-lock", "Don't put a file lock in the data directory (default: true)") { @data_dir_lock = false }
-        p.on("--raise-gc-warn", "Raise on GC warnings (default: false)") { @raise_gc_warn = true }
+        p.on("--no-data-dir-lock", "Don't put a file lock in the data directory") { @data_dir_lock = false }
+        p.on("--raise-gc-warn", "Raise on GC warnings (default: #{@raise_gc_warn})") { @raise_gc_warn = true }
 
         p.separator("\nBindings & TLS:")
-        p.on("-b BIND", "--bind=BIND", "IP address that the AMQP, MQTT and HTTP servers will listen on (default: 127.0.0.1)") do |v|
+        p.on("-b BIND", "--bind=BIND", "IP address that the AMQP, MQTT and HTTP servers will listen on (default: #{@amqp_bind})") do |v|
           @amqp_bind = v
           @http_bind = v
           @mqtt_bind = v
         end
-        p.on("-p PORT", "--amqp-port=PORT", "AMQP port to listen on (default: 5672)") do |v|
+        p.on("-p PORT", "--amqp-port=PORT", "AMQP port to listen on (default: #{@amqp_port})") do |v|
           @amqp_port = v.to_i
         end
-        p.on("--amqps-port=PORT", "AMQPS port to listen on (default: -1)") do |v|
+        p.on("--amqps-port=PORT", "AMQPS port to listen on (default: #{@amqps_port})") do |v|
           @amqps_port = v.to_i
         end
-        p.on("--amqp-bind=BIND", "IP address that the AMQP server will listen on (default: 127.0.0.1)") do |v|
+        p.on("--amqp-bind=BIND", "IP address that the AMQP server will listen on (default: #{@amqp_bind})") do |v|
           @amqp_bind = v
         end
-        p.on("--mqtt-port=PORT", "MQTT port to listen on (default: 1883)") do |v|
+        p.on("--mqtt-port=PORT", "MQTT port to listen on (default: #{@mqtt_port})") do |v|
           @mqtt_port = v.to_i
         end
-        p.on("--mqtts-port=PORT", "MQTTS port to listen on (default: 8883)") do |v|
+        p.on("--mqtts-port=PORT", "MQTTS port to listen on (default: #{@mqtts_port})") do |v|
           @mqtts_port = v.to_i
         end
-        p.on("--mqtt-bind=BIND", "IP address that the MQTT server will listen on (default: 127.0.0.1)") do |v|
+        p.on("--mqtt-bind=BIND", "IP address that the MQTT server will listen on (default: #{@mqtt_bind})") do |v|
           @mqtt_bind = v
         end
-        p.on("--http-port=PORT", "HTTP port to listen on (default: 15672)") do |v|
+        p.on("--http-port=PORT", "HTTP port to listen on (default: #{@http_port})") do |v|
           @http_port = v.to_i
         end
-        p.on("--https-port=PORT", "HTTPS port to listen on (default: -1)") do |v|
+        p.on("--https-port=PORT", "HTTPS port to listen on (default: #{@https_port})") do |v|
           @https_port = v.to_i
         end
-        p.on("--http-bind=BIND", "IP address that the HTTP server will listen on (default: 127.0.0.1)") do |v|
+        p.on("--http-bind=BIND", "IP address that the HTTP server will listen on (default: #{@http_bind})") do |v|
           @http_bind = v
         end
         p.on("--amqp-unix-path=PATH", "AMQP UNIX path to listen to") do |v|
@@ -170,28 +170,28 @@ module LavinMQ
         p.on("--cert FILE", "TLS certificate (including chain)") { |v| @tls_cert_path = v }
         p.on("--key FILE", "Private key for the TLS certificate") { |v| @tls_key_path = v }
         p.on("--ciphers CIPHERS", "List of TLS ciphers to allow") { |v| @tls_ciphers = v }
-        p.on("--tls-min-version=VERSION", "Mininum allowed TLS version (default 1.2)") { |v| @tls_min_version = v }
+        p.on("--tls-min-version=VERSION", "Mininum allowed TLS version (default: #{@tls_min_version})") { |v| @tls_min_version = v }
 
         p.separator("\nClustering:")
         p.on("--clustering", "Enable clustering") do
           @clustering = true
         end
-        p.on("--clustering-advertised-uri=URI", "Advertised URI for the clustering server") do |v|
+        p.on("--clustering-advertised-uri=URI", "Advertised URI for the clustering server(default: tcp://#{System.hostname}:#{@clustering_port})") do |v|
           @clustering_advertised_uri = v
         end
-        p.on("--clustering-etcd-prefix=KEY", "Key prefix used in etcd (default: lavinmq)") do |v|
+        p.on("--clustering-etcd-prefix=KEY", "Key prefix used in etcd (default: #{@clustering_etcd_prefix})") do |v|
           @clustering_etcd_prefix = v
         end
-        p.on("--clustering-port=PORT", "Listen for clustering followers on this port (default: 5679)") do |v|
+        p.on("--clustering-port=PORT", "Listen for clustering followers on this port (default: #{@clustering_port})") do |v|
           @clustering_port = v.to_i
         end
-        p.on("--clustering-bind=BIND", "Listen for clustering followers on this address (default: localhost)") do |v|
+        p.on("--clustering-bind=BIND", "Listen for clustering followers on this address (default: #{@clustering_bind})") do |v|
           @clustering_bind = v
         end
         p.on("--clustering-max-unsynced-actions=ACTIONS", "Maximum unsynced actions") do |v|
           @clustering_max_unsynced_actions = v.to_i
         end
-        p.on("--clustering-etcd-endpoints=URIs", "Comma separeted host/port pairs (default: 127.0.0.1:2379)") do |v|
+        p.on("--clustering-etcd-endpoints=URIs", "Comma separeted host/port pairs (default: #{@clustering_etcd_endpoints})") do |v|
           @clustering_etcd_endpoints = v
         end
 
