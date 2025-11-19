@@ -250,7 +250,7 @@ module LavinMQ
     private def reload_logger
       log_file = (path = @log_file) ? File.open(path, "a") : STDOUT
       broadcast_backend = ::Log::BroadcastBackend.new
-      backend = if ENV.has_key?("JOURNAL_STREAM")
+      backend = if journald_stream?
                   ::Log::IOBackend.new(io: log_file, formatter: JournalLogFormat)
                 else
                   ::Log::IOBackend.new(io: log_file, formatter: StdoutLogFormat)
@@ -264,6 +264,25 @@ module LavinMQ
       ::Log.setup(@log_level, broadcast_backend)
       target = (path = @log_file) ? path : "stdout"
       Log.info &.emit("Logger settings", level: @log_level.to_s, target: target)
+    end
+
+    def journald_stream? : Bool
+      return false unless journal_stream = ENV["JOURNAL_STREAM"]?
+      return false if @log_file # If logging to a file, not using journald
+
+      # JOURNAL_STREAM format is "device:inode"
+      parts = journal_stream.split(':')
+      return false unless parts.size == 2
+
+      journal_dev = parts[0].to_u64?
+      journal_ino = parts[1].to_u64?
+      return false unless journal_dev && journal_ino
+
+      # Get STDOUT's device and inode
+      LibC.fstat(STDOUT.fd, out stat)
+      stat.st_dev == journal_dev && stat.st_ino == journal_ino
+    rescue
+      false
     end
 
     def tls_configured?
