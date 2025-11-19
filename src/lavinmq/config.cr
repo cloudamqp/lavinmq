@@ -62,7 +62,7 @@ module LavinMQ
     property clustering_etcd_prefix = "lavinmq"
     property clustering_etcd_endpoints = "localhost:2379"
     property clustering_advertised_uri : String? = nil
-    property clustering_bind = "127.0.0.1"
+    property clustering_bind = "localhost"
     property clustering_port = 5679
     property clustering_max_unsynced_actions = 8192 # number of unsynced clustering actions
     property max_deleted_definitions = 8192         # number of deleted queues, unbinds etc that compacts the definitions file
