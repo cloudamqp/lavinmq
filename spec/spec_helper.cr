@@ -95,6 +95,7 @@ end
 
 def with_amqp_server(tls = false, replicator = nil,
                      config = LavinMQ::Config.instance,
+                     verify_peer = false, require_peer_cert = false,
                      file = __FILE__, line = __LINE__, & : LavinMQ::Server -> Nil)
   LavinMQ::Config.instance = init_config(config)
   FileUtils.rm_rf(config.data_dir)
@@ -105,6 +106,13 @@ def with_amqp_server(tls = false, replicator = nil,
       ctx = OpenSSL::SSL::Context::Server.new
       ctx.certificate_chain = "spec/resources/server_certificate.pem"
       ctx.private_key = "spec/resources/server_key.pem"
+      # Configure mTLS
+      if verify_peer
+        ctx.ca_certificates = "spec/resources/ca_certificate.pem"
+        verify_mode = OpenSSL::SSL::VerifyMode::PEER
+        verify_mode |= OpenSSL::SSL::VerifyMode::FAIL_IF_NO_PEER_CERT if require_peer_cert
+        ctx.verify_mode = verify_mode
+      end
       spawn(name: "amqp tls listen") { s.listen_tls(tcp_server, ctx, LavinMQ::Server::Protocol::AMQP) }
     else
       spawn(name: "amqp tcp listen") { s.listen(tcp_server, LavinMQ::Server::Protocol::AMQP) }
@@ -130,6 +138,43 @@ def with_amqp_server(tls = false, replicator = nil,
             "If they should be closed, please delete them in the end of the spec."
       raise Spec::AssertionFailed.new(msg, file, line)
     end
+    s.close
+    FileUtils.rm_rf(config.data_dir)
+    LavinMQ::Config.instance = init_config(LavinMQ::Config.new)
+  end
+end
+
+# Helper for MQTTS with mTLS support
+def with_mqtts_server(verify_peer = false, require_peer_cert = false, replicator = nil,
+                      config = LavinMQ::Config.instance,
+                      file = __FILE__, line = __LINE__,
+                      & : LavinMQ::Server, Int32 -> Nil)
+  LavinMQ::Config.instance = init_config(config)
+  FileUtils.rm_rf(config.data_dir)
+  tcp_server = TCPServer.new("localhost", ENV.has_key?("NATIVE_PORTS") ? 8883 : 0)
+  s = LavinMQ::Server.new(config, replicator)
+  begin
+    ctx = OpenSSL::SSL::Context::Server.new
+    ctx.certificate_chain = "spec/resources/server_certificate.pem"
+    ctx.private_key = "spec/resources/server_key.pem"
+
+    # Configure mTLS
+    if verify_peer
+      ctx.ca_certificates = "spec/resources/ca_certificate.pem"
+      verify_mode = OpenSSL::SSL::VerifyMode::PEER
+      verify_mode |= OpenSSL::SSL::VerifyMode::FAIL_IF_NO_PEER_CERT if require_peer_cert
+      ctx.verify_mode = verify_mode
+    end
+
+    spawn(name: "mqtts tls listen") { s.listen_tls(tcp_server, ctx, LavinMQ::Server::Protocol::MQTT) }
+    port = tcp_server.local_address.port
+    # Wait for the server to actually start listening
+    10.times do
+      Fiber.yield
+      sleep 5.milliseconds
+    end
+    yield s, port
+  ensure
     s.close
     FileUtils.rm_rf(config.data_dir)
     LavinMQ::Config.instance = init_config(LavinMQ::Config.new)
