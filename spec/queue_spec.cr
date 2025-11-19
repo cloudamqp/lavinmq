@@ -597,6 +597,27 @@ describe LavinMQ::AMQP::Queue do
         end
       end
     end
+
+    overriden_arguments = {
+      { {"x-message-ttl": 100}, {"message-ttl": 50} },
+    }
+    overriden_arguments.each do |(args, policy_args)|
+      it "should not contain #{args.keys.join(", ")} when policy #{policy_args}" do
+        with_amqp_server do |s|
+          q = s.vhosts["/"].try do |vhost|
+            vhost.declare_queue("q", durable: true, auto_delete: false, arguments: AMQP::Client::Arguments.new(args))
+            vhost.queues["q"]
+          end
+          definition = JSON.parse(policy_args.to_json).as_h
+          policy = LavinMQ::Policy.new("p1", "/", %r{"."}, LavinMQ::Policy::Target::All, definition, 1i8)
+          q.apply_policy(policy, nil)
+          effective_arguments = q.details_tuple[:effective_arguments]
+          args.keys.map(&.to_s).each do |key|
+            effective_arguments.should_not contain key
+          end
+        end
+      end
+    end
   end
 
   describe "PolicyTarget" do
