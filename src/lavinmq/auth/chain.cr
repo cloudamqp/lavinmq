@@ -10,21 +10,10 @@ module LavinMQ
         @backends = backends
       end
 
-      def self.create(config : Config, users : UserStore) : Chain
-        backends = config.auth_backends
-        authenticators = Array(Authenticator).new
-        if backends.nil? || backends.empty?
-          authenticators << LocalAuthenticator.new(users)
-        else
-          backends.each do |backend|
-            case backend
-            when "local"
-              authenticators << LocalAuthenticator.new(users)
-            else
-              raise "Unsupported authentication backend: #{backend}"
-            end
-          end
-        end
+      def self.create(users : UserStore) : Chain
+        # For now, only LocalAuthenticator is supported
+        # When adding more auth backends, LocalAuthenticator should always be tried first
+        authenticators = [LocalAuthenticator.new(users)] of Authenticator
         self.new(authenticators)
       end
 
