@@ -44,7 +44,8 @@ module LavinMQ
         when "alternate-exchange"
           if @alternate_exchange.nil?
             @alternate_exchange = value.as_s?
-            @effective_args.delete("x-alternate_exchange")
+            @effective_args.delete("x-alternate-exchange")
+            @effective_args.delete("alternate-exchange")
             return true
           end
         when "delayed-message"
@@ -71,8 +72,11 @@ module LavinMQ
 
       def handle_arguments
         @effective_args = Array(String).new
-        @alternate_exchange = (@arguments["x-alternate-exchange"]? || @arguments["alternate-exchange"]?).try &.to_s
-        @effective_args << "x-alternate-exchange" if @alternate_exchange
+        if @alternate_exchange = @arguments["x-alternate-exchange"]?.try &.to_s
+          @effective_args << "x-alternate-exchange"
+        elsif @alternate_exchange = @arguments["alternate-exchange"]?.try &.to_s
+          @effective_args << "alternate-exchange"
+        end
         if @arguments["x-delayed-exchange"]?.try &.as?(Bool)
           @delayed = true
           init_delayed_queue
