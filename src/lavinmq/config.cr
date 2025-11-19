@@ -30,6 +30,9 @@ module LavinMQ
     property tls_key_path = ""
     property tls_ciphers = ""
     property tls_min_version = ""
+    property tls_ca_cert_path = ""
+    property? tls_verify_peer = false
+    property? tls_fail_if_no_peer_cert = false
     property http_bind = "127.0.0.1"
     property http_port = 15672
     property https_port = -1
@@ -173,6 +176,9 @@ module LavinMQ
         p.on("--key FILE", "Private key for the TLS certificate") { |v| @tls_key_path = v }
         p.on("--ciphers CIPHERS", "List of TLS ciphers to allow") { |v| @tls_ciphers = v }
         p.on("--tls-min-version=VERSION", "Mininum allowed TLS version (default 1.2)") { |v| @tls_min_version = v }
+        p.on("--tls-ca-cert FILE", "CA certificate for verifying client certificates (mTLS)") { |v| @tls_ca_cert_path = v }
+        p.on("--tls-verify-peer", "Verify client certificates (mTLS)") { @tls_verify_peer = true }
+        p.on("--tls-fail-if-no-peer-cert", "Require client certificates (mTLS)") { @tls_fail_if_no_peer_cert = true }
 
         p.separator("\nClustering:")
         p.on("--clustering", "Enable clustering") do
@@ -310,6 +316,9 @@ module LavinMQ
         when "tls_key"                   then @tls_key_path = v
         when "tls_ciphers"               then @tls_ciphers = v
         when "tls_min_version"           then @tls_min_version = v
+        when "tls_ca_cert"               then @tls_ca_cert_path = v
+        when "tls_verify_peer"           then @tls_verify_peer = true?(v)
+        when "tls_fail_if_no_peer_cert"  then @tls_fail_if_no_peer_cert = true?(v)
         when "log_exchange"              then @log_exchange = true?(v)
         when "free_disk_min"             then @free_disk_min = v.to_i64
         when "free_disk_warn"            then @free_disk_warn = v.to_i64

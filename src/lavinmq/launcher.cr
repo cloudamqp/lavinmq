@@ -308,6 +308,22 @@ module LavinMQ
       tls.certificate_chain = @config.tls_cert_path
       tls.private_key = @config.tls_key_path.empty? ? @config.tls_cert_path : @config.tls_key_path
       tls.ciphers = @config.tls_ciphers unless @config.tls_ciphers.empty?
+
+      # Configure mTLS (mutual TLS) client certificate verification
+      if @config.tls_verify_peer?
+        unless @config.tls_ca_cert_path.empty?
+          tls.ca_certificates = @config.tls_ca_cert_path
+          Log.info { "mTLS enabled: verifying client certificates using CA: #{@config.tls_ca_cert_path}" }
+        end
+        verify_mode = OpenSSL::SSL::VerifyMode::PEER
+        if @config.tls_fail_if_no_peer_cert?
+          verify_mode |= OpenSSL::SSL::VerifyMode::FAIL_IF_NO_PEER_CERT
+          Log.info { "mTLS: client certificates required" }
+        else
+          Log.info { "mTLS: client certificates optional" }
+        end
+        tls.verify_mode = verify_mode
+      end
     end
   end
 end

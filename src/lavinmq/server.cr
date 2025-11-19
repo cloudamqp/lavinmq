@@ -216,6 +216,21 @@ module LavinMQ
         conn_info.ssl = true
         conn_info.ssl_version = ssl_client.tls_version
         conn_info.ssl_cipher = ssl_client.cipher
+
+        # Extract client certificate information for mTLS
+        if peer_cert = ssl_client.peer_certificate
+          conn_info.ssl_verify = true
+          # Extract common name from certificate subject
+          subject = peer_cert.subject
+          subject_entries = subject.to_a
+          if cn_entry = subject_entries.find { |oid, _| oid == "CN" }
+            conn_info.ssl_cn = cn_entry[1]
+          end
+          # Extract signature algorithm
+          conn_info.ssl_sig_alg = peer_cert.signature_algorithm
+          Log.debug { "#{remote_addr} authenticated with client certificate: #{conn_info.ssl_cn}" }
+        end
+
         handle_connection(ssl_client, conn_info, protocol)
       rescue ex
         Log.warn(exception: ex) { "Error accepting TLS connection from #{remote_addr}" }
