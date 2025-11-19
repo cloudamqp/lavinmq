@@ -10,10 +10,9 @@ describe LavinMQ::Server do
         client_ctx.certificate_chain = "spec/resources/client_certificate.pem"
         client_ctx.private_key = "spec/resources/client_key.pem"
         client_ctx.ca_certificates = "spec/resources/ca_certificate.pem"
-        client_ctx.verify_mode = OpenSSL::SSL::VerifyMode::NONE # Skip hostname verification for test certs
 
         # Should successfully connect with valid client certificate
-        conn = AMQP::Client.new(host: "::1", port: amqp_port(s), tls: client_ctx).connect
+        conn = AMQP::Client.new(host: "localhost", port: amqp_port(s), tls: client_ctx).connect
         conn.should_not be_nil
         channel = conn.channel
         channel.should_not be_nil
@@ -28,8 +27,8 @@ describe LavinMQ::Server do
         client_ctx.ca_certificates = "spec/resources/ca_certificate.pem"
 
         # Should fail to connect without client certificate
-        expect_raises(OpenSSL::SSL::Error | IO::Error | Socket::ConnectError) do
-          AMQP::Client.new(host: "::1", port: amqp_port(s), tls: client_ctx).connect
+        expect_raises(OpenSSL::SSL::Error | AMQP::Client::Error) do
+          AMQP::Client.new(host: "localhost", port: amqp_port(s), tls: client_ctx).connect
         end
       end
     end
@@ -39,10 +38,9 @@ describe LavinMQ::Server do
         # Create client context WITHOUT client certificate
         client_ctx = OpenSSL::SSL::Context::Client.new
         client_ctx.ca_certificates = "spec/resources/ca_certificate.pem"
-        client_ctx.verify_mode = OpenSSL::SSL::VerifyMode::NONE # Skip hostname verification for test certs
 
         # Should successfully connect even without client certificate
-        conn = AMQP::Client.new(host: "::1", port: amqp_port(s), tls: client_ctx).connect
+        conn = AMQP::Client.new(host: "localhost", port: amqp_port(s), tls: client_ctx).connect
         conn.should_not be_nil
         channel = conn.channel
         channel.should_not be_nil
@@ -56,10 +54,8 @@ describe LavinMQ::Server do
         client_ctx.certificate_chain = "spec/resources/client_certificate.pem"
         client_ctx.private_key = "spec/resources/client_key.pem"
         client_ctx.ca_certificates = "spec/resources/ca_certificate.pem"
-        client_ctx.verify_mode = OpenSSL::SSL::VerifyMode::NONE # Skip hostname verification for test certs
 
-        conn = AMQP::Client.new(host: "::1", port: amqp_port(s), tls: client_ctx).connect
-        channel = conn.channel
+        conn = AMQP::Client.new(host: "localhost", port: amqp_port(s), tls: client_ctx).connect
 
         # Give server time to process connection
         sleep 100.milliseconds
@@ -84,10 +80,9 @@ describe LavinMQ::Server do
         client_ctx.certificate_chain = "spec/resources/client_certificate.pem"
         client_ctx.private_key = "spec/resources/client_key.pem"
         client_ctx.ca_certificates = "spec/resources/ca_certificate.pem"
-        client_ctx.verify_mode = OpenSSL::SSL::VerifyMode::NONE # Skip hostname verification for test certs
 
         socket = TCPSocket.new("localhost", port)
-        ssl_socket = OpenSSL::SSL::Socket::Client.new(socket, context: client_ctx, sync_close: true, hostname: "127.0.0.1")
+        ssl_socket = OpenSSL::SSL::Socket::Client.new(socket, context: client_ctx, sync_close: true, hostname: "localhost")
 
         # Send MQTT CONNECT packet
         connect = IO::Memory.new
