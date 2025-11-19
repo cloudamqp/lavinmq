@@ -107,4 +107,53 @@ describe LavinMQ::Server do
       end
     end
   end
+
+  describe "CRL (Certificate Revocation List)" do
+    it "should accept connections with valid (non-revoked) certificates when CRL is enabled" do
+      with_amqp_server(tls: true, verify_peer: true, require_peer_cert: true, crl_file: "spec/resources/empty_crl.pem") do |s|
+        # Create client context with valid (non-revoked) client certificate
+        client_ctx = OpenSSL::SSL::Context::Client.new
+        client_ctx.certificate_chain = "spec/resources/client_certificate.pem"
+        client_ctx.private_key = "spec/resources/client_key.pem"
+        client_ctx.ca_certificates = "spec/resources/ca_certificate.pem"
+
+        # Should successfully connect with valid non-revoked certificate
+        conn = AMQP::Client.new(host: "localhost", port: amqp_port(s), tls: client_ctx).connect
+        conn.should_not be_nil
+        channel = conn.channel
+        channel.should_not be_nil
+        conn.close
+      end
+    end
+
+    it "should reject connections with revoked certificates when CRL is enabled" do
+      with_amqp_server(tls: true, verify_peer: true, require_peer_cert: true, crl_file: "spec/resources/crl.pem") do |s|
+        # Create client context with revoked client certificate
+        client_ctx = OpenSSL::SSL::Context::Client.new
+        client_ctx.certificate_chain = "spec/resources/revoked_client_certificate.pem"
+        client_ctx.private_key = "spec/resources/client_key.pem"
+        client_ctx.ca_certificates = "spec/resources/ca_certificate.pem"
+
+        # Should fail to connect with revoked certificate
+        expect_raises(OpenSSL::SSL::Error | AMQP::Client::Error) do
+          AMQP::Client.new(host: "localhost", port: amqp_port(s), tls: client_ctx).connect
+        end
+      end
+    end
+
+    it "should accept valid certificates when CRL checking is not enabled" do
+      with_amqp_server(tls: true, verify_peer: true, require_peer_cert: true) do |s|
+        # Even with a revoked certificate, if CRL checking is not enabled, it should work
+        client_ctx = OpenSSL::SSL::Context::Client.new
+        client_ctx.certificate_chain = "spec/resources/revoked_client_certificate.pem"
+        client_ctx.private_key = "spec/resources/client_key.pem"
+        client_ctx.ca_certificates = "spec/resources/ca_certificate.pem"
+
+        # Should successfully connect because CRL checking is disabled
+        conn = AMQP::Client.new(host: "localhost", port: amqp_port(s), tls: client_ctx).connect
+        conn.should_not be_nil
+        conn.close
+      end
+    end
+  end
 end

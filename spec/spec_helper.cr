@@ -15,6 +15,7 @@ require "../src/lavinmq/config" # have to be required first
 require "../src/lavinmq/server"
 require "../src/lavinmq/http/http_server"
 require "../src/lavinmq/http/metrics_server"
+require "../src/stdlib/openssl_x509_store"
 require "http/client"
 require "amqp-client"
 require "./support/*"
@@ -96,6 +97,7 @@ end
 def with_amqp_server(tls = false, replicator = nil,
                      config = LavinMQ::Config.instance,
                      verify_peer = false, require_peer_cert = false,
+                     crl_file : String? = nil,
                      file = __FILE__, line = __LINE__, & : LavinMQ::Server -> Nil)
   LavinMQ::Config.instance = init_config(config)
   FileUtils.rm_rf(config.data_dir)
@@ -112,6 +114,10 @@ def with_amqp_server(tls = false, replicator = nil,
         verify_mode = OpenSSL::SSL::VerifyMode::PEER
         verify_mode |= OpenSSL::SSL::VerifyMode::FAIL_IF_NO_PEER_CERT if require_peer_cert
         ctx.verify_mode = verify_mode
+      end
+      # Configure CRL if provided
+      if crl_file
+        ctx.load_crl(crl_file)
       end
       spawn(name: "amqp tls listen") { s.listen_tls(tcp_server, ctx, LavinMQ::Server::Protocol::AMQP) }
     else

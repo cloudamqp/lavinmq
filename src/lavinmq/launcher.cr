@@ -9,6 +9,7 @@ require "./in_memory_backend"
 require "./data_dir_lock"
 require "./etcd"
 require "./clustering/controller"
+require "../stdlib/openssl_x509_store"
 
 module LavinMQ
   struct StandaloneRunner
@@ -324,6 +325,12 @@ module LavinMQ
           Log.info { "mTLS: client certificates optional" }
         end
         tls.verify_mode = verify_mode
+      end
+
+      # Load Certificate Revocation List (CRL) if configured
+      unless @config.tls_crl_file.empty?
+        tls.load_crl(@config.tls_crl_file)
+        Log.info { "CRL checking enabled: #{@config.tls_crl_file}" }
       end
     end
   end
