@@ -34,8 +34,6 @@ module LavinMQ
     property http_port = 15672
     property https_port = 15671
     property http_unix_path = ""
-    property http_systemd_socket_name = "lavinmq-http.socket"
-    property amqp_systemd_socket_name = "lavinmq-amqp.socket"
     property metrics_http_bind = "localhost"
     property metrics_http_port = 15692
     property heartbeat = 300_u16                     # second
@@ -363,7 +361,6 @@ module LavinMQ
         when "frame_max"                 then @frame_max = v.to_u32
         when "channel_max"               then @channel_max = v.to_u16
         when "max_message_size"          then @max_message_size = v.to_i32
-        when "systemd_socket_name"       then @amqp_systemd_socket_name = v
         when "unix_proxy_protocol"       then @unix_proxy_protocol = true?(v) ? 1u8 : v.to_u8? || 0u8
         when "tcp_proxy_protocol"        then @tcp_proxy_protocol = true?(v) ? 1u8 : v.to_u8? || 0u8
         when "set_timestamp"             then @set_timestamp = true?(v)
@@ -395,13 +392,12 @@ module LavinMQ
     private def parse_mgmt(settings)
       settings.each do |config, v|
         case config
-        when "bind"                then @http_bind = v
-        when "port"                then @http_port = v.to_i32
-        when "tls_port"            then @https_port = v.to_i32
-        when "tls_cert"            then @tls_cert_path = v # backward compatibility
-        when "tls_key"             then @tls_key_path = v  # backward compatibility
-        when "unix_path"           then @http_unix_path = v
-        when "systemd_socket_name" then @http_systemd_socket_name = v
+        when "bind"      then @http_bind = v
+        when "port"      then @http_port = v.to_i32
+        when "tls_port"  then @https_port = v.to_i32
+        when "tls_cert"  then @tls_cert_path = v # backward compatibility
+        when "tls_key"   then @tls_key_path = v  # backward compatibility
+        when "unix_path" then @http_unix_path = v
         else
           STDERR.puts "WARNING: Unrecognized configuration 'mgmt/#{config}'"
         end
