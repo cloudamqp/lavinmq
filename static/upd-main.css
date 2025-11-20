@@ -2287,27 +2287,9 @@ html.theme-dark {
     display: none;
   }
 
-  #menu ul li a,
-  #menu ul li a:visited {
-    display: block;
-    padding: 0 1em;
-    font-size: 0.875rem;
-    line-height: 1.25rem;
-  }
-
-  #menu ul li a {
-    padding: 4px 20px 4px 40px;
-    font-size: small;
-  }
-
   #menu ul a:hover {
     background-color: var(--highlight-color);
     border-radius: 0px 4px 4px 4px;
-    color: var(--color-text-primary);
-  }
-
-  #menu li.active a {
-    background-color: var(--highlight-color);
     color: var(--color-text-primary);
   }
 
