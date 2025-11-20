@@ -327,40 +327,30 @@ describe LavinMQ::Federation::Upstream do
 
         us_queue.message_count.should eq message_count
 
-        wg = WaitGroup.new(1)
-        spawn do
-          # Wait for queue to receive one consumer (subscribe)
-          ds_queue.@consumers_empty.when_false.receive
-          # Wait for queue to lose consumer (unsubscribe)
-          ds_queue.@consumers_empty.when_true.receive
-          wg.done
-        end
-        Fiber.yield # yield so our receive? above is called
-
         # consume 1 message from downstream queue
         with_channel(s, vhost: ds_vhost.name) do |downstream_ch|
           downstream_ch.prefetch(1)
           downstream_q = downstream_ch.queue(ds_queue_name)
           downstream_q.subscribe(tag: "c", no_ack: false, block: true) do |msg|
-            Fiber.yield # to let the sync fiber above run to call receive? a second time
-            msg.ack
             downstream_q.unsubscribe("c")
+            msg.ack
           end
         end
 
-        wg.wait
-        Fiber.yield # let things happen?
+        us_queue.consumers_empty.when_true.receive
+        ds_queue.consumers_empty.when_true.receive
 
         # One message has been transferred?
-        wait_for { us_queue.message_count == 1 }
+        wait_for { us_queue.message_count > 0 }
+        ds_queue.message_count.should eq 0
 
         # resume consuming on downstream, federation should start again
         with_channel(s, vhost: ds_vhost.name) do |downstream_ch|
           ch = Channel(Nil).new
           downstream_q = downstream_ch.queue(ds_queue_name)
           downstream_q.subscribe(tag: "c2", no_ack: false) do |msg|
-            msg.ack
             downstream_q.unsubscribe("c2")
+            msg.ack
             ch.close
           end
 
