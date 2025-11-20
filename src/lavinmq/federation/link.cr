@@ -225,10 +225,10 @@ module LavinMQ
               end
               @log.info { "Lost consumers, cancel upstream subscriber" }
               has_consumer = false
-              # force a "restart" of the link
+              # cancel our consumer!
               if channel = @upstream_channel
                 begin
-                  channel.close unless channel.closed?
+                  channel.basic_cancel(@upstream.consumer_tag)
                 rescue ::AMQP::Client::Error
                 end
               end
