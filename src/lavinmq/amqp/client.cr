@@ -138,6 +138,9 @@ module LavinMQ
               @log.debug { "Confirmed disconnect" }
               @running = false
               return
+            when AMQP::Frame::Connection::UpdateSecret
+              handle_update_secret(frame)
+              next
             end
             if @running
               process_frame(frame)
@@ -195,6 +198,17 @@ module LavinMQ
           false
         else
           send AMQP::Frame::Heartbeat.new
+        end
+      end
+
+      private def handle_update_secret(frame : AMQP::Frame::Connection::UpdateSecret)
+        user = @user
+        # Need to do @secret untill we lift in new amq-perf version
+        if user.update_secret(frame.@secret)
+          @log.info { "Updated secret for user '#{user.name}'" }
+          send AMQP::Frame::Connection::UpdateSecretOk.new
+        else
+          close_connection(frame, ConnectionReplyCode::ACCESS_REFUSED, "update-secret not supported for current authentication mechanism or invalid credentials")
         end
       end
 
