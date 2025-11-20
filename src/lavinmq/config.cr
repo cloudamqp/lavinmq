@@ -79,6 +79,7 @@ module LavinMQ
     property default_user : String = ENV.fetch("LAVINMQ_DEFAULT_USER", "guest")
     property default_password : String = ENV.fetch("LAVINMQ_DEFAULT_PASSWORD", DEFAULT_PASSWORD_HASH) # Hashed password for default user
     property max_consumers_per_channel = 0
+    property mqtt_max_packet_size = 268_435_455_u32 # bytes
     property oauth_issuer_url : String = ""
     property oauth_resource_server_id : String = ""
     property oauth_preferred_username_claims = Array(String).new
