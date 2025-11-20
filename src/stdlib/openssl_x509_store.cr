@@ -60,12 +60,11 @@ module OpenSSL::SSL
     private def fetch_crl_from_url(url : String, cache_dir : String? = nil) : String
       cache_path = get_cache_path(url, cache_dir) if cache_dir
 
-      # Check if cached CRL exists and is still valid
+      # Check if cached CRL exists and is still valid (fast path using metadata)
       if cache_path && File.exists?(cache_path)
-        cached_crl = File.read(cache_path)
-        if crl_valid?(cached_crl)
+        if crl_cache_valid?(cache_path)
           Log.debug { "Using valid cached CRL from #{cache_path}" }
-          return cached_crl
+          return File.read(cache_path)
         else
           Log.info { "Cached CRL expired, fetching fresh CRL from #{url}" }
         end
@@ -111,13 +110,93 @@ module OpenSSL::SSL
       File.join(cache_dir, "crl_cache", "#{url_hash}.pem")
     end
 
-    # Save CRL data to cache file
+    # Save CRL data to cache file along with validity metadata
     private def save_to_cache(cache_path : String, crl_data : String)
       Dir.mkdir_p(File.dirname(cache_path))
       File.write(cache_path, crl_data)
+
+      # Extract and cache the nextUpdate timestamp for fast validity checks
+      if next_update = extract_crl_next_update(crl_data)
+        save_crl_metadata(cache_path, next_update)
+      end
+
       Log.debug { "Cached CRL to #{cache_path}" }
     rescue ex
       Log.warn { "Failed to cache CRL: #{ex.message}" }
+    end
+
+    # Check if cached CRL is still valid using metadata (fast path)
+    # Falls back to full CRL parsing if metadata is missing or invalid
+    private def crl_cache_valid?(cache_path : String) : Bool
+      meta_path = get_metadata_path(cache_path)
+
+      # Fast path: check metadata file
+      if File.exists?(meta_path)
+        if next_update_str = File.read(meta_path).strip
+          begin
+            next_update = Time.unix(next_update_str.to_i64)
+            return Time.utc < next_update
+          rescue
+            # Invalid metadata, fall through to full parsing
+          end
+        end
+      end
+
+      # Slow path: parse CRL (only if metadata is missing/invalid)
+      crl_valid?(File.read(cache_path))
+    end
+
+    # Get metadata file path for a cached CRL
+    private def get_metadata_path(cache_path : String) : String
+      "#{cache_path}.meta"
+    end
+
+    # Save CRL nextUpdate timestamp to metadata file
+    private def save_crl_metadata(cache_path : String, next_update : Time)
+      meta_path = get_metadata_path(cache_path)
+      File.write(meta_path, next_update.to_unix.to_s)
+    rescue ex
+      Log.debug { "Failed to save CRL metadata: #{ex.message}" }
+    end
+
+    # Extract nextUpdate timestamp from CRL (for caching)
+    private def extract_crl_next_update(crl_pem : String) : Time?
+      bio = LibCrypto.bio_new_mem_buf(crl_pem, crl_pem.bytesize)
+      return nil if bio.null?
+
+      begin
+        crl = LibCrypto.pem_read_bio_x509_crl(bio, nil, nil, nil)
+        return nil if crl.null?
+
+        begin
+          next_update = LibCrypto.x509_crl_get_next_update(crl)
+          return nil if next_update.null?
+
+          # Convert ASN1_TIME to unix timestamp using ASN1_TIME_diff
+          current_time = LibCrypto.asn1_time_set(nil, Time.utc.to_unix)
+          return nil if current_time.null?
+
+          begin
+            days = 0
+            seconds = 0
+            # Calculate difference: next_update - current_time
+            result = LibCrypto.asn1_time_diff(pointerof(days), pointerof(seconds), current_time, next_update)
+            return nil if result == 0 # Comparison failed
+
+            # Calculate total seconds and add to current time
+            total_seconds = days * 86400 + seconds
+            Time.utc + total_seconds.seconds
+          ensure
+            LibCrypto.asn1_time_free(current_time)
+          end
+        ensure
+          LibCrypto.x509_crl_free(crl)
+        end
+      ensure
+        LibCrypto.bio_free(bio)
+      end
+    rescue
+      nil
     end
 
     # Check if a CRL is still valid (not expired)
@@ -414,4 +493,15 @@ lib LibCrypto
 
   # Free ASN1_TIME
   fun asn1_time_free = ASN1_TIME_free(t : ASN1Time)
+
+  # Calculate difference between two ASN1_TIME values
+  # Returns 1 on success, 0 on error
+  # pday receives the number of days difference
+  # psec receives the number of seconds difference (in addition to days)
+  fun asn1_time_diff = ASN1_TIME_diff(
+    pday : LibC::Int*,
+    psec : LibC::Int*,
+    from : ASN1Time,
+    to : ASN1Time
+  ) : LibC::Int
 end
