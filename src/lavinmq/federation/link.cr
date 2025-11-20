@@ -227,7 +227,10 @@ module LavinMQ
               has_consumer = false
               # force a "restart" of the link
               if channel = @upstream_channel
-                channel.close
+                begin
+                  channel.close unless channel.closed?
+                rescue ::AMQP::Client::Error
+                end
               end
             else
               # Wait for queue get a consumer, or for the link
