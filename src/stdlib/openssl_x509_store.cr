@@ -60,6 +60,17 @@ module OpenSSL::SSL
     private def fetch_crl_from_url(url : String, cache_dir : String? = nil) : String
       cache_path = get_cache_path(url, cache_dir) if cache_dir
 
+      # Check if cached CRL exists and is still valid
+      if cache_path && File.exists?(cache_path)
+        cached_crl = File.read(cache_path)
+        if crl_valid?(cached_crl)
+          Log.debug { "Using valid cached CRL from #{cache_path}" }
+          return cached_crl
+        else
+          Log.info { "Cached CRL expired, fetching fresh CRL from #{url}" }
+        end
+      end
+
       uri = URI.parse(url)
 
       # Try to fetch from URL
@@ -83,9 +94,9 @@ module OpenSSL::SSL
 
         crl_data
       rescue ex : IO::TimeoutError | Socket::Error | IO::Error | OpenSSL::Error
-        # If fetch fails and we have a cache, try to use it
+        # If fetch fails and we have a cache, try to use it (even if expired)
         if cache_path && File.exists?(cache_path)
-          Log.warn { "CRL fetch from #{url} failed (#{ex.message}), using cached version" }
+          Log.warn { "CRL fetch from #{url} failed (#{ex.message}), using cached version (possibly expired)" }
           File.read(cache_path)
         else
           raise OpenSSL::Error.new("CRL fetch failed and no cache available: #{ex.message}")
@@ -107,6 +118,42 @@ module OpenSSL::SSL
       Log.debug { "Cached CRL to #{cache_path}" }
     rescue ex
       Log.warn { "Failed to cache CRL: #{ex.message}" }
+    end
+
+    # Check if a CRL is still valid (not expired)
+    # Returns true if the CRL's nextUpdate time is in the future
+    private def crl_valid?(crl_pem : String) : Bool
+      bio = LibCrypto.bio_new_mem_buf(crl_pem, crl_pem.bytesize)
+      return false if bio.null?
+
+      begin
+        crl = LibCrypto.pem_read_bio_x509_crl(bio, nil, nil, nil)
+        return false if crl.null?
+
+        begin
+          next_update = LibCrypto.x509_crl_get_next_update(crl)
+          return false if next_update.null?
+
+          # Create ASN1_TIME for current time
+          current_time = LibCrypto.asn1_time_set(nil, Time.utc.to_unix)
+          return false if current_time.null?
+
+          begin
+            # Compare nextUpdate with current time
+            # Returns: -1 if next_update < now, 0 if equal, 1 if next_update > now
+            result = LibCrypto.asn1_time_compare(next_update, current_time)
+            result > 0
+          ensure
+            LibCrypto.asn1_time_free(current_time)
+          end
+        ensure
+          LibCrypto.x509_crl_free(crl)
+        end
+      ensure
+        LibCrypto.bio_free(bio)
+      end
+    rescue
+      false
     end
   end
 end
@@ -335,4 +382,21 @@ lib LibCrypto
 
   # Free memory allocated by OpenSSL (OPENSSL_free is a macro for CRYPTO_free)
   fun openssl_free = CRYPTO_free(addr : Void*, file : LibC::Char*, line : LibC::Int)
+
+  # ASN1_TIME type
+  alias ASN1Time = Void*
+
+  # Get the nextUpdate field from a CRL
+  fun x509_crl_get_next_update = X509_CRL_get_nextUpdate(x : X509CRL) : ASN1Time
+
+  # Compare two ASN1_TIME values
+  # Returns: -1 if a < b, 0 if a == b, 1 if a > b
+  fun asn1_time_compare = ASN1_TIME_compare(a : ASN1Time, b : ASN1Time) : LibC::Int
+
+  # Create ASN1_TIME from unix timestamp
+  # If t is nil, allocates new ASN1_TIME, otherwise modifies existing
+  fun asn1_time_set = ASN1_TIME_set(t : ASN1Time, unix_time : Int64) : ASN1Time
+
+  # Free ASN1_TIME
+  fun asn1_time_free = ASN1_TIME_free(t : ASN1Time)
 end
