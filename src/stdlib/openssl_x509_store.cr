@@ -206,50 +206,64 @@ module OpenSSL::X509
 
   # Extract URL from DIST_POINT structure
   private def self.extract_url_from_dist_point(dp : LibCrypto::DistPoint) : String?
-    return nil if dp.null?
+    general_names = get_general_names_from_dist_point(dp)
+    return if general_names.nil?
 
-    # Cast to actual DIST_POINT structure to access fields
+    find_http_url_in_general_names(general_names)
+  end
+
+  # Get GENERAL_NAMES from a DIST_POINT structure
+  private def self.get_general_names_from_dist_point(dp : LibCrypto::DistPoint) : LibCrypto::GeneralNamesPtr?
+    return if dp.null?
+
     dist_point = dp.as(LibCrypto::DistPointStruct*)
-    return nil if dist_point.null?
+    return if dist_point.null?
+    return if dist_point.value.distpoint.null?
 
-    # Check if distpoint field exists and is of type fullname (0)
-    return nil if dist_point.value.distpoint.null?
     dpn = dist_point.value.distpoint.as(LibCrypto::DistPointNameStruct*)
-    return nil if dpn.null?
-    return nil if dpn.value.type != 0 # 0 = fullname (GENERAL_NAMES)
+    return if dpn.null?
+    return if dpn.value.type != 0 # 0 = fullname (GENERAL_NAMES)
 
-    # Get the fullname (GENERAL_NAMES)
     general_names = dpn.value.name.fullname
-    return nil if general_names.null?
+    general_names.null? ? nil : general_names
+  end
 
-    # Iterate through GENERAL_NAMES to find URI entries
+  # Find HTTP/HTTPS URL in GENERAL_NAMES
+  private def self.find_http_url_in_general_names(general_names : LibCrypto::GeneralNamesPtr) : String?
     count = LibCrypto.sk_general_name_num(general_names)
     count.times do |i|
-      gen_name = LibCrypto.sk_general_name_value(general_names, i)
-      next if gen_name.null?
-
-      gn = gen_name.as(LibCrypto::GeneralNameStruct*)
-      # GEN_URI = 6
-      if gn.value.type == 6
-        uri = gn.value.d.uniformResourceIdentifier
-        next if uri.null?
-
-        # Convert ASN1_STRING to Crystal String
-        uri_str_ptr = Pointer(LibC::Char).null
-        len = LibCrypto.asn1_string_to_utf8(pointerof(uri_str_ptr), uri)
-        next if len < 0 || uri_str_ptr.null?
-
-        begin
-          url = String.new(uri_str_ptr, len)
-          # Only return HTTP/HTTPS URLs
-          return url if url.starts_with?("http://") || url.starts_with?("https://")
-        ensure
-          LibCrypto.openssl_free(uri_str_ptr, nil, 0)
-        end
+      if url = extract_uri_from_general_name(general_names, i)
+        return url if url.starts_with?("http://") || url.starts_with?("https://")
       end
     end
-
     nil
+  end
+
+  # Extract URI string from a GENERAL_NAME at given index
+  private def self.extract_uri_from_general_name(general_names : LibCrypto::GeneralNamesPtr, index : Int32) : String?
+    gen_name = LibCrypto.sk_general_name_value(general_names, index)
+    return if gen_name.null?
+
+    gn = gen_name.as(LibCrypto::GeneralNameStruct*)
+    return if gn.value.type != 6 # GEN_URI = 6
+
+    uri = gn.value.d.uniformResourceIdentifier
+    return if uri.null?
+
+    convert_asn1_string_to_string(uri)
+  end
+
+  # Convert ASN1_STRING to Crystal String
+  private def self.convert_asn1_string_to_string(asn1_str : LibCrypto::ASN1String) : String?
+    uri_str_ptr = Pointer(LibC::Char).null
+    len = LibCrypto.asn1_string_to_utf8(pointerof(uri_str_ptr), asn1_str)
+    return if len < 0 || uri_str_ptr.null?
+
+    begin
+      String.new(uri_str_ptr, len)
+    ensure
+      LibCrypto.openssl_free(uri_str_ptr, nil, 0)
+    end
   end
 end
 
@@ -289,6 +303,7 @@ lib LibCrypto
   end
 
   # Union for GENERAL_NAME data
+  # ameba:disable Naming/VariableNames
   union GeneralNameData
     ptr : LibC::Char*
     otherName : Void*                      # ASN1_TYPE
