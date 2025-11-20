@@ -597,6 +597,44 @@ describe LavinMQ::AMQP::Queue do
         end
       end
     end
+
+    overriden_arguments = {
+      {
+        args:     {"x-message-ttl": 100},
+        policy:   {"message-ttl": 50},
+        expected: Tuple.new,
+      },
+      {
+        args:     {"x-message-ttl": 10},
+        policy:   {"message-ttl": 50},
+        expected: {"x-message-ttl"},
+      },
+      {
+        args:     {"x-message-ttl": 100, "x-max-length": 10},
+        policy:   {"message-ttl": 50, "x-max-length": 100},
+        expected: {"x-max-length"},
+      },
+    }
+    overriden_arguments.each do |value|
+      args = value[:args]
+      policy_args = value[:policy]
+      expected = value[:expected]
+      it "should be #{expected.join(", ")} with args #{args} and policy #{policy_args}" do
+        with_amqp_server do |s|
+          q = s.vhosts["/"].try do |vhost|
+            vhost.declare_queue("q", durable: true, auto_delete: false, arguments: AMQP::Client::Arguments.new(args))
+            vhost.queues["q"]
+          end
+          definition = JSON.parse(policy_args.to_json).as_h
+          policy = LavinMQ::Policy.new("p1", "/", %r{"."}, LavinMQ::Policy::Target::All, definition, 1i8)
+          q.apply_policy(policy, nil)
+          effective_arguments = q.details_tuple[:effective_arguments]
+          expected.each do |key|
+            effective_arguments.should contain key
+          end
+        end
+      end
+    end
   end
 
   describe "PolicyTarget" do
