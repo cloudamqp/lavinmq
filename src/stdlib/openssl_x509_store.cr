@@ -1,5 +1,6 @@
 require "openssl"
 require "http/client"
+require "digest/sha1"
 
 # Extensions to OpenSSL::SSL::Context for X509_STORE operations
 # needed for CRL (Certificate Revocation List) support
@@ -10,10 +11,13 @@ module OpenSSL::SSL
     #
     # Supports:
     # - Local file paths (file:// or absolute/relative paths)
-    # - HTTP/HTTPS URLs for automatic CRL fetching
-    def load_crl(source : String)
+    # - HTTP/HTTPS URLs for automatic CRL fetching with caching
+    #
+    # cache_dir: Optional directory for caching CRLs fetched from URLs.
+    #           If provided, CRLs are cached and used as fallback when URL is unreachable.
+    def load_crl(source : String, cache_dir : String? = nil)
       crl_data = if source.starts_with?("http://") || source.starts_with?("https://")
-                   fetch_crl_from_url(source)
+                   fetch_crl_from_url(source, cache_dir)
                  else
                    File.read(source)
                  end
@@ -51,25 +55,58 @@ module OpenSSL::SSL
       end
     end
 
-    # Fetches CRL from HTTP/HTTPS URL with timeout and proper connection management
-    private def fetch_crl_from_url(url : String) : String
+    # Fetches CRL from HTTP/HTTPS URL with timeout, caching, and fallback to cached version
+    # cache_dir: Optional directory to cache CRL files for offline fallback
+    private def fetch_crl_from_url(url : String, cache_dir : String? = nil) : String
+      cache_path = get_cache_path(url, cache_dir) if cache_dir
+
       uri = URI.parse(url)
 
-      HTTP::Client.new(uri) do |client|
-        client.connect_timeout = 10.seconds
-        client.read_timeout = 10.seconds
+      # Try to fetch from URL
+      begin
+        crl_data = HTTP::Client.new(uri) do |client|
+          client.connect_timeout = 10.seconds
+          client.read_timeout = 10.seconds
 
-        response = client.get(uri.request_target)
-        unless response.success?
-          raise OpenSSL::Error.new("CRL fetch failed: HTTP #{response.status_code}")
+          response = client.get(uri.request_target)
+          unless response.success?
+            raise OpenSSL::Error.new("CRL fetch failed: HTTP #{response.status_code}")
+          end
+
+          response.body
         end
 
-        response.body
+        # Save to cache if successful
+        if cache_path && crl_data
+          save_to_cache(cache_path, crl_data)
+        end
+
+        crl_data
+      rescue ex : IO::TimeoutError | Socket::Error | IO::Error | OpenSSL::Error
+        # If fetch fails and we have a cache, try to use it
+        if cache_path && File.exists?(cache_path)
+          Log.warn { "CRL fetch from #{url} failed (#{ex.message}), using cached version" }
+          File.read(cache_path)
+        else
+          raise OpenSSL::Error.new("CRL fetch failed and no cache available: #{ex.message}")
+        end
       end
-    rescue ex : IO::TimeoutError
-      raise OpenSSL::Error.new("CRL fetch timeout: #{url}")
-    rescue ex : Socket::Error | IO::Error
-      raise OpenSSL::Error.new("CRL fetch network error: #{ex.message}")
+    end
+
+    # Generate cache file path from URL
+    private def get_cache_path(url : String, cache_dir : String) : String
+      # Use SHA1 of URL as filename to avoid path issues
+      url_hash = Digest::SHA1.hexdigest(url)
+      File.join(cache_dir, "crl_cache", "#{url_hash}.pem")
+    end
+
+    # Save CRL data to cache file
+    private def save_to_cache(cache_path : String, crl_data : String)
+      Dir.mkdir_p(File.dirname(cache_path))
+      File.write(cache_path, crl_data)
+      Log.debug { "Cached CRL to #{cache_path}" }
+    rescue ex
+      Log.warn { "Failed to cache CRL: #{ex.message}" }
     end
   end
 end

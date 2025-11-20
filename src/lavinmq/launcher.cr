@@ -342,7 +342,7 @@ module LavinMQ
             Log.info { "Found CRL Distribution Points in CA certificate: #{cdp_urls.join(", ")}" }
             cdp_urls.each do |url|
               begin
-                tls.load_crl(url)
+                tls.load_crl(url, @config.data_dir)
                 Log.info { "Successfully loaded CRL from CDP: #{url}" }
               rescue ex
                 Log.warn { "Failed to load CRL from CDP #{url}: #{ex.message}" }
