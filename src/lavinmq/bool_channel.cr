@@ -3,7 +3,7 @@
 class BoolChannel
   getter when_true = Channel(Nil).new
   getter when_false = Channel(Nil).new
-  @value = Channel(Bool).new
+  @value = ::Channel(Bool).new
 
   def initialize(value : Bool)
     spawn(name: "BoolChannel#send_loop") do
@@ -13,8 +13,17 @@ class BoolChannel
 
   def set(value : Bool)
     @value.send value
-  rescue Channel::ClosedError
+  rescue ::Channel::ClosedError
     Log.debug { "BoolChannel closed, could not set value" }
+  end
+
+  def value : Bool
+    select
+    when when_true.receive
+      false
+    when when_false.receive
+      true
+    end
   end
 
   def close
@@ -32,6 +41,6 @@ class BoolChannel
         Fiber.yield # Improves fairness by allowing the receiving fiber to run instead of notifying all waiting fibers
       end
     end
-  rescue Channel::ClosedError
+  rescue ::Channel::ClosedError
   end
 end
