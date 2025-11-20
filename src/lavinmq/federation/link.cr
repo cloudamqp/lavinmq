@@ -229,7 +229,8 @@ module LavinMQ
               if channel = @upstream_channel
                 begin
                   channel.basic_cancel(@upstream.consumer_tag)
-                rescue ::AMQP::Client::Error
+                rescue ex : ::AMQP::Client::Error
+                  @log.debug(exception: ex) { "Tried to cancel upstream consumer tag=#{@upstream.consumer_tag}" }
                 end
               end
             else
