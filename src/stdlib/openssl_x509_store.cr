@@ -264,8 +264,8 @@ lib LibCrypto
 
   # DIST_POINT structure
   struct DistPointStruct
-    distpoint : Void*           # DIST_POINT_NAME
-    reasons : Void*             # ASN1_BIT_STRING
+    distpoint : Void*            # DIST_POINT_NAME
+    reasons : Void*              # ASN1_BIT_STRING
     crl_issuer : GeneralNamesPtr # GENERAL_NAMES
     dp_reasons : LibC::Int
   end
@@ -278,8 +278,8 @@ lib LibCrypto
 
   # Union for DIST_POINT_NAME
   union DistPointNameUnion
-    fullname : GeneralNamesPtr    # GENERAL_NAMES (type 0)
-    relativename : Void*          # X509_NAME (type 1)
+    fullname : GeneralNamesPtr # GENERAL_NAMES (type 0)
+    relativename : Void*       # X509_NAME (type 1)
   end
 
   # GENERAL_NAME structure (simplified)
@@ -291,27 +291,27 @@ lib LibCrypto
   # Union for GENERAL_NAME data
   union GeneralNameData
     ptr : LibC::Char*
-    otherName : Void*                    # ASN1_TYPE
-    rfc822Name : ASN1String              # ASN1_IA5STRING
-    dNSName : ASN1String                 # ASN1_IA5STRING
-    x400Address : Void*                  # ASN1_TYPE
-    directoryName : Void*                # X509_NAME
-    ediPartyName : Void*                 # ASN1_TYPE
+    otherName : Void*                      # ASN1_TYPE
+    rfc822Name : ASN1String                # ASN1_IA5STRING
+    dNSName : ASN1String                   # ASN1_IA5STRING
+    x400Address : Void*                    # ASN1_TYPE
+    directoryName : Void*                  # X509_NAME
+    ediPartyName : Void*                   # ASN1_TYPE
     uniformResourceIdentifier : ASN1String # ASN1_IA5STRING (type 6)
-    iPAddress : ASN1String               # ASN1_OCTET_STRING
-    registeredID : Void*                 # ASN1_OBJECT
+    iPAddress : ASN1String                 # ASN1_OCTET_STRING
+    registeredID : Void*                   # ASN1_OBJECT
   end
 
   # Create a BIO from memory buffer
   fun bio_new_mem_buf = BIO_new_mem_buf(
     buf : LibC::Char*,
-    len : LibC::Int
+    len : LibC::Int,
   ) : Bio*
 
   # Create a BIO from file
   fun bio_new_file = BIO_new_file(
     filename : LibC::Char*,
-    mode : LibC::Char*
+    mode : LibC::Char*,
   ) : Bio*
 
   # Free a BIO
@@ -322,7 +322,7 @@ lib LibCrypto
     bp : Bio*,
     x : X509*,
     cb : Void*,
-    u : Void*
+    u : Void*,
   ) : X509
 
   # Read a CRL from a PEM file
@@ -330,7 +330,7 @@ lib LibCrypto
     bp : Bio*,
     x : X509CRL*,
     cb : Void*,
-    u : Void*
+    u : Void*,
   ) : X509CRL
 
   # Get extension from certificate by NID
@@ -338,7 +338,7 @@ lib LibCrypto
     x : X509,
     nid : LibC::Int,
     crit : LibC::Int*,
-    idx : LibC::Int*
+    idx : LibC::Int*,
   ) : Void*
 
   # Free X509 certificate
@@ -362,7 +362,7 @@ lib LibCrypto
   # Add a CRL to the X509_STORE
   fun x509_store_add_crl = X509_STORE_add_crl(
     ctx : X509_STORE,
-    x : X509CRL
+    x : X509CRL,
   ) : LibC::Int
 
   # Free a CRL
@@ -371,13 +371,13 @@ lib LibCrypto
   # Set X509 verification flags on the store
   fun x509_store_set_flags = X509_STORE_set_flags(
     ctx : X509_STORE,
-    flags : X509VerifyFlags
+    flags : X509VerifyFlags,
   ) : LibC::Int
 
   # Convert ASN1_STRING to UTF8
   fun asn1_string_to_utf8 = ASN1_STRING_to_UTF8(
     out : LibC::Char**,
-    in : ASN1String
+    in : ASN1String,
   ) : LibC::Int
 
   # Free memory allocated by OpenSSL (OPENSSL_free is a macro for CRYPTO_free)
