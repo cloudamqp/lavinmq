@@ -518,6 +518,7 @@ button {
 
   &:hover {
     background-color: #4CD37D;
+    color: #141414;
   }
 }
 
@@ -545,39 +546,12 @@ button {
   }
 }
 
-.btn-primary {
-  color: var(--color-text-inverse);
-  font-weight: 100;
-  text-transform: uppercase;
-  background-color: var(--color-primary-green);
-  border: none;
-  padding: 0 40px;
-}
-
-.btn-secondary {
-  font-weight: 100;
-  padding: 0 40px;
-  text-transform: uppercase;
-  border: 1px solid var(--color-border-secondary);
-  background-color: var(--color-bg-tertiary);
-  color: var(--color-text-primary);
-}
-
 .btn-danger {
   font-weight: 100;
   padding: 0 40px;
   border: none;
   text-transform: uppercase;
   background-color: var(--color-danger);
-  color: var(--color-text-inverse);
-}
-
-.btn-warn {
-  font-weight: 100;
-  padding: 0 40px;
-  border: none;
-  text-transform: uppercase;
-  background-color: var(--color-warning);
   color: var(--color-text-inverse);
 }
 
@@ -1869,11 +1843,6 @@ pre.arguments .inactive-argument:before {
 .btn-toggle[aria-pressed="true"] {
   border-bottom: 3px solid transparent;
   border-bottom-color: var(--color-primary-green);
-}
-
-.btn-primary a,
-.btn-primary a:visited {
-  color: var(--color-text-inverse);
 }
 
 .version-tab {
