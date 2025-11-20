@@ -19,7 +19,9 @@ module LavinMQ
         @scrubbed_uri : String
         @last_unacked : UInt64?
         @upstream_connection : ::AMQP::Client::Connection?
+        @upstream_channel : ::AMQP::Client::Channel?
         @metadata : ::Log::Metadata
+        @running = Channel(Nil).new
 
         def initialize(@upstream : Upstream)
           @metadata = ::Log::Metadata.new(nil, {vhost: @upstream.vhost.name, upstream: @upstream.name})
@@ -72,6 +74,7 @@ module LavinMQ
         # Does not trigger reconnect, but a graceful close
         def terminate
           return if @state.terminated?
+          @running.close
           state(State::Terminating)
           @upstream_connection.try &.close
         end
@@ -83,14 +86,24 @@ module LavinMQ
             start_link
             break if @state.terminating?
             state(State::Stopped)
-            sleep @upstream.reconnect_delay.seconds
+            select
+            when timeout @upstream.reconnect_delay.seconds
+            when @running.receive?
+              break
+            end
+            break if @state.terminating?
             @log.info { "Federation try reconnect" }
           rescue ex
             break if @state.terminating?
             @log.info { "Federation link state=#{@state} error=#{ex.inspect}" }
             state(State::Stopped)
             @error = ex.message
-            sleep @upstream.reconnect_delay.seconds
+            select
+            when timeout @upstream.reconnect_delay.seconds
+            when @running.receive?
+              break
+            end
+            break if @state.terminating?
             @log.info { "Federation try reconnect" }
           end
           @log.info { "Federation link stopped" }
@@ -184,14 +197,51 @@ module LavinMQ
 
       class QueueLink < Link
         include Observer(QueueEvent)
-        @consumer_available = Channel(Nil).new(1)
         EXCHANGE = ""
 
+        @consumer_available = Channel(Nil).new
+
         def initialize(@upstream : Upstream, @federated_q : Queue, @upstream_q : String)
-          @federated_q.register_observer(self)
-          consumer_available if @federated_q.immediate_delivery?
           super(@upstream)
           @metadata = @metadata.extend({link: @federated_q.name})
+
+          spawn(monitor_consumers, name: "consumer monitor")
+        end
+
+        def monitor_consumers
+          # We need an initial value
+          has_consumer = @federated_q.consumers_empty.value
+          @log.debug { "consumer monitor: has_consumer = #{has_consumer}" }
+          loop do
+            if has_consumer
+              # Signal
+              consumer_available
+              # Wait for queue to lose all consumers, or for the link
+              # to stop
+              select
+              when @federated_q.consumers_empty.when_true.receive
+              when @running.receive?
+                break
+              end
+              @log.info { "Lost consumers, cancel upstream subscriber" }
+              has_consumer = false
+              # force a "restart" of the link
+              if channel = @upstream_channel
+                channel.close
+              end
+            else
+              # Wait for queue get a consumer, or for the link
+              # to stop
+              select
+              when @federated_q.consumers_empty.when_false.receive
+              when @running.receive?
+                break
+              end
+              @log.info { "Got consumers, signal to start subscriber" }
+              has_consumer = true
+            end
+          end
+        rescue ::Channel::ClosedError
         end
 
         def name : String
@@ -207,9 +257,18 @@ module LavinMQ
         private def consumer_available
           select
           when @consumer_available.send nil
-          else
+            @log.info { "signal sent" }
+          when @federated_q.consumers_empty.when_true.receive
+            @log.info { "lost consumers before signal" }
           end
         end
+
+        #        private def consumer_available
+        #          select
+        #          when @consumer_available.send nil
+        #          else
+        #          end
+        #        end
 
         def on(event : QueueEvent, data)
           return if @state.terminated? || @state.terminating?
@@ -217,9 +276,7 @@ module LavinMQ
           case event
           in .deleted?, .closed?
             @upstream.stop_link(@federated_q)
-          in .consumer_added?
-            consumer_available
-          in .consumer_removed?
+          in .consumer_added?, .consumer_removed?
             nil
           end
         rescue e
@@ -235,18 +292,17 @@ module LavinMQ
         private def start_link
           setup_connection do |upstream_connection|
             upstream_channel, q = setup_queue(upstream_connection)
+            @upstream_channel = upstream_channel
             upstream_channel.prefetch(count: @upstream.prefetch)
             no_ack = @upstream.ack_mode.no_ack?
             state(State::Running)
-            unless @federated_q.immediate_delivery?
+            loop do
               @log.debug { "Waiting for consumers" }
-              loop do
-                select
-                when @consumer_available.receive?
-                  break
-                when timeout(1.second)
-                  return if @upstream_connection.try &.closed?
-                end
+              select
+              when @consumer_available.receive?
+                break
+              when timeout(1.second)
+                return if @upstream_connection.try &.closed?
               end
             end
             q_name = q[:queue_name]
