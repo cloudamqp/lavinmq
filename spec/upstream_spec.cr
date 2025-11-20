@@ -16,7 +16,8 @@ module UpstreamSpecHelpers
     upstream = LavinMQ::Federation::Upstream.new(
       downstream_vhost, upstream_name,
       "#{s.amqp_url}/upstream", exchange, queue,
-      LavinMQ::Federation::AckMode::OnConfirm, nil, 1_i64, nil, prefetch
+      LavinMQ::Federation::AckMode::OnConfirm, expires: nil, max_hops: 1_i64,
+      msg_ttl: nil, prefetch: prefetch, reconnect_delay: 0
     )
     downstream_vhost.upstreams.not_nil!.add(upstream)
     {upstream, upstream_vhost, downstream_vhost}
