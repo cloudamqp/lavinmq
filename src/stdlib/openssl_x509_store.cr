@@ -110,10 +110,8 @@ module OpenSSL::SSL
       cache_base = File.join(cache_dir, "crl_cache")
       return raise OpenSSL::Error.new("CRL fetch failed and no cache available: #{ex.message}") unless Dir.exists?(cache_base)
 
-      # Find ANY cached file for this URL, even if expired
-      latest_file = Dir.glob(File.join(cache_base, "#{url_hash}.*.pem")).max_by? do |f|
-        parse_timestamp_from_filename(f) || Time.unix(0)
-      end
+      # Find ANY cached file for this URL, even if expired (sorted by timestamp)
+      latest_file = Dir.glob(File.join(cache_base, "#{url_hash}.*.pem")).sort.last?
 
       return raise OpenSSL::Error.new("CRL fetch failed and no cache available: #{ex.message}") unless latest_file
 
