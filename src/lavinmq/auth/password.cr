@@ -34,10 +34,10 @@ module LavinMQ
 
         def self.create(password : String) : self
           salt = Random::Secure.random_bytes(SALT_SIZE)
-          dgst = OpenSSL::Digest.new(self.openssl_hash_algorithm)
+          dgst = OpenSSL::Digest.new(openssl_hash_algorithm)
           dgst.update salt
           dgst.update password
-          self.new(salt, dgst.final)
+          new(salt, dgst.final)
         end
 
         def initialize(@salt : Bytes, @hash : Bytes)

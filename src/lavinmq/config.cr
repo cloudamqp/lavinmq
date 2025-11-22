@@ -426,7 +426,7 @@ module LavinMQ
     end
 
     private def tcp_keepalive?(str : String?) : Tuple(Int32, Int32, Int32)?
-      return nil if false?(str)
+      return if false?(str)
       if keepalive = str.try &.split(":")
         {
           keepalive[0]?.try(&.to_i?) || 60,

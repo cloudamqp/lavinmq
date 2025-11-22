@@ -42,7 +42,6 @@ module LavinMQ
             parse_permissions(pull)
           when "tags"
             @tags = Tag.parse_list(pull.read_string)
-          else nil
           end
         end
         raise JSON::ParseException.new("Missing json attribute: name", *loc) if name.nil?
@@ -53,7 +52,7 @@ module LavinMQ
 
       def self.create(name : String, password : String, hash_algorithm : String, tags : Array(Tag))
         pwd = hash_password(password, hash_algorithm)
-        self.new(name, pwd, tags)
+        new(name, pwd, tags)
       end
 
       def self.hash_password(password, hash_algorithm)
@@ -84,7 +83,7 @@ module LavinMQ
       def self.create_hidden_user(name)
         password = Random::Secure.urlsafe_base64(32)
         password_hash = hash_password(password, "sha256")
-        user = self.new(name, password_hash, [Tag::Administrator])
+        user = new(name, password_hash, [Tag::Administrator])
         user.plain_text_password = password
         user
       end
@@ -184,7 +183,6 @@ module LavinMQ
             when "config" then config = Regex.from_json(pull)
             when "read"   then read = Regex.from_json(pull)
             when "write"  then write = Regex.from_json(pull)
-            else               nil
             end
           end
           @permissions[vhost] = {config: config, read: read, write: write}

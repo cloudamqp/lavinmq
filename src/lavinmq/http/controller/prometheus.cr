@@ -402,18 +402,18 @@ module LavinMQ
 
       private def vhost_stats(vhosts)
         {% for sm in SERVER_METRICS %}
-          {{sm.id}} = 0_u64
+          {{ sm.id }} = 0_u64
         {% end %}
         vhosts.each do |vhost|
           stats_details = vhost.stats_details
           {% for sm in SERVER_METRICS %}
-            {{sm.id}} += stats_details[:{{sm.id}}]
+            {{ sm.id }} += stats_details[:{{ sm.id }}]
           {% end %}
         end
         {% begin %}
         {
           {% for sm in SERVER_METRICS %}
-            {{sm.id}}: {{sm.id}},
+            {{ sm.id }}: {{ sm.id }},
           {% end %}
         }
         {% end %}

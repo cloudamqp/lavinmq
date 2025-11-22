@@ -4,7 +4,7 @@ end
 
 struct Time::Span
   def self.from_timeval(val)
-    self.new(seconds: val.tv_sec.to_i64,
+    new(seconds: val.tv_sec.to_i64,
       nanoseconds: val.tv_usec.to_i64 * ::Time::NANOSECONDS_PER_MICROSECOND)
   end
 end

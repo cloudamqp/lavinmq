@@ -24,7 +24,7 @@ module LavinMQ
         when "x-delay"                then delay = value.as?(Int).try(&.to_u32) || 0u32 rescue 0u32
         end
       end
-      self.new(segment, position, msg.bytesize.to_u32, has_dlx, prio, delay)
+      new(segment, position, msg.bytesize.to_u32, has_dlx, prio, delay)
     end
 
     def <=>(other : self)

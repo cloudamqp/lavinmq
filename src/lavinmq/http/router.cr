@@ -27,8 +27,8 @@ module LavinMQ::HTTP::Router
   @_routes = Routes.new
 
   {% for method in %w[delete get head options patch post put] %}
-    def {{method.id}}(path : String, &block : Action)
-      @_routes << Route.new({{method.upcase}}, path, block)
+    def {{ method.id }}(path : String, &block : Action)
+      @_routes << Route.new({{ method.upcase }}, path, block)
     end
   {% end %}
 
