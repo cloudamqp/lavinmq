@@ -58,15 +58,16 @@ module OpenSSL::SSL
     # Fetches CRL from HTTP/HTTPS URL with timeout, caching, and fallback to cached version
     # cache_dir: Optional directory to cache CRL files for offline fallback
     private def fetch_crl_from_url(url : String, cache_dir : String? = nil) : String
-      cache_path = get_cache_path(url, cache_dir) if cache_dir
+      url_hash = get_cache_hash(url) if cache_dir
 
-      # Check if cached CRL exists and is still valid (fast path using metadata)
-      if cache_path && File.exists?(cache_path)
-        if crl_cache_valid?(cache_path)
-          Log.debug { "Using valid cached CRL from #{cache_path}" }
+      # Check if we have a valid cached CRL (timestamp in filename is not expired)
+      if cache_dir && url_hash
+        if cached = find_latest_valid_cache(cache_dir, url_hash)
+          cache_path, expiry = cached
+          Log.debug { "Using valid cached CRL from #{cache_path} (expires: #{expiry})" }
           return File.read(cache_path)
         else
-          Log.info { "Cached CRL expired, fetching fresh CRL from #{url}" }
+          Log.info { "No valid cached CRL found, fetching fresh CRL from #{url}" }
         end
       end
 
@@ -87,76 +88,112 @@ module OpenSSL::SSL
         end
 
         # Save to cache if successful
-        if cache_path && crl_data
-          save_to_cache(cache_path, crl_data)
+        if cache_dir && url_hash && crl_data
+          save_to_cache(cache_dir, url_hash, crl_data)
         end
 
         crl_data
       rescue ex : IO::TimeoutError | Socket::Error | IO::Error | OpenSSL::Error
-        # If fetch fails and we have a cache, try to use it (even if expired)
-        if cache_path && File.exists?(cache_path)
-          Log.warn { "CRL fetch from #{url} failed (#{ex.message}), using cached version (possibly expired)" }
-          File.read(cache_path)
-        else
-          raise OpenSSL::Error.new("CRL fetch failed and no cache available: #{ex.message}")
+        # If fetch fails and we have a cache, try to use ANY cached version (even if expired)
+        if cache_dir && url_hash
+          cache_base = File.join(cache_dir, "crl_cache")
+          if Dir.exists?(cache_base)
+            # Find ANY cached file for this URL, even if expired
+            if latest_file = Dir.glob(File.join(cache_base, "#{url_hash}.*.pem")).max_by? { |f|
+                 parse_timestamp_from_filename(f) || Time.unix(0)
+               }
+              Log.warn { "CRL fetch from #{url} failed (#{ex.message}), using cached version (possibly expired): #{latest_file}" }
+              return File.read(latest_file)
+            end
+          end
         end
+        raise OpenSSL::Error.new("CRL fetch failed and no cache available: #{ex.message}")
       end
     end
 
-    # Generate cache file path from URL
-    private def get_cache_path(url : String, cache_dir : String) : String
-      # Use SHA1 of URL as filename to avoid path issues
-      url_hash = Digest::SHA1.hexdigest(url)
-      File.join(cache_dir, "crl_cache", "#{url_hash}.pem")
+    # Generate cache base path from URL (without timestamp)
+    # Returns the SHA1 hash that will be used as the base filename
+    private def get_cache_hash(url : String) : String
+      Digest::SHA1.hexdigest(url)
     end
 
-    # Save CRL data to cache file along with validity metadata
-    private def save_to_cache(cache_path : String, crl_data : String)
-      Dir.mkdir_p(File.dirname(cache_path))
-      File.write(cache_path, crl_data)
+    # Format timestamp for use in filename (unix timestamp)
+    private def format_timestamp(time : Time) : String
+      time.to_unix.to_s
+    end
 
-      # Extract and cache the nextUpdate timestamp for fast validity checks
-      if next_update = extract_crl_next_update(crl_data)
-        save_crl_metadata(cache_path, next_update)
+    # Parse timestamp from filename
+    # Returns Time if successful, nil if filename format is invalid
+    private def parse_timestamp_from_filename(filename : String) : Time?
+      if match = filename.match(/\.(\d+)\.pem$/)
+        Time.unix(match[1].to_i64)
       end
-
-      Log.debug { "Cached CRL to #{cache_path}" }
-    rescue ex
-      Log.warn { "Failed to cache CRL: #{ex.message}" }
+    rescue
+      nil
     end
 
-    # Check if cached CRL is still valid using metadata (fast path)
-    # Falls back to full CRL parsing if metadata is missing or invalid
-    private def crl_cache_valid?(cache_path : String) : Bool
-      meta_path = get_metadata_path(cache_path)
+    # Find latest valid cached CRL for a given URL hash
+    # Returns {path, expiry_time} if found, nil otherwise
+    private def find_latest_valid_cache(cache_dir : String, url_hash : String) : Tuple(String, Time)?
+      cache_base = File.join(cache_dir, "crl_cache")
+      return nil unless Dir.exists?(cache_base)
 
-      # Fast path: check metadata file
-      if File.exists?(meta_path)
-        if next_update_str = File.read(meta_path).strip
-          begin
-            next_update = Time.unix(next_update_str.to_i64)
-            return Time.utc < next_update
-          rescue
-            # Invalid metadata, fall through to full parsing
+      latest_file = nil
+      latest_time = nil
+
+      Dir.glob(File.join(cache_base, "#{url_hash}.*.pem")).each do |file|
+        if expiry = parse_timestamp_from_filename(file)
+          # Only consider non-expired CRLs
+          if Time.utc < expiry
+            if latest_time.nil? || expiry > latest_time
+              latest_file = file
+              latest_time = expiry
+            end
           end
         end
       end
 
-      # Slow path: parse CRL (only if metadata is missing/invalid)
-      crl_valid?(File.read(cache_path))
+      latest_file && latest_time ? {latest_file, latest_time} : nil
     end
 
-    # Get metadata file path for a cached CRL
-    private def get_metadata_path(cache_path : String) : String
-      "#{cache_path}.meta"
-    end
+    # Cleanup old CRLs for a given URL hash, keeping only the latest one
+    private def cleanup_old_crls(cache_dir : String, url_hash : String, keep_file : String)
+      cache_base = File.join(cache_dir, "crl_cache")
+      return unless Dir.exists?(cache_base)
 
-    # Save CRL nextUpdate timestamp to metadata file
-    private def save_crl_metadata(cache_path : String, next_update : Time)
-      meta_path = get_metadata_path(cache_path)
-      File.write(meta_path, next_update.to_unix.to_s)
+      Dir.glob(File.join(cache_base, "#{url_hash}.*.pem")).each do |file|
+        next if file == keep_file
+        File.delete(file)
+        Log.debug { "Deleted old CRL cache: #{file}" }
+      end
     rescue ex
-      Log.debug { "Failed to save CRL metadata: #{ex.message}" }
+      Log.debug { "Failed to cleanup old CRLs: #{ex.message}" }
+    end
+
+    # Save CRL data to cache file with timestamp in filename
+    private def save_to_cache(cache_dir : String, url_hash : String, crl_data : String)
+      # Extract nextUpdate timestamp from CRL
+      next_update = extract_crl_next_update(crl_data)
+      unless next_update
+        Log.warn { "Failed to extract nextUpdate from CRL, skipping cache" }
+        return
+      end
+
+      # Generate filename with timestamp
+      cache_base = File.join(cache_dir, "crl_cache")
+      Dir.mkdir_p(cache_base)
+
+      timestamp_str = format_timestamp(next_update)
+      cache_path = File.join(cache_base, "#{url_hash}.#{timestamp_str}.pem")
+
+      # Write CRL to cache
+      File.write(cache_path, crl_data)
+      Log.debug { "Cached CRL to #{cache_path} (expires: #{next_update})" }
+
+      # Cleanup old CRLs for this URL (keep only the latest)
+      cleanup_old_crls(cache_dir, url_hash, cache_path)
+    rescue ex
+      Log.warn { "Failed to cache CRL: #{ex.message}" }
     end
 
     # Extract nextUpdate timestamp from CRL (for caching)
@@ -197,42 +234,6 @@ module OpenSSL::SSL
       end
     rescue
       nil
-    end
-
-    # Check if a CRL is still valid (not expired)
-    # Returns true if the CRL's nextUpdate time is in the future
-    private def crl_valid?(crl_pem : String) : Bool
-      bio = LibCrypto.bio_new_mem_buf(crl_pem, crl_pem.bytesize)
-      return false if bio.null?
-
-      begin
-        crl = LibCrypto.pem_read_bio_x509_crl(bio, nil, nil, nil)
-        return false if crl.null?
-
-        begin
-          next_update = LibCrypto.x509_crl_get_next_update(crl)
-          return false if next_update.null?
-
-          # Create ASN1_TIME for current time
-          current_time = LibCrypto.asn1_time_set(nil, Time.utc.to_unix)
-          return false if current_time.null?
-
-          begin
-            # Compare nextUpdate with current time
-            # Returns: -1 if next_update < now, 0 if equal, 1 if next_update > now
-            result = LibCrypto.asn1_time_compare(next_update, current_time)
-            result > 0
-          ensure
-            LibCrypto.asn1_time_free(current_time)
-          end
-        ensure
-          LibCrypto.x509_crl_free(crl)
-        end
-      ensure
-        LibCrypto.bio_free(bio)
-      end
-    rescue
-      false
     end
   end
 end
