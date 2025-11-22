@@ -57,8 +57,8 @@ describe LavinMQ::Server do
 
         conn = AMQP::Client.new(host: "localhost", port: amqp_port(s), tls: client_ctx).connect
 
-        # Give server time to process connection
-        sleep 100.milliseconds
+        # Wait for server to process connection
+        wait_for { s.vhosts["/"].connections.size > 0 }
 
         # Check that connection info was populated with certificate details
         connections = s.vhosts["/"].connections.to_a
