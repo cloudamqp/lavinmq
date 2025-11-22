@@ -351,6 +351,8 @@ module OpenSSL::X509
   # Find HTTP/HTTPS URL in GENERAL_NAMES
   private def self.find_http_url_in_general_names(general_names : LibCrypto::GeneralNamesPtr) : String?
     count = LibCrypto.sk_general_name_num(general_names)
+    return if count < 0 # Invalid count
+
     count.times do |i|
       if url = extract_uri_from_general_name(general_names, i)
         return url if url.starts_with?("http://") || url.starts_with?("https://")
