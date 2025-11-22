@@ -67,8 +67,8 @@ describe LavinMQ::Server do
 
         conn_info.ssl?.should be_true
         conn_info.ssl_verify?.should be_true
-        conn_info.ssl_cn.should_not be_nil
-        conn_info.ssl_sig_alg.should_not be_nil
+        conn_info.ssl_cn.should eq "anders"
+        conn_info.ssl_sig_alg.should eq "SHA256"
 
         conn.close
       end
