@@ -224,6 +224,7 @@ module LavinMQ
           uncompressed_bytes: @lz4.uncompressed_bytes,
           compressed_bytes:   @lz4.compressed_bytes,
           id:                 @id.to_s(36),
+          state:              @state.to_s,
         }.to_json(json)
       end
 

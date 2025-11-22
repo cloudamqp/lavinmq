@@ -182,10 +182,19 @@ Table.renderTable('followers', followersTableOpts, (tr, item, firstRender) => {
   if (firstRender) {
     Table.renderCell(tr, 0, item.id)
   }
-  Table.renderCell(tr, 1, item.remote_address)
-  Table.renderCell(tr, 2, humanizeBytes(item.sent_bytes), 'right')
-  Table.renderCell(tr, 3, humanizeBytes(item.acked_bytes), 'right')
-  Table.renderCell(tr, 4, humanizeBytes(item.sent_bytes - item.acked_bytes), 'right')
+  // Display state from follower object
+  const state = item.state || 'Unknown'
+  const statusCell = Table.renderCell(tr, 1, state === 'Syncing' ? 'Out-of-sync' : 'In-sync')
+  if (state === 'Syncing') {
+    statusCell.style.color = '#ff6b6b'
+    statusCell.style.fontWeight = 'bold'
+  } else if (state === 'Synced') {
+    statusCell.style.color = '#51cf66'
+  }
+  Table.renderCell(tr, 2, item.remote_address)
+  Table.renderCell(tr, 3, humanizeBytes(item.sent_bytes), 'right')
+  Table.renderCell(tr, 4, humanizeBytes(item.acked_bytes), 'right')
+  Table.renderCell(tr, 5, humanizeBytes(item.sent_bytes - item.acked_bytes), 'right')
 })
 
 function updateCharts (response) {
@@ -243,6 +252,7 @@ function updateCharts (response) {
     }
     Chart.update(queueChurnChart, queueChurnStats)
   }
+
   followersDataSource.update(response[0].followers)
 }
 

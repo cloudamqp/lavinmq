@@ -32,6 +32,7 @@ module LavinMQ
       @password : String
       @files = Hash(String, MFile?).new
       @dirty_isr = true
+      @dirty_osr = true
       @id : Int32
       @config : Config
 
@@ -180,12 +181,14 @@ module LavinMQ
             stale_follower.close
           end
           @followers << follower # Starts in Syncing state
+          update_osr
         end
         follower.full_sync # sync the bulk
         @lock.synchronize do
           follower.full_sync    # sync the last
           follower.mark_synced! # Change state to Synced
           update_isr
+          update_osr
         end
         begin
           follower.action_loop
@@ -193,6 +196,7 @@ module LavinMQ
           @lock.synchronize do
             @followers.delete(follower)
             @dirty_isr = true
+            @dirty_osr = true
           end
         end
       rescue ex : AuthenticationError
@@ -222,6 +226,21 @@ module LavinMQ
         @dirty_isr = false
       end
 
+      private def update_osr
+        osr_key = "#{@config.clustering_etcd_prefix}/osr"
+        ids = String.build do |str|
+          @followers.each do |f|
+            next unless f.syncing?
+            f.id.to_s(str, 36)
+            str << ","
+          end
+        end
+        ids = ids.rstrip(',')
+        Log.info { "Out-of-sync replicas: #{ids}" }
+        @etcd.put(osr_key, ids)
+        @dirty_osr = false
+      end
+
       def close
         @listeners.each &.close
         @lock.synchronize do
@@ -235,6 +254,7 @@ module LavinMQ
       private def each_follower(& : Follower -> Nil) : Nil
         @lock.synchronize do
           update_isr if @dirty_isr
+          update_osr if @dirty_osr
           @followers.each do |f|
             next if f.syncing? # Performing a full sync
             yield f
