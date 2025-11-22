@@ -27,7 +27,7 @@ describe LavinMQ::Server do
         client_ctx.ca_certificates = "spec/resources/ca_certificate.pem"
 
         # Should fail to connect without client certificate
-        expect_raises(OpenSSL::SSL::Error | AMQP::Client::Error) do
+        expect_raises(AMQP::Client::Error, /certificate required/) do
           AMQP::Client.new(host: "localhost", port: amqp_port(s), tls: client_ctx).connect
         end
       end
