@@ -75,17 +75,7 @@ module OpenSSL::SSL
 
       # Try to fetch from URL
       begin
-        crl_data = HTTP::Client.new(uri) do |client|
-          client.connect_timeout = 10.seconds
-          client.read_timeout = 10.seconds
-
-          response = client.get(uri.request_target)
-          unless response.success?
-            raise OpenSSL::Error.new("CRL fetch failed: HTTP #{response.status_code}")
-          end
-
-          response.body
-        end
+        crl_data = fetch_crl_from_remote(uri)
 
         # Save to cache if successful
         if cache_dir && url_hash && crl_data
@@ -94,21 +84,41 @@ module OpenSSL::SSL
 
         crl_data
       rescue ex : IO::TimeoutError | Socket::Error | IO::Error | OpenSSL::Error
-        # If fetch fails and we have a cache, try to use ANY cached version (even if expired)
-        if cache_dir && url_hash
-          cache_base = File.join(cache_dir, "crl_cache")
-          if Dir.exists?(cache_base)
-            # Find ANY cached file for this URL, even if expired
-            if latest_file = Dir.glob(File.join(cache_base, "#{url_hash}.*.pem")).max_by? { |f|
-                 parse_timestamp_from_filename(f) || Time.unix(0)
-               }
-              Log.warn { "CRL fetch from #{url} failed (#{ex.message}), using cached version (possibly expired): #{latest_file}" }
-              return File.read(latest_file)
-            end
-          end
-        end
-        raise OpenSSL::Error.new("CRL fetch failed and no cache available: #{ex.message}")
+        fallback_to_cached_crl(url, cache_dir, url_hash, ex)
       end
+    end
+
+    # Fetch CRL from remote HTTP/HTTPS server
+    private def fetch_crl_from_remote(uri : URI) : String
+      HTTP::Client.new(uri) do |client|
+        client.connect_timeout = 10.seconds
+        client.read_timeout = 10.seconds
+
+        response = client.get(uri.request_target)
+        unless response.success?
+          raise OpenSSL::Error.new("CRL fetch failed: HTTP #{response.status_code}")
+        end
+
+        response.body
+      end
+    end
+
+    # Fallback to using any cached CRL (even expired) when remote fetch fails
+    private def fallback_to_cached_crl(url : String, cache_dir : String?, url_hash : String?, ex : Exception) : String
+      return raise OpenSSL::Error.new("CRL fetch failed and no cache available: #{ex.message}") unless cache_dir && url_hash
+
+      cache_base = File.join(cache_dir, "crl_cache")
+      return raise OpenSSL::Error.new("CRL fetch failed and no cache available: #{ex.message}") unless Dir.exists?(cache_base)
+
+      # Find ANY cached file for this URL, even if expired
+      latest_file = Dir.glob(File.join(cache_base, "#{url_hash}.*.pem")).max_by? do |f|
+        parse_timestamp_from_filename(f) || Time.unix(0)
+      end
+
+      return raise OpenSSL::Error.new("CRL fetch failed and no cache available: #{ex.message}") unless latest_file
+
+      Log.warn { "CRL fetch from #{url} failed (#{ex.message}), using cached version (possibly expired): #{latest_file}" }
+      File.read(latest_file)
     end
 
     # Generate cache base path from URL (without timestamp)
@@ -136,7 +146,7 @@ module OpenSSL::SSL
     # Returns {path, expiry_time} if found, nil otherwise
     private def find_latest_valid_cache(cache_dir : String, url_hash : String) : Tuple(String, Time)?
       cache_base = File.join(cache_dir, "crl_cache")
-      return nil unless Dir.exists?(cache_base)
+      return unless Dir.exists?(cache_base)
 
       latest_file = nil
       latest_time = nil
@@ -199,26 +209,26 @@ module OpenSSL::SSL
     # Extract nextUpdate timestamp from CRL (for caching)
     private def extract_crl_next_update(crl_pem : String) : Time?
       bio = LibCrypto.bio_new_mem_buf(crl_pem, crl_pem.bytesize)
-      return nil if bio.null?
+      return if bio.null?
 
       begin
         crl = LibCrypto.pem_read_bio_x509_crl(bio, nil, nil, nil)
-        return nil if crl.null?
+        return if crl.null?
 
         begin
           next_update = LibCrypto.x509_crl_get_next_update(crl)
-          return nil if next_update.null?
+          return if next_update.null?
 
           # Convert ASN1_TIME to unix timestamp using ASN1_TIME_diff
           current_time = LibCrypto.asn1_time_set(nil, Time.utc.to_unix)
-          return nil if current_time.null?
+          return if current_time.null?
 
           begin
             days = 0
             seconds = 0
             # Calculate difference: next_update - current_time
             result = LibCrypto.asn1_time_diff(pointerof(days), pointerof(seconds), current_time, next_update)
-            return nil if result == 0 # Comparison failed
+            return if result == 0 # Comparison failed
 
             # Calculate total seconds and add to current time
             total_seconds = days * 86400 + seconds
@@ -383,18 +393,17 @@ lib LibCrypto
   end
 
   # Union for GENERAL_NAME data
-  # ameba:disable Naming/VariableNames
   union GeneralNameData
     ptr : LibC::Char*
-    otherName : Void*                      # ASN1_TYPE
-    rfc822Name : ASN1String                # ASN1_IA5STRING
-    dNSName : ASN1String                   # ASN1_IA5STRING
-    x400Address : Void*                    # ASN1_TYPE
-    directoryName : Void*                  # X509_NAME
-    ediPartyName : Void*                   # ASN1_TYPE
-    uniformResourceIdentifier : ASN1String # ASN1_IA5STRING (type 6)
-    iPAddress : ASN1String                 # ASN1_OCTET_STRING
-    registeredID : Void*                   # ASN1_OBJECT
+    otherName : Void*                      # ameba:disable Naming/VariableNames
+    rfc822Name : ASN1String                # ameba:disable Naming/VariableNames
+    dNSName : ASN1String                   # ameba:disable Naming/VariableNames
+    x400Address : Void*                    # ameba:disable Naming/VariableNames
+    directoryName : Void*                  # ameba:disable Naming/VariableNames
+    ediPartyName : Void*                   # ameba:disable Naming/VariableNames
+    uniformResourceIdentifier : ASN1String # ameba:disable Naming/VariableNames
+    iPAddress : ASN1String                 # ameba:disable Naming/VariableNames
+    registeredID : Void*                   # ameba:disable Naming/VariableNames
   end
 
   # Create a BIO from memory buffer
@@ -503,6 +512,6 @@ lib LibCrypto
     pday : LibC::Int*,
     psec : LibC::Int*,
     from : ASN1Time,
-    to : ASN1Time
+    to : ASN1Time,
   ) : LibC::Int
 end
