@@ -389,6 +389,7 @@ module LavinMQ
             update_cdp_crls
           end
         end
+        @crl_update_channel = nil
       end
     end
 
