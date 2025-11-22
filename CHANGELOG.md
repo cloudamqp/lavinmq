@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.6.0-rc.2] - 2025-11-22
+
+### Fixed
+- Vhosts with exchange to exchange bindings generated in v2.4.x could not be start [#1495](https://github.com/cloudamqp/lavinmq/pull/1495)
+- Sensible error message if trying to import definitions via the HTTP API with an invalid password_has field for users [#1496](https://github.com/cloudamqp/lavinmq/pull/1496)
+
+## [2.5.4] - 2025-11-22
+
+### Fixed
+- Vhosts with exchange to exchange bindings generated in v2.4.x could not be start [#1495](https://github.com/cloudamqp/lavinmq/pull/1495)
+
 ## [2.6.0-rc.1] - 2025-11-19
 
 ### Added
