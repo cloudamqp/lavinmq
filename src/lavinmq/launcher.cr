@@ -291,6 +291,16 @@ module LavinMQ
 
     private def reload_tls_context
       return unless tls = @tls_context
+      configure_tls_version(tls)
+      tls.certificate_chain = @config.tls_cert_path
+      tls.private_key = @config.tls_key_path.empty? ? @config.tls_cert_path : @config.tls_key_path
+      tls.ciphers = @config.tls_ciphers unless @config.tls_ciphers.empty?
+
+      configure_mtls(tls)
+      load_crl_from_config(tls)
+    end
+
+    private def configure_tls_version(tls : OpenSSL::SSL::Context::Server)
       case @config.tls_min_version
       when "1.0"
         tls.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_2 |
@@ -307,26 +317,26 @@ module LavinMQ
       else
         Log.warn { "Unrecognized @config value for tls_min_version: '#{@config.tls_min_version}'" }
       end
-      tls.certificate_chain = @config.tls_cert_path
-      tls.private_key = @config.tls_key_path.empty? ? @config.tls_cert_path : @config.tls_key_path
-      tls.ciphers = @config.tls_ciphers unless @config.tls_ciphers.empty?
+    end
 
-      # Configure mTLS (mutual TLS) client certificate verification
-      if @config.tls_verify_peer?
-        unless @config.tls_ca_cert_path.empty?
-          tls.ca_certificates = @config.tls_ca_cert_path
-          Log.info { "mTLS enabled: verifying client certificates using CA: #{@config.tls_ca_cert_path}" }
-        end
-        verify_mode = OpenSSL::SSL::VerifyMode::PEER
-        if @config.tls_fail_if_no_peer_cert?
-          verify_mode |= OpenSSL::SSL::VerifyMode::FAIL_IF_NO_PEER_CERT
-          Log.info { "mTLS: client certificates required" }
-        else
-          Log.info { "mTLS: client certificates optional" }
-        end
-        tls.verify_mode = verify_mode
+    private def configure_mtls(tls : OpenSSL::SSL::Context::Server)
+      return unless @config.tls_verify_peer?
+
+      unless @config.tls_ca_cert_path.empty?
+        tls.ca_certificates = @config.tls_ca_cert_path
+        Log.info { "mTLS enabled: verifying client certificates using CA: #{@config.tls_ca_cert_path}" }
       end
+      verify_mode = OpenSSL::SSL::VerifyMode::PEER
+      if @config.tls_fail_if_no_peer_cert?
+        verify_mode |= OpenSSL::SSL::VerifyMode::FAIL_IF_NO_PEER_CERT
+        Log.info { "mTLS: client certificates required" }
+      else
+        Log.info { "mTLS: client certificates optional" }
+      end
+      tls.verify_mode = verify_mode
+    end
 
+    private def load_crl_from_config(tls : OpenSSL::SSL::Context::Server)
       # Load Certificate Revocation List (CRL) if configured
       unless @config.tls_crl_file.empty?
         tls.load_crl(@config.tls_crl_file)
@@ -334,25 +344,26 @@ module LavinMQ
       end
 
       # Automatic CRL fetching from CDP (CRL Distribution Point) URLs
-      # If mTLS is enabled with a CA certificate, try to extract and fetch CRLs from CDP
-      if @config.tls_verify_peer? && !@config.tls_ca_cert_path.empty?
+      load_crl_from_cdp(tls)
+    end
+
+    private def load_crl_from_cdp(tls : OpenSSL::SSL::Context::Server)
+      return unless @config.tls_verify_peer? && !@config.tls_ca_cert_path.empty?
+
+      cdp_urls = OpenSSL::X509.extract_crl_urls_from_cert(@config.tls_ca_cert_path)
+      return if cdp_urls.empty?
+
+      Log.info { "Found CRL Distribution Points in CA certificate: #{cdp_urls.join(", ")}" }
+      cdp_urls.each do |url|
         begin
-          cdp_urls = OpenSSL::X509.extract_crl_urls_from_cert(@config.tls_ca_cert_path)
-          unless cdp_urls.empty?
-            Log.info { "Found CRL Distribution Points in CA certificate: #{cdp_urls.join(", ")}" }
-            cdp_urls.each do |url|
-              begin
-                tls.load_crl(url, @config.data_dir)
-                Log.info { "Successfully loaded CRL from CDP: #{url}" }
-              rescue ex
-                Log.warn { "Failed to load CRL from CDP #{url}: #{ex.message}" }
-              end
-            end
-          end
+          tls.load_crl(url, @config.data_dir)
+          Log.info { "Successfully loaded CRL from CDP: #{url}" }
         rescue ex
-          Log.debug { "Could not extract CDP URLs from CA certificate: #{ex.message}" }
+          Log.warn { "Failed to load CRL from CDP #{url}: #{ex.message}" }
         end
       end
+    rescue ex
+      Log.debug { "Could not extract CDP URLs from CA certificate: #{ex.message}" }
     end
   end
 end
