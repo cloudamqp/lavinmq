@@ -135,7 +135,7 @@ describe LavinMQ::Server do
         client_ctx.ca_certificates = "spec/resources/ca_certificate.pem"
 
         # Should fail to connect with revoked certificate
-        expect_raises(AMQP::Client::Error) do
+        expect_raises(AMQP::Client::Error, /certificate revoked/) do
           AMQP::Client.new(host: "localhost", port: amqp_port(s), tls: client_ctx).connect
         end
       end
