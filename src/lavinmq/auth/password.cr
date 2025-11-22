@@ -59,7 +59,14 @@ module LavinMQ
             @raw_hash = raw_hash
           end
 
-          bytes = Base64.decode @raw_hash
+          begin
+            bytes = Base64.decode @raw_hash
+          rescue ex : Base64::Error
+            raise InvalidPasswordHash.new("Invalid password hash: not valid Base64 encoding (#{ex.message})")
+          end
+          if bytes.size < digest_size
+            raise InvalidPasswordHash.new("Invalid password hash: decoded size #{bytes.size} bytes is smaller than required digest size #{digest_size} bytes for #{hash_algorithm}")
+          end
           salt_size = bytes.size - digest_size
           @salt = bytes[0, salt_size]
           @hash = bytes + salt_size
