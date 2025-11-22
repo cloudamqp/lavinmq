@@ -42,6 +42,10 @@ module OpenSSL::SSL
         raise OpenSSL::Error.new("PEM_read_bio_X509_CRL - CRL may be invalid") if crl.null?
 
         begin
+          # Get number of revoked certificates in the CRL
+          revoked_count = count_revoked_certificates(crl)
+          Log.info { "Loading CRL with #{revoked_count} revoked certificate(s)" }
+
           ret = LibCrypto.x509_store_add_crl(store, crl)
           raise OpenSSL::Error.new("X509_STORE_add_crl") unless ret == 1
 
@@ -56,6 +60,14 @@ module OpenSSL::SSL
       ensure
         LibCrypto.bio_free(bio)
       end
+    end
+
+    # Count the number of revoked certificates in a CRL
+    private def count_revoked_certificates(crl : LibCrypto::X509CRL) : Int32
+      revoked = LibCrypto.x509_crl_get_revoked(crl)
+      return 0 if revoked.null?
+
+      LibCrypto.sk_x509_revoked_num(revoked)
     end
 
     # Fetches CRL from HTTP/HTTPS URL with timeout, caching, and fallback to cached version
@@ -489,6 +501,12 @@ lib LibCrypto
 
   # Free a CRL
   fun x509_crl_free = X509_CRL_free(a : X509CRL)
+
+  # Get revoked certificates from CRL
+  fun x509_crl_get_revoked = X509_CRL_get_REVOKED(crl : X509CRL) : Void*
+
+  # Get count of revoked certificates in stack
+  fun sk_x509_revoked_num = OPENSSL_sk_num(sk : Void*) : LibC::Int
 
   # Set X509 verification flags on the store
   fun x509_store_set_flags = X509_STORE_set_flags(
