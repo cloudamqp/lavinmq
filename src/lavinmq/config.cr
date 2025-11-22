@@ -67,6 +67,8 @@ module LavinMQ
     property clustering_bind = "127.0.0.1"
     property clustering_port = 5679
     property clustering_max_unsynced_actions = 8192 # number of unsynced clustering actions
+    property clustering_on_leader_elected = ""      # shell command to execute when elected leader
+    property clustering_on_leader_lost = ""         # shell command to execute when losing leadership
     property max_deleted_definitions = 8192         # number of deleted queues, unbinds etc that compacts the definitions file
     property consumer_timeout : UInt64? = nil
     property consumer_timeout_loop_interval = 60 # seconds
@@ -196,6 +198,12 @@ module LavinMQ
         end
         p.on("--clustering-etcd-endpoints=URIs", "Comma separeted host/port pairs (default: 127.0.0.1:2379)") do |v|
           @clustering_etcd_endpoints = v
+        end
+        p.on("--clustering-on-leader-elected=COMMAND", "Shell command to execute when elected leader") do |v|
+          @clustering_on_leader_elected = v
+        end
+        p.on("--clustering-on-leader-lost=COMMAND", "Shell command to execute when losing leadership") do |v|
+          @clustering_on_leader_lost = v
         end
 
         p.separator("\nMiscellaneous:")
@@ -344,6 +352,8 @@ module LavinMQ
         when "bind"                 then @clustering_bind = v
         when "port"                 then @clustering_port = v.to_i32
         when "max_unsynced_actions" then @clustering_max_unsynced_actions = v.to_i32
+        when "on_leader_elected"    then @clustering_on_leader_elected = v
+        when "on_leader_lost"       then @clustering_on_leader_lost = v
         else
           STDERR.puts "WARNING: Unrecognized configuration 'clustering/#{config}'"
         end
