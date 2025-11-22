@@ -8,6 +8,8 @@ module OpenSSL::SSL
   class Context
     # Maximum CRL size to prevent memory exhaustion (10MB should be more than enough)
     MAX_CRL_SIZE = 10 * 1024 * 1024
+    # Refresh CRL this long before it expires to avoid last-minute failures
+    CRL_REFRESH_BUFFER = 1.hour
 
     # Loads CRL (Certificate Revocation List) from a file or URL into the X509 store
     # and enables CRL checking for the entire certificate chain
@@ -180,7 +182,7 @@ module OpenSSL::SSL
 
       now = Time.utc
       # Sort by timestamp in filename and take the last (latest) valid one
-      latest_file = Dir.glob(File.join(cache_base, "#{url_hash}.*.pem")).sort.reverse_each do |file|
+      Dir.glob(File.join(cache_base, "#{url_hash}.*.pem")).sort.reverse_each do |file|
         if expiry = parse_timestamp_from_filename(file)
           return {file, expiry} if now < expiry
         end
@@ -315,6 +317,107 @@ module OpenSSL::X509
     end
 
     urls
+  end
+
+  # Fetch CRL from URL and cache it without loading into a TLS context
+  # This is used for background CRL updates
+  def self.fetch_and_cache_crl(url : String, cache_dir : String)
+    uri = URI.parse(url)
+    url_hash = Digest::SHA1.hexdigest(url)
+
+    # Fetch CRL from remote server
+    crl_data = HTTP::Client.new(uri) do |client|
+      client.connect_timeout = 10.seconds
+      client.read_timeout = 10.seconds
+
+      headers = HTTP::Headers{
+        "User-Agent" => "LavinMQ/#{LavinMQ::VERSION}",
+      }
+
+      response = client.get(uri.request_target, headers: headers)
+      unless response.success?
+        raise OpenSSL::Error.new("CRL fetch failed: HTTP #{response.status_code}")
+      end
+
+      # Check Content-Length header if present
+      if content_length = response.headers["Content-Length"]?
+        size = content_length.to_i64
+        if size > OpenSSL::SSL::Context::MAX_CRL_SIZE
+          raise OpenSSL::Error.new("CRL too large: #{size} bytes (max: #{OpenSSL::SSL::Context::MAX_CRL_SIZE})")
+        end
+      end
+
+      body = response.body
+      if body.bytesize > OpenSSL::SSL::Context::MAX_CRL_SIZE
+        raise OpenSSL::Error.new("CRL too large: #{body.bytesize} bytes (max: #{OpenSSL::SSL::Context::MAX_CRL_SIZE})")
+      end
+
+      body
+    end
+
+    # Parse and extract expiration timestamp
+    expiry = extract_crl_next_update(crl_data)
+    unless expiry
+      raise OpenSSL::Error.new("Failed to extract CRL expiration timestamp")
+    end
+
+    # Save to cache with timestamp in filename
+    cache_base = File.join(cache_dir, "crl_cache")
+    Dir.mkdir_p(cache_base)
+
+    timestamp_str = expiry.to_unix.to_s
+    cache_path = File.join(cache_base, "#{url_hash}.#{timestamp_str}.pem")
+
+    File.write(cache_path, crl_data)
+
+    # Clean up old CRL files for this URL
+    cleanup_old_crls(cache_base, url_hash, timestamp_str)
+  end
+
+  # Extract nextUpdate timestamp from CRL PEM string
+  private def self.extract_crl_next_update(crl_pem : String) : Time?
+    bio = LibCrypto.bio_new_mem_buf(crl_pem, crl_pem.bytesize)
+    return if bio.null?
+
+    begin
+      crl = LibCrypto.pem_read_bio_x509_crl(bio, nil, nil, nil)
+      return if crl.null?
+
+      begin
+        next_update = LibCrypto.x509_crl_get_next_update(crl)
+        return if next_update.null?
+
+        current_time = LibCrypto.asn1_time_new
+        return if current_time.null?
+
+        begin
+          days = 0
+          seconds = 0
+          result = LibCrypto.asn1_time_diff(pointerof(days), pointerof(seconds), current_time, next_update)
+          return if result == 0
+
+          total_seconds = days * 86400 + seconds
+          Time.utc + total_seconds.seconds
+        ensure
+          LibCrypto.asn1_time_free(current_time)
+        end
+      ensure
+        LibCrypto.x509_crl_free(crl)
+      end
+    ensure
+      LibCrypto.bio_free(bio)
+    end
+  rescue
+    nil
+  end
+
+  # Delete old CRL files for the same URL hash
+  private def self.cleanup_old_crls(cache_base : String, url_hash : String, keep_timestamp : String)
+    Dir.glob(File.join(cache_base, "#{url_hash}.*.pem")).each do |file|
+      basename = File.basename(file, ".pem")
+      file_timestamp = basename.split('.').last
+      File.delete(file) if file_timestamp != keep_timestamp
+    end
   end
 
   # Extract URL from DIST_POINT structure

@@ -35,6 +35,8 @@ module LavinMQ
     @data_dir_lock : DataDirLock?
     @closed = false
     @replicator : Clustering::Server?
+    @crl_update_channel : Channel(Nil)?
+    @cdp_urls = Array(String).new
 
     def initialize(@config : Config)
       print_environment_info
@@ -60,6 +62,7 @@ module LavinMQ
 
       @tls_context = create_tls_context if @config.tls_configured?
       reload_tls_context
+      start_crl_updater if @config.tls_configured? && @config.tls_verify_peer?
       setup_signal_traps
       SystemD::MemoryPressure.monitor { GC.collect }
     end
@@ -91,6 +94,7 @@ module LavinMQ
       @closed = true
       Log.warn { "Stopping" }
       SystemD.notify_stopping
+      @crl_update_channel.try &.close
       @http_server.try &.close rescue nil
       @amqp_server.try &.close rescue nil
       @metrics_server.try &.close rescue nil
@@ -348,10 +352,13 @@ module LavinMQ
     end
 
     private def load_crl_from_cdp(tls : OpenSSL::SSL::Context::Server)
-      return unless @config.tls_verify_peer? && !@config.tls_ca_cert_path.empty?
+      return if !@config.tls_verify_peer? || @config.tls_ca_cert_path.empty?
 
       cdp_urls = OpenSSL::X509.extract_crl_urls_from_cert(@config.tls_ca_cert_path)
       return if cdp_urls.empty?
+
+      # Store CDP URLs for background updates
+      @cdp_urls = cdp_urls
 
       Log.info { "Found CRL Distribution Points in CA certificate: #{cdp_urls.join(", ")}" }
       cdp_urls.each do |url|
@@ -364,6 +371,41 @@ module LavinMQ
       end
     rescue ex
       Log.debug { "Could not extract CDP URLs from CA certificate: #{ex.message}" }
+    end
+
+    private def start_crl_updater
+      return if @cdp_urls.empty?
+
+      @crl_update_channel = channel = Channel(Nil).new
+      Log.info { "Starting background CRL updater (checking every hour)" }
+
+      spawn(name: "CRL Updater") do
+        loop do
+          select
+          when channel.receive
+            Log.debug { "CRL updater shutting down" }
+            break
+          when timeout(1.hour)
+            update_cdp_crls
+          end
+        end
+      end
+    end
+
+    private def update_cdp_crls
+      return if @cdp_urls.empty?
+
+      Log.debug { "Checking for fresh CRLs from CDP URLs" }
+      @cdp_urls.each do |url|
+        begin
+          # Fetch and cache the CRL (doesn't reload TLS context)
+          OpenSSL::X509.fetch_and_cache_crl(url, @config.data_dir)
+          Log.debug { "Updated cached CRL from CDP: #{url}" }
+        rescue ex
+          Log.warn { "Failed to update CRL from CDP #{url}: #{ex.message}" }
+        end
+      end
+      Log.info { "Background CRL update completed. Send SIGHUP to reload." }
     end
   end
 end
