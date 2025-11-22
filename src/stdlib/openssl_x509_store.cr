@@ -6,6 +6,9 @@ require "digest/sha1"
 # needed for CRL (Certificate Revocation List) support
 module OpenSSL::SSL
   class Context
+    # Maximum CRL size to prevent memory exhaustion (10MB should be more than enough)
+    MAX_CRL_SIZE = 10 * 1024 * 1024
+
     # Loads CRL (Certificate Revocation List) from a file or URL into the X509 store
     # and enables CRL checking for the entire certificate chain
     #
@@ -94,12 +97,29 @@ module OpenSSL::SSL
         client.connect_timeout = 10.seconds
         client.read_timeout = 10.seconds
 
-        response = client.get(uri.request_target)
+        headers = HTTP::Headers{
+          "User-Agent" => "LavinMQ/#{LavinMQ::VERSION}",
+        }
+
+        response = client.get(uri.request_target, headers: headers)
         unless response.success?
           raise OpenSSL::Error.new("CRL fetch failed: HTTP #{response.status_code}")
         end
 
-        response.body
+        # Check Content-Length header if present
+        if content_length = response.headers["Content-Length"]?
+          size = content_length.to_i64
+          if size > MAX_CRL_SIZE
+            raise OpenSSL::Error.new("CRL too large: #{size} bytes (max: #{MAX_CRL_SIZE})")
+          end
+        end
+
+        body = response.body
+        if body.bytesize > MAX_CRL_SIZE
+          raise OpenSSL::Error.new("CRL too large: #{body.bytesize} bytes (max: #{MAX_CRL_SIZE})")
+        end
+
+        body
       end
     end
 
