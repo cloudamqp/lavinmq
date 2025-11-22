@@ -12,7 +12,7 @@ module LavinMQ::AMQP
       raise LavinMQ::Error::PreconditionFailed.new("A stream cannot be exclusive") if exclusive
       raise LavinMQ::Error::PreconditionFailed.new("A stream cannot be auto-delete") if auto_delete
 
-      self.validate_arguments!(arguments)
+      validate_arguments!(arguments)
       new vhost, name, exclusive, auto_delete, arguments
     end
 

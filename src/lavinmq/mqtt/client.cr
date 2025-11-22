@@ -158,7 +158,7 @@ module LavinMQ
       end
 
       def recieve_unsubscribe(packet : MQTT::Unsubscribe)
-        @broker.unsubscribe(self.client_id, packet.topics)
+        @broker.unsubscribe(client_id, packet.topics)
         send(MQTT::UnsubAck.new(packet.packet_id))
       end
 

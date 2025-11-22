@@ -33,7 +33,7 @@ module LavinMQ
         @w.write(slice)
       end
       @ws.on_close do |_code, _message|
-        self.close
+        close
       end
       self.buffer_size = 4096
     end

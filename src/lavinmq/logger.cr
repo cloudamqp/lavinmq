@@ -15,9 +15,9 @@ module LavinMQ
       end
     end
 
-    {% for method in %w(trace debug info notice warn error fatal) %}
-      def {{method.id}}(exception : Exception? = nil, &block)
-        severity = ::Log::Severity::{{method.camelcase.id}}
+    {% for method in %w[trace debug info notice warn error fatal] %}
+      def {{ method.id }}(exception : Exception? = nil, &block)
+        severity = ::Log::Severity::{{ method.camelcase.id }}
         return unless @log.level <= severity
         return unless backend = @log.backend
         return unless logstr = yield.to_s

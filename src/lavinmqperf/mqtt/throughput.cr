@@ -148,7 +148,7 @@ module LavinMQPerf
 
         connected.wait # wait for all clients to connect
         start = Time.monotonic
-        Signal::INT.trap do
+        Process.on_terminate do
           abort "Aborting" if @stopped
           @stopped = true
           summary(start)

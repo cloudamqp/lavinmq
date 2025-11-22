@@ -14,7 +14,7 @@ module LavinMQ
         # For now, only LocalAuthenticator is supported
         # When adding more auth backends, LocalAuthenticator should always be tried first
         authenticators = [LocalAuthenticator.new(users)] of Authenticator
-        self.new(authenticators)
+        new(authenticators)
       end
 
       def authenticate(username : String, password : Bytes) : User?

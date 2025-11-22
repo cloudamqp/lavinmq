@@ -56,9 +56,9 @@ module LavinMQ
       end
       STDOUT << "{{ obj.name }}"
       STDOUT << " size="
-      STDOUT << {{obj}}.size
+      STDOUT << {{ obj }}.size
       STDOUT << " capacity="
-      STDOUT << {{obj}}.capacity
+      STDOUT << {{ obj }}.capacity
       STDOUT << '\n'
     end
   end
