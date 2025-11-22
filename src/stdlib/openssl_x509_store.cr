@@ -178,22 +178,15 @@ module OpenSSL::SSL
       cache_base = File.join(cache_dir, "crl_cache")
       return unless Dir.exists?(cache_base)
 
-      latest_file = nil
-      latest_time = nil
-
-      Dir.glob(File.join(cache_base, "#{url_hash}.*.pem")).each do |file|
+      now = Time.utc
+      # Sort by timestamp in filename and take the last (latest) valid one
+      latest_file = Dir.glob(File.join(cache_base, "#{url_hash}.*.pem")).sort.reverse_each do |file|
         if expiry = parse_timestamp_from_filename(file)
-          # Only consider non-expired CRLs
-          if Time.utc < expiry
-            if latest_time.nil? || expiry > latest_time
-              latest_file = file
-              latest_time = expiry
-            end
-          end
+          return {file, expiry} if now < expiry
         end
       end
 
-      latest_file && latest_time ? {latest_file, latest_time} : nil
+      nil
     end
 
     # Cleanup old CRLs for a given URL hash, keeping only the latest one
