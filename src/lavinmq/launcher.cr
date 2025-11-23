@@ -259,6 +259,7 @@ module LavinMQ
         Log.info { "Reloading configuration file '#{@config.config_file}'" }
         @config.reload
         reload_tls_context
+        reload_crl_updater
       end
       SystemD.notify_ready
     end
@@ -390,6 +391,25 @@ module LavinMQ
           end
         end
         @crl_update_channel = nil
+      end
+    end
+
+    private def stop_crl_updater
+      if channel = @crl_update_channel
+        Log.debug { "Stopping CRL updater" }
+        channel.close
+        @crl_update_channel = nil
+      end
+    end
+
+    private def reload_crl_updater
+      # Stop existing updater if running
+      stop_crl_updater
+
+      # Start updater if mTLS with peer verification is enabled and we have CDP URLs
+      # Note: @cdp_urls was already populated by reload_tls_context -> load_crl_from_cdp
+      if @config.tls_configured? && @config.tls_verify_peer?
+        start_crl_updater
       end
     end
 
