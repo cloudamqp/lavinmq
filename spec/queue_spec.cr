@@ -219,6 +219,109 @@ describe LavinMQ::AMQP::Queue do
     end
   end
 
+  describe "Restarting queues" do
+    q_name = "restart"
+    it "should restart a closed queue" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue(q_name, durable: true)
+          queue = s.vhosts["/"].queues[q_name].as(LavinMQ::AMQP::DurableQueue)
+
+          # Publish a message
+          q.publish_confirm "test message"
+          queue.message_count.should eq 1
+
+          # Close the queue
+          queue.close
+          queue.closed?.should be_true
+
+          # Restart the queue & verify
+          queue.restart!
+          queue.closed?.should be_false
+          queue.message_count.should eq 1
+          msg = q.get(no_ack: true)
+          msg.should_not be_nil
+          msg.not_nil!.body_io.to_s.should eq "test message"
+        end
+      end
+    end
+
+    it "should restart after corrupt data closes the queue" do
+      with_amqp_server do |s|
+        vhost = s.vhosts.create("restart_vhost")
+        with_channel(s, vhost: vhost.name) do |ch|
+          q = ch.queue(q_name, durable: true)
+          queue = vhost.queues[q_name].as(LavinMQ::AMQP::DurableQueue)
+          q.publish_confirm "test message"
+          queue.message_count.should eq 1
+
+          # Write corrupt data to the segment file
+          mfile = queue.@msg_store.@segments.first_value
+          File.open(mfile.path, "w+") do |f|
+            f.seek(mfile.size - mfile.size + 4)
+            f.write(("x"*10).to_slice)
+          end
+
+          # Try to consume, which will trigger the close due to corrupt data
+          q.subscribe(tag: "tag", no_ack: false, &.ack)
+          should_eventually(be_true) { queue.state.closed? }
+
+          # Delete corrupted segment file
+          File.delete(mfile.path)
+
+          # Restart the queue & verify that it is running
+          queue.restart!
+          queue.closed?.should be_false
+          queue.state.running?.should be_true
+          queue.message_count.should eq 0
+        end
+      end
+    end
+
+    it "should expire msgs after restarting a queue" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue(q_name, durable: true, args: AMQP::Client::Arguments.new(
+            {"x-message-ttl" => 500, "x-dead-letter-exchange" => "", "x-dead-letter-routing-key" => "dlq"}
+          ))
+          queue = s.vhosts["/"].queues[q_name].as(LavinMQ::AMQP::DurableQueue)
+
+          # Publish a message
+          q.publish_confirm "test message"
+          queue.message_count.should eq 1
+
+          # Close the queue
+          queue.close
+          queue.closed?.should be_true
+
+          # Restart the queue & verify
+          queue.restart!
+          queue.closed?.should be_false
+          queue.message_count.should eq 1
+          should_eventually(be_true) { queue.message_count == 0 }
+        end
+      end
+    end
+
+    it "should expire queue after restarting a queue" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          ch.queue(q_name, durable: true, args: AMQP::Client::Arguments.new({"x-expires" => 100}))
+          queue = s.vhosts["/"].queues[q_name].as(LavinMQ::AMQP::DurableQueue)
+
+          # Close the queue
+          queue.close
+          queue.closed?.should be_true
+
+          # Restart the queue & verify
+          queue.restart!
+          queue.closed?.should be_false
+          should_eventually(be_true) { queue.closed? }
+        end
+      end
+    end
+  end
+
   describe "Purge" do
     x_name = "purge"
     q_name = "purge"
