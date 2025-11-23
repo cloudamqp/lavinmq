@@ -413,8 +413,8 @@ module OpenSSL::X509
   private def self.get_general_names_from_dist_point(dp : LibCrypto::DistPoint) : LibCrypto::GeneralNamesPtr?
     return if dp.null?
 
+    # Cast to the actual structure type
     dist_point = dp.as(LibCrypto::DistPointStruct*)
-    return if dist_point.null?
     return if dist_point.value.distpoint.null?
 
     dpn = dist_point.value.distpoint
@@ -515,16 +515,10 @@ lib LibCrypto
   end
 
   # Create a BIO from memory buffer
-  fun bio_new_mem_buf = BIO_new_mem_buf(
-    buf : LibC::Char*,
-    len : LibC::Int,
-  ) : Bio*
+  fun bio_new_mem_buf = BIO_new_mem_buf(buf : LibC::Char*, len : LibC::Int) : Bio*
 
   # Create a BIO from file
-  fun bio_new_file = BIO_new_file(
-    filename : LibC::Char*,
-    mode : LibC::Char*,
-  ) : Bio*
+  fun bio_new_file = BIO_new_file(filename : LibC::Char*, mode : LibC::Char*) : Bio*
 
   # Free a BIO
   fun bio_free = BIO_free(bio : Bio*) : LibC::Int
@@ -572,10 +566,7 @@ lib LibCrypto
   fun crl_dist_points_free = CRL_DIST_POINTS_free(a : DistPoints)
 
   # Add a CRL to the X509_STORE
-  fun x509_store_add_crl = X509_STORE_add_crl(
-    ctx : X509_STORE,
-    x : X509CRL,
-  ) : LibC::Int
+  fun x509_store_add_crl = X509_STORE_add_crl(ctx : X509_STORE, x : X509CRL) : LibC::Int
 
   # Free a CRL
   fun x509_crl_free = X509_CRL_free(a : X509CRL)
@@ -587,16 +578,10 @@ lib LibCrypto
   fun sk_x509_revoked_num = OPENSSL_sk_num(sk : Void*) : LibC::Int
 
   # Set X509 verification flags on the store
-  fun x509_store_set_flags = X509_STORE_set_flags(
-    ctx : X509_STORE,
-    flags : X509VerifyFlags,
-  ) : LibC::Int
+  fun x509_store_set_flags = X509_STORE_set_flags(ctx : X509_STORE, flags : X509VerifyFlags) : LibC::Int
 
   # Convert ASN1_STRING to UTF8
-  fun asn1_string_to_utf8 = ASN1_STRING_to_UTF8(
-    out : LibC::Char**,
-    in : ASN1String,
-  ) : LibC::Int
+  fun asn1_string_to_utf8 = ASN1_STRING_to_UTF8(out : LibC::Char**, in : ASN1String) : LibC::Int
 
   # Free memory allocated by OpenSSL (OPENSSL_free is a macro for CRYPTO_free)
   fun openssl_free = CRYPTO_free(addr : Void*, file : LibC::Char*, line : LibC::Int)
