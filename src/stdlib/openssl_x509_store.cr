@@ -331,25 +331,27 @@ module OpenSSL::X509
         "User-Agent" => "LavinMQ/#{LavinMQ::VERSION}",
       }
 
-      response = client.get(uri.request_target, headers: headers)
-      unless response.success?
-        raise OpenSSL::Error.new("CRL fetch failed: HTTP #{response.status_code}")
-      end
-
-      # Check Content-Length header if present
-      if content_length = response.headers["Content-Length"]?
-        size = content_length.to_i64
-        if size > OpenSSL::SSL::Context::MAX_CRL_SIZE
-          raise OpenSSL::Error.new("CRL too large: #{size} bytes (max: #{OpenSSL::SSL::Context::MAX_CRL_SIZE})")
+      client.get(uri.request_target, headers: headers) do |response|
+        unless response.success?
+          raise OpenSSL::Error.new("CRL fetch failed: HTTP #{response.status_code}")
         end
-      end
 
-      body = response.body
-      if body.bytesize > OpenSSL::SSL::Context::MAX_CRL_SIZE
-        raise OpenSSL::Error.new("CRL too large: #{body.bytesize} bytes (max: #{OpenSSL::SSL::Context::MAX_CRL_SIZE})")
-      end
+        # Check Content-Length header before reading body
+        if content_length = response.headers["Content-Length"]?
+          size = content_length.to_i64
+          if size > OpenSSL::SSL::Context::MAX_CRL_SIZE
+            raise OpenSSL::Error.new("CRL too large: #{size} bytes (max: #{OpenSSL::SSL::Context::MAX_CRL_SIZE})")
+          end
+        end
 
-      body
+        # Read body with size limit
+        body = response.body_io.gets_to_end
+        if body.bytesize > OpenSSL::SSL::Context::MAX_CRL_SIZE
+          raise OpenSSL::Error.new("CRL too large: #{body.bytesize} bytes (max: #{OpenSSL::SSL::Context::MAX_CRL_SIZE})")
+        end
+
+        body
+      end
     end
   end
 
