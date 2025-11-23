@@ -107,34 +107,7 @@ module OpenSSL::SSL
 
     # Fetch CRL from remote HTTP/HTTPS server
     private def fetch_crl_from_remote(uri : URI) : String
-      HTTP::Client.new(uri) do |client|
-        client.connect_timeout = 10.seconds
-        client.read_timeout = 10.seconds
-
-        headers = HTTP::Headers{
-          "User-Agent" => "LavinMQ/#{LavinMQ::VERSION}",
-        }
-
-        response = client.get(uri.request_target, headers: headers)
-        unless response.success?
-          raise OpenSSL::Error.new("CRL fetch failed: HTTP #{response.status_code}")
-        end
-
-        # Check Content-Length header if present
-        if content_length = response.headers["Content-Length"]?
-          size = content_length.to_i64
-          if size > MAX_CRL_SIZE
-            raise OpenSSL::Error.new("CRL too large: #{size} bytes (max: #{MAX_CRL_SIZE})")
-          end
-        end
-
-        body = response.body
-        if body.bytesize > MAX_CRL_SIZE
-          raise OpenSSL::Error.new("CRL too large: #{body.bytesize} bytes (max: #{MAX_CRL_SIZE})")
-        end
-
-        body
-      end
+      OpenSSL::X509.fetch_crl_from_url(uri)
     end
 
     # Fallback to using any cached CRL (even expired) when remote fetch fails
@@ -325,8 +298,32 @@ module OpenSSL::X509
     uri = URI.parse(url)
     url_hash = Digest::SHA1.hexdigest(url)
 
-    # Fetch CRL from remote server
-    crl_data = HTTP::Client.new(uri) do |client|
+    # Fetch CRL from remote server using the shared fetch logic
+    crl_data = fetch_crl_from_url(uri)
+
+    # Parse and extract expiration timestamp
+    expiry = extract_crl_next_update(crl_data)
+    unless expiry
+      raise OpenSSL::Error.new("Failed to extract CRL expiration timestamp")
+    end
+
+    # Save to cache with timestamp in filename
+    cache_base = File.join(cache_dir, "crl_cache")
+    Dir.mkdir_p(cache_base)
+
+    timestamp_str = expiry.to_unix.to_s
+    cache_path = File.join(cache_base, "#{url_hash}.#{timestamp_str}.pem")
+
+    File.write(cache_path, crl_data)
+
+    # Clean up old CRL files for this URL
+    cleanup_old_crls(cache_base, url_hash, timestamp_str)
+  end
+
+  # Fetch CRL from remote HTTP/HTTPS server
+  # This is a shared utility method used by both Context and X509 module
+  protected def self.fetch_crl_from_url(uri : URI) : String
+    HTTP::Client.new(uri) do |client|
       client.connect_timeout = 10.seconds
       client.read_timeout = 10.seconds
 
@@ -354,24 +351,6 @@ module OpenSSL::X509
 
       body
     end
-
-    # Parse and extract expiration timestamp
-    expiry = extract_crl_next_update(crl_data)
-    unless expiry
-      raise OpenSSL::Error.new("Failed to extract CRL expiration timestamp")
-    end
-
-    # Save to cache with timestamp in filename
-    cache_base = File.join(cache_dir, "crl_cache")
-    Dir.mkdir_p(cache_base)
-
-    timestamp_str = expiry.to_unix.to_s
-    cache_path = File.join(cache_base, "#{url_hash}.#{timestamp_str}.pem")
-
-    File.write(cache_path, crl_data)
-
-    # Clean up old CRL files for this URL
-    cleanup_old_crls(cache_base, url_hash, timestamp_str)
   end
 
   # Extract nextUpdate timestamp from CRL PEM string
