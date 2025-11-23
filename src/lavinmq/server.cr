@@ -219,7 +219,10 @@ module LavinMQ
 
         # Extract client certificate information for mTLS
         if peer_cert = ssl_client.peer_certificate
-          conn_info.ssl_verify = true
+          # Check if verification actually succeeded (X509_V_OK = 0)
+          verify_result = ssl_client.verify_result
+          conn_info.ssl_verify = (verify_result == 0)
+
           # Extract common name from certificate subject
           subject = peer_cert.subject
           subject_entries = subject.to_a
@@ -228,7 +231,12 @@ module LavinMQ
           end
           # Extract signature algorithm
           conn_info.ssl_sig_alg = peer_cert.signature_algorithm
-          Log.debug { "#{remote_addr} authenticated with client certificate: #{conn_info.ssl_cn}" }
+
+          if conn_info.ssl_verify?
+            Log.debug { "#{remote_addr} authenticated with client certificate: #{conn_info.ssl_cn}" }
+          else
+            Log.debug { "#{remote_addr} provided client certificate but verification failed (result: #{verify_result})" }
+          end
         end
 
         handle_connection(ssl_client, conn_info, protocol)

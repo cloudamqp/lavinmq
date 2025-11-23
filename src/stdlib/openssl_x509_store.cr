@@ -606,3 +606,19 @@ lib LibCrypto
     to : ASN1Time,
   ) : LibC::Int
 end
+
+# Additional LibSSL bindings for certificate verification
+lib LibSSL
+  # Get the result of certificate verification
+  # Returns 0 (X509_V_OK) if verification succeeded
+  fun ssl_get_verify_result = SSL_get_verify_result(ssl : LibSSL::SSL) : LibC::Long
+end
+
+# Extension to OpenSSL::SSL::Socket to check verification result
+class OpenSSL::SSL::Socket
+  # Returns the verification result for the peer certificate
+  # 0 (X509_V_OK) means verification succeeded
+  def verify_result : LibC::Long
+    LibSSL.ssl_get_verify_result(@ssl)
+  end
+end
