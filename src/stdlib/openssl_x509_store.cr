@@ -69,7 +69,7 @@ module OpenSSL::SSL
       revoked = LibCrypto.x509_crl_get_revoked(crl)
       return 0 if revoked.null?
 
-      LibCrypto.sk_x509_revoked_num(revoked)
+      LibCrypto.openssl_sk_num(revoked)
     end
 
     # Fetches CRL from HTTP/HTTPS URL with timeout, caching, and fallback to cached version
@@ -269,9 +269,9 @@ module OpenSSL::X509
           # Parse the STACK_OF(DIST_POINT)
           # This is simplified - in a full implementation you'd iterate through all distribution points
           # For now, we'll extract the first HTTP/HTTPS URL we find
-          count = LibCrypto.sk_dist_point_num(cdp)
+          count = LibCrypto.openssl_sk_num(cdp)
           count.times do |i|
-            dp = LibCrypto.sk_dist_point_value(cdp, i)
+            dp = LibCrypto.openssl_sk_value(cdp, i).as(LibCrypto::DistPoint)
             next if dp.null?
 
             # Extract URL from distribution point
@@ -426,7 +426,7 @@ module OpenSSL::X509
 
   # Find HTTP/HTTPS URL in GENERAL_NAMES
   private def self.find_http_url_in_general_names(general_names : LibCrypto::GeneralNamesPtr) : String?
-    count = LibCrypto.sk_general_name_num(general_names)
+    count = LibCrypto.openssl_sk_num(general_names)
     return if count < 0 # Invalid count
 
     count.times do |i|
@@ -439,7 +439,7 @@ module OpenSSL::X509
 
   # Extract URI string from a GENERAL_NAME at given index
   private def self.extract_uri_from_general_name(general_names : LibCrypto::GeneralNamesPtr, index : Int32) : String?
-    gen_name = LibCrypto.sk_general_name_value(general_names, index)
+    gen_name = LibCrypto.openssl_sk_value(general_names, index)
     return if gen_name.null?
 
     gn = gen_name.as(LibCrypto::GeneralNameStruct*)
@@ -550,17 +550,12 @@ lib LibCrypto
   # Free X509 certificate
   fun x509_free = X509_free(a : X509)
 
-  # Get count of distribution points in stack
-  fun sk_dist_point_num = OPENSSL_sk_num(sk : Void*) : LibC::Int
+  # Generic OpenSSL stack functions (work with any stack type via Void*)
+  # Get number of elements in an OpenSSL stack
+  fun openssl_sk_num = OPENSSL_sk_num(sk : Void*) : LibC::Int
 
-  # Get distribution point from stack by index
-  fun sk_dist_point_value = OPENSSL_sk_value(sk : Void*, idx : LibC::Int) : DistPoint
-
-  # Get count of general names in stack
-  fun sk_general_name_num = OPENSSL_sk_num(sk : GeneralNamesPtr) : LibC::Int
-
-  # Get general name from stack by index
-  fun sk_general_name_value = OPENSSL_sk_value(sk : GeneralNamesPtr, idx : LibC::Int) : GeneralNamePtr
+  # Get element from OpenSSL stack by index
+  fun openssl_sk_value = OPENSSL_sk_value(sk : Void*, idx : LibC::Int) : Void*
 
   # Free CRL Distribution Points
   fun crl_dist_points_free = CRL_DIST_POINTS_free(a : DistPoints)
@@ -573,9 +568,6 @@ lib LibCrypto
 
   # Get revoked certificates from CRL
   fun x509_crl_get_revoked = X509_CRL_get_REVOKED(crl : X509CRL) : Void*
-
-  # Get count of revoked certificates in stack
-  fun sk_x509_revoked_num = OPENSSL_sk_num(sk : Void*) : LibC::Int
 
   # Set X509 verification flags on the store
   fun x509_store_set_flags = X509_STORE_set_flags(ctx : X509_STORE, flags : X509VerifyFlags) : LibC::Int
