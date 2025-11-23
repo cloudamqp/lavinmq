@@ -368,7 +368,7 @@ module OpenSSL::X509
         next_update = LibCrypto.x509_crl_get_next_update(crl)
         return if next_update.null?
 
-        current_time = LibCrypto.asn1_time_new
+        current_time = LibCrypto.asn1_time_set(nil, Time.utc.to_unix)
         return if current_time.null?
 
         begin
