@@ -417,8 +417,7 @@ module OpenSSL::X509
     return if dist_point.null?
     return if dist_point.value.distpoint.null?
 
-    dpn = dist_point.value.distpoint.as(LibCrypto::DistPointNameStruct*)
-    return if dpn.null?
+    dpn = dist_point.value.distpoint
     return if dpn.value.type != 0 # 0 = fullname (GENERAL_NAMES)
 
     general_names = dpn.value.name.fullname
@@ -477,9 +476,9 @@ lib LibCrypto
 
   # DIST_POINT structure
   struct DistPointStruct
-    distpoint : Void*            # DIST_POINT_NAME
-    reasons : Void*              # ASN1_BIT_STRING
-    crl_issuer : GeneralNamesPtr # GENERAL_NAMES
+    distpoint : DistPointNameStruct* # DIST_POINT_NAME
+    reasons : Void*                  # ASN1_BIT_STRING (different from ASN1_STRING)
+    crl_issuer : GeneralNamesPtr     # GENERAL_NAMES
     dp_reasons : LibC::Int
   end
 
