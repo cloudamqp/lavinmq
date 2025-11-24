@@ -321,7 +321,7 @@ df -h /var/lib/lavinmq
 du -sh /var/lib/lavinmq/*/* | sort -h | tail -20
 
 # Check for large message segment files
-find /var/lib/lavinmq -name "msgs.*" -exec ls -lh {} \; | sort -k5 -h | tail -20
+find /var/lib/lavinmq -name "msgs.*" -exec ls -l {} \; | sort -k5 -n | tail -20
 ```
 
 ### Memory
