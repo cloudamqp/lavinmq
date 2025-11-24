@@ -52,9 +52,8 @@ killall -USR1 lavinmq
 The output goes to `stdout`, which if the LavinMQ is managed by SystemD the output is captured by `journald`:
 
 ```sh
-# Follow logs and then trigger USR1
-journalctl -fu lavinmq
-# In another terminal: kill -USR1 $(pidof lavinmq)
+kill -USR1 $(pidof lavinmq)
+journalctl -eu lavinmq
 ```
 
 **When to use USR1:**
