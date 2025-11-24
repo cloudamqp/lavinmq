@@ -11,7 +11,7 @@ When experiencing issues with LavinMQ, start by gathering basic information:
 systemctl status lavinmq.service
 
 # Check recent logs
-journalctl -fu lavinmq --lines 100
+journalctl --follow --unit lavinmq --lines 100
 
 # Check LavinMQ version
 lavinmq --version
@@ -53,7 +53,7 @@ The output goes to `stdout`, which if the LavinMQ is managed by SystemD the outp
 
 ```sh
 kill -USR1 $(pidof lavinmq)
-journalctl -eu lavinmq
+journalctl --pager-end --unit lavinmq
 ```
 
 **When to use USR1:**
@@ -75,41 +75,47 @@ This can help determine if high memory usage is due to actual data or uncollecte
 
 ## Log Analysis
 
-LavinMQ outputs all logs to `stdout`, which are captured by `journald`.
+LavinMQ outputs all logs to `stdout`.
 
-### Basic Log Commands
+### Linux (systemd)
 
 ```sh
 # Follow logs in real-time
-journalctl -fu lavinmq
+journalctl --follow --unit lavinmq
 
 # View recent logs
-journalctl -u lavinmq --since "1 hour ago"
-
-# View logs from a specific time range
-journalctl -u lavinmq --since "2025-01-20 10:00:00" --until "2025-01-20 11:00:00"
-
-# Search for specific errors
-journalctl -u lavinmq --grep "error|exception"
-
-# Show only errors and warnings
-journalctl -u lavinmq -p err
+journalctl --unit lavinmq --since "1 hour ago"
 
 # Export logs to a file for sharing
-journalctl -u lavinmq --since today > lavinmq_logs.txt
+journalctl --unit lavinmq --since today > lavinmq_logs.txt
 ```
 
-### Log Navigation
+### macOS
 
-When viewing logs with `journalctl`:
-- `j/k` - Scroll down/up
-- `Shift+g` - Jump to latest logs
-- `g` - Jump to oldest logs
-- `b` - Move up one page
-- `Space` - Move down one page
-- `/pattern` - Search forward for pattern
-- `?pattern` - Search backward for pattern
-- `q` - Exit
+```sh
+# If running as launchd service, check system logs
+log stream --predicate 'process == "lavinmq"' --level debug
+
+# Or run LavinMQ in foreground with output redirection
+./lavinmq -D /path/to/data 2>&1 | tee lavinmq.log
+
+# View existing log file
+tail -f lavinmq.log
+```
+
+### Docker
+
+```sh
+# Follow logs in real-time
+docker logs --follow <container_name>
+```
+
+### Kubernetes
+
+```sh
+# Follow logs in real-time
+kubectl logs --follow <pod_name>
+```
 
 ### What to Look For
 
@@ -121,7 +127,7 @@ When viewing logs with `journalctl`:
 
 ## Network and Connection Debugging
 
-### Using lsof
+### Using lsof (Linux and macOS)
 
 `lsof` (List Open Files) shows all open files and network connections for LavinMQ.
 
@@ -151,8 +157,7 @@ sudo lsof -p $(pidof lavinmq) | wc -l
 - Check for connection leaks
 - Identify file descriptor exhaustion
 
-### TCP Connection States
-
+### TCP Connection States (Linux)
 ```sh
 # Show connection states
 sudo ss -antp | grep $(pidof lavinmq)
@@ -161,13 +166,21 @@ sudo ss -antp | grep $(pidof lavinmq)
 sudo ss -antp | grep $(pidof lavinmq) | awk '{print $1}' | sort | uniq -c
 ```
 
+### TCP Connection States (macOS)
+```sh
+# Show connection states
+lsof -iTCP -a -c lavinmq
+
+# Count connections by state
+lsof -iTCP -a -c lavinmq | awk 'NR>1 {print $10}' | sort | uniq -c
+```
 ## Performance Debugging
 
-### Using perf top
+### Using perf top (Linux)
 
 `perf top` shows real-time CPU usage by function, helping identify performance bottlenecks and infinite loops.
 
-**Installation (not installed by default):**
+**Installation (not installed by default on Linux):**
 
 ```sh
 sudo apt install linux-tools-common
@@ -178,7 +191,7 @@ sudo apt install linux-tools-aws  # or linux-tools-generic depending on kernel
 
 ```sh
 # Monitor LavinMQ CPU usage in real-time
-sudo perf top -p $(pidof lavinmq)
+sudo perf top --pid $(pidof lavinmq)
 ```
 
 **What to look for:**
@@ -188,13 +201,13 @@ sudo perf top -p $(pidof lavinmq)
 
 **Important:** If LavinMQ becomes unresponsive, take a screenshot of `perf top` output before restarting. This is crucial for debugging hangs and performance issues.
 
-### Recording Performance Data
+### Recording Performance Data (Linux)
 
 For persistent performance issues, record data for later analysis:
 
 ```sh
 # Record performance data (run for 30-60 seconds)
-sudo perf record --call-graph lbr -p $(pidof lavinmq)
+sudo perf record --call-graph lbr --pid $(pidof lavinmq)
 
 # Stop recording with Ctrl+C after sufficient time
 
@@ -207,38 +220,17 @@ ls -lh perf.data
 
 **Send `perf.data` to developers** when reporting performance issues - it contains detailed call graph information.
 
-### perf Navigation
-
-When viewing `perf report`:
-- `Arrow keys` - Navigate up/down
-- `Enter` - Expand call chain
-- `+` - Expand all
-- `-` - Collapse all
-- `/` - Search
-- `?` - Help
-- `q` - Quit
-
 ## Core Dump Analysis
 
-When LavinMQ crashes with a segmentation fault, a core dump captures the exact state of memory at crash time. LavinMQ allows the OS to generate core dumps (see `Signal::SEGV.reset` in src/lavinmq/launcher.cr:282), but **you need to enable core dump capture before reproducing the crash**.
+When LavinMQ crashes with a segmentation fault, a core dump captures the exact state of memory at crash time. LavinMQ allows the OS to generate core dumps, but **you need to enable core dump capture before reproducing the crash**.
 
-### Enabling Core Dumps for Debugging
+### Linux
 
-**Before trying to reproduce a segfault:**
-
-```sh
-# Check if core dumps are currently enabled
-ulimit -c
-# If it shows 0, core dumps are disabled
-```
-
-**To capture a core dump when debugging LavinMQ:**
-
-If running LavinMQ manually for testing:
+**If running LavinMQ manually:**
 
 ```sh
-# In your shell, enable core dumps with a size limit (e.g., 2GB)
-ulimit -c 2097152  # 2GB in kilobytes
+# Enable core dumps in your shell
+ulimit -c unlimited
 
 # Now run LavinMQ
 ./bin/lavinmq -D /path/to/data
@@ -246,33 +238,34 @@ ulimit -c 2097152  # 2GB in kilobytes
 # When it crashes, the core dump will be captured
 ```
 
-If LavinMQ is running as a systemd service, temporarily enable core dumps:
+**If running as a systemd service:**
 
 ```sh
-# Set core dump limit for this session
-sudo sh -c 'ulimit -c 2097152 && systemctl restart lavinmq'
+# Create a systemd override to enable core dumps
+sudo systemctl edit lavinmq
+
+# Add this in the editor that opens:
+[Service]
+LimitCORE=infinity
+
+# Save and exit, then reload and restart
+sudo systemctl daemon-reload
+sudo systemctl restart lavinmq
 ```
 
-**After debugging:** Reset the limit to avoid filling disk:
+Modern Linux systems typically have `systemd-coredump` enabled by default, which automatically captures and manages core dumps.
 
-```sh
-ulimit -c 0
-```
-
-### Checking for Core Dumps
+**Checking for core dumps:**
 
 ```sh
 # List recent core dumps
 coredumpctl list
 
 # Show info about the latest crash
-coredumpctl info
-
-# Show detailed crash information
 coredumpctl info lavinmq
 ```
 
-### Analyzing with GDB
+**Analyzing with GDB:**
 
 ```sh
 # Open the core dump in GDB
@@ -285,23 +278,53 @@ sudo coredumpctl gdb lavinmq
 # print var    - Print variable value
 # info threads - Show all threads
 # thread N     - Switch to thread N
-# quit         - Exit GDB
 ```
 
-### Exporting Core Dumps
+**Exporting core dumps:**
 
 ```sh
 # Save core dump to file for sharing
-coredumpctl dump lavinmq > lavinmq_core.dump
-
-# Or use -o flag
 coredumpctl dump lavinmq -o lavinmq_core.dump
+
+# Compress before sharing
+gzip lavinmq_core.dump
 ```
 
-**Note:** Core dumps can be very large. Compress before sharing:
+### macOS
+
+**Enabling core dumps:**
 
 ```sh
-gzip lavinmq_core.dump
+# Enable core dumps in your shell
+ulimit -c unlimited
+
+# Now run LavinMQ
+./bin/lavinmq -D /path/to/data
+
+# When it crashes, the core dump will be in /cores/
+```
+
+**Checking for core dumps:**
+
+```sh
+# Check for core dumps
+ls -lh /cores/
+
+# Check crash reports
+ls -lh ~/Library/Logs/DiagnosticReports/lavinmq*
+```
+
+**Analyzing with LLDB:**
+
+```sh
+# Open core dump with LLDB
+lldb lavinmq --core /cores/core.12345
+
+# Essential commands:
+# bt                 - Show backtrace
+# bt all             - Show backtrace for all threads
+# frame select N     - Switch to frame N
+# thread list        - Show all threads
 ```
 
 ## System Resource Checks
@@ -328,22 +351,36 @@ find /var/lib/lavinmq -name "msgs.*" -exec ls -l {} \; | sort -k5 -n | tail -20
 
 High memory usage may indicate a memory leak, too many unacked messages, or normal behavior under heavy load.
 
+**Linux and macOS:**
 ```sh
 # Check LavinMQ memory usage
 ps aux | grep lavinmq
+```
 
+**Linux:**
+```sh
 # More detailed memory info
-cat /proc/$(pidof lavinmq)/status | grep -i vmsize
-cat /proc/$(pidof lavinmq)/status | grep -i vmrss
+cat /proc/$(pidof lavinmq)/status | grep --ignore-case vmsize
+cat /proc/$(pidof lavinmq)/status | grep --ignore-case vmrss
 
 # Memory maps (can show memory leaks)
 sudo pmap -x $(pidof lavinmq)
 ```
 
+**macOS:**
+```sh
+# Detailed memory info
+ps -o pid,rss,vsz -p $(pgrep lavinmq)
+
+# Memory regions
+sudo vmmap $(pgrep lavinmq)
+```
+
 ### File Descriptors
 
-LavinMQ needs 1 file descriptor per connection + 2 per durable queue + overhead. Running out of FDs prevents accepting new connections or creating queues.
+LavinMQ uses file descriptors for client connections and temporarily during queue operations. High churn (rapid connection/queue creation and deletion) can cause temporary FD exhaustion, preventing new connections or queue operations.
 
+**Linux:**
 ```sh
 # Check FD limit
 cat /proc/$(pidof lavinmq)/limits | grep "open files"
@@ -351,14 +388,27 @@ cat /proc/$(pidof lavinmq)/limits | grep "open files"
 # Count currently open FDs
 sudo ls -l /proc/$(pidof lavinmq)/fd | wc -l
 
-# Show what FDs are open
-sudo ls -l /proc/$(pidof lavinmq)/fd
+# Show what FDs are open (with filenames and types)
+sudo lsof -p $(pidof lavinmq)
+```
+
+**macOS:**
+```sh
+# Check FD limit
+ulimit -n
+
+# Show what FDs are open (with filenames and types)
+sudo lsof -p $(pgrep lavinmq)
+
+# Count currently open FDs
+sudo lsof -p $(pgrep lavinmq) | wc -l
 ```
 
 ### Memory Map Areas
 
 LavinMQ uses memory-mapped files for message storage (1 mmap per connection + 1 per message segment). With many connections or queues, you can hit the OS limit (default ~65k), preventing new connections or segment creation.
 
+**Linux:**
 ```sh
 # Check current limit
 cat /proc/sys/vm/max_map_count
@@ -382,116 +432,13 @@ curl -u guest:guest http://localhost:15672/api/cluster
 etcdctl get lavinmq/isr
 ```
 
-## Creating a Bug Report
-
-When creating an issue on GitHub (https://github.com/cloudamqp/lavinmq/issues), include:
-
-### Essential Information
-
-1. **LavinMQ version**
-   ```sh
-   lavinmq --version
-   ```
-
-2. **Operating system**
-   ```sh
-   cat /etc/os-release
-   uname -a
-   ```
-
-3. **Server state dump (USR1)**
-   ```sh
-   kill -USR1 $(pidof lavinmq)
-   journalctl -u lavinmq --since "1 minute ago" > server_state.txt
-   ```
-
-4. **Relevant logs**
-   ```sh
-   journalctl -u lavinmq --since "1 hour ago" > lavinmq_logs.txt
-   ```
-
-5. **Stack trace** (if there was a crash)
-   ```sh
-   journalctl -u lavinmq | grep -A 50 "Unhandled exception"
-   ```
-
-6. **Core dump** (if available)
-   ```sh
-   coredumpctl info lavinmq > coredump_info.txt
-   ```
-
-### Reproduction Steps
-
-Provide clear steps to reproduce the issue:
-
-```markdown
-1. Start LavinMQ with configuration X
-2. Create queue with arguments Y
-3. Publish N messages
-4. Consume messages with prefetch Z
-5. Observe error/behavior
-```
-
-### Expected vs Actual Behavior
-
-Clearly state:
-- What you expected to happen
-- What actually happened
-- Any error messages
-
-### Additional Context
-
-- Configuration files (`/etc/lavinmq/lavinmq.ini`)
-- Queue/exchange definitions
-- Client library and version
-- Load characteristics (messages/sec, message sizes)
-- Whether issue is reproducible
-
-### Example Issue Template
-
-```markdown
-## Summary
-Brief description of the issue
-
-## Environment
-- LavinMQ version: 2.0.0
-- OS: Ubuntu 22.04
-- Crystal version: 1.11.2
-
-## Reproduction Steps
-1. Step one
-2. Step two
-3. Step three
-
-## Expected Behavior
-What should happen
-
-## Actual Behavior
-What actually happens
-
-## Logs and Diagnostics
-Attached:
-- server_state.txt (USR1 dump)
-- lavinmq_logs.txt (error logs)
-- perf.data (performance recording, if applicable)
-
-## Stack Trace
-[paste stack trace here]
-
-## Additional Context
-Any other relevant information
-```
-
 ## Common Issues and Quick Fixes
 
 ### LavinMQ Won't Start
 
 ```sh
 # Check logs for errors
-journalctl -u lavinmq --since "5 minutes ago"
-
-# Check data directory lock
-ls -la /var/lib/lavinmq/.lock
+journalctl --unit lavinmq --since "5 minutes ago"
 
 # Check permissions
 ls -ld /var/lib/lavinmq
@@ -501,19 +448,6 @@ sudo chown -R lavinmq:lavinmq /var/lib/lavinmq
 df -h /var/lib/lavinmq
 ```
 
-### High Memory Usage
-
-```sh
-# Dump state to see what's using memory
-kill -USR1 $(pidof lavinmq)
-
-# Force garbage collection
-kill -USR2 $(pidof lavinmq)
-
-# Wait a moment and check memory again
-ps aux | grep lavinmq
-```
-
 ### Connection Issues
 
 ```sh
@@ -521,34 +455,29 @@ ps aux | grep lavinmq
 sudo lsof -i :5672 -i :15672
 
 # Check for connection errors in logs
-journalctl -u lavinmq | grep -i "connection\|authentication"
+journalctl --unit lavinmq | grep --ignore-case "connection\|authentication"
 
-# Check firewall
+# Check firewall (iptables on Linux)
 sudo iptables -L -n | grep 5672
+
+# Check firewall (nftables on modern Linux)
+sudo nft list ruleset | grep 5672
+
+# Check firewall (pf on macOS/BSD)
+sudo pfctl -s rules | grep 5672
 ```
 
 ### Slow Performance
 
 ```sh
 # Check what's consuming CPU
-sudo perf top -p $(pidof lavinmq)
+sudo perf top --pid $(pidof lavinmq)
 
 # Check disk I/O
 iostat -x 1
 
 # Check for disk-related errors
-journalctl -u lavinmq | grep -i "disk\|i/o"
-```
-
-### Queue Message Buildup
-
-```sh
-# Dump state to see consumer status
-kill -USR1 $(pidof lavinmq)
-journalctl -u lavinmq | grep -A 20 "Queue <queue-name>"
-
-# Check if consumers are active and prefetch settings
-# Check for unacked messages
+journalctl --unit lavinmq | grep --ignore-case "disk\|i/o"
 ```
 
 ## Advanced Debugging
@@ -569,17 +498,33 @@ ms_print massif.out.$(pidof lavinmq)
 massif-visualizer massif.out.*
 ```
 
-### Trace System Calls
+### Trace System Calls (Linux)
 
 ```sh
-# Trace system calls made by LavinMQ
-sudo strace -p $(pidof lavinmq) -f -e trace=open,close,read,write
+# Trace file operations
+sudo strace --attach $(pidof lavinmq) --follow-forks --trace=open,close,read,write,fstat,stat
 
-# Trace specific syscalls
-sudo strace -p $(pidof lavinmq) -e trace=network
+# Trace memory-mapped file operations
+sudo strace --attach $(pidof lavinmq) --follow-forks --trace=mmap,munmap,mremap,msync,ftruncate,truncate
+
+# Trace network syscalls
+sudo strace --attach $(pidof lavinmq) --trace=network
 
 # Count syscalls
 sudo perf trace --summary --pid $(pidof lavinmq)
+```
+
+### Trace System Calls (macOS)
+
+```sh
+# Trace all system calls
+sudo dtruss -p $(pgrep lavinmq)
+
+# Trace file operations only
+sudo dtruss -t open,close,read,write,fstat -p $(pgrep lavinmq)
+
+# Trace memory-mapped file operations
+sudo dtruss -t mmap,munmap,msync,ftruncate -p $(pgrep lavinmq)
 ```
 
 ### Network Packet Capture
@@ -591,7 +536,10 @@ sudo tcpdump -i any -w lavinmq_traffic.pcap port 5672
 # Capture and display
 sudo tcpdump -i any -A port 5672
 
-# Analyze with Wireshark
+# Stream from remote machine to local Wireshark
+ssh lavinmq.example.com sudo tcpdump -U -s0 'port 5672' -i ens5 -w - | wireshark -k -i -
+
+# Analyze captured file with Wireshark
 wireshark lavinmq_traffic.pcap
 ```
 
