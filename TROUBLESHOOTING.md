@@ -379,7 +379,7 @@ For clustered LavinMQ instances:
 curl -u guest:guest http://localhost:15672/api/cluster
 
 # Check etcd ISR (In-Sync Replicas)
-sudo etcdctl get lavinmq/isr
+etcdctl get lavinmq/isr
 ```
 
 ## Creating a Bug Report
