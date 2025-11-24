@@ -74,42 +74,45 @@ module LavinMQ
         # Does not trigger reconnect, but a graceful close
         def terminate
           return if @state.terminated?
-          @running.close
           state(State::Terminating)
+          @running.close
           @upstream_connection.try &.close
         end
 
         private def run_loop
           loop do
-            break if @state.terminating?
+            break if stop_run_loop?
             state(State::Starting)
             start_link
-            break if @state.terminating?
+            break if stop_run_loop?
             state(State::Stopped)
-            select
-            when timeout @upstream.reconnect_delay.seconds
-            when @running.receive?
-              break
-            end
-            break if @state.terminating?
+            wait_before_reconnect
+            break if stop_run_loop?
             @log.info { "Federation try reconnect" }
           rescue ex
-            break if @state.terminating?
+            break if stop_run_loop?
             @log.info { "Federation link state=#{@state} error=#{ex.inspect}" }
             state(State::Stopped)
             @error = ex.message
-            select
-            when timeout @upstream.reconnect_delay.seconds
-            when @running.receive?
-              break
-            end
-            break if @state.terminating?
+            wait_before_reconnect
+            break if stop_run_loop?
             @log.info { "Federation try reconnect" }
           end
           @log.info { "Federation link stopped" }
         ensure
           state(State::Terminated)
           @log.info { "Terminated" }
+        end
+
+        private def wait_before_reconnect
+          select
+          when timeout @upstream.reconnect_delay.seconds
+          when @running.receive?
+          end
+        end
+
+        private def stop_run_loop?
+          @state.in?(State::Terminating, State::Terminated)
         end
 
         private def federate(msg, upstream_ch, exchange, routing_key, immediate = false)
