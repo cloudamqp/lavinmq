@@ -210,7 +210,7 @@ module LavinMQ
 
         def monitor_consumers
           # We need an initial value
-          has_consumer = @federated_q.consumers_empty.value
+          has_consumer = !@federated_q.consumers_empty.value
           @log.debug { "consumer monitor: has_consumer = #{has_consumer}" }
           loop do
             if has_consumer
