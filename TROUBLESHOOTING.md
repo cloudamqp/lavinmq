@@ -96,7 +96,7 @@ journalctl -u lavinmq --grep "error|exception"
 journalctl -u lavinmq -p err
 
 # Export logs to a file for sharing
-journalctl -u lavinmq --since "1 hour ago" > lavinmq_logs.txt
+journalctl -u lavinmq --since today > lavinmq_logs.txt
 ```
 
 ### Log Navigation
