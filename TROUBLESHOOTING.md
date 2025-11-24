@@ -308,7 +308,7 @@ gzip lavinmq_core.dump
 
 ### Disk Space
 
-LavinMQ stores all messages on disk. A full disk will prevent LavinMQ from accepting new messages and can cause data corruption.
+LavinMQ stores all messages on disk. A full disk will prevent LavinMQ from accepting new messages.
 
 ```sh
 # Check disk usage of data directory
