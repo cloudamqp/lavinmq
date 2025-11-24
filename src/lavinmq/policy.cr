@@ -34,6 +34,8 @@ module LavinMQ
       @operator_policy = nil
     end
 
+    # This can be overriden if the child class needs to do something after
+    # a policy has been applied.
     def after_policy_applied
     end
 
