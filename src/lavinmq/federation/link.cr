@@ -205,7 +205,7 @@ module LavinMQ
           super(@upstream)
           @metadata = @metadata.extend({link: @federated_q.name})
 
-          spawn(monitor_consumers, name: "consumer monitor")
+          spawn(monitor_consumers, name: "#{@federated_q.name}: consumer monitor")
         end
 
         def monitor_consumers
