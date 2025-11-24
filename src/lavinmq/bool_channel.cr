@@ -3,7 +3,7 @@
 class BoolChannel
   getter when_true = Channel(Nil).new
   getter when_false = Channel(Nil).new
-  @value = ::Channel(Bool).new
+  @value = Channel(Bool).new
 
   def initialize(value : Bool)
     spawn(name: "BoolChannel#send_loop") do
@@ -20,9 +20,11 @@ class BoolChannel
   def value : Bool
     select
     when when_true.receive
-      false
-    when when_false.receive
       true
+    when when_false.receive
+      false
+    else
+      raise "BUG: no value, is send_loop not running?"
     end
   end
 
