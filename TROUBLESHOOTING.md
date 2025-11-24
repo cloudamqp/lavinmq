@@ -579,7 +579,7 @@ sudo strace -p $(pidof lavinmq) -f -e trace=open,close,read,write
 sudo strace -p $(pidof lavinmq) -e trace=network
 
 # Count syscalls
-sudo strace -c -p $(pidof lavinmq)
+sudo perf trace --summary --pid $(pidof lavinmq)
 ```
 
 ### Network Packet Capture
