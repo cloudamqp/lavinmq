@@ -1249,7 +1249,8 @@ footer .logo {
   color: var(--color-text-muted);
 }
 
-#q-features span {
+#q-features span,
+#e-features span {
   cursor: help;
 }
 
@@ -1269,41 +1270,6 @@ footer .logo {
 .medium-table {
   width: 70%;
   max-width: 1000px;
-}
-
-.stats-table {
-  border-collapse: collapse;
-  table-layout: fixed;
-}
-
-.stats-table td,
-.stats-table th {
-  text-align: center;
-  border-right: 1px solid var(--border-color-ligh);
-}
-
-.stats-table td:last-child,
-.stats-table th:last-child {
-  border: none;
-}
-
-.stats-table td {
-  font-size: 32px;
-  padding: 30px 0 2px;
-  color: var(--color-text-inverse);
-}
-
-.stats-table th {
-  font-size: 20px;
-  padding: 2px 0 30px;
-  text-transform: uppercase;
-  font-weight: 300;
-  color: var(--color-text-primary);
-}
-
-.stats-table th a {
-  color: var(--color-text-primary);
-  text-decoration: none;
 }
 
 label {
