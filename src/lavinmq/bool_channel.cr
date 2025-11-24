@@ -23,8 +23,6 @@ class BoolChannel
       true
     when when_false.receive
       false
-    else
-      raise "BUG: no value, is send_loop not running?"
     end
   end
 
