@@ -119,4 +119,4 @@ function updateChannel () {
   })
 }
 updateChannel()
-setInterval(updateChannel, 5000)
+setInterval(updateChannel, 1000)

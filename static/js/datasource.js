@@ -53,7 +53,7 @@ class DataSource {
   constructor (opts) {
     this._opts = Object.assign(
       {
-        autoReloadTimeout: 5000,
+        autoReloadTimeout: 1000,
         useQueryState: true
       }, opts)
     this._reloadTimer = null

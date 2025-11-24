@@ -14,7 +14,7 @@ Chart.register(Filler)
 const chartColors = ['#54be7e', '#4589ff', '#d12771', '#d2a106', '#08bdba', '#bae6ff', '#ba4e00',
   '#d4bbff', '#8a3ffc', '#33b1ff', '#007d79']
 
-const POLLING_RATE = 5000
+const POLLING_RATE = 1000
 const X_AXIS_LENGTH = 600000 // 10 min
 const MAX_TICKS = X_AXIS_LENGTH / POLLING_RATE
 

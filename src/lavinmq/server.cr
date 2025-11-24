@@ -330,21 +330,24 @@ module LavinMQ
     end
 
     def update_system_metrics(statm)
-      interval = @config.stats_interval.milliseconds.to_i
       log_size = @config.stats_log_size
       rusage = System.resource_usage
 
-      {% for m in METRICS %}
+      {% for m in {:user_time, :sys_time} %}
         until @{{m.id}}_log.size < log_size
           @{{m.id}}_log.shift
         end
-        {% if m.id.ends_with? "_time" %}
-          {{m.id}} = rusage.{{m.id}}.total_milliseconds.to_i64
-          {{m.id}}_rate = (({{m.id}} - @{{m.id}}) / (interval * 1000)).round(2)
-        {% else %}
-          {{m.id}} = rusage.{{m.id}}.to_i64
-          {{m.id}}_rate = (({{m.id}} - @{{m.id}}) / interval).round(2)
-        {% end %}
+        {{m.id}} = rusage.{{m.id}}.total_seconds
+        {{m.id}}_rate = {{m.id}} - @{{m.id}}
+        @{{m.id}}_log.push {{m.id}}_rate
+        @{{m.id}} = {{m.id}}
+      {% end %}
+      {% for m in {:blocks_out, :blocks_in} %}
+        until @{{m.id}}_log.size < log_size
+          @{{m.id}}_log.shift
+        end
+        {{m.id}} = rusage.{{m.id}}.to_i64
+        {{m.id}}_rate = ({{m.id}} - @{{m.id}}).to_u32
         @{{m.id}}_log.push {{m.id}}_rate
         @{{m.id}} = {{m.id}}
       {% end %}
@@ -385,18 +388,27 @@ module LavinMQ
         statm = File.open("/proc/self/statm").tap &.read_buffering = false
       end
       until closed?
-        @stats_collection_duration_seconds_total = Time.measure do
+        loop_time = @stats_collection_duration_seconds_total = Time.measure do
           @stats_rates_collection_duration_seconds = Time.measure do
             update_stats_rates
           end
           @stats_system_collection_duration_seconds = Time.measure do
             update_system_metrics(statm)
           end
+          @gc_stats = GC.prof_stats
+          control_flow!
         end
-        @gc_stats = GC.prof_stats
 
-        control_flow!
-        sleep @config.stats_interval.milliseconds
+        if loop_time > 1000.milliseconds
+          Log.error { "Stats collection took #{loop_time.total_milliseconds.to_i} ms" }
+        elsif loop_time > 100.milliseconds
+          Log.warn { "Stats collection took #{loop_time.total_milliseconds.to_i} ms" }
+        elsif loop_time > 1.milliseconds
+          Log.info { "Stats collection took #{loop_time.total_milliseconds.to_i} ms" }
+        end
+        if loop_time < 1.second
+          sleep 1.second - loop_time
+        end
       end
     ensure
       statm.try &.close
@@ -448,9 +460,13 @@ module LavinMQ
 
     METRICS = {:user_time, :sys_time, :blocks_out, :blocks_in}
 
-    {% for m in METRICS %}
-      getter {{m.id}} = 0_i64
+    {% for m in {:user_time, :sys_time} %}
+      getter {{m.id}} = 0_f64
       getter {{m.id}}_log = Deque(Float64).new(Config.instance.stats_log_size)
+    {% end %}
+    {% for m in {:blocks_out, :blocks_in} %}
+      getter {{m.id}} = 0_i64
+      getter {{m.id}}_log = Deque(UInt32).new(Config.instance.stats_log_size)
     {% end %}
     getter mem_limit = 0_i64
     getter rss = 0_i64
