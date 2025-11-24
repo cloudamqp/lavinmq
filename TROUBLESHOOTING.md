@@ -90,8 +90,7 @@ journalctl -u lavinmq --since "1 hour ago"
 journalctl -u lavinmq --since "2025-01-20 10:00:00" --until "2025-01-20 11:00:00"
 
 # Search for specific errors
-journalctl -u lavinmq | grep -i error
-journalctl -u lavinmq | grep -i exception
+journalctl -u lavinmq --grep "error|exception"
 
 # Show only errors and warnings
 journalctl -u lavinmq -p err
