@@ -28,3 +28,6 @@ Lint/UnneededDisableDirective:
 Naming/BlockParameterName:
   Excluded:
   - ./**/*.cr
+
+Documentation/DocumentationAdmonition:
+  Enabled: false
