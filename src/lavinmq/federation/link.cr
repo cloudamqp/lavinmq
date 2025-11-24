@@ -1,5 +1,5 @@
-require "../observable"
 require "amqp-client"
+require "../observable"
 require "../logger"
 require "../sortable_json"
 require "../amqp/queue/event"
@@ -211,11 +211,11 @@ module LavinMQ
         def monitor_consumers
           # We need an initial value
           has_consumer = !@federated_q.consumers_empty.value
-          @log.debug { "consumer monitor: has_consumer = #{has_consumer}" }
+          @log.debug { "initial has_consumer = #{has_consumer}" }
           loop do
             if has_consumer
               # Signal
-              consumer_available
+              notify_consumer_available
               # Wait for queue to lose all consumers, or for the link
               # to stop
               select
@@ -241,6 +241,8 @@ module LavinMQ
               when @running.receive?
                 break
               end
+              # Signaling is done first in the next iteration of the loop when
+              # we enter the `has_consumer?` case
               @log.info { "Got consumers, signal to start subscriber" }
               has_consumer = true
             end
@@ -258,21 +260,12 @@ module LavinMQ
           @consumer_available.close
         end
 
-        private def consumer_available
+        private def notify_consumer_available
           select
           when @consumer_available.send nil
-            @log.info { "signal sent" }
           when @federated_q.consumers_empty.when_true.receive
-            @log.info { "lost consumers before signal" }
           end
         end
-
-        #        private def consumer_available
-        #          select
-        #          when @consumer_available.send nil
-        #          else
-        #          end
-        #        end
 
         def on(event : QueueEvent, data)
           return if @state.terminated? || @state.terminating?
