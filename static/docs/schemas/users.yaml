@@ -21,7 +21,7 @@ user-properties:
       enum:
       - SHA512
       - SHA256
-      - Bcrypt
+      - lavinmq_bcrypt
       - MD5
     password_hash:
       type: string
