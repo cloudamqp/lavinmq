@@ -2129,6 +2129,42 @@ html.theme-dark {
   }
 }
 
+@media (max-width: 1200px) {
+  .form label>span {
+    display: block;
+    margin-bottom: 4px;
+    width: 100%;
+    padding-top: 0;
+  }
+
+  .form input:not([type="radio"]):not([type="checkbox"]),
+  .form select {
+    width: 100%;
+  }
+
+  .form button[type="submit"]:not(.btn-inline),
+  .form input[type="submit"]:not(.btn-inline) {
+    margin-left: 0;
+  }
+
+  .form label input[type="checkbox"] {
+    margin-top: 4px;
+  }
+
+  #dataTags {
+    margin-left: 0;
+    padding-left: 0;
+  }
+
+  textarea {
+    width: 100%;
+  }
+
+  .version-tab {
+    display: none;
+  }
+}
+
 @media (max-width: 1000px) {
   main.main-grid {
     padding-left: 24px;
@@ -2362,45 +2398,7 @@ html.theme-dark {
     margin-left: 0px;
     font-size: 12px;
   }
-}
 
-@media (max-width: 1200px) {
-  .form label>span {
-    display: block;
-    margin-bottom: 4px;
-    width: 100%;
-    padding-top: 0;
-  }
-
-  .form input:not([type="radio"]):not([type="checkbox"]),
-  .form select {
-    width: 100%;
-  }
-
-  .form button[type="submit"]:not(.btn-inline),
-  .form input[type="submit"]:not(.btn-inline) {
-    margin-left: 0;
-  }
-
-  .form label input[type="checkbox"] {
-    margin-top: 4px;
-  }
-
-  #dataTags {
-    margin-left: 0;
-    padding-left: 0;
-  }
-
-  textarea {
-    width: 100%;
-  }
-
-  .version-tab {
-    display: none;
-  }
-}
-
-@media (max-width: 1000px) {
   header #user-menu {
     position: absolute;
     width: 100%;
@@ -2422,9 +2420,7 @@ html.theme-dark {
     position: absolute;
     right: 0;
   }
-}
 
-@media (max-width: 1000px) {
   #theme-switcher {
     padding: 1px;
     gap: 1px;
