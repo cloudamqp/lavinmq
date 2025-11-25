@@ -30,7 +30,7 @@ module LavinMQ
     def put_or_get(key, value) : String
       compare = %({"target":"CREATE","key":"#{Base64.strict_encode key}","create_revision":"0"})
       put = %({"requestPut":{"key":"#{Base64.strict_encode key}","value":"#{Base64.strict_encode value}"}})
-      get = %{{"requestRange":{"key":"#{Base64.strict_encode key}"}}}
+      get = %({"requestRange":{"key":"#{Base64.strict_encode key}"}})
       request = %({"compare":[#{compare}],"success":[#{put}],"failure":[#{get}]})
       json = post("/v3/kv/txn", request)
 

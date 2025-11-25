@@ -61,7 +61,7 @@ class MFile < IO
   end
 
   def self.open(path, capacity : Int? = nil, writeonly = false, & : self -> _)
-    mfile = self.new(path, capacity, writeonly)
+    mfile = new(path, capacity, writeonly)
     begin
       yield mfile
     ensure
