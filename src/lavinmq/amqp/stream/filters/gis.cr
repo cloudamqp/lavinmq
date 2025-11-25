@@ -26,15 +26,15 @@ module LavinMQ::AMQP
       end
 
       def self.from_headers(headers : AMQP::Table | Nil) : Point | Nil
-        return nil unless headers
+        return unless headers
 
         lat = headers["x-geo-lat"]?
         lon = headers["x-geo-lon"]?
-        return nil unless lat && lon
+        return unless lat && lon
 
         lat_f = GISFilter.to_float64(lat)
         lon_f = GISFilter.to_float64(lon)
-        return nil unless lat_f && lon_f
+        return unless lat_f && lon_f
 
         Point.new(lat_f, lon_f)
       rescue ArgumentError

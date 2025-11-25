@@ -47,7 +47,6 @@ module LavinMQ
           @vhost.upstreams.try &.link(value.as_s, self) unless internal?
         when "federation-upstream-set"
           @vhost.upstreams.try &.link_set(value.as_s, self) unless internal?
-        else nil
         end
       end
 

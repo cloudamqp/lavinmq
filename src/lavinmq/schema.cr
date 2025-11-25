@@ -235,7 +235,7 @@ module LavinMQ
         # expiration_ts and priority
         # skipping them as we don't need them
         io.skip(sizeof(Int64) + sizeof(UInt8))
-        self.new(seg, pos, bytesize)
+        new(seg, pos, bytesize)
       end
     end
 
@@ -248,7 +248,7 @@ module LavinMQ
         # expiration_ts and priority, flags
         # skipping them as we don't need them
         io.skip(sizeof(Int64) + sizeof(UInt8) + sizeof(UInt8))
-        self.new(seg, pos, bytesize)
+        new(seg, pos, bytesize)
       end
     end
 
@@ -261,7 +261,7 @@ module LavinMQ
         # expiration_ts, ttl, priority, flags
         # skipping them as we don't need them
         io.skip(sizeof(Int64) + sizeof(Int64) + sizeof(UInt8) + sizeof(UInt8))
-        self.new(seg, pos, bytesize)
+        new(seg, pos, bytesize)
       end
     end
   end
