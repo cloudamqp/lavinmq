@@ -1,0 +1,19 @@
+name: Mark PR as draft on changes requested
+
+on:
+  pull_request_review:
+    types: [submitted]
+
+jobs:
+  mark-as-draft:
+    name: Convert PR to draft
+    runs-on: ubuntu-latest
+    if: github.event.review.state == 'changes_requested'
+    steps:
+      - name: Convert PR to draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh pr ready --undo "${PR_NUMBER}" --repo "${REPO}"
