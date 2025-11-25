@@ -336,7 +336,6 @@ describe LavinMQ::Federation::Upstream do
             msg.ack
           end
         end
-
         us_queue.consumers_empty.when_true.receive
         ds_queue.consumers_empty.when_true.receive
 
@@ -353,6 +352,9 @@ describe LavinMQ::Federation::Upstream do
             msg.ack
             ch.close
           end
+
+          us_queue.consumers_empty.when_true.receive
+          ds_queue.consumers_empty.when_true.receive
 
           select
           when ch.receive?
