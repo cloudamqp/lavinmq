@@ -106,7 +106,7 @@ module LavinMQ
 
         private def wait_before_reconnect
           select
-          when timeout @upstream.reconnect_delay.seconds
+          when timeout @upstream.reconnect_delay
           when @running.receive?
           end
         end
