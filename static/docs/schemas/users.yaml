@@ -17,12 +17,17 @@ user-properties:
       - impersonator
     hashing_algorithm:
       type: string
-      description: Hashing algorithm used to generate the password hash (defaults to "SHA256" for PUT requests).
-      enum:
-      - SHA512
-      - SHA256
-      - lavinmq_bcrypt
-      - MD5
+      description: |
+        Hashing algorithm used to generate the password hash (defaults to "rabbit_password_hashing_sha256" for PUT requests).
+
+        The API accepts any value ending with 'bcrypt', 'sha256', 'sha512', or 'md5' (case-insensitive),
+        but always returns one of these normalized values:
+        - 'lavinmq_bcrypt' (for any value ending with 'bcrypt')
+        - 'rabbit_password_hashing_sha256' (for any value ending with 'sha256')
+        - 'rabbit_password_hashing_sha512' (for any value ending with 'sha512')
+        - 'rabbit_password_hashing_md5' (for any value ending with 'md5')
+
+        To avoid configuration drift in tools like Terraform, use the normalized values listed above.
     password_hash:
       type: string
       description: The password hash.
