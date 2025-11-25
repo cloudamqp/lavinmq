@@ -24,7 +24,7 @@ module LavinMQ
         do_delete_upstream(name)
         uri = config["uri"].to_s
         prefetch = config["prefetch-count"]?.try(&.as_i.to_u16) || DEFAULT_PREFETCH
-        reconnect_delay = config["reconnect-delay"]?.try(&.as_i?) || DEFAULT_RECONNECT_DELAY
+        reconnect_delay = config["reconnect-delay"]?.try(&.as_i?).try &.seconds || DEFAULT_RECONNECT_DELAY
         ack_mode_str = config["ack-mode"]?.try(&.as_s.delete("-")).to_s
         ack_mode = AckMode.parse?(ack_mode_str) || DEFAULT_ACK_MODE
         exchange = config["exchange"]?.try(&.as_s)
@@ -80,7 +80,7 @@ module LavinMQ
             upstream = upstream.dup
             config["uri"]?.try { |p| upstream.uri = URI.parse(p.as_a.first.to_s) }
             config["prefetch-count"]?.try { |p| upstream.prefetch = p.as_i.to_u16 }
-            config["reconnect-delay"]?.try { |p| upstream.reconnect_delay = p.as_i }
+            config["reconnect-delay"]?.try { |p| upstream.reconnect_delay = p.as_i.seconds }
             ack_mode_str = config["ack-mode"]?.try(&.as_s.delete("-")).to_s
             AckMode.parse?(ack_mode_str).try { |p| upstream.ack_mode = p }
             config["exchange"]?.try { |p| upstream.exchange = p.as_s }
