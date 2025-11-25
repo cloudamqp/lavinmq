@@ -9,7 +9,8 @@ module UpstreamSpecHelpers
     {x, q2}
   end
 
-  def self.setup_federation(s, upstream_name, exchange = nil, queue = nil, prefetch = 1000_u16)
+  def self.setup_federation(s, upstream_name, exchange = nil, queue = nil, prefetch = 1000_u16, *,
+                            reconnect_delay = 0.seconds)
     self.cleanup_vhosts(s)
     upstream_vhost = s.vhosts.create("upstream")
     downstream_vhost = s.vhosts.create("downstream")
@@ -17,7 +18,7 @@ module UpstreamSpecHelpers
       downstream_vhost, upstream_name,
       "#{s.amqp_url}/upstream", exchange, queue,
       LavinMQ::Federation::AckMode::OnConfirm, expires: nil, max_hops: 1_i64,
-      msg_ttl: nil, prefetch: prefetch, reconnect_delay: 0
+      msg_ttl: nil, prefetch: prefetch, reconnect_delay: reconnect_delay
     )
     downstream_vhost.upstreams.not_nil!.add(upstream)
     {upstream, upstream_vhost, downstream_vhost}
@@ -172,7 +173,10 @@ describe LavinMQ::Federation::Upstream do
 
     it "should reconnect queue link after upstream disconnect" do
       with_amqp_server do |s|
-        upstream, upstream_vhost, downstream_vhost = UpstreamSpecHelpers.setup_federation(s, "ef test upstream restart", nil, "upstream_q")
+        upstream, upstream_vhost, downstream_vhost = \
+           UpstreamSpecHelpers.setup_federation(s, "ef test upstream restart",
+            nil, "upstream_q",
+            reconnect_delay: 1.millisecond)
         UpstreamSpecHelpers.start_link(upstream, "downstream_q", "queues")
         s.users.add_permission("guest", "upstream", /.*/, /.*/, /.*/)
         s.users.add_permission("guest", "downstream", /.*/, /.*/, /.*/)
