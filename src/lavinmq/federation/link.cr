@@ -115,7 +115,7 @@ module LavinMQ
           @state.in?(State::Terminating, State::Terminated)
         end
 
-        private def federate(msg, upstream_ch, exchange, routing_key, immediate = false)
+        private def federate(msg, exchange, routing_key, immediate = false)
           @log.debug { "Federating routing_key=#{routing_key} exchange=#{exchange}" }
           status = @upstream.vhost.publish(
             Message.new(
@@ -126,27 +126,11 @@ module LavinMQ
           )
 
           if status
-            ack(msg.delivery_tag, upstream_ch) if @upstream.ack_mode != AckMode::NoAck
+            msg.ack if @upstream.ack_mode != AckMode::NoAck
           else
-            reject(msg.delivery_tag, upstream_ch)
+            msg.reject(requeue: true)
           end
           status
-        end
-
-        private def ack(delivery_tag, upstream_ch)
-          return unless delivery_tag
-          if ch = upstream_ch
-            raise "Channel closed when acking" if ch.closed?
-            ch.basic_ack(delivery_tag)
-          end
-        end
-
-        private def reject(delivery_tag, upstream_ch)
-          return unless delivery_tag
-          if ch = upstream_ch
-            raise "Channel closed when rejecting" if ch.closed?
-            ch.basic_reject(delivery_tag, true)
-          end
         end
 
         private def try_passive(client, ch = nil, &)
@@ -286,6 +270,26 @@ module LavinMQ
         private def setup_queue(upstream_client)
           try_passive(upstream_client) do |ch, passive|
             ch.queue_declare(@upstream_q, passive: passive)
+            ::AMQP::Client::Queue.new(ch, @upstream_q)
+          end
+        end
+
+        private def consume_upstream_and_federate(queue, no_ack)
+          queue.subscribe(tag: @upstream.consumer_tag, no_ack: no_ack, block: true) do |msg|
+            @last_changed = RoughTime.unix_ms
+            headers, received_from = received_from_header(msg)
+            received_from << ::AMQP::Client::Arguments.new({
+              "uri"         => @scrubbed_uri,
+              "queue"       => queue.name,
+              "redelivered" => msg.redelivered,
+            })
+            headers["x-received-from"] = received_from
+            msg.properties.headers = headers
+
+            unless federate(msg, EXCHANGE, @federated_q.name, true)
+              @log.info { "Federate failed, no downstream consumer available" }
+              queue.unsubscribe(@upstream.consumer_tag)
+            end
           end
         end
 
@@ -300,29 +304,11 @@ module LavinMQ
               @log.debug { "Waiting for consumers" }
               select
               when @consumer_available.receive?
-                break
+                consume_upstream_and_federate(q, no_ack)
               when timeout(1.second)
                 return if @upstream_connection.try &.closed?
               end
             end
-            q_name = q[:queue_name]
-            upstream_channel.basic_consume(q_name, no_ack: no_ack, tag: @upstream.consumer_tag, block: true) do |msg|
-              @last_changed = RoughTime.unix_ms
-              headers, received_from = received_from_header(msg)
-              received_from << ::AMQP::Client::Arguments.new({
-                "uri"         => @scrubbed_uri,
-                "queue"       => q_name,
-                "redelivered" => msg.redelivered,
-              })
-              headers["x-received-from"] = received_from
-              msg.properties.headers = headers
-
-              unless federate(msg, upstream_channel.not_nil!, EXCHANGE, @federated_q.name, true)
-                raise NoDownstreamConsumerError.new("Federate failed, no downstream consumer available")
-              end
-            end
-          rescue ex : NoDownstreamConsumerError
-            @log.warn(ex) { "No downstream consumer active, stopping federation" }
           end
         end
       end
@@ -446,31 +432,32 @@ module LavinMQ
               consumer_ex.bind(@upstream_exchange, binding.routing_key, args: args)
             end
           end
-          {ch, consumer_ex}
+          upstream_q = ch.queue(@upstream_q, args: q_args, passive: true)
+          {ch, consumer_ex, upstream_q}
         end
 
         private def start_link
           setup_connection do |upstream_connection|
-            upstream_channel, @consumer_ex = setup(upstream_connection)
+            upstream_channel, @consumer_ex, upstream_q = setup(upstream_connection)
             upstream_channel.prefetch(count: @upstream.prefetch)
             no_ack = @upstream.ack_mode.no_ack?
             state(State::Running)
-            upstream_channel.basic_consume(@upstream_q, no_ack: no_ack, tag: @upstream.consumer_tag, block: true) do |msg|
-              unless should_forward?(msg.properties.headers)
+            upstream_q.subscribe(no_ack: no_ack, tag: @upstream.consumer_tag, block: true) do |msg|
+              if should_forward?(msg.properties.headers)
+                @last_changed = RoughTime.unix_ms
+                headers, received_from = received_from_header(msg)
+                received_from << ::AMQP::Client::Arguments.new({
+                  "uri"         => @scrubbed_uri,
+                  "exchange"    => @upstream_exchange,
+                  "redelivered" => msg.redelivered,
+                })
+                headers["x-received-from"] = received_from
+                msg.properties.headers = headers
+                federate(msg, @federated_ex.name, msg.routing_key)
+              else
                 @log.debug { "Skipping message, max hops reached" }
-                ack(msg.delivery_tag, upstream_channel)
-                next
+                msg.ack
               end
-              @last_changed = RoughTime.unix_ms
-              headers, received_from = received_from_header(msg)
-              received_from << ::AMQP::Client::Arguments.new({
-                "uri"         => @scrubbed_uri,
-                "exchange"    => @upstream_exchange,
-                "redelivered" => msg.redelivered,
-              })
-              headers["x-received-from"] = received_from
-              msg.properties.headers = headers
-              federate(msg, upstream_channel.not_nil!, @federated_ex.name, msg.routing_key)
             end
           ensure
             @consumer_ex = nil
@@ -511,9 +498,6 @@ module LavinMQ
           @upstream.max_hops
         end
       end
-    end
-
-    class NoDownstreamConsumerError < Exception
     end
   end
 end
