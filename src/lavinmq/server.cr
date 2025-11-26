@@ -550,6 +550,7 @@ module LavinMQ
     end
 
     def reload_tls_context
+      @tls_cert_store_channel.try &.close
       create_tls_context
     end
 
