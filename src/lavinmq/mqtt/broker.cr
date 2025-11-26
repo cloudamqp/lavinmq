@@ -37,11 +37,11 @@ module LavinMQ
         true
       end
 
-      def add_client(socket, connection_info, user, packet)
+      def add_client(io, connection_info, user, packet)
         if prev_client = @clients[packet.client_id]?
           prev_client.close("New client #{connection_info.remote_address} (username=#{packet.username}) connected as #{packet.client_id}")
         end
-        client = MQTT::Client.new(socket,
+        client = MQTT::Client.new(io,
           connection_info,
           user,
           self,

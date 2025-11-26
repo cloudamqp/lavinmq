@@ -436,7 +436,7 @@ module LavinMQ
             # @log.debug { "Unacked found tag:#{delivery_tag} at front" }
             found = @unacked.shift
           elsif idx = @unacked.bsearch_index { |unack, _| unack.tag >= delivery_tag }
-            return nil unless @unacked[idx].tag == delivery_tag
+            return unless @unacked[idx].tag == delivery_tag
             # @log.debug { "Unacked bsearch found tag:#{delivery_tag} at index:#{idx}" }
             found = @unacked.delete_at(idx)
           end
@@ -455,8 +455,8 @@ module LavinMQ
             end
           else
             idx = @unacked.bsearch_index { |unack, _| unack.tag >= delivery_tag }
-            return nil unless idx
-            return nil unless @unacked[idx].tag == delivery_tag
+            return unless idx
+            return unless @unacked[idx].tag == delivery_tag
             # @log.debug { "Unacked bsearch found tag:#{delivery_tag} at index:#{idx}" }
             (idx + 1).times do
               u = @unacked.shift

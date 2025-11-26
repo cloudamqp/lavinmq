@@ -6,7 +6,7 @@ shards:
 
   amq-protocol:
     git: https://github.com/cloudamqp/amq-protocol.cr.git
-    version: 1.1.16
+    version: 1.1.20
 
   amqp-client:
     git: https://github.com/cloudamqp/amqp-client.cr.git
@@ -18,9 +18,9 @@ shards:
 
   mqtt-protocol:
     git: https://github.com/84codes/mqtt-protocol.cr.git
-    version: 0.2.0+git.commit.5cf504b32313b3b63eecde22e2a136b9b9935b8b
+    version: 0.3.0
 
   systemd:
     git: https://github.com/84codes/systemd.cr.git
-    version: 2.0.0
+    version: 3.0.0
 

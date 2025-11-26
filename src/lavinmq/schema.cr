@@ -109,14 +109,13 @@ module LavinMQ
             version = io.read_bytes Int32
             raise UnsupportedSchemaVersion.new(version, io.path) unless version == 1
 
+            stream = AMQ::Protocol::Stream.new(io, format: IO::ByteFormat::SystemEndian)
             loop do
-              AMQP::Frame.from_io(io, IO::ByteFormat::SystemEndian) do |frame|
-                case frame
-                when AMQP::Frame::Queue::Declare
-                  queues.push frame.queue_name
-                when AMQP::Frame::Queue::Delete
-                  queues.delete frame.queue_name
-                end
+              case frame = stream.next_frame
+              when AMQP::Frame::Queue::Declare
+                queues.push frame.queue_name
+              when AMQP::Frame::Queue::Delete
+                queues.delete frame.queue_name
               end
             rescue IO::EOFError
               break
@@ -236,7 +235,7 @@ module LavinMQ
         # expiration_ts and priority
         # skipping them as we don't need them
         io.skip(sizeof(Int64) + sizeof(UInt8))
-        self.new(seg, pos, bytesize)
+        new(seg, pos, bytesize)
       end
     end
 
@@ -249,7 +248,7 @@ module LavinMQ
         # expiration_ts and priority, flags
         # skipping them as we don't need them
         io.skip(sizeof(Int64) + sizeof(UInt8) + sizeof(UInt8))
-        self.new(seg, pos, bytesize)
+        new(seg, pos, bytesize)
       end
     end
 
@@ -262,7 +261,7 @@ module LavinMQ
         # expiration_ts, ttl, priority, flags
         # skipping them as we don't need them
         io.skip(sizeof(Int64) + sizeof(Int64) + sizeof(UInt8) + sizeof(UInt8))
-        self.new(seg, pos, bytesize)
+        new(seg, pos, bytesize)
       end
     end
   end

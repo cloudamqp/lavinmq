@@ -226,7 +226,28 @@ describe LavinMQ::HTTP::Server do
         body["reason"].as_s.should eq("Malformed JSON")
       end
     end
+
+    it "should return sensible error for invalid password hash" do
+      with_http_server do |http, _|
+        body = %({
+          "users": [{
+            "name": "testuser",
+            "password_hash": "invalid_hash",
+            "tags": "administrator"
+          }]
+        })
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should eq 400
+        error_body = JSON.parse(response.body)
+        error_body["error"].as_s.should eq "bad_request"
+        # Should have a sensible error message, not just "Negative count: -10"
+        reason = error_body["reason"].as_s
+        reason.should_not contain("Negative count")
+        reason.should contain("Invalid password hash")
+      end
+    end
   end
+
   describe "GET /api/definitions" do
     it "exports users" do
       with_http_server do |http, _|
@@ -581,6 +602,7 @@ describe LavinMQ::HTTP::Server do
       end
     end
   end
+
   describe "POST /api/definitions/upload" do
     it "imports definitions from uploaded file (no Referer)" do
       with_http_server do |http, s|

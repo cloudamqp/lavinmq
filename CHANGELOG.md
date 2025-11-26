@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [2.6.0-rc.2] - 2025-11-22
+
+### Fixed
+- Vhosts with exchange to exchange bindings generated in v2.4.x could not be start [#1495](https://github.com/cloudamqp/lavinmq/pull/1495)
+- Sensible error message if trying to import definitions via the HTTP API with an invalid password_has field for users [#1496](https://github.com/cloudamqp/lavinmq/pull/1496)
+
+## [2.5.4] - 2025-11-22
+
+### Fixed
+- Vhosts with exchange to exchange bindings generated in v2.4.x could not be start [#1495](https://github.com/cloudamqp/lavinmq/pull/1495)
+
+## [2.6.0-rc.1] - 2025-11-19
+
+### Added
+- GIS filtering for streams [#1397](https://github.com/cloudamqp/lavinmq/pull/1397)
+- SystemD memory pressure monitoring support [#1484](https://github.com/cloudamqp/lavinmq/pull/1484)
+- Latency measurement support in `lavinmqperf amqp throughput --measure-latency` [#1474](https://github.com/cloudamqp/lavinmq/pull/1474)
+- Queue pattern support in `lavinmqperf amqp throughput` [#1471](https://github.com/cloudamqp/lavinmq/pull/1471)
+- ASCII art logo on boot [#1482](https://github.com/cloudamqp/lavinmq/pull/1482)
+- UI improvements [#1470], [#1454], [#1463], [#1464], [#1476]
+
+### Changed
+- New name format for queues for delayed messages: `amq.delayed-<exchange name>` (#1461)
+
+## [2.5.3] - 2025-11-19
+
+### Fixed
+- Improved packet size accounting in MQTT [#1477](https://github.com/cloudamqp/lavinmq/pull/1477)
+- Improved frame size accounting in AMQP [#1485](https://github.com/cloudamqp/lavinmq/pull/1485)
+- Replicate `limits.json` [#1466](https://github.com/cloudamqp/lavinmq/pull/1466)
+
 ## [2.5.2] - 2025-11-12
 
 ### Fixed

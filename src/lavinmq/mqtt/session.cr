@@ -196,13 +196,13 @@ module LavinMQ
       private def queue_expire_loop; end
 
       private def next_id : UInt16?
-        return nil if @unacked.size == Config.instance.max_inflight_messages
+        return if @unacked.size == Config.instance.max_inflight_messages
         start_id = @count
         next_id : UInt16 = start_id &+ 1_u16
         while @unacked.has_key?(next_id)
           next_id &+= 1u16
           next_id = 1u16 if next_id == 0
-          return nil if next_id == start_id
+          return if next_id == start_id
         end
         @count = next_id
         next_id

@@ -1,7 +1,6 @@
 require "log"
 require "file"
 require "systemd"
-require "./reporter"
 require "./server"
 require "./http/http_server"
 require "./http/metrics_server"
@@ -60,6 +59,7 @@ module LavinMQ
       @tls_context = create_tls_context if @config.tls_configured?
       reload_tls_context
       setup_signal_traps
+      SystemD::MemoryPressure.monitor { GC.collect }
     end
 
     private def start : self
@@ -95,7 +95,24 @@ module LavinMQ
       @runner.stop
     end
 
+    private def print_ascii_logo
+      logo = <<-LOGO
+
+            ██╗      █████╗ ██╗   ██╗██╗███╗   ██╗███╗   ███╗ ██████╗
+            ██║     ██╔══██╗██║   ██║██║████╗  ██║████╗ ████║██╔═══██╗
+            ██║     ███████║██║   ██║██║██╔██╗ ██║██╔████╔██║██║   ██║
+            ██║     ██╔══██║╚██╗ ██╔╝██║██║╚██╗██║██║╚██╔╝██║██║▄▄ ██║
+            ███████╗██║  ██║ ╚████╔╝ ██║██║ ╚████║██║ ╚═╝ ██║╚██████╔╝
+            ╚══════╝╚═╝  ╚═╝  ╚═══╝  ╚═╝╚═╝  ╚═══╝╚═╝     ╚═╝ ╚══▀▀═╝
+
+                     The message broker built for peaks
+
+        LOGO
+      STDOUT.puts logo
+    end
+
     private def print_environment_info
+      print_ascii_logo unless @config.journald_stream? || @config.log_file
       LavinMQ::BUILD_INFO.each_line do |line|
         Log.info { line }
       end
@@ -218,7 +235,6 @@ module LavinMQ
       puts "  reclaimed bytes before last GC: #{ps.reclaimed_bytes_before_gc.humanize_bytes}"
       puts "Fibers:"
       Fiber.list { |f| puts f.inspect }
-      LavinMQ::Reporter.report(@amqp_server)
       STDOUT.flush
     end
 

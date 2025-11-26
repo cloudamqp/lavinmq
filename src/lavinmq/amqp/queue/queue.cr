@@ -58,7 +58,7 @@ module LavinMQ::AMQP
     def self.create(vhost : VHost, name : String,
                     exclusive : Bool = false, auto_delete : Bool = false,
                     arguments : AMQP::Table = AMQP::Table.new)
-      self.validate_arguments!(arguments)
+      validate_arguments!(arguments)
       new vhost, name, exclusive, auto_delete, arguments
     end
 
@@ -615,8 +615,6 @@ module LavinMQ::AMQP
         (msg.timestamp + ttl) // 100 * 100
       elsif ttl = msg.ttl
         (msg.timestamp + ttl) // 100 * 100
-      else
-        nil
       end
     end
 

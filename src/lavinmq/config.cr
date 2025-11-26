@@ -73,10 +73,11 @@ module LavinMQ
     property default_consumer_prefetch = UInt16::MAX
     property yield_each_received_bytes = 131_072    # max number of bytes to read from a client connection without letting other tasks in the server do any work
     property yield_each_delivered_bytes = 1_048_576 # max number of bytes sent to a client without tending to other tasks in the server
-    property auth_backends : Array(String) = ["basic"]
+    property auth_backends : Array(String) = ["local"]
     property default_user : String = ENV.fetch("LAVINMQ_DEFAULT_USER", "guest")
     property default_password : String = ENV.fetch("LAVINMQ_DEFAULT_PASSWORD", DEFAULT_PASSWORD_HASH) # Hashed password for default user
     property max_consumers_per_channel = 0
+    property mqtt_max_packet_size = 268_435_455_u32 # bytes
     @@instance : Config = self.new
 
     def self.instance : LavinMQ::Config
@@ -250,7 +251,7 @@ module LavinMQ
     private def reload_logger
       log_file = (path = @log_file) ? File.open(path, "a") : STDOUT
       broadcast_backend = ::Log::BroadcastBackend.new
-      backend = if ENV.has_key?("JOURNAL_STREAM")
+      backend = if journald_stream?
                   ::Log::IOBackend.new(io: log_file, formatter: JournalLogFormat)
                 else
                   ::Log::IOBackend.new(io: log_file, formatter: StdoutLogFormat)
@@ -264,6 +265,25 @@ module LavinMQ
       ::Log.setup(@log_level, broadcast_backend)
       target = (path = @log_file) ? path : "stdout"
       Log.info &.emit("Logger settings", level: @log_level.to_s, target: target)
+    end
+
+    def journald_stream? : Bool
+      return false unless journal_stream = ENV["JOURNAL_STREAM"]?
+      return false if @log_file # If logging to a file, not using journald
+
+      # JOURNAL_STREAM format is "device:inode"
+      parts = journal_stream.split(':')
+      return false unless parts.size == 2
+
+      journal_dev = parts[0].to_u64?
+      journal_ino = parts[1].to_u64?
+      return false unless journal_dev && journal_ino
+
+      # Get STDOUT's device and inode
+      LibC.fstat(STDOUT.fd, out stat)
+      stat.st_dev == journal_dev && stat.st_ino == journal_ino
+    rescue
+      false
     end
 
     def tls_configured?
@@ -367,6 +387,7 @@ module LavinMQ
         when "max_inflight_messages"    then @max_inflight_messages = v.to_u16
         when "default_vhost"            then @default_mqtt_vhost = v
         when "permission_check_enabled" then @mqtt_permission_check_enabled = true?(v)
+        when "max_packet_size"          then @mqtt_max_packet_size = v.to_u32
         else
           STDERR.puts "WARNING: Unrecognized configuration 'mqtt/#{config}'"
         end
@@ -405,7 +426,7 @@ module LavinMQ
     end
 
     private def tcp_keepalive?(str : String?) : Tuple(Int32, Int32, Int32)?
-      return nil if false?(str)
+      return if false?(str)
       if keepalive = str.try &.split(":")
         {
           keepalive[0]?.try(&.to_i?) || 60,

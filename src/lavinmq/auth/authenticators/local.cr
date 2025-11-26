@@ -3,7 +3,7 @@ require "../../server"
 
 module LavinMQ
   module Auth
-    class BasicAuthenticator < Authenticator
+    class LocalAuthenticator < Authenticator
       def initialize(@users : UserStore)
       end
 
@@ -16,7 +16,7 @@ module LavinMQ
           end
         end
       rescue ex : Exception
-        Log.error { "Basic authentication failed: #{ex.message}" }
+        Log.error { "Local authentication failed: #{ex.message}" }
       end
     end
   end
