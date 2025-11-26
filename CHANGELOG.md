@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.5] - 2025-11-26
+
+### Fixed
+- Don't raise when truncating deleted MFile [#1500](https://github.com/cloudamqp/lavinmq/pull/1500)
+- Abort on IO::Error in delivery_loop [#f87491ec29bc0cf31b9fe5db4d3f2d3d8cce85c6](https://github.com/cloudamqp/lavinmq/commit/f87491ec29bc0cf31b9fe5db4d3f2d3d8cce85c6)
+
 ## [2.5.4] - 2025-11-22
 
 ### Fixed
