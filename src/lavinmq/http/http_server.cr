@@ -111,7 +111,7 @@ module LavinMQ
       private def create_tls_context
         context = OpenSSL::SSL::Context::Server.new
         context.add_options(OpenSSL::SSL::Options.new(0x40000000)) # disable client initiated renegotiation
-        configure_tls_version(context)
+        context.min_version = @config.tls_min_version
         context.certificate_chain = @config.tls_cert_path
         context.private_key = @config.tls_key_path.empty? ? @config.tls_cert_path : @config.tls_key_path
         context.ciphers = @config.tls_ciphers unless @config.tls_ciphers.empty?
@@ -120,25 +120,6 @@ module LavinMQ
 
       def reload_tls_context
         create_tls_context
-      end
-
-      private def configure_tls_version(tls : OpenSSL::SSL::Context::Server)
-        case @config.tls_min_version
-        when "1.0"
-          tls.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_2 |
-                             OpenSSL::SSL::Options::NO_TLS_V1_1 |
-                             OpenSSL::SSL::Options::NO_TLS_V1)
-        when "1.1"
-          tls.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_2 | OpenSSL::SSL::Options::NO_TLS_V1_1)
-          tls.add_options(OpenSSL::SSL::Options::NO_TLS_V1)
-        when "1.2", ""
-          tls.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_2)
-          tls.add_options(OpenSSL::SSL::Options::NO_TLS_V1_1 | OpenSSL::SSL::Options::NO_TLS_V1)
-        when "1.3"
-          tls.add_options(OpenSSL::SSL::Options::NO_TLS_V1_2)
-        else
-          Log.warn { "Unrecognized @config value for tls_min_version: '#{@config.tls_min_version}'" }
-        end
       end
     end
   end

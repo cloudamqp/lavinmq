@@ -9,6 +9,7 @@ require "./in_memory_backend"
 require "./data_dir_lock"
 require "./etcd"
 require "./clustering/controller"
+require "../stdlib/openssl_x509_store"
 
 module LavinMQ
   struct StandaloneRunner

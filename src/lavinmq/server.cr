@@ -38,6 +38,7 @@ module LavinMQ
     @connection_factories = Hash(Protocol, ConnectionFactory).new
     @replicator : Clustering::Replicator?
     @tls_context : OpenSSL::SSL::Context::Server?
+    @tls_cert_store_channel : Channel(Nil)?
     Log = LavinMQ::Log.for "server"
 
     def initialize(@config : Config, @replicator = nil)
@@ -219,6 +220,33 @@ module LavinMQ
         conn_info.ssl = true
         conn_info.ssl_version = ssl_client.tls_version
         conn_info.ssl_cipher = ssl_client.cipher
+
+        # Extract client certificate information for mTLS
+        if peer_cert = ssl_client.peer_certificate
+          begin
+            # Check if verification actually succeeded (X509_V_OK = 0)
+            verify_result = ssl_client.verify_result
+            conn_info.ssl_verify = (verify_result == 0)
+
+            # Extract common name from certificate subject
+            subject_entries = peer_cert.subject.to_a
+            if cn_entry = subject_entries.find { |oid, _| oid == "CN" }
+              conn_info.ssl_cn = cn_entry[1]
+            end
+            # Extract signature algorithm
+            conn_info.ssl_sig_alg = peer_cert.signature_algorithm
+
+            if conn_info.ssl_verify?
+              Log.debug { "#{remote_addr} authenticated with client certificate: #{conn_info.ssl_cn}" }
+            else
+              error_msg = ssl_client.verify_error_string(verify_result)
+              Log.warn { "#{remote_addr} provided client certificate but verification failed: #{error_msg}" }
+            end
+          rescue ex : OpenSSL::Error
+            Log.warn { "#{remote_addr} failed to extract certificate information: #{ex.message}" }
+          end
+        end
+
         handle_connection(ssl_client, conn_info, protocol)
       rescue ex
         Log.warn(exception: ex) { "Error accepting TLS connection from #{remote_addr}" }
@@ -513,10 +541,11 @@ module LavinMQ
     private def create_tls_context
       context = OpenSSL::SSL::Context::Server.new
       context.add_options(OpenSSL::SSL::Options.new(0x40000000)) # disable client initiated renegotiation
-      configure_tls_version(context)
+      context.min_version = @config.tls_min_version
       context.certificate_chain = @config.tls_cert_path
       context.private_key = @config.tls_key_path.empty? ? @config.tls_cert_path : @config.tls_key_path
       context.ciphers = @config.tls_ciphers unless @config.tls_ciphers.empty?
+      configure_mtls(context)
       @tls_context = context
     end
 
@@ -524,22 +553,37 @@ module LavinMQ
       create_tls_context
     end
 
-    private def configure_tls_version(tls : OpenSSL::SSL::Context::Server)
-      case @config.tls_min_version
-      when "1.0"
-        tls.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_2 |
-                           OpenSSL::SSL::Options::NO_TLS_V1_1 |
-                           OpenSSL::SSL::Options::NO_TLS_V1)
-      when "1.1"
-        tls.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_2 | OpenSSL::SSL::Options::NO_TLS_V1_1)
-        tls.add_options(OpenSSL::SSL::Options::NO_TLS_V1)
-      when "1.2", ""
-        tls.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_2)
-        tls.add_options(OpenSSL::SSL::Options::NO_TLS_V1_1 | OpenSSL::SSL::Options::NO_TLS_V1)
-      when "1.3"
-        tls.add_options(OpenSSL::SSL::Options::NO_TLS_V1_2)
+    private def configure_mtls(tls : OpenSSL::SSL::Context::Server)
+      return unless @config.tls_verify_peer?
+
+      unless @config.tls_ca_cert_path.empty?
+        # Automatic CRL fetching from CDP (CRL Distribution Point) URLs
+        # This also starts background updaters for the CDP URLs
+        @tls_cert_store_channel = tls.set_ca_with_cdp(@config.tls_ca_cert_path, @config.data_dir)
+
+        Log.info { "mTLS enabled: verifying client certificates using CA: #{@config.tls_ca_cert_path}" }
+      end
+      verify_mode = OpenSSL::SSL::VerifyMode::PEER
+      if @config.tls_fail_if_no_peer_cert?
+        verify_mode |= OpenSSL::SSL::VerifyMode::FAIL_IF_NO_PEER_CERT
+        Log.info { "mTLS: client certificates required" }
       else
-        Log.warn { "Unrecognized @config value for tls_min_version: '#{@config.tls_min_version}'" }
+        Log.info { "mTLS: client certificates optional" }
+      end
+      tls.verify_mode = verify_mode
+
+      # Load static Certificate Revocation List (CRL) if configured (file paths only)
+      unless @config.tls_crl_file.empty?
+        tls.add_crl(@config.tls_crl_file)
+        Log.info { "CRL checking enabled: #{@config.tls_crl_file}" }
+      end
+    end
+
+    # Update CRLs from CA's CDP endpoints
+    # Only used by specs
+    def update_cdp_crls
+      if tls_cert_store_channel = @tls_cert_store_channel
+        tls_cert_store_channel.send nil
       end
     end
   end
