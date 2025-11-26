@@ -243,50 +243,78 @@ module LavinMQ::AMQP
       @exclusive_consumer
     end
 
-    private def apply_policy_argument(key : String, value : JSON::Any) # ameba:disable Metrics/CyclomaticComplexity
+    private def apply_policy_argument(key : String, value : JSON::Any) : Bool # ameba:disable Metrics/CyclomaticComplexity
       @log.debug { "Applying policy #{key}: #{value}" }
       case key
       when "max-length"
         unless @max_length.try &.< value.as_i64
           @max_length = value.as_i64
+          @effective_args.delete("x-max-length")
           drop_overflow
+          return true
         end
       when "max-length-bytes"
         unless @max_length_bytes.try &.< value.as_i64
           @max_length_bytes = value.as_i64
+          @effective_args.delete("x-max-length-bytes")
           drop_overflow
+          return true
         end
       when "message-ttl"
         unless @message_ttl.try &.< value.as_i64
           @message_ttl = value.as_i64
           @message_ttl_change.try_send? nil
+          @effective_args.delete("x-message-ttl")
+          return true
         end
       when "expires"
         unless @expires.try &.< value.as_i64
           @expires = value.as_i64
           spawn queue_expire_loop, name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}"
           @queue_expiration_ttl_change.try_send? nil
+          @effective_args.delete("x-expires")
+          return true
         end
       when "overflow"
-        @reject_on_overflow ||= value.as_s == "reject-publish"
+        overflow = value.as_s
+        if overflow.in?("reject-publish", "drop-head")
+          @reject_on_overflow = overflow == "reject-publish"
+          @effective_args.delete("x-overflow")
+          return true
+        end
       when "dead-letter-exchange"
-        @dlx ||= value.as_s
+        if @dlx.nil?
+          @dlx ||= value.as_s
+          @effective_args.delete("x-dead-letter-exchange")
+          return true
+        end
       when "dead-letter-routing-key"
-        @dlrk ||= value.as_s
+        if @dlrk.nil?
+          @dlrk ||= value.as_s
+          @effective_args.delete("x-dead-letter-routing-key")
+          return true
+        end
       when "delivery-limit"
         unless @delivery_limit.try &.< value.as_i64
           @delivery_limit = value.as_i64
+          @effective_args.delete("x-delivery-limit")
           drop_redelivered
+          return true
         end
       when "federation-upstream"
         @vhost.upstreams.try &.link(value.as_s, self)
+        return true
       when "federation-upstream-set"
         @vhost.upstreams.try &.link_set(value.as_s, self)
+        return true
       when "consumer-timeout"
         unless @consumer_timeout.try &.< value.as_i64
           @consumer_timeout = value.as_i64.to_u64
+          @effective_args.delete("x-consumer-timeout")
+          return true
         end
       end
+      false
     end
 
     private def clear_policy_arguments
@@ -445,6 +473,7 @@ module LavinMQ::AMQP
         effective_policy_definition:  Policy.merge_definitions(@policy, @operator_policy),
         message_stats:                current_stats_details,
         effective_arguments:          @effective_args,
+        effective_policy_arguments:   effective_policy_args,
       }
     end
 

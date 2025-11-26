@@ -46,20 +46,26 @@ module LavinMQ::AMQP
       spawn unmap_and_remove_segments_loop, name: "Stream#unmap_and_remove_segments_loop"
     end
 
-    private def apply_policy_argument(key : String, value : JSON::Any)
+    private def apply_policy_argument(key : String, value : JSON::Any) : Bool
       if key == "max-age"
+        result = false
         if max_age_policy = parse_max_age(value.as_s?)
           if current_max = stream_msg_store.max_age
             if current_max > max_age_policy
               stream_msg_store.max_age = max_age_policy
+              @effective_args.delete("x-max-age")
+              result = true
             end
           else
             stream_msg_store.max_age = max_age_policy
+            @effective_args.delete("x-max-age")
+            result = true
           end
         end
         stream_msg_store.max_length = @max_length
         stream_msg_store.max_length_bytes = @max_length_bytes
         stream_msg_store.drop_overflow
+        result
       else
         super(key, value)
       end
