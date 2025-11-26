@@ -135,17 +135,19 @@ class LavinMQ::Clustering::Controller
   private def execute_shell_command(command : String, event : String)
     return if command.empty?
 
-    Log.info { "Executing #{event} hook: #{command}" }
+    Log.info { "Executing #{event} hook in background: #{command}" }
 
-    begin
-      status = Process.run(command, shell: true, output: Process::Redirect::Inherit, error: Process::Redirect::Inherit)
-      if status.success?
-        Log.info { "#{event} hook completed successfully" }
-      else
-        Log.warn { "#{event} hook failed with exit code #{status.exit_code}" }
+    spawn name: "#{event} hook" do
+      begin
+        status = Process.run(command, shell: true, output: Process::Redirect::Inherit, error: Process::Redirect::Inherit)
+        if status.success?
+          Log.info { "#{event} hook completed successfully" }
+        else
+          Log.warn { "#{event} hook failed with exit code #{status.exit_code}" }
+        end
+      rescue ex
+        Log.error(exception: ex) { "Failed to execute #{event} hook" }
       end
-    rescue ex
-      Log.error(exception: ex) { "Failed to execute #{event} hook" }
     end
   end
 
