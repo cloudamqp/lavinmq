@@ -13,9 +13,9 @@ def mktmpdir(&)
   end
 end
 
-def with_store(&)
+def with_store(*, durable = true, &)
   mktmpdir do |dir|
-    store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+    store = LavinMQ::MessageStore.new(dir, nil, durable: durable)
     begin
       yield store, dir
     ensure
@@ -101,6 +101,25 @@ describe LavinMQ::MessageStore do
       String.new(env.message.body).should eq "hello"
       store.delete(env.segment_position)
       store.close
+    end
+  end
+
+  describe "#push" do
+    it "should not raise when rolling over on new wfile" do
+      with_store(durable: false) do |store|
+        msg_size = LavinMQ::Config.instance.segment_size.to_u64 // 2 + 1
+        msg = LavinMQ::Message.new(
+          RoughTime.unix_ms, "e", "k",
+          AMQ::Protocol::Properties.new, msg_size, IO::Memory.new("a" * msg_size)
+        )
+        begin
+          10.times do
+            store.push msg
+          end
+        rescue ex
+          fail ex.inspect_with_backtrace, line: (__LINE__ - 3) # -3 to get the push line
+        end
+      end
     end
   end
 
