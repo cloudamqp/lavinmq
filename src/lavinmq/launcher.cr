@@ -29,11 +29,12 @@ module LavinMQ
 
   class Launcher
     Log = LavinMQ::Log.for "launcher"
-    @tls_context : OpenSSL::SSL::Context::Server?
     @first_shutdown_attempt = true
     @data_dir_lock : DataDirLock?
     @closed = false
     @replicator : Clustering::Server?
+    @amqp_server : LavinMQ::Server?
+    @http_server : LavinMQ::HTTP::Server?
 
     def initialize(@config : Config)
       print_environment_info
@@ -57,8 +58,6 @@ module LavinMQ
         @runner = StandaloneRunner.new
       end
 
-      @tls_context = create_tls_context if @config.tls_configured?
-      reload_tls_context
       setup_signal_traps
       SystemD::MemoryPressure.monitor { GC.collect }
     end
@@ -166,58 +165,80 @@ module LavinMQ
       end
     end
 
-    # ameba:disable Metrics/CyclomaticComplexity
     private def start_listeners(amqp_server, http_server)
+      # AMQP plain
       if @config.amqp_port > 0
         spawn amqp_server.listen(@config.amqp_bind, @config.amqp_port, Server::Protocol::AMQP),
           name: "AMQP listening on #{@config.amqp_port}"
       end
 
+      # AMQPS (TLS)
       if @config.amqps_port > 0
-        if ctx = @tls_context
-          spawn amqp_server.listen_tls(@config.amqp_bind, @config.amqps_port, ctx, Server::Protocol::AMQP),
-            name: "AMQPS listening on #{@config.amqps_port}"
-        end
+        spawn amqp_server.listen_tls(@config.amqp_bind, @config.amqps_port, Server::Protocol::AMQP),
+          name: "AMQPS listening on #{@config.amqps_port}"
       end
 
+      # Clustering
       if clustering_bind = @config.clustering_bind
         spawn amqp_server.listen_clustering(clustering_bind, @config.clustering_port), name: "Clustering listener"
       end
 
+      # AMQP Unix socket
       unless @config.unix_path.empty?
         spawn amqp_server.listen_unix(@config.unix_path, Server::Protocol::AMQP), name: "AMQP listening at #{@config.unix_path}"
       end
 
+      # HTTP plain
       if @config.http_port > 0
         http_server.bind_tcp(@config.http_bind, @config.http_port)
       end
+
+      # HTTPS (TLS)
       if @config.https_port > 0
-        if ctx = @tls_context
-          http_server.bind_tls(@config.http_bind, @config.https_port, ctx)
-        end
+        http_server.bind_tls(@config.http_bind, @config.https_port)
       end
+
+      # HTTP Unix socket
       unless @config.http_unix_path.empty?
         http_server.bind_unix(@config.http_unix_path)
       end
 
+      # HTTP internal unix socket
       http_server.bind_internal_unix
       spawn(name: "HTTP listener") do
         http_server.listen
       end
 
+      # MQTT plain
       if @config.mqtt_port > 0
         spawn amqp_server.listen(@config.mqtt_bind, @config.mqtt_port, Server::Protocol::MQTT),
           name: "MQTT listening on #{@config.mqtt_port}"
       end
 
+      # MQTTS (TLS)
       if @config.mqtts_port > 0
-        if ctx = @tls_context
-          spawn amqp_server.listen_tls(@config.mqtt_bind, @config.mqtts_port, ctx, Server::Protocol::MQTT),
-            name: "MQTTS listening on #{@config.mqtts_port}"
-        end
+        spawn amqp_server.listen_tls(@config.mqtt_bind, @config.mqtts_port, Server::Protocol::MQTT),
+          name: "MQTTS listening on #{@config.mqtts_port}"
       end
+
+      # MQTT Unix socket
       unless @config.mqtt_unix_path.empty?
         spawn amqp_server.listen_unix(@config.mqtt_unix_path, Server::Protocol::MQTT), name: "MQTT listening at #{@config.unix_path}"
+      end
+    end
+
+    private def restart_listeners
+      # Stop AMQP/MQTT listeners
+      @amqp_server.try &.stop_listeners
+
+      # Close and recreate HTTP server to release its bound sockets
+      @http_server.try &.close
+
+      # Restart all listeners
+      if amqp_server = @amqp_server
+        @http_server = http_server = LavinMQ::HTTP::Server.new(amqp_server)
+        Log.info { "Restarting listeners with updated configuration" }
+        start_listeners(amqp_server, http_server)
       end
     end
 
@@ -253,7 +274,9 @@ module LavinMQ
       else
         Log.info { "Reloading configuration file '#{@config.config_file}'" }
         @config.reload
-        reload_tls_context
+        @amqp_server.try &.reload_tls_context
+        @http_server.try &.reload_tls_context
+        restart_listeners
       end
       SystemD.notify_ready
     end
@@ -280,35 +303,6 @@ module LavinMQ
       Signal::INT.trap { shutdown_server }
       Signal::TERM.trap { shutdown_server }
       Signal::SEGV.reset # Let the OS generate a coredump
-    end
-
-    private def create_tls_context
-      context = OpenSSL::SSL::Context::Server.new
-      context.add_options(OpenSSL::SSL::Options.new(0x40000000)) # disable client initiated renegotiation
-      context
-    end
-
-    private def reload_tls_context
-      return unless tls = @tls_context
-      case @config.tls_min_version
-      when "1.0"
-        tls.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_2 |
-                           OpenSSL::SSL::Options::NO_TLS_V1_1 |
-                           OpenSSL::SSL::Options::NO_TLS_V1)
-      when "1.1"
-        tls.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_2 | OpenSSL::SSL::Options::NO_TLS_V1_1)
-        tls.add_options(OpenSSL::SSL::Options::NO_TLS_V1)
-      when "1.2", ""
-        tls.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_2)
-        tls.add_options(OpenSSL::SSL::Options::NO_TLS_V1_1 | OpenSSL::SSL::Options::NO_TLS_V1)
-      when "1.3"
-        tls.add_options(OpenSSL::SSL::Options::NO_TLS_V1_2)
-      else
-        Log.warn { "Unrecognized @config value for tls_min_version: '#{@config.tls_min_version}'" }
-      end
-      tls.certificate_chain = @config.tls_cert_path
-      tls.private_key = @config.tls_key_path.empty? ? @config.tls_cert_path : @config.tls_key_path
-      tls.ciphers = @config.tls_ciphers unless @config.tls_ciphers.empty?
     end
   end
 end

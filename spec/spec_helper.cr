@@ -97,14 +97,18 @@ def with_amqp_server(tls = false, replicator = nil,
                      config = LavinMQ::Config.instance,
                      file = __FILE__, line = __LINE__, & : LavinMQ::Server -> Nil)
   LavinMQ::Config.instance = init_config(config)
+
+  # If TLS is requested but config doesn't have TLS configured, set up default TLS
+  if tls && !config.tls_configured?
+    config.tls_cert_path = "spec/resources/server_certificate.pem"
+    config.tls_key_path = "spec/resources/server_key.pem"
+  end
+
   tcp_server = TCPServer.new("localhost", ENV.has_key?("NATIVE_PORTS") ? 5672 : 0)
   s = LavinMQ::Server.new(config, replicator)
   begin
     if tls
-      ctx = OpenSSL::SSL::Context::Server.new
-      ctx.certificate_chain = "spec/resources/server_certificate.pem"
-      ctx.private_key = "spec/resources/server_key.pem"
-      spawn(name: "amqp tls listen") { s.listen_tls(tcp_server, ctx, LavinMQ::Server::Protocol::AMQP) }
+      spawn(name: "amqp tls listen") { s.listen_tls(tcp_server, LavinMQ::Server::Protocol::AMQP) }
     else
       spawn(name: "amqp tcp listen") { s.listen(tcp_server, LavinMQ::Server::Protocol::AMQP) }
     end
