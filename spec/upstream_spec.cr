@@ -345,12 +345,9 @@ describe LavinMQ::Federation::Upstream do
         ds_queue.consumers_empty.when_true.receive
 
         # One message has been transferred?
-        begin
-          wait_for { us_queue.message_count > 0 }
-        rescue ex
-          pp us_queue.details_tuple
-          fail "message not requeued?", line: (__LINE__ - 3)
-        end
+
+        wait_for { !us_queue.empty.value }
+        ds_queue.empty.value.should be_true
         ds_queue.message_count.should eq 0
 
         # resume consuming on downstream, federation should start again
@@ -372,8 +369,8 @@ describe LavinMQ::Federation::Upstream do
             fail "federation didn't resume? timeout waiting for message on downstream queue"
           end
 
-          us_queue.message_count.should eq 0
-          ds_queue.message_count.should eq 0
+          us_queue.empty.value.should be_true
+          ds_queue.empty.value.should be_true
         end
       end
     end
