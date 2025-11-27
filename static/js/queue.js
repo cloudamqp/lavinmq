@@ -354,7 +354,8 @@ restartQueueForm.addEventListener('submit', function (evt) {
   const url = HTTP.url`api/queues/${vhost}/${queue}/restart`
   if (window.confirm('Are you sure? This will restart the queue.')) {
     HTTP.request('PUT', url)
-      .then(() => {
+      .then((res) => {
+        if (res && res.is_error) return
         DOM.toast('Queue restarted!')
         handleQueueState('running')
       })
