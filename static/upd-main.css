@@ -138,7 +138,6 @@ a:hover {
   min-height: 100vh;
 }
 
-header,
 footer {
   grid-column: 2 / span 1;
 }
@@ -261,9 +260,6 @@ body.login main {
 
 /* === NAVIGATION & HEADER === */
 header {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  grid-template-rows: 50px auto;
   padding: 5px 20px;
   position: fixed;
   top: 0;
@@ -599,7 +595,6 @@ button {
   font-size: 0.875rem;
   line-height: 1.25rem;
   color: #141414;
-  font-size: 0.875rem;
   line-height: 1.25rem;
   padding: 0.125rem 0.375rem;
   border-radius: 0.25rem;
