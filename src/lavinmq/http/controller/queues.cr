@@ -118,8 +118,11 @@ module LavinMQ
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
             q = find_queue(context, params, vhost)
-            q.restart!
-            context.response.status_code = 204
+            if q.restart!
+              context.response.status_code = 204
+            else
+              bad_request(context, "Queue was not restarted")
+            end
           end
         end
 
