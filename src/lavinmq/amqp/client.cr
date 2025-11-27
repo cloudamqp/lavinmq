@@ -204,12 +204,15 @@ module LavinMQ
       private def handle_update_secret(frame : AMQP::Frame::Connection::UpdateSecret)
         user = @user
         # Need to do @secret untill we lift in new amq-perf version
-        if user.update_secret(frame.@secret)
+        if user.responds_to?(:update_secret)
+          user.update_secret(frame.secret)
           @log.info { "Updated secret for user '#{user.name}'" }
           send AMQP::Frame::Connection::UpdateSecretOk.new
         else
-          close_connection(frame, ConnectionReplyCode::ACCESS_REFUSED, "update-secret not supported for current authentication mechanism or invalid credentials")
+          close_connection(frame, ConnectionReplyCode::ACCESS_REFUSED, "update-secret not supported for current authentication mechanism")
         end
+      rescue e : JWT::Error
+        close_connection(frame, ConnectionReplyCode::ACCESS_REFUSED, "invalid credentials")
       end
 
       def send(frame : AMQP::Frame, channel_is_open : Bool? = nil) : Bool
