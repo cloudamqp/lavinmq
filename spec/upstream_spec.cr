@@ -317,8 +317,8 @@ describe LavinMQ::Federation::Upstream do
         ds_vhost.declare_queue(ds_queue_name, true, false)
         ds_queue = ds_vhost.queues[ds_queue_name].as(LavinMQ::AMQP::Queue)
 
-        wait_for { ds_queue.policy.try(&.name) == "FE" }
-        wait_for { upstream.links.first?.try &.state.running? }
+        link = wait_for { upstream.links.first? }
+        loop { link.@state_changed.receive.try &.running? && break }
 
         us_queue = us_vhost.queues[us_queue_name].as(LavinMQ::AMQP::Queue)
 
@@ -345,7 +345,9 @@ describe LavinMQ::Federation::Upstream do
         ds_queue.consumers_empty.when_true.receive
 
         # One message has been transferred?
-        wait_for { us_queue.message_count > 0 }
+
+        wait_for { !us_queue.empty.value }
+        ds_queue.empty.value.should be_true
         ds_queue.message_count.should eq 0
 
         # resume consuming on downstream, federation should start again
@@ -367,8 +369,8 @@ describe LavinMQ::Federation::Upstream do
             fail "federation didn't resume? timeout waiting for message on downstream queue"
           end
 
-          us_queue.message_count.should eq 0
-          ds_queue.message_count.should eq 0
+          us_queue.empty.value.should be_true
+          ds_queue.empty.value.should be_true
         end
       end
     end
