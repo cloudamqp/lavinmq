@@ -416,7 +416,7 @@ module LavinMQ::AMQP
 
     def pause!
       return unless @state.running?
-        @state = QueueState::Paused
+      @state = QueueState::Paused
       @log.debug { "Paused" }
       @paused.set(true)
       File.touch(File.join(@data_dir, "paused"))

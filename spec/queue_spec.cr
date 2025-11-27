@@ -336,7 +336,6 @@ describe LavinMQ::AMQP::Queue do
           restarted.should be_nil
         end
       end
-
     end
   end
 
