@@ -246,7 +246,7 @@ module LavinMQ
             if @config.oauth_resource_server_id.empty? || key == @config.oauth_resource_server_id
               extract_scopes_from_claim(value)
             end
-          end.compact!
+          end.compact
         when .as_a?
           claim.as_a.flat_map do |item|
             extract_scopes_from_claim(item)
