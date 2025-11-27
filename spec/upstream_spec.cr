@@ -346,7 +346,14 @@ describe LavinMQ::Federation::Upstream do
 
         # One message has been transferred?
 
-        wait_for { !us_queue.empty.value }
+        begin
+          wait_for { !us_queue.empty.value }
+        rescue
+          pp "-----"
+          pp us_queue.details_tuple
+          pp us_queue.empty?
+          pp "-----"
+        end
         ds_queue.empty.value.should be_true
         ds_queue.message_count.should eq 0
 
