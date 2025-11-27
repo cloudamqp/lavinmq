@@ -8,11 +8,9 @@ module OpenSSL::SSL
   class Context
     # Load CRL from a PEM file into the context's X509_STORE
     def add_crl(crl_path : String)
-      store = LibSSL.ssl_ctx_get_cert_store(@handle)
-      raise OpenSSL::Error.new("SSL_CTX_get_cert_store") if store.null?
-
-      OpenSSL::X509.load_crl_into_store(store, crl_path)
-      OpenSSL::X509.enable_crl_checking(store)
+      store = OpenSSL::X509::Store.new(to_unsafe)
+      store.load_crl_into_store(crl_path)
+      store.enable_crl_checking
     end
 
     # Enables CRL fetching and loading from CDP URLs found in CA certificates
@@ -161,28 +159,22 @@ module OpenSSL::SSL
 
       # Create a new X509_STORE to replace the existing one
       # This ensures old CRLs are removed when updating
-      new_store = LibCrypto.x509_store_new
-      raise OpenSSL::Error.new("X509_STORE_new") if new_store.null?
+      new_store = OpenSSL::X509::Store.new
 
-      begin
-        # Load CA certificates into the new store
-        OpenSSL::X509.load_ca_certs_into_store(new_store, ca_cert_path)
+      # Load CA certificates into the new store
+      new_store.load_ca_certs_into_store(ca_cert_path)
 
-        # Load each CRL into the new store
-        crl_paths.each do |crl_path|
-          OpenSSL::X509.load_crl_into_store(new_store, crl_path)
-        end
-
-        # Only enable CRL checking if we have loaded any CRLs
-        # otherwise verification will fail
-        OpenSSL::X509.enable_crl_checking(new_store) unless crl_paths.empty?
-
-        # Replace the context's store (this frees the old store)
-        LibSSL.ssl_ctx_set_cert_store(@handle, new_store)
-      rescue ex
-        LibCrypto.x509_store_free(new_store)
-        raise ex
+      # Load each CRL into the new store
+      crl_paths.each do |crl_path|
+        new_store.load_crl_into_store(crl_path)
       end
+
+      # Only enable CRL checking if we have loaded any CRLs
+      # otherwise verification will fail
+      new_store.enable_crl_checking unless crl_paths.empty?
+
+      # Replace the context's store (this frees the old store)
+      new_store.assign(to_unsafe)
     end
 
     # Configure minimum TLS version based on version string
@@ -210,73 +202,103 @@ end
 
 # Helper module for CRL operations
 module OpenSSL::X509
-  def self.enable_crl_checking(store : LibCrypto::X509_STORE)
-    flags = LibCrypto::X509VerifyFlags::CRL_CHECK |
-            LibCrypto::X509VerifyFlags::CRL_CHECK_ALL |
-            LibCrypto::X509VerifyFlags::EXTENDED_CRL_SUPPORT |
-            LibCrypto::X509VerifyFlags::TRUSTED_FIRST
-    ret = LibCrypto.x509_store_set_flags(store, flags)
-    raise OpenSSL::Error.new("X509_STORE_set_flags") unless ret == 1
+  class Store
+    @store : LibCrypto::X509_STORE
+    @assigned : Bool
 
-    Log.info { "Enabled CRL checking on X509_STORE" }
-  end
-
-  # Load CA certificates from a PEM file into an X509_STORE
-  def self.load_ca_certs_into_store(store : LibCrypto::X509_STORE, ca_cert_path : String)
-    bio = LibCrypto.bio_new_file(ca_cert_path, "r")
-    raise OpenSSL::Error.new("BIO_new_file: #{ca_cert_path}") if bio.null?
-
-    begin
-      cert_count = 0
-      loop do
-        cert = LibCrypto.pem_read_bio_x509(bio, nil, nil, nil)
-        break if cert.null? # No more certificates
-
-        begin
-          ret = LibCrypto.x509_store_add_cert(store, cert)
-          raise OpenSSL::Error.new("X509_STORE_add_cert") unless ret == 1
-          cert_count += 1
-        ensure
-          LibCrypto.x509_free(cert)
-        end
-      end
-
-      Log.debug { "Loaded #{cert_count} CA certificate(s) from #{ca_cert_path}" }
-    ensure
-      LibCrypto.bio_free(bio)
+    def initialize(ctx : LibSSL::SSLContext)
+      @store = LibSSL.ssl_ctx_get_cert_store(ctx)
+      raise OpenSSL::Error.new("SSL_CTX_get_cert_store") if @store.null?
+      @assigned = true
     end
-  end
 
-  # Load a CRL from a PEM file into an X509_STORE
-  # enable_flags: If true, enables CRL checking flags on the store
-  def self.load_crl_into_store(store : LibCrypto::X509_STORE, crl_path : String)
-    bio = LibCrypto.bio_new_file(crl_path, "r")
-    raise OpenSSL::Error.new("BIO_new_file: #{crl_path}") if bio.null?
+    def initialize
+      @store = LibCrypto.x509_store_new
+      raise OpenSSL::Error.new("X509_STORE_new") if @store.null?
+      @assigned = false
+    end
 
-    begin
-      crl = LibCrypto.pem_read_bio_x509_crl(bio, nil, nil, nil)
-      raise OpenSSL::Error.new("PEM_read_bio_X509_CRL - CRL may be invalid: #{crl_path}") if crl.null?
+    def to_unsafe : LibCrypto::X509_STORE
+      @store
+    end
+
+    def assign(ctx : LibSSL::SSLContext) : Nil
+      LibSSL.ssl_ctx_set_cert_store(ctx, @store)
+      @assigned = true
+    end
+
+    def finalize
+      LibCrypto.x509_store_free(@store) unless @assigned
+    end
+
+    def enable_crl_checking
+      flags = LibCrypto::X509VerifyFlags::CRL_CHECK |
+              LibCrypto::X509VerifyFlags::CRL_CHECK_ALL |
+              LibCrypto::X509VerifyFlags::EXTENDED_CRL_SUPPORT |
+              LibCrypto::X509VerifyFlags::TRUSTED_FIRST
+      ret = LibCrypto.x509_store_set_flags(@store, flags)
+      raise OpenSSL::Error.new("X509_STORE_set_flags") unless ret == 1
+
+      Log.info { "Enabled CRL checking on X509_STORE" }
+    end
+
+    # Load CA certificates from a PEM file into an X509_STORE
+    def load_ca_certs_into_store(ca_cert_path : String)
+      bio = LibCrypto.bio_new_file(ca_cert_path, "r")
+      raise OpenSSL::Error.new("BIO_new_file: #{ca_cert_path}") if bio.null?
 
       begin
-        revoked_count = count_revoked_certificates(crl)
-        Log.info { "Loading CRL with #{revoked_count} revoked certificate(s) from #{crl_path}" }
+        cert_count = 0
+        loop do
+          cert = LibCrypto.pem_read_bio_x509(bio, nil, nil, nil)
+          break if cert.null? # No more certificates
 
-        ret = LibCrypto.x509_store_add_crl(store, crl)
-        raise OpenSSL::Error.new("X509_STORE_add_crl") unless ret == 1
+          begin
+            ret = LibCrypto.x509_store_add_cert(@store, cert)
+            raise OpenSSL::Error.new("X509_STORE_add_cert") unless ret == 1
+            cert_count += 1
+          ensure
+            LibCrypto.x509_free(cert)
+          end
+        end
+
+        Log.debug { "Loaded #{cert_count} CA certificate(s) from #{ca_cert_path}" }
       ensure
-        LibCrypto.x509_crl_free(crl)
+        LibCrypto.bio_free(bio)
       end
-    ensure
-      LibCrypto.bio_free(bio)
     end
-  end
 
-  # Count the number of revoked certificates in a CRL
-  def self.count_revoked_certificates(crl : LibCrypto::X509CRL) : Int32
-    revoked = LibCrypto.x509_crl_get_revoked(crl)
-    return 0 if revoked.null?
+    # Load a CRL from a PEM file into an X509_STORE
+    # enable_flags: If true, enables CRL checking flags on the store
+    def load_crl_into_store(crl_path : String)
+      bio = LibCrypto.bio_new_file(crl_path, "r")
+      raise OpenSSL::Error.new("BIO_new_file: #{crl_path}") if bio.null?
 
-    LibCrypto.openssl_sk_num(revoked)
+      begin
+        crl = LibCrypto.pem_read_bio_x509_crl(bio, nil, nil, nil)
+        raise OpenSSL::Error.new("PEM_read_bio_X509_CRL - CRL may be invalid: #{crl_path}") if crl.null?
+
+        begin
+          revoked_count = count_revoked_certificates(crl)
+          Log.info { "Loading CRL with #{revoked_count} revoked certificate(s) from #{crl_path}" }
+
+          ret = LibCrypto.x509_store_add_crl(@store, crl)
+          raise OpenSSL::Error.new("X509_STORE_add_crl") unless ret == 1
+        ensure
+          LibCrypto.x509_crl_free(crl)
+        end
+      ensure
+        LibCrypto.bio_free(bio)
+      end
+    end
+
+    # Count the number of revoked certificates in a CRL
+    private def count_revoked_certificates(crl : LibCrypto::X509CRL) : Int32
+      revoked = LibCrypto.x509_crl_get_revoked(crl)
+      return 0 if revoked.null?
+
+      LibCrypto.openssl_sk_num(revoked)
+    end
   end
 
   # Extract CRL Distribution Point URLs from all certificates in a PEM bundle
