@@ -1,11 +1,5 @@
 # Extension to OpenSSL::SSL::Socket to check verification result
 class OpenSSL::SSL::Socket
-  # Returns the verification result for the peer certificate
-  # 0 (X509_V_OK) means verification succeeded
-  def verify_result : LibC::Long
-    LibSSL.ssl_get_verify_result(@ssl)
-  end
-
   # Verifies the peer certificate and raises OpenSSL::Error if verification fails
   def verify! : Nil
     result = LibSSL.ssl_get_verify_result(@ssl)
