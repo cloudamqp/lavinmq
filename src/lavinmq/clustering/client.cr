@@ -29,7 +29,8 @@ module LavinMQ
         end
         Dir.mkdir_p @data_dir
         @data_dir_lock = DataDirLock.new(@data_dir).tap &.acquire
-        @backup_dir = File.join(@data_dir, "backups", Time.utc.to_rfc3339)
+        backup_dir = File.join(@data_dir, "backups")
+        FileUtils.rm_rf(backup_dir) if Dir.exists?(backup_dir)
         @checksums = Checksums.new(@data_dir)
         @checksums.restore
 
@@ -165,7 +166,7 @@ module LavinMQ
             end
             if local_hash != remote_hash
               Log.info { "Mismatching hash: #{path}" }
-              move_to_backup path
+              File.delete path
               requested_files << filename
               request_file(filename, socket)
             else
@@ -180,17 +181,11 @@ module LavinMQ
         Log.info { "List of files received" }
         files_to_delete.each do |path|
           Log.info { "File not on leader: #{path}" }
-          move_to_backup path
+          File.delete path
         end
         requested_files.each do |filename|
           file_from_socket(filename, lz4)
         end
-      end
-
-      private def move_to_backup(path)
-        backup_path = path.sub(@data_dir, @backup_dir)
-        Dir.mkdir_p File.dirname(backup_path)
-        File.rename path, backup_path
       end
 
       private def ls_r(dir) : Array(String)
@@ -205,7 +200,6 @@ module LavinMQ
         Dir.each_child(dir) do |child|
           path = File.join(dir, child)
           if File.directory? path
-            next if child.in?("backups")
             ls_r(path, &blk)
           else
             next if child.in?(".lock", ".clustering_id")
