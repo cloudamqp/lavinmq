@@ -80,12 +80,13 @@ module LavinMQ::AMQP
       # Streams doesn't handle queue expiration
     end
 
-    private def start
+    private def start : Bool
       if @msg_store.closed
-        close
+        !close
       else
         handle_arguments
         spawn unmap_and_remove_segments_loop, name: "Stream#unmap_and_remove_segments_loop"
+        true
       end
     end
 

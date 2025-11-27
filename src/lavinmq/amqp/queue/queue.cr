@@ -188,9 +188,9 @@ module LavinMQ::AMQP
       start
     end
 
-    private def start
+    private def start : Bool
       if @msg_store.closed
-        close
+        !close
       else
         if File.exists?(File.join(@data_dir, ".paused")) # Migrate '.paused' files to 'paused'
           File.rename(File.join(@data_dir, ".paused"), File.join(@data_dir, "paused"))
@@ -206,8 +206,8 @@ module LavinMQ::AMQP
       end
     end
 
-    def restart!
-      return unless @closed
+    def restart! : Bool
+      return false unless @closed
       reset_queue_state
       @msg_store = init_msg_store(@data_dir)
       @empty = @msg_store.empty
