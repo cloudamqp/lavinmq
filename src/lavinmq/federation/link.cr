@@ -21,7 +21,7 @@ module LavinMQ
         @upstream_connection : ::AMQP::Client::Connection?
         @upstream_channel : ::AMQP::Client::Channel?
         @metadata : ::Log::Metadata
-        @running = Channel(Nil).new
+        @state_changed = Channel(State?).new
 
         def initialize(@upstream : Upstream)
           @metadata = ::Log::Metadata.new(nil, {vhost: @upstream.vhost.name, upstream: @upstream.name})
@@ -66,53 +66,64 @@ module LavinMQ
         end
 
         private def state(state)
-          @log.debug { "state change #{@state}->#{state}" }
+          @log.debug { "state change from=#{@state} to=#{state}" }
+
           @last_changed = RoughTime.unix_ms
+          return if @state == state
           @state = state
+          loop { @state_changed.try_send?(state) || break }
         end
 
         # Does not trigger reconnect, but a graceful close
         def terminate
           return if @state.terminated?
           state(State::Terminating)
-          @running.close
           @upstream_connection.try &.close
         end
 
         private def run_loop
           loop do
-            break if stop_run_loop?
+            break if stop_link?
             state(State::Starting)
             start_link
-            break if stop_run_loop?
+            break if stop_link?
             state(State::Stopped)
             wait_before_reconnect
-            break if stop_run_loop?
+            break if stop_link?
             @log.info { "Federation try reconnect" }
           rescue ex
-            break if stop_run_loop?
+            break if stop_link?
             @log.info { "Federation link state=#{@state} error=#{ex.inspect}" }
             state(State::Stopped)
             @error = ex.message
             wait_before_reconnect
-            break if stop_run_loop?
+            break if stop_link?
             @log.info { "Federation try reconnect" }
           end
           @log.info { "Federation link stopped" }
         ensure
           state(State::Terminated)
+          @state_changed.close
           @log.info { "Terminated" }
         end
 
         private def wait_before_reconnect
-          select
-          when timeout @upstream.reconnect_delay
-          when @running.receive?
+          loop do
+            select
+            when timeout @upstream.reconnect_delay
+              @log.debug { "#wait_before_reconnect timeout after #{@upstream.reconnect_delay}" }
+              break
+            when event = @state_changed.receive?
+              break if stop_link?(event)
+              @log.debug { "#wait_before_reconnect @state_changed.received? triggerd " \
+                           "@state_changed.closed?=#{@state_changed.closed?}" }
+            end
           end
         end
 
-        private def stop_run_loop?
-          @state.in?(State::Terminating, State::Terminated)
+        private def stop_link?(state = @state)
+          return false if state.nil?
+          state.in?(State::Terminating, State::Terminated)
         end
 
         private def federate(msg, exchange, routing_key, immediate = false)
@@ -160,7 +171,7 @@ module LavinMQ
         private abstract def start_link
 
         private def setup_connection(&)
-          return if @state.terminated?
+          return if @state.in?(State::Terminated, State::Terminating)
           @upstream_connection.try &.close
           upstream_uri = named_uri(@upstream.uri)
           params = upstream_uri.query_params
@@ -168,6 +179,10 @@ module LavinMQ
           params["product_version"] = LavinMQ::VERSION.to_s
           upstream_uri.query = params.to_s
           ::AMQP::Client.start(upstream_uri) do |upstream_connection|
+            upstream_connection.on_close do
+              next if stop_link?
+              state(State::Stopped)
+            end
             yield @upstream_connection = upstream_connection
           end
         end
@@ -205,10 +220,14 @@ module LavinMQ
               notify_consumer_available
               # Wait for queue to lose all consumers, or for the link
               # to stop
-              select
-              when @federated_q.consumers_empty.when_true.receive
-              when @running.receive?
-                break
+              loop do
+                select
+                when @federated_q.consumers_empty.when_true.receive
+                  break
+                when state = @state_changed.receive?
+                  return if stop_link?(state)
+                  return if @state_changed.closed? # closed == stop
+                end
               end
               @log.info { "Lost consumers, cancel upstream subscriber" }
               has_consumer = false
@@ -223,10 +242,14 @@ module LavinMQ
             else
               # Wait for queue get a consumer, or for the link
               # to stop
-              select
-              when @federated_q.consumers_empty.when_false.receive
-              when @running.receive?
-                break
+              loop do
+                select
+                when @federated_q.consumers_empty.when_false.receive
+                  break
+                when state = @state_changed.receive?
+                  return if stop_link?(state)
+                  return if @state_changed.closed?
+                end
               end
               # Signaling is done first in the next iteration of the loop when
               # we enter the `has_consumer?` case
@@ -305,7 +328,8 @@ module LavinMQ
               select
               when @consumer_available.receive?
                 consume_upstream_and_federate(q, no_ack)
-              when timeout(1.second)
+              when @state_changed.receive?
+                return if @state_changed.closed?
                 return if @upstream_connection.try &.closed?
               end
             end
