@@ -6,6 +6,15 @@ class OpenSSL::SSL::Socket
     LibSSL.ssl_get_verify_result(@ssl)
   end
 
+  # Verifies the peer certificate and raises OpenSSL::Error if verification fails
+  def verify! : Nil
+    result = LibSSL.ssl_get_verify_result(@ssl)
+    if result != 0
+      error_msg = verify_error_string(result)
+      raise OpenSSL::Error.new("Certificate verification failed: #{error_msg}")
+    end
+  end
+
   # Returns a human-readable explanation of the verification error
   # ameba:disable Metrics/CyclomaticComplexity
   def verify_error_string(code : LibC::Long) : String
