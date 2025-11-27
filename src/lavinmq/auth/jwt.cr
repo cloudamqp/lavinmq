@@ -4,9 +4,12 @@ require "openssl"
 require "./lib_crypto_ext"
 
 module JWT
-  class DecodeError < Exception; end
+  class Error < Exception; end
 
-  class VerificationError < Exception; end
+  class DecodeError < Error; end
+
+  class VerificationError < Error; end
+
 
   struct Token
     getter header : JSON::Any
