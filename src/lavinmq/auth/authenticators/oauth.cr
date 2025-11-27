@@ -13,7 +13,7 @@ module LavinMQ
 
       @cached_public_keys : Hash(String, String)?
       @cache_expires_at : Time?
-      @cache_mutex : Mutex = Mutex.new
+      @cache_mutex = Mutex.new
 
       # OAuth 2.0 / OpenID Connect authenticator for LavinMQ.
       #
