@@ -165,6 +165,7 @@ module LavinMQ
       end
     end
 
+    # ameba:disable Metrics/CyclomaticComplexity
     private def start_listeners(amqp_server, http_server)
       # AMQP plain
       if @config.amqp_port > 0
@@ -173,7 +174,7 @@ module LavinMQ
       end
 
       # AMQPS (TLS)
-      if @config.amqps_port > 0
+      if @config.amqps_port > 0 && @config.tls_configured?
         spawn amqp_server.listen_tls(@config.amqp_bind, @config.amqps_port, Server::Protocol::AMQP),
           name: "AMQPS listening on #{@config.amqps_port}"
       end
@@ -194,7 +195,7 @@ module LavinMQ
       end
 
       # HTTPS (TLS)
-      if @config.https_port > 0
+      if @config.https_port > 0 && @config.tls_configured?
         http_server.bind_tls(@config.http_bind, @config.https_port)
       end
 
@@ -216,7 +217,7 @@ module LavinMQ
       end
 
       # MQTTS (TLS)
-      if @config.mqtts_port > 0
+      if @config.mqtts_port > 0 && @config.tls_configured?
         spawn amqp_server.listen_tls(@config.mqtt_bind, @config.mqtts_port, Server::Protocol::MQTT),
           name: "MQTTS listening on #{@config.mqtts_port}"
       end
