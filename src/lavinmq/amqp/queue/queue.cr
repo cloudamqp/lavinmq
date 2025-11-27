@@ -183,13 +183,6 @@ module LavinMQ::AMQP
       @metadata = ::Log::Metadata.new(nil, {queue: @name, vhost: @vhost.name})
       @log = Logger.new(Log, @metadata)
       File.open(File.join(@data_dir, ".queue"), "w") { |f| f.sync = true; f.print @name }
-      if File.exists?(File.join(@data_dir, ".paused")) # Migrate '.paused' files to 'paused'
-        File.rename(File.join(@data_dir, ".paused"), File.join(@data_dir, "paused"))
-      end
-      if File.exists?(File.join(@data_dir, "paused"))
-        @state = QueueState::Paused
-        @paused.set(true)
-      end
       @msg_store = init_msg_store(@data_dir)
       @empty = @msg_store.empty
       start
@@ -199,9 +192,17 @@ module LavinMQ::AMQP
       if @msg_store.closed
         close
       else
+        if File.exists?(File.join(@data_dir, ".paused")) # Migrate '.paused' files to 'paused'
+          File.rename(File.join(@data_dir, ".paused"), File.join(@data_dir, "paused"))
+        end
+        if File.exists?(File.join(@data_dir, "paused"))
+          @state = QueueState::Paused
+          @paused.set(true)
+        end
         handle_arguments
         spawn queue_expire_loop, name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}" if @expires
         spawn message_expire_loop, name: "Queue#message_expire_loop #{@vhost.name}/#{@name}"
+        true
       end
     end
 
@@ -415,7 +416,7 @@ module LavinMQ::AMQP
 
     def pause!
       return unless @state.running?
-      @state = QueueState::Paused
+        @state = QueueState::Paused
       @log.debug { "Paused" }
       @paused.set(true)
       File.touch(File.join(@data_dir, "paused"))
