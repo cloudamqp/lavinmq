@@ -242,11 +242,11 @@ module LavinMQ
       private def extract_scopes_from_claim(claim) : Array(String)
         case claim
         when .as_h?
-          claim.as_h.compact_map do |key, value|
+          claim.as_h.flat_map do |key, value|
             if @config.oauth_resource_server_id.empty? || key == @config.oauth_resource_server_id
               extract_scopes_from_claim(value)
             end
-          end.flatten
+          end.compact!
         when .as_a?
           claim.as_a.flat_map do |item|
             extract_scopes_from_claim(item)
