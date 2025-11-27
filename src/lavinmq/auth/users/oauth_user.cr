@@ -28,9 +28,6 @@ module LavinMQ
         @permissions = permissions
         @expires_at = expires_at
         clear_permissions_cache
-        true
-      rescue
-        false
       end
 
       def can_write?(vhost : String, name : String, cache : PermissionCache) : Bool
