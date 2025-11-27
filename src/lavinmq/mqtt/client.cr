@@ -40,7 +40,7 @@ module LavinMQ
         metadata = ::Log::Metadata.new(nil, {vhost: @broker.vhost.name, address: @connection_info.remote_address.to_s, client_id: client_id})
         @log = Logger.new(Log, metadata)
         @log.info { "Connection established for user=#{@user.name}" }
-        spawn read_loop, name: "MQTT read_loop #{@connection_info.remote_address}"
+        @broker.vhost.execution_context.spawn(name: "MQTT read_loop #{@connection_info.remote_address}") { read_loop }
       end
 
       def client_name

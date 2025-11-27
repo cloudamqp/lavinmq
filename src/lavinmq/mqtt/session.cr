@@ -28,7 +28,7 @@ module LavinMQ
       private def deliver_loop
         i = 0
         loop do
-          break if @closed
+          break if closed?
           next @msg_store.empty.when_false.receive? if @msg_store.empty?
           next @consumers_empty.when_false.receive? if @consumers.empty?
           consumer = @consumers.first.as(MQTT::Consumer)
@@ -44,7 +44,7 @@ module LavinMQ
       end
 
       def client=(client : MQTT::Client?)
-        return if @closed
+        return if closed?
         @last_get_time = RoughTime.monotonic
 
         unless clean_session?
@@ -101,7 +101,7 @@ module LavinMQ
       end
 
       private def get_packet(& : MQTT::Publish -> Nil) : Bool
-        raise ClosedError.new if @closed
+        raise ClosedError.new if closed?
         loop do
           env = @msg_store_lock.synchronize { @msg_store.shift? } || break
           sp = env.segment_position

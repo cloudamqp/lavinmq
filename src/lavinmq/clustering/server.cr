@@ -35,12 +35,12 @@ module LavinMQ
       @id : Int32
       @config : Config
 
-      def initialize(config : Config, @etcd : Etcd, @id : Int32)
+      def initialize(@config : Config, @etcd : Etcd, @id : Int32)
         Log.info { "ID: #{@id.to_s(36)}" }
-        @config = config
         @data_dir = @config.data_dir
         @password = password
         @checksums = Checksums.new(@data_dir)
+        @isr_key = "#{@config.clustering_etcd_prefix}/isr"
       end
 
       def clear
@@ -127,13 +127,13 @@ module LavinMQ
 
       def followers : Array(Follower)
         @lock.synchronize do
-          @followers.select(&.synced?).dup # for thread safety
+          @followers.select(&.synced?) # for thread safety
         end
       end
 
       def syncing_followers : Array(Follower)
         @lock.synchronize do
-          @followers.select(&.syncing?).dup # for thread safety
+          @followers.select(&.syncing?) # for thread safety
         end
       end
 
@@ -160,8 +160,10 @@ module LavinMQ
         @checksums.restore
         Log.info { "Listening on #{server.local_address}" }
         @listeners << server
-        while socket = server.accept?
-          spawn handle_socket(socket), name: "Clustering follower"
+        mt = Fiber::ExecutionContext::Parallel.new("replication-followers", 4)
+        loop do
+          socket = server.accept? || break
+          mt.spawn(name: "Clustering follower") { handle_socket(socket) }
         end
       end
 
@@ -208,8 +210,7 @@ module LavinMQ
       end
 
       private def update_isr
-        isr_key = "#{@config.clustering_etcd_prefix}/isr"
-        ids = String.build do |str|
+        ids = String.build(7 * (@followers.size + 1)) do |str|
           @followers.each do |f|
             next unless f.synced?
             f.id.to_s(str, 36)
@@ -218,7 +219,7 @@ module LavinMQ
           @id.to_s(str, 36)
         end
         Log.info { "In-sync replicas: #{ids}" }
-        @etcd.put(isr_key, ids)
+        @etcd.put(@isr_key, ids)
         @dirty_isr = false
       end
 

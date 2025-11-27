@@ -18,6 +18,8 @@ module MqttSpecs
           unsubscribe_pkt[0] |= 0b0000_1010u8
           io.write_bytes_raw unsubscribe_pkt
 
+          # Give server time to process and close connection
+          sleep 50.milliseconds
           io.should be_closed
         end
       end
