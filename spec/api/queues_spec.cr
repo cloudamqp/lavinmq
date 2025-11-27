@@ -597,20 +597,39 @@ describe LavinMQ::HTTP::QueuesController do
     it "should restart a queue" do
       with_http_server do |http, s|
         with_channel(s) do |ch|
-          ch.queue("confqueue")
+          queue_name = "restart_queue"
+          ch.queue(queue_name)
 
-          q = s.vhosts["/"].queues["confqueue"]
+          q = s.vhosts["/"].queues[queue_name]
           q.close
 
-          response = http.get("/api/queues/%2f/confqueue")
+          response = http.get("/api/queues/%2f/#{queue_name}")
           response.status_code.should eq 200
           body = JSON.parse(response.body)
           body["state"].should eq "closed"
 
-          response = http.put("/api/queues/%2f/confqueue/restart")
+          response = http.put("/api/queues/%2f/#{queue_name}/restart")
           response.status_code.should eq 204
 
-          response = http.get("/api/queues/%2f/confqueue")
+          response = http.get("/api/queues/%2f/#{queue_name}")
+          response.status_code.should eq 200
+          body = JSON.parse(response.body)
+          body["state"].should eq "running"
+        end
+      end
+    end
+
+    it "should not restart if queue is still running" do
+      with_http_server do |http, s|
+        with_channel(s) do |ch|
+          queue_name = "restart_queue"
+          ch.queue(queue_name)
+
+          s.vhosts["/"].queues[queue_name]
+          response = http.put("/api/queues/%2f/#{queue_name}/restart")
+          response.status_code.should eq 400
+
+          response = http.get("/api/queues/%2f/#{queue_name}")
           response.status_code.should eq 200
           body = JSON.parse(response.body)
           body["state"].should eq "running"

@@ -236,7 +236,8 @@ describe LavinMQ::AMQP::Queue do
           queue.closed?.should be_true
 
           # Restart the queue & verify
-          queue.restart!
+          restarted = queue.restart!
+          restarted.should be_true
           queue.closed?.should be_false
           queue.message_count.should eq 1
           msg = q.get(no_ack: true)
@@ -270,7 +271,8 @@ describe LavinMQ::AMQP::Queue do
           File.delete(mfile.path)
 
           # Restart the queue & verify that it is running
-          queue.restart!
+          restarted = queue.restart!
+          restarted.should be_true
           queue.closed?.should be_false
           queue.state.running?.should be_true
           queue.message_count.should eq 0
@@ -295,7 +297,8 @@ describe LavinMQ::AMQP::Queue do
           queue.closed?.should be_true
 
           # Restart the queue & verify
-          queue.restart!
+          restarted = queue.restart!
+          restarted.should be_true
           queue.closed?.should be_false
           queue.message_count.should eq 1
           should_eventually(be_true) { queue.message_count == 0 }
@@ -314,11 +317,26 @@ describe LavinMQ::AMQP::Queue do
           queue.closed?.should be_true
 
           # Restart the queue & verify
-          queue.restart!
+          restarted = queue.restart!
+          restarted.should be_true
           queue.closed?.should be_false
           should_eventually(be_true) { queue.closed? }
         end
       end
+    end
+
+    it "should not restart if queue is still running" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          ch.queue(q_name, durable: true)
+          queue = s.vhosts["/"].queues[q_name].as(LavinMQ::AMQP::DurableQueue)
+
+          # Try to restart without closing
+          restarted = queue.restart!
+          restarted.should be_nil
+        end
+      end
+
     end
   end
 
