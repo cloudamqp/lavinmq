@@ -20,7 +20,7 @@ module LavinMQ
         Time.utc > @expires_at
       end
 
-      def update_secret(new_secret : String) : Bool
+      def update_secret(new_secret : String)
         _, tags, permissions, expires_at = @authenticator.verify_token(new_secret)
 
         # Update authorization and expiration (trust new token)
