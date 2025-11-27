@@ -41,9 +41,8 @@ module LavinMQ
       def initialize(@config = Config.instance)
       end
 
-      def authenticate(username : String, password : Bytes) : OAuthUser?
-        token = String.new(password)
-        extracted_username, tags, permissions, expires_at = verify_token(token)
+      def authenticate(username : String, password : String) : OAuthUser?
+        extracted_username, tags, permissions, expires_at = verify_token(password)
 
         Log.info { "OAuth2 user authenticated: #{extracted_username}" }
         OAuthUser.new(extracted_username, tags, permissions, expires_at, self)
