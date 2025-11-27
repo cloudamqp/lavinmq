@@ -9,20 +9,22 @@ module LavinMQ
   class Etcd
     Log = LavinMQ::Log.for "etcd"
 
-    @endpoints : Array(Tuple(String, Int32, String?, Bool))
+    record Endpoint, host : String, port : Int32, auth : String?, tls : Bool
+    record Connection, socket : IO, address : String, auth : String?
+    @endpoints : Array(Endpoint)
 
     def initialize(endpoints = "localhost:2379")
       @endpoints = endpoints.split(',').map { |ep| parse_endpoint(ep) }
     end
 
-    private def parse_endpoint(endpoint) : Tuple(String, Int32, String?, Bool)
+    private def parse_endpoint(endpoint) : Endpoint
       uri = endpoint.includes?("://") ? URI.parse(endpoint) : URI.parse("tcp://#{endpoint}")
       auth = uri.user && uri.password ? "Basic #{Base64.strict_encode("#{uri.user}:#{uri.password}")}" : nil
-      {uri.host || "localhost", uri.port || 2379, auth, uri.scheme == "https"}
+      Endpoint.new uri.host || "localhost", uri.port || 2379, auth, uri.scheme == "https"
     end
 
     def endpoints
-      @endpoints.map { |host, port, _, _| "#{host}:#{port}" }
+      @endpoints.map { |e| "#{e.host}:#{e.port}" }
     end
 
     # Sets value if key doesn't exist
@@ -161,8 +163,8 @@ module LavinMQ
     end
 
     private def post(path, body) : JSON::Any
-      with_tcp do |tcp, address, auth|
-        return post_request(tcp, address, auth, path, body)
+      with_tcp do |conn|
+        return post_request(conn.socket, conn.address, conn.auth, path, body)
       end
     end
 
@@ -180,8 +182,8 @@ module LavinMQ
     end
 
     private def stream(path, body, & : JSON::Any -> _)
-      with_tcp do |tcp, address, auth|
-        post_stream(tcp, address, auth, path, body) do |chunk|
+      with_tcp do |conn|
+        post_stream(conn.socket, conn.address, conn.auth, path, body) do |chunk|
           yield chunk
         end
       end
@@ -281,36 +283,36 @@ module LavinMQ
       raise Error.new("Read response error", cause: ex)
     end
 
-    @connections = Deque(Tuple(IO, String, String?)).new
+    @connections = Deque(Connection).new
     @lock = Mutex.new
 
-    private def with_tcp(& : Tuple(IO, String, String?) -> _)
+    private def with_tcp(& : Connection -> _)
       loop do
-        socket, address, auth = @lock.synchronize { @connections.shift? } || connect
+        conn = @lock.synchronize { @connections.shift? } || connect
         begin
-          return yield({socket, address, auth})
+          return yield(conn)
         rescue ex : LeaseAlreadyExists
           raise ex # don't retry
         rescue ex : NoLeader
           raise ex # don't retry when leader is missing
         rescue ex : Error
-          Log.warn { "Service Unavailable at #{address}, #{ex.message}, retrying" }
-          socket.close rescue nil
+          Log.warn { "Service Unavailable at #{conn.address}, #{ex.message}, retrying" }
+          conn.socket.close rescue nil
           sleep 0.1.seconds
         ensure
-          @lock.synchronize { @connections.push({socket, address, auth}) } unless socket.closed?
+          @lock.synchronize { @connections.push(conn) } unless conn.socket.closed?
         end
       end
     end
 
-    private def connect : Tuple(IO, String, String?)
-      @endpoints.shuffle.each do |host, port, auth, tls|
-        address = "#{host}:#{port}"
-        tcp_socket = create_tcp_socket(host, port)
-        socket = tls ? wrap_with_tls(tcp_socket, host) : tcp_socket
-        # update_endpoints(socket, address, auth)
+    private def connect : Connection
+      @endpoints.shuffle.each do |e|
+        address = "#{e.host}:#{e.port}"
+        tcp_socket = create_tcp_socket(e.host, e.port)
+        socket = e.tls ? wrap_with_tls(tcp_socket, e.host) : tcp_socket
+        # update_endpoints(socket, address, e.auth)
         Log.debug { "Connected to #{address}" }
-        return {socket, address, auth}
+        return Connection.new socket, address, e.auth
       rescue ex : IO::Error
         Log.debug { "Could not connect to #{address}: #{ex}" }
         next
