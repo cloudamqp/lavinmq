@@ -131,6 +131,7 @@ class MFile < IO
     new_capacity = new_capacity.to_i64
     old_capacity = @capacity
     return if new_capacity == old_capacity # no change
+    return if @deleted.get(:acquire) # don't truncate deleted files
     raise ArgumentError.new("Cannot expand a MFile") if new_capacity > old_capacity
 
     # First truncate the file on disk
