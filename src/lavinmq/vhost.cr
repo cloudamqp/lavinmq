@@ -15,6 +15,7 @@ require "./event_type"
 require "./stats"
 require "./queue_factory"
 require "./mqtt/session"
+require "./execution_context_pool"
 
 module LavinMQ
   class VHost
@@ -51,12 +52,12 @@ module LavinMQ
     @definitions_lock = Mutex.new(:reentrant)
     @definitions_file_path : String
     @definitions_deletes = 0
-    @execution_context : Fiber::ExecutionContext::Parallel
+    @execution_context : Fiber::ExecutionContext
     @closed = Atomic(Bool).new(false)
     Log = LavinMQ::Log.for "vhost"
 
     def initialize(@name : String, @server_data_dir : String, @users : Auth::UserStore, @replicator : Clustering::Replicator?, @description = "", @tags = Array(String).new(0))
-      @execution_context = Fiber::ExecutionContext::Parallel.new("vhost-#{@name}", 1)
+      @execution_context = ExecutionContextPool.instance.acquire
       @log = Logger.new(Log, vhost: @name)
       @dir = Digest::SHA1.hexdigest(@name)
       @data_dir = File.join(@server_data_dir, @dir)
@@ -457,6 +458,8 @@ module LavinMQ
       close(reason: "VHost deleted")
       Fiber.yield
       FileUtils.rm_rf @data_dir
+      # Return ExecutionContext to pool for reuse
+      ExecutionContextPool.instance.release(@execution_context)
     end
 
     private def apply_policies(resources : Array(Queue | Exchange) | Nil = nil)
