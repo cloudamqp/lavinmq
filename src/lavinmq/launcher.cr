@@ -218,6 +218,22 @@ module LavinMQ
       unless @config.mqtt_unix_path.empty?
         spawn amqp_server.listen_unix(@config.mqtt_unix_path, Server::Protocol::MQTT), name: "MQTT listening at #{@config.unix_path}"
       end
+
+      if @config.kafka_port > 0
+        spawn amqp_server.listen(@config.kafka_bind, @config.kafka_port, Server::Protocol::Kafka),
+          name: "Kafka listening on #{@config.kafka_port}"
+      end
+
+      if @config.kafkas_port > 0
+        if ctx = @tls_context
+          spawn amqp_server.listen_tls(@config.kafka_bind, @config.kafkas_port, ctx, Server::Protocol::Kafka),
+            name: "Kafkas listening on #{@config.kafkas_port}"
+        end
+      end
+
+      unless @config.kafka_unix_path.empty?
+        spawn amqp_server.listen_unix(@config.kafka_unix_path, Server::Protocol::Kafka), name: "Kafka listening at #{@config.kafka_unix_path}"
+      end
     end
 
     private def dump_debug_info
