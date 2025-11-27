@@ -11,6 +11,12 @@ module LavinMQ
     class OAuthAuthenticator < Authenticator
       Log = LavinMQ::Log.for "oauth2"
 
+      record TokenClaims,
+        username : String,
+        tags : Array(Tag),
+        permissions : Hash(String, User::Permissions),
+        expires_at : Time
+
       @cached_public_keys : Hash(String, String)?
       @cache_expires_at : Time?
       @cache_mutex = Mutex.new
@@ -42,10 +48,10 @@ module LavinMQ
       end
 
       def authenticate(username : String, password : String) : OAuthUser?
-        extracted_username, tags, permissions, expires_at = verify_token(password)
+        claims = verify_token(password)
 
-        Log.info { "OAuth2 user authenticated: #{extracted_username}" }
-        OAuthUser.new(extracted_username, tags, permissions, expires_at, self)
+        Log.info { "OAuth2 user authenticated: #{claims.username}" }
+        OAuthUser.new(claims.username, claims.tags, claims.permissions, claims.expires_at, self)
       rescue ex : JWT::DecodeError
         Log.warn { "OAuth2 authentication failed for user \"#{username}\": Could not decode token - #{ex.message}" }
         nil
@@ -58,7 +64,7 @@ module LavinMQ
       end
 
       # Also used by OAuthUser on UpdateSecret frame
-      def verify_token(token : String)
+      def verify_token(token : String) : TokenClaims
         prevalidate_token(token)
         verified_token = verify_with_public_key(token)
         validate_and_extract_claims(verified_token.payload)
@@ -159,14 +165,14 @@ module LavinMQ
         end
       end
 
-      protected def validate_and_extract_claims(payload)
+      protected def validate_and_extract_claims(payload) : TokenClaims
         validate_issuer(payload)
         validate_audience(payload) if @config.oauth_verify_aud?
 
         username = extract_username(payload)
         tags, permissions = parse_roles(payload)
         expires_at = payload["exp"]?.try(&.as_i64?) || raise JWT::VerificationError.new("No expiration time found in JWT token")
-        {username, tags, permissions, Time.unix(expires_at)}
+        TokenClaims.new(username, tags, permissions, Time.unix(expires_at))
       end
 
       protected def validate_issuer(payload)
