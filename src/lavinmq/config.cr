@@ -76,6 +76,16 @@ module LavinMQ
     property default_password : String = ENV.fetch("LAVINMQ_DEFAULT_PASSWORD", DEFAULT_PASSWORD_HASH) # Hashed password for default user
     property max_consumers_per_channel = 0
     property mqtt_max_packet_size = 268_435_455_u32 # bytes
+    # OAuth2 JWT/JWKS settings
+    property jwks_uri : String = ""
+    property iss : String? = ""
+    property aud : String? = ""
+    # OAuth2 token validation via userinfo endpoint
+    property oauth2_userinfo_url : String = ""
+    property oauth2_username_claim : String = "sub"
+    property oauth2_username_prefix : String = "oauth:"
+    property oauth2_default_vhost : String = "/"
+    property oauth2_jwks_cache_ttl : Int32 = 3600  # seconds
     @@instance : Config = self.new
 
     def self.instance : LavinMQ::Config
@@ -233,6 +243,7 @@ module LavinMQ
         when "mqtt"         then parse_mqtt(settings)
         when "mgmt", "http" then parse_mgmt(settings)
         when "clustering"   then parse_clustering(settings)
+        when "auth"         then parse_auth(settings)
         when "experimental" then parse_experimental(settings)
         when "replication"  then abort("#{file}: [replication] is deprecated and replaced with [clustering], see the README for more information")
         else
@@ -409,9 +420,20 @@ module LavinMQ
     private def parse_auth(settings)
       settings.each do |config, v|
         case config
-        when "http"          then @http_auth_url = v
-        when "oauth"         then @oauth_url = v
-        when "auth_backends" then @auth_backends = v.split(",")
+        when "http"                      then @http_auth_url = v
+        when "oauth"                     then @oauth_url = v
+        when "auth_backends"             then @auth_backends = v.split(",").map(&.strip)
+        # JWT/JWKS settings
+        when "jwks_uri"                  then @jwks_uri = v
+        when "jwt_issuer", "iss"         then @iss = v
+        when "jwt_audience", "aud"       then @aud = v
+        when "jwt_subject", "sub"        then @sub = v
+        when "oauth2_jwks_cache_ttl"     then @oauth2_jwks_cache_ttl = v.to_i32
+        # Userinfo settings
+        when "oauth2_userinfo_url"       then @oauth2_userinfo_url = v
+        when "oauth2_username_claim"     then @oauth2_username_claim = v
+        when "oauth2_username_prefix"    then @oauth2_username_prefix = v
+        when "oauth2_default_vhost"      then @oauth2_default_vhost = v
         else
           STDERR.puts "WARNING: Unrecognized configuration 'auth/#{config}'"
         end
