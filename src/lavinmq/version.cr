@@ -1,5 +1,7 @@
 module LavinMQ
-  VERSION = {{ `[ -n "$version" ] && echo "$version" || git describe --tags 2>/dev/null || shards version`.chomp.stringify.gsub(/^v/, "") }}
+  {% begin %}
+    VERSION = {{ `[ -n "$version" ] && echo "$version" || git describe --tags 2>/dev/null || shards version`.chomp.stringify.gsub(/^v/, "") }}
+  {% end %}
 
   macro build_flags
     String.build do |flags|
