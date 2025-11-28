@@ -22,6 +22,8 @@ module LavinMQ
               next
             when "oauth"
               authenticators << OAuthAuthenticator.new
+            when "userinfo"
+              authenticators << UserinfoAuthenticator.new
             else
               raise "Unsupported authentication backend: #{backend}"
             end

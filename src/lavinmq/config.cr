@@ -76,6 +76,7 @@ module LavinMQ
     property default_password : String = ENV.fetch("LAVINMQ_DEFAULT_PASSWORD", DEFAULT_PASSWORD_HASH) # Hashed password for default user
     property max_consumers_per_channel = 0
     property mqtt_max_packet_size = 268_435_455_u32 # bytes
+    # OAuth2 JWT/JWKS settings
     property oauth_issuer_url : String = ""
     property oauth_resource_server_id : String = ""
     property oauth_preferred_username_claims = Array(String).new
@@ -84,6 +85,12 @@ module LavinMQ
     property? oauth_verify_aud : Bool = true
     property oauth_audience : String = ""
     property oauth_jwks_cache_ttl : Time::Span = 1.hours
+
+    # OAuth2 Userinfo endpoint settings (for opaque tokens)
+    property oauth_userinfo_url : String = ""
+    property oauth_userinfo_username_claim : String = "sub"
+    property oauth_userinfo_username_prefix : String = "oauth:"
+    property oauth_userinfo_default_vhost : String = "/"
 
     @@instance : Config = self.new
 
@@ -427,6 +434,10 @@ module LavinMQ
         when "verify_aud"                 then @oauth_verify_aud = true?(v)
         when "audience"                   then @oauth_audience = v
         when "jwks_cache_ttl"             then @oauth_jwks_cache_ttl = v.to_i.seconds
+        when "userinfo_url"               then @oauth_userinfo_url = v
+        when "userinfo_username_claim"    then @oauth_userinfo_username_claim = v
+        when "userinfo_username_prefix"   then @oauth_userinfo_username_prefix = v
+        when "userinfo_default_vhost"     then @oauth_userinfo_default_vhost = v
         else
           STDERR.puts "WARNING: Unrecognized configuration 'oauth/#{config}'"
         end
