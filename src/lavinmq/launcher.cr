@@ -29,6 +29,7 @@ module LavinMQ
   class Launcher
     Log = LavinMQ::Log.for "launcher"
     @tls_context : OpenSSL::SSL::Context::Server?
+    @tls_offloader : TLSOffloader?
     @first_shutdown_attempt = true
     @data_dir_lock : DataDirLock?
     @closed = false
@@ -89,6 +90,7 @@ module LavinMQ
       @closed = true
       Log.warn { "Stopping" }
       SystemD.notify_stopping
+      @tls_offloader.try &.close rescue nil
       @http_server.try &.close rescue nil
       @amqp_server.try &.close rescue nil
       @metrics_server.try &.close rescue nil
@@ -172,12 +174,8 @@ module LavinMQ
           name: "AMQP listening on #{@config.amqp_port}"
       end
 
-      if @config.amqps_port > 0
-        if ctx = @tls_context
-          spawn amqp_server.listen_tls(@config.amqp_bind, @config.amqps_port, ctx, Server::Protocol::AMQP),
-            name: "AMQPS listening on #{@config.amqps_port}"
-        end
-      end
+      # Start TLS offloader for AMQPS and MQTTS if TLS is configured
+      start_tls_offloader(amqp_server)
 
       if clustering_bind = @config.clustering_bind
         spawn amqp_server.listen_clustering(clustering_bind, @config.clustering_port), name: "Clustering listener"
@@ -192,6 +190,7 @@ module LavinMQ
       end
       if @config.https_port > 0
         if ctx = @tls_context
+          # HTTP server handles its own TLS (Crystal's HTTP::Server)
           http_server.bind_tls(@config.http_bind, @config.https_port, ctx)
         end
       end
@@ -209,15 +208,60 @@ module LavinMQ
           name: "MQTT listening on #{@config.mqtt_port}"
       end
 
-      if @config.mqtts_port > 0
-        if ctx = @tls_context
-          spawn amqp_server.listen_tls(@config.mqtt_bind, @config.mqtts_port, ctx, Server::Protocol::MQTT),
-            name: "MQTTS listening on #{@config.mqtts_port}"
-        end
-      end
       unless @config.mqtt_unix_path.empty?
         spawn amqp_server.listen_unix(@config.mqtt_unix_path, Server::Protocol::MQTT), name: "MQTT listening at #{@config.unix_path}"
       end
+    end
+
+    # Start TLS offloader in a separate execution context for AMQPS and MQTTS
+    private def start_tls_offloader(amqp_server)
+      ctx = @tls_context
+      return unless ctx
+
+      needs_amqps = @config.amqps_port > 0
+      needs_mqtts = @config.mqtts_port > 0
+      return unless needs_amqps || needs_mqtts
+
+      {% if flag?(:execution_context) %}
+        # Create TLS offloader and execution context
+        offloader = @tls_offloader = TLSOffloader.new(ctx)
+
+        # Create dedicated execution context for TLS operations
+        tls_context = Fiber::ExecutionContext::Parallel.new("tls", 2)
+
+        # Start TLS listeners in TLS execution context
+        if needs_amqps
+          server = TCPServer.new(@config.amqp_bind, @config.amqps_port)
+          tls_context.spawn(name: "AMQPS TLS offloader") do
+            offloader.listen(server, :amqp)
+          end
+          Log.info { "AMQPS TLS offloader listening on #{@config.amqps_port}" }
+        end
+
+        if needs_mqtts
+          server = TCPServer.new(@config.mqtt_bind, @config.mqtts_port)
+          tls_context.spawn(name: "MQTTS TLS offloader") do
+            offloader.listen(server, :mqtt)
+          end
+          Log.info { "MQTTS TLS offloader listening on #{@config.mqtts_port}" }
+        end
+
+        # Start receiver in main execution context to handle offloaded connections
+        spawn(name: "TLS offloaded connection receiver") do
+          amqp_server.listen_tls_offloaded(offloader)
+        end
+      {% else %}
+        # Fallback: use direct TLS handling when execution contexts are not available
+        if needs_amqps
+          spawn amqp_server.listen_tls(@config.amqp_bind, @config.amqps_port, ctx, Server::Protocol::AMQP),
+            name: "AMQPS listening on #{@config.amqps_port}"
+        end
+
+        if needs_mqtts
+          spawn amqp_server.listen_tls(@config.mqtt_bind, @config.mqtts_port, ctx, Server::Protocol::MQTT),
+            name: "MQTTS listening on #{@config.mqtts_port}"
+        end
+      {% end %}
     end
 
     private def dump_debug_info

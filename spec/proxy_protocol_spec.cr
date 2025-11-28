@@ -86,5 +86,39 @@ describe "ProxyProtocol" do
         0x92, 0x30, 0x16, 0x27
       ).to_slice
     end
+
+    it "can write header with SSL TLV and round-trip" do
+      src = Socket::IPAddress.new("192.168.1.100", 54321)
+      dst = Socket::IPAddress.new("10.0.0.1", 5672)
+
+      # Write to pipe (which supports read_timeout for parse)
+      r, w = IO.pipe
+      LavinMQ::ProxyProtocol::V2.new(src, dst,
+        ssl_version: "TLSv1.3",
+        ssl_cipher: "TLS_AES_256_GCM_SHA384"
+      ).to_io(w)
+
+      # Parse and verify
+      conn_info = LavinMQ::ProxyProtocol::V2.parse(r)
+      conn_info.remote_address.to_s.should eq "192.168.1.100:54321"
+      conn_info.local_address.to_s.should eq "10.0.0.1:5672"
+      conn_info.ssl?.should be_true
+      conn_info.ssl_verify?.should be_true
+      conn_info.ssl_version.should eq "TLSv1.3"
+      conn_info.ssl_cipher.should eq "TLS_AES_256_GCM_SHA384"
+    end
+
+    it "preserves backward compatibility without SSL" do
+      src = Socket::IPAddress.new("127.0.0.1", 37424)
+      dst = Socket::IPAddress.new("127.0.0.1", 5671)
+
+      r, w = IO.pipe
+      LavinMQ::ProxyProtocol::V2.new(src, dst).to_io(w)
+
+      conn_info = LavinMQ::ProxyProtocol::V2.parse(r)
+      conn_info.remote_address.to_s.should eq "127.0.0.1:37424"
+      conn_info.local_address.to_s.should eq "127.0.0.1:5671"
+      conn_info.ssl?.should be_false
+    end
   end
 end
