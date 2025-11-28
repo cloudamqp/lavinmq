@@ -109,8 +109,9 @@ module LavinMQ::AMQP
         when @queue_expiration_ttl_change.receive
         when @consumers_empty.when_false.receive
         when timeout ttl.milliseconds
-          expire_queue
-          close
+          next unless @consumers.empty? # double check
+          @log.info { "Queue expired" }
+          @vhost.delete_queue(@name) # will in turn call `delete`
           break
         end
       end
@@ -164,8 +165,13 @@ module LavinMQ::AMQP
     getter? auto_delete, exclusive
     getter policy : Policy?
     getter operator_policy : OperatorPolicy?
-    getter? closed = false
+    @closed = Atomic(Bool).new(false)
     getter state = QueueState::Running
+
+    def closed?
+      @closed.get(:acquire)
+    end
+
     getter empty : BoolChannel
     getter single_active_consumer : Client::Channel::Consumer? = nil
     getter single_active_consumer_change = ::Channel(Client::Channel::Consumer).new
@@ -195,8 +201,12 @@ module LavinMQ::AMQP
       end
       @empty = @msg_store.empty
       handle_arguments
-      spawn queue_expire_loop, name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}" if @expires
-      spawn message_expire_loop, name: "Queue#message_expire_loop #{@vhost.name}/#{@name}"
+      @vhost.execution_context.spawn(name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}") do
+        queue_expire_loop
+      end if @expires
+      @vhost.execution_context.spawn(name: "Queue#message_expire_loop #{@vhost.name}/#{@name}") do
+        message_expire_loop
+      end
     end
 
     # own method so that it can be overriden in other queue implementations
@@ -270,7 +280,7 @@ module LavinMQ::AMQP
       when "expires"
         unless @expires.try &.< value.as_i64
           @expires = value.as_i64
-          spawn queue_expire_loop, name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}"
+          @vhost.execution_context.spawn(name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}") { queue_expire_loop }
           @queue_expiration_ttl_change.try_send? nil
           @effective_args.delete("x-expires")
           return true
@@ -403,8 +413,7 @@ module LavinMQ::AMQP
     end
 
     def close : Bool
-      return false if @closed
-      @closed = true
+      return false if @closed.swap(true, :acquire_release)
       @state = QueueState::Closed
       @queue_expiration_ttl_change.close
       @message_ttl_change.close
@@ -427,8 +436,7 @@ module LavinMQ::AMQP
     end
 
     def delete : Bool
-      return false if @deleted
-      @deleted = true
+      return false if closed?
       close
       @state = QueueState::Deleted
       @msg_store_lock.synchronize do
@@ -482,7 +490,7 @@ module LavinMQ::AMQP
     class Closed < Exception; end
 
     def publish(msg : Message) : Bool
-      return false if @deleted || @state.closed?
+      return false if closed?
       if d = @deduper
         if d.duplicate?(msg)
           @dedup_count.add(1, :relaxed)
@@ -649,6 +657,7 @@ module LavinMQ::AMQP
     end
 
     private def expire_msg(env : Envelope, reason : Symbol)
+      return if closed?
       sp = env.segment_position
       msg = env.message
       @log.debug { "Expiring #{sp} now due to #{reason}" }
@@ -759,16 +768,8 @@ module LavinMQ::AMQP
         props, msg.bodysize, IO::Memory.new(msg.body))
     end
 
-    private def expire_queue : Bool
-      @log.debug { "Trying to expire queue" }
-      return false unless @consumers.empty?
-      @log.debug { "Queue expired" }
-      @vhost.delete_queue(@name)
-      true
-    end
-
     def basic_get(no_ack, force = false, & : Envelope -> Nil) : Bool
-      return false if !@state.running? && (@state.paused? && !force)
+      return false if closed? || (@state.paused? && !force)
       @queue_expiration_ttl_change.try_send? nil
       @deliver_get_count.add(1, :relaxed)
       no_ack ? @get_no_ack_count.add(1, :relaxed) : @get_count.add(1, :relaxed)
@@ -794,7 +795,7 @@ module LavinMQ::AMQP
     # returns true if a message was deliviered, false otherwise
     # if we encouncer an unrecoverable ReadError, close queue
     private def get(no_ack : Bool, & : Envelope -> Nil) : Bool
-      raise ClosedError.new if @closed
+      raise ClosedError.new if closed?
       loop do # retry if msg expired or deliver limit hit
         env = @msg_store_lock.synchronize { @msg_store.shift? } || break
         if has_expired?(env.message) # guarantee to not deliver expired messages
@@ -853,7 +854,7 @@ module LavinMQ::AMQP
     end
 
     def ack(sp : SegmentPosition) : Nil
-      return if @deleted
+      return if closed?
       @log.debug { "Acking #{sp}" }
       @ack_count.add(1, :relaxed)
       @unacked_count.sub(1, :relaxed)
@@ -872,7 +873,7 @@ module LavinMQ::AMQP
     end
 
     def reject(sp : SegmentPosition, requeue : Bool)
-      return if @deleted || @closed
+      return if closed?
       @log.debug { "Rejecting #{sp}, requeue: #{requeue}" }
       @reject_count.add(1, :relaxed)
       @unacked_count.sub(1, :relaxed)
@@ -901,7 +902,7 @@ module LavinMQ::AMQP
     end
 
     def add_consumer(consumer : Client::Channel::Consumer)
-      return if @closed
+      return if closed?
       @consumers_lock.synchronize do
         was_empty = @consumers.empty?
         @consumers << consumer
@@ -920,7 +921,7 @@ module LavinMQ::AMQP
     getter? has_priority_consumers = false
 
     def rm_consumer(consumer : Client::Channel::Consumer)
-      return if @closed
+      return if closed?
       @consumers_lock.synchronize do
         deleted = @consumers.delete consumer
         @has_priority_consumers = @consumers.any? { |c| !c.priority.zero? }

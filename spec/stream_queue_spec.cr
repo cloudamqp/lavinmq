@@ -285,6 +285,7 @@ describe LavinMQ::AMQP::Stream do
           q.message_count.should eq 2
           sleep 1.1.seconds
           s.vhosts["/"].add_policy("max", "stream-max-age-policy", "queues", {"max-age" => JSON::Any.new("1s")}, 0i8)
+          sleep 0.1.seconds # Give time for policy to be applied
           q.message_count.should eq 1
         end
       end
