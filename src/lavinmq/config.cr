@@ -212,7 +212,7 @@ module LavinMQ
     @[IniOpt(section: "amqp")]
     property? default_user_only_loopback : Bool = true
 
-    @[CliOpt("", "--guest-only-loopback=BOOL", "Limit guest user to only connect from loopback address", deprecated: "default_user_only_loopback", section: "options")]
+    @[CliOpt("", "--guest-only-loopback=BOOL", "Limit guest user to only connect from loopback address", deprecated: "Use --default-user-only-loopback instead.", section: "options")]
     @[IniOpt(section: "main", deprecated: "default_user_only_loopback")]
     property? guest_only_loopback : Bool = true
 
@@ -289,67 +289,79 @@ module LavinMQ
       {% end %}
     end
 
+    struct Option
+      include Comparable(Option)
+
+      def self.new(short_flag : String, long_flag : String, description : String, deprecation_warn_msg : String?, &block : Proc(String, Nil))
+        new(short_flag, long_flag, description, deprecation_warn_msg, block)
+      end
+
+      protected def initialize(@short_flag : String, @long_flag : String, @description : String, @deprecation_warn_msg : String?, @set_value : Proc(String, Nil))
+      end
+
+      def <=>(other : Option)
+        self.compare_value <=> other.compare_value
+      end
+
+      protected def compare_value
+        if @short_flag.empty?
+          "z" + @long_flag
+        else
+          @short_flag
+        end
+      end
+
+      def setup_parser(parser, warn_deprecated)
+        if @short_flag.empty?
+          do_setup_parser(parser, warn_deprecated, @long_flag, @description)
+        else
+          do_setup_parser(parser, warn_deprecated, @short_flag, @long_flag, @description)
+        end
+      end
+
+      private def do_setup_parser(parser, warn_deprecated, *args)
+        parser.on(*args) do |val|
+          if warn_deprecated && (msg = @deprecation_warn_msg)
+            Log.warn { msg }
+          end
+          @set_value.call(val)
+        end
+      end
+    end
+
     private def parse_argv(*, warn_deprecated = false)
       parser = OptionParser.new
       parser.banner = "Usage: #{PROGRAM_NAME} [arguments]"
       {% begin %}
-      {%
-        opts_per_section = {} of String=>Array(Tuple)
         sections = {
-          options: "Options",
-          bindings: "Bindings",
-          tls: "TLS",
-          clustering: "Clustering"
+          options:    {description: "Options", options: Array(Option).new},
+          bindings:   {description: "Bindings", options: Array(Option).new},
+          tls:        {description: "TLS", options: Array(Option).new},
+          clustering: {description: "Clustering", options: Array(Option).new},
         }
-      %}
-      {% for ivar in @type.instance_vars.select(&.annotation(CliOpt)) %}
-        {%
-          anno = ivar.annotation(CliOpt)
-          short_flag, long_flag, description, value_parser = anno.args
-          parser_arg = if short_flag.empty?
-            {long_flag, description}
-          else
-            {short_flag, long_flag, description}
-          end
-          value_parser = ivar.type if value_parser.nil?
-          warn_msg = nil
-          section = anno[:section] || "options"
-          if deprecated = anno[:deprecated]
-            ivar = @type.instance_vars.find &.name.== deprecated
-            use_short, use_long = ivar.annotation(CliOpt).args
-            warn_msg = ""
-            warn_msg += "#{short_flag}/" unless short_flag.empty?
-            warn_msg += "#{long_flag} is deprecated, use "
-            warn_msg += "#{use_short}/" unless use_short.empty?
-            warn_msg += "#{use_long} instead"
-          end
-          if !opts_per_section.has_key?(section.id)
-            opts_per_section[section.id] = [] of Tuple
-          end
-          opts_per_section[section.id] << {ivar: ivar.name.id, parser_arg: parser_arg, value_parser: value_parser, warn_msg: warn_msg}
-        %}
-      {% end %}
-        {% for section, description in sections %}
+        # Build sections structure and populate with CLI options from annotated instance variables
+        {% for ivar in @type.instance_vars.select(&.annotation(CliOpt)) %}
           {%
-            opts_in_section = opts_per_section[section].sort_by do |opt|
-              parser_arg = opt[:parser_arg]
-              a = if parser_arg.size == 2
-                "z" + parser_arg[0].downcase
-              else
-                parser_arg[0]
-              end
+            cli_opt = ivar.annotation(CliOpt)
+            if cli_opt.args.size == 3
+              parser_arg = cli_opt.args
+              value_parser = ivar.type
+            else
+              *parser_arg, value_parser = cli_opt.args
             end
+            section_id = cli_opt[:section] || "options"
+            # sections[section.id][:options] << {ivar: ivar.name.id, parser_arg: parser_arg, value_parser: value_parser, deprecated: cli_opt[:deprecated]}
           %}
-          parser.separator "\n{{description.id}}"
-          {% for opt in opts_in_section %}
-            parser.on({{opt[:parser_arg].splat}}) do |v|
-              {% if opt[:warn_msg] %}
-                Log.warn { {{opt[:warn_msg]}} } if warn_deprecated
-              {% end %}
-              @{{opt[:ivar]}} = parse_value(v, {{opt[:value_parser]}})
-            end
-          {% end %}
+          sections[:{{section_id}}][:options] << Option.new({{parser_arg.splat}}, {{cli_opt[:deprecated]}}) do |value|
+            @{{ivar.name.id}} = parse_value(value, {{value_parser}})
+          end
         {% end %}
+        sections.each do |_section_id, section|
+          parser.separator "\n#{section[:description]}"
+          section[:options].sort.each do |opt|
+            opt.setup_parser(parser, warn_deprecated)
+          end
+        end
       {% end %}
       parser.separator "\nMiscellaneous"
       parser.on("-h", "--help", "Show this help") { puts parser; exit 0 }
