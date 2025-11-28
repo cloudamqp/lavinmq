@@ -214,7 +214,7 @@ module LavinMQ::AMQP
     end
 
     def read(segment : UInt32, position : UInt32) : Envelope?
-      return nil if @closed
+      return if @closed
       rfile = @segments[segment]
       return if position == rfile.size
       begin

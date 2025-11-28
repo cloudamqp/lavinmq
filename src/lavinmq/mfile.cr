@@ -35,6 +35,10 @@ class MFile < IO
     @closed.get(:acquire)
   end
 
+  def deleted?
+    @deleted.get(:acquire)
+  end
+
   # Map a file, if no capacity is given the file must exists and
   # the file will be mapped as readonly
   # The file won't be truncated if the capacity is smaller than current size
@@ -57,7 +61,7 @@ class MFile < IO
   end
 
   def self.open(path, capacity : Int? = nil, writeonly = false, & : self -> _)
-    mfile = self.new(path, capacity, writeonly)
+    mfile = new(path, capacity, writeonly)
     begin
       yield mfile
     ensure
@@ -128,16 +132,23 @@ class MFile < IO
   # Truncate the file to the given capacity (contracting only, no expansion)
   # The truncated part is unmapped from memory
   def truncate(new_capacity) : Nil
+    return if closed?
     new_capacity = new_capacity.to_i64
     old_capacity = @capacity
     return if new_capacity == old_capacity # no change
     raise ArgumentError.new("Cannot expand a MFile") if new_capacity > old_capacity
 
-    # First truncate the file on disk
-    code = LibC.truncate(@path.check_no_null_byte, new_capacity)
-    raise File::Error.from_errno("Error truncating file", file: @path) if code < 0
+    unless deleted?
+      # First truncate the file on disk
+      code = LibC.truncate(@path.check_no_null_byte, new_capacity)
+      # Ignore ENOENT - file may have been deleted by another process
+      if code < 0 && Errno.value != Errno::ENOENT
+        raise File::Error.from_errno("Error truncating file", file: @path)
+      end
+    end
 
     # Unmap the truncated part from the mapping
+    # Truncate mapping even if file on disk is deleted
     unmap_truncated(new_capacity, old_capacity)
 
     @capacity = new_capacity

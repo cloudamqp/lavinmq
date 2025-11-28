@@ -187,9 +187,9 @@ class LavinMQCtl
       queues = Array(Frame::Method::Queue::Declare).new
       File.open(File.join(vhost_dir, "definitions.amqp")) do |defs|
         _schema = defs.read_bytes Int32
+        stream = AMQ::Protocol::Stream.new(defs, format: IO::ByteFormat::SystemEndian)
         loop do
-          frame = Frame.from_io(defs, IO::ByteFormat::SystemEndian) { |f| f }
-          case frame
+          case frame = stream.next_frame
           when Frame::Method::Queue::Declare
             queues << frame
           when Frame::Method::Queue::Delete
@@ -206,9 +206,9 @@ class LavinMQCtl
       exchanges = Array(Frame::Method::Exchange::Declare).new
       File.open(File.join(vhost_dir, "definitions.amqp")) do |defs|
         _schema = defs.read_bytes Int32
+        stream = AMQ::Protocol::Stream.new(defs, format: IO::ByteFormat::SystemEndian)
         loop do
-          frame = Frame.from_io(defs, IO::ByteFormat::SystemEndian) { |f| f }
-          case frame
+          case frame = stream.next_frame
           when Frame::Method::Exchange::Declare
             exchanges << frame
           when Frame::Method::Exchange::Delete
@@ -225,9 +225,9 @@ class LavinMQCtl
       bindings = Array(Frame::Method::Queue::Bind).new
       File.open(File.join(vhost_dir, "definitions.amqp")) do |defs|
         _schema = defs.read_bytes Int32
+        stream = AMQ::Protocol::Stream.new(defs, format: IO::ByteFormat::SystemEndian)
         loop do
-          frame = Frame.from_io(defs, IO::ByteFormat::SystemEndian) { |f| f }
-          case frame
+          case frame = stream.next_frame
           when Frame::Method::Queue::Bind
             bindings << frame
           when Frame::Method::Queue::Unbind
@@ -244,9 +244,9 @@ class LavinMQCtl
       bindings = Array(Frame::Method::Exchange::Bind).new
       File.open(File.join(vhost_dir, "definitions.amqp")) do |defs|
         _schema = defs.read_bytes Int32
+        stream = AMQ::Protocol::Stream.new(defs, format: IO::ByteFormat::SystemEndian)
         loop do
-          frame = Frame.from_io(defs, IO::ByteFormat::SystemEndian) { |f| f }
-          case frame
+          case frame = stream.next_frame
           when Frame::Method::Exchange::Bind
             bindings << frame
           when Frame::Method::Exchange::Unbind

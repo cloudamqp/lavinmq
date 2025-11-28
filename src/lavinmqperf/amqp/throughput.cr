@@ -197,7 +197,7 @@ module LavinMQPerf
         connected.wait # wait for all publishers to connect
 
         start = Time.monotonic
-        Signal::INT.trap do
+        Process.on_terminate do
           abort "Aborting" if @stopped
           @stopped = true
           summary(start)
@@ -243,7 +243,7 @@ module LavinMQPerf
       end
 
       private def calculate_percentiles(latencies : Array(Float64))
-        return nil if latencies.empty?
+        return if latencies.empty?
         latencies.unstable_sort!
         size = latencies.size - 1
         {

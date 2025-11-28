@@ -156,22 +156,30 @@ module LavinMQ
         )
       end
 
-      private def apply_policy_argument(key : String, value : JSON::Any)
+      private def apply_policy_argument(key : String, value : JSON::Any) : Bool
         @log.debug { "Applying policy #{key}: #{value}" }
         case key
         when "max-length"
           unless @max_length.try &.< value.as_i64
             @max_length = value.as_i64
             drop_overflow
+            return true
           end
         when "max-length-bytes"
           unless @max_length_bytes.try &.< value.as_i64
             @max_length_bytes = value.as_i64
             drop_overflow
+            return true
           end
         when "overflow"
           @reject_on_overflow ||= value.as_s == "reject-publish"
+          return true
         end
+        false
+      end
+
+      def after_policy_applied
+        drop_overflow
       end
 
       def ack(packet : MQTT::PubAck) : Nil
@@ -188,13 +196,13 @@ module LavinMQ
       private def queue_expire_loop; end
 
       private def next_id : UInt16?
-        return nil if @unacked.size == Config.instance.max_inflight_messages
+        return if @unacked.size == Config.instance.max_inflight_messages
         start_id = @count
         next_id : UInt16 = start_id &+ 1_u16
         while @unacked.has_key?(next_id)
           next_id &+= 1u16
           next_id = 1u16 if next_id == 0
-          return nil if next_id == start_id
+          return if next_id == start_id
         end
         @count = next_id
         next_id

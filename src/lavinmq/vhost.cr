@@ -497,44 +497,44 @@ module LavinMQ
       @definitions_lock.synchronize do
         @log.debug { "Verifying schema" }
         SchemaVersion.verify(io, :definition)
+        stream = AMQ::Protocol::Stream.new(io, format: IO::ByteFormat::SystemEndian)
         loop do
-          AMQP::Frame.from_io(io, IO::ByteFormat::SystemEndian) do |f|
-            @log.trace { "Reading frame #{f.inspect}" }
-            case f
-            when AMQP::Frame::Exchange::Declare
-              exchanges[f.exchange_name] = f
-            when AMQP::Frame::Exchange::Delete
-              exchanges.delete f.exchange_name
-              exchange_bindings.delete f.exchange_name
-              should_compact = true
-            when AMQP::Frame::Exchange::Bind
-              exchange_bindings[f.destination] << f
-            when AMQP::Frame::Exchange::Unbind
-              exchange_bindings[f.destination].reject! do |b|
-                b.source == f.source &&
-                  b.routing_key == f.routing_key &&
-                  b.arguments == f.arguments
-              end
-              should_compact = true
-            when AMQP::Frame::Queue::Declare
-              queues[f.queue_name] = f
-            when AMQP::Frame::Queue::Delete
-              queues.delete f.queue_name
-              queue_bindings.delete f.queue_name
-              should_compact = true
-            when AMQP::Frame::Queue::Bind
-              queue_bindings[f.queue_name] << f
-            when AMQP::Frame::Queue::Unbind
-              queue_bindings[f.queue_name].reject! do |b|
-                b.exchange_name == f.exchange_name &&
-                  b.routing_key == f.routing_key &&
-                  b.arguments == f.arguments
-              end
-              should_compact = true
-            else
-              raise "Cannot apply frame #{f.class} in vhost #{@name}"
+          f = stream.next_frame
+          @log.trace { "Reading frame #{f.inspect}" }
+          case f
+          when AMQP::Frame::Exchange::Declare
+            exchanges[f.exchange_name] = f
+          when AMQP::Frame::Exchange::Delete
+            exchanges.delete f.exchange_name
+            exchange_bindings.delete f.exchange_name
+            should_compact = true
+          when AMQP::Frame::Exchange::Bind
+            exchange_bindings[f.destination] << f
+          when AMQP::Frame::Exchange::Unbind
+            exchange_bindings[f.destination].reject! do |b|
+              b.source == f.source &&
+                b.routing_key == f.routing_key &&
+                b.arguments == f.arguments
             end
-          end # Frame.from_io
+            should_compact = true
+          when AMQP::Frame::Queue::Declare
+            queues[f.queue_name] = f
+          when AMQP::Frame::Queue::Delete
+            queues.delete f.queue_name
+            queue_bindings.delete f.queue_name
+            should_compact = true
+          when AMQP::Frame::Queue::Bind
+            queue_bindings[f.queue_name] << f
+          when AMQP::Frame::Queue::Unbind
+            queue_bindings[f.queue_name].reject! do |b|
+              b.exchange_name == f.exchange_name &&
+                b.routing_key == f.routing_key &&
+                b.arguments == f.arguments
+            end
+            should_compact = true
+          else
+            raise "Cannot apply frame #{f.class} in vhost #{@name}"
+          end
         rescue ex : IO::EOFError
           break
         end # loop

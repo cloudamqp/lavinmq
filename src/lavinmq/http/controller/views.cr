@@ -50,9 +50,9 @@ module LavinMQ
       # ```
       macro static_view(path, view = nil, &block)
         {% view = path[1..] if view.nil? %}
-        get {{path}} do |context, params|
+        get {{ path }} do |context, params|
           if_non_match = context.request.headers["If-None-Match"]?
-          Log.trace { "static_view path={{path.id}} etag=#{ETag} if-non-match=#{if_non_match}" }
+          Log.trace { "static_view path={{ path.id }} etag=#{ETag} if-non-match=#{if_non_match}" }
           if if_non_match == ETag
             context.response.status_code = 304
           else
@@ -63,8 +63,8 @@ module LavinMQ
             context.response.headers.add("Referrer-Policy", "same-origin")
             # The sha256 hash below is for the inline script in views/partials/head.ecr
             context.response.headers.add("Content-Security-Policy", "default-src 'none'; style-src 'self'; font-src 'self'; img-src 'self'; connect-src 'self'; script-src 'self' 'sha256-9nCxy0qjWUXfAqDk5MjMKgu+tHDTvI8ZUAmbmYoCEF8='")
-            {{block.body if block}}
-            render {{view}}
+            {{ block.body if block }}
+            render {{ view }}
           end
           context
         end
@@ -79,13 +79,13 @@ module LavinMQ
 
       # Render an ecr file from views dir
       macro render(file)
-        ECR.embed "views/{{file.id}}.ecr", context.response
+        ECR.embed "views/{{ file.id }}.ecr", context.response
       end
 
       macro active_path?(path)
-        context.request.path == "/#{{{path}}}" ||
-          context.request.path == "/#{{{path}}}".chomp('s') ||
-          (context.request.path == "/" && {{path}} == ".")
+        context.request.path == "/#{{{ path }}}" ||
+          context.request.path == "/#{{{ path }}}".chomp('s') ||
+          (context.request.path == "/" && {{ path }} == ".")
       end
     end
   end

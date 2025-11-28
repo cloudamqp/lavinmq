@@ -18,10 +18,10 @@ module LavinMQ
     property log_level : ::Log::Severity = DEFAULT_LOG_LEVEL
     property amqp_bind = "127.0.0.1"
     property amqp_port = 5672
-    property amqps_port = -1
+    property amqps_port = 5671
     property mqtt_bind = "127.0.0.1"
     property mqtt_port = 1883
-    property mqtts_port = -1
+    property mqtts_port = 8883
     property mqtt_unix_path = ""
     property unix_path = ""
     property unix_proxy_protocol = 1_u8 # PROXY protocol version on unix domain socket connections
@@ -32,10 +32,8 @@ module LavinMQ
     property tls_min_version = ""
     property http_bind = "127.0.0.1"
     property http_port = 15672
-    property https_port = -1
+    property https_port = 15671
     property http_unix_path = ""
-    property http_systemd_socket_name = "lavinmq-http.socket"
-    property amqp_systemd_socket_name = "lavinmq-amqp.socket"
     property metrics_http_bind = "127.0.0.1"
     property metrics_http_port = 15692
     property heartbeat = 300_u16                     # second
@@ -73,10 +71,11 @@ module LavinMQ
     property default_consumer_prefetch = UInt16::MAX
     property yield_each_received_bytes = 131_072    # max number of bytes to read from a client connection without letting other tasks in the server do any work
     property yield_each_delivered_bytes = 1_048_576 # max number of bytes sent to a client without tending to other tasks in the server
-    property auth_backends : Array(String) = ["basic"]
+    property auth_backends : Array(String) = ["local"]
     property default_user : String = ENV.fetch("LAVINMQ_DEFAULT_USER", "guest")
     property default_password : String = ENV.fetch("LAVINMQ_DEFAULT_PASSWORD", DEFAULT_PASSWORD_HASH) # Hashed password for default user
     property max_consumers_per_channel = 0
+    property mqtt_max_packet_size = 268_435_455_u32 # bytes
     @@instance : Config = self.new
 
     def self.instance : LavinMQ::Config
@@ -105,10 +104,10 @@ module LavinMQ
           STDERR.puts "WARNING: 'guest_only_loopback' is deprecated, use '--default-user-only-loopback' instead"
           @default_user_only_loopback = {"true", "yes", "y", "1"}.includes? v.to_s
         end
-        p.on("--default-consumer-prefetch=NUMBER", "Default consumer prefetch (default: 65535)") do |v|
+        p.on("--default-consumer-prefetch=NUMBER", "Default consumer prefetch (default: #{@default_consumer_prefetch})") do |v|
           @default_consumer_prefetch = v.to_u16
         end
-        p.on("--default-user=USER", "Default user (default: guest)") do |v|
+        p.on("--default-user=USER", "Default user (default: #{@default_user})") do |v|
           @default_user = v
         end
         p.on("--default-password-hash=PASSWORD-HASH", "Hashed password for default user (default: '+pHuxkR9fCyrrwXjOD4BP4XbzO3l8LJr8YkThMgJ0yVHFRE+' (guest))") do |v|
@@ -118,40 +117,40 @@ module LavinMQ
           STDERR.puts "WARNING: 'default-password' is deprecated, use '--default-password-hash' instead"
           @default_password = v
         end
-        p.on("--no-data-dir-lock", "Don't put a file lock in the data directory (default: true)") { @data_dir_lock = false }
-        p.on("--raise-gc-warn", "Raise on GC warnings (default: false)") { @raise_gc_warn = true }
+        p.on("--no-data-dir-lock", "Don't put a file lock in the data directory") { @data_dir_lock = false }
+        p.on("--raise-gc-warn", "Raise on GC warnings (default: #{@raise_gc_warn})") { @raise_gc_warn = true }
 
         p.separator("\nBindings & TLS:")
-        p.on("-b BIND", "--bind=BIND", "IP address that the AMQP, MQTT and HTTP servers will listen on (default: 127.0.0.1)") do |v|
+        p.on("-b BIND", "--bind=BIND", "IP address that the AMQP, MQTT and HTTP servers will listen on (default: #{@amqp_bind})") do |v|
           @amqp_bind = v
           @http_bind = v
           @mqtt_bind = v
         end
-        p.on("-p PORT", "--amqp-port=PORT", "AMQP port to listen on (default: 5672)") do |v|
+        p.on("-p PORT", "--amqp-port=PORT", "AMQP port to listen on (default: #{@amqp_port})") do |v|
           @amqp_port = v.to_i
         end
-        p.on("--amqps-port=PORT", "AMQPS port to listen on (default: -1)") do |v|
+        p.on("--amqps-port=PORT", "AMQPS port to listen on (default: #{@amqps_port})") do |v|
           @amqps_port = v.to_i
         end
-        p.on("--amqp-bind=BIND", "IP address that the AMQP server will listen on (default: 127.0.0.1)") do |v|
+        p.on("--amqp-bind=BIND", "IP address that the AMQP server will listen on (default: #{@amqp_bind})") do |v|
           @amqp_bind = v
         end
-        p.on("--mqtt-port=PORT", "MQTT port to listen on (default: 1883)") do |v|
+        p.on("--mqtt-port=PORT", "MQTT port to listen on (default: #{@mqtt_port})") do |v|
           @mqtt_port = v.to_i
         end
-        p.on("--mqtts-port=PORT", "MQTTS port to listen on (default: 8883)") do |v|
+        p.on("--mqtts-port=PORT", "MQTTS port to listen on (default: #{@mqtts_port})") do |v|
           @mqtts_port = v.to_i
         end
-        p.on("--mqtt-bind=BIND", "IP address that the MQTT server will listen on (default: 127.0.0.1)") do |v|
+        p.on("--mqtt-bind=BIND", "IP address that the MQTT server will listen on (default: #{@mqtt_bind})") do |v|
           @mqtt_bind = v
         end
-        p.on("--http-port=PORT", "HTTP port to listen on (default: 15672)") do |v|
+        p.on("--http-port=PORT", "HTTP port to listen on (default: #{@http_port})") do |v|
           @http_port = v.to_i
         end
-        p.on("--https-port=PORT", "HTTPS port to listen on (default: -1)") do |v|
+        p.on("--https-port=PORT", "HTTPS port to listen on (default: #{@https_port})") do |v|
           @https_port = v.to_i
         end
-        p.on("--http-bind=BIND", "IP address that the HTTP server will listen on (default: 127.0.0.1)") do |v|
+        p.on("--http-bind=BIND", "IP address that the HTTP server will listen on (default: #{@http_bind})") do |v|
           @http_bind = v
         end
         p.on("--amqp-unix-path=PATH", "AMQP UNIX path to listen to") do |v|
@@ -172,28 +171,28 @@ module LavinMQ
         p.on("--cert FILE", "TLS certificate (including chain)") { |v| @tls_cert_path = v }
         p.on("--key FILE", "Private key for the TLS certificate") { |v| @tls_key_path = v }
         p.on("--ciphers CIPHERS", "List of TLS ciphers to allow") { |v| @tls_ciphers = v }
-        p.on("--tls-min-version=VERSION", "Mininum allowed TLS version (default 1.2)") { |v| @tls_min_version = v }
+        p.on("--tls-min-version=VERSION", "Mininum allowed TLS version (default: #{@tls_min_version})") { |v| @tls_min_version = v }
 
         p.separator("\nClustering:")
         p.on("--clustering", "Enable clustering") do
           @clustering = true
         end
-        p.on("--clustering-advertised-uri=URI", "Advertised URI for the clustering server") do |v|
+        p.on("--clustering-advertised-uri=URI", "Advertised URI for the clustering server (default: tcp://#{System.hostname}:#{@clustering_port})") do |v|
           @clustering_advertised_uri = v
         end
-        p.on("--clustering-etcd-prefix=KEY", "Key prefix used in etcd (default: lavinmq)") do |v|
+        p.on("--clustering-etcd-prefix=KEY", "Key prefix used in etcd (default: #{@clustering_etcd_prefix})") do |v|
           @clustering_etcd_prefix = v
         end
-        p.on("--clustering-port=PORT", "Listen for clustering followers on this port (default: 5679)") do |v|
+        p.on("--clustering-port=PORT", "Listen for clustering followers on this port (default: #{@clustering_port})") do |v|
           @clustering_port = v.to_i
         end
-        p.on("--clustering-bind=BIND", "Listen for clustering followers on this address (default: localhost)") do |v|
+        p.on("--clustering-bind=BIND", "Listen for clustering followers on this address (default: #{@clustering_bind})") do |v|
           @clustering_bind = v
         end
         p.on("--clustering-max-unsynced-actions=ACTIONS", "Maximum unsynced actions") do |v|
           @clustering_max_unsynced_actions = v.to_i
         end
-        p.on("--clustering-etcd-endpoints=URIs", "Comma separeted host/port pairs (default: 127.0.0.1:2379)") do |v|
+        p.on("--clustering-etcd-endpoints=URIs", "Comma separeted host/port pairs (default: #{@clustering_etcd_endpoints})") do |v|
           @clustering_etcd_endpoints = v
         end
 
@@ -250,7 +249,7 @@ module LavinMQ
     private def reload_logger
       log_file = (path = @log_file) ? File.open(path, "a") : STDOUT
       broadcast_backend = ::Log::BroadcastBackend.new
-      backend = if ENV.has_key?("JOURNAL_STREAM")
+      backend = if journald_stream?
                   ::Log::IOBackend.new(io: log_file, formatter: JournalLogFormat)
                 else
                   ::Log::IOBackend.new(io: log_file, formatter: StdoutLogFormat)
@@ -264,6 +263,25 @@ module LavinMQ
       ::Log.setup(@log_level, broadcast_backend)
       target = (path = @log_file) ? path : "stdout"
       Log.info &.emit("Logger settings", level: @log_level.to_s, target: target)
+    end
+
+    def journald_stream? : Bool
+      return false unless journal_stream = ENV["JOURNAL_STREAM"]?
+      return false if @log_file # If logging to a file, not using journald
+
+      # JOURNAL_STREAM format is "device:inode"
+      parts = journal_stream.split(':')
+      return false unless parts.size == 2
+
+      journal_dev = parts[0].to_u64?
+      journal_ino = parts[1].to_u64?
+      return false unless journal_dev && journal_ino
+
+      # Get STDOUT's device and inode
+      LibC.fstat(STDOUT.fd, out stat)
+      stat.st_dev == journal_dev && stat.st_ino == journal_ino
+    rescue
+      false
     end
 
     def tls_configured?
@@ -344,7 +362,6 @@ module LavinMQ
         when "frame_max"                 then @frame_max = v.to_u32
         when "channel_max"               then @channel_max = v.to_u16
         when "max_message_size"          then @max_message_size = v.to_i32
-        when "systemd_socket_name"       then @amqp_systemd_socket_name = v
         when "unix_proxy_protocol"       then @unix_proxy_protocol = true?(v) ? 1u8 : v.to_u8? || 0u8
         when "tcp_proxy_protocol"        then @tcp_proxy_protocol = true?(v) ? 1u8 : v.to_u8? || 0u8
         when "set_timestamp"             then @set_timestamp = true?(v)
@@ -367,6 +384,7 @@ module LavinMQ
         when "max_inflight_messages"    then @max_inflight_messages = v.to_u16
         when "default_vhost"            then @default_mqtt_vhost = v
         when "permission_check_enabled" then @mqtt_permission_check_enabled = true?(v)
+        when "max_packet_size"          then @mqtt_max_packet_size = v.to_u32
         else
           STDERR.puts "WARNING: Unrecognized configuration 'mqtt/#{config}'"
         end
@@ -376,13 +394,12 @@ module LavinMQ
     private def parse_mgmt(settings)
       settings.each do |config, v|
         case config
-        when "bind"                then @http_bind = v
-        when "port"                then @http_port = v.to_i32
-        when "tls_port"            then @https_port = v.to_i32
-        when "tls_cert"            then @tls_cert_path = v # backward compatibility
-        when "tls_key"             then @tls_key_path = v  # backward compatibility
-        when "unix_path"           then @http_unix_path = v
-        when "systemd_socket_name" then @http_systemd_socket_name = v
+        when "bind"      then @http_bind = v
+        when "port"      then @http_port = v.to_i32
+        when "tls_port"  then @https_port = v.to_i32
+        when "tls_cert"  then @tls_cert_path = v # backward compatibility
+        when "tls_key"   then @tls_key_path = v  # backward compatibility
+        when "unix_path" then @http_unix_path = v
         else
           STDERR.puts "WARNING: Unrecognized configuration 'mgmt/#{config}'"
         end
@@ -405,7 +422,7 @@ module LavinMQ
     end
 
     private def tcp_keepalive?(str : String?) : Tuple(Int32, Int32, Int32)?
-      return nil if false?(str)
+      return if false?(str)
       if keepalive = str.try &.split(":")
         {
           keepalive[0]?.try(&.to_i?) || 60,

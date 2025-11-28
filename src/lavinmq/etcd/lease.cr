@@ -33,8 +33,8 @@ module LavinMQ
           sleep (ttl * 0.7).seconds
           ttl = @etcd.lease_keepalive(@id)
         end
-      rescue ex
-        Log.error(exception: ex) { "Lost leadership" } unless @lost_leadership.closed?
+      rescue ex : Etcd::Error # only rescue etcd errors
+        Log.error(exception: ex) { "Lost leadership because of #{ex.message}" } unless @lost_leadership.closed?
       ensure
         @lost_leadership.close
       end

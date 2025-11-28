@@ -34,7 +34,7 @@ module LavinMQPerf
         flags << "--Dpreview_mt" if flag?(:preview_mt)
         flags << "--Dmt" if flag?(:mt)
       %}
-      {{flags.join(" ")}}
+      {{ flags.join(" ") }}
     end
 
     def rss
@@ -48,9 +48,9 @@ module LavinMQPerf
     end
 
     BUILD_INFO = <<-INFO
-    LavinMQPerf #{LavinMQ::VERSION}
-    #{Crystal::DESCRIPTION.lines.reject(&.empty?).join("\n")}
-    Build flags: #{build_flags}
-    INFO
+        LavinMQPerf #{LavinMQ::VERSION}
+        #{Crystal::DESCRIPTION.lines.reject(&.empty?).join("\n")}
+        Build flags: #{build_flags}
+      INFO
   end
 end

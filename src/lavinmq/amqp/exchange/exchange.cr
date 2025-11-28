@@ -39,16 +39,30 @@ module LavinMQ
         handle_arguments
       end
 
-      private def apply_policy_argument(key : String, value : JSON::Any)
+      private def apply_policy_argument(key : String, value : JSON::Any) : Bool
         case key
         when "alternate-exchange"
-          @alternate_exchange ||= value.as_s?
+          if @alternate_exchange.nil?
+            @alternate_exchange = value.as_s?
+            @effective_args.delete("x-alternate-exchange")
+            @effective_args.delete("alternate-exchange")
+            return true
+          end
+        when "delayed-message"
+          if value.as?(Bool) == true
+            @effective_args.delete("x-delayed-message")
+            @delayed = true
+            init_delayed_queue
+            return true
+          end
         when "federation-upstream"
           @vhost.upstreams.try &.link(value.as_s, self) unless internal?
+          return true
         when "federation-upstream-set"
           @vhost.upstreams.try &.link_set(value.as_s, self) unless internal?
-        else nil
+          return true
         end
+        false
       end
 
       private def clear_policy_arguments
@@ -58,8 +72,11 @@ module LavinMQ
 
       def handle_arguments
         @effective_args = Array(String).new
-        @alternate_exchange = (@arguments["x-alternate-exchange"]? || @arguments["alternate-exchange"]?).try &.to_s
-        @effective_args << "x-alternate-exchange" if @alternate_exchange
+        if @alternate_exchange = @arguments["x-alternate-exchange"]?.try &.to_s
+          @effective_args << "x-alternate-exchange"
+        elsif @alternate_exchange = @arguments["alternate-exchange"]?.try &.to_s
+          @effective_args << "alternate-exchange"
+        end
         if @arguments["x-delayed-exchange"]?.try &.as?(Bool)
           @delayed = true
           init_delayed_queue
