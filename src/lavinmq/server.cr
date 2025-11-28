@@ -19,6 +19,7 @@ require "./amqp/connection_factory"
 require "./mqtt/connection_factory"
 require "./stats"
 require "./auth/chain"
+require "./tls_offloader"
 
 module LavinMQ
   class Server
@@ -225,6 +226,31 @@ module LavinMQ
 
     def listen_tls(bind, port, context, protocol : Protocol = :amqp)
       listen_tls(TCPServer.new(bind, port), context, protocol)
+    end
+
+    # Accept connections from a TLS offloader running in a separate execution context.
+    # The offloader has already performed TLS termination and sends connections via channel.
+    # Each connection includes a PROXY V2 header with TLS metadata.
+    def listen_tls_offloaded(offloader : TLSOffloader)
+      Log.info { "Accepting offloaded TLS connections" }
+      while conn = offloader.connections.receive?
+        next if @closed
+        accept_offloaded(conn.io, conn.protocol)
+      end
+    rescue Channel::ClosedError
+      # Offloader closed, expected during shutdown
+    end
+
+    private def accept_offloaded(io : IO, protocol : Symbol)
+      spawn(name: "Accept offloaded TLS") do
+        # Parse PROXY V2 header to get connection info with TLS metadata
+        conn_info = ProxyProtocol::V2.parse(io)
+        server_protocol = protocol == :amqp ? Protocol::AMQP : Protocol::MQTT
+        handle_connection(io, conn_info, server_protocol)
+      rescue ex
+        Log.warn(exception: ex) { "Error accepting offloaded TLS connection" }
+        io.close rescue nil
+      end
     end
 
     def listen_unix(path : String, protocol : Protocol)

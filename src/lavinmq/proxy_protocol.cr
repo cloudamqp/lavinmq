@@ -64,7 +64,8 @@ module LavinMQ
     end
 
     struct V2
-      def initialize(@src : Socket::IPAddress, @dst : Socket::IPAddress)
+      def initialize(@src : Socket::IPAddress, @dst : Socket::IPAddress,
+                     @ssl_version : String? = nil, @ssl_cipher : String? = nil)
       end
 
       def to_io(io : IO, format = IO::ByteFormat::NetworkEndian)
@@ -73,8 +74,9 @@ module LavinMQ
         case @src.family
         when Socket::Family::INET
           io.write_byte Family::TCPv4.value
-          length = 4 + 4 + 2 + 2
-          io.write_bytes length.to_u16, IO::ByteFormat::NetworkEndian
+          addr_length = 4 + 4 + 2 + 2 # 12 bytes for IPv4 addresses + ports
+          tlv_length = ssl_tlv_length
+          io.write_bytes (addr_length + tlv_length).to_u16, IO::ByteFormat::NetworkEndian
           {@src, @dst}.each do |addr|
             s_addr = addr.@addr.as(LibC::InAddr).s_addr
             io.write_byte (s_addr & 0xFF).to_u8
@@ -84,6 +86,7 @@ module LavinMQ
           end
           io.write_bytes @src.port.to_u16, format
           io.write_bytes @dst.port.to_u16, format
+          write_ssl_tlv(io, format) if tlv_length > 0
         when Socket::Family::INET6
           raise NotImplementedError.new("IPv6")
         when Socket::Family::UNIX
@@ -93,8 +96,52 @@ module LavinMQ
         io.flush
       end
 
+      # Calculate the total length of SSL TLV including all sub-TLVs
+      private def ssl_tlv_length : Int32
+        return 0 unless @ssl_version || @ssl_cipher
+        # TLV header: 1 (type) + 2 (length) = 3 bytes
+        # SSL TLV content: 1 (client flags) + 4 (verify) = 5 bytes
+        length = 3 + 5
+        if version = @ssl_version
+          # Sub-TLV: 1 (type) + 2 (length) + string bytes
+          length += 3 + version.bytesize
+        end
+        if cipher = @ssl_cipher
+          length += 3 + cipher.bytesize
+        end
+        length
+      end
+
+      private def write_ssl_tlv(io : IO, format = IO::ByteFormat::NetworkEndian)
+        # TLV type: SSL (0x20)
+        io.write_byte TLVType::SSL.value
+        # TLV length (content only, not including type+length header)
+        content_length = ssl_tlv_length - 3
+        io.write_bytes content_length.to_u16, format
+
+        # SSL client flags: PP2_CLIENT_SSL (0x01) - connection made over SSL/TLS
+        io.write_byte SSLCLIENT::SSL.value
+        # Verify result: 0 = success (we performed the handshake successfully)
+        io.write_bytes 0u32, format
+
+        # Sub-TLVs for version and cipher
+        if version = @ssl_version
+          io.write_byte SSLSubType::VERSION.value
+          io.write_bytes version.bytesize.to_u16, format
+          io.write version.to_slice
+        end
+        if cipher = @ssl_cipher
+          io.write_byte SSLSubType::CIPHER.value
+          io.write_bytes cipher.bytesize.to_u16, format
+          io.write cipher.to_slice
+        end
+      end
+
       def self.parse(io)
-        io.read_timeout = 15.seconds
+        # Set read timeout if supported (not all IO types support it, e.g. IO::Stapled)
+        if io.responds_to?(:read_timeout=)
+          io.read_timeout = 15.seconds
+        end
         buffer = uninitialized UInt8[16]
         io.read(buffer.to_slice)
         signature = buffer.to_slice[0, 12]
@@ -121,7 +168,9 @@ module LavinMQ
         header = extract_tlv(header, bytes)
         header
       ensure
-        io.read_timeout = nil
+        if io.responds_to?(:read_timeout=)
+          io.read_timeout = nil
+        end
       end
 
       private def self.extract_tlv(header : ConnectionInfo, bytes)
