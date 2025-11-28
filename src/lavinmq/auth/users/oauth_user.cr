@@ -9,7 +9,6 @@ module LavinMQ
 
       def initialize(@name : String, @tags : Array(Tag), @permissions : Hash(String, Permissions),
                      @expires_at : Time, @authenticator : OAuthAuthenticator)
-
       end
 
       def expiration=(time : Time)

@@ -55,7 +55,6 @@ module LavinMQ
         tags.includes? Tag::Impersonator
       end
 
-
       def clear_permissions_cache
         @permission_revision.add(1, :relaxed)
       end

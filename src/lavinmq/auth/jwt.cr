@@ -10,7 +10,6 @@ module JWT
 
   class VerificationError < Error; end
 
-
   struct Token
     getter header : JSON::Any
     getter payload : JSON::Any
