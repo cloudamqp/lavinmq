@@ -434,13 +434,41 @@ module LavinMQ
         when "verify_aud"                 then @oauth_verify_aud = true?(v)
         when "audience"                   then @oauth_audience = v
         when "jwks_cache_ttl"             then @oauth_jwks_cache_ttl = v.to_i.seconds
-        when "userinfo_url"               then @oauth_userinfo_url = v
-        when "userinfo_username_claim"    then @oauth_userinfo_username_claim = v
+        when "userinfo_url"
+          # Validate userinfo_url is a valid HTTP/HTTPS URL
+          validate_url(v, "userinfo_url")
+          @oauth_userinfo_url = v
+        when "userinfo_username_claim"
+          # Validate username_claim is not empty
+          if v.empty?
+            STDERR.puts "ERROR: oauth/userinfo_username_claim cannot be empty"
+          else
+            @oauth_userinfo_username_claim = v
+          end
         when "userinfo_username_prefix"   then @oauth_userinfo_username_prefix = v
-        when "userinfo_default_vhost"     then @oauth_userinfo_default_vhost = v
+        when "userinfo_default_vhost"
+          # Validate vhost name (basic check - not empty)
+          if v.empty?
+            STDERR.puts "ERROR: oauth/userinfo_default_vhost cannot be empty"
+          else
+            @oauth_userinfo_default_vhost = v
+          end
         else
           STDERR.puts "WARNING: Unrecognized configuration 'oauth/#{config}'"
         end
+      end
+    end
+
+    private def validate_url(url : String, config_name : String)
+      return if url.empty? # Empty is allowed, means not configured
+
+      begin
+        uri = URI.parse(url)
+        unless uri.scheme.in?("http", "https")
+          STDERR.puts "ERROR: #{config_name} must be an HTTP or HTTPS URL, got: #{url}"
+        end
+      rescue
+        STDERR.puts "ERROR: Invalid URL for #{config_name}: #{url}"
       end
     end
 

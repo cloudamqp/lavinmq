@@ -15,11 +15,20 @@ module LavinMQ
     # Flow:
     # 1. Client connects with opaque token as password
     # 2. Authenticator calls configured userinfo endpoint with token
-    # 3. If successful, extracts username and creates OAuthUser with default permissions
+    # 3. If successful, extracts username and creates UserinfoUser with default permissions
     # 4. User gets full access to configured default vhost
     #
-    # This is simpler than JWT but requires an HTTP call per authentication.
-    # Consider using with token caching for better performance.
+    # Performance Considerations:
+    # - HTTP call on EVERY authentication (~100ms per auth)
+    # - New HTTP client created per auth (no connection pooling)
+    # - Can become bottleneck under high authentication load
+    # - Recommended: Use JWT authentication (OAuthAuthenticator) for better performance
+    # - Future: Consider implementing token caching to reduce HTTP calls
+    #
+    # Security:
+    # - Tokens are never logged to prevent exposure
+    # - Uses 5s connect timeout and 10s read timeout
+    # - Validates JSON responses before parsing
     class UserinfoAuthenticator < Authenticator
       Log = LavinMQ::Log.for "oauth2.userinfo"
 
@@ -55,7 +64,8 @@ module LavinMQ
           "User-Agent"    => "LavinMQ-OAuth2-Userinfo",
         }
 
-        Log.debug { "Validating OAuth2 token at userinfo endpoint: #{@config.oauth_userinfo_url}" }
+        # Security: Don't log the token itself, only the endpoint
+        Log.debug { "Validating OAuth2 token at userinfo endpoint" }
 
         uri = URI.parse(@config.oauth_userinfo_url)
         ::HTTP::Client.new(uri) do |client|
@@ -64,12 +74,16 @@ module LavinMQ
           response = client.get(uri.request_target, headers: headers)
 
           if response.success?
+            # Validate JSON before parsing
             JSON.parse(response.body)
           else
-            Log.warn { "Userinfo endpoint returned status #{response.status_code}: #{response.body}" }
+            Log.warn { "Userinfo endpoint returned status #{response.status_code}" }
             nil
           end
         end
+      rescue JSON::ParseException
+        Log.error { "Invalid JSON response from userinfo endpoint" }
+        nil
       rescue ex
         Log.error(exception: ex) { "Error calling userinfo endpoint: #{ex.message}" }
         nil
@@ -78,7 +92,11 @@ module LavinMQ
       # Extracts username from userinfo response using configured claim
       private def extract_username(user_info : JSON::Any) : String
         claim = @config.oauth_userinfo_username_claim
-        username_value = user_info[claim]?.try(&.as_s) || user_info[claim]?.try(&.as_i64.to_s)
+
+        # Fix: Access claim only once and handle both string and integer values
+        username_value = user_info[claim]?.try do |value|
+          value.as_s? || value.as_i64?.try(&.to_s)
+        end
 
         if username_value.nil?
           raise "Could not find claim '#{claim}' in userinfo response"
