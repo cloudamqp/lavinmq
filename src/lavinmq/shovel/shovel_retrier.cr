@@ -5,7 +5,7 @@ module LavinMQ
         getter error
         getter data
       end
-      def self.push_with_retry(max_retrie, jitter, backoff, & : -> Bool) : Bool
+      def self.push_with_retry(max_retries, jitter, backoff, & : -> Bool) : Bool
         retries = 0
         while retries < max_retries
           return true if yield
