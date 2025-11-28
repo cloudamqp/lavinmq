@@ -420,14 +420,11 @@ module LavinMQ
     private def parse_auth(settings)
       settings.each do |config, v|
         case config
-        when "http"                      then @http_auth_url = v
-        when "oauth"                     then @oauth_url = v
         when "auth_backends"             then @auth_backends = v.split(",").map(&.strip)
         # JWT/JWKS settings
         when "jwks_uri"                  then @jwks_uri = v
         when "jwt_issuer", "iss"         then @iss = v
         when "jwt_audience", "aud"       then @aud = v
-        when "jwt_subject", "sub"        then @sub = v
         when "oauth2_jwks_cache_ttl"     then @oauth2_jwks_cache_ttl = v.to_i32
         # Userinfo settings
         when "oauth2_userinfo_url"       then @oauth2_userinfo_url = v
