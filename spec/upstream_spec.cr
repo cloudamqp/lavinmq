@@ -332,6 +332,8 @@ describe LavinMQ::Federation::Upstream do
 
         wait_for { us_queue.message_count == message_count }
 
+        mem_backend = Log::MemoryBackend.new
+        Log.builder.bind("*", :debug, mem_backend)
         # consume 1 message from downstream queue
         with_channel(s, vhost: ds_vhost.name) do |downstream_ch|
           downstream_ch.prefetch(1)
@@ -343,6 +345,12 @@ describe LavinMQ::Federation::Upstream do
         end
         us_queue.consumers_empty.when_true.receive
         ds_queue.consumers_empty.when_true.receive
+        Log.builder.unbind("*", :debug, mem_backend)
+
+        mem_backend.entries.each do |entry|
+          LavinMQ::StdoutLogFormat.format(entry, STDOUT)
+          puts
+        end
 
         # One message has been transferred?
         begin
