@@ -119,7 +119,6 @@ module LavinMQ
           },
         }
       end
-
     end
   end
 end

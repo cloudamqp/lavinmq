@@ -425,38 +425,55 @@ module LavinMQ
 
     private def parse_oauth(settings)
       settings.each do |config, v|
-        case config
-        when "oauth_issuer_url", "issuer" then @oauth_issuer_url = v
-        when "resource_server_id"         then @oauth_resource_server_id = v
-        when "preferred_username_claims"  then @oauth_preferred_username_claims = v.split(",").map(&.strip)
-        when "additional_scopes_key"      then @oauth_additional_scopes_key = v
-        when "scope_prefix"               then @oauth_scope_prefix = v
-        when "verify_aud"                 then @oauth_verify_aud = true?(v)
-        when "audience"                   then @oauth_audience = v
-        when "jwks_cache_ttl"             then @oauth_jwks_cache_ttl = v.to_i.seconds
-        when "userinfo_url"
-          # Validate userinfo_url is a valid HTTP/HTTPS URL
-          validate_url(v, "userinfo_url")
-          @oauth_userinfo_url = v
-        when "userinfo_username_claim"
-          # Validate username_claim is not empty
-          if v.empty?
-            STDERR.puts "ERROR: oauth/userinfo_username_claim cannot be empty"
-          else
-            @oauth_userinfo_username_claim = v
-          end
-        when "userinfo_username_prefix"   then @oauth_userinfo_username_prefix = v
-        when "userinfo_default_vhost"
-          # Validate vhost name (basic check - not empty)
-          if v.empty?
-            STDERR.puts "ERROR: oauth/userinfo_default_vhost cannot be empty"
-          else
-            @oauth_userinfo_default_vhost = v
-          end
+        if parse_oauth_jwt_config(config, v)
+          next
+        elsif parse_oauth_userinfo_config(config, v)
+          next
         else
           STDERR.puts "WARNING: Unrecognized configuration 'oauth/#{config}'"
         end
       end
+    end
+
+    private def parse_oauth_jwt_config(config : String, v : String) : Bool
+      case config
+      when "oauth_issuer_url", "issuer" then @oauth_issuer_url = v
+      when "resource_server_id"         then @oauth_resource_server_id = v
+      when "preferred_username_claims"  then @oauth_preferred_username_claims = v.split(",").map(&.strip)
+      when "additional_scopes_key"      then @oauth_additional_scopes_key = v
+      when "scope_prefix"               then @oauth_scope_prefix = v
+      when "verify_aud"                 then @oauth_verify_aud = true?(v)
+      when "audience"                   then @oauth_audience = v
+      when "jwks_cache_ttl"             then @oauth_jwks_cache_ttl = v.to_i.seconds
+      else
+        return false
+      end
+      true
+    end
+
+    private def parse_oauth_userinfo_config(config : String, v : String) : Bool
+      case config
+      when "userinfo_url"
+        validate_url(v, "userinfo_url")
+        @oauth_userinfo_url = v
+      when "userinfo_username_claim"
+        if v.empty?
+          STDERR.puts "ERROR: oauth/userinfo_username_claim cannot be empty"
+        else
+          @oauth_userinfo_username_claim = v
+        end
+      when "userinfo_username_prefix"
+        @oauth_userinfo_username_prefix = v
+      when "userinfo_default_vhost"
+        if v.empty?
+          STDERR.puts "ERROR: oauth/userinfo_default_vhost cannot be empty"
+        else
+          @oauth_userinfo_default_vhost = v
+        end
+      else
+        return false
+      end
+      true
     end
 
     private def validate_url(url : String, config_name : String)
