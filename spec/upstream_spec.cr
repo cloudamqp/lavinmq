@@ -345,13 +345,13 @@ describe LavinMQ::Federation::Upstream do
         ds_queue.consumers_empty.when_true.receive
 
         # One message has been transferred?
-
         begin
           wait_for { !us_queue.empty.value }
         rescue
           pp "-----"
           pp us_queue.details_tuple
           pp us_queue.empty?
+          pp us_queue.empty.value
           pp "-----"
         end
         ds_queue.empty.value.should be_true
