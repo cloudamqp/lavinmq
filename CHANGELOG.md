@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Better default config - Enable amqps/mqtts/https by default if tls_cert/key is supplied [#1487](https://github.com/cloudamqp/lavinmq/pull/1487)
+
+### Fixed
+- Fix OpenAPI schema for bcrypt hashing_algorithm name [#1498](https://github.com/cloudamqp/lavinmq/pull/1498)
+- Overridden effective arguments not marked as active in UI [#1489](https://github.com/cloudamqp/lavinmq/pull/1489)
+
+### Removed
+- Clustering backup support [#1508](https://github.com/cloudamqp/lavinmq/pull/1508)
+
+## [2.5.5] - 2025-11-26
+
+### Fixed
+- Don't raise when truncating deleted MFile [#1500](https://github.com/cloudamqp/lavinmq/pull/1500)
+- Abort on IO::Error in delivery_loop [#f87491ec29bc0cf31b9fe5db4d3f2d3d8cce85c6](https://github.com/cloudamqp/lavinmq/commit/f87491ec29bc0cf31b9fe5db4d3f2d3d8cce85c6)
+
 ## [2.6.0-rc.2] - 2025-11-22
 
 ### Fixed
