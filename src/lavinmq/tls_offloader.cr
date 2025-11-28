@@ -104,9 +104,10 @@ module LavinMQ
     rescue IO::Error
       # Connection closed, expected
     ensure
-      # Close both ends when copy stops
-      dst.close rescue nil
+      # Close src first (may be TLS socket needing proper termination),
+      # then dst (the pipe)
       src.close rescue nil
+      dst.close rescue nil
     end
 
     private def set_socket_options(socket : TCPSocket)
