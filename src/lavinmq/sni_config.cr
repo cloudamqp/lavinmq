@@ -141,42 +141,52 @@ module LavinMQ
     Log = LavinMQ::Log.for "sni"
 
     getter hosts : Hash(String, SNIHost)
+    getter wildcard_hosts : Hash(String, SNIHost)
 
     def initialize
       @hosts = Hash(String, SNIHost).new
+      @wildcard_hosts = Hash(String, SNIHost).new
     end
 
     def add_host(host : SNIHost)
-      @hosts[host.hostname] = host
+      if host.hostname.starts_with?("*.")
+        # Store wildcard without the "*" prefix, e.g. "*.example.com" -> ".example.com"
+        @wildcard_hosts[host.hostname[1..]] = host
+      else
+        @hosts[host.hostname] = host
+      end
       Log.info { "Registered SNI host: #{host.hostname}" }
     end
 
     def get_host(hostname : String) : SNIHost?
-      # Try exact match first
-      if host = @hosts[hostname]?
-        return host
-      end
-      # Try wildcard match (*.example.com matches foo.example.com)
+      # Try exact match first, then wildcard by suffix
+      @hosts[hostname]? || get_wildcard_host(hostname)
+    end
+
+    private def get_wildcard_host(hostname : String) : SNIHost?
+      # Find the first dot and look up the suffix (e.g. "foo.example.com" -> ".example.com")
       if dot_idx = hostname.index('.')
-        wildcard = "*#{hostname[dot_idx..]}"
-        @hosts[wildcard]?
+        @wildcard_hosts[hostname[dot_idx..]]?
       end
     end
 
     def reload
       @hosts.each_value(&.reload)
+      @wildcard_hosts.each_value(&.reload)
     end
 
     def clear
       @hosts.clear
+      @wildcard_hosts.clear
     end
 
     def empty?
-      @hosts.empty?
+      @hosts.empty? && @wildcard_hosts.empty?
     end
 
     def each(&)
       @hosts.each_value { |host| yield host }
+      @wildcard_hosts.each_value { |host| yield host }
     end
   end
 end
