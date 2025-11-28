@@ -1,4 +1,5 @@
 require "../sortable_json"
+require "./shovel_retrier"
 require "amqp-client"
 require "http/client"
 require "wait_group"
@@ -316,17 +317,33 @@ module LavinMQ
       end
     end
 
+    struct HTTPDestinationParameters
+      getter jitter : Float64
+      getter backoff : Float64
+      getter timeout : Float64
+      getter max_retries : Float64
+      def initialize(@jitter, @backoff, @timeout, @max_retries)
+      end
+      def self.from_parameters(parameters : JSON::Any)
+        new(
+          jitter: parameters["dest-jitter"]?.try &.as_f? || 0.5,
+          backoff: parameters["dest-backoff"]?.try &.as_f? || 2.0,
+          timeout: parameters["dest-timeout"]?.try &.as_f? || 10.0,
+          max_retries: parameters["dest-max-retries"]?.try &.as_f? || 3.0
+        )
+      end
+    end
     class HTTPDestination < Destination
       @client : ::HTTP::Client?
 
-      def initialize(@name : String, @uri : URI, @ack_mode = DEFAULT_ACK_MODE)
+      def initialize(@name : String, @uri : URI, @parameters : HTTPDestinationParameters, @ack_mode = DEFAULT_ACK_MODE)
       end
 
       def start
         return if started?
         client = ::HTTP::Client.new @uri
         client.connect_timeout = 10.seconds
-        client.read_timeout = 30.seconds
+        client.read_timeout = @parameters.timeout.seconds
         client.basic_auth(@uri.user, @uri.password || "") if @uri.user
         @client = client
       end
@@ -358,7 +375,9 @@ module LavinMQ
                else
                  "/"
                end
-        success = push_with_retry(path, headers, msg.body_io, max_retries: 3, jitter: 0.5)
+        success = push_and_maybe_retry(@ack_mode) do
+          @client.not_nil!.post(path, headers: headers, body: msg.body_io).success?
+        end
         case @ack_mode
         in AckMode::OnConfirm, AckMode::OnPublish
           raise FailedDeliveryError.new unless success
@@ -367,18 +386,14 @@ module LavinMQ
         end
       end
 
-      private def push_with_retry(path, headers, body, max_retries = 3, jitter = 0.5)
-        retries = 0
-        while retries < max_retries
-          response = @client.not_nil!.post(path, headers: headers, body: body)
-          return true if response.success?
-          retries += 1
-          # Exponential backoff: 2^retries seconds with jitter
-          base_delay = (2.0 ** retries).seconds
-          jitter_delay = jitter.seconds * Random.rand(0.0..1.0)
-          sleep base_delay + jitter_delay
-        end
-        false
+      private def push_and_maybe_retry(ack_mode, &push : -> Bool)
+        return Retrier.push_with_retry(
+          @parameters.max_retries,
+          @parameters.jitter,
+          @parameters.backoff,
+          &push
+        ) unless ack_mode == AckMode::NoAck
+        push.call
       end
     end
 
