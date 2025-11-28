@@ -22,6 +22,11 @@ module LavinMQ
       def update_secret(new_secret : String)
         claims = @authenticator.verify_token(new_secret)
 
+        # Verify the username matches to prevent token substitution attacks
+        if claims.username != @name
+          raise JWT::VerificationError.new("Token username mismatch: expected '#{@name}', got '#{claims.username}'")
+        end
+
         # Update authorization and expiration (trust new token)
         @tags = claims.tags
         @permissions = claims.permissions
