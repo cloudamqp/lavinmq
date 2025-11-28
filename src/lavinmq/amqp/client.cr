@@ -203,7 +203,6 @@ module LavinMQ
 
       private def handle_update_secret(frame : AMQP::Frame::Connection::UpdateSecret)
         user = @user
-        # Need to do @secret untill we lift in new amq-perf version
         if user.responds_to?(:update_secret)
           user.update_secret(frame.secret)
           @log.info { "Updated secret for user '#{user.name}'" }
