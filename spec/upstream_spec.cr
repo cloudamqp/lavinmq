@@ -9,14 +9,16 @@ module UpstreamSpecHelpers
     {x, q2}
   end
 
-  def self.setup_federation(s, upstream_name, exchange = nil, queue = nil, prefetch = 1000_u16)
+  def self.setup_federation(s, upstream_name, exchange = nil, queue = nil, prefetch = 1000_u16, *,
+                            reconnect_delay = 1.millisecond)
     self.cleanup_vhosts(s)
     upstream_vhost = s.vhosts.create("upstream")
     downstream_vhost = s.vhosts.create("downstream")
     upstream = LavinMQ::Federation::Upstream.new(
       downstream_vhost, upstream_name,
       "#{s.amqp_url}/upstream", exchange, queue,
-      LavinMQ::Federation::AckMode::OnConfirm, nil, 1_i64, nil, prefetch
+      LavinMQ::Federation::AckMode::OnConfirm, expires: nil, max_hops: 1_i64,
+      msg_ttl: nil, prefetch: prefetch, reconnect_delay: reconnect_delay
     )
     downstream_vhost.upstreams.not_nil!.add(upstream)
     {upstream, upstream_vhost, downstream_vhost}
@@ -171,7 +173,9 @@ describe LavinMQ::Federation::Upstream do
 
     it "should reconnect queue link after upstream disconnect" do
       with_amqp_server do |s|
-        upstream, upstream_vhost, downstream_vhost = UpstreamSpecHelpers.setup_federation(s, "ef test upstream restart", nil, "upstream_q")
+        upstream, upstream_vhost, downstream_vhost = \
+           UpstreamSpecHelpers.setup_federation(s, "ef test upstream restart",
+            nil, "upstream_q")
         UpstreamSpecHelpers.start_link(upstream, "downstream_q", "queues")
         s.users.add_permission("guest", "upstream", /.*/, /.*/, /.*/)
         s.users.add_permission("guest", "downstream", /.*/, /.*/, /.*/)
@@ -183,18 +187,20 @@ describe LavinMQ::Federation::Upstream do
 
         wait_for { downstream_vhost.queues["downstream_q"].policy.try(&.name) == "FE" }
         wait_for { upstream.links.first?.try &.state.running? }
-        sleep 0.1.seconds
 
         # Disconnect the federation link
+        conn_id = nil
         upstream_vhost.connections.each do |conn|
           next unless conn.client_name.starts_with?("Federation link")
+          conn_id = conn.object_id
           conn.close
         end
-        sleep 0.1.seconds
-
-        # wait for federation link to be reconnected
-        wait_for { upstream.links.first?.try &.state.running? }
-        wait_for { upstream.links.first?.try { |l| l.@upstream_connection.try &.closed? == false } }
+        wait_for { upstream_vhost.connections.size == 0 }
+        upstream.links.first.@state_changed.try_send nil
+        wait_for { upstream_vhost.connections.size == 1 }
+        conn = upstream_vhost.connections.find(&.name.starts_with?("Federation link"))
+        # Verify that it's a new connection... Any better assertion that can be done?
+        conn.object_id.should_not eq conn_id
       end
     end
 
@@ -311,8 +317,8 @@ describe LavinMQ::Federation::Upstream do
         ds_vhost.declare_queue(ds_queue_name, true, false)
         ds_queue = ds_vhost.queues[ds_queue_name].as(LavinMQ::AMQP::Queue)
 
-        wait_for { ds_queue.policy.try(&.name) == "FE" }
-        wait_for { upstream.links.first?.try &.state.running? }
+        link = wait_for { upstream.links.first? }
+        loop { link.@state_changed.receive.try &.running? && break }
 
         us_queue = us_vhost.queues[us_queue_name].as(LavinMQ::AMQP::Queue)
 
@@ -324,44 +330,53 @@ describe LavinMQ::Federation::Upstream do
           end
         end
 
-        us_queue.message_count.should eq message_count
+        wait_for { us_queue.message_count == message_count }
 
-        wg = WaitGroup.new(1)
-        spawn do
-          # Wait for queue to receive one consumer (subscribe)
-          ds_queue.@consumers_empty.when_false.receive
-          # Wait for queue to lose consumer (unsubscribe)
-          ds_queue.@consumers_empty.when_true.receive
-          wg.done
-        end
-        Fiber.yield # yield so our receive? above is called
-
+        mem_backend = Log::MemoryBackend.new
+        Log.builder.bind("*", :debug, mem_backend)
         # consume 1 message from downstream queue
         with_channel(s, vhost: ds_vhost.name) do |downstream_ch|
           downstream_ch.prefetch(1)
           downstream_q = downstream_ch.queue(ds_queue_name)
           downstream_q.subscribe(tag: "c", no_ack: false, block: true) do |msg|
-            Fiber.yield # to let the sync fiber above run to call receive? a second time
-            msg.ack
             downstream_q.unsubscribe("c")
+            msg.ack
           end
         end
+        us_queue.consumers_empty.when_true.receive
+        ds_queue.consumers_empty.when_true.receive
+        Log.builder.unbind("*", :debug, mem_backend)
 
-        wg.wait
-        Fiber.yield # let things happen?
+        mem_backend.entries.each do |entry|
+          LavinMQ::StdoutLogFormat.format(entry, STDOUT)
+          puts
+        end
 
         # One message has been transferred?
-        wait_for { us_queue.message_count == 1 }
+        begin
+          wait_for { !us_queue.empty.value }
+        rescue
+          pp "-----"
+          pp us_queue.details_tuple
+          pp us_queue.empty?
+          pp us_queue.empty.value
+          pp "-----"
+        end
+        ds_queue.empty.value.should be_true
+        ds_queue.message_count.should eq 0
 
         # resume consuming on downstream, federation should start again
         with_channel(s, vhost: ds_vhost.name) do |downstream_ch|
           ch = Channel(Nil).new
           downstream_q = downstream_ch.queue(ds_queue_name)
           downstream_q.subscribe(tag: "c2", no_ack: false) do |msg|
-            msg.ack
             downstream_q.unsubscribe("c2")
+            msg.ack
             ch.close
           end
+
+          us_queue.consumers_empty.when_true.receive
+          ds_queue.consumers_empty.when_true.receive
 
           select
           when ch.receive?
@@ -369,8 +384,8 @@ describe LavinMQ::Federation::Upstream do
             fail "federation didn't resume? timeout waiting for message on downstream queue"
           end
 
-          us_queue.message_count.should eq 0
-          ds_queue.message_count.should eq 0
+          us_queue.empty.value.should be_true
+          ds_queue.empty.value.should be_true
         end
       end
     end
@@ -452,7 +467,12 @@ describe LavinMQ::Federation::Upstream do
 
     it "should continue after upstream restart" do
       with_amqp_server do |s|
-        upstream, upstream_vhost, downstream_vhost = UpstreamSpecHelpers.setup_federation(s, "ef test upstream restart", "upstream_ex")
+        # Use reconnect delay so we have time to see state being stopped
+        # and that we can publish a message before it's reconnected
+        upstream, upstream_vhost, _downstream_vhost = \
+           UpstreamSpecHelpers.setup_federation(s, "ef test upstream restart",
+            "upstream_ex",
+            reconnect_delay: 1.second)
         UpstreamSpecHelpers.start_link(upstream)
         s.users.add_permission("guest", "upstream", /.*/, /.*/, /.*/)
         s.users.add_permission("guest", "downstream", /.*/, /.*/, /.*/)
@@ -461,29 +481,47 @@ describe LavinMQ::Federation::Upstream do
           with_channel(s, vhost: "downstream") do |downstream_ch|
             upstream_ex = upstream_ch.exchange("upstream_ex", "topic")
             downstream_ch.exchange("downstream_ex", "topic")
-            wait_for { downstream_vhost.exchanges["downstream_ex"].policy.try(&.name) == "FE" }
             # Assert setup is correct
-            wait_for { upstream.links.first?.try &.state.running? }
+            link = wait_for { upstream.links.first? }
+            link = link.should be_a LavinMQ::Federation::Upstream::ExchangeLink
+            # wait_for { upstream.links.first?.try &.state.running? }
             downstream_q = downstream_ch.queue("downstream_q")
             downstream_q.bind("downstream_ex", "#")
+
             msgs = Channel(String).new
-            downstream_q.subscribe do |msg|
+            downstream_q.subscribe(block: false) do |msg|
               msgs.send msg.body_io.to_s
             end
+
+            # When state is running everything should be setup in the upstream
+            wait_for { link.state.running? }
+
+            us_queue = upstream_vhost.queues[link.@upstream_q].should be_a LavinMQ::AMQP::Queue
+            us_queue.consumers_empty.when_true.receive
+
             upstream_ex.publish_confirm "msg1", "rk1"
             msgs.receive.should eq "msg1"
-            sleep 10.milliseconds # allow the downstream federation to ack the msg
+
             upstream_vhost.connections.each do |conn|
               next unless conn.client_name.starts_with?("Federation link")
               conn.close
             end
-            wait_for { upstream.links.first?.try { |l| l.state.stopped? || l.state.starting? } }
-            upstream_ex.publish "msg2", "rk2"
-            # Should reconnect
-            wait_for { upstream.links.first?.try(&.state.running?) }
-            upstream_ex.publish "msg3", "rk3"
+
+            # it should be in "stopped" state while waiting for reconnect delay
+            wait_for { link.state.stopped? }
+            # publish before reconnect
+            upstream_ex.publish_confirm "msg2", "rk2"
+
+            # we can make it connect instantly (to speed up specs)
+            # this is because we know the internals of the link and that
+            # a timeout in a select is used together with the event channel
+            link.@state_changed.try_send nil
+
+            upstream_ex.publish_confirm "msg3", "rk3"
             msgs.receive.should eq "msg2"
             msgs.receive.should eq "msg3"
+          ensure
+            msgs.try &.close
           end
         end
         upstream_vhost.queues.each_value.all?(&.empty?).should be_true
