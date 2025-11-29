@@ -76,6 +76,12 @@ module LavinMQ
     property default_password : String = ENV.fetch("LAVINMQ_DEFAULT_PASSWORD", DEFAULT_PASSWORD_HASH) # Hashed password for default user
     property max_consumers_per_channel = 0
     property mqtt_max_packet_size = 268_435_455_u32 # bytes
+    property kafka_bind = "127.0.0.1"
+    property kafka_port = 9092
+    property kafkas_port = -1
+    property kafka_unix_path = ""
+    property default_kafka_vhost = "/"
+    property? kafka_auto_create_topics = true
     @@instance : Config = self.new
 
     def self.instance : LavinMQ::Config
@@ -231,6 +237,7 @@ module LavinMQ
         when "main"         then parse_main(settings)
         when "amqp"         then parse_amqp(settings)
         when "mqtt"         then parse_mqtt(settings)
+        when "kafka"        then parse_kafka(settings)
         when "mgmt", "http" then parse_mgmt(settings)
         when "clustering"   then parse_clustering(settings)
         when "experimental" then parse_experimental(settings)
@@ -387,6 +394,21 @@ module LavinMQ
         when "max_packet_size"          then @mqtt_max_packet_size = v.to_u32
         else
           STDERR.puts "WARNING: Unrecognized configuration 'mqtt/#{config}'"
+        end
+      end
+    end
+
+    private def parse_kafka(settings)
+      settings.each do |config, v|
+        case config
+        when "bind"               then @kafka_bind = v
+        when "port"               then @kafka_port = v.to_i32
+        when "tls_port"           then @kafkas_port = v.to_i32
+        when "unix_path"          then @kafka_unix_path = v
+        when "default_vhost"      then @default_kafka_vhost = v
+        when "auto_create_topics" then @kafka_auto_create_topics = true?(v)
+        else
+          STDERR.puts "WARNING: Unrecognized configuration 'kafka/#{config}'"
         end
       end
     end

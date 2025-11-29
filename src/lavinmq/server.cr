@@ -17,6 +17,7 @@ require "./client/client"
 require "./client/connection_factory"
 require "./amqp/connection_factory"
 require "./mqtt/connection_factory"
+require "./kafka/connection_factory"
 require "./stats"
 require "./auth/chain"
 
@@ -25,6 +26,7 @@ module LavinMQ
     enum Protocol
       AMQP
       MQTT
+      Kafka
     end
 
     getter vhosts, users, data_dir, parameters
@@ -46,11 +48,13 @@ module LavinMQ
       @users = Auth::UserStore.new(@data_dir, @replicator)
       @vhosts = VHostStore.new(@data_dir, @users, @replicator)
       @mqtt_brokers = MQTT::Brokers.new(@vhosts, @replicator)
+      @kafka_brokers = Kafka::Brokers.new(@vhosts, @replicator, @config)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator)
       authenticator = Auth::Chain.create(@users)
       @connection_factories = {
-        Protocol::AMQP => AMQP::ConnectionFactory.new(authenticator, @vhosts),
-        Protocol::MQTT => MQTT::ConnectionFactory.new(authenticator, @mqtt_brokers, @config),
+        Protocol::AMQP  => AMQP::ConnectionFactory.new(authenticator, @vhosts),
+        Protocol::MQTT  => MQTT::ConnectionFactory.new(authenticator, @mqtt_brokers, @config),
+        Protocol::Kafka => Kafka::ConnectionFactory.new(@kafka_brokers, @config),
       }
       apply_parameter
       spawn stats_loop, name: "Server#stats_loop"
@@ -95,6 +99,7 @@ module LavinMQ
       @vhosts = VHostStore.new(@data_dir, @users, @replicator)
       @connection_factories[Protocol::AMQP] = AMQP::ConnectionFactory.new(authenticator, @vhosts)
       @connection_factories[Protocol::MQTT] = MQTT::ConnectionFactory.new(authenticator, @mqtt_brokers, @config)
+      @connection_factories[Protocol::Kafka] = Kafka::ConnectionFactory.new(@kafka_brokers, @config)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator)
       apply_parameter
       @closed = false
