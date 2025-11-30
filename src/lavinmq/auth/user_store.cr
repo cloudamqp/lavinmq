@@ -51,6 +51,7 @@ module LavinMQ
       end
 
       def each_value : Iterator(User)
+        # Hash#values returns a new array, safe to iterate outside lock
         @lock.synchronize do
           @users.values.each
         end

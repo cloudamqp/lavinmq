@@ -444,9 +444,10 @@ module LavinMQ
       end
       close_done.close
       # then force close the remaining (close tcp socket)
-      @connections_lock.synchronize do
-        @connections.each &.force_close
-      end
+      # Copy connections before releasing lock to avoid deadlock
+      # when force_close triggers callbacks that call rm_connection
+      connections = @connections_lock.synchronize { @connections.dup }
+      connections.each &.force_close
       Fiber.yield # yield so that Client read_loops can shutdown
       @queues.each_value &.close
       Fiber.yield
