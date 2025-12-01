@@ -120,6 +120,21 @@ describe LavinMQ::Etcd do
     end
   end
 
+  it "raises LeaseNotFound when using an invalid lease" do
+    cluster = EtcdCluster.new(1)
+    cluster.run do
+      etcd = LavinMQ::Etcd.new(cluster.endpoints)
+      begin
+        etcd.election_campaign("test/leader", "node1", lease: 999999i64)
+        fail "Expected exception to be raised"
+      rescue ex : LavinMQ::Etcd::LeaseNotFound
+        # expected
+      rescue ex
+        fail "Expected LeaseNotFound but got #{ex.class}: #{ex.message}"
+      end
+    end
+  end
+
   pending "learns new cluster endpoints" do
     cluster = EtcdCluster.new
     cluster.run do
