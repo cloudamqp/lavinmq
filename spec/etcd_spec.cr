@@ -126,7 +126,7 @@ describe LavinMQ::Etcd do
       etcd = LavinMQ::Etcd.new(cluster.endpoints)
       expect_raises(LavinMQ::Etcd::LeaseNotFound) do
         etcd.election_campaign("test/leader", "node1", lease: 999999i64)
-     end
+      end
     end
   end
 
