@@ -110,14 +110,14 @@ module LavinMQ
             TopicMetadata.new(
               error_code: ErrorCode::NONE,
               name: topic_name,
-              is_internal: false,
+              internal: false,
               partitions: partitions
             )
           else
             TopicMetadata.new(
               error_code: ErrorCode::UNKNOWN_TOPIC_OR_PARTITION,
               name: topic_name,
-              is_internal: false,
+              internal: false,
               partitions: [] of PartitionMetadata
             )
           end

@@ -103,7 +103,7 @@ module LavinMQ
           io.write_bytes(topic.error_code, ::IO::ByteFormat::BigEndian)
           write_string(io, topic.name)
           if response.api_version >= 1
-            io.write_byte(topic.is_internal ? 1u8 : 0u8)
+            io.write_byte(topic.internal? ? 1u8 : 0u8)
           end
           write_array(io, topic.partitions) do |partition|
             io.write_bytes(partition.error_code, ::IO::ByteFormat::BigEndian)
@@ -317,10 +317,10 @@ module LavinMQ
     struct TopicMetadata
       getter error_code : Int16
       getter name : String
-      getter? is_internal : Bool
+      getter? internal : Bool
       getter partitions : Array(PartitionMetadata)
 
-      def initialize(@error_code, @name, @is_internal, @partitions)
+      def initialize(@error_code, @name, @internal, @partitions)
       end
     end
 
