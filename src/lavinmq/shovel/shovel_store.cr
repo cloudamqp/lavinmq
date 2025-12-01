@@ -65,5 +65,10 @@ module LavinMQ
       end
       Shovel::MultiDestinationHandler.new(destinations)
     end
+
+    def compact_collections
+      # Hash uses dup
+      @shovels = @shovels.dup if @shovels.capacity > @shovels.size * 2
+    end
   end
 end

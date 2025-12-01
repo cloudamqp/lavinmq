@@ -585,6 +585,19 @@ module LavinMQ
       end
     end
 
+    def compact_collections
+      # Hash uses dup
+      @deleted = @deleted.dup if @deleted.capacity > @deleted.size * 2
+      @segments = @segments.dup if @segments.capacity > @segments.size * 2
+
+      # Deque uses dup
+      @requeued = @requeued.dup if @requeued.capacity > @requeued.size * 2
+
+      # Tell kernel it can release physical pages backing mmapped files
+      @segments.each_value(&.dontneed)
+      @acks.try &.each_value(&.dontneed)
+    end
+
     class ClosedError < ::Channel::ClosedError; end
 
     class MetadataError < Exception; end

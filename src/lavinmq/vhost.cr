@@ -698,5 +698,22 @@ module LavinMQ
         LibC.sync
       {% end %}
     end
+
+    def compact_collections
+      # Array uses trim_to_size monkey patch
+      @connections.trim_to_size
+
+      # Hash uses dup
+      @direct_reply_consumers = @direct_reply_consumers.dup if @direct_reply_consumers.capacity > @direct_reply_consumers.size * 2
+      @exchanges = @exchanges.dup if @exchanges.capacity > @exchanges.size * 2
+      @queues = @queues.dup if @queues.capacity > @queues.size * 2
+
+      @queues.each_value(&.compact_collections)
+      @exchanges.each_value(&.compact_collections)
+      @connections.each(&.compact_collections) # cascade to channels
+      @shovels.try(&.compact_collections)
+      @upstreams.try(&.compact_collections)
+      Fiber.yield
+    end
   end
 end

@@ -96,6 +96,11 @@ module LavinMQ
         end
       end
 
+      def compact_collections
+        # Hash uses dup
+        @clients = @clients.dup if @clients.capacity > @clients.size * 2
+      end
+
       def close
         @retain_store.close
       end
