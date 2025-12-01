@@ -160,19 +160,13 @@ module LavinMQ
       private def read_string : String
         length = read_int16
         raise "Invalid string length: #{length}" if length < 0
-        return "" if length == 0
-        bytes = Bytes.new(length)
-        @io.read_fully(bytes)
-        String.new(bytes)
+        @io.read_string(length)
       end
 
       private def read_nullable_string : String?
         length = read_int16
         return nil if length < 0
-        return "" if length == 0
-        bytes = Bytes.new(length)
-        @io.read_fully(bytes)
-        String.new(bytes)
+        @io.read_string(length)
       end
 
       private def read_bytes : Bytes
