@@ -176,8 +176,18 @@ module LavinMQ
     class PrometheusController < Controller
       include Prometheus
 
+      def initialize(amqp_server : LavinMQ::Server, @allow_guest : Bool)
+        super(amqp_server)
+      end
+
       private def target_vhosts(context)
-        vhosts = @amqp_server.vhosts.values
+        vhosts = if @allow_guest
+                   @amqp_server.vhosts.values
+                 else
+                   u = user(context)
+                   vhosts(u)
+                 end
+
         selected = context.request.query_params.fetch_all("vhost")
         vhosts = vhosts.select { |vhost| selected.includes? vhost.name } unless selected.empty?
         vhosts.to_a
