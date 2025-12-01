@@ -344,7 +344,8 @@ describe LavinMQ::Federation::Upstream do
         us_queue.consumers_empty.when_true.receive
         ds_queue.consumers_empty.when_true.receive
 
-        wait_for { !us_queue.empty.value }
+        # One message has been transferred?
+        wait_for { us_queue.details_tuple[:messages].should be > 0 }
         ds_queue.empty.value.should be_true
         ds_queue.message_count.should eq 0
 
