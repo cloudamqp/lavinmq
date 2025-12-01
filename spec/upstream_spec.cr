@@ -337,14 +337,12 @@ describe LavinMQ::Federation::Upstream do
           downstream_ch.prefetch(1)
           downstream_q = downstream_ch.queue(ds_queue_name)
           downstream_q.subscribe(tag: "c", no_ack: false, block: true) do |msg|
-            downstream_q.unsubscribe("c")
             msg.ack
+            downstream_q.unsubscribe("c")
           end
         end
         us_queue.consumers_empty.when_true.receive
         ds_queue.consumers_empty.when_true.receive
-
-        # One message has been transferred?
 
         wait_for { !us_queue.empty.value }
         ds_queue.empty.value.should be_true
@@ -355,8 +353,8 @@ describe LavinMQ::Federation::Upstream do
           ch = Channel(Nil).new
           downstream_q = downstream_ch.queue(ds_queue_name)
           downstream_q.subscribe(tag: "c2", no_ack: false) do |msg|
-            downstream_q.unsubscribe("c2")
             msg.ack
+            downstream_q.unsubscribe("c2")
             ch.close
           end
 
