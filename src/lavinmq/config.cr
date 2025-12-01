@@ -336,6 +336,7 @@ module LavinMQ
         when "guest_only_loopback" # TODO: guest_only_loopback was deprecated in 2.2.x, remove in 3.0
           STDERR.puts "WARNING: 'guest_only_loopback' is deprecated, use 'default_user_only_loopback' instead"
           @default_user_only_loopback = true?(v)
+        when "auth_backends" then @auth_backends = v.split(",").map(&.strip)
         else
           STDERR.puts "WARNING: Unrecognized configuration 'main/#{config}'"
         end
