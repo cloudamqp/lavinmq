@@ -35,11 +35,11 @@ module LavinMQ
         end
       end
 
-      def is_transactional? : Bool
+      def transactional? : Bool
         (@attributes & 0x10) != 0
       end
 
-      def is_control? : Bool
+      def control? : Bool
         (@attributes & 0x20) != 0
       end
 
@@ -117,8 +117,8 @@ module LavinMQ
         records = Array(Record).new(count)
 
         count.times do
-          length = read_varint(io)
-          attributes = io.read_bytes(Int8, ::IO::ByteFormat::BigEndian)
+          _length = read_varint(io)
+          _attributes = io.read_bytes(Int8, ::IO::ByteFormat::BigEndian)
           timestamp_delta = read_varlong(io)
           offset_delta = read_varint(io)
 

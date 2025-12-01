@@ -38,10 +38,10 @@ module LavinMQ
           protocol.flush
 
           # Continue with connection handling
-          return handle_connection(protocol, connection_info, request.client_id, logger)
+          handle_connection(protocol, connection_info, request.client_id, logger)
         when MetadataRequest
           # Some clients skip ApiVersions and go straight to Metadata
-          return handle_connection(protocol, connection_info, request.client_id, logger, first_request: request)
+          handle_connection(protocol, connection_info, request.client_id, logger, first_request: request)
         else
           logger.warn { "Unexpected first request: #{request.class}" }
           socket.close

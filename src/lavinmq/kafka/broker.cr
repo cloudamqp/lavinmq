@@ -55,7 +55,7 @@ module LavinMQ
       # List all stream queues as topics
       def list_topics : Array(String)
         @vhost.queues.each_value
-          .select { |q| q.is_a?(AMQP::Stream) }
+          .select(AMQP::Stream)
           .map(&.name)
           .to_a
       end

@@ -12,7 +12,7 @@ module LavinMQ
 
       # Read a complete request from the wire
       def read_request : Request
-        size = read_int32
+        _size = read_int32
         api_key = read_int16
         api_version = read_int16
         correlation_id = read_int32
@@ -317,7 +317,7 @@ module LavinMQ
     struct TopicMetadata
       getter error_code : Int16
       getter name : String
-      getter is_internal : Bool
+      getter? is_internal : Bool
       getter partitions : Array(PartitionMetadata)
 
       def initialize(@error_code, @name, @is_internal, @partitions)

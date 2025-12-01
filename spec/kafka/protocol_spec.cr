@@ -5,16 +5,16 @@ include KafkaHelpers
 describe "Kafka Protocol" do
   describe "ApiVersions" do
     it "responds with supported API versions" do
-      with_kafka_server do |s, kafka_port|
+      with_kafka_server do |_s, kafka_port|
         socket = TCPSocket.new("localhost", kafka_port)
         socket.read_timeout = 5.seconds
 
         # Build ApiVersions request (v0)
         body = IO::Memory.new
-        body.write_bytes(18_i16, IO::ByteFormat::BigEndian)  # api_key = ApiVersions
-        body.write_bytes(0_i16, IO::ByteFormat::BigEndian)   # api_version = 0
-        body.write_bytes(1_i32, IO::ByteFormat::BigEndian)   # correlation_id = 1
-        body.write_bytes(11_i16, IO::ByteFormat::BigEndian)  # client_id length
+        body.write_bytes(18_i16, IO::ByteFormat::BigEndian) # api_key = ApiVersions
+        body.write_bytes(0_i16, IO::ByteFormat::BigEndian)  # api_version = 0
+        body.write_bytes(1_i32, IO::ByteFormat::BigEndian)  # correlation_id = 1
+        body.write_bytes(11_i16, IO::ByteFormat::BigEndian) # client_id length
         body.write("test-client".to_slice)
 
         # Send size-prefixed message
@@ -23,7 +23,7 @@ describe "Kafka Protocol" do
         socket.flush
 
         # Read response
-        size = socket.read_bytes(Int32, IO::ByteFormat::BigEndian)
+        _size = socket.read_bytes(Int32, IO::ByteFormat::BigEndian)
         correlation_id = socket.read_bytes(Int32, IO::ByteFormat::BigEndian)
         error_code = socket.read_bytes(Int16, IO::ByteFormat::BigEndian)
         api_count = socket.read_bytes(Int32, IO::ByteFormat::BigEndian)
@@ -36,8 +36,8 @@ describe "Kafka Protocol" do
         api_keys = [] of Int16
         api_count.times do
           api_key = socket.read_bytes(Int16, IO::ByteFormat::BigEndian)
-          min_version = socket.read_bytes(Int16, IO::ByteFormat::BigEndian)
-          max_version = socket.read_bytes(Int16, IO::ByteFormat::BigEndian)
+          _min_version = socket.read_bytes(Int16, IO::ByteFormat::BigEndian)
+          _max_version = socket.read_bytes(Int16, IO::ByteFormat::BigEndian)
           api_keys << api_key
         end
 
@@ -72,8 +72,8 @@ describe "Kafka Protocol" do
         socket.flush
 
         # Skip ApiVersions response
-        size = socket.read_bytes(Int32, IO::ByteFormat::BigEndian)
-        socket.skip(size)
+        _size = socket.read_bytes(Int32, IO::ByteFormat::BigEndian)
+        socket.skip(_size)
 
         # Build Metadata request (v0)
         body = IO::Memory.new
@@ -91,7 +91,7 @@ describe "Kafka Protocol" do
         socket.flush
 
         # Read response
-        size = socket.read_bytes(Int32, IO::ByteFormat::BigEndian)
+        _size = socket.read_bytes(Int32, IO::ByteFormat::BigEndian)
         correlation_id = socket.read_bytes(Int32, IO::ByteFormat::BigEndian)
 
         correlation_id.should eq 2
@@ -155,31 +155,31 @@ describe "Kafka Protocol" do
         socket.write_bytes(body.size.to_i32, IO::ByteFormat::BigEndian)
         socket.write(body.to_slice)
         socket.flush
-        size = socket.read_bytes(Int32, IO::ByteFormat::BigEndian)
-        socket.skip(size)
+        _size = socket.read_bytes(Int32, IO::ByteFormat::BigEndian)
+        socket.skip(_size)
 
         # Build a minimal RecordBatch
         record_batch = build_record_batch("Hello, Kafka!")
 
         # Build Produce request (v0)
         body = IO::Memory.new
-        body.write_bytes(0_i16, IO::ByteFormat::BigEndian)  # api_key = Produce
-        body.write_bytes(0_i16, IO::ByteFormat::BigEndian)  # api_version = 0
-        body.write_bytes(2_i32, IO::ByteFormat::BigEndian)  # correlation_id = 2
-        body.write_bytes(-1_i16, IO::ByteFormat::BigEndian) # null client_id
-        body.write_bytes(1_i16, IO::ByteFormat::BigEndian)  # acks = 1 (leader only)
+        body.write_bytes(0_i16, IO::ByteFormat::BigEndian)    # api_key = Produce
+        body.write_bytes(0_i16, IO::ByteFormat::BigEndian)    # api_version = 0
+        body.write_bytes(2_i32, IO::ByteFormat::BigEndian)    # correlation_id = 2
+        body.write_bytes(-1_i16, IO::ByteFormat::BigEndian)   # null client_id
+        body.write_bytes(1_i16, IO::ByteFormat::BigEndian)    # acks = 1 (leader only)
         body.write_bytes(5000_i32, IO::ByteFormat::BigEndian) # timeout_ms
 
         # topics array
-        body.write_bytes(1_i32, IO::ByteFormat::BigEndian)  # topics count
+        body.write_bytes(1_i32, IO::ByteFormat::BigEndian) # topics count
         topic_name = "produce-test"
         body.write_bytes(topic_name.bytesize.to_i16, IO::ByteFormat::BigEndian)
         body.write(topic_name.to_slice)
 
         # partitions array
-        body.write_bytes(1_i32, IO::ByteFormat::BigEndian)  # partitions count
-        body.write_bytes(0_i32, IO::ByteFormat::BigEndian)  # partition index
-        body.write_bytes(record_batch.size.to_i32, IO::ByteFormat::BigEndian)  # record set size
+        body.write_bytes(1_i32, IO::ByteFormat::BigEndian)                    # partitions count
+        body.write_bytes(0_i32, IO::ByteFormat::BigEndian)                    # partition index
+        body.write_bytes(record_batch.size.to_i32, IO::ByteFormat::BigEndian) # record set size
         body.write(record_batch.to_slice)
 
         socket.write_bytes(body.size.to_i32, IO::ByteFormat::BigEndian)
@@ -187,7 +187,7 @@ describe "Kafka Protocol" do
         socket.flush
 
         # Read response
-        size = socket.read_bytes(Int32, IO::ByteFormat::BigEndian)
+        _size = socket.read_bytes(Int32, IO::ByteFormat::BigEndian)
         correlation_id = socket.read_bytes(Int32, IO::ByteFormat::BigEndian)
 
         correlation_id.should eq 2
@@ -231,10 +231,10 @@ def build_record_batch(payload : String) : Bytes
 
   # Record (inside the batch)
   record = IO::Memory.new
-  record.write_byte(0u8)  # attributes
-  write_varint(record, 0) # timestamp delta
-  write_varint(record, 0) # offset delta
-  write_varint(record, -1) # key length (-1 = null)
+  record.write_byte(0u8)                 # attributes
+  write_varint(record, 0)                # timestamp delta
+  write_varint(record, 0)                # offset delta
+  write_varint(record, -1)               # key length (-1 = null)
   write_varint(record, payload.bytesize) # value length
   record.write(payload.to_slice)
   write_varint(record, 0) # headers count
@@ -243,22 +243,22 @@ def build_record_batch(payload : String) : Bytes
   record_size = record_bytes.size
 
   # RecordBatch header
-  io.write_bytes(0_i64, IO::ByteFormat::BigEndian)  # baseOffset
+  io.write_bytes(0_i64, IO::ByteFormat::BigEndian) # baseOffset
   # batchLength will be calculated after
-  batch_start = io.pos
+  _batch_start = io.pos
   io.write_bytes(0_i32, IO::ByteFormat::BigEndian)  # placeholder for batchLength
   io.write_bytes(-1_i32, IO::ByteFormat::BigEndian) # partitionLeaderEpoch
-  io.write_byte(2u8)  # magic (v2)
+  io.write_byte(2u8)                                # magic (v2)
   # CRC placeholder - we'll skip CRC for now
-  io.write_bytes(0_u32, IO::ByteFormat::BigEndian)  # crc
-  io.write_bytes(0_i16, IO::ByteFormat::BigEndian)  # attributes (no compression)
-  io.write_bytes(0_i32, IO::ByteFormat::BigEndian)  # lastOffsetDelta
-  io.write_bytes(Time.utc.to_unix_ms, IO::ByteFormat::BigEndian)  # firstTimestamp
-  io.write_bytes(Time.utc.to_unix_ms, IO::ByteFormat::BigEndian)  # maxTimestamp
-  io.write_bytes(-1_i64, IO::ByteFormat::BigEndian) # producerId
-  io.write_bytes(-1_i16, IO::ByteFormat::BigEndian) # producerEpoch
-  io.write_bytes(-1_i32, IO::ByteFormat::BigEndian) # baseSequence
-  io.write_bytes(1_i32, IO::ByteFormat::BigEndian)  # records count
+  io.write_bytes(0_u32, IO::ByteFormat::BigEndian)               # crc
+  io.write_bytes(0_i16, IO::ByteFormat::BigEndian)               # attributes (no compression)
+  io.write_bytes(0_i32, IO::ByteFormat::BigEndian)               # lastOffsetDelta
+  io.write_bytes(Time.utc.to_unix_ms, IO::ByteFormat::BigEndian) # firstTimestamp
+  io.write_bytes(Time.utc.to_unix_ms, IO::ByteFormat::BigEndian) # maxTimestamp
+  io.write_bytes(-1_i64, IO::ByteFormat::BigEndian)              # producerId
+  io.write_bytes(-1_i16, IO::ByteFormat::BigEndian)              # producerEpoch
+  io.write_bytes(-1_i32, IO::ByteFormat::BigEndian)              # baseSequence
+  io.write_bytes(1_i32, IO::ByteFormat::BigEndian)               # records count
 
   # Write the record with its varint length prefix
   write_varint(io, record_size)
