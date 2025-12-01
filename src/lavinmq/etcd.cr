@@ -379,9 +379,13 @@ module LavinMQ
     end
 
     private def raise_if_error(json)
+      # Etcd error formats:
+      # - {"error": "..."} or {"error": {"message": "..."}}
+      # - {"code": N, "message": "..."} (gRPC-gateway, code 0 = OK, >0 = error)
+      #   See https://grpc.io/docs/guides/status-codes/
       error_msg = json.dig?("error", "message").try(&.as_s) ||
-                  json["error"]?.try(&.as_s?) ||
-                  json["message"]?.try(&.as_s)
+                  json["error"]?.try(&.as_s?)
+      error_msg ||= json["message"]?.try(&.as_s) if json["code"]?.try(&.as_i).try { |c| c > 0 }
       return unless error_msg
       Log.debug { "etcd error: #{error_msg}" }
       case error_msg
