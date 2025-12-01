@@ -87,8 +87,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      - name: Install dev shards
+        run: shards install
       - name: Spec
-      - run: shards install
         run: make test
 
   spec_osx:
