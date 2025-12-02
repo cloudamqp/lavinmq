@@ -75,92 +75,7 @@ module LavinMQ
 
       # Write a response to the wire
       def write_response(response : Response)
-        buffer = ::IO::Memory.new
-        write_response_body(buffer, response)
-        @io.write_bytes(buffer.size.to_i32, ::IO::ByteFormat::BigEndian)
-        @io.write(buffer.to_slice)
-      end
-
-      private def write_response_body(io : ::IO, response : Response)
-        io.write_bytes(response.correlation_id, ::IO::ByteFormat::BigEndian)
-
-        case response
-        when ApiVersionsResponse
-          write_api_versions_response(io, response)
-        when MetadataResponse
-          write_metadata_response(io, response)
-        when ProduceResponse
-          write_produce_response(io, response)
-        end
-      end
-
-      private def write_api_versions_response(io : ::IO, response : ApiVersionsResponse)
-        io.write_bytes(response.error_code, ::IO::ByteFormat::BigEndian)
-        write_array(io, response.api_versions) do |api|
-          io.write_bytes(api.api_key, ::IO::ByteFormat::BigEndian)
-          io.write_bytes(api.min_version, ::IO::ByteFormat::BigEndian)
-          io.write_bytes(api.max_version, ::IO::ByteFormat::BigEndian)
-        end
-        if response.api_version >= 1
-          io.write_bytes(response.throttle_time_ms, ::IO::ByteFormat::BigEndian)
-        end
-      end
-
-      private def write_metadata_response(io : ::IO, response : MetadataResponse)
-        # Brokers array
-        write_array(io, response.brokers) do |broker|
-          io.write_bytes(broker.node_id, ::IO::ByteFormat::BigEndian)
-          write_string(io, broker.host)
-          io.write_bytes(broker.port, ::IO::ByteFormat::BigEndian)
-          if response.api_version >= 1
-            write_nullable_string(io, broker.rack)
-          end
-        end
-
-        if response.api_version >= 1
-          write_nullable_string(io, response.cluster_id)
-        end
-
-        if response.api_version >= 1
-          io.write_bytes(response.controller_id, ::IO::ByteFormat::BigEndian)
-        end
-
-        # Topics array
-        write_array(io, response.topics) do |topic|
-          io.write_bytes(topic.error_code, ::IO::ByteFormat::BigEndian)
-          write_string(io, topic.name)
-          if response.api_version >= 1
-            io.write_byte(topic.internal? ? 1u8 : 0u8)
-          end
-          write_array(io, topic.partitions) do |partition|
-            io.write_bytes(partition.error_code, ::IO::ByteFormat::BigEndian)
-            io.write_bytes(partition.partition_index, ::IO::ByteFormat::BigEndian)
-            io.write_bytes(partition.leader_id, ::IO::ByteFormat::BigEndian)
-            write_array(io, partition.replica_nodes) do |node|
-              io.write_bytes(node, ::IO::ByteFormat::BigEndian)
-            end
-            write_array(io, partition.isr_nodes) do |node|
-              io.write_bytes(node, ::IO::ByteFormat::BigEndian)
-            end
-          end
-        end
-      end
-
-      private def write_produce_response(io : ::IO, response : ProduceResponse)
-        write_array(io, response.responses) do |topic_response|
-          write_string(io, topic_response.name)
-          write_array(io, topic_response.partition_responses) do |partition_response|
-            io.write_bytes(partition_response.index, ::IO::ByteFormat::BigEndian)
-            io.write_bytes(partition_response.error_code, ::IO::ByteFormat::BigEndian)
-            io.write_bytes(partition_response.base_offset, ::IO::ByteFormat::BigEndian)
-            if response.api_version >= 2
-              io.write_bytes(partition_response.log_append_time_ms, ::IO::ByteFormat::BigEndian)
-            end
-          end
-        end
-        if response.api_version >= 1
-          io.write_bytes(response.throttle_time_ms, ::IO::ByteFormat::BigEndian)
-        end
+        response.to_io(@io)
       end
 
       def flush
@@ -224,18 +139,13 @@ module LavinMQ
         Array.new(length) { yield }
       end
 
-      # Primitive writers
+      # Primitive writers (kept for backward compatibility if needed)
       private def write_string(io : ::IO, str : String)
-        io.write_bytes(str.bytesize.to_i16, ::IO::ByteFormat::BigEndian)
-        io.write(str.to_slice)
+        Response.write_string(io, str)
       end
 
       private def write_nullable_string(io : ::IO, str : String?)
-        if str.nil?
-          io.write_bytes(-1_i16, ::IO::ByteFormat::BigEndian)
-        else
-          write_string(io, str)
-        end
+        Response.write_nullable_string(io, str)
       end
 
       private def write_array(io : ::IO, arr, &)
@@ -299,13 +209,48 @@ module LavinMQ
       end
     end
 
+    # Helper methods for serialization
+    module SerializationHelpers
+      # Size calculation helpers
+      protected def string_size(str : String) : Int32
+        2 + str.bytesize # int16 length + bytes
+      end
+
+      protected def nullable_string_size(str : String?) : Int32
+        str.nil? ? 2 : string_size(str)
+      end
+
+      protected def array_size(arr, &) : Int32
+        4 + arr.sum { |item| yield item } # int32 length + sum of item sizes
+      end
+
+      # Primitive writers
+      protected def write_string(io : ::IO, str : String)
+        io.write_bytes(str.bytesize.to_i16, ::IO::ByteFormat::BigEndian)
+        io.write(str.to_slice)
+      end
+
+      protected def write_nullable_string(io : ::IO, str : String?)
+        if str.nil?
+          io.write_bytes(-1_i16, ::IO::ByteFormat::BigEndian)
+        else
+          write_string(io, str)
+        end
+      end
+    end
+
     # Response types
     abstract struct Response
+      include SerializationHelpers
+
       getter api_version : Int16
       getter correlation_id : Int32
 
       def initialize(@api_version, @correlation_id)
       end
+
+      abstract def bytesize : Int32
+      abstract def to_io(io : IO, format : IO::ByteFormat = IO::ByteFormat::NetworkEndian) : Nil
     end
 
     struct ApiVersionsResponse < Response
@@ -315,6 +260,28 @@ module LavinMQ
 
       def initialize(api_version, correlation_id, @error_code, @api_versions, @throttle_time_ms = 0)
         super(api_version, correlation_id)
+      end
+
+      def bytesize : Int32
+        size = 4 + 2                         # correlation_id + error_code
+        size += 4 + (@api_versions.size * 6) # array length + (api_key + min_version + max_version) * count
+        size += 4 if @api_version >= 1       # throttle_time_ms
+        size
+      end
+
+      def to_io(io : IO, format : IO::ByteFormat = IO::ByteFormat::NetworkEndian) : Nil
+        io.write_bytes(bytesize, format)
+        io.write_bytes(@correlation_id, format)
+        io.write_bytes(@error_code, format)
+        io.write_bytes(@api_versions.size.to_i32, format)
+        @api_versions.each do |api|
+          io.write_bytes(api.api_key, format)
+          io.write_bytes(api.min_version, format)
+          io.write_bytes(api.max_version, format)
+        end
+        if @api_version >= 1
+          io.write_bytes(@throttle_time_ms, format)
+        end
       end
     end
 
@@ -336,25 +303,88 @@ module LavinMQ
       def initialize(api_version, correlation_id, @brokers, @cluster_id, @controller_id, @topics)
         super(api_version, correlation_id)
       end
+
+      def bytesize : Int32
+        size = 4 # correlation_id
+        size += array_size(@brokers, &.bytesize)
+        if @api_version >= 1
+          size += nullable_string_size(@cluster_id)
+          size += 4 # controller_id
+        end
+        size += array_size(@topics, &.bytesize)
+        size
+      end
+
+      def to_io(io : IO, format : IO::ByteFormat = IO::ByteFormat::NetworkEndian) : Nil
+        io.write_bytes(bytesize, format)
+        io.write_bytes(@correlation_id, format)
+
+        # Brokers array
+        io.write_bytes(@brokers.size.to_i32, format)
+        @brokers.each(&.to_io(io, format))
+
+        if @api_version >= 1
+          write_nullable_string(io, @cluster_id)
+          io.write_bytes(@controller_id, format)
+        end
+
+        # Topics array
+        io.write_bytes(@topics.size.to_i32, format)
+        @topics.each(&.to_io(io, format))
+      end
     end
 
     struct BrokerMetadata
+      include SerializationHelpers
+
       getter node_id : Int32
       getter host : String
       getter port : Int32
       getter rack : String?
+      getter api_version : Int16
 
-      def initialize(@node_id, @host, @port, @rack = nil)
+      def initialize(@node_id, @host, @port, @api_version, @rack = nil)
+      end
+
+      def bytesize : Int32
+        size = 4 + string_size(@host) + 4 # node_id + host + port
+        size += nullable_string_size(@rack) if @api_version >= 1
+        size
+      end
+
+      def to_io(io : IO, format : IO::ByteFormat = IO::ByteFormat::NetworkEndian) : Nil
+        io.write_bytes(@node_id, format)
+        write_string(io, @host)
+        io.write_bytes(@port, format)
+        write_nullable_string(io, @rack) if @api_version >= 1
       end
     end
 
     struct TopicMetadata
+      include SerializationHelpers
+
       getter error_code : Int16
       getter name : String
       getter? internal : Bool
       getter partitions : Array(PartitionMetadata)
+      getter api_version : Int16
 
-      def initialize(@error_code, @name, @internal, @partitions)
+      def initialize(@error_code, @name, @internal, @partitions, @api_version)
+      end
+
+      def bytesize : Int32
+        size = 2 + string_size(@name)  # error_code + name
+        size += 1 if @api_version >= 1 # internal flag
+        size += array_size(@partitions, &.bytesize)
+        size
+      end
+
+      def to_io(io : IO, format : IO::ByteFormat = IO::ByteFormat::NetworkEndian) : Nil
+        io.write_bytes(@error_code, format)
+        write_string(io, @name)
+        io.write_byte(@internal ? 1u8 : 0u8) if @api_version >= 1
+        io.write_bytes(@partitions.size.to_i32, format)
+        @partitions.each(&.to_io(io, format))
       end
     end
 
@@ -367,6 +397,23 @@ module LavinMQ
 
       def initialize(@error_code, @partition_index, @leader_id, @replica_nodes, @isr_nodes)
       end
+
+      def bytesize : Int32
+        size = 2 + 4 + 4                      # error_code + partition_index + leader_id
+        size += 4 + (@replica_nodes.size * 4) # replica_nodes array
+        size += 4 + (@isr_nodes.size * 4)     # isr_nodes array
+        size
+      end
+
+      def to_io(io : IO, format : IO::ByteFormat = IO::ByteFormat::NetworkEndian) : Nil
+        io.write_bytes(@error_code, format)
+        io.write_bytes(@partition_index, format)
+        io.write_bytes(@leader_id, format)
+        io.write_bytes(@replica_nodes.size.to_i32, format)
+        @replica_nodes.each { |node| io.write_bytes(node, format) }
+        io.write_bytes(@isr_nodes.size.to_i32, format)
+        @isr_nodes.each { |node| io.write_bytes(node, format) }
+      end
     end
 
     struct ProduceResponse < Response
@@ -376,13 +423,45 @@ module LavinMQ
       def initialize(api_version, correlation_id, @responses, @throttle_time_ms = 0)
         super(api_version, correlation_id)
       end
+
+      def bytesize : Int32
+        size = 4 # correlation_id
+        size += array_size(@responses, &.bytesize)
+        size += 4 if @api_version >= 1 # throttle_time_ms
+        size
+      end
+
+      def to_io(io : IO, format : IO::ByteFormat = IO::ByteFormat::NetworkEndian) : Nil
+        io.write_bytes(bytesize, format)
+        io.write_bytes(@correlation_id, format)
+        io.write_bytes(@responses.size.to_i32, format)
+        @responses.each(&.to_io(io, format))
+        if @api_version >= 1
+          io.write_bytes(@throttle_time_ms, format)
+        end
+      end
     end
 
     struct TopicProduceResponse
+      include SerializationHelpers
+
       getter name : String
       getter partition_responses : Array(PartitionProduceResponse)
+      getter api_version : Int16
 
-      def initialize(@name, @partition_responses)
+      def initialize(@name, @partition_responses, @api_version)
+      end
+
+      def bytesize : Int32
+        size = string_size(@name)
+        size += array_size(@partition_responses, &.bytesize)
+        size
+      end
+
+      def to_io(io : IO, format : IO::ByteFormat = IO::ByteFormat::NetworkEndian) : Nil
+        write_string(io, @name)
+        io.write_bytes(@partition_responses.size.to_i32, format)
+        @partition_responses.each(&.to_io(io, format))
       end
     end
 
@@ -391,8 +470,24 @@ module LavinMQ
       getter error_code : Int16
       getter base_offset : Int64
       getter log_append_time_ms : Int64
+      getter api_version : Int16
 
-      def initialize(@index, @error_code, @base_offset, @log_append_time_ms = -1_i64)
+      def initialize(@index, @error_code, @base_offset, @api_version, @log_append_time_ms = -1_i64)
+      end
+
+      def bytesize : Int32
+        size = 4 + 2 + 8               # index + error_code + base_offset
+        size += 8 if @api_version >= 2 # log_append_time_ms
+        size
+      end
+
+      def to_io(io : IO, format : IO::ByteFormat = IO::ByteFormat::NetworkEndian) : Nil
+        io.write_bytes(@index, format)
+        io.write_bytes(@error_code, format)
+        io.write_bytes(@base_offset, format)
+        if @api_version >= 2
+          io.write_bytes(@log_append_time_ms, format)
+        end
       end
     end
   end

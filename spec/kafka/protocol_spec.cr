@@ -232,9 +232,9 @@ describe "Kafka Protocol" do
 
         # Build a malicious request where client_id length exceeds total request size
         body = IO::Memory.new
-        body.write_bytes(18_i16, IO::ByteFormat::BigEndian) # api_key = ApiVersions
-        body.write_bytes(0_i16, IO::ByteFormat::BigEndian)  # api_version = 0
-        body.write_bytes(1_i32, IO::ByteFormat::BigEndian)  # correlation_id = 1
+        body.write_bytes(18_i16, IO::ByteFormat::BigEndian)   # api_key = ApiVersions
+        body.write_bytes(0_i16, IO::ByteFormat::BigEndian)    # api_version = 0
+        body.write_bytes(1_i32, IO::ByteFormat::BigEndian)    # correlation_id = 1
         body.write_bytes(1000_i16, IO::ByteFormat::BigEndian) # client_id length = 1000 (but we won't send that much data)
 
         # Send with a size that's smaller than what we claim the client_id is

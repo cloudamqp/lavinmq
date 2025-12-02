@@ -111,14 +111,16 @@ module LavinMQ
               error_code: ErrorCode::NONE,
               name: topic_name,
               internal: false,
-              partitions: partitions
+              partitions: partitions,
+              api_version: request.api_version
             )
           else
             TopicMetadata.new(
               error_code: ErrorCode::UNKNOWN_TOPIC_OR_PARTITION,
               name: topic_name,
               internal: false,
-              partitions: [] of PartitionMetadata
+              partitions: [] of PartitionMetadata,
+              api_version: request.api_version
             )
           end
         end
@@ -128,7 +130,7 @@ module LavinMQ
         host = local_addr.address
         port = local_addr.port
 
-        brokers = [BrokerMetadata.new(NODE_ID, host, port)]
+        brokers = [BrokerMetadata.new(NODE_ID, host, port, request.api_version)]
 
         response = MetadataResponse.new(
           request.api_version,
@@ -144,9 +146,9 @@ module LavinMQ
       private def handle_produce(request : ProduceRequest)
         responses = request.topic_data.map do |topic_data|
           partition_responses = topic_data.partitions.map do |partition|
-            publish_to_stream(topic_data.name, partition)
+            publish_to_stream(topic_data.name, partition, request.api_version)
           end
-          TopicProduceResponse.new(topic_data.name, partition_responses)
+          TopicProduceResponse.new(topic_data.name, partition_responses, request.api_version)
         end
 
         # Only send response if acks != 0
@@ -160,14 +162,15 @@ module LavinMQ
         end
       end
 
-      private def publish_to_stream(topic : String, partition : PartitionData) : PartitionProduceResponse
+      private def publish_to_stream(topic : String, partition : PartitionData, api_version : Int16) : PartitionProduceResponse
         stream = @broker.get_or_create_stream(topic)
 
         unless stream
           return PartitionProduceResponse.new(
             index: partition.partition,
             error_code: ErrorCode::UNKNOWN_TOPIC_OR_PARTITION,
-            base_offset: -1_i64
+            base_offset: -1_i64,
+            api_version: api_version
           )
         end
 
@@ -179,6 +182,7 @@ module LavinMQ
             index: 0,
             error_code: ErrorCode::NONE,
             base_offset: stream.last_offset,
+            api_version: api_version,
             log_append_time_ms: RoughTime.unix_ms
           )
         end
@@ -198,6 +202,7 @@ module LavinMQ
           index: 0, # Always partition 0
           error_code: ErrorCode::NONE,
           base_offset: base_offset,
+          api_version: api_version,
           log_append_time_ms: RoughTime.unix_ms
         )
       rescue ex
@@ -205,7 +210,8 @@ module LavinMQ
         PartitionProduceResponse.new(
           index: 0,
           error_code: ErrorCode::UNKNOWN_SERVER_ERROR,
-          base_offset: -1_i64
+          base_offset: -1_i64,
+          api_version: api_version
         )
       end
 
