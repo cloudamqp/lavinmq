@@ -3,13 +3,13 @@ require "string_scanner"
 
 describe LavinMQ::HTTP::PrometheusController do
   describe "authentication" do
-    it "should allow guest access to metrics on metrics port" do
+    it "should allow unauthenticated access to metrics on metrics port" do
       with_metrics_server do |http, _|
         response = http.get("/metrics")
         response.status_code.should eq 200
       end
     end
-    it "should allow not guest access to metrics on mgmt port" do
+    it "should require authenticated access to metrics on mgmt port" do
       with_http_server do |http, _|
         response = HTTP::Client.get("http://#{http.addr}/metrics")
         response.status_code.should eq 401

@@ -13,7 +13,7 @@ module LavinMQ
       def initialize(amqp_server : LavinMQ::Server? = nil)
         @closed = false
         controller = if s = amqp_server
-                       PrometheusController.new(s, allow_guest: true)
+                       PrometheusController.new(s, require_authentication: false)
                      else
                        FollowerPrometheusController.new
                      end

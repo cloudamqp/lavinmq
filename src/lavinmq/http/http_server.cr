@@ -24,7 +24,7 @@ module LavinMQ
           ViewsController.new,
           ApiErrorHandler.new,
           AuthHandler.new(@amqp_server),
-          PrometheusController.new(@amqp_server, allow_guest: false),
+          PrometheusController.new(@amqp_server, require_authentication: true),
           ApiDefaultsHandler.new,
           MainController.new(@amqp_server),
           DefinitionsController.new(@amqp_server),
