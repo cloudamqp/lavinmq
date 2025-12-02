@@ -12,6 +12,7 @@ module LavinMQ
     @closed = false
     @server : TCPServer?
     @work_queue : Channel(TCPSocket)
+    @execution_context : Fiber::ExecutionContext::Parallel
 
     def initialize(
       @tls_context : OpenSSL::SSL::Context::Server,
@@ -20,10 +21,11 @@ module LavinMQ
     )
       @work_queue = Channel(TCPSocket).new(@max_concurrent_handshakes * 2)
 
-      # Create worker pool with isolated execution contexts
-      # Each worker runs in its own OS thread, pulling work from the queue
+      # Create parallel execution context with worker pool
+      # Manages thread pool internally for better resource scheduling
+      @execution_context = Fiber::ExecutionContext::Parallel.new("TLS workers", @max_concurrent_handshakes)
       @max_concurrent_handshakes.times do |i|
-        Fiber::ExecutionContext::Isolated.new("TLS worker #{i}") do
+        @execution_context.spawn(name: "TLS worker #{i}") do
           worker_loop
         end
       end
@@ -33,7 +35,7 @@ module LavinMQ
       server = TCPServer.new(bind, port)
       @server = server
       Log.info { "TLS proxy listening on #{bind}:#{port}, forwarding to #{@internal_socket_path}" }
-      Log.info { "TLS worker pool: #{@max_concurrent_handshakes} isolated threads" }
+      Log.info { "TLS worker pool: #{@max_concurrent_handshakes} threads (parallel execution context)" }
 
       # Accept connections and push to work queue for worker pool
       loop do
@@ -58,7 +60,7 @@ module LavinMQ
       @work_queue.close
     end
 
-    # Worker loop running in isolated execution context
+    # Worker loop running in parallel execution context
     # Pulls client sockets from work queue and handles TLS handshakes
     private def worker_loop
       loop do
@@ -75,7 +77,7 @@ module LavinMQ
 
       set_socket_options(client)
 
-      # Perform TLS handshake (blocks isolated thread, not main pool)
+      # Perform TLS handshake (blocks worker thread, not main pool)
       ssl_client = OpenSSL::SSL::Socket::Server.new(client, @tls_context, sync_close: true)
       ssl_client.sync = false
       ssl_client.read_buffering = true
