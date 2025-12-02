@@ -118,20 +118,12 @@ module LavinMQ
       end
 
       # Primitive readers
-      private def read_int8 : Int8
-        self.read_bytes(Int8, ::IO::ByteFormat::NetworkEndian)
-      end
-
       private def read_int16 : Int16
         self.read_bytes(Int16, ::IO::ByteFormat::NetworkEndian)
       end
 
       private def read_int32 : Int32
         self.read_bytes(Int32, ::IO::ByteFormat::NetworkEndian)
-      end
-
-      private def read_int64 : Int64
-        self.read_bytes(Int64, ::IO::ByteFormat::NetworkEndian)
       end
 
       private def read_string : String
@@ -146,14 +138,6 @@ module LavinMQ
         self.read_string(length)
       end
 
-      private def read_bytes : Bytes
-        length = read_int32
-        return Bytes.empty if length <= 0
-        bytes = Bytes.new(length)
-        self.read_fully(bytes)
-        bytes
-      end
-
       private def read_array(&)
         length = read_int32
         return [] of typeof(yield) if length <= 0
@@ -165,62 +149,6 @@ module LavinMQ
         return nil if length < 0
         return [] of typeof(yield) if length == 0
         Array.new(length) { yield }
-      end
-
-      # Unsigned varint support for flexible versions (v3+)
-      private def read_unsigned_varint : UInt32
-        value = 0_u32
-        shift = 0
-        loop do
-          byte = read_int8.to_u8
-          value |= ((byte & 0x7F).to_u32 << shift)
-          break if (byte & 0x80) == 0
-          shift += 7
-          raise Error.new("Varint too long") if shift > 28
-        end
-        value
-      end
-
-      # Compact string for flexible versions (varint length + 1, where 0 = null)
-      private def read_compact_string : String?
-        length = read_unsigned_varint
-        return nil if length == 0  # 0 means null
-        actual_length = length - 1 # length is encoded as actual + 1
-        return "" if actual_length == 0
-        # Read bytes directly without length prefix
-        bytes = Bytes.new(actual_length)
-        read_fully(bytes)
-        String.new(bytes)
-      end
-
-      # Compact nullable string for flexible versions
-      private def read_compact_nullable_string : String?
-        read_compact_string
-      end
-
-      # Read tagged fields (for flexible versions)
-      private def skip_tagged_fields
-        num_tags = read_unsigned_varint
-        num_tags.times do
-          tag = read_unsigned_varint
-          size = read_unsigned_varint
-          # Skip the tag data
-          Bytes.new(size).tap { |bytes| read_fully(bytes) }
-        end
-      end
-
-      # Primitive writers (kept for backward compatibility if needed)
-      private def write_string(io : ::IO, str : String)
-        Response.write_string(io, str)
-      end
-
-      private def write_nullable_string(io : ::IO, str : String?)
-        Response.write_nullable_string(io, str)
-      end
-
-      private def write_array(io : ::IO, arr, &)
-        io.write_bytes(arr.size.to_i32, ::IO::ByteFormat::NetworkEndian)
-        arr.each { |item| yield item }
       end
     end
 
