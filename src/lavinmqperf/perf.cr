@@ -20,6 +20,16 @@ module LavinMQPerf
       @parser.on("--uri=URI", "URI to connect to (default #{@uri})") do |v|
         @uri = URI.parse(v)
       end
+      @parser.on("--cacert=FILE", "Path to CA certificate file for TLS verification") do |path|
+        add_uri_param("cacertfile", path)
+      end
+    end
+
+    private def add_uri_param(key : String, value : String)
+      params = HTTP::Params.parse(@uri.query || "")
+      params[key] = value
+      @uri = @uri.dup
+      @uri.query = params.to_s
     end
 
     def run(args = ARGV)

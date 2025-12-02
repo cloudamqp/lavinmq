@@ -20,3 +20,4 @@ package-lock.json
 /static/views/
 .DS_Store
 .claude/settings.local.json
+/test-certs/
