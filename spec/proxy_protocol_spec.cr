@@ -86,5 +86,41 @@ describe "ProxyProtocol" do
         0x92, 0x30, 0x16, 0x27
       ).to_slice
     end
+
+    it "can write and parse TLS metadata" do
+      r, w = IO.pipe
+      src = Socket::IPAddress.new("192.168.1.100", 54321)
+      dst = Socket::IPAddress.new("10.0.0.1", 5671)
+
+      header = LavinMQ::ProxyProtocol::V2.new(src, dst)
+      header.ssl = true
+      header.ssl_version = "TLSv1.3"
+      header.ssl_cipher = "TLS_AES_256_GCM_SHA384"
+
+      w.write_bytes header, IO::ByteFormat::NetworkEndian
+
+      parsed = LavinMQ::ProxyProtocol::V2.parse(r)
+      parsed.remote_address.to_s.should eq "192.168.1.100:54321"
+      parsed.local_address.to_s.should eq "10.0.0.1:5671"
+      parsed.ssl?.should be_true
+      parsed.ssl_version.should eq "TLSv1.3"
+      parsed.ssl_cipher.should eq "TLS_AES_256_GCM_SHA384"
+    end
+
+    it "writes header without TLS metadata when ssl is false" do
+      io = IO::Memory.new
+      src = Socket::IPAddress.new("127.0.0.1", 37424)
+      dst = Socket::IPAddress.new("127.0.0.1", 5671)
+
+      header = LavinMQ::ProxyProtocol::V2.new(src, dst)
+      header.ssl = false
+
+      io.write_bytes header, IO::ByteFormat::NetworkEndian
+
+      io.to_slice[0, 12].should eq LavinMQ::ProxyProtocol::V2::Signature.to_slice
+      io.to_slice[12].should eq 33_u8
+      io.to_slice[13].should eq 17_u8
+      IO::ByteFormat::NetworkEndian.decode(UInt16, io.to_slice[14, 2]).should eq 12
+    end
   end
 end
