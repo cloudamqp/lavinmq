@@ -234,36 +234,6 @@ module LavinMQ
       listen(s, protocol)
     end
 
-    # Unix socket listener that always expects PROXY protocol v2 (for TLS offloading)
-    def listen_unix_proxy(path : String, protocol : Protocol)
-      File.delete?(path)
-      s = UNIXServer.new(path)
-      File.chmod(path, 0o666)
-      @listeners[s] = protocol
-      Log.info { "Listening for #{protocol} on #{s.local_address} (PROXY v2)" }
-      loop do
-        client = s.accept? || break
-        next client.close if @closed
-        accept_unix_proxy(client, protocol)
-      end
-    rescue ex : IO::Error
-      abort "Unrecoverable error in unix proxy listener: #{ex.inspect_with_backtrace}"
-    ensure
-      @listeners.delete(s)
-    end
-
-    private def accept_unix_proxy(client, protocol)
-      spawn(name: "Accept UNIX PROXY socket") do
-        remote_address = client.remote_address
-        set_buffer_size(client)
-        conn_info = ProxyProtocol::V2.parse(client)
-        handle_connection(client, conn_info, protocol)
-      rescue ex
-        Log.warn(exception: ex) { "Error accepting PROXY connection from #{remote_address}" }
-        client.close rescue nil
-      end
-    end
-
     def listen_clustering(bind, port)
       @replicator.try &.listen(TCPServer.new(bind, port))
     end
