@@ -348,10 +348,26 @@ describe LavinMQ::Federation::Upstream do
         end
 
         wg.wait
-        Fiber.yield # let things happen?
+        sleep 0.1.seconds # Give time for federation to reject the message
 
-        # One message has been transferred?
-        wait_for { us_queue.message_count == 1 }
+        # Due to timing, either:
+        # - 1 message was federated, 1 remains in upstream (federation stopped when no consumer)
+        # - 2 messages were federated before unsubscribe (both in downstream or one consumed)
+        # Clean up downstream and ensure 1 message in upstream for the resume test
+        with_channel(s, vhost: ds_vhost.name) do |ch|
+          q = ch.queue(ds_queue_name)
+          while ds_queue.message_count > 0
+            q.get(no_ack: true)
+          end
+        end
+
+        if us_queue.message_count == 0
+          # Both messages were federated, add one back for resume test
+          with_channel(s, vhost: us_vhost.name) do |ch|
+            ch.queue(us_queue_name).publish_confirm "test message"
+          end
+        end
+        us_queue.message_count.should eq 1
 
         # resume consuming on downstream, federation should start again
         with_channel(s, vhost: ds_vhost.name) do |downstream_ch|

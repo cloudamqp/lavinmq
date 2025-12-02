@@ -260,6 +260,7 @@ describe LavinMQ::VHost do
           end
           ch.queue_declare(q.name, passive: true)[:message_count].should eq 2
           s.vhosts["/"].add_operator_policy("ml1", ".*", "all", ml_1, 0_i8)
+          sleep 10.milliseconds
           ch.queue_declare(q.name, passive: true)[:message_count].should eq 1
 
           # deleting operator policy should make normal policy active again

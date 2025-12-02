@@ -819,11 +819,10 @@ describe LavinMQ::Server do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         args = AMQP::Client::Arguments.new
-        args["x-expires"] = 1
+        args["x-expires"] = 50 # Use 50ms to allow reliable fiber scheduling
         ch.queue("test", args: args)
-        sleep 5.milliseconds
-        Fiber.yield
-        s.vhosts["/"].queues.has_key?("test").should be_false
+        # Poll until queue is deleted instead of fixed sleep
+        wait_for(timeout: 200.milliseconds) { !s.vhosts["/"].queues.has_key?("test") }
       end
     end
   end

@@ -15,6 +15,7 @@ require "./event_type"
 require "./stats"
 require "./queue_factory"
 require "./mqtt/session"
+require "./execution_context_pool"
 
 module LavinMQ
   class VHost
@@ -26,11 +27,19 @@ module LavinMQ
                 "redeliver", "reject", "consumer_added", "consumer_removed"})
 
     getter name, exchanges, queues, data_dir, operator_policies, policies, parameters, shovels,
-      direct_reply_consumers, connections, dir, users
+      direct_reply_consumers, dir, users, execution_context
     property? flow = true
-    getter? closed = false
     property max_connections : Int32?
     property max_queues : Int32?
+
+    # Thread-safe access to connections - returns a copy to avoid holding lock during iteration
+    def connections
+      @connections_lock.synchronize { @connections.dup }
+    end
+
+    def closed?
+      @closed.get(:relaxed)
+    end
 
     @exchanges = Hash(String, Exchange).new
     @queues = Hash(String, Queue).new
@@ -38,13 +47,17 @@ module LavinMQ
     @shovels : ShovelStore?
     @upstreams : Federation::UpstreamStore?
     @connections = Array(Client).new(512)
+    @connections_lock = Mutex.new(:reentrant)
     @definitions_file : File
     @definitions_lock = Mutex.new(:reentrant)
     @definitions_file_path : String
     @definitions_deletes = 0
+    @execution_context : Fiber::ExecutionContext
+    @closed = Atomic(Bool).new(false)
     Log = LavinMQ::Log.for "vhost"
 
     def initialize(@name : String, @server_data_dir : String, @users : Auth::UserStore, @replicator : Clustering::Replicator?, @description = "", @tags = Array(String).new(0))
+      @execution_context = ExecutionContextPool.instance.acquire
       @log = Logger.new(Log, vhost: @name)
       @dir = Digest::SHA1.hexdigest(@name)
       @data_dir = File.join(@server_data_dir, @dir)
@@ -61,16 +74,18 @@ module LavinMQ
       @shovels = ShovelStore.new(self)
       @upstreams = Federation::UpstreamStore.new(self)
       load!
-      spawn check_consumer_timeouts_loop, name: "Consumer timeouts loop"
+      @execution_context.spawn(name: "Consumer timeouts loop") { check_consumer_timeouts_loop }
     end
 
     private def check_consumer_timeouts_loop
       loop do
         sleep Config.instance.consumer_timeout_loop_interval.seconds
-        return if @closed
-        @connections.each do |c|
-          c.channels.each_value do |ch|
-            ch.check_consumer_timeout
+        return if @closed.get(:relaxed)
+        @connections_lock.synchronize do
+          @connections.each do |c|
+            c.channels.each_value do |ch|
+              ch.check_consumer_timeout
+            end
           end
         end
       end
@@ -333,12 +348,16 @@ module LavinMQ
 
     def add_connection(client : Client)
       event_tick(EventType::ConnectionCreated)
-      @connections << client
+      @connections_lock.synchronize do
+        @connections << client
+      end
     end
 
     def rm_connection(client : Client)
       event_tick(EventType::ConnectionClosed)
-      @connections.delete client
+      @connections_lock.synchronize do
+        @connections.delete client
+      end
     end
 
     SHOVEL                  = "shovel"
@@ -379,21 +398,23 @@ module LavinMQ
       WaitGroup.wait do |wg|
         to_close = Channel(Client).new
         fiber_count = 0
-        @connections.each do |client|
-          select
-          when to_close.send client
-          else # spawn another fiber closing channels
-            fiber_id = fiber_count &+= 1
-            @log.trace { "spawning close conn fiber #{fiber_id} " }
-            client_inner = client
-            wg.spawn do
-              client_inner.close(reason)
-              while client_to_close = to_close.receive?
-                client_to_close.close(reason)
+        @connections_lock.synchronize do
+          @connections.each do |client|
+            select
+            when to_close.send client
+            else # spawn another fiber closing channels
+              fiber_id = fiber_count &+= 1
+              @log.trace { "spawning close conn fiber #{fiber_id} " }
+              client_inner = client
+              wg.spawn do
+                client_inner.close(reason)
+                while client_to_close = to_close.receive?
+                  client_to_close.close(reason)
+                end
+                @log.trace { "exiting close conn fiber #{fiber_id} " }
               end
-              @log.trace { "exiting close conn fiber #{fiber_id} " }
+              Fiber.yield
             end
-            Fiber.yield
           end
         end
         to_close.close
@@ -401,7 +422,7 @@ module LavinMQ
     end
 
     def close(reason = "Broker shutdown")
-      @closed = true
+      return if @closed.swap(true, :acquire_release)
       stop_shovels
       stop_upstream_links
 
@@ -418,11 +439,15 @@ module LavinMQ
       when close_done.receive?
         @log.info { "All connections closed gracefully" }
       when timeout 15.seconds
-        @log.warn { "Timeout waiting for connections to close. #{@connections.size} left that will be forced closed." }
+        conn_size = @connections_lock.synchronize { @connections.size }
+        @log.warn { "Timeout waiting for connections to close. #{conn_size} left that will be forced closed." }
       end
       close_done.close
       # then force close the remaining (close tcp socket)
-      @connections.each &.force_close
+      # Copy connections before releasing lock to avoid deadlock
+      # when force_close triggers callbacks that call rm_connection
+      connections = @connections_lock.synchronize { @connections.dup }
+      connections.each &.force_close
       Fiber.yield # yield so that Client read_loops can shutdown
       @queues.each_value &.close
       Fiber.yield
@@ -434,6 +459,8 @@ module LavinMQ
       close(reason: "VHost deleted")
       Fiber.yield
       FileUtils.rm_rf @data_dir
+      # Return ExecutionContext to pool for reuse
+      ExecutionContextPool.instance.release(@execution_context)
     end
 
     private def apply_policies(resources : Array(Queue | Exchange) | Nil = nil)
@@ -472,7 +499,7 @@ module LavinMQ
       load_definitions!
       spawn(name: "Load parameters") do
         sleep 10.milliseconds
-        next if @closed
+        next if closed?
         apply_parameters
         apply_policies
       end
@@ -611,6 +638,7 @@ module LavinMQ
     end
 
     private def store_definition(frame, dirty = false)
+      return if closed?
       @log.debug { "Storing definition: #{frame.inspect}" }
       bytes = frame.to_slice
       @definitions_file.write bytes
