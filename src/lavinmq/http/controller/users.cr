@@ -59,6 +59,7 @@ module LavinMQ
             unless u.as_s?
               bad_request(context, "Field 'users' must be array of user names")
             end
+            @amqp_server.users.clear_permissions(u.as_s)
             @amqp_server.users.delete(u.as_s, false)
           end
           context.response.status_code = 204
@@ -112,6 +113,7 @@ module LavinMQ
         delete "/api/users/:name" do |context, params|
           refuse_unless_administrator(context, user(context))
           u = user(context, params)
+          @amqp_server.users.clear_permissions(u.name)
           @amqp_server.users.delete(u.name)
           context.response.status_code = 204
           context

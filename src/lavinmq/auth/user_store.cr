@@ -72,6 +72,14 @@ module LavinMQ
         save!
       end
 
+      def clear_permissions(user : String)
+        if u = @users[user]?
+          u.permissions.clear
+          u.clear_permissions_cache
+          Log.info { "Cleared all permissions for user=#{user}" }
+        end
+      end
+
       def delete(name, save = true) : User?
         return if name == DIRECT_USER
         if user = @users.delete name
