@@ -66,7 +66,7 @@ bin static/js/lib man1 static/js/lib/chunks:
 .INTERMEDIATE: downloaded_chart.js.tgz
 downloaded_chart.js.tgz:
 	curl --fail --retry 5 -sL -o $@ https://github.com/chartjs/Chart.js/releases/download/v4.0.1/chart.js-4.0.1.tgz && \
-	echo "461dae2edc0eda7beeb16c7030ab630ab5129aedd3fc6de9a036f6dfe488556f chart.js.tgz" | sha256sum -c -
+	echo "461dae2edc0eda7beeb16c7030ab630ab5129aedd3fc6de9a036f6dfe488556f $@" | sha256sum -c -
 
 .INTERMEDIATE: downloaded_luxon.js
 downloaded_luxon.js: 
