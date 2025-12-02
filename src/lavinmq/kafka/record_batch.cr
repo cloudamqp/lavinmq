@@ -6,6 +6,11 @@ module LavinMQ
     # Parses Kafka RecordBatch format (v2, magic byte 2)
     # https://kafka.apache.org/documentation/#recordbatch
     class RecordBatch
+      # Reusable hash for header parsing to avoid per-record allocations
+      # Note: This is shared across all parsing calls, so it's not thread-safe
+      # for concurrent parsing, but our architecture processes one request at a time
+      @@headers_reuse_buffer = Hash(String, Bytes).new
+
       getter base_offset : Int64
       getter batch_length : Int32
       getter partition_leader_epoch : Int32
@@ -61,18 +66,159 @@ module LavinMQ
 
       def self.parse(io : ::IO, length : Int32) : Array(RecordBatch)
         batches = [] of RecordBatch
-        sized_io = ::IO::Sized.new(io, length.to_u64)
+        bytes_remaining = length
 
         begin
           loop do
-            batch = parse_one(sized_io)
-            batches << batch if batch
+            break if bytes_remaining <= 0
+            batch = parse_one(io)
+            if batch
+              batches << batch
+              # Each batch consumes: base_offset(8) + batch_length(4) + batch_length bytes
+              bytes_remaining -= (12 + batch.batch_length)
+            else
+              break
+            end
           end
         rescue ::IO::EOFError
           # Done reading all batches
         end
 
         batches
+      end
+
+      # Streaming version - yields each record without accumulating
+      # Returns total record count processed
+      def self.parse_each(io : ::IO, length : Int32, base_offset_start : Int64, &block : Int64, Record -> Nil) : Int32
+        bytes_remaining = length
+        total_records = 0
+
+        begin
+          loop do
+            break if bytes_remaining <= 0
+            count, batch_size = parse_one_streaming(io, base_offset_start + total_records, &block)
+            if count
+              total_records += count
+              bytes_remaining -= batch_size
+            else
+              break
+            end
+          end
+        rescue ::IO::EOFError
+          # Done reading all batches
+        end
+
+        total_records
+      end
+
+      # Streaming version of parse_one that yields records
+      # Returns tuple of {record_count, bytes_consumed} or {nil, 0} if no batch
+      private def self.parse_one_streaming(io : ::IO, base_offset_start : Int64, &block : Int64, Record -> Nil) : {Int32?, Int32}
+        base_offset = io.read_bytes(Int64, ::IO::ByteFormat::BigEndian)
+        batch_length = io.read_bytes(Int32, ::IO::ByteFormat::BigEndian)
+
+        # Total bytes consumed: base_offset(8) + batch_length(4) + batch_length
+        batch_size = 12 + batch_length
+
+        return {nil, batch_size} if batch_length <= 0
+
+        partition_leader_epoch = io.read_bytes(Int32, ::IO::ByteFormat::BigEndian)
+        magic = io.read_bytes(Int8, ::IO::ByteFormat::BigEndian)
+
+        if magic != 2
+          # Skip legacy message formats
+          io.skip(batch_length - 5)
+          return {nil, batch_size}
+        end
+
+        crc = io.read_bytes(UInt32, ::IO::ByteFormat::BigEndian)
+        attributes = io.read_bytes(Int16, ::IO::ByteFormat::BigEndian)
+        last_offset_delta = io.read_bytes(Int32, ::IO::ByteFormat::BigEndian)
+        first_timestamp = io.read_bytes(Int64, ::IO::ByteFormat::BigEndian)
+        max_timestamp = io.read_bytes(Int64, ::IO::ByteFormat::BigEndian)
+        producer_id = io.read_bytes(Int64, ::IO::ByteFormat::BigEndian)
+        producer_epoch = io.read_bytes(Int16, ::IO::ByteFormat::BigEndian)
+        base_sequence = io.read_bytes(Int32, ::IO::ByteFormat::BigEndian)
+        record_count = io.read_bytes(Int32, ::IO::ByteFormat::BigEndian)
+
+        compression = Compression.new((attributes & 0x07).to_i8)
+        records_data_size = batch_length - 49
+
+        if compression == Compression::None
+          parse_records_streaming(io, record_count, base_offset, first_timestamp, base_offset_start, &block)
+        else
+          # For compressed batches, we still need to decompress first
+          compressed_data = Bytes.new(records_data_size)
+          io.read_fully(compressed_data)
+          decompressed_io = decompress(compressed_data, compression)
+          parse_records_streaming(decompressed_io, record_count, base_offset, first_timestamp, base_offset_start, &block)
+        end
+
+        {record_count, batch_size}
+      end
+
+      # Streaming version of parse_records that yields each record
+      private def self.parse_records_streaming(io : ::IO, count : Int32, base_offset : Int64, first_timestamp : Int64, base_offset_start : Int64, &block : Int64, Record -> Nil) : Nil
+        count.times do |i|
+          _length = read_varint(io)
+          _attributes = io.read_bytes(Int8, ::IO::ByteFormat::BigEndian)
+          timestamp_delta = read_varlong(io)
+          offset_delta = read_varint(io)
+
+          key_length = read_varint(io)
+          key = if key_length > 0
+                  bytes = Bytes.new(key_length)
+                  io.read_fully(bytes)
+                  bytes
+                elsif key_length == 0
+                  Bytes.empty
+                else
+                  nil
+                end
+
+          value_length = read_varint(io)
+          value = if value_length > 0
+                    bytes = Bytes.new(value_length)
+                    io.read_fully(bytes)
+                    bytes
+                  else
+                    Bytes.empty
+                  end
+
+          headers_count = read_varint(io)
+
+          # Clear and reuse the headers buffer to avoid per-record allocation
+          @@headers_reuse_buffer.clear
+
+          headers_count.times do
+            header_key_length = read_varint(io)
+            header_key = if header_key_length > 0
+                           io.read_string(header_key_length)
+                         else
+                           ""
+                         end
+
+            header_value_length = read_varint(io)
+            header_value = if header_value_length > 0
+                             bytes = Bytes.new(header_value_length)
+                             io.read_fully(bytes)
+                             bytes
+                           else
+                             Bytes.empty
+                           end
+
+            @@headers_reuse_buffer[header_key] = header_value
+          end
+
+          timestamp = first_timestamp + timestamp_delta
+          offset = base_offset + offset_delta
+          record = Record.new(offset, timestamp, key, value, @@headers_reuse_buffer)
+
+          # Yield record with its stream offset
+          # IMPORTANT: Caller must process record.headers immediately before next iteration
+          # as the headers hash is reused across records
+          yield base_offset_start + i, record
+        end
       end
 
       private def self.parse_one(io : ::IO) : RecordBatch?

@@ -15,6 +15,16 @@ module LavinMQ
       getter channels, name, client_id, connection_info
       @connected_at = RoughTime.unix_ms
       @channels = Hash(UInt16, Client::Channel).new
+      @kafka_headers_hash = Hash(String, AMQP::Field).new
+
+      # Stack-allocated structs for tracking streaming response metadata
+      record ResponseMetadata,
+        topic : String,
+        partition_count : Int32,
+        base_offset : Int64,
+        record_count : Int32,
+        error_code : Int16
+
       rate_stats({"send_oct", "recv_oct"})
       Log = LavinMQ::Log.for "kafka.client"
 
@@ -159,23 +169,154 @@ module LavinMQ
         # If client requests v4+ but we only support v3, respond with v3 format
         response_version = Math.min(request.api_version, 3_i16)
 
-        request.topic_data
-        responses = request.topic_data.map do |topic_data|
-          partition_responses = topic_data.partitions.map do |partition|
-            publish_to_stream(topic_data.name, partition, response_version)
+        # Track response metadata per topic (minimal allocation - just topic names as keys)
+        response_metadata = Hash(String, {Int64, Int32, Int16}).new
+
+        # Process request in streaming fashion - iterate through parsed request
+        request.topic_data.each do |topic_data|
+          stream = @broker.get_or_create_stream(topic_data.name)
+
+          unless stream
+            # Track error for this topic
+            response_metadata[topic_data.name] = {-1_i64, 0, ErrorCode::UNKNOWN_TOPIC_OR_PARTITION}
+            next
           end
-          TopicProduceResponse.new(topic_data.name, partition_responses, response_version)
+
+          # Track base offset for this topic
+          base_offset = stream.last_offset + 1
+          record_count = 0
+
+          # Create stateful iterator for generator pattern
+          partitions = topic_data.partitions
+          partition_idx = 0
+          batch_idx = 0
+          record_idx = 0
+
+          # Batch publish all records for this topic while holding the lock
+          # Generator pattern: block is called repeatedly and returns next message or nil
+          stream.publish_batch do
+            loop do
+              break nil if partition_idx >= partitions.size
+              partition = partitions[partition_idx]
+              batches = partition.record_batches
+
+              break nil if batch_idx >= batches.size
+              batch = batches[batch_idx]
+              records = batch.records
+
+              if record_idx < records.size
+                record = records[record_idx]
+                record_idx += 1
+                msg = record_to_bytesmessage_direct(topic_data.name, record)
+                vhost.event_tick(EventType::ClientPublish)
+                record_count += 1
+                break msg # Return this message
+              else
+                record_idx = 0
+                batch_idx += 1
+                if batch_idx >= batches.size
+                  batch_idx = 0
+                  partition_idx += 1
+                end
+                # Continue loop to get next record
+              end
+            end
+          end
+
+          # Store response metadata
+          response_metadata[topic_data.name] = {base_offset, record_count, ErrorCode::NONE}
         end
 
         # Only send response if acks != 0
-        if request.acks != 0
-          response = ProduceResponse.new(
-            response_version,
-            request.correlation_id,
-            responses
-          )
-          send_response(response)
+        return if request.acks == 0
+
+        # Write response directly without intermediate arrays
+        write_produce_response_streaming(request.correlation_id, response_version, response_metadata)
+      end
+
+      private def write_produce_response_streaming(correlation_id : Int32, api_version : Int16,
+                                                   metadata : Hash(String, {Int64, Int32, Int16}))
+        # Calculate response size
+        size = 4 # correlation_id
+        size += 4 # topics array length
+
+        metadata.each do |topic, (_base_offset, _count, _error)|
+          size += 2 + topic.bytesize # topic name
+          size += 4                   # partitions array length (always 1)
+          size += partition_response_size(api_version)
         end
+
+        size += 4 if api_version >= 1 # throttle_time_ms
+
+        @lock.synchronize do
+          # Write response
+          @protocol.write_bytes(size, IO::ByteFormat::NetworkEndian)
+          @protocol.write_bytes(correlation_id, IO::ByteFormat::NetworkEndian)
+
+          # Write topics array count
+          @protocol.write_bytes(metadata.size.to_i32, IO::ByteFormat::NetworkEndian)
+
+          # Write each topic response
+          metadata.each do |topic, (base_offset, count, error_code)|
+            # Write topic name
+            @protocol.write_bytes(topic.bytesize.to_i16, IO::ByteFormat::NetworkEndian)
+            @protocol.write(topic.to_slice)
+
+            # Write partition responses count (always 1)
+            @protocol.write_bytes(1_i32, IO::ByteFormat::NetworkEndian)
+
+            # Write partition response
+            @protocol.write_bytes(0_i32, IO::ByteFormat::NetworkEndian) # partition index
+            @protocol.write_bytes(error_code, IO::ByteFormat::NetworkEndian)
+            @protocol.write_bytes(base_offset, IO::ByteFormat::NetworkEndian)
+
+            if api_version >= 2
+              @protocol.write_bytes(RoughTime.unix_ms, IO::ByteFormat::NetworkEndian)
+            end
+          end
+
+          # Write throttle_time_ms if v1+
+          if api_version >= 1
+            @protocol.write_bytes(0_i32, IO::ByteFormat::NetworkEndian)
+          end
+
+          @protocol.flush
+        end
+      end
+
+      private def write_topic_produce_response(topic_data : TopicData, api_version : Int16)
+        # Write topic name
+        @protocol.write_bytes(topic_data.name.bytesize.to_i16, IO::ByteFormat::NetworkEndian)
+        @protocol.write(topic_data.name.to_slice)
+
+        # Write partition count
+        @protocol.write_bytes(topic_data.partitions.size.to_i32, IO::ByteFormat::NetworkEndian)
+
+        # Write each partition response
+        topic_data.partitions.each do |partition|
+          response = publish_to_stream(topic_data.name, partition, api_version)
+          response.to_io(@protocol, IO::ByteFormat::NetworkEndian)
+        end
+      end
+
+      private def calculate_produce_response_size(request : ProduceRequest, api_version : Int16) : Int32
+        size = 4 # correlation_id
+        size += 4 # topics array length
+
+        request.topic_data.each do |topic_data|
+          size += 2 + topic_data.name.bytesize # topic name
+          size += 4                            # partitions array length
+          size += topic_data.partitions.size * partition_response_size(api_version)
+        end
+
+        size += 4 if api_version >= 1 # throttle_time_ms
+        size
+      end
+
+      private def partition_response_size(api_version : Int16) : Int32
+        size = 4 + 2 + 8           # index + error_code + base_offset
+        size += 8 if api_version >= 2 # log_append_time_ms
+        size
       end
 
       private def publish_to_stream(topic : String, partition : PartitionData, api_version : Int16) : PartitionProduceResponse
@@ -231,38 +372,44 @@ module LavinMQ
         )
       end
 
-      private def record_to_message(topic : String, record : Record) : Message
-        # Build AMQP headers from Kafka headers
-        headers = AMQP::Table.new
+      # Direct streaming version - creates BytesMessage with minimal allocations
+      private def record_to_bytesmessage_direct(topic : String, record : Record) : BytesMessage
+        # Clear and reuse headers hash to avoid allocation
+        @kafka_headers_hash.clear
 
+        # Build AMQP headers from Kafka headers
+        # Note: record.headers is the Hash from RecordBatch parsing
         record.headers.each do |key, value|
           # Try to decode as string, otherwise store as bytes
           begin
-            headers[key] = String.new(value)
+            @kafka_headers_hash[key] = String.new(value)
           rescue
-            headers[key] = value
+            @kafka_headers_hash[key] = value
           end
         end
 
         # Store Kafka key in headers if present
         if key = record.key
-          headers["kafka-key"] = String.new(key)
+          @kafka_headers_hash["kafka-key"] = String.new(key)
         end
 
+        # Create Table from hash (Table creation is necessary but hash is reused)
+        headers_table = @kafka_headers_hash.empty? ? nil : AMQP::Table.new(@kafka_headers_hash)
+
         properties = AMQP::Properties.new(
-          headers: headers.empty? ? nil : headers,
+          headers: headers_table,
           timestamp: Time.unix_ms(record.timestamp)
         )
 
-        body_io = ::IO::Memory.new(record.value)
-
-        Message.new(
+        # Use BytesMessage directly - record.value is already Bytes from socket
+        # This is the most direct path: socket bytes -> BytesMessage -> mfile
+        BytesMessage.new(
           RoughTime.unix_ms,
           "",
           topic,
           properties,
           record.value.bytesize.to_u64,
-          body_io
+          record.value
         )
       end
 

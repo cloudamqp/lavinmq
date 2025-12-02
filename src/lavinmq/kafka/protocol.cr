@@ -150,6 +150,49 @@ module LavinMQ
         return [] of typeof(yield) if length == 0
         Array.new(length) { yield }
       end
+
+      # Non-allocating iterator for array parsing
+      # Foundation for future streaming optimizations
+      private def read_array_each(&) : Nil
+        length = read_int32
+        return if length <= 0
+        length.times { yield }
+      end
+
+      # Streaming ProduceRequest parser - yields each record without accumulation
+      # Block receives: topic, partition, stream_offset, record
+      def read_produce_request_streaming(api_version : Int16, correlation_id : Int32, client_id : String?,
+                                         &block : String, Int32, Int64, Record -> Nil) : {String?, Int16, Int32}
+        # Parse request header fields
+        transactional_id = api_version >= 3 ? read_nullable_string : nil
+        acks = read_int16
+        timeout_ms = read_int32
+
+        # Stream through topics
+        topics_count = read_int32
+        topics_count.times do
+          topic_name = read_string
+
+          # Stream through partitions
+          partitions_count = read_int32
+          partitions_count.times do
+            partition = read_int32
+            record_set_length = read_int32
+
+            if record_set_length > 0
+              # Get stream to determine base offset
+              base_offset = 0_i64 # Will be updated by caller based on stream state
+
+              # Stream through records, yielding each one
+              RecordBatch.parse_each(self, record_set_length, base_offset) do |offset, record|
+                yield topic_name, partition, offset, record
+              end
+            end
+          end
+        end
+
+        {transactional_id, acks, timeout_ms}
+      end
     end
 
     # Request types
