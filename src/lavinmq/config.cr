@@ -33,6 +33,7 @@ module LavinMQ
     property tls_ciphers = ""
     property tls_min_version = ""
     property tls_keylog_file = ""
+    property tls_offload_max_threads = 4 # Number of dedicated TLS worker threads
     property http_bind = "127.0.0.1"
     property http_port = 15672
     property https_port = 15671
@@ -179,6 +180,7 @@ module LavinMQ
         p.on("--key FILE", "Private key for the TLS certificate") { |v| @tls_key_path = v }
         p.on("--ciphers CIPHERS", "List of TLS ciphers to allow") { |v| @tls_ciphers = v }
         p.on("--tls-min-version=VERSION", "Mininum allowed TLS version (default: #{@tls_min_version})") { |v| @tls_min_version = v }
+        p.on("--tls-offload-max-threads=N", "Max concurrent TLS handshakes (default: #{@tls_offload_max_threads})") { |v| @tls_offload_max_threads = v.to_i }
 
         p.separator("\nClustering:")
         p.on("--clustering", "Enable clustering") do
@@ -326,6 +328,7 @@ module LavinMQ
         when "tls_ciphers"               then @tls_ciphers = v
         when "tls_min_version"           then @tls_min_version = v
         when "tls_keylog_file"           then @tls_keylog_file = v
+        when "tls_offload_max_threads"   then @tls_offload_max_threads = v.to_i32
         when "log_exchange"              then @log_exchange = true?(v)
         when "free_disk_min"             then @free_disk_min = v.to_i64
         when "free_disk_warn"            then @free_disk_warn = v.to_i64
