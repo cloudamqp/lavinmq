@@ -11,13 +11,8 @@ describe LavinMQ::AMQP::Channel do
       channel.queue("test:queue:1")
       channel.queue("test:queue:2")
       channel.basic_consume("test:queue:1") { }
-      begin
+      expect_raises(AMQP::Client::Channel::ClosedException, /RESOURCE_ERROR/) do
         channel.basic_consume("test:queue:2") { }
-        fail "Expected error when trying to surpass consumer_max_per_channel"
-      rescue ex : Exception
-        ex.should be_a(AMQP::Client::Channel::ClosedException)
-        error_message = ex.message || ""
-        error_message.should contain "RESOURCE_ERROR"
       end
     end
   end
