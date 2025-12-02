@@ -223,6 +223,54 @@ describe "Kafka Protocol" do
       end
     end
   end
+
+  describe "Security" do
+    it "rejects requests with field size exceeding advertised request size" do
+      with_kafka_server do |_s, kafka_port|
+        socket = TCPSocket.new("localhost", kafka_port)
+        socket.read_timeout = 5.seconds
+
+        # Build a malicious request where client_id length exceeds total request size
+        body = IO::Memory.new
+        body.write_bytes(18_i16, IO::ByteFormat::BigEndian) # api_key = ApiVersions
+        body.write_bytes(0_i16, IO::ByteFormat::BigEndian)  # api_version = 0
+        body.write_bytes(1_i32, IO::ByteFormat::BigEndian)  # correlation_id = 1
+        body.write_bytes(1000_i16, IO::ByteFormat::BigEndian) # client_id length = 1000 (but we won't send that much data)
+
+        # Send with a size that's smaller than what we claim the client_id is
+        socket.write_bytes(body.size.to_i32, IO::ByteFormat::BigEndian)
+        socket.write(body.to_slice)
+        socket.flush
+
+        # Server should close connection due to overflow
+        expect_raises(IO::Error) do
+          socket.read_bytes(Int32, IO::ByteFormat::BigEndian)
+        end
+
+        socket.close
+      end
+    end
+
+    it "rejects requests exceeding MAX_REQUEST_SIZE" do
+      with_kafka_server do |_s, kafka_port|
+        socket = TCPSocket.new("localhost", kafka_port)
+        socket.read_timeout = 5.seconds
+
+        # Send a request size larger than MAX_REQUEST_SIZE (1 MiB)
+        oversized_request_size = 2_000_000_i32 # 2 MB
+        socket.write_bytes(oversized_request_size, IO::ByteFormat::BigEndian)
+        socket.flush
+
+        # Server should close connection immediately
+        expect_raises(IO::Error) do
+          # Try to read response - should fail because connection is closed
+          socket.read_bytes(Int32, IO::ByteFormat::BigEndian)
+        end
+
+        socket.close
+      end
+    end
+  end
 end
 
 # Helper to build a minimal RecordBatch

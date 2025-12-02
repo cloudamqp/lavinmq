@@ -2,17 +2,42 @@ require "./consts"
 
 module LavinMQ
   module Kafka
+    class Protocol
+      class Error < ::IO::Error
+      end
+
+      class MaxRequestSizeError < Error
+      end
+    end
+
     # Kafka wire protocol IO wrapper
     # All values are big-endian
     class Protocol
       getter io : ::IO
+      # Maximum request size (1 MiB)
+      MAX_REQUEST_SIZE = 1_048_576_i32
+
+      @bytes_remaining : UInt32 = 0_u32
 
       def initialize(@io : ::IO)
       end
 
       # Read a complete request from the wire
       def read_request : Request
-        _size = read_int32
+        # Read size directly (not part of the request body)
+        size = @io.read_bytes(Int32, ::IO::ByteFormat::BigEndian)
+
+        # Validate request size
+        if size < 0
+          raise Error.new("Invalid request size: #{size}")
+        end
+        if size > MAX_REQUEST_SIZE
+          raise MaxRequestSizeError.new("Request size #{size} exceeds maximum #{MAX_REQUEST_SIZE}")
+        end
+
+        # Track remaining bytes for this request
+        @bytes_remaining = size.to_u32
+
         api_key = read_int16
         api_version = read_int16
         correlation_id = read_int32
@@ -44,6 +69,8 @@ module LavinMQ
         else
           UnknownRequest.new(api_key, api_version, correlation_id, client_id)
         end
+      rescue ex : OverflowError
+        raise MaxRequestSizeError.new("Request exceeded size limits")
       end
 
       # Write a response to the wire
@@ -142,36 +169,43 @@ module LavinMQ
 
       # Primitive readers
       private def read_int8 : Int8
+        @bytes_remaining -= 1_u32
         @io.read_bytes(Int8, ::IO::ByteFormat::BigEndian)
       end
 
       private def read_int16 : Int16
+        @bytes_remaining -= 2_u32
         @io.read_bytes(Int16, ::IO::ByteFormat::BigEndian)
       end
 
       private def read_int32 : Int32
+        @bytes_remaining -= 4_u32
         @io.read_bytes(Int32, ::IO::ByteFormat::BigEndian)
       end
 
       private def read_int64 : Int64
+        @bytes_remaining -= 8_u32
         @io.read_bytes(Int64, ::IO::ByteFormat::BigEndian)
       end
 
       private def read_string : String
         length = read_int16
-        raise "Invalid string length: #{length}" if length < 0
+        raise Error.new("Invalid string length: #{length}") if length < 0
+        @bytes_remaining -= length
         @io.read_string(length)
       end
 
       private def read_nullable_string : String?
         length = read_int16
         return nil if length < 0
+        @bytes_remaining -= length
         @io.read_string(length)
       end
 
       private def read_bytes : Bytes
         length = read_int32
         return Bytes.empty if length <= 0
+        @bytes_remaining -= length
         bytes = Bytes.new(length)
         @io.read_fully(bytes)
         bytes
