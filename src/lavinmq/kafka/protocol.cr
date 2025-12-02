@@ -3,18 +3,14 @@ require "./record_batch"
 
 module LavinMQ
   module Kafka
-    class Protocol
+    # Kafka wire protocol IO wrapper
+    class Protocol < ::IO
       class Error < ::IO::Error
       end
 
       class MaxRequestSizeError < Error
       end
-    end
 
-    # Kafka wire protocol IO wrapper
-    # All values are big-endian
-    class Protocol
-      getter io : ::IO
       # Maximum request size (1 MiB)
       MAX_REQUEST_SIZE = 1_048_576_i32
 
@@ -23,10 +19,31 @@ module LavinMQ
       def initialize(@io : ::IO)
       end
 
+      # Override IO#read to handle bytes_remaining accounting
+      def read(slice : Bytes)
+        # Limit read to remaining bytes in current request
+        if slice.size > @bytes_remaining
+          raise MaxRequestSizeError.new("Attempt to read beyond request size")
+        end
+
+        bytes_read = @io.read(slice)
+        @bytes_remaining -= bytes_read
+        bytes_read
+      end
+
+      # Override IO#write to forward to underlying IO
+      def write(slice : Bytes) : Nil
+        @io.write(slice)
+      end
+
+      def close
+        @io.close
+      end
+
       # Read a complete request from the wire
       def read_request : Request
         # Read size directly (not part of the request body)
-        size = @io.read_bytes(Int32, ::IO::ByteFormat::BigEndian)
+        size = @io.read_bytes(Int32, ::IO::ByteFormat::NetworkEndian)
 
         # Validate request size
         if size < 0
@@ -63,8 +80,7 @@ module LavinMQ
               partition = read_int32
               record_set_length = read_int32
               record_batches = if record_set_length > 0
-                                 @bytes_remaining -= record_set_length
-                                 RecordBatch.parse(@io, record_set_length)
+                                 RecordBatch.parse(self, record_set_length)
                                else
                                  [] of RecordBatch
                                end
@@ -76,13 +92,11 @@ module LavinMQ
         else
           UnknownRequest.new(api_key, api_version, correlation_id, client_id)
         end
-      rescue ex : OverflowError
-        raise MaxRequestSizeError.new("Request exceeded size limits")
       end
 
       # Write a response to the wire
       def write_response(response : Response)
-        response.to_io(@io)
+        response.to_io(@io, ::IO::ByteFormat::NetworkEndian)
       end
 
       def flush
@@ -91,45 +105,38 @@ module LavinMQ
 
       # Primitive readers
       private def read_int8 : Int8
-        @bytes_remaining -= 1_u32
-        @io.read_bytes(Int8, ::IO::ByteFormat::BigEndian)
+        self.read_bytes(Int8, ::IO::ByteFormat::NetworkEndian)
       end
 
       private def read_int16 : Int16
-        @bytes_remaining -= 2_u32
-        @io.read_bytes(Int16, ::IO::ByteFormat::BigEndian)
+        self.read_bytes(Int16, ::IO::ByteFormat::NetworkEndian)
       end
 
       private def read_int32 : Int32
-        @bytes_remaining -= 4_u32
-        @io.read_bytes(Int32, ::IO::ByteFormat::BigEndian)
+        self.read_bytes(Int32, ::IO::ByteFormat::NetworkEndian)
       end
 
       private def read_int64 : Int64
-        @bytes_remaining -= 8_u32
-        @io.read_bytes(Int64, ::IO::ByteFormat::BigEndian)
+        self.read_bytes(Int64, ::IO::ByteFormat::NetworkEndian)
       end
 
       private def read_string : String
         length = read_int16
         raise Error.new("Invalid string length: #{length}") if length < 0
-        @bytes_remaining -= length
-        @io.read_string(length)
+        self.read_string(length)
       end
 
       private def read_nullable_string : String?
         length = read_int16
         return nil if length < 0
-        @bytes_remaining -= length
-        @io.read_string(length)
+        self.read_string(length)
       end
 
       private def read_bytes : Bytes
         length = read_int32
         return Bytes.empty if length <= 0
-        @bytes_remaining -= length
         bytes = Bytes.new(length)
-        @io.read_fully(bytes)
+        self.read_fully(bytes)
         bytes
       end
 
@@ -156,7 +163,7 @@ module LavinMQ
       end
 
       private def write_array(io : ::IO, arr, &)
-        io.write_bytes(arr.size.to_i32, ::IO::ByteFormat::BigEndian)
+        io.write_bytes(arr.size.to_i32, ::IO::ByteFormat::NetworkEndian)
         arr.each { |item| yield item }
       end
     end
@@ -233,13 +240,13 @@ module LavinMQ
 
       # Primitive writers
       protected def write_string(io : ::IO, str : String)
-        io.write_bytes(str.bytesize.to_i16, ::IO::ByteFormat::BigEndian)
+        io.write_bytes(str.bytesize.to_i16, ::IO::ByteFormat::NetworkEndian)
         io.write(str.to_slice)
       end
 
       protected def write_nullable_string(io : ::IO, str : String?)
         if str.nil?
-          io.write_bytes(-1_i16, ::IO::ByteFormat::BigEndian)
+          io.write_bytes(-1_i16, ::IO::ByteFormat::NetworkEndian)
         else
           write_string(io, str)
         end

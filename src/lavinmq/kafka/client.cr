@@ -300,8 +300,7 @@ module LavinMQ
       end
 
       private def close_socket
-        socket = @protocol.io
-        socket.close
+        @protocol.close
       rescue ::IO::Error
       end
     end
