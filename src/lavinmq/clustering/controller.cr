@@ -31,6 +31,7 @@ class LavinMQ::Clustering::Controller
     wait_to_be_insync
     @etcd.election_campaign("#{@config.clustering_etcd_prefix}/leader", @advertised_uri, lease: @id) # blocks until becoming leader
     @is_leader.set(true)
+    execute_shell_command(@config.clustering_on_leader_elected, "leader_elected")
     @repli_client.try &.close
     # TODO: make sure we still are in the ISR set
     yield
@@ -39,6 +40,7 @@ class LavinMQ::Clustering::Controller
       GC.collect
     end
   rescue Etcd::Lease::Lost
+    execute_shell_command(@config.clustering_on_leader_lost, "leader_lost")
     unless @stopped
       Log.fatal { "Lost cluster leadership" }
       exit 3
@@ -129,6 +131,25 @@ class LavinMQ::Clustering::Controller
           break if value.try &.split(",").map(&.to_i(36)).includes?(@id)
         end
         Log.info { "In sync with leader" }
+      end
+    end
+  end
+
+  private def execute_shell_command(command : String, event : String)
+    return if command.empty?
+
+    Log.info { "Executing #{event} hook in background: #{command}" }
+
+    spawn name: "#{event} hook" do
+      begin
+        status = Process.run(command, shell: true, output: Process::Redirect::Inherit, error: Process::Redirect::Inherit)
+        if status.success?
+          Log.info { "#{event} hook completed successfully" }
+        else
+          Log.warn { "#{event} hook failed with exit code #{status.exit_code}" }
+        end
+      rescue ex
+        Log.error(exception: ex) { "Failed to execute #{event} hook" }
       end
     end
   end
