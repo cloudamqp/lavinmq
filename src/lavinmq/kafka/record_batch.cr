@@ -1,3 +1,6 @@
+require "compress/gzip"
+require "lz4"
+
 module LavinMQ
   module Kafka
     # Parses Kafka RecordBatch format (v2, magic byte 2)
@@ -97,13 +100,23 @@ module LavinMQ
 
         compression = Compression.new((attributes & 0x07).to_i8)
 
+        # Calculate remaining bytes in the batch for record data
+        # batch_length includes everything after the batch_length field itself
+        # We've read: partition_leader_epoch(4) + magic(1) + crc(4) + attributes(2) +
+        #             last_offset_delta(4) + first_timestamp(8) + max_timestamp(8) +
+        #             producer_id(8) + producer_epoch(2) + base_sequence(4) + record_count(4) = 49 bytes
+        records_data_size = batch_length - 49
+
         records = if compression == Compression::None
                     parse_records(io, record_count, base_offset, first_timestamp)
                   else
-                    # For compressed batches, we need to decompress first
-                    # For now, skip compressed batches
-                    # TODO: Add decompression support
-                    [] of Record
+                    # Read compressed data
+                    compressed_data = Bytes.new(records_data_size)
+                    io.read_fully(compressed_data)
+
+                    # Decompress based on compression type
+                    decompressed_io = decompress(compressed_data, compression)
+                    parse_records(decompressed_io, record_count, base_offset, first_timestamp)
                   end
 
         RecordBatch.new(
@@ -111,6 +124,32 @@ module LavinMQ
           attributes, last_offset_delta, first_timestamp, max_timestamp,
           producer_id, producer_epoch, base_sequence, records
         )
+      end
+
+      private def self.decompress(data : Bytes, compression : Compression) : ::IO::Memory
+        case compression
+        when Compression::Gzip
+          decompressed = ::IO::Memory.new
+          Compress::Gzip::Reader.open(::IO::Memory.new(data)) do |gzip|
+            ::IO.copy(gzip, decompressed)
+          end
+          decompressed.rewind
+          decompressed
+        when Compression::Lz4
+          # Kafka uses LZ4 block format (not frame format)
+          # The LZ4 shard supports the frame format, so we use that
+          decompressed = ::IO::Memory.new
+          Compress::LZ4::Reader.open(::IO::Memory.new(data)) do |lz4|
+            ::IO.copy(lz4, decompressed)
+          end
+          decompressed.rewind
+          decompressed
+        when Compression::Snappy, Compression::Zstd
+          # Snappy and Zstd not yet supported
+          raise Error.new("Compression type #{compression} not yet supported")
+        else
+          raise Error.new("Unknown compression type: #{compression}")
+        end
       end
 
       private def self.parse_records(io : ::IO, count : Int32, base_offset : Int64, first_timestamp : Int64) : Array(Record)
