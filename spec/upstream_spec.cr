@@ -102,7 +102,7 @@ describe LavinMQ::Federation::Upstream do
           upstream.link(vhost.queues["federation_q2"])
           msgs = Channel(String).new
           q2.subscribe { |msg| msgs.send msg.body_io.to_s }
-          msgs.receive.should eq "federate me"
+          msgs.should be_receiving "federate me"
           vhost.queues["federation_q1"].message_count.should eq 0
         end
       ensure
@@ -140,7 +140,7 @@ describe LavinMQ::Federation::Upstream do
           upstream.link(vhost.queues["federation_q2"])
           msgs = Channel(String).new
           q2.subscribe { |msg| msgs.send msg.body_io.to_s }
-          msgs.receive.should eq "federate me"
+          msgs.should be_receiving "federate me"
           vhost.queues["federation_q1"].message_count.should eq 0
         end
       ensure
@@ -160,7 +160,7 @@ describe LavinMQ::Federation::Upstream do
           upstream.link(vhost.queues["federation_q2"])
           msgs = Channel(String).new
           q2.subscribe { |msg| msgs.send msg.body_io.to_s }
-          msgs.receive.should eq "federate me"
+          msgs.should be_receiving "federate me"
           vhost.queues["federation_q1"].message_count.should eq 0
         end
       ensure
@@ -278,7 +278,7 @@ describe LavinMQ::Federation::Upstream do
           downstream_q.subscribe do |msg|
             msgs.send msg.body_io.to_s
           end
-          msgs.receive.should eq "msg1"
+          msgs.should be_receiving "msg1"
           wait_for { s.vhosts[ds_vhost.name].queues[ds_queue_name].message_count == 0 }
         end
 
@@ -296,7 +296,7 @@ describe LavinMQ::Federation::Upstream do
           downstream_ch.queue(ds_queue_name).subscribe do |msg|
             msgs.send msg.body_io.to_s
           end
-          msgs.receive.should eq "msg2"
+          msgs.should be_receiving "msg2"
         end
       end
     end
@@ -479,7 +479,7 @@ describe LavinMQ::Federation::Upstream do
             us_queue.consumers_empty.when_true.receive
 
             upstream_ex.publish_confirm "msg1", "rk1"
-            msgs.receive.should eq "msg1"
+            msgs.should be_receiving "msg1"
 
             upstream_vhost.connections.each do |conn|
               next unless conn.client_name.starts_with?("Federation link")
@@ -497,8 +497,8 @@ describe LavinMQ::Federation::Upstream do
             link.@state_changed.try_send nil
 
             upstream_ex.publish_confirm "msg3", "rk3"
-            msgs.receive.should eq "msg2"
-            msgs.receive.should eq "msg3"
+            msgs.should be_receiving "msg2"
+            msgs.should be_receiving "msg3"
           ensure
             msgs.try &.close
           end
