@@ -64,6 +64,10 @@ module LavinMQ
     end
 
     struct V2
+      property ssl : Bool = false
+      property ssl_version : String?
+      property ssl_cipher : String?
+
       def initialize(@src : Socket::IPAddress, @dst : Socket::IPAddress)
       end
 
@@ -73,8 +77,10 @@ module LavinMQ
         case @src.family
         when Socket::Family::INET
           io.write_byte Family::TCPv4.value
-          length = 4 + 4 + 2 + 2
-          io.write_bytes length.to_u16, IO::ByteFormat::NetworkEndian
+          addr_length = 4 + 4 + 2 + 2
+          tlv_data = build_tlv_data
+          total_length = addr_length + tlv_data.size
+          io.write_bytes total_length.to_u16, IO::ByteFormat::NetworkEndian
           {@src, @dst}.each do |addr|
             s_addr = addr.@addr.as(LibC::InAddr).s_addr
             io.write_byte (s_addr & 0xFF).to_u8
@@ -84,6 +90,7 @@ module LavinMQ
           end
           io.write_bytes @src.port.to_u16, format
           io.write_bytes @dst.port.to_u16, format
+          io.write tlv_data if tlv_data.size > 0
         when Socket::Family::INET6
           raise NotImplementedError.new("IPv6")
         when Socket::Family::UNIX
@@ -91,6 +98,40 @@ module LavinMQ
         else raise "unsupported address family: #{@src.family}"
         end
         io.flush
+      end
+
+      private def build_tlv_data : Bytes
+        return Bytes.empty unless @ssl
+
+        tlv_io = IO::Memory.new
+        ssl_data_io = IO::Memory.new
+
+        # SSL sub-fields
+        if version = @ssl_version
+          ssl_data_io.write_byte SSLSubType::VERSION.value
+          ssl_data_io.write_bytes version.bytesize.to_u16, IO::ByteFormat::NetworkEndian
+          ssl_data_io.write version.to_slice
+        end
+
+        if cipher = @ssl_cipher
+          ssl_data_io.write_byte SSLSubType::CIPHER.value
+          ssl_data_io.write_bytes cipher.bytesize.to_u16, IO::ByteFormat::NetworkEndian
+          ssl_data_io.write cipher.to_slice
+        end
+
+        ssl_data = ssl_data_io.to_slice
+
+        # SSL TLV header
+        tlv_io.write_byte TLVType::SSL.value
+        ssl_tlv_length = 1 + 4 + ssl_data.size # client byte + verify uint32 + sub-fields
+        tlv_io.write_bytes ssl_tlv_length.to_u16, IO::ByteFormat::NetworkEndian
+
+        # SSL TLV data
+        tlv_io.write_byte SSLCLIENT::SSL.value # client flags
+        tlv_io.write_bytes 0_u32, IO::ByteFormat::NetworkEndian # verify = 0 (verified)
+        tlv_io.write ssl_data
+
+        tlv_io.to_slice
       end
 
       def self.parse(io)
