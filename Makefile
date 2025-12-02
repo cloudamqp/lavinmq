@@ -63,41 +63,51 @@ lib: shard.yml shard.lock
 bin static/js/lib man1 static/js/lib/chunks:
 	mkdir -p $@
 
-.PHONY: chart.js.tgz
-chart.js.tgz:
-	curl --fail --retry 5 -sL -o chart.js.tgz https://github.com/chartjs/Chart.js/releases/download/v4.0.1/chart.js-4.0.1.tgz && \
-	echo "461dae2edc0eda7beeb16c7030ab630ab5129aedd3fc6de9a036f6dfe488556f chart.js.tgz" | sha256sum -c - || (rm -f chart.js.tgz && exit 1)
+.INTERMEDIATE: downloaded_chart.js.tgz
+downloaded_chart.js.tgz:
+	curl --fail --retry 5 -sL -o $@ https://github.com/chartjs/Chart.js/releases/download/v4.0.1/chart.js-4.0.1.tgz && \
+	echo "461dae2edc0eda7beeb16c7030ab630ab5129aedd3fc6de9a036f6dfe488556f chart.js.tgz" | sha256sum -c -
 
-.PHONY: after-chartjs
-after-chartjs: static/js/lib/chart.js static/js/lib/chunks/helpers.segment.js
-	rm -f chart.js.tgz
-
-static/js/lib/chart.js: | static/js/lib chart.js.tgz
-		tar -zxOf chart.js.tgz package/dist/chart.js > $@
-
-static/js/lib/chunks/helpers.segment.js: | static/js/lib/chunks chart.js.tgz
-		tar -zxOf chart.js.tgz package/dist/chunks/helpers.segment.js > $@
-
-static/js/lib/luxon.js: | static/js/lib
+.INTERMEDIATE: downloaded_luxon.js
+downloaded_luxon.js: 
 	curl --fail --retry 5 -sLo $@ https://moment.github.io/luxon/es6/luxon.mjs && \
-		echo "b495ad5cabea3439d04387e6622f2c3fa81d319424d9d76d9e7f874ac5a0807a $@" | \
-		sha256sum -c - || (echo "SHA256 checksum mismatch for $@"; rm -f $@; exit 1)
+		echo "b495ad5cabea3439d04387e6622f2c3fa81d319424d9d76d9e7f874ac5a0807a $@" | sha256sum -c -
 
-static/js/lib/chartjs-adapter-luxon.esm.js: | static/js/lib
+
+.INTERMEDIATE: downloaded_chartjs_adapter_luxon.esm.js
+downloaded_chartjs_adapter_luxon.esm.js:
 	curl --fail --retry 5 -sLo $@ https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.esm.js && \
-	echo "fa02364f717191a48067215aaf9ff93b54ff52e2de64704270742e1d15d1b6df $@" | sha256sum -c - && \
-	sed -i'' -e "s|\(import { _adapters } from\).*|\1 './chart.js'|; s|\(import { DateTime } from\).*|\1 './luxon.js'|" $@ || \
-	(echo "SHA256 checksum mismatch for $@"; rm -f $@; exit 1) ;
+	echo "fa02364f717191a48067215aaf9ff93b54ff52e2de64704270742e1d15d1b6df $@" | sha256sum -c -
 
-static/js/lib/elements-8.2.0.js: | static/js/lib
+.INTERMEDIATE: downloaded_elements_8.2.0.js
+downloaded_elements_8.2.0.js:
 	curl --fail --retry 5 -sLo $@ https://unpkg.com/@stoplight/elements@8.2.0/web-components.min.js && \
-	echo "598862da6d551769ebad9d61d4e3037535de573a13d3e0bd1ded4c5fc65c5885 $@" | sha256sum -c - || \
-	(echo "SHA256 checksum mismatch for $@"; rm -f $@; exit 1)
+	echo "598862da6d551769ebad9d61d4e3037535de573a13d3e0bd1ded4c5fc65c5885 $@" | sha256sum -c -
 
-static/js/lib/elements-8.2.0.css: | static/js/lib
+.INTERMEDIATE: downloaded_elements_8.2.0.css
+downloaded_elements_8.2.0.css:
 	curl --fail --retry 5 -sLo $@ https://unpkg.com/@stoplight/elements@8.2.0/styles.min.css && \
-	echo "119784e23ffc39b6fa3fdb3df93f391f8250e8af141b78dfc3b6bed86079f93b $@" | sha256sum -c - || \
-	(echo "SHA256 checksum mismatch for $@"; rm -f $@; exit 1)
+	echo "119784e23ffc39b6fa3fdb3df93f391f8250e8af141b78dfc3b6bed86079f93b $@" | sha256sum -c -
+
+
+static/js/lib/chart.js: downloaded_chart.js.tgz | static/js/lib
+	tar -zxOf downloaded_chart.js.tgz package/dist/chart.js > $@
+
+static/js/lib/chunks/helpers.segment.js: downloaded_chart.js.tgz | static/js/lib/chunks
+	tar -zxOf downloaded_chart.js.tgz package/dist/chunks/helpers.segment.js > $@
+
+static/js/lib/luxon.js: downloaded_luxon.js | static/js/lib
+	cp downloaded_luxon.js $@
+
+static/js/lib/chartjs-adapter-luxon.esm.js:  downloaded_chartjs_adapter_luxon.esm.js | static/js/lib
+	cp downloaded_chartjs_adapter_luxon.esm.js $@
+	sed -i'' -e "s|\(import { _adapters } from\).*|\1 './chart.js'|; s|\(import { DateTime } from\).*|\1 './luxon.js'|" $@
+
+static/js/lib/elements-8.2.0.js: downloaded_elements_8.2.0.js | static/js/lib
+	cp downloaded_elements_8.2.0.js $@
+
+static/js/lib/elements-8.2.0.css: downloaded_elements_8.2.0.css | static/js/lib
+	cp downloaded_elements_8.2.0.css $@
 
 man1/lavinmq.1: bin/lavinmq | man1
 	help2man -Nn "fast and advanced message queue server" $< -o $@
@@ -114,7 +124,7 @@ MANPAGES := man1/lavinmq.1 man1/lavinmqctl.1 man1/lavinmqperf.1
 man: $(MANPAGES)
 
 .PHONY: js
-js: $(JS) after-chartjs
+js: $(JS)
 
 .PHONY: deps
 deps: js lib
