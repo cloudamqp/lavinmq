@@ -11,8 +11,8 @@ module LavinMQ
       class MaxRequestSizeError < Error
       end
 
-      # Maximum request size (1 MiB)
-      MAX_REQUEST_SIZE = 1_048_576_i32
+      # Maximum request size (128 MiB)
+      MAX_REQUEST_SIZE = 128 * 1024 * 1024
 
       @bytes_remaining : UInt32 = 0_u32
 
@@ -59,10 +59,18 @@ module LavinMQ
         api_key = read_int16
         api_version = read_int16
         correlation_id = read_int32
+
+        # ApiVersions request header is ALWAYS non-flexible (v1) for backward compatibility
+        # even for ApiVersions v3+. This allows clients to negotiate with older servers.
         client_id = read_nullable_string
 
         case api_key
         when ApiKey::ApiVersions
+          # For v3+, there may be additional fields (ClientSoftwareName, ClientSoftwareVersion, TaggedFields)
+          # For now, just skip any remaining bytes to avoid parsing errors
+          if @bytes_remaining > 0
+            self.skip(@bytes_remaining)
+          end
           ApiVersionsRequest.new(api_version, correlation_id, client_id)
         when ApiKey::Metadata
           topics = if api_version >= 1
@@ -72,6 +80,12 @@ module LavinMQ
                    end
           MetadataRequest.new(api_version, correlation_id, client_id, topics)
         when ApiKey::Produce
+          # Version 3+ includes transactional_id before acks
+          transactional_id = if api_version >= 3
+                               read_nullable_string
+                             else
+                               nil
+                             end
           acks = read_int16
           timeout_ms = read_int32
           topic_data = read_array do
@@ -88,7 +102,7 @@ module LavinMQ
             end
             TopicData.new(topic_name, partitions)
           end
-          ProduceRequest.new(api_version, correlation_id, client_id, acks, timeout_ms, topic_data)
+          ProduceRequest.new(api_version, correlation_id, client_id, transactional_id, acks, timeout_ms, topic_data)
         else
           UnknownRequest.new(api_key, api_version, correlation_id, client_id)
         end
@@ -153,6 +167,48 @@ module LavinMQ
         Array.new(length) { yield }
       end
 
+      # Unsigned varint support for flexible versions (v3+)
+      private def read_unsigned_varint : UInt32
+        value = 0_u32
+        shift = 0
+        loop do
+          byte = read_int8.to_u8
+          value |= ((byte & 0x7F).to_u32 << shift)
+          break if (byte & 0x80) == 0
+          shift += 7
+          raise Error.new("Varint too long") if shift > 28
+        end
+        value
+      end
+
+      # Compact string for flexible versions (varint length + 1, where 0 = null)
+      private def read_compact_string : String?
+        length = read_unsigned_varint
+        return nil if length == 0  # 0 means null
+        actual_length = length - 1 # length is encoded as actual + 1
+        return "" if actual_length == 0
+        # Read bytes directly without length prefix
+        bytes = Bytes.new(actual_length)
+        read_fully(bytes)
+        String.new(bytes)
+      end
+
+      # Compact nullable string for flexible versions
+      private def read_compact_nullable_string : String?
+        read_compact_string
+      end
+
+      # Read tagged fields (for flexible versions)
+      private def skip_tagged_fields
+        num_tags = read_unsigned_varint
+        num_tags.times do
+          tag = read_unsigned_varint
+          size = read_unsigned_varint
+          # Skip the tag data
+          Bytes.new(size).tap { |bytes| read_fully(bytes) }
+        end
+      end
+
       # Primitive writers (kept for backward compatibility if needed)
       private def write_string(io : ::IO, str : String)
         Response.write_string(io, str)
@@ -190,11 +246,12 @@ module LavinMQ
     end
 
     struct ProduceRequest < Request
+      getter transactional_id : String?
       getter acks : Int16
       getter timeout_ms : Int32
       getter topic_data : Array(TopicData)
 
-      def initialize(api_version, correlation_id, client_id, @acks, @timeout_ms, @topic_data)
+      def initialize(api_version, correlation_id, client_id, @transactional_id, @acks, @timeout_ms, @topic_data)
         super(api_version, correlation_id, client_id)
       end
     end
@@ -238,6 +295,30 @@ module LavinMQ
         4 + arr.sum { |item| yield item } # int32 length + sum of item sizes
       end
 
+      # Unsigned varint helpers for flexible versions
+      protected def varint_size(value : UInt32) : Int32
+        return 1 if value == 0
+        bytes = 0
+        v = value
+        while v != 0
+          bytes += 1
+          v >>= 7
+        end
+        bytes
+      end
+
+      protected def write_unsigned_varint(io : ::IO, value : UInt32)
+        loop do
+          byte = (value & 0x7F).to_u8
+          value >>= 7
+          if value != 0
+            byte |= 0x80
+          end
+          io.write_byte(byte)
+          break if value == 0
+        end
+      end
+
       # Primitive writers
       protected def write_string(io : ::IO, str : String)
         io.write_bytes(str.bytesize.to_i16, ::IO::ByteFormat::NetworkEndian)
@@ -277,9 +358,25 @@ module LavinMQ
       end
 
       def bytesize : Int32
-        size = 4 + 2                         # correlation_id + error_code
-        size += 4 + (@api_versions.size * 6) # array length + (api_key + min_version + max_version) * count
-        size += 4 if @api_version >= 1       # throttle_time_ms
+        size = 4 + 2 # correlation_id + error_code
+
+        if @api_version >= 3
+          # Flexible version: compact array (varint length + 1)
+          array_length = (@api_versions.size + 1).to_u32
+          size += varint_size(array_length)
+          # Each ApiVersion: api_key (2) + min_version (2) + max_version (2) + tagged_fields (1)
+          size += @api_versions.size * 7
+        else
+          # Old version: int32 array length + (api_key + min_version + max_version) * count
+          size += 4 + (@api_versions.size * 6)
+        end
+
+        size += 4 if @api_version >= 1 # throttle_time_ms
+
+        if @api_version >= 3
+          size += 1 # Empty tagged fields for response (0x00)
+        end
+
         size
       end
 
@@ -287,14 +384,32 @@ module LavinMQ
         io.write_bytes(bytesize, format)
         io.write_bytes(@correlation_id, format)
         io.write_bytes(@error_code, format)
-        io.write_bytes(@api_versions.size.to_i32, format)
+
+        if @api_version >= 3
+          # Flexible version: use compact array (unsigned varint length + 1)
+          write_unsigned_varint(io, (@api_versions.size + 1).to_u32)
+        else
+          # Old version: use int32 array length
+          io.write_bytes(@api_versions.size.to_i32, format)
+        end
+
         @api_versions.each do |api|
           io.write_bytes(api.api_key, format)
           io.write_bytes(api.min_version, format)
           io.write_bytes(api.max_version, format)
+          # In flexible versions, each ApiVersion struct has tagged fields
+          if @api_version >= 3
+            io.write_byte(0x00_u8) # Empty tagged fields for this ApiVersion
+          end
         end
+
         if @api_version >= 1
           io.write_bytes(@throttle_time_ms, format)
+        end
+
+        if @api_version >= 3
+          # Write empty tagged fields section for the response
+          io.write_byte(0x00_u8)
         end
       end
     end
@@ -321,10 +436,8 @@ module LavinMQ
       def bytesize : Int32
         size = 4 # correlation_id
         size += array_size(@brokers, &.bytesize)
-        if @api_version >= 1
-          size += nullable_string_size(@cluster_id)
-          size += 4 # controller_id
-        end
+        size += nullable_string_size(@cluster_id) if @api_version >= 2
+        size += 4 if @api_version >= 1 # controller_id
         size += array_size(@topics, &.bytesize)
         size
       end
@@ -337,10 +450,8 @@ module LavinMQ
         io.write_bytes(@brokers.size.to_i32, format)
         @brokers.each(&.to_io(io, format))
 
-        if @api_version >= 1
-          write_nullable_string(io, @cluster_id)
-          io.write_bytes(@controller_id, format)
-        end
+        write_nullable_string(io, @cluster_id) if @api_version >= 2
+        io.write_bytes(@controller_id, format) if @api_version >= 1
 
         # Topics array
         io.write_bytes(@topics.size.to_i32, format)

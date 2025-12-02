@@ -64,6 +64,8 @@ module LavinMQ
         end
       rescue ex : ::IO::EOFError
         @log.debug { "Client disconnected" } unless @closed
+      rescue ex : Kafka::Protocol::Error
+        @log.warn { "Client connection error: #{ex.message}" } unless @closed
       rescue ex : ::IO::Error
         @log.debug { "Client connection error: #{ex.message}" } unless @closed
       rescue ex
@@ -78,8 +80,11 @@ module LavinMQ
         api_versions = SUPPORTED_API_VERSIONS.map do |key, min, max|
           ApiVersion.new(key, min, max)
         end
+        # Cap response version to maximum supported version (3)
+        # If client requests v4+ but we only support v3, respond with v3 format
+        response_version = Math.min(request.api_version, 3_i16)
         response = ApiVersionsResponse.new(
-          request.api_version,
+          response_version,
           request.correlation_id,
           ErrorCode::NONE,
           api_versions
@@ -90,6 +95,11 @@ module LavinMQ
       private def handle_metadata(request : MetadataRequest)
         topics = request.topics
 
+        # Cap response version to maximum supported version (1)
+        # If client requests v2+ but we only support v1, respond with v1 format
+        response_version = Math.min(request.api_version, 1_i16)
+        @log.debug { "Metadata request v#{request.api_version}, responding with v#{response_version}" }
+
         # If no topics specified, return all stream queues
         topic_names = if topics.nil? || topics.empty?
                         @broker.list_topics
@@ -98,7 +108,8 @@ module LavinMQ
                       end
 
         topic_metadata = topic_names.map do |topic_name|
-          stream = @broker.get_stream(topic_name)
+          # Auto-create stream if it doesn't exist
+          stream = @broker.get_or_create_stream(topic_name)
           if stream
             partitions = [PartitionMetadata.new(
               error_code: ErrorCode::NONE,
@@ -112,7 +123,7 @@ module LavinMQ
               name: topic_name,
               internal: false,
               partitions: partitions,
-              api_version: request.api_version
+              api_version: response_version
             )
           else
             TopicMetadata.new(
@@ -120,7 +131,7 @@ module LavinMQ
               name: topic_name,
               internal: false,
               partitions: [] of PartitionMetadata,
-              api_version: request.api_version
+              api_version: response_version
             )
           end
         end
@@ -130,10 +141,10 @@ module LavinMQ
         host = local_addr.address
         port = local_addr.port
 
-        brokers = [BrokerMetadata.new(NODE_ID, host, port, request.api_version)]
+        brokers = [BrokerMetadata.new(NODE_ID, host, port, response_version)]
 
         response = MetadataResponse.new(
-          request.api_version,
+          response_version,
           request.correlation_id,
           brokers,
           CLUSTER_ID,
@@ -144,17 +155,22 @@ module LavinMQ
       end
 
       private def handle_produce(request : ProduceRequest)
+        # Cap response version to maximum supported version (3)
+        # If client requests v4+ but we only support v3, respond with v3 format
+        response_version = Math.min(request.api_version, 3_i16)
+
+        request.topic_data
         responses = request.topic_data.map do |topic_data|
           partition_responses = topic_data.partitions.map do |partition|
-            publish_to_stream(topic_data.name, partition, request.api_version)
+            publish_to_stream(topic_data.name, partition, response_version)
           end
-          TopicProduceResponse.new(topic_data.name, partition_responses, request.api_version)
+          TopicProduceResponse.new(topic_data.name, partition_responses, response_version)
         end
 
         # Only send response if acks != 0
         if request.acks != 0
           response = ProduceResponse.new(
-            request.api_version,
+            response_version,
             request.correlation_id,
             responses
           )
@@ -252,7 +268,7 @@ module LavinMQ
 
       private def send_response(response : Response)
         @lock.synchronize do
-          @protocol.write_response(response)
+          @protocol.write_bytes(response, IO::ByteFormat::NetworkEndian)
           @protocol.flush
         end
       end
