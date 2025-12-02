@@ -5,7 +5,7 @@ require "./config"
 
 module LavinMQ
   # TLS termination proxy that offloads TLS handshakes to dedicated execution context
-  # Forwards decrypted traffic to internal unix socket with PROXY protocol v2
+  # Forwards decrypted traffic to internal TCP listener with PROXY protocol v2
   class TLSProxy
     Log = LavinMQ::Log.for "tls_proxy"
 
@@ -84,7 +84,7 @@ module LavinMQ
 
       Log.debug { "#{remote_addr} connected with #{tls_version} #{cipher}" }
 
-      # Connect to internal unix socket
+      # Connect to internal unix socket listener
       internal = UNIXSocket.new(@internal_socket_path)
       set_buffer_size(internal)
 
