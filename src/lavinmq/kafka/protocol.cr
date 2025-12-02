@@ -1,4 +1,5 @@
 require "./consts"
+require "./record_batch"
 
 module LavinMQ
   module Kafka
@@ -60,8 +61,14 @@ module LavinMQ
             topic_name = read_string
             partitions = read_array do
               partition = read_int32
-              record_set = read_bytes
-              PartitionData.new(partition, record_set)
+              record_set_length = read_int32
+              record_batches = if record_set_length > 0
+                                 @bytes_remaining -= record_set_length
+                                 RecordBatch.parse(@io, record_set_length)
+                               else
+                                 [] of RecordBatch
+                               end
+              PartitionData.new(partition, record_batches)
             end
             TopicData.new(topic_name, partitions)
           end
@@ -203,9 +210,9 @@ module LavinMQ
 
     struct PartitionData
       getter partition : Int32
-      getter record_set : Bytes
+      getter record_batches : Array(RecordBatch)
 
-      def initialize(@partition, @record_set)
+      def initialize(@partition, @record_batches)
       end
     end
 

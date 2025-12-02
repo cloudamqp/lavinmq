@@ -5,7 +5,8 @@ describe LavinMQ::Kafka::RecordBatch do
   describe ".parse" do
     it "parses uncompressed record batch" do
       batch_data = build_record_batch("test message", compression: LavinMQ::Kafka::RecordBatch::Compression::None)
-      batches = LavinMQ::Kafka::RecordBatch.parse(batch_data)
+      io = IO::Memory.new(batch_data)
+      batches = LavinMQ::Kafka::RecordBatch.parse(io, batch_data.size)
 
       batches.size.should eq 1
       batch = batches.first
@@ -16,7 +17,8 @@ describe LavinMQ::Kafka::RecordBatch do
 
     it "parses gzip compressed record batch" do
       batch_data = build_record_batch("compressed with gzip", compression: LavinMQ::Kafka::RecordBatch::Compression::Gzip)
-      batches = LavinMQ::Kafka::RecordBatch.parse(batch_data)
+      io = IO::Memory.new(batch_data)
+      batches = LavinMQ::Kafka::RecordBatch.parse(io, batch_data.size)
 
       batches.size.should eq 1
       batch = batches.first
@@ -27,7 +29,8 @@ describe LavinMQ::Kafka::RecordBatch do
 
     it "parses lz4 compressed record batch" do
       batch_data = build_record_batch("compressed with lz4", compression: LavinMQ::Kafka::RecordBatch::Compression::Lz4)
-      batches = LavinMQ::Kafka::RecordBatch.parse(batch_data)
+      io = IO::Memory.new(batch_data)
+      batches = LavinMQ::Kafka::RecordBatch.parse(io, batch_data.size)
 
       batches.size.should eq 1
       batch = batches.first
@@ -41,7 +44,8 @@ describe LavinMQ::Kafka::RecordBatch do
         ["message 1", "message 2", "message 3"],
         compression: LavinMQ::Kafka::RecordBatch::Compression::Gzip
       )
-      batches = LavinMQ::Kafka::RecordBatch.parse(batch_data)
+      io = IO::Memory.new(batch_data)
+      batches = LavinMQ::Kafka::RecordBatch.parse(io, batch_data.size)
 
       batches.size.should eq 1
       batch = batches.first

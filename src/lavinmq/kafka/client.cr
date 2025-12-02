@@ -174,8 +174,8 @@ module LavinMQ
           )
         end
 
-        # Parse record batch
-        batches = RecordBatch.parse(partition.record_set)
+        # Get parsed record batches
+        batches = partition.record_batches
 
         if batches.empty?
           return PartitionProduceResponse.new(

@@ -59,21 +59,23 @@ module LavinMQ
         LogAppendTime
       end
 
-      def self.parse(bytes : Bytes) : Array(RecordBatch)
+      def self.parse(io : ::IO, length : Int32) : Array(RecordBatch)
         batches = [] of RecordBatch
-        io = ::IO::Memory.new(bytes)
+        sized_io = ::IO::Sized.new(io, length.to_u64)
 
-        while io.pos < bytes.size
-          batch = parse_one(io)
-          batches << batch if batch
+        begin
+          loop do
+            batch = parse_one(sized_io)
+            batches << batch if batch
+          end
+        rescue ::IO::EOFError
+          # Done reading all batches
         end
 
         batches
       end
 
       private def self.parse_one(io : ::IO) : RecordBatch?
-        return nil if io.pos >= io.size
-
         base_offset = io.read_bytes(Int64, ::IO::ByteFormat::BigEndian)
         batch_length = io.read_bytes(Int32, ::IO::ByteFormat::BigEndian)
 
@@ -153,9 +155,7 @@ module LavinMQ
       end
 
       private def self.parse_records(io : ::IO, count : Int32, base_offset : Int64, first_timestamp : Int64) : Array(Record)
-        records = Array(Record).new(count)
-
-        count.times do
+        Array(Record).new(count) do
           _length = read_varint(io)
           _attributes = io.read_bytes(Int8, ::IO::ByteFormat::BigEndian)
           timestamp_delta = read_varlong(io)
@@ -177,21 +177,17 @@ module LavinMQ
                     bytes = Bytes.new(value_length)
                     io.read_fully(bytes)
                     bytes
-                  elsif value_length == 0
-                    Bytes.empty
                   else
                     Bytes.empty
                   end
 
           headers_count = read_varint(io)
-          headers = Hash(String, Bytes).new
+          headers = Hash(String, Bytes).new(initial_capacity: headers_count)
 
           headers_count.times do
             header_key_length = read_varint(io)
             header_key = if header_key_length > 0
-                           bytes = Bytes.new(header_key_length)
-                           io.read_fully(bytes)
-                           String.new(bytes)
+                           io.read_string(header_key_length)
                          else
                            ""
                          end
@@ -201,8 +197,6 @@ module LavinMQ
                              bytes = Bytes.new(header_value_length)
                              io.read_fully(bytes)
                              bytes
-                           elsif header_value_length == 0
-                             Bytes.empty
                            else
                              Bytes.empty
                            end
@@ -210,7 +204,7 @@ module LavinMQ
             headers[header_key] = header_value
           end
 
-          records << Record.new(
+          Record.new(
             offset: base_offset + offset_delta,
             timestamp: first_timestamp + timestamp_delta,
             key: key,
@@ -218,8 +212,6 @@ module LavinMQ
             headers: headers
           )
         end
-
-        records
       end
 
       # Read a varint (zigzag encoded)
