@@ -188,7 +188,7 @@ module LavinMQ
         if ctx = @amqp_tls_context
           # TLS offloading: dedicated fibers for handshakes, forwarding via unix socket
           amqps_internal_path = File.join(@config.data_dir, "amqps_internal.sock")
-          spawn amqp_server.listen_unix_proxy(amqps_internal_path, Server::Protocol::AMQP),
+          spawn amqp_server.listen_unix(amqps_internal_path, Server::Protocol::AMQP),
             name: "AMQP internal unix socket (PROXY v2)"
           amqps_tls_proxy = TLSProxy.new(ctx, amqps_internal_path, @config.tls_offload_max_threads)
           spawn(name: "AMQPS TLS proxy") do
@@ -234,7 +234,7 @@ module LavinMQ
         if ctx = @mqtt_tls_context
           # TLS offloading: dedicated fibers for handshakes, forwarding via unix socket
           mqtts_internal_path = File.join(@config.data_dir, "mqtts_internal.sock")
-          spawn amqp_server.listen_unix_proxy(mqtts_internal_path, Server::Protocol::MQTT),
+          spawn amqp_server.listen_unix(mqtts_internal_path, Server::Protocol::MQTT),
             name: "MQTT internal unix socket (PROXY v2)"
           mqtts_tls_proxy = TLSProxy.new(ctx, mqtts_internal_path, @config.tls_offload_max_threads)
           spawn(name: "MQTTS TLS proxy") do
