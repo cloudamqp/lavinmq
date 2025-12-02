@@ -19,3 +19,4 @@ package-lock.json
 /playwright-report/
 /static/views/
 .DS_Store
+/test-certs/
