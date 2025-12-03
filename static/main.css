@@ -160,7 +160,6 @@ main {
 main.main-grid {
   padding-left: 320px;
   padding-top: 64px;
-  margin-bottom: 0;
   grid-auto-rows: max-content;
   min-height: calc(100vh - 140px);
   margin-bottom: 80px;
@@ -595,7 +594,6 @@ button {
   font-size: 0.875rem;
   line-height: 1.25rem;
   color: #141414;
-  line-height: 1.25rem;
   padding: 0.125rem 0.375rem;
   border-radius: 0.25rem;
   margin-left: 0.5rem;
@@ -743,7 +741,6 @@ button {
   background-color: var(--color-bg-secondary);
   --font-color: var(--color-text-secondary);
   --highlight-color: var(--color-bg-hover);
-  position: relative;
   position: fixed;
   left: 0;
   top: 0;
@@ -769,7 +766,6 @@ footer {
     padding: 20px 40px;
     height: 100%;
     width: 100%;
-    display: block;
     margin: 0;
     display: flex;
     align-items: center;
@@ -1084,7 +1080,6 @@ footer .logo {
 }
 
 .table tbody {
-  border-bottom: solid 1px var(--color-border-tertiary);
   border-bottom: 1px solid var(--color-border-primary);
 }
 
@@ -1231,7 +1226,7 @@ footer .logo {
 }
 
 .details-table tr:first-child>* {
-  border-top: var(--color-text-inverse);
+  border-top: none;
 }
 
 .details-table tr>td:last-child,
