@@ -48,15 +48,14 @@ describe LavinMQ::HTTP::ChannelsController do
       with_http_server do |http, s|
         s.vhosts.create("my-connection")
         s.users.add_permission("guest", "my-connection", /.*/, /.*/, /.*/)
-        wg = WaitGroup.new(1)
-        2.times { spawn { with_channel(s, vhost: "my-connection") { wg.wait } } }
-
-        wait_for { s.connections.size == 2 }
-        response = http.get("/api/vhosts/my-connection/channels")
-        response.status_code.should eq 200
-        body = JSON.parse(response.body)
-        body.as_a.size.should eq 2
-        wg.done
+        with_channel(s, vhost: "my-connection") do
+          with_channel(s, vhost: "my-connection") do
+            response = http.get("/api/vhosts/my-connection/channels")
+            response.status_code.should eq 200
+            body = JSON.parse(response.body)
+            body.as_a.size.should eq 2
+          end
+        end
       end
     end
   end
