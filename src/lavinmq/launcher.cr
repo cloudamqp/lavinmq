@@ -296,19 +296,19 @@ module LavinMQ
 
     private def reload_tls_context
       if amqp_tls = @amqp_tls_context
-        configure_tls_context(amqp_tls)
+        configure_tls_context(amqp_tls, "AMQP")
       end
       if mqtt_tls = @mqtt_tls_context
-        configure_tls_context(mqtt_tls)
+        configure_tls_context(mqtt_tls, "MQTT")
       end
       if http_tls = @http_tls_context
-        configure_tls_context(http_tls)
+        configure_tls_context(http_tls, "HTTP")
       end
       # Reload SNI host contexts
       @config.sni_manager.reload
     end
 
-    private def configure_tls_context(tls : OpenSSL::SSL::Context::Server)
+    private def configure_tls_context(tls : OpenSSL::SSL::Context::Server, protocol : String)
       case @config.tls_min_version
       when "1.0"
         tls.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_2 |
@@ -328,19 +328,17 @@ module LavinMQ
       tls.certificate_chain = @config.tls_cert_path
       tls.private_key = @config.tls_key_path.empty? ? @config.tls_cert_path : @config.tls_key_path
       tls.ciphers = @config.tls_ciphers unless @config.tls_ciphers.empty?
-      reload_ssl_keylog(tls)
+      reload_ssl_keylog(tls, protocol)
     end
 
-    private def reload_ssl_keylog(tls)
+    private def reload_ssl_keylog(tls, protocol : String)
       keylog_file = @config.ssl_keylog_file
       if keylog_file.empty?
-        OpenSSL::SSL::Context::Server.keylog_file = nil
-        tls.disable_keylog
-        Log.debug { "SSL keylog disabled" }
+        tls.keylog_file = nil
+        Log.debug { "SSL keylog disabled for #{protocol}" }
       else
-        OpenSSL::SSL::Context::Server.keylog_file = keylog_file
-        tls.enable_keylog
-        Log.info { "SSL keylog enabled, writing to #{keylog_file}" }
+        tls.keylog_file = keylog_file
+        Log.info { "SSL keylog enabled for #{protocol}, writing to #{keylog_file}" }
       end
     end
 
