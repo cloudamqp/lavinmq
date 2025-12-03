@@ -118,6 +118,81 @@ describe LavinMQ::Auth::User do
   end
 end
 
+describe LavinMQ::Auth::UserStore do
+  describe "#delete" do
+    it "should clear permissions cache when deleting a user" do
+      Dir.mkdir_p "/tmp/lavinmq-spec"
+      user_store = LavinMQ::Auth::UserStore.new("/tmp/lavinmq-spec", nil)
+
+      # Create a user and add permissions
+      user_store.create("testuser", "password")
+      user_store.add_permission("testuser", "vhost1", /.*/, /.*/, /.*/)
+
+      # Get the user and verify initial state
+      user = user_store["testuser"]
+      initial_revision = user.@permission_revision.get
+
+      # Create a cache and use it (simulating active connections)
+      cache = LavinMQ::Auth::PermissionCache.new
+      user.can_write?("vhost1", "queue1", cache).should be_true
+
+      # Delete the user - should clear permissions cache
+      user_store.delete("testuser")
+
+      # Verify the revision was incremented (cache was cleared)
+      final_revision = user.@permission_revision.get
+      final_revision.should eq(initial_revision + 1)
+    ensure
+      FileUtils.rm_rf "/tmp/lavinmq-spec"
+    end
+
+    it "should invalidate existing permission caches on delete" do
+      Dir.mkdir_p "/tmp/lavinmq-spec"
+      user_store = LavinMQ::Auth::UserStore.new("/tmp/lavinmq-spec", nil)
+
+      # Create user with permissions
+      user_store.create("testuser", "password")
+      user_store.add_permission("testuser", "vhost1", /.*/, /.*/, /.*/)
+
+      user = user_store["testuser"]
+      cache = LavinMQ::Auth::PermissionCache.new
+
+      # Populate the cache with permission check
+      user.can_write?("vhost1", "queue1", cache).should be_true
+      cache_revision_before = cache.revision
+
+      # Delete user - this should clear the user's permission cache
+      user_store.delete("testuser")
+
+      # The cache should detect revision mismatch on next access
+      # (if we could still access the deleted user)
+      # The important thing is the user's revision was incremented
+      user.@permission_revision.get.should eq(cache_revision_before + 1)
+    ensure
+      FileUtils.rm_rf "/tmp/lavinmq-spec"
+    end
+
+    it "should not clear cache when deleting non-existent user" do
+      Dir.mkdir_p "/tmp/lavinmq-spec"
+      user_store = LavinMQ::Auth::UserStore.new("/tmp/lavinmq-spec", nil)
+
+      # Create a user
+      user_store.create("testuser", "password")
+      user = user_store["testuser"]
+      initial_revision = user.@permission_revision.get
+
+      # Try to delete a different user that doesn't exist
+      result = user_store.delete("nonexistent")
+      result.should be_nil
+
+      # Original user's cache should not be affected
+      user.@permission_revision.get.should eq(initial_revision)
+    ensure
+      FileUtils.rm_rf "/tmp/lavinmq-spec"
+    end
+  end
+end
+
 describe LavinMQ::Server do
   it "rejects invalid password" do
     with_amqp_server do |s|
