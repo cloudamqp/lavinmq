@@ -75,6 +75,8 @@ module LavinMQ
       def delete(name, save = true) : User?
         return if name == DIRECT_USER
         if user = @users.delete name
+          user.permissions.clear
+          user.clear_permissions_cache
           Log.info { "Deleted user=#{name}" }
           save! if save
           user
