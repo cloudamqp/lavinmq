@@ -31,17 +31,18 @@ module LavinMQ
         @flow = @channel.flow?
         @metadata = @channel.@metadata.extend({consumer: @tag})
         @log = Logger.new(Log, @metadata)
-        spawn deliver_loop, name: "Consumer deliver loop"
+        fiber_name = "Consumer vhost=#{@queue.vhost.name} queue=#{@queue.name}"
+        @queue.deliver_loop_wg.spawn(name: fiber_name) { deliver_loop }
         @flow_change = BoolChannel.new(@flow)
         @has_capacity = BoolChannel.new(true)
       end
 
       def close
         @closed = true
-        @queue.rm_consumer(self)
         @notify_closed.close
         @has_capacity.close
         @flow_change.close
+        @queue.rm_consumer(self)
       end
 
       @notify_closed = ::Channel(Nil).new

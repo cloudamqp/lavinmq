@@ -90,6 +90,7 @@ module LavinMQ::AMQP
 
     @msg_store_lock = Mutex.new(:reentrant)
     @msg_store : MessageStore
+    getter deliver_loop_wg = WaitGroup.new
 
     getter paused = BoolChannel.new(false)
 
@@ -414,7 +415,8 @@ module LavinMQ::AMQP
         @consumers.each &.cancel
         @consumers.clear
       end
-      Fiber.yield # Allow all consumers to cancel before closing mmap:s
+      Fiber.yield           # Let deliver_loop fibers start and react to closed channels
+      @deliver_loop_wg.wait # Wait for all deliver loops to exit before closing mmap:s
       @msg_store_lock.synchronize do
         @msg_store.close
       end
