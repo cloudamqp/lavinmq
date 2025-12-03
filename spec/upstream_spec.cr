@@ -98,7 +98,7 @@ describe LavinMQ::Federation::Upstream do
 
         with_channel(s) do |ch|
           x, q2 = UpstreamSpecHelpers.setup_qs ch
-          x.publish "federate me", "federation_q1"
+          x.publish_confirm "federate me", "federation_q1"
           upstream.link(vhost.queues["federation_q2"])
           msgs = Channel(String).new
           q2.subscribe { |msg| msgs.send msg.body_io.to_s }
@@ -117,7 +117,7 @@ describe LavinMQ::Federation::Upstream do
 
         with_channel(s) do |ch|
           x = UpstreamSpecHelpers.setup_qs(ch).first
-          x.publish "federate me", "federation_q1"
+          x.publish_confirm "federate me", "federation_q1"
           link = upstream.link(vhost.queues["federation_q2"])
           wait_for { link.state.running? }
           vhost.queues["federation_q1"].message_count.should eq 1
@@ -136,7 +136,7 @@ describe LavinMQ::Federation::Upstream do
 
         with_channel(s) do |ch|
           x, q2 = UpstreamSpecHelpers.setup_qs ch
-          x.publish "federate me", "federation_q1"
+          x.publish_confirm "federate me", "federation_q1"
           upstream.link(vhost.queues["federation_q2"])
           msgs = Channel(String).new
           q2.subscribe { |msg| msgs.send msg.body_io.to_s }
@@ -156,7 +156,7 @@ describe LavinMQ::Federation::Upstream do
 
         with_channel(s) do |ch|
           x, q2 = UpstreamSpecHelpers.setup_qs ch
-          x.publish "federate me", "federation_q1"
+          x.publish_confirm "federate me", "federation_q1"
           upstream.link(vhost.queues["federation_q2"])
           msgs = Channel(String).new
           q2.subscribe { |msg| msgs.send msg.body_io.to_s }
@@ -209,7 +209,7 @@ describe LavinMQ::Federation::Upstream do
 
         with_channel(s) do |ch|
           x, q2 = UpstreamSpecHelpers.setup_qs ch
-          x.publish "federate me", "federation_q1"
+          x.publish_confirm "federate me", "federation_q1"
           upstream.link(vhost.queues["federation_q2"])
           q2.subscribe do |msg|
             msgs << msg
@@ -220,7 +220,7 @@ describe LavinMQ::Federation::Upstream do
 
         with_channel(s) do |ch|
           x, q2 = UpstreamSpecHelpers.setup_qs ch
-          x.publish "federate me", "federation_q1"
+          x.publish_confirm "federate me", "federation_q1"
           q2.subscribe do |msg|
             msgs << msg
           end
@@ -240,7 +240,7 @@ describe LavinMQ::Federation::Upstream do
 
         with_channel(s) do |ch|
           x, q2 = UpstreamSpecHelpers.setup_qs ch
-          x.publish "federate me", "federation_q1", props: AMQP::Client::Properties.new(content_type: "application/json")
+          x.publish_confirm "federate me", "federation_q1", props: AMQP::Client::Properties.new(content_type: "application/json")
           upstream.link(vhost.queues["federation_q2"])
           msgs = [] of AMQP::Client::DeliverMessage
           q2.subscribe { |msg| msgs << msg }
@@ -265,7 +265,7 @@ describe LavinMQ::Federation::Upstream do
         # publish 1 message
         with_channel(s, vhost: us_vhost.name) do |upstream_ch|
           upstream_q = upstream_ch.queue(us_queue_name)
-          upstream_q.publish "msg1"
+          upstream_q.publish_confirm "msg1"
         end
 
         # consume 1 message
@@ -287,7 +287,7 @@ describe LavinMQ::Federation::Upstream do
         # publish another message
         with_channel(s, vhost: us_vhost.name) do |upstream_ch|
           upstream_q = upstream_ch.queue(us_queue_name)
-          upstream_q.publish "msg2"
+          upstream_q.publish_confirm "msg2"
         end
 
         # resume consuming on downstream, should get 1 message
@@ -942,7 +942,7 @@ describe LavinMQ::Federation::Upstream do
                   },
                 }),
               )
-              ch.exchange("fe", "topic").publish "foo", "spec.routing.key", props: props
+              ch.exchange("fe", "topic").publish_confirm "foo", "spec.routing.key", props: props
             end
 
             v1fe = s.vhosts["v1"].exchanges["fe"]
