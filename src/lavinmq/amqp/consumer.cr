@@ -31,7 +31,8 @@ module LavinMQ
         @flow = @channel.flow?
         @metadata = @channel.@metadata.extend({consumer: @tag})
         @log = Logger.new(Log, @metadata)
-        @queue.deliver_loop_wg.spawn { deliver_loop }
+        fiber_name = "Consumer vhost=#{@queue.vhost.name} queue=#{@queue.name}"
+        @queue.deliver_loop_wg.spawn(name: fiber_name) { deliver_loop }
         @flow_change = BoolChannel.new(@flow)
         @has_capacity = BoolChannel.new(true)
       end
