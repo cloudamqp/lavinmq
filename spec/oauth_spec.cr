@@ -292,287 +292,159 @@ describe LavinMQ::Auth::OAuthAuthenticator do
   end
 end
 
+# Helper methods for OAuthUser tests
+module OAuthUserHelper
+  extend self
+
+  def mock_authenticator
+    config = LavinMQ::Config.new
+    config.oauth_issuer_url = "https://auth.example.com"
+    config.oauth_preferred_username_claims = ["preferred_username"]
+    LavinMQ::Auth::OAuthAuthenticator.new(config)
+  end
+
+  def create_user(expires_at : Time, permissions = {} of String => LavinMQ::Auth::User::Permissions)
+    LavinMQ::Auth::OAuthUser.new(
+      "testuser",
+      [] of LavinMQ::Tag,
+      permissions,
+      expires_at,
+      mock_authenticator
+    )
+  end
+end
+
 describe LavinMQ::Auth::OAuthUser do
+
   describe "#expired?" do
     it "returns true for expired tokens" do
-      config = LavinMQ::Config.new
-      config.oauth_issuer_url = "https://auth.example.com"
-      config.oauth_preferred_username_claims = ["preferred_username"]
-      mock_auth = LavinMQ::Auth::OAuthAuthenticator.new(config)
-
-      user = LavinMQ::Auth::OAuthUser.new(
-        "testuser",
-        [] of LavinMQ::Tag,
-        {} of String => LavinMQ::Auth::User::Permissions,
-        Time.utc - 1.hour,
-        mock_auth
-      )
+      user = OAuthUserHelper.create_user(Time.utc - 1.hour)
       user.expired?.should be_true
     end
 
     it "returns false for valid tokens" do
-      config = LavinMQ::Config.new
-      config.oauth_issuer_url = "https://auth.example.com"
-      config.oauth_preferred_username_claims = ["preferred_username"]
-      mock_auth = LavinMQ::Auth::OAuthAuthenticator.new(config)
-
-      user = LavinMQ::Auth::OAuthUser.new(
-        "testuser",
-        [] of LavinMQ::Tag,
-        {} of String => LavinMQ::Auth::User::Permissions,
-        Time.utc + 1.hour,
-        mock_auth
-      )
+      user = OAuthUserHelper.create_user(Time.utc + 1.hour)
       user.expired?.should be_false
     end
   end
 
   describe "#can_write?" do
     it "raises TokenExpiredError when token is expired" do
-      config = LavinMQ::Config.new
-      config.oauth_issuer_url = "https://auth.example.com"
-      config.oauth_preferred_username_claims = ["preferred_username"]
-      mock_auth = LavinMQ::Auth::OAuthAuthenticator.new(config)
-
-      user = LavinMQ::Auth::OAuthUser.new(
-        "testuser",
-        [] of LavinMQ::Tag,
-        {"/" => {config: /.*/, read: /.*/, write: /.*/}},
-        Time.utc - 1.hour,
-        mock_auth
-      )
+      permissions = {"/" => {config: /.*/, read: /.*/, write: /.*/}}
+      user = OAuthUserHelper.create_user(Time.utc - 1.hour, permissions)
       cache = LavinMQ::Auth::PermissionCache.new
+
       expect_raises(LavinMQ::Auth::TokenExpiredError, "OAuth token expired for user 'testuser'") do
         user.can_write?("/", "queue1", cache)
       end
     end
 
     it "allows access when token is valid and permissions match" do
-      config = LavinMQ::Config.new
-      config.oauth_issuer_url = "https://auth.example.com"
-      config.oauth_preferred_username_claims = ["preferred_username"]
-      mock_auth = LavinMQ::Auth::OAuthAuthenticator.new(config)
-
-      user = LavinMQ::Auth::OAuthUser.new(
-        "testuser",
-        [] of LavinMQ::Tag,
-        {"/" => {config: /.*/, read: /.*/, write: /.*/}},
-        Time.utc + 1.hour,
-        mock_auth
-      )
+      permissions = {"/" => {config: /.*/, read: /.*/, write: /.*/}}
+      user = OAuthUserHelper.create_user(Time.utc + 1.hour, permissions)
       cache = LavinMQ::Auth::PermissionCache.new
+
       user.can_write?("/", "queue1", cache).should be_true
     end
 
     it "denies access when permissions don't match" do
-      config = LavinMQ::Config.new
-      config.oauth_issuer_url = "https://auth.example.com"
-      config.oauth_preferred_username_claims = ["preferred_username"]
-      mock_auth = LavinMQ::Auth::OAuthAuthenticator.new(config)
-
-      user = LavinMQ::Auth::OAuthUser.new(
-        "testuser",
-        [] of LavinMQ::Tag,
-        {"/" => {config: /.*/, read: /.*/, write: /^queue/}},
-        Time.utc + 1.hour,
-        mock_auth
-      )
+      permissions = {"/" => {config: /.*/, read: /.*/, write: /^queue/}}
+      user = OAuthUserHelper.create_user(Time.utc + 1.hour, permissions)
       cache = LavinMQ::Auth::PermissionCache.new
+
       user.can_write?("/", "exchange1", cache).should be_false
     end
   end
 
   describe "#can_read?" do
     it "raises TokenExpiredError when token is expired" do
-      config = LavinMQ::Config.new
-      config.oauth_issuer_url = "https://auth.example.com"
-      config.oauth_preferred_username_claims = ["preferred_username"]
-      mock_auth = LavinMQ::Auth::OAuthAuthenticator.new(config)
+      permissions = {"/" => {config: /.*/, read: /.*/, write: /.*/}}
+      user = OAuthUserHelper.create_user(Time.utc - 1.hour, permissions)
 
-      user = LavinMQ::Auth::OAuthUser.new(
-        "testuser",
-        [] of LavinMQ::Tag,
-        {"/" => {config: /.*/, read: /.*/, write: /.*/}},
-        Time.utc - 1.hour,
-        mock_auth
-      )
       expect_raises(LavinMQ::Auth::TokenExpiredError, "OAuth token expired for user 'testuser'") do
         user.can_read?("/", "queue1")
       end
     end
 
     it "allows access when token is valid and permissions match" do
-      config = LavinMQ::Config.new
-      config.oauth_issuer_url = "https://auth.example.com"
-      config.oauth_preferred_username_claims = ["preferred_username"]
-      mock_auth = LavinMQ::Auth::OAuthAuthenticator.new(config)
+      permissions = {"/" => {config: /.*/, read: /.*/, write: /.*/}}
+      user = OAuthUserHelper.create_user(Time.utc + 1.hour, permissions)
 
-      user = LavinMQ::Auth::OAuthUser.new(
-        "testuser",
-        [] of LavinMQ::Tag,
-        {"/" => {config: /.*/, read: /.*/, write: /.*/}},
-        Time.utc + 1.hour,
-        mock_auth
-      )
       user.can_read?("/", "queue1").should be_true
     end
 
     it "denies access when permissions don't match" do
-      config = LavinMQ::Config.new
-      config.oauth_issuer_url = "https://auth.example.com"
-      config.oauth_preferred_username_claims = ["preferred_username"]
-      mock_auth = LavinMQ::Auth::OAuthAuthenticator.new(config)
+      permissions = {"/" => {config: /.*/, read: /^exchange/, write: /.*/}}
+      user = OAuthUserHelper.create_user(Time.utc + 1.hour, permissions)
 
-      user = LavinMQ::Auth::OAuthUser.new(
-        "testuser",
-        [] of LavinMQ::Tag,
-        {"/" => {config: /.*/, read: /^exchange/, write: /.*/}},
-        Time.utc + 1.hour,
-        mock_auth
-      )
       user.can_read?("/", "queue1").should be_false
     end
   end
 
   describe "#can_config?" do
     it "raises TokenExpiredError when token is expired" do
-      config = LavinMQ::Config.new
-      config.oauth_issuer_url = "https://auth.example.com"
-      config.oauth_preferred_username_claims = ["preferred_username"]
-      mock_auth = LavinMQ::Auth::OAuthAuthenticator.new(config)
+      permissions = {"/" => {config: /.*/, read: /.*/, write: /.*/}}
+      user = OAuthUserHelper.create_user(Time.utc - 1.hour, permissions)
 
-      user = LavinMQ::Auth::OAuthUser.new(
-        "testuser",
-        [] of LavinMQ::Tag,
-        {"/" => {config: /.*/, read: /.*/, write: /.*/}},
-        Time.utc - 1.hour,
-        mock_auth
-      )
       expect_raises(LavinMQ::Auth::TokenExpiredError, "OAuth token expired for user 'testuser'") do
         user.can_config?("/", "queue1")
       end
     end
 
     it "allows access when token is valid and permissions match" do
-      config = LavinMQ::Config.new
-      config.oauth_issuer_url = "https://auth.example.com"
-      config.oauth_preferred_username_claims = ["preferred_username"]
-      mock_auth = LavinMQ::Auth::OAuthAuthenticator.new(config)
+      permissions = {"/" => {config: /.*/, read: /.*/, write: /.*/}}
+      user = OAuthUserHelper.create_user(Time.utc + 1.hour, permissions)
 
-      user = LavinMQ::Auth::OAuthUser.new(
-        "testuser",
-        [] of LavinMQ::Tag,
-        {"/" => {config: /.*/, read: /.*/, write: /.*/}},
-        Time.utc + 1.hour,
-        mock_auth
-      )
       user.can_config?("/", "queue1").should be_true
     end
 
     it "denies access when permissions don't match" do
-      config = LavinMQ::Config.new
-      config.oauth_issuer_url = "https://auth.example.com"
-      config.oauth_preferred_username_claims = ["preferred_username"]
-      mock_auth = LavinMQ::Auth::OAuthAuthenticator.new(config)
+      permissions = {"/" => {config: /^vhost/, read: /.*/, write: /.*/}}
+      user = OAuthUserHelper.create_user(Time.utc + 1.hour, permissions)
 
-      user = LavinMQ::Auth::OAuthUser.new(
-        "testuser",
-        [] of LavinMQ::Tag,
-        {"/" => {config: /^vhost/, read: /.*/, write: /.*/}},
-        Time.utc + 1.hour,
-        mock_auth
-      )
       user.can_config?("/", "queue1").should be_false
     end
   end
 
   describe "edge cases" do
     it "denies access when vhost doesn't exist in permissions" do
-      config = LavinMQ::Config.new
-      config.oauth_issuer_url = "https://auth.example.com"
-      config.oauth_preferred_username_claims = ["preferred_username"]
-      mock_auth = LavinMQ::Auth::OAuthAuthenticator.new(config)
-
-      user = LavinMQ::Auth::OAuthUser.new(
-        "testuser",
-        [] of LavinMQ::Tag,
-        {"/" => {config: /.*/, read: /.*/, write: /.*/}},
-        Time.utc + 1.hour,
-        mock_auth
-      )
+      permissions = {"/" => {config: /.*/, read: /.*/, write: /.*/}}
+      user = OAuthUserHelper.create_user(Time.utc + 1.hour, permissions)
       cache = LavinMQ::Auth::PermissionCache.new
+
       # Request access to a vhost that's not in permissions
       user.can_write?("/other", "queue1", cache).should be_false
     end
 
     it "denies access when permissions hash is empty" do
-      config = LavinMQ::Config.new
-      config.oauth_issuer_url = "https://auth.example.com"
-      config.oauth_preferred_username_claims = ["preferred_username"]
-      mock_auth = LavinMQ::Auth::OAuthAuthenticator.new(config)
-
-      user = LavinMQ::Auth::OAuthUser.new(
-        "testuser",
-        [] of LavinMQ::Tag,
-        {} of String => LavinMQ::Auth::User::Permissions,
-        Time.utc + 1.hour,
-        mock_auth
-      )
+      user = OAuthUserHelper.create_user(Time.utc + 1.hour)
       cache = LavinMQ::Auth::PermissionCache.new
+
       user.can_write?("/", "queue1", cache).should be_false
     end
 
     it "handles empty resource name" do
-      config = LavinMQ::Config.new
-      config.oauth_issuer_url = "https://auth.example.com"
-      config.oauth_preferred_username_claims = ["preferred_username"]
-      mock_auth = LavinMQ::Auth::OAuthAuthenticator.new(config)
-
-      user = LavinMQ::Auth::OAuthUser.new(
-        "testuser",
-        [] of LavinMQ::Tag,
-        {"/" => {config: /.*/, read: /.*/, write: /.*/}},
-        Time.utc + 1.hour,
-        mock_auth
-      )
+      permissions = {"/" => {config: /.*/, read: /.*/, write: /.*/}}
+      user = OAuthUserHelper.create_user(Time.utc + 1.hour, permissions)
       cache = LavinMQ::Auth::PermissionCache.new
+
       # Empty resource name should match /.*/ pattern
       user.can_write?("/", "", cache).should be_true
     end
 
     it "denies access for empty resource name when pattern doesn't match" do
-      config = LavinMQ::Config.new
-      config.oauth_issuer_url = "https://auth.example.com"
-      config.oauth_preferred_username_claims = ["preferred_username"]
-      mock_auth = LavinMQ::Auth::OAuthAuthenticator.new(config)
-
-      user = LavinMQ::Auth::OAuthUser.new(
-        "testuser",
-        [] of LavinMQ::Tag,
-        {"/" => {config: /.*/, read: /.*/, write: /^queue/}},
-        Time.utc + 1.hour,
-        mock_auth
-      )
+      permissions = {"/" => {config: /.*/, read: /.*/, write: /^queue/}}
+      user = OAuthUserHelper.create_user(Time.utc + 1.hour, permissions)
       cache = LavinMQ::Auth::PermissionCache.new
+
       # Empty string doesn't start with "queue"
       user.can_write?("/", "", cache).should be_false
     end
 
     it "handles expiration at exact boundary" do
-      config = LavinMQ::Config.new
-      config.oauth_issuer_url = "https://auth.example.com"
-      config.oauth_preferred_username_claims = ["preferred_username"]
-      mock_auth = LavinMQ::Auth::OAuthAuthenticator.new(config)
-
-      # Create user that expires in exactly 1 second
+      permissions = {"/" => {config: /.*/, read: /.*/, write: /.*/}}
       expires_at = Time.utc + 1.second
-      user = LavinMQ::Auth::OAuthUser.new(
-        "testuser",
-        [] of LavinMQ::Tag,
-        {"/" => {config: /.*/, read: /.*/, write: /.*/}},
-        expires_at,
-        mock_auth
-      )
+      user = OAuthUserHelper.create_user(expires_at, permissions)
 
       # Should not be expired yet
       user.expired?.should be_false
@@ -585,38 +457,20 @@ describe LavinMQ::Auth::OAuthUser do
     end
 
     it "handles very long resource names" do
-      config = LavinMQ::Config.new
-      config.oauth_issuer_url = "https://auth.example.com"
-      config.oauth_preferred_username_claims = ["preferred_username"]
-      mock_auth = LavinMQ::Auth::OAuthAuthenticator.new(config)
-
-      user = LavinMQ::Auth::OAuthUser.new(
-        "testuser",
-        [] of LavinMQ::Tag,
-        {"/" => {config: /.*/, read: /.*/, write: /^queue/}},
-        Time.utc + 1.hour,
-        mock_auth
-      )
+      permissions = {"/" => {config: /.*/, read: /.*/, write: /^queue/}}
+      user = OAuthUserHelper.create_user(Time.utc + 1.hour, permissions)
       cache = LavinMQ::Auth::PermissionCache.new
+
       # Very long resource name that matches pattern
       long_name = "queue" + ("x" * 1000)
       user.can_write?("/", long_name, cache).should be_true
     end
 
     it "handles special characters in resource names" do
-      config = LavinMQ::Config.new
-      config.oauth_issuer_url = "https://auth.example.com"
-      config.oauth_preferred_username_claims = ["preferred_username"]
-      mock_auth = LavinMQ::Auth::OAuthAuthenticator.new(config)
-
-      user = LavinMQ::Auth::OAuthUser.new(
-        "testuser",
-        [] of LavinMQ::Tag,
-        {"/" => {config: /.*/, read: /.*/, write: /.*/}},
-        Time.utc + 1.hour,
-        mock_auth
-      )
+      permissions = {"/" => {config: /.*/, read: /.*/, write: /.*/}}
+      user = OAuthUserHelper.create_user(Time.utc + 1.hour, permissions)
       cache = LavinMQ::Auth::PermissionCache.new
+
       # Resource name with special regex characters
       user.can_write?("/", "queue.with.dots", cache).should be_true
       user.can_write?("/", "queue[with]brackets", cache).should be_true
@@ -626,18 +480,8 @@ describe LavinMQ::Auth::OAuthUser do
 
   describe "#update_secret" do
     it "rejects token with mismatched username" do
-      config = LavinMQ::Config.new
-      config.oauth_issuer_url = "https://auth.example.com"
-      config.oauth_preferred_username_claims = ["preferred_username"]
-      mock_auth = LavinMQ::Auth::OAuthAuthenticator.new(config)
-
-      user = LavinMQ::Auth::OAuthUser.new(
-        "testuser",
-        [] of LavinMQ::Tag,
-        {"/" => {config: /.*/, read: /.*/, write: /.*/}},
-        Time.utc + 1.hour,
-        mock_auth
-      )
+      permissions = {"/" => {config: /.*/, read: /.*/, write: /.*/}}
+      user = OAuthUserHelper.create_user(Time.utc + 1.hour, permissions)
 
       # Create a mock token that would validate but has wrong username
       # Since we can't easily create valid JWT tokens in tests without a real key,
