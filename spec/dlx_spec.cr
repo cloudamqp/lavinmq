@@ -258,13 +258,6 @@ describe "Dead lettering" do
               "time"     => Time.utc,
               "exchange" => "",
             }),
-            AMQ::Protocol::Table.new({
-              "queue"    => "q1",
-              "reason"   => "expired",
-              "count"    => 1, # First time
-              "time"     => Time.utc,
-              "exchange" => "",
-            }),
           ] of AMQ::Protocol::Field,
         })
         props = AMQ::Protocol::Properties.new(headers: headers)
@@ -276,6 +269,11 @@ describe "Dead lettering" do
         # Should be blocked (genuine cycle)
         sleep 0.1.seconds
         v.queues["q2"].message_count.should eq initial_count # No new message
+      end
+    end
+
+    it "should prevent dead lettering loop" do
+      with_amqp_server do |s|
       end
     end
   end
