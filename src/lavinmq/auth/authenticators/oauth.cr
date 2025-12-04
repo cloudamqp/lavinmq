@@ -288,7 +288,10 @@ module LavinMQ
 
       private def parse_permission_role(role, permissions)
         parts = role.split(/[.:\/]/)
-        return if parts.size != 3
+        if parts.size != 3
+          Log.warn { "Skipping scope '#{role}': Expected format 'permission:vhost:pattern'" }
+          return
+        end
         perm_type, vhost, pattern = parts[0], parts[1], parts[2]
         return if !perm_type.in?("configure", "read", "write")
 
