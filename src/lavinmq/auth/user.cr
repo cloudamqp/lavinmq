@@ -2,6 +2,9 @@ require "json"
 
 module LavinMQ
   module Auth
+    class TokenExpiredError < Exception
+    end
+
     class PermissionCache
       @cache = Hash(Tuple(String, String), Bool).new
       property revision = 0_u32

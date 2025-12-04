@@ -153,6 +153,8 @@ module LavinMQ
                 @log.debug { "Discarding #{frame.class.name}, waiting for CloseOk" }
               end
             end
+          rescue e : Auth::TokenExpiredError
+            close_connection(frame, ConnectionReplyCode::CONNECTION_FORCED, e.message)
           rescue e : LavinMQ::Error::PreconditionFailed
             send_precondition_failed(frame, e.message)
           end

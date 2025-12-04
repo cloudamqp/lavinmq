@@ -35,22 +35,22 @@ module LavinMQ
       end
 
       def can_write?(vhost : String, name : String, cache : PermissionCache) : Bool
-        return false if expired?
+        raise TokenExpiredError.new("OAuth token expired for user '#{@name}'") if expired?
         super
       end
 
       def can_read?(vhost : String, name : String) : Bool
-        return false if expired?
+        raise TokenExpiredError.new("OAuth token expired for user '#{@name}'") if expired?
         super
       end
 
       def can_config?(vhost : String, name : String) : Bool
-        return false if expired?
+        raise TokenExpiredError.new("OAuth token expired for user '#{@name}'") if expired?
         super
       end
 
       def can_impersonate? : Bool
-        return false if expired?
+        raise TokenExpiredError.new("OAuth token expired for user '#{@name}'") if expired?
         super
       end
 
