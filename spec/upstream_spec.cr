@@ -334,14 +334,14 @@ describe LavinMQ::Federation::Upstream do
           downstream_ch.prefetch(1)
           downstream_q = downstream_ch.queue(ds_queue_name)
           downstream_q.subscribe(tag: "c", no_ack: false, block: true) do |msg|
-            msg.ack
             downstream_q.unsubscribe("c")
+            msg.ack
           end
         end
         us_queue.consumers_empty.when_true.should be_receiving nil
         ds_queue.consumers_empty.when_true.should be_receiving nil
 
-        ds_queue.empty.value.should be_true
+        ds_queue.empty.should be_true
         ds_queue.message_count.should eq 0
 
         # resume consuming on downstream, federation should start again
