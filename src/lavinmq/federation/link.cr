@@ -67,7 +67,6 @@ module LavinMQ
 
         private def state(state)
           @log.debug { "state change from=#{@state} to=#{state}" }
-
           @last_changed = RoughTime.unix_ms
           return if @state == state
           @state = state
@@ -126,25 +125,15 @@ module LavinMQ
           state.in?(State::Terminating, State::Terminated)
         end
 
-        private def federate(msg, exchange, routing_key, immediate = false, &)
+        private def federate(msg, exchange, routing_key, *, immediate = false)
           @log.debug { "Federating routing_key=#{routing_key} exchange=#{exchange}" }
-          status = @upstream.vhost.publish(
+          @upstream.vhost.publish(
             Message.new(
               RoughTime.unix_ms, exchange, routing_key, msg.properties,
               msg.body_io.bytesize.to_u64, msg.body_io,
             ),
             immediate
           )
-
-          begin
-            yield status
-          ensure
-            if status
-              msg.ack if @upstream.ack_mode != AckMode::NoAck
-            else
-              msg.reject(requeue: true)
-            end
-          end
         end
 
         private def try_passive(client, ch = nil, &)
@@ -312,10 +301,12 @@ module LavinMQ
             headers["x-received-from"] = received_from
             msg.properties.headers = headers
 
-            federate(msg, EXCHANGE, @federated_q.name, true) do |status|
-              next if status
+            if federate(msg, EXCHANGE, @federated_q.name, immediate: true)
+              msg.ack if @upstream.ack_mode != AckMode::NoAck
+            else
               @log.info { "Federate failed, no downstream consumer available" }
               queue.unsubscribe(@upstream.consumer_tag)
+              msg.reject(requeue: true)
             end
           end
         end
@@ -472,16 +463,7 @@ module LavinMQ
             state(State::Running)
             upstream_q.subscribe(no_ack: no_ack, tag: @upstream.consumer_tag, block: true) do |msg|
               if should_forward?(msg.properties.headers)
-                @last_changed = RoughTime.unix_ms
-                headers, received_from = received_from_header(msg)
-                received_from << ::AMQP::Client::Arguments.new({
-                  "uri"         => @scrubbed_uri,
-                  "exchange"    => @upstream_exchange,
-                  "redelivered" => msg.redelivered,
-                })
-                headers["x-received-from"] = received_from
-                msg.properties.headers = headers
-                federate(msg, @federated_ex.name, msg.routing_key) { }
+                federate_to_downstream_exchange(msg)
               else
                 @log.debug { "Skipping message, max hops reached" }
                 msg.ack
@@ -490,6 +472,22 @@ module LavinMQ
           ensure
             @consumer_ex = nil
           end
+        end
+
+        private def federate_to_downstream_exchange(msg)
+          @last_changed = RoughTime.unix_ms
+          headers, received_from = received_from_header(msg)
+          received_from << ::AMQP::Client::Arguments.new({
+            "uri"         => @scrubbed_uri,
+            "exchange"    => @upstream_exchange,
+            "redelivered" => msg.redelivered,
+          })
+          headers["x-received-from"] = received_from
+          msg.properties.headers = headers
+          # Because we publish with immediate false we'll always get a succesful
+          # return and never gets a reason to reject and requeue
+          federate(msg, @federated_ex.name, msg.routing_key, immediate: false)
+          msg.ack unless @upstream.ack_mode.no_ack?
         end
 
         # This methods returns a tuple where the first element is a boolean
