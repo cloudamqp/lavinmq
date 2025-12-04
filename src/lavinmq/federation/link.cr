@@ -126,7 +126,7 @@ module LavinMQ
           state.in?(State::Terminating, State::Terminated)
         end
 
-        private def federate(msg, exchange, routing_key, immediate = false)
+        private def federate(msg, exchange, routing_key, immediate = false, &)
           @log.debug { "Federating routing_key=#{routing_key} exchange=#{exchange}" }
           status = @upstream.vhost.publish(
             Message.new(
@@ -136,12 +136,15 @@ module LavinMQ
             immediate
           )
 
-          if status
-            msg.ack if @upstream.ack_mode != AckMode::NoAck
-          else
-            msg.reject(requeue: true)
+          begin
+            yield status
+          ensure
+            if status
+              msg.ack if @upstream.ack_mode != AckMode::NoAck
+            else
+              msg.reject(requeue: true)
+            end
           end
-          status
         end
 
         private def try_passive(client, ch = nil, &)
@@ -309,7 +312,8 @@ module LavinMQ
             headers["x-received-from"] = received_from
             msg.properties.headers = headers
 
-            unless federate(msg, EXCHANGE, @federated_q.name, true)
+            federate(msg, EXCHANGE, @federated_q.name, true) do |status|
+              next if status
               @log.info { "Federate failed, no downstream consumer available" }
               queue.unsubscribe(@upstream.consumer_tag)
             end
@@ -477,7 +481,7 @@ module LavinMQ
                 })
                 headers["x-received-from"] = received_from
                 msg.properties.headers = headers
-                federate(msg, @federated_ex.name, msg.routing_key)
+                federate(msg, @federated_ex.name, msg.routing_key) { }
               else
                 @log.debug { "Skipping message, max hops reached" }
                 msg.ack
