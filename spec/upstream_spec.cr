@@ -354,8 +354,8 @@ describe LavinMQ::Federation::Upstream do
             ch.close
           end
 
-          us_queue.consumers_empty.when_true.receive
-          ds_queue.consumers_empty.when_true.receive
+          us_queue.consumers_empty.when_true.should be_receiving nil
+          ds_queue.consumers_empty.when_true.should be_receiving nil
 
           select
           when ch.receive?
