@@ -106,6 +106,44 @@ module LavinMQ::AMQP
       raise ex
     end
 
+    # Overload for BytesMessage (avoids IO::Memory allocation for Kafka messages)
+    def publish(msg : BytesMessage) : Bool
+      return false if @state.closed?
+      @msg_store_lock.synchronize do
+        @msg_store.push(msg)
+        @publish_count.add(1, :relaxed)
+      end
+      # Notify all waiting stream consumers about new messages
+      notify_all_stream_consumers
+      true
+    rescue ex : MessageStore::Error
+      @log.error(ex) { "Queue closed due to error" }
+      close
+      raise ex
+    end
+
+    # Batch publish multiple BytesMessages while holding the lock
+    # Yields repeatedly expecting BytesMessage or nil back
+    # Stops when nil is returned
+    def publish_batch(& : -> BytesMessage?) : Bool
+      return false if @state.closed?
+      @msg_store_lock.synchronize do
+        loop do
+          msg = yield
+          break if msg.nil?
+          @msg_store.push(msg)
+          @publish_count.add(1, :relaxed)
+        end
+      end
+      # Notify all waiting stream consumers about new messages once after batch
+      notify_all_stream_consumers
+      true
+    rescue ex : MessageStore::Error
+      @log.error(ex) { "Queue closed due to error" }
+      close
+      raise ex
+    end
+
     # Streams does not support basic_get, so always returns `false`
     def basic_get(no_ack, force = false, & : Envelope -> Nil) : Bool
       false

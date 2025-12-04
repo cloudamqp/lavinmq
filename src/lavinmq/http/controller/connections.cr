@@ -67,7 +67,7 @@ module LavinMQ
 
       private def get_connections_by_username(context, username)
         user = user(context)
-        connections(user).select { |c| c.user.name == username }
+        connections(user).select { |c| c.user.try(&.name) == username }
       end
 
       private def with_connection(context, params, &)
