@@ -1,3 +1,18 @@
+#
+# Add support to ::Channel for doing
+#
+# ```
+# ch = Channel(String).new
+# ch.should be_recieving "message"
+# ```
+#
+# and
+#
+# ```
+# ch = Channel(String).new
+# ch.should be_sending "message"
+# ```
+#
 module Spec::Expectations
   macro be_receiving(value, *, timeout = 5.seconds)
     ChannelReceiveExpectation.new({{value}}, {{timeout}})
