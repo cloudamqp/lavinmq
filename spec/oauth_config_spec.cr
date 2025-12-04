@@ -2,8 +2,9 @@ require "./spec_helper"
 
 describe LavinMQ::Config do
   describe "OAuth configuration validation" do
-    it "accepts valid HTTPS issuer URL" do
+    it "accepts valid HTTPS issuer URL when OAuth is enabled" do
       config = LavinMQ::Config.new
+      config.auth_backends = ["oauth"]
       config.oauth_issuer_url = "https://auth.example.com"
       config.validate_oauth_config
       # Should not raise
@@ -11,6 +12,7 @@ describe LavinMQ::Config do
 
     it "accepts HTTPS issuer URL with port" do
       config = LavinMQ::Config.new
+      config.auth_backends = ["oauth"]
       config.oauth_issuer_url = "https://auth.example.com:8443"
       config.validate_oauth_config
       # Should not raise
@@ -18,13 +20,15 @@ describe LavinMQ::Config do
 
     it "accepts HTTPS issuer URL with path" do
       config = LavinMQ::Config.new
+      config.auth_backends = ["oauth"]
       config.oauth_issuer_url = "https://auth.example.com/realms/master"
       config.validate_oauth_config
       # Should not raise
     end
 
-    it "rejects HTTP (non-HTTPS) issuer URL" do
+    it "rejects HTTP (non-HTTPS) issuer URL when OAuth is enabled" do
       config = LavinMQ::Config.new
+      config.auth_backends = ["oauth"]
       config.oauth_issuer_url = "http://auth.example.com"
 
       expect_raises(ArgumentError, /must use HTTPS scheme/) do
@@ -32,8 +36,9 @@ describe LavinMQ::Config do
       end
     end
 
-    it "rejects issuer URL without scheme" do
+    it "rejects issuer URL without scheme when OAuth is enabled" do
       config = LavinMQ::Config.new
+      config.auth_backends = ["oauth"]
       config.oauth_issuer_url = "auth.example.com"
 
       expect_raises(ArgumentError, /must use HTTPS scheme/) do
@@ -41,8 +46,9 @@ describe LavinMQ::Config do
       end
     end
 
-    it "rejects issuer URL with missing host" do
+    it "rejects issuer URL with missing host when OAuth is enabled" do
       config = LavinMQ::Config.new
+      config.auth_backends = ["oauth"]
       config.oauth_issuer_url = "https://"
 
       expect_raises(ArgumentError, /must have a valid host/) do
@@ -50,8 +56,9 @@ describe LavinMQ::Config do
       end
     end
 
-    it "rejects malformed issuer URL" do
+    it "rejects malformed issuer URL when OAuth is enabled" do
       config = LavinMQ::Config.new
+      config.auth_backends = ["oauth"]
       config.oauth_issuer_url = "not a valid url at all"
 
       # Malformed URLs get caught and return nil scheme, triggering the HTTPS check first
@@ -60,11 +67,22 @@ describe LavinMQ::Config do
       end
     end
 
-    it "skips validation when issuer URL is empty" do
+    it "skips validation when OAuth is not in auth_backends" do
       config = LavinMQ::Config.new
-      config.oauth_issuer_url = ""
+      config.auth_backends = ["local"]
+      config.oauth_issuer_url = "http://bad-url"
       config.validate_oauth_config
-      # Should not raise (OAuth is disabled)
+      # Should not raise (OAuth is not enabled)
+    end
+
+    it "requires issuer URL when OAuth is enabled" do
+      config = LavinMQ::Config.new
+      config.auth_backends = ["oauth"]
+      config.oauth_issuer_url = ""
+
+      expect_raises(ArgumentError, /oauth_issuer_url must be configured/) do
+        config.validate_oauth_config
+      end
     end
 
     it "sets default oauth_verify_aud to true" do
@@ -223,9 +241,11 @@ describe LavinMQ::Config do
       config.oauth_jwks_cache_ttl.should eq(7200.seconds)
     end
 
-    it "validates oauth config after parsing" do
+    it "validates oauth config after parsing when OAuth is enabled" do
       config_file = File.tempfile do |file|
         file.print <<-CONFIG
+        [main]
+        auth_backends = oauth
         [oauth]
         issuer = http://auth.example.com
         CONFIG
