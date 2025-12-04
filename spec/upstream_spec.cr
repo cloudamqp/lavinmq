@@ -338,8 +338,8 @@ describe LavinMQ::Federation::Upstream do
             downstream_q.unsubscribe("c")
           end
         end
-        us_queue.consumers_empty.when_true.receive
-        ds_queue.consumers_empty.when_true.receive
+        us_queue.consumers_empty.when_true.should be_receiving nil
+        ds_queue.consumers_empty.when_true.should be_receiving nil
 
         ds_queue.empty.value.should be_true
         ds_queue.message_count.should eq 0
@@ -354,8 +354,8 @@ describe LavinMQ::Federation::Upstream do
             ch.close
           end
 
-          us_queue.consumers_empty.when_true.should be_receiving nil
           ds_queue.consumers_empty.when_true.should be_receiving nil
+          us_queue.consumers_empty.when_true.should be_receiving nil
 
           select
           when ch.receive?
@@ -363,8 +363,8 @@ describe LavinMQ::Federation::Upstream do
             fail "federation didn't resume? timeout waiting for message on downstream queue"
           end
 
-          us_queue.empty.value.should be_true
-          ds_queue.empty.value.should be_true
+          us_queue.empty.should be_true
+          ds_queue.empty.should be_true
         end
       end
     end
