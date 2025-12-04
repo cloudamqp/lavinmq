@@ -10,6 +10,8 @@ module JWT
 
   class VerificationError < Error; end
 
+  class PasswordFormatError < Error; end
+
   struct Token
     getter header : JSON::Any
     getter payload : JSON::Any

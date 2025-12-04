@@ -52,6 +52,9 @@ module LavinMQ
 
         Log.info { "OAuth2 user authenticated: #{claims.username}" }
         OAuthUser.new(claims.username, claims.tags, claims.permissions, claims.expires_at, self)
+      rescue ex : JWT::PasswordFormatError
+        Log.debug { "OAuth2 skipping authentication for user \"#{username}\": password is not a JWT token" }
+        nil
       rescue ex : JWT::DecodeError
         Log.warn { "OAuth2 authentication failed for user \"#{username}\": Could not decode token - #{ex.message}" }
         nil
@@ -71,6 +74,9 @@ module LavinMQ
       end
 
       private def prevalidate_token(token : String)
+        # JWT tokens always start with "ey" (base64 encoded JSON header)
+        raise JWT::PasswordFormatError.new unless token.starts_with?("ey")
+
         parts = token.split('.', 4)
         raise JWT::DecodeError.new("Invalid JWT format") unless parts.size == 3
 
