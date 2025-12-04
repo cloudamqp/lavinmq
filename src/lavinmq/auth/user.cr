@@ -2,10 +2,8 @@ require "json"
 
 module LavinMQ
   module Auth
-    alias CacheKey = Tuple(String, String)
-
     class PermissionCache
-      @cache = Hash(CacheKey, Bool).new
+      @cache = Hash(Tuple(String, String), Bool).new
       property revision = 0_u32
 
       forward_missing_to @cache
@@ -13,14 +11,13 @@ module LavinMQ
 
     abstract class User
       alias Permissions = NamedTuple(config: Regex, read: Regex, write: Regex)
-      alias CacheKey = Tuple(String, String)
 
       abstract def name : String
       abstract def tags : Array(Tag)
       abstract def permissions : Hash(String, Permissions)
       abstract def permissions_details(vhost : String, p : Permissions)
 
-      @acl_cache = Hash(CacheKey, Bool).new
+      @acl_cache = Hash(Tuple(String, String), Bool).new
       @permission_revision = Atomic(UInt32).new(0_u32)
 
       def can_write?(vhost : String, name : String, cache : PermissionCache) : Bool
