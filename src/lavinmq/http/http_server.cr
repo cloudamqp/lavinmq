@@ -15,8 +15,12 @@ module LavinMQ
 
     class Server
       Log = LavinMQ::Log.for "http.server"
+      @tls_context : OpenSSL::SSL::Context::Server?
+      @config : LavinMQ::Config
 
       def initialize(@amqp_server : LavinMQ::Server)
+        @config = @amqp_server.@config
+        create_tls_context if @config.tls_configured?
         handlers = [
           StrictTransportSecurity.new,
           WebsocketProxy.new(@amqp_server),
@@ -53,7 +57,8 @@ module LavinMQ
         addr
       end
 
-      def bind_tls(address, port, ctx)
+      def bind_tls(address, port)
+        raise "Missing @tls_context" unless ctx = @tls_context
         addr = @http.bind_tls address, port, ctx
         Log.info { "Bound on #{addr}" }
         addr
@@ -101,6 +106,20 @@ module LavinMQ
         spawn(name: "HTTP listener") do
           http_server.listen
         end
+      end
+
+      private def create_tls_context
+        context = OpenSSL::SSL::Context::Server.new
+        context.add_options(OpenSSL::SSL::Options.new(0x40000000)) # disable client initiated renegotiation
+        context.min_version = @config.tls_min_version
+        context.certificate_chain = @config.tls_cert_path
+        context.private_key = @config.tls_key_path.empty? ? @config.tls_cert_path : @config.tls_key_path
+        context.ciphers = @config.tls_ciphers unless @config.tls_ciphers.empty?
+        @tls_context = context
+      end
+
+      def reload_tls_context
+        create_tls_context
       end
     end
   end

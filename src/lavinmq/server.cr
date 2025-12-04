@@ -37,6 +37,8 @@ module LavinMQ
     @listeners = Hash(Socket::Server, Protocol).new # Socket => protocol
     @connection_factories = Hash(Protocol, ConnectionFactory).new
     @replicator : Clustering::Replicator?
+    @tls_context : OpenSSL::SSL::Context::Server?
+    @tls_cert_store_channel : Channel(Nil)?
     Log = LavinMQ::Log.for "server"
 
     def initialize(@config : Config, @replicator = nil)
@@ -53,6 +55,7 @@ module LavinMQ
         Protocol::MQTT => MQTT::ConnectionFactory.new(authenticator, @mqtt_brokers, @config),
       }
       apply_parameter
+      create_tls_context if @config.tls_configured?
       spawn stats_loop, name: "Server#stats_loop"
     end
 
@@ -191,13 +194,14 @@ module LavinMQ
       listen(s, protocol)
     end
 
-    def listen_tls(s : TCPServer, context, protocol : Protocol)
+    def listen_tls(s : TCPServer, protocol : Protocol)
+      raise "Missing @tls_context" unless ctx = @tls_context
       @listeners[s] = protocol
       Log.info { "Listening for #{protocol} on #{s.local_address} (TLS)" }
       loop do # do not try to use while
         client = s.accept? || break
         next client.close if @closed
-        accept_tls(client, context, protocol)
+        accept_tls(client, ctx, protocol)
       end
     rescue ex : IO::Error | OpenSSL::Error
       abort "Unrecoverable error in TLS listener: #{ex.inspect_with_backtrace}"
@@ -216,6 +220,28 @@ module LavinMQ
         conn_info.ssl = true
         conn_info.ssl_version = ssl_client.tls_version
         conn_info.ssl_cipher = ssl_client.cipher
+
+        # Extract client certificate information for mTLS
+        if peer_cert = ssl_client.peer_certificate
+          begin
+            ssl_client.verify!
+            conn_info.ssl_verify = true
+
+            # Extract common name from certificate subject
+            subject_entries = peer_cert.subject.to_a
+            if cn_entry = subject_entries.find { |oid, _| oid == "CN" }
+              conn_info.ssl_cn = cn_entry[1]
+            end
+            # Extract signature algorithm
+            conn_info.ssl_sig_alg = peer_cert.signature_algorithm
+
+            Log.debug { "#{remote_addr} authenticated with client certificate: #{conn_info.ssl_cn}" }
+          rescue ex : OpenSSL::Error
+            Log.warn { "#{remote_addr} certificate verification failed: #{ex.message}" }
+            conn_info.ssl_verify = false
+          end
+        end
+
         handle_connection(ssl_client, conn_info, protocol)
       rescue ex
         Log.warn(exception: ex) { "Error accepting TLS connection from #{remote_addr}" }
@@ -223,8 +249,8 @@ module LavinMQ
       end
     end
 
-    def listen_tls(bind, port, context, protocol : Protocol = :amqp)
-      listen_tls(TCPServer.new(bind, port), context, protocol)
+    def listen_tls(bind, port, protocol : Protocol = :amqp)
+      listen_tls(TCPServer.new(bind, port), protocol)
     end
 
     def listen_unix(path : String, protocol : Protocol)
@@ -240,6 +266,12 @@ module LavinMQ
 
     def listen_clustering(server : TCPServer)
       @replicator.try &.listen(server)
+    end
+
+    def stop_listeners
+      Log.info { "Stopping #{@listeners.size} listeners" }
+      @listeners.each_key &.close
+      Fiber.yield
     end
 
     def close
@@ -499,6 +531,56 @@ module LavinMQ
 
     def uptime
       Time.monotonic - @start
+    end
+
+    private def create_tls_context
+      context = OpenSSL::SSL::Context::Server.new
+      context.add_options(OpenSSL::SSL::Options.new(0x40000000)) # disable client initiated renegotiation
+      context.min_version = @config.tls_min_version
+      context.certificate_chain = @config.tls_cert_path
+      context.private_key = @config.tls_key_path.empty? ? @config.tls_cert_path : @config.tls_key_path
+      context.ciphers = @config.tls_ciphers unless @config.tls_ciphers.empty?
+      configure_mtls(context)
+      @tls_context = context
+    end
+
+    def reload_tls_context
+      @tls_cert_store_channel.try &.close
+      create_tls_context
+    end
+
+    private def configure_mtls(tls : OpenSSL::SSL::Context::Server)
+      return unless @config.tls_verify_peer?
+
+      unless @config.tls_ca_cert_path.empty?
+        # Automatic CRL fetching from CDP (CRL Distribution Point) URLs
+        # This also starts background updaters for the CDP URLs
+        @tls_cert_store_channel = tls.set_ca_with_cdp(@config.tls_ca_cert_path, @config.data_dir)
+
+        Log.info { "mTLS enabled: verifying client certificates using CA: #{@config.tls_ca_cert_path}" }
+      end
+      verify_mode = OpenSSL::SSL::VerifyMode::PEER
+      if @config.tls_fail_if_no_peer_cert?
+        verify_mode |= OpenSSL::SSL::VerifyMode::FAIL_IF_NO_PEER_CERT
+        Log.info { "mTLS: client certificates required" }
+      else
+        Log.info { "mTLS: client certificates optional" }
+      end
+      tls.verify_mode = verify_mode
+
+      # Load static Certificate Revocation List (CRL) if configured (file paths only)
+      unless @config.tls_crl_file.empty?
+        tls.add_crl(@config.tls_crl_file)
+        Log.info { "CRL checking enabled: #{@config.tls_crl_file}" }
+      end
+    end
+
+    # Update CRLs from CA's CDP endpoints
+    # Only used by specs
+    def update_cdp_crls
+      if tls_cert_store_channel = @tls_cert_store_channel
+        tls_cert_store_channel.send nil
+      end
     end
   end
 end
