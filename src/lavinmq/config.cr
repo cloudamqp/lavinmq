@@ -221,6 +221,7 @@ module LavinMQ
       end
       reload_logger
       verify_default_password
+      validate_oauth_config
     rescue ex
       abort ex.message
     end
@@ -229,6 +230,16 @@ module LavinMQ
       Auth::Password::SHA256Password.new(@default_password)
     rescue
       raise ArgumentError.new("Failed to decode default_password hash. Please see documentation for usage.")
+    end
+
+    def validate_oauth_config
+      return if @oauth_issuer_url.empty?
+
+      uri = URI.parse(@oauth_issuer_url)
+      raise ArgumentError.new("oauth_issuer_url must use HTTPS scheme, got: #{uri.scheme}") unless uri.scheme == "https"
+      raise ArgumentError.new("oauth_issuer_url must have a valid host") if uri.host.nil? || uri.host.try(&.empty?)
+    rescue URI::Error
+      raise ArgumentError.new("oauth_issuer_url is not a valid URL: #{@oauth_issuer_url}")
     end
 
     private def parse(file)
