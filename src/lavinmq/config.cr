@@ -233,8 +233,11 @@ module LavinMQ
     end
 
     def validate_oauth_config
-      return if @oauth_issuer_url.empty?
+      return unless @auth_backends.includes?("oauth")
 
+      if @oauth_issuer_url.empty?
+        raise ArgumentError.new("oauth_issuer_url must be configured when using OAuth authentication")
+      end
       uri = URI.parse(@oauth_issuer_url)
       raise ArgumentError.new("oauth_issuer_url must use HTTPS scheme, got: #{uri.scheme}") unless uri.scheme == "https"
       raise ArgumentError.new("oauth_issuer_url must have a valid host") if uri.host.nil? || uri.host.try(&.empty?)
