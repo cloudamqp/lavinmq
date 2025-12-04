@@ -2,6 +2,8 @@ require "../authenticator"
 require "../users/oauth_user"
 require "../../config"
 require "../jwt"
+require "../public_keys"
+require "../jwks_fetcher"
 require "openssl"
 require "http/client"
 require "../lib_crypto_ext"
@@ -17,9 +19,8 @@ module LavinMQ
         permissions : Hash(String, User::Permissions),
         expires_at : Time
 
-      @cached_public_keys : Hash(String, String)?
-      @cache_expires_at : Time?
-      @cache_mutex = Mutex.new
+      @public_keys = PublicKeys.new
+      @jwks_fetcher : JWKSFetcher
 
       # OAuth 2.0 / OpenID Connect authenticator for LavinMQ.
       #
@@ -45,6 +46,7 @@ module LavinMQ
       # validation prevents accepting tokens from untrusted or unintended sources, fails
       # closed on any error.
       def initialize(@config = Config.instance)
+        @jwks_fetcher = JWKSFetcher.new(@config.oauth_issuer_url, @config.oauth_jwks_cache_ttl)
       end
 
       def authenticate(username : String, password : String) : OAuthUser?
@@ -93,82 +95,24 @@ module LavinMQ
       end
 
       private def verify_with_public_key(token : String) : JWT::Token
-        if verified_token = with_cached_public_keys { |keys| decode_token(token, keys) }
-          return verified_token
-        end
-
-        # Cache miss: Construct new public_keys from JWKS, and verify token
-        Log.debug { "JWKS cache expired, fetching from issuer" }
-        jwks, headers = fetch_jwks
-        public_keys = extract_public_keys_from_jwks(jwks)
-        ttl = extract_jwks_ttl(headers)
-        decode_token(token, public_keys).tap do
-          update_cache(public_keys, ttl)
-        end
-      end
-
-      private def with_cached_public_keys(& : Hash(String, String) -> JWT::Token)
-        @cache_mutex.synchronize do
-          keys = @cached_public_keys
-          return nil if keys.nil?
-          return @cached_public_keys = nil if @cache_expires_at.try { |exp| Time.utc >= exp }
-          yield keys
-        end
-      end
-
-      # Decodes and verifies JWT signature using provided JWKS keys.
-      private def decode_token(token : String, public_keys : Hash(String, String)) : JWT::Token
-        kid = JWT::RS256Parser.decode_header(token)["kid"]?.try(&.as_s) rescue nil
-        # If we know the kid matches a key we can avoid iterating through all keys
-        if kid && public_keys[kid]?
-          return JWT::RS256Parser.decode(token, public_keys[kid], verify: true)
-        end
-
-        public_keys.each_value do |key|
-          return JWT::RS256Parser.decode(token, key, verify: true)
-        rescue JWT::DecodeError | JWT::VerificationError
-        end
-        raise JWT::VerificationError.new("Could not verify JWT with any key")
-      end
-
-      # Fetches JWKS (JSON Web Key Set) from OAuth provider.
-      private def fetch_jwks
-        # Discover jwks_uri from OIDC configuration
-        oidc_config, _ = fetch_url("#{@config.oauth_issuer_url.chomp("/")}/.well-known/openid-configuration")
-        jwks_uri = oidc_config["jwks_uri"]?.try(&.as_s?) || raise "Missing jwks_uri in OIDC configuration"
-
-        fetch_url(jwks_uri)
-      end
-
-      # Parses JWKS and converts RSA keys to PEM format.
-      private def extract_public_keys_from_jwks(jwks : JSON::Any)
-        jwks_array = jwks["keys"]?.try(&.as_a?) || raise "Missing or invalid keys array in JWKS response"
-
-        public_keys = {} of String => String
-        jwks_array.each_with_index do |key, idx|
-          next unless key["n"]? && key["e"]?
-          kid = key["kid"]?.try(&.as_s) || "unknown-#{idx}"
-          public_keys[kid] = to_pem(key["n"].as_s, key["e"].as_s)
-        end
-        public_keys
-      end
-
-      private def extract_jwks_ttl(headers) : Time::Span
-        if cache_control = headers["Cache-Control"]?
-          if match = cache_control.match(/max-age=(\d+)/)
-            # JWKS header overrides lavinmq config
-            return match[1].to_i.seconds
+        # Try cached public keys first
+        if keys = @public_keys.get?
+          begin
+            return @jwks_fetcher.decode_token(token, keys)
+          rescue JWT::DecodeError | JWT::VerificationError
+            # Key might have rotated, fetch fresh keys
+            @public_keys.clear
           end
         end
-        @config.oauth_jwks_cache_ttl
-      end
 
-      private def update_cache(public_keys : Hash(String, String), ttl : Time::Span)
-        @cache_mutex.synchronize do
-          @cached_public_keys = public_keys
-          @cache_expires_at = Time.utc + ttl
-          Log.debug { "Updated public_key cache with #{public_keys.size} key(s), TTL=#{ttl}" }
-        end
+        # Cache miss or decode failed: fetch new public_keys from JWKS
+        Log.debug { "JWKS cache expired or decode failed, fetching from issuer" }
+        public_keys, ttl = @jwks_fetcher.fetch_jwks
+
+        @public_keys.update(public_keys, ttl)
+        Log.debug { "Updated public_key cache with #{public_keys.size} key(s), TTL=#{ttl}" }
+
+        @jwks_fetcher.decode_token(token, public_keys)
       end
 
       protected def validate_and_extract_claims(payload) : TokenClaims
@@ -325,99 +269,13 @@ module LavinMQ
                              end
       end
 
-      private def fetch_url(url : String) : {JSON::Any, ::HTTP::Headers}
-        uri = URI.parse(url)
-        ::HTTP::Client.new(uri) do |client|
-          client.connect_timeout = 5.seconds
-          client.read_timeout = 10.seconds
-          response = client.get(uri.request_target)
-          if !response.success?
-            raise "HTTP request failed with status #{response.status_code}: #{response.body}"
-          end
-          {JSON.parse(response.body), response.headers}
-        end
-      end
-
-      # Converts JWKS RSA key components (n, e) to PEM format for JWT verification.
-      private def to_pem(n : String, e : String) : String
-        # Decode base64url-encoded modulus and exponent
-        n_bytes = base64url_decode_bytes(n)
-        e_bytes = base64url_decode_bytes(e)
-
-        # Convert bytes to BIGNUMs
-        modulus = LibCrypto.bn_bin2bn(n_bytes, n_bytes.size, nil)
-        raise "Failed to create modulus" if modulus.null?
-
-        exponent = LibCrypto.bn_bin2bn(e_bytes, e_bytes.size, nil)
-        if exponent.null?
-          LibCrypto.bn_free(modulus)
-          raise "Failed to create exponent"
-        end
-
-        # Create RSA structure
-        rsa = LibCrypto.rsa_new
-        if rsa.null?
-          LibCrypto.bn_free(modulus)
-          LibCrypto.bn_free(exponent)
-          raise "Failed to create RSA structure"
-        end
-
-        result = LibCrypto.rsa_set0_key(rsa, modulus, exponent, nil)
-        if result != 1
-          LibCrypto.bn_free(modulus)
-          LibCrypto.bn_free(exponent)
-          LibCrypto.rsa_free(rsa)
-          raise "Failed to set RSA key components"
-        end
-
-        # Create a memory BIO
-        bio = LibCrypto.BIO_new(LibCrypto.bio_s_mem)
-        if bio.null?
-          LibCrypto.rsa_free(rsa)
-          raise "Failed to create BIO"
-        end
-
-        begin
-          # Write the public key to the BIO in PEM format
-          result = LibCrypto.pem_write_bio_rsa_pubkey(bio, rsa)
-          if result != 1
-            raise "Failed to write PEM"
-          end
-
-          # Get the length of data in the BIO (BIO_CTRL_PENDING = 10)
-          length = LibCrypto.bio_ctrl(bio, 10, 0, nil)
-          # RSA-16384 (max) is ~4KB in PEM format, 10KB covers all RSA keys with margin
-          raise "Suspiciously large PEM length: #{length}" if length > 10_000
-
-          # Read the PEM data from the BIO
-          buffer = Bytes.new(length)
-          LibCrypto.bio_read(bio, buffer, length.to_i32)
-
-          String.new(buffer)
-        ensure
-          LibCrypto.BIO_free(bio)
-          LibCrypto.rsa_free(rsa)
-        end
-      end
-
-      private def prepare_base64url(input : String) : String
-        # Add padding if needed
+      private def base64url_decode(input : String) : String
         padded = case input.size % 4
                  when 2 then input + "=="
                  when 3 then input + "="
                  else        input
                  end
-
-        # Replace URL-safe characters
-        padded.tr("-_", "+/")
-      end
-
-      private def base64url_decode(input : String) : String
-        Base64.decode_string(prepare_base64url(input))
-      end
-
-      private def base64url_decode_bytes(input : String) : Bytes
-        Base64.decode(prepare_base64url(input))
+        Base64.decode_string(padded.tr("-_", "+/"))
       end
     end
   end
