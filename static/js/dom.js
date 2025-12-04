@@ -56,7 +56,7 @@ function createButton (type, text, classes, click) {
 
 const button = {
   delete: ({ click, text = 'Delete', type = 'button' }) => {
-    return createButton(type, text, ['btn-small-outlined-danger'], click)
+    return createButton(type, text, ['btn-small', 'btn-small-outlined-danger'], click)
   },
   edit: ({ click, text = 'Edit', type = 'button' }) => {
     return createButton(type, text, ['btn-small'], click)
