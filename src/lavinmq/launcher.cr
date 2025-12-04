@@ -122,7 +122,7 @@ module LavinMQ
       {% if flag?(:preview_mt) %}
         Log.info { "Multithreading: #{ENV.fetch("CRYSTAL_WORKERS", "4")} threads" }
       {% end %}
-      Log.info { "Pid: #{Process.pid}" }
+      Log.info { "PID: #{Process.pid}" }
       Log.info { "Config file: #{@config.config_file}" } unless @config.config_file.empty?
       Log.info { "Data directory: #{@config.data_dir}" }
     end
