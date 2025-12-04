@@ -15,20 +15,31 @@ abstract class ChannelExpectation
 end
 
 class ChannelReceiveExpectation(T) < ChannelExpectation
-  def initialize(@value : T, @timeout : Time::Span = 5.seconds)
+  @wrong_value : T? = nil
+
+  def initialize(@value : T?, @timeout : Time::Span = 5.seconds)
   end
 
   def match(channel : ::Channel) : Bool
     select
-    when value = channel.receive?
-      value == @value
+    when value = channel.receive
+      if value == @value
+        true
+      else
+        @wrong_value = value
+        false
+      end
     when timeout(@timeout)
       false
     end
   end
 
   def failure_message : String
-    "Expected channel to receive '#{@value}' within #{@timeout}"
+    if wrong_value = @wrong_value
+      "Expected channel to receive '#{@value}' but got '#{wrong_value}'"
+    else
+      "Timeout! Expected channel to receive '#{@value}' within #{@timeout}"
+    end
   end
 
   def negative_failure_message : String
@@ -54,7 +65,7 @@ class ChannelSendExpectation(T) < ChannelExpectation
   end
 
   def negative_failure_message : String
-    "Expected channel not to accept send within #{@timeout}"
+    "Timeout! Expected channel not to accept send within #{@timeout}"
   end
 end
 
