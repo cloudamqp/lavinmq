@@ -5,8 +5,10 @@ module LavinMQ
     class TokenExpiredError < Exception
     end
 
+    record PermissionKey, vhost : String, name : String
+
     class PermissionCache
-      @cache = Hash(Tuple(String, String), Bool).new
+      @cache = Hash(PermissionKey, Bool).new
       property revision = 0_u32
 
       forward_missing_to @cache
@@ -20,7 +22,6 @@ module LavinMQ
       abstract def permissions : Hash(String, Permissions)
       abstract def permissions_details(vhost : String, p : Permissions)
 
-      @acl_cache = Hash(Tuple(String, String), Bool).new
       @permission_revision = Atomic(UInt32).new(0_u32)
 
       def can_write?(vhost : String, name : String, cache : PermissionCache) : Bool
@@ -30,10 +31,11 @@ module LavinMQ
           cache.revision = permission_revision
         end
 
-        result = cache[{vhost, name}]?
+        key = PermissionKey.new(vhost, name)
+        result = cache[key]?
         return result unless result.nil?
 
-        cache[{vhost, name}] = can_write?(vhost, name)
+        cache[key] = can_write?(vhost, name)
       end
 
       def can_write?(vhost : String, name : String) : Bool
