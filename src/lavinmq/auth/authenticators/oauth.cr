@@ -137,7 +137,7 @@ module LavinMQ
         end
       end
 
-      protected def validate_audience(payload)
+      private def validate_audience(payload)
         aud = payload["aud"]?
         return unless aud
 
