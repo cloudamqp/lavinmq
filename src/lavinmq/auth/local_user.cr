@@ -1,7 +1,7 @@
-require "../user"
-require "../password"
-require "../../sortable_json"
-require "../../tag"
+require "./user"
+require "./password"
+require "./../sortable_json"
+require "./../tag"
 
 module LavinMQ
   module Auth

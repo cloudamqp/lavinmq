@@ -1,12 +1,12 @@
-require "../authenticator"
-require "../users/oauth_user"
-require "../../config"
-require "../jwt"
-require "../public_keys"
-require "../jwks_fetcher"
+require "./authenticator"
+require "./oauth_user"
+require "./../config"
+require "./jwt"
+require "./public_keys"
+require "./jwks_fetcher"
 require "openssl"
 require "http/client"
-require "../lib_crypto_ext"
+require "./lib_crypto_ext"
 
 module LavinMQ
   module Auth
