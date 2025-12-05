@@ -1,5 +1,5 @@
 require "spec"
-require "../../src/stdlib/openssl"
+require "../../src/stdlib/openssl_keylog"
 
 describe OpenSSL::SSL::Context::Server do
   describe "#keylog_file=" do
@@ -43,7 +43,7 @@ describe OpenSSL::SSL::Context::Server do
         content.should_not be_empty
         content.should contain("CLIENT_HANDSHAKE_TRAFFIC_SECRET")
       ensure
-        ctx.try { |c| c.keylog_file = nil }
+        ctx.try(&.keylog_file=(nil))
         File.delete?(keylog_path)
       end
     end
