@@ -6,6 +6,7 @@ require "./version"
 require "./log_formatter"
 require "./in_memory_backend"
 require "./auth/password"
+require "./sni_config"
 
 module LavinMQ
   class Config
@@ -76,6 +77,7 @@ module LavinMQ
     property default_password : String = ENV.fetch("LAVINMQ_DEFAULT_PASSWORD", DEFAULT_PASSWORD_HASH) # Hashed password for default user
     property max_consumers_per_channel = 0
     property mqtt_max_packet_size = 268_435_455_u32 # bytes
+    getter sni_manager : SNIManager = SNIManager.new
     @@instance : Config = self.new
 
     def self.instance : LavinMQ::Config
@@ -228,13 +230,14 @@ module LavinMQ
       ini = INI.parse(File.read(file))
       ini.each do |section, settings|
         case section
-        when "main"         then parse_main(settings)
-        when "amqp"         then parse_amqp(settings)
-        when "mqtt"         then parse_mqtt(settings)
-        when "mgmt", "http" then parse_mgmt(settings)
-        when "clustering"   then parse_clustering(settings)
-        when "experimental" then parse_experimental(settings)
-        when "replication"  then abort("#{file}: [replication] is deprecated and replaced with [clustering], see the README for more information")
+        when "main"                then parse_main(settings)
+        when "amqp"                then parse_amqp(settings)
+        when "mqtt"                then parse_mqtt(settings)
+        when "mgmt", "http"        then parse_mgmt(settings)
+        when "clustering"          then parse_clustering(settings)
+        when "experimental"        then parse_experimental(settings)
+        when "replication"         then abort("#{file}: [replication] is deprecated and replaced with [clustering], see the README for more information")
+        when .starts_with?("sni:") then parse_sni(section[4..], settings)
         else
           raise "Unrecognized config section: #{section}"
         end
@@ -242,6 +245,7 @@ module LavinMQ
     end
 
     def reload
+      @sni_manager.clear
       parse(@config_file)
       reload_logger
     end
@@ -414,6 +418,50 @@ module LavinMQ
         else
           STDERR.puts "WARNING: Unrecognized configuration 'experimental/#{config}'"
         end
+      end
+    end
+
+    # ameba:disable Metrics/CyclomaticComplexity
+    private def parse_sni(hostname : String, settings)
+      host = @sni_manager.get_host(hostname) || SNIHost.new(hostname)
+      settings.each do |config, v|
+        case config
+        # Default TLS settings
+        when "tls_cert"        then host.tls_cert = v
+        when "tls_key"         then host.tls_key = v
+        when "tls_min_version" then host.tls_min_version = v
+        when "tls_ciphers"     then host.tls_ciphers = v
+        when "tls_verify_peer" then host.tls_verify_peer = true?(v)
+        when "tls_ca_cert"     then host.tls_ca_cert = v
+          # AMQP-specific overrides
+        when "amqp_tls_cert"        then host.amqp_tls_cert = v
+        when "amqp_tls_key"         then host.amqp_tls_key = v
+        when "amqp_tls_min_version" then host.amqp_tls_min_version = v
+        when "amqp_tls_ciphers"     then host.amqp_tls_ciphers = v
+        when "amqp_tls_verify_peer" then host.amqp_tls_verify_peer = true?(v)
+        when "amqp_tls_ca_cert"     then host.amqp_tls_ca_cert = v
+          # MQTT-specific overrides
+        when "mqtt_tls_cert"        then host.mqtt_tls_cert = v
+        when "mqtt_tls_key"         then host.mqtt_tls_key = v
+        when "mqtt_tls_min_version" then host.mqtt_tls_min_version = v
+        when "mqtt_tls_ciphers"     then host.mqtt_tls_ciphers = v
+        when "mqtt_tls_verify_peer" then host.mqtt_tls_verify_peer = true?(v)
+        when "mqtt_tls_ca_cert"     then host.mqtt_tls_ca_cert = v
+          # HTTP-specific overrides
+        when "http_tls_cert"        then host.http_tls_cert = v
+        when "http_tls_key"         then host.http_tls_key = v
+        when "http_tls_min_version" then host.http_tls_min_version = v
+        when "http_tls_ciphers"     then host.http_tls_ciphers = v
+        when "http_tls_verify_peer" then host.http_tls_verify_peer = true?(v)
+        when "http_tls_ca_cert"     then host.http_tls_ca_cert = v
+        else
+          STDERR.puts "WARNING: Unrecognized configuration 'sni:#{hostname}/#{config}'"
+        end
+      end
+      if host.tls_cert.empty?
+        STDERR.puts "WARNING: SNI host '#{hostname}' missing required tls_cert"
+      else
+        @sni_manager.add_host(host)
       end
     end
 
