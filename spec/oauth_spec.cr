@@ -315,7 +315,6 @@ module OAuthUserHelper
 end
 
 describe LavinMQ::Auth::OAuthUser do
-
   describe "#expired?" do
     it "returns true for expired tokens" do
       user = OAuthUserHelper.create_user(Time.utc - 1.hour)
