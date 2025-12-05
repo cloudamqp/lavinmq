@@ -1,7 +1,6 @@
 require "./lavinmq/version"
 require "./lavinmq/http/constants"
 require "./lavinmq/definitions_generator"
-require "./lavinmq/config"
 require "./lavinmq/shovel/shovel"
 require "./lavinmq/federation/upstream"
 require "http/client"
