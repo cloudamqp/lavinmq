@@ -1,5 +1,5 @@
 require "json"
-require "./users/local_user"
+require "./local_user"
 
 module LavinMQ
   module Auth

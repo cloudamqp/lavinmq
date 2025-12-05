@@ -1,5 +1,6 @@
 require "./authenticator"
-require "./authenticators/*"
+require "./local_authenticator"
+require "./oauth_authenticator"
 
 module LavinMQ
   module Auth

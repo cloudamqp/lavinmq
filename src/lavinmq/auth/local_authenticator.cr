@@ -1,5 +1,5 @@
-require "../authenticator"
-require "../../server"
+require "./authenticator"
+require "./../server"
 
 module LavinMQ
   module Auth
