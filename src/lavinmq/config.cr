@@ -76,6 +76,13 @@ module LavinMQ
     property default_password : String = ENV.fetch("LAVINMQ_DEFAULT_PASSWORD", DEFAULT_PASSWORD_HASH) # Hashed password for default user
     property max_consumers_per_channel = 0
     property mqtt_max_packet_size = 268_435_455_u32 # bytes
+    property? streams_s3_storage = false
+    property streams_s3_storage_region : String? = nil
+    property streams_s3_storage_access_key_id : String? = nil
+    property streams_s3_storage_secret_access_key : String? = nil
+    property streams_s3_storage_session_token : String? = nil
+    property streams_s3_storage_endpoint : String? = nil
+    property streams_s3_storage_local_segments_per_stream = 50
     @@instance : Config = self.new
 
     def self.instance : LavinMQ::Config
@@ -196,6 +203,29 @@ module LavinMQ
           @clustering_etcd_endpoints = v
         end
 
+        p.separator("\nStreams S3 storage:")
+        p.on("--s3-storage", "Enable s3 storage for streams") do
+          @streams_s3_storage = true
+        end
+        p.on("--s3-storage-region=REGION", "S3 region") do |v|
+          @streams_s3_storage_region = v
+        end
+        p.on("--s3-storage-access-key=KEY", "S3 access key") do |v|
+          @streams_s3_storage_access_key_id = v
+        end
+        p.on("--s3-storage-secret-key=KEY", "S3 secret key") do |v|
+          @streams_s3_storage_secret_access_key = v
+        end
+        p.on("--s3-storage-session-token=TOKEN", "S3 token") do |v|
+          @streams_s3_storage_session_token = v
+        end
+        p.on("--s3-storage-endpoint=ENDPOINT", "S3 endpoint") do |v|
+          @streams_s3_storage_endpoint = v
+        end
+        p.on("--s3-storage-local-segments-per-stream=NUMBER", "Number of local segments per stream (default: 50)") do |v|
+          @streams_s3_storage_local_segments_per_stream = v.to_i
+        end
+
         p.separator("\nMiscellaneous:")
         p.on("-v", "--version", "Show version") { puts LavinMQ::VERSION; exit 0 }
         p.on("--build-info", "Show build information") { puts LavinMQ::BUILD_INFO; exit 0 }
@@ -233,6 +263,7 @@ module LavinMQ
         when "mqtt"         then parse_mqtt(settings)
         when "mgmt", "http" then parse_mgmt(settings)
         when "clustering"   then parse_clustering(settings)
+        when "s3-storage"   then parse_s3_storage(settings)
         when "experimental" then parse_experimental(settings)
         when "replication"  then abort("#{file}: [replication] is deprecated and replaced with [clustering], see the README for more information")
         else
@@ -344,6 +375,22 @@ module LavinMQ
         when "max_unsynced_actions" then @clustering_max_unsynced_actions = v.to_i32
         else
           STDERR.puts "WARNING: Unrecognized configuration 'clustering/#{config}'"
+        end
+      end
+    end
+
+    private def parse_s3_storage(settings)
+      settings.each do |config, v|
+        case config
+        when "enabled"                   then @streams_s3_storage = true?(v)
+        when "region"                    then @streams_s3_storage_region = v
+        when "access_key_id"             then @streams_s3_storage_access_key_id = v
+        when "secret_access_key"         then @streams_s3_storage_secret_access_key = v
+        when "session_token"             then @streams_s3_storage_session_token = v
+        when "endpoint"                  then @streams_s3_storage_endpoint = v
+        when "local_segments_per_stream" then @streams_s3_storage_local_segments_per_stream = v.to_i32
+        else
+          STDERR.puts "WARNING: Unrecognized configuration 's3-storage/#{config}'"
         end
       end
     end
