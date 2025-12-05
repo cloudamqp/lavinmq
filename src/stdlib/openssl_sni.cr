@@ -16,7 +16,7 @@ lib LibSSL
   # TLS alert codes
   SSL_AD_INTERNAL_ERROR = 80
 
-  fun ssl_ctx_callback_ctrl = SSL_CTX_callback_ctrl(ctx : SSLContext, cmd : LibC::Int, fp : Void*) : LibC::Long
+  fun ssl_ctx_callback_ctrl = SSL_CTX_callback_ctrl(ctx : SSLContext, cmd : LibC::Int, fp : Proc(Void)) : LibC::Long
   fun ssl_set_ssl_ctx = SSL_set_SSL_CTX(ssl : SSL, ctx : SSLContext) : SSLContext
 end
 
@@ -78,7 +78,7 @@ class OpenSSL::SSL::Context::Server
     @sni_callback_box = callback_box
 
     # Set the callback using SSL_CTX_callback_ctrl
-    LibSSL.ssl_ctx_callback_ctrl(@handle, LibSSL::SSL_CTRL_SET_TLSEXT_SERVERNAME_CB, c_callback.pointer.as(Void*))
+    LibSSL.ssl_ctx_callback_ctrl(@handle, LibSSL::SSL_CTRL_SET_TLSEXT_SERVERNAME_CB, c_callback.unsafe_as(Proc(Void)))
 
     # Set the arg that will be passed to the callback
     LibSSL.ssl_ctx_ctrl(@handle, LibSSL::SSL_CTRL_SET_TLSEXT_SERVERNAME_ARG, 0, callback_box)
