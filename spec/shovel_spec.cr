@@ -864,7 +864,7 @@ describe LavinMQ::Shovel do
           LavinMQ::Shovel::HTTPDestinationParameters.from_parameters(JSON.parse(%({
             "dest-timeout": 0.1,
             "dest-backoff": 0.1,
-            "dest-max-retries": 3.0,
+            "dest-max-retries": 3,
             "dest-jitter": 0.1
           }))),
           LavinMQ::Shovel::AckMode::OnConfirm
@@ -903,7 +903,7 @@ describe LavinMQ::Shovel do
           LavinMQ::Shovel::HTTPDestinationParameters.from_parameters(JSON.parse(%({
             "dest-timeout": 0.1,
             "dest-backoff": 0.1,
-            "dest-max-retries": 3.0,
+            "dest-max-retries": 3,
             "dest-jitter": 0.1
           }))),
           LavinMQ::Shovel::AckMode::OnPublish
