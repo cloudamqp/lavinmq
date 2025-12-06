@@ -5,17 +5,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.6.0] - 2025-12-05
+
+This release introduces Geographic Information System (GIS) filtering for streams, enhanced performance testing capabilities, as well as many other improvements and bugfixes.
+
+### Added
+- GIS filtering for streams [#1397](https://github.com/cloudamqp/lavinmq/pull/1397)
+- SystemD memory pressure monitoring support [#1484](https://github.com/cloudamqp/lavinmq/pull/1484)
+- Latency measurement support in `lavinmqperf amqp throughput --measure-latency` [#1474](https://github.com/cloudamqp/lavinmq/pull/1474)
+- Queue pattern support in `lavinmqperf amqp throughput` [#1471](https://github.com/cloudamqp/lavinmq/pull/1471)
+- ASCII art logo on boot [#1482](https://github.com/cloudamqp/lavinmq/pull/1482)
+- UI improvements [#1470](https://github.com/cloudamqp/lavinmq/pull/1470), [#1454](https://github.com/cloudamqp/lavinmq/pull/1454), [#1463](https://github.com/cloudamqp/lavinmq/pull/1463)
+
 
 ### Changed
 - Better default config - Enable amqps/mqtts/https by default if tls_cert/key is supplied [#1487](https://github.com/cloudamqp/lavinmq/pull/1487)
+- New name format for queues for delayed messages: `amq.delayed-<exchange name>` [#1461](https://github.com/cloudamqp/lavinmq/pull/1461)
 
 ### Fixed
-- Fix OpenAPI schema for bcrypt hashing_algorithm name [#1498](https://github.com/cloudamqp/lavinmq/pull/1498)
+- Regression in authorization for /metrics [#1521](https://github.com/cloudamqp/lavinmq/pull/1521)
+- Handle updated permissions while users are connected [#1526](https://github.com/cloudamqp/lavinmq/pull/1526)
+- Race condition when closing auto-delete queues [#1529](https://github.com/cloudamqp/lavinmq/pull/1529)
+- Handle "lease not found" etcd error without infinite retry [#1519](https://github.com/cloudamqp/lavinmq/pull/1519)
+- OpenAPI schema for bcrypt hashing_algorithm name [#1498](https://github.com/cloudamqp/lavinmq/pull/1498)
 - Overridden effective arguments not marked as active in UI [#1489](https://github.com/cloudamqp/lavinmq/pull/1489)
+- Vhosts with exchange to exchange bindings generated in v2.4.x could not be start [#1495](https://github.com/cloudamqp/lavinmq/pull/1495)
+- Sensible error message if trying to import definitions via the HTTP API with an invalid password_has field for users [#1496](https://github.com/cloudamqp/lavinmq/pull/1496)
 
 ### Removed
-- Clustering backup support [#1508](https://github.com/cloudamqp/lavinmq/pull/1508)
+- Don't save backups when failing over to new leader [#1508](https://github.com/cloudamqp/lavinmq/pull/1508)
+
+## [2.6.0-rc.4] - 2025-12-02
+
+See <https://github.com/cloudamqp/lavinmq/releases/tag/v2.6.0-rc.4> for changes in this pre-release
+
+## [2.6.0-rc.3] - 2025-12-01
+
+See <https://github.com/cloudamqp/lavinmq/releases/tag/v2.6.0-rc.3> for changes in this pre-release
 
 ## [2.5.5] - 2025-11-26
 
@@ -25,9 +51,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [2.6.0-rc.2] - 2025-11-22
 
-### Fixed
-- Vhosts with exchange to exchange bindings generated in v2.4.x could not be start [#1495](https://github.com/cloudamqp/lavinmq/pull/1495)
-- Sensible error message if trying to import definitions via the HTTP API with an invalid password_has field for users [#1496](https://github.com/cloudamqp/lavinmq/pull/1496)
+See <https://github.com/cloudamqp/lavinmq/releases/tag/v2.6.0-rc.2> for changes in this pre-release
 
 ## [2.5.4] - 2025-11-22
 
@@ -36,16 +60,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [2.6.0-rc.1] - 2025-11-19
 
-### Added
-- GIS filtering for streams [#1397](https://github.com/cloudamqp/lavinmq/pull/1397)
-- SystemD memory pressure monitoring support [#1484](https://github.com/cloudamqp/lavinmq/pull/1484)
-- Latency measurement support in `lavinmqperf amqp throughput --measure-latency` [#1474](https://github.com/cloudamqp/lavinmq/pull/1474)
-- Queue pattern support in `lavinmqperf amqp throughput` [#1471](https://github.com/cloudamqp/lavinmq/pull/1471)
-- ASCII art logo on boot [#1482](https://github.com/cloudamqp/lavinmq/pull/1482)
-- UI improvements [#1470], [#1454], [#1463], [#1464], [#1476]
-
-### Changed
-- New name format for queues for delayed messages: `amq.delayed-<exchange name>` (#1461)
+See <https://github.com/cloudamqp/lavinmq/releases/tag/v2.6.0-rc.1> for changes in this pre-release
 
 ## [2.5.3] - 2025-11-19
 

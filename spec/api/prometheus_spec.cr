@@ -2,6 +2,20 @@ require "../spec_helper"
 require "string_scanner"
 
 describe LavinMQ::HTTP::PrometheusController do
+  describe "authentication" do
+    it "should allow unauthenticated access to metrics on metrics port" do
+      with_metrics_server do |http, _|
+        response = http.get("/metrics")
+        response.status_code.should eq 200
+      end
+    end
+    it "should require authenticated access to metrics on mgmt port" do
+      with_http_server do |http, _|
+        response = HTTP::Client.get("http://#{http.addr}/metrics")
+        response.status_code.should eq 401
+      end
+    end
+  end
   describe "GET /metrics" do
     it "should return metrics in prometheus style" do
       with_metrics_server do |http, _|
@@ -86,6 +100,50 @@ describe LavinMQ::HTTP::PrometheusController do
         response = http.get("/metrics?prefix=#{prefix}")
         response.status_code.should eq 400
         response.body.should match /Prefix too long/
+      end
+    end
+  end
+
+  describe "vhost access control" do
+    it "should only return metrics for vhosts the user has access to" do
+      with_http_server do |http, s|
+        # Create two vhosts
+        vhost1 = s.vhosts.create("vhost1")
+        vhost2 = s.vhosts.create("vhost2")
+
+        # Create two users with management tag (required for metrics access)
+        s.users.create("user1", "pass1", [LavinMQ::Tag::Management])
+        s.users.create("user2", "pass2", [LavinMQ::Tag::Management])
+
+        # Give each user access only to their respective vhost
+        s.users.add_permission("user1", "vhost1", /.*/, /.*/, /.*/)
+        s.users.add_permission("user2", "vhost2", /.*/, /.*/, /.*/)
+
+        # Create a queue in each vhost
+        vhost1.declare_queue("queue_in_vhost1", true, false)
+        vhost2.declare_queue("queue_in_vhost2", true, false)
+
+        # user1 should only see vhost1 queue metrics
+        user1_auth = "Basic #{Base64.strict_encode("user1:pass1")}"
+        response = http.get("/metrics/detailed?family=queue_coarse_metrics", HTTP::Headers{"Authorization" => user1_auth})
+        response.status_code.should eq 200
+        parsed = PrometheusSpecHelper.parse_prometheus(response.body)
+
+        user1_queues = parsed.select { |m| m[:key] == "lavinmq_detailed_queue_messages_ready" }
+        user1_queues.size.should eq 1
+        user1_queues.first[:attrs]["queue"].should eq "queue_in_vhost1"
+        user1_queues.first[:attrs]["vhost"].should eq "vhost1"
+
+        # user2 should only see vhost2 queue metrics
+        user2_auth = "Basic #{Base64.strict_encode("user2:pass2")}"
+        response = http.get("/metrics/detailed?family=queue_coarse_metrics", HTTP::Headers{"Authorization" => user2_auth})
+        response.status_code.should eq 200
+        parsed = PrometheusSpecHelper.parse_prometheus(response.body)
+
+        user2_queues = parsed.select { |m| m[:key] == "lavinmq_detailed_queue_messages_ready" }
+        user2_queues.size.should eq 1
+        user2_queues.first[:attrs]["queue"].should eq "queue_in_vhost2"
+        user2_queues.first[:attrs]["vhost"].should eq "vhost2"
       end
     end
   end

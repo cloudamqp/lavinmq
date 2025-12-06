@@ -557,6 +557,8 @@ module LavinMQ
           @replicator.try &.delete_file(path, WaitGroup.new)
         end
       end
+    rescue File::NotFoundError
+      # msg_dir does not exist, nothing to delete
     end
 
     private def deleted?(seg, pos) : Bool

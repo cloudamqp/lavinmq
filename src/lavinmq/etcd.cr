@@ -295,6 +295,8 @@ module LavinMQ
           raise ex # don't retry
         rescue ex : NoLeader
           raise ex # don't retry when leader is missing
+        rescue ex : LeaseNotFound
+          raise ex # don't retry, lease needs to be re-created
         rescue ex : Error
           Log.warn { "Service Unavailable at #{conn.address}, #{ex.message}, retrying" }
           conn.socket.close rescue nil
@@ -377,24 +379,26 @@ module LavinMQ
     end
 
     private def raise_if_error(json)
-      if error = json["error"]?
-        Log.debug { "etcd error: #{error}" }
-        error_msg =
-          if errorh = error.as_h?
-            errorh["message"].as_s
-          else
-            error.as_s
-          end
-        case error_msg
-        when "error reading from server: EOF"
-          raise IO::EOFError.new(error_msg)
-        when "etcdserver: no leader"
-          raise NoLeader.new(error_msg)
-        when "etcdserver: lease already exists"
-          raise LeaseAlreadyExists.new
-        else
-          raise Error.new error_msg
-        end
+      # Etcd error formats:
+      # - {"error": "..."} or {"error": {"message": "..."}}
+      # - {"code": N, "message": "..."} (gRPC-gateway, code 0 = OK, >0 = error)
+      #   See https://grpc.io/docs/guides/status-codes/
+      error_msg = json.dig?("error", "message").try(&.as_s) ||
+                  json["error"]?.try(&.as_s?)
+      error_msg ||= json["message"]?.try(&.as_s) if json["code"]?.try(&.as_i).try { |c| c > 0 }
+      return unless error_msg
+      Log.debug { "etcd error: #{error_msg}" }
+      case error_msg
+      when "error reading from server: EOF"
+        raise IO::EOFError.new(error_msg)
+      when "etcdserver: no leader"
+        raise NoLeader.new(error_msg)
+      when "etcdserver: lease already exists"
+        raise LeaseAlreadyExists.new
+      when "etcdserver: requested lease not found"
+        raise LeaseNotFound.new(error_msg)
+      else
+        raise Error.new(error_msg)
       end
     end
 
@@ -403,5 +407,7 @@ module LavinMQ
     class NoLeader < Error; end
 
     class LeaseAlreadyExists < Error; end
+
+    class LeaseNotFound < Error; end
   end
 end

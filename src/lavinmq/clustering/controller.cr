@@ -46,6 +46,9 @@ class LavinMQ::Clustering::Controller
   rescue Etcd::LeaseAlreadyExists
     Log.fatal { "Cluster ID #{@id.to_s(36)} used by another node" }
     exit 3
+  rescue Etcd::LeaseNotFound
+    Log.fatal { "Lease not found, etcd may have been reset" }
+    exit 3
   end
 
   @stopped = false

@@ -213,9 +213,9 @@ module LavinMQPerf
           break if @stopped
           pubs_last = @pubs.get(:relaxed)
           consumes_last = @consumes.get(:relaxed)
-          start = Time.monotonic
+          report_start = Time.monotonic
           sleep 1.seconds
-          report(start, pubs_last, consumes_last) unless @quiet
+          report(report_start, pubs_last, consumes_last) unless @quiet
         end
         summary(start)
       end

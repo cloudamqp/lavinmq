@@ -162,7 +162,7 @@ describe LavinMQ::Deduplication::Deduper do
     end
 
     it "should not reset x-cache-ttl on expire when using delayed exchange" do
-      cache_ttl = 1000
+      cache_ttl = 200
       x_args = AMQP::Client::Arguments.new({
         "x-delayed-exchange"      => true,
         "x-delayed-type"          => "topic",
@@ -179,7 +179,7 @@ describe LavinMQ::Deduplication::Deduper do
           q = ch.queue(q_name)
           q.bind(x.name, "#")
           hdrs = AMQP::Client::Arguments.new({
-            "x-delay"                => cache_ttl,
+            "x-delay"                => cache_ttl - 10,
             "x-deduplication-header" => "msg1",
           })
 
@@ -187,7 +187,7 @@ describe LavinMQ::Deduplication::Deduper do
           delay_q = exchange.@delayed_queue.should be_a(LavinMQ::AMQP::DelayedExchangeQueue)
 
           # Publish a message and verify it has been delayed and not thrown away
-          x.publish "test message", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
+          x.publish_confirm "test message", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
 
           select
           when delay_q.empty.when_false.receive
@@ -196,19 +196,30 @@ describe LavinMQ::Deduplication::Deduper do
           exchange.dedup_count.should eq 0
 
           # Publish a second message, verify that it's thrown away
-          x.publish "test message", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
+          x.publish_confirm "test message", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
           wait_for { exchange.dedup_count == 1 }
           delay_q.message_count.should eq 1
 
           # wait for the delayed message to be delivered
-          # now the dedup cache should also be empty
+          # the expire time in the deduplication cache should not be affected
           select
           when delay_q.empty.when_true.receive
           end
+          # by sleeping 20 milliseconds time should have moved at least cache_ttl
+          # + 10 milliseconds (we did - 10 in the hdrs) and therefore the cache
+          # should not be empty.
+          # There was a bug when this wasn't the case as described in issue #1153
+          sleep 20.milliseconds
 
           # Publish a third message and verify it's not thrown away
-          x.publish "test message", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
-          wait_for { delay_q.message_count == 1 }
+          x.publish_confirm "test message", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
+
+          select
+          when delay_q.empty.when_false.receive
+          when timeout 1.second
+            fail "no message in delay_q?!"
+          end
+
           exchange.dedup_count.should eq 1
         end
       end
