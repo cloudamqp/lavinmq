@@ -321,15 +321,15 @@ module LavinMQ
       getter jitter : Float64
       getter backoff : Float64
       getter timeout : Float64
-      getter max_retries : Float64
+      getter max_retries : Int32
       def initialize(@jitter, @backoff, @timeout, @max_retries)
       end
       def self.from_parameters(parameters : JSON::Any)
         new(
-          jitter: parameters["dest-jitter"]?.try &.as_f? || 0.5,
+          jitter: parameters["dest-jitter"]?.try &.as_f? || 1.0,
           backoff: parameters["dest-backoff"]?.try &.as_f? || 2.0,
           timeout: parameters["dest-timeout"]?.try &.as_f? || 10.0,
-          max_retries: parameters["dest-max-retries"]?.try &.as_f? || 1.0
+          max_retries: parameters["dest-max-retries"]?.try &.as_i? || 1
         )
       end
     end
