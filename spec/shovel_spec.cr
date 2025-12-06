@@ -918,22 +918,20 @@ describe LavinMQ::Shovel do
         end
       end
     end
-
   end
 end
 
 class FailServer
-
   @state : Hash(String, Int32) = Hash(String, Int32).new
   @server : HTTP::Server
   getter addr : Int32
 
-  def initialize()
+  def initialize
     @server = create_fail_server()
     @addr = @server.bind_unused_port.port
   end
 
-  def start()
+  def start
     spawn @server.listen
     @server
   end
@@ -942,18 +940,13 @@ class FailServer
     @state[path]? || 0
   end
 
-  def state()
+  def state
     @state
   end
 
-  private def create_fail_server()
+  private def create_fail_server
     server = HTTP::Server.new do |context|
       path = context.request.path
-      if path == "/stats"
-          context.response.content_type = "application/json"
-          context.response.print @state.to_json
-          next
-      end
       @state[path] ||= 0
       @state[path] += 1
 
