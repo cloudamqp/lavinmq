@@ -329,7 +329,7 @@ module LavinMQ
           jitter: parameters["dest-jitter"]?.try &.as_f? || 0.5,
           backoff: parameters["dest-backoff"]?.try &.as_f? || 2.0,
           timeout: parameters["dest-timeout"]?.try &.as_f? || 10.0,
-          max_retries: parameters["dest-max-retries"]?.try &.as_f? || 3.0
+          max_retries: parameters["dest-max-retries"]?.try &.as_f? || 1.0
         )
       end
     end

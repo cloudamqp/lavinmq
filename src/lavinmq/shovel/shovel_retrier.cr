@@ -7,7 +7,7 @@ module LavinMQ
       end
       def self.push_with_retry(max_retries, jitter, backoff, & : -> Bool) : Bool
         retries = 0
-        while retries < max_retries
+        while retries <= max_retries
           return true if yield
           retries += 1
           base_delay = (backoff ** retries).seconds
