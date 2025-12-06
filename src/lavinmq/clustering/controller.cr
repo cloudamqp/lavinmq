@@ -123,12 +123,12 @@ class LavinMQ::Clustering::Controller
   end
 
   def wait_to_be_insync
-    if isr = @etcd.get("#{@config.clustering_etcd_prefix}/isr")
-      unless isr.split(",").map(&.to_i(36)).includes?(@id)
-        Log.info { "ISR: #{isr}" }
-        Log.info { "Not in sync, waiting for a leader" }
-        @etcd.watch("#{@config.clustering_etcd_prefix}/isr") do |value|
-          break if value.try &.split(",").map(&.to_i(36)).includes?(@id)
+    key = "#{@config.clustering_etcd_prefix}/replica/#{@id.to_s(36)}/insync"
+    if insync = @etcd.get(key)
+      unless insync == "1"
+        Log.info { "Replica #{@id.to_s(36)} not in sync (insync=#{insync}), waiting for leader" }
+        @etcd.watch(key) do |value|
+          break if value == "1"
         end
         Log.info { "In sync with leader" }
       end

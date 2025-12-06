@@ -31,7 +31,7 @@ module LavinMQ
       @followers = Array(Follower).new(4)
       @password : String
       @files = Hash(String, MFile?).new
-      @dirty_isr = true
+      @disconnected_followers = Array(Int32).new
       @id : Int32
       @config : Config
 
@@ -159,6 +159,7 @@ module LavinMQ
       def listen(server : TCPServer)
         server.listen
         @checksums.restore
+        mark_insync(@id)
         Log.info { "Listening on #{server.local_address}" }
         @listeners << server
 
@@ -188,14 +189,14 @@ module LavinMQ
         @lock.synchronize do
           follower.full_sync    # sync the last
           follower.mark_synced! # Change state to Synced
-          update_isr
+          mark_insync(follower.id)
         end
         begin
           follower.action_loop
         ensure
           @lock.synchronize do
             @followers.delete(follower)
-            @dirty_isr = true
+            @disconnected_followers << follower.id
           end
         end
       rescue ex : AuthenticationError
@@ -210,19 +211,16 @@ module LavinMQ
         follower.try &.close
       end
 
-      private def update_isr
-        isr_key = "#{@config.clustering_etcd_prefix}/isr"
-        ids = String.build do |str|
-          @followers.each do |f|
-            next unless f.synced?
-            f.id.to_s(str, 36)
-            str << ","
-          end
-          @id.to_s(str, 36)
-        end
-        Log.info { "In-sync replicas: #{ids}" }
-        @etcd.put(isr_key, ids)
-        @dirty_isr = false
+      private def mark_insync(id : Int32)
+        key = "#{@config.clustering_etcd_prefix}/replica/#{id.to_s(36)}/insync"
+        @etcd.put(key, "1")
+        Log.debug { "Marked replica #{id.to_s(36)} as in-sync" }
+      end
+
+      private def mark_out_of_sync(id : Int32)
+        key = "#{@config.clustering_etcd_prefix}/replica/#{id.to_s(36)}/insync"
+        @etcd.put(key, "0")
+        Log.debug { "Marked replica #{id.to_s(36)} as out-of-sync" }
       end
 
       def close
@@ -237,7 +235,8 @@ module LavinMQ
 
       private def each_follower(& : Follower -> Nil) : Nil
         @lock.synchronize do
-          update_isr if @dirty_isr
+          @disconnected_followers.each { |id| mark_out_of_sync(id) }
+          @disconnected_followers.clear
           @followers.each do |f|
             next if f.syncing? # Performing a full sync
             yield f
