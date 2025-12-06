@@ -138,6 +138,9 @@ module LavinMQ
               @log.debug { "Confirmed disconnect" }
               @running = false
               return
+            when AMQP::Frame::Connection::UpdateSecret
+              handle_update_secret(frame)
+              next
             end
             if @running
               process_frame(frame)
@@ -150,6 +153,8 @@ module LavinMQ
                 @log.debug { "Discarding #{frame.class.name}, waiting for CloseOk" }
               end
             end
+          rescue e : Auth::TokenExpiredError
+            close_connection(frame, ConnectionReplyCode::CONNECTION_FORCED, e.message)
           rescue e : LavinMQ::Error::PreconditionFailed
             send_precondition_failed(frame, e.message)
           end
@@ -196,6 +201,23 @@ module LavinMQ
         else
           send AMQP::Frame::Heartbeat.new
         end
+      end
+
+      private def handle_update_secret(frame : AMQP::Frame::Connection::UpdateSecret)
+        user = @user
+        if user.responds_to?(:update_secret)
+          user.update_secret(frame.secret)
+          @log.info { "Updated secret for user '#{user.name}'" }
+          send AMQP::Frame::Connection::UpdateSecretOk.new
+        else
+          close_connection(frame, ConnectionReplyCode::ACCESS_REFUSED, "update-secret not supported for current authentication mechanism")
+        end
+      rescue ex : JWT::Error
+        @log.warn { "UpdateSecret failed for user '#{@user.name}': #{ex.message}" }
+        close_connection(frame, ConnectionReplyCode::ACCESS_REFUSED, ex.message)
+      rescue ex : Exception
+        @log.error(exception: ex) { "UpdateSecret failed for user '#{@user.name}': #{ex.message}" }
+        close_connection(frame, ConnectionReplyCode::INTERNAL_ERROR, "Failed to update secret: #{ex.message}")
       end
 
       def send(frame : AMQP::Frame, channel_is_open : Bool? = nil) : Bool
