@@ -182,10 +182,13 @@ Table.renderTable('followers', followersTableOpts, (tr, item, firstRender) => {
   if (firstRender) {
     Table.renderCell(tr, 0, item.id)
   }
-  Table.renderCell(tr, 1, item.remote_address)
-  Table.renderCell(tr, 2, humanizeBytes(item.sent_bytes), 'right')
-  Table.renderCell(tr, 3, humanizeBytes(item.acked_bytes), 'right')
-  Table.renderCell(tr, 4, humanizeBytes(item.sent_bytes - item.acked_bytes), 'right')
+  const connected = item.remote_address !== null
+  Table.renderCell(tr, 1, connected ? '✓' : '✗', 'center')
+  Table.renderCell(tr, 2, item.insync ? '✓' : '✗', 'center')
+  Table.renderCell(tr, 3, item.remote_address || '-')
+  Table.renderCell(tr, 4, connected ? humanizeBytes(item.sent_bytes) : '-', 'right')
+  Table.renderCell(tr, 5, connected ? humanizeBytes(item.acked_bytes) : '-', 'right')
+  Table.renderCell(tr, 6, connected ? humanizeBytes(item.sent_bytes - item.acked_bytes) : '-', 'right')
 })
 
 function updateCharts (response) {
