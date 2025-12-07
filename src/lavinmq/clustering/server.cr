@@ -143,6 +143,23 @@ module LavinMQ
         end
       end
 
+      # Returns all known replicas from etcd with their insync status
+      # Key format: {prefix}/replica/{id}/insync with value "1" or "0"
+      def known_replicas : Hash(String, Bool)
+        prefix = "#{@config.clustering_etcd_prefix}/replica/"
+        kvs = @etcd.get_prefix(prefix)
+        result = Hash(String, Bool).new(initial_capacity: kvs.size)
+        kvs.each do |(key, value)|
+          # Extract replica ID from key like "lavinmq/replica/1a/insync"
+          parts = key.split('/', 4)
+          if parts.size == 4 && parts[3] == "insync"
+            replica_id = parts[2]
+            result[replica_id] = value == "1"
+          end
+        end
+        result
+      end
+
       def password : String
         key = "#{@config.clustering_etcd_prefix}/clustering_secret"
         secret = Random::Secure.base64(32)
