@@ -47,7 +47,7 @@ describe "Message segment metadata files" do
 
           # Publish enough messages to trigger new segment creation
           segment_size = LavinMQ::Config.instance.segment_size
-          message_size = 50
+          message_size = 42
           messages_needed = (segment_size / message_size).to_i + 10
 
           messages_needed.times do |i|
