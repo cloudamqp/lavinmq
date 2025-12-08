@@ -73,6 +73,10 @@ module LavinMQ
       @replicator.try(&.known_replicas) || Hash(String, Bool).new
     end
 
+    def forget_replica(id : Int32) : Bool
+      @replicator.try(&.forget_replica(id)) || false
+    end
+
     def amqp_url
       addr = @listeners
         .select { |_, v| v.amqp? }

@@ -241,6 +241,18 @@ module LavinMQ
         Log.debug { "Marked replica #{id.to_s(36)} as out-of-sync" }
       end
 
+      # Removes a replica from etcd, returns true if the replica was found and deleted
+      def forget_replica(id : Int32) : Bool
+        key = "#{@config.clustering_etcd_prefix}/replica/#{id.to_s(36)}/insync"
+        deleted = @etcd.del(key)
+        if deleted > 0
+          Log.info { "Forgot replica #{id.to_s(36)}" }
+          true
+        else
+          false
+        end
+      end
+
       def close
         @listeners.each &.close
         @lock.synchronize do
