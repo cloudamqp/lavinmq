@@ -470,11 +470,15 @@ module LavinMQ
 
     private def load!
       load_definitions!
-      spawn(name: "Load parameters") do
-        sleep 10.milliseconds
-        next if @closed
-        apply_parameters
-        apply_policies
+      has_parameters = !@parameters.empty?
+      has_policies = !@policies.empty? || !@operator_policies.empty?
+      if has_parameters || has_policies
+        spawn(name: "Load parameters") do
+          sleep 10.milliseconds
+          next if @closed
+          apply_parameters
+          apply_policies
+        end
       end
       Fiber.yield
     end
