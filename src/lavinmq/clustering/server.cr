@@ -32,7 +32,7 @@ module LavinMQ
       @password : String
       @files = Hash(String, MFile?).new
       @disconnected_followers = Array(Int32).new
-      @id : Int32
+      getter id : Int32
       @config : Config
 
       def initialize(config : Config, @etcd : Etcd, @id : Int32)
