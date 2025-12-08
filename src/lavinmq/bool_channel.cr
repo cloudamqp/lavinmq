@@ -13,8 +13,17 @@ class BoolChannel
 
   def set(value : Bool)
     @value.send value
-  rescue Channel::ClosedError
+  rescue ::Channel::ClosedError
     Log.debug { "BoolChannel closed, could not set value" }
+  end
+
+  def value : Bool
+    select
+    when when_true.receive
+      true
+    when when_false.receive
+      false
+    end
   end
 
   def close
@@ -32,6 +41,6 @@ class BoolChannel
         Fiber.yield # Improves fairness by allowing the receiving fiber to run instead of notifying all waiting fibers
       end
     end
-  rescue Channel::ClosedError
+  rescue ::Channel::ClosedError
   end
 end
