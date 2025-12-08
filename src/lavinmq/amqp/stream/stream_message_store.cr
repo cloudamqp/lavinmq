@@ -36,7 +36,7 @@ module LavinMQ::AMQP
     private def get_last_offset : Int64
       return 0i64 if @size.zero?
       offset = @segment_first_offset.last_value
-      offset += @segment_msg_count.last_value
+      offset += @segment_msg_count.last_value - 1
       offset
     end
 
@@ -292,7 +292,7 @@ module LavinMQ::AMQP
     private def open_new_segment(next_msg_size = 0) : MFile
       super.tap do
         drop_overflow
-        @segment_first_offset[@segments.last_key] = @last_offset unless @last_offset.zero?
+        @segment_first_offset[@segments.last_key] = @last_offset.zero? ? 1i64 : @last_offset
         @segment_first_ts[@segments.last_key] = RoughTime.unix_ms
       end
     end
@@ -365,21 +365,32 @@ module LavinMQ::AMQP
 
     private def produce_metadata(seg, mfile)
       super
-      if @empty
+      if empty?
         @segment_first_offset[seg] = @last_offset + 1
         @segment_first_ts[seg] = RoughTime.unix_ms
       else
-        previous_segment_last_offset = @segment_first_offset[seg - 1]? || 0i64
-        previous_segment_last_offset += @segment_msg_count[seg - 1]? || 0i64
+        previous_segment_first_offset = @segment_first_offset[seg - 1]? || 1i64
+        previous_segment_msg_count = @segment_msg_count[seg - 1]? || 0i64
         msg = BytesMessage.from_bytes(mfile.to_slice + 4u32)
-        @segment_first_offset[seg] = previous_segment_last_offset + 1
+        @segment_first_offset[seg] = previous_segment_first_offset + previous_segment_msg_count
         @segment_first_ts[seg] = msg.timestamp
       end
     end
 
     private def read_extra_metadata_fields(file : File, seg : UInt32)
-      @segment_first_offset[seg] = file.read_bytes(Int64)
+      stored_offset = file.read_bytes(Int64)
       @segment_first_ts[seg] = file.read_bytes(Int64)
+
+      # Validate and fix (possibly) incorrect offsets from existing metadata
+      @segment_first_offset[seg] = if seg == 1u32
+                         1i64 # First segment always starts at offset 1
+                       elsif prev_first = @segment_first_offset[seg - 1]?
+                         # Calculate based on previous segment
+                         prev_count = @segment_msg_count[seg - 1]? || 0i64
+                         prev_first + prev_count
+                       else
+                         stored_offset # No previous segment info, use stored value
+                       end
     end
 
     class OffsetError < Exception
