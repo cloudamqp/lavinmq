@@ -32,6 +32,12 @@ module LavinMQ
           @brokers[vhost].close
         end
       end
+
+      def compact_collections
+        # Hash uses dup
+        @brokers = @brokers.dup if @brokers.capacity > @brokers.size * 2
+        @brokers.each_value(&.compact_collections)
+      end
     end
   end
 end
