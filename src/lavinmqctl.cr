@@ -894,7 +894,7 @@ class LavinMQCtl
 
     # Set default values if not provided
     @args["prefetch-count"] ||= JSON::Any.new(LavinMQ::Federation::DEFAULT_PREFETCH.to_i64)
-    @args["reconnect-delay"] ||= JSON::Any.new(LavinMQ::Federation::DEFAULT_RECONNECT_DELAY.to_i64)
+    @args["reconnect-delay"] ||= JSON::Any.new(LavinMQ::Federation::DEFAULT_RECONNECT_DELAY.total_seconds)
     @args["ack-mode"] ||= JSON::Any.new(LavinMQ::Federation::DEFAULT_ACK_MODE.to_s.underscore.gsub("_", "-"))
     @args["max-hops"] ||= JSON::Any.new(LavinMQ::Federation::DEFAULT_MAX_HOPS)
 
