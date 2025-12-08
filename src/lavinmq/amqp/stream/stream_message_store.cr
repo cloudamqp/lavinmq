@@ -383,14 +383,14 @@ module LavinMQ::AMQP
 
       # Validate and fix (possibly) incorrect offsets from existing metadata
       @segment_first_offset[seg] = if seg == 1u32
-                         1i64 # First segment always starts at offset 1
-                       elsif prev_first = @segment_first_offset[seg - 1]?
-                         # Calculate based on previous segment
-                         prev_count = @segment_msg_count[seg - 1]? || 0i64
-                         prev_first + prev_count
-                       else
-                         stored_offset # No previous segment info, use stored value
-                       end
+                                     1i64 # First segment always starts at offset 1
+                                   elsif prev_first = @segment_first_offset[seg - 1]?
+                                     # Calculate based on previous segment
+                                     prev_count = @segment_msg_count[seg - 1]? || 0i64
+                                     prev_first + prev_count
+                                   else
+                                     stored_offset # No previous segment info, use stored value
+                                   end
     end
 
     class OffsetError < Exception
