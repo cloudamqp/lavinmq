@@ -67,12 +67,24 @@ class LavinMQ::Clustering::Controller
     begin
       id = File.read(id_file_path).to_i(36)
     rescue File::NotFoundError
-      id = rand(Int32::MAX)
+      id = next_cluster_node_id
       Dir.mkdir_p @config.data_dir
       File.write(id_file_path, id.to_s(36))
-      Log.info { "Generated new clustering ID" }
+      Log.info { "Generated new clustering ID: #{id.to_s(36)}" }
     end
     id
+  end
+
+  # Generate a unique sequential cluster node ID
+  # Tries to create replica/<id>/insync key, incrementing until finding an unused ID
+  private def next_cluster_node_id : Int32
+    prefix = @config.clustering_etcd_prefix
+    id = 1
+    loop do
+      key = "#{prefix}/replica/#{id.to_s(36)}/insync"
+      return id if @etcd.put_new(key, "0")
+      id += 1
+    end
   end
 
   # Replicate from the leader
