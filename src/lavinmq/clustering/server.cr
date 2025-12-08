@@ -200,15 +200,16 @@ module LavinMQ
             @followers.delete(stale_follower)
             stale_follower.close
           end
+          @disconnected_followers.delete(follower.id)
           @followers << follower # Starts in Syncing state
         end
-        follower.full_sync # sync the bulk
-        @lock.synchronize do
-          follower.full_sync    # sync the last
-          follower.mark_synced! # Change state to Synced
-          mark_insync(follower.id)
-        end
         begin
+          follower.full_sync # sync the bulk
+          @lock.synchronize do
+            follower.full_sync    # sync the last
+            follower.mark_synced! # Change state to Synced
+            mark_insync(follower.id)
+          end
           follower.action_loop
         ensure
           @lock.synchronize do
