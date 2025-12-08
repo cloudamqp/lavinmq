@@ -45,6 +45,16 @@ module LavinMQ
       raise Error.new("key #{key} not set")
     end
 
+    # Sets value only if key doesn't exist
+    # Returns true if the key was created, false if it already exists
+    def put_new(key, value) : Bool
+      compare = %({"target":"CREATE","key":"#{Base64.strict_encode key}","create_revision":"0"})
+      put = %({"requestPut":{"key":"#{Base64.strict_encode key}","value":"#{Base64.strict_encode value}"}})
+      request = %({"compare":[#{compare}],"success":[#{put}]})
+      json = post("/v3/kv/txn", request)
+      json["succeeded"]?.try(&.as_bool) || false
+    end
+
     def get(key) : String?
       json = post("/v3/kv/range", %({"key":"#{Base64.strict_encode key}"}))
       if value = json.dig?("kvs", 0, "value").try(&.as_s)
