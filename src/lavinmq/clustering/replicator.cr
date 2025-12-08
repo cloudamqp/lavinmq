@@ -16,6 +16,7 @@ module LavinMQ
       abstract def listen(server : TCPServer)
       abstract def clear
       abstract def password : String
+      abstract def forget_replica(id : Int32) : Bool
     end
   end
 end

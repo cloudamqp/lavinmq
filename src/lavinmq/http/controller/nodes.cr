@@ -153,6 +153,25 @@ module LavinMQ
           end
           context
         end
+
+        delete "/api/nodes/:id" do |context, params|
+          refuse_unless_administrator(context, user(context))
+          id_str = params["id"]
+          id = id_str.to_i32?(36)
+          unless id
+            bad_request(context, "Invalid replica ID")
+          end
+          # Don't allow forgetting connected replicas
+          if @amqp_server.all_followers.any? { |f| f.id == id }
+            bad_request(context, "Cannot forget a connected replica")
+          end
+          if @amqp_server.forget_replica(id)
+            context.response.status_code = 204
+          else
+            not_found(context, "Replica not found")
+          end
+          context
+        end
       end
 
       APPLICATIONS = [{

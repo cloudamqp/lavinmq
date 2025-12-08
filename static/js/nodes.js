@@ -189,6 +189,21 @@ Table.renderTable('followers', followersTableOpts, (tr, item, firstRender) => {
   Table.renderCell(tr, 4, connected ? humanizeBytes(item.sent_bytes) : '-', 'right')
   Table.renderCell(tr, 5, connected ? humanizeBytes(item.acked_bytes) : '-', 'right')
   Table.renderCell(tr, 6, connected ? humanizeBytes(item.sent_bytes - item.acked_bytes) : '-', 'right')
+  if (!connected) {
+    const btn = document.createElement('button')
+    btn.className = 'button-danger'
+    btn.textContent = 'Forget'
+    btn.onclick = () => {
+      if (window.confirm(`Are you sure you want to forget replica ${item.id}?`)) {
+        HTTP.request('DELETE', `api/nodes/${item.id}`).then(() => {
+          update(updateCharts)
+        })
+      }
+    }
+    Table.renderCell(tr, 7, btn)
+  } else {
+    Table.renderCell(tr, 7, '')
+  }
 })
 
 function updateCharts (response) {
