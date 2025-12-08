@@ -1,22 +1,10 @@
 require "uri"
+require "./constants"
 require "./link"
 
 module LavinMQ
   module Federation
-    enum AckMode
-      OnConfirm
-      OnPublish
-      NoAck
-    end
-
     class Upstream
-      DEFAULT_PREFETCH        = 1000_u16
-      DEFAULT_RECONNECT_DELAY =        1
-      DEFAULT_ACK_MODE        = AckMode::OnConfirm
-      DEFAULT_MAX_HOPS        = 1_i64
-      DEFAULT_EXPIRES         = nil
-      DEFAULT_MSG_TTL         = nil
-
       @q_links = Hash(String, QueueLink).new
       @ex_links = Hash(String, ExchangeLink).new
       @queue : String?
