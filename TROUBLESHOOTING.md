@@ -36,16 +36,8 @@ killall -USR1 lavinmq
 ```
 
 **What USR1 dumps:**
-- **Garbage Collector statistics** - heap size, free bytes, unmapped bytes, GC cycle number
-- **Fiber list** - all running fibers and their states (useful for detecting deadlocks or stuck operations)
-- **Complete server state**:
-  - Users and their permissions
-  - VHosts and their resources
-  - Exchanges (size and capacity)
-  - Queues (name, durability, arguments, message counts, segments)
-  - Connections and channels
-  - Consumers and unacked messages
-  - ACL caches
+- **Garbage Collector statistics** - heap size, free/unmapped bytes, allocated memory, GC cycle counts, and reclaimed bytes (useful for identifying memory leaks or unusual growth patterns)
+- **Fiber list** - all running fibers with their object IDs and names (useful for counting active fibers and detecting fiber leaks)
 
 **Where to find the output:**
 
