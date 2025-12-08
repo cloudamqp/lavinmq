@@ -45,6 +45,7 @@ class LavinMQCtl
     {"set_vhost_limits", "Set VHost limits (max-connections, max-queues)", "<json>"},
     {"set_permissions", "Set permissions for a user", "<username> <configure> <write> <read>"},
     {"hash_password", "Hash a password", "<password>"},
+    {"forget_cluster_node", "Remove a disconnected node from the cluster", "<id>"},
 
     {"list_shovels", "Lists shovels", ""},
     {"delete_shovel", "Delete a shovel", "<name>"},
@@ -274,6 +275,7 @@ class LavinMQCtl
     when "list_federations"      then list_federations
     when "add_federation"        then add_federation
     when "delete_federation"     then delete_federation
+    when "forget_cluster_node"   then forget_cluster_node
     when "stop_app"
     when "start_app"
     else
@@ -786,6 +788,13 @@ class LavinMQCtl
       }
       output cluster_status_obj
     end
+  end
+
+  private def forget_cluster_node
+    id = ARGV.shift?
+    abort @banner unless id
+    resp = http.delete "/api/nodes/#{URI.encode_www_form(id)}", @headers
+    handle_response(resp, 204)
   end
 
   private def set_vhost_limits
