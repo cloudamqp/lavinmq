@@ -229,7 +229,7 @@ module LavinMQ::AMQP
     def shift?(consumer : AMQP::StreamConsumer) : Envelope?
       raise ClosedError.new if @closed
 
-      if env = shift_requeued(consumer)
+      if env = shift_requeued(consumer.requeued)
         return env
       end
 
