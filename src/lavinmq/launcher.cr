@@ -8,6 +8,7 @@ require "./in_memory_backend"
 require "./data_dir_lock"
 require "./etcd"
 require "./clustering/controller"
+require "../stdlib/openssl_sni"
 
 module LavinMQ
   struct StandaloneRunner
@@ -28,7 +29,9 @@ module LavinMQ
 
   class Launcher
     Log = LavinMQ::Log.for "launcher"
-    @tls_context : OpenSSL::SSL::Context::Server?
+    @amqp_tls_context : OpenSSL::SSL::Context::Server?
+    @mqtt_tls_context : OpenSSL::SSL::Context::Server?
+    @http_tls_context : OpenSSL::SSL::Context::Server?
     @first_shutdown_attempt = true
     @data_dir_lock : DataDirLock?
     @closed = false
@@ -56,8 +59,13 @@ module LavinMQ
         @runner = StandaloneRunner.new
       end
 
-      @tls_context = create_tls_context if @config.tls_configured?
+      if @config.tls_configured?
+        @amqp_tls_context = create_tls_context
+        @mqtt_tls_context = create_tls_context
+        @http_tls_context = create_tls_context
+      end
       reload_tls_context
+      setup_sni_callbacks
       setup_signal_traps
       SystemD::MemoryPressure.monitor { GC.collect }
     end
@@ -173,7 +181,7 @@ module LavinMQ
       end
 
       if @config.amqps_port > 0
-        if ctx = @tls_context
+        if ctx = @amqp_tls_context
           spawn amqp_server.listen_tls(@config.amqp_bind, @config.amqps_port, ctx, Server::Protocol::AMQP),
             name: "AMQPS listening on #{@config.amqps_port}"
         end
@@ -191,7 +199,7 @@ module LavinMQ
         http_server.bind_tcp(@config.http_bind, @config.http_port)
       end
       if @config.https_port > 0
-        if ctx = @tls_context
+        if ctx = @http_tls_context
           http_server.bind_tls(@config.http_bind, @config.https_port, ctx)
         end
       end
@@ -210,7 +218,7 @@ module LavinMQ
       end
 
       if @config.mqtts_port > 0
-        if ctx = @tls_context
+        if ctx = @mqtt_tls_context
           spawn amqp_server.listen_tls(@config.mqtt_bind, @config.mqtts_port, ctx, Server::Protocol::MQTT),
             name: "MQTTS listening on #{@config.mqtts_port}"
         end
@@ -287,7 +295,20 @@ module LavinMQ
     end
 
     private def reload_tls_context
-      return unless tls = @tls_context
+      if amqp_tls = @amqp_tls_context
+        configure_tls_context(amqp_tls)
+      end
+      if mqtt_tls = @mqtt_tls_context
+        configure_tls_context(mqtt_tls)
+      end
+      if http_tls = @http_tls_context
+        configure_tls_context(http_tls)
+      end
+      # Reload SNI host contexts
+      @config.sni_manager.reload
+    end
+
+    private def configure_tls_context(tls : OpenSSL::SSL::Context::Server)
       case @config.tls_min_version
       when "1.0"
         tls.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_2 |
@@ -307,6 +328,52 @@ module LavinMQ
       tls.certificate_chain = @config.tls_cert_path
       tls.private_key = @config.tls_key_path.empty? ? @config.tls_cert_path : @config.tls_key_path
       tls.ciphers = @config.tls_ciphers unless @config.tls_ciphers.empty?
+    end
+
+    private def setup_sni_callbacks
+      return if @config.sni_manager.empty?
+
+      # Set up SNI callback for AMQP TLS context
+      if amqp_tls = @amqp_tls_context
+        sni_manager = @config.sni_manager
+        amqp_tls.set_sni_callback do |hostname|
+          if sni_host = sni_manager.get_host(hostname)
+            Log.debug { "SNI (AMQP): Using certificate for hostname '#{hostname}'" }
+            sni_host.amqp_tls_context
+          else
+            Log.debug { "SNI (AMQP): No specific certificate for '#{hostname}', using default" }
+            nil
+          end
+        end
+      end
+
+      # Set up SNI callback for MQTT TLS context
+      if mqtt_tls = @mqtt_tls_context
+        sni_manager = @config.sni_manager
+        mqtt_tls.set_sni_callback do |hostname|
+          if sni_host = sni_manager.get_host(hostname)
+            Log.debug { "SNI (MQTT): Using certificate for hostname '#{hostname}'" }
+            sni_host.mqtt_tls_context
+          else
+            Log.debug { "SNI (MQTT): No specific certificate for '#{hostname}', using default" }
+            nil
+          end
+        end
+      end
+
+      # Set up SNI callback for HTTP TLS context
+      if http_tls = @http_tls_context
+        sni_manager = @config.sni_manager
+        http_tls.set_sni_callback do |hostname|
+          if sni_host = sni_manager.get_host(hostname)
+            Log.debug { "SNI (HTTP): Using certificate for hostname '#{hostname}'" }
+            sni_host.http_tls_context
+          else
+            Log.debug { "SNI (HTTP): No specific certificate for '#{hostname}', using default" }
+            nil
+          end
+        end
+      end
     end
   end
 end
