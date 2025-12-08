@@ -248,10 +248,9 @@ describe LavinMQ::AMQP::Queue do
 
     it "should restart after corrupt data closes the queue" do
       with_amqp_server do |s|
-        vhost = s.vhosts.create("restart_vhost")
-        with_channel(s, vhost: vhost.name) do |ch|
+        with_channel(s) do |ch|
           q = ch.queue(q_name, durable: true)
-          queue = vhost.queues[q_name].as(LavinMQ::AMQP::DurableQueue)
+          queue = s.vhosts["/"].queues[q_name].as(LavinMQ::AMQP::DurableQueue)
           q.publish_confirm "test message"
           queue.message_count.should eq 1
 
