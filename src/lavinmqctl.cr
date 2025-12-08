@@ -1,11 +1,11 @@
-require "./lavinmq/version"
-require "./lavinmq/http/constants"
-require "./lavinmq/definitions_generator"
-require "./lavinmq/shovel/shovel"
-require "./lavinmq/federation/upstream"
 require "http/client"
 require "json"
 require "option_parser"
+require "./lavinmq/version"
+require "./lavinmq/http/constants"
+require "./lavinmq/shovel/constants"
+require "./lavinmq/federation/constants"
+require "./lavinmq/definitions_generator"
 require "./lavinmq/auth/user"
 
 class LavinMQCtl
@@ -893,10 +893,10 @@ class LavinMQCtl
     abort "Field '--uri' is required" unless @args["uri"]?
 
     # Set default values if not provided
-    @args["prefetch-count"] ||= JSON::Any.new(LavinMQ::Federation::Upstream::DEFAULT_PREFETCH.to_i64)
-    @args["reconnect-delay"] ||= JSON::Any.new(LavinMQ::Federation::Upstream::DEFAULT_RECONNECT_DELAY.to_i64)
-    @args["ack-mode"] ||= JSON::Any.new(LavinMQ::Federation::Upstream::DEFAULT_ACK_MODE.to_s.underscore.gsub("_", "-"))
-    @args["max-hops"] ||= JSON::Any.new(LavinMQ::Federation::Upstream::DEFAULT_MAX_HOPS)
+    @args["prefetch-count"] ||= JSON::Any.new(LavinMQ::Federation::DEFAULT_PREFETCH.to_i64)
+    @args["reconnect-delay"] ||= JSON::Any.new(LavinMQ::Federation::DEFAULT_RECONNECT_DELAY.to_i64)
+    @args["ack-mode"] ||= JSON::Any.new(LavinMQ::Federation::DEFAULT_ACK_MODE.to_s.underscore.gsub("_", "-"))
+    @args["max-hops"] ||= JSON::Any.new(LavinMQ::Federation::DEFAULT_MAX_HOPS)
 
     url = "/api/parameters/federation-upstream/#{URI.encode_www_form(vhost)}/#{URI.encode_www_form(name)}"
     body = {"value" => @args}

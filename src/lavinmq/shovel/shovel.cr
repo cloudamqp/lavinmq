@@ -1,38 +1,13 @@
+require "../config"
 require "../sortable_json"
 require "amqp-client"
 require "http/client"
 require "wait_group"
+require "./constants"
 
 module LavinMQ
   module Shovel
-    Log                       = LavinMQ::Log.for "shovel"
-    DEFAULT_ACK_MODE          = AckMode::OnConfirm
-    DEFAULT_DELETE_AFTER      = DeleteAfter::Never
-    DEFAULT_PREFETCH          = 1000_u16
-    DEFAULT_RECONNECT_DELAY   = 5.seconds
-    DEFAULT_BATCH_ACK_TIMEOUT = 3.seconds
-
-    enum State
-      Starting
-      Running
-      Stopped
-      Paused
-      Terminated
-      Error
-    end
-
-    enum DeleteAfter
-      Never
-      QueueLength
-    end
-
-    enum AckMode
-      OnConfirm
-      OnPublish
-      NoAck
-    end
-
-    class FailedDeliveryError < Exception; end
+    Log = LavinMQ::Log.for "shovel"
 
     class AMQPSource
       @conn : ::AMQP::Client::Connection?
@@ -370,14 +345,13 @@ module LavinMQ
       @retries : Int64 = 0
       RETRY_THRESHOLD =  10
       MAX_DELAY       = 300
-      @config = LavinMQ::Config.instance
 
       getter name, vhost
 
       def initialize(@source : AMQPSource, @destination : Destination,
                      @name : String, @vhost : VHost, @reconnect_delay : Time::Span = DEFAULT_RECONNECT_DELAY)
         filename = "shovels.#{Digest::SHA1.hexdigest @name}.paused"
-        @paused_file_path = File.join(@config.data_dir, filename)
+        @paused_file_path = File.join(Config.instance.data_dir, filename)
         if File.exists?(@paused_file_path)
           @state = State::Paused
         end
