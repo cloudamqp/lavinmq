@@ -77,6 +77,10 @@ module LavinMQ
       @replicator.try(&.forget_replica(id)) || false
     end
 
+    def leader_id : Int32?
+      @replicator.try(&.id)
+    end
+
     def amqp_url
       addr = @listeners
         .select { |_, v| v.amqp? }

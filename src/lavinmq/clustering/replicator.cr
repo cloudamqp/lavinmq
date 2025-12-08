@@ -17,6 +17,7 @@ module LavinMQ
       abstract def clear
       abstract def password : String
       abstract def forget_replica(id : Int32) : Bool
+      abstract def id : Int32
     end
   end
 end

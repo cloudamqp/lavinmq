@@ -88,12 +88,15 @@ module LavinMQ
         known = @amqp_server.known_replicas
         connected = @amqp_server.all_followers
         connected_by_id = connected.to_h { |f| {f.id.to_s(36), f} }
+        leader_id = @amqp_server.leader_id.try(&.to_s(36))
 
         # Build list from all known replicas
         result = known.map do |id, insync|
+          is_leader = id == leader_id
           if follower = connected_by_id[id]?
             {
               id:             id,
+              role:           is_leader ? "leader" : "follower",
               insync:         insync,
               remote_address: follower.remote_address.to_s,
               sent_bytes:     follower.sent_bytes,
@@ -102,6 +105,7 @@ module LavinMQ
           else
             {
               id:             id,
+              role:           is_leader ? "leader" : "follower",
               insync:         insync,
               remote_address: nil,
               sent_bytes:     nil,
@@ -116,6 +120,7 @@ module LavinMQ
           unless known.has_key?(id)
             result << {
               id:             id,
+              role:           "follower",
               insync:         false,
               remote_address: follower.remote_address.to_s,
               sent_bytes:     follower.sent_bytes,
@@ -124,7 +129,8 @@ module LavinMQ
           end
         end
 
-        result
+        # Sort with leader first
+        result.sort_by! { |r| r[:role] == "leader" ? 0 : 1 }
       end
 
       private def stats(context)
@@ -160,6 +166,10 @@ module LavinMQ
           id = id_str.to_i32?(36)
           unless id
             bad_request(context, "Invalid replica ID")
+          end
+          # Don't allow forgetting the leader
+          if @amqp_server.leader_id == id
+            bad_request(context, "Cannot forget the leader node")
           end
           # Don't allow forgetting connected replicas
           if @amqp_server.all_followers.any? { |f| f.id == id }
