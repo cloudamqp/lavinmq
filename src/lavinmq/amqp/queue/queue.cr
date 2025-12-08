@@ -223,6 +223,7 @@ module LavinMQ::AMQP
       @paused = BoolChannel.new(false)
       @consumers_empty = BoolChannel.new(true)
       @single_active_consumer_change = ::Channel(Client::Channel::Consumer).new
+      @deliver_loop_wg = WaitGroup.new
       @unacked_count.set(0u32, :relaxed)
       @unacked_bytesize.set(0u64, :relaxed)
     end
