@@ -69,66 +69,71 @@ describe LavinMQ::Auth::PublicKeys do
   end
 end
 
-describe LavinMQ::Auth::JWKSFetcher do
-  describe "#decode_token" do
+describe LavinMQ::Auth::PublicKeys do
+  describe "#decode" do
     it "raises VerificationError when no keys are provided" do
-      fetcher = LavinMQ::Auth::JWKSFetcher.new("https://example.com", 1.hour)
+      public_keys = LavinMQ::Auth::PublicKeys.new
       empty_keys = {} of String => String
+      public_keys.update(empty_keys, 1.hour)
 
       # Sample JWT token (invalid signature for our keys)
       token = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWUsImlhdCI6MTUxNjIzOTAyMn0.POstGetfAytaZS82wHcjoTyoqhMyxXiWdR7Nn7A29DNSl0EiXLdwJ6xC6AfgZWF1bOsS_TuYI3OG85AmiExREkrS6tDfTQ2B3WXlrr-wp5AokiRbz3_oB4OxG-W9KcEEbDRcZc0nH3L7LzYptiy1PtAylQGxHTWZXtGz4ht0bAecBgmpdgXMguEIcoqPJ1n3pIWk_dUZegpqx0Lka21H6XxUTxiy8OcaarA8zdnPUnV6AmNP3ecFawIFYdvJB_cm-GvpCSbr8G8y_Mllj8f4x9nBH8pQux89_6gUY618iYv7tuPWBFfEbLxtF2pZS6YC1aSfLQxeNe8djT9YjpvRZA"
 
       expect_raises(JWT::VerificationError, "Could not verify JWT with any key") do
-        fetcher.decode_token(token, empty_keys)
+        public_keys.decode(token)
       end
     end
 
     it "raises VerificationError with invalid PEM key" do
-      fetcher = LavinMQ::Auth::JWKSFetcher.new("https://example.com", 1.hour)
+      public_keys = LavinMQ::Auth::PublicKeys.new
 
       # Invalid/malformed PEM key
       invalid_keys = {
         "key1" => "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwrong==\n-----END PUBLIC KEY-----",
       }
+      public_keys.update(invalid_keys, 1.hour)
 
       token = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWUsImlhdCI6MTUxNjIzOTAyMn0.POstGetfAytaZS82wHcjoTyoqhMyxXiWdR7Nn7A29DNSl0EiXLdwJ6xC6AfgZWF1bOsS_TuYI3OG85AmiExREkrS6tDfTQ2B3WXlrr-wp5AokiRbz3_oB4OxG-W9KcEEbDRcZc0nH3L7LzYptiy1PtAylQGxHTWZXtGz4ht0bAecBgmpdgXMguEIcoqPJ1n3pIWk_dUZegpqx0Lka21H6XxUTxiy8OcaarA8zdnPUnV6AmNP3ecFawIFYdvJB_cm-GvpCSbr8G8y_Mllj8f4x9nBH8pQux89_6gUY618iYv7tuPWBFfEbLxtF2pZS6YC1aSfLQxeNe8djT9YjpvRZA"
 
       expect_raises(JWT::VerificationError) do
-        fetcher.decode_token(token, invalid_keys)
+        public_keys.decode(token)
       end
     end
 
     it "raises VerificationError for malformed token" do
-      fetcher = LavinMQ::Auth::JWKSFetcher.new("https://example.com", 1.hour)
+      public_keys = LavinMQ::Auth::PublicKeys.new
       keys = {"key1" => "dummy_pem"}
+      public_keys.update(keys, 1.hour)
 
       malformed_token = "not.a.valid.jwt.token"
 
       expect_raises(JWT::VerificationError) do
-        fetcher.decode_token(malformed_token, keys)
+        public_keys.decode(malformed_token)
       end
     end
 
     it "raises VerificationError when token has empty signature" do
-      fetcher = LavinMQ::Auth::JWKSFetcher.new("https://example.com", 1.hour)
+      public_keys = LavinMQ::Auth::PublicKeys.new
       keys = {"key1" => "dummy_pem"}
+      public_keys.update(keys, 1.hour)
 
       # Valid JWT structure but empty signature
       token = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0."
 
       expect_raises(JWT::VerificationError) do
-        fetcher.decode_token(token, keys)
+        public_keys.decode(token)
       end
     end
 
     it "raises VerificationError when PEM key is empty string" do
-      fetcher = LavinMQ::Auth::JWKSFetcher.new("https://example.com", 1.hour)
+      public_keys = LavinMQ::Auth::PublicKeys.new
       keys = {"key1" => ""}
+      public_keys.update(keys, 1.hour)
 
       token = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature"
 
       expect_raises(JWT::VerificationError) do
-        fetcher.decode_token(token, keys)
+        public_keys.decode(token)
       end
     end
   end

@@ -1,3 +1,5 @@
+require "./jwt"
+
 module LavinMQ
   module Auth
     # Stores public keys (JWK) with expiration time.
@@ -13,7 +15,7 @@ module LavinMQ
       def get? : Hash(String, String)?
         @mutex.synchronize do
           return nil if @keys.nil?
-          return nil if expired_unlocked?
+          return nil if expired?
           @keys
         end
       end
@@ -32,7 +34,27 @@ module LavinMQ
         end
       end
 
-      private def expired_unlocked? : Bool
+      # Decodes and verifies a JWT token using the stored public keys.
+      # Returns the decoded JWT::Token if verification succeeds.
+      # Raises JWT::VerificationError if no key can verify the token or keys are unavailable/expired.
+      def decode(token : String) : JWT::Token
+        keys = get?
+        raise JWT::VerificationError.new("Public keys unavailable or expired") unless keys
+
+        kid = JWT::RS256Parser.decode_header(token)["kid"]?.try(&.as_s) rescue nil
+        # If we know the kid matches a key we can avoid iterating through all keys
+        if kid && keys[kid]?
+          return JWT::RS256Parser.decode(token, keys[kid], verify: true)
+        end
+
+        keys.each_value do |key|
+          return JWT::RS256Parser.decode(token, key, verify: true)
+        rescue JWT::DecodeError | JWT::VerificationError | Base64::Error
+        end
+        raise JWT::VerificationError.new("Could not verify JWT with any key")
+      end
+
+      private def expired? : Bool
         if expires_at = @expires_at
           Time.utc >= expires_at
         else

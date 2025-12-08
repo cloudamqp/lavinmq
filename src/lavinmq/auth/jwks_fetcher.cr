@@ -1,12 +1,11 @@
 require "http/client"
 require "json"
-require "./jwt"
 require "./lib_crypto_ext"
 
 module LavinMQ
   module Auth
-    # Fetches JWKS (JSON Web Key Set) from OAuth provider and decodes JWT tokens.
-    # Handles OIDC discovery, JWKS parsing, and JWT signature verification.
+    # Fetches JWKS (JSON Web Key Set) from OAuth provider.
+    # Handles OIDC discovery and JWKS parsing.
     class JWKSFetcher
       Log = LavinMQ::Log.for "jwks_fetcher"
 
@@ -22,20 +21,6 @@ module LavinMQ
         public_keys = extract_public_keys_from_jwks(jwks)
         ttl = extract_jwks_ttl(headers)
         {public_keys, ttl}
-      end
-
-      def decode_token(token : String, public_keys : Hash(String, String)) : JWT::Token
-        kid = JWT::RS256Parser.decode_header(token)["kid"]?.try(&.as_s) rescue nil
-        # If we know the kid matches a key we can avoid iterating through all keys
-        if kid && public_keys[kid]?
-          return JWT::RS256Parser.decode(token, public_keys[kid], verify: true)
-        end
-
-        public_keys.each_value do |key|
-          return JWT::RS256Parser.decode(token, key, verify: true)
-        rescue JWT::DecodeError | JWT::VerificationError | Base64::Error
-        end
-        raise JWT::VerificationError.new("Could not verify JWT with any key")
       end
 
       private def extract_public_keys_from_jwks(jwks : JSON::Any)
@@ -63,8 +48,8 @@ module LavinMQ
       # Converts JWKS RSA key components (n, e) to PEM format for JWT verification.
       private def to_pem(n : String, e : String) : String
         # Decode base64url-encoded modulus and exponent
-        n_bytes = base64url_decode_bytes(n)
-        e_bytes = base64url_decode_bytes(e)
+        n_bytes = JWT::RS256Parser.base64url_decode_bytes(n)
+        e_bytes = JWT::RS256Parser.base64url_decode_bytes(e)
 
         # Convert bytes to BIGNUMs
         modulus = LibCrypto.bn_bin2bn(n_bytes, n_bytes.size, nil)
@@ -133,15 +118,6 @@ module LavinMQ
           end
           {JSON.parse(response.body), response.headers}
         end
-      end
-
-      private def base64url_decode_bytes(input : String) : Bytes
-        padded = case input.size % 4
-                 when 2 then input + "=="
-                 when 3 then input + "="
-                 else        input
-                 end
-        Base64.decode(padded.tr("-_", "+/"))
       end
     end
   end

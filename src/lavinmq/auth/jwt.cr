@@ -61,7 +61,7 @@ module JWT
       Token.new(header, payload, signature)
     end
 
-    private def self.base64url_decode(str : String) : String
+    def self.base64url_decode(str : String) : String
       # Convert base64url to base64
       base64 = str.tr("-_", "+/")
 
@@ -76,7 +76,7 @@ module JWT
       Base64.decode_string(base64)
     end
 
-    private def self.base64url_decode_bytes(str : String) : Bytes
+    def self.base64url_decode_bytes(str : String) : Bytes
       base64 = str.tr("-_", "+/")
 
       case base64.size % 4

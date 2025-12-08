@@ -87,7 +87,7 @@ module LavinMQ
         raise JWT::DecodeError.new("Missing algorithm in header") unless alg
         raise JWT::DecodeError.new("Expected RS256, got #{alg}") unless alg == "RS256"
 
-        payload_str = base64url_decode(parts[1])
+        payload_str = JWT::RS256Parser.base64url_decode(parts[1])
         payload = JSON.parse(payload_str)
         exp = payload["exp"]?.try(&.as_i64?)
         raise JWT::DecodeError.new("Missing exp claim in token") unless exp
@@ -96,9 +96,9 @@ module LavinMQ
 
       private def verify_with_public_key(token : String) : JWT::Token
         # Try cached public keys first
-        if keys = @public_keys.get?
+        if @public_keys.get?
           begin
-            return @jwks_fetcher.decode_token(token, keys)
+            return @public_keys.decode(token)
           rescue JWT::DecodeError | JWT::VerificationError
             # Key might have rotated, fetch fresh keys
             @public_keys.clear
@@ -112,7 +112,7 @@ module LavinMQ
         @public_keys.update(public_keys, ttl)
         Log.debug { "Updated public_key cache with #{public_keys.size} key(s), TTL=#{ttl}" }
 
-        @jwks_fetcher.decode_token(token, public_keys)
+        @public_keys.decode(token)
       end
 
       protected def validate_and_extract_claims(payload) : TokenClaims
@@ -267,15 +267,6 @@ module LavinMQ
                              when "write"     then permissions[vhost].merge({write: regex})
                              else                  permissions[vhost]
                              end
-      end
-
-      private def base64url_decode(input : String) : String
-        padded = case input.size % 4
-                 when 2 then input + "=="
-                 when 3 then input + "="
-                 else        input
-                 end
-        Base64.decode_string(padded.tr("-_", "+/"))
       end
     end
   end
