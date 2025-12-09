@@ -31,7 +31,7 @@ module LavinMQ
     property tls_key_path = ""
     property tls_ciphers = ""
     property tls_min_version = ""
-    property ssl_keylog_file = ""
+    property tls_keylog_file = ""
     property http_bind = "127.0.0.1"
     property http_port = 15672
     property https_port = 15671
@@ -322,7 +322,7 @@ module LavinMQ
         when "tls_key"                   then @tls_key_path = v
         when "tls_ciphers"               then @tls_ciphers = v
         when "tls_min_version"           then @tls_min_version = v
-        when "ssl_keylog_file"           then @ssl_keylog_file = v
+        when "tls_keylog_file"           then @tls_keylog_file = v
         when "log_exchange"              then @log_exchange = true?(v)
         when "free_disk_min"             then @free_disk_min = v.to_i64
         when "free_disk_warn"            then @free_disk_warn = v.to_i64

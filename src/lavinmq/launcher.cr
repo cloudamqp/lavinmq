@@ -332,7 +332,8 @@ module LavinMQ
     end
 
     private def reload_ssl_keylog(tls)
-      keylog_file = @config.ssl_keylog_file
+      keylog_file = @config.tls_keylog_file
+      keylog_file = ENV.fetch("SSLKEYLOGFILE", "") if keylog_file.empty?
       if keylog_file.empty?
         tls.keylog_file = nil
       else
