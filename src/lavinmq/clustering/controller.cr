@@ -31,6 +31,7 @@ class LavinMQ::Clustering::Controller
     wait_to_be_insync
     @etcd.election_campaign("#{@config.clustering_etcd_prefix}/leader", @advertised_uri, lease: @id) # blocks until becoming leader
     @is_leader.set(true)
+    @etcd.del("#{@config.clustering_etcd_prefix}/isr") # delete legacy ISR key (used up until v2.6.x)
     execute_shell_command(@config.clustering_on_leader_elected, "leader_elected")
     @repli_client.try &.close
     # TODO: make sure we still are in the ISR set
@@ -135,16 +136,55 @@ class LavinMQ::Clustering::Controller
   end
 
   def wait_to_be_insync
-    key = "#{@config.clustering_etcd_prefix}/replica/#{@id.to_s(36)}/insync"
-    if insync = @etcd.get(key)
-      unless insync == "1"
-        Log.info { "Replica #{@id.to_s(36)} not in sync (insync=#{insync}), waiting for leader" }
-        @etcd.watch(key) do |value|
-          break if value == "1"
-        end
-        Log.info { "In sync with leader" }
+    new_key = "#{@config.clustering_etcd_prefix}/replica/#{@id.to_s(36)}/insync"
+    old_key = "#{@config.clustering_etcd_prefix}/isr"
+
+    # Check if already in sync via new key format
+    if @etcd.get(new_key) == "1"
+      return
+    end
+
+    # Check if already in sync via old comma-separated format (used up until v2.6.x)
+    legacy_isr_exists = false
+    if isr = @etcd.get(old_key)
+      legacy_isr_exists = true
+      if isr.split(",").map(&.to_i(36)).includes?(@id)
+        Log.info { "In sync via legacy ISR key" }
+        return
       end
     end
+
+    # Not in sync, need to wait
+    Log.info { "Replica #{@id.to_s(36)} not in sync, waiting for leader" }
+    insync = Channel(Nil).new
+
+    # Watch new individual key format
+    spawn(name: "watch new insync key") do
+      @etcd.watch(new_key) do |value|
+        if value == "1"
+          insync.close
+          break
+        end
+      end
+    end
+
+    # Watch old comma-separated ISR key format only if it exists (backwards compatibility
+    # during rolling upgrades where old leader uses comma-separated format, used up until v2.6.x)
+    if legacy_isr_exists
+      spawn(name: "watch legacy isr key") do
+        @etcd.watch(old_key) do |value|
+          # Break if deleted (new leader took over) or if we're now in the ISR
+          break if value.nil?
+          if value.split(",").map(&.to_i(36)).includes?(@id)
+            insync.close
+            break
+          end
+        end
+      end
+    end
+
+    insync.receive?
+    Log.info { "In sync with leader" }
   end
 
   private def execute_shell_command(command : String, event : String)
