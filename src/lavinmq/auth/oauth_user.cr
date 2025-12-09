@@ -1,8 +1,8 @@
-require "./user"
+require "./base_user"
 
 module LavinMQ
   module Auth
-    class OAuthUser < User
+    class OAuthUser < BaseUser
       getter name : String
       getter tags : Array(Tag)
       getter permissions : Hash(String, Permissions)
@@ -24,7 +24,7 @@ module LavinMQ
             when @token_updated.receive
               next
             when timeout(token_lifetime)
-              yield # block.call
+              block.call
               break
             end
           end

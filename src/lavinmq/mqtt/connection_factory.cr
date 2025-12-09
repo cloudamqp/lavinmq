@@ -3,7 +3,7 @@ require "socket"
 require "./protocol"
 require "./client"
 require "./brokers"
-require "../auth/user"
+require "../auth/base_user"
 require "../client/connection_factory"
 require "../auth/authenticator"
 

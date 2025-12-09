@@ -6,9 +6,9 @@ require "./lavinmq/http/constants"
 require "./lavinmq/shovel/constants"
 require "./lavinmq/federation/constants"
 require "./lavinmq/definitions_generator"
-require "./lavinmq/auth/user"
+require "./lavinmq/auth/base_user"
 require "./lavinmq/auth/password"
-require "./lavinmq/auth/local_user"
+require "./lavinmq/auth/user"
 
 class LavinMQCtl
   @options = {} of String => String
@@ -846,7 +846,163 @@ class LavinMQCtl
   private def hash_password
     password = ARGV.shift?
     abort @banner unless password
-    output LavinMQ::Auth::LocalUser.hash_password(password, "SHA256")
+    output LavinMQ::Auth::User.hash_password(password, "SHA256")
+  end
+
+  private def list_shovels
+    vhost = @options["vhost"]? || "/"
+    puts "Listing shovels for vhost #{vhost} ..." unless quiet?
+    ss = get("/api/shovels/#{URI.encode_www_form(vhost)}").map do |s|
+      next unless shovel = s.as_h?
+      {
+        name:  shovel["name"].to_s,
+        vhost: shovel["vhost"].to_s,
+        state: shovel["state"]?.try(&.to_s) || "N/A",
+      }
+    end
+    output ss
+  end
+
+  private def add_shovel
+    name = ARGV.shift?
+    vhost = @options["vhost"]? || "/"
+    abort @banner unless name
+    abort "Fields '--src-uri' and '--dest-uri' are required" unless @args["src-uri"]? && @args["dest-uri"]?
+
+    # Set default values if not provided
+    @args["src-prefetch-count"] ||= JSON::Any.new(LavinMQ::Shovel::DEFAULT_PREFETCH.to_i64)
+    @args["reconnect-delay"] ||= JSON::Any.new(LavinMQ::Shovel::DEFAULT_RECONNECT_DELAY.total_seconds.to_i64)
+    @args["ack-mode"] ||= JSON::Any.new(LavinMQ::Shovel::DEFAULT_ACK_MODE.to_s.underscore.gsub("_", "-"))
+    @args["src-delete-after"] ||= JSON::Any.new(LavinMQ::Shovel::DEFAULT_DELETE_AFTER.to_s.underscore.gsub("_", "-"))
+
+    url = "/api/parameters/shovel/#{URI.encode_www_form(vhost)}/#{URI.encode_www_form(name)}"
+    body = {"value" => @args}
+    resp = http.put url, @headers, body.to_json
+    handle_response(resp, 201, 204)
+  end
+
+  private def delete_shovel
+    name = ARGV.shift?
+    vhost = @options["vhost"]? || "/"
+    abort @banner unless name
+    url = "/api/parameters/shovel/#{URI.encode_www_form(vhost)}/#{URI.encode_www_form(name)}"
+    resp = http.delete url
+    handle_response(resp, 204)
+  end
+
+  private def list_federations
+    vhost = @options["vhost"]? || "/"
+    puts "Listing federation upstreams for vhost #{vhost} ..." unless quiet?
+    ff = get("/api/parameters/federation-upstream/#{URI.encode_www_form(vhost)}").map do |u|
+      next unless f = u.as_h?
+      {name: f["name"].to_s, component: f["component"].to_s}
+    end
+    output ff
+  end
+
+  private def add_federation
+    name = ARGV.shift?
+    vhost = @options["vhost"]? || "/"
+    abort @banner unless name
+    abort "Field '--uri' is required" unless @args["uri"]?
+
+    # Set default values if not provided
+    @args["prefetch-count"] ||= JSON::Any.new(LavinMQ::Federation::DEFAULT_PREFETCH.to_i64)
+    @args["reconnect-delay"] ||= JSON::Any.new(LavinMQ::Federation::DEFAULT_RECONNECT_DELAY.total_seconds)
+    @args["ack-mode"] ||= JSON::Any.new(LavinMQ::Federation::DEFAULT_ACK_MODE.to_s.underscore.gsub("_", "-"))
+    @args["max-hops"] ||= JSON::Any.new(LavinMQ::Federation::DEFAULT_MAX_HOPS)
+
+    url = "/api/parameters/federation-upstream/#{URI.encode_www_form(vhost)}/#{URI.encode_www_form(name)}"
+    body = {"value" => @args}
+    resp = http.put url, @headers, body.to_json
+    handle_response(resp, 201, 204)
+  end
+
+  private def delete_federation
+    name = ARGV.shift?
+    vhost = @options["vhost"]? || "/"
+    abort @banner unless name
+    url = "/api/parameters/federation-upstream/#{URI.encode_www_form(vhost)}/#{URI.encode_www_form(name)}"
+    resp = http.delete url
+    handle_response(resp, 204)
+  end
+
+  private def list_shovels
+    vhost = @options["vhost"]? || "/"
+    puts "Listing shovels for vhost #{vhost} ..." unless quiet?
+    ss = get("/api/shovels/#{URI.encode_www_form(vhost)}").map do |s|
+      next unless shovel = s.as_h?
+      {
+        name:  shovel["name"].to_s,
+        vhost: shovel["vhost"].to_s,
+        state: shovel["state"]?.try(&.to_s) || "N/A",
+      }
+    end
+    output ss
+  end
+
+  private def add_shovel
+    name = ARGV.shift?
+    vhost = @options["vhost"]? || "/"
+    abort @banner unless name
+    abort "Fields '--src-uri' and '--dest-uri' are required" unless @args["src-uri"]? && @args["dest-uri"]?
+
+    # Set default values if not provided
+    @args["src-prefetch-count"] ||= JSON::Any.new(LavinMQ::Shovel::DEFAULT_PREFETCH.to_i64)
+    @args["reconnect-delay"] ||= JSON::Any.new(LavinMQ::Shovel::DEFAULT_RECONNECT_DELAY.total_seconds.to_i64)
+    @args["ack-mode"] ||= JSON::Any.new(LavinMQ::Shovel::DEFAULT_ACK_MODE.to_s.underscore.gsub("_", "-"))
+    @args["src-delete-after"] ||= JSON::Any.new(LavinMQ::Shovel::DEFAULT_DELETE_AFTER.to_s.underscore.gsub("_", "-"))
+
+    url = "/api/parameters/shovel/#{URI.encode_www_form(vhost)}/#{URI.encode_www_form(name)}"
+    body = {"value" => @args}
+    resp = http.put url, @headers, body.to_json
+    handle_response(resp, 201, 204)
+  end
+
+  private def delete_shovel
+    name = ARGV.shift?
+    vhost = @options["vhost"]? || "/"
+    abort @banner unless name
+    url = "/api/parameters/shovel/#{URI.encode_www_form(vhost)}/#{URI.encode_www_form(name)}"
+    resp = http.delete url
+    handle_response(resp, 204)
+  end
+
+  private def list_federations
+    vhost = @options["vhost"]? || "/"
+    puts "Listing federation upstreams for vhost #{vhost} ..." unless quiet?
+    ff = get("/api/parameters/federation-upstream/#{URI.encode_www_form(vhost)}").map do |u|
+      next unless f = u.as_h?
+      {name: f["name"].to_s, component: f["component"].to_s}
+    end
+    output ff
+  end
+
+  private def add_federation
+    name = ARGV.shift?
+    vhost = @options["vhost"]? || "/"
+    abort @banner unless name
+    abort "Field '--uri' is required" unless @args["uri"]?
+
+    # Set default values if not provided
+    @args["prefetch-count"] ||= JSON::Any.new(LavinMQ::Federation::DEFAULT_PREFETCH.to_i64)
+    @args["reconnect-delay"] ||= JSON::Any.new(LavinMQ::Federation::DEFAULT_RECONNECT_DELAY.total_seconds)
+    @args["ack-mode"] ||= JSON::Any.new(LavinMQ::Federation::DEFAULT_ACK_MODE.to_s.underscore.gsub("_", "-"))
+    @args["max-hops"] ||= JSON::Any.new(LavinMQ::Federation::DEFAULT_MAX_HOPS)
+
+    url = "/api/parameters/federation-upstream/#{URI.encode_www_form(vhost)}/#{URI.encode_www_form(name)}"
+    body = {"value" => @args}
+    resp = http.put url, @headers, body.to_json
+    handle_response(resp, 201, 204)
+  end
+
+  private def delete_federation
+    name = ARGV.shift?
+    vhost = @options["vhost"]? || "/"
+    abort @banner unless name
+    url = "/api/parameters/federation-upstream/#{URI.encode_www_form(vhost)}/#{URI.encode_www_form(name)}"
+    resp = http.delete url
+    handle_response(resp, 204)
   end
 
   private def list_shovels

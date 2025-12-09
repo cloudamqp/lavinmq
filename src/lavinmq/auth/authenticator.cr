@@ -3,9 +3,9 @@ module LavinMQ
     abstract class Authenticator
       Log = LavinMQ::Log.for "auth.handler"
 
-      abstract def authenticate(username : String, password : String) : User?
+      abstract def authenticate(username : String, password : String) : BaseUser?
 
-      def authenticate(username : String, password : Bytes) : User?
+      def authenticate(username : String, password : Bytes) : BaseUser?
         authenticate(username, String.new(password))
       end
     end

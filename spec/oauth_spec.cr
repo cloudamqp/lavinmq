@@ -308,7 +308,7 @@ module OAuthUserHelper
     LavinMQ::Auth::OAuthAuthenticator.new(config)
   end
 
-  def create_user(expires_at : Time, permissions = {} of String => LavinMQ::Auth::User::Permissions)
+  def create_user(expires_at : Time, permissions = {} of String => LavinMQ::Auth::BaseUser::Permissions)
     LavinMQ::Auth::OAuthUser.new(
       "testuser",
       [] of LavinMQ::Tag,

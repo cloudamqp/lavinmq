@@ -6,12 +6,12 @@ class MockAuthenticator
   include LavinMQ::Auth::TokenVerifier
 
   def initialize(@username : String, @tags : Array(LavinMQ::Tag)?,
-                 @permissions : Hash(String, LavinMQ::Auth::User::Permissions)?, @expires_at : Time)
+                 @permissions : Hash(String, LavinMQ::Auth::BaseUser::Permissions)?, @expires_at : Time)
   end
 
   def verify_token(token : String) : TokenClaims
     tags = @tags || Array(LavinMQ::Tag).new
-    permissions = @permissions || Hash(String, LavinMQ::Auth::User::Permissions).new
+    permissions = @permissions || Hash(String, LavinMQ::Auth::BaseUser::Permissions).new
     TokenClaims.new(@username, tags, permissions, @expires_at)
   end
 end
@@ -141,7 +141,7 @@ describe LavinMQ::Auth::Chain do
         # Should authenticate with local backend
         user = chain.authenticate("testuser", "localpass")
         user.should_not be_nil
-        user.should be_a LavinMQ::Auth::User
+        user.should be_a LavinMQ::Auth::BaseUser
         user.try(&.name).should eq "testuser"
       end
     end
@@ -202,7 +202,7 @@ describe LavinMQ::Auth::Chain do
         # Should stop at local backend and not try oauth
         user = chain.authenticate("testuser", "localpass")
         user.should_not be_nil
-        user.should be_a LavinMQ::Auth::User
+        user.should be_a LavinMQ::Auth::BaseUser
         user.try(&.name).should eq "testuser"
         # Verify it's the local user (has the Management tag we set)
         if u = user
@@ -222,7 +222,7 @@ describe LavinMQ::Auth::Chain do
       user = LavinMQ::Auth::OAuthUser.new(
         "testuser",
         [] of LavinMQ::Tag,
-        {} of String => LavinMQ::Auth::User::Permissions,
+        {} of String => LavinMQ::Auth::BaseUser::Permissions,
         Time.utc + 1.hour,
         authenticator
       )
@@ -241,7 +241,7 @@ describe LavinMQ::Auth::Chain do
       user = LavinMQ::Auth::OAuthUser.new(
         "testuser",
         [] of LavinMQ::Tag,
-        {} of String => LavinMQ::Auth::User::Permissions,
+        {} of String => LavinMQ::Auth::BaseUser::Permissions,
         Time.utc - 1.hour,
         authenticator
       )
@@ -260,7 +260,7 @@ describe LavinMQ::Auth::Chain do
         user = LavinMQ::Auth::OAuthUser.new(
           "testuser",
           [] of LavinMQ::Tag,
-          {} of String => LavinMQ::Auth::User::Permissions,
+          {} of String => LavinMQ::Auth::BaseUser::Permissions,
           Time.utc + 50.milliseconds,
           authenticator
         )
@@ -286,7 +286,7 @@ describe LavinMQ::Auth::Chain do
         user = LavinMQ::Auth::OAuthUser.new(
           "testuser",
           [] of LavinMQ::Tag,
-          {} of String => LavinMQ::Auth::User::Permissions,
+          {} of String => LavinMQ::Auth::BaseUser::Permissions,
           Time.utc + 100.milliseconds,
           authenticator
         )
@@ -320,7 +320,7 @@ describe LavinMQ::Auth::Chain do
         user = LavinMQ::Auth::OAuthUser.new(
           "testuser",
           [] of LavinMQ::Tag,
-          {} of String => LavinMQ::Auth::User::Permissions,
+          {} of String => LavinMQ::Auth::BaseUser::Permissions,
           Time.utc + 1.hour,
           authenticator
         )

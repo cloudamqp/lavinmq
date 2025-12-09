@@ -4,7 +4,7 @@ require "../controller"
 module LavinMQ
   module HTTP
     module ConnectionsHelper
-      private def connections(user : Auth::User)
+      private def connections(user : Auth::BaseUser)
         if user.tags.any? { |t| t.administrator? || t.monitoring? }
           @amqp_server.connections
         else
@@ -80,7 +80,7 @@ module LavinMQ
         context
       end
 
-      private def can_access_connection?(c : Client, user : Auth::User) : Bool
+      private def can_access_connection?(c : Client, user : Auth::BaseUser) : Bool
         c.user == user || user.tags.any? { |t| t.administrator? || t.monitoring? }
       end
     end
