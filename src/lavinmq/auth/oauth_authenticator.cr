@@ -95,7 +95,7 @@ module LavinMQ
         payload = JSON.parse(payload_str)
         exp = payload["exp"]?.try(&.as_i64?)
         raise JWT::DecodeError.new("Missing exp claim in token") unless exp
-        raise JWT::DecodeError.new("Token has expired") if Time.unix(exp) <= Time.utc
+        raise JWT::DecodeError.new("Token has expired") if Time.unix(exp) <= RoughTime.utc
       end
 
       private def verify_with_public_key(token : String) : JWT::Token

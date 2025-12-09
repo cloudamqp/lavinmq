@@ -323,7 +323,7 @@ describe LavinMQ::Auth::OAuthUser do
   describe "#update_secret" do
     it "rejects token with mismatched username" do
       permissions = {"/" => {config: /.*/, read: /.*/, write: /.*/}}
-      user = OAuthUserHelper.create_user(Time.utc + 1.hour, permissions)
+      user = OAuthUserHelper.create_user(RoughTime.utc + 1.hour, permissions)
 
       # Create a mock token that would validate but has wrong username
       # Since we can't easily create valid JWT tokens in tests without a real key,

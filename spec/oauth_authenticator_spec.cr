@@ -64,7 +64,7 @@ describe LavinMQ::Auth::OAuthAuthenticator do
 
       # Create token with HS256 algorithm (should be rejected)
       header = {"alg" => "HS256", "typ" => "JWT"}
-      payload = {"sub" => "test", "exp" => (Time.utc.to_unix + 3600).to_i64}
+      payload = {"sub" => "test", "exp" => (RoughTime.utc.to_unix + 3600).to_i64}
       header_b64 = Base64.strict_encode(header.to_json).tr("+/", "-_").rstrip("=")
       payload_b64 = Base64.strict_encode(payload.to_json).tr("+/", "-_").rstrip("=")
 
@@ -98,7 +98,7 @@ describe LavinMQ::Auth::OAuthAuthenticator do
 
       # Create token that expired 1 hour ago
       header = {"alg" => "RS256", "typ" => "JWT"}
-      payload = {"sub" => "test", "exp" => (Time.utc.to_unix - 3600).to_i64, "preferred_username" => "testuser"}
+      payload = {"sub" => "test", "exp" => (RoughTime.utc.to_unix - 3600).to_i64, "preferred_username" => "testuser"}
       header_b64 = Base64.strict_encode(header.to_json).tr("+/", "-_").rstrip("=")
       payload_b64 = Base64.strict_encode(payload.to_json).tr("+/", "-_").rstrip("=")
 
@@ -115,7 +115,7 @@ describe LavinMQ::Auth::OAuthAuthenticator do
 
       # Try "none" algorithm attack
       header = {"alg" => "none", "typ" => "JWT"}
-      payload = {"sub" => "test", "exp" => (Time.utc.to_unix + 3600).to_i64, "preferred_username" => "hacker"}
+      payload = {"sub" => "test", "exp" => (RoughTime.utc.to_unix + 3600).to_i64, "preferred_username" => "hacker"}
       header_b64 = Base64.strict_encode(header.to_json).tr("+/", "-_").rstrip("=")
       payload_b64 = Base64.strict_encode(payload.to_json).tr("+/", "-_").rstrip("=")
 

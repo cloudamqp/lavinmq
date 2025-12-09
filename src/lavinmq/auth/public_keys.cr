@@ -23,7 +23,7 @@ module LavinMQ
       def update(keys : Hash(String, String), ttl : Time::Span)
         @mutex.synchronize do
           @keys = keys
-          @expires_at = Time.utc + ttl
+          @expires_at = RoughTime.utc + ttl
         end
       end
 
@@ -56,7 +56,7 @@ module LavinMQ
 
       private def expired? : Bool
         if expires_at = @expires_at
-          Time.utc >= expires_at
+          RoughTime.utc >= expires_at
         else
           true
         end
