@@ -95,23 +95,13 @@ module LavinMQ
       end
 
       private def verify_with_public_key(token : String) : JWT::Token
-        # Try cached public keys first
-        if @public_keys.get?
-          begin
-            return @public_keys.decode(token)
-          rescue JWT::DecodeError | JWT::VerificationError
-            # Key might have rotated, fetch fresh keys
-            @public_keys.clear
-          end
-        end
-
-        # Cache miss or decode failed: fetch new public_keys from JWKS
-        Log.debug { "JWKS cache expired or decode failed, fetching from issuer" }
-        public_keys, ttl = @jwks_fetcher.fetch_jwks
-
-        @public_keys.update(public_keys, ttl)
-        Log.debug { "Updated public_key cache with #{public_keys.size} key(s), TTL=#{ttl}" }
-
+        @public_keys.decode(token)
+      rescue JWT::DecodeError | JWT::VerificationError
+        # Cache miss, expired, or key rotation: fetch fresh keys and retry once
+        Log.debug { "JWKS decode failed, fetching fresh keys from issuer" }
+        result = @jwks_fetcher.fetch_jwks
+        @public_keys.update(result.keys, result.ttl)
+        Log.debug { "Updated public_key cache with #{result.keys.size} key(s), TTL=#{result.ttl}" }
         @public_keys.decode(token)
       end
 

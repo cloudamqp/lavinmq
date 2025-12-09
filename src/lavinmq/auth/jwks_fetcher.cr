@@ -9,10 +9,12 @@ module LavinMQ
     class JWKSFetcher
       Log = LavinMQ::Log.for "jwks_fetcher"
 
+      record JWKSResult, keys : Hash(String, String), ttl : Time::Span
+
       def initialize(@issuer_url : String, @default_cache_ttl : Time::Span)
       end
 
-      def fetch_jwks : {Hash(String, String), Time::Span}
+      def fetch_jwks : JWKSResult
         # Discover jwks_uri from OIDC configuration
         oidc_config, _ = fetch_url("#{@issuer_url.chomp("/")}/.well-known/openid-configuration")
         jwks_uri = oidc_config["jwks_uri"]?.try(&.as_s?) || raise "Missing jwks_uri in OIDC configuration"
@@ -20,7 +22,7 @@ module LavinMQ
         jwks, headers = fetch_url(jwks_uri)
         public_keys = extract_public_keys_from_jwks(jwks)
         ttl = extract_jwks_ttl(headers)
-        {public_keys, ttl}
+        JWKSResult.new(public_keys, ttl)
       end
 
       private def extract_public_keys_from_jwks(jwks : JSON::Any)
