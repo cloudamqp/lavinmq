@@ -25,7 +25,13 @@ class OpenSSL::SSL::Context::Server
         LibSSL.ssl_ctx_set_keylog_callback(@handle, ->(ssl : LibSSL::SSL, line : LibC::Char*) {
           ssl_ctx = LibSSL.ssl_get_ssl_ctx(ssl).as(LibSSL::SSLContext)
           if f = @@keylog_files[ssl_ctx]?
-            f.puts String.new(line)
+            len = LibC.strlen(line)
+            str = String.new(len + 1) do |buf|
+              buf.copy_from(line, len)
+              buf[len] = '\n'.ord.to_u8
+              {len + 1, len + 1}
+            end
+            f.print(str)
           end
         })
       else
