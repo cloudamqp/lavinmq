@@ -10,14 +10,19 @@ require "./lib_crypto_ext"
 
 module LavinMQ
   module Auth
-    class OAuthAuthenticator < Authenticator
-      Log = LavinMQ::Log.for "oauth2"
-
+    module TokenVerifier
       record TokenClaims,
         username : String,
         tags : Array(Tag),
         permissions : Hash(String, User::Permissions),
         expires_at : Time
+
+      abstract def verify_token(token : String) : TokenClaims
+    end
+
+    class OAuthAuthenticator < Authenticator
+      include TokenVerifier
+      Log = LavinMQ::Log.for "oauth2"
 
       @public_keys = PublicKeys.new
       @jwks_fetcher : JWKSFetcher
@@ -52,16 +57,15 @@ module LavinMQ
       def authenticate(username : String, password : String) : OAuthUser?
         claims = verify_token(password)
 
-        Log.info { "OAuth2 user authenticated: #{claims.username}" }
         OAuthUser.new(claims.username, claims.tags, claims.permissions, claims.expires_at, self)
       rescue ex : JWT::PasswordFormatError
         Log.debug { "OAuth2 skipping authentication for user \"#{username}\": password is not a JWT token" }
         nil
       rescue ex : JWT::DecodeError
-        Log.warn { "OAuth2 authentication failed for user \"#{username}\": Could not decode token - #{ex.message}" }
+        Log.debug { "OAuth2 authentication failed for user \"#{username}\": Could not decode token - #{ex.message}" }
         nil
       rescue ex : JWT::VerificationError
-        Log.warn { "OAuth2 authentication failed for user \"#{username}\": Token verification failed - #{ex.message}" }
+        Log.debug { "OAuth2 authentication failed for user \"#{username}\": Token verification failed - #{ex.message}" }
         nil
       rescue ex : Exception
         Log.error(exception: ex) { "OAuth2 authentication failed for user \"#{username}\": #{ex.message}" }
@@ -111,7 +115,8 @@ module LavinMQ
 
         username = extract_username(payload)
         tags, permissions = parse_roles(payload)
-        expires_at = payload["exp"]?.try(&.as_i64?) || raise JWT::VerificationError.new("No expiration time found in JWT token")
+        expires_at = payload["exp"]?.try(&.as_i64?)
+        raise JWT::DecodeError.new("No expiration time found in JWT token") unless expires_at
         TokenClaims.new(username, tags, permissions, Time.unix(expires_at))
       end
 

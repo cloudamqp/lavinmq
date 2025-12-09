@@ -7,16 +7,28 @@ module LavinMQ
       getter tags : Array(Tag)
       getter permissions : Hash(String, Permissions)
 
+      @token_updated = Channel(Nil).new
+
       def initialize(@name : String, @tags : Array(Tag), @permissions : Hash(String, Permissions),
-                     @expires_at : Time, @authenticator : OAuthAuthenticator)
+                     @expires_at : Time, @authenticator : TokenVerifier)
       end
 
-      def expiration=(time : Time)
-        @expires_at = time
+      def token_lifetime : Time::Span
+        @expires_at - RoughTime.utc
       end
 
-      def expired? : Bool
-        Time.utc > @expires_at
+      def on_expiration(&block)
+        spawn do
+          loop do
+            select
+            when @token_updated.receive
+              next
+            when timeout(token_lifetime)
+              block.call
+              break
+            end
+          end
+        end
       end
 
       def update_secret(new_secret : String)
@@ -32,36 +44,7 @@ module LavinMQ
         @permissions = claims.permissions
         @expires_at = claims.expires_at
         clear_permissions_cache
-      end
-
-      def can_write?(vhost : String, name : String, cache : PermissionCache) : Bool
-        raise TokenExpiredError.new("OAuth token expired for user '#{@name}'") if expired?
-        super
-      end
-
-      def can_read?(vhost : String, name : String) : Bool
-        raise TokenExpiredError.new("OAuth token expired for user '#{@name}'") if expired?
-        super
-      end
-
-      def can_config?(vhost : String, name : String) : Bool
-        raise TokenExpiredError.new("OAuth token expired for user '#{@name}'") if expired?
-        super
-      end
-
-      def can_impersonate? : Bool
-        raise TokenExpiredError.new("OAuth token expired for user '#{@name}'") if expired?
-        super
-      end
-
-      def permissions_details(vhost : String, p : Permissions)
-        {
-          user:      @name,
-          vhost:     vhost,
-          configure: p[:config],
-          read:      p[:read],
-          write:     p[:write],
-        }
+        @token_updated.send nil
       end
     end
   end

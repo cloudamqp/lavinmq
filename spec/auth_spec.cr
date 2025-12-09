@@ -2,6 +2,20 @@ require "./spec_helper"
 require "../src/lavinmq/auth/chain"
 require "../src/lavinmq/auth/local_authenticator"
 
+class MockAuthenticator
+  include LavinMQ::Auth::TokenVerifier
+
+  def initialize(@username : String, @tags : Array(LavinMQ::Tag)?,
+                 @permissions : Hash(String, LavinMQ::Auth::User::Permissions)?, @expires_at : Time)
+  end
+
+  def verify_token(token : String) : TokenClaims
+    tags = @tags || Array(LavinMQ::Tag).new
+    permissions = @permissions || Hash(String, LavinMQ::Auth::User::Permissions).new
+    TokenClaims.new(@username, tags, permissions, @expires_at)
+  end
+end
+
 describe LavinMQ::Auth::Chain do
   it "Creates a default authentication chain if not configured" do
     with_amqp_server do |s|
@@ -195,6 +209,173 @@ describe LavinMQ::Auth::Chain do
           u.tags.should contain(LavinMQ::Tag::Management)
         end
       end
+    end
+  end
+
+  describe "OauthUser" do
+    it "token_lifetime returns positive duration for non-expired token" do
+      config = LavinMQ::Config.new
+      config.oauth_issuer_url = "https://auth.example.com"
+      config.oauth_preferred_username_claims = ["preferred_username"]
+      authenticator = LavinMQ::Auth::OAuthAuthenticator.new(config)
+
+      user = LavinMQ::Auth::OAuthUser.new(
+        "testuser",
+        [] of LavinMQ::Tag,
+        {} of String => LavinMQ::Auth::User::Permissions,
+        Time.utc + 1.hour,
+        authenticator
+      )
+
+      lifetime = user.token_lifetime
+      lifetime.should be > 59.minutes
+      lifetime.should be <= 1.hour + 1.second
+    end
+
+    it "token_lifetime returns negative duration for expired token" do
+      config = LavinMQ::Config.new
+      config.oauth_issuer_url = "https://auth.example.com"
+      config.oauth_preferred_username_claims = ["preferred_username"]
+      authenticator = LavinMQ::Auth::OAuthAuthenticator.new(config)
+
+      user = LavinMQ::Auth::OAuthUser.new(
+        "testuser",
+        [] of LavinMQ::Tag,
+        {} of String => LavinMQ::Auth::User::Permissions,
+        Time.utc - 1.hour,
+        authenticator
+      )
+
+      lifetime = user.token_lifetime
+      lifetime.should be < 0.seconds
+    end
+
+    describe "notify_expiration" do
+      it "calls the block when token expires" do
+        config = LavinMQ::Config.new
+        config.oauth_issuer_url = "https://auth.example.com"
+        config.oauth_preferred_username_claims = ["preferred_username"]
+        authenticator = LavinMQ::Auth::OAuthAuthenticator.new(config)
+
+        user = LavinMQ::Auth::OAuthUser.new(
+          "testuser",
+          [] of LavinMQ::Tag,
+          {} of String => LavinMQ::Auth::User::Permissions,
+          Time.utc + 50.milliseconds,
+          authenticator
+        )
+
+        callback_called = Channel(Nil).new
+
+        user.notify_expiration do
+          callback_called.send nil
+        end
+
+        select
+        when callback_called.receive
+          # Expected behavior - callback was called
+        when timeout(500.milliseconds)
+          fail "Expected expiration callback to be called"
+        end
+      end
+
+      it "resets expiration timer when token_updated receives" do
+        exp = Time.utc + 300.milliseconds
+        authenticator = MockAuthenticator.new("testuser", nil, nil, exp)
+
+        user = LavinMQ::Auth::OAuthUser.new(
+          "testuser",
+          [] of LavinMQ::Tag,
+          {} of String => LavinMQ::Auth::User::Permissions,
+          Time.utc + 100.milliseconds,
+          authenticator
+        )
+
+        callback_called = false
+
+        user.notify_expiration do
+          callback_called = true
+        end
+
+        # Send token update before expiration
+        sleep 70.milliseconds
+
+        user.update_secret("")
+        # user.token_updated.send nil
+
+        # Wait past the original expiration time
+        sleep 70.milliseconds
+
+        # Callback should not have been called yet since timer was reset
+        # but it will be called eventually (negative token_lifetime triggers immediately)
+        callback_called.should be_false
+      end
+
+      it "does not call block before expiration" do
+        config = LavinMQ::Config.new
+        config.oauth_issuer_url = "https://auth.example.com"
+        config.oauth_preferred_username_claims = ["preferred_username"]
+        authenticator = LavinMQ::Auth::OAuthAuthenticator.new(config)
+
+        user = LavinMQ::Auth::OAuthUser.new(
+          "testuser",
+          [] of LavinMQ::Tag,
+          {} of String => LavinMQ::Auth::User::Permissions,
+          Time.utc + 1.hour,
+          authenticator
+        )
+
+        callback_called = false
+
+        user.notify_expiration do
+          callback_called = true
+        end
+
+        sleep 50.milliseconds
+        callback_called.should be_false
+      end
+    end
+  end
+
+  describe "permissions_details" do
+    it "returns correct permission details for local user" do
+      with_datadir do |data_dir|
+        users = LavinMQ::Auth::UserStore.new(data_dir, nil)
+        user = users.create("testuser", "password", [LavinMQ::Tag::Administrator])
+        user.permissions["/"] = {config: /.*/, read: /.*/, write: /.*/}
+
+        details = user.permissions_details("/", user.permissions["/"])
+
+        details[:user].should eq "testuser"
+        details[:vhost].should eq "/"
+        details[:configure].should eq /.*/
+        details[:read].should eq /.*/
+        details[:write].should eq /.*/
+      end
+    end
+
+    it "returns correct permission details for OAuth user" do
+      config = LavinMQ::Config.new
+      config.oauth_issuer_url = "https://auth.example.com"
+      config.oauth_preferred_username_claims = ["preferred_username"]
+      authenticator = LavinMQ::Auth::OAuthAuthenticator.new(config)
+
+      permissions = {"/" => {config: /^queue/, read: /.*/, write: /^exchange/}}
+      user = LavinMQ::Auth::OAuthUser.new(
+        "oauthuser",
+        [] of LavinMQ::Tag,
+        permissions,
+        Time.utc + 1.hour,
+        authenticator
+      )
+
+      details = user.permissions_details("/", permissions["/"])
+
+      details[:user].should eq "oauthuser"
+      details[:vhost].should eq "/"
+      details[:configure].should eq /^queue/
+      details[:read].should eq /.*/
+      details[:write].should eq /^exchange/
     end
   end
 end

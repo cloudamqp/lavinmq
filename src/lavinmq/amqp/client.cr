@@ -66,6 +66,9 @@ module LavinMQ
         @vhost.add_connection(self)
         @log.info { "Connection established for user=#{@user.name}" }
         spawn read_loop, name: "Client#read_loop #{@connection_info.remote_address}"
+        @user.on_expiration do
+          close_connection(nil, ConnectionReplyCode::CONNECTION_FORCED, "token expired")
+        end
       end
 
       # Returns client provided connection name if set, else server generated name
@@ -153,8 +156,6 @@ module LavinMQ
                 @log.debug { "Discarding #{frame.class.name}, waiting for CloseOk" }
               end
             end
-          rescue e : Auth::TokenExpiredError
-            close_connection(frame, ConnectionReplyCode::CONNECTION_FORCED, e.message)
           rescue e : LavinMQ::Error::PreconditionFailed
             send_precondition_failed(frame, e.message)
           end

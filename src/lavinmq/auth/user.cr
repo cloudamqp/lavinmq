@@ -2,9 +2,6 @@ require "json"
 
 module LavinMQ
   module Auth
-    class TokenExpiredError < Exception
-    end
-
     record PermissionKey, vhost : String, name : String
 
     class PermissionCache
@@ -20,9 +17,19 @@ module LavinMQ
       abstract def name : String
       abstract def tags : Array(Tag)
       abstract def permissions : Hash(String, Permissions)
-      abstract def permissions_details(vhost : String, p : Permissions)
+      abstract def on_expiration(&block)
 
       @permission_revision = Atomic(UInt32).new(0_u32)
+
+      def permissions_details(vhost, p)
+        {
+          user:      name,
+          vhost:     vhost,
+          configure: p[:config],
+          read:      p[:read],
+          write:     p[:write],
+        }
+      end
 
       def can_write?(vhost : String, name : String, cache : PermissionCache) : Bool
         permission_revision = @permission_revision.lazy_get

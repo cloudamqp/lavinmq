@@ -121,16 +121,6 @@ module LavinMQ
         @permissions.map { |k, p| permissions_details(k, p) }
       end
 
-      def permissions_details(vhost, p)
-        {
-          user:      @name,
-          vhost:     vhost,
-          configure: p[:config],
-          read:      p[:read],
-          write:     p[:write],
-        }
-      end
-
       private def parse_permissions(pull)
         pull.read_object do |vhost|
           config = read = write = /^$/
@@ -144,6 +134,9 @@ module LavinMQ
           end
           @permissions[vhost] = {config: config, read: read, write: write}
         end
+      end
+
+      def on_expiration(&block)
       end
 
       class UnknownHashAlgoritm < Exception; end
