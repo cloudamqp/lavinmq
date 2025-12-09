@@ -328,6 +328,18 @@ module LavinMQ
       tls.certificate_chain = @config.tls_cert_path
       tls.private_key = @config.tls_key_path.empty? ? @config.tls_cert_path : @config.tls_key_path
       tls.ciphers = @config.tls_ciphers unless @config.tls_ciphers.empty?
+      reload_ssl_keylog(tls)
+    end
+
+    private def reload_ssl_keylog(tls)
+      keylog_file = @config.tls_keylog_file
+      keylog_file = ENV.fetch("SSLKEYLOGFILE", "") if keylog_file.empty?
+      if keylog_file.empty?
+        tls.keylog_file = nil
+      else
+        tls.keylog_file = keylog_file
+        Log.info { "SSL keylog enabled, writing to #{keylog_file}" }
+      end
     end
 
     private def setup_sni_callbacks
