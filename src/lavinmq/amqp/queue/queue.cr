@@ -18,6 +18,15 @@ require "../../bool_channel"
 require "../argument_validator"
 
 module LavinMQ::AMQP
+  class DeadLettering
+    macro headers_validators
+      {
+        "x-dead-letter-exchange":    ArgumentValidator::StringValidator.new,
+        "x-dead-letter-routing-key": ArgumentValidator::DeadLetteringValidator.new,
+      }
+    end
+  end
+
   class Queue < LavinMQ::Queue
     include PolicyTarget
     include Observable(QueueEvent)
@@ -29,28 +38,25 @@ module LavinMQ::AMQP
       int_one = ArgumentValidator::IntValidator.new(min_value: 1)
       string = ArgumentValidator::StringValidator.new
       bool = ArgumentValidator::BoolValidator.new
-      dlrk = ArgumentValidator::DeadLetteringValidator.new(arguments)
 
       headers = {
-        "x-dead-letter-exchange":    string,
-        "x-dead-letter-routing-key": dlrk,
-        "x-expires":                 int_one,
-        "x-max-length":              int_zero,
-        "x-max-length-bytes":        int_zero,
-        "x-message-ttl":             int_zero,
-        "x-overflow":                string,
-        "x-delivery-limit":          int_zero,
-        "x-consumer-timeout":        int_zero,
-        "x-single-active-consumer":  bool,
-        "x-message-deduplication":   bool,
-        "x-cache-size":              int_zero,
-        "x-cache-ttl":               int_zero,
-        "x-deduplication-header":    string,
-      }
+        "x-expires":                int_one,
+        "x-max-length":             int_zero,
+        "x-max-length-bytes":       int_zero,
+        "x-message-ttl":            int_zero,
+        "x-overflow":               string,
+        "x-delivery-limit":         int_zero,
+        "x-consumer-timeout":       int_zero,
+        "x-single-active-consumer": bool,
+        "x-message-deduplication":  bool,
+        "x-cache-size":             int_zero,
+        "x-cache-ttl":              int_zero,
+        "x-deduplication-header":   string,
+      }.merge(DeadLettering.headers_validators)
 
       arguments.each do |k, v|
         if validator = headers[k]?
-          validator.validate!(k, v)
+          validator.validate!(k, v, arguments)
         end
       end
     end
