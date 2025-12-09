@@ -250,7 +250,7 @@ describe LavinMQ::Auth::Chain do
       lifetime.should be < 0.seconds
     end
 
-    describe "notify_expiration" do
+    describe "on_expiration" do
       it "calls the block when token expires" do
         config = LavinMQ::Config.new
         config.oauth_issuer_url = "https://auth.example.com"
@@ -267,7 +267,7 @@ describe LavinMQ::Auth::Chain do
 
         callback_called = Channel(Nil).new
 
-        user.notify_expiration do
+        user.on_expiration do
           callback_called.send nil
         end
 
@@ -293,7 +293,7 @@ describe LavinMQ::Auth::Chain do
 
         callback_called = false
 
-        user.notify_expiration do
+        user.on_expiration do
           callback_called = true
         end
 
@@ -327,7 +327,7 @@ describe LavinMQ::Auth::Chain do
 
         callback_called = false
 
-        user.notify_expiration do
+        user.on_expiration do
           callback_called = true
         end
 
