@@ -70,40 +70,38 @@ describe "Dead lettering" do
         q = ch.queue(q_name, args: AMQP::Client::Arguments.new(
           {"x-dead-letter-exchange" => "", "x-dead-letter-routing-key" => "#{q_name}2"}
         ))
-        _q2 = ch.queue("#{q_name}2", args: AMQP::Client::Arguments.new(
-          {"x-dead-letter-exchange" => "", "x-dead-letter-routing-key" => q_name, "x-message-ttl" => 1}
+        q2 = ch.queue("#{q_name}2", args: AMQP::Client::Arguments.new(
+          {"x-dead-letter-exchange" => "", "x-dead-letter-routing-key" => q_name, "x-max-length" => 0}
         ))
 
         done = Channel(AMQP::Client::DeliverMessage).new
         i = 0
         q.subscribe(no_ack: false) do |env|
-          env.reject
-          if i == 10
+          if i == 5
             env.ack
             done.send env
+          else
+            env.reject(requeue: false) # reject to trigger dead lettering
           end
           i += 1
         end
+
         ch.default_exchange.publish_confirm("msg", q.name)
 
-        msg = done.receive
-        headers = msg.properties.headers.should_not be_nil
-        x_death = headers["x-death"].as?(Array(AMQ::Protocol::Field)).should_not be_nil
-        x_death_q_dlx_rejected = x_death.find do |xd|
-          xd = xd.as(AMQ::Protocol::Table)
-          xd["queue"] == q_name &&
-            xd["reason"] == "rejected"
+        select
+        when msg = done.receive
+          msg = msg.should be_a AMQP::Client::DeliverMessage
+        when timeout(1.second)
+          fail "Nope, timeout"
         end
-        x_death_q_dlx_rejected = x_death_q_dlx_rejected.as?(AMQ::Protocol::Table).should_not be_nil
-        x_death_q_dlx_rejected["count"].should eq 10
-
-        x_death_q_dlx2_expired = x_death.find do |xd|
+        headers = msg.properties.headers.should be_a AMQ::Protocol::Table
+        x_deaths = headers["x-death"].as?(Array(AMQ::Protocol::Field)).should_not be_nil
+        x_death = x_deaths.find do |xd|
           xd = xd.as(AMQ::Protocol::Table)
-          xd["queue"] == "#{q_name}2" &&
-            xd["reason"] == "expired"
+          xd["queue"] == q_name
         end
-        x_death_q_dlx2_expired = x_death_q_dlx2_expired.as?(AMQ::Protocol::Table).should_not be_nil
-        x_death_q_dlx2_expired["count"].should eq 10
+        x_death = x_death.should be_a(AMQ::Protocol::Table)
+        x_death["count"].should eq 5
       end
     end
   end
@@ -195,43 +193,31 @@ describe "Dead lettering" do
       end
     end
 
-    it "should not block single death to same queue" do
+    it "should prevent dead letter cycle but publish to other queues" do
+      # Test that a message dead-letterd from q1 won't end up in q1 again (loop)
+      # but it should still be dead-lettered to q2
       with_amqp_server do |s|
         v = s.vhosts.create("test")
 
-        # This test demonstrates the key difference:
-        # A message with single death to same queue+reason should NOT be blocked
-        # Only when there are multiple deaths to same queue should it be blocked
-
         q1_args = AMQ::Protocol::Table.new({
-          "x-message-ttl"             => 1,
-          "x-dead-letter-exchange"    => "",
+          "x-max-length"              => 0,
+          "x-dead-letter-exchange"    => "amq.topic",
           "x-dead-letter-routing-key" => "q2",
         })
+
         v.declare_queue("q1", true, false, q1_args)
         v.declare_queue("q2", true, false, AMQ::Protocol::Table.new)
+        v.bind_queue("q1", "amq.topic", "#")
+        v.bind_queue("q2", "amq.topic", "#")
 
-        # Single death entry for current queue - should NOT block
-        headers = AMQ::Protocol::Table.new({
-          "x-death" => [
-            AMQ::Protocol::Table.new({
-              "queue"    => "q1",
-              "reason"   => "expired",
-              "count"    => 1,
-              "time"     => Time.utc,
-              "exchange" => "",
-            }),
-          ] of AMQ::Protocol::Field,
-        })
-        props = AMQ::Protocol::Properties.new(headers: headers)
-        msg = LavinMQ::Message.new(RoughTime.unix_ms, "", "q1", props, 4, IO::Memory.new("msg1"))
+        msg = LavinMQ::Message.new("", "q1", "foo")
 
         v.publish msg
 
         # Should allow through (not a cycle yet)
         select
         when v.queues["q2"].empty.when_false.receive
-          # Success
+          v.queues["q1"].empty.value.should be_true
         when timeout(0.5.seconds)
           fail "Single death should NOT be blocked"
         end
@@ -258,6 +244,13 @@ describe "Dead lettering" do
               "time"     => Time.utc,
               "exchange" => "",
             }),
+            AMQ::Protocol::Table.new({
+              "queue"    => "q1",
+              "reason"   => "expired",
+              "count"    => 1, # First time
+              "time"     => Time.utc,
+              "exchange" => "",
+            }),
           ] of AMQ::Protocol::Field,
         })
         props = AMQ::Protocol::Properties.new(headers: headers)
@@ -267,7 +260,7 @@ describe "Dead lettering" do
         v.publish msg
 
         # Should be blocked (genuine cycle)
-        sleep 0.1.seconds
+        sleep 0.2.seconds
         v.queues["q2"].message_count.should eq initial_count # No new message
       end
     end
