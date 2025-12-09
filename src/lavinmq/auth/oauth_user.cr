@@ -24,7 +24,7 @@ module LavinMQ
             when @token_updated.receive
               next
             when timeout(token_lifetime)
-              block.call
+              yield # block.call
               break
             end
           end

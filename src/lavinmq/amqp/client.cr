@@ -208,13 +208,11 @@ module LavinMQ
         user = @user
         if user.responds_to?(:update_secret)
           user.update_secret(frame.secret)
-          @log.info { "Updated secret for user '#{user.name}'" }
           send AMQP::Frame::Connection::UpdateSecretOk.new
         else
           close_connection(frame, ConnectionReplyCode::ACCESS_REFUSED, "update-secret not supported for current authentication mechanism")
         end
       rescue ex : JWT::Error
-        @log.warn { "UpdateSecret failed for user '#{@user.name}': #{ex.message}" }
         close_connection(frame, ConnectionReplyCode::ACCESS_REFUSED, ex.message)
       rescue ex : Exception
         @log.error(exception: ex) { "UpdateSecret failed for user '#{@user.name}': #{ex.message}" }
