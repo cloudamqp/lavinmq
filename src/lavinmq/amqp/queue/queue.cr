@@ -183,21 +183,49 @@ module LavinMQ::AMQP
       @metadata = ::Log::Metadata.new(nil, {queue: @name, vhost: @vhost.name})
       @log = Logger.new(Log, @metadata)
       File.open(File.join(@data_dir, ".queue"), "w") { |f| f.sync = true; f.print @name }
-      if File.exists?(File.join(@data_dir, ".paused")) # Migrate '.paused' files to 'paused'
-        File.rename(File.join(@data_dir, ".paused"), File.join(@data_dir, "paused"))
-      end
-      if File.exists?(File.join(@data_dir, "paused"))
-        @state = QueueState::Paused
-        @paused.set(true)
-      end
       @msg_store = init_msg_store(@data_dir)
-      if @msg_store.closed
-        close
-      end
       @empty = @msg_store.empty
-      handle_arguments
-      spawn queue_expire_loop, name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}" if @expires
-      spawn message_expire_loop, name: "Queue#message_expire_loop #{@vhost.name}/#{@name}"
+      start
+    end
+
+    private def start : Bool
+      if @msg_store.closed
+        !close
+      else
+        if File.exists?(File.join(@data_dir, ".paused")) # Migrate '.paused' files to 'paused'
+          File.rename(File.join(@data_dir, ".paused"), File.join(@data_dir, "paused"))
+        end
+        if File.exists?(File.join(@data_dir, "paused"))
+          @state = QueueState::Paused
+          @paused.set(true)
+        end
+        handle_arguments
+        spawn queue_expire_loop, name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}" if @expires
+        spawn message_expire_loop, name: "Queue#message_expire_loop #{@vhost.name}/#{@name}"
+        true
+      end
+    end
+
+    def restart! : Bool
+      return false unless @closed
+      reset_queue_state
+      @msg_store = init_msg_store(@data_dir)
+      @empty = @msg_store.empty
+      start
+    end
+
+    private def reset_queue_state
+      @closed = false
+      @state = QueueState::Running
+      # Recreate channels that were closed
+      @queue_expiration_ttl_change = ::Channel(Nil).new
+      @message_ttl_change = ::Channel(Nil).new
+      @paused = BoolChannel.new(false)
+      @consumers_empty = BoolChannel.new(true)
+      @single_active_consumer_change = ::Channel(Client::Channel::Consumer).new
+      @deliver_loop_wg = WaitGroup.new
+      @unacked_count.set(0u32, :relaxed)
+      @unacked_bytesize.set(0u64, :relaxed)
     end
 
     # own method so that it can be overriden in other queue implementations
@@ -420,6 +448,9 @@ module LavinMQ::AMQP
       @msg_store_lock.synchronize do
         @msg_store.close
       end
+      @deliveries.clear
+      @basic_get_unacked.clear
+      @deduper = nil
       # TODO: When closing due to ReadError, queue is deleted if exclusive
       delete if !durable? || @exclusive
       Fiber.yield
