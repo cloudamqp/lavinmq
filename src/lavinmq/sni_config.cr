@@ -140,6 +140,7 @@ module LavinMQ
       end
 
       # Set keylog file
+      keylog_file = ENV.fetch("SSLKEYLOGFILE", "") if keylog_file.empty?
       context.keylog_file = keylog_file unless keylog_file.empty?
 
       context
