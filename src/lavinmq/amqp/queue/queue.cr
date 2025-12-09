@@ -25,6 +25,68 @@ module LavinMQ::AMQP
         "x-dead-letter-routing-key": ArgumentValidator::DeadLetteringValidator.new,
       }
     end
+
+    def initialize(@queue_name : String)
+    end
+
+    def loop?(msg) : Bool
+      unless (headers = msg.properties.headers)
+        return false
+      end
+      unless (xdeaths = headers["x-death"]?.try &.as?(Array(AMQ::Protocol::Field)))
+        return false
+      end
+      # xdeath is sorted with the newest death first. To figure out if it's a
+      # cycle or not we scan until we found this queue. If we find any death
+      # because of a reject first, it's no a cycle.
+      xdeaths.each do |field|
+        next unless xdeath = field.as?(AMQ::Protocol::Table)
+        return false if xdeath["reason"]? == "rejected"
+        return true if xdeath["queue"]? == @queue_name
+      end
+      false
+    end
+
+    def update_headers(headers, exchange_name, routing_keys, reason, expiration) : AMQP::Table
+      xdeaths = headers["x-death"]?.as?(Array(AMQP::Field)) || Array(AMQP::Field).new(1)
+
+      found_at = -1
+      xdeaths.each_with_index do |xd, idx|
+        next unless xd = xd.as?(AMQP::Table)
+        next if xd["queue"]? != @queue_name
+        count = xd["count"].as?(Int) || 0
+        xd.merge!({
+          count:          count + 1,
+          time:           RoughTime.utc,
+          "routing-keys": routing_keys,
+        })
+        xd["original-expiration"] = expiration if expiration
+        found_at = idx
+        break
+      end
+
+      case found_at
+      when -1 # not found so inserting new x-death
+        death = AMQP::Table.new({
+          "queue":        @queue_name,
+          "reason":       reason.to_s,
+          "exchange":     exchange_name,
+          "count":        1,
+          "time":         RoughTime.utc,
+          "routing-keys": routing_keys,
+        })
+        death["original-expiration"] = expiration if expiration
+        xdeaths.unshift death
+      when 0
+        # do nothing, updated xd is in the front
+      else
+        # move updated xd to the front
+        xd = xdeaths.delete_at(found_at)
+        xdeaths.unshift xd
+      end
+      headers["x-death"] = xdeaths
+      headers
+    end
   end
 
   class Queue < LavinMQ::Queue
@@ -191,6 +253,7 @@ module LavinMQ::AMQP
       File.open(File.join(@data_dir, ".queue"), "w") { |f| f.sync = true; f.print @name }
       @msg_store = init_msg_store(@data_dir)
       @empty = @msg_store.empty
+      @dead_letter = DeadLettering.new(@name)
       start
     end
 
@@ -522,6 +585,8 @@ module LavinMQ::AMQP
 
     def publish(msg : Message) : Bool
       return false if @deleted || @state.closed?
+      return false if @dead_letter.loop?(msg)
+
       if d = @deduper
         if d.duplicate?(msg)
           @dedup_count.add(1, :relaxed)
@@ -691,14 +756,10 @@ module LavinMQ::AMQP
       sp = env.segment_position
       msg = env.message
       @log.debug { "Expiring #{sp} now due to #{reason}" }
-      if dlx = msg.dlx || @dlx
-        if dead_letter_loop?(msg.properties.headers, reason)
-          @log.debug { "#{msg} in a dead letter loop, dropping it" }
-        else
-          dlrk = msg.dlrk || @dlrk || msg.routing_key
-          props = handle_dlx_header(msg, reason)
-          dead_letter_msg(msg, props, dlx, dlrk)
-        end
+      if dlx = (msg.dlx || @dlx)
+        dlrk = msg.dlrk || @dlrk || msg.routing_key
+        props = handle_dlx_header(msg, reason)
+        dead_letter_msg(msg, props, dlx, dlrk)
       end
       delete_message sp
     end
@@ -707,7 +768,12 @@ module LavinMQ::AMQP
     # for the same reason already
     private def dead_letter_loop?(headers, reason) : Bool
       xdeaths = headers.try &.["x-death"]?.as?(Array(AMQ::Protocol::Field))
-      return false unless xdeaths
+      if xdeaths.nil?
+        @log.debug { "No dead letter loop because no x-death" }
+        return false
+      else
+        @log.debug { "x-death: #{xdeaths.inspect}" }
+      end
 
       queue_matches, has_rejected = 0, false
       xdeaths.each do |xd|
@@ -720,7 +786,6 @@ module LavinMQ::AMQP
       # For other reasons like TTL, allow one occurrence before blocking (threshold=1)
       threshold = reason.in?(:maxlen, :maxlenbytes) ? 0 : 1
       if queue_matches > threshold && !has_rejected
-        @log.debug { "preventing dead letter loop" }
         true
       else
         false
@@ -744,52 +809,9 @@ module LavinMQ::AMQP
         routing_keys.concat cc.as(Array(AMQP::Field))
       end
 
-      msg.properties.headers = handle_xdeath_header(h, msg.exchange_name, routing_keys, reason, msg.properties.expiration)
+      msg.properties.headers = @dead_letter.update_headers(h, msg.exchange_name, routing_keys, reason, msg.properties.expiration)
       msg.properties.expiration = nil
       msg.properties
-    end
-
-    private def handle_xdeath_header(headers, exchange_name, routing_keys, reason, expiration) : AMQP::Table
-      xdeaths = headers["x-death"]?.as?(Array(AMQP::Field)) || Array(AMQP::Field).new(1)
-
-      found_at = -1
-      xdeaths.each_with_index do |xd, idx|
-        xd = xd.as(AMQP::Table)
-        next if xd["queue"]? != @name
-        next if xd["reason"]? != reason.to_s
-        next if xd["exchange"]? != exchange_name
-        count = xd["count"].as?(Int) || 0
-        xd.merge!({
-          count:          count + 1,
-          time:           RoughTime.utc,
-          "routing-keys": routing_keys,
-        })
-        xd["original-expiration"] = expiration if expiration
-        found_at = idx
-        break
-      end
-
-      case found_at
-      when -1 # not found so inserting new x-death
-        death = AMQP::Table.new({
-          "queue":        @name,
-          "reason":       reason.to_s,
-          "exchange":     exchange_name,
-          "count":        1,
-          "time":         RoughTime.utc,
-          "routing-keys": routing_keys,
-        })
-        death["original-expiration"] = expiration if expiration
-        xdeaths.unshift death
-      when 0
-        # do nothing, updated xd is in the front
-      else
-        # move updated xd to the front
-        xd = xdeaths.delete_at(found_at)
-        xdeaths.unshift xd
-      end
-      headers["x-death"] = xdeaths
-      headers
     end
 
     private def dead_letter_msg(msg : BytesMessage, props, dlx, dlrk)
