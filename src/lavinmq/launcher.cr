@@ -296,19 +296,19 @@ module LavinMQ
 
     private def reload_tls_context
       if amqp_tls = @amqp_tls_context
-        configure_tls_context(amqp_tls, "AMQP")
+        configure_tls_context(amqp_tls)
       end
       if mqtt_tls = @mqtt_tls_context
-        configure_tls_context(mqtt_tls, "MQTT")
+        configure_tls_context(mqtt_tls)
       end
       if http_tls = @http_tls_context
-        configure_tls_context(http_tls, "HTTP")
+        configure_tls_context(http_tls)
       end
       # Reload SNI host contexts
       @config.sni_manager.reload
     end
 
-    private def configure_tls_context(tls : OpenSSL::SSL::Context::Server, protocol : String)
+    private def configure_tls_context(tls : OpenSSL::SSL::Context::Server)
       case @config.tls_min_version
       when "1.0"
         tls.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_2 |
