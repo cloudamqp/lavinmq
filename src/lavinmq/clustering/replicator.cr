@@ -11,10 +11,13 @@ module LavinMQ
       abstract def followers : Array(Follower)
       abstract def syncing_followers : Array(Follower)
       abstract def all_followers : Array(Follower)
+      abstract def known_replicas : Hash(String, Bool)
       abstract def close
       abstract def listen(server : TCPServer)
       abstract def clear
       abstract def password : String
+      abstract def forget_replica(id : Int32) : Bool
+      abstract def id : Int32
     end
   end
 end
