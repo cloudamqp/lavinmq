@@ -101,7 +101,7 @@ module LavinMQ::AMQP
 
     # save message id / segment position
     def publish(msg : Message) : Bool
-      return false if @state.closed?
+      return false if closed?
       @msg_store_lock.synchronize do
         @msg_store.push(msg)
         @publish_count.add(1, :relaxed)
@@ -144,7 +144,7 @@ module LavinMQ::AMQP
     # returns true if a message was deliviered, false otherwise
     # if we encouncer an unrecoverable ReadError, close queue
     private def get(consumer : AMQP::StreamConsumer, & : Envelope -> Nil) : Bool
-      raise ClosedError.new if @closed
+      raise ClosedError.new if closed?
       env = @msg_store_lock.synchronize { @msg_store.shift?(consumer) } || return false
       yield env # deliver the message
       true

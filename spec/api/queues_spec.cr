@@ -369,7 +369,8 @@ describe LavinMQ::HTTP::QueuesController do
         with_channel(s) do |ch|
           q = ch.queue("q3", auto_delete: false, durable: true, exclusive: false)
           q.publish "m1"
-          sleep 0.05.milliseconds
+          # Wait for message to be available in queue
+          wait_for(timeout: 100.milliseconds) { s.vhosts["/"].queues["q3"].message_count > 0 }
           body = %({
           "count": 1,
           "ack_mode": "reject_requeue_true",
