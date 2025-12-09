@@ -8,9 +8,9 @@ document.querySelector('#pagename-label').textContent = vhost
 
 const vhostUrl = HTTP.url`api/vhosts/${vhost}`
 HTTP.request('GET', vhostUrl).then(item => {
-  document.getElementById('ready').textContent = item.messages_ready.toLocaleString()
-  document.getElementById('unacked').textContent = item.messages_unacknowledged.toLocaleString()
-  document.getElementById('total').textContent = item.messages.toLocaleString()
+  document.getElementById('messages_ready').textContent = item.messages_ready.toLocaleString()
+  document.getElementById('messages_unacknowledged').textContent = item.messages_unacknowledged.toLocaleString()
+  document.getElementById('messages_total').textContent = item.messages.toLocaleString()
 })
 
 function fetchLimits () {
@@ -98,7 +98,7 @@ document.forms.setLimits.addEventListener('submit', function (evt) {
   evt.preventDefault()
   const maxConnectionsUrl = HTTP.url`api/vhost-limits/${vhost}/max-connections`
   const maxConnectionsBody = { value: Number(this['max-connections'].value || -1) }
-  const maxQueuesUrl = HTTP.url`'api/vhost-limits/${vhost}/max-queues`
+  const maxQueuesUrl = HTTP.url`api/vhost-limits/${vhost}/max-queues`
   const maxQueuesBody = { value: Number(this['max-queues'].value || -1) }
   Promise.all([
     HTTP.request('PUT', maxConnectionsUrl, { body: maxConnectionsBody }),

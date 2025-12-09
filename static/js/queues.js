@@ -44,7 +44,7 @@ const performMultiAction = (el) => {
         queuesTable.reload()
       }
     }).catch(e => {
-      DOM.toast(`Failed to perform action on ${data.name}`, 'error')
+      DOM.toast.error(`Failed to perform action on ${data.name}`)
       queuesTable.reload()
     })
   })
@@ -110,7 +110,12 @@ const queuesTable = Table.renderTable('table', tableOptions, function (tr, item,
       features.appendChild(argsSpan)
     }
     const queueLink = document.createElement('a')
-    queueLink.href = HTTP.url`queue#vhost=${item.vhost}&name=${item.name}`
+    const qType = item.arguments['x-queue-type']
+    if (qType === 'stream') {
+      queueLink.href = HTTP.url`stream#vhost=${item.vhost}&name=${item.name}`
+    } else {
+      queueLink.href = HTTP.url`queue#vhost=${item.vhost}&name=${item.name}`
+    }
     queueLink.textContent = item.name
 
     const checkbox = document.createElement('input')

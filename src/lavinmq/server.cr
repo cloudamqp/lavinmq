@@ -36,10 +36,10 @@ module LavinMQ
     @flow = true
     @listeners = Hash(Socket::Server, Protocol).new # Socket => protocol
     @connection_factories = Hash(Protocol, ConnectionFactory).new
-    @replicator : Clustering::Replicator
+    @replicator : Clustering::Replicator?
     Log = LavinMQ::Log.for "server"
 
-    def initialize(@config : Config, @replicator = Clustering::NoopServer.new)
+    def initialize(@config : Config, @replicator = nil)
       @data_dir = @config.data_dir
       Dir.mkdir_p @data_dir
       Schema.migrate(@data_dir, @replicator)
@@ -47,7 +47,7 @@ module LavinMQ
       @vhosts = VHostStore.new(@data_dir, @users, @replicator)
       @mqtt_brokers = MQTT::Brokers.new(@vhosts, @replicator)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator)
-      authenticator = Auth::Chain.create(@config, @users)
+      authenticator = Auth::Chain.create(@users)
       @connection_factories = {
         Protocol::AMQP => AMQP::ConnectionFactory.new(authenticator, @vhosts),
         Protocol::MQTT => MQTT::ConnectionFactory.new(authenticator, @mqtt_brokers, @config),
@@ -57,15 +57,15 @@ module LavinMQ
     end
 
     def followers
-      @replicator.followers
+      @replicator.try(&.followers) || Array(Clustering::Follower).new
     end
 
     def syncing_followers
-      @replicator.syncing_followers
+      @replicator.try(&.syncing_followers) || Array(Clustering::Follower).new
     end
 
     def all_followers
-      @replicator.all_followers
+      @replicator.try(&.all_followers) || Array(Clustering::Follower).new
     end
 
     def amqp_url
@@ -82,7 +82,7 @@ module LavinMQ
       return if @closed
       @closed = true
       @vhosts.close
-      @replicator.clear
+      @replicator.try &.clear
       Fiber.yield
     end
 
@@ -91,7 +91,7 @@ module LavinMQ
       Dir.mkdir_p @data_dir
       Schema.migrate(@data_dir, @replicator)
       @users = Auth::UserStore.new(@data_dir, @replicator)
-      authenticator = Auth::Chain.create(@config, @users)
+      authenticator = Auth::Chain.create(@users)
       @vhosts = VHostStore.new(@data_dir, @users, @replicator)
       @connection_factories[Protocol::AMQP] = AMQP::ConnectionFactory.new(authenticator, @vhosts)
       @connection_factories[Protocol::MQTT] = MQTT::ConnectionFactory.new(authenticator, @mqtt_brokers, @config)
@@ -127,7 +127,7 @@ module LavinMQ
         conn_info = extract_conn_info(client)
         handle_connection(client, conn_info, protocol)
       rescue ex
-        Log.warn(exception: ex) { "Error accepting connection from #{remote_address}" }
+        Log.warn { "Error accepting connection from #{remote_address}: #{ex.message}" }
         client.close rescue nil
       end
     end
@@ -235,11 +235,11 @@ module LavinMQ
     end
 
     def listen_clustering(bind, port)
-      @replicator.listen(TCPServer.new(bind, port))
+      @replicator.try &.listen(TCPServer.new(bind, port))
     end
 
     def listen_clustering(server : TCPServer)
-      @replicator.listen(server)
+      @replicator.try &.listen(server)
     end
 
     def close
@@ -335,18 +335,18 @@ module LavinMQ
       rusage = System.resource_usage
 
       {% for m in METRICS %}
-        until @{{m.id}}_log.size < log_size
-          @{{m.id}}_log.shift
+        until @{{ m.id }}_log.size < log_size
+          @{{ m.id }}_log.shift
         end
         {% if m.id.ends_with? "_time" %}
-          {{m.id}} = rusage.{{m.id}}.total_milliseconds.to_i64
-          {{m.id}}_rate = (({{m.id}} - @{{m.id}}) / (interval * 1000)).round(2)
+          {{ m.id }} = rusage.{{ m.id }}.total_milliseconds.to_i64
+          {{ m.id }}_rate = (({{ m.id }} - @{{ m.id }}) / (interval * 1000)).round(2)
         {% else %}
-          {{m.id}} = rusage.{{m.id}}.to_i64
-          {{m.id}}_rate = (({{m.id}} - @{{m.id}}) / interval).round(2)
+          {{ m.id }} = rusage.{{ m.id }}.to_i64
+          {{ m.id }}_rate = (({{ m.id }} - @{{ m.id }}) / interval).round(2)
         {% end %}
-        @{{m.id}}_log.push {{m.id}}_rate
-        @{{m.id}} = {{m.id}}
+        @{{ m.id }}_log.push {{ m.id }}_rate
+        @{{ m.id }} = {{ m.id }}
       {% end %}
 
       until @rss_log.size < log_size
@@ -440,7 +440,7 @@ module LavinMQ
         "/sys/fs/cgroup/memory/memory.limit_in_bytes",
       }.each do |path|
         l = File.read(path)
-        return nil if l == "9223372036854771712\n" # Max in cgroup v1
+        return if l == "9223372036854771712\n" # Max in cgroup v1
         return l.to_i64?
       rescue File::NotFoundError
       end
@@ -449,8 +449,8 @@ module LavinMQ
     METRICS = {:user_time, :sys_time, :blocks_out, :blocks_in}
 
     {% for m in METRICS %}
-      getter {{m.id}} = 0_i64
-      getter {{m.id}}_log = Deque(Float64).new(Config.instance.stats_log_size)
+      getter {{ m.id }} = 0_i64
+      getter {{ m.id }}_log = Deque(Float64).new(Config.instance.stats_log_size)
     {% end %}
     getter mem_limit = 0_i64
     getter rss = 0_i64

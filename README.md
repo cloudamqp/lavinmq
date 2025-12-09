@@ -19,7 +19,7 @@ Discover more at [LavinMQ.com](https://lavinmq.com)
 
 ## Installation
 
-See [Installation guide](https://lavinmq.com/documentation/installation-guide) for more information on installing LavinMQ. 
+See [Installation guide](https://lavinmq.com/documentation/installation-guide) for more information on installing LavinMQ. See the [LavinMQ Operator](https://github.com/cloudamqp/lavinmq-operator) for instructions on running the Kubernetes operator.
 
 ### Debian/Ubuntu
 
@@ -85,6 +85,10 @@ services:
 Start the container by running `docker compose up`
 
 For an example on setting up a multi-node LavinMQ cluster with Docker Compose, see [Setting up a LavinMQ cluster with Docker Compose](https://lavinmq.com/documentation/docker-compose-cluster)
+
+### Windows
+
+For running LavinMQ on Windows, we recommend using WSL (Windows Subsystem for Linux). Install your preferred Linux distribution through WSL, then follow the installation instructions for that distribution above.
 
 ### From Source
 

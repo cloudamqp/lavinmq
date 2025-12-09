@@ -11,7 +11,7 @@ module LavinMQ
 
       alias IndexTree = TopicTree(String)
 
-      def initialize(@dir : String, @replicator : Clustering::Replicator, @index = IndexTree.new)
+      def initialize(@dir : String, @replicator : Clustering::Replicator?, @index = IndexTree.new)
         Dir.mkdir_p @dir
         @files = Hash(String, File).new do |files, file_name|
           file = File.new(File.join(@dir, file_name))
@@ -20,7 +20,7 @@ module LavinMQ
         end
         @index_file_name = File.join(@dir, INDEX_FILE_NAME)
         @index_file = File.new(@index_file_name, "a+")
-        @replicator.register_file(@index_file)
+        @replicator.try &.register_file(@index_file)
         @lock = Mutex.new
         if @index.empty?
           restore_index(@index, @index_file)
@@ -87,7 +87,7 @@ module LavinMQ
           raise ::IO::EOFError.new("Copied only #{len} of #{size} bytes") if len != size
           final_file_path = File.join(@dir, msg_file_name)
           file.rename(final_file_path)
-          @replicator.replace_file(final_file_path)
+          @replicator.try &.replace_file(final_file_path)
           @files.delete(msg_file_name).try &.close
           @files[msg_file_name] = file
         end
@@ -104,7 +104,7 @@ module LavinMQ
         end
         f.flush
         f.rename @index_file_name
-        @replicator.replace_file(@index_file_name)
+        @replicator.try &.replace_file(@index_file_name)
         @index_file = f
       end
 
@@ -112,7 +112,7 @@ module LavinMQ
         @index.insert topic, file_name
         @index_file.puts topic
         @index_file.flush
-        @replicator.append(@index_file_name, "#{topic}\n".to_slice)
+        @replicator.try &.append(@index_file_name, "#{topic}\n".to_slice)
       end
 
       private def delete_from_index(topic : String) : Nil
@@ -122,7 +122,7 @@ module LavinMQ
             file.close
             file.delete
           end
-          @replicator.delete_file(File.join(@dir, file_name), WaitGroup.new)
+          @replicator.try &.delete_file(File.join(@dir, file_name), WaitGroup.new)
         end
       end
 

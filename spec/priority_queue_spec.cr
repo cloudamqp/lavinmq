@@ -1,9 +1,17 @@
 require "./spec_helper"
 
+module PrioSpec
+  class PrioMessageStore < LavinMQ::AMQP::PriorityQueue::PriorityMessageStore
+    def initialize(*args, **kwargs)
+      super(*args, **kwargs)
+    end
+  end
+end
+
 def with_prio_store(max_prio, &)
   data_dir = File.tempname
   Dir.mkdir data_dir
-  store = LavinMQ::AMQP::PriorityQueue::PriorityMessageStore.new(max_prio.to_u8, data_dir, nil, metadata: ::Log::Metadata.empty)
+  store = PrioSpec::PrioMessageStore.new(max_prio.to_u8, data_dir, nil, metadata: ::Log::Metadata.empty)
   yield store
 ensure
   store.delete if store
@@ -58,14 +66,14 @@ describe LavinMQ::AMQP::PriorityQueue do
           old_store.close
 
           # Trigger migration
-          store = LavinMQ::AMQP::PriorityQueue::PriorityMessageStore.new(5u8, cluster.config.data_dir, cluster.replicator, durable: true)
+          store = PrioSpec::PrioMessageStore.new(5u8, cluster.config.data_dir, cluster.replicator, durable: true)
           store.size.should eq 60
           store.close
 
           cluster.stop
 
           # Verify the replicated store
-          replicated_store = LavinMQ::AMQP::PriorityQueue::PriorityMessageStore.new(5u8, cluster.follower_config.data_dir, nil, durable: true)
+          replicated_store = PrioSpec::PrioMessageStore.new(5u8, cluster.follower_config.data_dir, nil, durable: true)
           replicated_store.size.should eq 60
           6.times do |i|
             replicated_store.@stores[i].size.should eq 10
@@ -92,7 +100,13 @@ describe LavinMQ::AMQP::PriorityQueue do
         end
         old_store.close
 
-        store = LavinMQ::AMQP::PriorityQueue::PriorityMessageStore.new(5u8, data_dir, nil, durable: true)
+        # Create a metadata file manually, we've written to little data
+        # for the message store to create it
+        File.open("#{data_dir}/meta.0000000001", "w") do |f|
+          f.write_bytes 60u32
+        end
+
+        store = PrioSpec::PrioMessageStore.new(5u8, data_dir, nil, durable: true)
         store.size.should eq 60
 
         6.times do |i|
@@ -111,6 +125,67 @@ describe LavinMQ::AMQP::PriorityQueue do
     it "should use sub stores" do
       with_prio_store(5) do |store|
         store.@stores.size.should eq 6
+      end
+    end
+
+    describe "#size" do
+      it "is increased on push" do
+        with_prio_store(5) do |store|
+          100u8.times do |prio|
+            props = AMQP::Client::Properties.new(priority: prio % 5)
+            msg = LavinMQ::Message.new("ex", "rk", "body", properties: props)
+            store.push msg
+            store.size.should eq(prio + 1)
+          end
+        end
+      end
+      it "is decreased on shift?" do
+        with_prio_store(5) do |store|
+          100u8.times do |prio|
+            props = AMQP::Client::Properties.new(priority: prio % 5)
+            msg = LavinMQ::Message.new("ex", "rk", "body", properties: props)
+            store.push msg
+          end
+
+          100u8.times do |i|
+            store.size.should eq(100 - i)
+            store.shift?
+          end
+          store.size.should eq 0
+        end
+      end
+    end
+
+    describe "#bytesize" do
+      it "is increased on push" do
+        with_prio_store(5) do |store|
+          bytesize = 0
+          100u8.times do |prio|
+            props = AMQP::Client::Properties.new(priority: prio % 5)
+            msg = LavinMQ::Message.new("ex", "rk", "body", properties: props)
+            store.push msg
+            store.bytesize.should be > bytesize
+            bytesize = store.bytesize
+          end
+        end
+      end
+
+      it "is decreased on shift?" do
+        with_prio_store(5) do |store|
+          100u8.times do |prio|
+            props = AMQP::Client::Properties.new(priority: prio % 5)
+            msg = LavinMQ::Message.new("ex", "rk", "body", properties: props)
+            store.push msg
+          end
+
+          bytesize = store.bytesize
+          100u8.times do
+            store.shift?
+            store.bytesize.should be < bytesize
+            bytesize = store.bytesize
+          end
+          store.bytesize.should eq 0
+        end
       end
     end
 
@@ -193,6 +268,127 @@ describe LavinMQ::AMQP::PriorityQueue do
           store.requeue sp_prio_5
           store.requeue sp_prio_3
           store.@stores[-1].size.should eq 1
+        end
+      end
+    end
+
+    describe "empty?" do
+      it "should be true for a fresh store" do
+        with_prio_store(5) do |store|
+          store.empty?.should be_true
+        end
+      end
+
+      it "should be false after push" do
+        with_prio_store(5) do |store|
+          [3u8, 2u8, 4u8, 1u8, 0u8].each do |prio|
+            props = AMQP::Client::Properties.new(priority: prio)
+            store.push LavinMQ::Message.new("ex", "rk", "body", properties: props)
+          end
+          store.empty?.should be_false
+        end
+      end
+
+      it "should be true after all messages has been shifted" do
+        with_prio_store(5) do |store|
+          [3u8, 2u8, 4u8, 1u8, 0u8].each do |prio|
+            props = AMQP::Client::Properties.new(priority: prio)
+            store.push LavinMQ::Message.new("ex", "rk", "body", properties: props)
+          end
+
+          while store.shift?
+          end
+
+          store.empty?.should be_true
+        end
+      end
+    end
+
+    describe "#empty" do
+      it "should be true for a new store" do
+        with_prio_store(5) do |store|
+          store.empty.should be_true
+        end
+      end
+
+      it "should be true after all messages has been shifted" do
+        with_prio_store(5) do |store|
+          [3u8, 2u8, 4u8, 1u8, 0u8].each do |prio|
+            props = AMQP::Client::Properties.new(priority: prio)
+            store.push LavinMQ::Message.new("ex", "rk", "body", properties: props)
+          end
+
+          while store.shift?
+          end
+
+          store.empty.should be_true
+        end
+      end
+
+      it "should be false on after a push to a new store" do
+        with_prio_store(5) do |store|
+          props = AMQP::Client::Properties.new(priority: 1u8)
+          store.push LavinMQ::Message.new("ex", "rk", "body", properties: props)
+
+          store.empty.should be_false
+        end
+      end
+
+      it "should be false after push to an empty store" do
+        with_prio_store(5) do |store|
+          3u8.times do |prio|
+            props = AMQP::Client::Properties.new(priority: prio)
+            store.push LavinMQ::Message.new("ex", "rk", "body", properties: props)
+          end
+
+          while store.shift?
+          end
+
+          3u8.times do |prio|
+            props = AMQP::Client::Properties.new(priority: prio)
+            store.push LavinMQ::Message.new("ex", "rk", "body", properties: props)
+          end
+
+          store.empty.should be_false
+        end
+      end
+
+      it "should be false after requeue" do
+        with_prio_store(5) do |store|
+          props = AMQP::Client::Properties.new(priority: 1u8)
+          store.push LavinMQ::Message.new("ex", "rk", "body", properties: props)
+          env = store.shift?.should_not be_nil
+          store.empty.should be_true
+          store.requeue env.segment_position
+          store.empty.should be_false
+        end
+      end
+
+      it "should be true after last message has been purged" do
+        with_prio_store(5) do |store|
+          3u8.times do |prio|
+            props = AMQP::Client::Properties.new(priority: prio)
+            store.push LavinMQ::Message.new("ex", "rk", "body", properties: props)
+          end
+
+          store.empty.should be_false
+          store.purge(10)
+
+          store.empty.should be_true
+        end
+      end
+
+      it "should be true after purge_all" do
+        with_prio_store(5) do |store|
+          3u8.times do |prio|
+            props = AMQP::Client::Properties.new(priority: prio)
+            store.push LavinMQ::Message.new("ex", "rk", "body", properties: props)
+          end
+
+          store.empty.should be_false
+          store.purge_all
+
+          store.empty.should be_true
         end
       end
     end

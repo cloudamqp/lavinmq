@@ -27,7 +27,7 @@ describe LavinMQ::VHost do
 
   it "should remove policy from resource when deleted" do
     PoliciesSpec.with_vhost do |vhost|
-      vhost.queues["test1"] = LavinMQ::AMQP::Queue.new(vhost, "test")
+      vhost.queues["test1"] = LavinMQ::QueueFactory.make(vhost, "test")
       vhost.add_policy("test", "^.*$", "all", definitions, -10_i8)
       sleep 10.milliseconds
       vhost.queues["test1"].policy.try(&.name).should eq "test"
@@ -58,7 +58,7 @@ describe LavinMQ::VHost do
   it "should apply policy" do
     PoliciesSpec.with_vhost do |vhost|
       defs = {"max-length" => JSON::Any.new(1_i64)} of String => JSON::Any
-      vhost.queues["test"] = LavinMQ::AMQP::Queue.new(vhost, "test")
+      vhost.queues["test"] = LavinMQ::QueueFactory.make(vhost, "test")
       vhost.add_policy("ml", "^.*$", "queues", defs, 11_i8)
       sleep 10.milliseconds
       vhost.queues["test"].policy.not_nil!.name.should eq "ml"
@@ -68,7 +68,7 @@ describe LavinMQ::VHost do
   it "should respect priority" do
     PoliciesSpec.with_vhost do |vhost|
       defs = {"max-length" => JSON::Any.new(1_i64)} of String => JSON::Any
-      vhost.queues["test2"] = LavinMQ::AMQP::Queue.new(vhost, "test")
+      vhost.queues["test2"] = LavinMQ::QueueFactory.make(vhost, "test")
       vhost.add_policy("ml2", "^.*$", "queues", defs, 1_i8)
       vhost.add_policy("ml1", "^.*$", "queues", defs, 0_i8)
       sleep 10.milliseconds
@@ -280,7 +280,7 @@ describe LavinMQ::VHost do
                               "federation-upstream", "federation-upstream-set",
                               "delivery-limit", "max-age", "alternate-exchange",
                               "delayed-message"}
-        vhost.queues["test"] = LavinMQ::AMQP::Queue.new(vhost, "test")
+        vhost.queues["test"] = LavinMQ::QueueFactory.make(vhost, "test")
         vhost.add_policy("test", "^.*$", "all", definitions, -10_i8)
         sleep 10.milliseconds
         vhost.queues["test"].details_tuple[:effective_policy_definition].as(Hash(String, JSON::Any)).each_key do |k|
@@ -310,8 +310,8 @@ describe LavinMQ::VHost do
 
     it "should use the lowest value" do
       PoliciesSpec.with_vhost do |vhost|
-        vhost.queues["test1"] = LavinMQ::AMQP::Queue.new(vhost, "test1", arguments: LavinMQ::AMQP::Table.new({"x-max-length" => 1_i64}))
-        vhost.queues["test2"] = LavinMQ::AMQP::Queue.new(vhost, "test2", arguments: LavinMQ::AMQP::Table.new({"x-max-length" => 11_i64}))
+        vhost.queues["test1"] = LavinMQ::QueueFactory.make(vhost, "test1", arguments: LavinMQ::AMQP::Table.new({"x-max-length" => 1_i64}))
+        vhost.queues["test2"] = LavinMQ::QueueFactory.make(vhost, "test2", arguments: LavinMQ::AMQP::Table.new({"x-max-length" => 11_i64}))
         vhost.add_policy("test", ".*", "all", definitions, 100_i8)
         sleep 10.milliseconds
         vhost.queues["test1"].as(LavinMQ::AMQP::Queue).@max_length.should eq 1
@@ -325,9 +325,9 @@ describe LavinMQ::VHost do
 
     it "should use the lowest value for delivery-limit" do
       PoliciesSpec.with_vhost do |vhost|
-        vhost.queues["test1"] = LavinMQ::AMQP::Queue.new(vhost, "test1", arguments: LavinMQ::AMQP::Table.new({"x-delivery-limit" => 1_i64}))
-        vhost.queues["test2"] = LavinMQ::AMQP::Queue.new(vhost, "test2", arguments: LavinMQ::AMQP::Table.new({"x-delivery-limit" => 11_i64}))
-        vhost.queues["test3"] = LavinMQ::AMQP::Queue.new(vhost, "test3")
+        vhost.queues["test1"] = LavinMQ::QueueFactory.make(vhost, "test1", arguments: LavinMQ::AMQP::Table.new({"x-delivery-limit" => 1_i64}))
+        vhost.queues["test2"] = LavinMQ::QueueFactory.make(vhost, "test2", arguments: LavinMQ::AMQP::Table.new({"x-delivery-limit" => 11_i64}))
+        vhost.queues["test3"] = LavinMQ::QueueFactory.make(vhost, "test3")
         vhost.add_policy("test", ".*", "all", definitions, 100_i8)
         sleep 10.milliseconds
         vhost.queues["test1"].as(LavinMQ::AMQP::Queue).@delivery_limit.should eq 1
@@ -338,6 +338,164 @@ describe LavinMQ::VHost do
         vhost.queues["test1"].as(LavinMQ::AMQP::Queue).@delivery_limit.should eq 1
         vhost.queues["test2"].as(LavinMQ::AMQP::Queue).@delivery_limit.should eq 11
         vhost.queues["test3"].as(LavinMQ::AMQP::Queue).@delivery_limit.should eq nil
+      end
+    end
+  end
+
+  describe "handling invalid policy values" do
+    it "should ignore invalid type for max-length and apply valid values" do
+      PoliciesSpec.with_vhost do |vhost|
+        defs = {
+          "max-length"  => JSON::Any.new("not-a-number"),
+          "message-ttl" => JSON::Any.new(5000_i64),
+        }
+        vhost.queues["test"] = LavinMQ::QueueFactory.make(vhost, "test")
+        vhost.add_policy("invalid-type", "^test$", "queues", defs, 0_i8)
+        sleep 10.milliseconds
+        queue = vhost.queues["test"].as(LavinMQ::AMQP::Queue)
+        queue.@max_length.should be_nil
+        queue.@message_ttl.should eq 5000
+        vhost.delete_policy("invalid-type")
+      end
+    end
+
+    it "should ignore invalid type for max-length-bytes" do
+      PoliciesSpec.with_vhost do |vhost|
+        defs = {
+          "max-length-bytes" => JSON::Any.new(true),
+          "max-length"       => JSON::Any.new(10_i64),
+        }
+        vhost.queues["test"] = LavinMQ::QueueFactory.make(vhost, "test")
+        vhost.add_policy("invalid-bytes", "^test$", "queues", defs, 0_i8)
+        sleep 10.milliseconds
+        queue = vhost.queues["test"].as(LavinMQ::AMQP::Queue)
+        queue.@max_length_bytes.should be_nil
+        queue.@max_length.should eq 10
+        vhost.delete_policy("invalid-bytes")
+      end
+    end
+
+    it "should ignore invalid type for message-ttl" do
+      PoliciesSpec.with_vhost do |vhost|
+        defs = {
+          "message-ttl" => JSON::Any.new("invalid"),
+          "max-length"  => JSON::Any.new(20_i64),
+        }
+        vhost.queues["test"] = LavinMQ::QueueFactory.make(vhost, "test")
+        vhost.add_policy("invalid-ttl", "^test$", "queues", defs, 0_i8)
+        sleep 10.milliseconds
+        queue = vhost.queues["test"].as(LavinMQ::AMQP::Queue)
+        queue.@message_ttl.should be_nil
+        queue.@max_length.should eq 20
+        vhost.delete_policy("invalid-ttl")
+      end
+    end
+
+    it "should ignore invalid type for expires" do
+      PoliciesSpec.with_vhost do |vhost|
+        defs = {
+          "expires"    => JSON::Any.new([JSON::Any.new(1)]),
+          "max-length" => JSON::Any.new(15_i64),
+        }
+        vhost.queues["test"] = LavinMQ::QueueFactory.make(vhost, "test")
+        vhost.add_policy("invalid-expires", "^test$", "queues", defs, 0_i8)
+        sleep 10.milliseconds
+        queue = vhost.queues["test"].as(LavinMQ::AMQP::Queue)
+        queue.@expires.should be_nil
+        queue.@max_length.should eq 15
+        vhost.delete_policy("invalid-expires")
+      end
+    end
+
+    it "should ignore invalid type for overflow" do
+      PoliciesSpec.with_vhost do |vhost|
+        defs = {
+          "overflow"   => JSON::Any.new(123_i64),
+          "max-length" => JSON::Any.new(25_i64),
+        }
+        vhost.queues["test"] = LavinMQ::QueueFactory.make(vhost, "test")
+        vhost.add_policy("invalid-overflow", "^test$", "queues", defs, 0_i8)
+        sleep 10.milliseconds
+        queue = vhost.queues["test"].as(LavinMQ::AMQP::Queue)
+        queue.@reject_on_overflow.should be_false
+        queue.@max_length.should eq 25
+        vhost.delete_policy("invalid-overflow")
+      end
+    end
+
+    it "should ignore invalid type for dead-letter-exchange" do
+      PoliciesSpec.with_vhost do |vhost|
+        defs = {
+          "dead-letter-exchange" => JSON::Any.new(999_i64),
+          "max-length"           => JSON::Any.new(30_i64),
+        }
+        vhost.queues["test"] = LavinMQ::QueueFactory.make(vhost, "test")
+        vhost.add_policy("invalid-dlx", "^test$", "queues", defs, 0_i8)
+        sleep 10.milliseconds
+        queue = vhost.queues["test"].as(LavinMQ::AMQP::Queue)
+        queue.@dlx.should be_nil
+        queue.@max_length.should eq 30
+        vhost.delete_policy("invalid-dlx")
+      end
+    end
+
+    it "should ignore invalid type for dead-letter-routing-key" do
+      PoliciesSpec.with_vhost do |vhost|
+        defs = {
+          "dead-letter-routing-key" => JSON::Any.new([JSON::Any.new("dlrk")]),
+          "max-length"              => JSON::Any.new("abc"),
+        }
+        vhost.queues["test"] = LavinMQ::QueueFactory.make(vhost, "test")
+        vhost.add_policy("invalid-dlrk", "^test$", "queues", defs, 0_i8)
+        sleep 10.milliseconds
+        queue = vhost.queues["test"].as(LavinMQ::AMQP::Queue)
+        queue.@dlx.should be_nil
+        queue.@max_length.should be_nil
+        vhost.delete_policy("invalid-dlrk")
+      end
+    end
+
+    it "should ignore invalid type for delivery-limit" do
+      PoliciesSpec.with_vhost do |vhost|
+        defs = {
+          "delivery-limit" => JSON::Any.new("five"),
+          "max-length"     => JSON::Any.new(40_i64),
+        }
+        vhost.queues["test"] = LavinMQ::QueueFactory.make(vhost, "test")
+        vhost.add_policy("invalid-limit", "^test$", "queues", defs, 0_i8)
+        sleep 10.milliseconds
+        queue = vhost.queues["test"].as(LavinMQ::AMQP::Queue)
+        queue.@delivery_limit.should be_nil
+        queue.@max_length.should eq 40
+        vhost.delete_policy("invalid-limit")
+      end
+    end
+
+    it "should apply all valid values when mixed with invalid types" do
+      PoliciesSpec.with_vhost do |vhost|
+        defs = {
+          "max-length"              => JSON::Any.new(50_i64),
+          "max-length-bytes"        => JSON::Any.new("invalid"),
+          "message-ttl"             => JSON::Any.new(3000_i64),
+          "expires"                 => JSON::Any.new(false),
+          "overflow"                => JSON::Any.new("reject-publish"),
+          "dead-letter-exchange"    => JSON::Any.new(123_i64),
+          "dead-letter-routing-key" => JSON::Any.new("dlrk"),
+          "delivery-limit"          => JSON::Any.new("bad"),
+        }
+        vhost.queues["test"] = LavinMQ::QueueFactory.make(vhost, "test")
+        vhost.add_policy("mixed", "^test$", "queues", defs, 0_i8)
+        sleep 10.milliseconds
+        queue = vhost.queues["test"].as(LavinMQ::AMQP::Queue)
+        queue.@max_length.should eq 50
+        queue.@max_length_bytes.should be_nil
+        queue.@message_ttl.should eq 3000
+        queue.@expires.should be_nil
+        queue.@reject_on_overflow.should be_true
+        queue.@dlx.should be_nil
+        queue.@dlrk.should eq "dlrk"
+        queue.@delivery_limit.should be_nil
+        vhost.delete_policy("mixed")
       end
     end
   end

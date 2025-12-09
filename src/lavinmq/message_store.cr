@@ -92,6 +92,7 @@ module LavinMQ
           next
         end
         msg = BytesMessage.from_bytes(rfile.to_slice + pos)
+        raise IndexError.new("Message at segment #{seg} pos #{pos} has zero timestamp") if msg.timestamp.zero?
         sp = SegmentPosition.make(seg, pos, msg)
         return Envelope.new(sp, msg, redelivered: false)
       rescue ex : IndexError
@@ -133,6 +134,7 @@ module LavinMQ
           next
         end
         msg = BytesMessage.from_bytes(rfile.to_slice + pos)
+        raise IndexError.new("Message at segment #{seg} pos #{pos} has zero timestamp") if msg.timestamp.zero?
         sp = SegmentPosition.make(seg, pos, msg)
         rfile.seek(sp.bytesize, IO::Seek::Current)
         @bytesize -= sp.bytesize
@@ -234,14 +236,15 @@ module LavinMQ
     end
 
     private def delete_file(file : MFile, including_meta = false)
-      File.delete?("#{file.path}.meta") if including_meta
+      File.delete?(meta_file_name(file)) if including_meta
       file.delete(raise_on_missing: false)
       if replicator = @replicator
-        replicator.delete_file("#{file.path}.meta", WaitGroup.new) if including_meta
+        replicator.delete_file(meta_file_name(file), WaitGroup.new) if including_meta
         wg = WaitGroup.new
         replicator.delete_file(file.path, wg)
         spawn(name: "wait for file deletion is replicated") do
           wg.wait
+        ensure
           file.close
         end
       else
@@ -280,7 +283,7 @@ module LavinMQ
     end
 
     private def select_next_read_segment : MFile?
-      @rfile.dontneed
+      @rfile.dontneed unless @rfile.closed?
       # Expect @segments to be ordered
       if id = @segments.each_key.find { |sid| sid > @rfile_id }
         rfile = @segments[id]
@@ -325,12 +328,14 @@ module LavinMQ
     end
 
     private def write_metadata_file(seg : UInt32, wfile : MFile)
-      @log.debug { "Write message segment meta file #{wfile.path}.meta" }
-      File.open("#{wfile.path}.meta", "w") do |f|
+      metafile = meta_file_name(wfile)
+      @log.debug { "Write message segment meta file #{metafile}" }
+      File.open(metafile, "w") do |f|
         f.buffer_size = 4096
         write_metadata(f, seg)
+        @replicator.try &.register_file(f)
       end
-      @replicator.try &.replace_file "#{wfile.path}.meta"
+      @replicator.try &.replace_file metafile
     end
 
     private def write_metadata(io, seg)
@@ -371,6 +376,7 @@ module LavinMQ
           end
           @replicator.try &.register_file(file)
         end
+        @acks[seg] = open_ack_file(seg)
         @log.debug { "Loaded #{count}/#{ack_files} ack files" } if (count += 1) % 128 == 0
         @deleted[seg] = acked.sort! unless acked.empty?
         Fiber.yield
@@ -381,7 +387,7 @@ module LavinMQ
     private def load_segments_from_disk : Nil
       ids = Array(UInt32).new
       Dir.each_child(@msg_dir) do |f|
-        if f.starts_with?("msgs.") && !f.ends_with?(".meta")
+        if f.starts_with?("msgs.") && f.size == 15
           ids << f[5, 10].to_u32
         end
       end
@@ -442,7 +448,7 @@ module LavinMQ
       @segments.each do |seg, mfile|
         begin
           read_metadata_file(seg, mfile)
-        rescue File::NotFoundError
+        rescue File::NotFoundError | MetadataError
           produce_metadata(seg, mfile)
           write_metadata_file(seg, mfile) unless seg == @segments.last_key # this segment is not full yet
         end
@@ -457,25 +463,46 @@ module LavinMQ
     end
 
     private def read_metadata_file(seg, mfile)
-      count = File.open("#{mfile.path}.meta", &.read_bytes(UInt32))
+      metafile = meta_file_name(mfile)
+      count = File.open(metafile) do |file|
+        msg_count = file.read_bytes(UInt32)
+        @replicator.try &.register_file(file)
+        read_extra_metadata_fields(file, seg)
+        msg_count
+      end
       @segment_msg_count[seg] = count
       bytesize = mfile.size - 4
       if deleted = @deleted[seg]?
         deleted.each do |pos|
           mfile.pos = pos
-          bytesize -= BytesMessage.skip(mfile)
-          count -= 1
+          bs = BytesMessage.skip(mfile)
+          # don't allow underflow
+          bytesize = bs < bytesize ? bytesize - bs : 0
+          count -= 1 if count > 0
+        rescue ex
+          @log.error { "Error reading metadata file #{metafile}, pos: #{pos}, seg: #{seg}, count: #{count}, bytesize: #{bytesize}" }
+          raise ex
         end
       end
       mfile.pos = 4
       mfile.dontneed
       @bytesize += bytesize
       @size += count
-      @log.debug { "Reading count from #{mfile.path}.meta: #{count}" }
+      @log.debug { "Reading count from #{metafile}: #{count}" }
+    rescue ex : File::NotFoundError
+      raise ex
+    rescue ex
+      @log.error(exception: ex) { "Metadata file #{metafile} is incorrect" }
+      raise MetadataError.new("Metadata file #{metafile} is incorrect", cause: ex)
+    end
+
+    private def read_extra_metadata_fields(file : File, seg : UInt32)
+      # Used in subclasses of MessageStore to read additional metadata fields
     end
 
     private def produce_metadata(seg, mfile)
       count = 0u32
+      mfile.pos = 4
       loop do
         pos = mfile.pos
         ts = IO::ByteFormat::SystemEndian.decode(Int64, mfile.to_slice(pos, 8))
@@ -504,7 +531,7 @@ module LavinMQ
       @segments.reject! do |seg, mfile|
         next if seg == current_seg # don't the delete the segment still being written to
 
-        if (acks = @acks[seg]?) && @segment_msg_count[seg] == (acks.size // sizeof(UInt32))
+        if (acks = @acks[seg]?) && @segment_msg_count[seg] <= (acks.size // sizeof(UInt32))
           @log.debug { "Deleting unused segment #{seg}" }
           @segment_msg_count.delete seg
           @deleted.delete seg
@@ -530,6 +557,8 @@ module LavinMQ
           @replicator.try &.delete_file(path, WaitGroup.new)
         end
       end
+    rescue File::NotFoundError
+      # msg_dir does not exist, nothing to delete
     end
 
     private def deleted?(seg, pos) : Bool
@@ -540,7 +569,27 @@ module LavinMQ
       end
     end
 
+    private def meta_file_name(mfile : MFile) : String
+      meta_file_name(mfile.path)
+    end
+
+    private def meta_file_name(path : String) : String
+      # We assume the path ends with "msgs.<10 chars>"
+      raw = path.to_slice
+
+      # This is basically the same as using sub("msgs.", "meta.") but with #sub
+      # the first occurrence of "msgs." would be replaced, not the last one.
+      # This also requires only one allocation.
+      String.build(path.size) do |io|
+        io.write raw[0, raw.size - 15]
+        io.write "meta.".to_slice
+        io.write raw[-10..]
+      end
+    end
+
     class ClosedError < ::Channel::ClosedError; end
+
+    class MetadataError < Exception; end
 
     class Error < Exception
       def initialize(mfile : MFile, cause = nil)

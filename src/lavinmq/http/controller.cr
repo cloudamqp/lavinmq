@@ -9,7 +9,7 @@ module LavinMQ
       # Define Log in each controller
       # source will be "lmq.http.<controller name>" without controller suffix
       macro inherited
-        Log = LavinMQ::Log.for "http.{{@type.name.split("::").last.downcase.gsub(/controller$/, "").id}}"
+        Log = LavinMQ::Log.for "http.{{ @type.name.split("::").last.downcase.gsub(/controller$/, "").id }}"
       end
 
       def initialize(@amqp_server : LavinMQ::Server)
@@ -67,6 +67,8 @@ module LavinMQ
                 sorted_items.sort_by! { |i| dig(i, sort_by).as(Number) }
               when String
                 sorted_items.sort_by! { |i| dig(i, sort_by).as(String).downcase }
+              when QueueState
+                sorted_items.sort_by! { |i| dig(i, sort_by).as(QueueState) }
               else
                 bad_request(context, "Can't sort on type #{v.class}")
               end
@@ -88,7 +90,7 @@ module LavinMQ
           nt = tuple[keys.first].as?(NamedTuple) || raise KeyError.new("'#{keys.first}' is not a nested tuple")
           dig(nt, keys[1..])
         else
-          tuple[keys.first] || 0
+          tuple[keys.first]? || 0
         end
       end
 
@@ -142,14 +144,13 @@ module LavinMQ
       end
 
       private def parse_body(context) : JSON::Any
+        if context.request.content_length == 0
+          return JSON::Any.new(Hash(String, JSON::Any).new)
+        end
         if body = context.request.body
           ct = context.request.headers["Content-Type"]?
           if ct.nil? || ct.empty? || ct == "application/json"
-            json = if context.request.content_length == 0
-                     JSON::Any.new(Hash(String, JSON::Any).new)
-                   else
-                     JSON.parse(body)
-                   end
+            json = JSON.parse(body)
             if json.as_h?
               json
             else

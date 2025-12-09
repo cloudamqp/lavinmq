@@ -41,6 +41,23 @@ describe LavinMQ::HTTP::ChannelsController do
         body.as_a.empty?.should be_true
       end
     end
+
+    # Filtering by vhost on the channels page only shows channels for the first connection
+    # https://github.com/cloudamqp/lavinmq/issues/1414
+    it "should return all channels for a vhost with multiple connections" do
+      with_http_server do |http, s|
+        s.vhosts.create("my-connection")
+        s.users.add_permission("guest", "my-connection", /.*/, /.*/, /.*/)
+        with_channel(s, vhost: "my-connection") do
+          with_channel(s, vhost: "my-connection") do
+            response = http.get("/api/vhosts/my-connection/channels")
+            response.status_code.should eq 200
+            body = JSON.parse(response.body)
+            body.as_a.size.should eq 2
+          end
+        end
+      end
+    end
   end
 
   describe "GET /api/channels/:channel" do

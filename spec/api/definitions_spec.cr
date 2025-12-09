@@ -8,22 +8,22 @@ describe LavinMQ::HTTP::Server do
         "users":[{
           "name":"sha256",
           "password_hash":"nEeL9j6VAMtdsehezoLxjI655S4vkTWs1/EJcsjVY7o",
-          "hashing_algorithm":"rabbit_password_hashing_sha256","tags":""
+          "hashing_algorithm":"rabbit_password_hashing_sha256","tags":[]
         },
         {
           "name":"sha512",
           "password_hash":"wiwLjmFjJauaeABIerBxpPx2548gydUaqj9wpxyeio7+gmye+/KuGaLeAqrV1Tx1pk6bwYGR0gHMx+whOqxD6Q",
-          "hashing_algorithm":"rabbit_password_hashing_sha512","tags":""
+          "hashing_algorithm":"rabbit_password_hashing_sha512","tags":[]
         },
         {
           "name":"bcrypt",
           "password_hash":"$2a$04$g5IMwYwvgDLACYdAQxCpCulKuK/Ym2I56Tz6T9Wi9DGdKQG.DE8Gi",
-          "hashing_algorithm":"Bcrypt","tags":""
+          "hashing_algorithm":"Bcrypt","tags":[]
         },
         {
           "name":"md5",
           "password_hash":"VBxXlgu5l5QmVdFOO5YH+Q==",
-          "hashing_algorithm":"rabbit_password_hashing_md5","tags":""
+          "hashing_algorithm":"rabbit_password_hashing_md5","tags":[]
         }]
       })
         response = http.post("/api/definitions", body: body)
@@ -226,7 +226,28 @@ describe LavinMQ::HTTP::Server do
         body["reason"].as_s.should eq("Malformed JSON")
       end
     end
+
+    it "should return sensible error for invalid password hash" do
+      with_http_server do |http, _|
+        body = %({
+          "users": [{
+            "name": "testuser",
+            "password_hash": "invalid_hash",
+            "tags": "administrator"
+          }]
+        })
+        response = http.post("/api/definitions", body: body)
+        response.status_code.should eq 400
+        error_body = JSON.parse(response.body)
+        error_body["error"].as_s.should eq "bad_request"
+        # Should have a sensible error message, not just "Negative count: -10"
+        reason = error_body["reason"].as_s
+        reason.should_not contain("Negative count")
+        reason.should contain("Invalid password hash")
+      end
+    end
   end
+
   describe "GET /api/definitions" do
     it "exports users" do
       with_http_server do |http, _|
@@ -581,6 +602,7 @@ describe LavinMQ::HTTP::Server do
       end
     end
   end
+
   describe "POST /api/definitions/upload" do
     it "imports definitions from uploaded file (no Referer)" do
       with_http_server do |http, s|
@@ -638,7 +660,7 @@ describe LavinMQ::HTTP::Server do
       "users":[{
         "name":"#{name}",
         "password_hash":"$2a$04$g5IMwYwvgDLACYdAQxCpCulKuK/Ym2I56Tz6T9Wi9DGdKQG.DE8Gi",
-        "hashing_algorithm":"Bcrypt","tags":""
+        "hashing_algorithm":"Bcrypt","tags":[]
       }]
     })
 
@@ -654,7 +676,7 @@ describe LavinMQ::HTTP::Server do
       "users":[{
         "name":"#{name}",
         "password_hash":"$2a$04$PuoK2zgHy/NHRU3CRUCidOKaSTwFkv97Sm.zTspKZRWJkn6l37YOe",
-        "hashing_algorithm":"Bcrypt","tags":""
+        "hashing_algorithm":"Bcrypt","tags":[]
       }]
     })
       response = http.post("/api/definitions", body: update_body)

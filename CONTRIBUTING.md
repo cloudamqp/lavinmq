@@ -1,5 +1,5 @@
 # Contributing
-You are interested in contributing to LavinMQ, but you are not sure how to? 
+You are interested in contributing to LavinMQ, but you are not sure how to?
 Right now, you can contribute to LavinMQ in one of two ways:
 
 1. [Code contributions](#code-contributions)
@@ -11,6 +11,15 @@ The first step to making a code contribution, is starting a conversation around 
 
 1. Fork, create feature branch
 1. Submit pull request
+
+### Pull Request Workflow
+
+We use GitHub's `draft` and `open` status to manage pull requests:
+
+- **Draft**: For code under construction. Use this when you're still working on your changes and they're not ready for review yet.
+- **Open**: For code that is perceived to be ready for review. Change your PR to this status when you've finished your implementation and want feedback from reviewers.
+
+If you receive a review that requests changes, switch your PR back to `draft` mode while you're working on addressing the feedback. Once you've made the requested changes, set it back to `open`. This workflow helps us clearly see what is ready to be merged and what still needs work.
 
 ### Develop
 
@@ -54,7 +63,7 @@ gitGraph
     checkout feature-2
     commit
     checkout 2.4.x
-    commit id:"bugfix 2" tag:"v2.4.1" 
+    commit id:"bugfix 2" tag:"v2.4.1"
     checkout 2.4.x
     checkout main
     merge 2.4.x
@@ -85,7 +94,7 @@ Your schedule won't allow you make code contributions? Still fine, you can:
 ### [Report an issue](https://github.com/cloudamqp/lavinmq/issues/new)
 
 - This could be an easily reproducible bug or even a feature request.
-- If you spot an unexpected behaviour but you are not yet sure what the underlying bug is, the best place to post is [LavinMQ's community Slack](https://join.slack.com/t/lavinmq/shared_invite/zt-1v28sxova-wOyhOvDEKYVQMQpLePNUrg). This would allow us to interactively figure out what is going on. 
+- If you spot an unexpected behaviour but you are not yet sure what the underlying bug is, the best place to post is [LavinMQ's community Slack](https://join.slack.com/t/lavinmq/shared_invite/zt-1v28sxova-wOyhOvDEKYVQMQpLePNUrg). This would allow us to interactively figure out what is going on.
 
 ### [Give us some feedback](https://github.com/cloudamqp/lavinmq/discussions)
 
@@ -110,7 +119,7 @@ Instead of trying to cache messages in RAM, we write all messages as fast as we 
 
 Each queue is backed by a message store on disk, which is just a series of files (segments),
 by default 8MB each. Message segments are memory-mapped files allocated using the mmap syscall.
-Each incoming message is appended to the last segment, prefixed with a timestamp, its exchange 
+Each incoming message is appended to the last segment, prefixed with a timestamp, its exchange
 name, routing key and message headers.
 
 ### Message Processing
@@ -127,8 +136,8 @@ Segments are deleted when all message in them are acknowledged.
 
 Declarations of queues, exchanges and bindings are written to a definitions
 file (if the target is durable), encoded as the AMQP frame they came in as.
-Periodically this file is compacted/garbage-collected by writing only the 
-current in-memory state to the file (getting rid of all delete events). 
+Periodically this file is compacted/garbage-collected by writing only the
+current in-memory state to the file (getting rid of all delete events).
 This file is read on boot to restore all definitions.
 
 All non-AMQP objects like users, vhosts, policies, etc. are stored in
@@ -173,7 +182,7 @@ Each consumer can start reading from anywhere in the queue using the `x-stream-o
 
 ### Stream Queue Filtering
 
-Stream queues support message filtering, allowing consumers to receive only messages that match specific criteria. This is useful for consuming a subset of messages without creating multiple queues. 
+Stream queues support message filtering, allowing consumers to receive only messages that match specific criteria. This is useful for consuming a subset of messages without creating multiple queues.
 
 #### How Filtering Works
 - Consumers can filter messages based on message headers

@@ -27,6 +27,7 @@ test.describe("shovels", _ => {
   test.beforeEach(async ({ apimap, page }) => {
     const parameterShovelsRequest = apimap.get(`/api/parameters/shovel`, parameterShovelsResponse)
     const shovelsRequest = apimap.get(`/api/shovels`, shovelsResponse)
+    await page.clock.install()
     await page.goto(`/shovels`)
     await parameterShovelsRequest
     await shovelsRequest
@@ -35,6 +36,15 @@ test.describe("shovels", _ => {
 
   test('are loaded', async ({ page, baseURL }) => {
     await expect(page.locator('#pagename-label')).toHaveText("1")
+  })
+
+  test('are refreshed automatically', async({ page }) => {
+    // Verify that at least 3 requests are made
+    for (let i=0; i<3; i++) {
+      const apiShovelsRequest = helpers.waitForPathRequest(page, '/api/parameters/shovel')
+      await page.clock.runFor(10000) // advance time by 10 seconds
+      await expect(apiShovelsRequest).toBeRequested()
+    }
   })
 
   test('can be deleted', async ({ page }) => {

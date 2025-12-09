@@ -6,6 +6,7 @@ require "../rough_time"
 require "./session"
 require "./protocol"
 require "../bool_channel"
+require "./consts"
 
 module LavinMQ
   module MQTT
@@ -25,7 +26,7 @@ module LavinMQ
         @broker.vhost
       end
 
-      def initialize(@socket : ::IO,
+      def initialize(@io : MQTT::IO,
                      @connection_info : ConnectionInfo,
                      @user : Auth::User,
                      @broker : MQTT::Broker,
@@ -33,7 +34,6 @@ module LavinMQ
                      @clean_session : Bool = false,
                      @keepalive : UInt16 = 30,
                      @will : MQTT::Will? = nil)
-        @io = MQTT::IO.new(@socket)
         @lock = Mutex.new
         @waitgroup = WaitGroup.new(1)
         @name = "#{@connection_info.remote_address} -> #{@connection_info.local_address}"
@@ -49,7 +49,7 @@ module LavinMQ
 
       private def read_loop
         received_bytes = 0_u32
-        socket = @socket
+        socket = @io.io
         if socket.responds_to?(:"read_timeout=")
           # 50% grace period according to [MQTT-3.1.2-24]
           socket.read_timeout = @keepalive.zero? ? nil : (@keepalive * 1.5).seconds
@@ -87,7 +87,7 @@ module LavinMQ
       end
 
       def read_and_handle_packet
-        packet : MQTT::Packet = MQTT::Packet.from_io(@io)
+        packet = @io.read_packet
         @log.trace { "Received packet:  #{packet.inspect}" }
         @recv_oct_count.add(packet.bytesize, :relaxed)
 
@@ -105,8 +105,8 @@ module LavinMQ
 
       def send(packet)
         @lock.synchronize do
-          packet.to_io(@io)
-          @socket.flush
+          @io.write_packet(packet)
+          @io.flush
           @send_oct_count.add(packet.bytesize, :relaxed)
         end
         case packet
@@ -127,6 +127,11 @@ module LavinMQ
       end
 
       def recieve_publish(packet : MQTT::Publish)
+        if Config.instance.mqtt_permission_check_enabled? && !user.can_write?(@broker.vhost.name, EXCHANGE)
+          Log.debug { "Access refused: user '#{user.name}' does not have permissions" }
+          close_socket
+          return
+        end
         @broker.publish(packet)
         vhost.event_tick(EventType::ClientPublish)
         # Ok to not send anything if qos = 0 (fire and forget)
@@ -141,12 +146,19 @@ module LavinMQ
       end
 
       def recieve_subscribe(packet : MQTT::Subscribe)
+        if Config.instance.mqtt_permission_check_enabled?
+          if !user.can_read?(@broker.vhost.name, EXCHANGE) && !user.can_write?(@broker.vhost.name, "mqtt.#{client_id}")
+            Log.debug { "Access refused: user '#{user.name}' does not have permissions" }
+            close_socket
+            return
+          end
+        end
         qos = @broker.subscribe(self, packet.topic_filters)
         send(MQTT::SubAck.new(qos, packet.packet_id))
       end
 
       def recieve_unsubscribe(packet : MQTT::Unsubscribe)
-        @broker.unsubscribe(self.client_id, packet.topics)
+        @broker.unsubscribe(client_id, packet.topics)
         send(MQTT::UnsubAck.new(packet.packet_id))
       end
 
@@ -179,14 +191,18 @@ module LavinMQ
 
       private def publish_will
         if will = @will
-          @broker.publish MQTT::Publish.new(
+          if Config.instance.mqtt_permission_check_enabled? && !user.can_write?(@broker.vhost.name, EXCHANGE)
+            Log.debug { "Access refused: user '#{user.name}' does not have permissions" }
+            return
+          end
+          @broker.publish(MQTT::Publish.new(
             topic: will.topic,
             payload: will.payload,
             packet_id: nil,
             qos: will.qos,
             retain: will.retain?,
             dup: false,
-          )
+          ))
         end
       rescue ex
         @log.warn { "Failed to publish will: #{ex.message}" }
@@ -210,7 +226,7 @@ module LavinMQ
       end
 
       private def close_socket
-        socket = @socket
+        socket = @io
         if socket.responds_to?(:"write_timeout=")
           socket.write_timeout = 1.seconds
         end

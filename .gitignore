@@ -9,7 +9,7 @@
 *.swp
 shard.override.yml
 config.ini
-*.pem
+/*.pem
 perf.data*
 massif.*
 node_modules
@@ -19,3 +19,4 @@ package-lock.json
 /playwright-report/
 /static/views/
 .DS_Store
+.claude/settings.local.json

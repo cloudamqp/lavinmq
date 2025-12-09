@@ -39,6 +39,11 @@
             <td id="q-effective-policy-definition"></td>
           </tr>
         </table>
+        <form method="put" id="restartQueue" class="form hide">
+          <label>
+            <button type="submit" class="btn btn-green">Restart queue</button>
+          </label>
+        </form>
       </section>
       <section class="card cols-5">
         <h3>Messages</h3>
@@ -226,7 +231,8 @@
           </label>
           <label>
             <span>Messages</span>
-            <input type="number" name="messages" value=1>
+            <input type="number" name="messages" value=1 min="1" max="1000">
+            <small id="dataTags">Maximum 1000 messages</small>
           </label>
           <button type="submit" class="btn btn-outlined">Get message(s)</button>
         </form>

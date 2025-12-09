@@ -29,13 +29,13 @@ module LavinMQ
           recv_rate_log = Deque(Float64).new(LavinMQ::Config.instance.stats_log_size)
           send_rate_log = Deque(Float64).new(LavinMQ::Config.instance.stats_log_size)
           {% for name in OVERVIEW_STATS %}
-          {{name.id}}_count = 0_u64
-          {{name.id}}_rate = 0_f64
-          {{name.id}}_log = Deque(Float64).new(LavinMQ::Config.instance.stats_log_size)
+          {{ name.id }}_count = 0_u64
+          {{ name.id }}_rate = 0_f64
+          {{ name.id }}_log = Deque(Float64).new(LavinMQ::Config.instance.stats_log_size)
           {% end %}
           {% for name in CHURN_STATS %}
-          {{name.id}} = 0_u64
-          {{name.id}}_rate = 0_f64
+          {{ name.id }} = 0_u64
+          {{ name.id }}_rate = 0_f64
           {% end %}
 
           vhosts(user(context)).each do |vhost|
@@ -60,17 +60,18 @@ module LavinMQ
             end
             vhost_stats_details = vhost.stats_details
             {% for sm in OVERVIEW_STATS %}
-              {{sm.id}}_count += vhost_stats_details[:{{sm.id}}]
-              {{sm.id}}_rate += vhost_stats_details[:{{sm.id}}_details][:rate]
-              add_logs!({{sm.id}}_log, vhost_stats_details[:{{sm.id}}_details][:log])
+              {{ sm.id }}_count += vhost_stats_details[:{{ sm.id }}]
+              {{ sm.id }}_rate += vhost_stats_details[:{{ sm.id }}_details][:rate]
+              add_logs!({{ sm.id }}_log, vhost_stats_details[:{{ sm.id }}_details][:log])
             {% end %}
             {% for sm in CHURN_STATS %}
-            {{sm.id}} += vhost_stats_details[:{{sm.id}}]
-            {{sm.id}}_rate += vhost_stats_details[:{{sm.id}}_details][:rate]
+            {{ sm.id }} += vhost_stats_details[:{{ sm.id }}]
+            {{ sm.id }}_rate += vhost_stats_details[:{{ sm.id }}_details][:rate]
             {% end %}
           end
           {
             lavinmq_version: LavinMQ::VERSION,
+            product_name:    "LavinMQ",
             node:            System.hostname,
             uptime:          @amqp_server.uptime.to_i,
             object_totals:   {
@@ -98,17 +99,17 @@ module LavinMQ
             },
             message_stats: {% begin %} {
               {% for name in OVERVIEW_STATS %}
-              {{name.id}}: {{name.id}}_count,
-              {{name.id}}_details: {
-                rate: {{name.id}}_rate,
-                log: {{name.id}}_log,
+              {{ name.id }}: {{ name.id }}_count,
+              {{ name.id }}_details: {
+                rate: {{ name.id }}_rate,
+                log: {{ name.id }}_log,
               },
             {% end %} } {% end %},
             churn_rates: {% begin %} {
               {% for name in CHURN_STATS %}
-              {{name.id}}: {{name.id}},
-              {{name.id}}_details: {
-                rate: {{name.id}}_rate
+              {{ name.id }}: {{ name.id }},
+              {{ name.id }}_details: {
+                rate: {{ name.id }}_rate
               },
             {% end %} } {% end %},
             listeners:      @amqp_server.listeners,

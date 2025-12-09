@@ -23,14 +23,14 @@ module LavinMQ
       def create_upstream(name, config)
         do_delete_upstream(name)
         uri = config["uri"].to_s
-        prefetch = config["prefetch-count"]?.try(&.as_i.to_u16) || Upstream::DEFAULT_PREFETCH
-        reconnect_delay = config["reconnect-delay"]?.try(&.as_i?) || Upstream::DEFAULT_RECONNECT_DELAY
+        prefetch = config["prefetch-count"]?.try(&.as_i.to_u16) || DEFAULT_PREFETCH
+        reconnect_delay = config["reconnect-delay"]?.try(&.as_i?).try &.seconds || DEFAULT_RECONNECT_DELAY
         ack_mode_str = config["ack-mode"]?.try(&.as_s.delete("-")).to_s
-        ack_mode = AckMode.parse?(ack_mode_str) || Upstream::DEFAULT_ACK_MODE
+        ack_mode = AckMode.parse?(ack_mode_str) || DEFAULT_ACK_MODE
         exchange = config["exchange"]?.try(&.as_s)
-        max_hops = config["max-hops"]?.try(&.as_i64?) || Upstream::DEFAULT_MAX_HOPS
-        expires = config["expires"]?.try(&.as_i64?) || Upstream::DEFAULT_EXPIRES
-        msg_ttl = config["message-ttl"]?.try(&.as_i64?) || Upstream::DEFAULT_MSG_TTL
+        max_hops = config["max-hops"]?.try(&.as_i64?) || DEFAULT_MAX_HOPS
+        expires = config["expires"]?.try(&.as_i64?) || DEFAULT_EXPIRES
+        msg_ttl = config["message-ttl"]?.try(&.as_i64?) || DEFAULT_MSG_TTL
         consumer_tag = config["consumer-tag"]?.try(&.as_s?) || "federation-link-#{name}"
         # trust_user_id
         queue = config["queue"]?.try(&.as_s)
@@ -80,7 +80,7 @@ module LavinMQ
             upstream = upstream.dup
             config["uri"]?.try { |p| upstream.uri = URI.parse(p.as_a.first.to_s) }
             config["prefetch-count"]?.try { |p| upstream.prefetch = p.as_i.to_u16 }
-            config["reconnect-delay"]?.try { |p| upstream.reconnect_delay = p.as_i }
+            config["reconnect-delay"]?.try { |p| upstream.reconnect_delay = p.as_i.seconds }
             ack_mode_str = config["ack-mode"]?.try(&.as_s.delete("-")).to_s
             AckMode.parse?(ack_mode_str).try { |p| upstream.ack_mode = p }
             config["exchange"]?.try { |p| upstream.exchange = p.as_s }

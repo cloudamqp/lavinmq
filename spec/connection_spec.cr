@@ -143,7 +143,7 @@ describe LavinMQ::Server do
         ch = conn.channel
         frame_max = LavinMQ::Config.instance.frame_max
         bytes = frame_max + 1
-        expect_raises(AMQP::Client::Connection::ClosedException, /frame size #{bytes} exceeded max #{frame_max}/) do
+        expect_raises(AMQP::Client::Connection::ClosedException, /Frame size #{bytes} exceeds max frame size #{frame_max}/) do
           conn.unsafe_write AMQ::Protocol::Frame::Basic::Publish.new(ch.id, 0_u16, "amq.direct", "test", false, false)
           conn.unsafe_write AMQ::Protocol::Frame::Header.new(ch.id, 60_u16, 0_u16, bytes.to_u64, AMQ::Protocol::Properties.new)
           conn.unsafe_write AMQ::Protocol::Frame::BytesBody.new(ch.id, bytes, Slice.new(bytes.to_i32, 0_u8))

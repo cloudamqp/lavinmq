@@ -12,17 +12,26 @@ parameter:
   properties:
     name:
       type: string
+      description: Name of the parameter.
+      example: my-shovel
     value:
-      type: string
+      oneOf:
+        - $ref: "#/shovel-value"
+        - $ref: "#/federation-upstream-value" 
+        - $ref: "#/federation-upstream-set-value"
+      description: Configuration value for the parameter. Structure depends on the component type.
     component:
       type: string
-      description: Name of component.
+      description: Type of component this parameter configures.
       enum:
       - shovel
       - federation-upstream
       - federation-upstream-set
+      example: shovel
     vhost:
       type: string
+      description: Virtual host where this parameter is defined.
+      example: /
 global-parameter:
   type: object
   properties:
@@ -40,10 +49,159 @@ global-parameter:
     vhost:
       nullable: true
       type: string
+shovel-value:
+  type: object
+  description: Configuration for a shovel parameter. Shovels move messages from a source to a destination.
+  properties:
+    src-uri:
+      type: string
+      description: Source AMQP URI (where messages are consumed from).
+      example: amqp://guest:guest@localhost:5672/%2f
+    dest-uri:
+      type: string
+      description: Destination AMQP URI (where messages are published to).
+      example: amqp://guest:guest@remote-host:5672/%2f
+    src-queue:
+      type: string
+      description: Name of source queue to consume from. Either src-queue or src-exchange must be specified.
+      example: source-queue
+    src-exchange:
+      type: string
+      description: Name of source exchange to consume from. Either src-queue or src-exchange must be specified.
+      example: source-exchange
+    src-exchange-key:
+      type: string
+      description: Routing key for source exchange binding (only used with src-exchange).
+      example: "routing.key"
+    dest-queue:
+      type: string
+      description: Name of destination queue to publish to. Either dest-queue or dest-exchange must be specified.
+      example: dest-queue
+    dest-exchange:
+      type: string
+      description: Name of destination exchange to publish to. Either dest-queue or dest-exchange must be specified.
+      example: dest-exchange
+    dest-exchange-key:
+      type: string
+      description: Routing key for destination exchange publishing (only used with dest-exchange).
+      example: "routing.key"
+    src-prefetch-count:
+      type: integer
+      description: Number of messages to prefetch from source.
+      default: 1000
+      example: 1000
+    src-delete-after:
+      type: string
+      description: When to delete messages from source.
+      enum: [never, queue-length]
+      default: never
+      example: never
+    reconnect-delay:
+      type: integer
+      description: Delay in seconds before reconnecting after connection failure.
+      default: 5
+      example: 5
+    ack-mode:
+      type: string
+      description: When to acknowledge messages from source.
+      enum: [on-confirm, on-publish, no-ack]
+      default: on-confirm
+      example: on-confirm
+  required:
+    - src-uri
+    - dest-uri
+  example:
+    src-uri: amqp://guest:guest@localhost:5672/%2f
+    dest-uri: amqp://guest:guest@remote-host:5672/%2f
+    src-queue: source-queue
+    dest-queue: dest-queue
+    src-prefetch-count: 1000
+    src-delete-after: never
+    reconnect-delay: 5
+    ack-mode: on-confirm
+
+federation-upstream-value:
+  type: object
+  description: Configuration for a federation upstream parameter. Federation allows exchanges and queues to receive messages from remote exchanges.
+  properties:
+    uri:
+      type: string
+      description: AMQP URI of the upstream broker.
+      example: amqp://guest:guest@upstream-host:5672/%2f
+    prefetch-count:
+      type: integer
+      description: Number of messages to prefetch from upstream.
+      default: 1000
+      example: 1000
+    reconnect-delay:
+      type: integer
+      description: Delay in seconds before reconnecting after connection failure.
+      default: 5
+      example: 5
+    ack-mode:
+      type: string
+      description: When to acknowledge messages from upstream.
+      enum: [on-confirm, on-publish, no-ack]
+      default: on-confirm
+      example: on-confirm
+    exchange:
+      type: string
+      description: Name of upstream exchange to federate from.
+      example: upstream-exchange
+    max-hops:
+      type: integer
+      description: Maximum number of federation hops for a message.
+      default: 1
+      example: 1
+    expires:
+      type: integer
+      description: Expiry time in milliseconds for the federation link.
+      example: 3600000
+    message-ttl:
+      type: integer
+      description: TTL in milliseconds for messages in the federation link.
+      example: 3600000
+    queue:
+      type: string
+      description: Name of upstream queue to federate from (for queue federation).
+      example: upstream-queue
+    consumer-tag:
+      type: string
+      description: Consumer tag for the federation link.
+      example: federation-consumer
+  required:
+    - uri
+  example:
+    uri: amqp://guest:guest@upstream-host:5672/%2f
+    prefetch-count: 1000
+    reconnect-delay: 5
+    ack-mode: on-confirm
+    exchange: upstream-exchange
+    max-hops: 1
+
+federation-upstream-set-value:
+  type: object
+  description: Configuration for a federation upstream set parameter. An upstream set defines a group of upstreams for high availability.
+  properties:
+    upstreams:
+      type: array
+      description: List of upstream names that belong to this set.
+      items:
+        type: string
+      example: ["upstream-1", "upstream-2", "upstream-3"]
+  required:
+    - upstreams
+  example:
+    upstreams: ["upstream-1", "upstream-2", "upstream-3"]
+
 PutParameterRequestBody:
   type: object
   properties:
     value:
-      type: string
+      oneOf:
+        - $ref: "#/shovel-value"
+        - $ref: "#/federation-upstream-value"
+        - $ref: "#/federation-upstream-set-value"
+      description: Configuration value for the parameter. Structure depends on the component type.
   required:
   - value

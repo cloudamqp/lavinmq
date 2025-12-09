@@ -64,6 +64,7 @@
             <span>Type</span>
             <select class="dropdown" name="src-type" required>
               <option value="queue">Queue</option>
+              <option value="stream">Stream</option>
               <option value="exchange">Exchange</option>
             </select>
           </label>
@@ -75,6 +76,10 @@
           <label id="srcRoutingKey" class="hide">
             <span>Routing key</span>
             <input type="text" name="src-exchange-key">
+          </label>
+          <label id="srcOffset" class="hide">
+            <span>Offset</span>
+            <input type="text" name="src-offset">
           </label>
           <label>
             <span>Prefetch</span>

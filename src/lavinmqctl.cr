@@ -1,9 +1,11 @@
-require "./lavinmq/version"
-require "./lavinmq/http/constants"
-require "./lavinmq/definitions_generator"
 require "http/client"
 require "json"
 require "option_parser"
+require "./lavinmq/version"
+require "./lavinmq/http/constants"
+require "./lavinmq/shovel/constants"
+require "./lavinmq/federation/constants"
+require "./lavinmq/definitions_generator"
 require "./lavinmq/auth/user"
 
 class LavinMQCtl
@@ -30,6 +32,7 @@ class LavinMQCtl
     {"purge_queue", "Purges a queue (removes all messages in it)", "<queue>"},
     {"pause_queue", "Pause all consumers on a queue", "<queue>"},
     {"resume_queue", "Resume all consumers on a queue", "<queue>"},
+    {"restart_queue", "Restarts a closed queue", "<queue>"},
     {"delete_queue", "Delete queue", "<queue>"},
     {"export_definitions", "Exports definitions in JSON", ""},
     {"import_definitions", "Import definitions in JSON", "<file>"},
@@ -43,6 +46,11 @@ class LavinMQCtl
     {"set_vhost_limits", "Set VHost limits (max-connections, max-queues)", "<json>"},
     {"set_permissions", "Set permissions for a user", "<username> <configure> <write> <read>"},
     {"hash_password", "Hash a password", "<password>"},
+
+    {"list_shovels", "Lists shovels", ""},
+    {"delete_shovel", "Delete a shovel", "<name>"},
+    {"list_federations", "Lists federation upstreams", ""},
+    {"delete_federation", "Delete a federation upstream", "<name>"},
 
   }
 
@@ -141,6 +149,80 @@ class LavinMQCtl
     @parser.on("definitions", "Generate definitions json from a data directory") do
       @cmd = "definitions"
     end
+    @parser.on("add_shovel", "Create a shovel") do
+      @cmd = "add_shovel"
+      self.banner = "Usage: #{PROGRAM_NAME} add_shovel <name> --src-uri=<uri> --dest-uri=<uri>"
+      @parser.on("--src-uri=URI", "Source URI (required)") do |v|
+        @args["src-uri"] = JSON::Any.new(v)
+      end
+      @parser.on("--dest-uri=URI", "Destination URI (required)") do |v|
+        @args["dest-uri"] = JSON::Any.new(v)
+      end
+      @parser.on("--src-queue=QUEUE", "Source queue name") do |v|
+        @args["src-queue"] = JSON::Any.new(v)
+      end
+      @parser.on("--dest-queue=QUEUE", "Destination queue name") do |v|
+        @args["dest-queue"] = JSON::Any.new(v)
+      end
+      @parser.on("--src-exchange=EXCHANGE", "Source exchange name") do |v|
+        @args["src-exchange"] = JSON::Any.new(v)
+      end
+      @parser.on("--dest-exchange=EXCHANGE", "Destination exchange name") do |v|
+        @args["dest-exchange"] = JSON::Any.new(v)
+      end
+      @parser.on("--src-exchange-key=KEY", "Source routing key") do |v|
+        @args["src-exchange-key"] = JSON::Any.new(v)
+      end
+      @parser.on("--dest-exchange-key=KEY", "Destination routing key") do |v|
+        @args["dest-exchange-key"] = JSON::Any.new(v)
+      end
+      @parser.on("--src-prefetch-count=COUNT", "Source prefetch count") do |v|
+        @args["src-prefetch-count"] = JSON::Any.new(v.to_i64)
+      end
+      @parser.on("--src-delete-after=AFTER", "Delete after mode (never, queue-length, count)") do |v|
+        @args["src-delete-after"] = JSON::Any.new(v)
+      end
+      @parser.on("--ack-mode=MODE", "Acknowledgment mode (on-confirm, on-publish, no-ack)") do |v|
+        @args["ack-mode"] = JSON::Any.new(v)
+      end
+      @parser.on("--reconnect-delay=SECONDS", "Reconnect delay in seconds") do |v|
+        @args["reconnect-delay"] = JSON::Any.new(v.to_i64)
+      end
+    end
+    @parser.on("add_federation", "Create a federation upstream") do
+      @cmd = "add_federation"
+      self.banner = "Usage: #{PROGRAM_NAME} add_federation <name> --uri=<uri>"
+      @parser.on("--uri=URI", "Upstream URI (required)") do |v|
+        @args["uri"] = JSON::Any.new(v)
+      end
+      @parser.on("--expires=SECONDS", "Expiry time for federation link") do |v|
+        @args["expires"] = JSON::Any.new(v.to_i64)
+      end
+      @parser.on("--message-ttl=MILLISECONDS", "Message TTL for federation") do |v|
+        @args["message-ttl"] = JSON::Any.new(v.to_i64)
+      end
+      @parser.on("--max-hops=COUNT", "Maximum hops for federation") do |v|
+        @args["max-hops"] = JSON::Any.new(v.to_i64)
+      end
+      @parser.on("--prefetch-count=COUNT", "Prefetch count for federation") do |v|
+        @args["prefetch-count"] = JSON::Any.new(v.to_i64)
+      end
+      @parser.on("--reconnect-delay=SECONDS", "Reconnect delay in seconds") do |v|
+        @args["reconnect-delay"] = JSON::Any.new(v.to_i64)
+      end
+      @parser.on("--ack-mode=MODE", "Acknowledgment mode (on-confirm, on-publish, no-ack)") do |v|
+        @args["ack-mode"] = JSON::Any.new(v)
+      end
+      @parser.on("--consumer-tag=TAG", "Consumer tag for federation link") do |v|
+        @args["consumer-tag"] = JSON::Any.new(v)
+      end
+      @parser.on("--exchange=EXCHANGE", "Exchange name to federate") do |v|
+        @args["exchange"] = JSON::Any.new(v)
+      end
+      @parser.on("--queue=QUEUE", "Queue name to federate") do |v|
+        @args["queue"] = JSON::Any.new(v)
+      end
+    end
     @parser.on("-v", "--version", "Show version") { puts LavinMQ::VERSION; exit 0 }
     @parser.on("--build-info", "Show build information") { puts LavinMQ::BUILD_INFO; exit 0 }
     @parser.on("-h", "--help", "Show this help") do
@@ -169,6 +251,9 @@ class LavinMQCtl
     when "change_password"       then change_password
     when "list_queues"           then list_queues
     when "purge_queue"           then purge_queue
+    when "pause_queue"           then pause_queue
+    when "resume_queue"          then resume_queue
+    when "restart_queue"         then restart_queue
     when "list_vhosts"           then list_vhosts
     when "add_vhost"             then add_vhost
     when "delete_vhost"          then delete_vhost
@@ -187,6 +272,12 @@ class LavinMQCtl
     when "set_permissions"       then set_permissions
     when "definitions"           then definitions
     when "hash_password"         then hash_password
+    when "list_shovels"          then list_shovels
+    when "add_shovel"            then add_shovel
+    when "delete_shovel"         then delete_shovel
+    when "list_federations"      then list_federations
+    when "add_federation"        then add_federation
+    when "delete_federation"     then delete_federation
     when "stop_app"
     when "start_app"
     else
@@ -480,6 +571,14 @@ class LavinMQCtl
     handle_response(resp, 204)
   end
 
+  private def restart_queue
+    vhost = @options["vhost"]? || "/"
+    queue = ARGV.shift?
+    abort @banner unless queue
+    resp = http.put "/api/queues/#{URI.encode_www_form(vhost)}/#{URI.encode_www_form(queue)}/restart", @headers
+    handle_response(resp, 204)
+  end
+
   private def list_connections
     columns = ARGV
     columns = ["user", "peer_host", "peer_port", "state"] if columns.empty?
@@ -746,6 +845,84 @@ class LavinMQCtl
     password = ARGV.shift?
     abort @banner unless password
     output LavinMQ::Auth::User.hash_password(password, "SHA256")
+  end
+
+  private def list_shovels
+    vhost = @options["vhost"]? || "/"
+    puts "Listing shovels for vhost #{vhost} ..." unless quiet?
+    ss = get("/api/shovels/#{URI.encode_www_form(vhost)}").map do |s|
+      next unless shovel = s.as_h?
+      {
+        name:  shovel["name"].to_s,
+        vhost: shovel["vhost"].to_s,
+        state: shovel["state"]?.try(&.to_s) || "N/A",
+      }
+    end
+    output ss
+  end
+
+  private def add_shovel
+    name = ARGV.shift?
+    vhost = @options["vhost"]? || "/"
+    abort @banner unless name
+    abort "Fields '--src-uri' and '--dest-uri' are required" unless @args["src-uri"]? && @args["dest-uri"]?
+
+    # Set default values if not provided
+    @args["src-prefetch-count"] ||= JSON::Any.new(LavinMQ::Shovel::DEFAULT_PREFETCH.to_i64)
+    @args["reconnect-delay"] ||= JSON::Any.new(LavinMQ::Shovel::DEFAULT_RECONNECT_DELAY.total_seconds.to_i64)
+    @args["ack-mode"] ||= JSON::Any.new(LavinMQ::Shovel::DEFAULT_ACK_MODE.to_s.underscore.gsub("_", "-"))
+    @args["src-delete-after"] ||= JSON::Any.new(LavinMQ::Shovel::DEFAULT_DELETE_AFTER.to_s.underscore.gsub("_", "-"))
+
+    url = "/api/parameters/shovel/#{URI.encode_www_form(vhost)}/#{URI.encode_www_form(name)}"
+    body = {"value" => @args}
+    resp = http.put url, @headers, body.to_json
+    handle_response(resp, 201, 204)
+  end
+
+  private def delete_shovel
+    name = ARGV.shift?
+    vhost = @options["vhost"]? || "/"
+    abort @banner unless name
+    url = "/api/parameters/shovel/#{URI.encode_www_form(vhost)}/#{URI.encode_www_form(name)}"
+    resp = http.delete url
+    handle_response(resp, 204)
+  end
+
+  private def list_federations
+    vhost = @options["vhost"]? || "/"
+    puts "Listing federation upstreams for vhost #{vhost} ..." unless quiet?
+    ff = get("/api/parameters/federation-upstream/#{URI.encode_www_form(vhost)}").map do |u|
+      next unless f = u.as_h?
+      {name: f["name"].to_s, component: f["component"].to_s}
+    end
+    output ff
+  end
+
+  private def add_federation
+    name = ARGV.shift?
+    vhost = @options["vhost"]? || "/"
+    abort @banner unless name
+    abort "Field '--uri' is required" unless @args["uri"]?
+
+    # Set default values if not provided
+    @args["prefetch-count"] ||= JSON::Any.new(LavinMQ::Federation::DEFAULT_PREFETCH.to_i64)
+    @args["reconnect-delay"] ||= JSON::Any.new(LavinMQ::Federation::DEFAULT_RECONNECT_DELAY.total_seconds)
+    @args["ack-mode"] ||= JSON::Any.new(LavinMQ::Federation::DEFAULT_ACK_MODE.to_s.underscore.gsub("_", "-"))
+    @args["max-hops"] ||= JSON::Any.new(LavinMQ::Federation::DEFAULT_MAX_HOPS)
+
+    url = "/api/parameters/federation-upstream/#{URI.encode_www_form(vhost)}/#{URI.encode_www_form(name)}"
+    body = {"value" => @args}
+    resp = http.put url, @headers, body.to_json
+    handle_response(resp, 201, 204)
+  end
+
+  private def delete_federation
+    name = ARGV.shift?
+    vhost = @options["vhost"]? || "/"
+    abort @banner unless name
+    url = "/api/parameters/federation-upstream/#{URI.encode_www_form(vhost)}/#{URI.encode_www_form(name)}"
+    resp = http.delete url
+    handle_response(resp, 204)
   end
 end
 

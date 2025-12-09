@@ -2,7 +2,7 @@ require "log"
 require "./lavinmq/version"
 require "./lavinmqperf/amqp/*"
 require "./lavinmqperf/mqtt/*"
-require "./stdlib/resource"
+require "./stdlib/*"
 
 {% unless flag?(:release) %}
   STDERR.puts "WARNING: #{PROGRAM_NAME} not built in release mode"

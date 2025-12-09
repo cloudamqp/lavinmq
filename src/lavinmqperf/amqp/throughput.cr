@@ -6,6 +6,8 @@ require "../perf"
 module LavinMQPerf
   module AMQP
     class Throughput < Perf
+      LATENCY_RESERVOIR_SIZE = 128 * 1024
+
       @publishers = 1
       @consumers = 1
       @size = 16
@@ -31,6 +33,14 @@ module LavinMQPerf
       @pub_in_transaction = 0
       @ack_in_transaction = 0
       @random_bodies = false
+      @queue_pattern : String? = nil
+      @queue_pattern_from = 1
+      @queue_pattern_to = 1
+      @measure_latency = false
+      @latencies = Array(Float64).new(LATENCY_RESERVOIR_SIZE)
+      @latencies_mutex = Mutex.new
+      @last_latencies = Array(Float64).new
+      @latencies_count : UInt64 = 0
 
       def initialize
         super
@@ -110,40 +120,84 @@ module LavinMQPerf
         @parser.on("--random-bodies", "Each message body is random") do
           @random_bodies = true
         end
+        @parser.on("--queue-pattern=PATTERN", "Queue name pattern (use % as placeholder, e.g. queue-%)") do |v|
+          abort "Queue pattern must contain '%' placeholder" unless v.includes?("%")
+          @queue_pattern = v
+        end
+        @parser.on("--queue-pattern-from=NUMBER", "Queue pattern start index (default 1)") do |v|
+          from = v.to_i
+          abort "Queue pattern from must be >= 1, got #{from}" if from < 1
+          @queue_pattern_from = from
+        end
+        @parser.on("--queue-pattern-to=NUMBER", "Queue pattern end index (default 1)") do |v|
+          to = v.to_i
+          abort "Queue pattern to must be >= 1, got #{to}" if to < 1
+          @queue_pattern_to = to
+        end
+        @parser.on("-l", "--measure-latency", "Measure and report end-to-end latency") do
+          @measure_latency = true
+        end
       end
 
       @pubs = Atomic(UInt64).new(0_u64)
       @consumes = Atomic(UInt64).new(0_u64)
       @stopped = false
 
+      private def queue_names : Array(String)
+        if pattern = @queue_pattern
+          abort "Queue pattern from (#{@queue_pattern_from}) must be <= to (#{@queue_pattern_to})" if @queue_pattern_from > @queue_pattern_to
+          queues = (@queue_pattern_from..@queue_pattern_to).map do |i|
+            pattern.sub("%", i.to_s)
+          end.to_a
+          abort "Queue pattern generated empty queue list" if queues.empty?
+          queues
+        else
+          [@queue]
+        end
+      end
+
       def run
         super
 
-        mt = Fiber::ExecutionContext::MultiThreaded.new("Clients", maximum: System.cpu_count.to_i)
-        connected = WaitGroup.new(@consumers + @publishers)
-        done = WaitGroup.new(@consumers + @publishers)
-        @consumers.times do
-          if @poll
-            mt.spawn { rerun_on_exception(done) { poll_consume(connected) } }
-          else
-            mt.spawn { rerun_on_exception(done) { consume(connected) } }
-          end
-        end
+        abort "Message size must be at least 8 bytes when measuring latency" if @measure_latency && @size < 8
 
-        @publishers.times do
-          mt.spawn { rerun_on_exception(done) { pub(connected) } }
-        end
+        mt = Fiber::ExecutionContext::Parallel.new("Clients", maximum: System.cpu_count.to_i)
+        queues = queue_names
+        abort "No queues available for consumers" if queues.empty?
 
-        if @timeout != Time::Span.zero
+        unless @timeout.zero?
           spawn do
             sleep @timeout
             @stopped = true
           end
         end
 
-        connected.wait # wait for all clients to connect
+        connected = WaitGroup.new
+        done = WaitGroup.new
+
+        connected.add(@consumers)
+        done.add(@consumers)
+        @consumers.times do |i|
+          queue_name = queues[i % queues.size]
+          if @poll
+            mt.spawn { rerun_on_exception(done) { poll_consume(connected, queue_name) } }
+          else
+            mt.spawn { rerun_on_exception(done) { consume(connected, queue_name) } }
+          end
+        end
+
+        connected.wait # wait for all consumers to connect
+
+        connected.add(@publishers)
+        done.add(@publishers)
+        @publishers.times do
+          mt.spawn { rerun_on_exception(done) { pub(connected) } }
+        end
+
+        connected.wait # wait for all publishers to connect
+
         start = Time.monotonic
-        Signal::INT.trap do
+        Process.on_terminate do
           abort "Aborting" if @stopped
           @stopped = true
           summary(start)
@@ -157,28 +211,79 @@ module LavinMQPerf
 
         loop do
           break if @stopped
-          pubs_last = @pubs.get
-          consumes_last = @consumes.get
+          pubs_last = @pubs.get(:relaxed)
+          consumes_last = @consumes.get(:relaxed)
+          report_start = Time.monotonic
           sleep 1.seconds
-          unless @quiet
-            puts "Publish rate: #{@pubs.get - pubs_last} msgs/s Consume rate: #{@consumes.get - consumes_last} msgs/s"
-          end
+          report(report_start, pubs_last, consumes_last) unless @quiet
         end
         summary(start)
+      end
+
+      private def report(start : Time::Span, pubs_last : UInt64, consumes_last : UInt64)
+        elapsed = (Time.monotonic - start).total_seconds
+        pubs = @pubs.get(:relaxed)
+        consumes = @consumes.get(:relaxed)
+        pub_rate = ((pubs - pubs_last) / elapsed).round.to_i64
+        cons_rate = ((consumes - consumes_last) / elapsed).round.to_i64
+        print "Publish rate: #{pub_rate} msgs/s Consume rate: #{cons_rate} msgs/s"
+        if @measure_latency
+          stats = @latencies_mutex.synchronize do
+            begin
+              calculate_percentiles(@last_latencies)
+            ensure
+              @last_latencies.clear
+            end
+          end
+          if stats
+            print " | Latency (ms) min/median/75th/95th/99th: #{stats[:min].round(3)}/#{stats[:median].round(3)}/#{stats[:p75].round(3)}/#{stats[:p95].round(3)}/#{stats[:p99].round(3)}"
+          end
+        end
+        puts
+      end
+
+      private def calculate_percentiles(latencies : Array(Float64))
+        return if latencies.empty?
+        latencies.unstable_sort!
+        size = latencies.size - 1
+        {
+          min:    latencies.first,
+          median: latencies[size * 50 // 100],
+          p75:    latencies[size * 75 // 100],
+          p95:    latencies[size * 95 // 100],
+          p99:    latencies[size * 99 // 100],
+        }
       end
 
       private def summary(start : Time::Span)
         stop = Time.monotonic
         elapsed = (stop - start).total_seconds
-        avg_pub = (@pubs.get / elapsed).round(1)
-        avg_consume = (@consumes.get / elapsed).round(1)
+        avg_pub = (@pubs.get(:relaxed) / elapsed).round.to_i64
+        avg_consume = (@consumes.get(:relaxed) / elapsed).round.to_i64
         puts
+        latency_info = if @measure_latency
+                         @latencies_mutex.synchronize do
+                           {calculate_percentiles(@latencies), @latencies_count, @latencies.size}
+                         end
+                       end
         if @json_output
           JSON.build(STDOUT) do |json|
             json.object do
               json.field "elapsed_seconds", elapsed
               json.field "avg_pub_rate", avg_pub
               json.field "avg_consume_rate", avg_consume
+              if latency_info
+                latency_stats, latency_count, latency_sample_size = latency_info
+                if latency_stats
+                  json.field "latency_min_ms", latency_stats[:min].round(3)
+                  json.field "latency_median_ms", latency_stats[:median].round(3)
+                  json.field "latency_p75_ms", latency_stats[:p75].round(3)
+                  json.field "latency_p95_ms", latency_stats[:p95].round(3)
+                  json.field "latency_p99_ms", latency_stats[:p99].round(3)
+                  json.field "latency_count", latency_count
+                  json.field "latency_sample_size", latency_sample_size
+                end
+              end
             end
           end
           puts
@@ -186,6 +291,51 @@ module LavinMQPerf
           puts "Summary:"
           puts "Average publish rate: #{avg_pub} msgs/s"
           puts "Average consume rate: #{avg_consume} msgs/s"
+          if latency_info
+            latency_stats, latency_count, latency_sample_size = latency_info
+            if latency_stats
+              if latency_count > latency_sample_size
+                puts "Latency (ms, n=#{latency_sample_size} sampled from #{latency_count}):"
+              else
+                puts "Latency (ms, n=#{latency_count}):"
+              end
+              puts "  min:    #{latency_stats[:min].round(3)}"
+              puts "  median: #{latency_stats[:median].round(3)}"
+              puts "  75th:   #{latency_stats[:p75].round(3)}"
+              puts "  95th:   #{latency_stats[:p95].round(3)}"
+              puts "  99th:   #{latency_stats[:p99].round(3)}"
+            end
+          end
+        end
+      end
+
+      private def record_latency(body : Bytes)
+        return if body.size < 8 # not enough data for timestamp
+
+        timestamp_ns = IO::ByteFormat::LittleEndian.decode(Int64, body)
+        latency_ms = (Time.monotonic.total_nanoseconds - timestamp_ns) / 1_000_000.0
+        @latencies_mutex.synchronize do
+          @latencies_count += 1
+          @last_latencies << latency_ms
+          # Reservoir sampling: keep fixed-size sample
+          if @latencies.size < LATENCY_RESERVOIR_SIZE
+            @latencies << latency_ms
+          else
+            # Replace random element with probability RESERVOIR_SIZE / count
+            # Standard reservoir sampling: pick random position in [0, count),
+            # and if it's within reservoir size, replace that element
+            j = Random::DEFAULT.rand(@latencies_count)
+            @latencies[j] = latency_ms if j < LATENCY_RESERVOIR_SIZE
+          end
+        end
+      end
+
+      private def verify_message_body(body : Bytes, expected : Bytes)
+        if @measure_latency && body.size >= 8
+          # Skip first 8 bytes (timestamp) when verifying
+          raise "Invalid data" if body[8..] != expected[8..]
+        else
+          raise "Invalid data" if body != expected
         end
       end
 
@@ -201,19 +351,39 @@ module LavinMQPerf
           wait_until_all_are_connected(connected)
           start = Time.monotonic
           pubs_this_second = 0
+          queues = queue_names
+          queue_idx = 0
           until @stopped
-            Random::DEFAULT.random_bytes(data) if @random_bodies
+            if @measure_latency
+              # Write timestamp at the beginning of the message
+              IO::ByteFormat::LittleEndian.encode(Time.monotonic.total_nanoseconds.to_i64, data)
+              # Fill the rest with random or pattern data
+              if @random_bodies
+                Random::DEFAULT.random_bytes(data[8..])
+              else
+                (8...@size).each { |i| data[i] = ((i % 27 + 64)).to_u8 }
+              end
+            elsif @random_bodies
+              Random::DEFAULT.random_bytes(data)
+            end
+            # When using queue pattern, rotate through queues using queue name as routing key
+            routing_key = if @queue_pattern
+                            queues[queue_idx % queues.size]
+                          else
+                            @routing_key
+                          end
             if @max_unconfirm > 0
               unconfirmed.send nil
-              ch.basic_publish(data, @exchange, @routing_key, props: props) do
+              ch.basic_publish(data, @exchange, routing_key, props: props) do
                 unconfirmed.receive
               end
             else
-              ch.basic_publish(data, @exchange, @routing_key, props: props)
+              ch.basic_publish(data, @exchange, routing_key, props: props)
             end
-            pubs = @pubs.add(1, :relaxed)
+            queue_idx += 1 if @queue_pattern
+            pubs = @pubs.add(1, :relaxed) + 1
             ch.tx_commit if @pub_in_transaction > 0 && (pubs % @pub_in_transaction) == 0
-            break if (pubs + 1) == @pmessages
+            break if pubs >= @pmessages > 0
             unless @rate.zero?
               pubs_this_second += 1
               if pubs_this_second >= @rate
@@ -229,81 +399,66 @@ module LavinMQPerf
         end
       end
 
-      private def consume(connected) # ameba:disable Metrics/CyclomaticComplexity
+      private def consume(connected, queue_name : String)
         data = Bytes.new(@size) { |i| ((i % 27 + 64)).to_u8 }
         ::AMQP::Client.start(@uri) do |a|
           ch = a.channel
           q = begin
-            ch.queue @queue, durable: !@queue.empty?, auto_delete: @queue.empty?, args: @queue_args
+            ch.queue queue_name, durable: !queue_name.empty?, auto_delete: queue_name.empty?, args: @queue_args
           rescue
             ch = a.channel
-            ch.queue(@queue, passive: true)
+            ch.queue(queue_name, passive: true)
           end
+          q.purge if @measure_latency # Can't measure latency with existing messages
           ch.tx_select if @ack_in_transaction > 0
           if prefetch = @prefetch
             ch.prefetch prefetch
           end
           q.bind(@exchange, @routing_key) unless @exchange.empty?
           wait_until_all_are_connected(connected)
-          consumes_this_second = 0
-          start = Time.monotonic
+          rate_limiter = RateLimiter.new(@consume_rate)
           q.subscribe(tag: "c", no_ack: @ack.zero?, block: true, args: @consumer_args) do |m|
-            consumes = @consumes.add(1, :relaxed)
-            raise "Invalid data: #{m.body_io.to_slice}" if @verify && m.body_io.to_slice != data
-            m.ack(multiple: true) if @ack > 0 && (consumes + 1) % @ack == 0
-            ch.tx_commit if @ack_in_transaction > 0 && ((consumes + 1) % @ack_in_transaction) == 0
-            if @stopped || (consumes + 1) == @cmessages
-              ch.close
-            end
-            if @consume_rate.zero?
-              Fiber.yield if consumes % 128*1024 == 0
-            else
-              consumes_this_second += 1
-              if consumes_this_second >= @consume_rate
-                until_next_second = (start + 1.seconds) - Time.monotonic
-                if until_next_second > Time::Span.zero
-                  sleep until_next_second
-                end
-                start = Time.monotonic
-                consumes_this_second = 0
-              end
-            end
+            handle_consumed_message(ch, m, data, rate_limiter)
           end
         end
       end
 
-      private def poll_consume(connected)
+      private def handle_consumed_message(ch, m, data, rate_limiter)
+        consumes = @consumes.add(1, :relaxed) + 1
+        body = m.body_io.to_slice
+        record_latency(body) if @measure_latency
+        verify_message_body(body, data) if @verify
+        m.ack(multiple: true) if @ack > 0 && consumes % @ack == 0
+        ch.tx_commit if @ack_in_transaction > 0 && (consumes % @ack_in_transaction) == 0
+        if @stopped || consumes >= @cmessages > 0
+          ch.close
+        end
+        rate_limiter.limit(consumes)
+      end
+
+      private def poll_consume(connected, queue_name : String)
         ::AMQP::Client.start(@uri) do |a|
           ch = a.channel
           q = begin
-            ch.queue @queue
+            ch.queue queue_name
           rescue
             ch = a.channel
-            ch.queue(@queue, passive: true)
+            ch.queue(queue_name, passive: true)
           end
+          q.purge if @measure_latency # Can't measure latency with existing messages
           if prefetch = @prefetch
             ch.prefetch prefetch
           end
           q.bind(@exchange, @routing_key) unless @exchange.empty?
           wait_until_all_are_connected(connected)
-          consumes_this_second = 0
-          start = Time.monotonic
+          rate_limiter = RateLimiter.new(@consume_rate)
           loop do
             if msg = q.get(no_ack: @ack.zero?)
-              consumes = @consumes.add(1, :relaxed)
-              msg.ack(multiple: true) if @ack > 0 && (consumes + 1) % @ack == 0
-              break if @stopped || (consumes + 1) == @cmessages
-            end
-            unless @consume_rate.zero?
-              consumes_this_second += 1
-              if consumes_this_second >= @consume_rate
-                until_next_second = (start + 1.seconds) - Time.monotonic
-                if until_next_second > Time::Span.zero
-                  sleep until_next_second
-                end
-                start = Time.monotonic
-                consumes_this_second = 0
-              end
+              consumes = @consumes.add(1, :relaxed) + 1
+              record_latency(msg.body_io.to_slice) if @measure_latency
+              msg.ack(multiple: true) if @ack > 0 && consumes % @ack == 0
+              break if @stopped || consumes >= @cmessages > 0
+              rate_limiter.limit
             end
           end
         end
@@ -327,6 +482,32 @@ module LavinMQPerf
         connected.wait
       rescue
         # when we reconnect a broker the waitgroup will have a negative counter
+      end
+
+      private class RateLimiter
+        def initialize(@rate : Int32)
+          @consumes_this_second = 0
+          @start = Time.monotonic
+          @total_consumes = 0_u64
+        end
+
+        def limit(consume_count : UInt64? = nil)
+          if @rate.zero?
+            # When no rate limiting, yield periodically to avoid blocking other fibers
+            count = consume_count || @total_consumes
+            Fiber.yield if count % (128*1024) == 0
+            return
+          end
+
+          @consumes_this_second += 1
+          @total_consumes += 1
+          if @consumes_this_second >= @rate
+            until_next_second = (@start + 1.seconds) - Time.monotonic
+            sleep until_next_second if until_next_second > Time::Span.zero
+            @start = Time.monotonic
+            @consumes_this_second = 0
+          end
+        end
       end
     end
   end

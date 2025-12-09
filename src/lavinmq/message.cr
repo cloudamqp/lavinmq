@@ -35,6 +35,15 @@ module LavinMQ
       nil
     end
 
+    def to_io(io : IO, format = IO::ByteFormat::SystemEndian)
+      io.write_bytes @timestamp, format
+      io.write_bytes AMQ::Protocol::ShortString.new(@exchange_name), format
+      io.write_bytes AMQ::Protocol::ShortString.new(@routing_key), format
+      io.write_bytes @properties, format
+      io.write_bytes @bodysize, format
+      io.write @body
+    end
+
     def self.skip(io, format = IO::ByteFormat::SystemEndian) : UInt64
       skipped = 0_u64
       skipped += io.skip(sizeof(UInt64))                             # ts

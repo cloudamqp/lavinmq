@@ -1,32 +1,73 @@
 require "../queue/durable_queue"
 require "./stream_consumer"
 require "./stream_message_store"
+require "./stream_reader"
 
 module LavinMQ::AMQP
   class Stream < DurableQueue
-    def initialize(@vhost : VHost, @name : String,
-                   @exclusive = false, @auto_delete = false,
-                   @arguments = AMQP::Table.new)
-      super
-      spawn unmap_and_remove_segments_loop, name: "Stream#unmap_and_remove_segments_loop"
+    def self.create(vhost : VHost, name : String,
+                    exclusive : Bool = false, auto_delete : Bool = false,
+                    arguments : AMQP::Table = AMQP::Table.new)
+      # Validate non-arguments first
+      raise LavinMQ::Error::PreconditionFailed.new("A stream cannot be exclusive") if exclusive
+      raise LavinMQ::Error::PreconditionFailed.new("A stream cannot be auto-delete") if auto_delete
+
+      validate_arguments!(arguments)
+      new vhost, name, exclusive, auto_delete, arguments
     end
 
-    def apply_policy(policy : Policy?, operator_policy : OperatorPolicy?)
+    def self.validate_arguments!(arguments)
+      invalid_arguments = {
+        "x-dead-letter-exchange",
+        "x-dead-letter-routing-key",
+        "x-expires",
+        "x-delivery-limit",
+        "x-overflow",
+        "x-single-active-consumer",
+        "x-max-priority",
+      }
+
+      arguments.each do |key, value|
+        if invalid_arguments.includes?(key)
+          raise LavinMQ::Error::PreconditionFailed.new("Argument #{key} not allowed for streams")
+        end
+        if key == "x-max-age"
+          ArgumentValidator::MaxAgeValidator.new.validate!(key, value)
+        end
+      end
+
       super
-      if max_age_value = Policy.merge_definitions(policy, operator_policy)["max-age"]?
-        if max_age_policy = parse_max_age(max_age_value.as_s?)
+    end
+
+    protected def initialize(@vhost : VHost, @name : String,
+                             @exclusive = false, @auto_delete = false,
+                             @arguments = AMQP::Table.new)
+      super
+    end
+
+    private def apply_policy_argument(key : String, value : JSON::Any) : Bool
+      if key == "max-age"
+        result = false
+        if max_age_policy = parse_max_age(value.as_s?)
           if current_max = stream_msg_store.max_age
             if current_max > max_age_policy
               stream_msg_store.max_age = max_age_policy
+              @effective_args.delete("x-max-age")
+              result = true
             end
           else
             stream_msg_store.max_age = max_age_policy
+            @effective_args.delete("x-max-age")
+            result = true
           end
         end
+        stream_msg_store.max_length = @max_length
+        stream_msg_store.max_length_bytes = @max_length_bytes
+        stream_msg_store.drop_overflow
+        result
+      else
+        super(key, value)
       end
-      stream_msg_store.max_length = @max_length
-      stream_msg_store.max_length_bytes = @max_length_bytes
-      stream_msg_store.drop_overflow
     end
 
     delegate last_offset, new_messages, find_offset, to: @msg_store.as(StreamMessageStore)
@@ -39,12 +80,22 @@ module LavinMQ::AMQP
       # Streams doesn't handle queue expiration
     end
 
+    private def start : Bool
+      if @msg_store.closed
+        !close
+      else
+        handle_arguments
+        spawn unmap_and_remove_segments_loop, name: "Stream#unmap_and_remove_segments_loop"
+        true
+      end
+    end
+
     private def init_msg_store(data_dir)
       replicator = @vhost.@replicator
       @msg_store = StreamMessageStore.new(data_dir, replicator, metadata: @metadata)
     end
 
-    private def stream_msg_store : StreamMessageStore
+    def stream_msg_store : StreamMessageStore
       @msg_store.as(StreamMessageStore)
     end
 
@@ -67,6 +118,10 @@ module LavinMQ::AMQP
     # Streams does not support basic_get, so always returns `false`
     def basic_get(no_ack, force = false, & : Envelope -> Nil) : Bool
       false
+    end
+
+    def reader(offset)
+      StreamReader.new(self, offset)
     end
 
     def consume_get(consumer : AMQP::StreamConsumer, & : Envelope -> Nil) : Bool
@@ -120,25 +175,10 @@ module LavinMQ::AMQP
     private def handle_arguments
       super
       @effective_args << "x-queue-type"
-      if @dlx
-        raise LavinMQ::Error::PreconditionFailed.new("x-dead-letter-exchange not allowed for streams")
+      if max_age = parse_max_age(@arguments["x-max-age"]?)
+        stream_msg_store.max_age = max_age
+        @effective_args << "x-max-age"
       end
-      if @dlrk
-        raise LavinMQ::Error::PreconditionFailed.new("x-dead-letter-exchange not allowed for streams")
-      end
-      if @expires
-        raise LavinMQ::Error::PreconditionFailed.new("x-expires not allowed for streams")
-      end
-      if @delivery_limit
-        raise LavinMQ::Error::PreconditionFailed.new("x-delivery-limit not allowed for streams")
-      end
-      if @reject_on_overflow
-        raise LavinMQ::Error::PreconditionFailed.new("x-overflow not allowed for streams")
-      end
-      if @single_active_consumer_queue
-        raise LavinMQ::Error::PreconditionFailed.new("x-single-active-consumer not allowed for streams")
-      end
-      stream_msg_store.max_age = parse_max_age(@arguments["x-max-age"]?)
       stream_msg_store.max_length = @max_length
       stream_msg_store.max_length_bytes = @max_length_bytes
       stream_msg_store.drop_overflow

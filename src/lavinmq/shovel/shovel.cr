@@ -1,38 +1,13 @@
+require "../config"
 require "../sortable_json"
 require "amqp-client"
 require "http/client"
 require "wait_group"
+require "./constants"
 
 module LavinMQ
   module Shovel
-    Log                       = LavinMQ::Log.for "shovel"
-    DEFAULT_ACK_MODE          = AckMode::OnConfirm
-    DEFAULT_DELETE_AFTER      = DeleteAfter::Never
-    DEFAULT_PREFETCH          = 1000_u16
-    DEFAULT_RECONNECT_DELAY   = 5.seconds
-    DEFAULT_BATCH_ACK_TIMEOUT = 3.seconds
-
-    enum State
-      Starting
-      Running
-      Stopped
-      Paused
-      Terminated
-      Error
-    end
-
-    enum DeleteAfter
-      Never
-      QueueLength
-    end
-
-    enum AckMode
-      OnConfirm
-      OnPublish
-      NoAck
-    end
-
-    class FailedDeliveryError < Exception; end
+    Log = LavinMQ::Log.for "shovel"
 
     class AMQPSource
       @conn : ::AMQP::Client::Connection?
@@ -72,6 +47,10 @@ module LavinMQ
       end
 
       def start
+        return if started?
+        if @last_unacked
+          Log.error { "Restarted with unacked messages, message duplication possible" }
+        end
         if c = @conn
           c.close
         end
@@ -216,6 +195,7 @@ module LavinMQ
       end
 
       def start
+        return if started?
         next_dest = @destinations.sample
         return unless next_dest
         next_dest.start
@@ -266,6 +246,7 @@ module LavinMQ
       end
 
       def start
+        return if started?
         if c = @conn
           c.close
         end
@@ -317,6 +298,7 @@ module LavinMQ
       end
 
       def start
+        return if started?
         client = ::HTTP::Client.new @uri
         client.connect_timeout = 10.seconds
         client.read_timeout = 30.seconds
@@ -370,14 +352,13 @@ module LavinMQ
       @retries : Int64 = 0
       RETRY_THRESHOLD =  10
       MAX_DELAY       = 300
-      @config = LavinMQ::Config.instance
 
       getter name, vhost
 
       def initialize(@source : AMQPSource, @destination : Destination,
                      @name : String, @vhost : VHost, @reconnect_delay : Time::Span = DEFAULT_RECONNECT_DELAY)
         filename = "shovels.#{Digest::SHA1.hexdigest @name}.paused"
-        @paused_file_path = File.join(@config.data_dir, filename)
+        @paused_file_path = File.join(Config.instance.data_dir, filename)
         if File.exists?(@paused_file_path)
           @state = State::Paused
         end
@@ -392,13 +373,8 @@ module LavinMQ
         loop do
           break if should_stop_loop?
           @state = State::Starting
-          unless @source.started?
-            if @source.last_unacked
-              Log.error { "Restarted with unacked messages, message duplication possible" }
-            end
-            @source.start
-          end
-          @destination.start unless @destination.started?
+          @source.start
+          @destination.start
 
           break if should_stop_loop?
           Log.info { "started" }
@@ -408,6 +384,7 @@ module LavinMQ
             @message_count += 1
             @destination.push(msg, @source)
           end
+          break if should_stop_loop? # Don't delete shovel if paused/terminated
           @vhost.delete_parameter("shovel", @name) if @source.delete_after.queue_length?
           break
         rescue ex : ::AMQP::Client::Connection::ClosedException | ::AMQP::Client::Channel::ClosedException | Socket::ConnectError
@@ -455,6 +432,7 @@ module LavinMQ
       end
 
       def resume
+        return unless paused?
         delete_paused_file
         @state = State::Starting
         Log.info { "Resuming shovel #{@name} vhost=#{@vhost.name}" }
@@ -462,6 +440,7 @@ module LavinMQ
       end
 
       def pause
+        return if terminated?
         File.write(@paused_file_path, @name)
         Log.info { "Pausing shovel #{@name} vhost=#{@vhost.name}" }
         @state = State::Paused

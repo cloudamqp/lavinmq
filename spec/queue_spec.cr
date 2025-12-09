@@ -1,5 +1,19 @@
 require "./spec_helper"
 require "./../src/lavinmq/amqp/queue"
+require "./../src/lavinmq/policy"
+
+alias Policy = LavinMQ::Policy
+
+def with_queue(&)
+  with_amqp_server do |s|
+    vhost = s.vhosts["/"]
+    vhost.declare_queue("q", durable: true, auto_delete: false)
+    q = vhost.queues["q"]
+    yield q
+  ensure
+    q.try &.delete
+  end
+end
 
 describe LavinMQ::AMQP::Queue do
   it "should expire itself after last consumer disconnects" do
@@ -198,6 +212,123 @@ describe LavinMQ::AMQP::Queue do
         with_channel(s) do |ch|
           ch.has_subscriber?(tag).should eq false
         end
+
+        # Queue is closed, delete to prevent spec failure because of closed queue
+        s.vhosts["/"].queues[q_name].try &.delete
+      end
+    end
+  end
+
+  describe "Restarting queues" do
+    q_name = "restart"
+    it "should restart a closed queue" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue(q_name, durable: true)
+          queue = s.vhosts["/"].queues[q_name].as(LavinMQ::AMQP::DurableQueue)
+
+          # Publish a message
+          q.publish_confirm "test message"
+          queue.message_count.should eq 1
+
+          # Close the queue
+          queue.close
+          queue.closed?.should be_true
+
+          # Restart the queue & verify
+          queue.restart!.should be_true
+          queue.closed?.should be_false
+          queue.message_count.should eq 1
+          msg = q.get(no_ack: true)
+          msg.should_not be_nil
+          msg.not_nil!.body_io.to_s.should eq "test message"
+        end
+      end
+    end
+
+    it "should restart after corrupt data closes the queue" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue(q_name, durable: true)
+          queue = s.vhosts["/"].queues[q_name].as(LavinMQ::AMQP::DurableQueue)
+          q.publish_confirm "test message"
+          queue.message_count.should eq 1
+
+          # Write corrupt data to the segment file
+          mfile = queue.@msg_store.@segments.first_value
+          File.open(mfile.path, "w+") do |f|
+            f.seek(mfile.size - mfile.size + 4)
+            f.write(("x"*10).to_slice)
+          end
+
+          # Try to consume, which will trigger the close due to corrupt data
+          q.subscribe(tag: "tag", no_ack: false, &.ack)
+          should_eventually(be_true) { queue.state.closed? }
+
+          # Delete corrupted segment file
+          File.delete(mfile.path)
+
+          # Restart the queue & verify that it is running
+          queue.restart!.should be_true
+          queue.closed?.should be_false
+          queue.state.running?.should be_true
+          queue.message_count.should eq 0
+        end
+      end
+    end
+
+    it "should expire msgs after restarting a queue" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue(q_name, durable: true, args: AMQP::Client::Arguments.new(
+            {"x-message-ttl" => 500, "x-dead-letter-exchange" => "", "x-dead-letter-routing-key" => "dlq"}
+          ))
+          queue = s.vhosts["/"].queues[q_name].as(LavinMQ::AMQP::DurableQueue)
+
+          # Publish a message
+          q.publish_confirm "test message"
+          queue.message_count.should eq 1
+
+          # Close the queue
+          queue.close
+          queue.closed?.should be_true
+
+          # Restart the queue & verify
+          queue.restart!.should be_true
+          queue.closed?.should be_false
+          queue.message_count.should eq 1
+          should_eventually(be_true) { queue.message_count == 0 }
+        end
+      end
+    end
+
+    it "should expire queue after restarting a queue" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          ch.queue(q_name, durable: true, args: AMQP::Client::Arguments.new({"x-expires" => 100}))
+          queue = s.vhosts["/"].queues[q_name].as(LavinMQ::AMQP::DurableQueue)
+
+          # Close the queue
+          queue.close
+          queue.closed?.should be_true
+
+          # Restart the queue & verify
+          queue.restart!.should be_true
+          queue.closed?.should be_false
+          should_eventually(be_true) { queue.closed? }
+        end
+      end
+    end
+
+    it "should not restart if queue is still running" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          ch.queue(q_name, durable: true)
+          queue = s.vhosts["/"].queues[q_name].as(LavinMQ::AMQP::DurableQueue)
+
+          # Try to restart without closing
+          queue.restart!.should be_false
+        end
       end
     end
   end
@@ -367,7 +498,7 @@ describe LavinMQ::AMQP::Queue do
       begin
         store = LavinMQ::MessageStore.new(data_dir, nil)
         body = IO::Memory.new(Random::DEFAULT.random_bytes(LavinMQ::Config.instance.segment_size), writeable: false)
-        msg = LavinMQ::Message.new(0i64, "amq.topic", "rk", AMQ::Protocol::Properties.new, body.size.to_u64, body)
+        msg = LavinMQ::Message.new(1i64, "amq.topic", "rk", AMQ::Protocol::Properties.new, body.size.to_u64, body)
         sps = Array(LavinMQ::SegmentPosition).new(10) { store.push msg }
         sps.each { |sp| store.delete sp }
         Fiber.yield
@@ -383,7 +514,7 @@ describe LavinMQ::AMQP::Queue do
       Dir.mkdir_p data_dir
       begin
         body = IO::Memory.new(Random::DEFAULT.random_bytes(LavinMQ::Config.instance.segment_size), writeable: false)
-        msg = LavinMQ::Message.new(0i64, "amq.topic", "rk", AMQ::Protocol::Properties.new, body.size.to_u64, body)
+        msg = LavinMQ::Message.new(1i64, "amq.topic", "rk", AMQ::Protocol::Properties.new, body.size.to_u64, body)
 
         store = LavinMQ::MessageStore.new(data_dir, nil)
         2.times { store.push msg }
@@ -403,12 +534,12 @@ describe LavinMQ::AMQP::Queue do
       store = LavinMQ::MessageStore.new(tmpdir, nil)
 
       (LavinMQ::MessageStore::PURGE_YIELD_INTERVAL * 2 + 1).times do
-        store.push(LavinMQ::Message.new(0i64, "a", "b", AMQ::Protocol::Properties.new, 0u64, IO::Memory.new(0)))
+        store.push(LavinMQ::Message.new(1i64, "a", "b", AMQ::Protocol::Properties.new, 0u64, IO::Memory.new(0)))
       end
 
       yields = 0
       done = Channel(Nil).new
-      spawn(name: "yield counter", same_thread: true) do
+      spawn(name: "yield counter") do
         loop do
           select
           when timeout(0.seconds)
@@ -419,7 +550,7 @@ describe LavinMQ::AMQP::Queue do
         end
       end
 
-      spawn(name: "purger", same_thread: true) do
+      spawn(name: "purger") do
         store.purge
         2.times { done.send nil }
       end
@@ -441,7 +572,7 @@ describe LavinMQ::AMQP::Queue do
       # Publish enough data to have more than one segment
       until store.@segments.size > 1
         io.rewind
-        store.push(LavinMQ::Message.new(0i64, "a", "b", AMQ::Protocol::Properties.new, data.bytesize.to_u64, io))
+        store.push(LavinMQ::Message.new(1i64, "a", "b", AMQ::Protocol::Properties.new, data.bytesize.to_u64, io))
       end
 
       Dir.glob(File.join(tmpdir, "msgs.*")).each do |f|
@@ -451,6 +582,35 @@ describe LavinMQ::AMQP::Queue do
       store.purge
     ensure
       FileUtils.rm_rf tmpdir if tmpdir
+    end
+
+    pending "should not ack 'empty' msg if mfile.size is too big" do
+      with_amqp_server do |s|
+        s.vhosts["/"].declare_queue("expire_test_queue", true, false, AMQP::Client::Arguments.new({
+          "x-message-ttl" => 600,
+        }))
+        queue = s.vhosts["/"].queues["expire_test_queue"].as(LavinMQ::AMQP::DurableQueue)
+
+        10_000.times do
+          queue.publish(LavinMQ::Message.new("ex", "rk", "body" * 250, AMQ::Protocol::Properties.new))
+        end
+
+        # Change size of each segment to be bigger than actual size
+        queue.@msg_store.@segments.each_value do |mfile|
+          mfile.truncate(mfile.size + 100)
+          mfile.write Bytes.new(100)
+        end
+
+        # Wait for messages to expire
+        wait_for(2.seconds) { queue.message_count == 0 }
+        Fiber.yield
+
+        queue.message_count.should eq 0
+        queue.@msg_store.@segments.each_key do |seg|
+          acks = queue.@msg_store.@acks[seg]
+          (acks.size // sizeof(UInt32)).should eq queue.@msg_store.@segment_msg_count[seg]
+        end
+      end
     end
   end
 
@@ -495,6 +655,140 @@ describe LavinMQ::AMQP::Queue do
           sleep 10.milliseconds
           sq.unacked_count.should eq 1
           sq.unacked_bytesize.should eq(bytesize/2)
+        end
+      end
+    end
+  end
+
+  describe "effective arguments" do
+    arguments = {
+      {"x-dead-letter-exchange": "dlx", "x-dead-letter-routing-key": "dlrk"},
+      {"x-expires": 100},
+      {"x-max-length": 200},
+      {"x-max-length-bytes": 300},
+      {"x-message-ttl": 400},
+      {"x-overflow": "drop-head"},
+      {"x-overflow": "reject-publish"},
+      {"x-delivery-limit": 500},
+      {"x-consumer-timeout": 600},
+      {"x-single-active-consumer": true},
+      {"x-message-deduplication": true, "x-cache-size": 700},
+      {"x-message-deduplication": true, "x-cache-ttl": 800},
+      {"x-message-deduplication": true, "x-deduplication-header": "foo"},
+    }
+    arguments.each do |args|
+      it "should contain #{args.keys.join(", ")} when args is #{args}" do
+        with_amqp_server do |s|
+          q = s.vhosts["/"].try do |vhost|
+            vhost.declare_queue("q", durable: true, auto_delete: false, arguments: AMQP::Client::Arguments.new(args))
+            vhost.queues["q"]
+          end
+
+          effective_arguments = q.details_tuple[:effective_arguments]
+          args.keys.map(&.to_s).each do |key|
+            effective_arguments.should contain key
+          end
+        end
+      end
+    end
+
+    invalid_arguments = {
+      {"x-overflow": "drop-arm"},
+      {"x-overflow": "reject-ack"},
+    }
+    invalid_arguments.each do |args|
+      it "should not contain #{args.keys.join(", ")} when args is #{args}" do
+        with_amqp_server do |s|
+          q = s.vhosts["/"].try do |vhost|
+            vhost.declare_queue("q", durable: true, auto_delete: false, arguments: AMQP::Client::Arguments.new(args))
+            vhost.queues["q"]
+          end
+
+          effective_arguments = q.details_tuple[:effective_arguments]
+          args.keys.map(&.to_s).each do |key|
+            effective_arguments.should_not contain key
+          end
+        end
+      end
+    end
+
+    overriden_arguments = {
+      {
+        args:     {"x-message-ttl": 100},
+        policy:   {"message-ttl": 50},
+        expected: Tuple.new,
+      },
+      {
+        args:     {"x-message-ttl": 10},
+        policy:   {"message-ttl": 50},
+        expected: {"x-message-ttl"},
+      },
+      {
+        args:     {"x-message-ttl": 100, "x-max-length": 10},
+        policy:   {"message-ttl": 50, "x-max-length": 100},
+        expected: {"x-max-length"},
+      },
+    }
+    overriden_arguments.each do |value|
+      args = value[:args]
+      policy_args = value[:policy]
+      expected = value[:expected]
+      it "should be #{expected.join(", ")} with args #{args} and policy #{policy_args}" do
+        with_amqp_server do |s|
+          q = s.vhosts["/"].try do |vhost|
+            vhost.declare_queue("q", durable: true, auto_delete: false, arguments: AMQP::Client::Arguments.new(args))
+            vhost.queues["q"]
+          end
+          definition = JSON.parse(policy_args.to_json).as_h
+          policy = LavinMQ::Policy.new("p1", "/", %r{"."}, LavinMQ::Policy::Target::All, definition, 1i8)
+          q.apply_policy(policy, nil)
+          effective_arguments = q.details_tuple[:effective_arguments]
+          expected.each do |key|
+            effective_arguments.should contain key
+          end
+        end
+      end
+    end
+  end
+
+  describe "PolicyTarget" do
+    definition = {
+      "max-length" => JSON::Any.new(100),
+    }
+    policy = Policy.new("p1", "/", %r{.*}, Policy::Target::Queues, definition, 0i8)
+    definition2 = {
+      "message-ttl" => JSON::Any.new(1337),
+    }
+    policy2 = Policy.new("p2", "/", %r{.*}, Policy::Target::Queues, definition2, 0i8)
+    describe "#apply_policy" do
+      it "should apply policy" do
+        with_queue do |q|
+          q.apply_policy(policy, nil)
+          q.details_tuple[:effective_policy_definition].keys.should contain "max-length"
+          q.details_tuple[:effective_policy_definition]["max-length"].should eq 100
+        end
+      end
+
+      it "should replace policy" do
+        with_queue do |q|
+          q.apply_policy(policy, nil)
+          q.details_tuple[:effective_policy_definition].keys.should contain "max-length"
+          q.apply_policy(policy2, nil)
+          q.details_tuple[:effective_policy_definition].keys.should_not contain "max-length"
+          q.details_tuple[:effective_policy_definition].keys.should contain "message-ttl"
+          q.details_tuple[:effective_policy_definition]["message-ttl"].should eq 1337
+        end
+      end
+    end
+
+    describe "#clear_policy" do
+      policy = Policy.new("p1", "/", %r{.*}, Policy::Target::Queues, definition, 0i8)
+      it "should clear policy" do
+        with_queue do |q|
+          q.apply_policy(policy, nil)
+          q.details_tuple[:effective_policy_definition].keys.should contain "max-length"
+          q.clear_policy
+          q.details_tuple[:effective_policy_definition].keys.should_not contain "max-length"
         end
       end
     end

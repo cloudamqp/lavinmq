@@ -2,10 +2,21 @@ import * as helpers from './helpers.js'
 import { test, expect } from './fixtures.js';
 
 test.describe("overview", _ => {
-  test('are loaded', async ({ page }) => {
+  test('is loaded', async ({ page }) => {
     const apiOverviewRequest = helpers.waitForPathRequest(page, '/api/overview')
     await page.goto('/')
     await expect(apiOverviewRequest).toBeRequested()
+  })
+
+  test('is refreshed automatically', async({ page }) => {
+    await page.clock.install()
+    await page.goto(`/`)
+    // Verify that at least 3 requests are made
+    for (let i=0; i<3; i++) {
+      const apiOverviewRequest = helpers.waitForPathRequest(page, `/api/overview`)
+      await page.clock.runFor(10000) // advance time by 10 seconds
+      await expect(apiOverviewRequest).toBeRequested()
+    }
   })
 
   test('definitions export trigger GET to /api/definitions for all vhosts', async ({ page }) => {

@@ -22,8 +22,9 @@ jobs:
   build_rpm:
     name: Build RPM
     strategy:
+      fail-fast: false
       matrix:
-        os: ['fedora-42','fedora-41', 'fedora-40', 'el-9']
+        os: ['fedora-43', 'fedora-42', 'fedora-41', 'el-9']
     runs-on: ubuntu-latest
     # Set permissions if you're using OIDC token authentication
     permissions:
@@ -31,7 +32,7 @@ jobs:
       id-token: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -50,7 +51,7 @@ jobs:
             MAKEFLAGS=-j1
           outputs: RPMS
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         name: Upload artifact
         with:
           name: rpm-packages-${{ matrix.os }}

@@ -8,10 +8,10 @@ module LavinMQ
       include SortableJSON
       Log = ::LavinMQ::Log.for "mqtt.session"
 
-      def initialize(@vhost : VHost,
-                     @name : String,
-                     @auto_delete = false,
-                     arguments : ::AMQ::Protocol::Table = AMQP::Table.new)
+      protected def initialize(@vhost : VHost,
+                               @name : String,
+                               @auto_delete = false,
+                               arguments : ::AMQ::Protocol::Table = AMQP::Table.new)
         @count = 0u16
         @unacked = Hash(UInt16, SegmentPosition).new
 
@@ -116,12 +116,19 @@ module LavinMQ
             end
             delete_message(sp)
           else
-            id = next_id
-            return false unless id
-            packet = build_packet(env, id)
-            mark_unacked(sp) do
+            begin
+              id = next_id
+              return false unless id
+              packet = build_packet(env, id)
+              @unacked_count.add(1, :relaxed)
+              @unacked_bytesize.add(sp.bytesize, :relaxed)
               yield packet
               @unacked[id] = sp
+            rescue ex # requeue failed delivery
+              @msg_store_lock.synchronize { @msg_store.requeue(sp) }
+              @unacked_count.sub(1, :relaxed)
+              @unacked_bytesize.sub(sp.bytesize, :relaxed)
+              raise ex
             end
           end
           return true
@@ -149,27 +156,30 @@ module LavinMQ
         )
       end
 
-      def apply_policy(policy : Policy?, operator_policy : OperatorPolicy?)
-        clear_policy
-        Policy.merge_definitions(policy, operator_policy).each do |k, v|
-          @log.debug { "Applying policy #{k}: #{v}" }
-          case k
-          when "max-length"
-            unless @max_length.try &.< v.as_i64
-              @max_length = v.as_i64
-              drop_overflow
-            end
-          when "max-length-bytes"
-            unless @max_length_bytes.try &.< v.as_i64
-              @max_length_bytes = v.as_i64
-              drop_overflow
-            end
-          when "overflow"
-            @reject_on_overflow ||= v.as_s == "reject-publish"
+      private def apply_policy_argument(key : String, value : JSON::Any) : Bool
+        @log.debug { "Applying policy #{key}: #{value}" }
+        case key
+        when "max-length"
+          unless @max_length.try &.< value.as_i64
+            @max_length = value.as_i64
+            drop_overflow
+            return true
           end
+        when "max-length-bytes"
+          unless @max_length_bytes.try &.< value.as_i64
+            @max_length_bytes = value.as_i64
+            drop_overflow
+            return true
+          end
+        when "overflow"
+          @reject_on_overflow ||= value.as_s == "reject-publish"
+          return true
         end
-        @policy = policy
-        @operator_policy = operator_policy
+        false
+      end
+
+      def after_policy_applied
+        drop_overflow
       end
 
       def ack(packet : MQTT::PubAck) : Nil
@@ -186,13 +196,13 @@ module LavinMQ
       private def queue_expire_loop; end
 
       private def next_id : UInt16?
-        return nil if @unacked.size == Config.instance.max_inflight_messages
+        return if @unacked.size == Config.instance.max_inflight_messages
         start_id = @count
         next_id : UInt16 = start_id &+ 1_u16
         while @unacked.has_key?(next_id)
           next_id &+= 1u16
           next_id = 1u16 if next_id == 0
-          return nil if next_id == start_id
+          return if next_id == start_id
         end
         @count = next_id
         next_id

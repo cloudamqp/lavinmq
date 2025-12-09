@@ -6,6 +6,7 @@ require "./version"
 require "./log_formatter"
 require "./in_memory_backend"
 require "./auth/password"
+require "./sni_config"
 require "./config/options"
 
 module LavinMQ
@@ -103,6 +104,7 @@ module LavinMQ
         when {{section}}
           parse_section({{section}}, settings)
         {% end %}
+        when .starts_with?("sni:") then parse_sni(section[4..], settings)
         when "replication"
           abort("#{file}: [replication] is deprecated and replaced with [clustering], see the README for more information")
         else
@@ -113,6 +115,54 @@ module LavinMQ
     rescue ex : ::INI::ParseException
       abort "Failed to parse config file '#{file}'. " \
             "Error on line #{ex.line_number}, column #{ex.column_number}"
+    end
+
+    # ameba:disable Metrics/CyclomaticComplexity
+    private def parse_sni(hostname : String, settings)
+      host = @sni_manager.get_host(hostname) || SNIHost.new(hostname)
+      settings.each do |config, v|
+        case config
+        # Default TLS settings
+        when "tls_cert"        then host.tls_cert = v
+        when "tls_key"         then host.tls_key = v
+        when "tls_min_version" then host.tls_min_version = v
+        when "tls_ciphers"     then host.tls_ciphers = v
+        when "tls_verify_peer" then host.tls_verify_peer = true?(v)
+        when "tls_ca_cert"     then host.tls_ca_cert = v
+        when "tls_keylog_file" then host.tls_keylog_file = v
+          # AMQP-specific overrides
+        when "amqp_tls_cert"        then host.amqp_tls_cert = v
+        when "amqp_tls_key"         then host.amqp_tls_key = v
+        when "amqp_tls_min_version" then host.amqp_tls_min_version = v
+        when "amqp_tls_ciphers"     then host.amqp_tls_ciphers = v
+        when "amqp_tls_verify_peer" then host.amqp_tls_verify_peer = true?(v)
+        when "amqp_tls_ca_cert"     then host.amqp_tls_ca_cert = v
+        when "amqp_tls_keylog_file" then host.amqp_tls_keylog_file = v
+          # MQTT-specific overrides
+        when "mqtt_tls_cert"        then host.mqtt_tls_cert = v
+        when "mqtt_tls_key"         then host.mqtt_tls_key = v
+        when "mqtt_tls_min_version" then host.mqtt_tls_min_version = v
+        when "mqtt_tls_ciphers"     then host.mqtt_tls_ciphers = v
+        when "mqtt_tls_verify_peer" then host.mqtt_tls_verify_peer = true?(v)
+        when "mqtt_tls_ca_cert"     then host.mqtt_tls_ca_cert = v
+        when "mqtt_tls_keylog_file" then host.mqtt_tls_keylog_file = v
+          # HTTP-specific overrides
+        when "http_tls_cert"        then host.http_tls_cert = v
+        when "http_tls_key"         then host.http_tls_key = v
+        when "http_tls_min_version" then host.http_tls_min_version = v
+        when "http_tls_ciphers"     then host.http_tls_ciphers = v
+        when "http_tls_verify_peer" then host.http_tls_verify_peer = true?(v)
+        when "http_tls_ca_cert"     then host.http_tls_ca_cert = v
+        when "http_tls_keylog_file" then host.http_tls_keylog_file = v
+        else
+          STDERR.puts "WARNING: Unrecognized configuration 'sni:#{hostname}/#{config}'"
+        end
+      end
+      if host.tls_cert.empty?
+        STDERR.puts "WARNING: SNI host '#{hostname}' missing required tls_cert"
+      else
+        @sni_manager.add_host(host)
+      end
     end
 
     private macro parse_section(section, settings)
@@ -199,6 +249,7 @@ module LavinMQ
     end
 
     def reload
+      @sni_manager.clear
       parse_ini(@config_file)
       reload_logger
     end

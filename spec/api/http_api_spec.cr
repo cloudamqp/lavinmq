@@ -235,5 +235,36 @@ describe LavinMQ::HTTP::Server do
         items.last["name"].should eq "/"
       end
     end
+
+    it "should sort results by nested keys" do
+      stats_interval = LavinMQ::Config.instance.stats_interval
+      LavinMQ::Config.instance.stats_interval = 1000
+      with_http_server do |http, s|
+        vhost = s.vhosts["/"]
+        vhost.declare_exchange "b-exchange", "direct", durable: true, auto_delete: false
+        vhost.declare_exchange "a-exchange", "direct", durable: true, auto_delete: false
+        vhost.declare_queue "b-queue", durable: true, auto_delete: false
+        spawn do
+          with_channel(s) do |ch|
+            x = ch.exchange("b-exchange", "direct")
+            q = ch.queue("b-queue", durable: true)
+            q.bind(x.name, q.name)
+            100.times { x.publish("msg", q.name) }
+          end
+        end
+        wait_for { vhost.exchanges["b-exchange"].details_tuple["message_stats"]["publish_in_details"]["rate"] > 0 }
+        response = http.get("/api/exchanges?page=1&sort=message_stats.publish_in_details.rate&sort_reverse=false")
+        response.status_code.should eq 200
+        items = JSON.parse(response.body).as_h["items"].as_a
+        items.last["name"].should eq "b-exchange"
+
+        response = http.get("/api/exchanges?page=1&sort=message_stats.publish_in_details.rate&sort_reverse=true")
+        response.status_code.should eq 200
+        items = JSON.parse(response.body).as_h["items"].as_a
+        items.first["name"].should eq "b-exchange"
+      end
+    ensure
+      LavinMQ::Config.instance.stats_interval = stats_interval if stats_interval
+    end
   end
 end

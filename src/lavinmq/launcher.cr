@@ -1,13 +1,14 @@
 require "log"
 require "file"
 require "systemd"
-require "./reporter"
 require "./server"
 require "./http/http_server"
+require "./http/metrics_server"
 require "./in_memory_backend"
 require "./data_dir_lock"
 require "./etcd"
 require "./clustering/controller"
+require "../stdlib/openssl_sni"
 
 module LavinMQ
   struct StandaloneRunner
@@ -28,10 +29,13 @@ module LavinMQ
 
   class Launcher
     Log = LavinMQ::Log.for "launcher"
-    @tls_context : OpenSSL::SSL::Context::Server?
+    @amqp_tls_context : OpenSSL::SSL::Context::Server?
+    @mqtt_tls_context : OpenSSL::SSL::Context::Server?
+    @http_tls_context : OpenSSL::SSL::Context::Server?
     @first_shutdown_attempt = true
     @data_dir_lock : DataDirLock?
     @closed = false
+    @replicator : Clustering::Server?
 
     def initialize(@config : Config)
       print_environment_info
@@ -52,13 +56,18 @@ module LavinMQ
         @runner = controller = Clustering::Controller.new(@config, etcd)
         @replicator = Clustering::Server.new(@config, etcd, controller.id)
       else
-        @replicator = Clustering::NoopServer.new
         @runner = StandaloneRunner.new
       end
 
-      @tls_context = create_tls_context if @config.tls_configured?
+      if @config.tls_configured?
+        @amqp_tls_context = create_tls_context
+        @mqtt_tls_context = create_tls_context
+        @http_tls_context = create_tls_context
+      end
       reload_tls_context
+      setup_sni_callbacks
       setup_signal_traps
+      SystemD::MemoryPressure.monitor { GC.collect }
     end
 
     private def start : self
@@ -68,6 +77,7 @@ module LavinMQ
       @http_server = http_server = LavinMQ::HTTP::Server.new(amqp_server)
       setup_log_exchange(amqp_server)
       start_listeners(amqp_server, http_server)
+      start_metrics_server(amqp_server) unless @config.metrics_http_port == -1
       SystemD.notify_ready
       Fiber.yield # Yield to let listeners spawn before logging startup time
       Log.info { "Finished startup in #{(Time.monotonic - started_at).total_seconds}s" }
@@ -78,7 +88,7 @@ module LavinMQ
       @runner.run do
         start
       end
-      @replicator.close
+      @replicator.try &.close
       @data_dir_lock.try &.release
     end
 
@@ -89,10 +99,28 @@ module LavinMQ
       SystemD.notify_stopping
       @http_server.try &.close rescue nil
       @amqp_server.try &.close rescue nil
+      @metrics_server.try &.close rescue nil
       @runner.stop
     end
 
+    private def print_ascii_logo
+      logo = <<-LOGO
+
+            ██╗      █████╗ ██╗   ██╗██╗███╗   ██╗███╗   ███╗ ██████╗
+            ██║     ██╔══██╗██║   ██║██║████╗  ██║████╗ ████║██╔═══██╗
+            ██║     ███████║██║   ██║██║██╔██╗ ██║██╔████╔██║██║   ██║
+            ██║     ██╔══██║╚██╗ ██╔╝██║██║╚██╗██║██║╚██╔╝██║██║▄▄ ██║
+            ███████╗██║  ██║ ╚████╔╝ ██║██║ ╚████║██║ ╚═╝ ██║╚██████╔╝
+            ╚══════╝╚═╝  ╚═╝  ╚═══╝  ╚═╝╚═╝  ╚═══╝╚═╝     ╚═╝ ╚══▀▀═╝
+
+                     The message broker built for peaks
+
+        LOGO
+      STDOUT.puts logo
+    end
+
     private def print_environment_info
+      print_ascii_logo unless @config.journald_stream? || @config.log_file
       LavinMQ::BUILD_INFO.each_line do |line|
         Log.info { line }
       end
@@ -102,7 +130,7 @@ module LavinMQ
       {% if flag?(:preview_mt) %}
         Log.info { "Multithreading: #{ENV.fetch("CRYSTAL_WORKERS", "4")} threads" }
       {% end %}
-      Log.info { "Pid: #{Process.pid}" }
+      Log.info { "PID: #{Process.pid}" }
       Log.info { "Config file: #{@config.config_file}" } unless @config.config_file.empty?
       Log.info { "Data directory: #{@config.data_dir}" }
     end
@@ -137,6 +165,14 @@ module LavinMQ
       end
     end
 
+    private def start_metrics_server(amqp_server)
+      @metrics_server = metrics_server = LavinMQ::HTTP::MetricsServer.new(amqp_server)
+      metrics_server.bind_tcp(@config.metrics_http_bind, @config.metrics_http_port)
+      spawn(name: "HTTP metrics listener") do
+        metrics_server.listen
+      end
+    end
+
     # ameba:disable Metrics/CyclomaticComplexity
     private def start_listeners(amqp_server, http_server)
       if @config.amqp_port > 0
@@ -145,7 +181,7 @@ module LavinMQ
       end
 
       if @config.amqps_port > 0
-        if ctx = @tls_context
+        if ctx = @amqp_tls_context
           spawn amqp_server.listen_tls(@config.amqp_bind, @config.amqps_port, ctx, Server::Protocol::AMQP),
             name: "AMQPS listening on #{@config.amqps_port}"
         end
@@ -163,7 +199,7 @@ module LavinMQ
         http_server.bind_tcp(@config.http_bind, @config.http_port)
       end
       if @config.https_port > 0
-        if ctx = @tls_context
+        if ctx = @http_tls_context
           http_server.bind_tls(@config.http_bind, @config.https_port, ctx)
         end
       end
@@ -182,7 +218,7 @@ module LavinMQ
       end
 
       if @config.mqtts_port > 0
-        if ctx = @tls_context
+        if ctx = @mqtt_tls_context
           spawn amqp_server.listen_tls(@config.mqtt_bind, @config.mqtts_port, ctx, Server::Protocol::MQTT),
             name: "MQTTS listening on #{@config.mqtts_port}"
         end
@@ -207,7 +243,6 @@ module LavinMQ
       puts "  reclaimed bytes before last GC: #{ps.reclaimed_bytes_before_gc.humanize_bytes}"
       puts "Fibers:"
       Fiber.list { |f| puts f.inspect }
-      LavinMQ::Reporter.report(@amqp_server)
       STDOUT.flush
     end
 
@@ -260,7 +295,20 @@ module LavinMQ
     end
 
     private def reload_tls_context
-      return unless tls = @tls_context
+      if amqp_tls = @amqp_tls_context
+        configure_tls_context(amqp_tls)
+      end
+      if mqtt_tls = @mqtt_tls_context
+        configure_tls_context(mqtt_tls)
+      end
+      if http_tls = @http_tls_context
+        configure_tls_context(http_tls)
+      end
+      # Reload SNI host contexts
+      @config.sni_manager.reload
+    end
+
+    private def configure_tls_context(tls : OpenSSL::SSL::Context::Server)
       case @config.tls_min_version
       when "1.0"
         tls.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_2 |
@@ -280,6 +328,64 @@ module LavinMQ
       tls.certificate_chain = @config.tls_cert_path
       tls.private_key = @config.tls_key_path.empty? ? @config.tls_cert_path : @config.tls_key_path
       tls.ciphers = @config.tls_ciphers unless @config.tls_ciphers.empty?
+      reload_ssl_keylog(tls)
+    end
+
+    private def reload_ssl_keylog(tls)
+      keylog_file = @config.tls_keylog_file
+      keylog_file = ENV.fetch("SSLKEYLOGFILE", "") if keylog_file.empty?
+      if keylog_file.empty?
+        tls.keylog_file = nil
+      else
+        tls.keylog_file = keylog_file
+        Log.info { "SSL keylog enabled, writing to #{keylog_file}" }
+      end
+    end
+
+    private def setup_sni_callbacks
+      return if @config.sni_manager.empty?
+
+      # Set up SNI callback for AMQP TLS context
+      if amqp_tls = @amqp_tls_context
+        sni_manager = @config.sni_manager
+        amqp_tls.set_sni_callback do |hostname|
+          if sni_host = sni_manager.get_host(hostname)
+            Log.debug { "SNI (AMQP): Using certificate for hostname '#{hostname}'" }
+            sni_host.amqp_tls_context
+          else
+            Log.debug { "SNI (AMQP): No specific certificate for '#{hostname}', using default" }
+            nil
+          end
+        end
+      end
+
+      # Set up SNI callback for MQTT TLS context
+      if mqtt_tls = @mqtt_tls_context
+        sni_manager = @config.sni_manager
+        mqtt_tls.set_sni_callback do |hostname|
+          if sni_host = sni_manager.get_host(hostname)
+            Log.debug { "SNI (MQTT): Using certificate for hostname '#{hostname}'" }
+            sni_host.mqtt_tls_context
+          else
+            Log.debug { "SNI (MQTT): No specific certificate for '#{hostname}', using default" }
+            nil
+          end
+        end
+      end
+
+      # Set up SNI callback for HTTP TLS context
+      if http_tls = @http_tls_context
+        sni_manager = @config.sni_manager
+        http_tls.set_sni_callback do |hostname|
+          if sni_host = sni_manager.get_host(hostname)
+            Log.debug { "SNI (HTTP): Using certificate for hostname '#{hostname}'" }
+            sni_host.http_tls_context
+          else
+            Log.debug { "SNI (HTTP): No specific certificate for '#{hostname}', using default" }
+            nil
+          end
+        end
+      end
     end
   end
 end

@@ -3,10 +3,45 @@ require "./sortable_json"
 
 module LavinMQ
   module PolicyTarget
-    abstract def apply_policy(policy : Policy?, operator_policy : OperatorPolicy?)
-    abstract def clear_policy
-    abstract def policy : Policy?
-    abstract def operator_policy : OperatorPolicy?
+    getter policy : Policy?
+    getter operator_policy : OperatorPolicy?
+    getter effective_policy_args = Array(String).new
+
+    def apply_policy(policy : Policy?, operator_policy : OperatorPolicy?)
+      clear_policy
+      effective_policy_args = Array(String).new
+      Policy.merge_definitions(policy, operator_policy).each do |key, value|
+        if apply_policy_argument(key, value)
+          effective_policy_args << key
+        end
+      rescue ex
+        # We rescue exceptions and ignore the argument, continuing on the next one.
+        #
+        # This log line isn't very good. Sometimes @log should be used, but we can't know that here. With the new L
+        # logging it's not as important.
+        Log.warn(exception: ex) { "Error applying policy argument #{key}=#{value}: #{ex.message}" }
+      end
+      @effective_policy_args = effective_policy_args
+      @policy = policy
+      @operator_policy = operator_policy
+      after_policy_applied
+    end
+
+    def clear_policy
+      clear_policy_arguments
+      @effective_policy_args.clear
+      @policy = nil
+      @operator_policy = nil
+    end
+
+    # This can be overriden if the child class needs to do something after
+    # a policy has been applied.
+    def after_policy_applied
+    end
+
+    abstract def clear_policy_arguments
+    # Return true if applied
+    abstract def apply_policy_argument(key : String, value : JSON::Any) : Bool
   end
 
   class Policy

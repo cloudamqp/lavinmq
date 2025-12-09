@@ -609,7 +609,7 @@ describe LavinMQ::Shovel do
           "#{queue_name}q1",
           [URI.parse(s.amqp_url)],
           "#{queue_name}q1",
-          delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
+          delete_after: LavinMQ::Shovel::DeleteAfter::Never,
           direct_user: s.users.direct_user
         )
         dest = LavinMQ::Shovel::AMQPDestination.new(
@@ -623,7 +623,8 @@ describe LavinMQ::Shovel do
           q1, q2 = ShovelSpecHelpers.setup_qs ch, queue_name
           q1.publish_confirm "shovel me 1", "#{queue_name}q1"
           q1.publish_confirm "shovel me 2", "#{queue_name}q1"
-          shovel.run
+          spawn { shovel.run }
+          wait_for { s.vhosts["/"].queues["#{queue_name}q2"].message_count == 2 }
           q2.get(no_ack: true).try(&.body_io.to_s).should eq "shovel me 1"
           q2.get(no_ack: true).try(&.body_io.to_s).should eq "shovel me 2"
           shovel.pause
@@ -635,10 +636,48 @@ describe LavinMQ::Shovel do
 
           spawn shovel.resume
           wait_for { shovel.running? } # Ensure it gets back to Running state
+          wait_for { s.vhosts["/"].queues["#{queue_name}q2"].message_count == 2 }
+          shovel.terminate
           wait_for { shovel.terminated? }
           q2.get(no_ack: true).try(&.body_io.to_s).should eq "shovel me 3"
           q2.get(no_ack: true).try(&.body_io.to_s).should eq "shovel me 4"
           s.vhosts["/"].shovels.empty?.should be_true
+        end
+      end
+    end
+
+    it "should pause and resume shovel on long queue" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        queue_name = "shovel:pause:resume"
+        message_count = 100_000
+        with_channel(s) do |ch|
+          q1, _q2 = ShovelSpecHelpers.setup_qs ch, queue_name
+          message_count.times do |i|
+            q1.publish "msg #{i}", "#{queue_name}q1"
+          end
+
+          config = %({
+            "src-uri": "#{s.amqp_url}",
+            "src-queue": "#{queue_name}q1",
+            "dest-uri": "#{s.amqp_url}",
+            "dest-queue": "#{queue_name}q2",
+            "src-delete-after": "queue-length",
+            "src-prefetch-count": 2})
+          p = LavinMQ::Parameter.new("shovel", queue_name, JSON.parse(config))
+          vhost.add_parameter(p)
+          wait_for { vhost.shovels.size > 0 }
+          shovel = vhost.shovels[queue_name]
+          wait_for { shovel.running? }
+          shovel.pause
+          wait_for { shovel.paused? }
+
+          vhost.queues["#{queue_name}q1"].message_count.should be > 0
+          shovel = vhost.shovels[queue_name]
+          spawn shovel.resume
+          wait_for { shovel.running? } # Ensure it gets back to Running state
+          vhost.delete_parameter("shovel", queue_name)
+          vhost.shovels.size.should eq 0
         end
       end
     end

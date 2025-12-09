@@ -68,6 +68,7 @@ describe "extract_conn_info during full_sync with syncing_followers" do
 
         begin
           follower_config = leader_config.dup.tap &.data_dir = follower_data_dir
+          follower_config.metrics_http_port = -1
           follower_client = LavinMQ::Clustering::Client.new(follower_config, 2, slow_replicator.password, proxy: false)
 
           spawn(name: "slow follower sync") do

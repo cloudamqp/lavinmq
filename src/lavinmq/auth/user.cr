@@ -5,6 +5,15 @@ require "../tag"
 
 module LavinMQ
   module Auth
+    alias CacheKey = Tuple(String, String)
+
+    class PermissionCache
+      @cache = Hash(CacheKey, Bool).new
+      property revision = 0_u32
+
+      forward_missing_to @cache
+    end
+
     class User
       include SortableJSON
       getter name, password, permissions
@@ -16,6 +25,7 @@ module LavinMQ
       @password : Auth::Password? = nil
       @plain_text_password : String?
       @tags = Array(Tag).new
+      @permission_revision = Atomic(UInt32).new(0u32)
 
       def initialize(pull : JSON::PullParser)
         loc = pull.location
@@ -32,7 +42,6 @@ module LavinMQ
             parse_permissions(pull)
           when "tags"
             @tags = Tag.parse_list(pull.read_string)
-          else nil
           end
         end
         raise JSON::ParseException.new("Missing json attribute: name", *loc) if name.nil?
@@ -43,7 +52,7 @@ module LavinMQ
 
       def self.create(name : String, password : String, hash_algorithm : String, tags : Array(Tag))
         pwd = hash_password(password, hash_algorithm)
-        self.new(name, pwd, tags)
+        new(name, pwd, tags)
       end
 
       def self.hash_password(password, hash_algorithm)
@@ -74,7 +83,7 @@ module LavinMQ
       def self.create_hidden_user(name)
         password = Random::Secure.urlsafe_base64(32)
         password_hash = hash_password(password, "sha256")
-        user = self.new(name, password_hash, [Tag::Administrator])
+        user = new(name, password_hash, [Tag::Administrator])
         user.plain_text_password = password
         user
       end
@@ -130,7 +139,20 @@ module LavinMQ
         }
       end
 
-      def can_write?(vhost, name) : Bool
+      def can_write?(vhost : String, name : String, cache : PermissionCache) : Bool
+        permission_revision = @permission_revision.lazy_get
+        if permission_revision != cache.revision
+          cache.clear
+          cache.revision = permission_revision
+        end
+
+        result = cache[{vhost, name}]?
+        return result unless result.nil?
+
+        cache[{vhost, name}] = can_write?(vhost, name)
+      end
+
+      def can_write?(vhost : String, name : String) : Bool
         perm = permissions[vhost]?
         perm ? perm_match?(perm[:write], name) : false
       end
@@ -149,6 +171,10 @@ module LavinMQ
         @tags.includes? Tag::Impersonator
       end
 
+      def clear_permissions_cache
+        @permission_revision.add(1, :relaxed)
+      end
+
       private def parse_permissions(pull)
         pull.read_object do |vhost|
           config = read = write = /^$/
@@ -157,7 +183,6 @@ module LavinMQ
             when "config" then config = Regex.from_json(pull)
             when "read"   then read = Regex.from_json(pull)
             when "write"  then write = Regex.from_json(pull)
-            else               nil
             end
           end
           @permissions[vhost] = {config: config, read: read, write: write}

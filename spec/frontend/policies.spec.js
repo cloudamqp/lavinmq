@@ -11,6 +11,7 @@ test.describe("policies", _ => {
 
   test.beforeEach(async ({ apimap, page }) => {
     const policiesLoaded = apimap.get(`/api/policies`, policiesResponse)
+    await page.clock.install()
     await page.goto(`/policies`)
     await policiesLoaded
   })
@@ -18,6 +19,15 @@ test.describe("policies", _ => {
 
   test('are loaded', async ({ page, baseURL }) => {
     await expect(page.locator('#pagename-label')).toHaveText("2")
+  })
+
+  test('are refreshed automatically', async({ page }) => {
+    // Verify that at least 3 requests are made
+    for (let i=0; i<3; i++) {
+      const apiPoliciesRequest = helpers.waitForPathRequest(page, '/api/policies')
+      await page.clock.runFor(10000) // advance time by 10 seconds
+      await expect(apiPoliciesRequest).toBeRequested()
+    }
   })
 
   test('can be deleted', async ({ page }) => {

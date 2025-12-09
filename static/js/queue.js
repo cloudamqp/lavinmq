@@ -11,6 +11,7 @@ const queue = search.get('name')
 const vhost = search.get('vhost')
 const pauseQueueForm = document.querySelector('#pauseQueue')
 const resumeQueueForm = document.querySelector('#resumeQueue')
+const restartQueueForm = document.querySelector('#restartQueue')
 document.title = queue + ' | LavinMQ'
 let consumerListLength = 20
 
@@ -64,11 +65,18 @@ function handleQueueState (state) {
   document.getElementById('q-state').textContent = state
   switch (state) {
     case 'paused':
+      restartQueueForm.classList.add('hide')
       pauseQueueForm.classList.add('hide')
       resumeQueueForm.classList.remove('hide')
       break
     case 'running':
+      restartQueueForm.classList.add('hide')
       pauseQueueForm.classList.remove('hide')
+      resumeQueueForm.classList.add('hide')
+      break
+    case 'closed':
+      restartQueueForm.classList.remove('hide')
+      pauseQueueForm.classList.add('hide')
       resumeQueueForm.classList.add('hide')
       break
     default:
@@ -82,6 +90,10 @@ const queueUrl = HTTP.url`api/queues/${vhost}/${queue}`
 function updateQueue (all) {
   HTTP.request('GET', queueUrl + '?consumer_list_length=' + consumerListLength)
     .then(item => {
+      const qType = item.arguments['x-queue-type']
+      if (qType === 'stream') {
+        window.location.href = `/stream#vhost=${encodeURIComponent(vhost)}&name=${encodeURIComponent(queue)}`
+      }
       Chart.update(chart, item.message_stats)
       handleQueueState(item.state)
       document.getElementById('q-messages-unacknowledged').textContent = item.messages_unacknowledged
@@ -104,11 +116,11 @@ function updateQueue (all) {
         loadMoreConsumersBtn.textContent = `Showing ${item.consumer_details.length} of total ${item.consumers} consumers, click to load more`
       }
       if (all) {
-        let features = ''
-        features += item.durable ? ' <span title="Durable">D</span>' : ''
-        features += item.auto_delete ? ' <span title="Auto delete">AD</span>' : ''
-        features += item.exclusive ? ' <span title="Exclusive">E</span>' : ''
-        document.getElementById('q-features').innerHTML = features
+        const features = []
+        if (item.durable) features.push('Durable')
+        if (item.auto_delete) features.push('Auto delete')
+        if (item.exclusive) features.push('Exclusive')
+        document.getElementById('q-features').innerText = features.join(', ')
         document.querySelector('#pagename-label').textContent = queue + ' in virtual host ' + item.vhost
         document.querySelector('.queue').textContent = queue
         if (item.policy) {
@@ -192,6 +204,11 @@ document.querySelector('#addBinding').addEventListener('submit', function (evt) 
       evt.target.reset()
       DOM.toast('Exchange ' + e + ' bound to queue')
     })
+    .catch(err => {
+      if (err.status === 404) {
+        DOM.toast.error(`Exchange '${e}' does not exist and needs to be created first.`)
+      }
+    })
 })
 
 document.querySelector('#publishMessage').addEventListener('submit', function (evt) {
@@ -208,9 +225,13 @@ document.querySelector('#publishMessage').addEventListener('submit', function (e
     properties
   }
   HTTP.request('POST', url, { body })
-    .then(() => {
-      DOM.toast('Published message to ' + queue)
-      updateQueue(false)
+    .then((res) => {
+      if (res.routed) {
+        DOM.toast('Message published')
+        updateQueue(false)
+      } else {
+        DOM.toast.warn('Message not published')
+      }
     })
 })
 
@@ -323,6 +344,19 @@ resumeQueueForm.addEventListener('submit', function (evt) {
     HTTP.request('PUT', url)
       .then(() => {
         DOM.toast('Queue resumed!')
+        handleQueueState('running')
+      })
+  }
+})
+
+restartQueueForm.addEventListener('submit', function (evt) {
+  evt.preventDefault()
+  const url = HTTP.url`api/queues/${vhost}/${queue}/restart`
+  if (window.confirm('Are you sure? This will restart the queue.')) {
+    HTTP.request('PUT', url)
+      .then((res) => {
+        if (res && res.is_error) return
+        DOM.toast('Queue restarted!')
         handleQueueState('running')
       })
   }

@@ -47,6 +47,8 @@ describe LavinMQ::AMQP::DurableQueue do
 
             should_eventually(be_true) { queue.state.closed? }
           end
+
+          vhost.queues["corrupt_q"].try &.delete
         end
       end
     end
@@ -121,7 +123,9 @@ describe LavinMQ::AMQP::DurableQueue do
         q.publish_confirm "a"
 
         # resize first segment to LavinMQ::Config.instance.segment_size
-        mfile.truncate(LavinMQ::Config.instance.segment_size)
+        File.open(mfile.path, "r+") do |f|
+          f.truncate(LavinMQ::Config.instance.segment_size)
+        end
 
         # read messages, should not raise any error
         q.subscribe(tag: "tag", no_ack: false, &.ack)
@@ -151,7 +155,9 @@ describe LavinMQ::AMQP::DurableQueue do
         q.publish_confirm "a"
 
         # resize first segment to LavinMQ::Config.instance.segment_size
-        mfile.truncate(LavinMQ::Config.instance.segment_size)
+        File.open(mfile.path, "r+") do |f|
+          f.truncate(LavinMQ::Config.instance.segment_size)
+        end
 
         store = LavinMQ::MessageStore.new(queue.@msg_store.@msg_dir, nil)
         mfile = store.@segments.first_value

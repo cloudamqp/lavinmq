@@ -1,5 +1,8 @@
 require "../consumer"
 require "../../segment_position"
+require "./filters/kv"
+require "./filters/x_stream_filter"
+require "./filters/gis"
 
 module LavinMQ
   module AMQP
@@ -9,7 +12,7 @@ module LavinMQ
       property segment : UInt32
       property pos : UInt32
       getter requeued = Deque(SegmentPosition).new
-      @consumer_filters = Array(Tuple(String, String)).new
+      @filters = Array(StreamFilter).new
       @filter_match_all = true
       @match_unfiltered = false
       @track_offset = false
@@ -40,7 +43,7 @@ module LavinMQ
           raise LavinMQ::Error::PreconditionFailed.new("x-priority not supported on streams")
         end
         validate_stream_offset(frame)
-        validate_stream_filter(frame.arguments["x-stream-filter"]?)
+        @filters = StreamFilter.from_arguments(frame.arguments)
         validate_filter_match_type(frame)
         case match_unfiltered = frame.arguments["x-stream-match-unfiltered"]?
         when Bool
@@ -63,32 +66,6 @@ module LavinMQ
             @track_offset = frame.arguments["x-stream-automatic-offset-tracking"]? == "true"
           end
         else raise LavinMQ::Error::PreconditionFailed.new("x-stream-offset must be an integer, a timestamp, 'first', 'next' or 'last'")
-        end
-      end
-
-      private def validate_stream_filter(arg)
-        case arg
-        when String
-          arg.split(',').each do |f|
-            @consumer_filters << {"x-stream-filter", f.strip}
-          end
-        when AMQ::Protocol::Table
-          arg.each do |k, v|
-            if k.to_s == "x-stream-filter"
-              v.to_s.split(',').each do |f|
-                @consumer_filters << {k.to_s, f.strip}
-              end
-            else
-              @consumer_filters << {k.to_s, v.to_s}
-            end
-          end
-        when Array
-          arg.each do |f|
-            validate_stream_filter(f)
-          end
-        when Nil
-          # noop
-        else raise LavinMQ::Error::PreconditionFailed.new("x-stream-filter must be a string, table, or array")
         end
       end
 
@@ -134,6 +111,7 @@ module LavinMQ
       private def wait_for_queue_ready
         if @offset > stream_queue.last_offset && @requeued.empty?
           @log.debug { "Waiting for queue not to be empty" }
+          flush
           select
           when @new_message_available.when_true.receive
             @log.debug { "Queue is not empty - new message notification received" }
@@ -175,35 +153,18 @@ module LavinMQ
       end
 
       def filter_match?(msg_headers) : Bool
-        return true if @consumer_filters.empty? # No consumer filters, always match
+        return true if @filters.empty? # No consumer filters, always match
         if @match_unfiltered
           return true unless msg_headers.try &.has_key?("x-stream-filter-value")
         end
         return false unless headers = msg_headers
 
         case @filter_match_all
-        when false # ANY: Return true on first match
-          @consumer_filters.each do |key, value|
-            return true if match_header_filter?(key, value, headers)
-          end
-          false
-        else # ALL: Return false on first non-match
-          @consumer_filters.each do |key, value|
-            return false unless match_header_filter?(key, value, headers)
-          end
-          true
+        when false
+          @filters.any?(&.match?(headers))
+        else
+          @filters.all?(&.match?(headers))
         end
-      end
-
-      private def match_header_filter?(key, value, msg_headers) : Bool
-        return msg_headers[key]? == value if key != "x-stream-filter"
-
-        if msg_filter_values = msg_headers.try &.fetch("x-stream-filter-value", nil).try &.to_s
-          msg_filter_values.split(',') do |msg_filter_value|
-            return true if msg_filter_value == value
-          end
-        end
-        false
       end
     end
   end
