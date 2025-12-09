@@ -328,17 +328,16 @@ module LavinMQ
       tls.certificate_chain = @config.tls_cert_path
       tls.private_key = @config.tls_key_path.empty? ? @config.tls_cert_path : @config.tls_key_path
       tls.ciphers = @config.tls_ciphers unless @config.tls_ciphers.empty?
-      reload_ssl_keylog(tls, protocol)
+      reload_ssl_keylog(tls)
     end
 
-    private def reload_ssl_keylog(tls, protocol : String)
+    private def reload_ssl_keylog(tls)
       keylog_file = @config.ssl_keylog_file
       if keylog_file.empty?
         tls.keylog_file = nil
-        Log.debug { "SSL keylog disabled for #{protocol}" }
       else
         tls.keylog_file = keylog_file
-        Log.info { "SSL keylog enabled for #{protocol}, writing to #{keylog_file}" }
+        Log.info { "SSL keylog enabled, writing to #{keylog_file}" }
       end
     end
 
