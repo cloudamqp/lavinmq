@@ -136,7 +136,7 @@ module LavinMQ
         end
       end
 
-      def on_expiration(&block)
+      def on_expiration(&_block)
       end
 
       class UnknownHashAlgoritm < Exception; end

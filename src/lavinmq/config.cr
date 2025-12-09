@@ -258,6 +258,7 @@ module LavinMQ
       raise ArgumentError.new("oauth_issuer_url is not a valid URL: #{@oauth_issuer_url}")
     end
 
+    # ameba:disable Metrics/CyclomaticComplexity
     private def parse(file)
       return if file.empty?
       abort "Config could not be found" unless File.file?(file)
