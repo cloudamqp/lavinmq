@@ -3,6 +3,7 @@ require "../src/lavinmq/shovel"
 require "http/server"
 require "wait_group"
 require "openssl/hmac"
+require "base64"
 
 module ShovelSpecHelpers
   def self.setup_qs(ch, prefix = "") : {AMQP::Client::Exchange, AMQP::Client::Queue}
@@ -801,7 +802,7 @@ describe LavinMQ::Shovel do
       end
     end
 
-    it "should include signature header when secret is configured" do
+    it "should include Standard Webhooks signature headers when secret is configured" do
       with_amqp_server do |s|
         # Setup HTTP server
         h = Hash(String, String).new
@@ -842,14 +843,29 @@ describe LavinMQ::Shovel do
           shovel.run
           sleep 10.milliseconds
 
-          # Verify signature header is present
-          h["X-Lavinmq-Signature-256"]?.should_not be_nil
-          signature_header = h["X-Lavinmq-Signature-256"]
-          signature_header.should start_with "sha256="
+          # Verify Standard Webhooks headers are present
+          h["webhook-id"]?.should_not be_nil
+          h["webhook-timestamp"]?.should_not be_nil
+          h["webhook-signature"]?.should_not be_nil
+
+          # Verify webhook-id format: msg_<uuid without dashes>
+          webhook_id = h["webhook-id"]
+          webhook_id.should start_with "msg_"
+          webhook_id.size.should eq 36 # "msg_" + 32 hex chars
+
+          # Verify timestamp is a valid Unix timestamp
+          timestamp = h["webhook-timestamp"]
+          timestamp.to_i64.should be > 0
+
+          # Verify signature format: v1,<base64>
+          signature_header = h["webhook-signature"]
+          signature_header.should start_with "v1,"
 
           # Verify signature is correct
-          expected_signature = OpenSSL::HMAC.hexdigest(OpenSSL::Algorithm::SHA256, secret, body || "")
-          signature_header.should eq "sha256=#{expected_signature}"
+          signed_content = "#{webhook_id}.#{timestamp}.#{body}"
+          digest = OpenSSL::HMAC.digest(OpenSSL::Algorithm::SHA256, secret, signed_content)
+          expected_signature = Base64.strict_encode(digest)
+          signature_header.should eq "v1,#{expected_signature}"
           body.should eq "test message"
 
           s.vhosts["/"].shovels.empty?.should be_true
@@ -857,7 +873,7 @@ describe LavinMQ::Shovel do
       end
     end
 
-    it "should not include signature header when secret is not configured" do
+    it "should not include signature headers when secret is not configured" do
       with_amqp_server do |s|
         # Setup HTTP server
         h = Hash(String, String).new
@@ -894,8 +910,10 @@ describe LavinMQ::Shovel do
           shovel.run
           sleep 10.milliseconds
 
-          # Verify signature header is NOT present
-          h["X-Lavinmq-Signature-256"]?.should be_nil
+          # Verify Standard Webhooks headers are NOT present
+          h["webhook-id"]?.should be_nil
+          h["webhook-timestamp"]?.should be_nil
+          h["webhook-signature"]?.should be_nil
 
           s.vhosts["/"].shovels.empty?.should be_true
         end

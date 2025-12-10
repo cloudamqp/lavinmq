@@ -1,6 +1,7 @@
 require "../spec_helper.cr"
 require "uri"
 require "openssl/hmac"
+require "base64"
 
 def create_shovel(server, name = "spec-shovel", config = NamedTuple.new, paused = false)
   config = NamedTuple.new(
@@ -86,7 +87,7 @@ describe LavinMQ::HTTP::ShovelsController do
   end
 
   describe "HTTP shovel with signature secret" do
-    it "should accept dest-signature-secret parameter" do
+    it "should accept dest-signature-secret parameter and send Standard Webhooks headers" do
       with_http_server do |_http, s|
         # Setup HTTP server to receive webhook
         h = Hash(String, String).new
@@ -127,11 +128,23 @@ describe LavinMQ::HTTP::ShovelsController do
         wait_for { shovel.state.terminated? }
         sleep 10.milliseconds
 
-        # Verify signature was sent
-        h["X-Lavinmq-Signature-256"]?.should_not be_nil
-        signature_header = h["X-Lavinmq-Signature-256"]
-        expected_signature = OpenSSL::HMAC.hexdigest(OpenSSL::Algorithm::SHA256, secret, received_body)
-        signature_header.should eq "sha256=#{expected_signature}"
+        # Verify Standard Webhooks headers were sent
+        h["webhook-id"]?.should_not be_nil
+        h["webhook-timestamp"]?.should_not be_nil
+        h["webhook-signature"]?.should_not be_nil
+
+        # Verify signature format and correctness
+        webhook_id = h["webhook-id"]
+        timestamp = h["webhook-timestamp"]
+        signature_header = h["webhook-signature"]
+
+        webhook_id.should start_with "msg_"
+        signature_header.should start_with "v1,"
+
+        signed_content = "#{webhook_id}.#{timestamp}.#{received_body}"
+        digest = OpenSSL::HMAC.digest(OpenSSL::Algorithm::SHA256, secret, signed_content)
+        expected_signature = Base64.strict_encode(digest)
+        signature_header.should eq "v1,#{expected_signature}"
       end
     end
   end

@@ -5,6 +5,8 @@ require "http/client"
 require "wait_group"
 require "./constants"
 require "openssl/hmac"
+require "uuid"
+require "base64"
 
 module LavinMQ
   module Shovel
@@ -315,6 +317,25 @@ module LavinMQ
         !@client.nil?
       end
 
+      # Generate a webhook ID in Standard Webhooks format: msg_<uuid without dashes>
+      private def generate_webhook_id : String
+        "msg_#{UUID.random.to_s.gsub("-", "")}"
+      end
+
+      # Generate Unix timestamp in seconds
+      private def generate_timestamp : Int64
+        Time.utc.to_unix
+      end
+
+      # Generate signature in Standard Webhooks format: v1,<base64>
+      # Signs: "{webhook-id}.{timestamp}.{body}"
+      private def generate_signature(webhook_id : String, timestamp : Int64, body : String, secret : String) : String
+        signed_content = "#{webhook_id}.#{timestamp}.#{body}"
+        digest = OpenSSL::HMAC.digest(OpenSSL::Algorithm::SHA256, secret, signed_content)
+        signature = Base64.strict_encode(digest)
+        "v1,#{signature}"
+      end
+
       def push(msg, source)
         raise "Not started" unless started?
         c = @client.not_nil!
@@ -338,8 +359,12 @@ module LavinMQ
         if secret = @signature_secret
           # Read body into memory for HMAC computation
           body = msg.body_io.gets_to_end
-          signature = OpenSSL::HMAC.hexdigest(OpenSSL::Algorithm::SHA256, secret, body)
-          headers["X-LavinMQ-Signature-256"] = "sha256=#{signature}"
+          webhook_id = generate_webhook_id
+          timestamp = generate_timestamp
+          signature = generate_signature(webhook_id, timestamp, body, secret)
+          headers["webhook-id"] = webhook_id
+          headers["webhook-timestamp"] = timestamp.to_s
+          headers["webhook-signature"] = signature
           response = c.post(path, headers: headers, body: body)
         else
           # Stream body directly when signature is not needed
