@@ -93,6 +93,13 @@ module LavinMQ
         end
       end
 
+      def reject(delivery_tag)
+        if ch = @ch
+          return if ch.closed?
+          ch.basic_reject(delivery_tag, requeue: true)
+        end
+      end
+
       def started? : Bool
         !@q.nil? && !@conn.try &.closed?
       end
@@ -183,7 +190,7 @@ module LavinMQ
 
       abstract def stop
 
-      abstract def push(msg, source)
+      abstract def push(msg, source) : Bool
 
       abstract def started? : Bool
     end
@@ -207,8 +214,12 @@ module LavinMQ
         @current_dest = nil
       end
 
-      def push(msg, source)
-        @current_dest.try &.push(msg, source)
+      def push(msg, source) : Bool
+        if dest = @current_dest
+          dest.push(msg, source)
+        else
+          false
+        end
       end
 
       def started? : Bool
@@ -272,21 +283,26 @@ module LavinMQ
         !@ch.nil? && !@conn.try &.closed?
       end
 
-      def push(msg, source)
+      def push(msg, source) : Bool
         raise "Not started" unless started?
         ch = @ch.not_nil!
         ex = @exchange || msg.exchange
         rk = @exchange_key || msg.routing_key
         case @ack_mode
         in AckMode::OnConfirm
-          ch.basic_publish(msg.body_io, ex, rk, props: msg.properties) do
+          if ch.basic_publish_confirm(msg.body_io, ex, rk, props: msg.properties)
             source.ack(msg.delivery_tag)
+            true
+          else
+            false
           end
         in AckMode::OnPublish
           ch.basic_publish(msg.body_io, ex, rk, props: msg.properties)
           source.ack(msg.delivery_tag)
+          true
         in AckMode::NoAck
           ch.basic_publish(msg.body_io, ex, rk, props: msg.properties)
+          true
         end
       end
     end
@@ -314,7 +330,7 @@ module LavinMQ
         !@client.nil?
       end
 
-      def push(msg, source)
+      def push(msg, source) : Bool
         raise "Not started" unless started?
         c = @client.not_nil!
         headers = ::HTTP::Headers{"User-Agent" => "LavinMQ"}
@@ -341,6 +357,7 @@ module LavinMQ
           source.ack(msg.delivery_tag)
         in AckMode::NoAck
         end
+        true
       end
     end
 
@@ -382,7 +399,15 @@ module LavinMQ
           @retries = 0
           @source.each do |msg|
             @message_count += 1
-            @destination.push(msg, @source)
+            push_retries = 0
+            until @destination.push(msg, @source)
+              if push_retries >= 5
+                @source.reject(msg.delivery_tag)
+                break
+              end
+              push_retries += 1
+              sleep 500.milliseconds
+            end
           end
           break if should_stop_loop? # Don't delete shovel if paused/terminated
           @vhost.delete_parameter("shovel", @name) if @source.delete_after.queue_length?
