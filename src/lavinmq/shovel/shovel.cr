@@ -385,7 +385,7 @@ module LavinMQ
         @state
       end
 
-      def run
+      def run # ameba:disable Metrics/CyclomaticComplexity
         Log.context.set(name: @name, vhost: @vhost.name)
         loop do
           break if should_stop_loop?
