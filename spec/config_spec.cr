@@ -13,8 +13,8 @@ describe LavinMQ::Config do
       CONFIG
     end
     config = LavinMQ::Config.new
-    config.config_file = config_file.path
-    config.parse
+    argv = ["-c", config_file.path]
+    config.parse(argv)
     config.config_file.should eq config_file.path
     config.data_dir.should eq "/tmp/lavinmq-spec"
     config.log_level.to_s.should eq "Fatal"

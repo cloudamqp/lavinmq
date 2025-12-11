@@ -45,7 +45,7 @@ module LavinMQ
       @[CliOpt("", "--amqps-port=PORT", "AMQPS port to listen on (default: -1)", section: "bindings")]
       @[IniOpt(ini_name: tls_port, section: "amqp")]
       @[EnvOpt("LAVINMQ_AMQPS_PORT")]
-      property amqps_port = -1
+      property amqps_port = 5671
 
       @[IniOpt(ini_name: bind, section: "mqtt")]
       property mqtt_bind = "127.0.0.1"
@@ -54,7 +54,7 @@ module LavinMQ
       property mqtt_port = 1883
 
       @[IniOpt(ini_name: tls_port, section: "mqtt")]
-      property mqtts_port = -1
+      property mqtts_port = 8883
 
       @[IniOpt(ini_name: unix_path, section: "mqtt")]
       property mqtt_unix_path = ""
@@ -82,7 +82,7 @@ module LavinMQ
       @[CliOpt("", "--https-port=PORT", "HTTPS port to listen on (default: -1)", section: "bindings")]
       @[IniOpt(ini_name: tls_port, section: "mgmt")]
       @[EnvOpt("LAVINMQ_HTTPS_PORT")]
-      property https_port = -1
+      property https_port = 15671
 
       @[CliOpt("", "--cert FILE", "TLS certificate (including chain)", section: "tls")]
       @[IniOpt(section: "main")]
@@ -103,6 +103,33 @@ module LavinMQ
       @[IniOpt(section: "main")]
       @[EnvOpt("LAVINMQ_TLS_MIN_VERSION")]
       property tls_min_version = ""
+
+      @[IniOpt(section: "main")]
+      property tls_keylog_file = ""
+
+      @[IniOpt(section: "main")]
+      @[CliOpt("", "--metrics-http-bind=BIND", "IP address that the Prometheus server will bind to (default: 127.0.0.1)")]
+      property metrics_http_bind = "127.0.0.1"
+
+      @[IniOpt(section: "main")]
+      @[CliOpt("", "--metrics-http-port=PORT", "HTTP port that prometheus will listen to (default: 15692)")]
+      property metrics_http_port = 15692
+
+      @[IniOpt(section: "mqtt")]
+      property? mqtt_permission_check_enabled : Bool = false
+
+      @[IniOpt(section: "clustering")]
+      @[CliOpt("", "--clustering-on-leader-elected=COMMAND", "Shell command to execute when elected leader", section: "clustering")]
+      property clustering_on_leader_elected = "" # shell command to execute when elected leader
+
+      @[IniOpt(section: "clustering")]
+      @[CliOpt("", "--clustering-on-leader-lost=COMMAND", "Shell command to execute when losing leadership", section: "clustering")]
+      property clustering_on_leader_lost = "" # shell command to execute when losing leadership
+
+      property auth_backends : Array(String) = ["local"]
+
+      @[IniOpt(section: "mqtt")]
+      property mqtt_max_packet_size = 268_435_455_u32 # bytes
 
       @[IniOpt(section: "mgmt")]
       property http_systemd_socket_name = "lavinmq-http.socket"

@@ -13,6 +13,7 @@ module LavinMQ
   class Config
     include Options
     @@instance : Config = self.new
+    getter sni_manager : SNIManager = SNIManager.new
 
     def self.instance : LavinMQ::Config
       @@instance
@@ -24,23 +25,23 @@ module LavinMQ
     # Parse configuration from environment, command line arguments and configuration file.
     # Command line arguments take precedence over environment variables,
     # which take precedence over the configuration file.
-    def parse
+    def parse(argv = ARGV)
       @config_file = File.exists?(
         File.join(ENV.fetch("LAVINMQ_CONFIGURATION_DIRECTORY", "/etc/lavinmq"), "lavinmq.ini")) ? File.join(ENV.fetch("LAVINMQ_CONFIGURATION_DIRECTORY", "/etc/lavinmq"), "lavinmq.ini") : ""
-      parse_config_from_cli
+      parse_config_from_cli(argv)
       parse_ini(@config_file)
       parse_env()
-      parse_cli()
+      parse_cli(argv)
     end
 
-    private def parse_config_from_cli
+    private def parse_config_from_cli(argv)
       parser = OptionParser.new
       parser.on("-c CONFIG", "--config=CONFIG", "Path to config file") do |val|
         @config_file = val
       end
       parser.invalid_option { }
       parser.missing_option { }
-      parser.parse(ARGV.dup)
+      parser.parse(argv.dup)
     end
 
     private def parse_env
@@ -52,7 +53,7 @@ module LavinMQ
       {% end %}
     end
 
-    private def parse_cli
+    private def parse_cli(argv)
       parser = OptionParser.new
       parser.banner = "Usage: #{PROGRAM_NAME} [arguments]"
       {% begin %}
@@ -90,7 +91,7 @@ module LavinMQ
       parser.on("-h", "--help", "Show this help") { puts parser; exit 0 }
       parser.on("-v", "--version", "Show version") { puts LavinMQ::VERSION; exit 0 }
       parser.on("--build-info", "Show build information") { puts LavinMQ::BUILD_INFO; exit 0 }
-      parser.parse(ARGV.dup)
+      parser.parse(argv.dup)
     end
 
     private def parse_ini(file)
@@ -257,7 +258,7 @@ module LavinMQ
     private def reload_logger
       log_file = (path = @log_file) ? File.open(path, "a") : STDOUT
       broadcast_backend = ::Log::BroadcastBackend.new
-      backend = if ENV.has_key?("JOURNAL_STREAM")
+      backend = if journald_stream?
                   ::Log::IOBackend.new(io: log_file, formatter: JournalLogFormat)
                 else
                   ::Log::IOBackend.new(io: log_file, formatter: StdoutLogFormat)
@@ -273,12 +274,31 @@ module LavinMQ
       Log.info &.emit("Logger settings", level: @log_level.to_s, target: target)
     end
 
+    def journald_stream? : Bool
+      return false unless journal_stream = ENV["JOURNAL_STREAM"]?
+      return false if @log_file # If logging to a file, not using journald
+
+      # JOURNAL_STREAM format is "device:inode"
+      parts = journal_stream.split(':')
+      return false unless parts.size == 2
+
+      journal_dev = parts[0].to_u64?
+      journal_ino = parts[1].to_u64?
+      return false unless journal_dev && journal_ino
+
+      # Get STDOUT's device and inode
+      LibC.fstat(STDOUT.fd, out stat)
+      stat.st_dev == journal_dev && stat.st_ino == journal_ino
+    rescue
+      false
+    end
+
     def tls_configured?
       !@tls_cert_path.empty?
     end
 
     private def tcp_keepalive?(str : String?) : Tuple(Int32, Int32, Int32)?
-      return nil if false?(str)
+      return if false?(str)
       if keepalive = str.try &.split(":")
         {
           keepalive[0]?.try(&.to_i?) || 60,
