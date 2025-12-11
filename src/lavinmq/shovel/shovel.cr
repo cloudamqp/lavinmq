@@ -324,7 +324,7 @@ module LavinMQ
 
       # Generate Unix timestamp in seconds
       private def generate_timestamp : Int64
-        Time.utc.to_unix
+        RoughTime.unix_ms / 1000
       end
 
       # Generate signature in Standard Webhooks format: v1,<base64>
