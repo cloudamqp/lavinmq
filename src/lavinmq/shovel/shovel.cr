@@ -305,12 +305,13 @@ module LavinMQ
 
     class HTTPDestination < Destination
       @client : ::HTTP::Client?
-      @signature_secret : String?
+      @signature_secrets : Array(String)
 
       def initialize(@name : String, @uri : URI, @ack_mode = DEFAULT_ACK_MODE, signature_secret : String? = nil,
                      @max_signed_webhook_payload : Int32 = DEFAULT_MAX_SIGNED_WEBHOOK_PAYLOAD)
-        # Treat empty string as no secret configured
-        @signature_secret = signature_secret.try { |s| s.empty? ? nil : s }
+        # Support multiple space-delimited secrets for key rotation (Standard Webhooks spec)
+        # Empty strings are filtered out
+        @signature_secrets = (signature_secret || "").split.reject(&.empty?)
       end
 
       def start
@@ -350,7 +351,10 @@ module LavinMQ
                else
                  "/"
                end
-        if secret = @signature_secret
+        if @signature_secrets.empty?
+          # Stream body directly when signature is not needed
+          response = c.post(path, headers: headers, body: msg.body_io)
+        else
           # Check payload size before reading into memory
           if msg.body_io.bytesize > @max_signed_webhook_payload
             Log.error { "Webhook payload size (#{msg.body_io.bytesize} bytes) exceeds max_signed_webhook_payload limit (#{@max_signed_webhook_payload} bytes), rejecting message without requeue" }
@@ -359,11 +363,8 @@ module LavinMQ
           end
           # Read body into memory for HMAC computation
           body = msg.body_io.gets_to_end
-          add_signature_headers(headers, body, secret)
+          add_signature_headers(headers, body)
           response = c.post(path, headers: headers, body: body)
-        else
-          # Stream body directly when signature is not needed
-          response = c.post(path, headers: headers, body: msg.body_io)
         end
         case @ack_mode
         in AckMode::OnConfirm, AckMode::OnPublish
@@ -392,13 +393,16 @@ module LavinMQ
         "v1,#{signature}"
       end
 
-      private def add_signature_headers(headers, body, secret)
+      # Add Standard Webhooks signature headers
+      # Supports multiple secrets for zero-downtime key rotation (space-delimited signatures)
+      private def add_signature_headers(headers, body)
         webhook_id = generate_webhook_id
         timestamp = generate_timestamp
-        signature = generate_signature(webhook_id, timestamp, body, secret)
+        # Generate a signature for each secret, space-delimited per Standard Webhooks spec
+        signatures = @signature_secrets.map { |secret| generate_signature(webhook_id, timestamp, body, secret) }
         headers["webhook-id"] = webhook_id
         headers["webhook-timestamp"] = timestamp.to_s
-        headers["webhook-signature"] = signature
+        headers["webhook-signature"] = signatures.join(" ")
         headers
       end
     end

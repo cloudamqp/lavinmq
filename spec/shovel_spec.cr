@@ -1006,5 +1006,68 @@ describe LavinMQ::Shovel do
         end
       end
     end
+
+    it "should support multiple secrets for key rotation" do
+      with_amqp_server do |s|
+        # Setup HTTP server
+        h = Hash(String, String).new
+        body = "<no body>"
+        _, addr = ShovelSpecHelpers.webhook_server do |context|
+          context.request.headers.each { |k, v| h[k] = v.first }
+          body = context.request.body.try(&.gets_to_end) || body
+          context.response.content_type = "text/plain"
+          context.response.print "ok"
+        end
+
+        vhost = s.vhosts.create("x")
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec",
+          [URI.parse(s.amqp_url)],
+          "rotation_q1",
+          delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
+          direct_user: s.users.direct_user
+        )
+        # Multiple space-delimited secrets for key rotation
+        secret1 = "current-secret"
+        secret2 = "old-secret"
+        dest = LavinMQ::Shovel::HTTPDestination.new(
+          "spec",
+          URI.parse("http://#{addr}/webhook"),
+          signature_secret: "#{secret1} #{secret2}"
+        )
+
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "rotation_shovel", vhost)
+        with_channel(s) do |ch|
+          x, _ = ShovelSpecHelpers.setup_qs ch, "rotation_"
+          props = AMQP::Client::Properties.new("text/plain")
+          x.publish_confirm "test message", "rotation_q1", props: props
+          shovel.run
+          sleep 10.milliseconds
+
+          # Verify headers are present
+          h["webhook-id"]?.should_not be_nil
+          h["webhook-timestamp"]?.should_not be_nil
+          h["webhook-signature"]?.should_not be_nil
+
+          webhook_id = h["webhook-id"]
+          timestamp = h["webhook-timestamp"]
+          signature_header = h["webhook-signature"]
+
+          # Verify signature contains two space-delimited signatures
+          signatures = signature_header.split(" ")
+          signatures.size.should eq 2
+
+          # Verify both signatures are valid
+          signed_content = "#{webhook_id}.#{timestamp}.#{body}"
+          [secret1, secret2].each_with_index do |secret, i|
+            digest = OpenSSL::HMAC.digest(OpenSSL::Algorithm::SHA256, secret, signed_content)
+            expected_signature = "v1,#{Base64.strict_encode(digest)}"
+            signatures[i].should eq expected_signature
+          end
+
+          s.vhosts["/"].shovels.empty?.should be_true
+        end
+      end
+    end
   end
 end
