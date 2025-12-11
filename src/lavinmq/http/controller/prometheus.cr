@@ -142,6 +142,54 @@ module LavinMQ
                       type: "counter",
                       help: "Total amount of memory obtained from OS, in bytes"})
       end
+      
+      def memory_pool_metrics(amqp_server, writer)
+        # Buffer pool statistics inspired by Bun's buffer pooling
+        buffer_pool_stats = amqp_server.buffer_pool.stats
+        buffer_pool_stats.each do |bucket_size, stats|
+          labels = {"bucket_size" => bucket_size.to_s}
+          
+          writer.write({name: "buffer_pool_size", value: stats[:pool_size],
+                        type: "gauge",
+                        help: "Current number of buffers in the pool",
+                        labels: labels})
+          
+          writer.write({name: "buffer_pool_total_created", value: stats[:total_created],
+                        type: "counter",
+                        help: "Total number of buffers created",
+                        labels: labels})
+          
+          writer.write({name: "buffer_pool_total_reused", value: stats[:total_reused],
+                        type: "counter",
+                        help: "Total number of buffers reused from pool",
+                        labels: labels})
+          
+          writer.write({name: "buffer_pool_reuse_rate", value: stats[:reuse_rate],
+                        type: "gauge",
+                        help: "Buffer reuse rate percentage",
+                        labels: labels})
+        end
+        
+        # Memory pressure monitoring statistics
+        if monitor = amqp_server.memory_pressure_monitor
+          pressure_stats = monitor.stats
+          writer.write({name: "memory_pressure_level", value: pressure_stats[:level].to_i,
+                        type: "gauge",
+                        help: "Current memory pressure level (0=Normal, 1=Moderate, 2=High, 3=Critical)"})
+          
+          writer.write({name: "memory_usage_ratio", value: pressure_stats[:usage_ratio],
+                        type: "gauge",
+                        help: "Current memory usage ratio (0.0 to 1.0)"})
+          
+          writer.write({name: "memory_limit_bytes", value: pressure_stats[:mem_limit],
+                        type: "gauge",
+                        help: "Memory limit in bytes"})
+          
+          writer.write({name: "memory_seconds_since_last_gc", value: pressure_stats[:seconds_since_last_gc],
+                        type: "gauge",
+                        help: "Seconds since last garbage collection"})
+        end
+      end
     end
 
     class FollowerPrometheusController
@@ -206,6 +254,7 @@ module LavinMQ
             overview_queue_metrics(vhosts, writer)
             custom_metrics(writer)
             gc_metrics(writer)
+            memory_pool_metrics(@amqp_server, writer)
             global_metrics(writer)
           end
           context

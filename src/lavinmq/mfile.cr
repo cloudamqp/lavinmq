@@ -264,14 +264,38 @@ class MFile < IO
     WillNeed   = 3
     DontNeed   = 4
     {% if flag?(:linux) %}
-      DontDump = 16
+      DontDump    = 16
+      Remove      = 9   # MADV_REMOVE - free backing store
+      Free        = 8   # MADV_FREE - lazy free
+      Mergeable   = 12  # MADV_MERGEABLE - enable KSM
+      Unmergeable = 13  # MADV_UNMERGEABLE - disable KSM
+      HugePage    = 14  # MADV_HUGEPAGE - use huge pages
+      NoHugePage  = 15  # MADV_NOHUGEPAGE - don't use huge pages
     {% else %}
       DontDump = 8 # is called NoCore in BSD/Darwin
+      Free     = 5 # MADV_FREE on BSD/Darwin
     {% end %}
   end
 
   def dontneed
     advise(Advice::DontNeed)
+  end
+  
+  # Advise kernel that this memory can be freed (lazy free)
+  # More aggressive than DontNeed, inspired by Bun's memory management
+  def free_lazy : Nil
+    advise(Advice::Free)
+  rescue ex
+    # Fall back to DontNeed if Free not supported
+    advise(Advice::DontNeed)
+  end
+  
+  # Prefetch pages that will be needed soon
+  # Useful for sequential read optimization
+  def prefetch(offset : Int64 = 0, length : Int64? = nil) : Nil
+    len = length || (@size - offset)
+    return if len <= 0
+    advise(Advice::WillNeed, @buffer + offset, len)
   end
 
   # Resize the file, so that read operations can't happen beyond `new_size`

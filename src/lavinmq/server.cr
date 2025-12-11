@@ -19,6 +19,8 @@ require "./amqp/connection_factory"
 require "./mqtt/connection_factory"
 require "./stats"
 require "./auth/chain"
+require "./memory_pool"
+require "./memory_pressure"
 
 module LavinMQ
   class Server
@@ -29,6 +31,8 @@ module LavinMQ
 
     getter vhosts, users, data_dir, parameters
     getter? closed, flow
+    getter buffer_pool : BufferPool
+    getter memory_pressure_monitor : MemoryPressureMonitor?
     include ParameterTarget
 
     @start = Time.monotonic
@@ -52,6 +56,13 @@ module LavinMQ
         Protocol::AMQP => AMQP::ConnectionFactory.new(authenticator, @vhosts),
         Protocol::MQTT => MQTT::ConnectionFactory.new(authenticator, @mqtt_brokers, @config),
       }
+      
+      # Initialize memory management components inspired by Bun
+      @buffer_pool = BufferPool.new
+      @mem_limit = cgroup_memory_max || System.physical_memory.to_i64
+      @memory_pressure_monitor = MemoryPressureMonitor.new(@mem_limit)
+      @memory_pressure_monitor.try(&.start)
+      
       apply_parameter
       spawn stats_loop, name: "Server#stats_loop"
     end
@@ -81,6 +92,7 @@ module LavinMQ
     def stop
       return if @closed
       @closed = true
+      @memory_pressure_monitor.try(&.stop)
       @vhosts.close
       @replicator.try &.clear
       Fiber.yield
