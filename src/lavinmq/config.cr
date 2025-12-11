@@ -55,7 +55,7 @@ module LavinMQ
     property tcp_keepalive : Tuple(Int32, Int32, Int32)? = {60, 10, 3} # idle, interval, probes/count
     property tcp_recv_buffer_size : Int32? = nil
     property tcp_send_buffer_size : Int32? = nil
-    property default_user_only_loopback : Bool = true
+    property? default_user_only_loopback : Bool = true
     property max_message_size = 128 * 1024**2
     property max_signed_webhook_payload = Shovel::DEFAULT_MAX_SIGNED_WEBHOOK_PAYLOAD
     property? log_exchange : Bool = false
