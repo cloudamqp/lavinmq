@@ -744,7 +744,7 @@ describe LavinMQ::Shovel do
         h = Hash(String, String).new
         body = "<no body>"
         path = "<no path>"
-        server, addr, h, body, path = ShovelSpecHelpers.webhook_server(h, body, path)
+        _, addr, h, body, path = ShovelSpecHelpers.webhook_server(h, body, path)
 
         vhost = s.vhosts.create("x")
         # # Setup shovel source and destination
@@ -787,7 +787,7 @@ describe LavinMQ::Shovel do
       with_amqp_server do |s|
         # Setup HTTP server
         path = "<no path>"
-        server, addr, _, _, path = ShovelSpecHelpers.webhook_server(path: path)
+        _, addr, _, _, path = ShovelSpecHelpers.webhook_server(path: path)
 
         vhost = s.vhosts.create("x")
         # # Setup shovel source and destination
@@ -822,7 +822,7 @@ describe LavinMQ::Shovel do
         # Setup HTTP server
         h = Hash(String, String).new
         body = "<no body>"
-        server, addr, h, body, _ = ShovelSpecHelpers.webhook_server(h, body)
+        _, addr, h, body, _ = ShovelSpecHelpers.webhook_server(h, body)
 
         vhost = s.vhosts.create("x")
         # Setup shovel source and destination with signature secret
@@ -882,7 +882,7 @@ describe LavinMQ::Shovel do
       with_amqp_server do |s|
         # Setup HTTP server
         h = Hash(String, String).new
-        server, addr, h, _, _ = ShovelSpecHelpers.webhook_server(h)
+        _, addr, h, _, _ = ShovelSpecHelpers.webhook_server(h)
 
         vhost = s.vhosts.create("x")
         # Setup shovel source and destination without signature secret
@@ -917,9 +917,8 @@ describe LavinMQ::Shovel do
 
       it "should reject signed webhook messages exceeding max payload size" do
         with_amqp_server do |s|
-          h = Hash(String, String).new
           body = Channel(String).new
-          server, addr, h, _, _ = ShovelSpecHelpers.webhook_server(h, body)
+          _, addr, _, _, _ = ShovelSpecHelpers.webhook_server(body: body)
 
           vhost = s.vhosts.create("x")
           # Setup shovel source and destination with signature secret and small max payload
