@@ -23,19 +23,19 @@ module Spec::Expectations
   end
 end
 
-abstract class ChannelExpectation
-  abstract def match(channel : ::Channel) : Bool
+abstract class ChannelExpectation(T)
+  abstract def match(channel : ::Channel(T)) : Bool
   abstract def failure_message : String
   abstract def negative_failure_message : String
 end
 
-class ChannelReceiveExpectation(T) < ChannelExpectation
+class ChannelReceiveExpectation(T) < ChannelExpectation(T)
   @wrong_value : T? = nil
 
   def initialize(@value : T?, @timeout : Time::Span = 5.seconds)
   end
 
-  def match(channel : ::Channel) : Bool
+  def match(channel : ::Channel(T)) : Bool
     select
     when value = channel.receive
       if value == @value
@@ -62,11 +62,11 @@ class ChannelReceiveExpectation(T) < ChannelExpectation
   end
 end
 
-class ChannelSendExpectation(T) < ChannelExpectation
+class ChannelSendExpectation(T) < ChannelExpectation(T)
   def initialize(@value : T, @timeout : Time::Span = 5.seconds)
   end
 
-  def match(channel : ::Channel) : Bool
+  def match(channel : ::Channel(T)) : Bool
     select
     when channel.send(@value)
       true
