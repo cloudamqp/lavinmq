@@ -33,7 +33,7 @@ module LavinMQ::AMQP
     VALIDATOR_STRING   = ArgumentValidator::StringValidator.new
     VALIDATOR_BOOL     = ArgumentValidator::BoolValidator.new
 
-    add_argument_validator "x-expires", ArgumentValidator::IntValidator.new(min_value: 0)
+    add_argument_validator "x-expires", VALIDATOR_INT_ONE
     add_argument_validator "x-max-length", VALIDATOR_INT_ZERO
     add_argument_validator "x-max-length-bytes", VALIDATOR_INT_ZERO
     add_argument_validator "x-message-ttl", VALIDATOR_INT_ZERO
