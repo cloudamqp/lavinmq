@@ -12,6 +12,39 @@ module ShovelSpecHelpers
     q2 = ch.queue("#{prefix}q2")
     {x, q2}
   end
+
+  def self.webhook_server(headers : Hash(String, String)? = nil, body : String | Channel(String) | Nil = nil, path : String? = nil)
+    h = headers || Hash(String, String).new
+    received_body = body.is_a?(Channel) ? body : nil
+    body_var = body.is_a?(String) ? body : "<no body>"
+    path_var = path || "<no path>"
+
+    server = HTTP::Server.new do |context|
+      context.request.headers.each do |k, v|
+        h[k] = v.first
+      end
+
+      if request_body = context.request.body.try(&.gets_to_end)
+        if received_body
+          received_body.send(request_body)
+        else
+          body_var = request_body
+        end
+      end
+
+      if path
+        path_var = context.request.path
+      end
+
+      context.response.content_type = "text/plain"
+      context.response.print "ok"
+      context
+    end
+
+    addr = server.bind_unused_port("127.0.0.1")
+    spawn server.listen
+    {server, addr, h, body_var, path_var}
+  end
 end
 
 describe LavinMQ::Shovel do
@@ -707,22 +740,11 @@ describe LavinMQ::Shovel do
   describe "HTTP" do
     it "should shovel" do
       with_amqp_server do |s|
-        # # Setup HTTP server
+        # Setup HTTP server
         h = Hash(String, String).new
         body = "<no body>"
         path = "<no path>"
-        server = HTTP::Server.new do |context|
-          context.request.headers.each do |k, v|
-            h[k] = v.first
-          end
-          body = context.request.body.try &.gets
-          path = context.request.path
-          context.response.content_type = "text/plain"
-          context.response.print "ok"
-          context
-        end
-        addr = server.bind_unused_port
-        spawn server.listen
+        server, addr, h, body, path = ShovelSpecHelpers.webhook_server(h, body, path)
 
         vhost = s.vhosts.create("x")
         # # Setup shovel source and destination
@@ -763,16 +785,9 @@ describe LavinMQ::Shovel do
 
     it "should set path for URI from headers" do
       with_amqp_server do |s|
-        # # Setup HTTP server
+        # Setup HTTP server
         path = "<no path>"
-        server = HTTP::Server.new do |context|
-          path = context.request.path
-          context.response.content_type = "text/plain"
-          context.response.print "ok"
-          context
-        end
-        addr = server.bind_unused_port
-        spawn server.listen
+        server, addr, _, _, path = ShovelSpecHelpers.webhook_server(path: path)
 
         vhost = s.vhosts.create("x")
         # # Setup shovel source and destination
@@ -807,17 +822,7 @@ describe LavinMQ::Shovel do
         # Setup HTTP server
         h = Hash(String, String).new
         body = "<no body>"
-        server = HTTP::Server.new do |context|
-          context.request.headers.each do |k, v|
-            h[k] = v.first
-          end
-          body = context.request.body.try &.gets_to_end
-          context.response.content_type = "text/plain"
-          context.response.print "ok"
-          context
-        end
-        addr = server.bind_unused_port
-        spawn server.listen
+        server, addr, h, body, _ = ShovelSpecHelpers.webhook_server(h, body)
 
         vhost = s.vhosts.create("x")
         # Setup shovel source and destination with signature secret
@@ -877,16 +882,7 @@ describe LavinMQ::Shovel do
       with_amqp_server do |s|
         # Setup HTTP server
         h = Hash(String, String).new
-        server = HTTP::Server.new do |context|
-          context.request.headers.each do |k, v|
-            h[k] = v.first
-          end
-          context.response.content_type = "text/plain"
-          context.response.print "ok"
-          context
-        end
-        addr = server.bind_unused_port
-        spawn server.listen
+        server, addr, h, _, _ = ShovelSpecHelpers.webhook_server(h)
 
         vhost = s.vhosts.create("x")
         # Setup shovel source and destination without signature secret
@@ -921,19 +917,9 @@ describe LavinMQ::Shovel do
 
       it "should reject signed webhook messages exceeding max payload size" do
         with_amqp_server do |s|
-          h = HTTP::Headers.new
-          received = Channel(Nil).new
+          h = Hash(String, String).new
           body = Channel(String).new
-
-          server = HTTP::Server.new do |context|
-            h = context.request.headers
-            body.send context.request.body.try(&.gets_to_end) || ""
-            received.send nil
-            context.response.status_code = 200
-            context.response.close
-          end
-          addr = server.bind_unused_port("127.0.0.1")
-          spawn server.listen
+          server, addr, h, _, _ = ShovelSpecHelpers.webhook_server(h, body)
 
           vhost = s.vhosts.create("x")
           # Setup shovel source and destination with signature secret and small max payload
@@ -970,7 +956,7 @@ describe LavinMQ::Shovel do
 
             # The webhook should not have received anything
             select
-            when received.receive
+            when body.receive
               fail "Webhook should not have received the oversized message"
             when timeout(100.milliseconds)
               # Expected: timeout means webhook wasn't called
