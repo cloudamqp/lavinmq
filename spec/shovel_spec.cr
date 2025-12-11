@@ -963,5 +963,48 @@ describe LavinMQ::Shovel do
         end
       end
     end
+
+    it "should treat empty signature secret as no secret" do
+      with_amqp_server do |s|
+        # Setup HTTP server
+        h = Hash(String, String).new
+        _, addr = ShovelSpecHelpers.webhook_server do |context|
+          context.request.headers.each { |k, v| h[k] = v.first }
+          context.response.content_type = "text/plain"
+          context.response.print "ok"
+        end
+
+        vhost = s.vhosts.create("x")
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec",
+          [URI.parse(s.amqp_url)],
+          "empty_secret_q1",
+          delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
+          direct_user: s.users.direct_user
+        )
+        # Empty string should be treated as no secret
+        dest = LavinMQ::Shovel::HTTPDestination.new(
+          "spec",
+          URI.parse("http://#{addr}/webhook"),
+          signature_secret: ""
+        )
+
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "empty_secret_shovel", vhost)
+        with_channel(s) do |ch|
+          x, _ = ShovelSpecHelpers.setup_qs ch, "empty_secret_"
+          props = AMQP::Client::Properties.new("text/plain")
+          x.publish_confirm "test message", "empty_secret_q1", props: props
+          shovel.run
+          sleep 10.milliseconds
+
+          # Verify Standard Webhooks headers are NOT present (empty secret = no signing)
+          h["webhook-id"]?.should be_nil
+          h["webhook-timestamp"]?.should be_nil
+          h["webhook-signature"]?.should be_nil
+
+          s.vhosts["/"].shovels.empty?.should be_true
+        end
+      end
+    end
   end
 end

@@ -305,9 +305,12 @@ module LavinMQ
 
     class HTTPDestination < Destination
       @client : ::HTTP::Client?
+      @signature_secret : String?
 
-      def initialize(@name : String, @uri : URI, @ack_mode = DEFAULT_ACK_MODE, @signature_secret : String? = nil,
+      def initialize(@name : String, @uri : URI, @ack_mode = DEFAULT_ACK_MODE, signature_secret : String? = nil,
                      @max_signed_webhook_payload : Int32 = DEFAULT_MAX_SIGNED_WEBHOOK_PAYLOAD)
+        # Treat empty string as no secret configured
+        @signature_secret = signature_secret.try { |s| s.empty? ? nil : s }
       end
 
       def start
