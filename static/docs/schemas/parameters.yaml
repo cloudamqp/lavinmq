@@ -87,8 +87,12 @@ shovel-value:
       example: "routing.key"
     dest-signature-secret:
       type: string
-      description: Secret key for signing webhook requests with HMAC-SHA256. When set, a X-LavinMQ-Signature-256 header will be added to HTTP requests containing sha256=<signature>. Only applies when dest-uri is HTTP(S).
-      example: "my-webhook-secret-key"
+      description: |
+        Secret key(s) for signing webhook requests per the Standard Webhooks specification.
+        When set, adds webhook-id, webhook-timestamp, and webhook-signature headers to HTTP requests.
+        Multiple space-delimited secrets can be provided for zero-downtime key rotation.
+        Only applies when dest-uri is HTTP(S).
+      example: "whsec_current_key whsec_old_key"
     src-prefetch-count:
       type: integer
       description: Number of messages to prefetch from source.
@@ -127,12 +131,12 @@ shovel-value:
         reconnect-delay: 5
         ack-mode: on-confirm
     http-webhook:
-      summary: AMQP to HTTP webhook with signature
+      summary: AMQP to HTTP webhook with Standard Webhooks signature
       value:
         src-uri: amqp://guest:guest@localhost:5672/%2f
         dest-uri: https://example.com/webhook
         src-queue: events-queue
-        dest-signature-secret: my-webhook-secret-key
+        dest-signature-secret: whsec_my_secret_key
         src-prefetch-count: 100
         ack-mode: on-confirm
 
