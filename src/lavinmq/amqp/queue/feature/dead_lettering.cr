@@ -54,11 +54,15 @@ module LavinMQ::AMQP
             false
           end
 
+          # This method will publish direct to queues instead of to the DLX.
+          # It's done like this to be able to dead letter to all destinations
+          # except to the queue itself if a cycle is detected.
+          # This is also how it's done in rabbitmq
           def maybe_publish(msg : BytesMessage, reason)
             return unless dlx = (msg.dlx || dlx())
             return unless dlrk = (msg.dlrk || dlrk() || msg.routing_key)
 
-            props = create_message_headers(msg, reason)
+            props = create_message_properties(msg, reason)
 
             ex = @vhost.exchanges[dlx.to_s]? || return
             queues = Set(LavinMQ::Queue).new
@@ -74,15 +78,9 @@ module LavinMQ::AMQP
               next if is_cycle && q.name == @queue_name
               q.publish(dead_lettered_msg)
             end
-            #          @vhost.publish Message.new(RoughTime.unix_ms, dlx.to_s, dlrk.to_s,
-            #            props, msg.bodysize, IO::Memory.new(msg.body))
           end
 
-          def expire(msg, reason : Symbol)
-            return unless dlx = (msg.dlx || self.dlx)
-          end
-
-          def create_message_headers(msg, reason)
+          def create_message_properties(msg, reason)
             props = msg.properties
             h = props.headers || AMQP::Table.new
             h.reject! { |k, _| k.in?("x-dead-letter-exchange", "x-dead-letter-routing-key") }
