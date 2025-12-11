@@ -125,7 +125,7 @@ lint-openapi:
 
 .PHONY: test
 test: lib
-	crystal spec --order random --verbose -Dpreview_mt -Dexecution_context $(SPEC)
+	crystal spec --order random --verbose -Dpreview_mt -Dexecution_context $(if $(TAGS),--tag '$(TAGS)') $(SPEC)
 
 .PHONY: format
 format:
