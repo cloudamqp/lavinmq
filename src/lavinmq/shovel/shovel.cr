@@ -96,6 +96,15 @@ module LavinMQ
         end
       end
 
+      def reject(delivery_tag, requeue = false)
+        if ch = @ch
+          return if ch.closed?
+          @last_unacked = nil
+          ch.basic_reject(delivery_tag, requeue: requeue)
+          @done.done if at_end?(delivery_tag)
+        end
+      end
+
       def started? : Bool
         !@q.nil? && !@conn.try &.closed?
       end
@@ -297,7 +306,8 @@ module LavinMQ
     class HTTPDestination < Destination
       @client : ::HTTP::Client?
 
-      def initialize(@name : String, @uri : URI, @ack_mode = DEFAULT_ACK_MODE, @signature_secret : String? = nil)
+      def initialize(@name : String, @uri : URI, @ack_mode = DEFAULT_ACK_MODE, @signature_secret : String? = nil,
+                     @max_signed_webhook_payload : Int32 = DEFAULT_MAX_SIGNED_WEBHOOK_PAYLOAD)
       end
 
       def start
@@ -315,25 +325,6 @@ module LavinMQ
 
       def started? : Bool
         !@client.nil?
-      end
-
-      # Generate a webhook ID in Standard Webhooks format: msg_<uuid without dashes>
-      private def generate_webhook_id : String
-        "msg_#{UUID.random.to_s.gsub("-", "")}"
-      end
-
-      # Generate Unix timestamp in seconds
-      private def generate_timestamp : Int64
-        RoughTime.unix_ms / 1000
-      end
-
-      # Generate signature in Standard Webhooks format: v1,<base64>
-      # Signs: "{webhook-id}.{timestamp}.{body}"
-      private def generate_signature(webhook_id : String, timestamp : Int64, body : String, secret : String) : String
-        signed_content = "#{webhook_id}.#{timestamp}.#{body}"
-        digest = OpenSSL::HMAC.digest(OpenSSL::Algorithm::SHA256, secret, signed_content)
-        signature = Base64.strict_encode(digest)
-        "v1,#{signature}"
       end
 
       def push(msg, source)
@@ -357,14 +348,15 @@ module LavinMQ
                  "/"
                end
         if secret = @signature_secret
+          # Check payload size before reading into memory
+          if msg.body_io.bytesize > @max_signed_webhook_payload
+            Log.error { "Webhook payload size (#{msg.body_io.bytesize} bytes) exceeds max_signed_webhook_payload limit (#{@max_signed_webhook_payload} bytes), rejecting message without requeue" }
+            source.reject(msg.delivery_tag, requeue: false)
+            return
+          end
           # Read body into memory for HMAC computation
           body = msg.body_io.gets_to_end
-          webhook_id = generate_webhook_id
-          timestamp = generate_timestamp
-          signature = generate_signature(webhook_id, timestamp, body, secret)
-          headers["webhook-id"] = webhook_id
-          headers["webhook-timestamp"] = timestamp.to_s
-          headers["webhook-signature"] = signature
+          add_signature_headers(headers, body, secret)
           response = c.post(path, headers: headers, body: body)
         else
           # Stream body directly when signature is not needed
@@ -376,6 +368,35 @@ module LavinMQ
           source.ack(msg.delivery_tag)
         in AckMode::NoAck
         end
+      end
+
+      # Generate a webhook ID in Standard Webhooks format: msg_<uuid without dashes>
+      private def generate_webhook_id : String
+        "msg_#{UUID.random.to_s.gsub("-", "")}"
+      end
+
+      # Generate Unix timestamp in seconds
+      private def generate_timestamp : Int64
+        RoughTime.unix_ms // 1000
+      end
+
+      # Generate signature in Standard Webhooks format: v1,<base64>
+      # Signs: "{webhook-id}.{timestamp}.{body}"
+      private def generate_signature(webhook_id : String, timestamp : Int64, body : String, secret : String) : String
+        signed_content = "#{webhook_id}.#{timestamp}.#{body}"
+        digest = OpenSSL::HMAC.digest(OpenSSL::Algorithm::SHA256, secret, signed_content)
+        signature = Base64.strict_encode(digest)
+        "v1,#{signature}"
+      end
+
+      private def add_signature_headers(headers, body, secret)
+        webhook_id = generate_webhook_id
+        timestamp = generate_timestamp
+        signature = generate_signature(webhook_id, timestamp, body, secret)
+        headers["webhook-id"] = webhook_id
+        headers["webhook-timestamp"] = timestamp.to_s
+        headers["webhook-signature"] = signature
+        headers
       end
     end
 

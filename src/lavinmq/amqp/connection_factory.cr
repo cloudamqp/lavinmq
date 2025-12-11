@@ -190,7 +190,7 @@ module LavinMQ
 
       private def default_user_only_loopback?(remote_address, user) : Bool
         return true unless user.name == Config.instance.default_user
-        return true unless Config.instance.default_user_only_loopback?
+        return true unless Config.instance.default_user_only_loopback
         remote_address.loopback?
       end
 

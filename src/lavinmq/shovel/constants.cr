@@ -1,10 +1,11 @@
 module LavinMQ
   module Shovel
-    DEFAULT_ACK_MODE          = AckMode::OnConfirm
-    DEFAULT_DELETE_AFTER      = DeleteAfter::Never
-    DEFAULT_PREFETCH          = 1000_u16
-    DEFAULT_RECONNECT_DELAY   = 5.seconds
-    DEFAULT_BATCH_ACK_TIMEOUT = 3.seconds
+    DEFAULT_ACK_MODE                   = AckMode::OnConfirm
+    DEFAULT_DELETE_AFTER               = DeleteAfter::Never
+    DEFAULT_PREFETCH                   = 1000_u16
+    DEFAULT_RECONNECT_DELAY            = 5.seconds
+    DEFAULT_BATCH_ACK_TIMEOUT          = 3.seconds
+    DEFAULT_MAX_SIGNED_WEBHOOK_PAYLOAD = 16 * 1024**2 # 16 MB
 
     enum State
       Starting

@@ -1,4 +1,5 @@
 require "./shovel"
+require "../config"
 
 module LavinMQ
   class ShovelStore
@@ -54,7 +55,7 @@ module LavinMQ
         case uri.scheme
         when "http", "https"
           signature_secret = config["dest-signature-secret"]?.try &.as_s?
-          Shovel::HTTPDestination.new(name, uri, ack_mode, signature_secret)
+          Shovel::HTTPDestination.new(name, uri, ack_mode, signature_secret, Config.instance.max_signed_webhook_payload)
         else
           Shovel::AMQPDestination.new(name, uri,
             config["dest-queue"]?.try &.as_s?,
