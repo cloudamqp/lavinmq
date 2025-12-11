@@ -5,7 +5,7 @@ require "../src/lavinmq/clustering/controller"
 
 alias IndexTree = LavinMQ::MQTT::TopicTree(String)
 
-describe LavinMQ::Clustering::Client do
+describe LavinMQ::Clustering::Client, tags: "etcd" do
   add_etcd_around_each
 
   it "can stream changes" do

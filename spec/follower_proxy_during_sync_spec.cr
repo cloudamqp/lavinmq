@@ -45,7 +45,7 @@ class SlowClusteringServer < LavinMQ::Clustering::Server
   end
 end
 
-describe "extract_conn_info during full_sync with syncing_followers" do
+describe "extract_conn_info during full_sync with syncing_followers", tags: "etcd" do
   add_etcd_around_each
 
   it "should handle PROXY protocol from syncing followers during full_sync" do
