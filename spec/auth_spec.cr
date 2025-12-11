@@ -155,7 +155,6 @@ describe LavinMQ::Auth::Chain do
       with_datadir do |data_dir|
         config.data_dir = data_dir
         users = LavinMQ::Auth::UserStore.new(data_dir, nil)
-
         chain = LavinMQ::Auth::Chain.create(config, users)
 
         # Local will fail (user doesn't exist), but should fall back to oauth
