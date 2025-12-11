@@ -907,59 +907,59 @@ describe LavinMQ::Shovel do
           s.vhosts["/"].shovels.empty?.should be_true
         end
       end
+    end
 
-      it "should reject signed webhook messages exceeding max payload size" do
-        with_amqp_server do |s|
-          body = Channel(String).new
-          _, addr = ShovelSpecHelpers.webhook_server do |context|
-            body.send(context.request.body.try(&.gets_to_end) || "")
-            context.response.content_type = "text/plain"
-            context.response.print "ok"
+    it "should reject signed webhook messages exceeding max payload size" do
+      with_amqp_server do |s|
+        body = Channel(String).new
+        _, addr = ShovelSpecHelpers.webhook_server do |context|
+          body.send(context.request.body.try(&.gets_to_end) || "")
+          context.response.content_type = "text/plain"
+          context.response.print "ok"
+        end
+
+        vhost = s.vhosts.create("x")
+        # Setup shovel source and destination with signature secret and small max payload
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec",
+          [URI.parse(s.amqp_url)],
+          "size_q1",
+          delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
+          direct_user: s.users.direct_user
+        )
+        secret = "my-secret-key"
+        max_payload = 10 # Very small limit for testing
+        dest = LavinMQ::Shovel::HTTPDestination.new(
+          "spec",
+          URI.parse("http://#{addr}/webhook"),
+          signature_secret: secret,
+          max_signed_webhook_payload: max_payload
+        )
+
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "size_shovel", vhost)
+        with_channel(s) do |ch|
+          x, _ = ShovelSpecHelpers.setup_qs ch, "size_"
+          props = AMQP::Client::Properties.new("text/plain")
+          # Publish a message that exceeds the max payload size
+          large_message = "x" * (max_payload + 1)
+          x.publish_confirm large_message, "size_q1", props: props
+          shovel.run
+          sleep 50.milliseconds
+
+          # The message should be rejected and not sent to the webhook
+          # The queue should be empty (message acked without requeue)
+          q = s.vhosts["/"].queues["size_q1"]
+          q.message_count.should eq 0
+
+          # The webhook should not have received anything
+          select
+          when body.receive
+            fail "Webhook should not have received the oversized message"
+          when timeout(100.milliseconds)
+            # Expected: timeout means webhook wasn't called
           end
 
-          vhost = s.vhosts.create("x")
-          # Setup shovel source and destination with signature secret and small max payload
-          source = LavinMQ::Shovel::AMQPSource.new(
-            "spec",
-            [URI.parse(s.amqp_url)],
-            "size_q1",
-            delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
-            direct_user: s.users.direct_user
-          )
-          secret = "my-secret-key"
-          max_payload = 10 # Very small limit for testing
-          dest = LavinMQ::Shovel::HTTPDestination.new(
-            "spec",
-            URI.parse("http://#{addr}/webhook"),
-            signature_secret: secret,
-            max_signed_webhook_payload: max_payload
-          )
-
-          shovel = LavinMQ::Shovel::Runner.new(source, dest, "size_shovel", vhost)
-          with_channel(s) do |ch|
-            x, _ = ShovelSpecHelpers.setup_qs ch, "size_"
-            props = AMQP::Client::Properties.new("text/plain")
-            # Publish a message that exceeds the max payload size
-            large_message = "x" * (max_payload + 1)
-            x.publish_confirm large_message, "size_q1", props: props
-            shovel.run
-            sleep 50.milliseconds
-
-            # The message should be rejected and not sent to the webhook
-            # The queue should be empty (message acked without requeue)
-            q = s.vhosts["/"].queues["size_q1"]
-            q.message_count.should eq 0
-
-            # The webhook should not have received anything
-            select
-            when body.receive
-              fail "Webhook should not have received the oversized message"
-            when timeout(100.milliseconds)
-              # Expected: timeout means webhook wasn't called
-            end
-
-            s.vhosts["/"].shovels.empty?.should be_true
-          end
+          s.vhosts["/"].shovels.empty?.should be_true
         end
       end
     end
