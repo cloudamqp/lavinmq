@@ -13,37 +13,11 @@ module ShovelSpecHelpers
     {x, q2}
   end
 
-  def self.webhook_server(headers : Hash(String, String)? = nil, body : String | Channel(String) | Nil = nil, path : String? = nil)
-    h = headers || Hash(String, String).new
-    received_body = body.is_a?(Channel) ? body : nil
-    body_var = body.is_a?(String) ? body : "<no body>"
-    path_var = path || "<no path>"
-
-    server = HTTP::Server.new do |context|
-      context.request.headers.each do |k, v|
-        h[k] = v.first
-      end
-
-      if request_body = context.request.body.try(&.gets_to_end)
-        if received_body
-          received_body.send(request_body)
-        else
-          body_var = request_body
-        end
-      end
-
-      if path
-        path_var = context.request.path
-      end
-
-      context.response.content_type = "text/plain"
-      context.response.print "ok"
-      context
-    end
-
+  def self.webhook_server(&block : HTTP::Server::Context ->)
+    server = HTTP::Server.new(&block)
     addr = server.bind_unused_port("127.0.0.1")
     spawn server.listen
-    {server, addr, h, body_var, path_var}
+    {server, addr}
   end
 end
 
@@ -744,7 +718,13 @@ describe LavinMQ::Shovel do
         h = Hash(String, String).new
         body = "<no body>"
         path = "<no path>"
-        _, addr, h, body, path = ShovelSpecHelpers.webhook_server(h, body, path)
+        _, addr = ShovelSpecHelpers.webhook_server do |context|
+          context.request.headers.each { |k, v| h[k] = v.first }
+          body = context.request.body.try(&.gets) || body
+          path = context.request.path
+          context.response.content_type = "text/plain"
+          context.response.print "ok"
+        end
 
         vhost = s.vhosts.create("x")
         # # Setup shovel source and destination
@@ -787,7 +767,11 @@ describe LavinMQ::Shovel do
       with_amqp_server do |s|
         # Setup HTTP server
         path = "<no path>"
-        _, addr, _, _, path = ShovelSpecHelpers.webhook_server(path: path)
+        _, addr = ShovelSpecHelpers.webhook_server do |context|
+          path = context.request.path
+          context.response.content_type = "text/plain"
+          context.response.print "ok"
+        end
 
         vhost = s.vhosts.create("x")
         # # Setup shovel source and destination
@@ -822,7 +806,12 @@ describe LavinMQ::Shovel do
         # Setup HTTP server
         h = Hash(String, String).new
         body = "<no body>"
-        _, addr, h, body, _ = ShovelSpecHelpers.webhook_server(h, body)
+        _, addr = ShovelSpecHelpers.webhook_server do |context|
+          context.request.headers.each { |k, v| h[k] = v.first }
+          body = context.request.body.try(&.gets_to_end) || body
+          context.response.content_type = "text/plain"
+          context.response.print "ok"
+        end
 
         vhost = s.vhosts.create("x")
         # Setup shovel source and destination with signature secret
@@ -882,7 +871,11 @@ describe LavinMQ::Shovel do
       with_amqp_server do |s|
         # Setup HTTP server
         h = Hash(String, String).new
-        _, addr, h, _, _ = ShovelSpecHelpers.webhook_server(h)
+        _, addr = ShovelSpecHelpers.webhook_server do |context|
+          context.request.headers.each { |k, v| h[k] = v.first }
+          context.response.content_type = "text/plain"
+          context.response.print "ok"
+        end
 
         vhost = s.vhosts.create("x")
         # Setup shovel source and destination without signature secret
@@ -918,7 +911,11 @@ describe LavinMQ::Shovel do
       it "should reject signed webhook messages exceeding max payload size" do
         with_amqp_server do |s|
           body = Channel(String).new
-          _, addr, _, _, _ = ShovelSpecHelpers.webhook_server(body: body)
+          _, addr = ShovelSpecHelpers.webhook_server do |context|
+            body.send(context.request.body.try(&.gets_to_end) || "")
+            context.response.content_type = "text/plain"
+            context.response.print "ok"
+          end
 
           vhost = s.vhosts.create("x")
           # Setup shovel source and destination with signature secret and small max payload
