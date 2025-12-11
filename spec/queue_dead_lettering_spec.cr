@@ -37,7 +37,7 @@ module DeadLetteringSpec
 
   def self.get_n(n : Int, q, *, no_ack = false, file = __FILE__, line = __LINE__, &)
     result = Array(AMQP::Client::GetMessage).new(n)
-    1.upto(n) do |i|
+    n.times do
       msg = wait_for(file: file, line: line) { q.get(no_ack: no_ack) }.should_not be_nil
       yield msg
       result << msg
