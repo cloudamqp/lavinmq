@@ -18,7 +18,7 @@ module LavinMQ
       end
 
       def on_expiration(&block)
-        spawn do
+        spawn(name: "OAuthUser#on_expiration") do
           loop do
             select
             when @token_updated.receive
