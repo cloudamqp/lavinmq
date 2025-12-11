@@ -141,7 +141,7 @@ describe LavinMQ::Auth::Chain do
         # Should authenticate with local backend
         user = chain.authenticate("testuser", "localpass")
         user.should_not be_nil
-        user.should be_a LavinMQ::Auth::BaseUser
+        user.should be_a LavinMQ::Auth::User
         user.try(&.name).should eq "testuser"
       end
     end
