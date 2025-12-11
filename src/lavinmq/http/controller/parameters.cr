@@ -12,10 +12,20 @@ module LavinMQ
       def details_tuple
         {
           name:      @p.parameter_name,
-          value:     @p.value,
+          value:     mask_secrets(@p.value),
           component: @p.component_name,
           vhost:     @vhost,
         }
+      end
+
+      # Mask sensitive fields in parameter values
+      private def mask_secrets(value : JSON::Any) : JSON::Any
+        return value unless value.as_h?
+        h = value.as_h.dup
+        if h["dest-signature-secret"]?
+          h["dest-signature-secret"] = JSON::Any.new("********")
+        end
+        JSON::Any.new(h)
       end
 
       def search_match?(value : String) : Bool
@@ -81,10 +91,14 @@ module LavinMQ
             unless value
               bad_request(context, "Field 'value' is required")
             end
+            existing = @amqp_server.vhosts[vhost].parameters[{component, name}]?
+            # Preserve secret fields if not provided in update (for shovel signature secrets)
+            if existing && component == "shovel"
+              value = merge_secrets(existing.value, value)
+            end
             p = Parameter.new(component, name, value)
-            is_update = @amqp_server.vhosts[vhost].parameters[{component, name}]?
             @amqp_server.vhosts[vhost].add_parameter(p)
-            context.response.status_code = is_update ? 204 : 201
+            context.response.status_code = existing ? 204 : 201
           end
         end
 
@@ -269,6 +283,18 @@ module LavinMQ
 
       private def operator_policy(context, name, vhost)
         @amqp_server.vhosts[vhost].operator_policies[name]? || not_found(context)
+      end
+
+      # Preserve secret fields from existing parameter if not provided in new value
+      private def merge_secrets(existing : JSON::Any, new_value : JSON::Any) : JSON::Any
+        return new_value unless existing.as_h? && new_value.as_h?
+        existing_h = existing.as_h
+        new_h = new_value.as_h.dup
+        # If dest-signature-secret exists in old but not in new, preserve it
+        if existing_h["dest-signature-secret"]? && !new_h["dest-signature-secret"]?
+          new_h["dest-signature-secret"] = existing_h["dest-signature-secret"]
+        end
+        JSON::Any.new(new_h)
       end
     end
   end
