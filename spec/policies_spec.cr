@@ -433,7 +433,7 @@ describe LavinMQ::VHost do
         vhost.add_policy("invalid-dlx", "^test$", "queues", defs, 0_i8)
         sleep 10.milliseconds
         queue = vhost.queues["test"].as(LavinMQ::AMQP::Queue)
-        queue.@dlx.should be_nil
+        queue.@dead_letter.@dlx.should be_nil
         queue.@max_length.should eq 30
         vhost.delete_policy("invalid-dlx")
       end
@@ -449,7 +449,7 @@ describe LavinMQ::VHost do
         vhost.add_policy("invalid-dlrk", "^test$", "queues", defs, 0_i8)
         sleep 10.milliseconds
         queue = vhost.queues["test"].as(LavinMQ::AMQP::Queue)
-        queue.@dlx.should be_nil
+        queue.@dead_letter.@dlx.should be_nil
         queue.@max_length.should be_nil
         vhost.delete_policy("invalid-dlrk")
       end
@@ -492,8 +492,8 @@ describe LavinMQ::VHost do
         queue.@message_ttl.should eq 3000
         queue.@expires.should be_nil
         queue.@reject_on_overflow.should be_true
-        queue.@dlx.should be_nil
-        queue.@dlrk.should eq "dlrk"
+        queue.@dead_letter.@dlx.should be_nil
+        queue.@dead_letter.@dlrk.should eq "dlrk"
         queue.@delivery_limit.should be_nil
         vhost.delete_policy("mixed")
       end
