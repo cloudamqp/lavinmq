@@ -20,6 +20,29 @@ module LavinMQ
       abstract def verify_token(token : String) : TokenClaims
     end
 
+    # OAuth 2.0 / OpenID Connect authenticator for LavinMQ.
+    #
+    # Clients authenticate by providing a JWT token (RS256-signed) as the password field during
+    # AMQP/MQTT connection. The username field is used for logging only - authorization is
+    # based on permissions/scopes extracted from the JWT token.
+    #
+    # Verification flow:
+    # 1. Prevalidate: Check JWT format, algorithm (RS256), and expiration
+    # 2. Verify signature: Decode JWT using OAuth provider's public keys (from JWKS)
+    # 3. Validate claims: Check issuer and optionally audience match configuration
+    # 4. Extract permissions: Parse scopes/roles and map to LavinMQ permissions
+    # 5. Create OAuthUser: With extracted username, tags, permissions, and expiration time
+    #
+    # Token refresh: Clients send UpdateSecret frame with new JWT to update permissions
+    # without reconnecting. Username stays the same, only permissions/expiration are updated.
+    #
+    # Public Key caching: Public keys are fetched on first use and cached with TTL from the
+    # JWKS endpoints Cache-Control header (or config default). Keys are re-fetched when
+    # cache expires.
+    #
+    # Security: Only RS256 accepted (prevents algorithm confusion), issuer/audience
+    # validation prevents accepting tokens from untrusted or unintended sources, fails
+    # closed on any error.
     class OAuthAuthenticator < Authenticator
       include TokenVerifier
       Log = LavinMQ::Log.for "oauth2"
@@ -27,29 +50,6 @@ module LavinMQ
       @public_keys = PublicKeys.new
       @jwks_fetcher : JWKSFetcher
 
-      # OAuth 2.0 / OpenID Connect authenticator for LavinMQ.
-      #
-      # Clients authenticate by providing a JWT token (RS256-signed) as the password field during
-      # AMQP/MQTT connection. The username field is used for logging only - authorization is
-      # based on permissions/scopes extracted from the JWT token.
-      #
-      # Verification flow:
-      # 1. Prevalidate: Check JWT format, algorithm (RS256), and expiration
-      # 2. Verify signature: Decode JWT using OAuth provider's public keys (from JWKS)
-      # 3. Validate claims: Check issuer and optionally audience match configuration
-      # 4. Extract permissions: Parse scopes/roles and map to LavinMQ permissions
-      # 5. Create OAuthUser: With extracted username, tags, permissions, and expiration time
-      #
-      # Token refresh: Clients send UpdateSecret frame with new JWT to update permissions
-      # without reconnecting. Username stays the same, only permissions/expiration are updated.
-      #
-      # Public Key caching: Public keys are fetched on first use and cached with TTL from the
-      # JWKS endpoints Cache-Control header (or config default). Keys are re-fetched when
-      # cache expires.
-      #
-      # Security: Only RS256 accepted (prevents algorithm confusion), issuer/audience
-      # validation prevents accepting tokens from untrusted or unintended sources, fails
-      # closed on any error.
       def initialize(@config = Config.instance)
         @jwks_fetcher = JWKSFetcher.new(@config.oauth_issuer_url, @config.oauth_jwks_cache_ttl)
       end

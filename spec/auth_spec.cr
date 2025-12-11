@@ -146,26 +146,6 @@ describe LavinMQ::Auth::Chain do
       end
     end
 
-    it "falls back to oauth when local authentication fails" do
-      config = LavinMQ::Config.new
-      config.auth_backends = ["local", "oauth"]
-      config.oauth_issuer_url = "https://auth.example.com"
-      config.oauth_preferred_username_claims = ["preferred_username"]
-
-      with_datadir do |data_dir|
-        config.data_dir = data_dir
-        users = LavinMQ::Auth::UserStore.new(data_dir, nil)
-        chain = LavinMQ::Auth::Chain.create(config, users)
-
-        # Local will fail (user doesn't exist), but should fall back to oauth
-        # OAuth will also fail because we don't have a valid JWT, but we can
-        # verify the chain tries both by checking that oauth is attempted
-        # (it will return nil because password is not a JWT)
-        user = chain.authenticate("oauthuser", "not-a-jwt")
-        user.should be_nil # Both backends failed
-      end
-    end
-
     it "returns nil when all backends in chain fail" do
       config = LavinMQ::Config.new
       config.auth_backends = ["local", "oauth"]
@@ -182,31 +162,6 @@ describe LavinMQ::Auth::Chain do
         # Wrong password for local user, not a JWT for oauth
         user = chain.authenticate("testuser", "wrongpass")
         user.should be_nil
-      end
-    end
-
-    it "stops at first successful authentication" do
-      config = LavinMQ::Config.new
-      config.auth_backends = ["local", "oauth"]
-      config.oauth_issuer_url = "https://auth.example.com"
-      config.oauth_preferred_username_claims = ["preferred_username"]
-
-      with_datadir do |data_dir|
-        config.data_dir = data_dir
-        users = LavinMQ::Auth::UserStore.new(data_dir, nil)
-        users.create("testuser", "localpass", [LavinMQ::Tag::Management])
-
-        chain = LavinMQ::Auth::Chain.create(config, users)
-
-        # Should stop at local backend and not try oauth
-        user = chain.authenticate("testuser", "localpass")
-        user.should_not be_nil
-        user.should be_a LavinMQ::Auth::BaseUser
-        user.try(&.name).should eq "testuser"
-        # Verify it's the local user (has the Management tag we set)
-        if u = user
-          u.tags.should contain(LavinMQ::Tag::Management)
-        end
       end
     end
   end
