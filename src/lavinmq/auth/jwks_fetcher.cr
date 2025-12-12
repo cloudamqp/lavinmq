@@ -30,6 +30,8 @@ module LavinMQ
 
         public_keys = {} of String => String
         jwks_array.each_with_index do |key, idx|
+          # Only process RSA keys (RFC 7517 Section 4.1)
+          next unless key["kty"]?.try(&.as_s) == "RSA"
           next unless key["n"]? && key["e"]?
           # Skip keys not intended for signatures (RFC 7517 Section 4.2)
           use = key["use"]?.try(&.as_s)
