@@ -176,7 +176,7 @@ module LavinMQ::AMQP
       File.open(File.join(@data_dir, ".queue"), "w") { |f| f.sync = true; f.print @name }
       @msg_store = init_msg_store(@data_dir)
       @empty = @msg_store.empty
-      @dead_letter = Feature::DeadLettering::DeadLetterer.new(@vhost, @name)
+      @dead_letter = Feature::DeadLettering::DeadLetterer.new(@vhost, @name, @log)
       start
     end
 

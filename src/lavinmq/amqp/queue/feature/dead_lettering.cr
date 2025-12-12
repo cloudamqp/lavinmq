@@ -33,7 +33,7 @@ module LavinMQ::AMQP
           property dlx : String? = nil
           property dlrk : String? = nil
 
-          def initialize(@vhost : VHost, @queue_name : String)
+          def initialize(@vhost : VHost, @queue_name : String, @log : Logger)
           end
 
           def cycle?(props, reason) : Bool
@@ -76,6 +76,7 @@ module LavinMQ::AMQP
 
             queues.each do |q|
               next if is_cycle && q.name == @queue_name
+              @log.trace { "dead lettering dest=#{q.name} msg=#{dead_lettered_msg}" }
               q.publish(dead_lettered_msg)
             end
           end
