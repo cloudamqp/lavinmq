@@ -70,7 +70,7 @@ describe "Dead lettering" do
         q = ch.queue(q_name, args: AMQP::Client::Arguments.new(
           {"x-dead-letter-exchange" => "", "x-dead-letter-routing-key" => "#{q_name}2"}
         ))
-        q2 = ch.queue("#{q_name}2", args: AMQP::Client::Arguments.new(
+        ch.queue("#{q_name}2", args: AMQP::Client::Arguments.new(
           {"x-dead-letter-exchange" => "", "x-dead-letter-routing-key" => q_name, "x-max-length" => 0}
         ))
 
@@ -266,7 +266,7 @@ describe "Dead lettering" do
     end
 
     it "should prevent dead lettering loop" do
-      with_amqp_server do |s|
+      with_amqp_server do |_|
       end
     end
   end
