@@ -61,18 +61,31 @@ module LavinMQ::AMQP
           def maybe_publish(msg : BytesMessage, reason)
             # No dead letter exchange => nothing to do
             return unless dlx = (msg.dlx || dlx())
-            dlrk = msg.dlrk || dlrk() || msg.routing_key
+            dlrk = msg.dlrk || dlrk()
 
             props = create_message_properties(msg, reason)
 
             ex = @vhost.exchanges[dlx.to_s]? || return
             queues = Set(LavinMQ::Queue).new
-            ex.find_queues(dlrk, props.headers, queues)
+            routing_headers = props.headers
+
+            # If a dead lettering key exists, no routing to CC/BCC should be done
+            # but the header should be maintained, so we must clone and remove them
+            # for routing
+            if dlrk && (rk = routing_headers.try &.clone)
+              rk.delete("CC")
+              rk.delete("BCC")
+              routing_headers = rk
+            end
+
+            routing_rk = (dlrk || msg.routing_key).to_s
+
+            ex.find_queues(routing_rk, routing_headers, queues)
 
             is_cycle = cycle?(props, reason)
 
             dead_lettered_msg = Message.new(
-              RoughTime.unix_ms, dlx.to_s, dlrk.to_s,
+              RoughTime.unix_ms, dlx.to_s, routing_rk.to_s,
               props, msg.bodysize, IO::Memory.new(msg.body))
 
             queues.each do |q|
