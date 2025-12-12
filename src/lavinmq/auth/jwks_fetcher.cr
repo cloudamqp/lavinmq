@@ -17,6 +17,14 @@ module LavinMQ
       def fetch_jwks : JWKSResult
         # Discover jwks_uri from OIDC configuration
         oidc_config, _ = fetch_url("#{@issuer_url.chomp("/")}/.well-known/openid-configuration")
+
+        # Verify issuer matches per OpenID Connect Discovery 1.0 Section 4.3
+        oidc_issuer = oidc_config["issuer"]?.try(&.as_s?)
+        expected_issuer = @issuer_url.chomp("/")
+        if oidc_issuer.nil? || oidc_issuer.chomp("/") != expected_issuer
+          raise "OIDC issuer mismatch: expected #{expected_issuer}, got #{oidc_issuer}"
+        end
+
         jwks_uri = oidc_config["jwks_uri"]?.try(&.as_s?) || raise "Missing jwks_uri in OIDC configuration"
 
         jwks, headers = fetch_url(jwks_uri)
