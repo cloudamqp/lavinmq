@@ -15,7 +15,10 @@ module DeadLetteringSpec
   class_property! channel : AMQP::Client::Channel
   class_property! server : LavinMQ::Server
 
-  def self.publish_n(n : Int, q, *, props = AMQP::Client::Properties.new, start = 1, msg = "msg")
+  def self.publish_n(n : Int, q, *,
+                     props = AMQP::Client::Properties.new,
+                     start = 1, msg = "msg",
+                     channel = DeadLetteringSpec.channel)
     return if n < 1
     start.upto(start + n - 1) do |i|
       channel.default_exchange.publish_confirm("#{msg}#{i}", q.name, props: props)
@@ -512,7 +515,7 @@ module DeadLetteringSpec
 
           q.message_count.should eq 1
           msg = get1(q)
-          msg.not_nil!.body_io.to_s.should eq "msg2"
+          msg.body_io.to_s.should eq "msg2"
         end
       end
 
@@ -606,7 +609,7 @@ module DeadLetteringSpec
         end
       end
 
-      it "dead_letter_headers_reason_maxlen" do
+      it "shoud add x-death for message maxlen" do
         qargs = {
           "x-max-length"              => 1,
           "x-dead-letter-exchange"    => "",
@@ -623,7 +626,8 @@ module DeadLetteringSpec
         end
       end
 
-      it "dead_letter_headers_cycle" do
+      it "should increase x-death count for same queue and reason" do
+        # Dead letter back to the queue itself
         qargs = {
           "x-dead-letter-exchange"    => "",
           "x-dead-letter-routing-key" => "q",
@@ -647,7 +651,7 @@ module DeadLetteringSpec
         end
       end
 
-      it "dead_letter_headers_should_be_appended_for_each_event" do
+      it "should append x-death for each event" do
         qargs = {
           "x-dead-letter-exchange"    => "",
           "x-dead-letter-routing-key" => "dlq1",
@@ -674,7 +678,8 @@ module DeadLetteringSpec
         end
       end
 
-      it "dead_letter_headers_should_not_be_appended_for_republish" do
+      # How to detect and clear x-death from user published?
+      pending "dead_letter_headers_should_not_be_appended_for_republish" do
         with_dead_lettering_setup do |q, dlq, ch, s|
           publish_n(1, q)
           get1(q, &.nack(requeue: false))
@@ -693,7 +698,10 @@ module DeadLetteringSpec
           })
 
           props = AMQ::Protocol::Properties.new(headers: headers)
-          publish_n(1, q, props: props)
+          # rabbitmq tests uses another channel
+          with_channel(s) do |ch2|
+            publish_n(1, q, props: props, channel: ch2)
+          end
 
           dlq_msg2 = get1(dlq)
           headers = dlq_msg2.properties.headers.not_nil!
@@ -702,59 +710,65 @@ module DeadLetteringSpec
         end
       end
 
-      pending "dead_letter_headers_CC" do
+      it "should route to and keep CC header if no dead lettering routing key is set" do
+        # No routing key
         qargs = {
           "x-dead-letter-exchange" => "dlx_exchange",
         }
         with_dead_lettering_setup(qargs: qargs) do |q, dlq, ch, s|
           dlx_exchange = ch.exchange_declare("dlx_exchange", "direct", passive: false)
-          q.bind("dlx_exchange", "q")
+          # q.bind("dlx_exchange", "q")
           dlq.bind("dlx_exchange", "dlq")
 
           props = AMQ::Protocol::Properties.new(
             headers: AMQ::Protocol::Table.new({"CC" => [dlq.name] of AMQ::Protocol::Field})
           )
-          ch.basic_publish_confirm("msg1", "dlx_exchange", q.name, props: props)
+          publish_n(1, q, props: props)
 
-          dlx.get
+          q_msg = get1(q, no_ack: false)
+          dlq_msg = get1(dlq)
 
-          msg1 = q.get(no_ack: false).not_nil!
-          msg1.nack(requeue: false)
+          q_msg.properties.headers.try(&.["x-death"]?).should be_nil
+          dlq_msg.properties.headers.try(&.["x-death"]?).should be_nil
+
+          q_msg.nack(requeue: false)
 
           dlq_msg = wait_for { dlq.get }
-          headers = dlq_msg.not_nil!.properties.headers.should_not be_nil
-          headers.has_key?("CC").should be_true
+
+          headers = dlq_msg.properties.headers.should_not be_nil
+          headers["CC"].should eq [dlq.name]
           headers["x-death"].should_not be_nil
         end
       end
 
-      pending "dead_letter_headers_CC_with_routing_key" do
-        with_amqp_server do |s|
-          with_channel(s) do |ch|
-            dlx_exchange = ch.exchange_declare("dlx_exchange", "direct", passive: false)
-            q = ch.queue("q", args: AMQP::Client::Arguments.new({
-              "x-dead-letter-exchange"    => "dlx_exchange",
-              "x-dead-letter-routing-key" => "dlx",
-            }))
-            dlx = ch.queue("dlx")
-            q.bind("dlx_exchange", "q")
-            dlx.bind("dlx_exchange", "dlx")
+      it "should only be dead lettered to dead-letter-routing-key with preserved CC" do
+        with_dead_lettering_setup do |q, dlq, ch, s|
+          dlq2 = ch.queue("dlq2")
 
-            props = AMQ::Protocol::Properties.new(
-              headers: AMQ::Protocol::Table.new({"CC" => ["dlx"] of AMQ::Protocol::Field})
-            )
-            ch.basic_publish_confirm("msg1", "dlx_exchange", "q", props: props)
+          props = AMQ::Protocol::Properties.new(
+            headers: AMQ::Protocol::Table.new({"CC" => [dlq2.name] of AMQ::Protocol::Field})
+          )
+          publish_n(1, q, props: props)
 
-            dlx.get
+          q_msg = get1(q, no_ack: false)
+          dlq2_msg = get1(dlq2)
 
-            msg1 = q.get(no_ack: false).not_nil!
-            msg1.nack(requeue: false)
+          q_msg.properties.headers.try(&.["x-death"]?).should be_nil
+          dlq2_msg.properties.headers.try(&.["x-death"]?).should be_nil
 
-            dlx_msg = wait_for { dlx.get }
-            headers = dlx_msg.not_nil!.properties.headers.should_not be_nil
-            headers.has_key?("CC").should be_true
-            headers["x-death"].should_not be_nil
-          end
+          # Dead letter it
+          q_msg.nack(requeue: false)
+
+          wait_for { q.message_count == 0 }
+          wait_for { dlq.message_count == 1 }
+
+          dlq_msg = get1(dlq)
+
+          dlq_msg.properties.headers.try(&.["CC"]?).should eq [dlq2.name]
+          x_deaths = dlq_msg.properties.headers.try(&.["x-death"]?).should(
+            be_a(Array(AMQ::Protocol::Field)))
+
+          dlq2.message_count.should eq 0
         end
       end
 
