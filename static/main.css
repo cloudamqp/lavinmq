@@ -992,6 +992,46 @@ footer .logo {
   opacity: 1;
 }
 
+.menu-collapsed {
+  #menu-content {
+    .menu-group {
+      display: none;
+    }
+
+    li a {
+      justify-content: center;
+    }
+
+    li a span {
+      display: none;
+    }
+  }
+
+  #menu {
+    width: auto;
+
+    ul {
+      padding: 0 0.75rem;
+    }
+
+    ul li a img {
+      margin-right: 0;
+    }
+  }
+
+  main.main-grid {
+    padding-left: 68px;
+  }
+
+  .r-c {
+    left: 68px;
+  }
+
+  footer {
+    padding-left: 68px;
+  }
+}
+
 .card:has(.table-header) {
   padding: 0 0 1.5rem;
 
