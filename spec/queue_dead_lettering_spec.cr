@@ -33,7 +33,7 @@ module DeadLetteringSpec
     get_n(1, q, no_ack: no_ack, file: file, line: line) { }.first
   end
 
-  def self.get1(q, *, no_ack = false, file = __FILE__, line = __LINE__, &block)
+  def self.get1(q, *, no_ack = false, file = __FILE__, line = __LINE__, &)
     get_n(1, q, no_ack: no_ack, file: file, line: line) do |msg|
       yield msg
     end.first
@@ -49,11 +49,11 @@ module DeadLetteringSpec
     result
   end
 
-  def self.declareQ(qargs = DEFAULT_Q_ARGS)
+  def self.declare_q(qargs = DEFAULT_Q_ARGS)
     DeadLetteringSpec.q = channel.queue(QUEUE_NAME, args: AMQP::Client::Arguments.new(qargs))
   end
 
-  def self.declareDLQ
+  def self.declare_dlq
     DeadLetteringSpec.dlq = channel.queue(DLQ_NAME)
   end
 
@@ -61,8 +61,8 @@ module DeadLetteringSpec
     with_amqp_server do |s|
       with_channel(s) do |ch|
         DeadLetteringSpec.channel = ch
-        q = declareQ(qargs)
-        dlq = declareDLQ
+        q = declare_q(qargs)
+        dlq = declare_dlq
         yield q, dlq, ch, s
       end
     end
@@ -71,7 +71,7 @@ module DeadLetteringSpec
   describe "Queue Dead Lettering" do
     describe "Basic Dead-Lettering Mechanisms" do
       it "should dead letter on nack with requeue=false" do
-        with_dead_lettering_setup do |q, dlq, ch, s|
+        with_dead_lettering_setup do |q, dlq, _, _|
           publish_n(3, q)
           msgs = get_n(3, q)
 
@@ -93,7 +93,7 @@ module DeadLetteringSpec
       end
 
       it "should dead letter many when nack with requeue=false and multiple=true" do
-        with_dead_lettering_setup do |q, dlq, ch, s|
+        with_dead_lettering_setup do |q, dlq, _, _|
           publish_n(3, q)
 
           msgs = get_n(3, q)
@@ -113,7 +113,7 @@ module DeadLetteringSpec
       end
 
       it "should not dead letter on nack with requeue=true" do
-        with_dead_lettering_setup do |q, dlq, ch, s|
+        with_dead_lettering_setup do |q, dlq, _, _|
           publish_n(3, q)
 
           msgs = get_n(3, q)
@@ -125,7 +125,7 @@ module DeadLetteringSpec
       end
 
       it "should not dead letter on nack with requeue=true and multiple=true" do
-        with_dead_lettering_setup do |q, dlq, ch, s|
+        with_dead_lettering_setup do |q, dlq, _, _|
           publish_n(3, q)
           msgs = get_n(3, q)
           msgs.last.nack(multiple: true, requeue: true)
@@ -136,7 +136,7 @@ module DeadLetteringSpec
       end
 
       it "should dead letter on reject with requeue=false" do
-        with_dead_lettering_setup do |q, dlq, ch, s|
+        with_dead_lettering_setup do |q, dlq, _, _|
           publish_n(3, q)
 
           get1(q, &.reject(requeue: false))
@@ -149,17 +149,17 @@ module DeadLetteringSpec
       end
 
       it "should dead letter in chain reject->expire->expire" do
-        with_dead_lettering_setup do |q, dlq, ch, s|
+        with_dead_lettering_setup do |_, _, ch, _|
           b = ch.queue("b", args: AMQP::Client::Arguments.new({
             "x-dead-letter-exchange"    => "",
             "x-dead-letter-routing-key" => "a2",
           }))
-          a2 = ch.queue("a2", args: AMQP::Client::Arguments.new({
+          ch.queue("a2", args: AMQP::Client::Arguments.new({
             "x-message-ttl"             => 1,
             "x-dead-letter-exchange"    => "",
             "x-dead-letter-routing-key" => "a3",
           }))
-          a3 = ch.queue("a3", args: AMQP::Client::Arguments.new({
+          ch.queue("a3", args: AMQP::Client::Arguments.new({
             "x-message-ttl"             => 1,
             "x-dead-letter-exchange"    => "",
             "x-dead-letter-routing-key" => "b",
@@ -178,7 +178,7 @@ module DeadLetteringSpec
       end
 
       it "should dead letter many rejects" do
-        with_dead_lettering_setup do |q, dlq, ch, s|
+        with_dead_lettering_setup do |q, dlq, _, _|
           publish_n(100, q)
           done = Channel(Nil).new
           spawn do
@@ -202,7 +202,7 @@ module DeadLetteringSpec
       end
 
       it "should not dead letter on reject with requeue=true" do
-        with_dead_lettering_setup do |q, dlq, ch, s|
+        with_dead_lettering_setup do |q, dlq, _, _|
           1.upto(3) do |i|
             channel.default_exchange.publish_confirm("msg#{i}", q.name)
           end
@@ -221,12 +221,7 @@ module DeadLetteringSpec
           "x-dead-letter-exchange"    => "",
           "x-dead-letter-routing-key" => "dlx",
         }
-        with_dead_lettering_setup(qargs: qargs) do |q, dlq, ch, s|
-          q = ch.queue("q", args: AMQP::Client::Arguments.new({
-            "x-message-ttl"             => 1,
-            "x-dead-letter-exchange"    => "",
-            "x-dead-letter-routing-key" => "dlx",
-          }))
+        with_dead_lettering_setup(qargs: qargs) do |q, _, ch, _|
           dlx = ch.queue("dlx")
 
           ch.default_exchange.publish_confirm("msg1", q.name)
@@ -243,7 +238,7 @@ module DeadLetteringSpec
           "x-dead-letter-exchange"    => "",
           "x-dead-letter-routing-key" => "dlx",
         }
-        with_dead_lettering_setup(qargs: qargs) do |q, dlq, ch, s|
+        with_dead_lettering_setup(qargs: qargs) do |q, _, ch, _|
           dlx = ch.queue("dlx")
 
           ch.default_exchange.publish_confirm("msg1", q.name)
@@ -267,7 +262,7 @@ module DeadLetteringSpec
 
     describe "Complex Rejection Scenarios" do
       it "should dead letter on single nack" do
-        with_dead_lettering_setup do |q, dlq, ch, s|
+        with_dead_lettering_setup do |q, dlq, ch, _|
           ch.default_exchange.publish_confirm("msg", q.name)
 
           get1(q, &.reject(requeue: true))
@@ -281,7 +276,7 @@ module DeadLetteringSpec
       end
 
       it "should only dead letter on nack multiple with requeue=false when basic get" do
-        with_dead_lettering_setup do |q, dlq, ch, s|
+        with_dead_lettering_setup do |q, dlq, _, s|
           queue = s.vhosts["/"].queues["q"].should be_a LavinMQ::AMQP::Queue
 
           publish_n(3, q)
@@ -307,7 +302,7 @@ module DeadLetteringSpec
       end
 
       it "should only dead letter on nack multiple with requeue=false when basic consume" do
-        with_dead_lettering_setup do |q, dlq, ch, s|
+        with_dead_lettering_setup do |q, dlq, ch, _|
           publish_n(3, q)
           consumed = [] of AMQP::Client::DeliverMessage
           done = Channel(Nil).new
@@ -370,7 +365,7 @@ module DeadLetteringSpec
         qargs = {
           "x-dead-letter-exchange" => "missing_dlx",
         }
-        with_dead_lettering_setup(qargs: qargs) do |q, dlq, ch, s|
+        with_dead_lettering_setup(qargs: qargs) do |q, dlq, ch, _|
           publish_n(2, q)
 
           # Reject one, can't be dead-lettered and should "disappear"
@@ -393,8 +388,8 @@ module DeadLetteringSpec
         qargs = {
           "x-dead-letter-exchange" => "dlx_exchange",
         }
-        with_dead_lettering_setup(qargs: qargs) do |q, dlq, ch, s|
-          dlx_exchange = ch.exchange_declare("dlx_exchange", "direct", passive: false)
+        with_dead_lettering_setup(qargs: qargs) do |q, dlq, ch, _|
+          ch.exchange_declare("dlx_exchange", "direct", passive: false)
 
           publish_n(2, q)
           # This message should be dropped because nothing is bound do dlx_exchange
@@ -406,7 +401,7 @@ module DeadLetteringSpec
           dlq.bind("dlx_exchange", q.name)
 
           # Reject next message which should be dead lettered
-          msg = get1(q, &.nack(requeue: false))
+          get1(q, &.nack(requeue: false))
 
           dlq_msg = get1(dlq)
           dlq_msg.body_io.to_s.should eq "msg2"
@@ -417,8 +412,8 @@ module DeadLetteringSpec
         qargs = {
           "x-dead-letter-exchange" => "dlx_exchange",
         }
-        with_dead_lettering_setup(qargs: qargs) do |q, dlq, ch, s|
-          dlx_exchange = ch.exchange_declare("dlx_exchange", "direct", passive: false)
+        with_dead_lettering_setup(qargs: qargs) do |q, dlq, ch, _|
+          ch.exchange_declare("dlx_exchange", "direct", passive: false)
           dlq.bind("dlx_exchange", dlq.name)
 
           # Publish one to q, without CC
@@ -460,8 +455,8 @@ module DeadLetteringSpec
         qargs = {
           "x-dead-letter-exchange" => "dlx_exchange",
         }
-        with_dead_lettering_setup(qargs: qargs) do |q, dlq, ch, s|
-          dlx_exchange = ch.exchange_declare("dlx_exchange", "direct", passive: false)
+        with_dead_lettering_setup(qargs: qargs) do |q, dlq, ch, _|
+          ch.exchange_declare("dlx_exchange", "direct", passive: false)
           dlq.bind("dlx_exchange", dlq.name)
 
           # Publish one to q, without CC
@@ -507,7 +502,7 @@ module DeadLetteringSpec
           "x-dead-letter-exchange"    => "",
           "x-dead-letter-routing-key" => QUEUE_NAME,
         }
-        with_dead_lettering_setup(qargs: qargs) do |q, dlq, ch, s|
+        with_dead_lettering_setup(qargs: qargs) do |q, _, ch, _|
           ch.default_exchange.publish_confirm("msg1", q.name)
           ch.default_exchange.publish_confirm("msg2", q.name)
 
@@ -525,7 +520,7 @@ module DeadLetteringSpec
           "x-dead-letter-exchange"    => "",
           "x-dead-letter-routing-key" => QUEUE_NAME,
         }
-        with_dead_lettering_setup(qargs: qargs) do |q, dlq, ch, s|
+        with_dead_lettering_setup(qargs: qargs) do |q, _, _, _|
           publish_n(2, q)
 
           sleep 0.1.seconds
@@ -539,7 +534,7 @@ module DeadLetteringSpec
           "x-dead-letter-exchange"    => "",
           "x-dead-letter-routing-key" => QUEUE_NAME,
         }
-        with_dead_lettering_setup(qargs: qargs) do |q, dlq, ch, s|
+        with_dead_lettering_setup(qargs: qargs) do |q, _, ch, _|
           ch.default_exchange.publish_confirm("msg1", q.name)
 
           get1(q, &.nack(requeue: false))
@@ -553,7 +548,7 @@ module DeadLetteringSpec
 
     describe "Header Validation" do
       it "should add x-death for reject" do
-        with_dead_lettering_setup do |q, dlq, ch, s|
+        with_dead_lettering_setup do |q, dlq, ch, _|
           ch.default_exchange.publish_confirm("msg1", q.name)
 
           get1(q, &.nack(requeue: false))
@@ -580,7 +575,7 @@ module DeadLetteringSpec
           "x-dead-letter-exchange"    => "",
           "x-dead-letter-routing-key" => DLQ_NAME,
         }
-        with_dead_lettering_setup(qargs: qargs) do |q, dlq, ch, s|
+        with_dead_lettering_setup(qargs: qargs) do |q, dlq, ch, _|
           ch.default_exchange.publish_confirm("msg1", q.name)
 
           dlq_msg = get1(dlq)
@@ -594,7 +589,7 @@ module DeadLetteringSpec
       end
 
       it "should add x-death for message expiration" do
-        with_dead_lettering_setup do |q, dlq, ch, s|
+        with_dead_lettering_setup do |q, dlq, ch, _|
           props = AMQ::Protocol::Properties.new(expiration: "1")
           ch.default_exchange.publish_confirm("msg1", q.name, props: props)
           ch.default_exchange.publish_confirm("msg2", q.name)
@@ -615,7 +610,7 @@ module DeadLetteringSpec
           "x-dead-letter-exchange"    => "",
           "x-dead-letter-routing-key" => DLQ_NAME,
         }
-        with_dead_lettering_setup(qargs: qargs) do |q, dlq, ch, s|
+        with_dead_lettering_setup(qargs: qargs) do |q, dlq, _, _|
           publish_n(2, q)
           dlq_msg = get1(dlq)
 
@@ -632,7 +627,7 @@ module DeadLetteringSpec
           "x-dead-letter-exchange"    => "",
           "x-dead-letter-routing-key" => "q",
         }
-        with_dead_lettering_setup(qargs: qargs) do |q, dlq, ch, s|
+        with_dead_lettering_setup(qargs: qargs) do |q, _, _, _|
           publish_n(1, q)
           get1(q, &.nack(requeue: false))
 
@@ -656,7 +651,7 @@ module DeadLetteringSpec
           "x-dead-letter-exchange"    => "",
           "x-dead-letter-routing-key" => "dlq1",
         }
-        with_dead_lettering_setup(qargs: qargs) do |q, dlq, ch, s|
+        with_dead_lettering_setup(qargs: qargs) do |q, _, ch, _|
           dlq1 = ch.queue("dlq1", args: AMQP::Client::Arguments.new({
             "x-dead-letter-exchange"    => "",
             "x-dead-letter-routing-key" => "dlq2",
@@ -680,7 +675,7 @@ module DeadLetteringSpec
 
       # How to detect and clear x-death from user published?
       pending "dead_letter_headers_should_not_be_appended_for_republish" do
-        with_dead_lettering_setup do |q, dlq, ch, s|
+        with_dead_lettering_setup do |q, dlq, _, s|
           publish_n(1, q)
           get1(q, &.nack(requeue: false))
 
@@ -691,7 +686,7 @@ module DeadLetteringSpec
           x_death[0].as(AMQ::Protocol::Table)["reason"].should eq "rejected"
 
           q.delete
-          q = declareQ({
+          q = declare_q({
             "x-dead-letter-exchange"    => "",
             "x-dead-letter-routing-key" => dlq.name,
             "x-message-ttl"             => 1,
@@ -715,8 +710,8 @@ module DeadLetteringSpec
         qargs = {
           "x-dead-letter-exchange" => "dlx_exchange",
         }
-        with_dead_lettering_setup(qargs: qargs) do |q, dlq, ch, s|
-          dlx_exchange = ch.exchange_declare("dlx_exchange", "direct", passive: false)
+        with_dead_lettering_setup(qargs: qargs) do |q, dlq, ch, _|
+          ch.exchange_declare("dlx_exchange", "direct", passive: false)
           # q.bind("dlx_exchange", "q")
           dlq.bind("dlx_exchange", "dlq")
 
@@ -742,7 +737,7 @@ module DeadLetteringSpec
       end
 
       it "should only be dead lettered to dead-letter-routing-key with preserved CC" do
-        with_dead_lettering_setup do |q, dlq, ch, s|
+        with_dead_lettering_setup do |q, dlq, ch, _|
           dlq2 = ch.queue("dlq2")
 
           props = AMQ::Protocol::Properties.new(
@@ -765,7 +760,7 @@ module DeadLetteringSpec
           dlq_msg = get1(dlq)
 
           dlq_msg.properties.headers.try(&.["CC"]?).should eq [dlq2.name]
-          x_deaths = dlq_msg.properties.headers.try(&.["x-death"]?).should(
+          dlq_msg.properties.headers.try(&.["x-death"]?).should(
             be_a(Array(AMQ::Protocol::Field)))
 
           dlq2.message_count.should eq 0
@@ -773,35 +768,35 @@ module DeadLetteringSpec
       end
 
       pending "dead_letter_headers_BCC" do
-        with_amqp_server do |s|
-          with_channel(s) do |ch|
-            dlx_exchange = ch.exchange_declare("dlx_exchange", "direct", passive: false)
-            q = ch.queue("q", args: AMQP::Client::Arguments.new({
-              "x-dead-letter-exchange" => "dlx_exchange",
-            }))
-            dlx = ch.queue("dlx")
-            q.bind("dlx_exchange", "q")
-            dlx.bind("dlx_exchange", "dlx")
+        # with_amqp_server do |s|
+        #  with_channel(s) do |ch|
+        #    ch.exchange_declare("dlx_exchange", "direct", passive: false)
+        #    q = ch.queue("q", args: AMQP::Client::Arguments.new({
+        #      "x-dead-letter-exchange" => "dlx_exchange",
+        #    }))
+        #    dlx = ch.queue("dlx")
+        #    q.bind("dlx_exchange", "q")
+        #    dlx.bind("dlx_exchange", "dlx")
 
-            props = AMQ::Protocol::Properties.new(
-              headers: AMQ::Protocol::Table.new({
-                "CC"  => ["cc_queue"] of AMQ::Protocol::Field,
-                "BCC" => ["dlx"] of AMQ::Protocol::Field,
-              })
-            )
-            ch.basic_publish_confirm("msg1", "dlx_exchange", "q", props: props)
+        #    props = AMQ::Protocol::Properties.new(
+        #      headers: AMQ::Protocol::Table.new({
+        #        "CC"  => ["cc_queue"] of AMQ::Protocol::Field,
+        #        "BCC" => ["dlx"] of AMQ::Protocol::Field,
+        #      })
+        #    )
+        #    ch.basic_publish_confirm("msg1", "dlx_exchange", "q", props: props)
 
-            dlx.get
+        #    dlx.get
 
-            msg1 = q.get(no_ack: false).not_nil!
-            msg1.nack(requeue: false)
+        #    msg1 = q.get(no_ack: false).not_nil!
+        #    msg1.nack(requeue: false)
 
-            dlx_msg = wait_for { dlx.get }
-            headers = dlx_msg.not_nil!.properties.headers.should_not be_nil
-            headers["CC"].should_not be_nil
-            headers.has_key?("BCC").should be_false
-          end
-        end
+        #    dlx_msg = wait_for { dlx.get }
+        #    headers = dlx_msg.not_nil!.properties.headers.should_not be_nil
+        #    headers["CC"].should_not be_nil
+        #    headers.has_key?("BCC").should be_false
+        #  end
+        # end
       end
 
       it "dead_letter_headers_first_death" do
@@ -809,7 +804,7 @@ module DeadLetteringSpec
           "x-dead-letter-exchange"    => "",
           "x-dead-letter-routing-key" => "dlq2",
         }
-        with_dead_lettering_setup(qargs: qargs) do |q, dlq, ch, s|
+        with_dead_lettering_setup(qargs: qargs) do |q, _, ch, _|
           dlq2 = ch.queue("dlq2", args: AMQP::Client::Arguments.new({
             "x-dead-letter-exchange"    => "",
             "x-dead-letter-routing-key" => q.name,
@@ -818,7 +813,7 @@ module DeadLetteringSpec
           publish_n(1, q)
           get1(q, &.nack(requeue: false))
 
-          msg_dlq = get1(dlq2, &.nack(requeue: false))
+          get1(dlq2, &.nack(requeue: false))
 
           msg2 = get1(q)
           headers = msg2.not_nil!.properties.headers.should_not be_nil
@@ -829,50 +824,50 @@ module DeadLetteringSpec
       end
 
       pending "dead_letter_headers_first_death_route (REQUIRES x-match = all-with-x)" do
-        with_amqp_server do |s|
-          v = s.vhosts["/"]
+        #  with_amqp_server do |s|
+        #    v = s.vhosts["/"]
 
-          headers_exchange = v.exchanges["amq.headers"]
+        #    # headers_exchange = v.exchanges["amq.headers"]
 
-          q1_args = AMQ::Protocol::Table.new({
-            "x-message-ttl"          => 1,
-            "x-dead-letter-exchange" => "amq.headers",
-          })
-          q2_args = AMQ::Protocol::Table.new({
-            "x-message-ttl"          => 1,
-            "x-dead-letter-exchange" => "amq.headers",
-          })
+        #    q1_args = AMQ::Protocol::Table.new({
+        #      "x-message-ttl"          => 1,
+        #      "x-dead-letter-exchange" => "amq.headers",
+        #    })
+        #    q2_args = AMQ::Protocol::Table.new({
+        #      "x-message-ttl"          => 1,
+        #      "x-dead-letter-exchange" => "amq.headers",
+        #    })
 
-          v.declare_queue("q1", true, false, q1_args)
-          v.declare_queue("q2", true, false, q2_args)
-          v.declare_queue("dlx_expired", true, false, AMQ::Protocol::Table.new)
-          v.declare_queue("dlx_rejected", true, false, AMQ::Protocol::Table.new)
+        #    v.declare_queue("q1", true, false, q1_args)
+        #    v.declare_queue("q2", true, false, q2_args)
+        #    v.declare_queue("dlx_expired", true, false, AMQ::Protocol::Table.new)
+        #    v.declare_queue("dlx_rejected", true, false, AMQ::Protocol::Table.new)
 
-          v.bind_queue("dlx_expired", "amq.headers", "", AMQ::Protocol::Table.new({
-            "x-match"              => "all-with-x",
-            "x-first-death-reason" => "expired",
-            "x-first-death-queue"  => "q1",
-          }))
-          v.bind_queue("dlx_rejected", "amq.headers", "", AMQ::Protocol::Table.new({
-            "x-match"              => "all-with-x",
-            "x-first-death-reason" => "rejected",
-            "x-first-death-queue"  => "q2",
-          }))
+        #    v.bind_queue("dlx_expired", "amq.headers", "", AMQ::Protocol::Table.new({
+        #      "x-match"              => "all-with-x",
+        #      "x-first-death-reason" => "expired",
+        #      "x-first-death-queue"  => "q1",
+        #    }))
+        #    v.bind_queue("dlx_rejected", "amq.headers", "", AMQ::Protocol::Table.new({
+        #      "x-match"              => "all-with-x",
+        #      "x-first-death-reason" => "rejected",
+        #      "x-first-death-queue"  => "q2",
+        #    }))
 
-          msg1 = LavinMQ::Message.new(RoughTime.unix_ms, "", "q1", AMQ::Protocol::Properties.new, 4, IO::Memory.new("msg1"))
-          v.publish msg1
+        #    msg1 = LavinMQ::Message.new(RoughTime.unix_ms, "", "q1", AMQ::Protocol::Properties.new, 4, IO::Memory.new("msg1"))
+        #    v.publish msg1
 
-          msg2 = LavinMQ::Message.new(RoughTime.unix_ms, "", "q2", AMQ::Protocol::Properties.new, 4, IO::Memory.new("msg2"))
-          v.publish msg2
+        #    msg2 = LavinMQ::Message.new(RoughTime.unix_ms, "", "q2", AMQ::Protocol::Properties.new, 4, IO::Memory.new("msg2"))
+        #    v.publish msg2
 
-          should_eventually(eq(1)) { v.queues["dlx_expired"].message_count }
+        #    should_eventually(eq(1)) { v.queues["dlx_expired"].message_count }
 
-          v.queues["q2"].basic_get(no_ack: false) do |env|
-            v.queues["q2"].reject(env.segment_position, requeue: false)
-          end
+        #    v.queues["q2"].basic_get(no_ack: false) do |env|
+        #      v.queues["q2"].reject(env.segment_position, requeue: false)
+        #    end
 
-          should_eventually(eq(1)) { v.queues["dlx_rejected"].message_count }
-        end
+        #    should_eventually(eq(1)) { v.queues["dlx_rejected"].message_count }
+        #  end
       end
     end
   end

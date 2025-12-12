@@ -37,10 +37,10 @@ module LavinMQ::AMQP
           end
 
           def cycle?(props, reason) : Bool
-            unless (headers = props.headers)
+            unless headers = props.headers
               return false
             end
-            unless (xdeaths = headers["x-death"]?.try &.as?(Array(AMQ::Protocol::Field)))
+            unless xdeaths = headers["x-death"]?.try &.as?(Array(AMQ::Protocol::Field))
               return false
             end
             # xdeath is sorted with the newest death first. To figure out if it's a
