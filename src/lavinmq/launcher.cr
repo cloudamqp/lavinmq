@@ -46,6 +46,7 @@ module LavinMQ
         Log.warn { "The file descriptor limit is very low, consider raising it." }
         Log.warn { "You need one for each connection and two for each durable queue, and some more." }
       end
+      setup_buffer_pools
       Dir.mkdir_p @config.data_dir
       if @config.data_dir_lock?
         @data_dir_lock = DataDirLock.new(@config.data_dir)
@@ -101,6 +102,14 @@ module LavinMQ
       @amqp_server.try &.close rescue nil
       @metrics_server.try &.close rescue nil
       @runner.stop
+    end
+
+    private def setup_buffer_pools
+      buffer_size = @config.socket_buffer_size
+      if buffer_size.positive?
+        IO::BufferPool.setup(buffer_size)
+        Log.info { "Socket buffer pool enabled, buffer size: #{buffer_size}" }
+      end
     end
 
     private def print_ascii_logo
@@ -243,6 +252,14 @@ module LavinMQ
       puts "  reclaimed bytes before last GC: #{ps.reclaimed_bytes_before_gc.humanize_bytes}"
       puts "Fibers:"
       Fiber.list { |f| puts f.inspect }
+      if stats = IO::BufferPool.pool.try(&.stats)
+        puts "Buffer pool"
+        puts "  buffer size: #{stats[:buffer_size].humanize_bytes}"
+        puts "  available: #{stats[:available]}"
+        puts "  allocated: #{stats[:allocated]}"
+        puts "  reused: #{stats[:reused]}"
+        puts "  released: #{stats[:released]}"
+      end
       STDOUT.flush
     end
 
