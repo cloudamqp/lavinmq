@@ -59,14 +59,15 @@ module LavinMQ::AMQP
           # except to the queue itself if a cycle is detected.
           # This is also how it's done in rabbitmq
           def maybe_publish(msg : BytesMessage, reason)
+            # No dead letter exchange => nothing to do
             return unless dlx = (msg.dlx || dlx())
-            return unless dlrk = (msg.dlrk || dlrk() || msg.routing_key)
+            dlrk = msg.dlrk || dlrk() || msg.routing_key
 
             props = create_message_properties(msg, reason)
 
             ex = @vhost.exchanges[dlx.to_s]? || return
             queues = Set(LavinMQ::Queue).new
-            ex.find_queues(dlrk.to_s, props.headers, queues)
+            ex.find_queues(dlrk, props.headers, queues)
 
             is_cycle = cycle?(props, reason)
 
@@ -92,10 +93,7 @@ module LavinMQ::AMQP
             h["x-first-death-exchange"] = msg.exchange_name unless h.has_key? "x-first-death-exchange"
 
             routing_keys = [msg.routing_key.as(AMQP::Field)]
-            if cc = h.delete("CC")
-              # should route to all the CC RKs but then delete them,
-              # so we (ab)use the BCC header for that
-              h["BCC"] = cc
+            if cc = h["CC"]?.try(&.as?(Array(AMQP::Field)))
               routing_keys.concat cc.as(Array(AMQP::Field))
             end
 
