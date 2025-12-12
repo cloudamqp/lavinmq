@@ -12,10 +12,24 @@ module LavinMQ
       def details_tuple
         {
           name:      @p.parameter_name,
-          value:     @p.value,
+          value:     mask_secrets(@p.value),
           component: @p.component_name,
           vhost:     @vhost,
         }
+      end
+
+      # Mask sensitive fields in parameter values (keys ending in -secret or -password)
+      private def mask_secrets(value : JSON::Any) : JSON::Any
+        return value unless h = value.as_h?
+        masked = Hash(String, JSON::Any).new
+        h.each do |k, v|
+          if (k.ends_with?("-secret") || k.ends_with?("-password")) && v.as_s?
+            masked[k] = JSON::Any.new("********")
+          else
+            masked[k] = v
+          end
+        end
+        JSON::Any.new(masked)
       end
 
       def search_match?(value : String) : Bool
@@ -81,10 +95,14 @@ module LavinMQ
             unless value
               bad_request(context, "Field 'value' is required")
             end
+            existing = @amqp_server.vhosts[vhost].parameters[{component, name}]?
+            # Preserve secret fields if not provided in update
+            if existing
+              value = merge_secrets(existing.value, value)
+            end
             p = Parameter.new(component, name, value)
-            is_update = @amqp_server.vhosts[vhost].parameters[{component, name}]?
             @amqp_server.vhosts[vhost].add_parameter(p)
-            context.response.status_code = is_update ? 204 : 201
+            context.response.status_code = existing ? 204 : 201
           end
         end
 
@@ -269,6 +287,20 @@ module LavinMQ
 
       private def operator_policy(context, name, vhost)
         @amqp_server.vhosts[vhost].operator_policies[name]? || not_found(context)
+      end
+
+      # Preserve secret fields from existing parameter if not provided in new value
+      # Keys ending in -secret or -password are considered secrets
+      private def merge_secrets(existing : JSON::Any, new_value : JSON::Any) : JSON::Any
+        return new_value unless existing_h = existing.as_h?
+        return new_value unless new_h = new_value.as_h?
+        merged = new_h.dup
+        existing_h.each do |k, v|
+          if (k.ends_with?("-secret") || k.ends_with?("-password")) && !merged.has_key?(k)
+            merged[k] = v
+          end
+        end
+        JSON::Any.new(merged)
       end
     end
   end

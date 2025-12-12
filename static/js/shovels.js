@@ -118,12 +118,21 @@ Table.renderTable('table', tableOptions, (tr, item, _all) => {
   })
   const editBtn = DOM.button.edit({
     click: function () {
+      const isHttp = item.value['dest-uri'].startsWith('http')
       Form.editItem('#createShovel', item, {
         'src-type': (_item) => srcType,
         'dest-type': (item) => item.value['dest-queue'] ? 'queue' : 'exchange',
         'src-endpoint': (item) => item.value['src-queue'] || item.value['src-exchange'],
         'dest-endpoint': (item) => item.value['dest-queue'] || item.value['dest-exchange'],
-        'src-offset': (_item) => consumerArgs['x-stream-offset']
+        'src-offset': (_item) => consumerArgs['x-stream-offset'],
+        'dest-signature-secret': (item) => item.value['dest-signature-secret'] ? '********' : ''
+      })
+      // Show/hide HTTP-specific fields based on dest URI
+      document.querySelectorAll('.amqp-dest-field').forEach(e => {
+        e.classList.toggle('hide', isHttp)
+      })
+      document.querySelectorAll('.http-dest-field').forEach(e => {
+        e.classList.toggle('hide', !isHttp)
       })
     }
   })
@@ -163,6 +172,9 @@ document.querySelector('[name=dest-uri]').addEventListener('change', function ()
   const isHttp = this.value.startsWith('http')
   document.querySelectorAll('.amqp-dest-field').forEach(e => {
     e.classList.toggle('hide', isHttp)
+  })
+  document.querySelectorAll('.http-dest-field').forEach(e => {
+    e.classList.toggle('hide', !isHttp)
   })
 })
 
@@ -205,7 +217,14 @@ document.querySelector('#createShovel').addEventListener('submit', function (evt
       }
       break
   }
-  if (data.get('dest-type') === 'queue') {
+  const destUri = data.get('dest-uri')
+  if (destUri.startsWith('http')) {
+    // HTTP destination - include signature secret if provided and not masked placeholder
+    const signatureSecret = data.get('dest-signature-secret')
+    if (signatureSecret && signatureSecret !== '********') {
+      body.value['dest-signature-secret'] = signatureSecret
+    }
+  } else if (data.get('dest-type') === 'queue') {
     body.value['dest-queue'] = data.get('dest-endpoint')
   } else {
     body.value['dest-exchange'] = data.get('dest-endpoint')
