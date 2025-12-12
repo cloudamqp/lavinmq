@@ -15,9 +15,10 @@ module DeadLetteringSpec
   class_property! channel : AMQP::Client::Channel
   class_property! server : LavinMQ::Server
 
-  def self.publish_n(n : Int, q, *, props = AMQP::Client::Properties.new)
-    1.upto(n) do |i|
-      channel.default_exchange.publish_confirm("msg#{i}", q.name)
+  def self.publish_n(n : Int, q, *, props = AMQP::Client::Properties.new, start = 1, msg = "msg")
+    return if n < 1
+    start.upto(start + n - 1) do |i|
+      channel.default_exchange.publish_confirm("#{msg}#{i}", q.name, props: props)
     end
   end
 
@@ -262,7 +263,7 @@ module DeadLetteringSpec
     end
 
     describe "Complex Rejection Scenarios" do
-      it "should dead letter single on nack" do
+      it "should dead letter on single nack" do
         with_dead_lettering_setup do |q, dlq, ch, s|
           ch.default_exchange.publish_confirm("msg", q.name)
 
@@ -276,7 +277,7 @@ module DeadLetteringSpec
         end
       end
 
-      it "should not dead letter nack multiple with requeue=true, but with requeue=false" do
+      it "should only dead letter on nack multiple with requeue=false when basic get" do
         with_dead_lettering_setup do |q, dlq, ch, s|
           queue = s.vhosts["/"].queues["q"].should be_a LavinMQ::AMQP::Queue
 
@@ -302,7 +303,7 @@ module DeadLetteringSpec
         end
       end
 
-      it "dead_letter_nack_requeue_nack_norequeue_basic_consume" do
+      it "should only dead letter on nack multiple with requeue=false when basic consume" do
         with_dead_lettering_setup do |q, dlq, ch, s|
           publish_n(3, q)
           consumed = [] of AMQP::Client::DeliverMessage
@@ -362,19 +363,21 @@ module DeadLetteringSpec
     end
 
     describe "Routing and Exchange Behavior" do
-      it "dead_letter_missing_exchange" do
+      it "should delete message if dead lettering exchange is missing" do
         qargs = {
           "x-dead-letter-exchange" => "missing_dlx",
         }
         with_dead_lettering_setup(qargs: qargs) do |q, dlq, ch, s|
           publish_n(2, q)
 
+          # Reject one, can't be dead-lettered and should "disappear"
           get1(q, &.reject(requeue: false))
           sleep 0.1.seconds
 
           ch.exchange_declare("missing_dlx", "fanout", passive: false)
           dlq.bind("missing_dlx", "")
 
+          # Reject the 2nd message which now should be dead lettered
           get1(q, &.reject(requeue: false))
 
           dlq_msg = get1(dlq)
@@ -383,7 +386,7 @@ module DeadLetteringSpec
         end
       end
 
-      it "dead_letter_routing_key" do
+      it "should dead letter to message's routing key when x-dead-letter-routing-key is missing" do
         qargs = {
           "x-dead-letter-exchange" => "dlx_exchange",
         }
@@ -391,12 +394,15 @@ module DeadLetteringSpec
           dlx_exchange = ch.exchange_declare("dlx_exchange", "direct", passive: false)
 
           publish_n(2, q)
+          # This message should be dropped because nothing is bound do dlx_exchange
           get1(q, &.nack(requeue: false))
 
           sleep 0.1.seconds
 
+          # Create a bidning with the message's routing key
           dlq.bind("dlx_exchange", q.name)
 
+          # Reject next message which should be dead lettered
           msg = get1(q, &.nack(requeue: false))
 
           dlq_msg = get1(dlq)
@@ -404,80 +410,89 @@ module DeadLetteringSpec
         end
       end
 
-      it "dead_letter_routing_key_header_CC" do
+      it "should dead letter to CC if dead-letter-routing-key is missing" do
         qargs = {
           "x-dead-letter-exchange" => "dlx_exchange",
         }
         with_dead_lettering_setup(qargs: qargs) do |q, dlq, ch, s|
           dlx_exchange = ch.exchange_declare("dlx_exchange", "direct", passive: false)
-          dlq.bind("dlx_exchange", "dlq")
+          dlq.bind("dlx_exchange", dlq.name)
 
-          props1 = AMQ::Protocol::Properties.new
-          ch.basic_publish_confirm("msg1", "", q.name, props: props1)
+          # Publish one to q, without CC
+          publish_n(1, q)
 
           props2 = AMQ::Protocol::Properties.new(
             headers: AMQ::Protocol::Table.new({"CC" => [dlq.name] of AMQ::Protocol::Field})
           )
-          ch.basic_publish_confirm("msg2", "", q.name, props: props2)
+          # Publish another to q, but because of CC it will also be published
+          # to dlq (start: 2 to make the message "msg")
+          publish_n(1, q, props: props2, msg: "cc")
 
-          get1(q, &.nack(requeue: false))
+          wait_for { q.message_count == 2 }
+          wait_for { dlq.message_count == 1 }
 
-          sleep 0.05.seconds
-          get1(q, &.nack(requeue: false))
+          messages = get_n(2, q)
+          wait_for { q.message_count == 0 }
 
+          # Consume the message in dlq to empty it
+          get1(dlq, &.ack)
+          wait_for { dlq.message_count == 0 }
+
+          # The first msg shouldn't be dead lettered to any queue because
+          # it only has rk=q, and dlx_exchange doesn't have any binding for that.
+          # The second message has rk=q and CC=[dlq] which means it should be
+          # dead lettered to dlq.
+          messages[1].nack(multiple: true, requeue: false)
+
+          # Only one message should have ended upp in dlq
+          wait_for { dlq.message_count == 1 }
+
+          # Verify it's the right message
           dlq_msg = get1(dlq)
-          dlq_msg.body_io.to_s.should eq "msg2"
+          dlq_msg.body_io.to_s.should eq "cc1"
         end
       end
 
-      it "dead_letter_routing_key_header_BCC" do
+      it "should dead letter to BCC if dead-letter-routing-key is missing" do
         qargs = {
           "x-dead-letter-exchange" => "dlx_exchange",
         }
         with_dead_lettering_setup(qargs: qargs) do |q, dlq, ch, s|
           dlx_exchange = ch.exchange_declare("dlx_exchange", "direct", passive: false)
-          dlq.bind("dlx_exchange", "dlq")
+          dlq.bind("dlx_exchange", dlq.name)
 
-          props1 = AMQ::Protocol::Properties.new
-          ch.basic_publish_confirm("msg1", "", q.name, props: props1)
+          # Publish one to q, without CC
+          publish_n(1, q)
 
           props2 = AMQ::Protocol::Properties.new(
             headers: AMQ::Protocol::Table.new({"BCC" => [dlq.name] of AMQ::Protocol::Field})
           )
-          ch.basic_publish_confirm("msg2", "", q.name, props: props2)
+          # Publish another to q, but because of CC it will also be published
+          # to dlq (start: 2 to make the message "msg")
+          publish_n(1, q, props: props2, msg: "bcc")
 
-          get1(q, &.nack(requeue: false))
-          sleep 0.05.seconds
+          wait_for { q.message_count == 2 }
+          wait_for { dlq.message_count == 1 }
 
-          get1(q, &.nack(requeue: false))
+          messages = get_n(2, q)
+          wait_for { q.message_count == 0 }
 
+          # Consume the message in dlq to empty it
+          get1(dlq, &.ack)
+          wait_for { dlq.message_count == 0 }
+
+          # The first msg shouldn't be dead lettered to any queue because
+          # it only has rk=q, and dlx_exchange doesn't have any binding for that.
+          # The second message has rk=q and BCC=[dlq] which means it should be
+          # dead lettered to dlq.
+          messages[1].nack(multiple: true, requeue: false)
+
+          # Only one message should have ended upp in dlq
+          wait_for { dlq.message_count == 1 }
+
+          # Verify it's the right message
           dlq_msg = get1(dlq)
-          dlq_msg.body_io.to_s.should eq "msg2"
-        end
-      end
-
-      pending "dead_letter_extra_bcc" do
-        with_amqp_server do |s|
-          v = s.vhosts["/"]
-
-          source_args = AMQ::Protocol::Table.new({
-            "x-dead-letter-exchange"    => "",
-            "x-dead-letter-routing-key" => "target",
-          })
-          target_args = AMQ::Protocol::Table.new({
-            "x-extra-bcc" => "extra_bcc",
-          })
-
-          v.declare_queue("source", true, false, source_args)
-          v.declare_queue("target", true, false, target_args)
-          v.declare_queue("extra_bcc", true, false, AMQ::Protocol::Table.new)
-
-          props = AMQ::Protocol::Properties.new(expiration: "0")
-          msg = LavinMQ::Message.new(RoughTime.unix_ms, "", "source", props, 3, IO::Memory.new("msg"))
-          v.publish msg
-
-          should_eventually(eq(1)) { v.queues["target"].message_count }
-          should_eventually(eq(1)) { v.queues["extra_bcc"].message_count }
+          dlq_msg.body_io.to_s.should eq "bcc1"
         end
       end
     end
