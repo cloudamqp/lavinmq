@@ -25,7 +25,6 @@ module LavinMQ
     # 2. Verify signature: Decode JWT using OAuth provider's public keys (from JWKS)
     # 3. Validate claims: Check issuer and optionally audience match configuration
     # 4. Extract permissions: Parse scopes/roles and map to LavinMQ permissions
-    # 5. Create OAuthUser: With extracted username, tags, permissions, and expiration time
     #
     # Token refresh: Clients send UpdateSecret frame with new JWT to update permissions
     # without reconnecting. Username stays the same, only permissions/expiration are updated.
@@ -41,8 +40,7 @@ module LavinMQ
       @public_keys = PublicKeys.new
       @jwks_fetcher : JWKSFetcher
 
-      def initialize(@config : Config)
-        @jwks_fetcher = JWKSFetcher.new(@config.oauth_issuer_url, @config.oauth_jwks_cache_ttl)
+      def initialize(@config : Config, @jwks_fetcher : JWKSFetcher)
       end
 
       # Also used by OAuthUser on UpdateSecret frame

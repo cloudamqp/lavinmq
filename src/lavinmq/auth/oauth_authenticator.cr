@@ -10,7 +10,8 @@ module LavinMQ
       @verifier : JWTTokenVerifier
 
       def initialize(config = Config.instance)
-        @verifier = JWTTokenVerifier.new(config)
+        jwks_fetcher = JWKSFetcher.new(config.oauth_issuer_url, config.oauth_jwks_cache_ttl)
+        @verifier = JWTTokenVerifier.new(config, jwks_fetcher)
       end
 
       def authenticate(username : String, password : String) : OAuthUser?

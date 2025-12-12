@@ -2,10 +2,20 @@ require "./spec_helper"
 require "../src/lavinmq/auth/chain"
 require "../src/lavinmq/auth/local_authenticator"
 
+class MockJWKSFetcher < LavinMQ::Auth::JWKSFetcher
+  def initialize
+    super("", Time::Span.new(seconds: 10))
+  end
+
+  def fetch_jwks : LavinMQ::Auth::JWKSFetcher::JWKSResult
+    LavinMQ::Auth::JWKSFetcher::JWKSResult.new(Hash(String, String).new, Time::Span.new(seconds: 10))
+  end
+end
+
 class MockVerifier < LavinMQ::Auth::JWTTokenVerifier
   def initialize(config : LavinMQ::Config, @username : String, @tags : Array(LavinMQ::Tag)?,
                  @permissions : Hash(String, LavinMQ::Auth::BaseUser::Permissions)?, @expires_at : Time)
-    super(config)
+    super(config, MockJWKSFetcher.new)
   end
 
   def verify_token(token : String) : LavinMQ::Auth::TokenClaims
