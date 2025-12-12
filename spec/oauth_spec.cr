@@ -301,20 +301,17 @@ end
 module OAuthUserHelper
   extend self
 
-  def mock_authenticator
+  def create_user(expires_at : Time, permissions = {} of String => LavinMQ::Auth::BaseUser::Permissions)
     config = LavinMQ::Config.new
     config.oauth_issuer_url = "https://auth.example.com"
     config.oauth_preferred_username_claims = ["preferred_username"]
-    LavinMQ::Auth::OAuthAuthenticator.new(config)
-  end
-
-  def create_user(expires_at : Time, permissions = {} of String => LavinMQ::Auth::BaseUser::Permissions)
+    verifier = LavinMQ::Auth::JWTTokenVerifier.new(config)
     LavinMQ::Auth::OAuthUser.new(
       "testuser",
       [] of LavinMQ::Tag,
       permissions,
       expires_at,
-      mock_authenticator
+      verifier
     )
   end
 end
