@@ -134,3 +134,18 @@ document.addEventListener('DOMContentLoaded', () => {
   // Store theme switcher instance on window for debugging
   window.themeSwitcher = new ThemeSwitcher()
 })
+
+document.getElementById("username").addEventListener("click", () => {
+  document.body.classList.toggle("menu-collapsed");
+
+  // Save state
+  if (document.body.classList.contains("menu-collapsed")) {
+    localStorage.setItem("menuCollapsed", "true");
+  } else {
+    localStorage.removeItem("menuCollapsed");
+  }
+})
+
+if (localStorage.getItem("menuCollapsed") === "true") {
+  document.body.classList.add("menu-collapsed");
+}

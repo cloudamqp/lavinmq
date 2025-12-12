@@ -93,19 +93,19 @@
       },
     ].each do |group| -%>
       
-      <li class="menu-group"><%= group[:title] %></li>
+      <li class="menu-group"><span><%= group[:title] %></span></li>
       
       <% group[:items].each do |item| -%>
         <li<%= " class=\"active\"" if active_path?(item[:href]) %>>
           <a href="<%= item[:href] %>">
             <img src="<%= item[:icon] %>"/>
-            <%= item[:label] %>
+            <span><%= item[:label] %></span>
           </a>
         </li>
       <%- end -%>
       
     <%- end -%>
 
-    <li class="last-menu-item"><a href="docs/" target="_blank">HTTP API <img class="icon-blank" src="img/icons/icon-external-light.svg" /></a></li>
+    <li class="last-menu-item"><a href="docs/" target="_blank"><span>HTTP API</span> <img class="icon-blank" src="img/icons/icon-external-light.svg" /></a></li>
   </ul>
 </nav>
