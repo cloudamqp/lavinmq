@@ -67,10 +67,14 @@ module JWT
 
       # Add padding if needed
       case base64.size % 4
+      when 0
+        # No padding needed
       when 2
         base64 += "=="
       when 3
         base64 += "="
+      else
+        raise DecodeError.new("Invalid base64url encoding")
       end
 
       Base64.decode_string(base64)
@@ -80,10 +84,14 @@ module JWT
       base64 = str.tr("-_", "+/")
 
       case base64.size % 4
+      when 0
+        # No padding needed
       when 2
         base64 += "=="
       when 3
         base64 += "="
+      else
+        raise DecodeError.new("Invalid base64url encoding")
       end
 
       Base64.decode(base64)

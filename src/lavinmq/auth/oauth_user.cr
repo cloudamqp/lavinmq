@@ -10,7 +10,7 @@ module LavinMQ
       @token_updated = Channel(Nil).new
 
       def initialize(@name : String, @tags : Array(Tag), @permissions : Hash(String, Permissions),
-                     @expires_at : Time, @authenticator : TokenVerifier)
+                     @expires_at : Time, @verifier : JWTTokenVerifier)
       end
 
       def token_lifetime : Time::Span
@@ -32,7 +32,7 @@ module LavinMQ
       end
 
       def update_secret(new_secret : String)
-        claims = @authenticator.verify_token(new_secret)
+        claims = @verifier.verify_token(new_secret)
 
         # Verify the username matches to prevent token substitution attacks
         if claims.username != @name
