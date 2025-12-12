@@ -101,6 +101,12 @@ module LavinMQ
         if iat = payload["iat"]?.try(&.as_i64?)
           raise JWT::DecodeError.new("Token issued in the future") if Time.unix(iat) > RoughTime.utc
         end
+
+        # Validate nbf (Not Before) - RFC 7519 Section 4.1.5:
+        # "if the 'nbf' claim is present... the JWT MUST NOT be accepted for processing"
+        if nbf = payload["nbf"]?.try(&.as_i64?)
+          raise JWT::DecodeError.new("Token not yet valid") if Time.unix(nbf) > RoughTime.utc
+        end
       end
 
       private def verify_with_public_key(token : String) : JWT::Token
