@@ -6,6 +6,8 @@ require "./lavinmq/http/constants"
 require "./lavinmq/shovel/constants"
 require "./lavinmq/federation/constants"
 require "./lavinmq/definitions_generator"
+require "./lavinmq/auth/base_user"
+require "./lavinmq/auth/password"
 require "./lavinmq/auth/user"
 
 class LavinMQCtl

@@ -75,11 +75,19 @@ module LavinMQ
     property default_consumer_prefetch = UInt16::MAX
     property yield_each_received_bytes = 131_072    # max number of bytes to read from a client connection without letting other tasks in the server do any work
     property yield_each_delivered_bytes = 1_048_576 # max number of bytes sent to a client without tending to other tasks in the server
-    property auth_backends : Array(String) = ["local"]
+    property auth_backends = Array(String).new
     property default_user : String = ENV.fetch("LAVINMQ_DEFAULT_USER", "guest")
     property default_password : String = ENV.fetch("LAVINMQ_DEFAULT_PASSWORD", DEFAULT_PASSWORD_HASH) # Hashed password for default user
     property max_consumers_per_channel = 0
     property mqtt_max_packet_size = 268_435_455_u32 # bytes
+    property oauth_issuer_url : String = ""
+    property oauth_resource_server_id : String = ""
+    property oauth_preferred_username_claims = Array(String).new
+    property oauth_additional_scopes_key : String = ""
+    property oauth_scope_prefix : String = ""
+    property? oauth_verify_aud : Bool = true
+    property oauth_audience : String = ""
+    property oauth_jwks_cache_ttl : Time::Span = 1.hours
     getter sni_manager : SNIManager = SNIManager.new
     @@instance : Config = self.new
 
@@ -223,6 +231,7 @@ module LavinMQ
       end
       reload_logger
       verify_default_password
+      validate_oauth_config
     rescue ex
       abort ex.message
     end
@@ -233,6 +242,23 @@ module LavinMQ
       raise ArgumentError.new("Failed to decode default_password hash. Please see documentation for usage.")
     end
 
+    def validate_oauth_config
+      # If OAuth is not in auth_backends, skip validation
+      return unless @auth_backends.includes?("oauth")
+
+      # If OAuth is enabled, issuer URL is required
+      if @oauth_issuer_url.empty?
+        raise ArgumentError.new("oauth_issuer_url must be configured when using OAuth authentication")
+      end
+
+      uri = URI.parse(@oauth_issuer_url)
+      raise ArgumentError.new("oauth_issuer_url must use HTTPS scheme, got: #{uri.scheme}") unless uri.scheme == "https"
+      raise ArgumentError.new("oauth_issuer_url must have a valid host") if uri.host.nil? || uri.host.try(&.empty?)
+    rescue URI::Error
+      raise ArgumentError.new("oauth_issuer_url is not a valid URL: #{@oauth_issuer_url}")
+    end
+
+    # ameba:disable Metrics/CyclomaticComplexity
     private def parse(file)
       return if file.empty?
       abort "Config could not be found" unless File.file?(file)
@@ -244,6 +270,7 @@ module LavinMQ
         when "mqtt"                then parse_mqtt(settings)
         when "mgmt", "http"        then parse_mgmt(settings)
         when "clustering"          then parse_clustering(settings)
+        when "oauth"               then parse_oauth(settings)
         when "experimental"        then parse_experimental(settings)
         when "replication"         then abort("#{file}: [replication] is deprecated and replaced with [clustering], see the README for more information")
         when .starts_with?("sni:") then parse_sni(section[4..], settings)
@@ -340,6 +367,7 @@ module LavinMQ
         when "guest_only_loopback" # TODO: guest_only_loopback was deprecated in 2.2.x, remove in 3.0
           STDERR.puts "WARNING: 'guest_only_loopback' is deprecated, use 'default_user_only_loopback' instead"
           @default_user_only_loopback = true?(v)
+        when "auth_backends" then @auth_backends = v.split(",").map(&.strip)
         else
           STDERR.puts "WARNING: Unrecognized configuration 'main/#{config}'"
         end
@@ -418,6 +446,23 @@ module LavinMQ
         when "unix_path" then @http_unix_path = v
         else
           STDERR.puts "WARNING: Unrecognized configuration 'mgmt/#{config}'"
+        end
+      end
+    end
+
+    private def parse_oauth(settings)
+      settings.each do |config, v|
+        case config
+        when "oauth_issuer_url", "issuer" then @oauth_issuer_url = v
+        when "resource_server_id"         then @oauth_resource_server_id = v
+        when "preferred_username_claims"  then @oauth_preferred_username_claims = v.split(",").map(&.strip)
+        when "additional_scopes_key"      then @oauth_additional_scopes_key = v
+        when "scope_prefix"               then @oauth_scope_prefix = v
+        when "verify_aud"                 then @oauth_verify_aud = true?(v)
+        when "audience"                   then @oauth_audience = v
+        when "jwks_cache_ttl"             then @oauth_jwks_cache_ttl = v.to_i.seconds
+        else
+          STDERR.puts "WARNING: Unrecognized configuration 'oauth/#{config}'"
         end
       end
     end
