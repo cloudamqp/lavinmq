@@ -7,6 +7,8 @@ require "./session"
 require "./protocol"
 require "../bool_channel"
 require "./consts"
+require "./sparkplug/validator"
+require "./sparkplug/certificate_mapper"
 
 module LavinMQ
   module MQTT
@@ -132,6 +134,38 @@ module LavinMQ
           close_socket
           return
         end
+
+        # Sparkplug validation if enabled
+        if @broker.vhost.sparkplug_aware?
+          begin
+            # Only validate if publishing to Sparkplug namespace
+            if packet.topic.starts_with?("spBv3.0/")
+              msg_type = Sparkplug::Validator.validate_topic(packet.topic)
+
+              # Auto-retain BIRTH messages
+              if msg_type.try(&.nbirth?) || msg_type.try(&.dbirth?)
+                unless packet.retain?
+                  packet = MQTT::Publish.new(
+                    topic: packet.topic,
+                    payload: packet.payload,
+                    packet_id: packet.packet_id,
+                    qos: packet.qos,
+                    retain: true,
+                    dup: packet.dup?
+                  )
+                end
+              end
+            elsif packet.topic.starts_with?("$sparkplug/")
+              # Reject publishing to certificate topics
+              raise Sparkplug::ValidationError.new("Cannot publish to $sparkplug/certificates topics")
+            end
+          rescue ex : Sparkplug::ValidationError
+            Log.warn { "Sparkplug validation error: #{ex.message}" }
+            close_socket
+            return
+          end
+        end
+
         @broker.publish(packet)
         vhost.event_tick(EventType::ClientPublish)
         # Ok to not send anything if qos = 0 (fire and forget)
@@ -153,7 +187,26 @@ module LavinMQ
             return
           end
         end
-        qos = @broker.subscribe(self, packet.topic_filters)
+
+        # Expand certificate topics if Sparkplug aware
+        topic_filters = packet.topic_filters
+        if @broker.vhost.sparkplug_aware?
+          expanded_filters = [] of MQTT::Subscribe::TopicFilter
+          topic_filters.each do |tf|
+            if Sparkplug::CertificateMapper.is_certificate_topic?(tf.topic)
+              # Expand to actual BIRTH topics
+              actual_topics = Sparkplug::CertificateMapper.expand_certificate_subscription(tf.topic)
+              actual_topics.each do |actual_topic|
+                expanded_filters << MQTT::Subscribe::TopicFilter.new(actual_topic, tf.qos)
+              end
+            else
+              expanded_filters << tf
+            end
+          end
+          topic_filters = expanded_filters
+        end
+
+        qos = @broker.subscribe(self, topic_filters)
         send(MQTT::SubAck.new(qos, packet.packet_id))
       end
 

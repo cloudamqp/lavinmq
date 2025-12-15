@@ -6,11 +6,14 @@ require "./session"
 require "./sessions"
 require "./retain_store"
 require "../vhost"
+require "./sparkplug/validator"
+require "./sparkplug/state_tracker"
 
 module LavinMQ
   module MQTT
     class Broker
       getter vhost, sessions
+      getter sparkplug_state_tracker : Sparkplug::StateTracker?
 
       # The `Broker` class acts as an intermediary between the `Server` and MQTT connections.
       # It is initialized by the `Server` and manages client connections, sessions, and message exchange.
@@ -28,6 +31,9 @@ module LavinMQ
         @retain_store = RetainStore.new(File.join(@vhost.data_dir, "mqtt_retained_store"), @replicator)
         @exchange = MQTT::Exchange.new(@vhost, EXCHANGE, @retain_store)
         @vhost.exchanges[EXCHANGE] = @exchange
+
+        # Initialize Sparkplug state tracker if enabled
+        @sparkplug_state_tracker = @vhost.sparkplug_aware? ? Sparkplug::StateTracker.new : nil
       end
 
       def session_present?(client_id : String, clean_session) : Bool
@@ -71,6 +77,25 @@ module LavinMQ
       end
 
       def publish(packet : MQTT::Publish)
+        # Track Sparkplug BIRTH/DEATH messages if state tracker is enabled
+        if tracker = @sparkplug_state_tracker
+          begin
+            if msg_type = Sparkplug::Validator.validate_topic(packet.topic)
+              # Parse topic to extract group_id and edge_node_id
+              if parts = Sparkplug::Validator.parse_topic(packet.topic)
+                case msg_type
+                when .nbirth?
+                  tracker.track_birth(parts.group_id, parts.edge_node_id)
+                when .ndeath?
+                  tracker.track_death(parts.group_id, parts.edge_node_id)
+                end
+              end
+            end
+          rescue Sparkplug::ValidationError
+            # Validation errors are already handled in Client, but catch here for safety
+          end
+        end
+
         @exchange.publish(packet)
       end
 
