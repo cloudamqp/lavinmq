@@ -39,7 +39,7 @@ module LavinMQ
       # Raises JWT::VerificationError if no key can verify the token or keys are unavailable/expired.
       def decode(token : String) : JWT::Token
         keys = get?
-        raise JWT::VerificationError.new("Public keys unavailable or expired") unless keys
+        raise JWT::ExpiredKeysError.new("Public keys unavailable or expired") unless keys
 
         kid = JWT::RS256Parser.decode_header(token)["kid"]?.try(&.as_s) rescue nil
         # If we know the kid matches a key we can avoid iterating through all keys
@@ -49,7 +49,7 @@ module LavinMQ
 
         keys.each_value do |key|
           return JWT::RS256Parser.decode(token, key, verify: true)
-        rescue JWT::DecodeError | JWT::VerificationError | Base64::Error
+        rescue JWT::VerificationError
         end
         raise JWT::VerificationError.new("Could not verify JWT with any key")
       end

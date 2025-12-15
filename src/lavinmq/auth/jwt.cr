@@ -12,6 +12,8 @@ module JWT
 
   class PasswordFormatError < Error; end
 
+  class ExpiredKeysError < VerificationError; end
+
   struct Token
     getter header : JSON::Any
     getter payload : JSON::Any

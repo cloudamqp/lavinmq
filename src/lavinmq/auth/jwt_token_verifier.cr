@@ -66,7 +66,7 @@ module LavinMQ
         payload = JSON.parse(payload_str)
         exp = payload["exp"]?.try(&.as_i64?)
         raise JWT::DecodeError.new("Missing exp claim in token") unless exp
-        raise JWT::DecodeError.new("Token has expired") if Time.unix(exp) <= RoughTime.utc
+        raise JWT::VerificationError.new("Token has expired") if Time.unix(exp) <= RoughTime.utc
 
         # Validate iat (Issued At) - reject tokens issued in the future
         if iat = payload["iat"]?.try(&.as_i64?)
@@ -82,9 +82,8 @@ module LavinMQ
 
       private def verify_with_public_key(token : String) : JWT::Token
         @public_keys.decode(token)
-      rescue JWT::DecodeError | JWT::VerificationError
-        # Cache miss, expired, or key rotation: fetch fresh keys and retry once
-        Log.debug { "JWKS decode failed, fetching fresh keys from issuer" }
+      rescue JWT::ExpiredKeysError
+        Log.debug { "Public keys unavailable or expired, fetching fresh keys from issuer" }
         result = @jwks_fetcher.fetch_jwks
         @public_keys.update(result.keys, result.ttl)
         Log.debug { "Updated public_key cache with #{result.keys.size} key(s), TTL=#{result.ttl}" }
@@ -110,7 +109,7 @@ module LavinMQ
         actual = issuer.chomp("/")
 
         if actual != expected
-          raise JWT::DecodeError.new("Token issuer does not match the expected issuer")
+          raise JWT::VerificationError.new("Token issuer does not match the expected issuer")
         end
       end
 
@@ -133,7 +132,7 @@ module LavinMQ
         end
 
         unless audiences.includes?(expected)
-          raise JWT::DecodeError.new("Token audience does not match expected value")
+          raise JWT::VerificationError.new("Token audience does not match expected value")
         end
       end
 
@@ -143,7 +142,7 @@ module LavinMQ
             return username
           end
         end
-        raise "No username found in JWT claims (tried: #{@config.oauth_preferred_username_claims.join(", ")})"
+        raise JWT::DecodeError.new("No username found in JWT claims (tried: #{@config.oauth_preferred_username_claims.join(", ")})")
       end
 
       # Extracts roles/scopes from JWT payload and converts to LavinMQ tags and permissions.
