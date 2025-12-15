@@ -3,24 +3,6 @@ require "../../argument_validator/string_validator.cr"
 require "../../argument_validator/dead_lettering_validator.cr"
 
 module LavinMQ::AMQP
-  module ArgumentTarget
-    macro included
-      ARGUMENT_VALIDATORS = Hash(String, ArgumentValidator).new
-
-      def self.add_argument_validator(key, validator)
-        ARGUMENT_VALIDATORS[key] = validator
-      end
-
-      def self.validate_arguments!(arguments : AMQP::Table)
-        arguments.each do |k, v|
-          if validator = ARGUMENT_VALIDATORS[k]?
-            validator.validate!(k, v, arguments)
-          end
-        end
-      end
-    end
-  end
-
   class Queue < LavinMQ::Queue
     module Feature
       module DeadLettering

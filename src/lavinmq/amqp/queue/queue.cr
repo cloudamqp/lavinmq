@@ -15,7 +15,7 @@ require "../../message_store"
 require "../../unacked_message"
 require "../../deduplication"
 require "../../bool_channel"
-require "../argument_validator"
+require "../argument_target"
 require "./feature/*"
 
 module LavinMQ::AMQP
