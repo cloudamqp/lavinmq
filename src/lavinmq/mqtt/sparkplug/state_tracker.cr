@@ -1,12 +1,13 @@
 module LavinMQ
   module MQTT
     module Sparkplug
-      struct EdgeNodeState
-        property? online : Bool
-        property last_birth_timestamp : Int64
-        property last_death_timestamp : Int64?
-
-        def initialize(@online = false, @last_birth_timestamp = 0_i64, @last_death_timestamp = nil)
+      record EdgeNodeState,
+        last_birth_timestamp : Int64,
+        last_death_timestamp : Int64? do
+        # Edge node is online if it has never died, or if the last birth is more recent than last death
+        def online? : Bool
+          death_ts = last_death_timestamp
+          death_ts.nil? || last_birth_timestamp > death_ts
         end
       end
 
@@ -22,17 +23,11 @@ module LavinMQ
           timestamp = RoughTime.unix_ms
 
           @lock.synchronize do
-            if state = @states[key]?
-              state.online = true
-              state.last_birth_timestamp = timestamp
-              @states[key] = state
-            else
-              @states[key] = EdgeNodeState.new(
-                online: true,
-                last_birth_timestamp: timestamp,
-                last_death_timestamp: nil
-              )
-            end
+            # NBIRTH means the node is alive - clear any previous death timestamp
+            @states[key] = EdgeNodeState.new(
+              last_birth_timestamp: timestamp,
+              last_death_timestamp: nil
+            )
           end
         end
 
@@ -43,13 +38,14 @@ module LavinMQ
 
           @lock.synchronize do
             if state = @states[key]?
-              state.online = false
-              state.last_death_timestamp = timestamp
-              @states[key] = state
+              # Update with new death timestamp, preserve birth timestamp
+              @states[key] = EdgeNodeState.new(
+                last_birth_timestamp: state.last_birth_timestamp,
+                last_death_timestamp: timestamp
+              )
             else
               # Edge node died without ever sending BIRTH (shouldn't happen, but handle it)
               @states[key] = EdgeNodeState.new(
-                online: false,
                 last_birth_timestamp: 0_i64,
                 last_death_timestamp: timestamp
               )
@@ -86,13 +82,9 @@ module LavinMQ
 
         # Get count of online edge nodes
         def online_count : Int32
-          count = 0
           @lock.synchronize do
-            @states.each_value do |state|
-              count += 1 if state.online?
-            end
+            @states.count { |_, state| state.online? }
           end
-          count
         end
 
         # Get total count of tracked edge nodes
