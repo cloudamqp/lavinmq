@@ -66,8 +66,11 @@ module LavinMQ
         @vhost.add_connection(self)
         @log.info { "Connection established for user=#{@user.name}" }
         spawn read_loop, name: "Client#read_loop #{@connection_info.remote_address}"
-        @user.on_expiration do
-          close_connection(nil, ConnectionReplyCode::CONNECTION_FORCED, "token expired")
+        case user = @user
+        when Auth::OAuthUser
+          user.on_expiration do
+            close_connection(nil, ConnectionReplyCode::CONNECTION_FORCED, "token expired")
+          end
         end
       end
 
@@ -205,8 +208,7 @@ module LavinMQ
       end
 
       private def handle_update_secret(frame : AMQP::Frame::Connection::UpdateSecret)
-        user = @user
-        if user.responds_to?(:update_secret)
+        if user = @user.as?(Auth::OAuthUser)
           user.update_secret(frame.secret)
           send AMQP::Frame::Connection::UpdateSecretOk.new
         else

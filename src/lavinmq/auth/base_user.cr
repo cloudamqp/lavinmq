@@ -9,7 +9,6 @@ module LavinMQ
       abstract def name : String
       abstract def tags : Array(Tag)
       abstract def permissions : Hash(String, Permissions)
-      abstract def on_expiration(&block)
 
       @permission_revision = Atomic(UInt32).new(0_u32)
 
