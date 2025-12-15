@@ -27,8 +27,9 @@ module LavinMQ::AMQP
               return false
             end
             # xdeath is sorted with the newest death first. To figure out if it's a
-            # cycle or not we scan until we found this queue. If we find any death
-            # because of a reject first, it's no a cycle.
+            # cycle or not we scan until we find the current queue with the same
+            # reason. If we find any death because of a reject first, it's not
+            # a cycle.
             xdeaths.each do |field|
               next unless xdeath = field.as?(AMQ::Protocol::Table)
               return false if xdeath["reason"]? == "rejected"
@@ -49,6 +50,7 @@ module LavinMQ::AMQP
             props = create_message_properties(msg, reason)
 
             ex = @vhost.exchanges[dlx.to_s]? || return
+
             queues = Set(LavinMQ::Queue).new
             routing_headers = props.headers
 
@@ -81,7 +83,7 @@ module LavinMQ::AMQP
               @log.trace { "dead lettering dest=#{q.name} msg=#{dead_lettered_msg}" }
               q.publish(dead_lettered_msg)
             rescue ex
-              @log.warn(exception: ex) { "Unexpected error dead-lettering from #{q.name}" }
+              @log.warn(exception: ex) { "Unexpected error when dead-lettering to #{q.name}" }
             end
           end
 
@@ -96,6 +98,7 @@ module LavinMQ::AMQP
             h["x-first-death-exchange"] = msg.exchange_name unless h.has_key? "x-first-death-exchange"
 
             routing_keys = [msg.routing_key.as(AMQP::Field)]
+            # Add any CC, but NOT BCC!
             if cc = h["CC"]?.try(&.as?(Array(AMQP::Field)))
               routing_keys.concat cc.as(Array(AMQP::Field))
             end
