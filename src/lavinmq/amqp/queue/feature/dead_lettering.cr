@@ -6,6 +6,7 @@ module LavinMQ::AMQP
   class Queue < LavinMQ::Queue
     module Feature
       module DeadLettering
+        # Use included hook to make this being run in the including class
         macro included
           add_argument_validator "x-dead-letter-exchange", ArgumentValidator::StringValidator.new
           add_argument_validator "x-dead-letter-routing-key", ArgumentValidator::DeadLetteringValidator.new
@@ -79,6 +80,8 @@ module LavinMQ::AMQP
               next if is_cycle && q.name == @queue_name
               @log.trace { "dead lettering dest=#{q.name} msg=#{dead_lettered_msg}" }
               q.publish(dead_lettered_msg)
+            rescue ex
+              @log.warn(exception: ex) { "Unexpected error dead-lettering from #{q.name}" }
             end
           end
 
