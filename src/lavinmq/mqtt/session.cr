@@ -208,6 +208,11 @@ module LavinMQ
         next_id
       end
 
+      def compact_collections
+        # Hash uses dup
+        @unacked = @unacked.dup if @unacked.capacity > @unacked.size * 2
+      end
+
       private def handle_arguments
         super
         @effective_args << "x-queue-type"

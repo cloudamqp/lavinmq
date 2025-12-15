@@ -896,6 +896,12 @@ module LavinMQ
           @socket.flush
         end
       end
+
+      def compact_collections
+        # Hash uses dup
+        @channels = @channels.dup if @channels.capacity > @channels.size * 2
+        @channels.each_value(&.compact_collections)
+      end
     end
   end
 end

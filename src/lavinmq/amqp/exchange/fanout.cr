@@ -38,6 +38,11 @@ module LavinMQ
           yield destination
         end
       end
+
+      def compact_collections
+        # Set uses dup
+        @bindings = @bindings.dup if @bindings.capacity > @bindings.size * 2
+      end
     end
   end
 end

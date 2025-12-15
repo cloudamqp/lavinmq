@@ -119,6 +119,12 @@ module LavinMQ
         @upstreams.each_value &.close
         @upstream_sets.values.flatten.each &.close
       end
+
+      def compact_collections
+        # Hash uses dup
+        @upstreams = @upstreams.dup if @upstreams.capacity > @upstreams.size * 2
+        @upstream_sets = @upstream_sets.dup if @upstream_sets.capacity > @upstream_sets.size * 2
+      end
     end
   end
 end
