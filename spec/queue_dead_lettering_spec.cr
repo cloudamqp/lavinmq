@@ -674,7 +674,7 @@ module DeadLetteringSpec
         end
       end
 
-      # How to detect and clear x-death from user published?
+      # How to detect and clear x-death from user published? Do it in Channel?
       pending "dead_letter_headers_should_not_be_appended_for_republish" do
         with_dead_lettering_setup do |q, dlq, _, s|
           publish_n(1, q)
@@ -806,7 +806,7 @@ module DeadLetteringSpec
           "x-dead-letter-exchange"    => "",
           "x-dead-letter-routing-key" => "dlq2",
         }
-        with_dead_lettering_setup(qargs: qargs) do |q, dlq, ch, _|
+        with_dead_lettering_setup(qargs: qargs) do |q, _, ch, _|
           dlq2 = ch.queue("dlq2", args: AMQP::Client::Arguments.new({
             "x-dead-letter-exchange"    => "",
             "x-dead-letter-routing-key" => q.name,

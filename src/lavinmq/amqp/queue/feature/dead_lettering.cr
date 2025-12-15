@@ -80,6 +80,11 @@ module LavinMQ::AMQP
 
             routing_rk = (dlrk || msg.routing_key).to_s
 
+            # We're not publishing to an exchange, the queue itself is responsible
+            # for delivering to destinations. This is to be able to do correct
+            # cycle detection and to not create a lot of faulty stats.
+            # This means that no delay, consistent hash check or such is performed
+            # if the dead letter exchange has any of these features enabled.
             ex.find_queues(routing_rk, routing_headers, queues)
 
             is_cycle = cycle?(props, reason)
