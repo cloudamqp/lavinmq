@@ -58,8 +58,6 @@ module LavinMQ::AMQP
     @max_length_bytes : Int64?
     @expires : Int64?
     @delivery_limit : Int64?
-    # @dlx : String?
-    # @dlrk : String?
     @reject_on_overflow = false
     @exclusive_consumer = false
     @deliveries = Hash(SegmentPosition, Int32).new
