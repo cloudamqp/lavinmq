@@ -287,16 +287,6 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
   end
 
   describe "checksum caching on followers" do
-    before_each do
-      LavinMQ::Clustering::Client.checksum_idle_threshold = 0.5.seconds
-      LavinMQ::Clustering::Client.checksum_worker_interval = 0.2.seconds
-    end
-
-    after_each do
-      LavinMQ::Clustering::Client.checksum_idle_threshold = 3.seconds
-      LavinMQ::Clustering::Client.checksum_worker_interval = 1.second
-    end
-
     it "can persist checksums for promotion" do
       with_clustering do |cluster|
         with_amqp_server(replicator: cluster.replicator) do |s|
@@ -309,8 +299,8 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
           # Wait for replication to complete
           wait_for { cluster.replicator.followers.first?.try &.lag_in_bytes == 0 }
 
-          # Wait for files to become idle so they get checksummed
-          sleep 1.seconds
+          # Brief wait for any async operations
+          sleep 0.1.seconds
         end
 
         # Close follower (simulating promotion) - this persists checksums
@@ -323,49 +313,20 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
       end
     end
 
-    it "doesn't checksum recently modified files" do
-      with_clustering do |cluster|
-        with_amqp_server(replicator: cluster.replicator) do |s|
-          with_channel(s) do |ch|
-            q = ch.queue("checksum_active_test")
-            # Publish messages - these files will be recently modified
-            10.times { |i| q.publish_confirm "message #{i}" }
-          end
-
-          # Wait for replication to complete
-          wait_for { cluster.replicator.followers.first?.try &.lag_in_bytes == 0 }
-
-          # Don't wait - check immediately while files are still "active"
-        end
-
-        follower = cluster.repli
-        follower.close
-
-        # The recently modified msgs segment should not have a checksum yet
-        # because it hasn't been idle long enough
-        checksums_file = File.join(cluster.follower_config.data_dir, "checksums.sha1")
-        if File.exists?(checksums_file)
-          content = File.read(checksums_file)
-          # The msgs segment should NOT have a checksum yet
-          content.should_not contain("msgs.0000000001")
-        end
-      end
-    end
-
-    it "checksums idle files after waiting" do
+    it "checksums files during streaming" do
       with_clustering do |cluster|
         with_amqp_server(replicator: cluster.replicator) do |s|
           with_channel(s) do |ch|
             # Create a queue and publish messages
-            q = ch.queue("checksum_idle_test", durable: true)
+            q = ch.queue("checksum_test", durable: true)
             10.times { |i| q.publish_confirm "message #{i}", props: AMQP::Client::Properties.new(delivery_mode: 2) }
           end
 
           # Wait for replication to complete
           wait_for { cluster.replicator.followers.first?.try &.lag_in_bytes == 0 }
 
-          # Wait for files to become idle and get checksummed
-          sleep 1.seconds
+          # Brief wait for any async operations
+          sleep 0.1.seconds
         end
 
         follower = cluster.repli
@@ -405,8 +366,8 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
           # Wait for replication to complete
           wait_for { cluster.replicator.followers.first?.try &.lag_in_bytes == 0 }
 
-          # Give checksum worker time to process
-          sleep 1.seconds
+          # Brief wait for any async operations
+          sleep 0.1.seconds
         end
 
         follower = cluster.repli

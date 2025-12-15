@@ -18,11 +18,8 @@ module LavinMQ
       @unix_mqtt_proxy : Proxy?
       @socket : TCPSocket?
       @streamed_bytes = 0_u64
-      @file_last_modified = Hash(String, Time::Span).new
-      @file_last_modified_lock = Mutex.new
-      @checksum_worker_close = Channel(Nil).new
-      @@checksum_idle_threshold = 3.seconds # file must be idle for this long before calculating checksum
-      @@checksum_worker_interval = 1.second # interval between checksum worker checks
+      @file_digests = Hash(String, Digest::SHA1).new
+      @file_digests_lock = Mutex.new
 
       def initialize(@config : Config, @id : Int32, @password : String, proxy = true)
         System.maximize_fd_limit
@@ -249,7 +246,6 @@ module LavinMQ
         acks = Channel(Int64).new(@config.clustering_max_unsynced_actions)
         spawn send_ack_loop(acks, socket), name: "Send ack loop"
         spawn log_streamed_bytes_loop, name: "Log streamed bytes loop"
-        Fiber::ExecutionContext::Isolated.new("Checksum worker") { checksum_worker_loop }
         loop do
           filename_len = lz4.read_bytes Int32, IO::ByteFormat::LittleEndian
           next if filename_len.zero?
@@ -275,8 +271,7 @@ module LavinMQ
       private def append(filename, len, lz4)
         Log.debug { "Appending #{len.abs} bytes to #{filename}" }
         f = @files[filename]
-        IO.copy(lz4, f, len.abs) == len.abs || raise IO::EOFError.new("Full append not received")
-        mark_file_modified(filename)
+        stream_with_checksum(filename, lz4, f, len.abs)
       end
 
       private def delete(filename)
@@ -288,20 +283,45 @@ module LavinMQ
           File.delete? File.join(@data_dir, filename)
         end
         @checksums.delete(filename)
-        unmark_file_modified(filename)
+        @file_digests_lock.synchronize { @file_digests.delete(filename) }
       end
 
       private def replace(filename, len, lz4)
         Log.debug { "Replacing file #{filename} (#{len} bytes)" }
         @files.delete(filename).try &.close
+
+        # Reset SHA1 digest for replaced file
+        @file_digests_lock.synchronize do
+          @file_digests[filename] = Digest::SHA1.new
+        end
+
         path = File.join(@data_dir, "#{filename}.tmp")
         Dir.mkdir_p File.dirname(path)
         File.open(path, "w") do |f|
           f.sync = true
-          IO.copy(lz4, f, len) == len || raise IO::EOFError.new("Full file not received")
+          stream_with_checksum(filename, lz4, f, len)
           f.rename f.path[0..-5]
         end
-        mark_file_modified(filename)
+      end
+
+      # Read from lz4, update SHA1, and write to file incrementally
+      private def stream_with_checksum(filename : String, lz4 : IO, file : IO, length : Int64) : Nil
+        # Get or create SHA1 digest for this file
+        sha1 = @file_digests_lock.synchronize do
+          @file_digests[filename] ||= Digest::SHA1.new
+        end
+
+        # Read, hash, and write incrementally
+        buffer = uninitialized UInt8[65536]
+        remaining = length
+        while remaining > 0
+          read_len = Math.min(remaining, buffer.size)
+          lz4.read_fully(buffer.to_slice[0, read_len])
+          bytes = buffer.to_slice[0, read_len]
+          file.write(bytes)
+          sha1.update(bytes)
+          remaining -= read_len
+        end
       end
 
       # Concatenate as many acks as possible to generate few TCP packets
@@ -326,71 +346,6 @@ module LavinMQ
         end
       end
 
-      # Track file modifications during streaming
-      # Invalidate checksum and record last modification time
-      private def mark_file_modified(filename : String) : Nil
-        @checksums.delete(filename)
-        @file_last_modified_lock.synchronize do
-          @file_last_modified[filename] = Time.monotonic
-        end
-      end
-
-      private def unmark_file_modified(filename : String) : Nil
-        @file_last_modified_lock.synchronize { @file_last_modified.delete(filename) }
-      end
-
-      private def checksum_worker_loop : Nil
-        sha1 = Digest::SHA1.new
-
-        loop do
-          select
-          when @checksum_worker_close.receive
-            break
-          when timeout @@checksum_worker_interval # check for idle files
-          end
-
-          # Find files that are idle and doesn't have a checksum yet
-          now = Time.monotonic
-          idle_files = @file_last_modified_lock.synchronize do
-            @file_last_modified.select { |_, last_modified|
-              (now - last_modified) >= @@checksum_idle_threshold
-            }.keys
-          end.reject! { |filename| @checksums[filename]? }
-
-          # Calculate checksums for idle files
-          idle_files.each do |filename|
-            break if @closed
-            path = File.join(@data_dir, filename)
-            unless File.exists?(path)
-              unmark_file_modified(filename)
-              next
-            end
-
-            begin
-              hash = calculate_checksum(path, sha1)
-              @checksums[filename] = hash if File.exists?(path)
-              unmark_file_modified(filename)
-            rescue ex : IO::Error
-              Log.warn { "Error calculating checksum for #{filename}: #{ex.message}" }
-              unmark_file_modified(filename)
-            end
-
-            Fiber.yield
-          end
-        end
-      end
-
-      private def calculate_checksum(path : String, sha1 : Digest::SHA1) : Bytes
-        sha1.reset
-        File.open(path, "r") do |f|
-          buffer = uninitialized UInt8[65536]
-          while (len = f.read(buffer.to_slice)) > 0
-            sha1.update(buffer.to_slice[0, len])
-          end
-        end
-        sha1.final
-      end
-
       private def authenticate(socket)
         socket.write Start
         socket.write_bytes @password.bytesize.to_u8, IO::ByteFormat::LittleEndian
@@ -408,10 +363,6 @@ module LavinMQ
       def close
         return if @closed
         @closed = true
-        select # Signal checksum worker to stop
-        when @checksum_worker_close.send(nil)
-        when timeout(0.seconds)
-        end
         @amqp_proxy.try &.close
         @http_proxy.try &.close
         @mqtt_proxy.try &.close
@@ -419,21 +370,17 @@ module LavinMQ
         @unix_http_proxy.try &.close
         @unix_mqtt_proxy.try &.close
         @files.each_value &.close
-        @checksum_worker_close.close
+        # Finalize all pending checksums
+        @file_digests_lock.synchronize do
+          @file_digests.each do |filename, sha1|
+            @checksums[filename] = sha1.final
+          end
+          @file_digests.clear
+        end
         @checksums.store
         @data_dir_lock.release
         @socket.try &.close
         @metrics_server.try &.close
-      end
-
-      # Class method for testing
-      def self.checksum_idle_threshold=(value : Time::Span)
-        @@checksum_idle_threshold = value
-      end
-
-      # Class method for testing
-      def self.checksum_worker_interval=(value : Time::Span)
-        @@checksum_worker_interval = value
       end
 
       class Error < Exception; end
