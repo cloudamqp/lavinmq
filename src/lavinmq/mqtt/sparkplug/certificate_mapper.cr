@@ -14,6 +14,7 @@ module LavinMQ
         #   "$sparkplug/certificates/group1/NBIRTH/node1" -> ["spBv3.0/group1/NBIRTH/node1"]
         #   "$sparkplug/certificates/group1/DBIRTH/#" -> ["spBv3.0/group1/DBIRTH/+/+"]
         #   "$sparkplug/certificates/group1/DBIRTH/node1/#" -> ["spBv3.0/group1/DBIRTH/node1/+"]
+        # ameba:disable Metrics/CyclomaticComplexity
         def self.expand_certificate_subscription(filter : String) : Array(String)
           # Remove certificate prefix
           return [filter] unless filter.starts_with?(CERTIFICATE_PREFIX)
@@ -100,7 +101,7 @@ module LavinMQ
         end
 
         # Check if topic is a certificate access topic
-        def self.is_certificate_topic?(topic : String) : Bool
+        def self.certificate_topic?(topic : String) : Bool
           topic.starts_with?(CERTIFICATE_PREFIX)
         end
 

@@ -97,25 +97,25 @@ module SparkplugSpecs
       end
     end
 
-    describe "#is_certificate_topic?" do
+    describe "#certificate_topic?" do
       it "returns true for certificate wildcard topic" do
         topic = "$sparkplug/certificates/#"
-        LavinMQ::MQTT::Sparkplug::CertificateMapper.is_certificate_topic?(topic).should be_true
+        LavinMQ::MQTT::Sparkplug::CertificateMapper.certificate_topic?(topic).should be_true
       end
 
       it "returns true for specific certificate topic" do
         topic = "$sparkplug/certificates/group1/NBIRTH/node1"
-        LavinMQ::MQTT::Sparkplug::CertificateMapper.is_certificate_topic?(topic).should be_true
+        LavinMQ::MQTT::Sparkplug::CertificateMapper.certificate_topic?(topic).should be_true
       end
 
       it "returns false for regular Sparkplug topic" do
         topic = "spBv3.0/group1/NBIRTH/node1"
-        LavinMQ::MQTT::Sparkplug::CertificateMapper.is_certificate_topic?(topic).should be_false
+        LavinMQ::MQTT::Sparkplug::CertificateMapper.certificate_topic?(topic).should be_false
       end
 
       it "returns false for non-Sparkplug topic" do
         topic = "sensor/temperature"
-        LavinMQ::MQTT::Sparkplug::CertificateMapper.is_certificate_topic?(topic).should be_false
+        LavinMQ::MQTT::Sparkplug::CertificateMapper.certificate_topic?(topic).should be_false
       end
     end
 
