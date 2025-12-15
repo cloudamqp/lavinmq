@@ -36,7 +36,7 @@ module LavinMQ::AMQP
           def initialize(@vhost : VHost, @queue_name : String, @log : Logger)
           end
 
-          def cycle?(props, reason) : Bool
+          private def cycle?(props, reason) : Bool
             unless headers = props.headers
               return false
             end
@@ -100,7 +100,7 @@ module LavinMQ::AMQP
             end
           end
 
-          def create_message_properties(msg, reason)
+          private def create_message_properties(msg, reason)
             props = msg.properties
             h = props.headers || AMQP::Table.new
             h.reject! { |k, _| k.in?("x-dead-letter-exchange", "x-dead-letter-routing-key") }
