@@ -39,8 +39,10 @@ module LavinMQ
     class JWTTokenVerifier
       @public_keys = PublicKeys.new
       @jwks_fetcher : JWKSFetcher
+      @expected_issuer : String
 
       def initialize(@config : Config, @jwks_fetcher : JWKSFetcher)
+        @expected_issuer = @config.oauth_issuer_url.chomp("/")
       end
 
       # Also used by OAuthUser on UpdateSecret frame
@@ -105,10 +107,7 @@ module LavinMQ
         issuer = payload["iss"]?.try(&.as_s?)
         raise JWT::DecodeError.new("Missing or invalid iss claim in token") unless issuer
 
-        expected = @config.oauth_issuer_url.chomp("/")
-        actual = issuer.chomp("/")
-
-        if actual != expected
+        if issuer.chomp("/") != @expected_issuer
           raise JWT::VerificationError.new("Token issuer does not match the expected issuer")
         end
       end

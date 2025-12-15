@@ -102,7 +102,7 @@ module JWT
     private def self.verify_signature(data : String, signature : Bytes, public_key_pem : String)
       # Create a BIO with the PEM string
       bio = LibCrypto.BIO_new(LibCrypto.bio_s_mem)
-      raise VerificationError.new("Failed to create BIO") if bio.null?
+      raise "Failed to create BIO" if bio.null?
 
       begin
         # Write PEM to BIO
@@ -117,7 +117,7 @@ module JWT
         begin
           # Create digest context
           md_ctx = LibCrypto.evp_md_ctx_new
-          raise VerificationError.new("Failed to create digest context") if md_ctx.null?
+          raise "Failed to create digest context" if md_ctx.null?
 
           begin
             # Initialize digest verify with SHA256
