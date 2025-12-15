@@ -2,7 +2,8 @@ require "./spec_helper"
 require "./../src/lavinmq/amqp/queue"
 require "./../src/lavinmq/rough_time"
 
-describe "Dead lettering" do
+# All these specs are replaced by queue_dead_lettering_spec.cr
+pending "Dead lettering" do
   q_name = "ttl"
   q_name_delayed = "ttl_delayed"
   q_name_delayed_2 = "ttl_delayed_2"
