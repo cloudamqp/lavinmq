@@ -61,7 +61,7 @@ module SparkplugSpecs
 
       state = tracker.state("group1", "node1")
       state.should_not be_nil
-      state.not_nil!.online.should be_false
+      state.not_nil!.online?.should be_false
     end
 
     it "updates BIRTH timestamp on each BIRTH" do
@@ -145,8 +145,8 @@ module SparkplugSpecs
       states.size.should eq(2)
       states.has_key?("group1/node1").should be_true
       states.has_key?("group1/node2").should be_true
-      states["group1/node1"].online.should be_false
-      states["group1/node2"].online.should be_true
+      states["group1/node1"].online?.should be_false
+      states["group1/node2"].online?.should be_true
     end
 
     it "removes edge node from tracking" do
