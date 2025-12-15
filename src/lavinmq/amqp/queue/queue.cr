@@ -16,7 +16,7 @@ require "../../unacked_message"
 require "../../deduplication"
 require "../../bool_channel"
 require "../argument_target"
-require "./feature/*"
+require "../argument"
 
 module LavinMQ::AMQP
   class Queue < LavinMQ::Queue
@@ -26,7 +26,7 @@ module LavinMQ::AMQP
     include SortableJSON
 
     include ArgumentTarget
-    include Feature::DeadLettering
+    include Argument::DeadLettering
 
     VALIDATOR_INT_ZERO = ArgumentValidator::IntValidator.new(min_value: 0)
     VALIDATOR_INT_ONE  = ArgumentValidator::IntValidator.new(min_value: 1)
@@ -174,7 +174,7 @@ module LavinMQ::AMQP
       File.open(File.join(@data_dir, ".queue"), "w") { |f| f.sync = true; f.print @name }
       @msg_store = init_msg_store(@data_dir)
       @empty = @msg_store.empty
-      @dead_letter = Feature::DeadLettering::DeadLetterer.new(@vhost, @name, @log)
+      @dead_letter = Argument::DeadLettering::DeadLetterer.new(@vhost, @name, @log)
       start
     end
 
