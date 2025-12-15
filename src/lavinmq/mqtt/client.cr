@@ -9,6 +9,7 @@ require "../bool_channel"
 require "./consts"
 require "./sparkplug/validator"
 require "./sparkplug/certificate_mapper"
+require "./sparkplug/protobuf_validator"
 
 module LavinMQ
   module MQTT
@@ -178,6 +179,16 @@ module LavinMQ
             # Only validate if publishing to Sparkplug namespace
             if packet.topic.starts_with?("spBv3.0/")
               msg_type = Sparkplug::Validator.validate_topic(packet.topic)
+
+              # Validate protobuf payload
+              if msg_type
+                result = Sparkplug::ProtobufValidator.validate_payload(packet.payload, msg_type)
+                unless result.valid?
+                  raise Sparkplug::ValidationError.new(
+                    "Payload validation failed: #{result.error}"
+                  )
+                end
+              end
 
               # Auto-retain BIRTH messages
               if msg_type.try(&.nbirth?) || msg_type.try(&.dbirth?)

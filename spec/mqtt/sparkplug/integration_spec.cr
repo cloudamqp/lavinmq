@@ -1,4 +1,5 @@
 require "../spec_helper"
+require "./protobuf_validator_spec"
 
 module SparkplugSpecs
   extend MqttHelpers
@@ -10,12 +11,20 @@ module SparkplugSpecs
         vhost = server.vhosts["/"]
         vhost.sparkplug_aware = true
 
+        # Create valid NBIRTH payload
+        nbirth_payload = ProtobufBuilder.build_payload(
+          timestamp: 1234567890_u64,
+          metrics: ["temperature"],
+          seq: 1_u64,
+          bdseq: 0_u64
+        )
+
         with_client_io(server) do |io|
           connect(io, client_id: "publisher")
 
           # Publish NBIRTH without retain flag
           publish(io, topic: "spBv3.0/group1/NBIRTH/node1",
-            payload: "birth_payload".to_slice, retain: false, qos: 0u8, expect_response: false)
+            payload: nbirth_payload, retain: false, qos: 0u8, expect_response: false)
 
           disconnect(io)
         end
@@ -32,7 +41,7 @@ module SparkplugSpecs
           pub = read_packet(io)
           pub.should be_a(MQTT::Protocol::Publish)
           pub = pub.as(MQTT::Protocol::Publish)
-          String.new(pub.payload).should eq("birth_payload")
+          pub.payload.should eq(nbirth_payload)
           pub.retain?.should be_true
 
           disconnect(io)
@@ -45,12 +54,20 @@ module SparkplugSpecs
         vhost = server.vhosts["/"]
         vhost.sparkplug_aware = true
 
+        # Create valid DBIRTH payload
+        dbirth_payload = ProtobufBuilder.build_payload(
+          timestamp: 1234567890_u64,
+          metrics: ["sensor1"],
+          seq: 1_u64,
+          bdseq: 0_u64
+        )
+
         with_client_io(server) do |io|
           connect(io, client_id: "publisher")
 
           # Publish DBIRTH without retain flag
           publish(io, topic: "spBv3.0/group1/DBIRTH/node1/device1",
-            payload: "device_birth".to_slice, retain: false, qos: 0u8, expect_response: false)
+            payload: dbirth_payload, retain: false, qos: 0u8, expect_response: false)
 
           disconnect(io)
         end
@@ -65,7 +82,7 @@ module SparkplugSpecs
           pub = read_packet(io)
           pub.should be_a(MQTT::Protocol::Publish)
           pub = pub.as(MQTT::Protocol::Publish)
-          String.new(pub.payload).should eq("device_birth")
+          pub.payload.should eq(dbirth_payload)
           pub.retain?.should be_true
 
           disconnect(io)
@@ -78,14 +95,28 @@ module SparkplugSpecs
         vhost = server.vhosts["/"]
         vhost.sparkplug_aware = true
 
+        # Create valid NBIRTH payloads
+        node1_payload = ProtobufBuilder.build_payload(
+          timestamp: 1234567890_u64,
+          metrics: ["node1_temp"],
+          seq: 1_u64,
+          bdseq: 0_u64
+        )
+        node2_payload = ProtobufBuilder.build_payload(
+          timestamp: 1234567891_u64,
+          metrics: ["node2_temp"],
+          seq: 1_u64,
+          bdseq: 0_u64
+        )
+
         with_client_io(server) do |io|
           connect(io, client_id: "publisher")
 
           # Publish NBIRTH messages
           publish(io, topic: "spBv3.0/group1/NBIRTH/node1",
-            payload: "node1_birth".to_slice, retain: true, qos: 0u8, expect_response: false)
+            payload: node1_payload, retain: true, qos: 0u8, expect_response: false)
           publish(io, topic: "spBv3.0/group1/NBIRTH/node2",
-            payload: "node2_birth".to_slice, retain: true, qos: 0u8, expect_response: false)
+            payload: node2_payload, retain: true, qos: 0u8, expect_response: false)
 
           disconnect(io)
         end
@@ -99,17 +130,17 @@ module SparkplugSpecs
           subscribe(io, topic_filters: topic_filters)
 
           # Should receive both NBIRTH certificates
-          messages = [] of String
+          messages = [] of Bytes
           2.times do
             if pub = read_packet(io)
               pub.should be_a(MQTT::Protocol::Publish)
               pub = pub.as(MQTT::Protocol::Publish)
-              messages << String.new(pub.payload)
+              messages << pub.payload
             end
           end
 
-          messages.should contain("node1_birth")
-          messages.should contain("node2_birth")
+          messages.should contain(node1_payload)
+          messages.should contain(node2_payload)
 
           disconnect(io)
         end
@@ -184,16 +215,28 @@ module SparkplugSpecs
         vhost = server.vhosts["/"]
         vhost.sparkplug_aware = true
 
+        # Create valid NBIRTH and NDEATH payloads
+        nbirth_payload = ProtobufBuilder.build_payload(
+          timestamp: 1234567890_u64,
+          metrics: ["temp"],
+          seq: 1_u64,
+          bdseq: 0_u64
+        )
+        ndeath_payload = ProtobufBuilder.build_payload(
+          timestamp: 1234567891_u64,
+          bdseq: 0_u64
+        )
+
         with_client_io(server) do |io|
           connect(io, client_id: "edge_node")
 
           # Publish valid NBIRTH and NDEATH messages
           # The state tracking is tested in unit tests, here we just verify they're accepted
           publish(io, topic: "spBv3.0/group1/NBIRTH/node1",
-            payload: "birth".to_slice, qos: 0u8, expect_response: false)
+            payload: nbirth_payload, qos: 0u8, expect_response: false)
 
           publish(io, topic: "spBv3.0/group1/NDEATH/node1",
-            payload: "death".to_slice, qos: 0u8, expect_response: false)
+            payload: ndeath_payload, qos: 0u8, expect_response: false)
 
           # Verify connection is still open (messages were accepted)
           ping(io)
@@ -257,28 +300,39 @@ module SparkplugSpecs
         vhost = server.vhosts["/"]
         vhost.sparkplug_aware = true
 
+        # Create valid payloads for different message types
+        nbirth_payload = ProtobufBuilder.build_payload(timestamp: 1_u64, metrics: ["m1"], seq: 1_u64, bdseq: 0_u64)
+        ndeath_payload = ProtobufBuilder.build_payload(bdseq: 0_u64)
+        ndata_payload = ProtobufBuilder.build_payload(seq: 1_u64)
+        ncmd_payload = Bytes.empty  # CMD messages have relaxed validation
+        state_payload = Bytes.empty # STATE messages have relaxed validation
+        dbirth_payload = ProtobufBuilder.build_payload(timestamp: 1_u64, metrics: ["m1"], seq: 1_u64, bdseq: 0_u64)
+        ddeath_payload = ProtobufBuilder.build_payload(bdseq: 0_u64)
+        ddata_payload = ProtobufBuilder.build_payload(seq: 1_u64)
+        dcmd_payload = Bytes.empty
+
         with_client_io(server) do |io|
           connect(io, client_id: "publisher")
 
           # Test all valid message types
           publish(io, topic: "spBv3.0/group1/NBIRTH/node1",
-            payload: "".to_slice, qos: 0u8, expect_response: false)
+            payload: nbirth_payload, qos: 0u8, expect_response: false)
           publish(io, topic: "spBv3.0/group1/NDEATH/node1",
-            payload: "".to_slice, qos: 0u8, expect_response: false)
+            payload: ndeath_payload, qos: 0u8, expect_response: false)
           publish(io, topic: "spBv3.0/group1/NDATA/node1",
-            payload: "".to_slice, qos: 0u8, expect_response: false)
+            payload: ndata_payload, qos: 0u8, expect_response: false)
           publish(io, topic: "spBv3.0/group1/NCMD/node1",
-            payload: "".to_slice, qos: 0u8, expect_response: false)
+            payload: ncmd_payload, qos: 0u8, expect_response: false)
           publish(io, topic: "spBv3.0/group1/STATE/host1",
-            payload: "".to_slice, qos: 0u8, expect_response: false)
+            payload: state_payload, qos: 0u8, expect_response: false)
           publish(io, topic: "spBv3.0/group1/DBIRTH/node1/device1",
-            payload: "".to_slice, qos: 0u8, expect_response: false)
+            payload: dbirth_payload, qos: 0u8, expect_response: false)
           publish(io, topic: "spBv3.0/group1/DDEATH/node1/device1",
-            payload: "".to_slice, qos: 0u8, expect_response: false)
+            payload: ddeath_payload, qos: 0u8, expect_response: false)
           publish(io, topic: "spBv3.0/group1/DDATA/node1/device1",
-            payload: "".to_slice, qos: 0u8, expect_response: false)
+            payload: ddata_payload, qos: 0u8, expect_response: false)
           publish(io, topic: "spBv3.0/group1/DCMD/node1/device1",
-            payload: "".to_slice, qos: 0u8, expect_response: false)
+            payload: dcmd_payload, qos: 0u8, expect_response: false)
 
           # Connection should remain open
           ping(io)
@@ -294,14 +348,28 @@ module SparkplugSpecs
         vhost = server.vhosts["/"]
         vhost.sparkplug_aware = true
 
+        # Create valid NBIRTH payloads for different groups
+        group1_payload = ProtobufBuilder.build_payload(
+          timestamp: 1234567890_u64,
+          metrics: ["group1_metric"],
+          seq: 1_u64,
+          bdseq: 0_u64
+        )
+        group2_payload = ProtobufBuilder.build_payload(
+          timestamp: 1234567891_u64,
+          metrics: ["group2_metric"],
+          seq: 1_u64,
+          bdseq: 0_u64
+        )
+
         with_client_io(server) do |io|
           connect(io, client_id: "publisher")
 
           # Publish NBIRTH for different groups
           publish(io, topic: "spBv3.0/group1/NBIRTH/node1",
-            payload: "group1_node1".to_slice, retain: true, qos: 0u8, expect_response: false)
+            payload: group1_payload, retain: true, qos: 0u8, expect_response: false)
           publish(io, topic: "spBv3.0/group2/NBIRTH/node1",
-            payload: "group2_node1".to_slice, retain: true, qos: 0u8, expect_response: false)
+            payload: group2_payload, retain: true, qos: 0u8, expect_response: false)
 
           disconnect(io)
         end
@@ -317,7 +385,7 @@ module SparkplugSpecs
           pub = read_packet(io)
           pub.should be_a(MQTT::Protocol::Publish)
           pub = pub.as(MQTT::Protocol::Publish)
-          String.new(pub.payload).should eq("group1_node1")
+          pub.payload.should eq(group1_payload)
 
           # Should not receive group2 (timeout indicates no message)
           read_packet(io).should be_nil
