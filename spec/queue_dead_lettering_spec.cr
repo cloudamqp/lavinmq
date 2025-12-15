@@ -148,7 +148,8 @@ module DeadLetteringSpec
         end
       end
 
-      it "should dead letter in chain reject->expire->expire" do
+      it "should dead letter in chain" do
+        # b:reject -> a2:expire -> a3:expire -> b
         with_dead_lettering_setup do |_, _, ch, _|
           b = ch.queue("b", args: AMQP::Client::Arguments.new({
             "x-dead-letter-exchange"    => "",
@@ -799,12 +800,13 @@ module DeadLetteringSpec
         # end
       end
 
-      it "dead_letter_headers_first_death" do
+      it "should set first death and preserve it" do
+        # q:reject -> dlq:reject -> q
         qargs = {
           "x-dead-letter-exchange"    => "",
           "x-dead-letter-routing-key" => "dlq2",
         }
-        with_dead_lettering_setup(qargs: qargs) do |q, _, ch, _|
+        with_dead_lettering_setup(qargs: qargs) do |q, dlq, ch, _|
           dlq2 = ch.queue("dlq2", args: AMQP::Client::Arguments.new({
             "x-dead-letter-exchange"    => "",
             "x-dead-letter-routing-key" => q.name,
