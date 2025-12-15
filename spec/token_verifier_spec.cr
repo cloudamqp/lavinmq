@@ -57,7 +57,7 @@ module JWTTestHelper
     {"alg" => "RS256", "typ" => "JWT"}
   end
 
-  # Create a verifier with mock JWKS fetcher
+  # Create a verifier with empty public keys
   def create_verifier(
     issuer_url = "https://auth.example.com",
     preferred_username_claims = ["preferred_username"],
@@ -76,8 +76,8 @@ module JWTTestHelper
     config.oauth_scope_prefix = scope_prefix
     config.oauth_additional_scopes_key = additional_scopes_key
 
-    mock_fetcher = MockJWKSFetcher.new
-    LavinMQ::Auth::JWTTokenVerifier.new(config, mock_fetcher)
+    public_keys = LavinMQ::Auth::PublicKeys.new
+    LavinMQ::Auth::JWTTokenVerifier.new(config, public_keys)
   end
 
   # Create a testable verifier for testing protected methods
@@ -99,8 +99,8 @@ module JWTTestHelper
     config.oauth_scope_prefix = scope_prefix
     config.oauth_additional_scopes_key = additional_scopes_key
 
-    mock_fetcher = MockJWKSFetcher.new
-    TestableVerifier.new(config, mock_fetcher)
+    public_keys = LavinMQ::Auth::PublicKeys.new
+    TestableVerifier.new(config, public_keys)
   end
 end
 
@@ -188,7 +188,7 @@ describe LavinMQ::Auth::JWTTokenVerifier do
         verifier = JWTTestHelper.create_verifier
         payload = JWTTestHelper.valid_payload({"exp" => (RoughTime.utc.to_unix - 3600).to_i64})
         token = JWTTestHelper.build_unsigned_token(JWTTestHelper.valid_header, payload)
-        expect_raises(JWT::DecodeError, /Token has expired/) do
+        expect_raises(JWT::VerificationError, /Token has expired/) do
           verifier.verify_token(token)
         end
       end
@@ -197,7 +197,7 @@ describe LavinMQ::Auth::JWTTokenVerifier do
         verifier = JWTTestHelper.create_verifier
         payload = JWTTestHelper.valid_payload({"exp" => RoughTime.utc.to_unix})
         token = JWTTestHelper.build_unsigned_token(JWTTestHelper.valid_header, payload)
-        expect_raises(JWT::DecodeError, /Token has expired/) do
+        expect_raises(JWT::VerificationError, /Token has expired/) do
           verifier.verify_token(token)
         end
       end
@@ -253,7 +253,7 @@ describe LavinMQ::Auth::JWTTokenVerifier do
       it "rejects mismatched issuer" do
         verifier = JWTTestHelper.create_testable_verifier
         payload = JSON.parse(%({"iss": "https://evil.example.com", "exp": #{RoughTime.utc.to_unix + 3600}, "preferred_username": "testuser"}))
-        expect_raises(JWT::DecodeError, /Token issuer does not match/) do
+        expect_raises(JWT::VerificationError, /Token issuer does not match/) do
           verifier.test_validate_issuer(payload)
         end
       end
@@ -300,7 +300,7 @@ describe LavinMQ::Auth::JWTTokenVerifier do
       it "rejects mismatched audience" do
         verifier = JWTTestHelper.create_testable_verifier(audience: "my-api")
         payload = JSON.parse(%({"iss": "https://auth.example.com", "exp": #{RoughTime.utc.to_unix + 3600}, "preferred_username": "testuser", "aud": "other-api"}))
-        expect_raises(JWT::DecodeError, /Token audience does not match/) do
+        expect_raises(JWT::VerificationError, /Token audience does not match/) do
           verifier.test_validate_and_extract_claims(payload)
         end
       end

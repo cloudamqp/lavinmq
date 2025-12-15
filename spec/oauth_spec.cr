@@ -1,5 +1,19 @@
 require "./spec_helper"
 
+def create_oauth_test_authenticator(config : LavinMQ::Config? = nil)
+  config ||= create_oauth_test_config
+  public_keys = LavinMQ::Auth::PublicKeys.new
+  verifier = LavinMQ::Auth::JWTTokenVerifier.new(config, public_keys)
+  LavinMQ::Auth::OAuthAuthenticator.new(verifier)
+end
+
+def create_oauth_test_config
+  config = LavinMQ::Config.new
+  config.oauth_issuer_url = "https://auth.example.com"
+  config.oauth_preferred_username_claims = ["preferred_username"]
+  config
+end
+
 # Test PublicKeys - Simple key storage with expiration
 describe LavinMQ::Auth::PublicKeys do
   describe "#get?" do
@@ -100,14 +114,14 @@ describe LavinMQ::Auth::PublicKeys do
       end
     end
 
-    it "raises VerificationError for malformed token" do
+    it "raises DecodeError for malformed token" do
       public_keys = LavinMQ::Auth::PublicKeys.new
       keys = {"key1" => "dummy_pem"}
       public_keys.update(keys, 1.hour)
 
       malformed_token = "not.a.valid.jwt.token"
 
-      expect_raises(JWT::VerificationError) do
+      expect_raises(JWT::DecodeError) do
         public_keys.decode(malformed_token)
       end
     end
@@ -125,14 +139,14 @@ describe LavinMQ::Auth::PublicKeys do
       end
     end
 
-    it "raises VerificationError when PEM key is empty string" do
+    it "raises DecodeError when PEM key is empty string" do
       public_keys = LavinMQ::Auth::PublicKeys.new
       keys = {"key1" => ""}
       public_keys.update(keys, 1.hour)
 
       token = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature"
 
-      expect_raises(JWT::VerificationError) do
+      expect_raises(JWT::DecodeError) do
         public_keys.decode(token)
       end
     end
@@ -142,7 +156,7 @@ end
 describe LavinMQ::Auth::OAuthAuthenticator do
   describe "#authenticate" do
     it "returns nil for non-JWT password" do
-      auth = LavinMQ::Auth::OAuthAuthenticator.new
+      auth = create_oauth_test_authenticator
 
       # Regular password, not a JWT token
       result = auth.authenticate("testuser", "regular_password")
@@ -151,7 +165,7 @@ describe LavinMQ::Auth::OAuthAuthenticator do
     end
 
     it "returns nil for empty password" do
-      auth = LavinMQ::Auth::OAuthAuthenticator.new
+      auth = create_oauth_test_authenticator
 
       result = auth.authenticate("testuser", "")
 
@@ -159,7 +173,7 @@ describe LavinMQ::Auth::OAuthAuthenticator do
     end
 
     it "returns nil for malformed JWT token" do
-      auth = LavinMQ::Auth::OAuthAuthenticator.new
+      auth = create_oauth_test_authenticator
 
       # Starts with "ey" but is not a valid JWT
       result = auth.authenticate("testuser", "eyNotAValidToken")
@@ -168,7 +182,7 @@ describe LavinMQ::Auth::OAuthAuthenticator do
     end
 
     it "returns nil for JWT with invalid structure" do
-      auth = LavinMQ::Auth::OAuthAuthenticator.new
+      auth = create_oauth_test_authenticator
 
       # Only has 2 parts instead of 3
       result = auth.authenticate("testuser", "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0")
@@ -177,7 +191,7 @@ describe LavinMQ::Auth::OAuthAuthenticator do
     end
 
     it "returns nil for JWT with non-RS256 algorithm" do
-      auth = LavinMQ::Auth::OAuthAuthenticator.new
+      auth = create_oauth_test_authenticator
 
       # JWT with HS256 algorithm (not RS256)
       # Header: {"alg":"HS256","typ":"JWT"}
@@ -189,7 +203,7 @@ describe LavinMQ::Auth::OAuthAuthenticator do
     end
 
     it "returns nil for expired JWT token" do
-      auth = LavinMQ::Auth::OAuthAuthenticator.new
+      auth = create_oauth_test_authenticator
 
       # JWT with exp claim in the past (January 1, 2020)
       # Header: {"alg":"RS256","typ":"JWT"}
@@ -202,7 +216,7 @@ describe LavinMQ::Auth::OAuthAuthenticator do
     end
 
     it "returns nil for JWT token without exp claim" do
-      auth = LavinMQ::Auth::OAuthAuthenticator.new
+      auth = create_oauth_test_authenticator
 
       # JWT without exp claim
       # Header: {"alg":"RS256","typ":"JWT"}
@@ -215,7 +229,7 @@ describe LavinMQ::Auth::OAuthAuthenticator do
     end
 
     it "returns nil for JWT with 4 parts" do
-      auth = LavinMQ::Auth::OAuthAuthenticator.new
+      auth = create_oauth_test_authenticator
 
       # JWT with extra part
       token = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxMjM0In0.signature.extra"
@@ -226,7 +240,7 @@ describe LavinMQ::Auth::OAuthAuthenticator do
     end
 
     it "returns nil for JWT with empty header part" do
-      auth = LavinMQ::Auth::OAuthAuthenticator.new
+      auth = create_oauth_test_authenticator
 
       # JWT with empty header (just dots)
       token = "ey.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature"
@@ -237,7 +251,7 @@ describe LavinMQ::Auth::OAuthAuthenticator do
     end
 
     it "returns nil for JWT with invalid JSON in header" do
-      auth = LavinMQ::Auth::OAuthAuthenticator.new
+      auth = create_oauth_test_authenticator
 
       # Header that's valid base64 but not valid JSON
       # "eyBub3QganNvbiB9" decodes to "{ not json }"
@@ -249,7 +263,7 @@ describe LavinMQ::Auth::OAuthAuthenticator do
     end
 
     it "returns nil for JWT with exp as string" do
-      auth = LavinMQ::Auth::OAuthAuthenticator.new
+      auth = create_oauth_test_authenticator
 
       # JWT with exp as string instead of number
       # Payload: {"sub":"1234567890","exp":"future"}
@@ -261,7 +275,7 @@ describe LavinMQ::Auth::OAuthAuthenticator do
     end
 
     it "returns nil for JWT with exp as zero" do
-      auth = LavinMQ::Auth::OAuthAuthenticator.new
+      auth = create_oauth_test_authenticator
 
       # JWT with exp: 0 (epoch time, definitely expired)
       # Payload: {"sub":"1234567890","exp":0}
@@ -273,7 +287,7 @@ describe LavinMQ::Auth::OAuthAuthenticator do
     end
 
     it "returns nil for JWT with negative exp" do
-      auth = LavinMQ::Auth::OAuthAuthenticator.new
+      auth = create_oauth_test_authenticator
 
       # JWT with negative exp
       # Payload: {"sub":"1234567890","exp":-1}
@@ -285,7 +299,7 @@ describe LavinMQ::Auth::OAuthAuthenticator do
     end
 
     it "returns nil for JWT with whitespace" do
-      auth = LavinMQ::Auth::OAuthAuthenticator.new
+      auth = create_oauth_test_authenticator
 
       # JWT with trailing whitespace
       token = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiZXhwIjoxNTc3ODM2ODAwfQ.signature "
@@ -315,7 +329,8 @@ module OAuthUserHelper
     config = LavinMQ::Config.new
     config.oauth_issuer_url = "https://auth.example.com"
     config.oauth_preferred_username_claims = ["preferred_username"]
-    verifier = LavinMQ::Auth::JWTTokenVerifier.new(config, MockJWKSFetcher.new)
+    public_keys = LavinMQ::Auth::PublicKeys.new
+    verifier = LavinMQ::Auth::JWTTokenVerifier.new(config, public_keys)
     LavinMQ::Auth::OAuthUser.new(
       "testuser",
       [] of LavinMQ::Tag,

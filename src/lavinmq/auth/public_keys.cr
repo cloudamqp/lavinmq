@@ -34,6 +34,10 @@ module LavinMQ
         end
       end
 
+      def expires_at : Time?
+        @expires_at
+      end
+
       # Decodes and verifies a JWT token using the stored public keys.
       # Returns the decoded JWT::Token if verification succeeds.
       # Raises JWT::VerificationError if no key can verify the token or keys are unavailable/expired.

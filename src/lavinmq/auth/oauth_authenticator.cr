@@ -7,11 +7,8 @@ module LavinMQ
   module Auth
     class OAuthAuthenticator < Authenticator
       Log = LavinMQ::Log.for "oauth2"
-      @verifier : JWTTokenVerifier
 
-      def initialize(config = Config.instance)
-        jwks_fetcher = JWKSFetcher.new(config.oauth_issuer_url, config.oauth_jwks_cache_ttl)
-        @verifier = JWTTokenVerifier.new(config, jwks_fetcher)
+      def initialize(@verifier : JWTTokenVerifier)
       end
 
       def authenticate(username : String, password : String) : OAuthUser?

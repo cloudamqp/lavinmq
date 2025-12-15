@@ -1,7 +1,6 @@
 require "./../config"
 require "./jwt"
 require "./public_keys"
-require "./jwks_fetcher"
 require "openssl"
 require "http/client"
 require "./lib_crypto_ext"
@@ -29,19 +28,17 @@ module LavinMQ
     # Token refresh: Clients send UpdateSecret frame with new JWT to update permissions
     # without reconnecting. Username stays the same, only permissions/expiration are updated.
     #
-    # Public Key caching: Public keys are fetched on first use and cached with TTL from the
-    # JWKS endpoints Cache-Control header (or config default). Keys are re-fetched when
-    # cache expires.
+    # Public Key caching: Public keys are managed by a background fiber that periodically
+    # refreshes them based on TTL. Token verification uses only cached keys and never
+    # blocks on network calls.
     #
     # Security: Only RS256 accepted (prevents algorithm confusion), issuer/audience
     # validation prevents accepting tokens from untrusted or unintended sources, fails
     # closed on any error.
     class JWTTokenVerifier
-      @public_keys = PublicKeys.new
-      @jwks_fetcher : JWKSFetcher
       @expected_issuer : String
 
-      def initialize(@config : Config, @jwks_fetcher : JWKSFetcher)
+      def initialize(@config : Config, @public_keys : PublicKeys)
         @expected_issuer = @config.oauth_issuer_url.chomp("/")
       end
 
@@ -83,12 +80,6 @@ module LavinMQ
       end
 
       private def verify_with_public_key(token : String) : JWT::Token
-        @public_keys.decode(token)
-      rescue JWT::ExpiredKeysError
-        Log.debug { "Public keys unavailable or expired, fetching fresh keys from issuer" }
-        result = @jwks_fetcher.fetch_jwks
-        @public_keys.update(result.keys, result.ttl)
-        Log.debug { "Updated public_key cache with #{result.keys.size} key(s), TTL=#{result.ttl}" }
         @public_keys.decode(token)
       end
 
