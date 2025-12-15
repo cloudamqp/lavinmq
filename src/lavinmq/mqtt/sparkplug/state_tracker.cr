@@ -62,7 +62,7 @@ module LavinMQ
           key = make_key(group_id, edge_node_id)
 
           @lock.synchronize do
-            @states[key]?.try(&.online) || false
+            @states[key]?.try(&.online?) || false
           end
         end
 
@@ -89,7 +89,7 @@ module LavinMQ
           count = 0
           @lock.synchronize do
             @states.each_value do |state|
-              count += 1 if state.online
+              count += 1 if state.online?
             end
           end
           count
