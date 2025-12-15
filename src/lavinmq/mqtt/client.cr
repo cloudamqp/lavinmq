@@ -128,6 +128,7 @@ module LavinMQ
         send MQTT::PingResp.new
       end
 
+      # ameba:disable Metrics/CyclomaticComplexity
       def recieve_publish(packet : MQTT::Publish)
         if Config.instance.mqtt_permission_check_enabled? && !user.can_write?(@broker.vhost.name, EXCHANGE)
           Log.debug { "Access refused: user '#{user.name}' does not have permissions" }
@@ -193,7 +194,7 @@ module LavinMQ
         if @broker.vhost.sparkplug_aware?
           expanded_filters = [] of MQTT::Subscribe::TopicFilter
           topic_filters.each do |tf|
-            if Sparkplug::CertificateMapper.is_certificate_topic?(tf.topic)
+            if Sparkplug::CertificateMapper.certificate_topic?(tf.topic)
               # Expand to actual BIRTH topics
               actual_topics = Sparkplug::CertificateMapper.expand_certificate_subscription(tf.topic)
               actual_topics.each do |actual_topic|

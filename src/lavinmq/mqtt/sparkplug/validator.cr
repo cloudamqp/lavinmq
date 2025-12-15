@@ -139,12 +139,12 @@ module LavinMQ
         end
 
         # Check if topic is a certificate access topic
-        def self.is_certificate_topic?(topic : String) : Bool
+        def self.certificate_topic?(topic : String) : Bool
           topic.starts_with?(CERTIFICATE_PREFIX)
         end
 
         # Check if topic is any Sparkplug-related topic
-        def self.is_sparkplug_topic?(topic : String) : Bool
+        def self.sparkplug_topic?(topic : String) : Bool
           topic.starts_with?(SPARKPLUG_NAMESPACE) || topic.starts_with?(CERTIFICATE_PREFIX)
         end
       end

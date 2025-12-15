@@ -2,7 +2,7 @@ module LavinMQ
   module MQTT
     module Sparkplug
       struct EdgeNodeState
-        property online : Bool
+        property? online : Bool
         property last_birth_timestamp : Int64
         property last_death_timestamp : Int64?
 
