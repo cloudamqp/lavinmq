@@ -42,7 +42,7 @@ module LavinMQ::AMQP
         # It's done like this to be able to dead letter to all destinations
         # except to the queue itself if a cycle is detected.
         # This is also how it's done in rabbitmq
-        def maybe_publish(msg : BytesMessage, reason)
+        def maybe_publish(msg : BytesMessage, reason) # ameba:disable Metrics/CyclomaticComplexity
           # No dead letter exchange => nothing to do
           return unless dlx = (msg.dlx || dlx())
           ex = @vhost.exchanges[dlx.to_s]? || return
@@ -50,7 +50,6 @@ module LavinMQ::AMQP
           dlrk = msg.dlrk || dlrk()
 
           props = create_message_properties(msg, reason)
-
           routing_headers = props.headers
 
           # If a dead lettering key exists, no routing to CC/BCC should be done
@@ -61,7 +60,6 @@ module LavinMQ::AMQP
             rk.delete("BCC")
             routing_headers = rk
           end
-
           routing_rk = (dlrk || msg.routing_key).to_s
 
           # We're not publishing to an exchange, the queue itself is responsible
