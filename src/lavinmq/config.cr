@@ -39,6 +39,8 @@ module LavinMQ
       parser.on("-c CONFIG", "--config=CONFIG", "Path to config file") do |val|
         @config_file = val
       end
+      # Silence errors - this is just a pre-parse to extract the config file path.
+      # Full argument validation happens later in parse_cli.
       parser.invalid_option { }
       parser.missing_option { }
       parser.parse(argv.dup)
@@ -67,6 +69,8 @@ module LavinMQ
         {% for ivar in @type.instance_vars.select(&.annotation(CliOpt)) %}
           {%
             cli_opt = ivar.annotation(CliOpt)
+            # If annotation has exactly 3 args (short_flag, long_flag, description),
+            # use ivar.type as value parser. Otherwise, last arg is a custom value parser.
             if cli_opt.args.size == 3
               parser_arg = cli_opt.args
               value_parser = ivar.type
@@ -74,8 +78,9 @@ module LavinMQ
               *parser_arg, value_parser = cli_opt.args
             end
             section_id = cli_opt[:section] || "options"
-            # sections[section.id][:options] << {ivar: ivar.name.id, parser_arg: parser_arg, value_parser: value_parser, deprecated: cli_opt[:deprecated]}
           %}
+          # Create Option object with CLI args and a block that parses and stores the value
+          # when the option is encountered during command line parsing
           sections[:{{section_id}}][:options] << Option.new({{parser_arg.splat}}, {{cli_opt[:deprecated]}}) do |value|
             @{{ivar.name.id}} = parse_value(value, {{value_parser}})
           end
@@ -185,6 +190,9 @@ module LavinMQ
         end
     %}
 
+    # Generate a case branch for each INI setting in this section.
+    # If a setting is marked as deprecated, look up the replacement instance variable
+    # and redirect the value assignment to it instead, logging a deprecation warning.
     settings.each do |name, v|
       case name
         {% for var in ivars_in_section %}
@@ -332,6 +340,8 @@ module LavinMQ
         self.compare_value <=> other.compare_value
       end
 
+      # Sort options alphabetically by short flag. Options without short flags
+      # are sorted to the end by prefixing their long flag with "z".
       protected def compare_value
         if @short_flag.empty?
           "z" + @long_flag

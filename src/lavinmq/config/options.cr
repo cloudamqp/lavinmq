@@ -5,6 +5,9 @@ module LavinMQ
     annotation EnvOpt; end
     INI_SECTIONS = {"main", "amqp", "mqtt", "mgmt", "experimental", "clustering"}
 
+    # Separate module for config option definitions. This keeps the option declarations
+    # organized in one place, while config.cr contains the parsing and validation logic.
+    # Config class includes this module to inherit all annotated properties.
     module Options
       DEFAULT_LOG_LEVEL     = ::Log::Severity::Info
       DEFAULT_PASSWORD_HASH = Auth::Password::SHA256Password.new("+pHuxkR9fCyrrwXjOD4BP4XbzO3l8LJr8YkThMgJ0yVHFRE+") # Hash of 'guest'
