@@ -49,7 +49,7 @@ module LavinMQPerf
       end
 
       def run
-        super(io)
+        super
         count = 0
         loop do
           @connections.times.each_slice(100) do |slice|

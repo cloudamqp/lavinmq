@@ -6,7 +6,7 @@ module LavinMQPerf
   module AMQP
     class ChannelChurn < Perf
       def run
-        super(io)
+        super
         c = ::AMQP::Client.new(@uri)
         conn = c.connect
         Benchmark.ips do |x|

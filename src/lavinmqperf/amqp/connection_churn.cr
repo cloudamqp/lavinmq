@@ -6,7 +6,7 @@ module LavinMQPerf
   module AMQP
     class ConnectionChurn < Perf
       def run
-        super(io)
+        super
         c = ::AMQP::Client.new(@uri)
         Benchmark.ips do |x|
           x.report("open-close connection and channel") do

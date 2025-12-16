@@ -6,7 +6,7 @@ module LavinMQPerf
   module AMQP
     class QueueChurn < Perf
       def run
-        super(io)
+        super
 
         r = Random::DEFAULT
         ::AMQP::Client.start(@uri) do |c|
