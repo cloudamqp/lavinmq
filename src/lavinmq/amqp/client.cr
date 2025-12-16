@@ -256,6 +256,14 @@ module LavinMQ
           socket.write_bytes frame, ::IO::ByteFormat::NetworkEndian
           socket.flush if websocket
           @send_oct_count.add(8_u64 + frame.bytesize, :relaxed)
+          # Remove BCC header to not expose it to clients.
+          # Table#delete will always make the underlying IO writable, even if
+          # key doesn't exists. Therefore we do the has_key? check to not
+          # allocate and copy memory unnecessarily.
+          if (headers = msg.properties.headers) && headers.has_key?("BCC")
+            headers.delete("BCC")
+            msg.properties.headers = headers
+          end
           header = AMQP::Frame::Header.new(frame.channel, 60_u16, 0_u16, msg.bodysize, msg.properties)
           {% unless flag?(:release) %}
             @log.trace { "Send #{header.inspect}" }
