@@ -12,8 +12,8 @@ module LavinMQPerf
       @random_localhost = false
       @done = Channel(Int32).new(100)
 
-      def initialize
-        super
+      def initialize(io : IO = STDOUT)
+        super(io)
         @parser.on("-x count", "--count=number", "Number of connections (default 100)") do |v|
           @connections = v.to_i
         end
@@ -32,7 +32,7 @@ module LavinMQPerf
         @parser.on("-k IDLE:COUNT:INTERVAL", "--keepalive=IDLE:COUNT:INTERVAL", "TCP keepalive values") do |v|
           @uri.query_params["tcp_keepalive"] = v
         end
-        puts "FD limit: #{System.maximize_fd_limit}"
+        @io.puts "FD limit: #{System.maximize_fd_limit}"
       end
 
       private def connect(i)
@@ -49,7 +49,7 @@ module LavinMQPerf
       end
 
       def run
-        super
+        super(io)
         count = 0
         loop do
           @connections.times.each_slice(100) do |slice|
@@ -59,17 +59,17 @@ module LavinMQPerf
             end
             slice.each do |_i|
               @done.receive
-              print '.'
+              @io.print '.'
             end
             stop = Time.monotonic
-            puts " #{(stop - start).total_milliseconds.round}ms"
+            @io.puts " #{(stop - start).total_milliseconds.round}ms"
           end
           puts
-          print "#{count += @connections} connections "
-          print "#{count * @channels} channels "
-          print "#{count * @channels * @consumers} consumers. "
-          puts "Using #{rss.humanize_bytes} memory."
-          puts "Press enter to do add #{@connections} connections or ctrl-c to abort"
+          @io.print "#{count += @connections} connections "
+          @io.print "#{count * @channels} channels "
+          @io.print "#{count * @channels * @consumers} consumers. "
+          @io.puts "Using #{rss.humanize_bytes} memory."
+          @io.puts "Press enter to do add #{@connections} connections or ctrl-c to abort"
           gets
         end
       end

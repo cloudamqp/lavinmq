@@ -25,8 +25,8 @@ module LavinMQPerf
       @clean_session = false
       @uri = URI.parse("mqtt://localhost:1883")
 
-      def initialize
-        super
+      def initialize(io : IO = STDOUT)
+        super(io)
         @parser.on("-x publishers", "--publishers=number", "Number of publishers (default 1)") do |v|
           @publishers = v.to_i
         end
@@ -119,12 +119,12 @@ module LavinMQPerf
           raise "Failed to connect: #{response.inspect}"
         end
 
-        puts "Connected to broker with --uri=#{@uri}"
+        @io.puts "Connected to broker with --uri=#{@uri}"
         {socket, io}
       end
 
       def run
-        super
+        super(io)
         mt = Fiber::ExecutionContext::Parallel.new("Consumer", maximum: System.cpu_count.to_i)
         mt2 = Fiber::ExecutionContext::Parallel.new("Publisher", maximum: System.cpu_count.to_i)
         done = WaitGroup.new(@consumers + @publishers)
@@ -166,7 +166,7 @@ module LavinMQPerf
           consumes_last = @consumes.get(:relaxed)
           sleep 1.seconds
           unless @quiet
-            puts "Publish rate: #{@pubs.get(:relaxed) - pubs_last} msgs/s Consume rate: #{@consumes.get(:relaxed) - consumes_last} msgs/s"
+            @io.puts "Publish rate: #{@pubs.get(:relaxed) - pubs_last} msgs/s Consume rate: #{@consumes.get(:relaxed) - consumes_last} msgs/s"
           end
         end
         summary(start)
@@ -179,7 +179,7 @@ module LavinMQPerf
         avg_consume = (@consumes.get(:relaxed) / elapsed).round(1)
         puts
         if @json_output
-          JSON.build(STDOUT) do |json|
+          JSON.build(@io) do |json|
             json.object do
               json.field "elapsed_seconds", elapsed
               json.field "avg_pub_rate", avg_pub
@@ -190,11 +190,11 @@ module LavinMQPerf
           end
           puts
         else
-          puts "Summary:"
-          puts "Average publish rate: #{avg_pub} msgs/s"
-          puts "Average consume rate: #{avg_consume} msgs/s"
-          puts "Total published: #{@pubs.get(:relaxed)}"
-          puts "Total consumed: #{@consumes.get(:relaxed)}"
+          @io.puts "Summary:"
+          @io.puts "Average publish rate: #{avg_pub} msgs/s"
+          @io.puts "Average consume rate: #{avg_consume} msgs/s"
+          @io.puts "Total published: #{@pubs.get(:relaxed)}"
+          @io.puts "Total consumed: #{@consumes.get(:relaxed)}"
         end
       end
 
@@ -302,7 +302,7 @@ module LavinMQPerf
               LavinMQ::MQTT::PingResp.new.to_io(io)
             end
           rescue ex : IO::TimeoutError
-            puts ex
+            @io.puts ex
             next
           end
         end
@@ -313,7 +313,7 @@ module LavinMQPerf
         loop do
           break yield
         rescue ex
-          puts ex.message
+          @io.puts ex.message
           sleep 1.seconds
         end
       ensure

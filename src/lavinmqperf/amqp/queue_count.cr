@@ -10,8 +10,8 @@ module LavinMQPerf
       @no_wait = false
       @args = ::AMQP::Client::Arguments.new
 
-      def initialize
-        super
+      def initialize(io : IO = STDOUT)
+        super(io)
         @parser.on("-q queues", "--queues=number", "Number of queues (default 100)") do |v|
           @queues = v.to_i
         end
@@ -37,7 +37,7 @@ module LavinMQPerf
       end
 
       def run
-        super
+        super(io)
         count = 0
         c = ::AMQP::Client.new(@uri).connect
         ch = c.channel
@@ -45,12 +45,12 @@ module LavinMQPerf
           @queues.times do
             ch.queue_declare("lavinmqperf-queue-#{Random::DEFAULT.hex(8)}",
               durable: @durable, exclusive: @exclusive, no_wait: @no_wait, args: @args)
-            print '.'
+            @io.print '.'
           end
           puts
-          print "#{count += @queues} queues "
-          puts "Using #{rss.humanize_bytes} memory."
-          puts "Press enter to add #{@queues} more queues or ctrl-c to abort"
+          @io.print "#{count += @queues} queues "
+          @io.puts "Using #{rss.humanize_bytes} memory."
+          @io.puts "Press enter to add #{@queues} more queues or ctrl-c to abort"
           gets
         end
       end
