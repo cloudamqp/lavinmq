@@ -1837,6 +1837,7 @@ pre.arguments .inactive-argument:before {
 }
 
 .btn-icon {
+  --icon-background: none;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -1850,20 +1851,20 @@ pre.arguments .inactive-argument:before {
   &:hover {
     background-color: var(--color-btn-hover-bg);
   }
+
   &::before {
-    background-repeat: no-repeat;
-    background-position: center center;
+    background: no-repeat center var(--icon-background);
     height: 12px;
     content: "";
     width: 12px;
   }
 
-  &:is(.btn-reset)::before {
-    background-image: url(img/icon-x.svg);
+  &:is(.btn-reset) {
+    --icon-background: url(img/icon-x.svg);
   }
 
-  &:is(.btn-submit)::before {
-    background-image: url(img/icon-checkbox.svg);
+  &:is(.btn-submit) {
+    --icon-background: url(img/icon-checkbox.svg);
   }
 }
 
