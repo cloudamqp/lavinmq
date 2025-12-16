@@ -458,7 +458,7 @@ button {
   border: 1px solid var(--color-border-primary);
   color: var(--color-btn-outlined);
   background: transparent;
-  
+
   &:hover {
     background-color: var(--color-btn-hover-bg);
   }
@@ -1022,7 +1022,7 @@ footer .logo {
     width: 40%;
     justify-content: center;
     display: flex;
-    
+
     input {
       display: inline-block;
       margin: 0;
@@ -1837,32 +1837,33 @@ pre.arguments .inactive-argument:before {
 }
 
 .btn-icon {
-  background: transparent;
-  border: 1px solid var(--color-border-primary);
   display: flex;
-  width: 45px;
-  height: 45px;
-  padding: 6px 8px;
-  justify-content: center;
+  justify-content: space-between;
   align-items: center;
   gap: 4px;
   flex-shrink: 0;
+  padding: 6px 8px;
   border-radius: 8px;
+  border: 1px solid var(--color-border-primary);
+  background: transparent;
 
   &:hover {
     background-color: var(--color-btn-hover-bg);
   }
-
-  &.btn-reset {
-    background-image: url(img/icon-x.svg);
+  &::before {
     background-repeat: no-repeat;
     background-position: center center;
+    height: 12px;
+    content: "";
+    width: 12px;
   }
 
-  &.btn-submit {
+  &:is(.btn-reset)::before {
+    background-image: url(img/icon-x.svg);
+  }
+
+  &:is(.btn-submit)::before {
     background-image: url(img/icon-checkbox.svg);
-    background-repeat: no-repeat;
-    background-position: center center;
   }
 }
 
