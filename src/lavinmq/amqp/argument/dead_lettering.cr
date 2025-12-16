@@ -45,13 +45,12 @@ module LavinMQ::AMQP
         def maybe_publish(msg : BytesMessage, reason)
           # No dead letter exchange => nothing to do
           return unless dlx = (msg.dlx || dlx())
+          ex = @vhost.exchanges[dlx.to_s]? || return
+
           dlrk = msg.dlrk || dlrk()
 
           props = create_message_properties(msg, reason)
 
-          ex = @vhost.exchanges[dlx.to_s]? || return
-
-          queues = Set(LavinMQ::Queue).new
           routing_headers = props.headers
 
           # If a dead lettering key exists, no routing to CC/BCC should be done
@@ -70,7 +69,9 @@ module LavinMQ::AMQP
           # cycle detection and to not create a lot of faulty stats.
           # This means that no delay, consistent hash check or such is performed
           # if the dead letter exchange has any of these features enabled.
+          queues = Set(LavinMQ::Queue).new
           ex.find_queues(routing_rk, routing_headers, queues)
+          return if queues.empty?
 
           is_cycle = cycle?(props, reason)
 
