@@ -268,7 +268,6 @@ module LavinMQ
         if hdrs = headers
           find_cc_queues(hdrs, "CC", queues)
           find_cc_queues(hdrs, "BCC", queues)
-          hdrs.delete "BCC"
         end
 
         if queues.empty? && alternate_exchange
