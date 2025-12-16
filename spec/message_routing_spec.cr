@@ -431,22 +431,6 @@ module MessageRoutingSpec
       end
     end
 
-    # This is false, remove?
-    pending "should drop BCC from header" do
-      with_amqp_server do |s|
-        vhost = s.vhosts.create("x")
-        q1 = LavinMQ::QueueFactory.make(vhost, "q1")
-        q2 = LavinMQ::QueueFactory.make(vhost, "q2")
-        x = LavinMQ::AMQP::DirectExchange.new(vhost, "")
-        x.bind(q1, "q1", LavinMQ::AMQP::Table.new)
-        x.bind(q2, "q2", LavinMQ::AMQP::Table.new)
-        headers = LavinMQ::AMQP::Table.new
-        headers["BCC"] = ["q2"]
-        x.find_queues("q1", headers, Set(LavinMQ::Queue).new)
-        headers["BCC"]?.should be_nil
-      end
-    end
-
     it "should read both CC and BCC" do
       with_amqp_server do |s|
         vhost = s.vhosts.create("x")
