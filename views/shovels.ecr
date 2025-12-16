@@ -111,6 +111,11 @@
             <input type="text" name="dest-endpoint" list="shovel-dest-list">
             <datalist id="shovel-dest-list"></datalist>
           </label>
+          <label class="http-dest-field hide">
+            <span>Signature secret</span>
+            <input type="password" name="dest-signature-secret" placeholder="Optional: for Standard Webhooks signing">
+            <small class="http-secret-help hide">A secret is configured. Enter it again to keep it, or leave empty to remove.</small>
+          </label>
         </fieldset>
         <label>
           <span>Reconnect delay</span>
