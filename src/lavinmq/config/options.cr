@@ -279,6 +279,7 @@ module LavinMQ
       @[EnvOpt("LAVINMQ_CLUSTERING_PORT")]
       property clustering_port = 5679
 
+      @[IniOpt(section: "amqp")]
       property max_consumers_per_channel = 0
     end
   end
