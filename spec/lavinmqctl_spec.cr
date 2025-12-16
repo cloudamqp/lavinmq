@@ -1,5 +1,5 @@
 require "./spec_helper"
-require "../src/lavinmqctl"
+require "../src/lavinmqctl/cli"
 
 # Monkey-patch LavinMQCtl to redirect puts/print to captured IO
 class LavinMQCtl

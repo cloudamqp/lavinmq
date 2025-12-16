@@ -1,12 +1,12 @@
 require "http/client"
 require "json"
 require "option_parser"
-require "./lavinmq/version"
-require "./lavinmq/http/constants"
-require "./lavinmq/shovel/constants"
-require "./lavinmq/federation/constants"
-require "./lavinmq/definitions_generator"
-require "./lavinmq/auth/user"
+require "../lavinmq/version"
+require "../lavinmq/http/constants"
+require "../lavinmq/shovel/constants"
+require "../lavinmq/federation/constants"
+require "../lavinmq/definitions_generator"
+require "../lavinmq/auth/user"
 
 class LavinMQCtl
   @options = {} of String => String
@@ -925,9 +925,4 @@ class LavinMQCtl
     resp = http.delete url
     handle_response(resp, 204)
   end
-end
-
-unless PROGRAM_NAME.includes?("crystal-run-spec")
-  cli = LavinMQCtl.new
-  cli.run_cmd
 end
