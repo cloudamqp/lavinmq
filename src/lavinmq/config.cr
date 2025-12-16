@@ -208,7 +208,7 @@ module LavinMQ
                deprecated: anno[:deprecated],
              }
            %}
-           Log.warn { "Config {{var[:ini_name]}} is depricated, use {{use_ivar[:ini_name]}} instead" }
+           Log.warn { "Config {{var[:ini_name]}} is deprecated, use {{use_ivar[:ini_name]}} instead" }
            {% var = use_ivar %}
          {% end %}
          @{{var[:var_name]}} = parse_value(v, {{var[:transform]}})
@@ -325,7 +325,7 @@ module LavinMQ
     end
 
     # There is no guarantee that `@type.instance_vars` are sorted in the same way they are added in the code.
-    # This struct is needed simplify the sorting of the options array, becasue you cannot rely on the order of @type.instance_vars.
+    # This struct is needed to simplify the sorting of the options array, because you cannot rely on the order of @type.instance_vars.
     struct Option
       include Comparable(Option)
 

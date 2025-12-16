@@ -102,7 +102,7 @@ module LavinMQ
       @[EnvOpt("LAVINMQ_TLS_KEY_PATH")]
       property tls_key_path = ""
 
-      @[CliOpt("", "--tls-min-version=VERSION", "Mininum allowed TLS version (default 1.2)", section: "tls")]
+      @[CliOpt("", "--tls-min-version=VERSION", "Minimum allowed TLS version (default 1.2)", section: "tls")]
       @[IniOpt(section: "main")]
       @[EnvOpt("LAVINMQ_TLS_MIN_VERSION")]
       property tls_min_version = ""
@@ -128,8 +128,6 @@ module LavinMQ
       @[IniOpt(section: "clustering")]
       @[CliOpt("", "--clustering-on-leader-lost=COMMAND", "Shell command to execute when losing leadership", section: "clustering")]
       property clustering_on_leader_lost = "" # shell command to execute when losing leadership
-
-      property auth_backends : Array(String) = ["local"]
 
       @[IniOpt(section: "mqtt")]
       property mqtt_max_packet_size = 268_435_455_u32 # bytes
@@ -210,7 +208,7 @@ module LavinMQ
       property yield_each_delivered_bytes = 1_048_576 # max number of bytes sent to a client without tending to other tasks in the server
 
       @[IniOpt(section: "main", transform: ->(s : String) { s.split(",").map(&.strip) })]
-      property auth_backends : Array(String) = ["basic"]
+      property auth_backends : Array(String) = ["local"]
 
       @[CliOpt("", "--default-consumer-prefetch=NUMBER", "Default consumer prefetch (default 65535)", section: "options")]
       @[IniOpt(section: "main")]
@@ -252,7 +250,7 @@ module LavinMQ
       property? clustering = false
 
       @[CliOpt("", "--clustering-advertised-uri=URI", "Advertised URI for the clustering server", section: "clustering")]
-      @[IniOpt(ini_section: clustering)]
+      @[IniOpt(section: "clustering")]
       @[EnvOpt("LAVINMQ_CLUSTERING_ADVERTISED_URI")]
       property clustering_advertised_uri : String? = nil
 
@@ -261,12 +259,12 @@ module LavinMQ
       @[EnvOpt("LAVINMQ_CLUSTERING_BIND")]
       property clustering_bind = "127.0.0.1"
 
-      @[CliOpt("", "--clustering-etcd-endpoints=URIs", "Comma separeted host/port pairs (default: 127.0.0.1:2379)", section: "clustering")]
+      @[CliOpt("", "--clustering-etcd-endpoints=URIs", "Comma separated host/port pairs (default: 127.0.0.1:2379)", section: "clustering")]
       @[IniOpt(ini_name: etcd_endpoints, section: "clustering")]
       @[EnvOpt("LAVINMQ_CLUSTERING_ETCD_ENDPOINTS")]
       property clustering_etcd_endpoints = "localhost:2379"
 
-      @[CliOpt("", "--clustering-etcd-prefix=KEY", "Key prefix used in etcd (default: lavinmq", section: "clustering")]
+      @[CliOpt("", "--clustering-etcd-prefix=KEY", "Key prefix used in etcd (default: lavinmq)", section: "clustering")]
       @[IniOpt(ini_name: etcd_prefix, section: "clustering")]
       @[EnvOpt("LAVINMQ_CLUSTERING_ETCD_PREFIX")]
       property clustering_etcd_prefix = "lavinmq"
