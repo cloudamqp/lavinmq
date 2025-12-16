@@ -189,6 +189,9 @@ class LavinMQCtl
       @parser.on("--reconnect-delay=SECONDS", "Reconnect delay in seconds") do |v|
         @args["reconnect-delay"] = JSON::Any.new(v.to_i64)
       end
+      @parser.on("--dest-signature-secret=SECRET", "Signature secret for HTTP webhooks (Standard Webhooks format)") do |v|
+        @args["dest-signature-secret"] = JSON::Any.new(v)
+      end
     end
     @parser.on("add_federation", "Create a federation upstream") do
       @cmd = "add_federation"

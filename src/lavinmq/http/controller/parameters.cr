@@ -12,10 +12,23 @@ module LavinMQ
       def details_tuple
         {
           name:      @p.parameter_name,
-          value:     @p.value,
+          value:     mask_secrets(@p.value),
           component: @p.component_name,
           vhost:     @vhost,
         }
+      end
+
+      # Mask sensitive fields in parameter values (keys ending in -secret or -password)
+      private def mask_secrets(value : JSON::Any) : JSON::Any
+        return value unless h = value.as_h?
+        masked = h.transform_values do |v, k|
+          if (k.ends_with?("-secret") || k.ends_with?("-password")) && v.as_s?
+            JSON::Any.new("********")
+          else
+            v
+          end
+        end
+        JSON::Any.new(masked)
       end
 
       def search_match?(value : String) : Bool
