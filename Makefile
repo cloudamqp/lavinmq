@@ -52,7 +52,13 @@ all: $(BINS)
 bin/%: src/%.cr $(SOURCES) lib $(JS) $(DOCS) | bin
 	crystal build $< -o $@ $(CRYSTAL_FLAGS)
 
+bin/lavinmq: src/lavinmq.cr $(SOURCES) $(VIEW_SOURCES) $(VIEW_PARTIALS) lib $(JS) $(DOCS) | bin
+	crystal build $< -o $@ $(CRYSTAL_FLAGS)
+
 bin/%-debug: src/%.cr $(SOURCES) lib $(JS) $(DOCS) | bin
+	crystal build $< -o $@ --debug $(CRYSTAL_FLAGS)
+
+bin/lavinmq-debug: src/lavinmq.cr $(SOURCES) $(VIEW_SOURCES) $(VIEW_PARTIALS) lib $(JS) $(DOCS) | bin
 	crystal build $< -o $@ --debug $(CRYSTAL_FLAGS)
 
 bin/lavinmqctl: src/lavinmqctl.cr lib | bin
