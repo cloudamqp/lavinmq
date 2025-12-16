@@ -2,6 +2,8 @@ require "./spec_helper"
 require "../src/lavinmq/shovel"
 require "http/server"
 require "wait_group"
+require "openssl/hmac"
+require "base64"
 
 module ShovelSpecHelpers
   def self.setup_qs(ch, prefix = "") : {AMQP::Client::Exchange, AMQP::Client::Queue}
@@ -9,6 +11,13 @@ module ShovelSpecHelpers
     ch.queue("#{prefix}q1")
     q2 = ch.queue("#{prefix}q2")
     {x, q2}
+  end
+
+  def self.webhook_server(&block : HTTP::Server::Context ->)
+    server = HTTP::Server.new(&block)
+    addr = server.bind_unused_port("127.0.0.1")
+    spawn server.listen
+    {server, addr}
   end
 end
 
@@ -705,22 +714,17 @@ describe LavinMQ::Shovel do
   describe "HTTP" do
     it "should shovel" do
       with_amqp_server do |s|
-        # # Setup HTTP server
+        # Setup HTTP server
         h = Hash(String, String).new
         body = "<no body>"
         path = "<no path>"
-        server = HTTP::Server.new do |context|
-          context.request.headers.each do |k, v|
-            h[k] = v.first
-          end
-          body = context.request.body.try &.gets
+        _, addr = ShovelSpecHelpers.webhook_server do |context|
+          context.request.headers.each { |k, v| h[k] = v.first }
+          body = context.request.body.try(&.gets) || body
           path = context.request.path
           context.response.content_type = "text/plain"
           context.response.print "ok"
-          context
         end
-        addr = server.bind_unused_port
-        spawn server.listen
 
         vhost = s.vhosts.create("x")
         # # Setup shovel source and destination
@@ -761,16 +765,13 @@ describe LavinMQ::Shovel do
 
     it "should set path for URI from headers" do
       with_amqp_server do |s|
-        # # Setup HTTP server
+        # Setup HTTP server
         path = "<no path>"
-        server = HTTP::Server.new do |context|
+        _, addr = ShovelSpecHelpers.webhook_server do |context|
           path = context.request.path
           context.response.content_type = "text/plain"
           context.response.print "ok"
-          context
         end
-        addr = server.bind_unused_port
-        spawn server.listen
 
         vhost = s.vhosts.create("x")
         # # Setup shovel source and destination
@@ -796,6 +797,220 @@ describe LavinMQ::Shovel do
           shovel.run
           sleep 10.milliseconds # better when than sleep?
           path.should eq "/some_path"
+        end
+      end
+    end
+
+    it "should include Standard Webhooks signature headers when secret is configured" do
+      with_amqp_server do |s|
+        # Setup HTTP server
+        h = Hash(String, String).new
+        body = "<no body>"
+        _, addr = ShovelSpecHelpers.webhook_server do |context|
+          context.request.headers.each { |k, v| h[k] = v.first }
+          body = context.request.body.try(&.gets_to_end) || body
+          context.response.content_type = "text/plain"
+          context.response.print "ok"
+        end
+
+        vhost = s.vhosts.create("x")
+        # Setup shovel source and destination with signature secret
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec",
+          [URI.parse(s.amqp_url)],
+          "sig_q1",
+          delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
+          direct_user: s.users.direct_user
+        )
+        secret = "my-secret-key"
+        dest = LavinMQ::Shovel::HTTPDestination.new(
+          "spec",
+          URI.parse("http://#{addr}/webhook"),
+          signature_secret: secret
+        )
+
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "sig_shovel", vhost)
+        with_channel(s) do |ch|
+          x, _ = ShovelSpecHelpers.setup_qs ch, "sig_"
+          props = AMQP::Client::Properties.new("text/plain")
+          x.publish_confirm "test message", "sig_q1", props: props
+          shovel.run
+          sleep 10.milliseconds
+
+          # Verify Standard Webhooks headers are present
+          h["webhook-id"]?.should_not be_nil
+          h["webhook-timestamp"]?.should_not be_nil
+          h["webhook-signature"]?.should_not be_nil
+
+          # Verify webhook-id format: msg_<uuid without dashes>
+          webhook_id = h["webhook-id"]
+          webhook_id.should start_with "msg_"
+          webhook_id.size.should eq 36 # "msg_" + 32 hex chars
+
+          # Verify timestamp is a valid Unix timestamp
+          timestamp = h["webhook-timestamp"]
+          timestamp.to_i64.should be > 0
+
+          # Verify signature format: v1,<base64>
+          signature_header = h["webhook-signature"]
+          signature_header.should start_with "v1,"
+
+          # Verify signature is correct
+          signed_content = "#{webhook_id}.#{timestamp}.#{body}"
+          digest = OpenSSL::HMAC.digest(OpenSSL::Algorithm::SHA256, secret, signed_content)
+          expected_signature = Base64.strict_encode(digest)
+          signature_header.should eq "v1,#{expected_signature}"
+          body.should eq "test message"
+
+          s.vhosts["/"].shovels.empty?.should be_true
+        end
+      end
+    end
+
+    it "should not include signature headers when secret is not configured" do
+      with_amqp_server do |s|
+        # Setup HTTP server
+        h = Hash(String, String).new
+        _, addr = ShovelSpecHelpers.webhook_server do |context|
+          context.request.headers.each { |k, v| h[k] = v.first }
+          context.response.content_type = "text/plain"
+          context.response.print "ok"
+        end
+
+        vhost = s.vhosts.create("x")
+        # Setup shovel source and destination without signature secret
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec",
+          [URI.parse(s.amqp_url)],
+          "nosig_q1",
+          delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
+          direct_user: s.users.direct_user
+        )
+        dest = LavinMQ::Shovel::HTTPDestination.new(
+          "spec",
+          URI.parse("http://#{addr}/webhook")
+        )
+
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "nosig_shovel", vhost)
+        with_channel(s) do |ch|
+          x, _ = ShovelSpecHelpers.setup_qs ch, "nosig_"
+          props = AMQP::Client::Properties.new("text/plain")
+          x.publish_confirm "test message", "nosig_q1", props: props
+          shovel.run
+          sleep 10.milliseconds
+
+          # Verify Standard Webhooks headers are NOT present
+          h["webhook-id"]?.should be_nil
+          h["webhook-timestamp"]?.should be_nil
+          h["webhook-signature"]?.should be_nil
+
+          s.vhosts["/"].shovels.empty?.should be_true
+        end
+      end
+    end
+
+    it "should treat empty signature secret as no secret" do
+      with_amqp_server do |s|
+        # Setup HTTP server
+        h = Hash(String, String).new
+        _, addr = ShovelSpecHelpers.webhook_server do |context|
+          context.request.headers.each { |k, v| h[k] = v.first }
+          context.response.content_type = "text/plain"
+          context.response.print "ok"
+        end
+
+        vhost = s.vhosts.create("x")
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec",
+          [URI.parse(s.amqp_url)],
+          "empty_secret_q1",
+          delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
+          direct_user: s.users.direct_user
+        )
+        # Empty string should be treated as no secret
+        dest = LavinMQ::Shovel::HTTPDestination.new(
+          "spec",
+          URI.parse("http://#{addr}/webhook"),
+          signature_secret: ""
+        )
+
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "empty_secret_shovel", vhost)
+        with_channel(s) do |ch|
+          x, _ = ShovelSpecHelpers.setup_qs ch, "empty_secret_"
+          props = AMQP::Client::Properties.new("text/plain")
+          x.publish_confirm "test message", "empty_secret_q1", props: props
+          shovel.run
+          sleep 10.milliseconds
+
+          # Verify Standard Webhooks headers are NOT present (empty secret = no signing)
+          h["webhook-id"]?.should be_nil
+          h["webhook-timestamp"]?.should be_nil
+          h["webhook-signature"]?.should be_nil
+
+          s.vhosts["/"].shovels.empty?.should be_true
+        end
+      end
+    end
+
+    it "should support multiple secrets for key rotation" do
+      with_amqp_server do |s|
+        # Setup HTTP server
+        h = Hash(String, String).new
+        body = "<no body>"
+        _, addr = ShovelSpecHelpers.webhook_server do |context|
+          context.request.headers.each { |k, v| h[k] = v.first }
+          body = context.request.body.try(&.gets_to_end) || body
+          context.response.content_type = "text/plain"
+          context.response.print "ok"
+        end
+
+        vhost = s.vhosts.create("x")
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec",
+          [URI.parse(s.amqp_url)],
+          "rotation_q1",
+          delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
+          direct_user: s.users.direct_user
+        )
+        # Multiple space-delimited secrets for key rotation
+        secret1 = "current-secret"
+        secret2 = "old-secret"
+        dest = LavinMQ::Shovel::HTTPDestination.new(
+          "spec",
+          URI.parse("http://#{addr}/webhook"),
+          signature_secret: "#{secret1} #{secret2}"
+        )
+
+        shovel = LavinMQ::Shovel::Runner.new(source, dest, "rotation_shovel", vhost)
+        with_channel(s) do |ch|
+          x, _ = ShovelSpecHelpers.setup_qs ch, "rotation_"
+          props = AMQP::Client::Properties.new("text/plain")
+          x.publish_confirm "test message", "rotation_q1", props: props
+          shovel.run
+          sleep 10.milliseconds
+
+          # Verify headers are present
+          h["webhook-id"]?.should_not be_nil
+          h["webhook-timestamp"]?.should_not be_nil
+          h["webhook-signature"]?.should_not be_nil
+
+          webhook_id = h["webhook-id"]
+          timestamp = h["webhook-timestamp"]
+          signature_header = h["webhook-signature"]
+
+          # Verify signature contains two space-delimited signatures
+          signatures = signature_header.split(" ")
+          signatures.size.should eq 2
+
+          # Verify both signatures are valid
+          signed_content = "#{webhook_id}.#{timestamp}.#{body}"
+          [secret1, secret2].each_with_index do |secret, i|
+            digest = OpenSSL::HMAC.digest(OpenSSL::Algorithm::SHA256, secret, signed_content)
+            expected_signature = "v1,#{Base64.strict_encode(digest)}"
+            signatures[i].should eq expected_signature
+          end
+
+          s.vhosts["/"].shovels.empty?.should be_true
         end
       end
     end
