@@ -15,6 +15,7 @@ class LavinMQCtl
   @headers = HTTP::Headers{"Content-Type" => "application/json"}
   @parser = OptionParser.new
   @http : HTTP::Client?
+  @io : IO
 
   COMPAT_CMDS = {
     {"add_user", "Creates a new user", "<username> <password>"},
@@ -54,7 +55,7 @@ class LavinMQCtl
 
   }
 
-  def initialize
+  def initialize(@io : IO = STDOUT)
     self.banner = "Usage: #{PROGRAM_NAME} [arguments] entity"
     if host = ENV["LAVINMQCTL_HOST"]?
       @options["host"] = host
@@ -223,10 +224,10 @@ class LavinMQCtl
         @args["queue"] = JSON::Any.new(v)
       end
     end
-    @parser.on("-v", "--version", "Show version") { puts LavinMQ::VERSION; exit 0 }
-    @parser.on("--build-info", "Show build information") { puts LavinMQ::BUILD_INFO; exit 0 }
+    @parser.on("-v", "--version", "Show version") { @io.puts LavinMQ::VERSION; exit 0 }
+    @parser.on("--build-info", "Show build information") { @io.puts LavinMQ::BUILD_INFO; exit 0 }
     @parser.on("-h", "--help", "Show this help") do
-      puts @parser
+      @io.puts @parser
       exit 1
     end
     @parser.invalid_option { |arg| abort "Invalid argument: #{arg}" }
@@ -281,7 +282,7 @@ class LavinMQCtl
     when "stop_app"
     when "start_app"
     else
-      puts @parser
+      @io.puts @parser
       abort
     end
   rescue ex : OptionParser::MissingOption
@@ -413,45 +414,45 @@ class LavinMQCtl
 
   private def output(data, columns = nil)
     if @options["format"]? == "json"
-      data.to_json(STDOUT)
-      puts
+      data.to_json(@io)
+      @io.puts
     else
       case data
       when Hash, NamedTuple
         data.each do |k, v|
-          STDOUT << k << ": " << v << "\n"
+          @io << k << ": " << v << "\n"
         end
       when Array
         output_array(data, columns)
       else
-        puts data
+        @io.puts data
       end
     end
   end
 
   private def output_array(data : Array, columns : Array(String)?)
     if columns
-      puts columns.join(STDOUT, "\t")
+      @io.puts columns.join("\t")
     else
       case first = data.first?
       when NamedTuple
-        puts first.keys.join(STDOUT, "\t")
+        @io.puts first.keys.join("\t")
       when JSON::Any
-        puts first.as_h.each_key.join(STDOUT, "\t")
+        @io.puts first.as_h.each_key.join("\t")
       end
     end
     data.each do |item|
       case item
       when Hash
-        item.each_value.join(STDOUT, "\t")
+        item.each_value.join(@io, "\t")
       when JSON::Any
-        item.as_h.each_value.join(STDOUT, "\t")
+        item.as_h.each_value.join(@io, "\t")
       when NamedTuple
-        item.values.join(STDOUT, "\t")
+        item.values.join(@io, "\t")
       else
-        item.to_s(STDOUT)
+        item.to_s(@io)
       end
-      puts
+      @io.puts
     end
   end
 
@@ -498,7 +499,7 @@ class LavinMQCtl
   end
 
   private def list_users
-    puts "Listing users ..." unless quiet?
+    @io.puts "Listing users ..." unless quiet?
     uu = get("/api/users").map do |u|
       next unless user = u.as_h?
       {name: user["name"].to_s, tags: user["tags"].to_s}
@@ -539,7 +540,7 @@ class LavinMQCtl
 
   private def list_queues
     vhost = @options["vhost"]? || "/"
-    puts "Listing queues for vhost #{vhost} ..." unless quiet?
+    @io.puts "Listing queues for vhost #{vhost} ..." unless quiet?
     qq = get("/api/queues/#{URI.encode_www_form(vhost)}").map do |u|
       next unless q = u.as_h?
       {name: q["name"].to_s, messages: q["messages"].to_s}
@@ -583,7 +584,7 @@ class LavinMQCtl
     columns = ARGV
     columns = ["user", "peer_host", "peer_port", "state"] if columns.empty?
     conns = get("/api/connections")
-    puts "Listing connections ..." unless quiet?
+    @io.puts "Listing connections ..." unless quiet?
 
     if @options["format"]? == "json"
       cc = conns.map do |u|
@@ -592,7 +593,7 @@ class LavinMQCtl
       end
       output cc
     else
-      puts columns.join(STDOUT, "\t")
+      @io.puts columns.join("\t")
       conns.each do |u|
         if conn = u.as_h?
           columns.each_with_index do |c, i|
@@ -600,36 +601,36 @@ class LavinMQCtl
             when "client_properties"
               print_erlang_terms(conn[c].as_h)
             else
-              print conn[c]?
+              @io.print conn[c]?
             end
-            print "\t" unless i == columns.size - 1
+            @io.print "\t" unless i == columns.size - 1
           end
-          puts
+          @io.puts
         end
       end
     end
   end
 
   private def print_erlang_terms(h : Hash)
-    print '['
+    @io.print '['
     last_index = h.size - 1
     h.each_with_index do |(key, value), i|
-      print "{\"#{key}\","
+      @io.print "{\"#{key}\","
       case value.raw
       when Hash   then print_erlang_terms(value.as_h)
-      when String then print '"', value, '"'
-      else             print value
+      when String then @io.print '"', value, '"'
+      else             @io.print value
       end
-      print '}'
-      print ',' unless i == last_index
+      @io.print '}'
+      @io.print ',' unless i == last_index
     end
-    print ']'
+    @io.print ']'
   end
 
   private def close_connection
     name = ARGV.shift?
     abort @banner unless name
-    puts "Closing connection #{name} ..." unless quiet?
+    @io.puts "Closing connection #{name} ..." unless quiet?
     @headers["X-Reason"] = ARGV.shift? || "Closed via lavinmqctl"
     resp = http.delete "/api/connections/#{URI.encode_path(name)}", @headers
     handle_response(resp, 204)
@@ -642,7 +643,7 @@ class LavinMQCtl
     conns.each do |u|
       next unless conn = u.as_h?
       name = conn["name"].to_s
-      puts "Closing connection #{name} ..." unless quiet?
+      @io.puts "Closing connection #{name} ..." unless quiet?
       http.delete "/api/connections/#{URI.encode_path(name)}", @headers
       closed_conns << {name: name}
     end
@@ -650,7 +651,7 @@ class LavinMQCtl
   end
 
   private def list_vhosts
-    puts "Listing vhosts ..." unless quiet?
+    @io.puts "Listing vhosts ..." unless quiet?
     vv = get("/api/vhosts").map do |u|
       next unless v = u.as_h?
       {name: v["name"].to_s}
@@ -682,7 +683,7 @@ class LavinMQCtl
 
   private def list_policies
     vhost = @options["vhost"]? || "/"
-    puts "Listing policies for vhost #{vhost} ..." unless quiet?
+    @io.puts "Listing policies for vhost #{vhost} ..." unless quiet?
     output get("/api/policies/#{URI.encode_www_form(vhost)}")
   end
 
@@ -727,7 +728,7 @@ class LavinMQCtl
 
   private def list_exchanges
     vhost = @options["vhost"]? || "/"
-    puts "Listing exchanges for vhost #{vhost} ..." unless quiet?
+    @io.puts "Listing exchanges for vhost #{vhost} ..." unless quiet?
 
     ee = get("/api/exchanges/#{URI.encode_www_form(vhost)}").map do |u|
       next unless e = u.as_h?
@@ -838,7 +839,7 @@ class LavinMQCtl
 
   private def definitions
     data_dir = ARGV.shift? || abort "definitions <datadir>"
-    DefinitionsGenerator.new(data_dir).generate(STDOUT)
+    DefinitionsGenerator.new(data_dir).generate(@io)
   end
 
   private def hash_password
@@ -849,7 +850,7 @@ class LavinMQCtl
 
   private def list_shovels
     vhost = @options["vhost"]? || "/"
-    puts "Listing shovels for vhost #{vhost} ..." unless quiet?
+    @io.puts "Listing shovels for vhost #{vhost} ..." unless quiet?
     ss = get("/api/shovels/#{URI.encode_www_form(vhost)}").map do |s|
       next unless shovel = s.as_h?
       {
@@ -890,7 +891,7 @@ class LavinMQCtl
 
   private def list_federations
     vhost = @options["vhost"]? || "/"
-    puts "Listing federation upstreams for vhost #{vhost} ..." unless quiet?
+    @io.puts "Listing federation upstreams for vhost #{vhost} ..." unless quiet?
     ff = get("/api/parameters/federation-upstream/#{URI.encode_www_form(vhost)}").map do |u|
       next unless f = u.as_h?
       {name: f["name"].to_s, component: f["component"].to_s}
@@ -926,5 +927,7 @@ class LavinMQCtl
   end
 end
 
-cli = LavinMQCtl.new
-cli.run_cmd
+unless PROGRAM_NAME.includes?("crystal-run-spec")
+  cli = LavinMQCtl.new
+  cli.run_cmd
+end
