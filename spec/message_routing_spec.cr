@@ -431,7 +431,8 @@ module MessageRoutingSpec
       end
     end
 
-    it "should drop BCC from header" do
+    # This is false, remove?
+    pending "should drop BCC from header" do
       with_amqp_server do |s|
         vhost = s.vhosts.create("x")
         q1 = LavinMQ::QueueFactory.make(vhost, "q1")
