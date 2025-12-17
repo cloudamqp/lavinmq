@@ -96,15 +96,6 @@ module LavinMQ
         end
       end
 
-      def reject(delivery_tag, requeue = false)
-        if ch = @ch
-          return if ch.closed?
-          @last_unacked = nil
-          ch.basic_reject(delivery_tag, requeue: requeue)
-          @done.done if at_end?(delivery_tag)
-        end
-      end
-
       def started? : Bool
         !@q.nil? && !@conn.try &.closed?
       end
