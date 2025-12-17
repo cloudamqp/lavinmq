@@ -2,9 +2,9 @@ name: Claude Code Review
 on:
   pull_request:
     types: [opened, synchronize]
-    # paths: # Only run on specific file changes
-    #   - "src/**/*.cr"
-    #   - "static/**/*.js"
+    paths: # Only run on specific file changes
+      - "src/**/*.cr"
+      - "static/**/*.js"
 jobs:
   claude-review:
     runs-on: ubuntu-latest
