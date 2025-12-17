@@ -9,6 +9,7 @@ import { UrlDataSource, DataSource } from './datasource.js'
 const search = new URLSearchParams(window.location.hash.substring(1))
 const queue = search.get('name')
 const vhost = search.get('vhost')
+Helpers.redirectOnVhostMismatch(vhost, 'queues')
 const pauseQueueForm = document.querySelector('#pauseQueue')
 const resumeQueueForm = document.querySelector('#resumeQueue')
 const restartQueueForm = document.querySelector('#restartQueue')
@@ -28,7 +29,7 @@ const consumersTableOpts = {
 }
 Table.renderTable('table', consumersTableOpts, function (tr, item) {
   const channelLink = document.createElement('a')
-  channelLink.href = HTTP.url`channel#name=${item.channel_details.name}`
+  channelLink.href = HTTP.url`channel#vhost=${vhost}&name=${item.channel_details.name}`
   channelLink.textContent = item.channel_details.name
   const ack = item.ack_required ? '●' : '○'
   const exclusive = item.exclusive ? '●' : '○'
