@@ -148,7 +148,6 @@ document.getElementById("toggle-menu").addEventListener("click", () => {
 
 const sidebar = document.getElementById('menu-content');
 const menuItems = document.querySelectorAll('#menu-content li a.menu-tooltip');
-console.log(menuItems);
 
 // Position tooltips dynamically
 menuItems.forEach(item => {
