@@ -135,17 +135,41 @@ document.addEventListener('DOMContentLoaded', () => {
   window.themeSwitcher = new ThemeSwitcher()
 })
 
-document.getElementById("username").addEventListener("click", () => {
-  document.body.classList.toggle("menu-collapsed");
+document.getElementById("toggle-menu").addEventListener("click", () => {
+  document.documentElement.classList.toggle("menu-collapsed");
 
   // Save state
-  if (document.body.classList.contains("menu-collapsed")) {
+  if (document.documentElement.classList.contains("menu-collapsed")) {
     localStorage.setItem("menuCollapsed", "true");
   } else {
     localStorage.removeItem("menuCollapsed");
   }
-})
+});
 
-if (localStorage.getItem("menuCollapsed") === "true") {
-  document.body.classList.add("menu-collapsed");
-}
+const sidebar = document.getElementById('menu-content');
+const menuItems = document.querySelectorAll('#menu-content li a.menu-tooltip');
+console.log(menuItems);
+
+// Position tooltips dynamically
+menuItems.forEach(item => {
+  const tooltip = item.querySelector('.menu-tooltip-label');
+  
+  item.addEventListener('mouseenter', function() {
+    if (document.documentElement.classList.contains('menu-collapsed')) {
+      const rect = this.getBoundingClientRect();
+      tooltip.style.left = rect.right + 10 + 'px';
+      tooltip.style.top = rect.top + (rect.height / 2) + 'px';
+      tooltip.style.transform = 'translateY(-50%)';
+    }
+  });
+});
+
+// Update tooltip positions on scroll
+const sidebarMenu = document.getElementById('menu');
+sidebarMenu.addEventListener('scroll', function() {
+  menuItems.forEach(item => {
+    const tooltip = item.querySelector('.menu-tooltip-label');
+    const rect = item.getBoundingClientRect();
+    tooltip.style.top = rect.top + (rect.height / 2) + 'px';
+  });
+});

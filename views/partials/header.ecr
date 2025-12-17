@@ -1,5 +1,14 @@
 <header>
   <div id="menu-header">
+    <div class="toggle-menu-wrapper">
+      <button class="btn-toggle-menu menu-tooltip" id="toggle-menu">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none">
+          <path d="M19 3H5C3.89543 3 3 3.89543 3 5V19C3 20.1046 3.89543 21 5 21H19C20.1046 21 21 20.1046 21 19V5C21 3.89543 20.1046 3 19 3Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M9 3V21" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span class="prop-tooltiptext menu-tooltip-label">Expand</span>
+      </button>
+    </div>
     <a class="lavinmq-logo" href="/">
       <img alt="LavinMQ logo" class="dark" id="logo" src="img/logo-lavinmq-all-white.svg" width="120" height="24">
       <img alt="LavinMQ logo" class="light" id="logo-light" src="img/logo-lavinmq-all-dark.svg" width="120" height="24">
@@ -97,15 +106,16 @@
       
       <% group[:items].each do |item| -%>
         <li<%= " class=\"active\"" if active_path?(item[:href]) %>>
-          <a href="<%= item[:href] %>">
+          <a href="<%= item[:href] %>" class="menu-tooltip">
             <img src="<%= item[:icon] %>"/>
-            <span><%= item[:label] %></span>
+            <span class="menu-item-label"><%= item[:label] %></span>
+            <span class="menu-tooltip-label"><%= item[:label] %></span>
           </a>
         </li>
       <%- end -%>
       
     <%- end -%>
 
-    <li class="last-menu-item"><a href="docs/" target="_blank"><span>HTTP API</span> <img class="icon-blank" src="img/icons/icon-external-light.svg" /></a></li>
+    <li class="last-menu-item"><a class="menu-item" href="docs/" target="_blank"><span class="menu-item-label">HTTP API</span> <img class="icon-blank" src="img/icons/icon-external-light.svg" /></a></li>
   </ul>
 </nav>
