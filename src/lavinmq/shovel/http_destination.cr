@@ -9,7 +9,7 @@ module LavinMQ
       def initialize(@name : String, @uri : URI, @ack_mode = DEFAULT_ACK_MODE, signature_secret : String? = nil)
         # Support multiple space-delimited secrets for key rotation (Standard Webhooks spec)
         # Empty strings are filtered out
-        @signature_secrets = (signature_secret || "").split.reject!(&.empty?)
+        @signature_secrets = (signature_secret || "").split(' ', remove_empty: true)
       end
 
       def start
