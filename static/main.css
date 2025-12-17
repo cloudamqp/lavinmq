@@ -56,7 +56,7 @@
 
   /* Shadow and overlay colors */
   --color-shadow: rgba(39, 39, 39, 0.1);
-  --color-tooltip-bg: rgba(0, 0, 0, 0.8);
+  --color-tooltip-bg: rgba(0, 0, 0, 0.9);
 
   /* Version tab and special element colors */
   --color-version-border: light-dark(#c2c2c2, #333332);
@@ -67,7 +67,10 @@
   --color-theme-switcher-active: light-dark(#ffffff, rgba(255, 255, 255, 0.15));
 
   scrollbar-width: thin;
+  --sidebar-width: 320px;
 }
+
+:root.menu-collapsed { --sidebar-width: 68px; }
 
 /* === RESET / BASE === */
 @font-face {
@@ -158,7 +161,7 @@ main {
 }
 
 main.main-grid {
-  padding-left: 320px;
+  padding-left: var(--sidebar-width);
   padding-top: 64px;
   grid-auto-rows: max-content;
   min-height: calc(100vh - 140px);
@@ -259,7 +262,7 @@ body.login main {
 
 /* === NAVIGATION & HEADER === */
 header {
-  padding: 5px 20px;
+  padding: 5px 20px 5px 0.75rem;
   position: fixed;
   top: 0;
   left: 0;
@@ -743,15 +746,47 @@ button {
   --highlight-color: var(--color-bg-hover);
   position: fixed;
   left: 0;
-  top: 0;
+  top: 64px;
   width: 100%;
   max-width: 320px;
-  height: 100vh;
-  overflow: auto;
-  padding-top: 4rem;
+  height: calc(100vh - 64px);
+  overflow-x: visible;
+  overflow-y: auto;
   z-index: 9998;
   scrollbar-color: var(--color-scrollbar);
   scrollbar-width: thin;
+}
+
+.toggle-menu-wrapper {
+  margin-right: 1rem;
+  display: flex;
+  align-items: center;
+
+  &::after {
+    content: "";
+    width: 1px;
+    height: 24px;
+    background: var(--color-border-separator);
+    margin-left: 14px;
+    display: inline-block;
+  }
+}
+
+.btn-toggle-menu {
+  content: '';
+  border: none;
+  background-color: transparent;
+  line-height: 0;
+  padding: 0.5rem;
+  border-radius: 0.5rem;
+
+  svg {
+    margin: 0 2px;
+  }
+
+  &:hover {
+    background-color: var(--color-bg-hover);
+  }
 }
 
 footer {
@@ -1002,7 +1037,7 @@ footer .logo {
       justify-content: center;
     }
 
-    li a span {
+    li a span.menu-item-label {
       display: none;
     }
   }
@@ -1020,7 +1055,7 @@ footer .logo {
   }
 
   main.main-grid {
-    padding-left: 68px;
+    /*padding-left: 68px;*/
   }
 
   .r-c {
@@ -1641,12 +1676,10 @@ fieldset.inline {
 .arg-tooltip .tooltiptext,
 .prop-tooltip .prop-tooltiptext {
   visibility: hidden;
-  width: 150px;
   background-color: var(--color-tooltip-bg);
   color: var(--color-text-inverse);
   padding: 10px 10px;
   border-radius: 6px;
-
   width: 150px;
   bottom: 100%;
   left: 50%;
@@ -1667,6 +1700,25 @@ fieldset.inline {
   transition-delay: 0.3s;
   visibility: visible;
   pointer-events: none;
+}
+
+.menu-tooltip .menu-tooltip-label {
+  position: fixed;
+  transition-delay: 0s;
+  width: auto;
+  padding: 2px 8px;
+  font-size: 14px;
+  line-height: 20px;
+  opacity: 0;
+  background: black;
+  pointer-events: none;
+  left: 66px;
+  font-weight: 400;
+  border-radius: 4px;
+}
+
+.menu-collapsed .menu-tooltip:hover .menu-tooltip-label {
+  opacity: 1;
 }
 
 pre.arguments>div {
