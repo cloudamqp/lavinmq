@@ -5,7 +5,7 @@ class AMQP::Client::UnsafeConnection < AMQP::Client::Connection
   # It does not allow the client to send a channel_max or frame_max higher than the server's
   # We need to test that the server can handle this case
   private def self.tune(io, channel_max, frame_max, heartbeat)
-    _tune = Frame.from_io(io) do |f|
+    _tune = ::AMQ::Protocol::Stream.new(io).next_frame do |f|
       case f
       when Frame::Connection::Tune  then f
       when Frame::Connection::Close then raise ClosedException.new(f)
