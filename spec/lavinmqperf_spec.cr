@@ -66,18 +66,12 @@ describe "LavinMQPerf" do
         io = IO::Memory.new
         throughput = LavinMQPerf::AMQP::Throughput.new(io)
 
-        # Spawn throughput test since it blocks
-        spawn do
-          throughput.run([
-            "--uri=amqp://guest:guest@localhost:#{port}",
-            "-x", "1",
-            "-y", "1",
-            "-z", "3",
-          ])
-        end
-
-        # Wait for test to complete (3s + buffer)
-        sleep 4.seconds
+        throughput.run([
+          "--uri=amqp://guest:guest@localhost:#{port}",
+          "-x", "1",
+          "-y", "1",
+          "-z", "3",
+        ])
 
         output = io.to_s
         output.should_not be_empty
