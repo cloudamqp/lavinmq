@@ -5,10 +5,12 @@ import * as HTTP from './http.js'
 import * as Chart from './chart.js'
 import { DataSource } from './datasource.js'
 
-const channel = new URLSearchParams(window.location.hash.substring(1)).get('name')
+const search = new URLSearchParams(window.location.hash.substring(1))
+const channel = search.get('name')
+let vhost = search.get('vhost')
+Helpers.redirectOnVhostMismatch(vhost, 'channels')
 const channelUrl = HTTP.url`api/channels/${channel}`
 const chart = Chart.render('chart', 'msgs/s')
-let vhost = null
 document.title = channel + ' | LavinMQ'
 
 const consumersDataSource = new (class extends DataSource {
@@ -105,7 +107,7 @@ function updateChannel () {
     document.getElementById('pagename-label').textContent = `${channel} in virtual host ${item.vhost}`
     document.getElementById('ch-username').textContent = item.user
     const connectionLink = document.querySelector('#ch-connection a')
-    connectionLink.href = HTTP.url`connection#name=${item.connection_details.name}`
+    connectionLink.href = HTTP.url`connection#vhost=${vhost}&name=${item.connection_details.name}`
     connectionLink.textContent = item.connection_details.name
     prefetch.update(item.prefetch_count)
     if (item.confirm) {
