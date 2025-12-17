@@ -14,7 +14,7 @@ function updateCharts (response) {
     messages_ready_log: response.queue_totals.messages_ready_log,
     messages_unacked_log: response.queue_totals.messages_unacknowledged_log
   }
-  Chart.update(msgChart, msgStats, 'origin')
+  Chart.update(msgChart, msgStats, false)
   Chart.update(rateChart, response.message_stats)
 
   const dataStats = {
