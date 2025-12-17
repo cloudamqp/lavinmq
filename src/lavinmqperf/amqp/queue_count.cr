@@ -36,8 +36,8 @@ module LavinMQPerf
         end
       end
 
-      def run
-        super
+      def run(args = ARGV)
+        super(args)
         count = 0
         c = ::AMQP::Client.new(@uri).connect
         ch = c.channel

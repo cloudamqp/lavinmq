@@ -5,8 +5,8 @@ require "../perf"
 module LavinMQPerf
   module AMQP
     class BindChurn < Perf
-      def run
-        super
+      def run(args = ARGV)
+        super(args)
 
         r = Random::DEFAULT
         ::AMQP::Client.start(@uri) do |c|

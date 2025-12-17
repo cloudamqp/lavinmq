@@ -156,9 +156,8 @@ module LavinMQPerf
         end
       end
 
-      def run
-        super
-
+      def run(args = ARGV)
+        super(args)
         abort "Message size must be at least 8 bytes when measuring latency" if @measure_latency && @size < 8
 
         mt = Fiber::ExecutionContext::Parallel.new("Clients", maximum: System.cpu_count.to_i)

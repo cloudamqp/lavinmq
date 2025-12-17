@@ -48,8 +48,8 @@ module LavinMQPerf
         @done.send i
       end
 
-      def run
-        super
+      def run(args = ARGV)
+        super(args)
         count = 0
         loop do
           @connections.times.each_slice(100) do |slice|

@@ -5,8 +5,8 @@ require "../perf"
 module LavinMQPerf
   module AMQP
     class ChannelChurn < Perf
-      def run
-        super
+      def run(args = ARGV)
+        super(args)
         c = ::AMQP::Client.new(@uri)
         conn = c.connect
         Benchmark.ips do |x|

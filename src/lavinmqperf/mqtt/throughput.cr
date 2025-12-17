@@ -123,8 +123,8 @@ module LavinMQPerf
         {socket, io}
       end
 
-      def run
-        super
+      def run(args = ARGV)
+        super(args)
         mt = Fiber::ExecutionContext::Parallel.new("Consumer", maximum: System.cpu_count.to_i)
         mt2 = Fiber::ExecutionContext::Parallel.new("Publisher", maximum: System.cpu_count.to_i)
         done = WaitGroup.new(@consumers + @publishers)
