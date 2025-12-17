@@ -1,4 +1,5 @@
 import * as HTTP from './http.js'
+import * as Helpers from './helpers.js'
 import * as DOM from './dom.js'
 import * as Table from './table.js'
 import * as Chart from './chart.js'
@@ -6,7 +7,10 @@ import { UrlDataSource } from './datasource.js'
 
 const chart = Chart.render('chart', 'bytes/s')
 
-const connection = new URLSearchParams(window.location.hash.substring(1)).get('name')
+const search = new URLSearchParams(window.location.hash.substring(1))
+const connection = search.get('name')
+const vhost = search.get('vhost')
+Helpers.redirectOnVhostMismatch(vhost, 'connections')
 document.title = `Connection ${connection} | LavinMQ`
 document.querySelector('#pagename-label').textContent = connection
 
@@ -69,7 +73,7 @@ Table.renderTable('table', tableOptions, function (tr, item, all) {
   if (all) {
     const channelLink = document.createElement('a')
     channelLink.textContent = item.name
-    channelLink.href = HTTP.url`channel#name=${item.name}`
+    channelLink.href = HTTP.url`channel#vhost=${item.vhost}&name=${item.name}`
     Table.renderCell(tr, 0, channelLink)
     Table.renderCell(tr, 1, item.vhost)
     Table.renderCell(tr, 2, item.username)

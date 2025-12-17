@@ -18,7 +18,7 @@ const tableOptions = {
 Table.renderTable('table', tableOptions, function (tr, item, all) {
   if (all) {
     const connectionLink = document.createElement('a')
-    connectionLink.href = HTTP.url`connection#name=${item.name}`
+    connectionLink.href = HTTP.url`connection#vhost=${item.vhost}&name=${item.name}`
     connectionLink.appendChild(document.createElement('span')).textContent = item.name
     connectionLink.appendChild(document.createElement('br'))
     connectionLink.appendChild(document.createElement('small')).textContent = item.client_properties.connection_name
