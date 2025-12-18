@@ -8,25 +8,10 @@ require "./in_memory_backend"
 require "./data_dir_lock"
 require "./etcd"
 require "./clustering/controller"
+require "./standalone_runner"
 require "../stdlib/openssl_sni"
 
 module LavinMQ
-  struct StandaloneRunner
-    # The block will be yielded when the runner's prerequisites for a leader
-    # to start are met. For the standalone runner, this is immediately.
-    # The method is blocking.
-    def run(&)
-      yield
-      loop do
-        sleep 30.seconds
-        GC.collect
-      end
-    end
-
-    def stop
-    end
-  end
-
   class Launcher
     Log = LavinMQ::Log.for "launcher"
     @amqp_tls_context : OpenSSL::SSL::Context::Server?
