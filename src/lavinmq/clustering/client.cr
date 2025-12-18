@@ -310,7 +310,7 @@ module LavinMQ
         sha1 = @file_digests[filename] ||= Digest::SHA1.new
 
         # Read, hash, and write incrementally
-        buffer = uninitialized UInt8[65536]
+        buffer = uninitialized UInt8[IO::DEFAULT_BUFFER_SIZE]
         remaining = length
         while remaining > 0
           read_len = Math.min(remaining, buffer.size)
