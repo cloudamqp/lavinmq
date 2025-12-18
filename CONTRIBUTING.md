@@ -1,4 +1,5 @@
 # Contributing
+
 You are interested in contributing to LavinMQ, but you are not sure how to?
 Right now, you can contribute to LavinMQ in one of two ways:
 
@@ -30,6 +31,13 @@ If you receive a review that requests changes, switch your PR back to `draft` mo
 1. Pull js dependencies with `make js`
 1. Build API docs with `make docs` (requires `npx`)
 1. Build with `shards build`
+
+#### Frontend development
+
+Normally ECR files and static resources are baked into the binary, which is great for portability but requires recompiling the entire app for any view or JavaScript change. To streamline development, you can compile LavinMQ without release mode, compile the ECR files separately, and serve static files from the file system. Combined with a live-reload server, this provides an efficient frontend development workflow. This is all available as a make target:
+
+1. Compile and start live-reload server: `make dev-ui`
+1. Run lavinmq in another terminal: `./bin/lavinmq -D /tmp/amqp`
 
 ### Release
 
@@ -98,12 +106,11 @@ Your schedule won't allow you make code contributions? Still fine, you can:
 
 ### [Give us some feedback](https://github.com/cloudamqp/lavinmq/discussions)
 
-We are also curious and happy to hear about your experience with LavinMQ. You can email us via contact@cloudamqp.com or reach us on Slack. Not sure what to write to us?
+We are also curious and happy to hear about your experience with LavinMQ. You can email us via <contact@cloudamqp.com> or reach us on Slack. Not sure what to write to us?
 
 - You can write to us about your first impression of LavinMQ
 - You can talk to us about features that are most important to you or your organization
 - You can also just tell us what we can do better
-
 
 # LavinMQ Implementation Details
 
@@ -173,7 +180,6 @@ When `Client#read_loop` receives a Basic.Consume frame it will create a `Consume
 the queue's list of consumers. Each consumer has a `deliver_loop` fiber that will be notified
 by an internal `Channel` when new messages are available in the queue.
 
-
 ## Stream Queues
 
 Stream queues provide an append-only log structure that allows multiple consumers to read the same messages independently. Unlike standard queues, messages in stream queues aren't deleted when consumed, making them ideal for event sourcing patterns and multi-consumer scenarios.
@@ -185,6 +191,7 @@ Each consumer can start reading from anywhere in the queue using the `x-stream-o
 Stream queues support message filtering, allowing consumers to receive only messages that match specific criteria. This is useful for consuming a subset of messages without creating multiple queues.
 
 #### How Filtering Works
+
 - Consumers can filter messages based on message headers
 - Two matching strategies are supported:
   - "all" (default): A message must match ALL filter conditions to be delivered
@@ -193,7 +200,9 @@ Stream queues support message filtering, allowing consumers to receive only mess
 - Consumers without any filter conditions will receive all messages
 
 #### Publishing Filtered Messages
+
 When publishing messages that should be filtered, include header values that can be matched against:
+
 - The `x-stream-filter-value` header (a comma-separated string of values)
 - Any custom headers for more advanced filtering scenarios
 
