@@ -140,9 +140,9 @@ document.getElementById('toggle-menu').addEventListener('click', () => {
 
   // Save state
   if (document.documentElement.classList.contains('menu-collapsed')) {
-    localStorage.setItem('menuCollapsed', 'true')
+    window.localStorage.setItem('menuCollapsed', 'true')
   } else {
-    localStorage.removeItem('menuCollapsed')
+    window.localStorage.removeItem('menuCollapsed')
   }
 })
 
@@ -151,8 +151,8 @@ const menuItems = document.querySelectorAll('#menu-content li a.menu-tooltip')
 // Position tooltips dynamically
 menuItems.forEach(item => {
   const tooltip = item.querySelector('.menu-tooltip-label')
-  
-  item.addEventListener('mouseenter', function() {
+
+  item.addEventListener('mouseenter', function () {
     if (document.documentElement.classList.contains('menu-collapsed')) {
       const rect = this.getBoundingClientRect()
       tooltip.style.left = rect.right + 10 + 'px'
@@ -164,7 +164,7 @@ menuItems.forEach(item => {
 
 // Update tooltip positions on scroll
 const sidebarMenu = document.getElementById('menu')
-sidebarMenu.addEventListener('scroll', function() {
+sidebarMenu.addEventListener('scroll', function () {
   menuItems.forEach(item => {
     const tooltip = item.querySelector('.menu-tooltip-label')
     const rect = item.getBoundingClientRect()
