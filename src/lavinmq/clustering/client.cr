@@ -369,8 +369,12 @@ module LavinMQ
         @unix_mqtt_proxy.try &.close
         @files.each_value &.close
         @socket.try &.close
-        # Wait for follower loop to exit
-        @follower_done.receive
+        # Wait for follower loop to exit (with timeout to prevent hanging)
+        select
+        when @follower_done.receive
+        when timeout(5.seconds)
+          Log.warn { "Follower loop did not exit within timeout, forcing shutdown" }
+        end
         # Finalize all pending checksums
         @file_digests.each do |filename, sha1|
           @checksums[filename] = sha1.final
