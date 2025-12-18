@@ -6,6 +6,7 @@ require "./http/http_server"
 require "./http/metrics_server"
 require "./in_memory_backend"
 require "./data_dir_lock"
+require "./pidfile"
 require "./etcd"
 require "./clustering/controller"
 require "../stdlib/openssl_sni"
@@ -34,6 +35,7 @@ module LavinMQ
     @http_tls_context : OpenSSL::SSL::Context::Server?
     @first_shutdown_attempt = true
     @data_dir_lock : DataDirLock?
+    @pidfile : Pidfile?
     @closed = false
     @replicator : Clustering::Server?
 
@@ -100,6 +102,7 @@ module LavinMQ
       @http_server.try &.close rescue nil
       @amqp_server.try &.close rescue nil
       @metrics_server.try &.close rescue nil
+      @pidfile.try &.release
       @runner.stop
     end
 
@@ -131,6 +134,10 @@ module LavinMQ
         Log.info { "Multithreading: #{ENV.fetch("CRYSTAL_WORKERS", "4")} threads" }
       {% end %}
       Log.info { "PID: #{Process.pid}" }
+      # we do this here to have nice consistent logging
+      unless @config.pidfile.empty?
+        (@pidfile = Pidfile.new(@config.pidfile)).acquire
+      end
       Log.info { "Config file: #{@config.config_file}" } unless @config.config_file.empty?
       Log.info { "Data directory: #{@config.data_dir}" }
     end
