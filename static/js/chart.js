@@ -18,7 +18,7 @@ const POLLING_RATE = 5000
 const X_AXIS_LENGTH = 600000 // 10 min
 const MAX_TICKS = X_AXIS_LENGTH / POLLING_RATE
 
-function render (id, unit, options = {}, stacked = false) {
+function render (id, unit, fill = false, stacked = false) {
   const el = document.getElementById(id)
   const graphContainer = document.createElement('div')
   graphContainer.classList.add('graph')
@@ -90,11 +90,11 @@ function render (id, unit, options = {}, stacked = false) {
             suggestedMax: 10,
             callback: helpers.nFormatter
           },
-          stacked: false,
+          stacked: stacked,
           beginAtZero: true
         }
       }
-    }, options)
+    }, fill)
   })
   return chart
 }
