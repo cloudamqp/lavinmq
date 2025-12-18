@@ -37,6 +37,18 @@ function render (id, unit, fill = false, stacked = false, reverseStack = false) 
       responsive: true,
       maintainAspectRatio: false,
       aspectRatio: 1.3,
+      plugins: {
+        legend: {
+          labels: {
+            generateLabels: function (chart) {
+              return Chart.defaults.plugins.legend.labels.generateLabels(chart)
+                .map(function (label) {
+                  return { ...label, fillStyle: label.strokeStyle }
+                })
+            }
+          }
+        }
+      },
       tooltips: {
         mode: 'x',
         intersect: false,
