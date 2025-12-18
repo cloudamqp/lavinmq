@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+This release introduces the ability to restart closed queues, enhanced TLS capabilities including SNI and mTLS support, improved stream performance, improved clustering and federation management, and various performance optimizations.
+
+### Added
+- Restart closed queues via API/UI/lavinmqctl [#1345](https://github.com/cloudamqp/lavinmq/pull/1345)
+- TLS keylog file (SSLKEYLOGFILE) support [#1531](https://github.com/cloudamqp/lavinmq/pull/1531)
+- TLS SNI and mTLS support [#1516](https://github.com/cloudamqp/lavinmq/pull/1516)
+- Shell command hooks for cluster leader transitions [#1491](https://github.com/cloudamqp/lavinmq/pull/1491)
+- Shovel and federation management commands to lavinmqctl [#1277](https://github.com/cloudamqp/lavinmq/pull/1277)
+
+### Changed
+- Convert queued message graph to stacked line graph [#1565](https://github.com/cloudamqp/lavinmq/pull/1565)
+- Federation improvements [#1492](https://github.com/cloudamqp/lavinmq/pull/1492)
+- Stream: Store offset only for first message per segment [#1479](https://github.com/cloudamqp/lavinmq/pull/1479)
+- Use parallel execution context for clustering followers [#1544](https://github.com/cloudamqp/lavinmq/pull/1544)
+- BCC remove on delivery [#1557](https://github.com/cloudamqp/lavinmq/pull/1557)
+
+### Fixed
+- Prefetch button icons in CSS [#1556](https://github.com/cloudamqp/lavinmq/pull/1556)
+
+## [2.6.1] - 2025-12-07
+
+### Fixed
+- lavinmqperf - correctly summarize throughput numbers [#1536](https://github.com/cloudamqp/lavinmq/pull/1536)
+
 ## [2.6.0] - 2025-12-05
 
 This release introduces Geographic Information System (GIS) filtering for streams, enhanced performance testing capabilities, as well as many other improvements and bugfixes.
