@@ -10,7 +10,7 @@ def run_lavinmqctl(http_addr : String, argv : Array(String))
   original_argv = ARGV.dup
   begin
     ARGV.clear
-    ARGV.concat(["--uri", "http://#{http_addr}", "--user", "guest", "--password", "guest"] + argv)
+    ARGV.concat(["--uri", "http://#{http_addr}", "--user", "guest", "--password", "guest"]).concat(argv)
 
     cli = LavinMQCtl.new(stdout_capture)
     cli.run_cmd
