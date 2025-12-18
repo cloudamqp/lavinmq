@@ -42,8 +42,8 @@ module LavinMQPerf
       @last_latencies = Array(Float64).new
       @latencies_count : UInt64 = 0
 
-      def initialize
-        super
+      def initialize(io : IO = STDOUT)
+        super(io)
         @parser.on("-x publishers", "--publishers=number", "Number of publishers (default 1)") do |v|
           @publishers = v.to_i
         end
@@ -156,9 +156,8 @@ module LavinMQPerf
         end
       end
 
-      def run
-        super
-
+      def run(args = ARGV)
+        super(args)
         abort "Message size must be at least 8 bytes when measuring latency" if @measure_latency && @size < 8
 
         mt = Fiber::ExecutionContext::Parallel.new("Clients", maximum: System.cpu_count.to_i)
@@ -226,7 +225,7 @@ module LavinMQPerf
         consumes = @consumes.get(:relaxed)
         pub_rate = ((pubs - pubs_last) / elapsed).round.to_i64
         cons_rate = ((consumes - consumes_last) / elapsed).round.to_i64
-        print "Publish rate: #{pub_rate} msgs/s Consume rate: #{cons_rate} msgs/s"
+        @io.print "Publish rate: #{pub_rate} msgs/s Consume rate: #{cons_rate} msgs/s"
         if @measure_latency
           stats = @latencies_mutex.synchronize do
             begin
@@ -236,10 +235,10 @@ module LavinMQPerf
             end
           end
           if stats
-            print " | Latency (ms) min/median/75th/95th/99th: #{stats[:min].round(3)}/#{stats[:median].round(3)}/#{stats[:p75].round(3)}/#{stats[:p95].round(3)}/#{stats[:p99].round(3)}"
+            @io.print " | Latency (ms) min/median/75th/95th/99th: #{stats[:min].round(3)}/#{stats[:median].round(3)}/#{stats[:p75].round(3)}/#{stats[:p95].round(3)}/#{stats[:p99].round(3)}"
           end
         end
-        puts
+        @io.puts
       end
 
       private def calculate_percentiles(latencies : Array(Float64))
@@ -260,14 +259,14 @@ module LavinMQPerf
         elapsed = (stop - start).total_seconds
         avg_pub = (@pubs.get(:relaxed) / elapsed).round.to_i64
         avg_consume = (@consumes.get(:relaxed) / elapsed).round.to_i64
-        puts
+        @io.puts
         latency_info = if @measure_latency
                          @latencies_mutex.synchronize do
                            {calculate_percentiles(@latencies), @latencies_count, @latencies.size}
                          end
                        end
         if @json_output
-          JSON.build(STDOUT) do |json|
+          JSON.build(@io) do |json|
             json.object do
               json.field "elapsed_seconds", elapsed
               json.field "avg_pub_rate", avg_pub
@@ -286,24 +285,24 @@ module LavinMQPerf
               end
             end
           end
-          puts
+          @io.puts
         else
-          puts "Summary:"
-          puts "Average publish rate: #{avg_pub} msgs/s"
-          puts "Average consume rate: #{avg_consume} msgs/s"
+          @io.puts "Summary:"
+          @io.puts "Average publish rate: #{avg_pub} msgs/s"
+          @io.puts "Average consume rate: #{avg_consume} msgs/s"
           if latency_info
             latency_stats, latency_count, latency_sample_size = latency_info
             if latency_stats
               if latency_count > latency_sample_size
-                puts "Latency (ms, n=#{latency_sample_size} sampled from #{latency_count}):"
+                @io.puts "Latency (ms, n=#{latency_sample_size} sampled from #{latency_count}):"
               else
-                puts "Latency (ms, n=#{latency_count}):"
+                @io.puts "Latency (ms, n=#{latency_count}):"
               end
-              puts "  min:    #{latency_stats[:min].round(3)}"
-              puts "  median: #{latency_stats[:median].round(3)}"
-              puts "  75th:   #{latency_stats[:p75].round(3)}"
-              puts "  95th:   #{latency_stats[:p95].round(3)}"
-              puts "  99th:   #{latency_stats[:p99].round(3)}"
+              @io.puts "  min:    #{latency_stats[:min].round(3)}"
+              @io.puts "  median: #{latency_stats[:median].round(3)}"
+              @io.puts "  75th:   #{latency_stats[:p75].round(3)}"
+              @io.puts "  95th:   #{latency_stats[:p95].round(3)}"
+              @io.puts "  99th:   #{latency_stats[:p99].round(3)}"
             end
           end
         end
@@ -468,7 +467,7 @@ module LavinMQPerf
         loop do
           break yield
         rescue ex : ::AMQP::Client::Error | IO::Error
-          puts ex.message
+          @io.puts ex.message
           sleep 1.seconds
         end
       ensure

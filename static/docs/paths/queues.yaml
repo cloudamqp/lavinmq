@@ -227,6 +227,47 @@
           application/json:
             schema:
               "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+"/queues/{vhost}/{name}/restart":
+  parameters:
+  - in: path
+    name: vhost
+    required: true
+    schema:
+      type: string
+      description: Name of vhost.
+  - in: path
+    name: name
+    required: true
+    schema:
+      type: string
+      description: Name of queue.
+  put:
+    tags:
+    - queues
+    description: Restart a closed queue. This operation can only be performed on queues that are in a closed state. If the queue is still running, the operation will fail.
+    summary: Restart closed queue
+    operationId: RestartQueue
+    responses:
+      '204':
+        description: The queue was restarted successfully.
+      '400':
+        description: Bad Request. The queue was not restarted, likely because it is still running.
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      4XX:
+        description: Client Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
+      5XX:
+        description: Server Error
+        content:
+          application/json:
+            schema:
+              "$ref": "../openapi.yaml#/components/schemas/ErrorResponse"
 "/queues/{vhost}/{name}/bindings":
   parameters:
   - in: path
