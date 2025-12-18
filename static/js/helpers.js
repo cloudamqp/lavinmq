@@ -175,7 +175,7 @@ function addVhostOptions (formId, options) {
 function redirectOnVhostMismatch (urlVhost, redirectUrl) {
   const storedVhost = window.sessionStorage.getItem('vhost')
 
-  if (storedVhost !== '_all' && storedVhost && urlVhost !== storedVhost) {
+  if (storedVhost !== '_all' && storedVhost && urlVhost && urlVhost !== storedVhost) {
     window.location.href = redirectUrl
   }
 }
