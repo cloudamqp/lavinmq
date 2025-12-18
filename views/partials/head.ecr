@@ -6,7 +6,7 @@
 <script>
   (function () {
     try {
-      var collapsed = localStorage.getItem("menuCollapsed") === "true";
+      var collapsed = window.localStorage.getItem("menuCollapsed") === "true";
       document.documentElement.classList.toggle("menu-collapsed", collapsed);
     } catch (e) {}
   })();
