@@ -1,17 +1,6 @@
 require "./spec_helper"
 require "../src/lavinmqctl/cli"
 
-# Monkey-patch LavinMQCtl to redirect puts/print to captured IO
-class LavinMQCtl
-  def puts(*args, **options)
-    @io.puts(*args, **options)
-  end
-
-  def print(*args)
-    @io.print(*args)
-  end
-end
-
 # Helper to run lavinmqctl commands against test server
 def run_lavinmqctl(http_addr : String, argv : Array(String))
   stdout_capture = IO::Memory.new
