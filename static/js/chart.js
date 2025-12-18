@@ -113,6 +113,8 @@ function value (data) {
 
 function createDataset (key, color, fill, order = 0) {
   const label = formatLabel(key)
+  const backgroundColor = fill ? color + '66' : color
+
   return {
     key,
     label,
@@ -124,7 +126,7 @@ function createDataset (key, color, fill, order = 0) {
     pointRadius: 0,
     pointStyle: 'line',
     data: [],
-    backgroundColor: color,
+    backgroundColor,
     borderColor: color
   }
 }
