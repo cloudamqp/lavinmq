@@ -47,6 +47,7 @@ module LavinMQ
       @vhosts = VHostStore.new(@data_dir, @users, @replicator)
       @mqtt_brokers = MQTT::Brokers.new(@vhosts, @replicator)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator)
+      initialize_jwks_fetcher
       authenticator = Auth::Chain.create(@config, @users)
       @connection_factories = {
         Protocol::AMQP => AMQP::ConnectionFactory.new(authenticator, @vhosts),
@@ -91,6 +92,7 @@ module LavinMQ
       Dir.mkdir_p @data_dir
       Schema.migrate(@data_dir, @replicator)
       @users = Auth::UserStore.new(@data_dir, @replicator)
+      initialize_jwks_fetcher
       authenticator = Auth::Chain.create(@config, @users)
       @vhosts = VHostStore.new(@data_dir, @users, @replicator)
       @connection_factories[Protocol::AMQP] = AMQP::ConnectionFactory.new(authenticator, @vhosts)
@@ -377,6 +379,13 @@ module LavinMQ
       rescue File::NotFoundError
         # Ignore when server is closed and deleted already
       end
+    end
+
+    private def initialize_jwks_fetcher
+      return unless @config.auth_backends.includes?("oauth")
+      jwks_fetcher = Auth::JWKSFetcher.new(@config.oauth_issuer_url, @config.oauth_jwks_cache_ttl)
+      spawn jwks_fetcher.refresh_loop, name: "JWKS refresh"
+      Auth.jwks_fetcher = jwks_fetcher
     end
 
     private def stats_loop

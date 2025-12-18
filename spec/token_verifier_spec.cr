@@ -57,7 +57,7 @@ module JWTTestHelper
     {"alg" => "RS256", "typ" => "JWT"}
   end
 
-  # Create a verifier with empty public keys
+  # Create a verifier
   def create_verifier(
     issuer_url = "https://auth.example.com",
     preferred_username_claims = ["preferred_username"],
@@ -76,8 +76,7 @@ module JWTTestHelper
     config.oauth_scope_prefix = scope_prefix
     config.oauth_additional_scopes_key = additional_scopes_key
 
-    public_keys = LavinMQ::Auth::PublicKeys.new
-    LavinMQ::Auth::JWTTokenVerifier.new(config, public_keys)
+    LavinMQ::Auth::JWTTokenVerifier.new(config)
   end
 
   # Create a testable verifier for testing protected methods
@@ -99,8 +98,7 @@ module JWTTestHelper
     config.oauth_scope_prefix = scope_prefix
     config.oauth_additional_scopes_key = additional_scopes_key
 
-    public_keys = LavinMQ::Auth::PublicKeys.new
-    TestableVerifier.new(config, public_keys)
+    TestableVerifier.new(config)
   end
 end
 

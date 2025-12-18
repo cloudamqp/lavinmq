@@ -38,7 +38,7 @@ module LavinMQ
     class JWTTokenVerifier
       @expected_issuer : String
 
-      def initialize(@config : Config, @public_keys : PublicKeys)
+      def initialize(@config : Config)
         @expected_issuer = @config.oauth_issuer_url.chomp("/")
       end
 
@@ -68,8 +68,9 @@ module LavinMQ
         raise JWT::VerificationError.new("Token has expired") if Time.unix(exp) <= RoughTime.utc
 
         # Validate iat (Issued At) - reject tokens issued in the future
+        # Allow 200ms tolerance to account for RoughTime caching (updates every 100ms)
         if iat = payload["iat"]?.try(&.as_i64?)
-          raise JWT::DecodeError.new("Token issued in the future") if Time.unix(iat) > RoughTime.utc
+          raise JWT::DecodeError.new("Token issued in the future") if Time.unix(iat) > RoughTime.utc + 0.2.seconds
         end
 
         # Validate nbf (Not Before) - RFC 7519 Section 4.1.5:
@@ -80,7 +81,11 @@ module LavinMQ
       end
 
       private def verify_with_public_key(token : String) : JWT::Token
-        @public_keys.decode(token)
+        if jwks_fetcher = Auth.jwks_fetcher
+          jwks_fetcher.public_keys.decode(token)
+        else
+          raise JWT::VerificationError.new("JWKS fetcher not initialized")
+        end
       end
 
       protected def validate_and_extract_claims(payload) : TokenClaims

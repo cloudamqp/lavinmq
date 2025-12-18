@@ -5,8 +5,7 @@ require "../src/lavinmq/auth/local_authenticator"
 class MockVerifier < LavinMQ::Auth::JWTTokenVerifier
   def initialize(config : LavinMQ::Config, @username : String, @tags : Array(LavinMQ::Tag)?,
                  @permissions : Hash(String, LavinMQ::Auth::BaseUser::Permissions)?, @expires_at : Time)
-    public_keys = LavinMQ::Auth::PublicKeys.new
-    super(config, public_keys)
+    super(config)
   end
 
   def verify_token(token : String) : LavinMQ::Auth::TokenClaims

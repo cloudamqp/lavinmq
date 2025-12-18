@@ -1,9 +1,23 @@
 require "http/client"
 require "json"
 require "./lib_crypto_ext"
+require "./public_keys"
+require "../rough_time"
 
 module LavinMQ
   module Auth
+    # Module-level accessor for the JWKS fetcher.
+    # This allows components to access the fetcher without passing it through layers.
+    @@jwks_fetcher : JWKSFetcher?
+
+    def self.jwks_fetcher=(fetcher : JWKSFetcher?)
+      @@jwks_fetcher = fetcher
+    end
+
+    def self.jwks_fetcher : JWKSFetcher?
+      @@jwks_fetcher
+    end
+
     # Fetches JWKS (JSON Web Key Set) from OAuth provider.
     # Handles OIDC discovery and JWKS parsing.
     class JWKSFetcher
@@ -11,8 +25,52 @@ module LavinMQ
 
       record JWKSResult, keys : Hash(String, String), ttl : Time::Span
 
+      getter public_keys : PublicKeys
+
       def initialize(issuer_url : String, @default_cache_ttl : Time::Span)
         @issuer_url = issuer_url.chomp("/")
+        @public_keys = PublicKeys.new
+        @refresh_trigger = Channel(Nil).new
+      end
+
+      def refresh_loop
+        retry_delay = 5.seconds
+        max_retry_delay = 5.minutes
+
+        loop do
+          begin
+            result = fetch_jwks
+            @public_keys.update(result.keys, result.ttl)
+            Log.info { "Refreshed JWKS with #{result.keys.size} key(s), TTL=#{result.ttl}" }
+            retry_delay = 5.seconds
+
+            wait_time = calculate_wait_time
+            select
+            when @refresh_trigger.receive
+              Log.info { "Immediate JWKS refresh triggered" }
+            when timeout(wait_time)
+            end
+          rescue ex
+            Log.error(exception: ex) { "Failed to fetch JWKS, retrying in #{retry_delay}: #{ex.message}" }
+
+            select
+            when @refresh_trigger.receive
+              Log.info { "Immediate JWKS refresh triggered during retry" }
+              retry_delay = 5.seconds
+            when timeout(retry_delay)
+            end
+
+            retry_delay = {retry_delay * 2, max_retry_delay}.min
+          end
+        end
+      end
+
+      private def calculate_wait_time : Time::Span
+        if expires_at = @public_keys.expires_at
+          remaining = expires_at - RoughTime.utc
+          return remaining if remaining > 0.seconds
+        end
+        5.seconds # Default minimum wait if keys expired or not set
       end
 
       def fetch_jwks : JWKSResult

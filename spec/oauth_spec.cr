@@ -2,9 +2,7 @@ require "./spec_helper"
 
 def create_oauth_test_authenticator(config : LavinMQ::Config? = nil)
   config ||= create_oauth_test_config
-  public_keys = LavinMQ::Auth::PublicKeys.new
-  verifier = LavinMQ::Auth::JWTTokenVerifier.new(config, public_keys)
-  LavinMQ::Auth::OAuthAuthenticator.new(verifier)
+  LavinMQ::Auth::OAuthAuthenticator.new(config)
 end
 
 def create_oauth_test_config
@@ -329,8 +327,7 @@ module OAuthUserHelper
     config = LavinMQ::Config.new
     config.oauth_issuer_url = "https://auth.example.com"
     config.oauth_preferred_username_claims = ["preferred_username"]
-    public_keys = LavinMQ::Auth::PublicKeys.new
-    verifier = LavinMQ::Auth::JWTTokenVerifier.new(config, public_keys)
+    verifier = LavinMQ::Auth::JWTTokenVerifier.new(config)
     LavinMQ::Auth::OAuthUser.new(
       "testuser",
       [] of LavinMQ::Tag,
