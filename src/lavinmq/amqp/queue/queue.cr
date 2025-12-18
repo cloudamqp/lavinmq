@@ -676,7 +676,7 @@ module LavinMQ::AMQP
       msg = env.message
       @log.debug { "Expiring #{sp} now due to #{reason}" }
 
-      @dead_letter.maybe_publish(msg, reason)
+      @dead_letter.route(msg, reason)
 
       delete_message sp
     end
