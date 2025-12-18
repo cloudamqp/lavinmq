@@ -129,6 +129,17 @@ class ThemeSwitcher {
   }
 })()
 
+// Check if sidebar is collapsed or expanded
+document.addEventListener("DOMContentLoaded", () => {
+  const sidebarCollapsed = window.localStorage.getItem('menuCollapsed')
+  const toggleLabel = document.querySelector('.toggle-menu-label')
+
+  if (sidebarCollapsed) {
+    toggleLabel.textContent = 'Expand sidebar';
+  }
+
+})
+
 // Initialize theme switcher when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
   // Store theme switcher instance on window for debugging
@@ -137,12 +148,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
 document.getElementById('toggle-menu').addEventListener('click', () => {
   document.documentElement.classList.toggle('menu-collapsed')
+  const toggleLabel = document.querySelector('.toggle-menu-label')
 
   // Save state
   if (document.documentElement.classList.contains('menu-collapsed')) {
     window.localStorage.setItem('menuCollapsed', 'true')
+    toggleLabel.textContent = 'Expand sidebar';
   } else {
     window.localStorage.removeItem('menuCollapsed')
+    toggleLabel.textContent = 'Collapse sidebar';
   }
 })
 

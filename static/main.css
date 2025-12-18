@@ -1027,43 +1027,61 @@ footer .logo {
   opacity: 1;
 }
 
-.menu-collapsed {
-  #menu-content {
-    .menu-group {
-      display: none;
+@media (min-width: 1000px) {
+  .menu-collapsed {
+    #menu-content {
+      .menu-group {
+        display: none;
+      }
+
+      li a {
+        justify-content: center;
+      }
+
+      li a span.menu-item-label {
+        display: none;
+      }
+
+      li.last-menu-item a span.menu-item-label {
+        display: block;
+        font-size: 8px;
+        line-height: 10px;
+        width: 28px;
+        text-align: left;
+        border: 1px solid light-dark(#6B7280, #9D9C9A);
+        text-align: center;
+        padding: 4px 0;
+        border-radius: 2px;
+      }
+
+      .icon-blank {
+        display: none;
+      }
     }
 
-    li a {
-      justify-content: center;
+    #menu {
+      width: auto;
+
+      ul {
+        padding: 0 0.75rem;
+      }
+
+      ul li a img {
+        margin-right: 0;
+      }
     }
 
-    li a span.menu-item-label {
-      display: none;
-    }
-  }
-
-  #menu {
-    width: auto;
-
-    ul {
-      padding: 0 0.75rem;
+    main.main-grid {
+      /*padding-left: 68px;*/
     }
 
-    ul li a img {
-      margin-right: 0;
+    .r-c {
+      left: 68px;
     }
-  }
 
-  main.main-grid {
-    /*padding-left: 68px;*/
-  }
-
-  .r-c {
-    left: 68px;
-  }
-
-  footer {
-    padding-left: 68px;
+    footer {
+      padding-left: 68px;
+    }
   }
 }
 
@@ -1721,6 +1739,10 @@ fieldset.inline {
   opacity: 1;
 }
 
+.menu-tooltip:hover .menu-tooltip-label.toggle-menu-label {
+  opacity: 1;
+}
+
 pre.arguments>div {
   padding-left: 1em;
   text-indent: -1em;
@@ -2214,6 +2236,10 @@ html.theme-dark {
 }
 
 @media (max-width: 1000px) {
+  .toggle-menu-wrapper {
+    display: none;
+  }
+
   main.main-grid {
     padding-left: 24px;
   }
