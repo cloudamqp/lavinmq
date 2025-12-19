@@ -139,8 +139,7 @@ jobs:
     name: Filters for frontend specs
     runs-on: ubuntu-latest
     outputs:
-      views: ${{ steps.changes.outputs.views }}
-      js: ${{ steps.changes.outputs.js }}
+      frontend_changed: ${{ steps.changes.outputs.js == 'true' || steps.changes.outputs.views == 'true' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -157,7 +156,7 @@ jobs:
     name: Frontend specs
     runs-on: ubuntu-24.04
     needs: [compile, path_filter]
-    if: ${{ needs.path_filter.outputs.views == 'true' || needs.path_filter.outputs.js == 'true' }}
+    if: ${{ github.ref_name == 'main' || needs.path_filter.outputs.frontend_changed == 'true' }}
     steps:
       - name: Install LavinMQ dependencies
         run: |
