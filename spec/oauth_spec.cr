@@ -354,4 +354,43 @@ describe LavinMQ::Auth::OAuthUser do
       end
     end
   end
+
+  describe "#on_expiration" do
+    it "calls callback immediately when token is already expired" do
+      permissions = {"/" => {config: /.*/, read: /.*/, write: /.*/}}
+      # Create user with already expired token
+      user = OAuthUserHelper.create_user(RoughTime.utc - 1.hour, permissions)
+
+      callback_called = false
+      user.on_expiration do
+        callback_called = true
+      end
+
+      # Give fiber a moment to trigger the timeout and call callback
+      sleep 100.milliseconds
+
+      # Callback should be called since timeout triggers immediately for expired tokens
+      callback_called.should be_true
+    end
+
+    it "stops fiber when user is closed" do
+      permissions = {"/" => {config: /.*/, read: /.*/, write: /.*/}}
+      # Create user with token that expires in the future
+      user = OAuthUserHelper.create_user(RoughTime.utc + 1.hour, permissions)
+
+      callback_called = false
+      user.on_expiration do
+        callback_called = true
+      end
+
+      # Close the user (which closes the channel)
+      user.close
+
+      # Give fiber a moment to detect closed channel and exit
+      sleep 100.milliseconds
+
+      # Callback should not be called since user was closed before expiration
+      callback_called.should be_false
+    end
+  end
 end

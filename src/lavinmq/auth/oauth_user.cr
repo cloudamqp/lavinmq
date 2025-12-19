@@ -28,7 +28,13 @@ module LavinMQ
               break
             end
           end
+        rescue Channel::ClosedError
+          # Channel closed, exit gracefully
         end
+      end
+
+      def close
+        @token_updated.close
       end
 
       def update_secret(new_secret : String)

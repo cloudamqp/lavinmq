@@ -470,6 +470,10 @@ module LavinMQ
         @exclusive_queues.each(&.close)
         @exclusive_queues.clear
         @vhost.rm_connection(self)
+        case user = @user
+        when Auth::OAuthUser
+          user.close
+        end
       end
 
       private def close_socket
