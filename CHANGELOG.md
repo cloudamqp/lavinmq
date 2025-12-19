@@ -27,8 +27,6 @@ This release introduces the ability to restart closed queues, enhanced TLS capab
 
 ### Fixed
 - Dead lettering refactord to have proper routing and death cycle detection. [#1552](https://github.com/cloudamqp/lavinmq/pull/1552)
-
-### Fixed
 - Prefetch button icons in CSS [#1556](https://github.com/cloudamqp/lavinmq/pull/1556)
 
 ## [2.6.1] - 2025-12-07
