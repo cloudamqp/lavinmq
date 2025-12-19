@@ -82,7 +82,7 @@ module LavinMQ
           # Create Option object with CLI args and a block that parses and stores the value
           # when the option is encountered during command line parsing
           sections[:{{section_id}}][:options] << Option.new({{parser_arg.splat}}, {{cli_opt[:deprecated]}}) do |value|
-            @{{ivar.name.id}} = parse_value(value, {{value_parser}})
+            self.{{ivar.name.id}} = parse_value(value, {{value_parser}})
           end
         {% end %}
         sections.each do |_section_id, section|
@@ -198,20 +198,9 @@ module LavinMQ
         {% for var in ivars_in_section %}
          when "{{var[:ini_name]}}"
          {% if (deprecated = var[:deprecated]) %}
-           {%
-             use_ivar = @type.instance_vars.find &.name.== deprecated
-             anno = use_ivar.annotation(IniOpt)
-             use_ivar = {
-               var_name:   use_ivar.name,
-               ini_name:   anno[:ini_name] || use_ivar.name,
-               transform:  anno[:transform] || use_ivar.type,
-               deprecated: anno[:deprecated],
-             }
-           %}
-           Log.warn { "Config {{var[:ini_name]}} is deprecated, use {{use_ivar[:ini_name]}} instead" }
-           {% var = use_ivar %}
+           Log.warn { "Config {{var[:ini_name]}} is deprecated, use {{deprecated.id}} instead" }
          {% end %}
-         @{{var[:var_name]}} = parse_value(v, {{var[:transform]}})
+         self.{{var[:var_name]}} = parse_value(v, {{var[:transform]}})
         {% end %}
      else
        raise "Unknown setting #{name} in section {{section.id}}"
@@ -223,7 +212,6 @@ module LavinMQ
   {% end %}
     end
 
-    # Generate parse_value methods for all Int and UInt
     {% for int in [Int8, Int16, Int32, Int64, UInt8, UInt16, UInt32, UInt64] %}
       private def parse_value(value, type : {{int}}.class)
         {{int}}.new(value)
