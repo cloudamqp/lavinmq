@@ -172,14 +172,6 @@ function addVhostOptions (formId, options) {
   })
 }
 
-function redirectOnVhostMismatch (urlVhost, redirectUrl) {
-  const storedVhost = window.sessionStorage.getItem('vhost')
-
-  if (storedVhost !== '_all' && storedVhost && urlVhost && urlVhost !== storedVhost) {
-    window.location.href = redirectUrl
-  }
-}
-
 export {
   addVhostOptions,
   formatNumber,
@@ -189,6 +181,5 @@ export {
   argumentHelperJSON,
   formatJSONargument,
   autoCompleteDatalist,
-  formatTimestamp,
-  redirectOnVhostMismatch
+  formatTimestamp
 }

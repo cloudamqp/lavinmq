@@ -8,7 +8,6 @@ import { UrlDataSource } from './datasource.js'
 const search = new URLSearchParams(window.location.hash.substring(1))
 const exchange = search.get('name')
 const vhost = search.get('vhost')
-Helpers.redirectOnVhostMismatch(vhost, 'exchanges')
 const chart = Chart.render('chart', 'msgs/s')
 
 document.title = exchange + ' | LavinMQ'

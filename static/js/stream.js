@@ -8,7 +8,6 @@ import { UrlDataSource, DataSource } from './datasource.js'
 const search = new URLSearchParams(window.location.hash.substring(1))
 const queue = search.get('name')
 const vhost = search.get('vhost')
-Helpers.redirectOnVhostMismatch(vhost, 'queues')
 const pauseQueueForm = document.querySelector('#pauseQueue')
 const resumeQueueForm = document.querySelector('#resumeQueue')
 document.title = queue + ' | LavinMQ'

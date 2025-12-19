@@ -8,7 +8,6 @@ import { DataSource } from './datasource.js'
 const search = new URLSearchParams(window.location.hash.substring(1))
 const channel = search.get('name')
 let vhost = search.get('vhost')
-Helpers.redirectOnVhostMismatch(vhost, 'channels')
 const channelUrl = HTTP.url`api/channels/${channel}`
 const chart = Chart.render('chart', 'msgs/s')
 document.title = channel + ' | LavinMQ'

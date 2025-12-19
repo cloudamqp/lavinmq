@@ -1,5 +1,4 @@
 import * as HTTP from './http.js'
-import * as Helpers from './helpers.js'
 import * as DOM from './dom.js'
 import * as Table from './table.js'
 import * as Chart from './chart.js'
@@ -7,10 +6,7 @@ import { UrlDataSource } from './datasource.js'
 
 const chart = Chart.render('chart', 'bytes/s')
 
-const search = new URLSearchParams(window.location.hash.substring(1))
-const connection = search.get('name')
-const vhost = search.get('vhost')
-Helpers.redirectOnVhostMismatch(vhost, 'connections')
+const connection = new URLSearchParams(window.location.hash.substring(1)).get('name')
 document.title = `Connection ${connection} | LavinMQ`
 document.querySelector('#pagename-label').textContent = connection
 
