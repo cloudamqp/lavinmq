@@ -15,7 +15,8 @@ require "../../message_store"
 require "../../unacked_message"
 require "../../deduplication"
 require "../../bool_channel"
-require "../argument_validator"
+require "../argument_target"
+require "../argument"
 
 module LavinMQ::AMQP
   class Queue < LavinMQ::Queue
@@ -24,36 +25,26 @@ module LavinMQ::AMQP
     include Stats
     include SortableJSON
 
-    def self.validate_arguments!(arguments : AMQP::Table)
-      int_zero = ArgumentValidator::IntValidator.new(min_value: 0)
-      int_one = ArgumentValidator::IntValidator.new(min_value: 1)
-      string = ArgumentValidator::StringValidator.new
-      bool = ArgumentValidator::BoolValidator.new
-      dlrk = ArgumentValidator::DeadLetteringValidator.new(arguments)
+    include ArgumentTarget
+    include Argument::DeadLettering
 
-      headers = {
-        "x-dead-letter-exchange":    string,
-        "x-dead-letter-routing-key": dlrk,
-        "x-expires":                 int_one,
-        "x-max-length":              int_zero,
-        "x-max-length-bytes":        int_zero,
-        "x-message-ttl":             int_zero,
-        "x-overflow":                string,
-        "x-delivery-limit":          int_zero,
-        "x-consumer-timeout":        int_zero,
-        "x-single-active-consumer":  bool,
-        "x-message-deduplication":   bool,
-        "x-cache-size":              int_zero,
-        "x-cache-ttl":               int_zero,
-        "x-deduplication-header":    string,
-      }
+    VALIDATOR_INT_ZERO = ArgumentValidator::IntValidator.new(min_value: 0)
+    VALIDATOR_INT_ONE  = ArgumentValidator::IntValidator.new(min_value: 1)
+    VALIDATOR_STRING   = ArgumentValidator::StringValidator.new
+    VALIDATOR_BOOL     = ArgumentValidator::BoolValidator.new
 
-      arguments.each do |k, v|
-        if validator = headers[k]?
-          validator.validate!(k, v)
-        end
-      end
-    end
+    add_argument_validator "x-expires", VALIDATOR_INT_ONE
+    add_argument_validator "x-max-length", VALIDATOR_INT_ZERO
+    add_argument_validator "x-max-length-bytes", VALIDATOR_INT_ZERO
+    add_argument_validator "x-message-ttl", VALIDATOR_INT_ZERO
+    add_argument_validator "x-overflow", VALIDATOR_STRING
+    add_argument_validator "x-delivery-limit", VALIDATOR_INT_ZERO
+    add_argument_validator "x-consumer-timeout", VALIDATOR_INT_ZERO
+    add_argument_validator "x-single-active-consumer", VALIDATOR_BOOL
+    add_argument_validator "x-message-deduplication", VALIDATOR_BOOL
+    add_argument_validator "x-cache-size", VALIDATOR_INT_ZERO
+    add_argument_validator "x-cache-ttl", VALIDATOR_INT_ZERO
+    add_argument_validator "x-deduplication-header", VALIDATOR_STRING
 
     def self.create(vhost : VHost, name : String,
                     exclusive : Bool = false, auto_delete : Bool = false,
@@ -67,8 +58,6 @@ module LavinMQ::AMQP
     @max_length_bytes : Int64?
     @expires : Int64?
     @delivery_limit : Int64?
-    @dlx : String?
-    @dlrk : String?
     @reject_on_overflow = false
     @exclusive_consumer = false
     @deliveries = Hash(SegmentPosition, Int32).new
@@ -192,9 +181,10 @@ module LavinMQ::AMQP
       end
       @msg_store = init_msg_store(@data_dir)
       if @msg_store.closed
-        close
+        !close
       end
       @empty = @msg_store.empty
+      @dead_letter = Argument::DeadLettering::DeadLetterer.new(@vhost, @name, @log)
       handle_arguments
       spawn queue_expire_loop, name: "Queue#queue_expire_loop #{@vhost.name}/#{@name}" if @expires
       spawn message_expire_loop, name: "Queue#message_expire_loop #{@vhost.name}/#{@name}"
@@ -284,14 +274,14 @@ module LavinMQ::AMQP
           return true
         end
       when "dead-letter-exchange"
-        if @dlx.nil?
-          @dlx ||= value.as_s
+        if @dead_letter.dlx.nil?
+          @dead_letter.dlx ||= value.as_s
           @effective_args.delete("x-dead-letter-exchange")
           return true
         end
       when "dead-letter-routing-key"
-        if @dlrk.nil?
-          @dlrk ||= value.as_s
+        if @dead_letter.dlrk.nil?
+          @dead_letter.dlrk ||= value.as_s
           @effective_args.delete("x-dead-letter-routing-key")
           return true
         end
@@ -325,10 +315,10 @@ module LavinMQ::AMQP
 
     private def handle_arguments # ameba:disable Metrics/CyclomaticComplexity
       @effective_args = Array(String).new
-      @dlx = parse_header("x-dead-letter-exchange", String)
-      @effective_args << "x-dead-letter-exchange" if @dlx
-      @dlrk = parse_header("x-dead-letter-routing-key", String)
-      @effective_args << "x-dead-letter-routing-key" if @dlrk
+      @dead_letter.dlx = parse_header("x-dead-letter-exchange", String)
+      @effective_args << "x-dead-letter-exchange" if @dead_letter.dlx
+      @dead_letter.dlrk = parse_header("x-dead-letter-routing-key", String)
+      @effective_args << "x-dead-letter-routing-key" if @dead_letter.dlrk
       @expires = parse_header("x-expires", Int).try &.to_i64
       @effective_args << "x-expires" if @expires
       @queue_expiration_ttl_change.try_send? nil
@@ -641,7 +631,7 @@ module LavinMQ::AMQP
     end
 
     private def expire_msg(sp : SegmentPosition, reason : Symbol)
-      if sp.has_dlx? || @dlx
+      if sp.has_dlx? || @dead_letter.dlx
         msg = @msg_store_lock.synchronize { @msg_store[sp] }
         env = Envelope.new(sp, msg, false)
         expire_msg(env, reason)
@@ -654,111 +644,10 @@ module LavinMQ::AMQP
       sp = env.segment_position
       msg = env.message
       @log.debug { "Expiring #{sp} now due to #{reason}" }
-      if dlx = msg.dlx || @dlx
-        if dead_letter_loop?(msg.properties.headers, reason)
-          @log.debug { "#{msg} in a dead letter loop, dropping it" }
-        else
-          dlrk = msg.dlrk || @dlrk || msg.routing_key
-          props = handle_dlx_header(msg, reason)
-          dead_letter_msg(msg, props, dlx, dlrk)
-        end
-      end
+
+      @dead_letter.route(msg, reason)
+
       delete_message sp
-    end
-
-    # checks if the message has been dead lettered to the same queue
-    # for the same reason already
-    private def dead_letter_loop?(headers, reason) : Bool
-      xdeaths = headers.try &.["x-death"]?.as?(Array(AMQ::Protocol::Field))
-      return false unless xdeaths
-
-      queue_matches, has_rejected = 0, false
-      xdeaths.each do |xd|
-        next unless table = xd.as?(AMQ::Protocol::Table)
-        has_rejected = true if table["reason"]? == "rejected"
-        queue_matches += 1 if table["queue"]? == @name
-      end
-
-      # For maxlen/maxlenbytes, prevent loop on first occurrence (threshold=0) since they trigger immediately
-      # For other reasons like TTL, allow one occurrence before blocking (threshold=1)
-      threshold = reason.in?(:maxlen, :maxlenbytes) ? 0 : 1
-      if queue_matches > threshold && !has_rejected
-        @log.debug { "preventing dead letter loop" }
-        true
-      else
-        false
-      end
-    end
-
-    private def handle_dlx_header(msg, reason) : AMQP::Properties
-      h = msg.properties.headers || AMQP::Table.new
-      h.reject! { |k, _| k.in?("x-dead-letter-exchange", "x-dead-letter-routing-key") }
-
-      # there's a performance advantage to do `has_key?` over `||=`
-      h["x-first-death-reason"] = reason.to_s unless h.has_key? "x-first-death-reason"
-      h["x-first-death-queue"] = @name unless h.has_key? "x-first-death-queue"
-      h["x-first-death-exchange"] = msg.exchange_name unless h.has_key? "x-first-death-exchange"
-
-      routing_keys = [msg.routing_key.as(AMQP::Field)]
-      if cc = h.delete("CC")
-        # should route to all the CC RKs but then delete them,
-        # so we (ab)use the BCC header for that
-        h["BCC"] = cc
-        routing_keys.concat cc.as(Array(AMQP::Field))
-      end
-
-      msg.properties.headers = handle_xdeath_header(h, msg.exchange_name, routing_keys, reason, msg.properties.expiration)
-      msg.properties.expiration = nil
-      msg.properties
-    end
-
-    private def handle_xdeath_header(headers, exchange_name, routing_keys, reason, expiration) : AMQP::Table
-      xdeaths = headers["x-death"]?.as?(Array(AMQP::Field)) || Array(AMQP::Field).new(1)
-
-      found_at = -1
-      xdeaths.each_with_index do |xd, idx|
-        xd = xd.as(AMQP::Table)
-        next if xd["queue"]? != @name
-        next if xd["reason"]? != reason.to_s
-        next if xd["exchange"]? != exchange_name
-        count = xd["count"].as?(Int) || 0
-        xd.merge!({
-          count:          count + 1,
-          time:           RoughTime.utc,
-          "routing-keys": routing_keys,
-        })
-        xd["original-expiration"] = expiration if expiration
-        found_at = idx
-        break
-      end
-
-      case found_at
-      when -1 # not found so inserting new x-death
-        death = AMQP::Table.new({
-          "queue":        @name,
-          "reason":       reason.to_s,
-          "exchange":     exchange_name,
-          "count":        1,
-          "time":         RoughTime.utc,
-          "routing-keys": routing_keys,
-        })
-        death["original-expiration"] = expiration if expiration
-        xdeaths.unshift death
-      when 0
-        # do nothing, updated xd is in the front
-      else
-        # move updated xd to the front
-        xd = xdeaths.delete_at(found_at)
-        xdeaths.unshift xd
-      end
-      headers["x-death"] = xdeaths
-      headers
-    end
-
-    private def dead_letter_msg(msg : BytesMessage, props, dlx, dlrk)
-      @log.debug { "Dead lettering ex=#{dlx} rk=#{dlrk} body_size=#{msg.bodysize} props=#{props}" }
-      @vhost.publish Message.new(RoughTime.unix_ms, dlx.to_s, dlrk.to_s,
-        props, msg.bodysize, IO::Memory.new(msg.body))
     end
 
     private def expire_queue : Bool
