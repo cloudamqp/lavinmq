@@ -80,6 +80,11 @@ document.getElementById('multi-check-all').addEventListener('change', (el) => {
 
 const queuesTable = Table.renderTable('table', tableOptions, function (tr, item, all) {
   if (all) {
+    if (item.internal) {
+      tr.classList.add("internal")
+    } else {
+      tr.classList.remove("internal")
+    }
     const features = document.createElement('span')
     features.className = 'features'
     if (item.durable) {
