@@ -34,10 +34,11 @@ document.getElementById('userMenuVhost').addEventListener('change', (e) => {
     redirectUrl = vhostRedirectUrl(window.location.pathname)
   }
 
-  if (redirectUrl)
+  if (redirectUrl) {
     window.location.href = redirectUrl
-  else
+  } else {
     window.location.reload()
+  }
 })
 
 function vhostRedirectUrl (url) {
@@ -50,10 +51,7 @@ function vhostRedirectUrl (url) {
 
   const match = Object.keys(redirectPatterns).find(urlRegExp => new RegExp(`/${urlRegExp}`).test(url))
 
-  if (match)
-    return redirectPatterns[match]
-  else
-    return null
+  return redirectPatterns[match]
 }
 
 document.getElementById('signoutLink').addEventListener('click', () => {
