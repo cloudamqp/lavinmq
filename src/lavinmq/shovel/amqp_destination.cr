@@ -62,14 +62,14 @@ module LavinMQ
         rk = @exchange_key || msg.routing_key
         case @ack_mode
         in AckMode::OnConfirm
-          ch.basic_publish(msg.body_io, ex, rk, props: msg.properties) do
+          ch.basic_publish(msg.body, ex, rk, props: msg.properties) do
             source.ack(msg.delivery_tag)
           end
         in AckMode::OnPublish
-          ch.basic_publish(msg.body_io, ex, rk, props: msg.properties)
+          ch.basic_publish(msg.body, ex, rk, props: msg.properties)
           source.ack(msg.delivery_tag)
         in AckMode::NoAck
-          ch.basic_publish(msg.body_io, ex, rk, props: msg.properties)
+          ch.basic_publish(msg.body, ex, rk, props: msg.properties)
         end
       end
     end

@@ -45,7 +45,7 @@ module LavinMQ
                else
                  "/"
                end
-        response = c.post(path, headers: headers, body: msg.body_io)
+        response = c.post(path, headers: headers, body: msg.body)
         case @ack_mode
         in AckMode::OnConfirm, AckMode::OnPublish
           raise FailedDeliveryError.new unless response.success?

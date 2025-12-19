@@ -145,7 +145,7 @@ module LavinMQ
         Log.trace { "ack_timeout_loop stopped for ch #{ch}" }
       end
 
-      def each(&blk : ::AMQP::Client::DeliverMessage -> Nil)
+      def each(&blk : ShovelMessage -> Nil)
         raise "Not started" unless started?
         q = @q.not_nil!
         ch = @ch.not_nil!
@@ -157,7 +157,8 @@ module LavinMQ
           block: true,
           args: @args,
           tag: @tag) do |msg|
-          blk.call(msg) unless past_end?(msg.delivery_tag)
+          shovel_msg = ShovelMessage.new(msg)
+          blk.call(shovel_msg) unless past_end?(msg.delivery_tag)
           if at_end?(msg.delivery_tag)
             ch.basic_cancel(@tag, no_wait: true)
             @done.wait # wait for last ack before returning, which will close connection

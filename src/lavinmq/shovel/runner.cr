@@ -4,6 +4,26 @@ require "./source"
 
 module LavinMQ
   module Shovel
+    struct ShovelMessage
+      getter exchange, routing_key, body, properties, delivery_tag
+
+      def initialize(msg : ::AMQP::Client::DeliverMessage)
+        @exchange = msg.exchange
+        @routing_key = msg.routing_key
+        @body = msg.body_io
+        @properties = msg.properties
+        @delivery_tag = msg.delivery_tag
+      end
+
+      def initialize(msg : String)
+        @exchange = ""
+        @routing_key = ""
+        @body = IO::Memory.new
+        @properties = AMQ::Protocol::Properties.new
+        @delivery_tag = 0u64
+      end
+    end
+
     class Runner
       include SortableJSON
       @state = State::Stopped
