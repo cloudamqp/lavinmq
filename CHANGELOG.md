@@ -15,6 +15,7 @@ This release introduces the ability to restart closed queues, enhanced TLS capab
 - TLS SNI and mTLS support [#1516](https://github.com/cloudamqp/lavinmq/pull/1516)
 - Shell command hooks for cluster leader transitions [#1491](https://github.com/cloudamqp/lavinmq/pull/1491)
 - Shovel and federation management commands to lavinmqctl [#1277](https://github.com/cloudamqp/lavinmq/pull/1277)
+- Cache checksums on followers for faster failover [#1554](https://github.com/cloudamqp/lavinmq/pull/1554)
 
 ### Changed
 - Convert queued message graph to stacked line graph [#1565](https://github.com/cloudamqp/lavinmq/pull/1565)

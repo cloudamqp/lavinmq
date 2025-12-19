@@ -2,7 +2,7 @@ require "../../src/lavinmq/clustering/client"
 require "../../src/lavinmq/clustering/server"
 
 class SpecClustering
-  getter replicator, config, follower_config
+  getter replicator, config, follower_config, repli
 
   @follower_stopped = WaitGroup.new(1)
   @follower_config : LavinMQ::Config

@@ -285,4 +285,97 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
     FileUtils.mkdir_p LavinMQ::Config.instance.data_dir
     replicator.try &.close
   end
+
+  describe "checksum caching on followers" do
+    it "can persist checksums for promotion" do
+      with_clustering do |cluster|
+        with_amqp_server(replicator: cluster.replicator) do |s|
+          with_channel(s) do |ch|
+            # Create a queue which will create files during streaming
+            q = ch.queue("checksum_test")
+            q.publish_confirm "test message"
+          end
+
+          # Wait for replication to complete
+          wait_for { cluster.replicator.followers.first?.try &.lag_in_bytes == 0 }
+
+          # Brief wait for any async operations
+          sleep 0.1.seconds
+        end
+
+        # Close follower (simulating promotion) - this persists checksums
+        follower = cluster.repli
+        follower.close
+
+        # Verify checksums were persisted to disk
+        checksums_file = File.join(cluster.follower_config.data_dir, "checksums.sha1")
+        File.exists?(checksums_file).should be_true
+      end
+    end
+
+    it "checksums files during streaming" do
+      with_clustering do |cluster|
+        with_amqp_server(replicator: cluster.replicator) do |s|
+          with_channel(s) do |ch|
+            # Create a queue and publish messages
+            q = ch.queue("checksum_test", durable: true)
+            10.times { |i| q.publish_confirm "message #{i}", props: AMQP::Client::Properties.new(delivery_mode: 2) }
+          end
+
+          # Wait for replication to complete
+          wait_for { cluster.replicator.followers.first?.try &.lag_in_bytes == 0 }
+
+          # Brief wait for any async operations
+          sleep 0.1.seconds
+        end
+
+        follower = cluster.repli
+        follower.close
+
+        # Verify checksums file exists and has entries
+        checksums_file = File.join(cluster.follower_config.data_dir, "checksums.sha1")
+        File.exists?(checksums_file).should be_true
+
+        content = File.read(checksums_file)
+        lines = content.lines
+
+        # Should have checksums for multiple files (queue definition + message segments)
+        lines.size.should be >= 2
+
+        # Verify each line has correct checksum format: 40 hex chars, space, asterisk, path
+        lines.each do |line|
+          line.should match(/^[0-9a-f]{40} \*/)
+        end
+
+        # Should have checksum for the queue's message segment file
+        # Queue creates files in %default/queues/<sha1 of queue name>/
+        lines.any?(&.includes?("msgs.")).should be_true
+      end
+    end
+
+    it "handles file deletions without crashing" do
+      with_clustering do |cluster|
+        with_amqp_server(replicator: cluster.replicator) do |s|
+          with_channel(s) do |ch|
+            # Create and delete a queue, which will delete its files
+            q = ch.queue("checksum_delete_test")
+            q.publish_confirm "test"
+            q.delete
+          end
+
+          # Wait for replication to complete
+          wait_for { cluster.replicator.followers.first?.try &.lag_in_bytes == 0 }
+
+          # Brief wait for any async operations
+          sleep 0.1.seconds
+        end
+
+        follower = cluster.repli
+
+        # Should not crash when closing
+        # Just call it and verify no exception is raised
+        follower.close
+      end
+    end
+  end
 end

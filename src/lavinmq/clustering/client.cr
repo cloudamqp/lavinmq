@@ -18,6 +18,8 @@ module LavinMQ
       @unix_mqtt_proxy : Proxy?
       @socket : TCPSocket?
       @streamed_bytes = 0_u64
+      @file_digests = Hash(String, Digest::SHA1).new
+      @follower_done = Channel(Nil).new
 
       def initialize(@config : Config, @id : Int32, @password : String, proxy = true)
         System.maximize_fd_limit
@@ -101,6 +103,8 @@ module LavinMQ
           Log.info { "Disconnected from server #{host}:#{port} (#{ex}), retrying..." }
           sleep 1.seconds
         end
+      ensure
+        @follower_done.send(nil)
       end
 
       def follows?(_nil : Nil) : Bool
@@ -269,7 +273,7 @@ module LavinMQ
       private def append(filename, len, lz4)
         Log.debug { "Appending #{len.abs} bytes to #{filename}" }
         f = @files[filename]
-        IO.copy(lz4, f, len.abs) == len.abs || raise IO::EOFError.new("Full append not received")
+        stream_with_checksum(filename, lz4, f, len.abs)
       end
 
       private def delete(filename)
@@ -280,17 +284,41 @@ module LavinMQ
         else
           File.delete? File.join(@data_dir, filename)
         end
+        @checksums.delete(filename)
+        @file_digests.delete(filename)
       end
 
       private def replace(filename, len, lz4)
         Log.debug { "Replacing file #{filename} (#{len} bytes)" }
         @files.delete(filename).try &.close
+
+        # Reset SHA1 digest for replaced file
+        @file_digests[filename] = Digest::SHA1.new
+
         path = File.join(@data_dir, "#{filename}.tmp")
         Dir.mkdir_p File.dirname(path)
         File.open(path, "w") do |f|
           f.sync = true
-          IO.copy(lz4, f, len) == len || raise IO::EOFError.new("Full file not received")
+          stream_with_checksum(filename, lz4, f, len)
           f.rename f.path[0..-5]
+        end
+      end
+
+      # Read from lz4, update SHA1, and write to file incrementally
+      private def stream_with_checksum(filename : String, lz4 : IO, file : IO, length : Int64) : Nil
+        # Get or create SHA1 digest for this file
+        sha1 = @file_digests[filename] ||= Digest::SHA1.new
+
+        # Read, hash, and write incrementally
+        buffer = uninitialized UInt8[IO::DEFAULT_BUFFER_SIZE]
+        remaining = length
+        while remaining > 0
+          read_len = Math.min(remaining, buffer.size)
+          bytes = buffer.to_slice[0, read_len]
+          lz4.read_fully(bytes)
+          file.write(bytes)
+          sha1.update(bytes)
+          remaining -= read_len
         end
       end
 
@@ -331,6 +359,7 @@ module LavinMQ
       end
 
       def close
+        return if @closed
         @closed = true
         @amqp_proxy.try &.close
         @http_proxy.try &.close
@@ -339,9 +368,20 @@ module LavinMQ
         @unix_http_proxy.try &.close
         @unix_mqtt_proxy.try &.close
         @files.each_value &.close
+        @socket.try &.close
+        # Wait for follower loop to exit (with timeout to prevent hanging)
+        select
+        when @follower_done.receive
+        when timeout(5.seconds)
+          Log.warn { "Follower loop did not exit within timeout, forcing shutdown" }
+        end
+        # Finalize all pending checksums
+        @file_digests.each do |filename, sha1|
+          @checksums[filename] = sha1.final
+        end
+        @file_digests.clear
         @checksums.store
         @data_dir_lock.release
-        @socket.try &.close
         @metrics_server.try &.close
       end
 
