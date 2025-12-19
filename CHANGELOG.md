@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## [2.7.0-alpha.1] - 2025-12-07
 
 This release introduces the ability to restart closed queues, enhanced TLS capabilities including SNI and mTLS support, improved stream performance, improved clustering and federation management, and various performance optimizations.
 
@@ -23,6 +23,7 @@ This release introduces the ability to restart closed queues, enhanced TLS capab
 - Stream: Store offset only for first message per segment [#1479](https://github.com/cloudamqp/lavinmq/pull/1479)
 - Use parallel execution context for clustering followers [#1544](https://github.com/cloudamqp/lavinmq/pull/1544)
 - BCC remove on delivery [#1557](https://github.com/cloudamqp/lavinmq/pull/1557)
+- Reduce etcd lease keepalive renewal interval to 1/3rd of TTL [#1573](https://github.com/cloudamqp/lavinmq/pull/1573)
 
 ### Fixed
 - Dead lettering refactord to have proper routing and death cycle detection. [#1552](https://github.com/cloudamqp/lavinmq/pull/1552)
