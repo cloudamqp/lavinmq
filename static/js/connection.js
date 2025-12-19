@@ -1,8 +1,11 @@
 import * as HTTP from './http.js'
 import * as DOM from './dom.js'
+import * as Helpers from './helpers.js'
 import * as Table from './table.js'
 import * as Chart from './chart.js'
 import { UrlDataSource } from './datasource.js'
+
+Helpers.disableVhostSwap()
 
 const chart = Chart.render('chart', 'bytes/s')
 

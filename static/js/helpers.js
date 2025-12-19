@@ -172,6 +172,12 @@ function addVhostOptions (formId, options) {
   })
 }
 
+function disableVhostSwap () {
+  const vhostMenu = document.getElementById('userMenuVhost')
+  vhostMenu.disabled = true
+  vhostMenu.title = 'Current view is locked to a specific vhost'
+}
+
 export {
   addVhostOptions,
   formatNumber,
@@ -181,5 +187,6 @@ export {
   argumentHelperJSON,
   formatJSONargument,
   autoCompleteDatalist,
-  formatTimestamp
+  formatTimestamp,
+  disableVhostSwap
 }
