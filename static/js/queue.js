@@ -6,7 +6,7 @@ import * as Chart from './chart.js'
 import * as Auth from './auth.js'
 import { UrlDataSource, DataSource } from './datasource.js'
 
-Helpers.disableVhostSwap()
+Helpers.disableUserMenuVhost()
 
 const search = new URLSearchParams(window.location.hash.substring(1))
 const queue = search.get('name')

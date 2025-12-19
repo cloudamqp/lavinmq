@@ -5,7 +5,7 @@ import * as Table from './table.js'
 import * as Chart from './chart.js'
 import { UrlDataSource } from './datasource.js'
 
-Helpers.disableVhostSwap()
+Helpers.disableUserMenuVhost()
 
 const search = new URLSearchParams(window.location.hash.substring(1))
 const exchange = search.get('name')

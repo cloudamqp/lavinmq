@@ -1,9 +1,9 @@
 import * as Table from './table.js'
 import { UrlDataSource } from './datasource.js'
 import * as HTTP from './http.js'
-import * as Helpers fom './helpers.js'
+import * as Helpers from './helpers.js'
 
-Helpers.disableVhostSwap()
+Helpers.disableUserMenuVhost()
 
 const search = new URLSearchParams(window.location.hash.substring(1))
 const queue = search.get('name')

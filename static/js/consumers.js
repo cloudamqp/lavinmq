@@ -3,7 +3,7 @@ import * as HTTP from './http.js'
 import * as DOM from './dom.js'
 import * as Helpers from './helpers.js'
 
-Helpers.disableVhostSwap()
+Helpers.disableUserMenuVhost()
 
 const vhost = window.sessionStorage.getItem('vhost')
 let url = 'api/consumers'

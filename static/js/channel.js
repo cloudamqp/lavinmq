@@ -5,7 +5,7 @@ import * as HTTP from './http.js'
 import * as Chart from './chart.js'
 import { DataSource } from './datasource.js'
 
-Helpers.disableVhostSwap()
+Helpers.disableUserMenuVhost()
 
 const channel = new URLSearchParams(window.location.hash.substring(1)).get('name')
 const channelUrl = HTTP.url`api/channels/${channel}`
