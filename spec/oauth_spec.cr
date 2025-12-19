@@ -384,7 +384,7 @@ describe LavinMQ::Auth::OAuthUser do
       end
 
       # Close the user (which closes the channel)
-      user.close
+      user.cleanup
 
       # Give fiber a moment to detect closed channel and exit
       sleep 100.milliseconds

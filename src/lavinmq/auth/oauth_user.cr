@@ -33,7 +33,7 @@ module LavinMQ
         end
       end
 
-      def close
+      def cleanup
         @token_updated.close
       end
 

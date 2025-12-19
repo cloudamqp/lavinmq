@@ -472,7 +472,7 @@ module LavinMQ
         @vhost.rm_connection(self)
         case user = @user
         when Auth::OAuthUser
-          user.close
+          user.cleanup
         end
       end
 
