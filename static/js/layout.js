@@ -26,11 +26,12 @@ Helpers.addVhostOptions('user-vhost', { addAll: true }).then(() => {
 
 document.getElementById('userMenuVhost').addEventListener('change', (e) => {
   const sessionVhost = e.target.value
-  window.sessionStorage.setItem('vhost', sessionVhost)
   const urlVhost = new URLSearchParams(window.location.hash.substring(1)).get('vhost')
   let redirectUrl
 
-  if (sessionVhost && urlVhost && sessionVhost !== '_all' && urlVhost !== sessionVhost) {
+  window.sessionStorage.setItem('vhost', sessionVhost)
+
+  if (vhostMismatch(urlVhost, sessionVhost)) {
     redirectUrl = vhostRedirectUrl(window.location.pathname)
   }
 
@@ -41,18 +42,22 @@ document.getElementById('userMenuVhost').addEventListener('change', (e) => {
   }
 })
 
+function vhostMismatch (urlVhost, sessionVhost) {
+  return sessionVhost && urlVhost && sessionVhost !== '_all' && urlVhost !== sessionVhost
+}
+
 function vhostRedirectUrl (url) {
   const redirectPatterns = {
-    'queue(?!s)': 'queues',
-    'stream(?!s)': 'queues',
-    'exchange(?!s)': 'exchanges',
-    'connection(?!s)': 'connections',
-    'channel(?!s)': 'channels',
-    'consumer(?!s)': 'consumers',
-    unacked: 'queues'
+    '/queue(?!s)': 'queues',
+    '/stream(?!s)': 'queues',
+    '/exchange(?!s)': 'exchanges',
+    '/connection(?!s)': 'connections',
+    '/channel(?!s)': 'channels',
+    '/consumer(?!s)': 'consumers',
+    '/unacked': 'queues'
   }
 
-  const match = Object.keys(redirectPatterns).find(urlRegExp => new RegExp(`/${urlRegExp}`).test(url))
+  const match = Object.keys(redirectPatterns).find(urlRegExp => new RegExp(urlRegExp).test(url))
 
   return redirectPatterns[match]
 }
