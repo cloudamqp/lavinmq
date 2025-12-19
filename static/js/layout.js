@@ -46,7 +46,9 @@ function vhostRedirectUrl (url) {
     'queue(?!s)': 'queues',
     'stream(?!s)': 'queues',
     'exchange(?!s)': 'exchanges',
-    'connection(?!s)': 'connections'
+    'connection(?!s)': 'connections',
+    'channel(?!s)': 'channels',
+    'consumer(?!s)': 'consumers'
   }
 
   const match = Object.keys(redirectPatterns).find(urlRegExp => new RegExp(`/${urlRegExp}`).test(url))
