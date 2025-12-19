@@ -4,7 +4,8 @@ module LavinMQ::AMQP
   class DelayedExchangeQueue < Queue
     MAX_NAME_LENGTH = 256
 
-    @internal = true
+    getter? internal = true
+
     @exchange_name : String
 
     def self.create(vhost : VHost, exchange_name : String, durable : Bool, auto_delete : Bool)

@@ -100,6 +100,8 @@ module LavinMQ::AMQP
     @queue_expiration_ttl_change = ::Channel(Nil).new
     @effective_args = Array(String).new
 
+    getter? internal = false
+
     private def queue_expire_loop
       loop do
         break unless @expires
@@ -507,6 +509,7 @@ module LavinMQ::AMQP
         message_stats:                current_stats_details,
         effective_arguments:          @effective_args,
         effective_policy_arguments:   effective_policy_args,
+        internal:                     internal?,
       }
     end
 
