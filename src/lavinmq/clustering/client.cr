@@ -314,8 +314,8 @@ module LavinMQ
         remaining = length
         while remaining > 0
           read_len = Math.min(remaining, buffer.size)
-          lz4.read_fully(buffer.to_slice[0, read_len])
           bytes = buffer.to_slice[0, read_len]
+          lz4.read_fully(bytes)
           file.write(bytes)
           sha1.update(bytes)
           remaining -= read_len
