@@ -25,11 +25,43 @@ const consumersTableOpts = {
   dataSource: consumersDataSource
 }
 Table.renderTable('table', consumersTableOpts, function (tr, item) {
+  const index = consumersDataSource.items.findIndex(consumer => consumer.consumer_tag === item.consumer_tag)
   const channelLink = document.createElement('a')
   channelLink.href = HTTP.url`channel#name=${item.channel_details.name}`
   channelLink.textContent = item.channel_details.name
   const ack = item.ack_required ? '●' : '○'
-  const exclusive = item.exclusive ? '●' : '○'
+
+  // Display filters information
+  let filtersDisplay = ''
+  if (item.stream_filters) {
+    const filters = item.stream_filters.filters
+    const matchType = item.stream_filters.match_type
+    const matchUnfiltered = item.stream_filters.match_unfiltered
+
+    if (filters && filters.length > 0) {
+      const filterList = filters.map(filter => `${filter[0]}=${filter[1]}`).join(', ')
+      // Don't show match type if it's "all" - only show it for other types
+      const matchInfo = matchType === 'all' ? '' : ` (${matchType})`
+      const unfileredInfo = matchUnfiltered ? ', unfiltered' : ''
+      filtersDisplay = `${filterList}${matchInfo}${unfileredInfo}`
+    } else if (matchUnfiltered) {
+      filtersDisplay = 'Match: unfiltered only'
+    } else {
+      filtersDisplay = 'No filters'
+    }
+  } else {
+    filtersDisplay = item.exclusive ? 'Exclusive' : 'No filters'
+  }
+
+  // Create consumer tag with color box
+  const consumerTagContainer = document.createElement('span')
+  const colorSquare = document.createElement('span')
+  colorSquare.className = 'consumer-color-square'
+  colorSquare.style.backgroundColor = getConsumerColor(index)
+  consumerTagContainer.appendChild(colorSquare)
+  const tagText = document.createTextNode(item.consumer_tag)
+  consumerTagContainer.appendChild(tagText)
+
   const cancelForm = document.createElement('form')
   const btn = DOM.button.delete({ text: 'Cancel', type: 'submit' })
   cancelForm.appendChild(btn)
@@ -45,12 +77,52 @@ Table.renderTable('table', consumersTableOpts, function (tr, item) {
         updateQueue(false)
       })
   })
+  // Add data attribute for hover interaction and color
+  tr.dataset.consumerTag = item.consumer_tag
+  tr.className = 'consumer-table-row'
+
+  // Add hover event listeners for stream consumers
+  tr.addEventListener('mouseenter', () => {
+    currentlyHoveredConsumer = item.consumer_tag
+    const pointer = document.querySelector(`.consumer-pointer[data-consumer-tag="${item.consumer_tag}"]`)
+    if (pointer) {
+      pointer.classList.add('highlight')
+    }
+    tr.classList.add('highlight')
+  })
+
+  tr.addEventListener('mouseleave', () => {
+    currentlyHoveredConsumer = null
+    const pointer = document.querySelector(`.consumer-pointer[data-consumer-tag="${item.consumer_tag}"]`)
+    if (pointer) {
+      pointer.classList.remove('highlight')
+    }
+    tr.classList.remove('highlight')
+  })
+
+  // Restore hover state if this consumer was being hovered before refresh
+  if (currentlyHoveredConsumer === item.consumer_tag) {
+    tr.classList.add('highlight')
+  }
+
+  // Get position for this consumer from global positions data
+  let positionDisplay = '-'
+  if (window.currentStreamPositions) {
+    const position = window.currentStreamPositions[item.consumer_tag]
+    if (position !== undefined) {
+      const formattedPosition = Helpers.formatNumber(position)
+      const streamSize = window.currentStreamSize || 0
+      const progressPercent = streamSize > 0 ? Math.round((position / streamSize) * 100) : 0
+      positionDisplay = `${formattedPosition} (${progressPercent}%)`
+    }
+  }
   Table.renderCell(tr, 0, channelLink)
-  Table.renderCell(tr, 1, item.consumer_tag)
+  Table.renderCell(tr, 1, consumerTagContainer)
   Table.renderCell(tr, 2, ack, 'center')
-  Table.renderCell(tr, 3, exclusive, 'center')
-  Table.renderCell(tr, 4, item.prefetch_count, 'right')
-  Table.renderCell(tr, 5, cancelForm, 'right')
+  Table.renderCell(tr, 3, filtersDisplay, 'left')
+  Table.renderCell(tr, 4, positionDisplay, 'left')
+  Table.renderCell(tr, 5, item.prefetch_count, 'right')
+  Table.renderCell(tr, 6, cancelForm, 'right')
 })
 
 const loadMoreConsumersBtn = document.getElementById('load-more-consumers')
@@ -132,8 +204,126 @@ function updateQueue (all) {
           qArgs.appendChild(div)
         }
       }
+      if (item.consumer_reading_positions) {
+        updateStreamProgressBar(item.consumer_reading_positions, item.stream_last_offset, item.stream_bytesize, item.consumer_details)
+      }
     })
 }
+
+// Track currently hovered consumer to maintain hover state across refreshes
+let currentlyHoveredConsumer = null
+
+// Color palette matching the CSS nth-child colors for consumer pointers
+const consumerColors = [
+  '#3B82F6', // blue
+  '#10B981', // emerald
+  '#F59E0B', // amber
+  '#EF4444', // red
+  '#8B5CF6', // violet
+  '#06B6D4', // cyan
+  '#84CC16', // lime
+  '#F97316', // orange
+  '#EC4899', // pink
+  '#6366F1' // indigo
+]
+
+function getConsumerColor (index) {
+  return consumerColors[index % consumerColors.length]
+}
+
+function updateStreamProgressBar (positions, streamSize, streamBytesize, consumerDetails) {
+  // Store positions and stream size globally so consumer table can access them
+  window.currentStreamPositions = positions
+  window.currentStreamSize = streamSize
+
+  // Update stream size display
+  const streamSizeElement = document.getElementById('stream-total-size')
+  const streamBytesElement = document.getElementById('stream-total-bytes')
+  if (streamSizeElement && streamSize !== undefined) {
+    streamSizeElement.textContent = Helpers.formatNumber(streamSize)
+  }
+  if (streamBytesElement && streamBytesize !== undefined) {
+    streamBytesElement.textContent = Helpers.nFormatter(streamBytesize) + 'B'
+  }
+
+  // Update stream bar label
+  const streamBarLabel = document.getElementById('stream-bar-label')
+  if (streamBarLabel && streamSize !== undefined) {
+    streamBarLabel.textContent = Helpers.formatNumber(streamSize)
+  }
+
+  // Update visual bar with consumer pointers
+  const consumerPointersContainer = document.getElementById('consumer-pointers')
+  const noConsumersMessage = document.getElementById('stream-no-consumers')
+
+  if (consumerPointersContainer) {
+    consumerPointersContainer.innerHTML = ''
+
+    const hasConsumers = Object.keys(positions).length > 0
+
+    if (streamSize !== undefined && streamSize > 0 && hasConsumers) {
+      for (const [consumerTag, position] of Object.entries(positions)) {
+        const pointer = document.createElement('div')
+        pointer.className = 'consumer-pointer'
+        pointer.dataset.consumerTag = consumerTag
+
+        // Calculate position percentage (0-100%)
+        // For stream position 0, show at the very beginning
+        let positionPercent
+        if (position === 0) {
+          positionPercent = 0
+        } else {
+          positionPercent = Math.min(Math.max((position / streamSize) * 100, 0), 100)
+        }
+
+        pointer.style.left = `${positionPercent}%`
+
+        // Add hover label with position info
+        const label = document.createElement('div')
+        label.className = 'consumer-pointer-label'
+        const progressPercent = streamSize > 0 ? Math.round((position / streamSize) * 100) : 0
+        label.textContent = `${consumerTag}: ${Helpers.formatNumber(position)} (${progressPercent}%)`
+        pointer.appendChild(label)
+
+        // Add hover event listeners
+        pointer.addEventListener('mouseenter', () => {
+          currentlyHoveredConsumer = consumerTag
+          const tableRow = document.querySelector(`tr[data-consumer-tag="${consumerTag}"]`)
+          if (tableRow) {
+            tableRow.classList.add('highlight')
+          }
+          pointer.classList.add('highlight')
+        })
+
+        pointer.addEventListener('mouseleave', () => {
+          currentlyHoveredConsumer = null
+          const tableRow = document.querySelector(`tr[data-consumer-tag="${consumerTag}"]`)
+          if (tableRow) {
+            tableRow.classList.remove('highlight')
+          }
+          pointer.classList.remove('highlight')
+        })
+
+        // Restore hover state if this consumer was being hovered before refresh
+        if (currentlyHoveredConsumer === consumerTag) {
+          pointer.classList.add('highlight')
+        }
+
+        consumerPointersContainer.appendChild(pointer)
+      }
+    }
+
+    // Show/hide no consumers message
+    if (noConsumersMessage) {
+      if (hasConsumers) {
+        noConsumersMessage.classList.add('hide')
+      } else {
+        noConsumersMessage.classList.remove('hide')
+      }
+    }
+  }
+}
+
 updateQueue(true)
 setInterval(updateQueue, 5000)
 
