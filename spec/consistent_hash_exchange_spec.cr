@@ -184,6 +184,26 @@ describe LavinMQ::AMQP::ConsistentHashExchange do
       end
     end
 
+    it "should still route after unbinding duplicate binding with different arguments" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          x = ch.exchange(x_name, "x-consistent-hash")
+          q = ch.queue("my-queue")
+
+          q.bind(x.name, "3")
+          q.bind(x.name, "3", args: AMQP::Client::Arguments.new({"x-hash-on" => "cluster"}))
+
+          x.publish("test message 1", "rk")
+          q.get(no_ack: true).try(&.body_io.to_s).should eq("test message 1")
+
+          q.unbind(x.name, "3", args: AMQP::Client::Arguments.new({"x-hash-on" => "cluster"}))
+
+          x.publish("test message 2", "rk")
+          q.get(no_ack: true).try(&.body_io.to_s).should eq("test message 2")
+        end
+      end
+    end
+
     it "should route on to same queue even after delete" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
