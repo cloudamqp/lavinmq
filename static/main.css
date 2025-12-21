@@ -1071,10 +1071,6 @@ footer .logo {
       }
     }
 
-    main.main-grid {
-      /*padding-left: 68px;*/
-    }
-
     .r-c {
       left: 68px;
     }
@@ -1732,7 +1728,8 @@ fieldset.inline {
   font-size: 14px;
   line-height: 20px;
   opacity: 0;
-  background: black;
+  background: rgba(0, 0, 0, 0.9);
+  color: var(--color-text-inverse);
   pointer-events: none;
   left: 66px;
   font-weight: 400;
