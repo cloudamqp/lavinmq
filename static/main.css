@@ -1724,7 +1724,7 @@ fieldset.inline {
   font-size: 14px;
   line-height: 20px;
   opacity: 0;
-  background: rgba(0, 0, 0, 0.9);
+  background: var(--color-tooltip-bg);
   color: var(--color-text-inverse);
   pointer-events: none;
   left: 66px;
