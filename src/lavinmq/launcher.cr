@@ -253,9 +253,9 @@ module LavinMQ
       if @first_shutdown_attempt
         @first_shutdown_attempt = false
         stop
-        Fiber.yield
         Log.info { "Fibers: " }
         Fiber.list { |f| Log.info { f.inspect } }
+        Fiber.yield
         exit 0
       else
         Log.info { "Fibers: " }
