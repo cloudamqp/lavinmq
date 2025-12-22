@@ -2,42 +2,6 @@ require "./spec_helper"
 require "../src/lavinmq/pidfile"
 
 describe LavinMQ::Pidfile do
-  describe "#check_state" do
-    it "returns Empty for empty file" do
-      File.tempfile("pidfile", ".pid") do |file|
-        pidfile = LavinMQ::Pidfile.new(file.path)
-        pidfile.check_state(file).should eq LavinMQ::Pidfile::State::Empty
-      end
-    end
-
-    it "returns Invalid for non-numeric content" do
-      File.tempfile("pidfile", ".pid") do |file|
-        file.print("notanumber")
-        file.flush
-        pidfile = LavinMQ::Pidfile.new(file.path)
-        pidfile.check_state(file).should eq LavinMQ::Pidfile::State::Invalid
-      end
-    end
-
-    it "returns Running for running process" do
-      File.tempfile("pidfile", ".pid") do |file|
-        file.print(Process.pid)
-        file.flush
-        pidfile = LavinMQ::Pidfile.new(file.path)
-        pidfile.check_state(file).should eq LavinMQ::Pidfile::State::Running
-      end
-    end
-
-    it "returns Stale for non-existent process" do
-      File.tempfile("pidfile", ".pid") do |file|
-        file.print("99999")
-        file.flush
-        pidfile = LavinMQ::Pidfile.new(file.path)
-        pidfile.check_state(file).should eq LavinMQ::Pidfile::State::Stale
-      end
-    end
-  end
-
   describe "#acquire" do
     it "creates pidfile with current PID" do
       path = File.tempname("pidfile", ".pid")
@@ -46,7 +10,6 @@ describe LavinMQ::Pidfile do
         pidfile.acquire.should be_true
         File.read(path).should eq Process.pid.to_s
       ensure
-        pidfile.try &.release
         File.delete?(path)
       end
     end
@@ -59,7 +22,6 @@ describe LavinMQ::Pidfile do
         pidfile.acquire.should be_true
         File.read(path).should eq Process.pid.to_s
       ensure
-        pidfile.try &.release
         File.delete?(path)
       end
     end
@@ -99,7 +61,6 @@ describe LavinMQ::Pidfile do
         pidfile2 = LavinMQ::Pidfile.new(path)
         pidfile2.acquire.should be_false
       ensure
-        pidfile1.try &.release
         File.delete?(path)
       end
     end
@@ -108,26 +69,26 @@ describe LavinMQ::Pidfile do
       pidfile = LavinMQ::Pidfile.new("")
       pidfile.acquire.should be_false
     end
-  end
 
-  describe "#release" do
-    it "deletes the pidfile" do
+    it "removes pidfile on graceful shutdown" do
       path = File.tempname("pidfile", ".pid")
-      pidfile = LavinMQ::Pidfile.new(path)
-      pidfile.acquire.should be_true
-      File.exists?(path).should be_true
-      pidfile.release
+      # Spawn a subprocess that acquires the pidfile and exits gracefully
+      script = <<-CRYSTAL
+        require "log"
+        module LavinMQ
+          Log = ::Log
+        end
+        require "./src/lavinmq/pidfile"
+        LavinMQ::Pidfile.new(#{path.inspect}).acquire
+        CRYSTAL
+      process = Process.new(
+        "crystal", ["eval", script],
+        output: Process::Redirect::Close,
+        error: Process::Redirect::Close
+      )
+      status = process.wait
+      status.success?.should be_true
       File.exists?(path).should be_false
-    end
-
-    it "does nothing if not acquired" do
-      path = File.tempname("pidfile", ".pid")
-      File.write(path, "99999")
-      pidfile = LavinMQ::Pidfile.new(path)
-      # Don't call acquire
-      pidfile.release
-      File.exists?(path).should be_true # file should still exist
-      File.delete?(path)
     end
   end
 end
