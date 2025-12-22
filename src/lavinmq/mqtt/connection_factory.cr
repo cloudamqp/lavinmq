@@ -53,7 +53,7 @@ module LavinMQ
         io.flush
       end
 
-      def authenticate(io, packet)
+      def authenticate(io : MQTT::IO, packet)
         return unless (username = packet.username) && (password = packet.password)
 
         vhost = @config.default_mqtt_vhost
@@ -62,7 +62,9 @@ module LavinMQ
           username = username[split_pos + 1..]
         end
 
-        user = @authenticator.authenticate(username, password)
+        context = Auth::Context.new(username, password, io.io)
+
+        user = @authenticator.authenticate(context)
         return unless user
         has_vhost_permissions = user.try &.permissions.has_key?(vhost)
         return unless has_vhost_permissions

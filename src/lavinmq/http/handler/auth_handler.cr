@@ -6,7 +6,7 @@ module LavinMQ
     class AuthHandler
       include ::HTTP::Handler
 
-      def initialize(@server : LavinMQ::Server)
+      def initialize(@authenticator : LavinMQ::Auth::Authenticator)
       end
 
       def call(context)
@@ -56,17 +56,9 @@ module LavinMQ
 
       private def valid_auth?(username, password, remote_address) : Bool
         return false if password.empty?
-        if user = @server.users[username]?
-          if user_password = user.password
-            if user_password.verify(password)
-              if default_user_only_loopback?(remote_address, username)
-                return false if user.tags.empty?
-                return true
-              end
-            end
-          end
-        end
-        false
+        auth_context = LavinMQ::Auth::Context.new(
+          username, password.to_slice, remote_address)
+        !!@authenticator.authenticate(auth_context)
       end
 
       private def internal_unix_socket?(context) : Bool
@@ -78,16 +70,6 @@ module LavinMQ
 
       private def unauthenticated(context)
         context.response.status_code = 401
-      end
-
-      private def default_user_only_loopback?(remote_address, username) : Bool
-        return true unless Config.instance.default_user_only_loopback?
-        return true unless username == Config.instance.default_user
-        case remote_address
-        when Socket::IPAddress   then remote_address.loopback?
-        when Socket::UNIXAddress then true
-        else                          false
-        end
       end
     end
   end
