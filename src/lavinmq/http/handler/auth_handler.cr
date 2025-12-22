@@ -11,14 +11,14 @@ module LavinMQ
 
       def call(context)
         if internal_unix_socket?(context)
-          context.authenticated_username = Auth::UserStore::DIRECT_USER
+          context.authenticated_user = @server.users.direct_user
           return call_next(context)
         end
 
         if auth = cookie_auth(context) || basic_auth(context)
           username, password = auth
-          if valid_auth?(username, password, context.request.remote_address)
-            context.authenticated_username = username
+          if user = valid_auth?(username, password, context.request.remote_address)
+            context.authenticated_user = user
             return call_next(context)
           end
         end
@@ -54,19 +54,18 @@ module LavinMQ
       rescue Base64::Error
       end
 
-      private def valid_auth?(username, password, remote_address) : Bool
-        return false if password.empty?
+      private def valid_auth?(username, password, remote_address) : Auth::User?
+        return if password.empty?
         if user = @server.users[username]?
           if user_password = user.password
             if user_password.verify(password)
               if default_user_only_loopback?(remote_address, username)
-                return false if user.tags.empty?
-                return true
+                return if user.tags.empty?
+                return user
               end
             end
           end
         end
-        false
       end
 
       private def internal_unix_socket?(context) : Bool
