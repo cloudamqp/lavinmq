@@ -177,10 +177,20 @@ menuItems.forEach(item => {
 
 // Update tooltip positions on scroll
 const sidebarMenu = document.getElementById('menu')
-sidebarMenu.addEventListener('scroll', function () {
-  menuItems.forEach(item => {
-    const tooltip = item.querySelector('.menu-tooltip-label')
-    const rect = item.getBoundingClientRect()
-    tooltip.style.top = rect.top + (rect.height / 2) + 'px'
-  })
+let ticking = false
+
+sidebarMenu.addEventListener('scroll', () => {
+  if (!ticking) {
+    requestAnimationFrame(() => {
+      menuItems.forEach(item => {
+        const tooltip = item.querySelector('.menu-tooltip-label');
+        if (tooltip) {
+          const rect = item.getBoundingClientRect()
+          tooltip.style.top = rect.top + (rect.height / 2) + 'px'
+        }
+      })
+      ticking = false;
+    })
+    ticking = true;
+  }
 })
