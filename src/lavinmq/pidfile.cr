@@ -4,15 +4,12 @@ module LavinMQ
   class Pidfile
     Log = LavinMQ::Log.for("launcher")
 
-    enum State
+    private enum State
       Empty
       Stale
       Running
       Invalid
     end
-
-    getter path : String
-    @lock : File?
 
     def initialize(@path : String)
     end
@@ -26,7 +23,9 @@ module LavinMQ
         file.truncate
         file.print(Process.pid)
         file.flush
-        @lock = file
+        file.close_on_finalize = false
+        path = @path # capture for at_exit closure
+        at_exit { File.delete?(path) }
         Log.info { "PID file: #{@path}" }
         true
       in State::Running, State::Invalid
@@ -44,14 +43,7 @@ module LavinMQ
       false
     end
 
-    def release
-      return unless file = @lock
-      file.close
-      @lock = nil
-      File.delete?(@path)
-    end
-
-    def check_state(file : File) : State
+    private def check_state(file : File) : State
       file.rewind
       content = file.gets_to_end.strip
       return State::Empty if content.empty?
