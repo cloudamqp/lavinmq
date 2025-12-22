@@ -4,9 +4,10 @@ require "./constants"
 require "./handler/*"
 require "./controller"
 require "./controller/*"
+require "../auth/user"
 
 class HTTP::Server::Context
-  property? authenticated_username : String?
+  property? authenticated_user : LavinMQ::Auth::User? = nil
 end
 
 module LavinMQ

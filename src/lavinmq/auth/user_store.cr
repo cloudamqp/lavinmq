@@ -5,8 +5,12 @@ module LavinMQ
   module Auth
     class UserStore
       include Enumerable({String, User})
-      DIRECT_USER = "__direct"
+      private DIRECT_USER = "__direct"
       Log         = LavinMQ::Log.for "user_store"
+
+      def direct_user
+        @users[DIRECT_USER]
+      end
 
       def self.hidden?(name)
         DIRECT_USER == name
@@ -42,6 +46,10 @@ module LavinMQ
         @users[name] = user
         save! if save
         user
+      end
+
+      def add_permission(user : User, vhost, config, read, write)
+        add_permission(user.name, vhost, config, read, write)
       end
 
       def add_permission(user, vhost, config, read, write)
