@@ -8,15 +8,11 @@ module LavinMQ
       end
 
       def authenticate(context : Context) : User?
-        if user = @users[context.username]?
-          if default_user_only_loopback?(context)
-            if passwd = user.password
-              if passwd.verify(context.password)
-                return user
-              end
-            end
-          end
-        end
+        return unless user = @users[context.username]?
+        return unless default_user_only_loopback?(context)
+        return unless passwd = user.password
+        return unless passwd.verify(context.password)
+        user
       rescue ex : Exception
         Log.error { "Local authentication failed: #{ex.message}" }
       end
