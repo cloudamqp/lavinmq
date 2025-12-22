@@ -181,16 +181,16 @@ let ticking = false
 
 sidebarMenu.addEventListener('scroll', () => {
   if (!ticking) {
-    requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => {
       menuItems.forEach(item => {
-        const tooltip = item.querySelector('.menu-tooltip-label');
+        const tooltip = item.querySelector('.menu-tooltip-label')
         if (tooltip) {
           const rect = item.getBoundingClientRect()
           tooltip.style.top = rect.top + (rect.height / 2) + 'px'
         }
       })
-      ticking = false;
+      ticking = false
     })
-    ticking = true;
+    ticking = true
   }
 })
