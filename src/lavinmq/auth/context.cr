@@ -6,31 +6,20 @@ module LavinMQ
       getter username, password
       getter? loopback
 
-      def self.new(
-        username : String,
-        password : Bytes,
-        remote : ::IO,
-      )
-        loopback = case remote
-                   when IPSocket   then remote.remote_address.loopback?
-                   when UNIXSocket then true
-                   else                 false
-                   end
-
-        new(username, password, loopback: loopback)
+      def self.new(username : String, password : Bytes, remote : ::IO)
+        remote_address = case remote
+                         when IPSocket   then remote.remote_address
+                         when UNIXSocket then remote.remote_address
+                         end
+        self.new(username, password, remote_address)
       end
 
-      def self.new(
-        username : String,
-        password : Bytes,
-        address : ::Socket::Address?,
-      )
+      def self.new(username : String, password : Bytes, address : ::Socket::Address?)
         loopback = case address
                    when Socket::IPAddress   then address.loopback?
                    when Socket::UNIXAddress then true
                    else                          false
                    end
-
         new(username, password, loopback: loopback)
       end
 
