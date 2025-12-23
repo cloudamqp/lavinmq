@@ -7,7 +7,7 @@ require "./controller/*"
 require "../auth/user"
 
 class HTTP::Server::Context
-  property? authenticated_user : LavinMQ::Auth::User? = nil
+  property user : LavinMQ::Auth::User? = nil
 end
 
 module LavinMQ
