@@ -1169,6 +1169,10 @@ footer .logo {
   background-color: var(--color-table-row-even);
 }
 
+.table.plain-table tbody tr {
+  background-color: var(--color-table-row-even);
+}
+
 [id$="-error"] {
   display: none;
   margin: 10px 0;
