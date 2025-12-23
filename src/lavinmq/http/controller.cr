@@ -206,8 +206,7 @@ module LavinMQ
       end
 
       private def user(context) : Auth::User
-        user = context.authenticated_user?
-        unless user # Should it be possible to end up here with nil user?
+        unless user = context.user # Should it be possible to end up here with nil user?
           Log.warn { "No authorized user for request path=#{context.request.path}" }
           access_refused(context)
         end
