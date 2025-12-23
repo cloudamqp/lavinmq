@@ -129,8 +129,68 @@ class ThemeSwitcher {
   }
 })()
 
+// Check if sidebar is collapsed or expanded
+document.addEventListener('DOMContentLoaded', () => {
+  const sidebarCollapsed = window.localStorage.getItem('menuCollapsed')
+  const toggleLabel = document.querySelector('.toggle-menu-label')
+
+  if (sidebarCollapsed) {
+    toggleLabel.textContent = 'Expand sidebar'
+  }
+})
+
 // Initialize theme switcher when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
   // Store theme switcher instance on window for debugging
   window.themeSwitcher = new ThemeSwitcher()
+})
+
+document.getElementById('toggle-menu').addEventListener('click', () => {
+  document.documentElement.classList.toggle('menu-collapsed')
+  const toggleLabel = document.querySelector('.toggle-menu-label')
+
+  // Save state
+  if (document.documentElement.classList.contains('menu-collapsed')) {
+    window.localStorage.setItem('menuCollapsed', 'true')
+    toggleLabel.textContent = 'Expand sidebar'
+  } else {
+    window.localStorage.removeItem('menuCollapsed')
+    toggleLabel.textContent = 'Collapse sidebar'
+  }
+})
+
+const menuItems = document.querySelectorAll('#menu-content li a.menu-tooltip')
+
+// Position tooltips dynamically
+menuItems.forEach(item => {
+  const tooltip = item.querySelector('.menu-tooltip-label')
+
+  item.addEventListener('mouseenter', function () {
+    if (document.documentElement.classList.contains('menu-collapsed')) {
+      const rect = this.getBoundingClientRect()
+      tooltip.style.left = rect.right + 10 + 'px'
+      tooltip.style.top = rect.top + (rect.height / 2) + 'px'
+      tooltip.style.transform = 'translateY(-50%)'
+    }
+  })
+})
+
+// Update tooltip positions on scroll
+const sidebarMenu = document.getElementById('menu')
+let ticking = false
+
+sidebarMenu.addEventListener('scroll', () => {
+  if (!ticking) {
+    window.requestAnimationFrame(() => {
+      menuItems.forEach(item => {
+        const tooltip = item.querySelector('.menu-tooltip-label')
+        if (tooltip) {
+          const rect = item.getBoundingClientRect()
+          tooltip.style.top = rect.top + (rect.height / 2) + 'px'
+        }
+      })
+      ticking = false
+    })
+    ticking = true
+  }
 })

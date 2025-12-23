@@ -62,7 +62,7 @@ module LavinMQ
             context.response.headers.add("X-Frame-Options", "SAMEORIGIN")
             context.response.headers.add("Referrer-Policy", "same-origin")
             # The sha256 hash below is for the inline script in views/partials/head.ecr
-            context.response.headers.add("Content-Security-Policy", "default-src 'none'; style-src 'self'; font-src 'self'; img-src 'self'; connect-src 'self'; script-src 'self' 'sha256-9nCxy0qjWUXfAqDk5MjMKgu+tHDTvI8ZUAmbmYoCEF8='")
+            context.response.headers.add("Content-Security-Policy", "default-src 'none'; style-src 'self'; font-src 'self'; img-src 'self'; connect-src 'self'; script-src 'self' 'sha256-34oSgY8Skukeb3vqCJLR3xsI1eR3dTVYZ8TqS2QCgSo='")
             {{ block.body if block }}
             render {{ view }}
           end
