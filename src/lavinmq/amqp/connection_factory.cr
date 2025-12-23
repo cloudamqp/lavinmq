@@ -111,14 +111,16 @@ module LavinMQ
 
       def authenticate(socket, remote_address, start_ok, log)
         username, password = credentials(start_ok)
-        user = @authenticator.authenticate(username, password)
-        return user if user && default_user_only_loopback?(remote_address, user)
+        context = Auth::Context.new(
+          username,
+          password.to_slice,
+          loopback: remote_address.loopback?
+        )
+        user = @authenticator.authenticate(context)
+        return user if user
 
-        if user.nil?
-          log.warn { "User \"#{username}\" not found" }
-        else
-          log.warn { "Authentication failure for user \"#{username}\"" }
-        end
+        log.warn { "Authentication failure for user \"#{username}\"" }
+
         props = start_ok.client_properties
         if capabilities = props["capabilities"]?.try &.as?(AMQP::Table)
           if capabilities["authentication_failure_close"]?.try &.as?(Bool)

@@ -3,7 +3,7 @@ require "../src/lavinmq/auth/chain"
 require "../src/lavinmq/auth/authenticators/local"
 
 describe LavinMQ::Auth::Chain do
-  it "Creates a default authentication chain if not configured" do
+  it "creates a default authentication chain if not configured" do
     with_amqp_server do |s|
       chain = LavinMQ::Auth::Chain.create(s.@users)
       chain.@backends.should be_a Array(LavinMQ::Auth::Authenticator)
@@ -11,18 +11,30 @@ describe LavinMQ::Auth::Chain do
     end
   end
 
-  it "Successfully authenticates and returns a local user" do
+  it "successfully authenticates and returns a local user" do
     with_amqp_server do |s|
       chain = LavinMQ::Auth::Chain.create(s.@users)
-      user = chain.authenticate("guest", "guest")
+      ctx = LavinMQ::Auth::Context.new("guest", "guest".to_slice, loopback: true)
+      user = chain.authenticate(ctx)
       user.should_not be_nil
     end
   end
 
-  it "Does not authenticate when given invalid credentials" do
+  it "does not authenticate when given invalid credentials" do
     with_amqp_server do |s|
       chain = LavinMQ::Auth::Chain.create(s.@users)
-      user = chain.authenticate("guest", "invalid")
+      ctx = LavinMQ::Auth::Context.new("guest", "invalid".to_slice, loopback: true)
+      user = chain.authenticate(ctx)
+      user.should be_nil
+    end
+  end
+
+  it "requires loopback if Config.#default_user_only_loopback? is true" do
+    with_amqp_server do |s|
+      LavinMQ::Config.instance.default_user_only_loopback = true
+      chain = LavinMQ::Auth::Chain.create(s.@users)
+      ctx = LavinMQ::Auth::Context.new("guest", "guest".to_slice, loopback: false)
+      user = chain.authenticate(ctx)
       user.should be_nil
     end
   end
