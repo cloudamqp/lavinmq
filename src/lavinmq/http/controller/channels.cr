@@ -15,7 +15,7 @@ module LavinMQ
         get "/api/vhosts/:vhost/channels" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            conns = @amqp_server.vhosts[vhost].connections.each
+            conns = vhost.connections.each
             channels = conns.flat_map(&.channels.each_value)
             page(context, channels)
           end

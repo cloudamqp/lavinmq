@@ -23,7 +23,7 @@ module LavinMQ
         get "/api/bindings/:vhost" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            page(context, bindings(@amqp_server.vhosts[vhost]))
+            page(context, bindings(vhost))
           end
         end
 
@@ -48,9 +48,9 @@ module LavinMQ
             e = exchange(context, params, vhost)
             q = find_queue(context, params, vhost, "queue")
             user = user(context)
-            if !user.can_read?(vhost, e.name)
+            if !user.can_read?(vhost.name, e.name)
               access_refused(context, "User doesn't have read permissions to exchange '#{e.name}'")
-            elsif !user.can_write?(vhost, q.name)
+            elsif !user.can_write?(vhost.name, q.name)
               access_refused(context, "User doesn't have write permissions to queue '#{q.name}'")
             elsif e.name.empty?
               access_refused(context, "Not allowed to bind to the default exchange")
@@ -89,9 +89,9 @@ module LavinMQ
             e = exchange(context, params, vhost)
             q = find_queue(context, params, vhost, "queue")
             user = user(context)
-            if !user.can_read?(vhost, e.name)
+            if !user.can_read?(vhost.name, e.name)
               access_refused(context, "User doesn't have read permissions to exchange '#{e.name}'")
-            elsif !user.can_write?(vhost, q.name)
+            elsif !user.can_write?(vhost.name, q.name)
               access_refused(context, "User doesn't have write permissions to queue '#{q.name}'")
             elsif e.name.empty?
               access_refused(context, "Not allowed to unbind from the default exchange")
@@ -101,7 +101,7 @@ module LavinMQ
             e.bindings_details.each do |binding|
               next unless binding.destination == q && binding.binding_key.properties_key == props
               arguments = binding.arguments || AMQP::Table.new
-              @amqp_server.vhosts[vhost].unbind_queue(q.name, e.name,
+              vhost.unbind_queue(q.name, e.name,
                 binding.routing_key, arguments)
               found = true
               Log.debug do
@@ -131,9 +131,9 @@ module LavinMQ
             source = exchange(context, params, vhost)
             destination = exchange(context, params, vhost, "destination")
             user = user(context)
-            if !user.can_read?(vhost, source.name)
+            if !user.can_read?(vhost.name, source.name)
               access_refused(context, "User doesn't have read permissions to exchange '#{source.name}'")
-            elsif !user.can_write?(vhost, destination.name)
+            elsif !user.can_write?(vhost.name, destination.name)
               access_refused(context, "User doesn't have write permissions to exchange '#{destination.name}'")
             elsif source.name.empty? || destination.name.empty?
               access_refused(context, "Not allowed to bind to the default exchange")
@@ -171,9 +171,9 @@ module LavinMQ
             source = exchange(context, params, vhost)
             destination = exchange(context, params, vhost, "destination")
             user = user(context)
-            if !user.can_read?(vhost, source.name)
+            if !user.can_read?(vhost.name, source.name)
               access_refused(context, "User doesn't have read permissions to exchange '#{source.name}'")
-            elsif !user.can_write?(vhost, destination.name)
+            elsif !user.can_write?(vhost.name, destination.name)
               access_refused(context, "User doesn't have write permissions to queue '#{destination.name}'")
             elsif source.name.empty? || destination.name.empty?
               access_refused(context, "Not allowed to unbind from the default exchange")
@@ -186,7 +186,7 @@ module LavinMQ
               next unless binding.destination == destination &&
                           binding.binding_key.properties_key == props
               arguments = binding.arguments || AMQP::Table.new
-              @amqp_server.vhosts[vhost].unbind_exchange(destination.name,
+              vhost.unbind_exchange(destination.name,
                 source.name, binding.routing_key, arguments)
               found = true
               break

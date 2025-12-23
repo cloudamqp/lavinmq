@@ -197,9 +197,8 @@ module LavinMQ
       end
 
       private def with_vhost(context, params, key = "vhost", &)
-        name = params[key]
-        if @amqp_server.vhosts[name]?
-          yield name
+        if (name = params[key]?) && (vhost = @amqp_server.vhosts[name]?)
+          yield vhost
         else
           not_found(context, "Not Found")
         end
@@ -226,26 +225,26 @@ module LavinMQ
         end
       end
 
-      private def refuse_unless_vhost_access(context, user, vhost)
+      private def refuse_unless_vhost_access(context, user, vhost : VHost)
         return if user.tags.any? &.administrator?
-        unless user.permissions.has_key?(vhost)
-          Log.warn { "user=#{user.name} does not have permissions to access vhost=#{vhost}" }
+        unless user.permissions.has_key?(vhost.name)
+          Log.warn { "user=#{user.name} does not have permissions to access vhost=#{vhost.name}" }
           access_refused(context)
         end
       end
 
-      private def refuse_unless_management(context, user, vhost = nil)
+      private def refuse_unless_management(context, user, vhost : VHost? = nil)
         unless user.tags.any? do |t|
                  t.administrator? || t.monitoring? || t.policy_maker? || t.management?
                end
-          Log.warn { "user=#{user.name} does not have management access on vhost=#{vhost}" }
+          Log.warn { "user=#{user.name} does not have management access on vhost=#{vhost.try(&.name)}" }
           access_refused(context)
         end
       end
 
-      private def refuse_unless_policymaker(context, user, vhost = nil)
+      private def refuse_unless_policymaker(context, user, vhost : VHost? = nil)
         unless user.tags.any? { |t| t.policy_maker? || t.administrator? }
-          Log.warn { "user=#{user.name} does not have policymaker access on vhost=#{vhost}" }
+          Log.warn { "user=#{user.name} does not have policymaker access on vhost=#{vhost.try(&.name)}" }
           access_refused(context)
         end
       end

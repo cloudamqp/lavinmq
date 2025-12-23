@@ -54,9 +54,9 @@ module LavinMQ
           with_vhost(context, params) do |vhost|
             refuse_unless_policymaker(context, user(context), vhost)
             component = params["component"]
-            itr = @amqp_server.vhosts[vhost].parameters.each_value
+            itr = vhost.parameters.each_value
               .select { |p| p.component_name == component }
-              .map { |p| map_parameter(vhost, p) }
+              .map { |p| map_parameter(vhost.name, p) }
             page(context, itr)
           end
         end
@@ -66,8 +66,8 @@ module LavinMQ
             refuse_unless_policymaker(context, user(context), vhost)
             component = params["component"]
             name = params["name"]
-            param = param(context, @amqp_server.vhosts[vhost].parameters, {component, name})
-            map_parameter(vhost, param).to_json(context.response)
+            param = param(context, vhost.parameters, {component, name})
+            map_parameter(vhost.name, param).to_json(context.response)
           end
         end
 
@@ -82,8 +82,8 @@ module LavinMQ
               bad_request(context, "Field 'value' is required")
             end
             p = Parameter.new(component, name, value)
-            is_update = @amqp_server.vhosts[vhost].parameters[{component, name}]?
-            @amqp_server.vhosts[vhost].add_parameter(p)
+            is_update = vhost.parameters[{component, name}]?
+            vhost.add_parameter(p)
             context.response.status_code = is_update ? 204 : 201
           end
         end
@@ -93,8 +93,8 @@ module LavinMQ
             refuse_unless_policymaker(context, user(context), vhost)
             component = params["component"]
             name = params["name"]
-            param(context, @amqp_server.vhosts[vhost].parameters, {component, name})
-            @amqp_server.vhosts[vhost].delete_parameter(component, name)
+            param(context, vhost.parameters, {component, name})
+            vhost.delete_parameter(component, name)
             context.response.status_code = 204
           end
         end
@@ -146,7 +146,7 @@ module LavinMQ
         get "/api/policies/:vhost" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_policymaker(context, user(context), vhost)
-            page(context, @amqp_server.vhosts[vhost].policies.each_value)
+            page(context, vhost.policies.each_value)
           end
         end
 
@@ -178,9 +178,8 @@ module LavinMQ
                 bad_request(context, "Policy definition '#{k}' should be of type String") unless definition[k].as_s?
               end
             end
-            is_update = @amqp_server.vhosts[vhost].policies[name]?
-            @amqp_server.vhosts[vhost]
-              .add_policy(name, pattern, apply_to, definition, priority.to_i8)
+            is_update = vhost.policies[name]?
+            vhost.add_policy(name, pattern, apply_to, definition, priority.to_i8)
             context.response.status_code = is_update ? 204 : 201
           end
         end
@@ -190,7 +189,7 @@ module LavinMQ
             refuse_unless_policymaker(context, user(context), vhost)
             name = params["name"]
             policy(context, name, vhost)
-            @amqp_server.vhosts[vhost].delete_policy(name)
+            vhost.delete_policy(name)
             context.response.status_code = 204
           end
         end
@@ -205,7 +204,7 @@ module LavinMQ
         get "/api/operator-policies/:vhost" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_policymaker(context, user(context), vhost)
-            page(context, @amqp_server.vhosts[vhost].operator_policies.each_value)
+            page(context, vhost.operator_policies.each_value)
           end
         end
 
@@ -237,9 +236,8 @@ module LavinMQ
                 bad_request(context, "Policy definition '#{k}' should be of type String") unless definition[k].as_s?
               end
             end
-            is_update = @amqp_server.vhosts[vhost].operator_policies[name]?
-            @amqp_server.vhosts[vhost]
-              .add_operator_policy(name, pattern, apply_to, definition, priority.to_i8)
+            is_update = vhost.operator_policies[name]?
+            vhost.add_operator_policy(name, pattern, apply_to, definition, priority.to_i8)
             context.response.status_code = is_update ? 204 : 201
           end
         end
@@ -249,7 +247,7 @@ module LavinMQ
             refuse_unless_administrator(context, user(context))
             name = params["name"]
             operator_policy(context, name, vhost)
-            @amqp_server.vhosts[vhost].delete_operator_policy(name)
+            vhost.delete_operator_policy(name)
             context.response.status_code = 204
           end
         end
@@ -264,11 +262,11 @@ module LavinMQ
       end
 
       private def policy(context, name, vhost)
-        @amqp_server.vhosts[vhost].policies[name]? || not_found(context)
+        vhost.policies[name]? || not_found(context)
       end
 
       private def operator_policy(context, name, vhost)
-        @amqp_server.vhosts[vhost].operator_policies[name]? || not_found(context)
+        vhost.operator_policies[name]? || not_found(context)
       end
     end
   end

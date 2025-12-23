@@ -13,8 +13,7 @@ module LavinMQ
         get "/api/vhost-limits/:vhost" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            v = @amqp_server.vhosts[vhost]
-            [VHostLimitsView.new(v).self_if_limited].compact.to_json(context.response)
+            [VHostLimitsView.new(vhost).self_if_limited].compact.to_json(context.response)
           end
         end
 
@@ -23,17 +22,16 @@ module LavinMQ
           refuse_unless_administrator(context, u)
           context.response.status_code = 400
           with_vhost(context, params) do |vhost|
-            v = @amqp_server.vhosts[vhost]
             if body = context.request.body
               json = JSON.parse(body)
               if value = json["value"]?.try &.as_i?
                 value = nil if value < 0
                 case params["type"]
                 when "max-connections"
-                  v.max_connections = value
+                  vhost.max_connections = value
                   context.response.status_code = 204
                 when "max-queues"
-                  v.max_queues = value
+                  vhost.max_queues = value
                   context.response.status_code = 204
                 end
               end
@@ -46,14 +44,13 @@ module LavinMQ
           context.response.status_code = 400
           refuse_unless_administrator(context, user(context))
           with_vhost(context, params, "name") do |vhost|
-            v = @amqp_server.vhosts[vhost]
             case params["type"]
             when "max-connections"
               context.response.status_code = 204
-              v.max_connections = nil
+              vhost.max_connections = nil
             when "max-queues"
               context.response.status_code = 204
-              v.max_queues = nil
+              vhost.max_queues = nil
             end
           end
           context

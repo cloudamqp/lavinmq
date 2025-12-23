@@ -9,13 +9,13 @@ module LavinMQ
     module QueueHelpers
       private def find_queue(context, params, vhost, key = "name")
         name = params[key]
-        q = @amqp_server.vhosts[vhost].queues[name]?
+        q = vhost.queues[name]?
         not_found(context, "Not Found") unless q
         q
       end
 
       private def find_stream(context, vhost, name)
-        q = @amqp_server.vhosts[vhost].queues[name]?
+        q = vhost.queues[name]?
         not_found(context, "Not Found") unless q
         not_found(context, "Not Found") unless q.is_a?(LavinMQ::AMQP::Stream)
         q.as(LavinMQ::AMQP::Stream)
@@ -36,7 +36,7 @@ module LavinMQ
         get "/api/queues/:vhost" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            page(context, @amqp_server.vhosts[vhost].queues.each_value)
+            page(context, vhost.queues.each_value)
           end
         end
 
@@ -70,11 +70,11 @@ module LavinMQ
             auto_delete = body["auto_delete"]?.try(&.as_bool?) || false
             tbl = (args = body["arguments"]?.try(&.as_h?)) ? AMQP::Table.new(args) : AMQP::Table.new
             dlx = tbl["x-dead-letter-exchange"]?.try &.as?(String)
-            dlx_ok = dlx.nil? || (user.can_write?(vhost, dlx) && user.can_read?(vhost, name))
-            unless user.can_config?(vhost, name) && dlx_ok
+            dlx_ok = dlx.nil? || (user.can_write?(vhost.name, dlx) && user.can_read?(vhost.name, name))
+            unless user.can_config?(vhost.name, name) && dlx_ok
               access_refused(context, "User doesn't have permissions to declare queue '#{name}'")
             end
-            q = @amqp_server.vhosts[vhost].queues[name]?
+            q = vhost.queues[name]?
             if q
               unless q.match?(durable, false, auto_delete, tbl)
                 bad_request(context, "Existing queue declared with other arguments arg")
@@ -86,8 +86,7 @@ module LavinMQ
               bad_request(context, "Queue name too long, can't exceed 255 characters")
             else
               begin
-                @amqp_server.vhosts[vhost]
-                  .declare_queue(name, durable, auto_delete, tbl)
+                vhost.declare_queue(name, durable, auto_delete, tbl)
                 context.response.status_code = 201
               rescue e : LavinMQ::Error::PreconditionFailed
                 bad_request(context, e.message)
@@ -137,7 +136,7 @@ module LavinMQ
             if context.request.query_params["if-unused"]? == "true"
               bad_request(context, "Queue #{q.name} in vhost #{q.vhost.name} in use") if q.in_use?
             end
-            @amqp_server.vhosts[vhost].delete_queue(q.name)
+            vhost.delete_queue(q.name)
             context.response.status_code = 204
           end
         end
@@ -155,7 +154,7 @@ module LavinMQ
             user = user(context)
             refuse_unless_management(context, user, vhost)
             q = find_queue(context, params, vhost)
-            unless user.can_read?(vhost, q.name)
+            unless user.can_read?(vhost.name, q.name)
               access_refused(context, "User doesn't have permissions to read queue '#{q.name}'")
             end
             count = context.request.query_params["count"]? || ""
