@@ -215,9 +215,15 @@ module LavinMQ
       @[EnvOpt("LAVINMQ_DEFAULT_CONSUMER_PREFETCH")]
       property default_consumer_prefetch = UInt16::MAX
 
-      @[CliOpt("", "--default-password=PASSWORD-HASH", "(Deprecated) Hashed password for default user (default: '+pHuxkR9fCyrrwXjOD4BP4XbzO3l8LJr8YkThMgJ0yVHFRE+' (guest))", deprecated: "default_password_hash", section: "options")]
+      @[CliOpt("", "--default-password=PASSWORD-HASH",
+        "(Deprecated) Hashed password for default user (default: '+pHuxkR9fCyrrwXjOD4BP4XbzO3l8LJr8YkThMgJ0yVHFRE+' (guest))",
+        deprecated: "--default-password is deprecated, use --default-password-hash", section: "options")]
       @[IniOpt(section: "main", deprecated: "default_password_hash")]
-      property default_password : Auth::Password::SHA256Password = DEFAULT_PASSWORD_HASH # Hashed password for default user
+      @default_password : Auth::Password::SHA256Password = DEFAULT_PASSWORD_HASH # Hashed password for default user
+      def default_password=(value)
+        # Forward value to the new property
+        @default_password_hash = value
+      end
 
       @[CliOpt("", "--default-password-hash=PASSWORD-HASH", "Hashed password for default user (default: '+pHuxkR9fCyrrwXjOD4BP4XbzO3l8LJr8YkThMgJ0yVHFRE+' (guest))", section: "options")]
       @[IniOpt(section: "main")]
