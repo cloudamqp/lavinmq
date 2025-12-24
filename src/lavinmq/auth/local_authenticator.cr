@@ -1,5 +1,5 @@
-require "../authenticator"
-require "../../server"
+require "./authenticator"
+require "./../server"
 
 module LavinMQ
   module Auth
@@ -7,7 +7,7 @@ module LavinMQ
       def initialize(@users : UserStore)
       end
 
-      def authenticate(username : String, password : Bytes) : User?
+      def authenticate(username : String, password : String) : User?
         if user = @users[username]?
           if passwd = user.password
             if passwd.verify(password)

@@ -1,23 +1,40 @@
 require "./authenticator"
-require "./authenticators/local"
+require "./local_authenticator"
+require "./oauth_authenticator"
+require "./public_keys"
+require "./jwks_fetcher"
+require "./jwt_token_verifier"
 
 module LavinMQ
   module Auth
     class Chain < Authenticator
+      Log = LavinMQ::Log.for "auth.chain"
       @backends : Array(Authenticator)
 
       def initialize(backends : Array(Authenticator))
         @backends = backends
       end
 
-      def self.create(users : UserStore) : Chain
-        # For now, only LocalAuthenticator is supported
-        # When adding more auth backends, LocalAuthenticator should always be tried first
-        authenticators = [LocalAuthenticator.new(users)] of Authenticator
-        new(authenticators)
+      def self.create(config : Config, users : UserStore) : Chain
+        authenticators = [] of Authenticator
+        config.auth_backends.each do |backend|
+          case backend
+          when "local"
+            authenticators << LocalAuthenticator.new(users)
+          when "oauth"
+            authenticators << OAuthAuthenticator.new(config)
+          else
+            raise "Unsupported authentication backend: #{backend}"
+          end
+        end
+        if authenticators.empty?
+          # Default to local auth if no backends configured
+          authenticators << LocalAuthenticator.new(users)
+        end
+        self.new(authenticators)
       end
 
-      def authenticate(username : String, password : Bytes) : User?
+      def authenticate(username : String, password : String) : BaseUser?
         @backends.find_value do |backend|
           backend.authenticate(username, password)
         end
