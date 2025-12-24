@@ -25,9 +25,42 @@ Helpers.addVhostOptions('user-vhost', { addAll: true }).then(() => {
 })
 
 document.getElementById('userMenuVhost').addEventListener('change', (e) => {
-  window.sessionStorage.setItem('vhost', e.target.value)
-  window.location.reload()
+  const sessionVhost = e.target.value
+  const urlVhost = new URLSearchParams(window.location.hash.substring(1)).get('vhost')
+  let redirectUrl
+
+  window.sessionStorage.setItem('vhost', sessionVhost)
+
+  if (vhostMismatch(urlVhost, sessionVhost)) {
+    redirectUrl = vhostRedirectUrl(window.location.pathname)
+  }
+
+  if (redirectUrl) {
+    window.location.href = redirectUrl
+  } else {
+    window.location.reload()
+  }
 })
+
+function vhostMismatch (urlVhost, sessionVhost) {
+  return sessionVhost && urlVhost && sessionVhost !== '_all' && urlVhost !== sessionVhost
+}
+
+function vhostRedirectUrl (url) {
+  const redirectPatterns = {
+    '/queue(?!s)': 'queues',
+    '/stream(?!s)': 'queues',
+    '/exchange(?!s)': 'exchanges',
+    '/connection(?!s)': 'connections',
+    '/channel(?!s)': 'channels',
+    '/consumer(?!s)': 'consumers',
+    '/unacked': 'queues'
+  }
+
+  const match = Object.keys(redirectPatterns).find(urlRegExp => new RegExp(urlRegExp).test(url))
+
+  return redirectPatterns[match]
+}
 
 document.getElementById('signoutLink').addEventListener('click', () => {
   document.cookie = 'm=; max-age=0'

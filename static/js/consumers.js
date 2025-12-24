@@ -19,7 +19,7 @@ const tableOptions = {
 Table.renderTable('table', tableOptions, function (tr, item, firstRender) {
   if (!firstRender) return
   const channelLink = document.createElement('a')
-  channelLink.href = HTTP.url`channel#name=${item.channel_details.name}`
+  channelLink.href = HTTP.url`channel#vhost=${item.vhost}&name=${item.channel_details.name}`
   channelLink.textContent = item.channel_details.name
   const ack = item.ack_required ? '●' : '○'
   const exclusive = item.exclusive ? '●' : '○'

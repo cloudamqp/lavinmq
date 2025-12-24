@@ -26,7 +26,7 @@ const consumersTableOpts = {
 }
 Table.renderTable('table', consumersTableOpts, function (tr, item) {
   const channelLink = document.createElement('a')
-  channelLink.href = HTTP.url`channel#name=${item.channel_details.name}`
+  channelLink.href = HTTP.url`channel#vhost=${vhost}&name=${item.channel_details.name}`
   channelLink.textContent = item.channel_details.name
   const ack = item.ack_required ? '●' : '○'
   const exclusive = item.exclusive ? '●' : '○'
