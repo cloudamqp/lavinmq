@@ -33,4 +33,19 @@ describe LavinMQ::Config do
     config.default_password = "+pHuxkR9fCyrrwXjOD4BP4XbzO3l8LJr8YkThMgJ0yVHFRE+"
     config.verify_default_password
   end
+
+  it "parses pidfile from config" do
+    config_file = File.tempfile do |file|
+      file.print <<-CONFIG
+        [main]
+        log_level = fatal
+        data_dir = /tmp/lavinmq-spec
+        pidfile = /tmp/lavinmq.pid
+      CONFIG
+    end
+    config = LavinMQ::Config.new
+    config.config_file = config_file.path
+    config.parse
+    config.pidfile.should eq "/tmp/lavinmq.pid"
+  end
 end

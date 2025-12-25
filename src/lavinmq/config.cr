@@ -15,6 +15,7 @@ module LavinMQ
 
     property data_dir : String = ENV.fetch("STATE_DIRECTORY", "/var/lib/lavinmq")
     property config_file = File.exists?(File.join(ENV.fetch("CONFIGURATION_DIRECTORY", "/etc/lavinmq"), "lavinmq.ini")) ? File.join(ENV.fetch("CONFIGURATION_DIRECTORY", "/etc/lavinmq"), "lavinmq.ini") : ""
+    property pidfile : String = ""
     property log_file : String? = nil
     property log_level : ::Log::Severity = DEFAULT_LOG_LEVEL
     property amqp_bind = "127.0.0.1"
@@ -122,6 +123,7 @@ module LavinMQ
           STDERR.puts "WARNING: 'default-password' is deprecated, use '--default-password-hash' instead"
           @default_password = v
         end
+        p.on("--pidfile=FILE", "Write the process ID to FILE on startup. The file is removed upon graceful shutdown.") { |v| @pidfile = v }
         p.on("--no-data-dir-lock", "Don't put a file lock in the data directory") { @data_dir_lock = false }
         p.on("--raise-gc-warn", "Raise on GC warnings (default: #{@raise_gc_warn})") { @raise_gc_warn = true }
 
@@ -307,6 +309,7 @@ module LavinMQ
         case config
         when "data_dir"                  then @data_dir = v
         when "data_dir_lock"             then @data_dir_lock = true?(v)
+        when "pidfile"                   then @pidfile = v
         when "log_level"                 then @log_level = ::Log::Severity.parse(v)
         when "log_file"                  then @log_file = v
         when "stats_interval"            then @stats_interval = v.to_i32
