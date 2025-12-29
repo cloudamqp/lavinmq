@@ -18,6 +18,7 @@ lib LibSSL
 
   fun ssl_ctx_callback_ctrl = SSL_CTX_callback_ctrl(ctx : SSLContext, cmd : LibC::Int, fp : Proc(Void)) : LibC::Long
   fun ssl_set_ssl_ctx = SSL_set_SSL_CTX(ssl : SSL, ctx : SSLContext) : SSLContext
+  fun ssl_set_verify = SSL_set_verify(ssl : SSL, mode : LibC::Int, callback : Void*) : Void
 end
 
 class OpenSSL::SSL::Context::Server
@@ -62,6 +63,8 @@ class OpenSSL::SSL::Context::Server
         if new_context
           # Switch to the new SSL_CTX for this connection
           LibSSL.ssl_set_ssl_ctx(ssl, new_context.to_unsafe)
+          verify_mode = LibSSL.ssl_ctx_get_verify_mode(new_context.to_unsafe).to_i
+          LibSSL.ssl_set_verify(ssl, verify_mode, Pointer(Void).null)
         end
 
         LibSSL::SSL_TLSEXT_ERR_OK
