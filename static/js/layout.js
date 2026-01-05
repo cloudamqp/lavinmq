@@ -130,40 +130,40 @@ class ThemeSwitcher {
 })()
 
 class EntitySearch {
-  #searchField;
-  #resultList;
-  #ws;
+  #searchField
+  #resultList
+  #ws
 
-  constructor(search) {
+  constructor (search) {
     this.#searchField = search.querySelector('input[type=search]')
     this.#resultList = search.querySelector('ul')
     this.#searchField.value = ''
     // Remove the listener once init has been called
-    const initWsCb = _ =>  {
+    const initWsCb = _ => {
       this.#searchField.removeEventListener('input', initWsCb)
       this.#initWs()
     }
     this.#searchField.addEventListener('input', initWsCb)
   }
 
-  #initWs() {
-    console.log("init ws")
-    this.#ws = new WebSocket("api/entity-search");
+  #initWs () {
+    console.log('init ws')
+    this.#ws = new WebSocket('api/entity-search')
     const searchCb = _ => { this.#search() }
     // We remove and disable search on error/close
     this.#ws.addEventListener('error', e => {
-      console.error("WS Error", e)
+      console.error('WS Error', e)
       this.#ws.close
     })
     this.#ws.addEventListener('close', _ => {
-      console.warn("WS Closed")
+      console.warn('WS Closed')
       this.#searchField.value = ''
-      this.#searchField.placeholder = "disabled due to webocket error"
+      this.#searchField.placeholder = 'disabled due to webocket error'
       this.#searchField.disabled = true
       this.#searchField.removeEventListener('input', searchCb)
-     })
-    //Dont add event listeners until we have a connection
-    this.#ws.addEventListener('open', _=> {
+    })
+    // Dont add event listeners until we have a connection
+    this.#ws.addEventListener('open', _ => {
       this.#searchField.addEventListener('input', searchCb)
       this.#search()
     })
@@ -174,9 +174,9 @@ class EntitySearch {
   }
 
   #searchTimer = null
-  #search() {
+  #search () {
     clearTimeout(this.#searchTimer)
-    this.#searchTimer = setTimeout(function() {
+    this.#searchTimer = setTimeout(function () {
       const value = this.#searchField.value
       if (value.length == 0) {
         return
@@ -186,17 +186,49 @@ class EntitySearch {
     }.bind(this), 250)
   }
 
-  #showSearchResult(response) {
-    console.log("showSearchResult", response)
+  #showSearchResult (response) {
+    const fragment = document.createDocumentFragment()
+
     response.result.forEach(result => {
+      let name, type
+
       if (result.queue) {
-        console.log("queue", result.queue)
-      } else if (result.exchange ) {
-        console.log("exchange", result.exchange)
+        name = result.queue
+        type = 'queue'
+      } else if (result.exchange) {
+        name = result.exchange
+        type = 'exchange'
+      } else if (result.user) {
+        name = result.user
+        type = 'user'
+      } else if (result.vhost) {
+        name = result.vhost
+        type = 'vhost'
       } else {
-          console.log("default", result)
+        return
       }
+
+      const li = document.createElement('li')
+      const a = document.createElement('a')
+      a.href = '#'
+      a.className = 'search-result-item'
+
+      const nameSpan = document.createElement('span')
+      nameSpan.className = 'entity-name'
+      nameSpan.textContent = name
+
+      const typeSpan = document.createElement('span')
+      typeSpan.className = 'entity-type'
+      typeSpan.textContent = type
+
+      a.appendChild(nameSpan)
+      a.appendChild(typeSpan)
+      li.appendChild(a)
+      fragment.appendChild(li)
     })
+
+    this.#resultList.innerHTML = ''
+    this.#resultList.appendChild(fragment)
   }
 }
 
@@ -204,7 +236,7 @@ class EntitySearch {
 document.addEventListener('DOMContentLoaded', () => {
   // Store theme switcher instance on window for debugging
   window.themeSwitcher = new ThemeSwitcher()
-  const searchField = document.querySelector("#entity-search")
+  const searchField = document.querySelector('#entity-search')
   if (searchField) {
     window.entitySearch = new EntitySearch(searchField)
   }

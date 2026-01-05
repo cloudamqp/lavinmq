@@ -7,12 +7,12 @@
     <span class="version-tab" id="version"><%= LavinMQ::VERSION %></span>
   </div>
   <search id="entity-search">
-    <form class="entity-search" style="position: relative">
-      <label>Search <input type="search" autocomplete="off" placeholder="search entity" /></label>
-      <ul class="result">
-        <li><a href="#">Queue: bla bla</a></li>
-        <li><a href="#">User: guest</a></li>
-      </ul>
+    <form class="entity-search">
+      <label>Search</label>
+      <div class="search-wrapper">
+        <input type="search" autocomplete="off" placeholder="search entity" />
+        <ul class="result"></ul>
+      </div>
     </form>
   </search>
   <button id="usermenu-button"></button>
