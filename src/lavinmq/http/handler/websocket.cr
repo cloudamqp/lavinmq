@@ -56,8 +56,7 @@ module LavinMQ
       end
     end
 
-    private def search_vhosts(json : JSON::Builder, query : String) # ameba:disable Metrics/CyclomaticComplexity
-
+    private def search_vhosts(json : JSON::Builder, query : String)
       count = 0
       @server.vhosts.each_value do |vhost|
         vhost.queues.each_value do |queue|
