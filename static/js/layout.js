@@ -1,5 +1,6 @@
 import * as Auth from './auth.js'
 import * as Helpers from './helpers.js'
+import * as HTTP from './http.js'
 
 document.getElementById('username').textContent = Auth.getUsername()
 
@@ -229,37 +230,55 @@ class EntitySearch {
     this.#selectedIndex = -1
     const fragment = document.createDocumentFragment()
 
-    response.result.forEach(result => {
-      let name, type
+    const types = {
+      queue: {
+        label: "Queue",
+        link: d => HTTP.url`queue#vhost=${d.vhost}&name=${d.queue}`,
+        name: d => d.queue
+      },
+      exchange: {
+        label: "Exchange",
+        link: d => HTTP.url`exchange#vhost=${d.vhost}&name=${d.exchange}`,
+        name: d => d.exchange
+      },
+      user: {
+        label: "User",
+        link: d => HTTP.url`user#name=${d.user}`,
+        name: d => d.user,
+      },
+      vhost: {
+        label: "VHost",
+        link: d => HTTP.url`vhost#name=${d.vhost}`,
+        name: d => d.vhost
+      }
+     }
 
-      if (result.queue) {
-        name = result.queue
-        type = 'queue'
-      } else if (result.exchange) {
-        name = result.exchange
-        type = 'exchange'
-      } else if (result.user) {
-        name = result.user
-        type = 'user'
-      } else if (result.vhost) {
-        name = result.vhost
-        type = 'vhost'
-      } else {
+    response.result.forEach(result => {
+
+      let type;
+      for(const key in types) {
+        if (result[key]) {
+          type = types[key]
+          break;
+        }
+      }
+      if (typeof type === 'undefined') {
         return
       }
 
+
       const li = document.createElement('li')
       const a = document.createElement('a')
-      a.href = '#'
+      a.href = type.link(result)
       a.className = 'search-result-item'
 
       const nameSpan = document.createElement('span')
       nameSpan.className = 'entity-name'
-      nameSpan.textContent = name
+      nameSpan.textContent = type.name(result)
 
       const typeSpan = document.createElement('span')
       typeSpan.className = 'entity-type'
-      typeSpan.textContent = type
+      typeSpan.textContent = type.label
 
       a.appendChild(nameSpan)
       a.appendChild(typeSpan)
