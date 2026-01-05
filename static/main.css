@@ -1029,9 +1029,17 @@ footer .logo {
 
 @media (min-width: 1000px) {
   .menu-collapsed {
+    #menu ul li.menu-group:not(:first-child) {
+      padding-top: 0.5rem;
+    }
+
     #menu-content {
       .menu-group {
-        display: none;
+        margin-bottom: 0;
+
+        span {
+          display: none;
+        }
       }
 
       li a {
