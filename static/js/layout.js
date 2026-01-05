@@ -234,7 +234,7 @@ class EntitySearch {
       queue: r => HTTP.url`queue#vhost=${r.vhost}&name=${r.name}`,
       exchange: r => HTTP.url`exchange#vhost=${r.vhost}&name=${r.name}`,
       user: r => HTTP.url`user#name=${r.name}`,
-      vhost: r => HTTP.url`vhost#name=${r.name}`,
+      vhost: r => HTTP.url`vhost#name=${r.name}`
     }
 
     response.result.forEach(result => {
@@ -247,12 +247,24 @@ class EntitySearch {
       nameSpan.className = 'entity-name'
       nameSpan.textContent = result.name
 
+      const metaRow = document.createElement('span')
+      metaRow.className = 'entity-meta'
+
+      const vhostSpan = document.createElement('span')
+      vhostSpan.className = 'entity-vhost'
+      if (result.vhost) {
+        vhostSpan.textContent = `vhost: ${result.vhost}`
+      }
+
       const typeSpan = document.createElement('span')
       typeSpan.className = 'entity-type'
       typeSpan.textContent = result.type
 
+      metaRow.appendChild(vhostSpan)
+      metaRow.appendChild(typeSpan)
+
       a.appendChild(nameSpan)
-      a.appendChild(typeSpan)
+      a.appendChild(metaRow)
       li.appendChild(a)
       fragment.appendChild(li)
     })
