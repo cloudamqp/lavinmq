@@ -36,7 +36,7 @@ module LavinMQ
 
     MAX_RESULTS = 10
 
-    private def search_vhosts(json : JSON::Builder, query : String)
+    private def search_vhosts(json : JSON::Builder, query : String) # ameba:disable Metrics/CyclomaticComplexity
       # If the query begins with any "type" followed by a space, we'll
       # only search for that type, else we search for everything
       types = %w{queue exchange vhost user}
@@ -93,7 +93,7 @@ module LavinMQ
     end
 
     private macro stream_entities(json, field_name, counter, entities)
-      return unless {{counter}} > 0 
+      return unless {{counter}} > 0
       {{json}}.field {{field_name}} do
         json.array do
           {{counter}}.times do |i|
@@ -114,7 +114,6 @@ module LavinMQ
         remote_address = req.remote_address.as?(Socket::IPAddress) ||
                          Socket::IPAddress.new("127.0.0.1", 0) # Fake when UNIXAddress
         connection_info = ConnectionInfo.new(remote_address, local_address)
-        io = WebSocketIO.new(ws)
         case req.path
         when "/mqtt", "/ws/mqtt"
           spawn server.handle_connection(WebSocketIO.new(ws), connection_info, Server::Protocol::MQTT), name: "HandleWSconnection MQTT #{remote_address}"
