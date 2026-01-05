@@ -2431,6 +2431,9 @@ html.theme-dark {
 
   input[type="search"] {
     width: 200px;
+    &:focus ~ ul.result:has(> li) {
+      display: block;
+    }
   }
 
   ul.result {
@@ -2452,15 +2455,15 @@ html.theme-dark {
     overflow-y: auto;
     z-index: 1000;
 
-    &:has(> li) {
-      display: block;
-    }
-
     li {
       border-bottom: 1px solid var(--color-border-primary);
 
       &:last-child {
         border-bottom: none;
+      }
+
+      &.selected {
+        background-color: var(--color-bg-hover);
       }
     }
   }

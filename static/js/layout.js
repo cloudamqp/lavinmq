@@ -133,11 +133,17 @@ class EntitySearch {
   #searchField
   #resultList
   #ws
+  #selectedIndex = -1
 
   constructor (search) {
     this.#searchField = search.querySelector('input[type=search]')
     this.#resultList = search.querySelector('ul')
     this.#searchField.value = ''
+
+    this.#searchField.addEventListener('keydown', (e) => {
+      this.#handleKeydown(e)
+    })
+
     // Remove the listener once init has been called
     const initWsCb = _ => {
       this.#searchField.removeEventListener('input', initWsCb)
@@ -179,6 +185,7 @@ class EntitySearch {
     this.#searchTimer = setTimeout(function () {
       const value = this.#searchField.value
       if (value.length == 0) {
+        this.#resultList.innerHTML = ''
         return
       }
       console.debug('search for', value)
@@ -186,7 +193,40 @@ class EntitySearch {
     }.bind(this), 250)
   }
 
+  #handleKeydown (e) {
+    const items = this.#resultList.querySelectorAll('li')
+
+    if (items.length === 0) return
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      this.#selectedIndex = Math.min(this.#selectedIndex + 1, items.length - 1)
+      this.#updateSelection(items)
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      this.#selectedIndex = Math.max(this.#selectedIndex - 1, -1)
+      this.#updateSelection(items)
+    } else if (e.key === 'Enter' && this.#selectedIndex >= 0) {
+      e.preventDefault()
+      const selectedLink = items[this.#selectedIndex]?.querySelector('a')
+      if (selectedLink) {
+        selectedLink.click()
+      }
+    }
+  }
+
+  #updateSelection (items) {
+    items.forEach((item, index) => {
+      if (index === this.#selectedIndex) {
+        item.classList.add('selected')
+      } else {
+        item.classList.remove('selected')
+      }
+    })
+  }
+
   #showSearchResult (response) {
+    this.#selectedIndex = -1
     const fragment = document.createDocumentFragment()
 
     response.result.forEach(result => {
