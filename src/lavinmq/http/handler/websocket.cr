@@ -36,6 +36,26 @@ module LavinMQ
 
     MAX_RESULTS = 10
 
+    struct SearchResult
+      enum Type
+        Queue
+        Exchange
+        Vhost
+        User
+      end
+
+      def initialize(@type : Type, @name : String, @vhost : String?)
+      end
+
+      def to_json(json : JSON::Builder)
+        json.object do
+          json.field "type", @type
+          json.field "name", @name
+          json.field "vhost", @vhost
+        end
+      end
+    end
+
     private def search_vhosts(json : JSON::Builder, query : String) # ameba:disable Metrics/CyclomaticComplexity
 
       count = 0
@@ -43,7 +63,7 @@ module LavinMQ
         vhost.queues.each_value do |queue|
           if queue.search_match?(query)
             count += 1
-            {queue: queue.name, vhost: vhost.name}.to_json(json)
+            SearchResult.new(:queue, queue.name, vhost.name).to_json(json)
           end
           return if count >= MAX_RESULTS
         end
@@ -51,34 +71,23 @@ module LavinMQ
         vhost.exchanges.each_value do |exchange|
           if exchange.search_match?(query)
             count += 1
-            {exchange: exchange.name, vhost: vhost.name}.to_json(json)
+            SearchResult.new(:exchange, exchange.name, vhost.name).to_json(json)
           end
           return if count >= MAX_RESULTS
         end
 
         if vhost.search_match?(query)
           count += 1
-          {vhost: vhost.name}.to_json(json)
+          SearchResult.new(:vhost, vhost.name, nil).to_json(json)
         end
         return if count >= MAX_RESULTS
       end
       @server.users.each_value do |user|
         if user.search_match?(query)
           count += 1
-          {user: user.name}.to_json(json)
+          SearchResult.new(:user, user.name, nil).to_json(json)
         end
         return if count >= MAX_RESULTS
-      end
-    end
-
-    private macro stream_entities(json, field_name, counter, entities)
-      return unless {{counter}} > 0
-      {{json}}.field {{field_name}} do
-        json.array do
-          {{counter}}.times do |i|
-            {{entities}}[i].to_json({{json}})
-          end
-        end
       end
     end
   end

@@ -230,55 +230,26 @@ class EntitySearch {
     this.#selectedIndex = -1
     const fragment = document.createDocumentFragment()
 
-    const types = {
-      queue: {
-        label: "Queue",
-        link: d => HTTP.url`queue#vhost=${d.vhost}&name=${d.queue}`,
-        name: d => d.queue
-      },
-      exchange: {
-        label: "Exchange",
-        link: d => HTTP.url`exchange#vhost=${d.vhost}&name=${d.exchange}`,
-        name: d => d.exchange
-      },
-      user: {
-        label: "User",
-        link: d => HTTP.url`user#name=${d.user}`,
-        name: d => d.user,
-      },
-      vhost: {
-        label: "VHost",
-        link: d => HTTP.url`vhost#name=${d.vhost}`,
-        name: d => d.vhost
-      }
-     }
+    const link = {
+      queue: r => HTTP.url`queue#vhost=${r.vhost}&name=${r.name}`,
+      exchange: r => HTTP.url`exchange#vhost=${r.vhost}&name=${r.name}`,
+      user: r => HTTP.url`user#name=${r.name}`,
+      vhost: r => HTTP.url`vhost#name=${r.name}`,
+    }
 
     response.result.forEach(result => {
-
-      let type;
-      for(const key in types) {
-        if (result[key]) {
-          type = types[key]
-          break;
-        }
-      }
-      if (typeof type === 'undefined') {
-        return
-      }
-
-
       const li = document.createElement('li')
       const a = document.createElement('a')
-      a.href = type.link(result)
+      a.href = link[result.type](result)
       a.className = 'search-result-item'
 
       const nameSpan = document.createElement('span')
       nameSpan.className = 'entity-name'
-      nameSpan.textContent = type.name(result)
+      nameSpan.textContent = result.name
 
       const typeSpan = document.createElement('span')
       typeSpan.className = 'entity-type'
-      typeSpan.textContent = type.label
+      typeSpan.textContent = result.type
 
       a.appendChild(nameSpan)
       a.appendChild(typeSpan)
