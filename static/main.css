@@ -2412,3 +2412,22 @@ html.theme-dark {
     width: 100%;
   }
 }
+
+#entity-search {
+  form { 
+    position: relative
+  }
+  ul.result {
+    display: none;
+    background-color: white;
+    color: black;
+    list-style: none outside;
+    position: absolute;
+    padding: 0;
+    margin: 0;
+    right: 0;
+    &:has(> li) {
+      display: block;
+    }
+  }
+}
