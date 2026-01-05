@@ -37,58 +37,37 @@ module LavinMQ
     MAX_RESULTS = 10
 
     private def search_vhosts(json : JSON::Builder, query : String) # ameba:disable Metrics/CyclomaticComplexity
-      # If the query begins with any "type" followed by a space, we'll
-      # only search for that type, else we search for everything
-      types = %w{queue exchange vhost user}
-      search_types = types.find do |type|
-        next unless query.starts_with?(type)
-        next unless query.size > (type.size + 1)
-        next unless query[type.size] == ' '
-        query = query[(type.size + 1)..]
-        {type}
-      end || types
-      Log.debug { "search_types = #{search_types} query=#{query}" }
 
       count = 0
-      if %w{queue exchange vhost}.any? &.in?(search_types)
-        @server.vhosts.each_value do |vhost|
-          if "queue".in?(search_types)
-            vhost.queues.each_value do |queue|
-              if queue.search_match?(query)
-                count += 1
-                {queue: queue.name, vhost: vhost.name}.to_json(json)
-              end
-              return if count >= MAX_RESULTS
-            end
-          end
-
-          if "exchange".in?(search_types)
-            vhost.exchanges.each_value do |exchange|
-              if exchange.search_match?(query)
-                count += 1
-                {exchange: exchange.name, vhost: vhost.name}.to_json(json)
-              end
-              return if count >= MAX_RESULTS
-            end
-          end
-
-          if "vhost".in?(search_types)
-            if vhost.search_match?(query)
-              count += 1
-              {vhost: vhost.name}.to_json(json)
-            end
-            return if count >= MAX_RESULTS
-          end
-        end
-      end
-      if "user".in?(search_types)
-        @server.users.each_value do |user|
-          if user.search_match?(query)
+      @server.vhosts.each_value do |vhost|
+        vhost.queues.each_value do |queue|
+          if queue.search_match?(query)
             count += 1
-            {user: user.name}.to_json(json)
+            {queue: queue.name, vhost: vhost.name}.to_json(json)
           end
           return if count >= MAX_RESULTS
         end
+
+        vhost.exchanges.each_value do |exchange|
+          if exchange.search_match?(query)
+            count += 1
+            {exchange: exchange.name, vhost: vhost.name}.to_json(json)
+          end
+          return if count >= MAX_RESULTS
+        end
+
+        if vhost.search_match?(query)
+          count += 1
+          {vhost: vhost.name}.to_json(json)
+        end
+        return if count >= MAX_RESULTS
+      end
+      @server.users.each_value do |user|
+        if user.search_match?(query)
+          count += 1
+          {user: user.name}.to_json(json)
+        end
+        return if count >= MAX_RESULTS
       end
     end
 
