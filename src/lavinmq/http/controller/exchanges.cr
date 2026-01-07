@@ -8,7 +8,7 @@ module LavinMQ
       private def exchange(context, params, vhost, key = "name")
         name = params[key]
         name = "" if name == "amq.default"
-        e = @amqp_server.vhosts[vhost].exchanges[name]?
+        e = vhost.exchanges[name]?
         not_found(context) unless e
         e
       end
@@ -28,7 +28,7 @@ module LavinMQ
         get "/api/exchanges/:vhost" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            page(context, @amqp_server.vhosts[vhost].exchanges.each_value)
+            page(context, vhost.exchanges.each_value)
           end
         end
 
@@ -56,11 +56,11 @@ module LavinMQ
               tbl["x-delayed-exchange"] = delayed.try(&.as_bool?)
             end
             ae = tbl["x-alternate-exchange"]?.try &.as?(String)
-            ae_ok = ae.nil? || (user.can_write?(vhost, ae) && user.can_read?(vhost, name))
-            unless user.can_config?(vhost, name) && ae_ok
+            ae_ok = ae.nil? || (user.can_write?(vhost.name, ae) && user.can_read?(vhost.name, name))
+            unless user.can_config?(vhost.name, name) && ae_ok
               access_refused(context, "User doesn't have permissions to declare exchange '#{name}'")
             end
-            e = @amqp_server.vhosts[vhost].exchanges[name]?
+            e = vhost.exchanges[name]?
             if e
               unless e.match?(type, durable, auto_delete, internal, tbl)
                 bad_request(context, "Existing exchange declared with other arguments arg")
@@ -74,8 +74,7 @@ module LavinMQ
             elsif name.bytesize > UInt8::MAX
               bad_request(context, "Exchange name too long, can't exceed 255 characters")
             else
-              @amqp_server.vhosts[vhost]
-                .declare_exchange(name, type.not_nil!, durable, auto_delete, internal, tbl)
+              vhost.declare_exchange(name, type.not_nil!, durable, auto_delete, internal, tbl)
               context.response.status_code = 201
             end
           rescue ex : Error::ExchangeTypeError
@@ -97,7 +96,7 @@ module LavinMQ
             if context.request.query_params["if-unused"]? == "true"
               bad_request(context, "Exchange #{e.name} in vhost #{e.vhost.name} in use") if e.in_use?
             end
-            @amqp_server.vhosts[vhost].delete_exchange(e.name)
+            vhost.delete_exchange(e.name)
             context.response.status_code = 204
           end
         end

@@ -125,17 +125,17 @@ module LavinMQ
 
         get "/api/aliveness-test/:vhost" do |context, params|
           with_vhost(context, params) do |vhost|
-            @amqp_server.vhosts[vhost].declare_queue("aliveness-test", false, false)
-            @amqp_server.vhosts[vhost].bind_queue("aliveness-test", "amq.direct", "aliveness-test")
+            vhost.declare_queue("aliveness-test", false, false)
+            vhost.bind_queue("aliveness-test", "amq.direct", "aliveness-test")
             msg = Message.new(Time.utc.to_unix_ms,
               "amq.direct",
               "aliveness-test",
               AMQP::Properties.new,
               4_u64,
               IO::Memory.new("test"))
-            ok = @amqp_server.vhosts[vhost].publish(msg)
+            ok = vhost.publish(msg)
             env = nil
-            @amqp_server.vhosts[vhost].queues["aliveness-test"].basic_get(true) { |e| env = e }
+            vhost.queues["aliveness-test"].basic_get(true) { |e| env = e }
             ok = ok && env && String.new(env.message.body) == "test"
             {status: ok ? "ok" : "failed"}.to_json(context.response)
           end
@@ -152,7 +152,7 @@ module LavinMQ
 
         get "/api/federation-links/:vhost" do |context, params|
           with_vhost(context, params) do |vhost|
-            itrs = @amqp_server.vhosts[vhost].upstreams.not_nil!.map do |upstream|
+            itrs = vhost.upstreams.not_nil!.map do |upstream|
               upstream.links.each
             end
             page(context, Iterator(Federation::Upstream::Link).chain(itrs))
