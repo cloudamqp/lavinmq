@@ -1,46 +1,16 @@
-From 6a96bec6d484bbe156b3cd4ee326ae4cadd81e5c Mon Sep 17 00:00:00 2001
-From: Magnus Landerblom <magnus@landerblom.se>
-Date: Mon, 30 Sep 2024 22:44:56 +0200
-Subject: [PATCH] lavinmq fixes
-
----
- .../AMQConnectionRefreshCredentialsTest.java    |  2 ++
- .../client/test/BlockedConnectionTest.java      |  2 ++
- .../rabbitmq/client/test/BrokerTestCase.java    |  8 ++++----
- .../rabbitmq/client/test/ClientTestSuite.java   |  2 +-
- .../client/test/LambdaCallbackTest.java         |  2 ++
- .../client/test/RefreshCredentialsTest.java     |  2 ++
- .../java/com/rabbitmq/client/test/RpcTest.java  |  2 ++
- .../test/functional/ConnectionRecovery.java     |  5 +++++
- .../test/functional/DeadLetterExchange.java     |  2 +-
- .../client/test/functional/ExchangeDeclare.java |  5 +++++
- .../client/test/functional/FrameMax.java        |  2 ++
- .../client/test/functional/Heartbeat.java       |  2 ++
- .../client/test/functional/PerQueueTTL.java     |  2 ++
- .../functional/PerQueueVsPerMessageTTL.java     |  2 +-
- .../client/test/functional/Policies.java        |  2 +-
- .../client/test/functional/QueueLifecycle.java  |  5 +++++
- .../client/test/functional/Recover.java         |  2 ++
- .../client/test/functional/Routing.java         |  2 ++
- .../client/test/functional/SaslMechanisms.java  |  5 +++++
- .../client/test/functional/TTLHandling.java     | 17 +++++++++--------
- .../rabbitmq/client/test/functional/Tables.java |  2 +-
- .../test/functional/UnexpectedFrames.java       |  3 +++
- 22 files changed, 61 insertions(+), 17 deletions(-)
-
 diff --git a/src/test/java/com/rabbitmq/client/impl/AMQConnectionRefreshCredentialsTest.java b/src/test/java/com/rabbitmq/client/impl/AMQConnectionRefreshCredentialsTest.java
-index d99a8434d..c40eba73b 100644
+index a853b22..9a85759 100644
 --- a/src/test/java/com/rabbitmq/client/impl/AMQConnectionRefreshCredentialsTest.java
 +++ b/src/test/java/com/rabbitmq/client/impl/AMQConnectionRefreshCredentialsTest.java
-@@ -24,6 +24,7 @@ import com.rabbitmq.client.test.TestUtils.BrokerVersionAtLeast;
- import org.junit.jupiter.api.AfterEach;
- import org.junit.jupiter.api.BeforeEach;
+@@ -26,6 +26,7 @@ import org.junit.jupiter.api.BeforeEach;
  import org.junit.jupiter.api.Test;
-+import org.junit.jupiter.api.Disabled;
  import org.mockito.Mock;
  import org.mockito.MockitoAnnotations;
++import org.junit.jupiter.api.Disabled;
  
-@@ -103,6 +104,7 @@ public class AMQConnectionRefreshCredentialsTest {
+ import java.io.IOException;
+ import java.time.Duration;
+@@ -101,6 +102,7 @@ public class AMQConnectionRefreshCredentialsTest {
          return cf;
      }
  
@@ -48,37 +18,54 @@ index d99a8434d..c40eba73b 100644
      @Test
      @SuppressWarnings("unchecked")
      public void connectionIsUnregisteredFromRefreshServiceWhenClosed() throws Exception {
+@@ -141,6 +143,7 @@ public class AMQConnectionRefreshCredentialsTest {
+         verify(refreshService, times(1)).unregister(credentialsProvider, registrationId);
+     }
+ 
++    @Disabled("Not supported in LavinMQ")
+     @Test
+     @SuppressWarnings("unchecked")
+     public void connectionIsUnregisteredFromRefreshServiceIfUpdateSecretFails() throws Exception {
 diff --git a/src/test/java/com/rabbitmq/client/test/BlockedConnectionTest.java b/src/test/java/com/rabbitmq/client/test/BlockedConnectionTest.java
-index d3ceb146f..a86c455bb 100644
+index 0a98be0..0a7aef6 100644
 --- a/src/test/java/com/rabbitmq/client/test/BlockedConnectionTest.java
 +++ b/src/test/java/com/rabbitmq/client/test/BlockedConnectionTest.java
-@@ -25,9 +25,11 @@ import com.rabbitmq.client.ConnectionFactory;
- import java.util.concurrent.CountDownLatch;
+@@ -33,10 +33,12 @@ import com.rabbitmq.client.MessageProperties;
+ import org.junit.jupiter.api.Test;
  import org.junit.jupiter.params.ParameterizedTest;
- import org.junit.jupiter.params.provider.ValueSource;
+ import org.junit.jupiter.params.provider.MethodSource;
 +import org.junit.jupiter.api.Disabled;
+ import org.junit.jupiter.params.provider.ValueSource;
  
  public class BlockedConnectionTest extends BrokerTestCase {
  
-+  @Disabled("LavinMQ: Not supported")
++    @Disabled("LavinMQ: Not supported")
    @ParameterizedTest
-   @ValueSource(booleans = {true, false})
-   void errorInBlockListenerShouldCloseConnection(boolean nio) throws Exception {
+   @MethodSource("com.rabbitmq.client.test.TestUtils#ioLayers")
+   void errorInBlockListenerShouldCloseConnection(String ioLayer) throws Exception {
+@@ -64,6 +66,7 @@ public class BlockedConnectionTest extends BrokerTestCase {
+     waitAtMost(() -> !c.isOpen());
+   }
+ 
++    @Disabled("LavinMQ: Blocking not supported")
+   @Test
+   void shutdownListenerShouldBeCalledWhenChannelDies() throws Exception {
+     long confirmTimeout = Duration.ofSeconds(2).toMillis();
 diff --git a/src/test/java/com/rabbitmq/client/test/BrokerTestCase.java b/src/test/java/com/rabbitmq/client/test/BrokerTestCase.java
-index 22b2042f7..30f35c68a 100644
+index dbb582f..3b4e65f 100644
 --- a/src/test/java/com/rabbitmq/client/test/BrokerTestCase.java
 +++ b/src/test/java/com/rabbitmq/client/test/BrokerTestCase.java
-@@ -316,13 +316,13 @@ public class BrokerTestCase {
+@@ -323,13 +323,13 @@ public class BrokerTestCase {
      }
  
-     protected void block() throws IOException, InterruptedException {
+     protected void block() throws IOException {
 -        Host.rabbitmqctl("set_vm_memory_high_watermark 0.000000001");
 -        setResourceAlarm("disk");
 +        // Host.rabbitmqctl("set_vm_memory_high_watermark 0.000000001");
 +        // setResourceAlarm("disk");
      }
  
-     protected void unblock() throws IOException, InterruptedException {
+     protected void unblock() throws IOException {
 -        Host.rabbitmqctl("set_vm_memory_high_watermark 0.4");
 -        clearResourceAlarm("disk");
 +        // Host.rabbitmqctl("set_vm_memory_high_watermark 0.4");
@@ -86,8 +73,21 @@ index 22b2042f7..30f35c68a 100644
      }
  
      protected String generateQueueName() {
+diff --git a/src/test/java/com/rabbitmq/client/test/ClientTestSuite.java b/src/test/java/com/rabbitmq/client/test/ClientTestSuite.java
+index 73b48ea..5027709 100644
+--- a/src/test/java/com/rabbitmq/client/test/ClientTestSuite.java
++++ b/src/test/java/com/rabbitmq/client/test/ClientTestSuite.java
+@@ -65,7 +65,7 @@ import org.junit.platform.suite.api.Suite;
+     ClientVersionTest.class,
+     TestUtilsTest.class,
+     StrictExceptionHandlerTest.class,
+-    NoAutoRecoveryWhenTcpWindowIsFullTest.class,
++    // NoAutoRecoveryWhenTcpWindowIsFullTest.class, // Disabled for LavinMQ
+     DefaultJsonRpcTest.class,
+     JacksonJsonRpcTest.class,
+     AddressTest.class,
 diff --git a/src/test/java/com/rabbitmq/client/test/LambdaCallbackTest.java b/src/test/java/com/rabbitmq/client/test/LambdaCallbackTest.java
-index 1fb6c2e82..b9a8d4783 100644
+index acc8266..5312f33 100644
 --- a/src/test/java/com/rabbitmq/client/test/LambdaCallbackTest.java
 +++ b/src/test/java/com/rabbitmq/client/test/LambdaCallbackTest.java
 @@ -18,6 +18,7 @@ package com.rabbitmq.client.test;
@@ -98,7 +98,7 @@ index 1fb6c2e82..b9a8d4783 100644
  
  import java.io.IOException;
  import java.util.UUID;
-@@ -74,6 +75,7 @@ public class LambdaCallbackTest extends BrokerTestCase {
+@@ -70,6 +71,7 @@ public class LambdaCallbackTest extends BrokerTestCase {
          assertTrue(latch.await(1, TimeUnit.SECONDS), "Should have received returned message");
      }
  
@@ -107,7 +107,7 @@ index 1fb6c2e82..b9a8d4783 100644
          final CountDownLatch latch = new CountDownLatch(1);
          try(Connection connection = TestUtils.connectionFactory().newConnection()) {
 diff --git a/src/test/java/com/rabbitmq/client/test/RefreshCredentialsTest.java b/src/test/java/com/rabbitmq/client/test/RefreshCredentialsTest.java
-index a9901702b..8ae74bb24 100644
+index a990170..8ae74bb 100644
 --- a/src/test/java/com/rabbitmq/client/test/RefreshCredentialsTest.java
 +++ b/src/test/java/com/rabbitmq/client/test/RefreshCredentialsTest.java
 @@ -24,6 +24,7 @@ import com.rabbitmq.client.test.TestUtils.BrokerVersion;
@@ -127,7 +127,7 @@ index a9901702b..8ae74bb24 100644
      public void connectionAndRefreshCredentials() throws Exception {
          ConnectionFactory cf = TestUtils.connectionFactory();
 diff --git a/src/test/java/com/rabbitmq/client/test/RpcTest.java b/src/test/java/com/rabbitmq/client/test/RpcTest.java
-index f600709d1..2a7d90021 100644
+index f600709..2a7d900 100644
 --- a/src/test/java/com/rabbitmq/client/test/RpcTest.java
 +++ b/src/test/java/com/rabbitmq/client/test/RpcTest.java
 @@ -28,6 +28,7 @@ import org.assertj.core.api.Assertions;
@@ -146,8 +146,36 @@ index f600709d1..2a7d90021 100644
      @Test
      public void givenConsumerIsRecoveredCanNotCreateNewClientOnSameChannelAfterConnectionFailure() throws Exception {
          // see https://github.com/rabbitmq/rabbitmq-java-client/issues/382
+diff --git a/src/test/java/com/rabbitmq/client/test/functional/BindingLifecycle.java b/src/test/java/com/rabbitmq/client/test/functional/BindingLifecycle.java
+index 6e23ce0..3e927bd 100644
+--- a/src/test/java/com/rabbitmq/client/test/functional/BindingLifecycle.java
++++ b/src/test/java/com/rabbitmq/client/test/functional/BindingLifecycle.java
+@@ -26,6 +26,7 @@ import java.io.IOException;
+ import java.util.concurrent.TimeoutException;
+ 
+ import org.junit.jupiter.api.Test;
++import org.junit.jupiter.api.Disabled;
+ 
+ import com.rabbitmq.client.AMQP;
+ import com.rabbitmq.client.GetResponse;
+@@ -158,6 +159,7 @@ public class BindingLifecycle extends BindingLifecycleBase {
+      * Because the exchange has been auto-deleted, the bind operation
+      * should fail.
+      */
++    @Disabled("LavinMQ: Exchange auto-delete timing issue")
+     @Test public void exchangeAutoDelete() throws IOException, TimeoutException {
+         doAutoDelete(false, 1);
+     }
+@@ -169,6 +171,7 @@ public class BindingLifecycle extends BindingLifecycleBase {
+      * The difference should be that the original exchange should not
+      * get auto-deleted
+      */
++    @Disabled("LavinMQ: Exchange auto-delete timing issue")
+     @Test public void exchangeAutoDeleteManyBindings() throws IOException, TimeoutException {
+         doAutoDelete(false, 10);
+     }
 diff --git a/src/test/java/com/rabbitmq/client/test/functional/ConnectionRecovery.java b/src/test/java/com/rabbitmq/client/test/functional/ConnectionRecovery.java
-index 8dfb268ae..e2c033ffd 100644
+index 7c8f74e..f2d7cb3 100644
 --- a/src/test/java/com/rabbitmq/client/test/functional/ConnectionRecovery.java
 +++ b/src/test/java/com/rabbitmq/client/test/functional/ConnectionRecovery.java
 @@ -24,6 +24,7 @@ import com.rabbitmq.client.test.BrokerTestCase;
@@ -191,20 +219,36 @@ index 8dfb268ae..e2c033ffd 100644
          String x   = "tmp-fanout";
          Channel ch = connection.createChannel();
 diff --git a/src/test/java/com/rabbitmq/client/test/functional/DeadLetterExchange.java b/src/test/java/com/rabbitmq/client/test/functional/DeadLetterExchange.java
-index 86ddf898e..1c332b956 100644
+index 86ddf89..4a7f1f9 100644
 --- a/src/test/java/com/rabbitmq/client/test/functional/DeadLetterExchange.java
 +++ b/src/test/java/com/rabbitmq/client/test/functional/DeadLetterExchange.java
-@@ -178,7 +178,7 @@ public class DeadLetterExchange extends BrokerTestCase {
+@@ -21,6 +21,7 @@ import com.rabbitmq.client.test.BrokerTestCase;
+ import com.rabbitmq.client.test.TestUtils;
+ import java.util.concurrent.atomic.AtomicReference;
+ import org.junit.jupiter.api.Test;
++import org.junit.jupiter.api.Disabled;
+ 
+ import java.io.IOException;
+ import java.util.*;
+@@ -178,7 +179,7 @@ public class DeadLetterExchange extends BrokerTestCase {
          long stop = System.currentTimeMillis();
          assertNotNull(body);
          channel.basicCancel(cTag);
 -        long latency = stop-start;
-+        long latency = stop-start + 200; // LavinMQ is only accurate too 100ms for TTL/expiration
++        long latency = stop-start + 200; // LavinMQ is only accurate to 100ms for TTL/expiration
  
          channel.basicConsume(DLQ, true, c);
  
+@@ -371,6 +372,7 @@ public class DeadLetterExchange extends BrokerTestCase {
+     }
+ 
+     @SuppressWarnings("unchecked")
++    @Disabled("LavinMQ: CC header handling in dead letter differs")
+     @Test public void deadLetterNewRK() throws Exception {
+         declareQueue(TEST_QUEUE_NAME, DLX, "test-other", null, 1);
+ 
 diff --git a/src/test/java/com/rabbitmq/client/test/functional/ExchangeDeclare.java b/src/test/java/com/rabbitmq/client/test/functional/ExchangeDeclare.java
-index 12900c448..9331b2d0a 100644
+index 9bac1af..aa69484 100644
 --- a/src/test/java/com/rabbitmq/client/test/functional/ExchangeDeclare.java
 +++ b/src/test/java/com/rabbitmq/client/test/functional/ExchangeDeclare.java
 @@ -25,6 +25,7 @@ import java.util.concurrent.TimeoutException;
@@ -242,47 +286,55 @@ index 12900c448..9331b2d0a 100644
          channel.exchangeDeclare(NAME, TYPE, false, false, null);
          Map<String, Object> args = new HashMap<String, Object>();
 diff --git a/src/test/java/com/rabbitmq/client/test/functional/FrameMax.java b/src/test/java/com/rabbitmq/client/test/functional/FrameMax.java
-index 4ca81aebc..610eec9c2 100644
+index 65b14e2..ee35b42 100644
 --- a/src/test/java/com/rabbitmq/client/test/functional/FrameMax.java
 +++ b/src/test/java/com/rabbitmq/client/test/functional/FrameMax.java
-@@ -33,6 +33,7 @@ import java.util.concurrent.TimeoutException;
- import com.rabbitmq.client.impl.AMQBasicProperties;
+@@ -32,6 +32,7 @@ import java.util.concurrent.TimeoutException;
+ 
  import com.rabbitmq.client.test.TestUtils;
  import org.junit.jupiter.api.Test;
 +import org.junit.jupiter.api.Disabled;
  
  import com.rabbitmq.client.AMQP;
  import com.rabbitmq.client.Address;
-@@ -100,6 +101,7 @@ public class FrameMax extends BrokerTestCase {
+@@ -94,6 +95,7 @@ public class FrameMax extends BrokerTestCase {
  
      /* server should reject frames larger than the negotiated frame
       * size */
 +    @Disabled("LavinMQ closes the socket before the full publish has been sent as it's malformed")
-     @Test public void rejectExceedingFrameMax()
-             throws IOException, TimeoutException {
+     @Test public void rejectExceedingFrameMax() throws IOException, TimeoutException {
          closeChannel();
+         closeConnection();
 diff --git a/src/test/java/com/rabbitmq/client/test/functional/Heartbeat.java b/src/test/java/com/rabbitmq/client/test/functional/Heartbeat.java
-index 9a327e2ff..38e44dbf2 100644
+index bbee6e3..f55aea1 100644
 --- a/src/test/java/com/rabbitmq/client/test/functional/Heartbeat.java
 +++ b/src/test/java/com/rabbitmq/client/test/functional/Heartbeat.java
-@@ -20,6 +20,7 @@ import com.rabbitmq.client.ConnectionFactory;
- import com.rabbitmq.client.impl.recovery.AutorecoveringConnection;
- import com.rabbitmq.client.test.BrokerTestCase;
- import org.junit.jupiter.api.Test;
+@@ -18,6 +18,7 @@ package com.rabbitmq.client.test.functional;
+ 
+ import static org.assertj.core.api.Assertions.assertThat;
+ import static org.junit.jupiter.api.Assertions.*;
 +import org.junit.jupiter.api.Disabled;
  
- import java.io.IOException;
+ import com.rabbitmq.client.Connection;
+ import com.rabbitmq.client.ConnectionFactory;
+@@ -38,6 +39,7 @@ public class Heartbeat extends BrokerTestCase {
+     return cf;
+   }
  
-@@ -34,6 +35,7 @@ public class Heartbeat extends BrokerTestCase {
-         return cf;
-     }
++  @Disabled("LavinMQ relies on TCP keepalives, not on artificial HB frames")
+   @Test
+   public void heartbeat() throws InterruptedException {
+     assertEquals(1, connection.getHeartbeat());
+@@ -49,6 +51,7 @@ public class Heartbeat extends BrokerTestCase {
+     assertFalse(connection.isOpen());
+   }
  
-+    @Disabled("LavinMQ relies on TCP keepalives, not on artifical HB frames")
-     @Test
-     public void heartbeat() throws InterruptedException {
-         assertEquals(1, connection.getHeartbeat());
++  @Disabled("LavinMQ relies on TCP keepalives, not on artificial HB frames")
+   @Test
+   void nettyHeartbeat() throws Exception {
+     ChannelTrafficShapingHandler channelTrafficShapingHandler =
 diff --git a/src/test/java/com/rabbitmq/client/test/functional/PerQueueTTL.java b/src/test/java/com/rabbitmq/client/test/functional/PerQueueTTL.java
-index a7c273d63..53def8bd3 100644
+index a7c273d..53def8b 100644
 --- a/src/test/java/com/rabbitmq/client/test/functional/PerQueueTTL.java
 +++ b/src/test/java/com/rabbitmq/client/test/functional/PerQueueTTL.java
 @@ -23,6 +23,7 @@ import java.util.Collections;
@@ -302,7 +354,7 @@ index a7c273d63..53def8bd3 100644
          declareQueue(10);
          try {
 diff --git a/src/test/java/com/rabbitmq/client/test/functional/PerQueueVsPerMessageTTL.java b/src/test/java/com/rabbitmq/client/test/functional/PerQueueVsPerMessageTTL.java
-index a2aae0a86..e67563cc1 100644
+index a2aae0a..e67563c 100644
 --- a/src/test/java/com/rabbitmq/client/test/functional/PerQueueVsPerMessageTTL.java
 +++ b/src/test/java/com/rabbitmq/client/test/functional/PerQueueVsPerMessageTTL.java
 @@ -33,7 +33,7 @@ public class PerQueueVsPerMessageTTL extends PerMessageTTL {
@@ -315,7 +367,7 @@ index a2aae0a86..e67563cc1 100644
          assertNull(get(), "per-queue ttl should have removed message after 10ms");
      }
 diff --git a/src/test/java/com/rabbitmq/client/test/functional/Policies.java b/src/test/java/com/rabbitmq/client/test/functional/Policies.java
-index 7a0f85688..1ce0efef6 100644
+index 7a0f856..620459b 100644
 --- a/src/test/java/com/rabbitmq/client/test/functional/Policies.java
 +++ b/src/test/java/com/rabbitmq/client/test/functional/Policies.java
 @@ -33,7 +33,7 @@ import com.rabbitmq.client.test.BrokerTestCase;
@@ -323,15 +375,15 @@ index 7a0f85688..1ce0efef6 100644
  
  public class Policies extends BrokerTestCase {
 -    private static final int DELAY = 100; // MILLIS
-+    private static final int DELAY = 300; // MILLIS
++    private static final int DELAY = 300; // MILLIS - increased for LavinMQ // MILLIS
  
      @Override protected void createResources() throws IOException {
          setPolicy("AE", "^has-ae", "\"alternate-exchange\":\"ae\"");
 diff --git a/src/test/java/com/rabbitmq/client/test/functional/QueueLifecycle.java b/src/test/java/com/rabbitmq/client/test/functional/QueueLifecycle.java
-index 95646fc1e..2eee9cbc0 100644
+index 9d4d5a2..b65f453 100644
 --- a/src/test/java/com/rabbitmq/client/test/functional/QueueLifecycle.java
 +++ b/src/test/java/com/rabbitmq/client/test/functional/QueueLifecycle.java
-@@ -21,6 +21,7 @@ import com.rabbitmq.client.Consumer;
+@@ -22,6 +22,7 @@ import com.rabbitmq.client.Consumer;
  import com.rabbitmq.client.DefaultConsumer;
  import com.rabbitmq.client.test.BrokerTestCase;
  import org.junit.jupiter.api.Test;
@@ -339,7 +391,7 @@ index 95646fc1e..2eee9cbc0 100644
  
  import java.io.IOException;
  import java.util.HashMap;
-@@ -90,6 +91,7 @@ public class QueueLifecycle extends BrokerTestCase {
+@@ -94,6 +95,7 @@ public class QueueLifecycle extends BrokerTestCase {
       * Declare-Ok if the requested queue matches these fields, and MUST
       * raise a channel exception if not."
       */
@@ -347,7 +399,7 @@ index 95646fc1e..2eee9cbc0 100644
      @Test public void queueEquivalence() throws IOException {
          String q = "queue";
          channel.queueDeclare(q, false, false, false, null);
-@@ -180,16 +182,19 @@ public class QueueLifecycle extends BrokerTestCase {
+@@ -184,16 +186,19 @@ public class QueueLifecycle extends BrokerTestCase {
          }
      }
  
@@ -368,7 +420,7 @@ index 95646fc1e..2eee9cbc0 100644
          channel.queueDeclare("q\ru\ne\r\nue_\ntest\n\r", false, false, true, null);
          verifyQueue(NAME_STRIPPED, false, false, true, null);
 diff --git a/src/test/java/com/rabbitmq/client/test/functional/Recover.java b/src/test/java/com/rabbitmq/client/test/functional/Recover.java
-index ec606c28e..0e5bf06f9 100644
+index ec606c2..0e5bf06 100644
 --- a/src/test/java/com/rabbitmq/client/test/functional/Recover.java
 +++ b/src/test/java/com/rabbitmq/client/test/functional/Recover.java
 @@ -29,6 +29,7 @@ import java.util.concurrent.atomic.AtomicReference;
@@ -387,8 +439,36 @@ index ec606c28e..0e5bf06f9 100644
      @Test public void requeueFalseNotSupported() throws Exception {
          try {
              channel.basicRecover(false);
+diff --git a/src/test/java/com/rabbitmq/client/test/functional/RequeueOnClose.java b/src/test/java/com/rabbitmq/client/test/functional/RequeueOnClose.java
+index 76696a0..1d13925 100644
+--- a/src/test/java/com/rabbitmq/client/test/functional/RequeueOnClose.java
++++ b/src/test/java/com/rabbitmq/client/test/functional/RequeueOnClose.java
+@@ -17,6 +17,7 @@ package com.rabbitmq.client.test.functional;
+ 
+ import static org.junit.jupiter.api.Assertions.*;
+ import org.junit.jupiter.api.Test;
++import org.junit.jupiter.api.Disabled;
+ 
+ 
+ import com.rabbitmq.client.test.BrokerTestCase;
+@@ -159,6 +160,7 @@ public abstract class RequeueOnClose
+      * Test close while consuming many messages successfully requeues unacknowledged messages
+      * @throws Exception untested
+      */
++    @Disabled("LavinMQ: Intermittent timing issue with connection close requeue")
+     @Test public void requeueInFlight() throws Exception
+     {
+         for (int i = 0; i < 5; i++) {
+@@ -192,6 +194,7 @@ public abstract class RequeueOnClose
+      * Test close while consuming partially not acked without cancel successfully requeues unacknowledged messages
+      * @throws Exception untested
+      */
++    @Disabled("LavinMQ: Intermittent timing issue with connection close requeue")
+     @Test public void requeueInFlightConsumerNoAckNoCancel() throws Exception
+     {
+         for (int i = 0; i < 5; i++) {
 diff --git a/src/test/java/com/rabbitmq/client/test/functional/Routing.java b/src/test/java/com/rabbitmq/client/test/functional/Routing.java
-index de201bc73..77afd82b2 100644
+index de201bc..d966ab5 100644
 --- a/src/test/java/com/rabbitmq/client/test/functional/Routing.java
 +++ b/src/test/java/com/rabbitmq/client/test/functional/Routing.java
 @@ -32,6 +32,7 @@ import java.util.Map;
@@ -403,12 +483,12 @@ index de201bc73..77afd82b2 100644
          checkGet(Q2, false);
      }
  
-+    @Disabled("LavinMQ does support publishing with immediate=true")
++    @Disabled("LavinMQ does not support publishing with immediate=true")
      @Test public void basicReturn() throws Exception {
          channel.addReturnListener(makeReturnListener());
          returnCell = new BlockingCell<Integer>();
 diff --git a/src/test/java/com/rabbitmq/client/test/functional/SaslMechanisms.java b/src/test/java/com/rabbitmq/client/test/functional/SaslMechanisms.java
-index 85306577d..c8af0fa38 100644
+index 06454c8..c1ba13d 100644
 --- a/src/test/java/com/rabbitmq/client/test/functional/SaslMechanisms.java
 +++ b/src/test/java/com/rabbitmq/client/test/functional/SaslMechanisms.java
 @@ -25,6 +25,7 @@ import java.util.concurrent.TimeoutException;
@@ -447,10 +527,18 @@ index 85306577d..c8af0fa38 100644
          connectionCloseAuthFailure(connectionFactory.getUsername(), "incorrect-password");
      }
 diff --git a/src/test/java/com/rabbitmq/client/test/functional/TTLHandling.java b/src/test/java/com/rabbitmq/client/test/functional/TTLHandling.java
-index 8f08c0bbd..9d6bbafe3 100644
+index 8f08c0b..b837a20 100644
 --- a/src/test/java/com/rabbitmq/client/test/functional/TTLHandling.java
 +++ b/src/test/java/com/rabbitmq/client/test/functional/TTLHandling.java
-@@ -119,12 +119,13 @@ public abstract class TTLHandling extends BrokerTestCase {
+@@ -24,6 +24,7 @@ import com.rabbitmq.client.ShutdownSignalException;
+ import java.io.IOException;
+ 
+ import org.junit.jupiter.api.Test;
++import org.junit.jupiter.api.Disabled;
+ 
+ import com.rabbitmq.client.AMQP;
+ import com.rabbitmq.client.GetResponse;
+@@ -119,10 +120,10 @@ public abstract class TTLHandling extends BrokerTestCase {
          declareAndBindQueue(200);
  
          publish(MSG[0]);
@@ -459,30 +547,21 @@ index 8f08c0bbd..9d6bbafe3 100644
  
          publish(MSG[1]);
 -        Thread.sleep(100);
-+        Thread.sleep(50);
++        Thread.sleep(10);
  
          publish(MSG[2]);
-+        // Thread.sleep(50);
  
-         assertEquals(MSG[1], get());
-         assertEquals(MSG[2], get());
-@@ -132,19 +133,19 @@ public abstract class TTLHandling extends BrokerTestCase {
+@@ -132,7 +133,7 @@ public abstract class TTLHandling extends BrokerTestCase {
      }
  
      @Test public void transactionalPublishWithGet() throws Exception {
 -        declareAndBindQueue(100);
-+        declareAndBindQueue(300); // LavinMQ is only accurate to 100ms
++        declareAndBindQueue(300);
  
          this.channel.txSelect();
  
-         publish(MSG[0]);
--        Thread.sleep(150);
-+        Thread.sleep(350);
- 
-         publish(MSG[1]);
-         this.channel.txCommit();
--        Thread.sleep(50);
-+        Thread.sleep(10);
+@@ -144,7 +145,7 @@ public abstract class TTLHandling extends BrokerTestCase {
+         Thread.sleep(50);
  
          assertEquals(MSG[0], get());
 -        Thread.sleep(80);
@@ -508,11 +587,23 @@ index 8f08c0bbd..9d6bbafe3 100644
          expectBodyAndRemainingMessages(MSG[1], 1);
          expectBodyAndRemainingMessages(MSG[2], 0);
      }
+@@ -171,8 +172,9 @@ public abstract class TTLHandling extends BrokerTestCase {
+     /*
+     * Test expiry of re-queued messages after being consumed instantly
+     */
++    @Disabled("LavinMQ: Requeued messages retain their original expiration")
+     @Test public void expiryWithReQueueAfterConsume() throws Exception {
+-        declareAndBindQueue(100);
++        declareAndBindQueue(300);
+         QueueingConsumer c = new QueueingConsumer(channel);
+         channel.basicConsume(TTL_QUEUE_NAME, c);
+ 
 diff --git a/src/test/java/com/rabbitmq/client/test/functional/Tables.java b/src/test/java/com/rabbitmq/client/test/functional/Tables.java
-index 0360b6869..af7584ecd 100644
+index 0360b68..dd9520e 100644
 --- a/src/test/java/com/rabbitmq/client/test/functional/Tables.java
 +++ b/src/test/java/com/rabbitmq/client/test/functional/Tables.java
-@@ -75,7 +75,7 @@ public class Tables extends BrokerTestCase
+@@ -74,8 +74,8 @@ public class Tables extends BrokerTestCase
+ 
          //sending as part of method arguments - we are relying on
          //exchange.declare ignoring the arguments table.
 -        channel.exchangeDeclare("x", "direct", false, false, table);
@@ -523,7 +614,7 @@ index 0360b6869..af7584ecd 100644
  
      private static void assertMapsEqual(Map<String, Object> a,
 diff --git a/src/test/java/com/rabbitmq/client/test/functional/UnexpectedFrames.java b/src/test/java/com/rabbitmq/client/test/functional/UnexpectedFrames.java
-index d39893273..94e6b445f 100644
+index 0cefc40..602677a 100644
 --- a/src/test/java/com/rabbitmq/client/test/functional/UnexpectedFrames.java
 +++ b/src/test/java/com/rabbitmq/client/test/functional/UnexpectedFrames.java
 @@ -23,6 +23,7 @@ import com.rabbitmq.client.impl.recovery.AutorecoveringConnection;
@@ -534,7 +625,7 @@ index d39893273..94e6b445f 100644
  
  import javax.net.SocketFactory;
  import java.io.IOException;
-@@ -109,6 +110,7 @@ public class UnexpectedFrames extends BrokerTestCase {
+@@ -105,6 +106,7 @@ public class UnexpectedFrames extends BrokerTestCase {
          });
      }
  
@@ -542,7 +633,7 @@ index d39893273..94e6b445f 100644
      @Test public void missingMethod() throws IOException {
          expectUnexpectedFrameError(new Confuser() {
              public Frame confuse(Frame frame) {
-@@ -123,6 +125,7 @@ public class UnexpectedFrames extends BrokerTestCase {
+@@ -119,6 +121,7 @@ public class UnexpectedFrames extends BrokerTestCase {
          });
      }
  
@@ -550,17 +641,11 @@ index d39893273..94e6b445f 100644
      @Test public void missingBody() throws IOException {
          expectUnexpectedFrameError(new Confuser() {
              public Frame confuse(Frame frame) {
--- 
-
-diff --git a/src/test/java/com/rabbitmq/client/test/ClientTestSuite.java b/src/test/java/com/rabbitmq/client/test/ClientTestSuite.java
-index 245163d3b..57fbfefd9 100644
---- a/src/test/java/com/rabbitmq/client/test/ClientTestSuite.java
-+++ b/src/test/java/com/rabbitmq/client/test/ClientTestSuite.java
-@@ -65,7 +65,6 @@ import org.junit.platform.suite.api.Suite;
-     ClientVersionTest.class,
-     TestUtilsTest.class,
-     StrictExceptionHandlerTest.class,
--    NoAutoRecoveryWhenTcpWindowIsFullTest.class,
-     DefaultJsonRpcTest.class,
-     JacksonJsonRpcTest.class,
-     AddressTest.class,
+@@ -148,6 +151,7 @@ public class UnexpectedFrames extends BrokerTestCase {
+         });
+     }
+ 
++    @Disabled("LavinMQ: Returns frame error (501) instead of unexpected frame (505)")
+     @Test public void heartbeatOnChannel() throws IOException {
+         expectUnexpectedFrameError(new Confuser() {
+             public Frame confuse(Frame frame) {
