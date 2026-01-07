@@ -91,8 +91,8 @@ jobs:
         run: make test
 
   spec_osx:
-    name: Spec OS X
-    runs-on: macos-14
+    name: Spec macOS
+    runs-on: macos-15-xlarge
     timeout-minutes: 10
     steps:
       - name: Install dependencies
