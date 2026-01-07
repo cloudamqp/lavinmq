@@ -58,7 +58,10 @@ module LavinMQ
         return false if password.empty?
         auth_context = LavinMQ::Auth::Context.new(
           username, password.to_slice, remote_address)
-        !!@authenticator.authenticate(auth_context)
+        user = @authenticator.authenticate(auth_context)
+        return false if user.nil?
+        return false if user.tags.empty?
+        true
       end
 
       private def internal_unix_socket?(context) : Bool
