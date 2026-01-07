@@ -14,7 +14,7 @@ module LavinMQ
         return unless passwd.verify(context.password)
         user
       rescue ex : Exception
-        Log.error { "Local authentication failed: #{ex.message}" }
+        Log.error(exception: ex) { "Local authentication failed: #{ex.message}" }
       end
 
       private def default_user_only_loopback?(context) : Bool
