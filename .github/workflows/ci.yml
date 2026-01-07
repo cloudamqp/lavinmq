@@ -286,7 +286,7 @@ jobs:
           repository: ruby-amqp/bunny
           path: bunny
           fetch-depth: 0
-          ref: 5543c40db2567c05d614a0a24b618441aa9d199f
+          ref: 55bb3d2accc293911120ea7dc7330cf06eda41c2
 
       - name: Setup ruby
         uses: ruby/setup-ruby@v1
