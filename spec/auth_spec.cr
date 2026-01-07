@@ -22,8 +22,9 @@ describe LavinMQ::Auth::Chain do
 
   it "does not authenticate when given invalid credentials" do
     with_amqp_server do |s|
+      s.@users.create("foo", "bar")
       chain = LavinMQ::Auth::Chain.create(s.@users)
-      ctx = LavinMQ::Auth::Context.new("guest", "invalid".to_slice, loopback: true)
+      ctx = LavinMQ::Auth::Context.new("bar", "baz".to_slice, loopback: true)
       user = chain.authenticate(ctx)
       user.should be_nil
     end
