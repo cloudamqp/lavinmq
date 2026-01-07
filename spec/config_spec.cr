@@ -1,3 +1,4 @@
+require "log/spec"
 require "./spec_helper"
 require "../src/lavinmq/config"
 
@@ -404,5 +405,61 @@ describe LavinMQ::Config do
     config = LavinMQ::Config.new
     argv = ["--nonexistent-flag=value"]
     expect_raises(OptionParser::InvalidOption) { config.parse(argv) }
+  end
+
+  describe "with deprecated options" do
+    it "should log warning for ini options" do
+      config_file = File.tempfile do |file|
+        file.print <<-CONFIG
+        [main]
+        default_password = +pHuxkR9fCyrrwXjOD4BP4XbzO3l8LJr8YkThMgJ0yVHFRE+
+      CONFIG
+      end
+      Log.capture(level: :info) do |logs|
+        config = LavinMQ::Config.new
+        argv = ["-c", config_file.path]
+        config.parse(argv)
+        logs.check(:warn, /is deprecated/)
+      end
+    end
+
+    it "should log warning for cli options" do
+      config_file = File.tempfile do |file|
+        file.print <<-CONFIG
+        [main]
+      CONFIG
+      end
+      Log.capture(level: :info) do |logs|
+        config = LavinMQ::Config.new
+        argv = ["-c", config_file.path, "--default-password", "8Yw8kj5HkhfRxQ/3kbTAO/nmgqGpkvMsGDbUWXA6+jTF3JP3"]
+        config.parse(argv)
+        logs.check(:warn, /is deprecated/)
+      end
+    end
+
+    it "should forward ini option values to the new property" do
+      config_file = File.tempfile do |file|
+        file.print <<-CONFIG
+        [main]
+        default_password = 8Yw8kj5HkhfRxQ/3kbTAO/nmgqGpkvMsGDbUWXA6+jTF3JP3
+      CONFIG
+      end
+      config = LavinMQ::Config.new
+      argv = ["-c", config_file.path]
+      config.parse(argv)
+      config.default_password_hash.to_s.should eq "8Yw8kj5HkhfRxQ/3kbTAO/nmgqGpkvMsGDbUWXA6+jTF3JP3"
+    end
+
+    it "should forward cli option values to the new property" do
+      config_file = File.tempfile do |file|
+        file.print <<-CONFIG
+        [main]
+      CONFIG
+      end
+      config = LavinMQ::Config.new
+      argv = ["-c", config_file.path, "--default-password", "8Yw8kj5HkhfRxQ/3kbTAO/nmgqGpkvMsGDbUWXA6+jTF3JP3"]
+      config.parse(argv)
+      config.default_password_hash.to_s.should eq "8Yw8kj5HkhfRxQ/3kbTAO/nmgqGpkvMsGDbUWXA6+jTF3JP3"
+    end
   end
 end
