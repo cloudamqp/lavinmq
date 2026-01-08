@@ -227,9 +227,9 @@ jobs:
       - name: Get patch file
         uses: actions/checkout@v6
         with:
-          repository: cloudamqp/lavinmq
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event.pull_request.head.ref || github.ref }}
           path: lavinmq
-          # only checkout the lint rules
           sparse-checkout: |
             .github/rabbitmq-java-client.patch
           sparse-checkout-cone-mode: false
