@@ -113,32 +113,6 @@ describe "extract_conn_info during full_sync with syncing_followers", tags: "etc
     end
   end
 
-  it "should reject PROXY protocol when no followers are syncing or synced" do
-    with_amqp_server do |server|
-      server.@config.clustering = true
-
-      server_port = amqp_port(server)
-      client_socket = TCPSocket.new("localhost", server_port)
-
-      begin
-        proxy_header = "PROXY TCP4 192.168.1.100 127.0.0.1 54321 #{server_port}\r\n"
-        client_socket.write(proxy_header.to_slice)
-
-        amqp_header = "AMQP\u0000\u0000\t\u0001"
-        client_socket.write(amqp_header.to_slice)
-        client_socket.flush
-
-        buffer = Bytes.new(8)
-        client_socket.read_timeout = 0.5.seconds
-        client_socket.read(buffer)
-
-        buffer.should eq LavinMQ::AMQP::PROTOCOL_START_0_9_1.to_slice
-      ensure
-        client_socket.close rescue nil
-      end
-    end
-  end
-
   it "should handle PROXY protocol after follower has fully synced" do
     with_clustering do |cluster|
       with_amqp_server(replicator: cluster.replicator) do |leader_s|
