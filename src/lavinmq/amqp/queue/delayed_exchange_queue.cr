@@ -1,6 +1,9 @@
 require "./queue"
+require "./delayed_exchange_queue/delayed_message_store"
 
 module LavinMQ::AMQP
+  # This class is only used by delayed exchanges. It can't niehter should be
+  # consumed from or published to by clients.
   class DelayedExchangeQueue < Queue
     MAX_NAME_LENGTH = 256
 
@@ -39,7 +42,13 @@ module LavinMQ::AMQP
     end
 
     def publish(message : Message) : Bool
+      # This queue should never be published too
       false
+    end
+
+    def basic_get(no_ack, force = false, & : Envelope -> Nil) : Bool
+      false
+      # env = @msg_store_lock.synchronize { @msg_store.shift? } || break
     end
 
     def delay(msg : Message) : Bool
@@ -84,6 +93,10 @@ module LavinMQ::AMQP
     rescue ::Channel::ClosedError
     end
 
+    private def time_to_message_expiration : Time::Span?
+      @msg_store.as(DelayedMessageStore).time_to_next_expiration?
+    end
+
     # Overload to not ruin DLX header
     private def expire_msg(env : Envelope, reason : Symbol)
       sp = env.segment_position
@@ -96,65 +109,6 @@ module LavinMQ::AMQP
       @vhost.exchanges[@exchange_name].route_msg Message.new(msg.timestamp, @exchange_name, msg.routing_key,
         msg.properties, msg.bodysize, IO::Memory.new(msg.body))
       delete_message sp
-    end
-
-    class DelayedMessageStore < MessageStore
-      def initialize(*args, **kwargs)
-        super
-        order_messages
-      end
-
-      def order_messages
-        sps = Array(SegmentPosition).new(@size)
-        while env = shift?
-          sps << env.segment_position
-        end
-        sps.each { |sp| requeue sp }
-      end
-
-      def push(msg) : SegmentPosition
-        sp = super
-        # make sure that we don't read from disk, only from requeued
-        @rfile_id = @wfile_id
-        @rfile = @wfile
-        @rfile.seek(0, IO::Seek::End)
-        # order messages by priority in the requeue dequeue
-        idx = @requeued.bsearch_index do |rsp|
-          if rsp.delay == sp.delay
-            rsp > sp
-          else
-            rsp.delay > sp.delay
-          end
-        end
-        if idx
-          @requeued.insert(idx, sp)
-          if idx.zero?
-            @empty.set false
-          end
-        else
-          @requeued.push(sp)
-        end
-        sp
-      end
-
-      def requeue(sp : SegmentPosition)
-        idx = @requeued.bsearch_index do |rsp|
-          if rsp.delay == sp.delay
-            rsp > sp
-          else
-            rsp.delay > sp.delay
-          end
-        end
-        if idx
-          @requeued.insert(idx, sp)
-        else
-          @requeued.push(sp)
-        end
-        was_empty = @size.zero?
-        @bytesize += sp.bytesize
-        @size += 1
-        @empty.set false if was_empty
-      end
     end
   end
 
