@@ -65,6 +65,9 @@ bin/lavinmq-debug: src/lavinmq.cr $(SOURCES) $(VIEW_SOURCES) $(VIEW_PARTIALS) li
 bin/lavinmqctl: src/lavinmqctl.cr $(CTL_SOURCES) lib | bin
 	crystal build $< -o $@ -Dgc_none $(CRYSTAL_FLAGS)
 
+bin/lavinmqperf: src/lavinmqperf.cr $(PERF_SOURCES) lib | bin
+	crystal build $< -o $@ $(CRYSTAL_FLAGS)
+
 lib: shard.yml shard.lock
 	shards install --production
 
