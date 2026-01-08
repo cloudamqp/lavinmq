@@ -9,6 +9,8 @@ require "../lavinmq/definitions_generator"
 require "../lavinmq/auth/user"
 
 class LavinMQCtl
+  @@tui_launcher : Proc(HTTP::Client, Float64, Nil)?
+
   @options = {} of String => String
   @args = {} of String => JSON::Any
   @cmd : String?
@@ -91,6 +93,10 @@ class LavinMQCtl
     end
     global_options
     parse_cmd
+  end
+
+  def self.tui_launcher=(launcher : Proc(HTTP::Client, Float64, Nil))
+    @@tui_launcher = launcher
   end
 
   private def register_cmds(group)
@@ -281,6 +287,12 @@ class LavinMQCtl
     @parser.on("cluster_status", "Display cluster status") do
       @cmd = "cluster_status"
     end
+    @parser.on("tui", "Start interactive dashboard (TUI)") do
+      @cmd = "tui"
+      @parser.on("-i INTERVAL", "--interval=INTERVAL", "Poll interval in seconds (default: 1.0)") do |v|
+        @options["interval"] = v
+      end
+    end
 
     @parser.invalid_option { |arg| abort "Invalid argument: #{arg}" }
   end
@@ -339,6 +351,7 @@ class LavinMQCtl
     when "list_federations"      then list_federations
     when "add_federation"        then add_federation
     when "delete_federation"     then delete_federation
+    when "tui"                   then start_tui
     when "stop_app"
     when "start_app"
     else
@@ -1003,5 +1016,13 @@ class LavinMQCtl
     url = "/api/parameters/federation-upstream/#{URI.encode_www_form(vhost)}/#{URI.encode_www_form(name)}"
     resp = http.delete url
     handle_response(resp, 204)
+  end
+
+  private def start_tui
+    interval = @options["interval"]?.try(&.to_f) || 1.0
+    unless launcher = @@tui_launcher
+      abort "TUI support is not available"
+    end
+    launcher.call(http, interval)
   end
 end

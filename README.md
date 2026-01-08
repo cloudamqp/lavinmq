@@ -192,6 +192,7 @@ Use [lavinmqperf](https://lavinmq.com/documentation/lavinmqperf) to benchmark yo
 ### Management
 
 - [HTTP API](https://docs.lavinmq.com/)
+- [Command-line management](docs/lavinmqctl.md), including the interactive `lavinmqctl tui` dashboard
 - [Users and ACL rules](docs/users-permissions.md)
 - [VHost separation](docs/vhosts.md)
 - [Policies](docs/policies.md)

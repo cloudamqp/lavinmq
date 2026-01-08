@@ -99,6 +99,7 @@ Authentication uses `--user` and `--password` flags (default: `guest`/`guest`).
 |---------|-------------|
 | `status` | Display server status |
 | `cluster_status` | Display cluster status |
+| `tui [-i interval]` | Start the interactive dashboard |
 | `stop_app` | Stop the AMQP broker |
 | `start_app` | Start the AMQP broker |
 | `definitions` | Generate definitions JSON from a data directory (offline, does not use API) |
