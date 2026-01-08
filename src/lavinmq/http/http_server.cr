@@ -23,7 +23,7 @@ module LavinMQ
           StaticController.new,
           ViewsController.new,
           ApiErrorHandler.new,
-          AuthHandler.new(@amqp_server),
+          AuthHandler.new(@amqp_server.authenticator),
           PrometheusController.new(@amqp_server, require_authentication: true),
           ApiDefaultsHandler.new,
           MainController.new(@amqp_server),
