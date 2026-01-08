@@ -1,6 +1,7 @@
 BINS := bin/lavinmq bin/lavinmqctl bin/lavinmqperf
 SOURCES := $(shell find src/ -name '*.cr' 2> /dev/null)
 PERF_SOURCES := $(shell find src/lavinmqperf -name '*.cr' 2> /dev/null)
+CTL_SOURCES := $(shell find src/lavinmqctl -name '*.cr' 2> /dev/null)
 VIEW_SOURCES := $(wildcard views/*.ecr)
 VIEW_TARGETS := $(patsubst views/%.ecr,static/views/%.html,$(VIEW_SOURCES))
 VIEW_PARTIALS := $(wildcard views/partials/*.ecr)
@@ -61,7 +62,7 @@ bin/%-debug: src/%.cr $(SOURCES) lib $(JS) $(DOCS) | bin
 bin/lavinmq-debug: src/lavinmq.cr $(SOURCES) $(VIEW_SOURCES) $(VIEW_PARTIALS) lib $(JS) $(DOCS) | bin
 	crystal build $< -o $@ --debug $(CRYSTAL_FLAGS)
 
-bin/lavinmqctl: src/lavinmqctl.cr lib | bin
+bin/lavinmqctl: src/lavinmqctl.cr $(CTL_SOURCES) lib | bin
 	crystal build $< -o $@ -Dgc_none $(CRYSTAL_FLAGS)
 
 lib: shard.yml shard.lock
