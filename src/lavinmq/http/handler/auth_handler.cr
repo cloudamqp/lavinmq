@@ -6,12 +6,12 @@ module LavinMQ
     class AuthHandler
       include ::HTTP::Handler
 
-      def initialize(@authenticator : LavinMQ::Auth::Authenticator)
+      def initialize(@authenticator : Auth::Authenticator, @direct_user : Auth::User)
       end
 
       def call(context)
         if internal_unix_socket?(context)
-          context.user = @server.users.direct_user
+          context.user = @direct_user
           return call_next(context)
         end
 
