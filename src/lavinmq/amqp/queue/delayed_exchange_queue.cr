@@ -41,16 +41,6 @@ module LavinMQ::AMQP
       @exchange_name = arguments["x-dead-letter-exchange"]?.try(&.to_s) || raise "Missing x-dead-letter-exchange"
     end
 
-    def publish(message : Message) : Bool
-      # This queue should never be published too
-      false
-    end
-
-    def basic_get(no_ack, force = false, & : Envelope -> Nil) : Bool
-      false
-      # env = @msg_store_lock.synchronize { @msg_store.shift? } || break
-    end
-
     def delay(msg : Message) : Bool
       return false if @deleted || @state.closed?
       @msg_store_lock.synchronize do
@@ -64,17 +54,10 @@ module LavinMQ::AMQP
       raise ex
     end
 
+    # Overload to use our own store
     private def init_msg_store(data_dir)
       replicator = durable? ? @vhost.@replicator : nil
-      DelayedMessageStore.new(data_dir, replicator, durable?, metadata: @metadata)
-    end
-
-    private def expire_at(msg : BytesMessage) : Int64?
-      msg.timestamp + (msg.delay || 0u32)
-    end
-
-    # internal queues can't expire so make this noop
-    private def queue_expire_loop
+      DelayedMessageStore.new(data_dir, replicator, durable?, metadata: @metadata, requeued: @requeued)
     end
 
     # simplify the message expire loop, as this queue can't have consumers or message-ttl
@@ -109,6 +92,30 @@ module LavinMQ::AMQP
       @vhost.exchanges[@exchange_name].route_msg Message.new(msg.timestamp, @exchange_name, msg.routing_key,
         msg.properties, msg.bodysize, IO::Memory.new(msg.body))
       delete_message sp
+    end
+
+    # Disable a lot of inherited functionality (ugly)
+
+    # internal queues can't expire so make this noop
+    private def queue_expire_loop
+    end
+
+    def publish(message : Message) : Bool
+      # This queue should never be published too
+      false
+    end
+
+    def basic_get(no_ack, force = false, & : Envelope -> Nil) : Bool
+      # noop, not supported
+      false
+    end
+
+    def ack(sp : SegmentPosition) : Nil
+      # noop, not supported
+    end
+
+    def reject(sp : SegmentPosition) : Nil
+      # noop, not supported
     end
   end
 
