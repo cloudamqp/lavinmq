@@ -10,7 +10,7 @@ module LavinMQ
       abstract def clear : Nil
     end
 
-    class OrderedRequeuedStore < RequeuedStore
+    class PublishOrderedRequeuedStore < RequeuedStore
       @segment_positions = Deque(SegmentPosition).new
 
       def shift? : SegmentPosition?

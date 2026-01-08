@@ -21,7 +21,7 @@ module LavinMQ
     @segments = Hash(UInt32, MFile).new
     @deleted = Hash(UInt32, Array(UInt32)).new
     @segment_msg_count = Hash(UInt32, UInt32).new(0u32)
-    @requeued : RequeuedStore = OrderedRequeuedStore.new
+    @requeued : RequeuedStore = PublishOrderedRequeuedStore.new
     @closed = false
     getter closed
     getter bytesize = 0u64
