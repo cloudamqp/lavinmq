@@ -25,8 +25,6 @@ module LavinMQ
     property mqtts_port = 8883
     property mqtt_unix_path = ""
     property unix_path = ""
-    property unix_proxy_protocol = 1_u8 # PROXY protocol version on unix domain socket connections
-    property tcp_proxy_protocol = 0_u8  # PROXY protocol version on amqp tcp connections
     property tls_cert_path = ""
     property tls_key_path = ""
     property tls_ciphers = ""
@@ -378,8 +376,6 @@ module LavinMQ
         when "frame_max"                 then @frame_max = v.to_u32
         when "channel_max"               then @channel_max = v.to_u16
         when "max_message_size"          then @max_message_size = v.to_i32
-        when "unix_proxy_protocol"       then @unix_proxy_protocol = true?(v) ? 1u8 : v.to_u8? || 0u8
-        when "tcp_proxy_protocol"        then @tcp_proxy_protocol = true?(v) ? 1u8 : v.to_u8? || 0u8
         when "set_timestamp"             then @set_timestamp = true?(v)
         when "consumer_timeout"          then @consumer_timeout = v.to_u64
         when "default_consumer_prefetch" then @default_consumer_prefetch = v.to_u16

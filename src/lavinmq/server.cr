@@ -133,26 +133,7 @@ module LavinMQ
     end
 
     private def extract_conn_info(client) : ConnectionInfo
-      remote_address = client.remote_address
-      case @config.tcp_proxy_protocol
-      when 1 then ProxyProtocol::V1.parse(client)
-      when 2 then ProxyProtocol::V2.parse(client)
-      else
-        # Allow proxy connection from followers
-        if @config.clustering? &&
-           client.peek[0, 5]? == "PROXY".to_slice &&
-           all_followers.any? { |f| f.remote_address.address == remote_address.address }
-          # Expect PROXY protocol header if remote address is a follower
-          ProxyProtocol::V1.parse(client)
-        elsif @config.clustering? &&
-              client.peek[0, 8]? == ProxyProtocol::V2::Signature.to_slice[0, 8] &&
-              all_followers.any? { |f| f.remote_address.address == remote_address.address }
-          # Expect PROXY protocol header if remote address is a follower
-          ProxyProtocol::V2.parse(client)
-        else
-          ConnectionInfo.new(remote_address, client.local_address)
-        end
-      end
+      ProxyProtocol.parse(client) || ConnectionInfo.new(client.remote_address, client.local_address)
     end
 
     def listen(s : UNIXServer, protocol : Protocol)
@@ -173,12 +154,7 @@ module LavinMQ
       spawn(name: "Accept UNIX socket") do
         remote_address = client.remote_address
         set_buffer_size(client)
-        conn_info =
-          case @config.unix_proxy_protocol
-          when 1 then ProxyProtocol::V1.parse(client)
-          when 2 then ProxyProtocol::V2.parse(client)
-          else        ConnectionInfo.local # TODO: use unix socket address, don't fake local
-          end
+        conn_info = ProxyProtocol.parse(client) || ConnectionInfo.local
         handle_connection(client, conn_info, protocol)
       rescue ex
         Log.warn(exception: ex) { "Error accepting connection from #{remote_address}" }
