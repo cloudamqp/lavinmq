@@ -13,6 +13,7 @@ module LavinMQ::AMQP
     # delayed exchange queue we never want to read messages in the order they
     # arrived (was written to disk).
     class DelayedMessageStore < MessageStore
+      # Redefine @requeued (defined in MessageStore)
       @requeued : RequeuedStore = DelayedRequeuedStore.new
 
       private def requeued : DelayedRequeuedStore
@@ -36,6 +37,33 @@ module LavinMQ::AMQP
         end
         # We don't have to reset any pointer when we've read through all messages
         # since we're always using the requeued index.
+      end
+
+      def first? : Envelope?
+        raise ClosedError.new if @closed
+        sp = @requeued.first? || return
+        seg = @segments[sp.segment]
+        begin
+          msg = BytesMessage.from_bytes(seg.to_slice + sp.position)
+          Envelope.new(sp, msg, redelivered: true)
+        rescue ex
+          raise MessageStore::Error.new(seg, cause: ex)
+        end
+      end
+
+      def shift?(consumer = nil) : Envelope?
+        raise ClosedError.new if @closed
+        sp = @requeued.shift? || return
+        segment = @segments[sp.segment]
+        begin
+          msg = BytesMessage.from_bytes(segment.to_slice + sp.position)
+          @bytesize -= sp.bytesize
+          @size -= 1
+          @empty.set true if @size.zero?
+          Envelope.new(sp, msg, redelivered: true)
+        rescue ex
+          raise MessageStore::Error.new(segment, cause: ex)
+        end
       end
 
       # Overload to add the segment position to our "index"

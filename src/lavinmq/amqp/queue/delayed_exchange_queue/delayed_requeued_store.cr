@@ -25,7 +25,7 @@ module LavinMQ::AMQP
         end
 
         def insert(sp : SegmentPosition) : Nil
-          raise "BUG: should not be called"
+          raise "BUG: this insert overload should not be called"
         end
 
         def insert(sp : SegmentPosition, timestamp : Int64) : Nil

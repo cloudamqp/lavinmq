@@ -57,15 +57,19 @@ module LavinMQ::AMQP
     # Overload to use our own store
     private def init_msg_store(data_dir)
       replicator = durable? ? @vhost.@replicator : nil
-      DelayedMessageStore.new(data_dir, replicator, durable?, metadata: @metadata, requeued: @requeued)
+      DelayedMessageStore.new(data_dir, replicator, durable?, metadata: @metadata)
     end
 
     # simplify the message expire loop, as this queue can't have consumers or message-ttl
     private def message_expire_loop
       loop do
         if ttl = time_to_message_expiration
+          if ttl <= Time::Span::ZERO
+            expire_messages
+            next
+          end
           select
-          when @msg_store.empty.when_true.receive # there's a new "first" message
+          when @msg_store.empty.when_true.receive # purged?
           when timeout ttl
             expire_messages
           end
@@ -74,6 +78,27 @@ module LavinMQ::AMQP
         end
       end
     rescue ::Channel::ClosedError
+    end
+
+    def expire_messages
+      @msg_store_lock.synchronize do
+        loop do
+          env = @msg_store.first? || break
+          if has_expired?(env)
+            env = @msg_store.shift? || break
+            expire_msg(env, :expired)
+          else
+            break
+          end
+        end
+      end
+    end
+
+    private def has_expired?(env : Envelope) : Bool
+      delay = env.segment_position.delay
+      timestamp = env.message.timestamp
+      expire_at = timestamp + delay
+      expire_at <= RoughTime.unix_ms
     end
 
     private def time_to_message_expiration : Time::Span?
