@@ -156,41 +156,34 @@ document.getElementById('toggle-menu').addEventListener('click', () => {
   } else {
     window.localStorage.removeItem('menuCollapsed')
     toggleLabel.textContent = 'Collapse sidebar'
+    updateMenuTooltips()
   }
 })
 
+const sidebarMenu = document.getElementById('menu')
 const menuItems = document.querySelectorAll('#menu-content li a.menu-tooltip')
 
-// Position tooltips dynamically
-menuItems.forEach(item => {
-  const tooltip = item.querySelector('.menu-tooltip-label')
-
-  item.addEventListener('mouseenter', function () {
-    if (document.documentElement.classList.contains('menu-collapsed')) {
-      const rect = this.getBoundingClientRect()
-      tooltip.style.left = rect.right + 10 + 'px'
+function updateMenuTooltips() {
+  menuItems.forEach(item => {
+    const tooltip = item.querySelector('.menu-tooltip-label')
+    if (tooltip) {
+      const rect = item.getBoundingClientRect()
       tooltip.style.top = rect.top + (rect.height / 2) + 'px'
-      tooltip.style.transform = 'translateY(-50%)'
     }
   })
-})
+}
 
 // Update tooltip positions on scroll
-const sidebarMenu = document.getElementById('menu')
 let ticking = false
 
-sidebarMenu.addEventListener('scroll', () => {
+sidebarMenu.addEventListener('scroll', (e) => {
   if (!ticking) {
     window.requestAnimationFrame(() => {
-      menuItems.forEach(item => {
-        const tooltip = item.querySelector('.menu-tooltip-label')
-        if (tooltip) {
-          const rect = item.getBoundingClientRect()
-          tooltip.style.top = rect.top + (rect.height / 2) + 'px'
-        }
-      })
+      updateMenuTooltips()
       ticking = false
     })
     ticking = true
   }
 })
+
+updateMenuTooltips()

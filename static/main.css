@@ -1046,8 +1046,8 @@ footer .logo {
         justify-content: center;
       }
 
-      li a span.menu-item-label {
-        display: none;
+      li a span.menu-tooltip-label {
+        transform: translateY(-50%);
       }
 
       li.last-menu-item a span.menu-item-label {
@@ -1724,7 +1724,7 @@ fieldset.inline {
   pointer-events: none;
 }
 
-.menu-tooltip .menu-tooltip-label {
+.menu-collapsed .menu-tooltip .menu-tooltip-label, .toggle-menu-label {
   position: fixed;
   transition-delay: 0s;
   width: auto;
@@ -1740,11 +1740,7 @@ fieldset.inline {
   border-radius: 4px;
 }
 
-.menu-collapsed .menu-tooltip:hover .menu-tooltip-label {
-  opacity: 1;
-}
-
-.menu-tooltip:hover .menu-tooltip-label.toggle-menu-label {
+.menu-tooltip:hover .menu-tooltip-label {
   opacity: 1;
 }
 
