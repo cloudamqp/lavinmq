@@ -163,7 +163,7 @@ document.getElementById('toggle-menu').addEventListener('click', () => {
 const sidebarMenu = document.getElementById('menu')
 const menuItems = document.querySelectorAll('#menu-content li a.menu-tooltip')
 
-function updateMenuTooltips() {
+function updateMenuTooltips () {
   menuItems.forEach(item => {
     const tooltip = item.querySelector('.menu-tooltip-label')
     if (tooltip) {
