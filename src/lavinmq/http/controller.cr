@@ -206,12 +206,8 @@ module LavinMQ
       end
 
       private def user(context) : Auth::User
-        user = nil
-        if username = context.authenticated_username?
-          user = @amqp_server.users[username]?
-        end
-        unless user
-          Log.warn { "Authorized user=#{context.authenticated_username?} not in user store" }
+        unless user = context.user # Should it be possible to end up here with nil user?
+          Log.warn { "No authorized user for request path=#{context.request.path}" }
           access_refused(context)
         end
         user

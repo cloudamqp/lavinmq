@@ -6,19 +6,19 @@ module LavinMQ
     class AuthHandler
       include ::HTTP::Handler
 
-      def initialize(@authenticator : LavinMQ::Auth::Authenticator)
+      def initialize(@authenticator : Auth::Authenticator, @direct_user : Auth::User)
       end
 
       def call(context)
         if internal_unix_socket?(context)
-          context.authenticated_username = Auth::UserStore::DIRECT_USER
+          context.user = @direct_user
           return call_next(context)
         end
 
         if auth = cookie_auth(context) || basic_auth(context)
           username, password = auth
-          if valid_auth?(username, password, context.request.remote_address)
-            context.authenticated_username = username
+          if user = authenticate(username, password, context.request.remote_address)
+            context.user = user
             return call_next(context)
           end
         end
@@ -54,14 +54,14 @@ module LavinMQ
       rescue Base64::Error
       end
 
-      private def valid_auth?(username, password, remote_address) : Bool
-        return false if password.empty?
+      private def authenticate(username, password, remote_address) : Auth::User?
+        return if password.empty?
         auth_context = LavinMQ::Auth::Context.new(
           username, password.to_slice, remote_address)
         user = @authenticator.authenticate(auth_context)
-        return false if user.nil?
-        return false if user.tags.empty?
-        true
+        return if user.nil?
+        return if user.tags.empty?
+        user
       end
 
       private def internal_unix_socket?(context) : Bool
