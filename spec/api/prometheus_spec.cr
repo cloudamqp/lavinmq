@@ -175,6 +175,30 @@ describe LavinMQ::HTTP::PrometheusController do
         end
       end
     end
+
+    it "should group TYPE and HELP by metric name" do
+      with_metrics_server do |http, s|
+        vhost = s.vhosts.create("grouping_test")
+        vhost.declare_queue("queue_1", true, false)
+        vhost.declare_queue("queue_2", true, false)
+        vhost.declare_queue("queue_3", true, false)
+
+        raw = http.get("/metrics/detailed?family=queue_coarse_metrics").body
+        lines = raw.lines
+
+        # Count occurrences of TYPE declarations for detailed_queue_messages_ready
+        type_count = lines.count(&.includes?("# TYPE lavinmq_detailed_queue_messages_ready"))
+        help_count = lines.count(&.includes?("# HELP lavinmq_detailed_queue_messages_ready"))
+
+        # Should appear exactly once, not once per queue
+        type_count.should eq 1
+        help_count.should eq 1
+
+        # But values should appear for each queue (3 queues)
+        value_count = lines.count(&.starts_with?("lavinmq_detailed_queue_messages_ready{"))
+        value_count.should eq 3
+      end
+    end
   end
 end
 
