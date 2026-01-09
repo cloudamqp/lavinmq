@@ -6,6 +6,7 @@ require "./http/http_server"
 require "./http/metrics_server"
 require "./in_memory_backend"
 require "./data_dir_lock"
+require "./pidfile"
 require "./etcd"
 require "./clustering/controller"
 require "./standalone_runner"
@@ -116,6 +117,8 @@ module LavinMQ
         Log.info { "Multithreading: #{ENV.fetch("CRYSTAL_WORKERS", "4")} threads" }
       {% end %}
       Log.info { "PID: #{Process.pid}" }
+      # we do this here to have nice consistent logging
+      Pidfile.new(@config.pidfile).acquire unless @config.pidfile.empty?
       Log.info { "Config file: #{@config.config_file}" } unless @config.config_file.empty?
       Log.info { "Data directory: #{@config.data_dir}" }
     end
