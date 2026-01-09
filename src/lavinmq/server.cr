@@ -37,6 +37,7 @@ module LavinMQ
     @listeners = Hash(Socket::Server, Protocol).new # Socket => protocol
     @connection_factories = Hash(Protocol, ConnectionFactory).new
     @replicator : Clustering::Replicator?
+    @trusted_proxy_sources : Array(String)
     Log = LavinMQ::Log.for "server"
 
     def initialize(@config : Config, @replicator = nil)
@@ -48,6 +49,10 @@ module LavinMQ
       @mqtt_brokers = MQTT::Brokers.new(@vhosts, @replicator)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator)
       @authenticator = Auth::Chain.create(@users)
+      @trusted_proxy_sources = @config.proxy_protocol_trusted_sources.split(',').map(&.strip).reject(&.empty?)
+      if @config.tcp_proxy_protocol > 0 && @trusted_proxy_sources.empty?
+        Log.warn { "PROXY protocol enabled without trusted sources configured - accepting from all sources" }
+      end
       @connection_factories = {
         Protocol::AMQP => AMQP::ConnectionFactory.new(authenticator, @vhosts),
         Protocol::MQTT => MQTT::ConnectionFactory.new(authenticator, @mqtt_brokers, @config),
@@ -135,23 +140,39 @@ module LavinMQ
     private def extract_conn_info(client) : ConnectionInfo
       remote_address = client.remote_address
       case @config.tcp_proxy_protocol
-      when 1 then ProxyProtocol::V1.parse(client)
-      when 2 then ProxyProtocol::V2.parse(client)
+      when 1, 2
+        if trusted_proxy_source?(remote_address.address)
+          parse_proxy_protocol(client, @config.tcp_proxy_protocol)
+        else
+          Log.warn { "PROXY protocol from untrusted source #{remote_address}, ignoring header" }
+          ConnectionInfo.new(remote_address, client.local_address)
+        end
       else
-        # Allow proxy connection from followers
+        # Accept PROXY protocol from verified cluster followers
         if @config.clustering? &&
            client.peek[0, 5]? == "PROXY".to_slice &&
            all_followers.any? { |f| f.remote_address.address == remote_address.address }
-          # Expect PROXY protocol header if remote address is a follower
           ProxyProtocol::V1.parse(client)
         elsif @config.clustering? &&
               client.peek[0, 8]? == ProxyProtocol::V2::Signature.to_slice[0, 8] &&
               all_followers.any? { |f| f.remote_address.address == remote_address.address }
-          # Expect PROXY protocol header if remote address is a follower
           ProxyProtocol::V2.parse(client)
         else
           ConnectionInfo.new(remote_address, client.local_address)
         end
+      end
+    end
+
+    private def trusted_proxy_source?(address : String) : Bool
+      return true if @trusted_proxy_sources.empty?
+      @trusted_proxy_sources.includes?(address)
+    end
+
+    private def parse_proxy_protocol(client, version : UInt8) : ConnectionInfo
+      case version
+      when 1 then ProxyProtocol::V1.parse(client)
+      when 2 then ProxyProtocol::V2.parse(client)
+      else        raise "Invalid proxy protocol version: #{version}"
       end
     end
 
