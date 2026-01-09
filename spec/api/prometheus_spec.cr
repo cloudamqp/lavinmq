@@ -197,6 +197,21 @@ describe LavinMQ::HTTP::PrometheusController do
         # But values should appear for each queue (3 queues)
         value_count = lines.count(&.starts_with?("lavinmq_detailed_queue_messages_ready{"))
         value_count.should eq 3
+
+        # Verify grouping: TYPE and HELP should immediately precede the values
+        # Find TYPE line index, HELP should be next, then values should follow
+        type_idx = lines.index(&.includes?("# TYPE lavinmq_detailed_queue_messages_ready"))
+        help_idx = lines.index(&.includes?("# HELP lavinmq_detailed_queue_messages_ready"))
+        first_value_idx = lines.index(&.starts_with?("lavinmq_detailed_queue_messages_ready{"))
+
+        type_idx.should_not be_nil
+        help_idx.should_not be_nil
+        first_value_idx.should_not be_nil
+
+        # HELP should come right after TYPE
+        help_idx.should eq(type_idx.not_nil! + 1)
+        # First value should come right after HELP
+        first_value_idx.should eq(help_idx.not_nil! + 1)
       end
     end
   end
