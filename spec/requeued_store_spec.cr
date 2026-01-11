@@ -1,7 +1,7 @@
 require "spec"
 require "../src/lavinmq/message_store/requeued_store"
 
-pending LavinMQ::MessageStore::PublishOrderedRequeuedStore do
+describe LavinMQ::MessageStore::PublishOrderedRequeuedStore do
   describe "#shift?" do
     it "should return nil when empty" do
       store = LavinMQ::MessageStore::PublishOrderedRequeuedStore.new
