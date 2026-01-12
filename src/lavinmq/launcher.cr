@@ -8,11 +8,8 @@ require "./in_memory_backend"
 require "./data_dir_lock"
 require "./etcd"
 require "./clustering/controller"
-<<<<<<< HEAD
 require "../stdlib/openssl_sni"
-=======
 require "./tls_proxy"
->>>>>>> 72c8ea8e (Integrate TLS proxy into server configuration)
 
 module LavinMQ
   struct StandaloneRunner
@@ -186,17 +183,16 @@ module LavinMQ
 
       if @config.amqps_port > 0
         if ctx = @amqp_tls_context
-          # TLS offloading: dedicated fibers for handshakes, forwarding via unix socket
-          amqps_internal_path = File.join(@config.data_dir, "amqps_internal.sock")
-          spawn amqp_server.listen_unix(amqps_internal_path, Server::Protocol::AMQP),
-            name: "AMQP internal unix socket (PROXY v2)"
-          amqps_tls_proxy = TLSProxy.new(ctx, amqps_internal_path, @config.tls_offload_max_threads)
+          amqps_tls_proxy = TLSProxy.new(ctx, @config.tls_offload_max_threads)
           spawn(name: "AMQPS TLS proxy") do
             amqps_tls_proxy.listen(@config.amqp_bind, @config.amqps_port)
           rescue ex
             Log.error(exception: ex) { "TLS proxy crashed" }
           end
           Log.info { "TLS offloading enabled for AMQPS (max #{@config.tls_offload_max_threads} concurrent handshakes)" }
+
+          spawn amqp_server.listen_offloaded_tls(amqps_tls_proxy, Server::Protocol::AMQP),
+            name: "AMQPS internal listener"
         end
       end
 
@@ -231,19 +227,19 @@ module LavinMQ
       end
 
       if @config.mqtts_port > 0
-        if ctx = @mqtt_tls_context
-          # TLS offloading: dedicated fibers for handshakes, forwarding via unix socket
-          mqtts_internal_path = File.join(@config.data_dir, "mqtts_internal.sock")
-          spawn amqp_server.listen_unix(mqtts_internal_path, Server::Protocol::MQTT),
-            name: "MQTT internal unix socket (PROXY v2)"
-          mqtts_tls_proxy = TLSProxy.new(ctx, mqtts_internal_path, @config.tls_offload_max_threads)
-          spawn(name: "MQTTS TLS proxy") do
-            mqtts_tls_proxy.listen(@config.mqtt_bind, @config.mqtts_port)
-          rescue ex
-            Log.error(exception: ex) { "TLS proxy (MQTT) crashed" }
-          end
-          Log.info { "TLS offloading enabled for MQTTS (max #{@config.tls_offload_max_threads} concurrent handshakes)" }
-        end
+        # if ctx = @mqtt_tls_context
+        #   # TLS offloading: dedicated fibers for handshakes, forwarding via unix socket
+        #   mqtts_internal_path = File.join(@config.data_dir, "mqtts_internal.sock")
+        #   spawn amqp_server.listen_unix(mqtts_internal_path, Server::Protocol::MQTT),
+        #     name: "MQTT internal unix socket (PROXY v2)"
+        #   mqtts_tls_proxy = TLSProxy.new(ctx, mqtts_internal_path, @config.tls_offload_max_threads)
+        #   spawn(name: "MQTTS TLS proxy") do
+        #     mqtts_tls_proxy.listen(@config.mqtt_bind, @config.mqtts_port)
+        #   rescue ex
+        #     Log.error(exception: ex) { "TLS proxy (MQTT) crashed" }
+        #   end
+        #   Log.info { "TLS offloading enabled for MQTTS (max #{@config.tls_offload_max_threads} concurrent handshakes)" }
+        # end
       end
       unless @config.mqtt_unix_path.empty?
         spawn amqp_server.listen_unix(@config.mqtt_unix_path, Server::Protocol::MQTT), name: "MQTT listening at #{@config.unix_path}"

@@ -16,7 +16,9 @@ module LavinMQ
       end
 
       def start(socket, connection_info) : Client?
-        socket.read_timeout = 15.seconds
+        if socket.responds_to?(:read_timeout)
+          socket.read_timeout = 15.seconds
+        end
         metadata = ::Log::Metadata.build({address: connection_info.remote_address.to_s})
         logger = Logger.new(Log, metadata)
         if confirm_header(socket, logger)
@@ -25,7 +27,9 @@ module LavinMQ
             if user = authenticate(stream, connection_info.remote_address, start_ok, logger)
               if tune_ok = tune(stream, logger)
                 if vhost = open(stream, user, logger)
-                  socket.read_timeout = heartbeat_timeout(tune_ok)
+                  if socket.responds_to?(:read_timeout)
+                    socket.read_timeout = heartbeat_timeout(tune_ok)
+                  end
                   return LavinMQ::AMQP::Client.new(socket, connection_info, vhost, user, tune_ok, start_ok)
                 end
               end
