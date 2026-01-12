@@ -62,22 +62,30 @@ module LavinMQ::AMQP
 
     # simplify the message expire loop, as this queue can't have consumers or message-ttl
     private def message_expire_loop
+      @log.debug { "message_expire_loop started" }
       loop do
         if ttl = time_to_message_expiration
+          @log.debug { "ttl=#{ttl}" }
           if ttl <= Time::Span::ZERO
+            @log.debug { "ttl is now, expiring messages" }
             expire_messages
             next
           end
           select
           when @msg_store.empty.when_true.receive # purged?
+            @log.debug { "became empty, purged?" }
           when timeout ttl
+            @log.debug { "timeout (ttl=#{ttl}), expiring messages" }
             expire_messages
           end
         else
+          @log.debug { "no ttl, waiting for messages" }
           @msg_store.empty.when_false.receive
         end
       end
     rescue ::Channel::ClosedError
+    ensure
+      @log.debug { "message_expire_loop stopped" }
     end
 
     def expire_messages
