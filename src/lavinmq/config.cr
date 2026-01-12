@@ -8,6 +8,7 @@ require "./in_memory_backend"
 require "./auth/password"
 require "./sni_config"
 require "./config/options"
+require "./ip_matcher"
 
 module LavinMQ
   class Config
