@@ -1,5 +1,6 @@
 require "./spec_helper"
 require "../src/lavinmq/consistent_hasher.cr"
+require "../src/lavinmq/jump_consistent_hasher.cr"
 
 describe LavinMQ::AMQP::ConsistentHashExchange do
   describe "#bind" do
@@ -256,23 +257,23 @@ describe LavinMQ::AMQP::ConsistentHashExchange do
     end
   end
 end
-describe ConsistentHasher do
+describe RingConsistentHasher do
   describe "Hasher" do
     # weight/replicas = binding key as INT
     # hash on queue name
     it "should return nil if empty" do
-      ch = ConsistentHasher(String).new
+      ch = RingConsistentHasher(String).new
       ch.get("1").should be_nil
     end
 
     it "should return first value is ring size is 1" do
-      ch = ConsistentHasher(String).new
+      ch = RingConsistentHasher(String).new
       ch.add("first", 1, "first")
       ch.get("any key").should eq "first"
     end
 
     it "should be consistent (test 1)" do
-      ch = ConsistentHasher(String).new
+      ch = RingConsistentHasher(String).new
       ch.add("1", 3, "first")
       key = "q1"
       v = ch.get(key)
@@ -301,7 +302,7 @@ describe ConsistentHasher do
       # r2 => 2 483 509 259
       # r3 => 3 808 454 813
 
-      ch = ConsistentHasher(String).new
+      ch = RingConsistentHasher(String).new
       ch.add("1", 3, "first")
       ch.add("2", 3, "second")
       ch.add("3", 3, "third")
@@ -314,7 +315,7 @@ describe ConsistentHasher do
     end
 
     it "should be consistent after delete" do
-      ch = ConsistentHasher(String).new
+      ch = RingConsistentHasher(String).new
       ch.add("1", 3, "first")
       ch.add("2", 3, "second")
       ch.add("3", 3, "third")
@@ -328,6 +329,129 @@ describe ConsistentHasher do
       ch.get("r1").should eq "first"
       ch.get("r2").should eq "third"
       ch.get("r3").should eq "third"
+    end
+  end
+end
+
+describe JumpConsistentHasher do
+  describe "Hasher" do
+    it "should return nil if empty" do
+      jch = JumpConsistentHasher(String).new
+      jch.get("1").should be_nil
+    end
+
+    it "should return first value if only one target" do
+      jch = JumpConsistentHasher(String).new
+      jch.add("first", 1, "first")
+      jch.get("any key").should eq "first"
+    end
+
+    it "should distribute keys across targets" do
+      jch = JumpConsistentHasher(String).new
+      jch.add("1", 1, "first")
+      jch.add("2", 1, "second")
+      jch.add("3", 1, "third")
+
+      # With jump consistent hash, distribution should be more even
+      results = Hash(String, Int32).new(0)
+      1000.times do |i|
+        target = jch.get("key#{i}")
+        results[target.not_nil!] += 1
+      end
+
+      # Each target should get roughly 1/3 of keys (allowing 15% variance)
+      expected = 1000 / 3
+      results.each_value do |count|
+        count.should be_close(expected, expected * 0.15)
+      end
+    end
+
+    it "should be consistent for same key" do
+      jch = JumpConsistentHasher(String).new
+      jch.add("1", 1, "first")
+      jch.add("2", 1, "second")
+      jch.add("3", 1, "third")
+
+      key = "test_key"
+      first_result = jch.get(key)
+      100.times do
+        jch.get(key).should eq first_result
+      end
+    end
+
+    it "should minimize remapping when target is added" do
+      jch = JumpConsistentHasher(String).new
+      jch.add("1", 1, "first")
+      jch.add("2", 1, "second")
+
+      # Record initial mappings with 2 targets
+      initial_mappings = Hash(String, String).new
+      100.times do |i|
+        key = "key#{i}"
+        initial_mappings[key] = jch.get(key).not_nil!
+      end
+
+      # Add a third target
+      jch.add("3", 1, "third")
+
+      # Count how many keys changed to the new target
+      moved_to_third = 0
+      stayed_same = 0
+      initial_mappings.each do |key, original_target|
+        new_target = jch.get(key).not_nil!
+        if new_target == "third"
+          moved_to_third += 1
+        elsif new_target == original_target
+          stayed_same += 1
+        end
+      end
+
+      # With jump consistent hash, only ~1/3 of keys should move to the new bucket
+      # and keys that don't move should stay on their original target
+      moved_to_third.should be_close(33, 15) # ~1/3 of 100
+      stayed_same.should be_close(67, 15)    # ~2/3 of 100
+    end
+
+    it "should handle target removal" do
+      jch = JumpConsistentHasher(String).new
+      jch.add("1", 1, "first")
+      jch.add("2", 1, "second")
+      jch.add("3", 1, "third")
+
+      # Record initial mappings
+      100.times do |i|
+        key = "key#{i}"
+        target = jch.get(key)
+        target.should_not be_nil
+        ["first", "second", "third"].should contain(target)
+      end
+
+      # Remove one target
+      jch.remove("2", 1)
+
+      # Verify all keys still map to a valid target
+      100.times do |i|
+        key = "key#{i}"
+        target = jch.get(key)
+        target.should_not be_nil
+        ["first", "third"].should contain(target)
+      end
+    end
+
+    it "should respect weight for distribution" do
+      jch = JumpConsistentHasher(String).new
+      jch.add("1", 3, "first")  # weight 3
+      jch.add("2", 1, "second") # weight 1
+
+      results = Hash(String, Int32).new(0)
+      1000.times do |i|
+        target = jch.get("key#{i}")
+        results[target.not_nil!] += 1
+      end
+
+      # "first" should get roughly 3x as many as "second"
+      ratio = results["first"].to_f / results["second"].to_f
+      ratio.should be_close(3.0, 0.5)
     end
   end
 end
