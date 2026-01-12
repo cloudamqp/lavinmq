@@ -122,8 +122,11 @@ js: $(JS)
 deps: js lib
 
 .PHONY: lint
-lint: lib
+lint: lib/ameba/bin/ameba
 	lib/ameba/bin/ameba src/ spec/
+
+lib/ameba/bin/ameba: shard.yml shard.lock
+	shards install
 
 .PHONY: lint-js
 lint-js:
