@@ -64,7 +64,7 @@ class OpenSSL::SSL::Context::Server
           # Switch to the new SSL_CTX for this connection
           LibSSL.ssl_set_ssl_ctx(ssl, new_context.to_unsafe)
           verify_mode = LibSSL.ssl_ctx_get_verify_mode(new_context.to_unsafe).to_i
-          LibSSL.ssl_set_verify(ssl, verify_mode, Pointer(Void).null)
+          LibSSL.ssl_set_verify(ssl, verify_mode, nil)
         end
 
         LibSSL::SSL_TLSEXT_ERR_OK
