@@ -54,9 +54,9 @@ is the very same gc package found in Arch Linux but compiled with
 
 Then use systemctl to start/stop/enable/disable it, e.g. `systemctl start lavinmq`.
 
-### OS X
+### macOS
 
-Install LavinMQ with `brew`: 
+You can install LavinMQ from [Homebrew](https://brew.sh/) with `brew`: 
 
 ```sh
 brew install cloudamqp/cloudamqp/lavinmq
