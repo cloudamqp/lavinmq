@@ -45,11 +45,11 @@ EOF
 sudo dnf install lavinmq
 ```
 
-### Archlinux
+### Arch Linux
 
 The package is available on [AUR](https://aur.archlinux.org/packages/lavinmq),
 it depends on `gc-large-config` (that conflicts with `gc` package package), it
-is the very same gc package found in ArchLinux but compiled with
+is the very same gc package found in Arch Linux but compiled with
 `--enable-large-config`.
 
 Then use systemctl to start/stop/enable/disable it, e.g. `systemctl start lavinmq`.
