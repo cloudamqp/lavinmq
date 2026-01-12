@@ -47,6 +47,7 @@ module LavinMQ::AMQP
         @msg_store.push(msg)
       end
       @publish_count.add(1, :relaxed)
+      @message_ttl_change.send nil
       true
     rescue ex : MessageStore::Error
       @log.error(ex) { "Queue closed due to error" }
@@ -62,25 +63,23 @@ module LavinMQ::AMQP
 
     # simplify the message expire loop, as this queue can't have consumers or message-ttl
     private def message_expire_loop
-      @log.debug { "message_expire_loop started" }
       loop do
         if ttl = time_to_message_expiration
-          @log.debug { "ttl=#{ttl}" }
           if ttl <= Time::Span::ZERO
-            @log.debug { "ttl is now, expiring messages" }
             expire_messages
             next
           end
           select
-          when @msg_store.empty.when_true.receive # purged?
-            @log.debug { "became empty, purged?" }
+          when @msg_store.empty.when_true.receive # purge?
+          when @message_ttl_change.receive
           when timeout ttl
-            @log.debug { "timeout (ttl=#{ttl}), expiring messages" }
             expire_messages
           end
         else
-          @log.debug { "no ttl, waiting for messages" }
-          @msg_store.empty.when_false.receive
+          select
+          when @message_ttl_change.receive
+          when @msg_store.empty.when_false.receive
+          end
         end
       end
     rescue ::Channel::ClosedError
