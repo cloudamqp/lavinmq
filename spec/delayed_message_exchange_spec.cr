@@ -125,14 +125,16 @@ describe "Delayed Message Exchange" do
           3.downto(1) do |i|
             delay = i * 3000
             hdrs = AMQP::Client::Arguments.new({"x-delay" => delay})
-            x.publish delay.to_s, "rk", props: AMQP::Client::Properties.new(headers: hdrs)
+            x.publish_confirm delay.to_s, "rk", props: AMQP::Client::Properties.new(headers: hdrs)
+            Fiber.yield
           end
           # by sleeping 5 seconds the message with delay 3000ms should be published
           sleep 5.seconds
           # publish another message, with a delay low enough to make the message
           # being published before at least the one with 9000ms
           hdrs = AMQP::Client::Arguments.new({"x-delay" => 1500})
-          x.publish "1500", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
+          x.publish_confirm "1500", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
+          Fiber.yield
           # by sleeping another 2 seconds we've slept for 7s in total, meaning that
           # the message published with 6000ms should be published. Also, the new message
           # with 1500ms should be published
