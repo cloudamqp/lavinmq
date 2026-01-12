@@ -37,7 +37,6 @@ module LavinMQ
     @listeners = Hash(Socket::Server, Protocol).new # Socket => protocol
     @connection_factories = Hash(Protocol, ConnectionFactory).new
     @replicator : Clustering::Replicator?
-    @trusted_proxy_sources : Array(String)
     Log = LavinMQ::Log.for "server"
 
     def initialize(@config : Config, @replicator = nil)
@@ -49,8 +48,7 @@ module LavinMQ
       @mqtt_brokers = MQTT::Brokers.new(@vhosts, @replicator)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator)
       @authenticator = Auth::Chain.create(@users)
-      @trusted_proxy_sources = @config.proxy_protocol_trusted_sources.split(',').map(&.strip).reject(&.empty?)
-      if @config.tcp_proxy_protocol > 0 && @trusted_proxy_sources.empty?
+      if @config.tcp_proxy_protocol > 0 && @config.proxy_protocol_trusted_sources.empty?
         Log.warn { "PROXY protocol enabled without trusted sources configured - accepting from all sources" }
       end
       @connection_factories = {
@@ -164,8 +162,8 @@ module LavinMQ
     end
 
     private def trusted_proxy_source?(address : String) : Bool
-      return true if @trusted_proxy_sources.empty?
-      @trusted_proxy_sources.includes?(address)
+      return true if @config.proxy_protocol_trusted_sources.empty?
+      @config.proxy_protocol_trusted_sources.any?(&.matches?(address))
     end
 
     private def parse_proxy_protocol(client, version : UInt8) : ConnectionInfo
