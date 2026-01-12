@@ -2,6 +2,7 @@ require "socket"
 require "openssl"
 require "./proxy_protocol"
 require "./config"
+require "./ring_buffer_io"
 
 module LavinMQ
   # TLS termination proxy that offloads TLS handshakes to dedicated execution context
@@ -12,14 +13,15 @@ module LavinMQ
     @closed = false
     @server : TCPServer?
     @work_queue : Channel(TCPSocket)
+    @connections : Channel(IO)
     @execution_context : Fiber::ExecutionContext::Parallel
 
     def initialize(
       @tls_context : OpenSSL::SSL::Context::Server,
-      @internal_socket_path : String,
-      @max_concurrent_handshakes : Int32
+      @max_concurrent_handshakes : Int32,
     )
       @work_queue = Channel(TCPSocket).new(@max_concurrent_handshakes * 2)
+      @connections = Channel(IO).new(@max_concurrent_handshakes * 4)
 
       # Create parallel execution context with worker pool
       # Manages thread pool internally for better resource scheduling
@@ -31,10 +33,14 @@ module LavinMQ
       end
     end
 
+    def connections : Channel(IO)
+      @connections
+    end
+
     def listen(bind : String, port : Int32)
       server = TCPServer.new(bind, port)
       @server = server
-      Log.info { "TLS proxy listening on #{bind}:#{port}, forwarding to #{@internal_socket_path}" }
+      Log.info { "TLS proxy listening on #{bind}:#{port}" }
       Log.info { "TLS worker pool: #{@max_concurrent_handshakes} threads (parallel execution context)" }
 
       # Accept connections and push to work queue for worker pool
@@ -84,66 +90,55 @@ module LavinMQ
       tls_version = ssl_client.tls_version
       cipher = ssl_client.cipher
 
-      Log.debug { "#{remote_addr} connected with #{tls_version} #{cipher}" }
-
-      # Connect to internal unix socket listener
-      internal = UNIXSocket.new(@internal_socket_path)
-      set_buffer_size(internal)
+      server_io, proxy_io = LavinMQ.ring_buffer_io_pair(8192) # 8KB per direction, zero-syscall
 
       # Send PROXY protocol v2 header with TLS metadata
       proxy_header = ProxyProtocol::V2.new(remote_addr, local_addr)
       proxy_header.ssl = true
       proxy_header.ssl_version = tls_version
       proxy_header.ssl_cipher = cipher
-      internal.write_bytes proxy_header, IO::ByteFormat::NetworkEndian
+      proxy_io.write_bytes proxy_header, IO::ByteFormat::NetworkEndian
 
-      # Handshake complete - spawn bidirectional copy in main pool and return worker to queue
-      # This allows the worker thread to immediately process the next TLS handshake
-      spawn(name: "TLS proxy #{remote_addr}") do
-        forward_bidirectional(ssl_client, internal, remote_addr)
+      spawn(name: "TLS→Internal pipe #{remote_addr}") do
+        copy_loop(proxy_io, ssl_client, "TLS→pipe #{remote_addr}")
       end
+      spawn(name: "Internal pipe→TLS #{remote_addr}") do
+        copy_loop(ssl_client, proxy_io, "pipe→TLS #{remote_addr}")
+      end
+
+      @connections.send server_io
     rescue ex : OpenSSL::SSL::Error
-      Log.debug { "TLS handshake failed for #{remote_addr}: #{ex.message}" }
+      Log.warn { "TLS handshake failed for #{remote_addr}: #{ex.message}" }
       ssl_client.try &.close rescue nil
       client.close rescue nil
     rescue ex : IO::Error
-      Log.debug { "Connection error for #{remote_addr}: #{ex.message}" }
-      internal.try &.close rescue nil
+      Log.warn { "Connection error for #{remote_addr}: #{ex.message}" }
+      ssl_client.try &.close rescue nil
+      client.close rescue nil
+    rescue ex
+      Log.error(exception: ex) { "Unexpected error handling TLS client #{remote_addr}" }
       ssl_client.try &.close rescue nil
       client.close rescue nil
     end
 
-    # Bidirectional forwarding runs in main fiber pool (not isolated thread)
-    # This allows worker threads to return immediately after TLS handshake
-    private def forward_bidirectional(ssl_client : OpenSSL::SSL::Socket::Server, internal : UNIXSocket, remote_addr : Socket::Address)
+    private def copy_loop(src : IO, dst : IO, fiber_name : String)
       buffer = Bytes.new(16384)
-
-      spawn(name: "TLS→Plain #{remote_addr}") do
-        loop do
-          bytes_read = ssl_client.read(buffer)
-          break if bytes_read == 0
-          internal.write(buffer[0, bytes_read])
-          internal.flush
-        end
-      rescue IO::Error
-        # Expected when connection closes
-      end
-
+      index = 0
       loop do
-        bytes_read = internal.read(buffer)
+        bytes_read = src.read(buffer)
         break if bytes_read == 0
-        ssl_client.write(buffer[0, bytes_read])
-        ssl_client.flush
+        dst.write(buffer[0, bytes_read])
+        dst.flush
+        index += 1
       end
-
-      Log.debug { "#{remote_addr} disconnected" }
     rescue ex : IO::Error
-      Log.debug { "Connection error for #{remote_addr}: #{ex.message}" }
+      # Expected when connection closes
     ensure
-      internal.close rescue nil
-      ssl_client.close rescue nil
+      # Close destination to signal EOF to peer
+      dst.close rescue nil
     end
 
+    # TODO: Can we use the one from server.cr?
     private def set_socket_options(socket : TCPSocket)
       socket.sync = false
       socket.read_buffering = true
@@ -156,12 +151,6 @@ module LavinMQ
         socket.tcp_keepalive_interval = keepalive[1]
         socket.tcp_keepalive_count = keepalive[2]
       end
-    end
-
-    private def set_buffer_size(socket : UNIXSocket)
-      socket.sync = false
-      socket.read_buffering = true
-      socket.buffer_size = 131_072
     end
   end
 end

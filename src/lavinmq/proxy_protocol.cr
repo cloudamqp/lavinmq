@@ -14,13 +14,27 @@ module LavinMQ
 
     class UnsupportedTLVType < Error; end
 
+    def self.parse(io : IO) : ConnectionInfo?
+      peeked = io.peek
+      return unless peeked
+      if peeked.size >= 5 && peeked[0, 5] == "PROXY".to_slice
+        ProxyProtocol::V1.parse(io)
+      elsif peeked.size >= 12 && peeked[0, 12] == ProxyProtocol::V2::Signature.to_slice
+        ProxyProtocol::V2.parse(io)
+      else
+        nil
+      end
+    end
+
     struct V1
       # Examples:
       # PROXY TCP4 255.255.255.255 255.255.255.255 65535 65535\r\n
       # PROXY TCP6 ffff:f...f:ffff ffff:f...f:ffff 65535 65535\r\n
       # PROXY UNKNOWN\r\n
       def self.parse(io)
-        io.read_timeout = 15.seconds
+        if io.responds_to?(:read_timeout)
+          io.read_timeout = 15.seconds
+        end
         header = io.gets('\n', 107) || raise IO::EOFError.new
 
         src_addr = "127.0.0.1"
@@ -45,7 +59,9 @@ module LavinMQ
         dst = Socket::IPAddress.new(dst_addr, dst_port)
         ConnectionInfo.new(src, dst)
       ensure
-        io.read_timeout = nil
+        if io.responds_to?(:read_timeout)
+          io.read_timeout = nil
+        end
       end
 
       def initialize(@src : Socket::IPAddress, @dst : Socket::IPAddress)
@@ -127,7 +143,7 @@ module LavinMQ
         tlv_io.write_bytes ssl_tlv_length.to_u16, IO::ByteFormat::NetworkEndian
 
         # SSL TLV data
-        tlv_io.write_byte SSLCLIENT::SSL.value # client flags
+        tlv_io.write_byte SSLCLIENT::SSL.value                  # client flags
         tlv_io.write_bytes 0_u32, IO::ByteFormat::NetworkEndian # verify = 0 (verified)
         tlv_io.write ssl_data
 
@@ -135,7 +151,9 @@ module LavinMQ
       end
 
       def self.parse(io)
-        io.read_timeout = 15.seconds
+        if io.responds_to?(:read_timeout)
+          io.read_timeout = 15.seconds
+        end
         buffer = uninitialized UInt8[16]
         io.read(buffer.to_slice)
         signature = buffer.to_slice[0, 12]
@@ -162,7 +180,9 @@ module LavinMQ
         header = extract_tlv(header, bytes)
         header
       ensure
-        io.read_timeout = nil
+        if io.responds_to?(:read_timeout)
+          io.read_timeout = nil
+        end
       end
 
       private def self.extract_tlv(header : ConnectionInfo, bytes)
