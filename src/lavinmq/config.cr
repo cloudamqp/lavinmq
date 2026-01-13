@@ -81,6 +81,7 @@ module LavinMQ
     property default_password : String = ENV.fetch("LAVINMQ_DEFAULT_PASSWORD", DEFAULT_PASSWORD_HASH) # Hashed password for default user
     property max_consumers_per_channel = 0
     property mqtt_max_packet_size = 268_435_455_u32 # bytes
+    property consistent_hash_algorithm : ConsistentHashAlgorithm = ConsistentHashAlgorithm::Ring
     getter sni_manager : SNIManager = SNIManager.new
     @@instance : Config = self.new
 
@@ -387,6 +388,7 @@ module LavinMQ
         when "consumer_timeout"          then @consumer_timeout = v.to_u64
         when "default_consumer_prefetch" then @default_consumer_prefetch = v.to_u16
         when "max_consumers_per_channel" then @max_consumers_per_channel = v.to_i
+        when "consistent_hash_algorithm" then @consistent_hash_algorithm = ConsistentHashAlgorithm.parse(v)
         else
           STDERR.puts "WARNING: Unrecognized configuration 'amqp/#{config}'"
         end

@@ -5,20 +5,20 @@ require "../../consistent_hasher.cr"
 require "../../jump_consistent_hasher.cr"
 
 module LavinMQ
+  enum ConsistentHashAlgorithm
+    Ring
+    Jump
+  end
+
   module AMQP
     class ConsistentHashExchange < Exchange
-      # Algorithm selection for consistent hashing.
-      # :ring - Traditional ring-based consistent hash (default, preserves backwards compatibility)
-      # :jump - Jump Consistent Hash (better distribution, minimal remapping)
-      HASH_ALGORITHM = :ring
-
       @hasher : Hasher(AMQP::Destination)
       @bindings = Set({Destination, BindingKey}).new
 
       def initialize(*args, **kwargs)
         super(*args, **kwargs)
-        @hasher = case HASH_ALGORITHM
-                  when :jump
+        @hasher = case Config.instance.consistent_hash_algorithm
+                  when .jump?
                     JumpConsistentHasher(AMQP::Destination).new
                   else
                     RingConsistentHasher(AMQP::Destination).new
