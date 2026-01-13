@@ -500,5 +500,13 @@ module LavinMQ
     def uptime
       Time.monotonic - @start
     end
+
+    def compact_collections
+      @users.compact_collections
+      @parameters.compact_collections
+      @mqtt_brokers.compact_collections
+      @vhosts.compact_collections
+      Fiber.yield
+    end
   end
 end

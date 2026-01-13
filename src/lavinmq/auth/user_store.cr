@@ -159,6 +159,11 @@ module LavinMQ
         File.rename tmpfile, path
         @replicator.try &.replace_file path
       end
+
+      def compact_collections
+        # Hash uses dup
+        @users = @users.dup if @users.capacity > @users.size * 2
+      end
     end
   end
 end

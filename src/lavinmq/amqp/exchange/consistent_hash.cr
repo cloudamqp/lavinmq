@@ -67,6 +67,11 @@ module LavinMQ
         else             raise LavinMQ::Error::PreconditionFailed.new("Routing header must be string")
         end
       end
+
+      def compact_collections
+        # Set uses dup
+        @bindings = @bindings.dup if @bindings.capacity > @bindings.size * 2
+      end
     end
   end
 end

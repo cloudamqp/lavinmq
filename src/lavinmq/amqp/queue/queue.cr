@@ -952,6 +952,19 @@ module LavinMQ::AMQP
       false
     end
 
+    def compact_collections
+      # Hash uses dup
+      @deliveries = @deliveries.dup if @deliveries.capacity > @deliveries.size * 2
+
+      # Array uses trim_to_size
+      @consumers.trim_to_size
+
+      # Deque uses dup
+      @basic_get_unacked = @basic_get_unacked.dup if @basic_get_unacked.capacity > @basic_get_unacked.size * 2
+
+      @msg_store.compact_collections
+    end
+
     class Error < Exception; end
 
     class ReadError < Exception; end

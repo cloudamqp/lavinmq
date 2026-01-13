@@ -172,6 +172,11 @@ module LavinMQ
           end
         end
       end
+
+      def compact_collections
+        # Hash uses dup
+        @bindings = @bindings.dup if @bindings.capacity > @bindings.size * 2
+      end
     end
   end
 end

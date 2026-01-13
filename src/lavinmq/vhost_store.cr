@@ -103,5 +103,11 @@ module LavinMQ
       File.rename "#{path}.tmp", path
       @replicator.try &.replace_file path
     end
+
+    def compact_collections
+      # Hash uses dup
+      @vhosts = @vhosts.dup if @vhosts.capacity > @vhosts.size * 2
+      @vhosts.each_value(&.compact_collections)
+    end
   end
 end

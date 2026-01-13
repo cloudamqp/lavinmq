@@ -80,5 +80,10 @@ module LavinMQ
       @log.error(exception: ex) { "Failed to load #{@file_name}" }
       raise ex
     end
+
+    def compact_collections
+      # Hash uses dup
+      @parameters = @parameters.dup if @parameters.capacity > @parameters.size * 2
+    end
   end
 end

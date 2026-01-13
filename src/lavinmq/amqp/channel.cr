@@ -821,6 +821,23 @@ module LavinMQ
         @client.flush
       end
 
+      def compact_collections
+        # Deque uses dup
+        @unacked = @unacked.dup if @unacked.capacity > @unacked.size * 2
+
+        # Array uses trim_to_size
+        @tx_publishes.trim_to_size
+        @tx_acks.trim_to_size
+        @consumers.trim_to_size
+
+        # IO::Memory - reset if empty
+        @next_msg_body_tmp = IO::Memory.new if @next_msg_body_tmp.size == 0 && @next_msg_body_tmp.capacity > 0
+
+        # Clear temporary sets (they should be empty between publishes)
+        @visited.clear if @visited.size > 0
+        @found_queues.clear if @found_queues.size > 0
+      end
+
       class ClosedError < Error; end
     end
   end

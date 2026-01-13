@@ -53,7 +53,16 @@ module LavinMQ
       reload_tls_context
       setup_sni_callbacks
       setup_signal_traps
-      SystemD::MemoryPressure.monitor { GC.collect }
+      SystemD::MemoryPressure.monitor do
+        Log.info { "Memory pressure detected, running compaction" }
+        started_at = Time.monotonic
+
+        @amqp_server.try(&.compact_collections)
+        GC.collect
+
+        elapsed = Time.monotonic - started_at
+        Log.info { "Memory pressure handled in #{elapsed.total_milliseconds}ms" }
+      end
     end
 
     private def start : self
