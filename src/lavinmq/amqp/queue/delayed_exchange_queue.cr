@@ -1,6 +1,9 @@
 require "./queue"
+require "./delayed_exchange_queue/delayed_message_store"
 
 module LavinMQ::AMQP
+  # This class is only used by delayed exchanges. It can't niehter should be
+  # consumed from or published to by clients.
   class DelayedExchangeQueue < Queue
     MAX_NAME_LENGTH = 256
 
@@ -37,16 +40,13 @@ module LavinMQ::AMQP
       @exchange_name = arguments["x-dead-letter-exchange"]?.try(&.to_s) || raise "Missing x-dead-letter-exchange"
     end
 
-    def publish(message : Message) : Bool
-      false
-    end
-
     def delay(msg : Message) : Bool
       return false if @deleted || @state.closed?
       @msg_store_lock.synchronize do
         @msg_store.push(msg)
       end
       @publish_count.add(1, :relaxed)
+      @message_ttl_change.send nil
       true
     rescue ex : MessageStore::Error
       @log.error(ex) { "Queue closed due to error" }
@@ -54,33 +54,61 @@ module LavinMQ::AMQP
       raise ex
     end
 
+    # Overload to use our own store
     private def init_msg_store(data_dir)
       replicator = durable? ? @vhost.@replicator : nil
       DelayedMessageStore.new(data_dir, replicator, durable?, metadata: @metadata)
-    end
-
-    private def expire_at(msg : BytesMessage) : Int64?
-      msg.timestamp + (msg.delay || 0u32)
-    end
-
-    # internal queues can't expire so make this noop
-    private def queue_expire_loop
     end
 
     # simplify the message expire loop, as this queue can't have consumers or message-ttl
     private def message_expire_loop
       loop do
         if ttl = time_to_message_expiration
+          if ttl <= Time::Span::ZERO
+            expire_messages
+            next
+          end
           select
-          when @msg_store.empty.when_true.receive # there's a new "first" message
+          when @msg_store.empty.when_true.receive # purge?
+          when @message_ttl_change.receive
           when timeout ttl
             expire_messages
           end
         else
-          @msg_store.empty.when_false.receive
+          select
+          when @message_ttl_change.receive
+          when @msg_store.empty.when_false.receive
+          end
         end
       end
     rescue ::Channel::ClosedError
+    ensure
+      @log.debug { "message_expire_loop stopped" }
+    end
+
+    def expire_messages
+      @msg_store_lock.synchronize do
+        loop do
+          env = @msg_store.first? || break
+          if has_expired?(env)
+            env = @msg_store.shift? || break
+            expire_msg(env, :expired)
+          else
+            break
+          end
+        end
+      end
+    end
+
+    private def has_expired?(env : Envelope) : Bool
+      delay = env.segment_position.delay
+      timestamp = env.message.timestamp
+      expire_at = timestamp + delay
+      expire_at <= RoughTime.unix_ms
+    end
+
+    private def time_to_message_expiration : Time::Span?
+      @msg_store.as(DelayedMessageStore).time_to_next_expiration?
     end
 
     # Overload to not ruin DLX header
@@ -97,63 +125,33 @@ module LavinMQ::AMQP
       delete_message sp
     end
 
-    class DelayedMessageStore < MessageStore
-      def initialize(*args, **kwargs)
-        super
-        order_messages
-      end
+    # Disable a lot of inherited functionality (ugly)
 
-      def order_messages
-        sps = Array(SegmentPosition).new(@size)
-        while env = shift?
-          sps << env.segment_position
-        end
-        sps.each { |sp| requeue sp }
-      end
+    # We don't support any policies
+    private def apply_policy_argument(key : String, value : JSON::Any) : Bool
+      false
+    end
 
-      def push(msg) : SegmentPosition
-        sp = super
-        # make sure that we don't read from disk, only from requeued
-        @rfile_id = @wfile_id
-        @rfile = @wfile
-        @rfile.seek(0, IO::Seek::End)
-        # order messages by priority in the requeue dequeue
-        idx = @requeued.bsearch_index do |rsp|
-          if rsp.delay == sp.delay
-            rsp > sp
-          else
-            rsp.delay > sp.delay
-          end
-        end
-        if idx
-          @requeued.insert(idx, sp)
-          if idx.zero?
-            @empty.set false
-          end
-        else
-          @requeued.push(sp)
-        end
-        sp
-      end
+    # internal queues can't expire so make this noop
+    private def queue_expire_loop
+    end
 
-      def requeue(sp : SegmentPosition)
-        idx = @requeued.bsearch_index do |rsp|
-          if rsp.delay == sp.delay
-            rsp > sp
-          else
-            rsp.delay > sp.delay
-          end
-        end
-        if idx
-          @requeued.insert(idx, sp)
-        else
-          @requeued.push(sp)
-        end
-        was_empty = @size.zero?
-        @bytesize += sp.bytesize
-        @size += 1
-        @empty.set false if was_empty
-      end
+    def publish(message : Message) : Bool
+      # This queue should never be published too
+      false
+    end
+
+    def basic_get(no_ack, force = false, & : Envelope -> Nil) : Bool
+      # noop, not supported
+      false
+    end
+
+    def ack(sp : SegmentPosition) : Nil
+      # noop, not supported
+    end
+
+    def reject(sp : SegmentPosition) : Nil
+      # noop, not supported
     end
   end
 
