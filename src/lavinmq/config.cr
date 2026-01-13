@@ -203,7 +203,7 @@ module LavinMQ
          self.{{var[:var_name]}} = parse_value(v, {{var[:transform]}})
         {% end %}
      else
-       raise "Unknown setting #{name} in section {{section.id}}"
+       Log.warn { "Unknown setting #{name} in section {{section.id}}" }
       end
     rescue ex
       Log.error { "Failed to handle value for '#{name}' in [{{section.id}}]: #{ex.message}" }
