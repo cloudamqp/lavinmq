@@ -68,16 +68,12 @@ module LavinMQ::AMQP
 
       # Overload to add the segment position to our "index"
       def push(msg) : SegmentPosition
+        raise ClosedError.new if @closed
         was_empty = @size.zero?
-        sp = super
-
-        # By always seeking to end of the last segment we prevent #shift and #first?
-        # to read from file (if requeued for some reason is empty etc) because
-        @rfile_id = @wfile_id
-        @rfile = @wfile
-        @rfile.seek(0, IO::Seek::End)
+        sp = write_to_disk(msg)
         requeued.insert(sp, msg.timestamp)
-
+        @bytesize += sp.bytesize
+        @size += 1
         @empty.set false if was_empty
         sp
       end
