@@ -48,6 +48,30 @@ describe LavinMQ::AMQP::Queue do
     end
   end
 
+  it "Should expire message after consuming non-expiring message" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        # Create a queue with dead letter exchange so we can verify expiration happened
+        q = ch.queue("exp_test", args: AMQP::Client::Arguments.new(
+          {"x-dead-letter-exchange" => "", "x-dead-letter-routing-key" => "dlq"}
+        ))
+        dlq = ch.queue("dlq")
+        q.publish_confirm("no expiration")
+        q.publish_confirm("with expiration", props: AMQP::Client::Properties.new(expiration: "100"))
+
+        msg1 = q.get(no_ack: true)
+        msg1.not_nil!.body_io.to_s.should eq "no expiration"
+
+        # Queue should have 1 message that should expire
+        msg = wait_for { dlq.get(no_ack: true) }
+        msg.not_nil!.body_io.to_s.should eq "with expiration"
+
+        # The Queue should be empty
+        q.get(no_ack: true).should be_nil
+      end
+    end
+  end
+
   it "Should not dead letter messages to itself due to queue length" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
