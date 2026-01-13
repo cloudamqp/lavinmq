@@ -11,8 +11,8 @@ module LavinMQ
       Log = LavinMQ::Log.for "http.views"
 
       def initialize
-        static_view "/", "overview"
-        static_view "/login"
+        static_view "/", view: "overview"
+        static_view "/login", auth_required: false
         static_view "/federation"
         static_view "/shovels"
         static_view "/connections"
@@ -48,9 +48,10 @@ module LavinMQ
       #   context.response.content_type = "application/json"
       # end
       # ```
-      macro static_view(path, view = nil, &block)
+      macro static_view(path, *, auth_required = true, view = nil, &block)
         {% view = path[1..] if view.nil? %}
         get {{ path }} do |context, params|
+          {% if auth_required %} redirect_unless_logged_in! {% end %}
           if_non_match = context.request.headers["If-None-Match"]?
           Log.trace { "static_view path={{ path.id }} etag=#{ETag} if-non-match=#{if_non_match}" }
           if if_non_match == ETag
@@ -62,11 +63,19 @@ module LavinMQ
             context.response.headers.add("X-Frame-Options", "SAMEORIGIN")
             context.response.headers.add("Referrer-Policy", "same-origin")
             # The sha256 hash below is for the inline script in views/partials/head.ecr
-            context.response.headers.add("Content-Security-Policy", "default-src 'none'; style-src 'self'; font-src 'self'; img-src 'self'; connect-src 'self'; script-src 'self' 'sha256-9nCxy0qjWUXfAqDk5MjMKgu+tHDTvI8ZUAmbmYoCEF8='")
+            context.response.headers.add("Content-Security-Policy", "default-src 'none'; style-src 'self'; font-src 'self'; img-src 'self'; connect-src 'self'; script-src 'self'")
             {{ block.body if block }}
             render {{ view }}
           end
           context
+        end
+      end
+
+      macro redirect_unless_logged_in!
+        if !context.request.cookies.has_key?("m")
+          context.response.status = ::HTTP::Status::TEMPORARY_REDIRECT
+          context.response.headers["Location"] = "login"
+          next context
         end
       end
 
