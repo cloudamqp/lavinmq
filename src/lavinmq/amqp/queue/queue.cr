@@ -722,6 +722,7 @@ module LavinMQ::AMQP
       raise ClosedError.new if @closed
       loop do # retry if msg expired or deliver limit hit
         env = @msg_store_lock.synchronize { @msg_store.shift? } || break
+        had_no_expiration = expire_at(env.message).nil?
         if has_expired?(env.message) # guarantee to not deliver expired messages
           expire_msg(env, :expired)
           next
@@ -743,6 +744,11 @@ module LavinMQ::AMQP
           @unacked_bytesize.add(sp.bytesize, :relaxed)
           yield env # deliver the message
           # requeuing of failed delivery is up to the consumer
+        end
+        # Signal expire loop if we consumed a non-expiring message and the next message has expiration
+        if had_no_expiration
+          next_env = @msg_store_lock.synchronize { @msg_store.first? }
+          @message_ttl_change.try_send? nil if next_env && expire_at(next_env.message)
         end
         return true
       end
@@ -885,6 +891,11 @@ module LavinMQ::AMQP
         delete_count = @msg_store_lock.synchronize { @msg_store.purge(max_count) }
       end
       @log.info { "Purged #{delete_count} messages" }
+      # Signal expire loop if we purged messages and the next message has expiration
+      if delete_count > 0
+        next_env = @msg_store_lock.synchronize { @msg_store.first? }
+        @message_ttl_change.try_send? nil if next_env && expire_at(next_env.message)
+      end
       delete_count
     rescue ex : MessageStore::Error
       @log.error(ex) { "Queue closed due to error" }
