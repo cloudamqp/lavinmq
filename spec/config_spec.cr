@@ -77,165 +77,172 @@ describe LavinMQ::Config do
       config.log_level.should eq ::Log::Severity::Debug
     ensure
       File.delete(config_file.path) if File.exists?(config_file.path)
+      # Reset log level to default for other specs
+      Log.setup(:fatal)
     end
   end
 
   it "Can parse all INI arguments" do
-    config_file = File.tempfile do |file|
-      file.print <<-CONFIG
-        [main]
-        data_dir = /tmp/lavinmq-test
-        log_level = debug
-        log_file = /var/log/lavinmq.log
-        stats_interval = 10000
-        stats_log_size = 240
-        set_timestamp = true
-        socket_buffer_size = 32768
-        tcp_nodelay = true
-        segment_size = 16777216
-        tcp_keepalive = 120:20:5
-        tcp_recv_buffer_size = 65536
-        tcp_send_buffer_size = 65536
-        log_exchange = true
-        free_disk_min = 1073741824
-        free_disk_warn = 5368709120
-        max_deleted_definitions = 16384
-        consumer_timeout = 3600
-        consumer_timeout_loop_interval = 120
-        auth_backends = ldap,basic
-        default_consumer_prefetch = 1000
-        default_password_hash = +pHuxkR9fCyrrwXjOD4BP4XbzO3l8LJr8YkThMgJ0yVHFRE+
-        default_user = admin
-        default_user_only_loopback = false
-        data_dir_lock = false
-        tls_cert_path = /etc/lavinmq/cert.pem
-        tls_ciphers = ECDHE-RSA-AES256-GCM-SHA384
-        tls_key_path = /etc/lavinmq/key.pem
-        tls_min_version = 1.3
-        tls_keylog_file = /tmp/keylog.txt
-        metrics_http_bind = 0.0.0.0
-        metrics_http_port = 9090
+    begin
+      config_file = File.tempfile do |file|
+        file.print <<-CONFIG
+          [main]
+          data_dir = /tmp/lavinmq-test
+          log_level = debug
+          log_file = /var/log/lavinmq.log
+          stats_interval = 10000
+          stats_log_size = 240
+          set_timestamp = true
+          socket_buffer_size = 32768
+          tcp_nodelay = true
+          segment_size = 16777216
+          tcp_keepalive = 120:20:5
+          tcp_recv_buffer_size = 65536
+          tcp_send_buffer_size = 65536
+          log_exchange = true
+          free_disk_min = 1073741824
+          free_disk_warn = 5368709120
+          max_deleted_definitions = 16384
+          consumer_timeout = 3600
+          consumer_timeout_loop_interval = 120
+          auth_backends = ldap,basic
+          default_consumer_prefetch = 1000
+          default_password_hash = +pHuxkR9fCyrrwXjOD4BP4XbzO3l8LJr8YkThMgJ0yVHFRE+
+          default_user = admin
+          default_user_only_loopback = false
+          data_dir_lock = false
+          tls_cert_path = /etc/lavinmq/cert.pem
+          tls_ciphers = ECDHE-RSA-AES256-GCM-SHA384
+          tls_key_path = /etc/lavinmq/key.pem
+          tls_min_version = 1.3
+          tls_keylog_file = /tmp/keylog.txt
+          metrics_http_bind = 0.0.0.0
+          metrics_http_port = 9090
 
-        [amqp]
-        bind = 0.0.0.0
-        port = 5673
-        tls_port = 5674
-        unix_path = /tmp/lavinmq.sock
-        unix_proxy_protocol = 2
-        tcp_proxy_protocol = 1
-        heartbeat = 600
-        frame_max = 262144
-        channel_max = 4096
-        max_message_size = 268435456
-        amqp_systemd_socket_name = custom-amqp.socket
+          [amqp]
+          bind = 0.0.0.0
+          port = 5673
+          tls_port = 5674
+          unix_path = /tmp/lavinmq.sock
+          unix_proxy_protocol = 2
+          tcp_proxy_protocol = 1
+          heartbeat = 600
+          frame_max = 262144
+          channel_max = 4096
+          max_message_size = 268435456
+          amqp_systemd_socket_name = custom-amqp.socket
 
-        [mqtt]
-        bind = 0.0.0.0
-        port = 1884
-        tls_port = 8884
-        unix_path = /tmp/mqtt.sock
-        mqtt_permission_check_enabled = true
-        mqtt_max_packet_size = 536870910
-        max_inflight_messages = 100
-        default_mqtt_vhost = /mqtt
+          [mqtt]
+          bind = 0.0.0.0
+          port = 1884
+          tls_port = 8884
+          unix_path = /tmp/mqtt.sock
+          mqtt_permission_check_enabled = true
+          mqtt_max_packet_size = 536870910
+          max_inflight_messages = 100
+          default_mqtt_vhost = /mqtt
 
-        [mgmt]
-        bind = 0.0.0.0
-        port = 15673
-        tls_port = 15674
-        unix_path = /tmp/mgmt.sock
-        http_systemd_socket_name = custom-http.socket
+          [mgmt]
+          bind = 0.0.0.0
+          port = 15673
+          tls_port = 15674
+          unix_path = /tmp/mgmt.sock
+          http_systemd_socket_name = custom-http.socket
 
-        [experimental]
-        yield_each_received_bytes = 262144
-        yield_each_delivered_bytes = 2097152
+          [experimental]
+          yield_each_received_bytes = 262144
+          yield_each_delivered_bytes = 2097152
 
-        [clustering]
-        enabled = true
-        bind = 0.0.0.0
-        port = 5680
-        etcd_endpoints = localhost:2380,localhost:2381
-        etcd_prefix = test-lavinmq
-        max_unsynced_actions = 16384
-      CONFIG
+          [clustering]
+          enabled = true
+          bind = 0.0.0.0
+          port = 5680
+          etcd_endpoints = localhost:2380,localhost:2381
+          etcd_prefix = test-lavinmq
+          max_unsynced_actions = 16384
+        CONFIG
+      end
+      config = LavinMQ::Config.new
+      argv = ["-c", config_file.path]
+      config.parse(argv)
+
+      # Main section
+      config.data_dir.should eq "/tmp/lavinmq-test"
+      config.log_level.should eq ::Log::Severity::Debug
+      config.log_file.should eq "/var/log/lavinmq.log"
+      config.stats_interval.should eq 10000
+      config.stats_log_size.should eq 240
+      config.set_timestamp?.should be_true
+      config.socket_buffer_size.should eq 32768
+      config.tcp_nodelay?.should be_true
+      config.segment_size.should eq 16777216
+      config.tcp_keepalive.should eq({120, 20, 5})
+      config.tcp_recv_buffer_size.should eq 65536
+      config.tcp_send_buffer_size.should eq 65536
+      config.log_exchange?.should be_true
+      config.free_disk_min.should eq 1073741824
+      config.free_disk_warn.should eq 5368709120
+      config.max_deleted_definitions.should eq 16384
+      config.consumer_timeout.should eq 3600
+      config.consumer_timeout_loop_interval.should eq 120
+      config.auth_backends.should eq ["ldap", "basic"]
+      config.default_consumer_prefetch.should eq 1000
+      config.default_user.should eq "admin"
+      config.default_user_only_loopback?.should be_false
+      config.data_dir_lock?.should be_false
+      config.tls_cert_path.should eq "/etc/lavinmq/cert.pem"
+      config.tls_ciphers.should eq "ECDHE-RSA-AES256-GCM-SHA384"
+      config.tls_key_path.should eq "/etc/lavinmq/key.pem"
+      config.tls_min_version.should eq "1.3"
+      config.tls_keylog_file.should eq "/tmp/keylog.txt"
+      config.metrics_http_bind.should eq "0.0.0.0"
+      config.metrics_http_port.should eq 9090
+
+      # AMQP section
+      config.amqp_bind.should eq "0.0.0.0"
+      config.amqp_port.should eq 5673
+      config.amqps_port.should eq 5674
+      config.unix_path.should eq "/tmp/lavinmq.sock"
+      config.unix_proxy_protocol.should eq 2
+      config.tcp_proxy_protocol.should eq 1
+      config.heartbeat.should eq 600
+      config.frame_max.should eq 262144
+      config.channel_max.should eq 4096
+      config.max_message_size.should eq 268435456
+      config.amqp_systemd_socket_name.should eq "custom-amqp.socket"
+
+      # MQTT section
+      config.mqtt_bind.should eq "0.0.0.0"
+      config.mqtt_port.should eq 1884
+      config.mqtts_port.should eq 8884
+      config.mqtt_unix_path.should eq "/tmp/mqtt.sock"
+      config.mqtt_permission_check_enabled?.should be_true
+      config.mqtt_max_packet_size.should eq 536870910
+      config.max_inflight_messages.should eq 100
+      config.default_mqtt_vhost.should eq "/mqtt"
+
+      # MGMT section
+      config.http_bind.should eq "0.0.0.0"
+      config.http_port.should eq 15673
+      config.https_port.should eq 15674
+      config.http_unix_path.should eq "/tmp/mgmt.sock"
+      config.http_systemd_socket_name.should eq "custom-http.socket"
+
+      # Experimental section
+      config.yield_each_received_bytes.should eq 262144
+      config.yield_each_delivered_bytes.should eq 2097152
+
+      # Clustering section
+      config.clustering?.should be_true
+      config.clustering_bind.should eq "0.0.0.0"
+      config.clustering_port.should eq 5680
+      config.clustering_etcd_endpoints.should eq "localhost:2380,localhost:2381"
+      config.clustering_etcd_prefix.should eq "test-lavinmq"
+      config.clustering_max_unsynced_actions.should eq 16384
+    ensure
+      # Reset log level to default for other specs
+      Log.setup(:fatal)
     end
-    config = LavinMQ::Config.new
-    argv = ["-c", config_file.path]
-    config.parse(argv)
-
-    # Main section
-    config.data_dir.should eq "/tmp/lavinmq-test"
-    config.log_level.should eq ::Log::Severity::Debug
-    config.log_file.should eq "/var/log/lavinmq.log"
-    config.stats_interval.should eq 10000
-    config.stats_log_size.should eq 240
-    config.set_timestamp?.should be_true
-    config.socket_buffer_size.should eq 32768
-    config.tcp_nodelay?.should be_true
-    config.segment_size.should eq 16777216
-    config.tcp_keepalive.should eq({120, 20, 5})
-    config.tcp_recv_buffer_size.should eq 65536
-    config.tcp_send_buffer_size.should eq 65536
-    config.log_exchange?.should be_true
-    config.free_disk_min.should eq 1073741824
-    config.free_disk_warn.should eq 5368709120
-    config.max_deleted_definitions.should eq 16384
-    config.consumer_timeout.should eq 3600
-    config.consumer_timeout_loop_interval.should eq 120
-    config.auth_backends.should eq ["ldap", "basic"]
-    config.default_consumer_prefetch.should eq 1000
-    config.default_user.should eq "admin"
-    config.default_user_only_loopback?.should be_false
-    config.data_dir_lock?.should be_false
-    config.tls_cert_path.should eq "/etc/lavinmq/cert.pem"
-    config.tls_ciphers.should eq "ECDHE-RSA-AES256-GCM-SHA384"
-    config.tls_key_path.should eq "/etc/lavinmq/key.pem"
-    config.tls_min_version.should eq "1.3"
-    config.tls_keylog_file.should eq "/tmp/keylog.txt"
-    config.metrics_http_bind.should eq "0.0.0.0"
-    config.metrics_http_port.should eq 9090
-
-    # AMQP section
-    config.amqp_bind.should eq "0.0.0.0"
-    config.amqp_port.should eq 5673
-    config.amqps_port.should eq 5674
-    config.unix_path.should eq "/tmp/lavinmq.sock"
-    config.unix_proxy_protocol.should eq 2
-    config.tcp_proxy_protocol.should eq 1
-    config.heartbeat.should eq 600
-    config.frame_max.should eq 262144
-    config.channel_max.should eq 4096
-    config.max_message_size.should eq 268435456
-    config.amqp_systemd_socket_name.should eq "custom-amqp.socket"
-
-    # MQTT section
-    config.mqtt_bind.should eq "0.0.0.0"
-    config.mqtt_port.should eq 1884
-    config.mqtts_port.should eq 8884
-    config.mqtt_unix_path.should eq "/tmp/mqtt.sock"
-    config.mqtt_permission_check_enabled?.should be_true
-    config.mqtt_max_packet_size.should eq 536870910
-    config.max_inflight_messages.should eq 100
-    config.default_mqtt_vhost.should eq "/mqtt"
-
-    # MGMT section
-    config.http_bind.should eq "0.0.0.0"
-    config.http_port.should eq 15673
-    config.https_port.should eq 15674
-    config.http_unix_path.should eq "/tmp/mgmt.sock"
-    config.http_systemd_socket_name.should eq "custom-http.socket"
-
-    # Experimental section
-    config.yield_each_received_bytes.should eq 262144
-    config.yield_each_delivered_bytes.should eq 2097152
-
-    # Clustering section
-    config.clustering?.should be_true
-    config.clustering_bind.should eq "0.0.0.0"
-    config.clustering_port.should eq 5680
-    config.clustering_etcd_endpoints.should eq "localhost:2380,localhost:2381"
-    config.clustering_etcd_prefix.should eq "test-lavinmq"
-    config.clustering_max_unsynced_actions.should eq 16384
   end
 
   it "can parse all CLI argumetns" do
@@ -388,7 +395,7 @@ describe LavinMQ::Config do
     expect_raises(Exception) { config.parse(argv) }
   end
 
-  it "will not parse ini option that does not exist in section" do
+  it "will not raise error when parseing ini option that does not exist in section" do
     config_file = File.tempfile do |file|
       file.print <<-CONFIG
         [main]
@@ -397,7 +404,7 @@ describe LavinMQ::Config do
     end
     config = LavinMQ::Config.new
     argv = ["-c", config_file.path]
-    expect_raises(Exception) { config.parse(argv) }
+    config.parse(argv)
   end
 
   it "will not parse cli sections that do not exist" do
@@ -473,8 +480,8 @@ describe LavinMQ::Config do
       CONFIG
     end
     config = LavinMQ::Config.new
-    config.config_file = config_file.path
-    config.parse
+    argv = ["-c", config_file.path]
+    config.parse(argv)
     config.pidfile.should eq "/tmp/lavinmq.pid"
   end
 end
