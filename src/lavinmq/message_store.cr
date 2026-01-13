@@ -4,6 +4,7 @@ require "log"
 require "file_utils"
 require "./clustering/server"
 require "./bool_channel"
+require "./message_store/requeued_store"
 
 module LavinMQ
   # Message store
@@ -20,7 +21,7 @@ module LavinMQ
     @segments = Hash(UInt32, MFile).new
     @deleted = Hash(UInt32, Array(UInt32)).new
     @segment_msg_count = Hash(UInt32, UInt32).new(0u32)
-    @requeued = Deque(SegmentPosition).new
+    @requeued : RequeuedStore = PublishOrderedRequeuedStore.new
     @closed = false
     getter closed
     getter bytesize = 0u64
@@ -55,12 +56,8 @@ module LavinMQ
 
     def requeue(sp : SegmentPosition)
       raise ClosedError.new if @closed
-      if idx = @requeued.bsearch_index { |rsp| rsp > sp }
-        @requeued.insert(idx, sp)
-      else
-        @requeued.push(sp)
-      end
       was_empty = @size.zero?
+      @requeued.insert(sp)
       @bytesize += sp.bytesize
       @size += 1
       @empty.set false if was_empty
@@ -223,7 +220,7 @@ module LavinMQ
         delete(env.segment_position)
       end
 
-      @requeued = Deque(SegmentPosition).new
+      @requeued.clear
       @bytesize = 0_u64
     end
 
