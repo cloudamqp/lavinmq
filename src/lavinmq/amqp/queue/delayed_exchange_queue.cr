@@ -128,6 +128,11 @@ module LavinMQ::AMQP
 
     # Disable a lot of inherited functionality (ugly)
 
+    # We don't support any policies
+    private def apply_policy_argument(key : String, value : JSON::Any) : Bool
+      false
+    end
+
     # internal queues can't expire so make this noop
     private def queue_expire_loop
     end
