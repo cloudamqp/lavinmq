@@ -154,14 +154,17 @@ module LavinMQ
       end
 
       @listeners = Array(TCPServer).new(1)
+      @mt = Fiber::ExecutionContext::Parallel.new("clustering-followers", 4)
 
       def listen(server : TCPServer)
         server.listen
         @checksums.restore
         Log.info { "Listening on #{server.local_address}" }
         @listeners << server
-        while socket = server.accept?
-          spawn handle_socket(socket), name: "Clustering follower"
+
+        loop do
+          socket = server.accept? || break
+          @mt.spawn(name: "Clustering follower") { handle_socket(socket) }
         end
       end
 

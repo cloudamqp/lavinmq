@@ -17,9 +17,9 @@ module LavinMQ
         new(authenticators)
       end
 
-      def authenticate(username : String, password : Bytes) : User?
+      def authenticate(context : Context) : User?
         @backends.find_value do |backend|
-          backend.authenticate(username, password)
+          backend.authenticate(context)
         end
       end
     end

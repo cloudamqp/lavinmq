@@ -3,7 +3,7 @@ import * as HTTP from './http.js'
 import * as Helpers from './helpers.js'
 
 const numFormatter = new Intl.NumberFormat()
-const msgChart = Chart.render('msgChart', 'msgs', true)
+const msgChart = Chart.render('msgChart', 'msgs', true, true, true)
 const dataChart = Chart.render('dataChart', 'bytes/s')
 const rateChart = Chart.render('rateChart', 'msgs/s')
 
@@ -14,7 +14,7 @@ function updateCharts (response) {
     messages_ready_log: response.queue_totals.messages_ready_log,
     messages_unacked_log: response.queue_totals.messages_unacknowledged_log
   }
-  Chart.update(msgChart, msgStats, 'origin')
+  Chart.update(msgChart, msgStats, true)
   Chart.update(rateChart, response.message_stats)
 
   const dataStats = {

@@ -6,27 +6,13 @@ require "./http/http_server"
 require "./http/metrics_server"
 require "./in_memory_backend"
 require "./data_dir_lock"
+require "./pidfile"
 require "./etcd"
 require "./clustering/controller"
+require "./standalone_runner"
 require "../stdlib/openssl_sni"
 
 module LavinMQ
-  struct StandaloneRunner
-    # The block will be yielded when the runner's prerequisites for a leader
-    # to start are met. For the standalone runner, this is immediately.
-    # The method is blocking.
-    def run(&)
-      yield
-      loop do
-        sleep 30.seconds
-        GC.collect
-      end
-    end
-
-    def stop
-    end
-  end
-
   class Launcher
     Log = LavinMQ::Log.for "launcher"
     @amqp_tls_context : OpenSSL::SSL::Context::Server?
@@ -131,6 +117,8 @@ module LavinMQ
         Log.info { "Multithreading: #{ENV.fetch("CRYSTAL_WORKERS", "4")} threads" }
       {% end %}
       Log.info { "PID: #{Process.pid}" }
+      # we do this here to have nice consistent logging
+      Pidfile.new(@config.pidfile).acquire unless @config.pidfile.empty?
       Log.info { "Config file: #{@config.config_file}" } unless @config.config_file.empty?
       Log.info { "Data directory: #{@config.data_dir}" }
     end
@@ -268,9 +256,9 @@ module LavinMQ
       if @first_shutdown_attempt
         @first_shutdown_attempt = false
         stop
-        Fiber.yield
         Log.info { "Fibers: " }
         Fiber.list { |f| Log.info { f.inspect } }
+        Fiber.yield
         exit 0
       else
         Log.info { "Fibers: " }

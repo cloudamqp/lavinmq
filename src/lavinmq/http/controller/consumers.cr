@@ -16,7 +16,7 @@ module LavinMQ
           with_vhost(context, params) do |vhost|
             user = user(context)
             refuse_unless_management(context, user, vhost)
-            itr = connections(user).each.select(&.vhost.name.==(vhost))
+            itr = connections(user).each.select(&.vhost.==(vhost))
               .flat_map do |conn|
                 conn.channels.each_value.flat_map &.consumers
               end
@@ -31,7 +31,7 @@ module LavinMQ
             consumer_tag = params["consumer_tag"]
             conn_id = params["connection"]
             ch_id = params["channel"].to_i
-            connection = connections(user).find { |conn| conn.vhost.name == vhost && conn.name == conn_id }
+            connection = connections(user).find { |conn| conn.vhost == vhost && conn.name == conn_id }
             unless connection
               context.response.status_code = 404
               break

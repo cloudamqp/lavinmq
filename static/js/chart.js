@@ -18,7 +18,7 @@ const POLLING_RATE = 5000
 const X_AXIS_LENGTH = 600000 // 10 min
 const MAX_TICKS = X_AXIS_LENGTH / POLLING_RATE
 
-function render (id, unit, options = {}, stacked = false) {
+function render (id, unit, fill = false, stacked = false, reverseStack = false) {
   const el = document.getElementById(id)
   const graphContainer = document.createElement('div')
   graphContainer.classList.add('graph')
@@ -28,6 +28,7 @@ function render (id, unit, options = {}, stacked = false) {
 
   const chart = new Chart(ctx, {
     type: 'line',
+    reverseStack,
     data: {
       datasets: [],
       labels: []
@@ -36,6 +37,18 @@ function render (id, unit, options = {}, stacked = false) {
       responsive: true,
       maintainAspectRatio: false,
       aspectRatio: 1.3,
+      plugins: {
+        legend: {
+          labels: {
+            generateLabels: function (chart) {
+              return Chart.defaults.plugins.legend.labels.generateLabels(chart)
+                .map(function (label) {
+                  return { ...label, fillStyle: label.strokeStyle }
+                })
+            }
+          }
+        }
+      },
       tooltips: {
         mode: 'x',
         intersect: false,
@@ -90,12 +103,14 @@ function render (id, unit, options = {}, stacked = false) {
             suggestedMax: 10,
             callback: helpers.nFormatter
           },
-          stacked: false,
+          stacked,
           beginAtZero: true
         }
       }
-    }, options)
+    }, fill)
   })
+  chart.reverseStack = reverseStack
+
   return chart
 }
 function formatLabel (key) {
@@ -108,19 +123,22 @@ function value (data) {
   return (data.rate === undefined) ? data : data.rate
 }
 
-function createDataset (key, color, fill) {
+function createDataset (key, color, fill, order = 0) {
   const label = formatLabel(key)
+  const backgroundColor = fill ? color + '66' : color
+
   return {
     key,
     label,
     fill,
+    order,
     type: 'line',
     steppedLine: false,
     lineTension: 0.3,
     pointRadius: 0,
     pointStyle: 'line',
     data: [],
-    backgroundColor: color,
+    backgroundColor,
     borderColor: color
   }
 }
@@ -171,7 +189,8 @@ function update (chart, data, filled = false) {
     const i = keys.indexOf(key)
     if (dataset === undefined) {
       const color = chartColors[i % chartColors.length]
-      dataset = createDataset(key, color, filled)
+      const order = chart.reverseStack ? keys.length - i : i
+      dataset = createDataset(key, color, filled, order)
       chart.data.datasets.push(dataset)
       const log = data[`${key}_log`] || data[key].log || []
       log.forEach((p, i) => {

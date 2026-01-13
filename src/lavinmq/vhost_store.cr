@@ -35,7 +35,7 @@ module LavinMQ
       vhost = VHost.new(name, @data_dir, @users, @replicator, description, tags)
       Log.info { "Created vhost #{name}" }
       @users.add_permission(user.name, name, /.*/, /.*/, /.*/)
-      @users.add_permission(Auth::UserStore::DIRECT_USER, name, /.*/, /.*/, /.*/)
+      @users.add_permission(@users.direct_user, name, /.*/, /.*/, /.*/)
       @vhosts[name] = vhost
       save! if save
       notify_observers(Event::Added, name)
@@ -82,7 +82,7 @@ module LavinMQ
             tags = vhost["tags"]?.try(&.as_a.map(&.to_s)) || [] of String
             description = vhost["description"]?.try &.as_s || ""
             @vhosts[name] = VHost.new(name, @data_dir, @users, @replicator, description, tags)
-            @users.add_permission(Auth::UserStore::DIRECT_USER, name, /.*/, /.*/, /.*/)
+            @users.add_permission(@users.direct_user, name, /.*/, /.*/, /.*/)
           end
           @replicator.try &.register_file(f)
         end

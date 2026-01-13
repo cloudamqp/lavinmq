@@ -4,9 +4,10 @@ require "./constants"
 require "./handler/*"
 require "./controller"
 require "./controller/*"
+require "../auth/user"
 
 class HTTP::Server::Context
-  property? authenticated_username : String?
+  property user : LavinMQ::Auth::User? = nil
 end
 
 module LavinMQ
@@ -23,7 +24,7 @@ module LavinMQ
           StaticController.new,
           ViewsController.new,
           ApiErrorHandler.new,
-          AuthHandler.new(@amqp_server),
+          AuthHandler.new(@amqp_server.authenticator, @amqp_server.users.direct_user),
           PrometheusController.new(@amqp_server, require_authentication: true),
           ApiDefaultsHandler.new,
           MainController.new(@amqp_server),

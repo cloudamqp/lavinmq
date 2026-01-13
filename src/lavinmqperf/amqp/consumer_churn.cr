@@ -5,8 +5,8 @@ require "../perf"
 module LavinMQPerf
   module AMQP
     class ConsumerChurn < Perf
-      def run
-        super
+      def run(args = ARGV)
+        super(args)
         c = ::AMQP::Client.new(@uri).connect
         ch = c.channel
         q = ch.queue_declare "", auto_delete: false

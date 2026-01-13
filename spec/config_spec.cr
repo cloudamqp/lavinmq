@@ -462,4 +462,19 @@ describe LavinMQ::Config do
       config.default_password_hash.to_s.should eq "8Yw8kj5HkhfRxQ/3kbTAO/nmgqGpkvMsGDbUWXA6+jTF3JP3"
     end
   end
+
+  it "parses pidfile from config" do
+    config_file = File.tempfile do |file|
+      file.print <<-CONFIG
+        [main]
+        log_level = fatal
+        data_dir = /tmp/lavinmq-spec
+        pidfile = /tmp/lavinmq.pid
+      CONFIG
+    end
+    config = LavinMQ::Config.new
+    config.config_file = config_file.path
+    config.parse
+    config.pidfile.should eq "/tmp/lavinmq.pid"
+  end
 end

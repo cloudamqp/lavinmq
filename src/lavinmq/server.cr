@@ -27,7 +27,7 @@ module LavinMQ
       MQTT
     end
 
-    getter vhosts, users, data_dir, parameters
+    getter vhosts, users, data_dir, parameters, authenticator
     getter? closed, flow
     include ParameterTarget
 
@@ -47,7 +47,7 @@ module LavinMQ
       @vhosts = VHostStore.new(@data_dir, @users, @replicator)
       @mqtt_brokers = MQTT::Brokers.new(@vhosts, @replicator)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator)
-      authenticator = Auth::Chain.create(@users)
+      @authenticator = Auth::Chain.create(@users)
       @connection_factories = {
         Protocol::AMQP => AMQP::ConnectionFactory.new(authenticator, @vhosts),
         Protocol::MQTT => MQTT::ConnectionFactory.new(authenticator, @mqtt_brokers, @config),
