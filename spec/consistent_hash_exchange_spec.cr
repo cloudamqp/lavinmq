@@ -438,7 +438,6 @@ describe JumpConsistentHasher do
       jch.add("2", 1, "second")
       jch.add("3", 1, "third")
 
-      # Record initial mappings
       100.times do |i|
         key = "key#{i}"
         target = jch.get(key)
@@ -455,6 +454,39 @@ describe JumpConsistentHasher do
         target = jch.get(key)
         target.should_not be_nil
         ["first", "third"].should contain(target)
+      end
+    end
+
+    it "should get the same messages after adding a target and then remove it" do
+      jch = JumpConsistentHasher(String).new
+      jch.add("1", 1, "first")
+      jch.add("2", 1, "second")
+
+      # Record initial mappings with 2 targets
+      initial_mappings = Hash(String, String).new
+      1000.times do |i|
+        key = "key#{i}"
+        initial_mappings[key] = jch.get(key).not_nil!
+      end
+
+      jch.add("3", 1, "third")
+
+      # All messages ending up in target 1 and 2 now, should also have been in
+      # target 1 and 2 in the first run above.
+      1000.times do |i|
+        key = "key#{i}"
+        target = jch.get(key)
+        next if target == "third"
+        target.should eq initial_mappings[key]
+      end
+
+      jch.remove("3", 1)
+
+      # Verify all keys still maps to the same target as before we added and removed a target
+      1000.times do |i|
+        key = "key#{i}"
+        target = jch.get(key)
+        target.should eq initial_mappings[key]
       end
     end
 
