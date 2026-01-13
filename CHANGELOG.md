@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Added
+- Add shovel and federation management commands to lavinmqctl [#1277](https://github.com/cloudamqp/lavinmq/pull/1277)
+
+### Changed
+- BoolChannel: Don't spawn fiber [#1603](https://github.com/cloudamqp/lavinmq/pull/1603)
+- Reduce etcd lease keepalive renewal interval to 1/3rd of TTL [#1573](https://github.com/cloudamqp/lavinmq/pull/1573)
+
+### Fixed
+- delay exchange message ordering [#1600](https://github.com/cloudamqp/lavinmq/pull/1600)
+- Removing too many bindings in Consistent hash exchange on unbind [#1594](https://github.com/cloudamqp/lavinmq/pull/1594)
+- Federation refactor/improvements [#1492](https://github.com/cloudamqp/lavinmq/pull/1492)
+- Bugfix and refactor dead lettering [#1552](https://github.com/cloudamqp/lavinmq/pull/1552)
+- BCC remove on delivery [#1557](https://github.com/cloudamqp/lavinmq/pull/1557)
+
 ## [2.6.1] - 2025-12-07
 
 ### Fixed
