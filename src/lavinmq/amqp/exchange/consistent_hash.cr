@@ -38,7 +38,11 @@ module LavinMQ
         w = weight(routing_key)
         binding_key = BindingKey.new(routing_key, arguments)
         return false unless @bindings.delete({destination, binding_key})
-        @hasher.remove(destination.name, w)
+        # Only remove from hasher if no other bindings exist for this destination with same weight
+        has_other_binding = @bindings.any? do |d, bk|
+          d == destination && bk.routing_key == routing_key
+        end
+        @hasher.remove(destination.name, w) unless has_other_binding
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
         notify_observers(ExchangeEvent::Unbind, data)
 
