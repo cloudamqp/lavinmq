@@ -36,6 +36,10 @@ module LavinMQ
       @[IniOpt(section: "main")]
       property log_file : String? = nil
 
+      @[CliOpt("", "--pidfile=FILE", "Write the process ID to FILE on startup. The file is removed upon graceful shutdown.", section: "options")]
+      @[IniOpt(section: "main")]
+      property pidfile : String = ""
+
       @[CliOpt("", "--amqp-bind=BIND", "IP address that the AMQP server will listen on (default: 127.0.0.1)", section: "bindings")]
       @[IniOpt(ini_name: bind, section: "amqp")]
       @[EnvOpt("LAVINMQ_AMQP_BIND")]
