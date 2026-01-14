@@ -327,13 +327,13 @@ module OAuthUserHelper
     config = LavinMQ::Config.new
     config.oauth_issuer_url = "https://auth.example.com"
     config.oauth_preferred_username_claims = ["preferred_username"]
-    verifier = LavinMQ::Auth::JWTTokenVerifier.new(config)
+    authenticator = LavinMQ::Auth::OAuthAuthenticator.new(config)
     LavinMQ::Auth::OAuthUser.new(
       "testuser",
       [] of LavinMQ::Tag,
       permissions,
       expires_at,
-      verifier
+      authenticator
     )
   end
 end

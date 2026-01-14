@@ -2,9 +2,7 @@ require "./spec_helper"
 
 def create_test_authenticator(config : LavinMQ::Config? = nil)
   config ||= create_test_config
-  public_keys = LavinMQ::Auth::PublicKeys.new
-  verifier = LavinMQ::Auth::JWTTokenVerifier.new(config, public_keys)
-  LavinMQ::Auth::OAuthAuthenticator.new(verifier)
+  LavinMQ::Auth::OAuthAuthenticator.new(config)
 end
 
 def create_test_config
@@ -121,9 +119,7 @@ describe LavinMQ::Auth::OAuthAuthenticator do
       config.oauth_issuer_url = "https://auth.example.com"
       config.oauth_preferred_username_claims = ["preferred_username"]
 
-      public_keys = LavinMQ::Auth::PublicKeys.new
-      verifier = LavinMQ::Auth::JWTTokenVerifier.new(config, public_keys)
-      authenticator = LavinMQ::Auth::OAuthAuthenticator.new(verifier)
+      authenticator = LavinMQ::Auth::OAuthAuthenticator.new(config)
       authenticator.should be_a(LavinMQ::Auth::OAuthAuthenticator)
     end
 
@@ -132,9 +128,7 @@ describe LavinMQ::Auth::OAuthAuthenticator do
       config.oauth_issuer_url = "https://auth.example.com"
       config.oauth_preferred_username_claims = ["email", "preferred_username", "sub"]
 
-      public_keys = LavinMQ::Auth::PublicKeys.new
-      verifier = LavinMQ::Auth::JWTTokenVerifier.new(config, public_keys)
-      authenticator = LavinMQ::Auth::OAuthAuthenticator.new(verifier)
+      authenticator = LavinMQ::Auth::OAuthAuthenticator.new(config)
       authenticator.should be_a(LavinMQ::Auth::OAuthAuthenticator)
     end
 
@@ -144,9 +138,7 @@ describe LavinMQ::Auth::OAuthAuthenticator do
       config.oauth_preferred_username_claims = ["preferred_username"]
       config.oauth_verify_aud = false
 
-      public_keys = LavinMQ::Auth::PublicKeys.new
-      verifier = LavinMQ::Auth::JWTTokenVerifier.new(config, public_keys)
-      authenticator = LavinMQ::Auth::OAuthAuthenticator.new(verifier)
+      authenticator = LavinMQ::Auth::OAuthAuthenticator.new(config)
       authenticator.should be_a(LavinMQ::Auth::OAuthAuthenticator)
     end
 
@@ -156,9 +148,7 @@ describe LavinMQ::Auth::OAuthAuthenticator do
       config.oauth_preferred_username_claims = ["preferred_username"]
       config.oauth_scope_prefix = "mq."
 
-      public_keys = LavinMQ::Auth::PublicKeys.new
-      verifier = LavinMQ::Auth::JWTTokenVerifier.new(config, public_keys)
-      authenticator = LavinMQ::Auth::OAuthAuthenticator.new(verifier)
+      authenticator = LavinMQ::Auth::OAuthAuthenticator.new(config)
       authenticator.should be_a(LavinMQ::Auth::OAuthAuthenticator)
     end
 
@@ -168,9 +158,7 @@ describe LavinMQ::Auth::OAuthAuthenticator do
       config.oauth_preferred_username_claims = ["preferred_username"]
       config.oauth_resource_server_id = "lavinmq-api"
 
-      public_keys = LavinMQ::Auth::PublicKeys.new
-      verifier = LavinMQ::Auth::JWTTokenVerifier.new(config, public_keys)
-      authenticator = LavinMQ::Auth::OAuthAuthenticator.new(verifier)
+      authenticator = LavinMQ::Auth::OAuthAuthenticator.new(config)
       authenticator.should be_a(LavinMQ::Auth::OAuthAuthenticator)
     end
   end

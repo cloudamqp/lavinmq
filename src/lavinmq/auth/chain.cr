@@ -1,9 +1,6 @@
 require "./authenticator"
 require "./local_authenticator"
 require "./oauth_authenticator"
-require "./public_keys"
-require "./jwks_fetcher"
-require "./jwt_token_verifier"
 
 module LavinMQ
   module Auth

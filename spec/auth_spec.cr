@@ -2,7 +2,7 @@ require "./spec_helper"
 require "../src/lavinmq/auth/chain"
 require "../src/lavinmq/auth/local_authenticator"
 
-class MockVerifier < LavinMQ::Auth::JWTTokenVerifier
+class MockAuthenticator < LavinMQ::Auth::OAuthAuthenticator
   def initialize(config : LavinMQ::Config, @username : String, @tags : Array(LavinMQ::Tag)?,
                  @permissions : Hash(String, LavinMQ::Auth::BaseUser::Permissions)?, @expires_at : Time)
     super(config)
@@ -170,7 +170,7 @@ describe LavinMQ::Auth::Chain do
       config = LavinMQ::Config.new
       config.oauth_issuer_url = "https://auth.example.com"
       config.oauth_preferred_username_claims = ["preferred_username"]
-      verifier = MockVerifier.new(config, "testuser", nil, nil, Time.utc + 1.hour)
+      verifier = MockAuthenticator.new(config, "testuser", nil, nil, Time.utc + 1.hour)
 
       user = LavinMQ::Auth::OAuthUser.new(
         "testuser",
@@ -189,7 +189,7 @@ describe LavinMQ::Auth::Chain do
       config = LavinMQ::Config.new
       config.oauth_issuer_url = "https://auth.example.com"
       config.oauth_preferred_username_claims = ["preferred_username"]
-      verifier = MockVerifier.new(config, "testuser", nil, nil, Time.utc + 1.hour)
+      verifier = MockAuthenticator.new(config, "testuser", nil, nil, Time.utc + 1.hour)
 
       user = LavinMQ::Auth::OAuthUser.new(
         "testuser",
@@ -208,7 +208,7 @@ describe LavinMQ::Auth::Chain do
         config = LavinMQ::Config.new
         config.oauth_issuer_url = "https://auth.example.com"
         config.oauth_preferred_username_claims = ["preferred_username"]
-        verifier = MockVerifier.new(config, "testuser", nil, nil, Time.utc + 50.milliseconds)
+        verifier = MockAuthenticator.new(config, "testuser", nil, nil, Time.utc + 50.milliseconds)
 
         user = LavinMQ::Auth::OAuthUser.new(
           "testuser",
@@ -234,7 +234,7 @@ describe LavinMQ::Auth::Chain do
 
       it "resets expiration timer when token_updated receives" do
         exp = Time.utc + 300.milliseconds
-        verifier = MockVerifier.new(LavinMQ::Config.new, "testuser", nil, nil, exp)
+        verifier = MockAuthenticator.new(LavinMQ::Config.new, "testuser", nil, nil, exp)
 
         user = LavinMQ::Auth::OAuthUser.new(
           "testuser",
@@ -268,7 +268,7 @@ describe LavinMQ::Auth::Chain do
         config = LavinMQ::Config.new
         config.oauth_issuer_url = "https://auth.example.com"
         config.oauth_preferred_username_claims = ["preferred_username"]
-        verifier = MockVerifier.new(LavinMQ::Config.new, "testuser", nil, nil, Time.utc + 1.hour)
+        verifier = MockAuthenticator.new(LavinMQ::Config.new, "testuser", nil, nil, Time.utc + 1.hour)
 
         user = LavinMQ::Auth::OAuthUser.new(
           "testuser",
@@ -311,7 +311,7 @@ describe LavinMQ::Auth::Chain do
       config = LavinMQ::Config.new
       config.oauth_issuer_url = "https://auth.example.com"
       config.oauth_preferred_username_claims = ["preferred_username"]
-      verifier = MockVerifier.new(config, "testuser", nil, nil, Time.utc + 1.hour)
+      verifier = MockAuthenticator.new(config, "testuser", nil, nil, Time.utc + 1.hour)
 
       permissions = {"/" => {config: /^queue/, read: /.*/, write: /^exchange/}}
       user = LavinMQ::Auth::OAuthUser.new(
