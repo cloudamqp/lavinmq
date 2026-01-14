@@ -20,11 +20,12 @@ module LavinMQ
       def initialize(@amqp_server : LavinMQ::Server)
         handlers = [
           StrictTransportSecurity.new,
+          AuthHandler.new(@amqp_server.authenticator, @amqp_server.users.direct_user),
           WebsocketProxy.new(@amqp_server),
           StaticController.new,
           ViewsController.new,
           ApiErrorHandler.new,
-          AuthHandler.new(@amqp_server.authenticator, @amqp_server.users.direct_user),
+          RequireUserHandler.new,
           PrometheusController.new(@amqp_server, require_authentication: true),
           ApiDefaultsHandler.new,
           MainController.new(@amqp_server),
