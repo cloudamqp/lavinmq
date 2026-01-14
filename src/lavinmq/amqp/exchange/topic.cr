@@ -31,10 +31,13 @@ module LavinMQ
 
         def match?(rk) : Bool
           if n = @next
+            return true if n.match?(rk)
+            return false unless rk
+
             loop do
-              return true if n.match?(rk)
               rk = rk.next
               break unless rk
+              return true if n.match?(rk)
             end
             return false
           end
@@ -47,12 +50,10 @@ module LavinMQ
         end
 
         def match?(rk) : Bool
+          return false unless rk
           if check = @next
-            if n = rk.next
-              check.match?(n)
-            else
-              false
-            end
+            n = rk.next
+            check.match?(n)
           else
             rk.next.nil?
           end
@@ -64,13 +65,11 @@ module LavinMQ
         end
 
         def match?(rk) : Bool
+          return false unless rk
           return false unless rk.value == @s
           if check = @next
-            if n = rk.next
-              check.match?(n)
-            else
-              false
-            end
+            n = rk.next
+            check.match?(n)
           else
             rk.next.nil?
           end
