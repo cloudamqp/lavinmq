@@ -160,6 +160,15 @@ module MessageRoutingSpec
         x.unbind(q11, "#.a.#")
       end
 
+      it "# should match zero segments" do
+        q = LavinMQ::QueueFactory.make(vhost, "q_zero_segments")
+        x.bind(q, "a.*.c.#")
+        matches(x, "a.b.c").should eq(Set{q})
+        matches(x, "a.b.c.d").should eq(Set{q})
+        matches(x, "a.b.c.d.e").should eq(Set{q})
+        x.unbind(q, "a.*.c.#")
+      end
+
       it "should match double star-wildcards" do
         q12 = LavinMQ::QueueFactory.make(vhost, "q12")
         x.bind(q12, "c.*.*")
