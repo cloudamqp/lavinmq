@@ -35,7 +35,7 @@ dependencies:
   mqtt-protocol:
     github: 84codes/mqtt-protocol.cr
   jwt:
-    path: ../jwt.cr
+    github: 84codes/jwt.cr
 
 development_dependencies:
   ameba:

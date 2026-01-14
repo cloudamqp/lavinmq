@@ -14,10 +14,12 @@ module LavinMQ
     class OAuthAuthenticator < Authenticator
       Log = LavinMQ::Log.for "oauth2"
 
+      # send in the JWKS fetcher here?
       def initialize(@config : Config)
         @expected_issuer = @config.oauth_issuer_url.chomp("/")
       end
 
+      # Todo: Keep verifyer class, so we dont have to have authenticator in User
       def authenticate(username : String, password : String) : OAuthUser?
         claims = verify_token(password)
         OAuthUser.new(claims.username, claims.tags, claims.permissions, claims.expires_at, self)
@@ -47,7 +49,7 @@ module LavinMQ
           expected_issuer: @expected_issuer,
           expected_audience: expected_audience,
           verify_audience: @config.oauth_verify_aud?,
-          time_tolerance: 200.milliseconds,
+          time_tolerance: 5.seconds, # To make up for server lag and using RoughTime
           time_source: -> { RoughTime.utc }
         )
 
