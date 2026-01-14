@@ -10,7 +10,7 @@ module LavinMQ
       @token_updated = Channel(Nil).new
 
       def initialize(@name : String, @tags : Array(Tag), @permissions : Hash(String, Permissions),
-                     @expires_at : Time, @authenticator : OAuthAuthenticator)
+                     @expires_at : Time, @verifier : TokenVerifier)
       end
 
       def token_lifetime : Time::Span
@@ -38,7 +38,7 @@ module LavinMQ
       end
 
       def update_secret(new_secret : String)
-        claims = @authenticator.verify_token(new_secret)
+        claims = @verifier.verify_token(new_secret)
 
         if claims.username != @name
           raise JWT::VerificationError.new("Token username mismatch: expected '#{@name}', got '#{claims.username}'")

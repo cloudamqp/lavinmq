@@ -19,7 +19,10 @@ module LavinMQ
           when "local"
             authenticators << LocalAuthenticator.new(users)
           when "oauth"
-            authenticators << OAuthAuthenticator.new(config)
+            jwks_fetcher = JWT::JWKSFetcher.new(config.oauth_issuer_url, config.oauth_jwks_cache_ttl)
+            spawn jwks_fetcher.refresh_loop, name: "JWKS refresh"
+            verifier = TokenVerifier.new(config, jwks_fetcher)
+            authenticators << OAuthAuthenticator.new(verifier)
           else
             raise "Unsupported authentication backend: #{backend}"
           end
