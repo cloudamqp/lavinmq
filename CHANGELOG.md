@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Federation refactor/improvements [#1492](https://github.com/cloudamqp/lavinmq/pull/1492)
 - Bugfix and refactor dead lettering [#1552](https://github.com/cloudamqp/lavinmq/pull/1552)
 - BCC remove on delivery [#1557](https://github.com/cloudamqp/lavinmq/pull/1557)
+- Topic exchange # wildcard now matches zero segments [#1608](https://github.com/cloudamqp/lavinmq/pull/1608)
 
 ## [2.6.1] - 2025-12-07
 
