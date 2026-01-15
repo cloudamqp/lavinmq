@@ -3,6 +3,10 @@ require "openssl"
 require "./proxy_protocol"
 require "./config"
 require "./ring_buffer_io"
+require "./mutex_buffered_io"
+require "./fiber_ring_buffer_io"
+require "./channel_ring_buffer_io"
+require "./tls_socket_wrapper"
 
 module LavinMQ
   # TLS termination proxy that offloads TLS handshakes to dedicated execution context
@@ -13,27 +17,31 @@ module LavinMQ
     @closed = false
     @server : TCPServer?
     @work_queue : Channel(TCPSocket)
-    @connections : Channel(IO)
+    @connections : Channel(TLSSocketWrapper)
     @execution_context : Fiber::ExecutionContext::Parallel
+    @wg : WaitGroup = WaitGroup.new(0)
 
     def initialize(
       @tls_context : OpenSSL::SSL::Context::Server,
       @max_concurrent_handshakes : Int32,
     )
       @work_queue = Channel(TCPSocket).new(@max_concurrent_handshakes * 2)
-      @connections = Channel(IO).new(@max_concurrent_handshakes * 4)
+      @connections = Channel(TLSSocketWrapper).new(@max_concurrent_handshakes * 4)
 
       # Create parallel execution context with worker pool
       # Manages thread pool internally for better resource scheduling
       @execution_context = Fiber::ExecutionContext::Parallel.new("TLS workers", @max_concurrent_handshakes)
       @max_concurrent_handshakes.times do |i|
         @execution_context.spawn(name: "TLS worker #{i}") do
+          @wg.add(1)
           worker_loop
+        ensure
+          @wg.done
         end
       end
     end
 
-    def connections : Channel(IO)
+    def connections : Channel(TLSSocketWrapper)
       @connections
     end
 
@@ -57,6 +65,7 @@ module LavinMQ
     rescue ex : IO::Error
       Log.info { "TLS proxy stopped: #{ex.message}" }
     ensure
+      Log.info { "TLS proxy shutting down" }
       @work_queue.close
     end
 
@@ -64,6 +73,8 @@ module LavinMQ
       @closed = true
       @server.try &.close
       @work_queue.close
+      @connections.close
+      @wg.wait
     end
 
     # Worker loop running in parallel execution context
@@ -86,27 +97,39 @@ module LavinMQ
       # Perform TLS handshake (blocks worker thread, not main pool)
       ssl_client = OpenSSL::SSL::Socket::Server.new(client, @tls_context, sync_close: true)
       ssl_client.sync = false
-      ssl_client.read_buffering = true
+      ssl_client.read_buffering = false
       tls_version = ssl_client.tls_version
       cipher = ssl_client.cipher
 
-      server_io, proxy_io = LavinMQ.ring_buffer_io_pair(8192) # 8KB per direction, zero-syscall
+      conn_info = ConnectionInfo.new(remote_addr, local_addr)
+      conn_info.ssl = true
+      conn_info.ssl_version = ssl_client.tls_version
+      conn_info.ssl_cipher = ssl_client.cipher
+
+      wrapped_client = TLSSocketWrapper.new(ssl_client, conn_info)
+      wrapped_client.sync = false
+      wrapped_client.read_buffering = true
+
+      # server_io, proxy_io = LavinMQ.fiber_ring_buffer_io_pair(8192) # 8KB per direction, zero-syscall
 
       # Send PROXY protocol v2 header with TLS metadata
-      proxy_header = ProxyProtocol::V2.new(remote_addr, local_addr)
-      proxy_header.ssl = true
-      proxy_header.ssl_version = tls_version
-      proxy_header.ssl_cipher = cipher
-      proxy_io.write_bytes proxy_header, IO::ByteFormat::NetworkEndian
+      # proxy_header = ProxyProtocol::V2.new(remote_addr, local_addr)
+      # proxy_header.ssl = true
+      # proxy_header.ssl_version = tls_version
+      # proxy_header.ssl_cipher = cipher
+      # wrapped_client.write_bytes proxy_header, IO::ByteFormat::NetworkEndian
 
-      spawn(name: "TLS→Internal pipe #{remote_addr}") do
-        copy_loop(proxy_io, ssl_client, "TLS→pipe #{remote_addr}")
-      end
-      spawn(name: "Internal pipe→TLS #{remote_addr}") do
-        copy_loop(ssl_client, proxy_io, "pipe→TLS #{remote_addr}")
-      end
+      # @wg.spawn(name: "Internal pipe→TLS #{remote_addr}") do
+      #   # Drain ring buffer directly to TLS socket (server responses → TLS client)
+      #   drain_loop(proxy_io, ssl_client, "pipe→TLS #{remote_addr}")
+      # end
 
-      @connections.send server_io
+      # @wg.spawn(name: "TLS→Internal pipe #{remote_addr}") do
+      #   # Fill ring buffer directly from TLS socket (TLS client → server)
+      #   fill_loop(proxy_io, ssl_client, "TLS→pipe #{remote_addr}")
+      # end
+
+      @connections.send wrapped_client
     rescue ex : OpenSSL::SSL::Error
       Log.warn { "TLS handshake failed for #{remote_addr}: #{ex.message}" }
       ssl_client.try &.close rescue nil
@@ -121,21 +144,29 @@ module LavinMQ
       client.close rescue nil
     end
 
-    private def copy_loop(src : IO, dst : IO, fiber_name : String)
-      buffer = Bytes.new(16384)
-      index = 0
+    # Drain ring buffer directly to destination IO (zero-copy)
+    private def drain_loop(ring_buffer : FiberRingBufferIO, dst : IO, fiber_name : String)
       loop do
-        bytes_read = src.read(buffer)
-        break if bytes_read == 0
-        dst.write(buffer[0, bytes_read])
+        bytes_written = ring_buffer.drain(dst)
+        break if bytes_written == 0
         dst.flush
-        index += 1
       end
     rescue ex : IO::Error
       # Expected when connection closes
     ensure
-      # Close destination to signal EOF to peer
       dst.close rescue nil
+    end
+
+    # Fill ring buffer directly from source IO (zero-copy)
+    private def fill_loop(ring_buffer : FiberRingBufferIO, src : IO, fiber_name : String)
+      loop do
+        bytes_read = ring_buffer.fill(src)
+        break if bytes_read == 0
+      end
+    rescue ex : IO::Error
+      # Expected when connection closes
+    ensure
+      ring_buffer.close rescue nil
     end
 
     # TODO: Can we use the one from server.cr?

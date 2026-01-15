@@ -191,6 +191,24 @@ module LavinMQ
       listen(s, protocol)
     end
 
+    # private def accept_tls(client, context, protocol)
+    #   spawn(name: "Accept TLS socket") do
+    #     remote_addr = client.remote_address
+    #     set_socket_options(client)
+    #     # ssl_client = OpenSSL::SSL::Socket::Server.new(client, context, sync_close: true)
+    #     set_buffer_size(ssl_client)
+    #     Log.debug { "#{remote_addr} connected with #{ssl_client.tls_version} #{ssl_client.cipher}" }
+    #     conn_info = ConnectionInfo.new(remote_addr, client.local_address)
+    #     conn_info.ssl = true
+    #     conn_info.ssl_version = ssl_client.tls_version
+    #     conn_info.ssl_cipher = ssl_client.cipher
+    #     handle_connection(ssl_client, conn_info, protocol)
+    #   rescue ex
+    #     Log.warn(exception: ex) { "Error accepting TLS connection from #{remote_addr}" }
+    #     client.close rescue nil
+    #   end
+    # end
+
     def listen_offloaded_tls(proxy : TLSProxy, protocol : Protocol)
       while io = proxy.connections.receive?
         next if @closed
@@ -198,14 +216,9 @@ module LavinMQ
       end
     end
 
-    def accept_offloaded_tls(io : IO, protocol : Protocol)
+    def accept_offloaded_tls(io : TLSSocketWrapper, protocol : Protocol)
       spawn(name: "Handle offloaded TLS connection") do
-        if conn_info = ProxyProtocol.parse(io)
-          handle_connection(io, conn_info, protocol)
-        else
-          Log.warn { "Could not parse PROXY protocol header from offloaded TLS connection #{io}, closing" }
-          io.close
-        end
+        handle_connection(io, io.connection_info, protocol)
       rescue ex
         Log.error(exception: ex) { "Error accepting connection" }
         io.close rescue nil

@@ -242,7 +242,6 @@ module LavinMQ
     end
 
     def peek : Bytes?
-      Log.info { "Read closed" } if @read_closed
       return nil if @read_closed
       return nil if @read_buffer.closed? && @read_buffer.empty?
       @read_buffer.peek

@@ -152,7 +152,7 @@ module LavinMQ
 
       private def wait_for_queue_ready
         if @queue.empty?
-          @log.debug { "Waiting for queue not to be empty" }
+          # @log.debug { "Waiting for queue not to be empty" }
           flush
           select
           when @queue.empty.when_false.receive

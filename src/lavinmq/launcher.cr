@@ -23,6 +23,7 @@ module LavinMQ
     @data_dir_lock : DataDirLock?
     @closed = false
     @replicator : Clustering::Server?
+    @tls_proxy : TLSProxy?
 
     def initialize(@config : Config)
       print_environment_info
@@ -87,6 +88,7 @@ module LavinMQ
       @http_server.try &.close rescue nil
       @amqp_server.try &.close rescue nil
       @metrics_server.try &.close rescue nil
+      @tls_proxy.try &.close rescue nil
       @runner.stop
     end
 
@@ -171,15 +173,15 @@ module LavinMQ
 
       if @config.amqps_port > 0
         if ctx = @amqp_tls_context
-          amqps_tls_proxy = TLSProxy.new(ctx, @config.tls_offload_max_threads)
+          @tls_proxy = tls_proxy = TLSProxy.new(ctx, @config.tls_offload_max_threads)
           spawn(name: "AMQPS TLS proxy") do
-            amqps_tls_proxy.listen(@config.amqp_bind, @config.amqps_port)
+            tls_proxy.listen(@config.amqp_bind, @config.amqps_port)
           rescue ex
             Log.error(exception: ex) { "TLS proxy crashed" }
           end
           Log.info { "TLS offloading enabled for AMQPS (max #{@config.tls_offload_max_threads} concurrent handshakes)" }
 
-          spawn amqp_server.listen_offloaded_tls(amqps_tls_proxy, Server::Protocol::AMQP),
+          spawn amqp_server.listen_offloaded_tls(tls_proxy, Server::Protocol::AMQP),
             name: "AMQPS internal listener"
         end
       end
