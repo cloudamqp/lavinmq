@@ -12,6 +12,34 @@ module ShovelSpecHelpers
   end
 end
 
+class FailingDestination < LavinMQ::Shovel::Destination
+  getter push_attempts : Int32 = 0
+
+  def initialize(@wrapped : LavinMQ::Shovel::Destination, @fail_count : Int32)
+  end
+
+  def start
+    @wrapped.start
+  end
+
+  def stop
+    @wrapped.stop
+  end
+
+  def started? : Bool
+    @wrapped.started?
+  end
+
+  def push(msg, source) : Bool
+    @push_attempts += 1
+    if @push_attempts <= @fail_count
+      false
+    else
+      @wrapped.push(msg, source)
+    end
+  end
+end
+
 describe LavinMQ::Shovel do
   describe "AMQP" do
     describe "Source" do
@@ -796,6 +824,86 @@ describe LavinMQ::Shovel do
           shovel.run
           sleep 10.milliseconds # better when than sleep?
           path.should eq "/some_path"
+        end
+      end
+    end
+  end
+
+  describe "push retry logic" do
+    describe "reject" do
+      it "should requeue message to source queue" do
+        with_amqp_server do |s|
+          source = LavinMQ::Shovel::AMQPSource.new(
+            "spec",
+            [URI.parse(s.amqp_url)],
+            "reject_q1",
+            prefetch: 1_u16,
+            direct_user: s.users.direct_user
+          )
+
+          with_channel(s) do |ch|
+            ch.queue("reject_q1")
+            x = ch.exchange("", "direct", passive: true)
+            x.publish_confirm "test message", "reject_q1"
+
+            s.vhosts["/"].queues["reject_q1"].message_count.should eq 1
+
+            source.start
+            delivery_tag : UInt64 = 0
+            wg = WaitGroup.new(1)
+            spawn do
+              source.each do |msg|
+                delivery_tag = msg.delivery_tag
+                wg.done
+              end
+            rescue
+              # Source was stopped
+            end
+            wg.wait
+
+            # Message should be unacked (not visible in message_count)
+            s.vhosts["/"].queues["reject_q1"].message_count.should eq 0
+
+            # Reject the message - it should be requeued
+            source.reject(delivery_tag)
+            source.stop
+
+            # Message should be back in the queue
+            wait_for { s.vhosts["/"].queues["reject_q1"].message_count == 1 }
+            s.vhosts["/"].queues["reject_q1"].message_count.should eq 1
+          end
+        end
+      end
+    end
+
+    it "should retry push and succeed after transient failures" do
+      with_amqp_server do |s|
+        vhost = s.vhosts.create("x")
+        source = LavinMQ::Shovel::AMQPSource.new(
+          "spec",
+          [URI.parse(s.amqp_url)],
+          "retry_q1",
+          delete_after: LavinMQ::Shovel::DeleteAfter::QueueLength,
+          direct_user: s.users.direct_user
+        )
+        real_dest = LavinMQ::Shovel::AMQPDestination.new(
+          "spec",
+          URI.parse(s.amqp_url),
+          "retry_q2",
+          direct_user: s.users.direct_user
+        )
+        # Fail 3 times, then succeed
+        failing_dest = FailingDestination.new(real_dest, 3)
+        shovel = LavinMQ::Shovel::Runner.new(source, failing_dest, "retry_shovel", vhost)
+
+        with_channel(s) do |ch|
+          x, q2 = ShovelSpecHelpers.setup_qs ch, "retry_"
+          x.publish_confirm "shovel me", "retry_q1"
+          shovel.run
+          # Message should arrive at destination after retries
+          q2.get(no_ack: true).try(&.body_io.to_s).should eq "shovel me"
+          # Should have tried 4 times (3 failures + 1 success)
+          failing_dest.push_attempts.should eq 4
         end
       end
     end
