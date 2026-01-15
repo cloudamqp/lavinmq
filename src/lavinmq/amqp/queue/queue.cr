@@ -251,9 +251,9 @@ module LavinMQ::AMQP
       return false if @msg_store.size == 0 # No messages to expire
       return true if @message_ttl          # Queue-level TTL means all messages need expiring
 
-      # Check if first message has TTL
+      # Check if first message has TTL (including expiration: "0" for immediate expiry)
       @msg_store_lock.synchronize do
-        @msg_store.first?.try { |env| env.message.ttl.try(&.> 0) } || false
+        @msg_store.first?.try { |env| !env.message.ttl.nil? } || false
       end
     end
 
