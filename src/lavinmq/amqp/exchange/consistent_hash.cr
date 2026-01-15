@@ -17,12 +17,7 @@ module LavinMQ
 
       def initialize(*args, **kwargs)
         super(*args, **kwargs)
-        @hasher = case Config.instance.consistent_hash_algorithm
-                  when .jump?
-                    JumpConsistentHasher(AMQP::Destination).new
-                  else
-                    RingConsistentHasher(AMQP::Destination).new
-                  end
+        @hasher = select_hasher(Config.instance.default_consistent_hash_algorithm)
       end
 
       def type : String
@@ -31,7 +26,24 @@ module LavinMQ
 
       def handle_arguments
         super
+        if v = @arguments["x-algorithm"]?
+          if hasher = v.as?(String)
+            if algo = ConsistentHashAlgorithm.parse?(hasher)
+              @hasher = select_hasher(algo)
+              @effective_args << "x-algorithm"
+            end
+          end
+        end
         @effective_args << "x-hash-on" if @arguments["x-hash-on"]?
+      end
+
+      private def select_hasher(option : ConsistentHashAlgorithm)
+        case option
+        when .jump?
+          JumpConsistentHasher(AMQP::Destination).new
+        else
+          RingConsistentHasher(AMQP::Destination).new
+        end
       end
 
       def bindings_details : Iterator(BindingDetails)
