@@ -405,6 +405,24 @@ module LavinMQ
                         type:   "gauge",
                         help:   "Bytes that hasn't been synchronized with the follower yet"})
         end
+        writer.write({name:  "mfile_count",
+                      value: MFile.mmap_count,
+                      type:  "gauge",
+                      help:  "Number of MFile memory-mapped files"})
+        {% if flag?(:linux) %}
+          if content = File.read?("/proc/self/maps")
+            writer.write({name:  "process_mmap_count",
+                          value: content.count('\n').to_i64,
+                          type:  "gauge",
+                          help:  "Total number of virtual memory areas in the process"})
+          end
+          if max = File.read?("/proc/sys/vm/max_map_count")
+            writer.write({name:  "process_mmap_limit",
+                          value: max.to_i64,
+                          type:  "gauge",
+                          help:  "System limit for memory-mapped regions (vm.max_map_count)"})
+          end
+        {% end %}
       end
 
       SERVER_METRICS = {:connection_created, :connection_closed, :channel_created, :channel_closed,
