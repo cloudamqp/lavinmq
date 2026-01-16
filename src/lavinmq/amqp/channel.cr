@@ -56,7 +56,7 @@ module LavinMQ
         queue : Queue,
         sp : SegmentPosition,
         consumer : Consumer?,
-        delivered_at : Time::Span
+        delivered_at : Time::Instant
 
       def details_tuple
         {

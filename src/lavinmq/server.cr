@@ -31,7 +31,7 @@ module LavinMQ
     getter? closed, flow
     include ParameterTarget
 
-    @start = Time.monotonic
+    @start = Time.instant
     @closed = false
     @flow = true
     @listeners = Hash(Socket::Server, Protocol).new # Socket => protocol
@@ -498,7 +498,7 @@ module LavinMQ
     end
 
     def uptime
-      Time.monotonic - @start
+      Time.instant - @start
     end
   end
 end

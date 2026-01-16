@@ -1,14 +1,14 @@
 module RoughTime
   @@utc = Time.utc
   @@unix_ms : Int64 = @@utc.to_unix_ms // 100 * 100
-  @@monotonic = Time.monotonic
+  @@monotonic = Time.instant
 
   Fiber::ExecutionContext::Isolated.new("RoughTime") do
     loop do
       sleep 0.1.seconds
       @@utc = Time.utc
       @@unix_ms = @@utc.to_unix_ms // 100 * 100
-      @@monotonic = Time.monotonic
+      @@monotonic = Time.instant
     end
   end
 
@@ -20,7 +20,7 @@ module RoughTime
     @@unix_ms
   end
 
-  def self.monotonic : Time::Span
+  def self.monotonic : Time::Instant
     @@monotonic
   end
 end

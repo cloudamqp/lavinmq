@@ -70,25 +70,25 @@ def amqp_port(s)
 end
 
 def should_eventually(expectation, timeout = 5.seconds, file = __FILE__, line = __LINE__, &)
-  sec = Time.monotonic
+  sec = Time.instant
   loop do
     Fiber.yield
     begin
       yield.should(expectation, file: file, line: line)
       return
     rescue ex
-      raise ex if Time.monotonic - sec > timeout
+      raise ex if Time.instant - sec > timeout
     end
   end
 end
 
 def wait_for(timeout = 5.seconds, file = __FILE__, line = __LINE__, &)
-  sec = Time.monotonic
+  sec = Time.instant
   loop do
     Fiber.yield
     res = yield
     return res if res
-    break if Time.monotonic - sec > timeout
+    break if Time.instant - sec > timeout
   end
   fail "Execution expired", file: file, line: line
 end

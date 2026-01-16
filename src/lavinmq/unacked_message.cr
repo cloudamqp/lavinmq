@@ -6,7 +6,7 @@ module LavinMQ
 
     getter delivery_tag, consumer_tag, channel, delivered_at
 
-    def initialize(@channel : Client::Channel, @delivery_tag : UInt64, @delivered_at : Time::Span, @consumer_tag : String? = nil)
+    def initialize(@channel : Client::Channel, @delivery_tag : UInt64, @delivered_at : Time::Instant, @consumer_tag : String? = nil)
     end
 
     def details_tuple

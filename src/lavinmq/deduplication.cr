@@ -9,7 +9,7 @@ module LavinMQ
       def initialize(size : UInt32? = nil)
         @size = size || 128_u32
         @lock = Mutex.new
-        @store = Hash(T, Time::Span?).new(initial_capacity: @size)
+        @store = Hash(T, Time::Instant?).new(initial_capacity: @size)
       end
 
       def contains?(key : T) : Bool
