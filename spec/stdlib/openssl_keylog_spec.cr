@@ -1,6 +1,5 @@
 require "spec"
 require "../../src/stdlib/openssl_keylog"
-require "../../src/stdlib/openssl_sni"
 
 describe OpenSSL::SSL::Context::Server do
   describe "#keylog_file=" do
@@ -64,7 +63,7 @@ describe OpenSSL::SSL::Context::Server do
         sni_ctx.private_key = "spec/resources/server_key.pem"
         sni_ctx.keylog_file = keylog_path
 
-        default_ctx.set_sni_callback do |hostname|
+        default_ctx.on_server_name do |hostname|
           hostname == "localhost" ? sni_ctx : nil
         end
 
