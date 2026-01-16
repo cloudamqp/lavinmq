@@ -10,7 +10,6 @@ require "./pidfile"
 require "./etcd"
 require "./clustering/controller"
 require "./standalone_runner"
-require "../stdlib/openssl_sni"
 
 module LavinMQ
   class Launcher
@@ -336,7 +335,7 @@ module LavinMQ
       # Set up SNI callback for AMQP TLS context
       if amqp_tls = @amqp_tls_context
         sni_manager = @config.sni_manager
-        amqp_tls.set_sni_callback do |hostname|
+        amqp_tls.on_server_name do |hostname|
           if sni_host = sni_manager.get_host(hostname)
             Log.debug { "SNI (AMQP): Using certificate for hostname '#{hostname}'" }
             sni_host.amqp_tls_context
@@ -350,7 +349,7 @@ module LavinMQ
       # Set up SNI callback for MQTT TLS context
       if mqtt_tls = @mqtt_tls_context
         sni_manager = @config.sni_manager
-        mqtt_tls.set_sni_callback do |hostname|
+        mqtt_tls.on_server_name do |hostname|
           if sni_host = sni_manager.get_host(hostname)
             Log.debug { "SNI (MQTT): Using certificate for hostname '#{hostname}'" }
             sni_host.mqtt_tls_context
@@ -364,7 +363,7 @@ module LavinMQ
       # Set up SNI callback for HTTP TLS context
       if http_tls = @http_tls_context
         sni_manager = @config.sni_manager
-        http_tls.set_sni_callback do |hostname|
+        http_tls.on_server_name do |hostname|
           if sni_host = sni_manager.get_host(hostname)
             Log.debug { "SNI (HTTP): Using certificate for hostname '#{hostname}'" }
             sni_host.http_tls_context
