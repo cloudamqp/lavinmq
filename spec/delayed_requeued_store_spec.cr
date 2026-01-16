@@ -107,4 +107,46 @@ describe LavinMQ::AMQP::DelayedExchangeQueue::DelayedMessageStore::DelayedRequeu
       store.time_to_next_expiration?.should be_nil
     end
   end
+
+  describe "#size" do
+    it "should return 0 when empty" do
+      store = LavinMQ::AMQP::DelayedExchangeQueue::DelayedMessageStore::DelayedRequeuedStore.new
+      store.size.should eq 0
+    end
+
+    it "should return the number of items in the store" do
+      store = LavinMQ::AMQP::DelayedExchangeQueue::DelayedMessageStore::DelayedRequeuedStore.new
+      sp1 = LavinMQ::SegmentPosition.new(1u32, 1u32, 10u32)
+      sp2 = LavinMQ::SegmentPosition.new(1u32, 2u32, 10u32)
+      timestamp = 1000i64
+      store.insert(sp1, timestamp)
+      store.size.should eq 1
+      store.insert(sp2, timestamp)
+      store.size.should eq 2
+    end
+
+    it "should decrease after shift" do
+      store = LavinMQ::AMQP::DelayedExchangeQueue::DelayedMessageStore::DelayedRequeuedStore.new
+      sp1 = LavinMQ::SegmentPosition.new(1u32, 1u32, 10u32)
+      sp2 = LavinMQ::SegmentPosition.new(1u32, 2u32, 10u32)
+      timestamp = 1000i64
+      store.insert(sp1, timestamp)
+      store.insert(sp2, timestamp)
+      store.shift?
+      store.size.should eq 1
+      store.shift?
+      store.size.should eq 0
+    end
+
+    it "should be 0 after clear" do
+      store = LavinMQ::AMQP::DelayedExchangeQueue::DelayedMessageStore::DelayedRequeuedStore.new
+      sp1 = LavinMQ::SegmentPosition.new(1u32, 1u32, 10u32)
+      sp2 = LavinMQ::SegmentPosition.new(1u32, 2u32, 10u32)
+      timestamp = 1000i64
+      store.insert(sp1, timestamp)
+      store.insert(sp2, timestamp)
+      store.clear
+      store.size.should eq 0
+    end
+  end
 end

@@ -7,6 +7,7 @@ module LavinMQ
       abstract def shift? : SegmentPosition?
       abstract def first? : SegmentPosition?
       abstract def insert(sp : SegmentPosition) : Nil
+      abstract def size
       abstract def clear : Nil
     end
 
@@ -27,6 +28,10 @@ module LavinMQ
         else
           @segment_positions.push(sp)
         end
+      end
+
+      def size
+        @segment_positions.size
       end
 
       def clear : Nil

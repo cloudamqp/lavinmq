@@ -45,6 +45,21 @@ describe "Delayed Message Exchange" do
         end
       end
     end
+
+    it "should rebuild index on restart" do
+      with_amqp_server do |s|
+        hdrs = AMQP::Client::Arguments.new({"x-delay" => 1000})
+        with_channel(s) do |ch|
+          ex = ch.exchange(x_name, "topic", args: x_args)
+          ex.publish_confirm "test message", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
+          s.vhosts["/"].queues[delay_q_name].message_count.should eq 1
+        end
+        s.restart
+        s.vhosts["/"].queues[delay_q_name].message_count.should eq 1
+        sleep 1.second
+        wait_for { s.vhosts["/"].queues[delay_q_name].message_count == 0 }
+      end
+    end
   end
 
   q_name = "delayed_q"
