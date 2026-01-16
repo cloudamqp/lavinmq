@@ -31,15 +31,26 @@ module LavinMQ::AMQP
       end
 
       def build_index
+        @log.debug { "rebuilding delayed index (#{@size} messages)" }
         # Unfortunately we have to read all messages and build an "index"
+        requeued = DelayedRequeuedStore.new
+        count = 0u32
+        bytesize = 0u64
         while env = shift?
+          count += 1
+          bytesize += env.message.bytesize
           requeued.insert(env.segment_position, env.message.timestamp)
         end
+        @requeued = requeued
+        @size = count
+        @bytesize = bytesize
+        @empty.set empty?
         # We don't have to reset any pointer when we've read through all messages
         # since we're always using the requeued index.
+        @log.debug { "rebuilding delayed index done" }
       end
 
-      def first? : Envelope?
+      def first_delayed? : Envelope?
         raise ClosedError.new if @closed
         sp = @requeued.first? || return
         seg = @segments[sp.segment]
@@ -51,7 +62,7 @@ module LavinMQ::AMQP
         end
       end
 
-      def shift?(consumer = nil) : Envelope?
+      def shift_delayed?(consumer = nil) : Envelope?
         raise ClosedError.new if @closed
         sp = @requeued.shift? || return
         segment = @segments[sp.segment]

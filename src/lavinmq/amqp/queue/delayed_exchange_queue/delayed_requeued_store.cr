@@ -45,6 +45,10 @@ module LavinMQ::AMQP
           end
         end
 
+        def size
+          @segment_positions.size
+        end
+
         def clear : Nil
           @segment_positions = Deque(DelayedSegmentPosition).new
         end

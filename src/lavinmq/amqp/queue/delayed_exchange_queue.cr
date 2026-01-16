@@ -78,6 +78,7 @@ module LavinMQ::AMQP
           select
           when @message_ttl_change.receive
           when @msg_store.empty.when_false.receive
+            Fiber.yield
           end
         end
       end
@@ -89,9 +90,9 @@ module LavinMQ::AMQP
     def expire_messages
       @msg_store_lock.synchronize do
         loop do
-          env = @msg_store.first? || break
+          env = delayed_msg_store.first_delayed? || break
           if has_expired?(env)
-            env = @msg_store.shift? || break
+            env = delayed_msg_store.shift_delayed? || break
             expire_msg(env, :expired)
           else
             break
@@ -107,8 +108,12 @@ module LavinMQ::AMQP
       expire_at <= RoughTime.unix_ms
     end
 
+    private def delayed_msg_store
+      @msg_store.as(DelayedMessageStore)
+    end
+
     private def time_to_message_expiration : Time::Span?
-      @msg_store.as(DelayedMessageStore).time_to_next_expiration?
+      delayed_msg_store.time_to_next_expiration?
     end
 
     # Overload to not ruin DLX header
