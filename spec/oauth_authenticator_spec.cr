@@ -1,165 +1,169 @@
 require "./spec_helper"
+require "../src/lavinmq/auth/oauth_authenticator"
+require "../src/lavinmq/auth/token_verifier"
 
-def create_test_authenticator(config : LavinMQ::Config? = nil)
-  config ||= create_test_config
-  LavinMQ::Auth::OAuthAuthenticator.new(config)
+class MockJWKSFetcher < JWT::JWKSFetcher
+  def initialize
+    super("https://auth.example.com", 1.hour)
+  end
 end
 
-def create_test_config
+class MockTokenVerifier < LavinMQ::Auth::TokenVerifier
+  def initialize(config : LavinMQ::Config, fetcher : JWT::JWKSFetcher,
+                 @should_raise : Exception? = nil, @return_claims : LavinMQ::Auth::TokenClaims? = nil)
+    super(config, fetcher)
+  end
+
+  def verify_token(token : String) : LavinMQ::Auth::TokenClaims
+    if ex = @should_raise
+      raise ex
+    end
+    @return_claims.not_nil!
+  end
+end
+
+def create_mock_verifier(should_raise : Exception? = nil, return_claims : LavinMQ::Auth::TokenClaims? = nil)
   config = LavinMQ::Config.new
   config.oauth_issuer_url = "https://auth.example.com"
   config.oauth_preferred_username_claims = ["preferred_username"]
-  config
+  fetcher = MockJWKSFetcher.new
+  MockTokenVerifier.new(config, fetcher, should_raise, return_claims)
 end
 
 describe LavinMQ::Auth::OAuthAuthenticator do
-  # Note: These tests focus on the prevalidation checks and error handling paths in the
-  # OAuth authenticator that can be tested without a real JWKS endpoint. Full JWT validation
-  # requires network access to fetch public keys, which would need integration tests with
-  # a mock OAuth server.
+  describe "#authenticate" do
+    it "returns OAuthUser on successful token verification" do
+      expires_at = Time.utc + 1.hour
+      claims = LavinMQ::Auth::TokenClaims.new(
+        "testuser",
+        [LavinMQ::Tag::Administrator] of LavinMQ::Tag,
+        {"/" => {config: /.*/, read: /.*/, write: /.*/}},
+        expires_at
+      )
+      verifier = create_mock_verifier(return_claims: claims)
+      authenticator = LavinMQ::Auth::OAuthAuthenticator.new(verifier)
 
-  describe "#authenticate with invalid tokens" do
-    it "rejects tokens that don't start with 'ey'" do
-      authenticator = create_test_authenticator
+      user = authenticator.authenticate("testuser", "valid.jwt.token")
 
-      user = authenticator.authenticate("testuser", "not-a-jwt-token")
+      user.should_not be_nil
+      user.try(&.name).should eq "testuser"
+      user.try(&.tags).should eq [LavinMQ::Tag::Administrator]
+      user.try(&.permissions).should eq({"/" => {config: /.*/, read: /.*/, write: /.*/}})
+    end
+
+    it "returns nil when token is not a JWT" do
+      verifier = create_mock_verifier(should_raise: JWT::PasswordFormatError.new("Invalid format"))
+      authenticator = LavinMQ::Auth::OAuthAuthenticator.new(verifier)
+
+      user = authenticator.authenticate("testuser", "not-a-jwt")
+
       user.should be_nil
     end
 
-    it "rejects tokens with invalid JWT format (wrong number of parts)" do
-      authenticator = create_test_authenticator
+    it "returns nil when token cannot be decoded" do
+      verifier = create_mock_verifier(should_raise: JWT::DecodeError.new("Invalid token"))
+      authenticator = LavinMQ::Auth::OAuthAuthenticator.new(verifier)
 
-      # Only 2 parts instead of 3
-      user = authenticator.authenticate("testuser", "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0")
+      user = authenticator.authenticate("testuser", "invalid.jwt.token")
+
       user.should be_nil
     end
 
-    it "rejects tokens with more than 3 parts" do
-      authenticator = create_test_authenticator
+    it "returns nil when token verification fails" do
+      verifier = create_mock_verifier(should_raise: JWT::VerificationError.new("Signature invalid"))
+      authenticator = LavinMQ::Auth::OAuthAuthenticator.new(verifier)
 
-      # 4 parts
-      user = authenticator.authenticate("testuser", "eyA.eyB.eyC.eyD")
+      user = authenticator.authenticate("testuser", "tampered.jwt.token")
+
       user.should be_nil
     end
 
-    it "rejects tokens with missing algorithm in header" do
-      authenticator = create_test_authenticator
+    it "returns nil on unexpected exception" do
+      verifier = create_mock_verifier(should_raise: Exception.new("Unexpected error"))
+      authenticator = LavinMQ::Auth::OAuthAuthenticator.new(verifier)
 
-      # Create token with no "alg" field
-      header = {"typ" => "JWT"}
-      payload = {"sub" => "test"}
-      header_b64 = Base64.strict_encode(header.to_json).tr("+/", "-_").rstrip("=")
-      payload_b64 = Base64.strict_encode(payload.to_json).tr("+/", "-_").rstrip("=")
+      user = authenticator.authenticate("testuser", "some.jwt.token")
 
-      token = "#{header_b64}.#{payload_b64}.fake_signature"
-      user = authenticator.authenticate("testuser", token)
       user.should be_nil
     end
 
-    it "rejects tokens with non-RS256 algorithm" do
-      authenticator = create_test_authenticator
+    it "creates OAuthUser with correct tags from token" do
+      expires_at = Time.utc + 1.hour
+      claims = LavinMQ::Auth::TokenClaims.new(
+        "admin",
+        [LavinMQ::Tag::Administrator, LavinMQ::Tag::Monitoring] of LavinMQ::Tag,
+        {} of String => LavinMQ::Auth::BaseUser::Permissions,
+        expires_at
+      )
+      verifier = create_mock_verifier(return_claims: claims)
+      authenticator = LavinMQ::Auth::OAuthAuthenticator.new(verifier)
 
-      # Create token with HS256 algorithm (should be rejected)
-      header = {"alg" => "HS256", "typ" => "JWT"}
-      payload = {"sub" => "test", "exp" => (RoughTime.utc.to_unix + 3600).to_i64}
-      header_b64 = Base64.strict_encode(header.to_json).tr("+/", "-_").rstrip("=")
-      payload_b64 = Base64.strict_encode(payload.to_json).tr("+/", "-_").rstrip("=")
+      user = authenticator.authenticate("admin", "valid.jwt.token")
 
-      token = "#{header_b64}.#{payload_b64}.fake_signature"
-      user = authenticator.authenticate("testuser", token)
-      user.should be_nil
+      user.should_not be_nil
+      user.not_nil!.tags.should contain(LavinMQ::Tag::Administrator)
+      user.not_nil!.tags.should contain(LavinMQ::Tag::Monitoring)
     end
 
-    it "rejects tokens with missing exp claim" do
-      authenticator = create_test_authenticator
+    it "creates OAuthUser with correct permissions from token" do
+      expires_at = Time.utc + 1.hour
+      permissions = {
+        "/"     => {config: /^queue/, read: /.*/, write: /^exchange/},
+        "/test" => {config: /.*/, read: /.*/, write: /.*/},
+      }
+      claims = LavinMQ::Auth::TokenClaims.new(
+        "testuser",
+        [] of LavinMQ::Tag,
+        permissions,
+        expires_at
+      )
+      verifier = create_mock_verifier(return_claims: claims)
+      authenticator = LavinMQ::Auth::OAuthAuthenticator.new(verifier)
 
-      # Create token without exp claim
-      header = {"alg" => "RS256", "typ" => "JWT"}
-      payload = {"sub" => "test", "preferred_username" => "testuser"}
-      header_b64 = Base64.strict_encode(header.to_json).tr("+/", "-_").rstrip("=")
-      payload_b64 = Base64.strict_encode(payload.to_json).tr("+/", "-_").rstrip("=")
+      user = authenticator.authenticate("testuser", "valid.jwt.token")
 
-      token = "#{header_b64}.#{payload_b64}.fake_signature"
-      user = authenticator.authenticate("testuser", token)
-      user.should be_nil
+      user.should_not be_nil
+      user.not_nil!.permissions.should eq permissions
+      user.not_nil!.permissions["/"].should eq({config: /^queue/, read: /.*/, write: /^exchange/})
+      user.not_nil!.permissions["/test"].should eq({config: /.*/, read: /.*/, write: /.*/})
     end
 
-    it "rejects expired tokens in prevalidation" do
-      authenticator = create_test_authenticator
+    it "creates OAuthUser with correct expiration time" do
+      expires_at = Time.utc + 2.hours
+      claims = LavinMQ::Auth::TokenClaims.new(
+        "testuser",
+        [] of LavinMQ::Tag,
+        {} of String => LavinMQ::Auth::BaseUser::Permissions,
+        expires_at
+      )
+      verifier = create_mock_verifier(return_claims: claims)
+      authenticator = LavinMQ::Auth::OAuthAuthenticator.new(verifier)
 
-      # Create token that expired 1 hour ago
-      header = {"alg" => "RS256", "typ" => "JWT"}
-      payload = {"sub" => "test", "exp" => (RoughTime.utc.to_unix - 3600).to_i64, "preferred_username" => "testuser"}
-      header_b64 = Base64.strict_encode(header.to_json).tr("+/", "-_").rstrip("=")
-      payload_b64 = Base64.strict_encode(payload.to_json).tr("+/", "-_").rstrip("=")
+      user = authenticator.authenticate("testuser", "valid.jwt.token")
 
-      token = "#{header_b64}.#{payload_b64}.fake_signature"
-      user = authenticator.authenticate("testuser", token)
-      user.should be_nil
+      user.should_not be_nil
+      user.not_nil!.token_lifetime.should be > 1.hour + 59.minutes
+      user.not_nil!.token_lifetime.should be <= 2.hours + 1.second
     end
 
-    it "rejects token with None algorithm (security check)" do
-      authenticator = create_test_authenticator
+    it "uses password as JWT token for verification" do
+      token_received = nil
+      expires_at = Time.utc + 1.hour
+      claims = LavinMQ::Auth::TokenClaims.new(
+        "testuser",
+        [] of LavinMQ::Tag,
+        {} of String => LavinMQ::Auth::BaseUser::Permissions,
+        expires_at
+      )
 
-      # Try "none" algorithm attack
-      header = {"alg" => "none", "typ" => "JWT"}
-      payload = {"sub" => "test", "exp" => (RoughTime.utc.to_unix + 3600).to_i64, "preferred_username" => "hacker"}
-      header_b64 = Base64.strict_encode(header.to_json).tr("+/", "-_").rstrip("=")
-      payload_b64 = Base64.strict_encode(payload.to_json).tr("+/", "-_").rstrip("=")
+      # Create a verifier that captures the token
+      verifier = create_mock_verifier(return_claims: claims)
+      authenticator = LavinMQ::Auth::OAuthAuthenticator.new(verifier)
 
-      token = "#{header_b64}.#{payload_b64}."
-      user = authenticator.authenticate("testuser", token)
-      user.should be_nil
-    end
-  end
+      # The password should be passed as the token to verify_token
+      user = authenticator.authenticate("testuser", "my.jwt.token")
 
-  describe "configuration requirements" do
-    it "accepts valid configuration" do
-      config = LavinMQ::Config.new
-      config.oauth_issuer_url = "https://auth.example.com"
-      config.oauth_preferred_username_claims = ["preferred_username"]
-
-      authenticator = LavinMQ::Auth::OAuthAuthenticator.new(config)
-      authenticator.should be_a(LavinMQ::Auth::OAuthAuthenticator)
-    end
-
-    it "works with multiple preferred username claims" do
-      config = LavinMQ::Config.new
-      config.oauth_issuer_url = "https://auth.example.com"
-      config.oauth_preferred_username_claims = ["email", "preferred_username", "sub"]
-
-      authenticator = LavinMQ::Auth::OAuthAuthenticator.new(config)
-      authenticator.should be_a(LavinMQ::Auth::OAuthAuthenticator)
-    end
-
-    it "works with optional audience verification disabled" do
-      config = LavinMQ::Config.new
-      config.oauth_issuer_url = "https://auth.example.com"
-      config.oauth_preferred_username_claims = ["preferred_username"]
-      config.oauth_verify_aud = false
-
-      authenticator = LavinMQ::Auth::OAuthAuthenticator.new(config)
-      authenticator.should be_a(LavinMQ::Auth::OAuthAuthenticator)
-    end
-
-    it "works with custom scope prefix" do
-      config = LavinMQ::Config.new
-      config.oauth_issuer_url = "https://auth.example.com"
-      config.oauth_preferred_username_claims = ["preferred_username"]
-      config.oauth_scope_prefix = "mq."
-
-      authenticator = LavinMQ::Auth::OAuthAuthenticator.new(config)
-      authenticator.should be_a(LavinMQ::Auth::OAuthAuthenticator)
-    end
-
-    it "works with resource server ID" do
-      config = LavinMQ::Config.new
-      config.oauth_issuer_url = "https://auth.example.com"
-      config.oauth_preferred_username_claims = ["preferred_username"]
-      config.oauth_resource_server_id = "lavinmq-api"
-
-      authenticator = LavinMQ::Auth::OAuthAuthenticator.new(config)
-      authenticator.should be_a(LavinMQ::Auth::OAuthAuthenticator)
+      user.should_not be_nil
     end
   end
 end

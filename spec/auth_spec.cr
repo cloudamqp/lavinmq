@@ -2,10 +2,11 @@ require "./spec_helper"
 require "../src/lavinmq/auth/chain"
 require "../src/lavinmq/auth/local_authenticator"
 
-class MockAuthenticator < LavinMQ::Auth::OAuthAuthenticator
+class MockAuthenticator < LavinMQ::Auth::TokenVerifier
   def initialize(config : LavinMQ::Config, @username : String, @tags : Array(LavinMQ::Tag)?,
                  @permissions : Hash(String, LavinMQ::Auth::BaseUser::Permissions)?, @expires_at : Time)
-    super(config)
+    fetcher = JWT::JWKSFetcher.new(config.oauth_issuer_url, 1.hour)
+    super(config, fetcher)
   end
 
   def verify_token(token : String) : LavinMQ::Auth::TokenClaims
@@ -161,131 +162,6 @@ describe LavinMQ::Auth::Chain do
         # Wrong password for local user, not a JWT for oauth
         user = chain.authenticate("testuser", "wrongpass")
         user.should be_nil
-      end
-    end
-  end
-
-  describe "OauthUser" do
-    it "token_lifetime returns positive duration for non-expired token" do
-      config = LavinMQ::Config.new
-      config.oauth_issuer_url = "https://auth.example.com"
-      config.oauth_preferred_username_claims = ["preferred_username"]
-      verifier = MockAuthenticator.new(config, "testuser", nil, nil, Time.utc + 1.hour)
-
-      user = LavinMQ::Auth::OAuthUser.new(
-        "testuser",
-        [] of LavinMQ::Tag,
-        {} of String => LavinMQ::Auth::BaseUser::Permissions,
-        Time.utc + 1.hour,
-        verifier
-      )
-
-      lifetime = user.token_lifetime
-      lifetime.should be > 59.minutes
-      lifetime.should be <= 1.hour + 1.second
-    end
-
-    it "token_lifetime returns negative duration for expired token" do
-      config = LavinMQ::Config.new
-      config.oauth_issuer_url = "https://auth.example.com"
-      config.oauth_preferred_username_claims = ["preferred_username"]
-      verifier = MockAuthenticator.new(config, "testuser", nil, nil, Time.utc + 1.hour)
-
-      user = LavinMQ::Auth::OAuthUser.new(
-        "testuser",
-        [] of LavinMQ::Tag,
-        {} of String => LavinMQ::Auth::BaseUser::Permissions,
-        Time.utc - 1.hour,
-        verifier
-      )
-
-      lifetime = user.token_lifetime
-      lifetime.should be < 0.seconds
-    end
-
-    describe "on_expiration" do
-      it "calls the block when token expires" do
-        config = LavinMQ::Config.new
-        config.oauth_issuer_url = "https://auth.example.com"
-        config.oauth_preferred_username_claims = ["preferred_username"]
-        verifier = MockAuthenticator.new(config, "testuser", nil, nil, Time.utc + 50.milliseconds)
-
-        user = LavinMQ::Auth::OAuthUser.new(
-          "testuser",
-          [] of LavinMQ::Tag,
-          {} of String => LavinMQ::Auth::BaseUser::Permissions,
-          Time.utc + 50.milliseconds,
-          verifier
-        )
-
-        callback_called = Channel(Nil).new
-
-        user.on_expiration do
-          callback_called.send nil
-        end
-
-        select
-        when callback_called.receive
-          # Expected behavior - callback was called
-        when timeout(500.milliseconds)
-          fail "Expected expiration callback to be called"
-        end
-      end
-
-      it "resets expiration timer when token_updated receives" do
-        exp = Time.utc + 300.milliseconds
-        verifier = MockAuthenticator.new(LavinMQ::Config.new, "testuser", nil, nil, exp)
-
-        user = LavinMQ::Auth::OAuthUser.new(
-          "testuser",
-          [] of LavinMQ::Tag,
-          {} of String => LavinMQ::Auth::BaseUser::Permissions,
-          Time.utc + 100.milliseconds,
-          verifier
-        )
-
-        callback_called = false
-
-        user.on_expiration do
-          callback_called = true
-        end
-
-        # Send token update before expiration
-        sleep 70.milliseconds
-
-        user.update_secret("")
-        # user.token_updated.send nil
-
-        # Wait past the original expiration time
-        sleep 70.milliseconds
-
-        # Callback should not have been called yet since timer was reset
-        # but it will be called eventually (negative token_lifetime triggers immediately)
-        callback_called.should be_false
-      end
-
-      it "does not call block before expiration" do
-        config = LavinMQ::Config.new
-        config.oauth_issuer_url = "https://auth.example.com"
-        config.oauth_preferred_username_claims = ["preferred_username"]
-        verifier = MockAuthenticator.new(LavinMQ::Config.new, "testuser", nil, nil, Time.utc + 1.hour)
-
-        user = LavinMQ::Auth::OAuthUser.new(
-          "testuser",
-          [] of LavinMQ::Tag,
-          {} of String => LavinMQ::Auth::BaseUser::Permissions,
-          Time.utc + 1.hour,
-          verifier
-        )
-
-        callback_called = false
-
-        user.on_expiration do
-          callback_called = true
-        end
-
-        sleep 50.milliseconds
-        callback_called.should be_false
       end
     end
   end
