@@ -77,4 +77,43 @@ describe LavinMQ::MessageStore::PublishOrderedRequeuedStore do
       store.shift?.should be_nil
     end
   end
+
+  describe "#size" do
+    it "should return 0 when empty" do
+      store = LavinMQ::MessageStore::PublishOrderedRequeuedStore.new
+      store.size.should eq 0
+    end
+
+    it "should return the number of items in the store" do
+      store = LavinMQ::MessageStore::PublishOrderedRequeuedStore.new
+      sp1 = LavinMQ::SegmentPosition.new(1u32, 1u32, 10u32)
+      sp2 = LavinMQ::SegmentPosition.new(1u32, 2u32, 10u32)
+      store.insert(sp1)
+      store.size.should eq 1
+      store.insert(sp2)
+      store.size.should eq 2
+    end
+
+    it "should decrease after shift" do
+      store = LavinMQ::MessageStore::PublishOrderedRequeuedStore.new
+      sp1 = LavinMQ::SegmentPosition.new(1u32, 1u32, 10u32)
+      sp2 = LavinMQ::SegmentPosition.new(1u32, 2u32, 10u32)
+      store.insert(sp1)
+      store.insert(sp2)
+      store.shift?
+      store.size.should eq 1
+      store.shift?
+      store.size.should eq 0
+    end
+
+    it "should be 0 after clear" do
+      store = LavinMQ::MessageStore::PublishOrderedRequeuedStore.new
+      sp1 = LavinMQ::SegmentPosition.new(1u32, 1u32, 10u32)
+      sp2 = LavinMQ::SegmentPosition.new(1u32, 2u32, 10u32)
+      store.insert(sp1)
+      store.insert(sp2)
+      store.clear
+      store.size.should eq 0
+    end
+  end
 end
