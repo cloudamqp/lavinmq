@@ -212,8 +212,8 @@ def create_ttl_and_dl_queues(channel, queue_ttl = 1)
   {q, dlq}
 end
 
-def exit(code = 0)
-  raise SpecExit.new(code)
+def exit(status : Int32 | Process::Status = 0) : NoReturn
+  raise SpecExit.new(status.is_a?(Int32) ? status : status.exit_code)
 end
 
 class SpecExit < Exception
