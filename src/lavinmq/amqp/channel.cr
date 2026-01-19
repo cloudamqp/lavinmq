@@ -56,7 +56,7 @@ module LavinMQ
         queue : Queue,
         sp : SegmentPosition,
         consumer : Consumer?,
-        delivered_at : Time::Span
+        delivered_at : Time::Instant
 
       def details_tuple
         {
@@ -413,7 +413,7 @@ module LavinMQ
             ok = q.basic_get(frame.no_ack) do |env|
               delivery_tag = next_delivery_tag(q, env.segment_position, frame.no_ack, nil)
               unless frame.no_ack # track unacked messages
-                q.basic_get_unacked << UnackedMessage.new(self, delivery_tag, RoughTime.monotonic)
+                q.basic_get_unacked << UnackedMessage.new(self, delivery_tag, RoughTime.instant)
               end
               get_ok = AMQP::Frame::Basic::GetOk.new(frame.channel, delivery_tag,
                 env.redelivered, env.message.exchange_name,
@@ -676,7 +676,7 @@ module LavinMQ
         tag = @delivery_tag.add(1, :relaxed)
         unless no_ack
           @unack_lock.synchronize do
-            @unacked.push Unack.new(tag, queue, sp, consumer, RoughTime.monotonic)
+            @unacked.push Unack.new(tag, queue, sp, consumer, RoughTime.instant)
           end
           add = consumer ? 0u32 : 1u32
           basic_get_unacked_count = @basic_get_unacked_count.add(add, :relaxed) + add
@@ -692,7 +692,7 @@ module LavinMQ
           @unacked.each do |unack|
             if queues.add? unack.queue
               if timeout = unack.queue.consumer_timeout
-                unacked_ms = RoughTime.monotonic - unack.delivered_at
+                unacked_ms = RoughTime.instant - unack.delivered_at
                 if unacked_ms > timeout.milliseconds
                   code = ChannelReplyCode::PRECONDITION_FAILED
                   send AMQP::Frame::Channel::Close.new(@id, code.value, "#{code} - consumer timeout", 60_u16, 20_u16)

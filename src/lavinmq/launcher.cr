@@ -56,7 +56,7 @@ module LavinMQ
     end
 
     private def start : self
-      started_at = Time.monotonic
+      started_at = Time.instant
       @data_dir_lock.try &.acquire
       @amqp_server = amqp_server = LavinMQ::Server.new(@config, @replicator)
       @http_server = http_server = LavinMQ::HTTP::Server.new(amqp_server)
@@ -65,7 +65,7 @@ module LavinMQ
       start_metrics_server(amqp_server) unless @config.metrics_http_port == -1
       SystemD.notify_ready
       Fiber.yield # Yield to let listeners spawn before logging startup time
-      Log.info { "Finished startup in #{(Time.monotonic - started_at).total_seconds}s" }
+      Log.info { "Finished startup in #{(Time.instant - started_at).total_seconds}s" }
       self
     end
 
