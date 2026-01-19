@@ -62,11 +62,11 @@ module LavinMQ
       end
 
       private def at_end?(delivery_tag)
-        @delete_after.queue_length? && @q.not_nil![:message_count] == delivery_tag
+        (q = @q) && @delete_after.queue_length? && q[:message_count] == delivery_tag
       end
 
       private def past_end?(delivery_tag)
-        @delete_after.queue_length? && @q.not_nil![:message_count] < delivery_tag
+        (q = @q) && @delete_after.queue_length? && q[:message_count] < delivery_tag
       end
 
       @done = WaitGroup.new(1)
@@ -95,9 +95,10 @@ module LavinMQ
         (@prefetch / 2).ceil.to_i
       end
 
+      # ameba:disable Metrics/CyclomaticComplexity
       private def open_channel
         @ch.try &.close
-        conn = @conn.not_nil!
+        conn = @conn || raise "Connection not established"
         @ch = ch = conn.channel
         q_name = @queue || ""
         @q = q = begin
@@ -146,9 +147,8 @@ module LavinMQ
       end
 
       def each(&blk : ::AMQP::Client::DeliverMessage -> Nil)
-        raise "Not started" unless started?
-        q = @q.not_nil!
-        ch = @ch.not_nil!
+        q = @q || raise "Not started"
+        ch = @ch || raise "Not started"
         exclusive = !@args["x-stream-offset"]? # consumers for streams can not be exclusive
         return if @delete_after.queue_length? && q[:message_count].zero?
         ch.basic_consume(q[:queue_name],

@@ -26,8 +26,7 @@ module LavinMQ
       end
 
       def push(msg, source)
-        raise "Not started" unless started?
-        c = @client.not_nil!
+        c = @client || raise "Not started"
         headers = ::HTTP::Headers{"User-Agent" => "LavinMQ"}
         headers["X-Shovel"] = @name
         msg.properties.content_type.try { |v| headers["Content-Type"] = v }
