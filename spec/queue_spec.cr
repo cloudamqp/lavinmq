@@ -59,12 +59,40 @@ describe LavinMQ::AMQP::Queue do
         q.publish_confirm("no expiration")
         q.publish_confirm("with expiration", props: AMQP::Client::Properties.new(expiration: "100"))
 
-        msg1 = q.get(no_ack: true)
-        msg1.not_nil!.body_io.to_s.should eq "no expiration"
+        msg1 = q.get(no_ack: true).should_not be_nil
+        msg1.body_io.to_s.should eq "no expiration"
 
         # Queue should have 1 message that should expire
+        msg = wait_for { dlq.get(no_ack: true) }.should_not be_nil
+        msg.body_io.to_s.should eq "with expiration"
+
+        # The Queue should be empty
+        q.get(no_ack: true).should be_nil
+      end
+    end
+  end
+
+  it "Should expire short-TTL message after consuming long-TTL message" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        # Create a queue with dead letter exchange so we can verify expiration happened
+        q = ch.queue("exp_test2", args: AMQP::Client::Arguments.new(
+          {"x-dead-letter-exchange" => "", "x-dead-letter-routing-key" => "dlq2"}
+        ))
+        dlq = ch.queue("dlq2")
+        # Publish message with long TTL (60 seconds)
+        q.publish_confirm("long ttl", props: AMQP::Client::Properties.new(expiration: "60000"))
+        # Publish message with short TTL (500ms)
+        q.publish_confirm("short ttl", props: AMQP::Client::Properties.new(expiration: "500"))
+
+        # Consume the long-TTL message immediately
+        msg1 = q.get(no_ack: true).should_not be_nil
+        msg1.body_io.to_s.should eq "long ttl"
+
+        # The short-TTL message should expire after ~500ms, not 60 seconds
         msg = wait_for { dlq.get(no_ack: true) }
-        msg.not_nil!.body_io.to_s.should eq "with expiration"
+        msg.should_not be_nil
+        msg.body_io.to_s.should eq "short ttl"
 
         # The Queue should be empty
         q.get(no_ack: true).should be_nil
