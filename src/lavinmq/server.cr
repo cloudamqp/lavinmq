@@ -19,6 +19,7 @@ require "./amqp/connection_factory"
 require "./mqtt/connection_factory"
 require "./stats"
 require "./auth/chain"
+require "./offloaded_ssl/socket"
 
 module LavinMQ
   class Server
@@ -37,6 +38,7 @@ module LavinMQ
     @listeners = Hash(Socket::Server, Protocol).new # Socket => protocol
     @connection_factories = Hash(Protocol, ConnectionFactory).new
     @replicator : Clustering::Replicator?
+    @tls_ec = Fiber::ExecutionContext::Parallel.new("SSL", 2) # how many threads?
     Log = LavinMQ::Log.for "server"
 
     def initialize(@config : Config, @replicator = nil)
@@ -209,8 +211,9 @@ module LavinMQ
       spawn(name: "Accept TLS socket") do
         remote_addr = client.remote_address
         set_socket_options(client)
-        ssl_client = OpenSSL::SSL::Socket::Server.new(client, context, sync_close: true)
+        ssl_client = OffloadedSSL::Socket::Server.new(client, context, @tls_ec, sync_close: true)
         set_buffer_size(ssl_client)
+
         Log.debug { "#{remote_addr} connected with #{ssl_client.tls_version} #{ssl_client.cipher}" }
         conn_info = ConnectionInfo.new(remote_addr, client.local_address)
         conn_info.ssl = true
