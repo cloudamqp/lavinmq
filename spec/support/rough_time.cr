@@ -1,7 +1,7 @@
 module RoughTime
   @@paused_utc = Time.utc
   @@paused_unix_ms : Int64 = @@paused_utc.to_unix_ms // 100 * 100
-  @@paused_monotonic = Time.instant
+  @@paused_instant = Time.instant
   @@paused = false
 
   def self.utc : Time
@@ -18,9 +18,9 @@ module RoughTime
     previous_def
   end
 
-  def self.monotonic : Time::Instant
+  def self.instant : Time::Instant
     if @@paused
-      return @@paused_monotonic
+      return @@paused_instant
     end
     previous_def
   end
@@ -29,13 +29,13 @@ module RoughTime
     @@paused = true
     @@paused_utc = Time.utc
     @@paused_unix_ms = @@paused_utc.to_unix_ms // 100 * 100
-    @@paused_monotonic = Time.instant
+    @@paused_instant = Time.instant
   end
 
   def self.travel(time : Time::Span)
     @@paused_utc += time
     @@paused_unix_ms += @@paused_utc.to_unix_ms // 100 * 100
-    @@paused_monotonic += time
+    @@paused_instant += time
   end
 
   def self.resume

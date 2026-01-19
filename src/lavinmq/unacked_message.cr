@@ -13,7 +13,7 @@ module LavinMQ
       {
         delivery_tag:        @delivery_tag,
         consumer_tag:        @consumer_tag || "Basic get",
-        unacked_for_seconds: (RoughTime.monotonic - delivered_at).to_i,
+        unacked_for_seconds: (RoughTime.instant - delivered_at).to_i,
         channel_name:        @channel.name,
       }
     end

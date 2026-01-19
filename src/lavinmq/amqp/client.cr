@@ -31,8 +31,8 @@ module LavinMQ
       @exclusive_queues = Array(Queue).new
       @heartbeat_interval_ms : Int64?
       @running = true
-      @last_recv_frame = RoughTime.monotonic
-      @last_sent_frame = RoughTime.monotonic
+      @last_recv_frame = RoughTime.instant
+      @last_sent_frame = RoughTime.instant
       rate_stats({"send_oct", "recv_oct"})
       DEFAULT_EX = "amq.default"
       Log        = LavinMQ::Log.for "amqp.client"
@@ -189,7 +189,7 @@ module LavinMQ
       end
 
       private def send_heartbeat
-        now = RoughTime.monotonic
+        now = RoughTime.instant
         if @last_recv_frame + (@heartbeat_timeout + 5).seconds < now
           @log.info { "Heartbeat timeout (#{@heartbeat_timeout}), last seen frame #{(now - @last_recv_frame).total_seconds} s ago, sent frame #{(now - @last_sent_frame).total_seconds} s ago" }
           false
@@ -215,7 +215,7 @@ module LavinMQ
           s.write_bytes frame, IO::ByteFormat::NetworkEndian
           s.flush
         end
-        @last_sent_frame = RoughTime.monotonic
+        @last_sent_frame = RoughTime.instant
         @send_oct_count.add(8_u64 + frame.bytesize, :relaxed)
         if frame.is_a?(AMQP::Frame::Connection::CloseOk)
           return false
@@ -289,7 +289,7 @@ module LavinMQ
             pos += length
           end
           socket.flush if flush && !websocket # Websockets need to send one frame per WS frame
-          @last_sent_frame = RoughTime.monotonic
+          @last_sent_frame = RoughTime.instant
         end
         true
       rescue ex : IO::Error | OpenSSL::SSL::Error
@@ -359,7 +359,7 @@ module LavinMQ
 
       # ameba:disable Metrics/CyclomaticComplexity
       private def process_frame(frame) : Nil
-        @last_recv_frame = RoughTime.monotonic
+        @last_recv_frame = RoughTime.instant
         @recv_oct_count.add(8_u64 + frame.bytesize, :relaxed)
         case frame
         when AMQP::Frame::Channel::Open
@@ -427,7 +427,7 @@ module LavinMQ
           send_not_implemented(frame)
         end
         if heartbeat_interval_ms = @heartbeat_interval_ms
-          if @last_sent_frame + heartbeat_interval_ms.milliseconds < RoughTime.monotonic
+          if @last_sent_frame + heartbeat_interval_ms.milliseconds < RoughTime.instant
             send AMQP::Frame::Heartbeat.new
           end
         end
