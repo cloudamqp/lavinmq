@@ -11,6 +11,7 @@ require "./etcd"
 require "./clustering/controller"
 require "./standalone_runner"
 require "../stdlib/openssl_sni"
+require "../stdlib/fiber_stats"
 
 module LavinMQ
   class Launcher
@@ -32,6 +33,7 @@ module LavinMQ
         Log.warn { "The file descriptor limit is very low, consider raising it." }
         Log.warn { "You need one for each connection and two for each durable queue, and some more." }
       end
+      setup_buffer_pools
       Dir.mkdir_p @config.data_dir
       if @config.data_dir_lock?
         @data_dir_lock = DataDirLock.new(@config.data_dir)
@@ -87,6 +89,14 @@ module LavinMQ
       @amqp_server.try &.close rescue nil
       @metrics_server.try &.close rescue nil
       @runner.stop
+    end
+
+    private def setup_buffer_pools
+      buffer_size = @config.socket_buffer_size
+      if buffer_size.positive?
+        IO::BufferPool.setup(buffer_size)
+        Log.info { "Socket buffer pool enabled, buffer size: #{buffer_size}" }
+      end
     end
 
     private def print_ascii_logo
@@ -230,7 +240,40 @@ module LavinMQ
       puts "  reclaimed bytes during last GC: #{ps.bytes_reclaimed_since_gc.humanize_bytes}"
       puts "  reclaimed bytes before last GC: #{ps.reclaimed_bytes_before_gc.humanize_bytes}"
       puts "Fibers:"
-      Fiber.list { |f| puts f.inspect }
+      total_stack = 0_u64
+      read_loop_count = 0
+      read_loop_stack_total = 0_u64
+      read_loop_stack_min = UInt64::MAX
+      read_loop_stack_max = 0_u64
+      Fiber.list do |f|
+        stack = f.stack_used
+        total_stack += stack
+        if f.name.try(&.starts_with?("Client#read_loop"))
+          read_loop_count += 1
+          read_loop_stack_total += stack
+          read_loop_stack_min = stack if stack < read_loop_stack_min
+          read_loop_stack_max = stack if stack > read_loop_stack_max
+        end
+        puts "  #{f.name}: #{stack.humanize_bytes}"
+      end
+      puts "Fiber stack summary:"
+      puts "  total stack used: #{total_stack.humanize_bytes}"
+      if read_loop_count > 0
+        avg = read_loop_stack_total // read_loop_count
+        puts "  read_loop fibers: #{read_loop_count}"
+        puts "  read_loop stack min: #{read_loop_stack_min.humanize_bytes}"
+        puts "  read_loop stack max: #{read_loop_stack_max.humanize_bytes}"
+        puts "  read_loop stack avg: #{avg.humanize_bytes}"
+        puts "  read_loop stack total: #{read_loop_stack_total.humanize_bytes}"
+      end
+      if stats = IO::BufferPool.pool.try(&.stats)
+        puts "Buffer pool"
+        puts "  buffer size: #{stats[:buffer_size].humanize_bytes}"
+        puts "  available: #{stats[:available]}"
+        puts "  allocated: #{stats[:allocated]}"
+        puts "  reused: #{stats[:reused]}"
+        puts "  released: #{stats[:released]}"
+      end
       STDOUT.flush
     end
 
