@@ -21,8 +21,9 @@ lib LibSSL
 end
 
 class OpenSSL::SSL::Context::Server
-  # Stores the SNI callback Box to prevent garbage collection
-  @sni_callback_box : Pointer(Void)?
+  # Class-level storage for SNI callback boxes to prevent garbage collection
+  # while avoiding finalization cycles. Keyed by the SSL context handle pointer.
+  @@sni_callback_boxes = {} of Pointer(Void) => Pointer(Void)
 
   # Sets a Server Name Indication (SNI) callback.
   # The callback receives the hostname from the client and should return
@@ -75,12 +76,24 @@ class OpenSSL::SSL::Context::Server
 
     # Box the callback to pass to C
     callback_box = Box.box(block)
-    @sni_callback_box = callback_box
+
+    # Store in class-level hash to prevent GC while avoiding finalization cycles
+    @@sni_callback_boxes[@handle.as(Pointer(Void))] = callback_box
 
     # Set the callback using SSL_CTX_callback_ctrl
     LibSSL.ssl_ctx_callback_ctrl(@handle, LibSSL::SSL_CTRL_SET_TLSEXT_SERVERNAME_CB, c_callback.unsafe_as(Proc(Void)))
 
     # Set the arg that will be passed to the callback
     LibSSL.ssl_ctx_ctrl(@handle, LibSSL::SSL_CTRL_SET_TLSEXT_SERVERNAME_ARG, 0, callback_box)
+  end
+
+  def finalize
+    # Free the callback box from class-level storage
+    handle_key = @handle.as(Pointer(Void))
+    if callback_box = @@sni_callback_boxes.delete(handle_key)
+      GC.free(callback_box)
+    end
+    # Call the parent class finalizer to clean up OpenSSL resources
+    super
   end
 end
