@@ -54,7 +54,7 @@ module LavinMQPerf
         count = 0
         loop do
           @connections.times.each_slice(100) do |slice|
-            start = Time.monotonic
+            start = Time.instant
             slice.each do |i|
               spawn connect(i)
             end
@@ -62,7 +62,7 @@ module LavinMQPerf
               @done.receive
               @io.print '.'
             end
-            stop = Time.monotonic
+            stop = Time.instant
             @io.puts " #{(stop - start).total_milliseconds.round}ms"
           end
           puts
