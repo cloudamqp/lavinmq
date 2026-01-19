@@ -325,7 +325,7 @@ module LavinMQPerf
             # Replace random element with probability RESERVOIR_SIZE / count
             # Standard reservoir sampling: pick random position in [0, count),
             # and if it's within reservoir size, replace that element
-            j = Random.rand(@latencies_count)
+            j = @random.rand(@latencies_count)
             @latencies[j] = latency_ms if j < LATENCY_RESERVOIR_SIZE
           end
         end
