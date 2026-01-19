@@ -56,8 +56,7 @@ module LavinMQ
       end
 
       def push(msg, source)
-        raise "Not started" unless started?
-        ch = @ch.not_nil!
+        ch = @ch || raise "Not started"
         ex = @exchange || msg.exchange
         rk = @exchange_key || msg.routing_key
         case @ack_mode
