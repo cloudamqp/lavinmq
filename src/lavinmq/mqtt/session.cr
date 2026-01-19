@@ -45,7 +45,7 @@ module LavinMQ
 
       def client=(client : MQTT::Client?)
         return if @closed
-        @last_get_time = RoughTime.monotonic
+        @last_get_time = RoughTime.instant
 
         unless clean_session?
           @msg_store_lock.synchronize do

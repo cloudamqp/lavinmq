@@ -75,7 +75,7 @@ module LavinMQ
       end
 
       def assign_client_id(packet)
-        client_id = Random::DEFAULT.base64(32)
+        client_id = Random::Secure.base64(32)
         Connect.new(client_id,
           packet.clean_session?,
           packet.keepalive,

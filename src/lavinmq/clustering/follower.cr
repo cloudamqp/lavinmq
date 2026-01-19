@@ -137,13 +137,13 @@ module LavinMQ
           end
         end
         sent_bytes = 0i64
-        start = Time.monotonic
+        start = Time.instant
         requested_files.each do |filename|
           file_size = send_requested_file(filename)
 
           sent_bytes += file_size
           total_requested_bytes -= file_size
-          total_time_taken = (Time.monotonic - start).total_seconds
+          total_time_taken = (Time.instant - start).total_seconds
           bps = (sent_bytes / total_time_taken).round.to_u64
           time_left = bps > 0 ? (total_requested_bytes / bps).round(1) : 0
           Log.info { "Uploaded #{filename} in #{bps.humanize_bytes}/s" }

@@ -21,6 +21,7 @@ module LavinMQPerf
       @pmessages = 0
       @cmessages = 0
       @random_bodies = false
+      @random = Random.new
       @retain = false
       @clean_session = false
       @uri = URI.parse("mqtt://localhost:1883")
@@ -147,7 +148,7 @@ module LavinMQPerf
         end
 
         connected.wait # wait for all clients to connect
-        start = Time.monotonic
+        start = Time.instant
         Process.on_terminate do
           abort "Aborting" if @stopped
           @stopped = true
@@ -172,8 +173,8 @@ module LavinMQPerf
         summary(start)
       end
 
-      private def summary(start : Time::Span)
-        stop = Time.monotonic
+      private def summary(start : Time::Instant)
+        stop = Time.instant
         elapsed = (stop - start).total_seconds
         avg_pub = (@pubs.get(:relaxed) / elapsed).round(1)
         avg_consume = (@consumes.get(:relaxed) / elapsed).round(1)
@@ -204,12 +205,12 @@ module LavinMQPerf
         data = Bytes.new(@size) { |i| ((i % 27 + 64)).to_u8 }
         Fiber.yield
 
-        start = Time.monotonic
+        start = Time.instant
         pubs_this_second = 0
         packet_id_generator = (1_u16..).each
         wait_until_all_are_connected(connected)
         until @stopped
-          Random::DEFAULT.random_bytes(data) if @random_bodies
+          @random.random_bytes(data) if @random_bodies
           packet_id = @qos > 0 ? packet_id_generator.next.as(UInt16) : nil
 
           publish = LavinMQ::MQTT::Publish.new(
@@ -235,11 +236,11 @@ module LavinMQPerf
           if !@rate.zero?
             pubs_this_second += 1
             if pubs_this_second >= @rate
-              until_next_second = (start + 1.seconds) - Time.monotonic
+              until_next_second = (start + 1.seconds) - Time.instant
               if until_next_second > Time::Span.zero
                 sleep until_next_second
               end
-              start = Time.monotonic
+              start = Time.instant
               pubs_this_second = 0
             end
           end
@@ -253,7 +254,7 @@ module LavinMQPerf
         data = Bytes.new(@size) { |i| ((i % 27 + 64)).to_u8 }
         Fiber.yield
 
-        start = Time.monotonic
+        start = Time.instant
         consumes_this_second = 0
 
         topic_filter = LavinMQ::MQTT::Subscribe::TopicFilter.new(@topic, @qos.to_u8)
@@ -288,11 +289,11 @@ module LavinMQPerf
               if !@consume_rate.zero?
                 consumes_this_second += 1
                 if consumes_this_second >= @consume_rate
-                  until_next_second = (start + 1.seconds) - Time.monotonic
+                  until_next_second = (start + 1.seconds) - Time.instant
                   if until_next_second > Time::Span.zero
                     sleep until_next_second
                   end
-                  start = Time.monotonic
+                  start = Time.instant
                   consumes_this_second = 0
                 end
               else
