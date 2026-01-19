@@ -1,4 +1,4 @@
-ARG build_image=84codes/crystal:1.18.2-ubuntu-24.04
+ARG build_image=84codes/crystal:latest-ubuntu-24.04
 
 FROM $build_image AS builder
 RUN apt-get update && apt-get install -y devscripts help2man lintian debhelper liblz4-dev
