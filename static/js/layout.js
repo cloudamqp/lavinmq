@@ -1,5 +1,6 @@
 import * as Auth from './auth.js'
 import * as Helpers from './helpers.js'
+import * as HTTP from './http.js'
 
 document.getElementById('username').textContent = Auth.getUsername()
 
@@ -129,8 +130,156 @@ class ThemeSwitcher {
   }
 })()
 
+class EntitySearch {
+  #searchField
+  #resultList
+  #ws
+  #selectedIndex = -1
+
+  constructor (search) {
+    this.#searchField = search.querySelector('input[type=search]')
+    this.#resultList = search.querySelector('ul')
+    this.#searchField.value = ''
+
+    this.#searchField.addEventListener('keydown', (e) => {
+      this.#handleKeydown(e)
+    })
+
+    // Remove the listener once init has been called
+    const initWsCb = _ => {
+      this.#searchField.removeEventListener('input', initWsCb)
+      this.#initWs()
+    }
+    this.#searchField.addEventListener('input', initWsCb)
+  }
+
+  #initWs () {
+    console.log('init ws')
+    this.#ws = new WebSocket('api/entity-search')
+    const searchCb = _ => { this.#search() }
+    // We remove and disable search on error/close
+    this.#ws.addEventListener('error', e => {
+      console.error('WS Error', e)
+      this.#ws.close
+    })
+    this.#ws.addEventListener('close', _ => {
+      console.warn('WS Closed')
+      this.#searchField.value = ''
+      this.#searchField.placeholder = 'disabled due to webocket error'
+      this.#searchField.disabled = true
+      this.#searchField.removeEventListener('input', searchCb)
+    })
+    // Dont add event listeners until we have a connection
+    this.#ws.addEventListener('open', _ => {
+      this.#searchField.addEventListener('input', searchCb)
+      this.#search()
+    })
+    this.#ws.addEventListener('message', async e => {
+      const response = JSON.parse(await event.data.text())
+      this.#showSearchResult(response)
+    })
+  }
+
+  #searchTimer = null
+  #search () {
+    clearTimeout(this.#searchTimer)
+    this.#searchTimer = setTimeout(function () {
+      const value = this.#searchField.value
+      if (value.length == 0) {
+        this.#resultList.innerHTML = ''
+        return
+      }
+      console.debug('search for', value)
+      this.#ws.send(value)
+    }.bind(this), 250)
+  }
+
+  #handleKeydown (e) {
+    const items = this.#resultList.querySelectorAll('li')
+
+    if (items.length === 0) return
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      this.#selectedIndex = Math.min(this.#selectedIndex + 1, items.length - 1)
+      this.#updateSelection(items)
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      this.#selectedIndex = Math.max(this.#selectedIndex - 1, -1)
+      this.#updateSelection(items)
+    } else if (e.key === 'Enter' && this.#selectedIndex >= 0) {
+      e.preventDefault()
+      const selectedLink = items[this.#selectedIndex]?.querySelector('a')
+      if (selectedLink) {
+        selectedLink.click()
+      }
+    }
+  }
+
+  #updateSelection (items) {
+    items.forEach((item, index) => {
+      if (index === this.#selectedIndex) {
+        item.classList.add('selected')
+      } else {
+        item.classList.remove('selected')
+      }
+    })
+  }
+
+  #showSearchResult (response) {
+    this.#selectedIndex = -1
+    const fragment = document.createDocumentFragment()
+
+    const link = {
+      queue: r => HTTP.url`queue#vhost=${r.vhost}&name=${r.name}`,
+      exchange: r => HTTP.url`exchange#vhost=${r.vhost}&name=${r.name}`,
+      user: r => HTTP.url`user#name=${r.name}`,
+      vhost: r => HTTP.url`vhost#name=${r.name}`
+    }
+
+    response.result.forEach(result => {
+      const li = document.createElement('li')
+      const a = document.createElement('a')
+      a.href = link[result.type](result)
+      a.className = 'search-result-item'
+
+      const nameSpan = document.createElement('span')
+      nameSpan.className = 'entity-name'
+      nameSpan.textContent = result.name
+
+      const metaRow = document.createElement('span')
+      metaRow.className = 'entity-meta'
+
+      const vhostSpan = document.createElement('span')
+      vhostSpan.className = 'entity-vhost'
+      if (result.vhost) {
+        vhostSpan.textContent = `vhost: ${result.vhost}`
+      }
+
+      const typeSpan = document.createElement('span')
+      typeSpan.className = 'entity-type'
+      typeSpan.textContent = result.type
+
+      metaRow.appendChild(vhostSpan)
+      metaRow.appendChild(typeSpan)
+
+      a.appendChild(nameSpan)
+      a.appendChild(metaRow)
+      li.appendChild(a)
+      fragment.appendChild(li)
+    })
+
+    this.#resultList.innerHTML = ''
+    this.#resultList.appendChild(fragment)
+  }
+}
+
 // Initialize theme switcher when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
   // Store theme switcher instance on window for debugging
   window.themeSwitcher = new ThemeSwitcher()
+  const searchField = document.querySelector('#entity-search')
+  if (searchField) {
+    window.entitySearch = new EntitySearch(searchField)
+  }
 })
