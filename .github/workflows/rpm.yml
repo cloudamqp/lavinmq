@@ -46,7 +46,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           pull: true
           build-args: |
-            build_image=84codes/crystal:1.18.2-${{ matrix.os }}
+            build_image=84codes/crystal:latest-${{ matrix.os }}
             version=${{ env.version }}
             MAKEFLAGS=-j1
           outputs: RPMS
