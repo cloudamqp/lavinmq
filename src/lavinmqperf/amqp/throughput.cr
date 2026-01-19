@@ -42,6 +42,7 @@ module LavinMQPerf
       @latencies_mutex = Mutex.new
       @last_latencies = Array(Float64).new
       @latencies_count : UInt64 = 0
+      @random = Random.new
 
       def initialize(io : IO = STDOUT)
         super(io)
@@ -324,7 +325,7 @@ module LavinMQPerf
             # Replace random element with probability RESERVOIR_SIZE / count
             # Standard reservoir sampling: pick random position in [0, count),
             # and if it's within reservoir size, replace that element
-            j = Random::Secure.rand(@latencies_count)
+            j = Random.rand(@latencies_count)
             @latencies[j] = latency_ms if j < LATENCY_RESERVOIR_SIZE
           end
         end
@@ -359,12 +360,12 @@ module LavinMQPerf
               IO::ByteFormat::LittleEndian.encode((Time.instant - BASE_INSTANT).total_nanoseconds.to_i64, data)
               # Fill the rest with random or pattern data
               if @random_bodies
-                Random::Secure.random_bytes(data[8..])
+                @random.random_bytes(data[8..])
               else
                 (8...@size).each { |i| data[i] = ((i % 27 + 64)).to_u8 }
               end
             elsif @random_bodies
-              Random::Secure.random_bytes(data)
+              @random.random_bytes(data)
             end
             # When using queue pattern, rotate through queues using queue name as routing key
             routing_key = if @queue_pattern

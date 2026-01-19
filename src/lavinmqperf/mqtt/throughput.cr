@@ -21,6 +21,7 @@ module LavinMQPerf
       @pmessages = 0
       @cmessages = 0
       @random_bodies = false
+      @random = Random.new
       @retain = false
       @clean_session = false
       @uri = URI.parse("mqtt://localhost:1883")
@@ -209,7 +210,7 @@ module LavinMQPerf
         packet_id_generator = (1_u16..).each
         wait_until_all_are_connected(connected)
         until @stopped
-          Random::Secure.random_bytes(data) if @random_bodies
+          @random.random_bytes(data) if @random_bodies
           packet_id = @qos > 0 ? packet_id_generator.next.as(UInt16) : nil
 
           publish = LavinMQ::MQTT::Publish.new(
