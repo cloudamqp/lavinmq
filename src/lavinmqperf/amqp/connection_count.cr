@@ -11,6 +11,7 @@ module LavinMQPerf
       @queue = "connection-count"
       @random_localhost = false
       @done = Channel(Int32).new(100)
+      @random = Random.new
 
       def initialize(io : IO = STDOUT)
         super(io)
@@ -76,7 +77,7 @@ module LavinMQPerf
 
       private def client : ::AMQP::Client
         client = @client ||= ::AMQP::Client.new(@uri)
-        client.host = "127.0.#{Random.rand(UInt8)}.#{Random.rand(UInt8)}" if @random_localhost
+        client.host = "127.0.#{@random.rand(UInt8)}.#{@random.rand(UInt8)}" if @random_localhost
         client
       end
     end
