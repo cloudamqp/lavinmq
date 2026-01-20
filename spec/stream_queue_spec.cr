@@ -290,6 +290,38 @@ describe LavinMQ::AMQP::Stream do
       end
     end
 
+    it "removes segments when max-length-bytes policy is applied" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          args = {"x-queue-type": "stream"}
+          q = ch.queue("stream-max-length-bytes-policy", args: AMQP::Client::Arguments.new(args))
+          data = Bytes.new(LavinMQ::Config.instance.segment_size)
+          2.times { q.publish_confirm data }
+          q.message_count.should eq 2
+          # Apply policy - should immediately trigger cleanup
+          s.vhosts["/"].add_policy("mlb", "stream-max-length-bytes-policy", "queues",
+            {"max-length-bytes" => JSON::Any.new(1_i64)}, 0i8)
+          q.message_count.should eq 1
+        end
+      end
+    end
+
+    it "removes segments when max-length policy is applied" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          args = {"x-queue-type": "stream"}
+          q = ch.queue("stream-max-length-policy", args: AMQP::Client::Arguments.new(args))
+          data = Bytes.new(LavinMQ::Config.instance.segment_size)
+          2.times { q.publish_confirm data }
+          q.message_count.should eq 2
+          # Apply policy - should immediately trigger cleanup
+          s.vhosts["/"].add_policy("ml", "stream-max-length-policy", "queues",
+            {"max-length" => JSON::Any.new(1_i64)}, 0i8)
+          q.message_count.should eq 1
+        end
+      end
+    end
+
     it "meta files should be removed when segment is removed" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
