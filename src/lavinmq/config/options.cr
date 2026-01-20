@@ -92,7 +92,7 @@ module LavinMQ
       property https_port = 15671
 
       @[CliOpt("", "--cert FILE", "TLS certificate (including chain)", section: "tls")]
-      @[IniOpt(section: "main")]
+      @[IniOpt(ini_name: tls_cert, section: "main")]
       @[EnvOpt("LAVINMQ_TLS_CERT_PATH")]
       property tls_cert_path = ""
 
@@ -102,7 +102,7 @@ module LavinMQ
       property tls_ciphers = ""
 
       @[CliOpt("", "--key FILE", "Private key for the TLS certificate", section: "tls")]
-      @[IniOpt(section: "main")]
+      @[IniOpt(ini_name: tls_key, section: "main")]
       @[EnvOpt("LAVINMQ_TLS_KEY_PATH")]
       property tls_key_path = ""
 
@@ -122,18 +122,18 @@ module LavinMQ
       @[CliOpt("", "--metrics-http-port=PORT", "HTTP port that prometheus will listen to (default: 15692)")]
       property metrics_http_port = 15692
 
-      @[IniOpt(section: "mqtt")]
+      @[IniOpt(ini_name: permission_check_enabled, section: "mqtt")]
       property? mqtt_permission_check_enabled : Bool = false
 
-      @[IniOpt(section: "clustering")]
+      @[IniOpt(ini_name: on_leader_elected, section: "clustering")]
       @[CliOpt("", "--clustering-on-leader-elected=COMMAND", "Shell command to execute when elected leader", section: "clustering")]
       property clustering_on_leader_elected = "" # shell command to execute when elected leader
 
-      @[IniOpt(section: "clustering")]
+      @[IniOpt(ini_name: on_leader_lost, section: "clustering")]
       @[CliOpt("", "--clustering-on-leader-lost=COMMAND", "Shell command to execute when losing leadership", section: "clustering")]
       property clustering_on_leader_lost = "" # shell command to execute when losing leadership
 
-      @[IniOpt(section: "mqtt")]
+      @[IniOpt(ini_name: max_packet_size, section: "mqtt")]
       property mqtt_max_packet_size = 268_435_455_u32 # bytes
 
       @[IniOpt(section: "mgmt")]
@@ -172,7 +172,7 @@ module LavinMQ
       @[IniOpt(section: "mqtt")]
       property max_inflight_messages : UInt16 = UInt16::MAX # mqtt messages
 
-      @[IniOpt(section: "mqtt")]
+      @[IniOpt(ini_name: default_vhost, section: "mqtt")]
       property default_mqtt_vhost = "/"
 
       @[IniOpt(section: "main", transform: ->tcp_keepalive?(String))]
@@ -260,7 +260,7 @@ module LavinMQ
       property? clustering = false
 
       @[CliOpt("", "--clustering-advertised-uri=URI", "Advertised URI for the clustering server", section: "clustering")]
-      @[IniOpt(section: "clustering")]
+      @[IniOpt(ini_name: advertised_uri, section: "clustering")]
       @[EnvOpt("LAVINMQ_CLUSTERING_ADVERTISED_URI")]
       property clustering_advertised_uri : String? = nil
 
