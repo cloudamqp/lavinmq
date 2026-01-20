@@ -232,7 +232,6 @@ module LavinMQ::AMQP
       start
     end
 
-    # Start message expire loop fiber
     private def start_message_expire_loop
       return if @message_expire_fiber_active.swap(true)
       @log.debug { "Starting message expire loop" }
@@ -761,7 +760,7 @@ module LavinMQ::AMQP
       no_ack ? @get_no_ack_count.add(1, :relaxed) : @get_count.add(1, :relaxed)
       get(no_ack) do |env|
         yield env
-      end
+      end.tap { ensure_expire_fiber }
     end
 
     # If nil is returned it means that the delivery limit is reached
