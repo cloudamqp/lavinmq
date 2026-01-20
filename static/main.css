@@ -752,7 +752,7 @@ button {
   height: calc(100vh - 64px);
   overflow-x: visible;
   overflow-y: auto;
-  z-index: 9998;
+  z-index: 9999;
   scrollbar-color: var(--color-scrollbar);
   scrollbar-width: thin;
 }
