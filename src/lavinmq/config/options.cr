@@ -92,7 +92,7 @@ module LavinMQ
       property https_port = 15671
 
       @[CliOpt("", "--cert FILE", "TLS certificate (including chain)", section: "tls")]
-      @[IniOpt(ini_name: tls_cert, section: "main")]
+      @[IniOpt(ini_name: tls_cert, section: ["main", "amqp", "mgmt"])]
       @[EnvOpt("LAVINMQ_TLS_CERT_PATH")]
       property tls_cert_path = ""
 
@@ -102,7 +102,7 @@ module LavinMQ
       property tls_ciphers = ""
 
       @[CliOpt("", "--key FILE", "Private key for the TLS certificate", section: "tls")]
-      @[IniOpt(ini_name: tls_key, section: "main")]
+      @[IniOpt(ini_name: tls_key, section: ["main", "amqp", "mgmt"])]
       @[EnvOpt("LAVINMQ_TLS_KEY_PATH")]
       property tls_key_path = ""
 
@@ -157,7 +157,7 @@ module LavinMQ
       @[IniOpt(section: "main")]
       property stats_log_size = 120 # 10 mins at 5s interval
 
-      @[IniOpt(section: "main")]
+      @[IniOpt(section: ["main", "amqp"])]
       property? set_timestamp = false # in message headers when receive
 
       @[IniOpt(section: "main")]
@@ -199,7 +199,7 @@ module LavinMQ
       @[IniOpt(section: "main")]
       property max_deleted_definitions = 8192 # number of deleted queues, unbinds etc that compacts the definitions file
 
-      @[IniOpt(section: "main")]
+      @[IniOpt(section: ["main", "amqp"])]
       property consumer_timeout : UInt64? = nil
 
       @[IniOpt(section: "main")]
@@ -215,7 +215,7 @@ module LavinMQ
       property auth_backends : Array(String) = ["local"]
 
       @[CliOpt("", "--default-consumer-prefetch=NUMBER", "Default consumer prefetch (default 65535)", section: "options")]
-      @[IniOpt(section: "main")]
+      @[IniOpt(section: ["main", "amqp"])]
       @[EnvOpt("LAVINMQ_DEFAULT_CONSUMER_PREFETCH")]
       property default_consumer_prefetch = UInt16::MAX
 

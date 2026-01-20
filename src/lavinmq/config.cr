@@ -14,6 +14,7 @@ module LavinMQ
     include Options
     @@instance : Config = self.new
     getter sni_manager : SNIManager = SNIManager.new
+    @configured_ini_options = Set(String).new
 
     def self.instance : LavinMQ::Config
       @@instance
@@ -175,17 +176,24 @@ module LavinMQ
     {% begin %}
     {%
       ivars_in_section = @type.instance_vars
-        # Filter out ivars for given section
+        # Filter out ivars for given section (supports both string and array of sections)
         .reject(&.annotation(IniOpt).nil?)
-        .select(&.annotation(IniOpt)[:section].== section)
+        .select do |ivar|
+          s = ivar.annotation(IniOpt)[:section]
+          s == section || (s.is_a?(ArrayLiteral) && s.includes?(section))
+        end
         # This is just to get simpler objects to work with
         .map do |ivar|
           anno = ivar.annotation(IniOpt)
+          s = anno[:section]
+          # Primary section is the first in the array (or the only one if it's a string)
+          is_primary = s == section || (s.is_a?(ArrayLiteral) && s[0] == section)
           {
             var_name:   ivar.name,
             ini_name:   anno[:ini_name] || ivar.name,
             transform:  anno[:transform] || ivar.type,
             deprecated: anno[:deprecated],
+            is_primary: is_primary,
           }
         end
     %}
@@ -193,6 +201,8 @@ module LavinMQ
     # Generate a case branch for each INI setting in this section.
     # If a setting is marked as deprecated, look up the replacement instance variable
     # and redirect the value assignment to it instead, logging a deprecation warning.
+    # For options available in multiple sections, primary section always sets,
+    # secondary sections only set if not already configured.
     settings.each do |name, v|
       case name
         {% for var in ivars_in_section %}
@@ -200,7 +210,17 @@ module LavinMQ
          {% if (deprecated = var[:deprecated]) %}
            Log.warn { "Config {{var[:ini_name]}} is deprecated, use {{deprecated.id}} instead" }
          {% end %}
-         self.{{var[:var_name]}} = parse_value(v, {{var[:transform]}})
+         {% if var[:is_primary] %}
+           self.{{var[:var_name]}} = parse_value(v, {{var[:transform]}})
+           @configured_ini_options.add("{{var[:var_name]}}")
+         {% else %}
+           if @configured_ini_options.includes?("{{var[:var_name]}}")
+             Log.warn { "{{var[:ini_name]}} in [{{section.id}}] ignored, already set" }
+           else
+             self.{{var[:var_name]}} = parse_value(v, {{var[:transform]}})
+             @configured_ini_options.add("{{var[:var_name]}}")
+           end
+         {% end %}
         {% end %}
      else
        Log.warn { "Unknown setting #{name} in section {{section.id}}" }
