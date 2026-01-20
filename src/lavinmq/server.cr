@@ -209,18 +209,49 @@ module LavinMQ
       spawn(name: "Accept TLS socket") do
         remote_addr = client.remote_address
         set_socket_options(client)
-        ssl_client = OpenSSL::SSL::Socket::Server.new(client, context, sync_close: true)
-        set_buffer_size(ssl_client)
-        Log.debug { "#{remote_addr} connected with #{ssl_client.tls_version} #{ssl_client.cipher}" }
-        conn_info = ConnectionInfo.new(remote_addr, client.local_address)
-        conn_info.ssl = true
-        conn_info.ssl_version = ssl_client.tls_version
-        conn_info.ssl_cipher = ssl_client.cipher
-        handle_connection(ssl_client, conn_info, protocol)
+        if @config.tls_ktls?
+          accept_ktls_connection(client, context, protocol, remote_addr)
+        else
+          accept_ssl_connection(client, context, protocol, remote_addr)
+        end
       rescue ex
         Log.warn(exception: ex) { "Error accepting TLS connection from #{remote_addr}" }
         client.close rescue nil
       end
+    end
+
+    private def accept_ktls_connection(client, context, protocol, remote_addr)
+      ssl_client = OpenSSL::SSL::KTLSSocket::Server.new(client, context, sync_close: true)
+      set_buffer_size(ssl_client)
+      ktls_status = ssl_client.ktls_status
+      if ktls_status
+        Log.debug { "#{remote_addr} connected with #{ssl_client.tls_version} #{ssl_client.cipher} kTLS=#{ktls_status}" }
+      else
+        Log.debug { "#{remote_addr} connected with #{ssl_client.tls_version} #{ssl_client.cipher}" }
+      end
+      conn_info = ConnectionInfo.new(remote_addr, client.local_address)
+      conn_info.ssl = true
+      conn_info.ssl_version = ssl_client.tls_version
+      conn_info.ssl_cipher = ssl_client.cipher
+      conn_info.ssl_ktls = ktls_status
+      handle_connection(ssl_client, conn_info, protocol)
+    end
+
+    private def accept_ssl_connection(client, context, protocol, remote_addr)
+      ssl_client = OpenSSL::SSL::Socket::Server.new(client, context, sync_close: true)
+      set_buffer_size(ssl_client)
+      ktls_status = ssl_client.ktls_status
+      if ktls_status
+        Log.debug { "#{remote_addr} connected with #{ssl_client.tls_version} #{ssl_client.cipher} kTLS=#{ktls_status}" }
+      else
+        Log.debug { "#{remote_addr} connected with #{ssl_client.tls_version} #{ssl_client.cipher}" }
+      end
+      conn_info = ConnectionInfo.new(remote_addr, client.local_address)
+      conn_info.ssl = true
+      conn_info.ssl_version = ssl_client.tls_version
+      conn_info.ssl_cipher = ssl_client.cipher
+      conn_info.ssl_ktls = ktls_status
+      handle_connection(ssl_client, conn_info, protocol)
     end
 
     def listen_tls(bind, port, context, protocol : Protocol = :amqp)

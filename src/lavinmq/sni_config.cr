@@ -1,4 +1,5 @@
 require "openssl"
+require "../stdlib/openssl_ktls"
 
 module LavinMQ
   # Configuration for a specific SNI hostname
@@ -15,6 +16,7 @@ module LavinMQ
     property? tls_verify_peer : Bool = false
     property tls_ca_cert : String = ""
     property tls_keylog_file : String = ""
+    property? tls_ktls : Bool = false
 
     # AMQP-specific overrides (nil/empty means use the default)
     property amqp_tls_cert : String? = nil
@@ -24,6 +26,7 @@ module LavinMQ
     property amqp_tls_verify_peer : Bool? = nil
     property amqp_tls_ca_cert : String? = nil
     property amqp_tls_keylog_file : String? = nil
+    property amqp_tls_ktls : Bool? = nil
 
     # MQTT-specific overrides (nil/empty means use the default)
     property mqtt_tls_cert : String? = nil
@@ -33,6 +36,7 @@ module LavinMQ
     property mqtt_tls_verify_peer : Bool? = nil
     property mqtt_tls_ca_cert : String? = nil
     property mqtt_tls_keylog_file : String? = nil
+    property mqtt_tls_ktls : Bool? = nil
 
     # HTTP-specific overrides (nil/empty means use the default)
     property http_tls_cert : String? = nil
@@ -42,6 +46,7 @@ module LavinMQ
     property http_tls_verify_peer : Bool? = nil
     property http_tls_ca_cert : String? = nil
     property http_tls_keylog_file : String? = nil
+    property http_tls_ktls : Bool? = nil
 
     @amqp_tls_context : OpenSSL::SSL::Context::Server?
     @mqtt_tls_context : OpenSSL::SSL::Context::Server?
@@ -59,7 +64,8 @@ module LavinMQ
         @amqp_tls_ciphers || @tls_ciphers,
         {@amqp_tls_verify_peer, @tls_verify_peer}.find &.is_a?(Bool),
         @amqp_tls_ca_cert || @tls_ca_cert,
-        @amqp_tls_keylog_file || @tls_keylog_file
+        @amqp_tls_keylog_file || @tls_keylog_file,
+        {@amqp_tls_ktls, @tls_ktls}.find(&.is_a?(Bool)) || false
       )
     end
 
@@ -72,7 +78,8 @@ module LavinMQ
         @mqtt_tls_ciphers || @tls_ciphers,
         {@mqtt_tls_verify_peer, @tls_verify_peer}.find &.is_a?(Bool),
         @mqtt_tls_ca_cert || @tls_ca_cert,
-        @mqtt_tls_keylog_file || @tls_keylog_file
+        @mqtt_tls_keylog_file || @tls_keylog_file,
+        {@mqtt_tls_ktls, @tls_ktls}.find(&.is_a?(Bool)) || false
       )
     end
 
@@ -85,7 +92,8 @@ module LavinMQ
         @http_tls_ciphers || @tls_ciphers,
         {@http_tls_verify_peer, @tls_verify_peer}.find &.is_a?(Bool),
         @http_tls_ca_cert || @tls_ca_cert,
-        @http_tls_keylog_file || @tls_keylog_file
+        @http_tls_keylog_file || @tls_keylog_file,
+        {@http_tls_ktls, @tls_ktls}.find(&.is_a?(Bool)) || false
       )
     end
 
@@ -96,9 +104,18 @@ module LavinMQ
       @http_tls_context = nil
     end
 
-    private def create_tls_context(cert_path, key_path, min_version, ciphers, verify_peer, ca_cert, keylog_file) : OpenSSL::SSL::Context::Server
+    private def create_tls_context(cert_path, key_path, min_version, ciphers, verify_peer, ca_cert, keylog_file, ktls : Bool) : OpenSSL::SSL::Context::Server
       context = OpenSSL::SSL::Context::Server.new
       context.add_options(OpenSSL::SSL::Options.new(0x40000000)) # disable client initiated renegotiation
+
+      # Enable kTLS if requested
+      if ktls
+        if context.enable_ktls
+          Log.info { "kTLS enabled for SNI host '#{@hostname}'" }
+        else
+          Log.warn { "kTLS requested for SNI host '#{@hostname}' but not available (requires OpenSSL 3.0+)" }
+        end
+      end
 
       # Set TLS version
       case min_version

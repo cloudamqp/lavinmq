@@ -1,6 +1,7 @@
 require "log"
 require "file"
 require "systemd"
+require "../stdlib/openssl_ktls"
 require "./server"
 require "./http/http_server"
 require "./http/metrics_server"
@@ -278,6 +279,13 @@ module LavinMQ
     private def create_tls_context
       context = OpenSSL::SSL::Context::Server.new
       context.add_options(OpenSSL::SSL::Options.new(0x40000000)) # disable client initiated renegotiation
+      if @config.tls_ktls?
+        if context.enable_ktls
+          Log.info { "kTLS enabled on TLS context" }
+        else
+          Log.warn { "kTLS requested but not available (requires OpenSSL 3.0+)" }
+        end
+      end
       context
     end
 

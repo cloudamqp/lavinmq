@@ -33,6 +33,7 @@ module LavinMQ
     property tls_ciphers = ""
     property tls_min_version = ""
     property tls_keylog_file = ""
+    property? tls_ktls = true
     property http_bind = "127.0.0.1"
     property http_port = 15672
     property https_port = 15671
@@ -179,6 +180,9 @@ module LavinMQ
         p.on("--key FILE", "Private key for the TLS certificate") { |v| @tls_key_path = v }
         p.on("--ciphers CIPHERS", "List of TLS ciphers to allow") { |v| @tls_ciphers = v }
         p.on("--tls-min-version=VERSION", "Mininum allowed TLS version (default: #{@tls_min_version})") { |v| @tls_min_version = v }
+        p.on("--tls-ktls=BOOL", "Enable kernel TLS (kTLS) offloading (default: true, requires OpenSSL 3.0+ and Linux 4.13+)") do |v|
+          @tls_ktls = {"true", "yes", "y", "1"}.includes?(v)
+        end
 
         p.separator("\nClustering:")
         p.on("--clustering", "Enable clustering") do
@@ -326,6 +330,7 @@ module LavinMQ
         when "tls_ciphers"               then @tls_ciphers = v
         when "tls_min_version"           then @tls_min_version = v
         when "tls_keylog_file"           then @tls_keylog_file = v
+        when "tls_ktls"                  then @tls_ktls = true?(v)
         when "log_exchange"              then @log_exchange = true?(v)
         when "free_disk_min"             then @free_disk_min = v.to_i64
         when "free_disk_warn"            then @free_disk_warn = v.to_i64
@@ -449,6 +454,7 @@ module LavinMQ
         when "tls_verify_peer" then host.tls_verify_peer = true?(v)
         when "tls_ca_cert"     then host.tls_ca_cert = v
         when "tls_keylog_file" then host.tls_keylog_file = v
+        when "tls_ktls"        then host.tls_ktls = true?(v)
           # AMQP-specific overrides
         when "amqp_tls_cert"        then host.amqp_tls_cert = v
         when "amqp_tls_key"         then host.amqp_tls_key = v
@@ -457,6 +463,7 @@ module LavinMQ
         when "amqp_tls_verify_peer" then host.amqp_tls_verify_peer = true?(v)
         when "amqp_tls_ca_cert"     then host.amqp_tls_ca_cert = v
         when "amqp_tls_keylog_file" then host.amqp_tls_keylog_file = v
+        when "amqp_tls_ktls"        then host.amqp_tls_ktls = true?(v)
           # MQTT-specific overrides
         when "mqtt_tls_cert"        then host.mqtt_tls_cert = v
         when "mqtt_tls_key"         then host.mqtt_tls_key = v
@@ -465,6 +472,7 @@ module LavinMQ
         when "mqtt_tls_verify_peer" then host.mqtt_tls_verify_peer = true?(v)
         when "mqtt_tls_ca_cert"     then host.mqtt_tls_ca_cert = v
         when "mqtt_tls_keylog_file" then host.mqtt_tls_keylog_file = v
+        when "mqtt_tls_ktls"        then host.mqtt_tls_ktls = true?(v)
           # HTTP-specific overrides
         when "http_tls_cert"        then host.http_tls_cert = v
         when "http_tls_key"         then host.http_tls_key = v
@@ -473,6 +481,7 @@ module LavinMQ
         when "http_tls_verify_peer" then host.http_tls_verify_peer = true?(v)
         when "http_tls_ca_cert"     then host.http_tls_ca_cert = v
         when "http_tls_keylog_file" then host.http_tls_keylog_file = v
+        when "http_tls_ktls"        then host.http_tls_ktls = true?(v)
         else
           STDERR.puts "WARNING: Unrecognized configuration 'sni:#{hostname}/#{config}'"
         end
