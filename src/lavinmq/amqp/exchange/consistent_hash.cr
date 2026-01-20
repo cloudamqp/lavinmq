@@ -39,9 +39,9 @@ module LavinMQ
 
       private def select_hasher(option : ConsistentHashAlgorithm)
         case option
-        when .jump?
+        in .jump?
           JumpConsistentHasher(AMQP::Destination).new
-        else
+        in .ring?
           RingConsistentHasher(AMQP::Destination).new
         end
       end
