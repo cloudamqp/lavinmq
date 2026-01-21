@@ -38,6 +38,23 @@ describe "Websocket support" do
   end
 
   describe "when request 'Sec-WebSocket-Protocol'" do
+    describe "is set to 'stomp,amqp,mqtt'" do
+      it "should set response 'Sec-WebSocket-Protocol' to 'amqp' (first match)" do
+        with_http_server do |http, _|
+          headers = ::HTTP::Headers{
+            "Upgrade"                => "websocket",
+            "Connection"             => "Upgrade",
+            "Sec-WebSocket-Version"  => "13",
+            "Sec-WebSocket-Protocol" => "stomp, amqp, mqtt",
+            "Sec-WebSocket-Key"      => "random",
+          }
+          response = http.get("/", headers)
+          response.headers.has_key?("Sec-WebSocket-Protocol").should be_true
+          response.headers["Sec-WebSocket-Protocol"].should eq "amqp"
+        end
+      end
+    end
+
     describe "is set to 'invalid'" do
       header = "invalid"
 

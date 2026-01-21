@@ -47,16 +47,19 @@ module LavinMQ
 
     private def handle_sub_protocol(context)
       if protocols = context.request.headers.get?("Sec-WebSocket-Protocol")
+        protocols = protocols.each.flat_map(&.split(",", remove_empty: true).map(&.strip))
         protocols.each do |protocol|
           case value = protocol
           # "amqp" is registered as amqp 1.0, but we accept any amqp value
           # see https://www.iana.org/assignments/websocket/websocket.xml#subprotocol-name
           when /^amqp/i
             context.response.headers["Sec-WebSocket-Protocol"] = value
+            return
             # "mqtt" is registered as mqtt 5.0
             # see https://www.iana.org/assignments/websocket/websocket.xml#subprotocol-name
           when /^mqtt/i
             context.response.headers["Sec-WebSocket-Protocol"] = value
+            return
           end
         end
       end
