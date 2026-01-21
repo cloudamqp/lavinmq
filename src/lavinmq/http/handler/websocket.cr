@@ -46,10 +46,9 @@ module LavinMQ
     end
 
     private def handle_sub_protocol(context)
-      if protocols = context.request.headers.get?("Sec-WebSocket-Protocol")
-        protocols = protocols.each.flat_map(&.split(",", remove_empty: true).map(&.strip))
-        protocols.each do |protocol|
-          case value = protocol
+      if protocols = context.request.headers["Sec-WebSocket-Protocol"]?
+        protocols.split(",", remove_empty: true) do |protocol|
+          case value = protocol.strip
           # "amqp" is registered as amqp 1.0, but we accept any amqp value
           # see https://www.iana.org/assignments/websocket/websocket.xml#subprotocol-name
           when /^amqp/i
@@ -108,9 +107,9 @@ module LavinMQ
     # It accepts any Sec-WebSocket-Protocol starting with amqp or mqtt and fallbacks
     # to request path then to AMQP.
     private def self.pick_protocol(request : ::HTTP::Request) : Protocol
-      if protocols = request.headers.get?("Sec-WebSocket-Protocol")
-        protocols.each do |protocol|
-          case protocol
+      if protocols = request.headers["Sec-WebSocket-Protocol"]?
+        protocols.split(",", remove_empty: true) do |protocol|
+          case protocol.strip
           # "amqp" is registered as amqp 1.0, but we accept any amqp value
           # see https://www.iana.org/assignments/websocket/websocket.xml#subprotocol-name
           when /^amqp/i then return Protocol::AMQP
