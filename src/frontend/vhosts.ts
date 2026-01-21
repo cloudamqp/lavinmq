@@ -1,0 +1,62 @@
+import * as HTTP from './http.js'
+import * as Helpers from './helpers.js'
+import * as Table from './table.js'
+
+interface Permission {
+  vhost: string
+  user: string
+}
+
+interface VhostItem {
+  name: string
+  messages_ready: number
+  messages_unacknowledged: number
+  messages: number
+}
+
+const tableOptions = {
+  url: 'api/vhosts',
+  keyColumns: ['name'],
+  pagination: true,
+  columnSelector: true,
+  search: true,
+}
+const vhostTable = Table.renderTable<VhostItem>('table', tableOptions, (tr, item, all) => {
+  const permissionsUrl = HTTP.url`api/vhosts/${item.name}/permissions`
+  HTTP.request<Permission[]>('GET', permissionsUrl)
+    .then((permissions) => {
+      window.sessionStorage.setItem(permissionsUrl, JSON.stringify(permissions))
+      if (all) {
+        const vhostLink = document.createElement('a')
+        vhostLink.href = HTTP.url`vhost#name=${item.name}`
+        vhostLink.textContent = item.name
+        Table.renderCell(tr, 0, vhostLink)
+      }
+      const userList = (permissions ?? [])
+        .filter((p) => p.vhost === item.name)
+        .map((p) => p.user)
+        .join(', ')
+      Table.renderCell(tr, 1, userList)
+      Table.renderCell(tr, 2, Helpers.formatNumber(item.messages_ready), 'center')
+      Table.renderCell(tr, 3, Helpers.formatNumber(item.messages_unacknowledged), 'center')
+      Table.renderCell(tr, 4, Helpers.formatNumber(item.messages), 'center')
+    })
+    .catch((e: { status?: number; body?: string }) => {
+      Table.toggleDisplayError('table', e.status === 403 ? 'You need administrator role to see this view' : e.body ?? '')
+    })
+})
+
+const createForm = document.querySelector('#createVhost')
+if (createForm) {
+  createForm.addEventListener('submit', function (evt) {
+    evt.preventDefault()
+    const form = evt.target as HTMLFormElement
+    const data = new FormData(form)
+    const name = (data.get('name') as string).trim()
+    const url = HTTP.url`api/vhosts/${name}`
+    HTTP.request('PUT', url).then(() => {
+      vhostTable.reload()
+      form.reset()
+    })
+  })
+}

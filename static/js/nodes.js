@@ -1,270 +1,247 @@
-import * as HTTP from './http.js'
-import * as Chart from './chart.js'
-import * as Helpers from './helpers.js'
-import * as Table from './table.js'
-import { DataSource } from './datasource.js'
-
-const numFormatter = new Intl.NumberFormat()
-let url = 'api/nodes'
-const vhost = window.sessionStorage.getItem('vhost')
+import * as HTTP from './http.js';
+import * as Chart from './chart.js';
+import * as Helpers from './helpers.js';
+import * as Table from './table.js';
+import { DataSource } from './datasource.js';
+const numFormatter = new Intl.NumberFormat();
+let url = 'api/nodes';
+const vhost = window.sessionStorage.getItem('vhost');
 if (vhost && vhost !== '_all') {
-  url += HTTP.url`?vhost=${vhost}`
+    url += HTTP.url `?vhost=${vhost}`;
 }
-
-function update (cb) {
-  HTTP.request('GET', url).then((response) => {
-    render(response)
-    if (cb) {
-      cb(response)
+function update(cb) {
+    HTTP.request('GET', url).then((response) => {
+        if (!response)
+            return;
+        render(response);
+        if (cb) {
+            cb(response);
+        }
+    });
+}
+function render(data) {
+    const versionEl = document.querySelector('#version');
+    if (versionEl && data[0])
+        versionEl.textContent = data[0].applications[0]?.version ?? '';
+    for (const node of data) {
+        updateDetails(node);
+        updateStats(node);
     }
-  })
 }
-
-function render (data) {
-  document.querySelector('#version').textContent = data[0].applications[0].version
-  for (const node of data) {
-    updateDetails(node)
-    updateStats(node)
-  }
+function start(cb) {
+    update(cb);
+    setInterval(update, 5000, cb);
 }
-
-function start (cb) {
-  update(cb)
-  setInterval(update, 5000, cb)
-}
-
 const updateDetails = (nodeStats) => {
-  document.getElementById('tr-name').textContent = nodeStats.name
-  document.getElementById('tr-uptime').textContent = Helpers.duration((nodeStats.uptime / 1000).toFixed(0))
-  document.getElementById('tr-vcpu').textContent = nodeStats.processors || 'N/A'
-  let memUsage, cpuUsage, diskUsage
-
-  if (nodeStats.mem_used !== undefined) {
-    const memUsedGb = (nodeStats.mem_used / 1024 ** 3).toFixed(3)
-    const memLimitGb = (nodeStats.mem_limit / 1024 ** 3).toFixed(3)
-    const memPcnt = (nodeStats.mem_used / nodeStats.mem_limit * 100).toFixed(2)
-    memUsage = `${memUsedGb}/${memLimitGb} GiB (${memPcnt}%)`
-  } else {
-    memUsage = 'N/A'
-  }
-  document.getElementById('tr-memory').textContent = memUsage
-  if (nodeStats.cpu_user_time !== undefined) {
-    const cpuPcnt = (((nodeStats.cpu_user_time + nodeStats.cpu_sys_time) / nodeStats.uptime) * 100).toFixed(2)
-    cpuUsage = `${cpuPcnt}%`
-  } else {
-    cpuUsage = 'N/A'
-  }
-  document.getElementById('tr-cpu').textContent = cpuUsage
-  if (nodeStats.disk_total !== undefined) {
-    const diskUsageGb = ((nodeStats.disk_total - nodeStats.disk_free) / 1024 ** 3).toFixed(3)
-    const diskTotalGb = (nodeStats.disk_total / 1024 ** 3).toFixed(0)
-    const diskPcnt = ((nodeStats.disk_total - nodeStats.disk_free) / nodeStats.disk_total * 100).toFixed(2)
-    diskUsage = `${diskUsageGb}/${diskTotalGb} GiB (${diskPcnt}%)`
-  } else {
-    diskUsage = 'N/A'
-  }
-  document.getElementById('tr-disk').textContent = diskUsage
-}
-
+    const setTextById = (id, text) => {
+        const el = document.getElementById(id);
+        if (el)
+            el.textContent = text;
+    };
+    setTextById('tr-name', nodeStats.name);
+    setTextById('tr-uptime', Helpers.duration(parseInt((nodeStats.uptime / 1000).toFixed(0), 10)));
+    setTextById('tr-vcpu', nodeStats.processors !== undefined ? String(nodeStats.processors) : 'N/A');
+    let memUsage, cpuUsage, diskUsage;
+    if (nodeStats.mem_used !== undefined && nodeStats.mem_limit !== undefined) {
+        const memUsedGb = (nodeStats.mem_used / 1024 ** 3).toFixed(3);
+        const memLimitGb = (nodeStats.mem_limit / 1024 ** 3).toFixed(3);
+        const memPcnt = ((nodeStats.mem_used / nodeStats.mem_limit) * 100).toFixed(2);
+        memUsage = `${memUsedGb}/${memLimitGb} GiB (${memPcnt}%)`;
+    }
+    else {
+        memUsage = 'N/A';
+    }
+    setTextById('tr-memory', memUsage);
+    if (nodeStats.cpu_user_time !== undefined && nodeStats.cpu_sys_time !== undefined) {
+        const cpuPcnt = (((nodeStats.cpu_user_time + nodeStats.cpu_sys_time) / nodeStats.uptime) * 100).toFixed(2);
+        cpuUsage = `${cpuPcnt}%`;
+    }
+    else {
+        cpuUsage = 'N/A';
+    }
+    setTextById('tr-cpu', cpuUsage);
+    if (nodeStats.disk_total !== undefined && nodeStats.disk_free !== undefined) {
+        const diskUsageGb = ((nodeStats.disk_total - nodeStats.disk_free) / 1024 ** 3).toFixed(3);
+        const diskTotalGb = (nodeStats.disk_total / 1024 ** 3).toFixed(0);
+        const diskPcnt = (((nodeStats.disk_total - nodeStats.disk_free) / nodeStats.disk_total) * 100).toFixed(2);
+        diskUsage = `${diskUsageGb}/${diskTotalGb} GiB (${diskPcnt}%)`;
+    }
+    else {
+        diskUsage = 'N/A';
+    }
+    setTextById('tr-disk', diskUsage);
+};
 const stats = [
-  {
-    heading: 'Connection',
-    content: [
-      {
-        heading: 'Created',
-        key: 'connection_created'
-      },
-      {
-        heading: 'Closed',
-        key: 'connection_closed'
-      }
-    ]
-  },
-  {
-    heading: 'Channels',
-    content: [
-      {
-        heading: 'Created',
-        key: 'channel_created'
-      },
-      {
-        heading: 'Closed',
-        key: 'channel_closed'
-      }
-    ]
-  },
-  {
-    heading: 'Queues',
-    content: [
-      {
-        heading: 'Declared',
-        key: 'queue_declared'
-      },
-      {
-        heading: 'Deleted',
-        key: 'queue_deleted'
-      }
-    ]
-  },
-  {
-    heading: 'File descriptors',
-    content: [
-      {
-        heading: 'Used',
-        key: 'fd_used'
-      },
-      {
-        heading: 'Total',
-        key: 'fd_total'
-      }
-    ]
-  },
-  {
-    heading: 'Messages',
-    content: [
-      {
-        heading: 'Ready',
-        key: 'messages_ready'
-      },
-      {
-        heading: 'Unacknowledged',
-        key: 'messages_unacknowledged'
-      }
-    ]
-  }
-]
-
+    {
+        heading: 'Connection',
+        content: [
+            { heading: 'Created', key: 'connection_created' },
+            { heading: 'Closed', key: 'connection_closed' },
+        ],
+    },
+    {
+        heading: 'Channels',
+        content: [
+            { heading: 'Created', key: 'channel_created' },
+            { heading: 'Closed', key: 'channel_closed' },
+        ],
+    },
+    {
+        heading: 'Queues',
+        content: [
+            { heading: 'Declared', key: 'queue_declared' },
+            { heading: 'Deleted', key: 'queue_deleted' },
+        ],
+    },
+    {
+        heading: 'File descriptors',
+        content: [
+            { heading: 'Used', key: 'fd_used' },
+            { heading: 'Total', key: 'fd_total' },
+        ],
+    },
+    {
+        heading: 'Messages',
+        content: [
+            { heading: 'Ready', key: 'messages_ready' },
+            { heading: 'Unacknowledged', key: 'messages_unacknowledged' },
+        ],
+    },
+];
 const updateStats = (nodeStats) => {
-  const table = document.getElementById('stats-table')
-  while (table.firstChild) {
-    table.firstChild.remove()
-  }
-
-  for (const rowStats of stats) {
-    const row = document.createElement('tr')
-    const th = document.createElement('th')
-    th.textContent = rowStats.heading
-    row.append(th)
-    let metrics = 0
-    for (const items of rowStats.content) {
-      if (nodeStats[items.key] !== undefined) {
-        const td = document.createElement('td')
-        td.textContent = items.heading + ': ' + numFormatter.format(nodeStats[items.key])
-        row.append(td)
-        metrics += 1
-      }
+    const table = document.getElementById('stats-table');
+    if (!table)
+        return;
+    while (table.firstChild) {
+        table.firstChild.remove();
     }
-    if (metrics > 0) {
-      table.append(row)
+    for (const rowStats of stats) {
+        const row = document.createElement('tr');
+        const th = document.createElement('th');
+        th.textContent = rowStats.heading;
+        row.append(th);
+        let metrics = 0;
+        for (const items of rowStats.content) {
+            const val = nodeStats[items.key];
+            if (val !== undefined && typeof val === 'number') {
+                const td = document.createElement('td');
+                td.textContent = items.heading + ': ' + numFormatter.format(val);
+                row.append(td);
+                metrics += 1;
+            }
+        }
+        if (metrics > 0) {
+            table.append(row);
+        }
     }
-  }
+};
+const memoryChart = Chart.render('memoryChart', 'MB');
+const ioChart = Chart.render('ioChart', 'ops');
+const cpuChart = Chart.render('cpuChart', '%', true);
+const connectionChurnChart = Chart.render('connectionChurnChart', '/s');
+const channelChurnChart = Chart.render('channelChurnChart', '/s');
+const queueChurnChart = Chart.render('queueChurnChart', '/s');
+const toMegaBytes = (dataPointInBytes) => (dataPointInBytes / 1024 ** 2).toFixed(2);
+class FollowersDataSource extends DataSource {
+    constructor() {
+        super({ autoReloadTimeout: 0, useQueryState: false });
+    }
+    update(items) {
+        this.items = items;
+    }
+    reload() {
+        return Promise.resolve();
+    }
 }
-const memoryChart = Chart.render('memoryChart', 'MB')
-const ioChart = Chart.render('ioChart', 'ops')
-const cpuChart = Chart.render('cpuChart', '%', true)
-const connectionChurnChart = Chart.render('connectionChurnChart', '/s')
-const channelChurnChart = Chart.render('channelChurnChart', '/s')
-const queueChurnChart = Chart.render('queueChurnChart', '/s')
-
-const toMegaBytes = (dataPointInBytes) => (dataPointInBytes / 1024 ** 2).toFixed(2)
-
-const followersDataSource = new (class extends DataSource {
-  constructor () { super({ autoReloadTimeout: 0, useQueryState: false }) }
-  update (items) { this.items = items }
-  reload () { }
-})()
+const followersDataSource = new FollowersDataSource();
 const followersTableOpts = {
-  dataSource: followersDataSource,
-  keyColumns: ['id'],
-  countId: 'followers-count'
-}
+    dataSource: followersDataSource,
+    keyColumns: ['id'],
+    countId: 'followers-count',
+};
 Table.renderTable('followers', followersTableOpts, (tr, item, firstRender) => {
-  if (firstRender) {
-    Table.renderCell(tr, 0, item.id)
-  }
-  Table.renderCell(tr, 1, item.remote_address)
-  Table.renderCell(tr, 2, humanizeBytes(item.sent_bytes), 'right')
-  Table.renderCell(tr, 3, humanizeBytes(item.acked_bytes), 'right')
-  Table.renderCell(tr, 4, humanizeBytes(item.sent_bytes - item.acked_bytes), 'right')
-})
-
-function updateCharts (response) {
-  if (response[0].mem_used !== undefined) {
-    const memoryStats = {
-      mem_used_details: toMegaBytes(response[0].mem_used),
-      mem_used_details_log: response[0].mem_used_details.log.map(toMegaBytes)
+    if (firstRender) {
+        Table.renderCell(tr, 0, item.id);
     }
-    Chart.update(memoryChart, memoryStats)
-  }
-  if (response[0].io_write_details !== undefined) {
-    const ioStats = {
-      io_write_details: response[0].io_write_details.log.slice(-1)[0],
-      io_write_details_log: response[0].io_write_details.log,
-      io_read_details: response[0].io_read_details.log.slice(-1)[0],
-      io_read_details_log: response[0].io_read_details.log
+    Table.renderCell(tr, 1, item.remote_address);
+    Table.renderCell(tr, 2, humanizeBytes(item.sent_bytes), 'right');
+    Table.renderCell(tr, 3, humanizeBytes(item.acked_bytes), 'right');
+    Table.renderCell(tr, 4, humanizeBytes(item.sent_bytes - item.acked_bytes), 'right');
+});
+function updateCharts(response) {
+    const node = response[0];
+    if (!node)
+        return;
+    if (node.mem_used !== undefined && node.mem_used_details) {
+        const memoryStats = {
+            mem_used_details: parseFloat(toMegaBytes(node.mem_used)),
+            mem_used_details_log: node.mem_used_details.log.map((v) => parseFloat(toMegaBytes(v))),
+        };
+        Chart.update(memoryChart, memoryStats);
     }
-    Chart.update(ioChart, ioStats)
-  }
-
-  if (response[0].cpu_user_details !== undefined) {
-    const cpuStats = {
-      user_time_details: response[0].cpu_user_details.log.slice(-1)[0] * 100,
-      system_time_details: response[0].cpu_sys_details.log.slice(-1)[0] * 100,
-      user_time_details_log: response[0].cpu_user_details.log.map(x => x * 100),
-      system_time_details_log: response[0].cpu_sys_details.log.map(x => x * 100)
+    if (node.io_write_details !== undefined && node.io_read_details !== undefined) {
+        const ioStats = {
+            io_write_details: node.io_write_details.log.slice(-1)[0] ?? 0,
+            io_write_details_log: node.io_write_details.log,
+            io_read_details: node.io_read_details.log.slice(-1)[0] ?? 0,
+            io_read_details_log: node.io_read_details.log,
+        };
+        Chart.update(ioChart, ioStats);
     }
-    Chart.update(cpuChart, cpuStats, 'origin')
-  }
-
-  if (response[0].connection_created_details !== undefined) {
-    const connectionChurnStats = {
-      connection_created_details: response[0].connection_created_details.rate,
-      connection_closed_details: response[0].connection_closed_details.rate,
-      connection_created_details_log: response[0].connection_created_details.log,
-      connection_closed_details_log: response[0].connection_closed_details.log
+    if (node.cpu_user_details !== undefined && node.cpu_sys_details !== undefined) {
+        const cpuStats = {
+            user_time_details: (node.cpu_user_details.log.slice(-1)[0] ?? 0) * 100,
+            system_time_details: (node.cpu_sys_details.log.slice(-1)[0] ?? 0) * 100,
+            user_time_details_log: node.cpu_user_details.log.map((x) => x * 100),
+            system_time_details_log: node.cpu_sys_details.log.map((x) => x * 100),
+        };
+        Chart.update(cpuChart, cpuStats);
     }
-    Chart.update(connectionChurnChart, connectionChurnStats)
-  }
-  if (response[0].channel_created_details !== undefined) {
-    const channelChurnStats = {
-      channel_created_details: response[0].channel_created_details.rate,
-      channel_closed_details: response[0].channel_closed_details.rate,
-      channel_created_details_log: response[0].channel_created_details.log,
-      channel_closed_details_log: response[0].channel_closed_details.log
+    if (node.connection_created_details !== undefined && node.connection_closed_details !== undefined) {
+        const connectionChurnStats = {
+            connection_created_details: node.connection_created_details.rate,
+            connection_closed_details: node.connection_closed_details.rate,
+            connection_created_details_log: node.connection_created_details.log,
+            connection_closed_details_log: node.connection_closed_details.log,
+        };
+        Chart.update(connectionChurnChart, connectionChurnStats);
     }
-    Chart.update(channelChurnChart, channelChurnStats)
-  }
-  if (response[0].queue_declared_details !== undefined) {
-    const queueChurnStats = {
-      queue_declared_details: response[0].queue_declared_details.rate,
-      queue_deleted_details: response[0].queue_deleted_details.rate,
-      queue_declared_details_log: response[0].queue_declared_details.log,
-      queue_deleted_details_log: response[0].queue_deleted_details.log
+    if (node.channel_created_details !== undefined && node.channel_closed_details !== undefined) {
+        const channelChurnStats = {
+            channel_created_details: node.channel_created_details.rate,
+            channel_closed_details: node.channel_closed_details.rate,
+            channel_created_details_log: node.channel_created_details.log,
+            channel_closed_details_log: node.channel_closed_details.log,
+        };
+        Chart.update(channelChurnChart, channelChurnStats);
     }
-    Chart.update(queueChurnChart, queueChurnStats)
-  }
-  followersDataSource.update(response[0].followers)
+    if (node.queue_declared_details !== undefined && node.queue_deleted_details !== undefined) {
+        const queueChurnStats = {
+            queue_declared_details: node.queue_declared_details.rate,
+            queue_deleted_details: node.queue_deleted_details.rate,
+            queue_declared_details_log: node.queue_declared_details.log,
+            queue_deleted_details_log: node.queue_deleted_details.log,
+        };
+        Chart.update(queueChurnChart, queueChurnStats);
+    }
+    followersDataSource.update(node.followers);
 }
-
-function humanizeBytes (bytes, si = false, dp = 1) {
-  const thresh = si ? 1000 : 1024
-
-  if (Math.abs(bytes) < thresh) {
-    return bytes + ' B'
-  }
-
-  const units = si
-    ? ['kB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB']
-    : ['KiB', 'MiB', 'GiB', 'TiB', 'PiB', 'EiB', 'ZiB', 'YiB']
-  let u = -1
-  const r = 10 ** dp
-
-  do {
-    bytes /= thresh
-    ++u
-  } while (Math.round(Math.abs(bytes) * r) / r >= thresh && u < units.length - 1)
-
-  return bytes.toFixed(dp) + ' ' + units[u]
+function humanizeBytes(bytes, si = false, dp = 1) {
+    const thresh = si ? 1000 : 1024;
+    if (Math.abs(bytes) < thresh) {
+        return bytes + ' B';
+    }
+    const units = si
+        ? ['kB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB']
+        : ['KiB', 'MiB', 'GiB', 'TiB', 'PiB', 'EiB', 'ZiB', 'YiB'];
+    let u = -1;
+    const r = 10 ** dp;
+    let b = bytes;
+    do {
+        b /= thresh;
+        ++u;
+    } while (Math.round(Math.abs(b) * r) / r >= thresh && u < units.length - 1);
+    return b.toFixed(dp) + ' ' + units[u];
 }
-
-start(updateCharts)
+start(updateCharts);
+//# sourceMappingURL=nodes.js.map
