@@ -19,6 +19,37 @@ module LavinMQ::AMQP
         def initialize(@vhost : VHost, @queue_name : String, @log : Logger)
         end
 
+        def handle_arguments(arguments, effective_args)
+          if self.dlx = arguments["x-dead-letter-exchange"]?.try &.to_s
+            effective_args << "x-dead-letter-exchange"
+          end
+          if self.dlrk = arguments["x-dead-letter-routing-key"]?.try &.to_s
+            effective_args << "x-dead-letter-routing-key"
+          end
+        end
+
+        def apply_policy_argument(key : String, value : JSON::Any, effective_args) : Bool
+          case key
+          when "dead-letter-exchange"
+            if dlx.nil?
+              self.dlx ||= value.as_s
+              effective_args.delete("x-dead-letter-exchange")
+              return true
+            end
+          when "dead-letter-routing-key"
+            if self.dlrk.nil?
+              self.dlrk ||= value.as_s
+              effective_args.delete("x-dead-letter-routing-key")
+              return true
+            end
+          end
+          false
+        end
+
+        def active?
+          !(self.dlx.nil?)
+        end
+
         private def cycle?(props, reason) : Bool
           unless headers = props.headers
             return false
