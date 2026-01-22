@@ -43,7 +43,7 @@ describe LavinMQ::Config do
       config_file = File.tempfile do |file|
         file.print <<-CONFIG
         [oauth]
-        issuer_url = https://auth.example.com
+        issuer = https://auth.example.com
         CONFIG
       end
 

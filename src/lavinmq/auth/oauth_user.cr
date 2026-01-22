@@ -38,7 +38,7 @@ module LavinMQ
       end
 
       def refresh(new_secret : String)
-        claims = @verifier.verify_token(new_secret)
+        claims = @verifier.parse_token(new_secret)
 
         # Verify the username matches to prevent token substitution attacks
         if claims.username != @name

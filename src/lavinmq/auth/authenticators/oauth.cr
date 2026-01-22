@@ -1,6 +1,7 @@
 require "../authenticator"
 require "../oauth_user"
 require "../jwt/token_verifier"
+require "../jwt/token_claim"
 
 module LavinMQ
   module Auth
@@ -11,7 +12,7 @@ module LavinMQ
       end
 
       def authenticate(context : Context) : BaseUser?
-        claims = @token_verifier.verify_token(String.new(context.password))
+        claims = @token_verifier.parse_token(String.new(context.password))
         OAuthUser.new(claims.username, claims.tags, claims.permissions, claims.expires_at, @token_verifier)
       rescue ex : JWT::PasswordFormatError
         Log.debug { "skipping authentication for user \"#{context.username}\": " \
