@@ -28,18 +28,16 @@ module LavinMQ::AMQP
           end
         end
 
-        def apply_policy_argument(key : String, value : JSON::Any, effective_args) : Bool
+        def apply_policy_argument(key : String, value : JSON::Any) : Bool
           case key
           when "dead-letter-exchange"
             if dlx.nil?
-              self.dlx ||= value.as_s
-              effective_args.delete("x-dead-letter-exchange")
+              self.dlx = value.as_s
               return true
             end
           when "dead-letter-routing-key"
             if self.dlrk.nil?
-              self.dlrk ||= value.as_s
-              effective_args.delete("x-dead-letter-routing-key")
+              self.dlrk = value.as_s
               return true
             end
           end

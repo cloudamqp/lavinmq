@@ -323,11 +323,14 @@ module LavinMQ::AMQP
           return true
         end
       else
-        # Instead of passing @effective_args here we can remove "x-#{key}" from
-        # effective_args if apply_policy_argument returns true. At least for now
-        # it seems like the policy argument and queue argument is the same except
-        # for the "x-" prefix.
-        return true if @dead_letter.apply_policy_argument(key, value, @effective_args)
+        # If something can be configured by both policy arguments and queue
+        # arguments, we assume that the keys are the same with an "x-" prefix
+        # for queues, e.g. policy "max-length" queue "x-max-length". So if the
+        # policy argument is applied we can remove the key from effective args.
+        if @dead_letter.apply_policy_argument(key, value)
+          @effective_args.delete("x-#{key}")
+          return true
+        end
       end
       false
     end
