@@ -47,10 +47,10 @@ module LavinMQ
       @vhosts = VHostStore.new(@data_dir, @users, @replicator)
       @mqtt_brokers = MQTT::Brokers.new(@vhosts, @replicator)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator)
-      @authenticator = Auth::Chain.create(@users)
+      @authenticator = Auth::Chain.create(@config, @users)
       @connection_factories = {
-        Protocol::AMQP => AMQP::ConnectionFactory.new(authenticator, @vhosts),
-        Protocol::MQTT => MQTT::ConnectionFactory.new(authenticator, @mqtt_brokers, @config),
+        Protocol::AMQP => AMQP::ConnectionFactory.new(@authenticator, @vhosts),
+        Protocol::MQTT => MQTT::ConnectionFactory.new(@authenticator, @mqtt_brokers, @config),
       }
       apply_parameter
       spawn stats_loop, name: "Server#stats_loop"
@@ -91,10 +91,10 @@ module LavinMQ
       Dir.mkdir_p @data_dir
       Schema.migrate(@data_dir, @replicator)
       @users = Auth::UserStore.new(@data_dir, @replicator)
-      authenticator = Auth::Chain.create(@users)
+      @authenticator = Auth::Chain.create(@config, @users)
       @vhosts = VHostStore.new(@data_dir, @users, @replicator)
-      @connection_factories[Protocol::AMQP] = AMQP::ConnectionFactory.new(authenticator, @vhosts)
-      @connection_factories[Protocol::MQTT] = MQTT::ConnectionFactory.new(authenticator, @mqtt_brokers, @config)
+      @connection_factories[Protocol::AMQP] = AMQP::ConnectionFactory.new(@authenticator, @vhosts)
+      @connection_factories[Protocol::MQTT] = MQTT::ConnectionFactory.new(@authenticator, @mqtt_brokers, @config)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator)
       apply_parameter
       @closed = false
