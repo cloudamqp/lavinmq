@@ -80,7 +80,7 @@ module LavinMQ
     def self.new(server : LavinMQ::Server)
       WebSocketHandler.new do |ws, ctx, protocol|
         req = ctx.request
-        protocol ||= pick_protocol(req)
+        protocol ||= fallback_protocol(req)
 
         local_address = req.local_address.as?(Socket::IPAddress) ||
                         Socket::IPAddress.new("127.0.0.1", 0) # Fake when UNIXAddress
