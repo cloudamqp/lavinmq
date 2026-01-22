@@ -291,6 +291,57 @@ module LavinMQ
 
       @[IniOpt(section: "amqp")]
       property max_consumers_per_channel = 0
+
+      # Deprecated options - these forward to the primary option in [main]
+
+      @[IniOpt(ini_name: tls_cert, section: "amqp", deprecated: "tls_cert in [main]")]
+      @amqp_tls_cert = ""
+
+      def amqp_tls_cert=(value)
+        @tls_cert_path = value
+      end
+
+      @[IniOpt(ini_name: tls_key, section: "amqp", deprecated: "tls_key in [main]")]
+      @amqp_tls_key = ""
+
+      def amqp_tls_key=(value)
+        @tls_key_path = value
+      end
+
+      @[IniOpt(ini_name: tls_cert, section: "mgmt", deprecated: "tls_cert in [main]")]
+      @mgmt_tls_cert = ""
+
+      def mgmt_tls_cert=(value)
+        @tls_cert_path = value
+      end
+
+      @[IniOpt(ini_name: tls_key, section: "mgmt", deprecated: "tls_key in [main]")]
+      @mgmt_tls_key = ""
+
+      def mgmt_tls_key=(value)
+        @tls_key_path = value
+      end
+
+      @[IniOpt(ini_name: set_timestamp, section: "amqp", deprecated: "set_timestamp in [main]")]
+      @amqp_set_timestamp = false
+
+      def amqp_set_timestamp=(value)
+        @set_timestamp = value
+      end
+
+      @[IniOpt(ini_name: consumer_timeout, section: "amqp", deprecated: "consumer_timeout in [main]")]
+      @amqp_consumer_timeout : UInt64? = nil
+
+      def amqp_consumer_timeout=(value)
+        @consumer_timeout = value
+      end
+
+      @[IniOpt(ini_name: default_consumer_prefetch, section: "amqp", deprecated: "default_consumer_prefetch in [main]")]
+      @amqp_default_consumer_prefetch = UInt16::MAX
+
+      def amqp_default_consumer_prefetch=(value)
+        @default_consumer_prefetch = value
+      end
     end
   end
 end
