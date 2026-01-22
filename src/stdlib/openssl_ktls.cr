@@ -36,41 +36,10 @@
       # - Linux kernel 4.13+ with TLS module loaded
       # - Supported cipher suites (AES-GCM, ChaCha20-Poly1305)
       #
-      # Returns true if the option was set, false if kTLS is not available.
+      # Returns true if kTLS option is set, false if kTLS is not available.
       def enable_ktls : Bool
-        add_options(OpenSSL::SSL::Options.new(LibSSL::SSL_OP_ENABLE_KTLS))
-        true
-      end
-    end
-
-    class Socket
-      # Returns true if kTLS is active for sending data on this connection.
-      # This should be called after the TLS handshake is complete.
-      def ktls_send? : Bool
-        wbio = LibSSL.ssl_get_wbio(@ssl)
-        return false if wbio.null?
-        LibCrypto.bio_ctrl(wbio, LibCrypto::BIO_CTRL_GET_KTLS_SEND, 0, nil) == 1
-      end
-
-      # Returns true if kTLS is active for receiving data on this connection.
-      # This should be called after the TLS handshake is complete.
-      def ktls_recv? : Bool
-        rbio = LibSSL.ssl_get_rbio(@ssl)
-        return false if rbio.null?
-        LibCrypto.bio_ctrl(rbio, LibCrypto::BIO_CTRL_GET_KTLS_RECV, 0, nil) == 1
-      end
-
-      # Returns a string describing the kTLS status of this connection.
-      # Possible values: "send+recv", "send", "recv", or nil if kTLS is not active.
-      def ktls_status : String?
-        send = ktls_send?
-        recv = ktls_recv?
-        case {send, recv}
-        when {true, true}  then "send+recv"
-        when {true, false} then "send"
-        when {false, true} then "recv"
-        else                    nil
-        end
+        opt = add_options(OpenSSL::SSL::Options.new(LibSSL::SSL_OP_ENABLE_KTLS))
+        (opt.to_u64 & 0x00000008_u64 != 0)
       end
     end
   end
@@ -80,20 +49,6 @@
     class Context
       def enable_ktls : Bool
         false
-      end
-    end
-
-    class Socket
-      def ktls_send? : Bool
-        false
-      end
-
-      def ktls_recv? : Bool
-        false
-      end
-
-      def ktls_status : String?
-        nil
       end
     end
   end
