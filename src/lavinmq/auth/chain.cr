@@ -15,7 +15,7 @@ module LavinMQ
         @backends = backends
       end
 
-      def self.create(config : Config, users : UserStore) : Chain
+      def self.create(config : Config, users : UserStore, jwks_fetcher : JWT::JWKSFetcher) : Chain
         authenticators = [] of Authenticator
         config.auth_backends.each do |backend|
           case backend
@@ -23,7 +23,6 @@ module LavinMQ
             authenticators << LocalAuthenticator.new(users)
           when "oauth"
             begin
-              jwks_fetcher = JWT::JWKSFetcher.new(config.oauth_issuer_url, config.oauth_jwks_cache_ttl)
               # We want to make sure the Oauth server is alive before creating the authenticator
               jwks_fetcher.fetch_and_update
               spawn jwks_fetcher.refresh_loop, name: "JWKS refresh"

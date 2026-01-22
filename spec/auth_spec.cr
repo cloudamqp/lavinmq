@@ -8,18 +8,22 @@ class MockVerifier < LavinMQ::Auth::JWT::TokenVerifier
     jwks_fetcher = LavinMQ::Auth::JWT::JWKSFetcher.new(config.oauth_issuer_url, config.oauth_jwks_cache_ttl)
     super(config, jwks_fetcher)
   end
+end
 
-  def verify_token(token : String) : LavinMQ::Auth::JWT::TokenClaims
-    tags = @tags || Array(LavinMQ::Tag).new
-    permissions = @permissions || Hash(String, LavinMQ::Auth::BaseUser::Permissions).new
-    LavinMQ::Auth::JWT::TokenClaims.new(@username, tags, permissions, @expires_at)
+class MockJWKSFetcher < LavinMQ::Auth::JWT::JWKSFetcher
+  def initialize
+    super(URI.new, 1.seconds)
+  end
+
+  def fetch_and_update
   end
 end
 
 describe LavinMQ::Auth::Chain do
   it "creates a default authentication chain if not configured" do
     with_amqp_server do |s|
-      chain = LavinMQ::Auth::Chain.create(s.@config, s.@users)
+      fetcher = MockJWKSFetcher.new
+      chain = LavinMQ::Auth::Chain.create(s.@config, s.@users, fetcher)
       chain.@backends.should be_a Array(LavinMQ::Auth::Authenticator)
       chain.@backends.size.should eq 1
     end
@@ -27,7 +31,8 @@ describe LavinMQ::Auth::Chain do
 
   it "successfully authenticates and returns a local user" do
     with_amqp_server do |s|
-      chain = LavinMQ::Auth::Chain.create(s.@config, s.@users)
+      fetcher = MockJWKSFetcher.new
+      chain = LavinMQ::Auth::Chain.create(s.@config, s.@users, fetcher)
       ctx = LavinMQ::Auth::Context.new("guest", "guest".to_slice, loopback: true)
       user = chain.authenticate(ctx)
       user.should_not be_nil
@@ -37,7 +42,8 @@ describe LavinMQ::Auth::Chain do
   it "does not authenticate when given invalid credentials" do
     with_amqp_server do |s|
       s.@users.create("foo", "bar")
-      chain = LavinMQ::Auth::Chain.create(s.@config, s.@users)
+      fetcher = MockJWKSFetcher.new
+      chain = LavinMQ::Auth::Chain.create(s.@config, s.@users, fetcher)
       ctx = LavinMQ::Auth::Context.new("bar", "baz".to_slice, loopback: true)
       user = chain.authenticate(ctx)
       user.should be_nil
@@ -47,7 +53,8 @@ describe LavinMQ::Auth::Chain do
   it "requires loopback if Config.#default_user_only_loopback? is true" do
     with_amqp_server do |s|
       LavinMQ::Config.instance.default_user_only_loopback = true
-      chain = LavinMQ::Auth::Chain.create(s.@config, s.@users)
+      fetcher = MockJWKSFetcher.new
+      chain = LavinMQ::Auth::Chain.create(s.@config, s.@users, fetcher)
       ctx = LavinMQ::Auth::Context.new("guest", "guest".to_slice, loopback: false)
       user = chain.authenticate(ctx)
       user.should be_nil
@@ -61,7 +68,8 @@ describe LavinMQ::Auth::Chain do
       with_datadir do |data_dir|
         config.data_dir = data_dir
         users = LavinMQ::Auth::UserStore.new(data_dir, nil)
-        chain = LavinMQ::Auth::Chain.create(config, users)
+        fetcher = MockJWKSFetcher.new
+        chain = LavinMQ::Auth::Chain.create(config, users, fetcher)
         chain.@backends.size.should eq 1
         chain.@backends[0].should be_a LavinMQ::Auth::LocalAuthenticator
       end
@@ -70,12 +78,13 @@ describe LavinMQ::Auth::Chain do
     it "creates only oauth authenticator when backends is ['oauth']" do
       config = LavinMQ::Config.new
       config.auth_backends = ["oauth"]
-      config.oauth_issuer_url = URI.parse("https://auth.example.com")
+      config.oauth_issuer_url = URI.parse("https://test-giant-beige-hawk.rmq7.cloudamqp.com/realms/lavinmq-dev/")
       config.oauth_preferred_username_claims = ["preferred_username"]
       with_datadir do |data_dir|
         config.data_dir = data_dir
         users = LavinMQ::Auth::UserStore.new(data_dir, nil)
-        chain = LavinMQ::Auth::Chain.create(config, users)
+        fetcher = MockJWKSFetcher.new
+        chain = LavinMQ::Auth::Chain.create(config, users, fetcher)
         chain.@backends.size.should eq 1
         chain.@backends[0].should be_a LavinMQ::Auth::OAuthAuthenticator
       end
@@ -84,12 +93,13 @@ describe LavinMQ::Auth::Chain do
     it "creates both authenticators when backends is ['local', 'oauth']" do
       config = LavinMQ::Config.new
       config.auth_backends = ["local", "oauth"]
-      config.oauth_issuer_url = URI.parse("https://auth.example.com")
+      config.oauth_issuer_url = URI.parse("https://test-giant-beige-hawk.rmq7.cloudamqp.com/realms/lavinmq-dev/")
       config.oauth_preferred_username_claims = ["preferred_username"]
       with_datadir do |data_dir|
         config.data_dir = data_dir
         users = LavinMQ::Auth::UserStore.new(data_dir, nil)
-        chain = LavinMQ::Auth::Chain.create(config, users)
+        fetcher = MockJWKSFetcher.new
+        chain = LavinMQ::Auth::Chain.create(config, users, fetcher)
         chain.@backends.size.should eq 2
         chain.@backends[0].should be_a LavinMQ::Auth::LocalAuthenticator
         chain.@backends[1].should be_a LavinMQ::Auth::OAuthAuthenticator
@@ -99,12 +109,13 @@ describe LavinMQ::Auth::Chain do
     it "creates authenticators in specified order ['oauth', 'local']" do
       config = LavinMQ::Config.new
       config.auth_backends = ["oauth", "local"]
-      config.oauth_issuer_url = URI.parse("https://auth.example.com")
+      config.oauth_issuer_url = URI.parse("https://test-giant-beige-hawk.rmq7.cloudamqp.com/realms/lavinmq-dev/")
       config.oauth_preferred_username_claims = ["preferred_username"]
       with_datadir do |data_dir|
         config.data_dir = data_dir
         users = LavinMQ::Auth::UserStore.new(data_dir, nil)
-        chain = LavinMQ::Auth::Chain.create(config, users)
+        fetcher = MockJWKSFetcher.new
+        chain = LavinMQ::Auth::Chain.create(config, users, fetcher)
         chain.@backends.size.should eq 2
         chain.@backends[0].should be_a LavinMQ::Auth::OAuthAuthenticator
         chain.@backends[1].should be_a LavinMQ::Auth::LocalAuthenticator
@@ -118,7 +129,8 @@ describe LavinMQ::Auth::Chain do
         config.data_dir = data_dir
         users = LavinMQ::Auth::UserStore.new(data_dir, nil)
         expect_raises(Exception, /Unsupported authentication backend/) do
-          LavinMQ::Auth::Chain.create(config, users)
+          fetcher = MockJWKSFetcher.new
+          LavinMQ::Auth::Chain.create(config, users, fetcher)
         end
       end
     end
@@ -131,7 +143,8 @@ describe LavinMQ::Auth::Chain do
         config.data_dir = data_dir
         users = LavinMQ::Auth::UserStore.new(data_dir, nil)
         expect_raises(Exception, /Unsupported authentication backend: invalid/) do
-          LavinMQ::Auth::Chain.create(config, users)
+          fetcher = MockJWKSFetcher.new
+          LavinMQ::Auth::Chain.create(config, users, fetcher)
         end
       end
     end
@@ -149,7 +162,8 @@ describe LavinMQ::Auth::Chain do
         users = LavinMQ::Auth::UserStore.new(data_dir, nil)
         users.create("testuser", "localpass", [LavinMQ::Tag::Administrator])
 
-        chain = LavinMQ::Auth::Chain.create(config, users)
+        fetcher = MockJWKSFetcher.new
+        chain = LavinMQ::Auth::Chain.create(config, users, fetcher)
 
         # Should authenticate with local backend
         ctx = LavinMQ::Auth::Context.new("testuser", "localpass".to_slice, loopback: true)
@@ -171,7 +185,8 @@ describe LavinMQ::Auth::Chain do
         users = LavinMQ::Auth::UserStore.new(data_dir, nil)
         users.create("testuser", "correctpass", [LavinMQ::Tag::Administrator])
 
-        chain = LavinMQ::Auth::Chain.create(config, users)
+        fetcher = MockJWKSFetcher.new
+        chain = LavinMQ::Auth::Chain.create(config, users, fetcher)
 
         # Wrong password for local user, not a JWT for oauth
         ctx = LavinMQ::Auth::Context.new("testuser", "wrongpass".to_slice, loopback: true)
@@ -256,7 +271,7 @@ describe LavinMQ::Auth::Chain do
           "testuser",
           [] of LavinMQ::Tag,
           {} of String => LavinMQ::Auth::BaseUser::Permissions,
-          Time.utc + 100.milliseconds,
+          Time.utc + 300.milliseconds,
           verifier
         )
 
@@ -269,11 +284,10 @@ describe LavinMQ::Auth::Chain do
         # Send token update before expiration
         sleep 70.milliseconds
 
-        user.refresh("")
-        # user.token_updated.send nil
+        user.@token_updated.send nil
 
         # Wait past the original expiration time
-        sleep 70.milliseconds
+        sleep 250.milliseconds
 
         # Callback should not have been called yet since timer was reset
         # but it will be called eventually (negative token_lifetime triggers immediately)
