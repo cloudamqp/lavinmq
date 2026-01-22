@@ -49,8 +49,7 @@ describe "Websocket support" do
             "Sec-WebSocket-Key"      => "random",
           }
           response = http.get("/", headers)
-          response.headers.has_key?("Sec-WebSocket-Protocol").should be_true
-          response.headers["Sec-WebSocket-Protocol"].should eq "amqp"
+          response.headers["Sec-WebSocket-Protocol"]?.should eq "amqp"
         end
       end
     end
@@ -136,8 +135,7 @@ describe "Websocket support" do
               "Sec-WebSocket-Key"      => "random",
             }
             response = http.get("/", headers)
-            response.headers.has_key?("Sec-WebSocket-Protocol").should be_true
-            response.headers["Sec-WebSocket-Protocol"].should eq header
+            response.headers["Sec-WebSocket-Protocol"]?.should eq header
           end
         end
 
@@ -206,8 +204,7 @@ describe "Websocket support" do
               "Sec-WebSocket-Key"      => "random",
             }
             response = http.get("/", headers)
-            response.headers.has_key?("Sec-WebSocket-Protocol").should be_true
-            response.headers["Sec-WebSocket-Protocol"].should eq header
+            response.headers["Sec-WebSocket-Protocol"]?.should eq header
           end
         end
 
