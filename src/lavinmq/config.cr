@@ -241,6 +241,18 @@ module LavinMQ
       Auth::Password::SHA256Password.new(value)
     end
 
+    private def parse_value(value, type : URI.class)
+      URI.parse(value)
+    end
+
+    private def parse_value(value, type : Time::Span.class)
+      value.to_i.seconds
+    end
+
+    private def parse_value(value, type : Array(String).class)
+      value.split(",").map(&.strip)
+    end
+
     private def parse_bind(value)
       @amqp_bind = value
       @http_bind = value

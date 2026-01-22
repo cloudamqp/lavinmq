@@ -3,7 +3,7 @@ module LavinMQ
     annotation CliOpt; end
     annotation IniOpt; end
     annotation EnvOpt; end
-    INI_SECTIONS = {"main", "amqp", "mqtt", "mgmt", "experimental", "clustering"}
+    INI_SECTIONS = {"main", "amqp", "mqtt", "mgmt", "experimental", "clustering", "oauth"}
 
     # Separate module for config option definitions. This keeps the option declarations
     # organized in one place, while config.cr contains the parsing and validation logic.
@@ -92,7 +92,7 @@ module LavinMQ
       property https_port = 15671
 
       @[CliOpt("", "--cert FILE", "TLS certificate (including chain)", section: "tls")]
-      @[IniOpt(ini_name: tls_cert, section: "main")]
+      @[IniOpt(section: "main")]
       @[EnvOpt("LAVINMQ_TLS_CERT_PATH")]
       property tls_cert_path = ""
 
@@ -102,7 +102,7 @@ module LavinMQ
       property tls_ciphers = ""
 
       @[CliOpt("", "--key FILE", "Private key for the TLS certificate", section: "tls")]
-      @[IniOpt(ini_name: tls_key, section: "main")]
+      @[IniOpt(section: "main")]
       @[EnvOpt("LAVINMQ_TLS_KEY_PATH")]
       property tls_key_path = ""
 
@@ -122,18 +122,18 @@ module LavinMQ
       @[CliOpt("", "--metrics-http-port=PORT", "HTTP port that prometheus will listen to (default: 15692)")]
       property metrics_http_port = 15692
 
-      @[IniOpt(ini_name: permission_check_enabled, section: "mqtt")]
+      @[IniOpt(section: "mqtt")]
       property? mqtt_permission_check_enabled : Bool = false
 
-      @[IniOpt(ini_name: on_leader_elected, section: "clustering")]
+      @[IniOpt(section: "clustering")]
       @[CliOpt("", "--clustering-on-leader-elected=COMMAND", "Shell command to execute when elected leader", section: "clustering")]
       property clustering_on_leader_elected = "" # shell command to execute when elected leader
 
-      @[IniOpt(ini_name: on_leader_lost, section: "clustering")]
+      @[IniOpt(section: "clustering")]
       @[CliOpt("", "--clustering-on-leader-lost=COMMAND", "Shell command to execute when losing leadership", section: "clustering")]
       property clustering_on_leader_lost = "" # shell command to execute when losing leadership
 
-      @[IniOpt(ini_name: max_packet_size, section: "mqtt")]
+      @[IniOpt(section: "mqtt")]
       property mqtt_max_packet_size = 268_435_455_u32 # bytes
 
       @[IniOpt(section: "mgmt")]
@@ -172,7 +172,7 @@ module LavinMQ
       @[IniOpt(section: "mqtt")]
       property max_inflight_messages : UInt16 = UInt16::MAX # mqtt messages
 
-      @[IniOpt(ini_name: default_vhost, section: "mqtt")]
+      @[IniOpt(section: "mqtt")]
       property default_mqtt_vhost = "/"
 
       @[IniOpt(section: "main", transform: ->tcp_keepalive?(String))]
@@ -211,8 +211,8 @@ module LavinMQ
       @[IniOpt(section: "experimental")]
       property yield_each_delivered_bytes = 1_048_576 # max number of bytes sent to a client without tending to other tasks in the server
 
-      @[IniOpt(section: "main", transform: ->(s : String) { s.split(",").map(&.strip) })]
-      property auth_backends : Array(String) = ["local"]
+      @[IniOpt(section: "main")]
+      property auth_backends : Array(String) = Array(String).new
 
       @[CliOpt("", "--default-consumer-prefetch=NUMBER", "Default consumer prefetch (default 65535)", section: "options")]
       @[IniOpt(section: "main")]
@@ -260,7 +260,7 @@ module LavinMQ
       property? clustering = false
 
       @[CliOpt("", "--clustering-advertised-uri=URI", "Advertised URI for the clustering server", section: "clustering")]
-      @[IniOpt(ini_name: advertised_uri, section: "clustering")]
+      @[IniOpt(section: "clustering")]
       @[EnvOpt("LAVINMQ_CLUSTERING_ADVERTISED_URI")]
       property clustering_advertised_uri : String? = nil
 
@@ -342,6 +342,23 @@ module LavinMQ
       def amqp_default_consumer_prefetch=(value)
         @default_consumer_prefetch = value
       end
+
+      @[IniOpt(section: "oauth", ini_name: issuer)]
+      property oauth_issuer_url : URI = URI.new
+      @[IniOpt(section: "oauth", ini_name: resource_server_id)]
+      property oauth_resource_server_id : String? = nil
+      @[IniOpt(section: "oauth", ini_name: preferred_username_claims)]
+      property oauth_preferred_username_claims = Array(String).new
+      @[IniOpt(section: "oauth", ini_name: additional_scopes_key)]
+      property oauth_additional_scopes_key : String? = nil
+      @[IniOpt(section: "oauth", ini_name: scope_prefix)]
+      property oauth_scope_prefix : String? = nil
+      @[IniOpt(section: "oauth", ini_name: verify_aud)]
+      property? oauth_verify_aud : Bool = true
+      @[IniOpt(section: "oauth", ini_name: audience)]
+      property oauth_audience : String? = nil
+      @[IniOpt(section: "oauth", ini_name: jwks_cache_ttl)]
+      property oauth_jwks_cache_ttl : Time::Span = 1.hours
     end
   end
 end
