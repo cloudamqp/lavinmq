@@ -3,26 +3,15 @@ require "../src/lavinmq/auth/jwt/token_verifier"
 
 # Mock JWKSFetcher that returns pre-configured keys without HTTP requests
 class MockJWKSFetcher < LavinMQ::Auth::JWT::JWKSFetcher
-  @keys : Hash(String, String)
-  @ttl : Time::Span
+  @keys = Hash(String, String).new
+  @ttl : Time::Span = 10.seconds
 
   def initialize(@keys : Hash(String, String) = {} of String => String, @ttl : Time::Span = 1.hour)
-    super("https://mock.example.com", @ttl)
+    super(URI.parse("https://mock.example.com"), @ttl)
   end
 
   def fetch_jwks : JWKSResult
     JWKSResult.new(@keys, @ttl)
-  end
-end
-
-# Testable subclass that exposes protected methods for testing
-class TestableVerifier < LavinMQ::Auth::JWT::TokenVerifier
-  def test_validate_and_extract_claims(payload : JSON::Any)
-    validate_and_extract_claims(payload)
-  end
-
-  def test_validate_issuer(payload : JSON::Any)
-    validate_issuer(payload)
   end
 end
 
@@ -80,7 +69,33 @@ module JWTTestHelper
     LavinMQ::Auth::JWT::TokenVerifier.new(config, jwks_fetcher)
   end
 
-  # Create a testable verifier for testing protected methods
+  # Create a token parser for testing claim extraction
+  def create_token_parser(
+    issuer_url = "https://auth.example.com",
+    preferred_username_claims = ["preferred_username"],
+    verify_aud = true,
+    audience : String? = nil,
+    resource_server_id : String? = nil,
+    scope_prefix : String? = nil,
+    additional_scopes_key : String? = nil,
+  ) : LavinMQ::Auth::JWT::TokenParser
+    config = LavinMQ::Config.new
+    config.oauth_issuer_url = URI.parse(issuer_url)
+    config.oauth_preferred_username_claims = preferred_username_claims
+    config.oauth_verify_aud = verify_aud
+    config.oauth_audience = audience
+    config.oauth_resource_server_id = resource_server_id
+    config.oauth_scope_prefix = scope_prefix
+    config.oauth_additional_scopes_key = additional_scopes_key
+    LavinMQ::Auth::JWT::TokenParser.new(config)
+  end
+
+  # Create a mock Token object for testing TokenParser
+  def create_mock_token(payload : JSON::Any) : LavinMQ::Auth::JWT::Token
+    LavinMQ::Auth::JWT::Token.new(JSON::Any.new({} of String => JSON::Any), payload, Bytes.new(0))
+  end
+
+  # Create a testable verifier that exposes protected methods for testing
   def create_testable_verifier(
     issuer_url = "https://auth.example.com",
     preferred_username_claims = ["preferred_username"],
@@ -89,7 +104,7 @@ module JWTTestHelper
     resource_server_id : String? = nil,
     scope_prefix : String? = nil,
     additional_scopes_key : String? = nil,
-  ) : TestableVerifier
+  ) : TestableTokenVerifier
     config = LavinMQ::Config.new
     config.oauth_issuer_url = URI.parse(issuer_url)
     config.oauth_preferred_username_claims = preferred_username_claims
@@ -99,8 +114,45 @@ module JWTTestHelper
     config.oauth_scope_prefix = scope_prefix
     config.oauth_additional_scopes_key = additional_scopes_key
 
-    jwks_fetcher = LavinMQ::Auth::JWT::JWKSFetcher.new(config.oauth_issuer_url, config.oauth_jwks_cache_ttl)
-    TestableVerifier.new(config, jwks_fetcher)
+    jwks_fetcher = MockJWKSFetcher.new
+    TestableTokenVerifier.new(config, jwks_fetcher)
+  end
+end
+
+# Testable subclass that exposes protected methods for unit testing
+class TestableTokenVerifier < LavinMQ::Auth::JWT::TokenVerifier
+  def test_validate_issuer(payload)
+    validate_issuer(payload)
+  end
+
+  def test_validate_and_extract_claims(payload) : LavinMQ::Auth::JWT::TokenClaim
+    validate_issuer(payload)
+    test_validate_audience(payload) if @config.oauth_verify_aud?
+    parser = LavinMQ::Auth::JWT::TokenParser.new(@config)
+    token = LavinMQ::Auth::JWT::Token.new(JSON::Any.new({} of String => JSON::Any), payload, Bytes.new(0))
+    parser.parse(token)
+  end
+
+  # Duplicates validate_audience logic since it's private in parent class
+  private def test_validate_audience(payload)
+    aud = payload["aud"]?
+    return unless aud # No audience in token, nothing to validate
+
+    audiences = case aud
+                when .as_a? then aud.as_a.map(&.as_s)
+                when .as_s? then [aud.as_s]
+                else             return
+                end
+
+    expected = @config.oauth_audience.nil? ? @config.oauth_resource_server_id : @config.oauth_audience
+
+    if expected.nil?
+      raise LavinMQ::Auth::JWT::DecodeError.new("Token contains audience claim but no expected audience is configured")
+    end
+
+    unless audiences.includes?(expected)
+      raise LavinMQ::Auth::JWT::VerificationError.new("Token audience does not match expected value")
+    end
   end
 end
 
@@ -229,9 +281,10 @@ describe LavinMQ::Auth::JWT::TokenVerifier do
   describe "#validate_and_extract_claims" do
     describe "#validate_issuer" do
       it "accepts matching issuer" do
-        verifier = JWTTestHelper.create_testable_verifier
+        parser = JWTTestHelper.create_token_parser
         payload = JSON.parse(%({"iss": "https://auth.example.com", "exp": #{RoughTime.utc.to_unix + 3600}, "preferred_username": "testuser"}))
-        claims = verifier.test_validate_and_extract_claims(payload)
+        token = JWTTestHelper.create_mock_token(payload)
+        claims = parser.parse(token)
         claims.username.should eq("testuser")
       end
 
@@ -351,7 +404,7 @@ describe LavinMQ::Auth::JWT::TokenVerifier do
         verifier = JWTTestHelper.create_testable_verifier
         payload = JSON.parse(%({"iss": "https://auth.example.com", "exp": #{RoughTime.utc.to_unix + 3600}, "preferred_username": "testuser", "scope": "read:*:* write:myvhost:myqueue"}))
         claims = verifier.test_validate_and_extract_claims(payload)
-        claims.permissions["/"][:read].should eq(/.*/)
+        claims.permissions["*"][:read].should eq(/.*/)
         claims.permissions["myvhost"][:write].should eq(/myqueue/)
       end
 
@@ -359,7 +412,7 @@ describe LavinMQ::Auth::JWT::TokenVerifier do
         verifier = JWTTestHelper.create_testable_verifier
         payload = JSON.parse(%({"iss": "https://auth.example.com", "exp": #{RoughTime.utc.to_unix + 3600}, "preferred_username": "testuser", "scope": "configure:*:myqueue"}))
         claims = verifier.test_validate_and_extract_claims(payload)
-        claims.permissions["/"][:config].should eq(/myqueue/)
+        claims.permissions["*"][:config].should eq(/myqueue/)
       end
 
       it "extracts roles from resource_access" do
@@ -367,7 +420,7 @@ describe LavinMQ::Auth::JWT::TokenVerifier do
         payload = JSON.parse(%({"iss": "https://auth.example.com", "exp": #{RoughTime.utc.to_unix + 3600}, "preferred_username": "testuser", "resource_access": {"lavinmq": {"roles": ["lavinmq.tag:administrator", "lavinmq.read:*:*"]}}}))
         claims = verifier.test_validate_and_extract_claims(payload)
         claims.tags.should contain(LavinMQ::Tag::Administrator)
-        claims.permissions["/"][:read].should eq(/.*/)
+        claims.permissions["*"][:read].should eq(/.*/)
       end
 
       it "filters scopes by prefix" do
@@ -383,7 +436,7 @@ describe LavinMQ::Auth::JWT::TokenVerifier do
         payload = JSON.parse(%({"iss": "https://auth.example.com", "exp": #{RoughTime.utc.to_unix + 3600}, "preferred_username": "testuser", "custom_permissions": "tag:administrator read:*:*"}))
         claims = verifier.test_validate_and_extract_claims(payload)
         claims.tags.should contain(LavinMQ::Tag::Administrator)
-        claims.permissions["/"][:read].should eq(/.*/)
+        claims.permissions["*"][:read].should eq(/.*/)
       end
 
       it "handles nested additional_scopes_key with hash" do
@@ -405,7 +458,7 @@ describe LavinMQ::Auth::JWT::TokenVerifier do
         verifier = JWTTestHelper.create_testable_verifier
         payload = JSON.parse(%({"iss": "https://auth.example.com", "exp": #{RoughTime.utc.to_unix + 3600}, "preferred_username": "testuser", "scope": "invalid read:*:*"}))
         claims = verifier.test_validate_and_extract_claims(payload)
-        claims.permissions["/"][:read].should eq(/.*/)
+        claims.permissions["*"][:read].should eq(/.*/)
         # "invalid" should be skipped (not 3 parts)
       end
 
@@ -413,14 +466,14 @@ describe LavinMQ::Auth::JWT::TokenVerifier do
         verifier = JWTTestHelper.create_testable_verifier
         payload = JSON.parse(%({"iss": "https://auth.example.com", "exp": #{RoughTime.utc.to_unix + 3600}, "preferred_username": "testuser", "scope": "read:*:[invalid read:*:valid"}))
         claims = verifier.test_validate_and_extract_claims(payload)
-        claims.permissions["/"][:read].should eq(/valid/)
+        claims.permissions["*"][:read].should eq(/valid/)
       end
 
       it "ignores unknown permission types" do
         verifier = JWTTestHelper.create_testable_verifier
         payload = JSON.parse(%({"iss": "https://auth.example.com", "exp": #{RoughTime.utc.to_unix + 3600}, "preferred_username": "testuser", "scope": "delete:*:* read:*:*"}))
         claims = verifier.test_validate_and_extract_claims(payload)
-        claims.permissions["/"][:read].should eq(/.*/)
+        claims.permissions["*"][:read].should eq(/.*/)
         # "delete" permission type should be ignored
       end
 

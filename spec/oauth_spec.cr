@@ -334,8 +334,8 @@ module OAuthUserHelper
       super(URI.new, Time::Span.new(seconds: 10))
     end
 
-    def fetch_jwks : LavinMQ::Auth::JWKSFetcher::JWKSResult
-      LavinMQ::Auth::JWKSFetcher::JWKSResult.new(Hash(String, String).new, Time::Span.new(seconds: 10))
+    def fetch_jwks : LavinMQ::Auth::JWT::JWKSFetcher::JWKSResult
+      LavinMQ::Auth::JWT::JWKSFetcher::JWKSResult.new(Hash(String, String).new, Time::Span.new(seconds: 10))
     end
   end
 
