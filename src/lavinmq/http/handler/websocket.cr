@@ -4,8 +4,17 @@ module LavinMQ
   class WebSocketHandler
     include ::HTTP::Handler
 
-    def initialize(@protocols : Enumerable(String) = Iterator(String).empty,
-                   &@proc : ::HTTP::WebSocket, ::HTTP::Server::Context ->)
+    enum Protocol
+      MQTT
+      AMQP
+    end
+
+    SUPPORTED_PROTOCOLS = {
+      /^amqp/ => Protocol::AMQP,
+      /^mqtt/ => Protocol::MQTT,
+    }
+
+    def initialize(&@proc : ::HTTP::WebSocket, ::HTTP::Server::Context, Protocol? ->)
     end
 
     def call(context) : Nil
@@ -36,29 +45,23 @@ module LavinMQ
       response.headers["Connection"] = "Upgrade"
       response.headers["Sec-WebSocket-Accept"] = accept_code
 
-      handle_sub_protocol(context)
+      protocol = pick_sub_protocol(context)
 
       response.upgrade do |io|
         ws_session = ::HTTP::WebSocket.new(io, sync_close: false)
-        @proc.call(ws_session, context)
+        @proc.call(ws_session, context, protocol)
         ws_session.run
       end
     end
 
-    private def handle_sub_protocol(context)
-      if protocols = context.request.headers["Sec-WebSocket-Protocol"]?
-        protocols.split(",", remove_empty: true) do |protocol|
-          case value = protocol.strip
-          # "amqp" is registered as amqp 1.0, but we accept any amqp value
-          # see https://www.iana.org/assignments/websocket/websocket.xml#subprotocol-name
-          when /^amqp/i
-            context.response.headers["Sec-WebSocket-Protocol"] = value
-            return
-            # "mqtt" is registered as mqtt 5.0
-            # see https://www.iana.org/assignments/websocket/websocket.xml#subprotocol-name
-          when /^mqtt/i
-            context.response.headers["Sec-WebSocket-Protocol"] = value
-            return
+    private def pick_sub_protocol(context) : Protocol?
+      return unless protocols = context.request.headers["Sec-WebSocket-Protocol"]?
+      protocols.split(",", remove_empty: true) do |protocol|
+        protocol = protocol.strip
+        SUPPORTED_PROTOCOLS.each do |pattern, value|
+          if pattern.matches?(protocol)
+            context.response.headers["Sec-WebSocket-Protocol"] = protocol
+            return value
           end
         end
       end
@@ -74,15 +77,10 @@ module LavinMQ
 
   # Acts as a proxy between websocket clients and the normal TCP servers
   class WebsocketProxy
-    enum Protocol
-      MQTT
-      AMQP
-    end
-
     def self.new(server : LavinMQ::Server)
-      WebSocketHandler.new do |ws, ctx|
+      WebSocketHandler.new do |ws, ctx, protocol|
         req = ctx.request
-        protocol = pick_protocol(req)
+        protocol ||= pick_protocol(req)
 
         local_address = req.local_address.as?(Socket::IPAddress) ||
                         Socket::IPAddress.new("127.0.0.1", 0) # Fake when UNIXAddress
@@ -102,31 +100,12 @@ module LavinMQ
       end
     end
 
-    # Returns Tuple(Protocol, String?) where the string value is the header value
-    # used if a header was used to decide protocol
-    # It accepts any Sec-WebSocket-Protocol starting with amqp or mqtt and fallbacks
-    # to request path then to AMQP.
-    private def self.pick_protocol(request : ::HTTP::Request) : Protocol
-      if protocols = request.headers["Sec-WebSocket-Protocol"]?
-        protocols.split(",", remove_empty: true) do |protocol|
-          case protocol.strip
-          # "amqp" is registered as amqp 1.0, but we accept any amqp value
-          # see https://www.iana.org/assignments/websocket/websocket.xml#subprotocol-name
-          when /^amqp/i then return Protocol::AMQP
-            # "mqtt" is registered as mqtt 5.0
-            # see https://www.iana.org/assignments/websocket/websocket.xml#subprotocol-name
-          when /^mqtt/i then return Protocol::MQTT
-          end
-        end
-      end
-
-      # Fallback to use path
+    private def self.fallback_protocol(request : ::HTTP::Request) : WebSocketHandler::Protocol
       case request.path
       when "/mqtt", "/ws/mqtt"
-        return Protocol::MQTT
+        return WebSocketHandler::Protocol::MQTT
       end
-      # Default to AMQP
-      Protocol::AMQP
+      WebSocketHandler::Protocol::AMQP
     end
   end
 
