@@ -48,8 +48,8 @@ require "socket"
 
       # Server-side kTLS socket that performs SSL accept on initialization.
       class Server < KTLSSocket
-        def initialize(@socket : TCPSocket, context : Context::Server, @sync_close : Bool = true)
-          super(@socket, context)
+        def initialize(@socket : TCPSocket, context : Context::Server, sync_close : Bool = false)
+          super(@socket, context, sync_close)
           do_handshake { LibSSL.ssl_accept(@ssl) }
         end
 
@@ -66,8 +66,7 @@ require "socket"
         end
       end
 
-      protected def initialize(@socket : TCPSocket, context : Context)
-        @sync_close = false
+      protected def initialize(@socket : TCPSocket, context : Context, @sync_close : Bool = false)
         @ssl = LibSSL.ssl_new(context)
         raise OpenSSL::Error.new("SSL_new") unless @ssl
 
@@ -75,6 +74,8 @@ require "socket"
         # This allows the kernel TLS module to intercept socket operations
         ret = LibSSL.ssl_set_fd(@ssl, @socket.fd)
         unless ret == 1
+          # We need to free the allocated memory here since the GC wont collect it with #finalize unless the constructor
+          # succesfully creates the object.
           LibSSL.ssl_free(@ssl)
           raise OpenSSL::Error.new("SSL_set_fd")
         end
@@ -106,6 +107,11 @@ require "socket"
         end
       end
 
+      # The loops in `do_handshake`, `unbuffered_read`, and `unbuffered_write` call
+      # these wait methods on WANT_READ/WANT_WRITE conditions. These methods respect
+      # the socket's `read_timeout` and `write_timeout` settings - if a timeout is
+      # configured, `IO::TimeoutError` will be raised, breaking out of the loops.
+      # This prevents infinite loops on malformed or stalled connections.
       private def wait_readable
         Crystal::EventLoop.current.wait_readable(@socket)
       end
