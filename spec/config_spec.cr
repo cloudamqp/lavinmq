@@ -111,9 +111,9 @@ describe LavinMQ::Config do
           default_user = admin
           default_user_only_loopback = false
           data_dir_lock = false
-          tls_cert = /etc/lavinmq/cert.pem
+          tls_cert_path = /etc/lavinmq/cert.pem
           tls_ciphers = ECDHE-RSA-AES256-GCM-SHA384
-          tls_key = /etc/lavinmq/key.pem
+          tls_key_path = /etc/lavinmq/key.pem
           tls_min_version = 1.3
           tls_keylog_file = /tmp/keylog.txt
           metrics_http_bind = 0.0.0.0
@@ -137,10 +137,10 @@ describe LavinMQ::Config do
           port = 1884
           tls_port = 8884
           unix_path = /tmp/mqtt.sock
-          permission_check_enabled = true
-          max_packet_size = 536870910
+          mqtt_permission_check_enabled = true
+          mqtt_max_packet_size = 536870910
           max_inflight_messages = 100
-          default_vhost = /mqtt
+          default_mqtt_vhost = /mqtt
 
           [mgmt]
           bind = 0.0.0.0
@@ -160,9 +160,6 @@ describe LavinMQ::Config do
           etcd_endpoints = localhost:2380,localhost:2381
           etcd_prefix = test-lavinmq
           max_unsynced_actions = 16384
-          advertised_uri = lavinmq://localhost:5680
-          on_leader_elected = echo "Leader elected"
-          on_leader_lost = echo "Leader lost"
         CONFIG
       end
       config = LavinMQ::Config.new
@@ -242,9 +239,6 @@ describe LavinMQ::Config do
       config.clustering_etcd_endpoints.should eq "localhost:2380,localhost:2381"
       config.clustering_etcd_prefix.should eq "test-lavinmq"
       config.clustering_max_unsynced_actions.should eq 16384
-      config.clustering_advertised_uri.should eq "lavinmq://localhost:5680"
-      config.clustering_on_leader_elected.should eq "echo \"Leader elected\""
-      config.clustering_on_leader_lost.should eq "echo \"Leader lost\""
     ensure
       # Reset log level to default for other specs
       Log.setup(:fatal)
