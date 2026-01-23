@@ -1027,10 +1027,46 @@ footer .logo {
   opacity: 1;
 }
 
+.toggle-menu-label {
+  position: fixed;
+  transition-delay: 0s;
+  width: auto;
+  padding: 2px 8px;
+  font-size: 14px;
+  line-height: 20px;
+  opacity: 0;
+  background: var(--color-tooltip-bg);
+  color: var(--color-text-inverse);
+  pointer-events: none;
+  left: 66px;
+  font-weight: 400;
+  border-radius: 4px;
+}
+
 @media (min-width: 1000px) {
   .menu-collapsed {
     #menu ul li.menu-group:not(:first-child) {
       padding-top: 0.5rem;
+    }
+
+    .menu-tooltip .menu-tooltip-label, .toggle-menu-label {
+      position: fixed;
+      transition-delay: 0s;
+      width: auto;
+      padding: 2px 8px;
+      font-size: 14px;
+      line-height: 20px;
+      opacity: 0;
+      background: var(--color-tooltip-bg);
+      color: var(--color-text-inverse);
+      pointer-events: none;
+      left: 66px;
+      font-weight: 400;
+      border-radius: 4px;
+    }
+
+    .menu-tooltip:hover .menu-tooltip-label {
+      opacity: 1;
     }
 
     #menu-content {
@@ -1726,26 +1762,6 @@ fieldset.inline {
   transition-delay: 0.3s;
   visibility: visible;
   pointer-events: none;
-}
-
-.menu-collapsed .menu-tooltip .menu-tooltip-label, .toggle-menu-label {
-  position: fixed;
-  transition-delay: 0s;
-  width: auto;
-  padding: 2px 8px;
-  font-size: 14px;
-  line-height: 20px;
-  opacity: 0;
-  background: var(--color-tooltip-bg);
-  color: var(--color-text-inverse);
-  pointer-events: none;
-  left: 66px;
-  font-weight: 400;
-  border-radius: 4px;
-}
-
-.menu-tooltip:hover .menu-tooltip-label {
-  opacity: 1;
 }
 
 pre.arguments>div {

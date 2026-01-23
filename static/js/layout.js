@@ -153,10 +153,10 @@ document.getElementById('toggle-menu').addEventListener('click', () => {
   if (document.documentElement.classList.contains('menu-collapsed')) {
     window.localStorage.setItem('menuCollapsed', 'true')
     toggleLabel.textContent = 'Expand sidebar'
+    updateMenuTooltips()
   } else {
     window.localStorage.removeItem('menuCollapsed')
     toggleLabel.textContent = 'Collapse sidebar'
-    updateMenuTooltips()
   }
 })
 
