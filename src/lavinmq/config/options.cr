@@ -69,7 +69,7 @@ module LavinMQ
       property mqtt_unix_path = ""
 
       @[IniOpt(section: "amqp", transform: ->(v : String) { true?(v) || v.to_u8? == 2 })]
-      property tcp_proxy_protocol = false
+      property? tcp_proxy_protocol = false
 
       @[IniOpt(section: "amqp", transform: ->(v : String) { parse_trusted_sources(v) })]
       property proxy_protocol_trusted_sources = Array(IPMatcher).new

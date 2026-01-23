@@ -48,7 +48,7 @@ module LavinMQ
       @mqtt_brokers = MQTT::Brokers.new(@vhosts, @replicator)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator)
       @authenticator = Auth::Chain.create(@users)
-      if @config.tcp_proxy_protocol && @config.proxy_protocol_trusted_sources.empty?
+      if @config.tcp_proxy_protocol? && @config.proxy_protocol_trusted_sources.empty?
         Log.warn { "PROXY protocol enabled without trusted sources configured - accepting from all sources " }
       end
       @connection_factories = {
@@ -139,7 +139,7 @@ module LavinMQ
       remote_address = client.remote_address
       parsed_proxy = ProxyProtocol.parse(client)
 
-      if @config.tcp_proxy_protocol
+      if @config.tcp_proxy_protocol?
         if trusted_proxy_source?(remote_address.address)
           return parsed_proxy if parsed_proxy
         else
@@ -150,7 +150,7 @@ module LavinMQ
           return parsed_proxy if parsed_proxy
         end
       end
-      return ConnectionInfo.new(remote_address, client.local_address)
+      ConnectionInfo.new(remote_address, client.local_address)
     end
 
     private def trusted_proxy_source?(address : String) : Bool

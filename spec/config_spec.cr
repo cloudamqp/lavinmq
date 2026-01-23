@@ -206,7 +206,7 @@ describe LavinMQ::Config do
       config.amqp_port.should eq 5673
       config.amqps_port.should eq 5674
       config.unix_path.should eq "/tmp/lavinmq.sock"
-      config.tcp_proxy_protocol.should be_true
+      config.tcp_proxy_protocol?.should be_true
       config.proxy_protocol_trusted_sources[0].matches?("10.0.0.1").should be_true
       config.heartbeat.should eq 600
       config.frame_max.should eq 262144
@@ -503,7 +503,7 @@ describe LavinMQ::Config do
         config = LavinMQ::Config.new
         argv = ["-c", config_file.path]
         config.parse(argv)
-        config.tcp_proxy_protocol.should eq {{expected}}
+        config.tcp_proxy_protocol?.should eq {{expected}}
       end
     {% end %}
   end
