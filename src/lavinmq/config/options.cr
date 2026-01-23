@@ -1,3 +1,5 @@
+require "../ip_matcher"
+
 module LavinMQ
   class Config
     annotation CliOpt; end
@@ -66,11 +68,25 @@ module LavinMQ
       @[IniOpt(ini_name: unix_path, section: "mqtt")]
       property mqtt_unix_path = ""
 
-      @[IniOpt(section: "amqp", transform: ->(v : String) { true?(v) ? 1u8 : v.to_u8? || 0u8 })]
-      property unix_proxy_protocol = 1_u8 # PROXY protocol version on unix domain socket connections
+      @[IniOpt(section: "amqp", transform: ->(v : String) { true?(v) || v.to_u8? == 2 })]
+      property tcp_proxy_protocol = false
 
-      @[IniOpt(section: "amqp", transform: ->(v : String) { true?(v) ? 1u8 : v.to_u8? || 0u8 })]
-      property tcp_proxy_protocol = 0_u8 # PROXY protocol version on amqp tcp connections
+      @[IniOpt(section: "amqp", transform: ->(v : String) { parse_trusted_sources(v) })]
+      property proxy_protocol_trusted_sources = Array(IPMatcher).new
+
+      def parse_trusted_sources(sources : String) : Array(IPMatcher)
+        sources.split(',')
+          .map(&.strip)
+          .reject(&.empty?)
+          .compact_map do |source|
+            begin
+              IPMatcher.parse(source)
+            rescue ex : Socket::Error | ArgumentError
+              STDERR.puts "WARNING: Invalid IP/CIDR in proxy_protocol_trusted_sources: #{source} - #{ex.message}"
+              nil
+            end
+          end
+      end
 
       @[CliOpt("", "--http-bind=BIND", "IP address that the HTTP server will listen on (default: 127.0.0.1)", section: "bindings")]
       @[IniOpt(ini_name: bind, section: "mgmt")]
