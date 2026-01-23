@@ -10,8 +10,8 @@ module LavinMQ
     end
 
     SUPPORTED_PROTOCOLS = {
-      /^amqp/ => Protocol::AMQP,
-      /^mqtt/ => Protocol::MQTT,
+      /^amqp/i => Protocol::AMQP,
+      /^mqtt/i => Protocol::MQTT,
     }
 
     def initialize(&@proc : ::HTTP::WebSocket, ::HTTP::Server::Context, Protocol? ->)
