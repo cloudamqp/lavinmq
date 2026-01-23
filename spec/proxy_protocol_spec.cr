@@ -88,6 +88,67 @@ describe "ProxyProtocol" do
     end
   end
 
+  describe "auto-detection" do
+    it "auto-detects V1 protocol" do
+      r, w = IO.pipe
+      w.write "PROXY TCP4 1.2.3.4 127.0.0.2 34567 1234\r\n".to_slice
+
+      conn_info = LavinMQ::ProxyProtocol.parse(r)
+      conn_info.should_not be_nil
+      conn_info.not_nil!.remote_address.to_s.should eq "1.2.3.4:34567"
+      conn_info.not_nil!.local_address.to_s.should eq "127.0.0.2:1234"
+    end
+
+    it "auto-detects V2 protocol" do
+      r, w = IO.pipe
+      pp_bytes = UInt8.static_array(
+        0x0d, 0x0a, 0x0d, 0x0a, 0x00, 0x0d, 0x0a, 0x51,
+        0x55, 0x49, 0x54, 0x0a, 0x21, 0x11, 0x00, 0x4e,
+        0x7f, 0x00, 0x00, 0x01, 0x7f, 0x00, 0x00, 0x01,
+        0x92, 0x30, 0x16, 0x27, 0x20, 0x00, 0x3f, 0x01,
+        0x00, 0x00, 0x00, 0x00, 0x21, 0x00, 0x07, 0x54,
+        0x4c, 0x53, 0x76, 0x31, 0x2e, 0x33, 0x25, 0x00,
+        0x07, 0x52, 0x53, 0x41, 0x32, 0x30, 0x34, 0x38,
+        0x24, 0x00, 0x0a, 0x52, 0x53, 0x41, 0x2d, 0x53,
+        0x48, 0x41, 0x32, 0x35, 0x36, 0x23, 0x00, 0x16,
+        0x54, 0x4c, 0x53, 0x5f, 0x41, 0x45, 0x53, 0x5f,
+        0x32, 0x35, 0x36, 0x5f, 0x47, 0x43, 0x4d, 0x5f,
+        0x53, 0x48, 0x41, 0x33, 0x38, 0x34, 0x41, 0x4d,
+        0x51, 0x50, 0x00, 0x00, 0x09, 0x01
+      )
+      w.write pp_bytes.to_slice
+
+      conn_info = LavinMQ::ProxyProtocol.parse(r)
+      conn_info.should_not be_nil
+      conn_info.not_nil!.remote_address.to_s.should eq "127.0.0.1:37424"
+      conn_info.not_nil!.ssl?.should be_true
+    end
+
+    it "returns nil for AMQP protocol header" do
+      r, w = IO.pipe
+      w.write "AMQP\x00\x00\x09\x01".to_slice
+
+      conn_info = LavinMQ::ProxyProtocol.parse(r)
+      conn_info.should be_nil
+    end
+
+    it "returns nil for MQTT protocol header" do
+      r, w = IO.pipe
+      w.write Bytes[0x10, 0x0e, 0x00, 0x04, 0x4d, 0x51, 0x54, 0x54]
+
+      conn_info = LavinMQ::ProxyProtocol.parse(r)
+      conn_info.should be_nil
+    end
+
+    it "returns nil for HTTP request" do
+      r, w = IO.pipe
+      w.write "GET / HTTP/1.1\r\n".to_slice
+
+      conn_info = LavinMQ::ProxyProtocol.parse(r)
+      conn_info.should be_nil
+    end
+  end
+
   describe "trusted sources" do
     it "parses individual IPv4 addresses" do
       config = LavinMQ::Config.new
