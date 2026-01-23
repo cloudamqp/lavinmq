@@ -32,6 +32,8 @@ module LavinMQ
       # validation prevents accepting tokens from untrusted or unintended sources, fails
       # closed on any error.
       class TokenVerifier
+        getter :fetcher
+
         def initialize(@config : Config, @fetcher : JWKSFetcher)
           @expected_issuer = @config.oauth_issuer_url.to_s.chomp("/")
           @parser = TokenParser.new(@config)
