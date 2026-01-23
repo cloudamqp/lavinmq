@@ -13,6 +13,10 @@ module LavinMQ
         def initialize
         end
 
+        def empty?
+          @keys.nil?
+        end
+
         def get? : Hash(String, String)?
           @mutex.synchronize do
             return nil if @keys.nil?

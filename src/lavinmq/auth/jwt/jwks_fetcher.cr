@@ -15,6 +15,7 @@ module LavinMQ
         record JWKSResult, keys : Hash(String, String), ttl : Time::Span
 
         getter public_keys : PublicKeys
+        @stopped = false
 
         def initialize(issuer_url : URI, @default_cache_ttl : Time::Span)
           @issuer_url = issuer_url.to_s.chomp("/")
@@ -22,39 +23,41 @@ module LavinMQ
           @refresh_trigger = Channel(Nil).new
         end
 
-        def refresh_loop
-          retry_delay = 5.seconds
-          max_retry_delay = 5.minutes
-
-          loop do
-            begin
-              retry_delay = 5.seconds
-              wait_time = calculate_wait_time
-              select
-              when @refresh_trigger.receive
-                Log.info { "Immediate JWKS refresh triggered" }
-              when timeout(wait_time)
-              end
-              fetch_and_update
-            rescue ex
-              Log.error(exception: ex) { "Failed to fetch JWKS, retrying in #{retry_delay}: #{ex.message}" }
-
-              select
-              when @refresh_trigger.receive
-                Log.info { "Immediate JWKS refresh triggered during retry" }
-                retry_delay = 5.seconds
-              when timeout(retry_delay)
-              end
-
-              retry_delay = {retry_delay * 2, max_retry_delay}.min
-            end
-          end
+        def cleanup
+          @stopped = true
         end
 
-        def fetch_and_update
-          result = fetch_jwks
-          @public_keys.update(result.keys, result.ttl)
-          Log.info { "Refreshed JWKS with #{result.keys.size} key(s), TTL=#{result.ttl}" }
+        def start_refresh_loop
+          retry_delay = 5.seconds
+          max_retry_delay = 5.minutes
+          spawn do
+            loop do
+              begin
+                break if @stopped
+                result = fetch_jwks
+                @public_keys.update(result.keys, result.ttl)
+                Log.info { "Refreshed JWKS with #{result.keys.size} key(s), TTL=#{result.ttl}" }
+                retry_delay = 5.seconds
+                wait_time = calculate_wait_time
+                select
+                when @refresh_trigger.receive
+                  Log.info { "Immediate JWKS refresh triggered" }
+                when timeout(wait_time)
+                end
+              rescue ex
+                Log.error(exception: ex) { "Failed to fetch JWKS, retrying in #{retry_delay}: #{ex.message}" }
+
+                select
+                when @refresh_trigger.receive
+                  Log.info { "Immediate JWKS refresh triggered during retry" }
+                  retry_delay = 5.seconds
+                when timeout(retry_delay)
+                end
+
+                retry_delay = {retry_delay * 2, max_retry_delay}.min
+              end
+            end
+          end
         end
 
         private def calculate_wait_time : Time::Span
