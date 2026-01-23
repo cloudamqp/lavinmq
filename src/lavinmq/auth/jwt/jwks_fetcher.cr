@@ -14,6 +14,39 @@ module LavinMQ
 
         record JWKSResult, keys : Hash(String, String), ttl : Time::Span
 
+        struct OIDCConfiguration
+          include JSON::Serializable
+
+          property issuer : String
+          property jwks_uri : String
+
+          def initialize(*, @issuer : String, @jwks_uri : String)
+          end
+        end
+
+        struct JWK
+          include JSON::Serializable
+
+          property kty : String?
+          property n : String?
+          property e : String?
+          property use : String?
+          property alg : String?
+          property kid : String?
+
+          def initialize(*, @kty : String? = nil, @n : String? = nil, @e : String? = nil, @use : String? = nil, @alg : String? = nil, @kid : String? = nil)
+          end
+        end
+
+        struct JWKSResponse
+          include JSON::Serializable
+
+          property keys : Array(JWK)
+
+          def initialize(*, @keys : Array(JWK))
+          end
+        end
+
         getter public_keys : PublicKeys
         @stopped = false
 
@@ -70,38 +103,38 @@ module LavinMQ
 
         def fetch_jwks : JWKSResult
           # Discover jwks_uri from OIDC configuration
-          oidc_config, _ = fetch_url("#{@issuer_url}/.well-known/openid-configuration")
+          body_io, _ = fetch_url("#{@issuer_url}/.well-known/openid-configuration")
+          oidc_config = OIDCConfiguration.from_json(body_io)
 
           # Verify issuer matches per OpenID Connect Discovery 1.0 Section 4.3
-          oidc_issuer = oidc_config["issuer"]?.try(&.as_s?)
-          if oidc_issuer.nil? || oidc_issuer.chomp("/") != @issuer_url
+          oidc_issuer = oidc_config.issuer
+          if oidc_issuer.chomp("/") != @issuer_url
             raise "OIDC issuer mismatch: expected #{@issuer_url}, got #{oidc_issuer}"
           end
 
-          jwks_uri = oidc_config["jwks_uri"]?.try(&.as_s?) || raise "Missing jwks_uri in OIDC configuration"
+          jwks_uri = oidc_config.jwks_uri
 
-          jwks, headers = fetch_url(jwks_uri)
+          body_io, headers = fetch_url(jwks_uri)
+          jwks = JWKSResponse.from_json(body_io)
           public_keys = extract_public_keys_from_jwks(jwks)
           ttl = extract_jwks_ttl(headers)
           JWKSResult.new(public_keys, ttl)
         end
 
-        private def extract_public_keys_from_jwks(jwks : JSON::Any)
-          jwks_array = jwks["keys"]?.try(&.as_a?) || raise "Missing or invalid keys array in JWKS response"
+        private def extract_public_keys_from_jwks(jwks : JWKSResponse)
+          jwks_array = jwks.keys
 
           public_keys = {} of String => String
           jwks_array.each_with_index do |key, idx|
             # Only process RSA keys (RFC 7517 Section 4.1)
-            next unless key["kty"]?.try(&.as_s) == "RSA"
-            next unless key["n"]? && key["e"]?
+            next unless key.kty == "RSA"
             # Skip keys not intended for signatures (RFC 7517 Section 4.2)
-            use = key["use"]?.try(&.as_s)
-            next if use && use != "sig"
+            next if key.use != "sig"
             # Skip keys for other algorithms (RFC 7517 Section 4.4)
-            alg = key["alg"]?.try(&.as_s)
-            next if alg && alg != "RS256"
-            kid = key["kid"]?.try(&.as_s) || "unknown-#{idx}"
-            public_keys[kid] = to_pem(key["n"].as_s, key["e"].as_s)
+            next if key.alg != "RS256"
+            next unless (n = key.n) && (e = key.e)
+            kid = key.kid || "unknown-#{idx}"
+            public_keys[kid] = to_pem(n, e)
           end
           public_keys
         end
@@ -178,7 +211,7 @@ module LavinMQ
           end
         end
 
-        private def fetch_url(url : String) : {JSON::Any, ::HTTP::Headers}
+        private def fetch_url(url : String) : {IO, ::HTTP::Headers}
           uri = URI.parse(url)
           ::HTTP::Client.new(uri) do |client|
             client.connect_timeout = 5.seconds
@@ -187,7 +220,7 @@ module LavinMQ
             if !response.success?
               raise "HTTP request failed with status #{response.status_code}: #{response.body}"
             end
-            {JSON.parse(response.body), response.headers}
+            {response.body_io, response.headers}
           end
         end
       end

@@ -15,32 +15,50 @@ module LavinMQ
           payload = token.payload
           username = extract_username(payload)
           tags, permissions = parse_roles(payload)
-          expires_at = payload["exp"]?.try(&.as_i64?)
+          expires_at = payload.exp
           raise JWT::DecodeError.new("No expiration time found in JWT token") unless expires_at
           TokenClaim.new(username, tags, permissions, Time.unix(expires_at))
         end
 
-        private def extract_username(payload) : String
+        private def extract_username(payload : JWT::Payload) : String
           claims = @config.oauth_preferred_username_claims
           claims.each do |claim|
-            if username = payload[claim]?.try(&.as_s?)
-              return username
+            # Check standard JWT properties first
+            username = case claim
+                       when "sub"
+                         payload.sub
+                       when "iss"
+                         payload.iss
+                       else
+                         nil
+                       end
+            return username if username
+
+            # Check unmapped fields
+            if value = payload[claim]?
+              if username = value.as_s?
+                return username
+              end
             end
           end
           raise JWT::DecodeError.new("No username found in JWT claims (tried: #{claims.join(", ")})")
         end
 
         # Extracts roles/scopes from JWT payload and converts to LavinMQ tags and permissions.
-        private def parse_roles(payload)
+        private def parse_roles(payload : JWT::Payload)
           scopes = [] of String
 
           if server_id = @config.oauth_resource_server_id
-            if arr = payload.dig?("resource_access", server_id, "roles").try(&.as_a?)
-              scopes.concat(arr.map(&.as_s))
+            if resource_access = payload.resource_access
+              if server_roles = resource_access[server_id]?
+                if roles = server_roles.roles
+                  scopes.concat(roles)
+                end
+              end
             end
           end
 
-          if scope_str = payload["scope"]?.try(&.as_s?)
+          if scope_str = payload.scope
             scopes.concat(scope_str.split)
           end
 
