@@ -14,6 +14,17 @@ module LavinMQ
 
     class UnsupportedTLVType < Error; end
 
+    def self.parse(io : IO) : ConnectionInfo?
+      peeked = io.peek
+      if peeked.size >= 5 && peeked[0, 5] == "PROXY".to_slice
+        ProxyProtocol::V1.parse(io)
+      elsif peeked.size >= 12 && peeked[0, 12] == ProxyProtocol::V2::Signature.to_slice
+        ProxyProtocol::V2.parse(io)
+      else
+        nil
+      end
+    end
+
     struct V1
       # Examples:
       # PROXY TCP4 255.255.255.255 255.255.255.255 65535 65535\r\n
