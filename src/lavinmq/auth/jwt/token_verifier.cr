@@ -97,12 +97,13 @@ module LavinMQ
 
         private def validate_audience(payload)
           aud = payload["aud"]?
-          return unless aud # No audience in token, nothing to validate
+          raise JWT::VerificationError.new("Missing aud claim in token") unless aud
 
           audiences = case aud
                       when .as_a? then aud.as_a.map(&.as_s)
                       when .as_s? then [aud.as_s]
-                      else             return
+                      else
+                        raise JWT::DecodeError.new("Invalid aud claim format")
                       end
 
           expected = @config.oauth_audience.nil? ? @config.oauth_resource_server_id : @config.oauth_audience

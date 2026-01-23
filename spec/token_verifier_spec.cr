@@ -38,6 +38,7 @@ module JWTTestHelper
       "exp"                => (RoughTime.utc.to_unix + 3600).to_i64,
       "iat"                => (RoughTime.utc.to_unix - 60).to_i64,
       "preferred_username" => "testuser",
+      "aud"                => "test-audience",
     } of String => JSON::Any::Type
     base.merge(overrides)
   end
@@ -99,7 +100,7 @@ module JWTTestHelper
   def create_testable_verifier(
     issuer_url = "https://auth.example.com",
     preferred_username_claims = ["preferred_username"],
-    verify_aud = true,
+    verify_aud = false,
     audience : String? = nil,
     resource_server_id : String? = nil,
     scope_prefix : String? = nil,
@@ -136,12 +137,13 @@ class TestableTokenVerifier < LavinMQ::Auth::JWT::TokenVerifier
   # Duplicates validate_audience logic since it's private in parent class
   private def test_validate_audience(payload)
     aud = payload["aud"]?
-    return unless aud # No audience in token, nothing to validate
+    raise LavinMQ::Auth::JWT::VerificationError.new("Missing aud claim in token") unless aud
 
     audiences = case aud
                 when .as_a? then aud.as_a.map(&.as_s)
                 when .as_s? then [aud.as_s]
-                else             return
+                else
+                  raise LavinMQ::Auth::JWT::DecodeError.new("Invalid aud claim format")
                 end
 
     expected = @config.oauth_audience.nil? ? @config.oauth_resource_server_id : @config.oauth_audience
@@ -313,37 +315,37 @@ describe LavinMQ::Auth::JWT::TokenVerifier do
     end
 
     describe "#validate_audience" do
-      it "accepts tokens without audience claim" do
-        verifier = JWTTestHelper.create_testable_verifier(audience: "my-api")
+      it "rejects tokens without audience claim" do
+        verifier = JWTTestHelper.create_testable_verifier(verify_aud: true, audience: "my-api")
         payload = JSON.parse(%({"iss": "https://auth.example.com", "exp": #{RoughTime.utc.to_unix + 3600}, "preferred_username": "testuser"}))
-        # Should not raise - no aud in token means nothing to validate
-        claims = verifier.test_validate_and_extract_claims(payload)
-        claims.username.should eq("testuser")
+        expect_raises(LavinMQ::Auth::JWT::VerificationError, /Missing aud claim/) do
+          verifier.test_validate_and_extract_claims(payload)
+        end
       end
 
       it "accepts matching string audience" do
-        verifier = JWTTestHelper.create_testable_verifier(audience: "my-api")
+        verifier = JWTTestHelper.create_testable_verifier(verify_aud: true, audience: "my-api")
         payload = JSON.parse(%({"iss": "https://auth.example.com", "exp": #{RoughTime.utc.to_unix + 3600}, "preferred_username": "testuser", "aud": "my-api"}))
         claims = verifier.test_validate_and_extract_claims(payload)
         claims.username.should eq("testuser")
       end
 
       it "accepts matching audience in array" do
-        verifier = JWTTestHelper.create_testable_verifier(audience: "my-api")
+        verifier = JWTTestHelper.create_testable_verifier(verify_aud: true, audience: "my-api")
         payload = JSON.parse(%({"iss": "https://auth.example.com", "exp": #{RoughTime.utc.to_unix + 3600}, "preferred_username": "testuser", "aud": ["other-api", "my-api"]}))
         claims = verifier.test_validate_and_extract_claims(payload)
         claims.username.should eq("testuser")
       end
 
       it "uses resource_server_id as audience when oauth_audience is nil" do
-        verifier = JWTTestHelper.create_testable_verifier(resource_server_id: "lavinmq")
+        verifier = JWTTestHelper.create_testable_verifier(verify_aud: true, resource_server_id: "lavinmq")
         payload = JSON.parse(%({"iss": "https://auth.example.com", "exp": #{RoughTime.utc.to_unix + 3600}, "preferred_username": "testuser", "aud": "lavinmq"}))
         claims = verifier.test_validate_and_extract_claims(payload)
         claims.username.should eq("testuser")
       end
 
       it "rejects audience when no expected audience is configured" do
-        verifier = JWTTestHelper.create_testable_verifier
+        verifier = JWTTestHelper.create_testable_verifier(verify_aud: true)
         payload = JSON.parse(%({"iss": "https://auth.example.com", "exp": #{RoughTime.utc.to_unix + 3600}, "preferred_username": "testuser", "aud": "some-api"}))
         expect_raises(LavinMQ::Auth::JWT::DecodeError, /no expected audience is configured/) do
           verifier.test_validate_and_extract_claims(payload)
@@ -351,7 +353,7 @@ describe LavinMQ::Auth::JWT::TokenVerifier do
       end
 
       it "rejects mismatched audience" do
-        verifier = JWTTestHelper.create_testable_verifier(audience: "my-api")
+        verifier = JWTTestHelper.create_testable_verifier(verify_aud: true, audience: "my-api")
         payload = JSON.parse(%({"iss": "https://auth.example.com", "exp": #{RoughTime.utc.to_unix + 3600}, "preferred_username": "testuser", "aud": "other-api"}))
         expect_raises(LavinMQ::Auth::JWT::VerificationError, /Token audience does not match/) do
           verifier.test_validate_and_extract_claims(payload)
