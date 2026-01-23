@@ -59,25 +59,25 @@ module LavinMQ
           raise JWT::DecodeError.new("Invalid JWT format") unless parts.size == 3
 
           header = JWT::RS256Parser.decode_header(token)
-          alg = header["alg"]?.try(&.as_s)
+          alg = header.alg
           raise JWT::DecodeError.new("Missing algorithm in header") unless alg
           raise JWT::DecodeError.new("Expected RS256, got #{alg}") unless alg == "RS256"
 
           payload_str = JWT::RS256Parser.base64url_decode(parts[1])
-          payload = JSON.parse(payload_str)
-          exp = payload["exp"]?.try(&.as_i64?)
+          payload = JWT::Payload.from_json(payload_str)
+          exp = payload.exp
           raise JWT::DecodeError.new("Missing exp claim in token") unless exp
           raise JWT::VerificationError.new("Token has expired") if Time.unix(exp) <= RoughTime.utc
 
           # Validate iat (Issued At) - reject tokens issued in the future
           # Allow 200ms tolerance to account for RoughTime caching (updates every 100ms)
-          if iat = payload["iat"]?.try(&.as_i64?)
+          if iat = payload.iat
             raise JWT::DecodeError.new("Token issued in the future") if Time.unix(iat) > RoughTime.utc + 0.2.seconds
           end
 
           # Validate nbf (Not Before) - RFC 7519 Section 4.1.5:
           # "if the 'nbf' claim is present... the JWT MUST NOT be accepted for processing"
-          if nbf = payload["nbf"]?.try(&.as_i64?)
+          if nbf = payload.nbf
             raise JWT::DecodeError.new("Token not yet valid") if Time.unix(nbf) > RoughTime.utc
           end
         end
@@ -86,8 +86,8 @@ module LavinMQ
           @fetcher.public_keys.decode(token)
         end
 
-        protected def validate_issuer(payload)
-          issuer = payload["iss"]?.try(&.as_s?)
+        protected def validate_issuer(payload : JWT::Payload)
+          issuer = payload.iss
           raise JWT::DecodeError.new("Missing or invalid iss claim in token") unless issuer
 
           if issuer.chomp("/") != @expected_issuer
@@ -95,14 +95,17 @@ module LavinMQ
           end
         end
 
-        private def validate_audience(payload)
-          aud = payload["aud"]?
-          return unless aud # No audience in token, nothing to validate
+        private def validate_audience(payload : JWT::Payload)
+          aud = payload.aud
+          return unless aud
 
           audiences = case aud
-                      when .as_a? then aud.as_a.map(&.as_s)
-                      when .as_s? then [aud.as_s]
-                      else             return
+                      in String
+                        [aud]
+                      in Array(String)
+                        aud
+                      in Nil
+                        return
                       end
 
           expected = @config.oauth_audience.nil? ? @config.oauth_resource_server_id : @config.oauth_audience

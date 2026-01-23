@@ -16,9 +16,73 @@ module LavinMQ
 
       class ExpiredKeysError < VerificationError; end
 
+      struct Header
+        include JSON::Serializable
+        include JSON::Serializable::Unmapped
+
+        property alg : String?
+        property typ : String?
+        property kid : String?
+
+        def initialize(*, @alg : String? = nil, @typ : String? = nil, @kid : String? = nil)
+          @json_unmapped = {} of String => JSON::Any
+        end
+
+        def [](key : String)
+          @json_unmapped[key]?
+        end
+
+        def []?(key : String)
+          @json_unmapped[key]?
+        end
+
+        def []=(key : String, value)
+          @json_unmapped[key] = value
+        end
+      end
+
+      struct ResourceRoles
+        include JSON::Serializable
+
+        property roles : Array(String)?
+
+        def initialize(*, @roles : Array(String)? = nil)
+        end
+      end
+
+      struct Payload
+        include JSON::Serializable
+        include JSON::Serializable::Unmapped
+
+        property exp : Int64?
+        property iat : Int64?
+        property nbf : Int64?
+        property iss : String?
+        property aud : String | Array(String) | Nil
+        property sub : String?
+        property scope : String?
+        property resource_access : Hash(String, ResourceRoles)?
+
+        def initialize(*, @exp : Int64? = nil, @iat : Int64? = nil, @nbf : Int64? = nil, @iss : String? = nil, @aud : String | Array(String) | Nil = nil, @sub : String? = nil, @scope : String? = nil, @resource_access : Hash(String, ResourceRoles)? = nil)
+          @json_unmapped = {} of String => JSON::Any
+        end
+
+        def [](key : String)
+          @json_unmapped[key]?
+        end
+
+        def []?(key : String)
+          @json_unmapped[key]?
+        end
+
+        def []=(key : String, value)
+          @json_unmapped[key] = value
+        end
+      end
+
       struct Token
-        getter header : JSON::Any
-        getter payload : JSON::Any
+        getter header : Header
+        getter payload : Payload
         getter signature : Bytes
 
         def initialize(@header, @payload, @signature)
@@ -34,10 +98,10 @@ module LavinMQ
       end
 
       class RS256Parser
-        def self.decode_header(token : String) : JSON::Any
+        def self.decode_header(token : String) : Header
           parts = token.split('.')
           raise DecodeError.new("Invalid JWT format: expected 3 parts") unless parts.size == 3
-          JSON.parse(base64url_decode(parts[0]))
+          Header.from_json(base64url_decode(parts[0]))
         end
 
         def self.decode(token : String, public_key : String, verify : Bool = true) : Token
@@ -48,11 +112,11 @@ module LavinMQ
           payload_json = base64url_decode(parts[1])
           signature = base64url_decode_bytes(parts[2])
 
-          header = JSON.parse(header_json)
-          payload = JSON.parse(payload_json)
+          header = Header.from_json(header_json)
+          payload = Payload.from_json(payload_json)
 
           # Verify algorithm
-          alg = header["alg"]?.try(&.as_s)
+          alg = header.alg
           raise DecodeError.new("Missing algorithm in header") unless alg
           raise DecodeError.new("Expected RS256, got #{alg}") unless alg == "RS256"
 
