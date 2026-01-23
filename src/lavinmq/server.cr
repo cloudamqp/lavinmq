@@ -146,7 +146,7 @@ module LavinMQ
       remote_address = client.remote_address
       parsed_proxy = ProxyProtocol.parse(client)
 
-      if @config.tcp_proxy_protocol
+      if @config.tcp_proxy_protocol?
         if trusted_proxy_source?(remote_address.address)
           return parsed_proxy if parsed_proxy
         else
@@ -157,7 +157,7 @@ module LavinMQ
           return parsed_proxy if parsed_proxy
         end
       end
-      return ConnectionInfo.new(remote_address, client.local_address)
+      ConnectionInfo.new(remote_address, client.local_address)
     end
 
     private def trusted_proxy_source?(address : String) : Bool
