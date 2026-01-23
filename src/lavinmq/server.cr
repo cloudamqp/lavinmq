@@ -137,9 +137,9 @@ module LavinMQ
 
     private def extract_conn_info(client) : ConnectionInfo
       remote_address = client.remote_address
-      parsed_proxy = ProxyProtocol.parse(client)
 
       if @config.tcp_proxy_protocol?
+        parsed_proxy = ProxyProtocol.parse(client)
         if trusted_proxy_source?(remote_address.address)
           return parsed_proxy if parsed_proxy
         else
@@ -147,6 +147,7 @@ module LavinMQ
         end
       else
         if @config.clustering? && all_followers.any? { |f| f.remote_address.address == remote_address.address }
+          parsed_proxy = ProxyProtocol.parse(client)
           return parsed_proxy if parsed_proxy
         end
       end
