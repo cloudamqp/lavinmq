@@ -1,3 +1,4 @@
+require "../controller"
 require "../router"
 require "../../version"
 require "html"
@@ -51,7 +52,7 @@ module LavinMQ
       macro static_view(path, *, auth_required = true, view = nil, &block)
         {% view = path[1..] if view.nil? %}
         get {{ path }} do |context, params|
-          {% if auth_required %} redirect_unless_logged_in! {% end %}
+          redirect_unless_logged_in! if {{ auth_required }}
           if_non_match = context.request.headers["If-None-Match"]?
           Log.trace { "static_view path={{ path.id }} etag=#{ETag} if-non-match=#{if_non_match}" }
           if if_non_match == ETag
@@ -62,7 +63,6 @@ module LavinMQ
             context.response.headers.add("ETag", ETag)
             context.response.headers.add("X-Frame-Options", "SAMEORIGIN")
             context.response.headers.add("Referrer-Policy", "same-origin")
-            # The sha256 hash below is for the inline script in views/partials/head.ecr
             context.response.headers.add("Content-Security-Policy", "default-src 'none'; style-src 'self'; font-src 'self'; img-src 'self'; connect-src 'self'; script-src 'self'")
             {{ block.body if block }}
             render {{ view }}
