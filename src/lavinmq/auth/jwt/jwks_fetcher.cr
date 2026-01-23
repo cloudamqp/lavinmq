@@ -7,18 +7,6 @@ require "../../rough_time"
 module LavinMQ
   module Auth
     module JWT
-      # Module-level accessor for the JWKS fetcher.
-      # This allows components to access the fetcher without passing it through layers.
-      @@jwks_fetcher : JWKSFetcher?
-
-      def self.jwks_fetcher=(fetcher : JWKSFetcher?)
-        @@jwks_fetcher = fetcher
-      end
-
-      def self.jwks_fetcher : JWKSFetcher?
-        @@jwks_fetcher
-      end
-
       # Fetches JWKS (JSON Web Key Set) from OAuth provider.
       # Handles OIDC discovery and JWKS parsing.
       class JWKSFetcher
