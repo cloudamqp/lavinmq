@@ -48,18 +48,22 @@ module LavinMQ
       end
 
       def can_write?(vhost : String, name : String) : Bool
-        perm = permissions[vhost]?
+        perm = find_permission(vhost)
         perm ? perm_match?(perm[:write], name) : false
       end
 
       def can_read?(vhost : String, name : String) : Bool
-        perm = permissions[vhost]?
+        perm = find_permission(vhost)
         perm ? perm_match?(perm[:read], name) : false
       end
 
       def can_config?(vhost : String, name : String) : Bool
-        perm = permissions[vhost]?
+        perm = find_permission(vhost)
         perm ? perm_match?(perm[:config], name) : false
+      end
+
+      def find_permission(vhost : String) : Permissions?
+        permissions[vhost]?
       end
 
       def can_impersonate? : Bool

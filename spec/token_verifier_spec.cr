@@ -404,22 +404,22 @@ describe LavinMQ::Auth::JWT::TokenVerifier do
 
       it "extracts permissions from scope" do
         verifier = JWTTestHelper.create_testable_verifier
-        payload = JSON.parse(%({"iss": "https://auth.example.com", "exp": #{RoughTime.utc.to_unix + 3600}, "preferred_username": "testuser", "scope": "read:*:* write:myvhost:myqueue"}))
+        payload = JSON.parse(%({"iss": "https://auth.example.com", "exp": #{RoughTime.utc.to_unix + 3600}, "preferred_username": "testuser", "scope": "read:*/* write:myvhost/myqueue"}))
         claims = verifier.test_validate_and_extract_claims(payload)
         claims.permissions["*"][:read].should eq(/.*/)
-        claims.permissions["myvhost"][:write].should eq(/myqueue/)
+        claims.permissions["myvhost"][:write].should eq(/^myqueue$/)
       end
 
       it "extracts configure permission" do
         verifier = JWTTestHelper.create_testable_verifier
-        payload = JSON.parse(%({"iss": "https://auth.example.com", "exp": #{RoughTime.utc.to_unix + 3600}, "preferred_username": "testuser", "scope": "configure:*:myqueue"}))
+        payload = JSON.parse(%({"iss": "https://auth.example.com", "exp": #{RoughTime.utc.to_unix + 3600}, "preferred_username": "testuser", "scope": "configure:*/myqueue"}))
         claims = verifier.test_validate_and_extract_claims(payload)
-        claims.permissions["*"][:config].should eq(/myqueue/)
+        claims.permissions["*"][:config].should eq(/^myqueue$/)
       end
 
       it "extracts roles from resource_access" do
         verifier = JWTTestHelper.create_testable_verifier(resource_server_id: "lavinmq")
-        payload = JSON.parse(%({"iss": "https://auth.example.com", "exp": #{RoughTime.utc.to_unix + 3600}, "preferred_username": "testuser", "resource_access": {"lavinmq": {"roles": ["lavinmq.tag:administrator", "lavinmq.read:*:*"]}}}))
+        payload = JSON.parse(%({"iss": "https://auth.example.com", "exp": #{RoughTime.utc.to_unix + 3600}, "preferred_username": "testuser", "resource_access": {"lavinmq": {"roles": ["lavinmq.tag:administrator", "lavinmq.read:*/*"]}}}))
         claims = verifier.test_validate_and_extract_claims(payload)
         claims.tags.should contain(LavinMQ::Tag::Administrator)
         claims.permissions["*"][:read].should eq(/.*/)
@@ -435,7 +435,7 @@ describe LavinMQ::Auth::JWT::TokenVerifier do
 
       it "extracts scopes from additional_scopes_key (string)" do
         verifier = JWTTestHelper.create_testable_verifier(additional_scopes_key: "custom_permissions")
-        payload = JSON.parse(%({"iss": "https://auth.example.com", "exp": #{RoughTime.utc.to_unix + 3600}, "preferred_username": "testuser", "custom_permissions": "tag:administrator read:*:*"}))
+        payload = JSON.parse(%({"iss": "https://auth.example.com", "exp": #{RoughTime.utc.to_unix + 3600}, "preferred_username": "testuser", "custom_permissions": "tag:administrator read:*/*"}))
         claims = verifier.test_validate_and_extract_claims(payload)
         claims.tags.should contain(LavinMQ::Tag::Administrator)
         claims.permissions["*"][:read].should eq(/.*/)
@@ -456,24 +456,24 @@ describe LavinMQ::Auth::JWT::TokenVerifier do
         claims.tags.should contain(LavinMQ::Tag::Monitoring)
       end
 
-      it "ignores invalid permission format (not 3 parts)" do
+      it "ignores invalid permission format (not 2 or 3 parts)" do
         verifier = JWTTestHelper.create_testable_verifier
-        payload = JSON.parse(%({"iss": "https://auth.example.com", "exp": #{RoughTime.utc.to_unix + 3600}, "preferred_username": "testuser", "scope": "invalid read:*:*"}))
+        payload = JSON.parse(%({"iss": "https://auth.example.com", "exp": #{RoughTime.utc.to_unix + 3600}, "preferred_username": "testuser", "scope": "invalid read:*/*"}))
         claims = verifier.test_validate_and_extract_claims(payload)
         claims.permissions["*"][:read].should eq(/.*/)
-        # "invalid" should be skipped (not 3 parts)
+        # "invalid" should be skipped (no colon separator)
       end
 
       it "ignores invalid regex patterns" do
         verifier = JWTTestHelper.create_testable_verifier
-        payload = JSON.parse(%({"iss": "https://auth.example.com", "exp": #{RoughTime.utc.to_unix + 3600}, "preferred_username": "testuser", "scope": "read:*:[invalid read:*:valid"}))
+        payload = JSON.parse(%({"iss": "https://auth.example.com", "exp": #{RoughTime.utc.to_unix + 3600}, "preferred_username": "testuser", "scope": "read:*/[invalid read:*/valid"}))
         claims = verifier.test_validate_and_extract_claims(payload)
-        claims.permissions["*"][:read].should eq(/valid/)
+        claims.permissions["*"][:read].should eq(/^valid$/)
       end
 
       it "ignores unknown permission types" do
         verifier = JWTTestHelper.create_testable_verifier
-        payload = JSON.parse(%({"iss": "https://auth.example.com", "exp": #{RoughTime.utc.to_unix + 3600}, "preferred_username": "testuser", "scope": "delete:*:* read:*:*"}))
+        payload = JSON.parse(%({"iss": "https://auth.example.com", "exp": #{RoughTime.utc.to_unix + 3600}, "preferred_username": "testuser", "scope": "delete:*/* read:*/*"}))
         claims = verifier.test_validate_and_extract_claims(payload)
         claims.permissions["*"][:read].should eq(/.*/)
         # "delete" permission type should be ignored

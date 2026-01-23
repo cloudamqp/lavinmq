@@ -52,6 +52,16 @@ module LavinMQ
         clear_permissions_cache
         @token_updated.send nil
       end
+
+      def find_permission(vhost : String) : Permissions?
+        permissions[vhost]? || permissions.find { |pattern, _| wildcard_match?(pattern, vhost) }.try(&.[1])
+      end
+
+      private def wildcard_match?(pattern : String, value : String) : Bool
+        return true if pattern == "*"
+        regex = pattern.gsub(/[.+?^${}()|[\]\\]/) { |m| "\\#{m}" }.gsub("*", ".*")
+        Regex.new("^#{regex}$").matches?(value)
+      end
     end
   end
 end
