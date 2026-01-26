@@ -192,7 +192,7 @@ Use [lavinmqperf](https://lavinmq.com/documentation/lavinmqperf) to benchmark yo
 - Automatic leader election in clusters via etcd
 
 ### Other Functionality
-- Shovels
+- Shovels (including HTTP shovels with [Standard Webhooks](https://www.standardwebhooks.com/) signature support)
 - Queue & Exchange federation
 - Single active consumer
 - Stream queues
