@@ -718,6 +718,7 @@ module LavinMQ::AMQP
     # yield the next message in the ready queue
     # returns true if a message was deliviered, false otherwise
     # if we encouncer an unrecoverable ReadError, close queue
+    # ameba:disable Metrics/CyclomaticComplexity
     private def get(no_ack : Bool, & : Envelope -> Nil) : Bool
       raise ClosedError.new if @closed
       loop do # retry if msg expired or deliver limit hit
