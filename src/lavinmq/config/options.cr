@@ -71,22 +71,8 @@ module LavinMQ
       @[IniOpt(section: "amqp", transform: ->(v : String) { true?(v) || v.to_u8? == 2 })]
       property? tcp_proxy_protocol = false
 
-      @[IniOpt(section: "amqp", transform: ->(v : String) { parse_trusted_sources(v) })]
+      @[IniOpt(section: "amqp", transform: ->IPMatcher.parse_list(String))]
       property proxy_protocol_trusted_sources = Array(IPMatcher).new
-
-      def parse_trusted_sources(sources : String) : Array(IPMatcher)
-        sources.split(',')
-          .map(&.strip)
-          .reject(&.empty?)
-          .compact_map do |source|
-            begin
-              IPMatcher.parse(source)
-            rescue ex : Socket::Error | ArgumentError
-              STDERR.puts "WARNING: Invalid IP/CIDR in proxy_protocol_trusted_sources: #{source} - #{ex.message}"
-              nil
-            end
-          end
-      end
 
       @[CliOpt("", "--http-bind=BIND", "IP address that the HTTP server will listen on (default: 127.0.0.1)", section: "bindings")]
       @[IniOpt(ini_name: bind, section: "mgmt")]

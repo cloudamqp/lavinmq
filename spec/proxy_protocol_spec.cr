@@ -152,7 +152,7 @@ describe "ProxyProtocol" do
   describe "trusted sources" do
     it "parses individual IPv4 addresses" do
       config = LavinMQ::Config.new
-      config.proxy_protocol_trusted_sources = config.parse_trusted_sources("192.168.1.1, 10.0.0.1")
+      config.proxy_protocol_trusted_sources = LavinMQ::IPMatcher.parse_list("192.168.1.1, 10.0.0.1")
 
       config.proxy_protocol_trusted_sources.size.should eq 2
       config.proxy_protocol_trusted_sources[0].matches?("192.168.1.1").should be_true
@@ -161,7 +161,7 @@ describe "ProxyProtocol" do
 
     it "parses IPv4 CIDR notation" do
       config = LavinMQ::Config.new
-      config.proxy_protocol_trusted_sources = config.parse_trusted_sources("192.168.0.0/24")
+      config.proxy_protocol_trusted_sources = LavinMQ::IPMatcher.parse_list("192.168.0.0/24")
 
       config.proxy_protocol_trusted_sources.size.should eq 1
       config.proxy_protocol_trusted_sources[0].matches?("192.168.0.1").should be_true
@@ -171,7 +171,7 @@ describe "ProxyProtocol" do
 
     it "parses IPv6 CIDR notation" do
       config = LavinMQ::Config.new
-      config.proxy_protocol_trusted_sources = config.parse_trusted_sources("2001:db8::/32")
+      config.proxy_protocol_trusted_sources = LavinMQ::IPMatcher.parse_list("2001:db8::/32")
 
       config.proxy_protocol_trusted_sources.size.should eq 1
       config.proxy_protocol_trusted_sources[0].matches?("2001:db8::1").should be_true
@@ -181,7 +181,7 @@ describe "ProxyProtocol" do
 
     it "parses mixed IPs and CIDR notation" do
       config = LavinMQ::Config.new
-      config.proxy_protocol_trusted_sources = config.parse_trusted_sources(
+      config.proxy_protocol_trusted_sources = LavinMQ::IPMatcher.parse_list(
         "10.0.0.1, 192.168.0.0/24, 2001:db8::/32, ::1")
 
       config.proxy_protocol_trusted_sources.size.should eq 4
@@ -206,7 +206,7 @@ describe "ProxyProtocol" do
     it "handles invalid entries gracefully" do
       config = LavinMQ::Config.new
       # This should print warnings to STDERR but not fail
-      config.proxy_protocol_trusted_sources = config.parse_trusted_sources(
+      config.proxy_protocol_trusted_sources = LavinMQ::IPMatcher.parse_list(
         "10.0.0.1, invalid-ip, 192.168.0.0/24, 300.0.0.1")
 
       # Only valid entries should be parsed
@@ -217,7 +217,7 @@ describe "ProxyProtocol" do
 
     it "handles whitespace correctly" do
       config = LavinMQ::Config.new
-      config.proxy_protocol_trusted_sources = config.parse_trusted_sources(
+      config.proxy_protocol_trusted_sources = LavinMQ::IPMatcher.parse_list(
         "  10.0.0.1  ,  192.168.0.0/24  ")
 
       config.proxy_protocol_trusted_sources.size.should eq 2
@@ -227,7 +227,7 @@ describe "ProxyProtocol" do
 
     it "returns empty array for empty config" do
       config = LavinMQ::Config.new
-      config.proxy_protocol_trusted_sources = config.parse_trusted_sources("")
+      config.proxy_protocol_trusted_sources = LavinMQ::IPMatcher.parse_list("")
 
       config.proxy_protocol_trusted_sources.size.should eq 0
     end
