@@ -1,12 +1,24 @@
 require "../destination"
 require "./exchange"
+require "../../hasher.cr"
 require "../../consistent_hasher.cr"
+require "../../jump_consistent_hasher.cr"
 
 module LavinMQ
+  enum ConsistentHashAlgorithm
+    Ring
+    Jump
+  end
+
   module AMQP
     class ConsistentHashExchange < Exchange
-      @hasher = ConsistentHasher(AMQP::Destination).new
+      @hasher : Hasher(AMQP::Destination)
       @bindings = Set({Destination, BindingKey}).new
+
+      def initialize(*args, **kwargs)
+        super(*args, **kwargs)
+        @hasher = select_hasher(Config.instance.default_consistent_hash_algorithm)
+      end
 
       def type : String
         "x-consistent-hash"
@@ -14,7 +26,24 @@ module LavinMQ
 
       def handle_arguments
         super
+        if v = @arguments["x-algorithm"]?
+          if hasher = v.as?(String)
+            if algo = ConsistentHashAlgorithm.parse?(hasher)
+              @hasher = select_hasher(algo)
+              @effective_args << "x-algorithm"
+            end
+          end
+        end
         @effective_args << "x-hash-on" if @arguments["x-hash-on"]?
+      end
+
+      private def select_hasher(option : ConsistentHashAlgorithm)
+        case option
+        in .jump?
+          JumpConsistentHasher(AMQP::Destination).new
+        in .ring?
+          RingConsistentHasher(AMQP::Destination).new
+        end
       end
 
       def bindings_details : Iterator(BindingDetails)

@@ -1,15 +1,12 @@
-require "digest/crc32"
+require "./hasher"
 
-# Information on Consistent Hash Ring
-# http://www.martinbroadhurst.com/Consistent-Hash-Ring.html
-class ConsistentHasher(T)
+# Ring-based Consistent Hash implementation.
+# Uses a hash ring with virtual nodes for consistent key-to-node mapping.
+# Information on Consistent Hash Ring: http://www.martinbroadhurst.com/Consistent-Hash-Ring.html
+class RingConsistentHasher(T) < Hasher(T)
   def initialize
     @ring = Hash(UInt32, T).new(initial_capacity: 128)
     @sorted_keys = Array(UInt32).new(128)
-  end
-
-  private def hash_key(key) : UInt32
-    Digest::CRC32.checksum(key)
   end
 
   def add(key : String, weight : UInt32, target : T)
@@ -26,9 +23,9 @@ class ConsistentHasher(T)
     @sorted_keys = @ring.keys.sort!
   end
 
-  def get(key)
+  def get(key : String) : T?
     size = @ring.size
-    return if size.zero?
+    return nil if size.zero?
     return @ring.first.last if size == 1
     key_hash = hash_key(key)
     ring_hash = @sorted_keys.bsearch { |x| x >= key_hash }
