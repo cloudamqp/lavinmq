@@ -27,6 +27,21 @@ module LavinMQ
       end
     end
 
+    # Parse a comma-separated list of IP addresses or CIDR ranges from config
+    def self.parse_list(sources : String) : Array(IPMatcher)
+      sources.split(',')
+        .map(&.strip)
+        .reject(&.empty?)
+        .compact_map do |source|
+          begin
+            parse(source)
+          rescue ex : Socket::Error | ArgumentError
+            STDERR.puts "WARNING: Invalid IP/CIDR: #{source} - #{ex.message}"
+            nil
+          end
+        end
+    end
+
     # Check if an IP address matches this matcher
     def matches?(address : String) : Bool
       case @type
