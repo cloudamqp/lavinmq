@@ -127,8 +127,8 @@ module LavinMQ
           parts = remainder.split("/")
           return unless parts.size == 2 || parts.size == 3
 
-          vhost, pattern = parts[0], parts[1]
-          pattern = URI.decode_www_form(pattern)
+          vhost = URI.decode_www_form(parts[0])
+          pattern = URI.decode_www_form(parts[1])
           regex_pattern = wildcard_to_regex(pattern)
 
           permissions[vhost] ||= {config: Regex.new("^$"), read: Regex.new("^$"), write: Regex.new("^$")}
