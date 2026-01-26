@@ -49,7 +49,7 @@ module LavinMQ
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator)
       @authenticator = Auth::Chain.create(@users)
       if @config.tcp_proxy_protocol? && @config.proxy_protocol_trusted_sources.empty?
-        Log.warn { "PROXY protocol enabled without trusted sources configured - accepting from all sources " }
+        Log.warn { "PROXY protocol enabled without trusted sources configured - accepting from all sources" }
       end
       @connection_factories = {
         Protocol::AMQP => AMQP::ConnectionFactory.new(authenticator, @vhosts),
