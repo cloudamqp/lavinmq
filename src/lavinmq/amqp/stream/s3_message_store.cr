@@ -10,7 +10,7 @@ module LavinMQ::AMQP
     class S3MessageStore < StreamMessageStore
       @s3_segments = Hash(UInt32, NamedTuple(path: String, etag: String, size: Int64, meta: Bool)).new
       property storage_client : S3StorageClient
-      @segment_cache : S3SegmentCache
+      @segment_cache : S3SegmentCache?
 
       MAX_RUNNING_FIBERS = 8
 
@@ -40,8 +40,9 @@ module LavinMQ::AMQP
         @empty.set empty?
 
         drop_overflow
-        @segment_cache = S3SegmentCache.new(@storage_client, @s3_segments, @segments, @msg_dir, metadata)
-        @segment_cache.spawn_download_fibers
+        segment_cache = S3SegmentCache.new(@storage_client, @s3_segments, @segments, @msg_dir, metadata)
+        segment_cache.spawn_download_fibers
+        @segment_cache = segment_cache
       end
 
       private def load_stats_from_segments : Nil
@@ -103,24 +104,29 @@ module LavinMQ::AMQP
         segments = Array(Tuple(UInt32, MFile)).new(@s3_segments.size)
         counter = 0
         segment_keys = @s3_segments.keys
-        keys_mutex = Mutex.new
+        mutex = Mutex.new
         wg = WaitGroup.new([MAX_RUNNING_FIBERS, @s3_segments.size].min)
         [MAX_RUNNING_FIBERS, @s3_segments.size].min.times do
           spawn do
-            while seg = keys_mutex.synchronize { segment_keys.shift? }
+            while seg = mutex.synchronize { segment_keys.shift? }
               s3file = @s3_segments[seg]
               path = File.join(Config.instance.data_dir, s3file[:path])
               load_stats_from_meta_file(path, seg, s3file)
               file = verify_local_file?(s3file, seg)
-              segments << {seg, file} if file
+              mutex.synchronize { segments << {seg, file} } if file
 
               # download segment from s3 if meta file was not found and local file is not valid
               # always download last segment unless it exists locally
               if @segment_msg_count[seg].zero? || seg == @s3_segments.last_key
-                file ||= @storage_client.download_segment(seg, @s3_segments, @storage_client.http_client)
+                client = @storage_client.http_client(with_timeouts: true)
+                begin
+                  file ||= @storage_client.download_segment(seg, @s3_segments, client)
+                ensure
+                  client.close
+                end
                 if mfile = file
                   @replicator.try &.register_file mfile
-                  segments << {seg, mfile}
+                  mutex.synchronize { segments << {seg, mfile} }
                   mfile.pos = 4
                   produce_metadata(seg, mfile)
                   write_metadata_file(seg, mfile)
@@ -158,8 +164,15 @@ module LavinMQ::AMQP
             meta_s3_path = meta_file_name(path[Config.instance.data_dir.bytesize + 1..])
             @storage_client.upload_file_to_s3("/#{meta_s3_path}", slice)
           end
-        elsif meta_file = @storage_client.download_meta_file(seg, @s3_segments, @storage_client.http_client)
-          read_metadata_file_from_s3(seg, meta_file)
+        else
+          client = @storage_client.http_client(with_timeouts: true)
+          begin
+            if meta_file = @storage_client.download_meta_file(seg, @s3_segments, client)
+              read_metadata_file_from_s3(seg, meta_file)
+            end
+          ensure
+            client.close
+          end
         end
       end
 
@@ -204,18 +217,23 @@ module LavinMQ::AMQP
         mfile
       end
 
+      def close : Nil
+        @segment_cache.try &.close
+        super
+      end
+
       def add_consumer(tag, segment)
-        @segment_cache.current_read_segments[tag] = segment
+        @segment_cache.try &.current_read_segments.[tag] = segment
       end
 
       def remove_consumer(tag)
-        @segment_cache.current_read_segments.delete(tag)
+        @segment_cache.try &.current_read_segments.delete(tag)
       end
 
       # Wait for download of the next segment if needed
       private def next_segment(consumer) : MFile?
         consumer.segment += 1
-        @segment_cache.current_read_segments[consumer.tag] = consumer.segment
+        @segment_cache.try &.current_read_segments.[consumer.tag] = consumer.segment
         consumer.pos = 4u32
 
         unless @segments[consumer.segment]?
@@ -314,15 +332,20 @@ module LavinMQ::AMQP
       private def find_offset_in_segments(offset : Int | Time, retries = 5) : Tuple(Int64, UInt32, UInt32)
         segment = offset_index_lookup(offset)
         unless @segments[segment]?
-          if mfile = @storage_client.download_segment(segment, @s3_segments)
-            @segments[segment] = mfile
-          else
-            if (retries -= 1) <= 0
-              raise "Segment #{segment} not found in S3 and could not be downloaded"
+          client = @storage_client.http_client(with_timeouts: true)
+          begin
+            if mfile = @storage_client.download_segment(segment, @s3_segments, client)
+              @segments[segment] = mfile
             else
-              @log.warn { "Segment #{segment} not found in S3, retrying download" }
-              find_offset_in_segments(offset, retries)
+              if (retries -= 1) <= 0
+                raise "Segment #{segment} not found in S3 and could not be downloaded"
+              else
+                @log.warn { "Segment #{segment} not found in S3, retrying download" }
+                return find_offset_in_segments(offset, retries)
+              end
             end
+          ensure
+            client.close
           end
         end
         super(offset)

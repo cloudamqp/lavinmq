@@ -6,14 +6,19 @@ require "../../config"
 
 module LavinMQ::AMQP
   class S3SegmentCache
-    @downloading_segments = Hash(UInt32, Int64).new
-    @downloading_clients = Hash(UInt32, Array(::HTTP::Client)).new
     @log : Logger
     property current_read_segments = Hash(String, UInt32).new
 
+    # Configuration
     NUM_SEGMENTS_DOWNLOAD_AHEAD =   15
-    MAX_RUNNING_FIBERS          =    8
-    DOWNLOAD_TIMEOUT            = 2000
+    NUM_DOWNLOAD_WORKERS        =    8
+    MAX_ATTEMPTS_PER_SEGMENT    =    3
+    SLOW_DOWNLOAD_THRESHOLD_MS  = 2000
+    COORDINATOR_INTERVAL        = 100.milliseconds
+    CLEANUP_INTERVAL            = 5.seconds
+
+    # Track in-flight download attempts
+    private record DownloadAttempt, started_at : Int64, completed : Bool = false
 
     def initialize(
       @storage_client : S3StorageClient,
@@ -23,163 +28,252 @@ module LavinMQ::AMQP
       metadata : ::Log::Metadata = ::Log::Metadata.empty,
     )
       @log = Logger.new(Log, metadata)
+      @mutex = Mutex.new
+      @pending_downloads = Hash(UInt32, Array(DownloadAttempt)).new
+      @download_queue = ::Channel(UInt32).new(256)
+      @closed = false
       delete_temp_files(@msg_dir)
     end
 
     def spawn_download_fibers
-      spawn download_segments, name: "S3SegmentCache#download_segments"
-      spawn monitor_downloads, name: "S3SegmentCache#monitor_downloads"
-      spawn remove_local_segments, name: "S3SegmentCache#remove_local_segments"
+      # Fixed pool of download workers
+      NUM_DOWNLOAD_WORKERS.times do |i|
+        spawn download_worker(i), name: "S3SegmentCache#worker-#{i}"
+      end
+      # Single coordinator handles all scheduling decisions
+      spawn coordinator_loop, name: "S3SegmentCache#coordinator"
+      # Cleanup runs less frequently
+      spawn cleanup_loop, name: "S3SegmentCache#cleanup"
     end
 
-    def download_segments
-      loop do
-        sleep 50.milliseconds
-        segments_to_download = segments_that_should_be_downloaded
-        next if segments_to_download.empty?
-        segments_to_download.reject! { |seg| @downloading_segments[seg]? || @segments[seg]? || !@s3_segments[seg]? }
+    def close
+      @closed = true
+      @download_queue.close
+    end
 
-        download_mutex = Mutex.new
-        [MAX_RUNNING_FIBERS, @s3_segments.size].min.times do
-          spawn do
-            while segment = download_mutex.synchronize { segments_to_download.shift? }
-              do_download(segment, @storage_client.http_client)
+    # Fixed worker that processes download requests from the queue
+    private def download_worker(worker_id : Int32)
+      loop do
+        seg_id = @download_queue.receive? || break # nil when channel closed
+
+        # Skip if we already have this segment (another worker may have completed it)
+        next if @mutex.synchronize { @segments[seg_id]? }
+
+        @log.debug { "Worker #{worker_id}: downloading segment #{seg_id}" }
+
+        # Each worker creates its own HTTP client per download
+        # This ensures we potentially hit different S3 endpoints
+        client = @storage_client.http_client(with_timeouts: true)
+
+        begin
+          if mfile = @storage_client.download_segment(seg_id, @s3_segments, client)
+            @mutex.synchronize do
+              # First one wins - don't overwrite if another worker finished first
+              if @segments[seg_id]?
+                @log.debug { "Worker #{worker_id}: segment #{seg_id} already downloaded by another worker" }
+                mfile.delete
+                mfile.close
+              else
+                @segments[seg_id] = mfile
+                @log.debug { "Worker #{worker_id}: segment #{seg_id} downloaded successfully" }
+              end
+              # Mark all attempts for this segment as completed
+              @pending_downloads[seg_id]?.try &.each(&.copy_with(completed: true))
             end
           end
+        rescue ex : IO::Error | IO::TimeoutError
+          @log.debug { "Worker #{worker_id}: segment #{seg_id} download failed: #{ex.message}" }
+        ensure
+          client.close
+        end
+      end
+    rescue Channel::ClosedError
+      # Expected when closing
+    end
+
+    # Single coordinator loop handles all scheduling decisions
+    private def coordinator_loop
+      until @closed
+        sleep COORDINATOR_INTERVAL
+
+        @mutex.synchronize do
+          cleanup_completed_downloads
+          schedule_downloads
         end
       end
     end
 
-    def do_download(segment, h)
-      @downloading_segments[segment] = RoughTime.unix_ms
-      path = File.join(Config.instance.data_dir, @s3_segments[segment][:path])
-      File.delete(path) if File.exists?(path)
-      @downloading_clients[segment] = [h]
-      begin
-        if mfile = @storage_client.download_segment(segment, @s3_segments, h)
-          @segments[segment] = mfile
-          @downloading_clients[segment]?.try &.delete(h)
-        end
-      rescue ex : IO::Error
-        if cl = @downloading_clients.delete(segment)
-          cl.each(&.close)
-        end
-        @log.debug { "Segment #{segment}: socket closed" }
-      end
-    end
-
-    private def monitor_downloads
-      loop do
-        sleep 50.milliseconds
-        next if @downloading_segments.empty?
-        @log.debug { "Currently downloading segments: #{@downloading_segments}" }
-        @downloading_segments.each do |seg_id, download_start_time|
-          if @segments[seg_id]?
-            @log.debug { "Segment #{seg_id} downloaded" }
-            @downloading_segments.delete(seg_id)
-            if clients = @downloading_clients.delete(seg_id)
-              clients.each(&.close)
-            end
-            Dir.glob(File.join(Config.instance.data_dir, "msgs.#{seg_id.to_s.rjust(10, '0')}.tmp.*")).each do |file|
-              File.delete(file)
-            end
-          elsif RoughTime.unix_ms - download_start_time > DOWNLOAD_TIMEOUT
-            @log.debug { "Segment #{seg_id} download timed out, retrying" }
-            @downloading_segments[seg_id] = RoughTime.unix_ms
-            spawn retry_download_segment(seg_id)
-          end
-          Fiber.yield
+    # Remove tracking for segments that completed or exceeded max attempts
+    private def cleanup_completed_downloads
+      @pending_downloads.reject! do |seg_id, attempts|
+        if @segments[seg_id]?
+          # Download completed, clean up temp files
+          cleanup_temp_files(seg_id)
+          true
+        elsif attempts.size >= MAX_ATTEMPTS_PER_SEGMENT && attempts.all? { |a| download_timed_out?(a) }
+          # All attempts failed/timed out, give up for now
+          # Will be retried on next coordinator loop if still wanted
+          @log.warn { "Segment #{seg_id}: all #{MAX_ATTEMPTS_PER_SEGMENT} download attempts failed" }
+          true
+        else
+          false
         end
       end
     end
 
-    private def retry_download_segment(seg_id)
-      h = @storage_client.http_client
-      @downloading_clients[seg_id] << h
-      begin
-        if mfile = @storage_client.download_segment(seg_id, @s3_segments, h)
-          @segments[seg_id] = mfile
+    # Schedule downloads for segments we want but don't have
+    private def schedule_downloads
+      wanted = segments_that_should_be_downloaded
+
+      wanted.each do |seg_id|
+        next if @segments[seg_id]?        # Already have it locally
+        next unless @s3_segments[seg_id]? # Must exist in S3
+
+        attempts = @pending_downloads[seg_id]?
+
+        if attempts.nil? || attempts.empty?
+          # No attempts yet, start one
+          queue_download(seg_id)
+        elsif should_start_racing_download?(attempts)
+          # Existing download is slow, start a racing attempt
+          queue_download(seg_id)
         end
-      rescue ex : IO::Error
-        @log.debug { "Segment #{seg_id}: socket closed during retry" }
-        @downloading_segments[seg_id] = RoughTime.unix_ms - 2000
       end
     end
 
-    private def segments_that_should_be_downloaded
+    private def should_start_racing_download?(attempts : Array(DownloadAttempt)) : Bool
+      return false if attempts.size >= MAX_ATTEMPTS_PER_SEGMENT
+
+      # Check if the most recent non-completed attempt is slow
+      active_attempts = attempts.reject(&.completed)
+      return true if active_attempts.empty? # All previous attempts completed/failed
+
+      oldest_active = active_attempts.min_by(&.started_at)
+      download_timed_out?(oldest_active)
+    end
+
+    private def download_timed_out?(attempt : DownloadAttempt) : Bool
+      RoughTime.unix_ms - attempt.started_at > SLOW_DOWNLOAD_THRESHOLD_MS
+    end
+
+    private def queue_download(seg_id : UInt32)
+      @pending_downloads[seg_id] ||= [] of DownloadAttempt
+      @pending_downloads[seg_id] << DownloadAttempt.new(started_at: RoughTime.unix_ms)
+
+      select
+      when @download_queue.send(seg_id)
+        @log.debug { "Queued download for segment #{seg_id} (attempt #{@pending_downloads[seg_id].size})" }
+      else
+        # Queue full, will retry next coordinator loop
+        @log.debug { "Download queue full, deferring segment #{seg_id}" }
+        @pending_downloads[seg_id].pop # Remove the attempt we just added
+      end
+    end
+
+    private def cleanup_temp_files(seg_id : UInt32)
+      pattern = File.join(@msg_dir, "msgs.#{seg_id.to_s.rjust(10, '0')}.tmp*")
+      Dir.glob(pattern).each do |file|
+        File.delete(file) rescue nil
+      end
+    end
+
+    # Calculate which segments should be cached locally based on consumer positions
+    private def segments_that_should_be_downloaded : Array(UInt32)
       segments_per_consumer = if @current_read_segments.empty?
                                 NUM_SEGMENTS_DOWNLOAD_AHEAD
                               else
                                 Config.instance.streams_s3_storage_local_segments_per_stream // @current_read_segments.size
                               end
 
+      # For each consumer, want segments from their position forward
       @current_read_segments.flat_map do |_consumer, segment|
         (0...segments_per_consumer).map { |i| segment + i }
       end.to_set.to_a.sort_by do |segment|
+        # Prioritize segments closest to any consumer
         @current_read_segments.min_of { |_cid, consumer_segment| (segment - consumer_segment).abs }
       end
     end
 
-    private def remove_local_segments
+    # Cleanup loop removes segments we no longer need locally
+    private def cleanup_loop
       max_local_segments = Config.instance.streams_s3_storage_local_segments_per_stream
-      loop do
-        sleep 5.seconds
-        next if @segments.size <= max_local_segments
-        @log.debug { "Removing local segments, current size: #{@segments.size}/#{max_local_segments}" }
-        segments_to_remove = @segments.keys.reject do |seg_id|
-          segments_that_should_be_downloaded.includes?(seg_id) || @current_read_segments.values.any? { |current_seg| current_seg == seg_id }
-        end
-        if @current_read_segments.empty?
-          while @segments.size > max_local_segments && !segments_to_remove.empty?
-            remove_local_segment(segments_to_remove.pop)
+
+      until @closed
+        sleep CLEANUP_INTERVAL
+
+        @mutex.synchronize do
+          next if @segments.size <= max_local_segments
+
+          @log.debug { "Cleanup: #{@segments.size}/#{max_local_segments} local segments" }
+
+          wanted = segments_that_should_be_downloaded.to_set
+          currently_reading = @current_read_segments.values.to_set
+
+          # Find segments safe to remove (not wanted and not currently being read)
+          removable = @segments.keys.reject do |seg_id|
+            wanted.includes?(seg_id) || currently_reading.includes?(seg_id)
           end
-        else
-          segments_to_remove = remove_segments_before_readers(segments_to_remove)
-          remove_furthest_segments(segments_to_remove)
-        end
-      end
-    end
 
-    private def remove_segments_before_readers(segments_to_remove)
-      return segments_to_remove if @segments.size <= Config.instance.streams_s3_storage_local_segments_per_stream
-      return segments_to_remove if segments_to_remove.empty?
+          if @current_read_segments.empty?
+            # No consumers, just keep under limit
+            remove_until_under_limit(removable, max_local_segments)
+          else
+            # First remove segments behind all readers
+            min_reader_segment = @current_read_segments.values.min
+            behind_readers = removable.select { |seg_id| seg_id < min_reader_segment }
+            remove_segments(behind_readers, max_local_segments)
 
-      segments_before_any_read_segments = segments_to_remove.select { |seg_id| seg_id < @current_read_segments.values.min }
-      segments_before_any_read_segments.size.times do |i|
-        break if @segments.size <= Config.instance.streams_s3_storage_local_segments_per_stream
-        remove_local_segment(segments_before_any_read_segments[i])
-        segments_to_remove.delete(segments_before_any_read_segments[i])
-      end
-      segments_to_remove
-    end
-
-    private def remove_furthest_segments(segments_to_remove)
-      return if @segments.size <= Config.instance.streams_s3_storage_local_segments_per_stream
-      if segments = segments_to_remove
-        while @segments.size > Config.instance.streams_s3_storage_local_segments_per_stream
-          furthest_segment = segments.max_by do |seg_id|
-            @current_read_segments.values.min_of { |read_seg| (read_seg - seg_id).abs }
+            # Then remove furthest from any reader
+            if @segments.size > max_local_segments
+              remaining = removable - behind_readers
+              remove_furthest_from_readers(remaining, max_local_segments)
+            end
           end
-          remove_local_segment(furthest_segment)
-          segments.delete(furthest_segment)
         end
       end
     end
 
-    private def remove_local_segment(seg_id)
-      @log.debug { "Removing segment: #{seg_id} from local storage" }
+    private def remove_until_under_limit(removable : Array(UInt32), max_local_segments : Int32)
+      removable.each do |seg_id|
+        break if @segments.size <= max_local_segments
+        remove_local_segment(seg_id)
+      end
+    end
+
+    private def remove_segments(segments : Array(UInt32), max_local_segments : Int32)
+      segments.each do |seg_id|
+        break if @segments.size <= max_local_segments
+        remove_local_segment(seg_id)
+      end
+    end
+
+    private def remove_furthest_from_readers(removable, max_local_segments : Int32)
+      # Sort by distance from nearest reader (furthest first)
+      sorted = removable.to_a.sort_by do |seg_id|
+        distance = @current_read_segments.values.min_of { |read_seg| (seg_id.to_i64 - read_seg.to_i64).abs }
+        -distance
+      end
+
+      sorted.each do |seg_id|
+        break if @segments.size <= max_local_segments
+        remove_local_segment(seg_id)
+      end
+    end
+
+    private def remove_local_segment(seg_id : UInt32)
+      @log.debug { "Removing local segment: #{seg_id}" }
       if seg = @segments.delete(seg_id)
         seg.delete if File.exists?(seg.path)
         seg.close
       end
     rescue ex : File::NotFoundError
-      @log.debug { "File not found while trying to remove segment #{seg_id}" }
+      @log.debug { "File not found while removing segment #{seg_id}" }
     end
 
     def delete_temp_files(msg_dir : String)
       Dir.each_child(msg_dir) do |f|
         if f.includes?(".tmp")
-          File.delete(File.join(msg_dir, f))
+          File.delete(File.join(msg_dir, f)) rescue nil
         end
       end
     end

@@ -18,28 +18,37 @@ module LavinMQ::AMQP
       @s3_signer = s3_signer
     end
 
-    def s3_segments_from_bucket(retries = 5)
+    # List all segments in the S3 bucket for this stream
+    # Returns a hash mapping segment ID to segment info
+    def s3_segments_from_bucket(max_retries = 5) : Hash(UInt32, NamedTuple(path: String, etag: String, size: Int64, meta: Bool))
       s3_segments = Hash(UInt32, NamedTuple(path: String, etag: String, size: Int64, meta: Bool)).new
       prefix = @msg_dir[Config.instance.data_dir.bytesize + 1..] + "/"
-      continuation_token = ""
+      continuation_token : String? = nil
+      retries = 0
 
       loop do
-        path = "?delimiter=%2F&encoding-type=url&list-type=2&prefix=#{prefix}&max-keys=1000"
-        path += "&continuation-token=#{URI.encode_path(continuation_token)}" unless continuation_token.empty?
-        response = http_client.get(path)
-        continuation_token = list_of_files_from_xml(XML.parse(response.body), s3_segments)
-        break unless continuation_token
+        begin
+          path = "?delimiter=%2F&encoding-type=url&list-type=2&prefix=#{prefix}&max-keys=1000"
+          if token = continuation_token
+            path += "&continuation-token=#{URI.encode_path(token)}"
+          end
+          response = http_client(with_timeouts: true).get(path)
+          continuation_token = list_of_files_from_xml(XML.parse(response.body), s3_segments)
+          retries = 0 # Reset on success
+          break unless continuation_token
+        rescue ex : IO::TimeoutError | IO::Error
+          retries += 1
+          if retries > max_retries
+            @log.error { "Failed to list S3 bucket after #{max_retries} retries: #{ex.message}" }
+            break
+          end
+          @log.warn { "Error listing S3 bucket (attempt #{retries}/#{max_retries}): #{ex.message}" }
+          sleep (2 ** retries).milliseconds # Exponential backoff
+        end
       end
 
       @log.info { "Found #{s3_segments.size} segments in S3" }
       s3_segments
-    rescue ex : IO::TimeoutError
-      @log.error { "Timeout while downloading file list, retrying..." }
-      if retries > 0
-        s3_segments_from_bucket(retries - 1)
-      else
-        s3_segments
-      end
     end
 
     def list_of_files_from_xml(document, s3_segments) : String?
@@ -101,36 +110,53 @@ module LavinMQ::AMQP
       s3_segments[seg_id] = {path: path, etag: etag, size: size, meta: meta}
     end
 
-    def download_segment(segment_id : UInt32, s3_segments, h = http_client) : MFile?
+    # Download a segment from S3
+    # Returns MFile on success, nil on failure
+    # Does NOT retry - caller is responsible for retry logic
+    def download_segment(segment_id : UInt32, s3_segments, h : ::HTTP::Client) : MFile?
       @log.debug { "Downloading segment: #{segment_id}" }
       return unless s3_segments[segment_id]?
 
       s3file_path = s3_segments[segment_id][:path]
       path = File.join(Config.instance.data_dir, s3file_path)
-      temp_path = temp_path(path)
+      temp_path = make_temp_path(path)
 
       h.get("/#{s3file_path}") do |response|
+        if response.status_code != 200
+          @log.warn { "Failed to download segment #{segment_id}: HTTP #{response.status_code}" }
+          return nil
+        end
+
         bytesize = response.headers["Content-Length"].to_i32
         rfile = MFile.new(temp_path, bytesize)
-        IO.copy response.body_io, rfile
-        if File.exists?(path)
-          rfile.delete
-          return
-        else
+
+        begin
+          IO.copy response.body_io, rfile
+
+          # Check if another download completed while we were downloading
+          if File.exists?(path)
+            @log.debug { "Segment #{segment_id} already exists, discarding download" }
+            rfile.delete
+            rfile.close
+            return nil
+          end
+
           rfile.rename(path)
           @log.debug { "Downloaded segment: #{segment_id}" }
           return rfile
+        rescue ex
+          # Clean up temp file on any error
+          rfile.delete rescue nil
+          rfile.close rescue nil
+          raise ex
         end
-      rescue ex : IO::Error
-        File.delete(temp_path) if File.exists?(temp_path)
-        raise ex
       end
-    rescue ex : IO::TimeoutError
-      @log.warn { "Timeout while downloading segment #{segment_id}, retrying" }
-      download_segment(segment_id, s3_segments, h)
     end
 
-    def download_meta_file(segment_id : UInt32, s3_segments, h = http_client) : MFile?
+    # Download metadata file from S3
+    # Returns MFile on success, nil on failure
+    # Does NOT retry - caller is responsible for retry logic
+    def download_meta_file(segment_id : UInt32, s3_segments, h : ::HTTP::Client) : MFile?
       @log.debug { "Downloading meta for segment: #{segment_id}" }
       return unless s3_segments[segment_id]?
 
@@ -139,7 +165,7 @@ module LavinMQ::AMQP
 
       h.get("/#{s3_meta_path}") do |response|
         if response.status_code != 200
-          @log.error { "Failed to download meta for segment #{segment_id}, status: #{response.status_code}" }
+          @log.debug { "Meta file not found for segment #{segment_id}: HTTP #{response.status_code}" }
           return nil
         end
         bytesize = response.headers["Content-Length"].to_i32
@@ -147,25 +173,33 @@ module LavinMQ::AMQP
         IO.copy response.body_io, rfile
         return rfile
       end
-    rescue ex : IO::TimeoutError
-      @log.warn { "Timeout while downloading meta for segment #{segment_id}, retrying" }
-      download_meta_file(segment_id, s3_segments, h)
     end
 
-    def upload_file_to_s3(path, slice, retries = 3) : String
-      response = http_client.put(path, body: slice)
-      if response.status_code != 200
-        if (retries -= 1) <= 0
-          raise Exception.new("Failed to upload file #{path} to S3 after multiple retries")
+    # Upload a file to S3
+    # Retries on failure with exponential backoff
+    def upload_file_to_s3(path : String, slice : Bytes, max_retries = 3) : String
+      retries = 0
+      loop do
+        begin
+          response = http_client(with_timeouts: true).put(path, body: slice)
+          if response.status_code == 200
+            return response.headers["ETag"]
+          end
+          raise "HTTP #{response.status_code}"
+        rescue ex
+          retries += 1
+          if retries > max_retries
+            raise Exception.new("Failed to upload #{path} to S3 after #{max_retries} retries: #{ex.message}")
+          end
+          @log.warn { "Failed to upload #{path} to S3 (attempt #{retries}/#{max_retries}): #{ex.message}" }
+          sleep (2 ** retries).milliseconds
         end
-        @log.warn { "Failed to upload file #{path} to S3, retrying" }
-        upload_file_to_s3(path, slice, retries)
       end
-      response.headers["ETag"]
     end
 
+    # Delete a segment and its metadata from S3
     def delete_from_s3(s3_seg)
-      h = http_client
+      h = http_client(with_timeouts: true)
       delete_from_s3(h, s3_seg[:path])
       delete_from_s3(h, meta_file_name(s3_seg[:path]))
     end
@@ -173,13 +207,13 @@ module LavinMQ::AMQP
     def delete_from_s3(h : ::HTTP::Client, path : String)
       response = h.delete("/#{path}")
       if response.status_code != 204
-        @log.error { "Failed to delete #{path} from S3, status: #{response.status_code}" }
+        @log.error { "Failed to delete #{path} from S3: HTTP #{response.status_code}" }
       else
         @log.debug { "Deleted #{path} from S3" }
       end
     end
 
-    # with_timeouts doesn't seem to be used anywhere? we should add that where needed
+    # Create an HTTP client for S3 operations
     def http_client(with_timeouts = false) : ::HTTP::Client
       endpoint = Config.instance.streams_s3_storage_endpoint
       raise "S3 storage endpoint not configured" unless endpoint
@@ -206,7 +240,7 @@ module LavinMQ::AMQP
       end
     end
 
-    private def temp_path(path)
+    private def make_temp_path(path) : String
       temp_path = "#{path}.tmp"
       i = 0
       while File.exists?(temp_path)
