@@ -16,15 +16,11 @@ module S3SpecHelper
     io.getb_to_end
   end
 
-  def self.segment_bytes(offset)
+  def self.segment_bytes
     io = IO::Memory.new
     io.write_bytes 4 # schema version
-    100.times do |i|
-      props = LavinMQ::AMQP::Properties.new(headers: LavinMQ::AMQP::Table.new({
-        "x-stream-offset" => offset + i,
-      }))
-      msg = LavinMQ::Message.new("ex", "rk", "body", props)
-      io.write_bytes msg
+    100.times do
+      io.write_bytes LavinMQ::Message.new("ex", "rk", "body")
     end
     io.rewind
     io.getb_to_end
@@ -35,8 +31,8 @@ module S3SpecHelper
       server.clear
 
       # Add segment and meta files to S3
-      server.put("#{DATA_DIR}/msgs.0000000001", segment_bytes(0_i64))
-      server.put("#{DATA_DIR}/msgs.0000000002", segment_bytes(100_i64))
+      server.put("#{DATA_DIR}/msgs.0000000001", segment_bytes())
+      server.put("#{DATA_DIR}/msgs.0000000002", segment_bytes())
       server.put("#{DATA_DIR}/meta.0000000001", meta_bytes(0_i64))
       server.put("#{DATA_DIR}/meta.0000000002", meta_bytes(100_i64))
     else
@@ -94,7 +90,7 @@ describe LavinMQ::AMQP::Stream::S3MessageStore do
     msg_dir = "/tmp/lavinmq-spec/#{DATA_DIR}"
     FileUtils.rm_rf(msg_dir)
     Dir.mkdir_p(msg_dir)
-    File.write(File.join(msg_dir, "msgs.0000000003"), S3SpecHelper.segment_bytes(200_i64))
+    File.write(File.join(msg_dir, "msgs.0000000003"), S3SpecHelper.segment_bytes)
     S3SpecHelper.setup_s3_with_files
     msg_store = LavinMQ::AMQP::Stream::S3MessageStore.new(msg_dir, nil, true, ::Log::Metadata.empty)
 
@@ -131,8 +127,8 @@ describe LavinMQ::AMQP::Stream::S3MessageStore do
       msg_dir = "/tmp/lavinmq-spec/#{DATA_DIR}"
       FileUtils.rm_rf(msg_dir)
       Dir.mkdir_p(msg_dir)
-      File.write(File.join(msg_dir, "msgs.0000000001"), S3SpecHelper.segment_bytes(0_i64))
-      File.write(File.join(msg_dir, "msgs.0000000002"), S3SpecHelper.segment_bytes(100_i64))
+      File.write(File.join(msg_dir, "msgs.0000000001"), S3SpecHelper.segment_bytes)
+      File.write(File.join(msg_dir, "msgs.0000000002"), S3SpecHelper.segment_bytes)
       digest = Digest::MD5.new
       digest.update(File.open(File.join(msg_dir, "msgs.0000000001"), &.getb_to_end))
       etag1 = digest.hexfinal
@@ -142,8 +138,8 @@ describe LavinMQ::AMQP::Stream::S3MessageStore do
 
       # Add files to S3 (no meta files, just segments)
       if server = S3SpecHelper.s3_server
-        server.put("#{DATA_DIR}/msgs.0000000001", S3SpecHelper.segment_bytes(0_i64))
-        server.put("#{DATA_DIR}/msgs.0000000002", S3SpecHelper.segment_bytes(100_i64))
+        server.put("#{DATA_DIR}/msgs.0000000001", S3SpecHelper.segment_bytes)
+        server.put("#{DATA_DIR}/msgs.0000000002", S3SpecHelper.segment_bytes)
       else
         fail("No s3 server")
       end
@@ -165,8 +161,8 @@ describe LavinMQ::AMQP::Stream::S3MessageStore do
       msg_dir = "/tmp/lavinmq-spec/#{DATA_DIR}"
       FileUtils.rm_rf(msg_dir)
       Dir.mkdir_p(msg_dir)
-      File.write(File.join(msg_dir, "msgs.0000000001"), S3SpecHelper.segment_bytes(0_i64))
-      File.write(File.join(msg_dir, "msgs.0000000002"), S3SpecHelper.segment_bytes(100_i64))
+      File.write(File.join(msg_dir, "msgs.0000000001"), S3SpecHelper.segment_bytes)
+      File.write(File.join(msg_dir, "msgs.0000000002"), S3SpecHelper.segment_bytes)
 
       # S3 has no files (empty)
       msg_store = LavinMQ::AMQP::Stream::S3MessageStore.new(msg_dir, nil, true, ::Log::Metadata.empty)
@@ -183,8 +179,8 @@ describe LavinMQ::AMQP::Stream::S3MessageStore do
 
       # Add segments to S3 (no meta files)
       if server = S3SpecHelper.s3_server
-        server.put("#{DATA_DIR}/msgs.0000000001", S3SpecHelper.segment_bytes(0_i64))
-        server.put("#{DATA_DIR}/msgs.0000000002", S3SpecHelper.segment_bytes(100_i64))
+        server.put("#{DATA_DIR}/msgs.0000000001", S3SpecHelper.segment_bytes)
+        server.put("#{DATA_DIR}/msgs.0000000002", S3SpecHelper.segment_bytes)
       else
         fail("No s3 server")
       end

@@ -126,7 +126,7 @@ module LavinMQ::AMQP
     end
 
     private def offset_index_lookup(offset) : UInt32
-      seg = @offset_index.first_key
+      seg = @segment_first_offset.first_key
       case offset
       when Int
         @segment_first_offset.each do |seg_id, first_seg_offset|

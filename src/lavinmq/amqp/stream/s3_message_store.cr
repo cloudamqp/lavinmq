@@ -179,8 +179,8 @@ module LavinMQ::AMQP
 
       private def read_metadata(file, seg)
         count = file.read_bytes(UInt32)
-        @offset_index[seg] = file.read_bytes(Int64)
-        @timestamp_index[seg] = file.read_bytes(Int64)
+        @segment_first_offset[seg] = file.read_bytes(Int64)
+        @segment_first_ts[seg] = file.read_bytes(Int64)
         @segment_msg_count[seg] = count
         @size += count unless seg == @s3_segments.last_key # will be added when reading file later
         @log.debug { "Reading metadata from #{file.path}: #{count} msgs" }
@@ -248,8 +248,8 @@ module LavinMQ::AMQP
         @wfile = @segments[@wfile_id] = wfile
 
         drop_overflow
-        @offset_index[@wfile_id] = @last_offset + 1
-        @timestamp_index[@wfile_id] = RoughTime.unix_ms
+        @segment_first_offset[@wfile_id] = @last_offset + 1
+        @segment_first_ts[@wfile_id] = RoughTime.unix_ms
 
         delete_unused_segments
         upload_missing_segments_to_s3
@@ -292,8 +292,8 @@ module LavinMQ::AMQP
           msg_count = @segment_msg_count.delete(seg_id)
           @size -= msg_count if msg_count
           @segment_last_ts.delete(seg_id)
-          @offset_index.delete(seg_id)
-          @timestamp_index.delete(seg_id)
+          @segment_first_offset.delete(seg_id)
+          @segment_first_ts.delete(seg_id)
           @bytesize -= s3_seg[:size] - 4
           @storage_client.delete_from_s3(s3_seg)
           if mfile = @segments.delete(seg_id)
