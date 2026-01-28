@@ -78,6 +78,15 @@ module LavinMQ
         def []=(key : String, value)
           @json_unmapped[key] = value
         end
+
+        def audiences
+          case @aud
+          in String
+            [@aud]
+          in Array(String)
+            @aud
+          end
+        end
       end
 
       struct Token
