@@ -20,7 +20,7 @@ module LavinMQ
         include JSON::Serializable
         include JSON::Serializable::Unmapped
 
-        property alg : String?
+        property alg : String
         property typ : String?
         property kid : String?
 
