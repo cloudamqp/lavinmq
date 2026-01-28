@@ -32,6 +32,7 @@ module LavinMQ
       parse_ini(@config_file)
       parse_env()
       parse_cli(argv)
+      reload_logger
     end
 
     private def parse_config_from_cli(argv)

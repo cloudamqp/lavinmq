@@ -89,7 +89,7 @@ describe LavinMQ::Config do
           [main]
           data_dir = /tmp/lavinmq-test
           log_level = debug
-          log_file = /var/log/lavinmq.log
+          log_file = /tmp/lavinmq-test.log
           stats_interval = 10000
           stats_log_size = 240
           set_timestamp = true
@@ -172,7 +172,7 @@ describe LavinMQ::Config do
       # Main section
       config.data_dir.should eq "/tmp/lavinmq-test"
       config.log_level.should eq ::Log::Severity::Debug
-      config.log_file.should eq "/var/log/lavinmq.log"
+      config.log_file.should eq "/tmp/lavinmq-test.log"
       config.stats_interval.should eq 10000
       config.stats_log_size.should eq 240
       config.set_timestamp?.should be_true
