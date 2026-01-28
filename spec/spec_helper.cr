@@ -7,6 +7,10 @@ class Log
   def self.setup
     # noop, don't override during spec
   end
+
+  def self.setup(level : Severity, backend : Backend)
+    # noop, don't override during spec
+  end
 end
 
 require "spec"
