@@ -59,8 +59,31 @@ module LavinMQ
 
       private def wildcard_match?(pattern : String, value : String) : Bool
         return true if pattern == "*"
-        regex = pattern.gsub(/[.+?^${}()|[\]\\]/) { |m| "\\#{m}" }.gsub("*", ".*")
-        Regex.new("^#{regex}$").matches?(value)
+        return pattern == value unless pattern.includes?('*')
+
+        parts = pattern.split('*')
+        pos = 0
+
+        parts.each_with_index do |part, i|
+          next if part.empty?
+
+          if i == 0
+            # First part must match at the beginning
+            return false unless value.starts_with?(part)
+            pos = part.size
+          elsif i == parts.size - 1
+            # Last part must match at the end
+            return false unless value.ends_with?(part)
+            return false if value.size - part.size < pos
+          else
+            # Middle parts just need to be found after current position
+            idx = value.index(part, pos)
+            return false if idx.nil?
+            pos = idx + part.size
+          end
+        end
+
+        true
       end
     end
   end
