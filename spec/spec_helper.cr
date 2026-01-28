@@ -169,6 +169,12 @@ struct HTTPSpecHelper
 
   getter addr
 
+  def test_headers(headers : NamedTuple)
+    hash = Hash(String, String).new(initial_capacity: headers.size)
+    headers.each { |k, v| hash[k.to_s] = v }
+    test_headers(hash)
+  end
+
   def test_headers(headers = nil)
     req_hdrs = HTTP::Headers{"Content-Type"  => "application/json",
                              "Authorization" => "Basic Z3Vlc3Q6Z3Vlc3Q="} # guest:guest
