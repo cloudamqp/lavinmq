@@ -1,0 +1,23 @@
+{
+  "name": "LavinMQ Crystal",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": "."
+  },
+  "containerEnv": {
+    "SSL_KTLS": "1"
+  },
+  "runArgs": [
+    "--privileged"
+  ],
+  "postStartCommand": "modprobe tls 2>/dev/null || true",
+  "postCreateCommand": "git config --global --add safe.directory /workspaces/lavinmq",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "crystal-lang-tools.crystal-lang",
+      ]
+    }
+  },
+  "remoteUser": "root"
+}
