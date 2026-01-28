@@ -22,11 +22,8 @@ module LavinMQ
           when "local"
             authenticators << LocalAuthenticator.new(users)
           when "oauth"
-            begin
-              authenticators << OAuthAuthenticator.new(verifier)
-            rescue ex
-              Log.error(exception: ex) { "Oauth Authenticator failed to initialize" }
-            end
+            verifier.fetcher.start_refresh_loop
+            authenticators << OAuthAuthenticator.new(verifier)
           else
             raise "Unsupported authentication backend: #{backend}"
           end
