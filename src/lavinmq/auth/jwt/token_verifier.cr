@@ -99,16 +99,10 @@ module LavinMQ
           aud = payload.aud
           raise JWT::VerificationError.new("Missing aud claim in token") unless aud
 
-          audiences = case aud
-                      in String
-                        [aud]
-                      in Array(String)
-                        aud
-                      in Nil
-                        raise JWT::DecodeError.new("Invalid aud claim format")
-                      end
+          audiences = payload.audiences
+          raise JWT::DecodeError.new("Invalid aud claim format") unless audiences
 
-          expected = @config.oauth_audience.nil? ? @config.oauth_resource_server_id : @config.oauth_audience
+          expected = @config.oauth_audience || @config.oauth_resource_server_id
 
           # RFC 7519 Section 4.1.3: if the token has an audience claim and we have
           # no expected audience configured, reject it
