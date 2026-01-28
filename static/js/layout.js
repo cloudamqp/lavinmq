@@ -129,8 +129,61 @@ class ThemeSwitcher {
   }
 })()
 
+// Check if sidebar is collapsed or expanded
+document.addEventListener('DOMContentLoaded', () => {
+  const sidebarCollapsed = window.localStorage.getItem('menuCollapsed')
+  const toggleLabel = document.querySelector('.toggle-menu-label')
+
+  if (sidebarCollapsed) {
+    toggleLabel.textContent = 'Expand sidebar'
+  }
+})
+
 // Initialize theme switcher when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
   // Store theme switcher instance on window for debugging
   window.themeSwitcher = new ThemeSwitcher()
 })
+
+document.getElementById('toggle-menu').addEventListener('click', () => {
+  document.documentElement.classList.toggle('menu-collapsed')
+  const toggleLabel = document.querySelector('.toggle-menu-label')
+
+  // Save state
+  if (document.documentElement.classList.contains('menu-collapsed')) {
+    window.localStorage.setItem('menuCollapsed', 'true')
+    toggleLabel.textContent = 'Expand sidebar'
+    updateMenuTooltips()
+  } else {
+    window.localStorage.removeItem('menuCollapsed')
+    toggleLabel.textContent = 'Collapse sidebar'
+  }
+})
+
+const sidebarMenu = document.getElementById('menu')
+const menuItems = document.querySelectorAll('#menu-content li a.menu-tooltip')
+
+function updateMenuTooltips () {
+  menuItems.forEach(item => {
+    const tooltip = item.querySelector('.menu-tooltip-label')
+    if (tooltip) {
+      const rect = item.getBoundingClientRect()
+      tooltip.style.top = rect.top + (rect.height / 2) + 'px'
+    }
+  })
+}
+
+// Update tooltip positions on scroll
+let ticking = false
+
+sidebarMenu.addEventListener('scroll', (e) => {
+  if (!ticking) {
+    window.requestAnimationFrame(() => {
+      updateMenuTooltips()
+      ticking = false
+    })
+    ticking = true
+  }
+})
+
+updateMenuTooltips()
