@@ -61,9 +61,7 @@ module LavinMQ
           raise JWT::DecodeError.new("Invalid JWT format") unless parts.size == 3
 
           header = JWT::RS256Parser.decode_header(token)
-          alg = header.alg
-          raise JWT::DecodeError.new("Missing algorithm in header") unless alg
-          raise JWT::DecodeError.new("Expected RS256, got #{alg}") unless alg == "RS256"
+          raise JWT::DecodeError.new("Expected RS256, got #{header.alg}") unless header.alg == "RS256"
 
           payload_str = JWT::RS256Parser.base64url_decode(parts[1])
           payload = JWT::Payload.from_json(payload_str)
