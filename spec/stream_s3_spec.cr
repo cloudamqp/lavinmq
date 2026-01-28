@@ -190,12 +190,9 @@ describe LavinMQ::AMQP::Stream::S3MessageStore do
       msg_store.@segments.size.should eq 3
       msg_store.@size.should eq 200
     end
-
-    it "should download segments in the right order" do
-    end
   end
 
-  it "should raise if not configed properly" do
+  it "should raise if not configured properly" do
     LavinMQ::Config.instance.streams_s3_storage_region = nil
     LavinMQ::Config.instance.streams_s3_storage_access_key_id = nil
     LavinMQ::Config.instance.streams_s3_storage_secret_access_key = nil
