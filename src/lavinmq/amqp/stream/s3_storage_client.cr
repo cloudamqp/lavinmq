@@ -200,8 +200,12 @@ module LavinMQ::AMQP
     # Delete a segment and its metadata from S3
     def delete_from_s3(s3_seg)
       h = http_client(with_timeouts: true)
-      delete_from_s3(h, s3_seg[:path])
-      delete_from_s3(h, meta_file_name(s3_seg[:path]))
+      begin
+        delete_from_s3(h, s3_seg[:path])
+        delete_from_s3(h, meta_file_name(s3_seg[:path]))
+      ensure
+        h.close
+      end
     end
 
     def delete_from_s3(h : ::HTTP::Client, path : String)

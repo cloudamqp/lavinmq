@@ -78,7 +78,9 @@ module LavinMQ::AMQP
                 @log.debug { "Worker #{worker_id}: segment #{seg_id} downloaded successfully" }
               end
               # Mark all attempts for this segment as completed
-              @pending_downloads[seg_id]?.try &.each(&.copy_with(completed: true))
+              if attempts = @pending_downloads[seg_id]?
+                @pending_downloads[seg_id] = attempts.map(&.copy_with(completed: true))
+              end
             end
           end
         rescue ex : IO::Error | IO::TimeoutError

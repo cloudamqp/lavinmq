@@ -207,7 +207,7 @@ module LavinMQ::AMQP
         digest = Digest::MD5.new
         digest.update mfile.to_slice
 
-        @segments.delete(seg_id)
+        @segments.delete(seg_id) # remove reference to local file
         unless (local_hash = digest.hexfinal) == s3file[:etag]
           @log.debug { "Local file #{path} has different etag than S3: #{local_hash} != #{s3file[:etag]}" }
           File.delete(path)
@@ -231,6 +231,7 @@ module LavinMQ::AMQP
       end
 
       # Wait for download of the next segment if needed
+      # Times out after ~30 seconds to avoid infinite wait if segment is unavailable
       private def next_segment(consumer) : MFile?
         consumer.segment += 1
         @segment_cache.try &.current_read_segments.[consumer.tag] = consumer.segment
@@ -239,10 +240,16 @@ module LavinMQ::AMQP
         unless @segments[consumer.segment]?
           return unless @s3_segments[consumer.segment]?
           counter = 0
+          max_wait_iterations = 3000 # ~30 seconds at 10ms intervals
           while !@segments[consumer.segment]?
             sleep 10.milliseconds
-            if (counter &+= 1) % 128 == 0
+            counter &+= 1
+            if counter % 128 == 0
               @log.info { "Waiting for segment #{consumer.segment} to be downloaded" }
+            end
+            if counter >= max_wait_iterations
+              @log.error { "Timeout waiting for segment #{consumer.segment} to be downloaded" }
+              return nil
             end
           end
         end
