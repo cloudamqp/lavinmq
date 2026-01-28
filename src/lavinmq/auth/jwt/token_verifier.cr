@@ -94,19 +94,10 @@ module LavinMQ
         end
 
         private def validate_audience(payload : JWT::Payload)
-          aud = payload.aud
-          return unless aud
+          audiences = payload.audiences
+          return unless audiences
 
-          audiences = case aud
-                      in String
-                        [aud]
-                      in Array(String)
-                        aud
-                      in Nil
-                        return
-                      end
-
-          expected = @config.oauth_audience.nil? ? @config.oauth_resource_server_id : @config.oauth_audience
+          expected = @config.oauth_audience || @config.oauth_resource_server_id
 
           # RFC 7519 Section 4.1.3: if the token has an audience claim and we have
           # no expected audience configured, reject it
