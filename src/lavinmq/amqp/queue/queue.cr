@@ -718,7 +718,6 @@ module LavinMQ::AMQP
     # yield the next message in the ready queue
     # returns true if a message was deliviered, false otherwise
     # if we encouncer an unrecoverable ReadError, close queue
-    # ameba:disable Metrics/CyclomaticComplexity
     private def get(no_ack : Bool, & : Envelope -> Nil) : Bool
       raise ClosedError.new if @closed
       loop do # retry if msg expired or deliver limit hit
@@ -746,8 +745,7 @@ module LavinMQ::AMQP
           # requeuing of failed delivery is up to the consumer
         end
         # Signal expire loop to recalculate wait time for next message
-        next_env = @msg_store_lock.synchronize { @msg_store.first? }
-        @message_ttl_change.try_send? nil if next_env && expire_at(next_env.message)
+        @message_ttl_change.try_send? nil
         return true
       end
       false
@@ -891,8 +889,7 @@ module LavinMQ::AMQP
       @log.info { "Purged #{delete_count} messages" }
       # Signal expire loop to recalculate wait time for next message
       if delete_count > 0
-        next_env = @msg_store_lock.synchronize { @msg_store.first? }
-        @message_ttl_change.try_send? nil if next_env && expire_at(next_env.message)
+        @message_ttl_change.try_send? nil
       end
       delete_count
     rescue ex : MessageStore::Error
