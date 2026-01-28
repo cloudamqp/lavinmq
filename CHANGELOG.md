@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Add Sec-WebSockets-Protocol to websocket responses [#1621](https://github.com/cloudamqp/lavinmq/pull/1621), [#1637](https://github.com/cloudamqp/lavinmq/pull/1637)
+- Resume expiration after consuming non-expiring msg [#1606](https://github.com/cloudamqp/lavinmq/pull/1606), [#1649](https://github.com/cloudamqp/lavinmq/pull/1649)
 
 ## [2.6.4] - 2026-01-23
 
