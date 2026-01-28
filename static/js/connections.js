@@ -18,7 +18,7 @@ const tableOptions = {
 Table.renderTable('table', tableOptions, function (tr, item, all) {
   if (all) {
     const connectionLink = document.createElement('a')
-    connectionLink.href = HTTP.url`connection#name=${item.name}`
+    connectionLink.href = HTTP.url`connection#vhost=${item.vhost}&name=${item.name}`
     connectionLink.appendChild(document.createElement('span')).textContent = item.name
     connectionLink.appendChild(document.createElement('br'))
     // Show connection_name for AMQP, client_id for MQTT
