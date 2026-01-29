@@ -63,6 +63,7 @@ module LavinMQ
       @[IniOpt(ini_name: tls_port, section: "mqtt")]
       property mqtts_port = 8883
 
+      @[CliOpt("", "--mqtt-unix-path=PATH", "MQTT UNIX path to listen to", section: "bindings")]
       @[IniOpt(ini_name: unix_path, section: "mqtt")]
       property mqtt_unix_path = ""
 

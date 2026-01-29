@@ -94,6 +94,7 @@ module LavinMQ
         end
       {% end %}
       parser.separator "\nMiscellaneous"
+      parser.on("-d", "--debug", "Verbose logging") { @log_level = ::Log::Severity::Debug }
       parser.on("-h", "--help", "Show this help") { puts parser; exit 0 }
       parser.on("-v", "--version", "Show version") { puts LavinMQ::VERSION; exit 0 }
       parser.on("--build-info", "Show build information") { puts LavinMQ::BUILD_INFO; exit 0 }
