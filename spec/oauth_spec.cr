@@ -356,6 +356,121 @@ module OAuthUserHelper
 end
 
 describe LavinMQ::Auth::OAuthUser do
+  describe "#find_permission with wildcards" do
+    it "matches exact vhost name" do
+      permissions = {"production" => {config: /.*/, read: /.*/, write: /.*/}}
+      user = OAuthUserHelper.create_user(RoughTime.utc + 1.hour, permissions)
+
+      user.find_permission("production").should_not be_nil
+      user.find_permission("staging").should be_nil
+    end
+
+    it "matches single * wildcard (any vhost)" do
+      permissions = {"*" => {config: /.*/, read: /.*/, write: /.*/}}
+      user = OAuthUserHelper.create_user(RoughTime.utc + 1.hour, permissions)
+
+      user.find_permission("anything").should_not be_nil
+      user.find_permission("production").should_not be_nil
+      user.find_permission("").should_not be_nil
+    end
+
+    it "matches prefix wildcard pattern" do
+      permissions = {"prod-*" => {config: /.*/, read: /.*/, write: /.*/}}
+      user = OAuthUserHelper.create_user(RoughTime.utc + 1.hour, permissions)
+
+      user.find_permission("prod-us").should_not be_nil
+      user.find_permission("prod-eu").should_not be_nil
+      user.find_permission("prod-").should_not be_nil
+      user.find_permission("staging-us").should be_nil
+      user.find_permission("production").should be_nil
+    end
+
+    it "matches suffix wildcard pattern" do
+      permissions = {"*-production" => {config: /.*/, read: /.*/, write: /.*/}}
+      user = OAuthUserHelper.create_user(RoughTime.utc + 1.hour, permissions)
+
+      user.find_permission("us-production").should_not be_nil
+      user.find_permission("eu-production").should_not be_nil
+      user.find_permission("-production").should_not be_nil
+      user.find_permission("production").should be_nil
+      user.find_permission("us-staging").should be_nil
+    end
+
+    it "matches middle wildcard pattern" do
+      permissions = {"prod-*-db" => {config: /.*/, read: /.*/, write: /.*/}}
+      user = OAuthUserHelper.create_user(RoughTime.utc + 1.hour, permissions)
+
+      user.find_permission("prod-us-db").should_not be_nil
+      user.find_permission("prod-eu-west-db").should_not be_nil
+      user.find_permission("prod--db").should_not be_nil
+      user.find_permission("prod-db").should be_nil
+      user.find_permission("staging-us-db").should be_nil
+    end
+
+    it "matches multiple wildcards" do
+      permissions = {"*-prod-*" => {config: /.*/, read: /.*/, write: /.*/}}
+      user = OAuthUserHelper.create_user(RoughTime.utc + 1.hour, permissions)
+
+      user.find_permission("us-prod-db").should_not be_nil
+      user.find_permission("eu-prod-cache").should_not be_nil
+      user.find_permission("-prod-").should_not be_nil
+      user.find_permission("prod-db").should be_nil
+      user.find_permission("us-staging-db").should be_nil
+    end
+
+    it "matches pattern with wildcards at both ends" do
+      permissions = {"*production*" => {config: /.*/, read: /.*/, write: /.*/}}
+      user = OAuthUserHelper.create_user(RoughTime.utc + 1.hour, permissions)
+
+      user.find_permission("production").should_not be_nil
+      user.find_permission("us-production").should_not be_nil
+      user.find_permission("production-db").should_not be_nil
+      user.find_permission("us-production-db").should_not be_nil
+      user.find_permission("staging").should be_nil
+    end
+
+    it "prefers exact match over wildcard" do
+      permissions = {
+        "production" => {config: /^$/, read: /.*/, write: /.*/},
+        "prod-*"     => {config: /.*/, read: /^$/, write: /.*/},
+      }
+      user = OAuthUserHelper.create_user(RoughTime.utc + 1.hour, permissions)
+
+      # Exact match should be returned first
+      perm = user.find_permission("production")
+      perm.should_not be_nil
+      perm.not_nil![:config].should eq(/^$/)
+    end
+
+    it "handles consecutive wildcards" do
+      permissions = {"a**b" => {config: /.*/, read: /.*/, write: /.*/}}
+      user = OAuthUserHelper.create_user(RoughTime.utc + 1.hour, permissions)
+
+      user.find_permission("ab").should_not be_nil
+      user.find_permission("aXb").should_not be_nil
+      user.find_permission("aXYZb").should_not be_nil
+    end
+
+    it "handles pattern without wildcards as exact match" do
+      permissions = {"exact-name" => {config: /.*/, read: /.*/, write: /.*/}}
+      user = OAuthUserHelper.create_user(RoughTime.utc + 1.hour, permissions)
+
+      user.find_permission("exact-name").should_not be_nil
+      user.find_permission("exact-name-extra").should be_nil
+      user.find_permission("prefix-exact-name").should be_nil
+    end
+
+    it "handles overlapping parts correctly" do
+      permissions = {"ab*ab" => {config: /.*/, read: /.*/, write: /.*/}}
+      user = OAuthUserHelper.create_user(RoughTime.utc + 1.hour, permissions)
+
+      user.find_permission("abab").should_not be_nil
+      user.find_permission("abXab").should_not be_nil
+      user.find_permission("ababab").should_not be_nil
+      user.find_permission("ab").should be_nil
+    end
+  end
+
   describe "#refresh" do
     it "rejects token with mismatched username" do
       permissions = {"/" => {config: /.*/, read: /.*/, write: /.*/}}

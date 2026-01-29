@@ -135,7 +135,7 @@ describe LavinMQ::Auth::JWT::TokenParser do
         payload = LavinMQ::Auth::JWT::Payload.new(
           exp: RoughTime.utc.to_unix + 3600,
           sub: "user",
-          scope: "read:myvhost:* write:myvhost:*"
+          scope: "read:myvhost/* write:myvhost/*"
         )
         token = TokenParserTestHelper.create_mock_token(payload)
         claims = parser.parse(token)
@@ -159,7 +159,7 @@ describe LavinMQ::Auth::JWT::TokenParser do
     describe "resource_access parsing" do
       it "extracts roles from resource_access when resource_server_id is set" do
         parser = TokenParserTestHelper.create_token_parser(["sub"], resource_server_id: "lavinmq")
-        roles = LavinMQ::Auth::JWT::ResourceRoles.new(roles: ["lavinmq.read:myvhost:*"])
+        roles = LavinMQ::Auth::JWT::ResourceRoles.new(roles: ["lavinmq.read:myvhost/*"])
         payload = LavinMQ::Auth::JWT::Payload.new(
           exp: RoughTime.utc.to_unix + 3600,
           sub: "user",
@@ -172,7 +172,7 @@ describe LavinMQ::Auth::JWT::TokenParser do
 
       it "ignores resource_access for other servers" do
         parser = TokenParserTestHelper.create_token_parser(["sub"], resource_server_id: "lavinmq")
-        other_roles = LavinMQ::Auth::JWT::ResourceRoles.new(roles: ["read:other:*"])
+        other_roles = LavinMQ::Auth::JWT::ResourceRoles.new(roles: ["read:other/*"])
         payload = LavinMQ::Auth::JWT::Payload.new(
           exp: RoughTime.utc.to_unix + 3600,
           sub: "user",
@@ -185,7 +185,7 @@ describe LavinMQ::Auth::JWT::TokenParser do
 
       it "ignores resource_access when resource_server_id is not set" do
         parser = TokenParserTestHelper.create_token_parser(["sub"])
-        roles = LavinMQ::Auth::JWT::ResourceRoles.new(roles: ["read:myvhost:*"])
+        roles = LavinMQ::Auth::JWT::ResourceRoles.new(roles: ["read:myvhost/*"])
         payload = LavinMQ::Auth::JWT::Payload.new(
           exp: RoughTime.utc.to_unix + 3600,
           sub: "user",
@@ -204,7 +204,7 @@ describe LavinMQ::Auth::JWT::TokenParser do
           exp: RoughTime.utc.to_unix + 3600,
           sub: "user"
         )
-        payload["permissions"] = JSON::Any.new("read:myvhost:*")
+        payload["permissions"] = JSON::Any.new("read:myvhost/*")
         token = TokenParserTestHelper.create_mock_token(payload)
         claims = parser.parse(token)
         claims.permissions["myvhost"][:read].should eq(/.*/)
@@ -216,7 +216,7 @@ describe LavinMQ::Auth::JWT::TokenParser do
           exp: RoughTime.utc.to_unix + 3600,
           sub: "user"
         )
-        payload["permissions"] = JSON.parse(%(["read:myvhost:*", "write:myvhost:*"]))
+        payload["permissions"] = JSON.parse(%(["read:myvhost/*", "write:myvhost/*"]))
         token = TokenParserTestHelper.create_mock_token(payload)
         claims = parser.parse(token)
         claims.permissions["myvhost"][:read].should eq(/.*/)
@@ -233,7 +233,7 @@ describe LavinMQ::Auth::JWT::TokenParser do
           exp: RoughTime.utc.to_unix + 3600,
           sub: "user"
         )
-        payload["permissions"] = JSON.parse(%({"lavinmq": ["lavinmq.read:myvhost:*"]}))
+        payload["permissions"] = JSON.parse(%({"lavinmq": ["lavinmq.read:myvhost/*"]}))
         token = TokenParserTestHelper.create_mock_token(payload)
         claims = parser.parse(token)
         claims.permissions["myvhost"][:read].should eq(/.*/)
@@ -248,7 +248,7 @@ describe LavinMQ::Auth::JWT::TokenParser do
           exp: RoughTime.utc.to_unix + 3600,
           sub: "user"
         )
-        payload["permissions"] = JSON.parse(%({"anykey": ["read:myvhost:*"]}))
+        payload["permissions"] = JSON.parse(%({"anykey": ["read:myvhost/*"]}))
         token = TokenParserTestHelper.create_mock_token(payload)
         claims = parser.parse(token)
         claims.permissions["myvhost"][:read].should eq(/.*/)
@@ -264,7 +264,7 @@ describe LavinMQ::Auth::JWT::TokenParser do
           exp: RoughTime.utc.to_unix + 3600,
           sub: "user"
         )
-        payload["permissions"] = JSON.parse(%({"other-server": ["read:myvhost:*"]}))
+        payload["permissions"] = JSON.parse(%({"other-server": ["read:myvhost/*"]}))
         token = TokenParserTestHelper.create_mock_token(payload)
         claims = parser.parse(token)
         claims.permissions.should be_empty
@@ -278,7 +278,7 @@ describe LavinMQ::Auth::JWT::TokenParser do
       payload = LavinMQ::Auth::JWT::Payload.new(
         exp: RoughTime.utc.to_unix + 3600,
         sub: "user",
-        scope: "lavinmq.read:myvhost:* other.read:other:*"
+        scope: "lavinmq.read:myvhost/* other.read:other/*"
       )
       token = TokenParserTestHelper.create_mock_token(payload)
       claims = parser.parse(token)
@@ -291,7 +291,7 @@ describe LavinMQ::Auth::JWT::TokenParser do
       payload = LavinMQ::Auth::JWT::Payload.new(
         exp: RoughTime.utc.to_unix + 3600,
         sub: "user",
-        scope: "lavinmq.read:myvhost:* other.read:other:*"
+        scope: "lavinmq.read:myvhost/* other.read:other/*"
       )
       token = TokenParserTestHelper.create_mock_token(payload)
       claims = parser.parse(token)
@@ -304,7 +304,7 @@ describe LavinMQ::Auth::JWT::TokenParser do
       payload = LavinMQ::Auth::JWT::Payload.new(
         exp: RoughTime.utc.to_unix + 3600,
         sub: "user",
-        scope: "read:vhost1:* write:vhost2:*"
+        scope: "read:vhost1/* write:vhost2/*"
       )
       token = TokenParserTestHelper.create_mock_token(payload)
       claims = parser.parse(token)
@@ -408,7 +408,7 @@ describe LavinMQ::Auth::JWT::TokenParser do
       payload = LavinMQ::Auth::JWT::Payload.new(
         exp: RoughTime.utc.to_unix + 3600,
         sub: "user",
-        scope: "read:myvhost:*"
+        scope: "read:myvhost/*"
       )
       token = TokenParserTestHelper.create_mock_token(payload)
       claims = parser.parse(token)
@@ -420,7 +420,7 @@ describe LavinMQ::Auth::JWT::TokenParser do
       payload = LavinMQ::Auth::JWT::Payload.new(
         exp: RoughTime.utc.to_unix + 3600,
         sub: "user",
-        scope: "write:myvhost:*"
+        scope: "write:myvhost/*"
       )
       token = TokenParserTestHelper.create_mock_token(payload)
       claims = parser.parse(token)
@@ -432,7 +432,7 @@ describe LavinMQ::Auth::JWT::TokenParser do
       payload = LavinMQ::Auth::JWT::Payload.new(
         exp: RoughTime.utc.to_unix + 3600,
         sub: "user",
-        scope: "configure:myvhost:*"
+        scope: "configure:myvhost/*"
       )
       token = TokenParserTestHelper.create_mock_token(payload)
       claims = parser.parse(token)
@@ -444,7 +444,7 @@ describe LavinMQ::Auth::JWT::TokenParser do
       payload = LavinMQ::Auth::JWT::Payload.new(
         exp: RoughTime.utc.to_unix + 3600,
         sub: "user",
-        scope: "configure.myvhost.*"
+        scope: "configure:myvhost/*"
       )
       token = TokenParserTestHelper.create_mock_token(payload)
       claims = parser.parse(token)
@@ -456,7 +456,7 @@ describe LavinMQ::Auth::JWT::TokenParser do
       payload = LavinMQ::Auth::JWT::Payload.new(
         exp: RoughTime.utc.to_unix + 3600,
         sub: "user",
-        scope: "read:myvhost:*"
+        scope: "read:myvhost/*"
       )
       token = TokenParserTestHelper.create_mock_token(payload)
       claims = parser.parse(token)
@@ -468,7 +468,7 @@ describe LavinMQ::Auth::JWT::TokenParser do
       payload = LavinMQ::Auth::JWT::Payload.new(
         exp: RoughTime.utc.to_unix + 3600,
         sub: "user",
-        scope: "read.myvhost.*"
+        scope: "read:myvhost/*"
       )
       token = TokenParserTestHelper.create_mock_token(payload)
       claims = parser.parse(token)
@@ -480,7 +480,7 @@ describe LavinMQ::Auth::JWT::TokenParser do
       payload = LavinMQ::Auth::JWT::Payload.new(
         exp: RoughTime.utc.to_unix + 3600,
         sub: "user",
-        scope: "read/myvhost/*"
+        scope: "read:myvhost/*"
       )
       token = TokenParserTestHelper.create_mock_token(payload)
       claims = parser.parse(token)
@@ -492,13 +492,13 @@ describe LavinMQ::Auth::JWT::TokenParser do
       payload = LavinMQ::Auth::JWT::Payload.new(
         exp: RoughTime.utc.to_unix + 3600,
         sub: "user",
-        scope: "read:myvhost:* write:myvhost:queue configure:myvhost:^$"
+        scope: "read:myvhost/* write:myvhost/queue configure:myvhost/^$"
       )
       token = TokenParserTestHelper.create_mock_token(payload)
       claims = parser.parse(token)
       claims.permissions["myvhost"][:read].should eq(/.*/)
-      claims.permissions["myvhost"][:write].should eq(/queue/)
-      claims.permissions["myvhost"][:config].should eq(/^$/)
+      claims.permissions["myvhost"][:write].should eq(/^queue$/)
+      claims.permissions["myvhost"][:config].should eq(/^\^\$$/)
     end
 
     it "parses permissions for multiple vhosts" do
@@ -506,12 +506,12 @@ describe LavinMQ::Auth::JWT::TokenParser do
       payload = LavinMQ::Auth::JWT::Payload.new(
         exp: RoughTime.utc.to_unix + 3600,
         sub: "user",
-        scope: "read:vhost1:* read:vhost2:queue"
+        scope: "read:vhost1/* read:vhost2/queue"
       )
       token = TokenParserTestHelper.create_mock_token(payload)
       claims = parser.parse(token)
       claims.permissions["vhost1"][:read].should eq(/.*/)
-      claims.permissions["vhost2"][:read].should eq(/queue/)
+      claims.permissions["vhost2"][:read].should eq(/^queue$/)
     end
 
     it "ignores scopes with wrong format" do
@@ -519,7 +519,7 @@ describe LavinMQ::Auth::JWT::TokenParser do
       payload = LavinMQ::Auth::JWT::Payload.new(
         exp: RoughTime.utc.to_unix + 3600,
         sub: "user",
-        scope: "invalid read:myvhost:* too:many:parts:here"
+        scope: "invalid read:myvhost/* too:many/parts/here"
       )
       token = TokenParserTestHelper.create_mock_token(payload)
       claims = parser.parse(token)
@@ -532,7 +532,7 @@ describe LavinMQ::Auth::JWT::TokenParser do
       payload = LavinMQ::Auth::JWT::Payload.new(
         exp: RoughTime.utc.to_unix + 3600,
         sub: "user",
-        scope: "delete:myvhost:* read:myvhost:*"
+        scope: "delete:myvhost/* read:myvhost/*"
       )
       token = TokenParserTestHelper.create_mock_token(payload)
       claims = parser.parse(token)
@@ -546,7 +546,7 @@ describe LavinMQ::Auth::JWT::TokenParser do
       payload = LavinMQ::Auth::JWT::Payload.new(
         exp: RoughTime.utc.to_unix + 3600,
         sub: "user",
-        scope: "read:myvhost:*"
+        scope: "read:myvhost/*"
       )
       token = TokenParserTestHelper.create_mock_token(payload)
       claims = parser.parse(token)
@@ -559,11 +559,11 @@ describe LavinMQ::Auth::JWT::TokenParser do
       payload = LavinMQ::Auth::JWT::Payload.new(
         exp: RoughTime.utc.to_unix + 3600,
         sub: "user",
-        scope: "read:myvhost:[invalid read:other:valid"
+        scope: "read:myvhost/[invalid read:other/valid"
       )
       token = TokenParserTestHelper.create_mock_token(payload)
       claims = parser.parse(token)
-      claims.permissions["other"][:read].should eq(/valid/)
+      claims.permissions["other"][:read].should eq(/^valid$/)
     end
   end
 
@@ -573,13 +573,13 @@ describe LavinMQ::Auth::JWT::TokenParser do
       payload = LavinMQ::Auth::JWT::Payload.new(
         exp: RoughTime.utc.to_unix + 3600,
         sub: "user",
-        scope: "tag:administrator read:myvhost:* write:myvhost:queue"
+        scope: "tag:administrator read:myvhost/* write:myvhost/queue"
       )
       token = TokenParserTestHelper.create_mock_token(payload)
       claims = parser.parse(token)
       claims.tags.should contain(LavinMQ::Tag::Administrator)
       claims.permissions["myvhost"][:read].should eq(/.*/)
-      claims.permissions["myvhost"][:write].should eq(/queue/)
+      claims.permissions["myvhost"][:write].should eq(/^queue$/)
     end
   end
 end
