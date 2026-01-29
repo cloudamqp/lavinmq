@@ -68,7 +68,9 @@ module LavinMQ
           end
 
           tags = Set(Tag).new
-          permissions = Hash(String, User::Permissions).new
+          permissions = Hash(String, User::Permissions).new do |h, k|
+            h[k] = {config: Regex.new("^$"), read: Regex.new("^$"), write: Regex.new("^$")}
+          end
           filter_scopes(scopes).each { |scope| parse_role(scope, tags, permissions) }
           {tags.to_a, permissions}
         end
@@ -130,8 +132,6 @@ module LavinMQ
           vhost = URI.decode_www_form(parts[0])
           pattern = URI.decode_www_form(parts[1])
           regex_pattern = wildcard_to_regex(pattern)
-
-          permissions[vhost] ||= {config: Regex.new("^$"), read: Regex.new("^$"), write: Regex.new("^$")}
 
           begin
             regex = Regex.new(regex_pattern)
