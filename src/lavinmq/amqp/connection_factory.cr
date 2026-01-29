@@ -119,6 +119,7 @@ module LavinMQ
         user = @authenticator.authenticate(context)
         return user if user
 
+        log.info { "Authentication failure for user \"#{username}\"" }
         props = start_ok.client_properties
         if capabilities = props["capabilities"]?.try &.as?(AMQP::Table)
           if capabilities["authentication_failure_close"]?.try &.as?(Bool)
