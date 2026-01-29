@@ -150,7 +150,7 @@ module LavinMQ
 
         private def wildcard_to_regex(pattern : String) : String
           return ".*" if pattern == "*"
-          escaped = pattern.gsub(/[.+?^${}()|[\]\\]/) { |m| "\\#{m}" }
+          escaped = pattern.gsub(/[.+?^${}()|[\]\\]/) { |m| "\\#{m}" } # Prefix each regex metacharacter with \ to escape it
           regex = escaped.gsub("*", ".*")
           "^#{regex}$"
         end
