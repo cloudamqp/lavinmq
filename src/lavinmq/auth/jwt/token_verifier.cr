@@ -46,7 +46,7 @@ module LavinMQ
 
         def verify_token(token : String) : Token
           prevalidate_token(token)
-          verified_token = verify_with_public_key(token)
+          verified_token = @fetcher.public_keys.decode(token)
           payload = verified_token.payload
           validate_issuer(payload)
           validate_audience(payload) if @config.oauth_verify_aud?
@@ -80,10 +80,6 @@ module LavinMQ
           if nbf = payload.nbf
             raise JWT::DecodeError.new("Token not yet valid") if Time.unix(nbf) > RoughTime.utc
           end
-        end
-
-        private def verify_with_public_key(token : String) : JWT::Token
-          @fetcher.public_keys.decode(token)
         end
 
         protected def validate_issuer(payload : JWT::Payload)
