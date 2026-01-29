@@ -85,6 +85,8 @@ module LavinMQ
             [@aud]
           in Array(String)
             @aud
+          in Nil
+            nil
           end
         end
       end
