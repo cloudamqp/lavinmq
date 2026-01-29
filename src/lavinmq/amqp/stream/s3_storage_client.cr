@@ -28,7 +28,7 @@ module LavinMQ::AMQP
 
       loop do
         begin
-          path = "?delimiter=%2F&encoding-type=url&list-type=2&prefix=#{prefix}&max-keys=1000"
+          path = "/?delimiter=%2F&encoding-type=url&list-type=2&prefix=#{prefix}&max-keys=1000"
           if token = continuation_token
             path += "&continuation-token=#{URI.encode_path(token)}"
           end

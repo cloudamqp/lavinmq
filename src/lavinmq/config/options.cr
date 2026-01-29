@@ -320,7 +320,7 @@ module LavinMQ
       @[IniOpt(ini_name: session_token, section: "s3-storage")]
       property streams_s3_storage_session_token : String? = nil
 
-      @[CliOpt("", "--s3-storage-endpoint=ENDPOINT", "S3 endpoint URL", section: "s3-storage")]
+      @[CliOpt("", "--s3-storage-endpoint=ENDPOINT", "S3 endpoint URL (use virtual-hosted-style: https://bucket.s3.region.amazonaws.com)", section: "s3-storage")]
       @[IniOpt(ini_name: endpoint, section: "s3-storage")]
       property streams_s3_storage_endpoint : String? = nil
 

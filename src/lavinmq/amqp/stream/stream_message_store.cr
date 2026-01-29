@@ -367,7 +367,7 @@ module LavinMQ::AMQP
 
     private def produce_metadata(seg, mfile)
       super
-      if empty?
+      if @segment_msg_count[seg].zero?
         @segment_first_offset[seg] = @last_offset + 1
         @segment_first_ts[seg] = RoughTime.unix_ms
         @segment_last_ts[seg] = RoughTime.unix_ms

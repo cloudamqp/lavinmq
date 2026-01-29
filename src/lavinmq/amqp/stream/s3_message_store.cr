@@ -85,6 +85,7 @@ module LavinMQ::AMQP
             @log.debug { "Deleting empty segment #{seg} from local storage" }
             delete_file(mfile)
             @segments.delete(seg)
+            @segment_msg_count.delete(seg)
           else
             @replicator.try &.register_file mfile
             segments << {seg, mfile}
