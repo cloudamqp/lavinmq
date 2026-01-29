@@ -44,7 +44,6 @@ module LavinMQ
           raise JWT::DecodeError.new("No username found in JWT claims (tried: #{claims.join(", ")})")
         end
 
-        # Extracts roles/scopes from JWT payload and converts to LavinMQ tags and permissions.
         private def parse_roles(payload : JWT::Payload)
           scopes = [] of String
 
@@ -69,7 +68,9 @@ module LavinMQ
           end
 
           tags = Set(Tag).new
-          permissions = Hash(String, User::Permissions).new
+          permissions = Hash(String, User::Permissions).new do |h, k|
+            h[k] = {config: Regex.new("^$"), read: Regex.new("^$"), write: Regex.new("^$")}
+          end
           filter_scopes(scopes).each { |scope| parse_role(scope, tags, permissions) }
           {tags.to_a, permissions}
         end
@@ -122,24 +123,21 @@ module LavinMQ
         end
 
         private def parse_permission_role(role, permissions)
-          parts = role.split(/[.:\/]/)
-          if parts.size != 3
-            Log.warn { "Skipping scope '#{role}': Expected format 'permission:vhost:pattern'" }
-            return
-          end
-          perm_type, vhost, pattern = parts[0], parts[1], parts[2]
-          return if !perm_type.in?("configure", "read", "write")
+          perm_type, _, remainder = role.partition(":")
+          return if !perm_type.in?("read", "write", "configure") || remainder.empty?
 
-          pattern = ".*" if pattern == "*"
+          parts = remainder.split("/")
 
-          permissions[vhost] ||= {
-            config: Regex.new("^$"),
-            read:   Regex.new("^$"),
-            write:  Regex.new("^$"),
-          }
+          # Allow 2 or 3 parts: vhost/pattern or vhost/pattern/routing_key
+          # RabbitMQ allows a third part (routing_key), but we don't use it
+          return unless parts.size == 2 || parts.size == 3
+
+          vhost = URI.decode_www_form(parts[0])
+          pattern = URI.decode_www_form(parts[1])
+          regex_pattern = wildcard_to_regex(pattern)
 
           begin
-            regex = Regex.new(pattern)
+            regex = Regex.new(regex_pattern)
           rescue ex : ArgumentError
             Log.warn { "Skipping scope '#{role}' due to invalid regex pattern: #{ex.message}" }
             return
@@ -147,11 +145,17 @@ module LavinMQ
 
           permissions[vhost] = case perm_type
                                when "configure" then permissions[vhost].merge({config: regex})
-                               when "config"    then permissions[vhost].merge({config: regex})
                                when "read"      then permissions[vhost].merge({read: regex})
                                when "write"     then permissions[vhost].merge({write: regex})
                                else                  permissions[vhost]
                                end
+        end
+
+        private def wildcard_to_regex(pattern : String) : String
+          return ".*" if pattern == "*"
+          escaped = pattern.gsub(/[.+?^${}()|[\]\\]/) { |m| "\\#{m}" } # Prefix each regex metacharacter with \ to escape it
+          regex = escaped.gsub("*", ".*")
+          "^#{regex}$"
         end
       end
     end
