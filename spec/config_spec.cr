@@ -264,6 +264,7 @@ describe LavinMQ::Config do
       "--http-bind=172.16.0.1",
       "--http-port=15673",
       "--http-unix-path=/tmp/http.sock",
+      "--mqtt-unix-path=/tmp/mqtt.sock",
       "--https-port=15675",
       "--cert=/etc/ssl/cert.pem",
       "--ciphers=ECDHE-RSA-AES256-GCM-SHA384",
@@ -296,6 +297,7 @@ describe LavinMQ::Config do
     config.http_bind.should eq "172.16.0.1"
     config.http_port.should eq 15673
     config.http_unix_path.should eq "/tmp/http.sock"
+    config.mqtt_unix_path.should eq "/tmp/mqtt.sock"
     config.https_port.should eq 15675
     config.tls_cert_path.should eq "/etc/ssl/cert.pem"
     config.tls_ciphers.should eq "ECDHE-RSA-AES256-GCM-SHA384"
@@ -315,6 +317,16 @@ describe LavinMQ::Config do
     config.clustering_etcd_prefix.should eq "cli-prefix"
     config.clustering_max_unsynced_actions.should eq 4096
     config.clustering_port.should eq 5680
+  end
+
+  it "can parse -d/--debug flag for verbose logging" do
+    config = LavinMQ::Config.new
+    config.parse(["-d"])
+    config.log_level.should eq ::Log::Severity::Debug
+
+    config2 = LavinMQ::Config.new
+    config2.parse(["--debug"])
+    config2.log_level.should eq ::Log::Severity::Debug
   end
 
   it "can parse all ENV arguments" do
