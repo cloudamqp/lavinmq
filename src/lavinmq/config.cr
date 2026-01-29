@@ -32,7 +32,7 @@ module LavinMQ
       parse_ini(@config_file)
       parse_env()
       parse_cli(argv)
-      reload_logger
+      setup_logger
     end
 
     private def parse_config_from_cli(argv)
@@ -249,10 +249,10 @@ module LavinMQ
     def reload
       @sni_manager.clear
       parse_ini(@config_file)
-      reload_logger
+      setup_logger
     end
 
-    private def reload_logger
+    private def setup_logger
       log_file = (path = @log_file) ? File.open(path, "a") : STDOUT
       broadcast_backend = ::Log::BroadcastBackend.new
       backend = if journald_stream?
