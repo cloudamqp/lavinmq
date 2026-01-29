@@ -98,7 +98,7 @@ module LavinMQPerf
         socket = TCPSocket.new(host, port)
         socket.keepalive = true
         socket.tcp_nodelay = false
-        socket.sync = true
+        socket.sync = false
         io = LavinMQ::MQTT::IO.new(socket)
 
         client_id = "#{role}-#{id}"
@@ -112,6 +112,7 @@ module LavinMQPerf
         )
 
         connect_packet.to_io(io)
+        io.flush
 
         response = LavinMQ::MQTT::Packet.from_io(io)
         unless response.is_a?(LavinMQ::MQTT::Connack) &&
@@ -222,6 +223,7 @@ module LavinMQPerf
             dup: false
           )
           publish.to_io(io)
+          io.flush
 
           if @qos > 0
             ack = LavinMQ::MQTT::Packet.from_io(io)
@@ -259,6 +261,7 @@ module LavinMQPerf
 
         topic_filter = LavinMQ::MQTT::Subscribe::TopicFilter.new(@topic, @qos.to_u8)
         LavinMQ::MQTT::Subscribe.new([topic_filter], packet_id: 1_u16).to_io(io)
+        io.flush
 
         suback = LavinMQ::MQTT::Packet.from_io(io)
         unless suback.is_a?(LavinMQ::MQTT::SubAck)
@@ -280,6 +283,7 @@ module LavinMQPerf
 
               if packet.qos > 0 && (packet_id = packet.packet_id)
                 LavinMQ::MQTT::PubAck.new(packet_id).to_io(io)
+                io.flush
               end
 
               if @cmessages > 0 && consumes >= @cmessages
@@ -301,13 +305,17 @@ module LavinMQPerf
               end
             when LavinMQ::MQTT::PingReq
               LavinMQ::MQTT::PingResp.new.to_io(io)
+              io.flush
             end
           rescue ex : IO::TimeoutError
             @io.puts ex
             next
           end
         end
-        LavinMQ::MQTT::Disconnect.new.to_io(io) if socket && !socket.closed?
+        if socket && !socket.closed?
+          LavinMQ::MQTT::Disconnect.new.to_io(io)
+          io.flush
+        end
       end
 
       private def rerun_on_exception(done, &)
