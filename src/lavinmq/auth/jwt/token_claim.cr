@@ -127,6 +127,9 @@ module LavinMQ
           return if !perm_type.in?("read", "write", "configure") || remainder.empty?
 
           parts = remainder.split("/")
+
+          # Allow 2 or 3 parts: vhost/pattern or vhost/pattern/routing_key
+          # RabbitMQ allows a third part (routing_key), but we don't use it
           return unless parts.size == 2 || parts.size == 3
 
           vhost = URI.decode_www_form(parts[0])
