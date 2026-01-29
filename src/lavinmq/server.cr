@@ -48,6 +48,9 @@ module LavinMQ
       @mqtt_brokers = MQTT::Brokers.new(@vhosts, @replicator)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator)
       @authenticator = Auth::Chain.create(@users)
+      if @config.tcp_proxy_protocol? && @config.proxy_protocol_trusted_sources.empty?
+        Log.warn { "PROXY protocol enabled without trusted sources configured - accepting from all sources" }
+      end
       @connection_factories = {
         Protocol::AMQP => AMQP::ConnectionFactory.new(authenticator, @vhosts),
         Protocol::MQTT => MQTT::ConnectionFactory.new(authenticator, @mqtt_brokers, @config),
@@ -134,25 +137,26 @@ module LavinMQ
 
     private def extract_conn_info(client) : ConnectionInfo
       remote_address = client.remote_address
-      case @config.tcp_proxy_protocol
-      when 1 then ProxyProtocol::V1.parse(client)
-      when 2 then ProxyProtocol::V2.parse(client)
-      else
-        # Allow proxy connection from followers
-        if @config.clustering? &&
-           client.peek[0, 5]? == "PROXY".to_slice &&
-           all_followers.any? { |f| f.remote_address.address == remote_address.address }
-          # Expect PROXY protocol header if remote address is a follower
-          ProxyProtocol::V1.parse(client)
-        elsif @config.clustering? &&
-              client.peek[0, 8]? == ProxyProtocol::V2::Signature.to_slice[0, 8] &&
-              all_followers.any? { |f| f.remote_address.address == remote_address.address }
-          # Expect PROXY protocol header if remote address is a follower
-          ProxyProtocol::V2.parse(client)
+
+      if @config.tcp_proxy_protocol?
+        parsed_proxy = ProxyProtocol.parse(client)
+        if trusted_proxy_source?(remote_address.address)
+          return parsed_proxy if parsed_proxy
         else
-          ConnectionInfo.new(remote_address, client.local_address)
+          Log.warn { "PROXY protocol from untrusted source #{remote_address}, ignoring header" } if parsed_proxy
+        end
+      else
+        if @config.clustering? && all_followers.any? { |f| f.remote_address.address == remote_address.address }
+          parsed_proxy = ProxyProtocol.parse(client)
+          return parsed_proxy if parsed_proxy
         end
       end
+      ConnectionInfo.new(remote_address, client.local_address)
+    end
+
+    private def trusted_proxy_source?(address : String) : Bool
+      return true if @config.proxy_protocol_trusted_sources.empty?
+      @config.proxy_protocol_trusted_sources.any?(&.matches?(address))
     end
 
     def listen(s : UNIXServer, protocol : Protocol)
@@ -173,12 +177,11 @@ module LavinMQ
       spawn(name: "Accept UNIX socket") do
         remote_address = client.remote_address
         set_buffer_size(client)
-        conn_info =
-          case @config.unix_proxy_protocol
-          when 1 then ProxyProtocol::V1.parse(client)
-          when 2 then ProxyProtocol::V2.parse(client)
-          else        ConnectionInfo.local # TODO: use unix socket address, don't fake local
-          end
+        if conn_info = ProxyProtocol.parse(client)
+          # PROXY protocol over unix socket
+        else
+          conn_info = ConnectionInfo.local # TODO: use unix socket address, don't fake local
+        end
         handle_connection(client, conn_info, protocol)
       rescue ex
         Log.warn(exception: ex) { "Error accepting connection from #{remote_address}" }
