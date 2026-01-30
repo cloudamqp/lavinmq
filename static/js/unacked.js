@@ -24,7 +24,7 @@ Table.renderTable('table', tableOptions, function (tr, item, firstRender) {
     Table.renderCell(tr, 0, item.delivery_tag)
     Table.renderCell(tr, 1, item.consumer_tag)
     const channel = document.createElement('a')
-    channel.href = HTTP.url`channel#name=${item.channel_name}`
+    channel.href = HTTP.url`channel#vhost=${vhost}&name=${item.channel_name}`
     channel.textContent = item.channel_name
     Table.renderCell(tr, 2, channel)
   }

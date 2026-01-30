@@ -18,7 +18,7 @@ Table.renderTable('table', tableOptions, function (tr, item, all) {
   if (all) {
     const channelLink = document.createElement('a')
     channelLink.textContent = item.name
-    channelLink.href = HTTP.url`channel#name=${item.name}`
+    channelLink.href = HTTP.url`channel#vhost=${item.vhost}&name=${item.name}`
     Table.renderCell(tr, 0, channelLink)
     Table.renderCell(tr, 1, item.vhost)
     Table.renderCell(tr, 2, item.user)
