@@ -5,7 +5,7 @@
 
 # ![LavinMQ](static/img/banner-lavinmq.svg)
 
-LavinMQ is a high-performance message queue & streaming server implementing the AMQP 0-9-1 and MQTT 3.1.0 and 3.1.1 protocols.
+LavinMQ is a high-performance message queue & streaming server implementing the AMQP 0-9-1 and MQTT 3.1.0, 3.1.1 protocols.
 Built with [Crystal](https://crystal-lang.org/) for optimal efficiency.
 
 <img src="static/img/lavinmq-ui.png" alt="LavinMQ GUI" height="500">
@@ -56,7 +56,7 @@ Then use systemctl to start/stop/enable/disable it, e.g. `systemctl start lavinm
 
 ### macOS
 
-You can install LavinMQ from [Homebrew](https://brew.sh/) with `brew`: 
+You can install LavinMQ from [Homebrew](https://brew.sh/) with `brew`:
 
 ```sh
 brew install cloudamqp/cloudamqp/lavinmq
@@ -72,6 +72,7 @@ docker run --rm -it -p 5672:5672 -p 15672:15672 -v /tmp/amqp:/var/lib/lavinmq cl
 ```
 
 #### Docker Compose
+
 Minimal example on how to run LavinMQ with Docker compose.
 
 ```yaml
@@ -80,8 +81,9 @@ services:
     image: "cloudamqp/lavinmq:latest"
     ports:
       - 15672:15672 # HTTP
-      - 5672:5672   # AMQP
+      - 5672:5672 # AMQP
 ```
+
 Start the container by running `docker compose up`
 
 For an example on setting up a multi-node LavinMQ cluster with Docker Compose, see [Setting up a LavinMQ cluster with Docker Compose](https://lavinmq.com/documentation/docker-compose-cluster)
@@ -141,16 +143,19 @@ All AMQP client libraries work with LavinMQ, and there are AMQP client libraries
 LavinMQ delivers exceptional throughput performance on commodity hardware. On a single c8g.large EC2 instance with GP3 EBS storage (XFS formatted), LavinMQ achieves:
 
 **Throughput Benchmarks:**
+
 - **800,000 msgs/s** - End-to-end throughput (16-byte messages, single queue, single producer/consumer)
 - **1,600,000 msgs/s** - Producer-only performance
 - **1,200,000 msgs/s** - Consumer-only performance (auto-ack)
 
 **Memory Efficiency:**
+
 - **25 MB RAM** - For 100 million enqueued messages
 - **45 MB RAM** - For 1,000 declared queues
 - **70 MB RAM** - For 1,000 concurrent connections
 
 **Binding Performance:**
+
 - **1,600 bindings/s** - Non-durable queues
 - **1,000 bindings/s** - Durable queues
 
@@ -159,6 +164,7 @@ Use [lavinmqperf](https://lavinmq.com/documentation/lavinmqperf) to benchmark yo
 ## Features
 
 ### Core Protocols
+
 - AMQP 0-9-1 protocol support
 - MQTT 3.1.0 protocol support
 - MQTT 3.1.1 protocol support
@@ -167,6 +173,7 @@ Use [lavinmqperf](https://lavinmq.com/documentation/lavinmqperf) to benchmark yo
 - MQTT over websockets
 
 ### Messaging Capabilities
+
 - Publisher confirm
 - Transactions
 - Dead-lettering
@@ -181,6 +188,7 @@ Use [lavinmqperf](https://lavinmq.com/documentation/lavinmqperf) to benchmark yo
 - Message deduplication
 
 ### Management
+
 - HTTP API
 - Users and ACL rules
 - VHost separation
@@ -189,16 +197,19 @@ Use [lavinmqperf](https://lavinmq.com/documentation/lavinmqperf) to benchmark yo
 - Consumer cancellation
 
 ### High Availability
+
 - Replication
 - Automatic leader election in clusters via etcd
 
 ### Other Functionality
+
 - Shovels
 - Queue & Exchange federation
 - Single active consumer
 - Stream queues
 
 ## Feature Highlights
+
 ### Clustering
 
 LavinMQ can be fully clustered with multiple other LavinMQ nodes. One node is always the leader and the others stream all changes in real-time. Failover happens instantly when the leader is unavailable.
@@ -230,7 +241,7 @@ lavinmq --data-dir /var/lib/lavinmq --clustering --clustering-bind :: --clusteri
 
 Stream queues provide an append-only log structure that allows multiple consumers to read the same messages independently. Unlike standard queues, messages in stream queues aren't deleted when consumed, making them ideal for event sourcing patterns and multi-consumer scenarios.
 
-Each consumer can start reading from anywhere in the queue using the `x-stream-offset` consumer argument and can process messages at their own pace. See [Stream Queues](https://lavinmq.com/documentation/streams) in the documentation for more information on using Stream Queues. 
+Each consumer can start reading from anywhere in the queue using the `x-stream-offset` consumer argument and can process messages at their own pace. See [Stream Queues](https://lavinmq.com/documentation/streams) in the documentation for more information on using Stream Queues.
 
 #### Stream Queue Filtering
 
@@ -274,13 +285,14 @@ There are a few edge-cases that are handled a bit differently in LavinMQ compare
 ## Getting Help
 
 For questions or suggestions:
+
 - Join our [Slack community](https://join.slack.com/t/lavinmq/shared_invite/zt-1v28sxova-wOyhOvDEKYVQMQpLePNUrg)
 - Use the [lavinmq tag](https://stackoverflow.com/questions/tagged/lavinmq) on Stack Overflow
 - Want to learn more? [Talk with our product experts](https://webforms.pipedrive.com/f/64JnLsqIMAdF2BDQ06ioKLhC2NuNmkwNplNhRxtIqlm0nFnuIeX97eb7fZKej0vFHZ)
 
 ## Hosted Solutions
 
-[CloudAMQP](https://www.cloudamqp.com/plans.html#lmq) offers a hosted LavinMQ solution with 24/7 support. 
+[CloudAMQP](https://www.cloudamqp.com/plans.html#lmq) offers a hosted LavinMQ solution with 24/7 support.
 
 For assistance with a CloudAMQP-hosted LavinMQ instance, contact [support@cloudamqp.com](mailto:support@cloudamqp.com).
 
