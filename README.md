@@ -5,7 +5,7 @@
 
 # ![LavinMQ](static/img/banner-lavinmq.svg)
 
-LavinMQ is a high-performance message queue & streaming server implementing the AMQP 0-9-1 and MQTT 3.1.1 protocols.
+LavinMQ is a high-performance message queue & streaming server implementing the AMQP 0-9-1 and MQTT 3.1.0 and 3.1.1 protocols.
 Built with [Crystal](https://crystal-lang.org/) for optimal efficiency.
 
 <img src="static/img/lavinmq-ui.png" alt="LavinMQ GUI" height="500">
@@ -160,6 +160,7 @@ Use [lavinmqperf](https://lavinmq.com/documentation/lavinmqperf) to benchmark yo
 
 ### Core Protocols
 - AMQP 0-9-1 protocol support
+- MQTT 3.1.0 protocol support
 - MQTT 3.1.1 protocol support
 - AMQPS (TLS)
 - AMQP over websockets
@@ -237,7 +238,7 @@ Stream queues support message filtering, allowing consumers to receive only mess
 
 ### MQTT Support
 
-LavinMQ natively supports the MQTT 3.1.1 protocol, facilitating seamless integration with IoT devices, sensors, and mobile applications. Each MQTT session is backed by an AMQP queue, ensuring consistent and reliable message storage. Messages within these sessions are persistently stored on disk.
+LavinMQ natively supports the MQTT 3.1.0 and 3.1.1 protocol, facilitating seamless integration with IoT devices, sensors, and mobile applications. Each MQTT session is backed by an AMQP queue, ensuring consistent and reliable message storage. Messages within these sessions are persistently stored on disk.
 
 For retained messages, LavinMQ maintains a dedicated storage system that maps topics to their respective retained messages. These retained messages are also persistently stored, ensuring that new subscribers immediately receive the latest retained message upon subscribing, including those using wildcard topic filters. In a clustered environments, the retained message store is replicated across nodes.
 
