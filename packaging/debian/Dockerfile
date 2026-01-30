@@ -3,6 +3,7 @@ ARG build_image=84codes/crystal:latest-ubuntu-24.04
 FROM $build_image AS builder
 RUN apt-get update && apt-get install -y devscripts help2man lintian debhelper liblz4-dev
 ARG version
+ENV version=$version
 WORKDIR /usr/src/lavinmq_${version}
 COPY Makefile README.md LICENSE NOTICE CHANGELOG.md shard.yml shard.lock ./
 COPY extras/lavinmq.service extras/lavinmq.ini extras/

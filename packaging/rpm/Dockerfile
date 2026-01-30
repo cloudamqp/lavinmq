@@ -11,6 +11,7 @@ RUN dnf install -y --nodocs --setopt=install_weak_deps=False \
 RUN rpmdev-setuptree
 COPY packaging/rpm/lavinmq.spec /root/rpmbuild/SPECS/
 ARG version
+ENV version=$version
 RUN rpmlint /root/rpmbuild/SPECS/lavinmq.spec
 WORKDIR /usr/src/lavinmq
 COPY Makefile README.md LICENSE NOTICE CHANGELOG.md shard.yml shard.lock ./
