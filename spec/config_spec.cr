@@ -440,12 +440,12 @@ describe LavinMQ::Config do
         default_password = +pHuxkR9fCyrrwXjOD4BP4XbzO3l8LJr8YkThMgJ0yVHFRE+
       CONFIG
       end
-      Log.capture(level: :info) do |logs|
+      logs = Log.capture(level: :info) do
         config = LavinMQ::Config.new
         argv = ["-c", config_file.path]
         config.parse(argv)
-        logs.check(:warn, /is deprecated/)
       end
+      logs.check(:warn, /is deprecated/)
     end
 
     it "should log warning for cli options" do
@@ -454,12 +454,12 @@ describe LavinMQ::Config do
         [main]
       CONFIG
       end
-      Log.capture(level: :info) do |logs|
+      logs = Log.capture(level: :info) do
         config = LavinMQ::Config.new
         argv = ["-c", config_file.path, "--default-password", "8Yw8kj5HkhfRxQ/3kbTAO/nmgqGpkvMsGDbUWXA6+jTF3JP3"]
         config.parse(argv)
-        logs.check(:warn, /is deprecated/)
       end
+      logs.check(:warn, /is deprecated/)
     end
 
     it "should forward ini option values to the new property" do
