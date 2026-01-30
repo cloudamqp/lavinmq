@@ -40,7 +40,7 @@ module LavinMQ
       def initialize(@socket : IO,
                      @connection_info : ConnectionInfo,
                      @vhost : VHost,
-                     @user : Auth::User,
+                     @user : Auth::BaseUser,
                      tune_ok,
                      start_ok)
         @max_frame_size = tune_ok.frame_max
@@ -66,6 +66,12 @@ module LavinMQ
         @vhost.add_connection(self)
         @log.info { "Connection established for user=#{@user.name}" }
         spawn read_loop, name: "Client#read_loop #{@connection_info.remote_address}"
+        case user = @user
+        when Auth::OAuthUser
+          user.on_expiration do
+            close_connection(nil, ConnectionReplyCode::CONNECTION_FORCED, "token expired")
+          end
+        end
       end
 
       # Returns client provided connection name if set, else server generated name
@@ -138,6 +144,9 @@ module LavinMQ
               @log.debug { "Confirmed disconnect" }
               @running = false
               return
+            when AMQP::Frame::Connection::UpdateSecret
+              handle_update_secret(frame)
+              next
             end
             if @running
               process_frame(frame)
@@ -196,6 +205,20 @@ module LavinMQ
         else
           send AMQP::Frame::Heartbeat.new
         end
+      end
+
+      private def handle_update_secret(frame : AMQP::Frame::Connection::UpdateSecret)
+        if user = @user.as?(Auth::OAuthUser)
+          user.refresh(frame.secret)
+          send AMQP::Frame::Connection::UpdateSecretOk.new
+        else
+          close_connection(frame, ConnectionReplyCode::ACCESS_REFUSED, "update-secret not supported for current authentication mechanism")
+        end
+      rescue ex : Auth::JWT::Error
+        close_connection(frame, ConnectionReplyCode::ACCESS_REFUSED, ex.message)
+      rescue ex : Exception
+        @log.error(exception: ex) { "UpdateSecret failed for user '#{@user.name}': #{ex.message}" }
+        close_connection(frame, ConnectionReplyCode::INTERNAL_ERROR, "Failed to update secret: #{ex.message}")
       end
 
       def send(frame : AMQP::Frame, channel_is_open : Bool? = nil) : Bool
@@ -447,6 +470,10 @@ module LavinMQ
         @exclusive_queues.each(&.close)
         @exclusive_queues.clear
         @vhost.rm_connection(self)
+        case user = @user
+        when Auth::OAuthUser
+          user.cleanup
+        end
       end
 
       private def close_socket

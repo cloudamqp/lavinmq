@@ -54,7 +54,7 @@ module LavinMQ
       rescue Base64::Error
       end
 
-      private def authenticate(username, password, remote_address) : Auth::User?
+      private def authenticate(username, password, remote_address) : Auth::BaseUser?
         return if password.empty?
         auth_context = LavinMQ::Auth::Context.new(
           username, password.to_slice, remote_address)

@@ -29,7 +29,7 @@ describe LavinMQ::HTTP::Server do
         response = http.post("/api/definitions", body: body)
         response.status_code.should eq 200
         s.users.select("sha256", "sha512", "bcrypt", "md5").each do |_, u|
-          u.should be_a(LavinMQ::Auth::User)
+          u.should be_a(LavinMQ::Auth::BaseUser)
           ok = u.not_nil!.password.not_nil!.verify "hej"
           {u.name, ok}.should(eq({u.name, true}))
         end
@@ -668,7 +668,7 @@ describe LavinMQ::HTTP::Server do
       response.status_code.should eq 200
 
       u = s.users[name]
-      u.should be_a(LavinMQ::Auth::User)
+      u.should be_a(LavinMQ::Auth::BaseUser)
       ok = u.not_nil!.password.not_nil!.verify "hej"
       {u.name, ok}.should eq({name, true})
 
@@ -683,7 +683,7 @@ describe LavinMQ::HTTP::Server do
       response.status_code.should eq 200
 
       u = s.users[name]
-      u.should be_a(LavinMQ::Auth::User)
+      u.should be_a(LavinMQ::Auth::BaseUser)
       ok = u.not_nil!.password.not_nil!.verify "test"
       {u.name, ok}.should eq({name, true})
     end

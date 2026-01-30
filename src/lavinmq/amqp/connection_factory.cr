@@ -119,8 +119,7 @@ module LavinMQ
         user = @authenticator.authenticate(context)
         return user if user
 
-        log.warn { "Authentication failure for user \"#{username}\"" }
-
+        log.info { "Authentication failure for user \"#{username}\"" }
         props = start_ok.client_properties
         if capabilities = props["capabilities"]?.try &.as?(AMQP::Table)
           if capabilities["authentication_failure_close"]?.try &.as?(Bool)
@@ -169,7 +168,7 @@ module LavinMQ
         open = socket.next_frame.as(AMQP::Frame::Connection::Open)
         vhost_name = open.vhost.empty? ? "/" : open.vhost
         if vhost = @vhosts[vhost_name]?
-          if user.permissions[vhost_name]?
+          if user.find_permission(vhost_name)
             if vhost.max_connections.try { |max| vhost.connections.size >= max }
               log.warn { "Max connections (#{vhost.max_connections}) reached for vhost #{vhost_name}" }
               reply_text = "access to vhost '#{vhost_name}' refused: connection limit (#{vhost.max_connections}) is reached"
