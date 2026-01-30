@@ -410,9 +410,9 @@ module LavinMQ
                       type:  "gauge",
                       help:  "Number of MFile memory-mapped files"})
         {% if flag?(:linux) %}
-          if content = File.read?("/proc/self/maps")
+          if count = count_proc_maps_lines
             writer.write({name:  "process_mmap_count",
-                          value: content.count('\n').to_i64,
+                          value: count,
                           type:  "gauge",
                           help:  "Total number of virtual memory areas in the process"})
           end
@@ -586,6 +586,21 @@ module LavinMQ
             end
           end
         end
+      end
+
+      # Count lines in /proc/self/maps without allocating the entire file content.
+      # Reads in chunks and counts newlines incrementally to reduce memory usage.
+      private def count_proc_maps_lines : Int64?
+        File.open("/proc/self/maps", "r") do |file|
+          count = 0i64
+          buffer = uninitialized UInt8[4096]
+          while (bytes_read = file.read(buffer.to_slice)) > 0
+            count += buffer.to_slice[0, bytes_read].count('\n'.ord.to_u8)
+          end
+          count
+        end
+      rescue
+        nil
       end
     end
   end
