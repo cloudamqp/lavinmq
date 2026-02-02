@@ -177,7 +177,8 @@ module LavinMQ
       ensure
         cleanup
         close_socket
-        @log.info { "Connection disconnected for user=#{@user.name}" }
+        duration = (RoughTime.unix_ms - @connected_at) / 1000
+        @log.info { "Connection disconnected for user=#{@user.name} duration=#{duration}s" }
       end
 
       private def frame_size_ok?(frame) : Bool
