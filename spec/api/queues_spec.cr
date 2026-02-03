@@ -130,8 +130,9 @@ describe LavinMQ::HTTP::QueuesController do
             2.times { q.publish "m1" }
             q.subscribe(no_ack: false) { }
 
-            wait_for { s.vhosts["/"].queues["unacked_q"].unacked_count == 2 }
-            s.vhosts["/"].queues["unacked_q"].basic_get_unacked.size.should eq 0
+            unacked_q = s.vhosts["/"].queues["unacked_q"].should be_a(LavinMQ::AMQP::Queue)
+            wait_for { unacked_q.unacked_count == 2 }
+            unacked_q.basic_get_unacked.size.should eq 0
             response = http.get("/api/queues/%2f/unacked_q/unacked?page=1&page_size=100")
             response.status_code.should eq 200
             body = JSON.parse(response.body)
@@ -187,7 +188,8 @@ describe LavinMQ::HTTP::QueuesController do
             q.publish "m1"
 
             q.get(no_ack: false)
-            wait_for { s.vhosts["/"].queues["unacked_q"].basic_get_unacked.size == 1 }
+            unacked_q = s.vhosts["/"].queues["unacked_q"].should be_a(LavinMQ::AMQP::Queue)
+            wait_for { unacked_q.basic_get_unacked.size == 1 }
             response = http.get("/api/queues/%2f/unacked_q/unacked?page=1&page_size=100")
             response.status_code.should eq 200
             body = JSON.parse(response.body)

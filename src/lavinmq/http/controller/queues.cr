@@ -45,7 +45,12 @@ module LavinMQ
             refuse_unless_management(context, user(context), vhost)
             consumer_limit = context.request.query_params["consumer_list_length"]?.try &.to_i || -1
             JSON.build(context.response) do |json|
-              find_queue(context, params, vhost).to_json(json, consumer_limit)
+              case q = find_queue(context, params, vhost)
+              when AMQP::Queue
+                q.to_json(json, consumer_limit)
+              else
+                q.to_json(json)
+              end
             end
           end
         end
@@ -53,9 +58,11 @@ module LavinMQ
         get "/api/queues/:vhost/:name/unacked" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            q = find_queue(context, params, vhost)
-            unacked_messages = q.unacked_messages
-            page(context, unacked_messages)
+            if q = find_queue(context, params, vhost).as?(AMQP::Queue)
+              page(context, q.unacked_messages)
+            else
+              halt(context, 404)
+            end
           end
         end
 
@@ -130,11 +137,13 @@ module LavinMQ
             refuse_unless_management(context, user(context), vhost)
             q = find_queue(context, params, vhost)
             user = user(context)
-            unless user.can_config?(q.vhost.name, q.name)
+            unless user.can_config?(vhost.name, q.name)
               access_refused(context, "User doesn't have permissions to delete queue '#{q.name}'")
             end
-            if context.request.query_params["if-unused"]? == "true"
-              bad_request(context, "Queue #{q.name} in vhost #{q.vhost.name} in use") if q.in_use?
+            if q.is_a?(AMQP::Queue)
+              if context.request.query_params["if-unused"]? == "true"
+                bad_request(context, "Queue #{q.name} in vhost #{q.vhost.name} in use") if q.in_use?
+              end
             end
             vhost.delete_queue(q.name)
             context.response.status_code = 204
@@ -175,7 +184,7 @@ module LavinMQ
             user = user(context)
             refuse_unless_management(context, user, vhost)
             q = find_queue(context, params, vhost)
-            unless user.can_read?(q.vhost.name, q.name)
+            unless user.can_read?(vhost.name, q.name)
               access_refused(context, "User doesn't have permissions to read queue '#{q.name}'")
             end
             if q.state != QueueState::Running && q.state != QueueState::Paused

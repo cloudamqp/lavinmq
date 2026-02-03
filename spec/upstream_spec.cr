@@ -81,7 +81,7 @@ describe LavinMQ::Federation::Upstream do
 
         with_channel(s) do |ch|
           ch.queue("federated_q")
-          link = upstream.link(vhost_downstream.queues["federated_q"])
+          link = upstream.link(vhost_downstream.queues["federated_q"].should be_a(LavinMQ::AMQP::Queue))
           link.name.should eq "federated_q"
           wait_for { link.state.running? }
           vhost_upstream.queues.has_key?("federated_q").should be_true
@@ -99,7 +99,7 @@ describe LavinMQ::Federation::Upstream do
         with_channel(s) do |ch|
           x, q2 = UpstreamSpecHelpers.setup_qs ch
           x.publish_confirm "federate me", "federation_q1"
-          upstream.link(vhost.queues["federation_q2"])
+          upstream.link(vhost.queues["federation_q2"].should be_a(LavinMQ::AMQP::Queue))
           msgs = Channel(String).new
           q2.subscribe { |msg| msgs.send msg.body_io.to_s }
           msgs.should be_receiving "federate me"
@@ -118,7 +118,7 @@ describe LavinMQ::Federation::Upstream do
         with_channel(s) do |ch|
           x = UpstreamSpecHelpers.setup_qs(ch).first
           x.publish_confirm "federate me", "federation_q1"
-          link = upstream.link(vhost.queues["federation_q2"])
+          link = upstream.link(vhost.queues["federation_q2"].should be_a(LavinMQ::AMQP::Queue))
           wait_for { link.state.running? }
           vhost.queues["federation_q1"].message_count.should eq 1
           vhost.queues["federation_q2"].message_count.should eq 0
@@ -137,7 +137,7 @@ describe LavinMQ::Federation::Upstream do
         with_channel(s) do |ch|
           x, q2 = UpstreamSpecHelpers.setup_qs ch
           x.publish_confirm "federate me", "federation_q1"
-          upstream.link(vhost.queues["federation_q2"])
+          upstream.link(vhost.queues["federation_q2"].should be_a(LavinMQ::AMQP::Queue))
           msgs = Channel(String).new
           q2.subscribe { |msg| msgs.send msg.body_io.to_s }
           msgs.should be_receiving "federate me"
@@ -157,7 +157,7 @@ describe LavinMQ::Federation::Upstream do
         with_channel(s) do |ch|
           x, q2 = UpstreamSpecHelpers.setup_qs ch
           x.publish_confirm "federate me", "federation_q1"
-          upstream.link(vhost.queues["federation_q2"])
+          upstream.link(vhost.queues["federation_q2"].should be_a(LavinMQ::AMQP::Queue))
           msgs = Channel(String).new
           q2.subscribe { |msg| msgs.send msg.body_io.to_s }
           msgs.should be_receiving "federate me"
@@ -210,7 +210,7 @@ describe LavinMQ::Federation::Upstream do
         with_channel(s) do |ch|
           x, q2 = UpstreamSpecHelpers.setup_qs ch
           x.publish_confirm "federate me", "federation_q1"
-          upstream.link(vhost.queues["federation_q2"])
+          upstream.link(vhost.queues["federation_q2"].should be_a(LavinMQ::AMQP::Queue))
           q2.subscribe do |msg|
             msgs << msg
           end
@@ -241,7 +241,7 @@ describe LavinMQ::Federation::Upstream do
         with_channel(s) do |ch|
           x, q2 = UpstreamSpecHelpers.setup_qs ch
           x.publish_confirm "federate me", "federation_q1", props: AMQP::Client::Properties.new(content_type: "application/json")
-          upstream.link(vhost.queues["federation_q2"])
+          upstream.link(vhost.queues["federation_q2"].should be_a(LavinMQ::AMQP::Queue))
           msgs = [] of AMQP::Client::DeliverMessage
           q2.subscribe { |msg| msgs << msg }
           wait_for { msgs.size == 1 }
@@ -281,8 +281,8 @@ describe LavinMQ::Federation::Upstream do
           msgs.should be_receiving "msg1"
           wait_for { s.vhosts[ds_vhost.name].queues[ds_queue_name].message_count == 0 }
         end
-
-        wait_for { s.vhosts[ds_vhost.name].queues[ds_queue_name].consumers.empty? }
+        ds_queue = s.vhosts[ds_vhost.name].queues[ds_queue_name].should be_a(LavinMQ::AMQP::Queue)
+        wait_for { ds_queue.consumers.empty? }
 
         # publish another message
         with_channel(s, vhost: us_vhost.name) do |upstream_ch|
@@ -379,8 +379,8 @@ describe LavinMQ::Federation::Upstream do
             vhost.declare_queue("q2", true, false)
 
             upstream = LavinMQ::Federation::Upstream.new(vhost, "test", "amqp://", nil, nil)
-            link1 = upstream.link(vhost.queues["q1"])
-            link2 = upstream.link(vhost.queues["q2"])
+            link1 = upstream.link(vhost.queues["q1"].should be_a(LavinMQ::AMQP::Queue))
+            link2 = upstream.link(vhost.queues["q2"].should be_a(LavinMQ::AMQP::Queue))
 
             link1.@upstream_q.should eq "q1"
             link2.@upstream_q.should eq "q2"
@@ -553,7 +553,7 @@ describe LavinMQ::Federation::Upstream do
         with_channel(s) do |ch|
           x, q2 = UpstreamSpecHelpers.setup_qs ch
           x.publish "foo", "federation_q1"
-          upstream.link(vhost.queues["federation_q2"])
+          upstream.link(vhost.queues["federation_q2"].should be_a(LavinMQ::AMQP::Queue))
           msgs = [] of AMQP::Client::DeliverMessage
           wg = WaitGroup.new(1)
           q2.subscribe do |msg|
@@ -581,8 +581,8 @@ describe LavinMQ::Federation::Upstream do
         vhost3.declare_queue("q3", durable: true, auto_delete: false)
 
         vhost1.queues["q1"]
-        q2 = vhost2.queues["q2"]
-        q3 = vhost3.queues["q3"]
+        q2 = vhost2.queues["q2"].should be_a(LavinMQ::AMQP::Queue)
+        q3 = vhost3.queues["q3"].should be_a(LavinMQ::AMQP::Queue)
 
         url = URI.parse(s.amqp_url)
 

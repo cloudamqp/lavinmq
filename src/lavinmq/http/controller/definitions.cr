@@ -289,7 +289,7 @@ module LavinMQ
                 next if q.exclusive?
                 {
                   "name":        q.name,
-                  "vhost":       q.vhost.name,
+                  "vhost":       v.name,
                   "durable":     q.durable?,
                   "auto_delete": q.auto_delete?,
                   "arguments":   q.arguments,

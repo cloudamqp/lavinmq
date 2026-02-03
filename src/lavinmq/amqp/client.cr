@@ -627,22 +627,33 @@ module LavinMQ
           send_precondition_failed(frame, "Queue name isn't valid")
           return
         end
-        q = @vhost.queues.fetch(frame.queue_name, nil)
-        if q.nil?
-          send AMQP::Frame::Queue::DeleteOk.new(frame.channel, 0_u32) unless frame.no_wait
-        elsif queue_exclusive_to_other_client?(q)
-          send_resource_locked(frame, "Queue '#{q.name}' is exclusive")
-        elsif frame.if_unused && !q.consumer_count.zero?
-          send_precondition_failed(frame, "Queue '#{q.name}' in use")
-        elsif frame.if_empty && !q.message_count.zero?
-          send_precondition_failed(frame, "Queue '#{q.name}' is not empty")
-        elsif !@user.can_config?(@vhost.name, frame.queue_name)
-          send_access_refused(frame, "User '#{@user.name}' doesn't have permissions to delete queue '#{q.name}'")
-        else
-          size = q.message_count
-          @vhost.apply(frame)
-          @exclusive_queues.delete(q) if q.exclusive?
-          send AMQP::Frame::Queue::DeleteOk.new(frame.channel, size) unless frame.no_wait
+        with_queue(frame) do |q|
+          if q.nil?
+            send AMQP::Frame::Queue::DeleteOk.new(frame.channel, 0_u32) unless frame.no_wait
+          elsif queue_exclusive_to_other_client?(q)
+            send_resource_locked(frame, "Queue '#{q.name}' is exclusive")
+          elsif frame.if_unused && !q.consumer_count.zero?
+            send_precondition_failed(frame, "Queue '#{q.name}' in use")
+          elsif frame.if_empty && !q.message_count.zero?
+            send_precondition_failed(frame, "Queue '#{q.name}' is not empty")
+          elsif !@user.can_config?(@vhost.name, frame.queue_name)
+            send_access_refused(frame, "User '#{@user.name}' doesn't have permissions to delete queue '#{q.name}'")
+          else
+            size = q.message_count
+            @vhost.apply(frame)
+            @exclusive_queues.delete(q) if q.exclusive?
+            send AMQP::Frame::Queue::DeleteOk.new(frame.channel, size) unless frame.no_wait
+          end
+        end
+      end
+
+      def with_queue(frame, &)
+        if q = @vhost.queues[frame.queue_name]?
+          if q.nil? || (q = q.as?(AMQP::Queue))
+            yield q
+          else
+            send_precondition_failed(frame, "Queue not an AMQP queue")
+          end
         end
       end
 
@@ -653,7 +664,7 @@ module LavinMQ
       private def declare_queue(frame)
         if !frame.queue_name.empty? && !NameValidator.valid_entity_name?(frame.queue_name)
           send_precondition_failed(frame, "Queue name isn't valid")
-        elsif q = @vhost.queues.fetch(frame.queue_name, nil)
+        elsif q = @vhost.queues.fetch(frame.queue_name, nil).try &.as(AMQP::Queue)
           redeclare_queue(frame, q)
         elsif {"amq.rabbitmq.reply-to", "amq.direct.reply-to"}.includes? frame.queue_name
           unless frame.no_wait
@@ -715,8 +726,8 @@ module LavinMQ
         end
         @vhost.apply(frame)
         @last_queue_name = frame.queue_name
-        if frame.exclusive
-          @exclusive_queues << @vhost.queues[frame.queue_name]
+        if frame.exclusive && (q = @vhost.queues[frame.queue_name].as(AMQP::Queue))
+          @exclusive_queues << q
         end
         unless frame.no_wait
           send AMQP::Frame::Queue::DeclareOk.new(frame.channel, frame.queue_name, 0_u32, 0_u32)
@@ -845,15 +856,19 @@ module LavinMQ
         end
         if !NameValidator.valid_entity_name?(frame.queue_name)
           send_precondition_failed(frame, "Queue name isn't valid")
-        elsif q = @vhost.queues.fetch(frame.queue_name, nil)
+          return
+        end
+        with_queue(frame) do |q|
+          if q.nil?
+            send_not_found(frame, "Queue '#{frame.queue_name}' not found")
+            return
+          end
           if queue_exclusive_to_other_client?(q)
             send_resource_locked(frame, "Queue '#{q.name}' is exclusive")
           else
             messages_purged = q.purge
             send AMQP::Frame::Queue::PurgeOk.new(frame.channel, messages_purged) unless frame.no_wait
           end
-        else
-          send_not_found(frame, "Queue '#{frame.queue_name}' not found")
         end
       end
 

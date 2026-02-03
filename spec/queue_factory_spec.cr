@@ -161,5 +161,70 @@ describe LavinMQ::QueueFactory do
         end
       end
     end
+
+    describe "to_frame" do
+      it "should convert AMQP::Queue to frame" do
+        queue_args = LavinMQ::AMQP::Table.new({"x-custom": "value"})
+        q = LavinMQ::QueueFactory.make(vhost, "test_queue", durable: true, exclusive: true, auto_delete: false, arguments: queue_args)
+        q = q.as(LavinMQ::AMQP::Queue)
+
+        frame = LavinMQ::QueueFactory.to_frame(q)
+
+        frame.queue_name.should eq "test_queue"
+        frame.durable.should be_true
+        frame.exclusive.should be_true
+        frame.auto_delete.should be_false
+        frame.arguments.should eq queue_args
+      end
+
+      it "should convert MQTT::Session to frame with mqtt queue-type" do
+        queue_args = LavinMQ::AMQP::Table.new({"x-queue-type": "mqtt"})
+        session = LavinMQ::QueueFactory.make(vhost, "mqtt_session", durable: true, auto_delete: false, arguments: queue_args)
+        session = session.as(LavinMQ::MQTT::Session)
+
+        frame = LavinMQ::QueueFactory.to_frame(session)
+
+        frame.queue_name.should eq "mqtt_session"
+        frame.durable.should be_true
+        frame.exclusive.should be_false
+        frame.auto_delete.should be_false
+        frame.arguments["x-queue-type"]?.should eq "mqtt"
+      end
+
+      it "should convert non-durable AMQP::Queue to frame" do
+        q = LavinMQ::QueueFactory.make(vhost, "transient_queue", durable: false)
+        q = q.as(LavinMQ::AMQP::Queue)
+
+        frame = LavinMQ::QueueFactory.to_frame(q)
+
+        frame.queue_name.should eq "transient_queue"
+        frame.durable.should be_false
+        frame.exclusive.should be_false
+        frame.auto_delete.should be_false
+      end
+
+      it "should convert AMQP::Queue with auto_delete to frame" do
+        q = LavinMQ::QueueFactory.make(vhost, "auto_delete_queue", durable: false, auto_delete: true)
+        q = q.as(LavinMQ::AMQP::Queue)
+
+        frame = LavinMQ::QueueFactory.to_frame(q)
+
+        frame.queue_name.should eq "auto_delete_queue"
+        frame.auto_delete.should be_true
+      end
+
+      it "should convert MQTT::Session with clean session to frame" do
+        queue_args = LavinMQ::AMQP::Table.new({"x-queue-type": "mqtt"})
+        session = LavinMQ::QueueFactory.make(vhost, "clean_session", durable: false, auto_delete: true, arguments: queue_args)
+        session = session.as(LavinMQ::MQTT::Session)
+
+        frame = LavinMQ::QueueFactory.to_frame(session)
+
+        frame.queue_name.should eq "clean_session"
+        frame.durable.should be_false
+        frame.auto_delete.should be_true
+        frame.arguments["x-queue-type"]?.should eq "mqtt"
+      end
+    end
   end
 end

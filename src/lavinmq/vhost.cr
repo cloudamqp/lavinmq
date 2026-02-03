@@ -124,7 +124,7 @@ module LavinMQ
     # The position of the msg.body_io should be at the start of the body
     # When this method finishes, the position will be the same, start of the body
     def publish(msg : Message, immediate = false,
-                visited = Set(LavinMQ::Exchange).new, found_queues = Set(LavinMQ::Queue).new) : Bool
+                visited = Set(LavinMQ::AMQP::Exchange).new, found_queues = Set(LavinMQ::AMQP::Queue).new) : Bool
       ex = @exchanges[msg.exchange_name]? || return false
       ex.publish(msg, immediate, found_queues, visited)
     ensure
@@ -262,7 +262,7 @@ module LavinMQ
           store_definition(f) if !loading && f.durable && !f.exclusive
           event_tick(EventType::QueueDeclared) unless loading
         when AMQP::Frame::Queue::Delete
-          if q = @queues.delete(f.queue_name)
+          if q = @queues.delete(f.queue_name).as?(AMQP::Queue)
             @exchanges.each_value do |ex|
               ex.bindings_details.each do |binding|
                 next unless binding.destination == q
@@ -278,13 +278,27 @@ module LavinMQ
         when AMQP::Frame::Queue::Bind
           x = @exchanges[f.exchange_name]? || return false
           q = @queues[f.queue_name]? || return false
-          return false unless x.bind(q, f.routing_key, f.arguments)
-          store_definition(f) if !loading && x.durable? && q.durable? && !q.exclusive?
+          case q
+          in AMQP::Queue
+            return false unless x.bind(q, f.routing_key, f.arguments)
+            store_definition(f) if !loading && x.durable? && q.durable? && !q.exclusive?
+          in MQTT::Session
+            return false unless x.as(MQTT::Exchange).bind(q, f.routing_key, f.arguments)
+          in LavinMQ::Queue
+            return false
+          end
         when AMQP::Frame::Queue::Unbind
           x = @exchanges[f.exchange_name]? || return false
           q = @queues[f.queue_name]? || return false
-          return false unless x.unbind(q, f.routing_key, f.arguments)
-          store_definition(f, dirty: true) if !loading && x.durable? && q.durable? && !q.exclusive?
+          case q
+          in AMQP::Queue
+            return false unless x.unbind(q, f.routing_key, f.arguments)
+            store_definition(f, dirty: true) if !loading && x.durable? && q.durable? && !q.exclusive?
+          in MQTT::Session
+            return false unless x.as(MQTT::Exchange).unbind(q, f.routing_key, f.arguments)
+          in LavinMQ::Queue
+            return false
+          end
         else raise "Cannot apply frame #{f.class} in vhost #{@name}"
         end
         true
@@ -586,9 +600,7 @@ module LavinMQ
           io.write_bytes f
         end
         @queues.each_value.select(&.durable?).each do |q|
-          f = AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, q.name, false, q.durable?, q.exclusive?,
-            q.auto_delete?, false, q.arguments)
-          io.write_bytes f
+          io.write_bytes QueueFactory.to_frame(q)
         end
         @exchanges.each_value.select(&.durable?).each do |e|
           e.bindings_details.each do |binding|

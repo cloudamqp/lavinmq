@@ -61,7 +61,8 @@ module LavinMQ::AMQP
     @reject_on_overflow = false
     @exclusive_consumer = false
     @deliveries = Hash(SegmentPosition, Int32).new
-    @consumers = Array(Client::Channel::Consumer).new
+    getter consumers_empty = BoolChannel.new(true)
+    getter consumers = Array(AMQP::Consumer).new
     @consumers_lock = Mutex.new
     @message_ttl_change = ::Channel(Nil).new
 
@@ -75,7 +76,6 @@ module LavinMQ::AMQP
 
     getter consumer_timeout : UInt64? = Config.instance.consumer_timeout
 
-    getter consumers_empty = BoolChannel.new(true)
     @queue_expiration_ttl_change = ::Channel(Nil).new
     @effective_args = Array(String).new
 
@@ -137,7 +137,7 @@ module LavinMQ::AMQP
     rescue ::Channel::ClosedError
     end
 
-    getter name, arguments, vhost, consumers
+    getter name, arguments, vhost # , consumers
     getter? auto_delete, exclusive
     getter policy : Policy?
     getter operator_policy : OperatorPolicy?
@@ -738,7 +738,7 @@ module LavinMQ::AMQP
     end
 
     def unacked_messages
-      unacked_messages = consumers.each.select(AMQP::Consumer).flat_map do |c|
+      unacked_messages = consumers.each.flat_map do |c|
         c.unacked_messages.each.compact_map do |u|
           next unless u.queue == self
           if consumer = u.consumer

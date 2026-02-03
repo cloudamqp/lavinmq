@@ -1,6 +1,6 @@
 require "./stats"
 
-module LavinMQ::AMQP
+module LavinMQ
   module QueueStats
     include Stats
 

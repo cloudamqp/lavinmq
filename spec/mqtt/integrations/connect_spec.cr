@@ -314,7 +314,8 @@ module MqttSpecs
               disconnect(io)
             end
             sleep 100.milliseconds
-            server.vhosts["/"].queues["mqtt.client_id"].consumers.should be_empty
+            session = server.vhosts["/"].queues["mqtt.client_id"].should be_a(LavinMQ::MQTT::Session)
+            session.client.should be_nil
           end
         end
       end
