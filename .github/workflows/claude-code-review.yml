@@ -22,3 +22,4 @@ jobs:
           prompt: "/review"
           claude_args: |
             --max-turns 5
+            --allowedTools "Bash(gh pr list:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr comment:*)"
