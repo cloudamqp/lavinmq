@@ -20,7 +20,7 @@ module LavinMQ
 
       def declare(client : Client)
         session = self[client.client_id]? || begin
-          @vhost.declare_queue("mqtt.#{client.client_id}", !client.@clean_session, client.@clean_session, AMQP::Table.new({"x-queue-type": "mqtt"}))
+          @vhost.declare_queue("mqtt.#{client.client_id}", !client.@clean_session, client.@clean_session, Session::ARGUMENTS)
           self[client.client_id]
         end
         if session.client != client

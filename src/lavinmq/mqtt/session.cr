@@ -12,11 +12,11 @@ module LavinMQ
       include QueueStats
       include SortableJSON
 
-      EMPTY_ARGUMENTS = AMQP::Table.new({"x-queue-type": "mqtt"})
-      Log             = ::LavinMQ::Log.for "mqtt.session"
+      ARGUMENTS = AMQP::Table.new({"x-queue-type": "mqtt"})
+      Log       = ::LavinMQ::Log.for "mqtt.session"
 
       getter name
-      getter arguments : AMQP::Table = EMPTY_ARGUMENTS
+      getter arguments : AMQP::Table = ARGUMENTS
       getter vhost
       getter? internal = false
       getter? exclusive = false
