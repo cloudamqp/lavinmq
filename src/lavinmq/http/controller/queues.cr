@@ -61,6 +61,8 @@ module LavinMQ
             if q = find_queue(context, params, vhost).as?(AMQP::Queue)
               page(context, q.unacked_messages)
             else
+              # Should this be 404? If a queue type doesn't support the feature
+              # the endpoint "shouldn't exist"?
               halt(context, 404)
             end
           end
@@ -142,7 +144,7 @@ module LavinMQ
             end
             if q.is_a?(AMQP::Queue)
               if context.request.query_params["if-unused"]? == "true"
-                bad_request(context, "Queue #{q.name} in vhost #{q.vhost.name} in use") if q.in_use?
+                bad_request(context, "Queue #{q.name} in vhost #{vhost.name} in use") if q.in_use?
               end
             end
             vhost.delete_queue(q.name)
@@ -246,7 +248,7 @@ module LavinMQ
             user = user(context)
             refuse_unless_management(context, user, vhost)
             q = find_stream(context, vhost, params["name"])
-            unless user.can_read?(q.vhost.name, q.name)
+            unless user.can_read?(vhost.name, q.name)
               access_refused(context, "User doesn't have permissions to read stream '#{q.name}'")
             end
             if q.state != QueueState::Running && q.state != QueueState::Paused

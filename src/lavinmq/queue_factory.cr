@@ -69,12 +69,12 @@ module LavinMQ
       )
     end
 
-    def self.to_frame(queue : MQTT::Session) : AMQP::Frame::Queue::Declare
+    def self.to_frame(session : MQTT::Session) : AMQP::Frame::Queue::Declare
       AMQP::Frame::Queue::Declare.new(
-        0_u16, 0_u16, queue.name, false,
-        queue.durable?, false,
-        queue.auto_delete?, false,
-        queue.arguments
+        0_u16, 0_u16, session.name, false,
+        session.durable?, false,
+        session.clean_session?, false,
+        session.arguments
       )
     end
 

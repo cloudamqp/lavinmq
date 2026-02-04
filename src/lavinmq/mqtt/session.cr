@@ -17,10 +17,7 @@ module LavinMQ
 
       getter name
       getter arguments : AMQP::Table = ARGUMENTS
-      getter vhost
-      getter? internal = false
-      getter? exclusive = false
-      getter? auto_delete
+      getter? clean_session
       getter? closed = false
       getter? deleted = false
       getter state = QueueState::Running
@@ -33,7 +30,7 @@ module LavinMQ
 
       protected def initialize(@vhost : VHost,
                                @name : String,
-                               @auto_delete = false)
+                               @clean_session = false)
         @count = 0u16
         @unacked = Hash(UInt16, SegmentPosition).new
         @metadata = ::Log::Metadata.new(nil, {session: @name, vhost: @vhost.name})
@@ -74,10 +71,6 @@ module LavinMQ
         false
       end
 
-      def clean_session?
-        @auto_delete
-      end
-
       def empty? : Bool
         @msg_store.empty?
       end
@@ -111,9 +104,9 @@ module LavinMQ
         stats = queue_stats_details
         {
           name:        @name,
-          durable:     @auto_delete == false,
-          exclusive:   exclusive?,
-          auto_delete: @auto_delete,
+          durable:     durable?,
+          exclusive:   false,
+          auto_delete: clean_session?,
           # arguments:                    {},
           consumers:                    @client.nil? ? 0 : 1,
           vhost:                        @vhost.name,
@@ -139,7 +132,7 @@ module LavinMQ
           message_stats:                current_stats_details,
           effective_arguments:          nil,
           effective_policy_arguments:   nil,
-          internal:                     internal?,
+          internal:                     false,
         }
       end
 
@@ -175,18 +168,22 @@ module LavinMQ
         !clean_session?
       end
 
+      def auto_delete?
+        clean_session?
+      end
+
       def match?(frame)
         durable? == frame.durable &&
-          @exclusive == frame.exclusive &&
-          @auto_delete == frame.auto_delete &&
-          frame.arguments.empty?
+          false == frame.exclusive &&
+          clean_session? == frame.auto_delete &&
+          frame.arguments == arguments
       end
 
       def match?(durable, exclusive, auto_delete, arguments)
         durable? == durable &&
-          @exclusive == exclusive &&
-          @auto_delete == auto_delete &&
-          arguments.empty?
+          false == exclusive &&
+          clean_session? == auto_delete &&
+          arguments == arguments
       end
 
       def subscribe(tf, qos)

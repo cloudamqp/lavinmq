@@ -286,7 +286,7 @@ module LavinMQ
           json.array do
             vhosts.each_value do |v|
               v.queues.each_value do |q|
-                next if q.exclusive?
+                next if q.as?(AMQP::Queue).try &.exclusive?
                 {
                   "name":        q.name,
                   "vhost":       v.name,

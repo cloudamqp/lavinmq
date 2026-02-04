@@ -35,7 +35,7 @@ module LavinMQ
             itr = Iterator(BindingDetails).chain({e.bindings_details.select { |db| db.destination == q }})
             if e.name.empty?
               binding_key = BindingKey.new(q.name)
-              default_binding = BindingDetails.new("", q.vhost.name, binding_key, q)
+              default_binding = BindingDetails.new("", vhost.name, binding_key, q)
               itr = {default_binding}.each.chain(itr)
             end
             page(context, itr)
