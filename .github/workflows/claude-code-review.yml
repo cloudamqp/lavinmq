@@ -5,6 +5,12 @@ on:
     paths: # Only run on specific file changes
       - "src/**/*.cr"
       - "static/**/*.js"
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to review'
+        required: true
+        type: string
 jobs:
   claude-review:
     runs-on: ubuntu-latest
@@ -16,10 +22,15 @@ jobs:
       actions: read # Required for Claude to read CI results on PRs
     timeout-minutes: 5
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.ref || github.ref }}
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
       - uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          prompt: "/review"
+          prompt: "/review ${{ inputs.pr_number || github.event.pull_request.number }}"
           claude_args: |
             --max-turns 5
             --allowedTools "Bash(gh pr list:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr comment:*)"
