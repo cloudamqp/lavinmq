@@ -62,7 +62,7 @@ module LavinMQ
 
       def remove_client(client)
         client_id = client.client_id
-        if (session = sessions[client_id]?)
+        if session = sessions[client_id]?
           if session.client.nil? || (session.client == client)
             session.client = nil
             sessions.delete(client_id) if session.clean_session?
