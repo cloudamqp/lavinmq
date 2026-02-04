@@ -661,10 +661,10 @@ module LavinMQ
         q.exclusive? && !@exclusive_queues.includes?(q)
       end
 
-      private def declare_queue(frame)
+      private def declare_queue(frame) # ameba:disable Metrics/CyclomaticComplexity
         if !frame.queue_name.empty? && !NameValidator.valid_entity_name?(frame.queue_name)
           send_precondition_failed(frame, "Queue name isn't valid")
-        elsif q = @vhost.queues[frame.queue_name]? # .as?(AMQP::Queue)
+        elsif q = @vhost.queues[frame.queue_name]?
           if q = q.as?(AMQP::Queue)
             redeclare_queue(frame, q)
           else
