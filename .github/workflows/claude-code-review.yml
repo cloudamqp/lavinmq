@@ -30,7 +30,7 @@ jobs:
       - uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          prompt: "/review ${{ inputs.pr_number || github.event.pull_request.number }}"
+          prompt: "/review ${{ inputs.pr_number || github.event.pull_request.number }} Do not check CI status."
           claude_args: |
-            --max-turns 10
+            --max-turns 15
             --allowedTools "Bash(gh pr list:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr comment:*)"
