@@ -1,10 +1,8 @@
 require "./destination"
 require "./retrier"
 
-
 module LavinMQ
   module Shovel
-
     struct HTTPDestinationParameters
       getter jitter : Float64
       getter backoff : Float64
@@ -67,7 +65,7 @@ module LavinMQ
                  "/"
                end
         success = push_and_maybe_retry(@ack_mode) do
-          @client.not_nil!.post(path, headers: headers, body: msg.body_io).success?
+          c.post(path, headers: headers, body: msg.body_io).success?
         end
         case @ack_mode
         in AckMode::OnConfirm, AckMode::OnPublish
@@ -86,7 +84,6 @@ module LavinMQ
         ) unless ack_mode == AckMode::NoAck
         push.call
       end
-
     end
   end
 end
