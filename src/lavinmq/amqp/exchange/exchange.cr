@@ -202,8 +202,8 @@ module LavinMQ
       abstract def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
 
       def publish(msg : Message, immediate : Bool,
-                  queues : Set(LavinMQ::Queue) = Set(LavinMQ::Queue).new,
-                  exchanges : Set(LavinMQ::Exchange) = Set(LavinMQ::Exchange).new) : Bool
+                  queues : Set(LavinMQ::AMQP::Queue) = Set(LavinMQ::AMQP::Queue).new,
+                  exchanges : Set(LavinMQ::AMQP::Exchange) = Set(LavinMQ::AMQP::Exchange).new) : Bool
         @publish_in_count.add(1, :relaxed)
         if d = @deduper
           if d.duplicate?(msg)
@@ -226,10 +226,10 @@ module LavinMQ
       end
 
       def route_msg(msg : Message) : Bool
-        route_msg(msg, false, Set(LavinMQ::Queue).new, Set(LavinMQ::Exchange).new)
+        route_msg(msg, false, Set(LavinMQ::AMQP::Queue).new, Set(LavinMQ::AMQP::Exchange).new)
       end
 
-      private def route_msg(msg : Message, immediate : Bool, queues : Set(LavinMQ::Queue), exchanges : Set(LavinMQ::Exchange)) : Bool
+      private def route_msg(msg : Message, immediate : Bool, queues : Set(LavinMQ::AMQP::Queue), exchanges : Set(LavinMQ::AMQP::Exchange)) : Bool
         headers = msg.properties.headers
         find_queues(msg.routing_key, headers, queues, exchanges)
         if queues.empty? || (immediate && !queues.any? &.immediate_delivery?)
@@ -250,18 +250,20 @@ module LavinMQ
       end
 
       def find_queues(routing_key : String, headers : AMQP::Table?,
-                      queues : Set(LavinMQ::Queue) = Set(LavinMQ::Queue).new,
-                      exchanges : Set(LavinMQ::Exchange) = Set(LavinMQ::Exchange).new) : Nil
+                      queues : Set(AMQP::Queue) = Set(AMQP::Queue).new,
+                      exchanges : Set(AMQP::Exchange) = Set(AMQP::Exchange).new) : Nil
         return unless exchanges.add? self
         each_destination(routing_key, headers) do |d|
           case d
-          in LavinMQ::Queue
+          in AMQP::Queue
             # Prevent routing to own internal delayed queue to avoid infinite loops
             unless delayed? && d == @delayed_queue
               queues.add(d)
             end
-          in LavinMQ::Exchange
+          in AMQP::Exchange
             d.find_queues(routing_key, headers, queues, exchanges)
+          in LavinMQ::Queue, LavinMQ::Exchange
+            next
           end
         end
 

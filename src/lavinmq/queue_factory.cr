@@ -8,7 +8,7 @@ module LavinMQ
   class QueueFactory
     def self.make(vhost : VHost, frame : AMQP::Frame)
       if mqtt_session?(frame)
-        MQTT::Session.new(vhost, frame.queue_name, frame.auto_delete, frame.arguments)
+        MQTT::Session.new(vhost, frame.queue_name, frame.auto_delete) # , frame.arguments)
       else
         if frame.durable
           make_durable(vhost, frame)
@@ -59,6 +59,27 @@ module LavinMQ
       if frame.arguments["x-queue-type"]?
         Log.info { "The queue type #{frame.arguments["x-queue-type"]} is not supported by LavinMQ and will be changed to the default queue type" }
       end
+    end
+
+    def self.to_frame(queue : AMQP::Queue) : AMQP::Frame::Queue::Declare
+      AMQP::Frame::Queue::Declare.new(
+        0_u16, 0_u16, queue.name, false,
+        queue.durable?, queue.exclusive?,
+        queue.auto_delete?, false, queue.arguments
+      )
+    end
+
+    def self.to_frame(session : MQTT::Session) : AMQP::Frame::Queue::Declare
+      AMQP::Frame::Queue::Declare.new(
+        0_u16, 0_u16, session.name, false,
+        session.durable?, false,
+        session.clean_session?, false,
+        session.arguments
+      )
+    end
+
+    def self.to_frame(queue : LavinMQ::Queue) : AMQP::Frame::Queue::Declare
+      raise "Unsupported queue type: #{queue.class}"
     end
   end
 end

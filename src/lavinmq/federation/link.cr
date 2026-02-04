@@ -195,7 +195,7 @@ module LavinMQ
 
         @consumer_available = Channel(Nil).new
 
-        def initialize(@upstream : Upstream, @federated_q : Queue, @upstream_q : String)
+        def initialize(@upstream : Upstream, @federated_q : AMQP::Queue, @upstream_q : String)
           super(@upstream)
           @metadata = @metadata.extend({link: @federated_q.name})
 

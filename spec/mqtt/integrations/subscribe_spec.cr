@@ -26,8 +26,7 @@ module MqttSpecs
             ack.should be_nil
 
             msg = read_packet(sub_io)
-            msg.should be_a(MQTT::Protocol::Publish)
-            msg = msg.as(MQTT::Protocol::Publish)
+            msg = msg.should be_a(MQTT::Protocol::Publish)
             msg.payload.should eq payload
             msg.packet_id.should be_nil # QoS=0
           end
@@ -100,8 +99,7 @@ module MqttSpecs
 
           topic_filters = mk_topic_filters({"a/b", 0})
           suback = subscribe(io, topic_filters: topic_filters)
-          suback.should be_a(MQTT::Protocol::SubAck)
-          suback = suback.as(MQTT::Protocol::SubAck)
+          suback = suback.should be_a(MQTT::Protocol::SubAck)
           # Verify that we subscribed as qos0
           suback.return_codes.first.should eq(MQTT::Protocol::SubAck::ReturnCode::QoS0)
 
@@ -115,8 +113,7 @@ module MqttSpecs
           # Now do a second subscribe with another qos and do the same verification
           topic_filters = mk_topic_filters({"a/b", 1})
           suback = subscribe(io, topic_filters: topic_filters)
-          suback.should be_a(MQTT::Protocol::SubAck)
-          suback = suback.as(MQTT::Protocol::SubAck)
+          suback = suback.should be_a(MQTT::Protocol::SubAck)
           # Verify that we subscribed as qos1
           suback.return_codes.should eq([MQTT::Protocol::SubAck::ReturnCode::QoS1])
 
@@ -128,6 +125,41 @@ module MqttSpecs
           packet.qos.should eq(1u8)
 
           io.should be_drained
+        end
+      end
+    end
+
+    # LavinMQ creates the session (queue) on subscribe. Make sure multiple
+    # subscribes won't ruin the session in any way. This is to make sure an
+    # unreported bug won't reoccur (unacked was clear).
+    it "should not ruin session when subcribing again" do
+      with_server do |server|
+        with_client_io(server) do |sub|
+          connect(sub, client_id: "sub", clean_session: false)
+          # QoS1 important so message must be acked
+          topic_filters = mk_topic_filters({"a/b", 1})
+          subscribe(sub, topic_filters: topic_filters)
+
+          # Now publish a message
+          with_client_io(server) do |pub|
+            connect(pub, client_id: "pub")
+            publish(pub, topic: "a/b", payload: "a".to_slice, qos: 1u8)
+            disconnect(pub)
+          end
+
+          # Before ack, do another subscribe
+          pkt = read_packet(sub).should be_a(MQTT::Protocol::Publish)
+          topic_filters = mk_topic_filters({"c/d", 1})
+          subscribe(sub, topic_filters: topic_filters)
+
+          # This should be succesful
+          puback(sub, packet_id: pkt.packet_id)
+
+          # Pingpong to "sync" with server. Since we're waiting for "pong"
+          # we know that the server will handle the puback.
+          pingpong(sub)
+
+          disconnect(sub)
         end
       end
     end

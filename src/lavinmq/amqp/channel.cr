@@ -5,7 +5,7 @@ require "./stream/stream_consumer"
 require "../error"
 require "../logger"
 require "./queue"
-require "../exchange"
+require "./exchange/exchange"
 require "../amqp"
 require "../sortable_json"
 require "./channel_reply_code"
@@ -111,17 +111,11 @@ module LavinMQ
           return
         end
         raise LavinMQ::Error::UnexpectedFrame.new(frame) if @next_publish_exchange_name
-        if ex = @client.vhost.exchanges[frame.exchange]?
-          if !ex.internal?
-            @next_publish_exchange_name = frame.exchange
-            @next_publish_routing_key = frame.routing_key
-            @next_publish_mandatory = frame.mandatory
-            @next_publish_immediate = frame.immediate
-          else
-            @client.send_access_refused(frame, "Exchange '#{frame.exchange}' in vhost '#{@client.vhost.name}' is internal")
-          end
-        else
-          @client.send_not_found(frame, "No exchange '#{frame.exchange}' in vhost '#{@client.vhost.name}'")
+        with_exchange(frame) do
+          @next_publish_exchange_name = frame.exchange
+          @next_publish_routing_key = frame.routing_key
+          @next_publish_mandatory = frame.mandatory
+          @next_publish_immediate = frame.immediate
         end
       end
 
@@ -367,33 +361,33 @@ module LavinMQ
           unless frame.no_wait
             send AMQP::Frame::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag)
           end
-        elsif q = @client.vhost.queues[frame.queue]?
-          if @client.queue_exclusive_to_other_client?(q)
-            @client.send_resource_locked(frame, "Exclusive queue")
-            return
-          end
-          if q.has_exclusive_consumer?
-            @client.send_access_refused(frame, "Queue '#{frame.queue}' in vhost '#{@client.vhost.name}' in exclusive use")
-            return
-          end
-          c = if q.is_a? Stream
-                AMQP::StreamConsumer.new(self, q, frame)
-              else
-                AMQP::Consumer.new(self, q, frame)
-              end
-          @consumers.push(c)
-          q.add_consumer(c)
-          unless frame.no_wait
-            send AMQP::Frame::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag)
-          end
         else
-          @client.send_not_found(frame, "Queue '#{frame.queue}' not declared")
+          with_queue(frame) do |q|
+            if @client.queue_exclusive_to_other_client?(q)
+              @client.send_resource_locked(frame, "Exclusive queue")
+              return
+            end
+            if q.has_exclusive_consumer?
+              @client.send_access_refused(frame, "Queue '#{frame.queue}' in vhost '#{@client.vhost.name}' in exclusive use")
+              return
+            end
+            c = if q.is_a? Stream
+                  AMQP::StreamConsumer.new(self, q, frame)
+                else
+                  AMQP::Consumer.new(self, q, frame)
+                end
+            @consumers.push(c)
+            q.add_consumer(c)
+            unless frame.no_wait
+              send AMQP::Frame::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag)
+            end
+          end
         end
         Fiber.yield # Notify :add_consumer observers
       end
 
       def basic_get(frame)
-        if q = @client.vhost.queues.fetch(frame.queue, nil)
+        with_queue(frame) do |q|
           if @client.queue_exclusive_to_other_client?(q)
             @client.send_resource_locked(frame, "Exclusive queue")
           elsif q.has_exclusive_consumer?
@@ -422,8 +416,6 @@ module LavinMQ
             end
             send AMQP::Frame::Basic::GetEmpty.new(frame.channel) unless ok
           end
-        else
-          @client.send_not_found(frame, "No queue '#{frame.queue}' in vhost '#{@client.vhost.name}'")
         end
       end
 
@@ -819,6 +811,34 @@ module LavinMQ
 
       def flush
         @client.flush
+      end
+
+      private def with_queue(frame : Frame, &)
+        if q = @client.vhost.queues[frame.queue]?
+          if q = q.as?(AMQP::Queue)
+            yield q
+          else
+            @client.send_not_found(frame, "Queue '#{frame.queue}' not an AMQP queue")
+          end
+        else
+          @client.send_not_found(frame, "Queue '#{frame.queue}' not declared")
+        end
+      end
+
+      private def with_exchange(frame : Frame, &)
+        if ex = @client.vhost.exchanges[frame.exchange]?
+          if ex = ex.as?(AMQP::Exchange)
+            if !ex.internal?
+              yield ex
+            else
+              @client.send_access_refused(frame, "Exchange '#{frame.exchange}' in vhost '#{@client.vhost.name}' is internal")
+            end
+          else
+            @client.send_access_refused(frame, "Exchange '#{frame.exchange}' in vhost '#{@client.vhost.name}' is not an AMQP exchange")
+          end
+        else
+          @client.send_not_found(frame, "No exchange '#{frame.exchange}' in vhost '#{@client.vhost.name}'")
+        end
       end
 
       class ClosedError < Error; end

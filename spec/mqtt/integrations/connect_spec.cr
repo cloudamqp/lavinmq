@@ -41,6 +41,29 @@ module MqttSpecs
           end
         end
 
+        it "no session present when reconnecting a non-clean session with a clean session after server restart [MQTT-3.1.2-6]" do
+          with_server(clean_dir: false) do |server|
+            with_client_io(server) do |io|
+              connect(io, clean_session: false)
+
+              # LavinMQ won't save sessions without subscriptions
+              subscribe(io,
+                topic_filters: [subtopic("a/topic", 0u8)],
+                packet_id: 1u16
+              )
+              disconnect(io)
+            end
+          end
+          with_server(clean_dir: true) do |server|
+            with_client_io(server) do |io|
+              connack = connect(io, clean_session: true)
+              connack.should be_a(MQTT::Protocol::Connack)
+              connack = connack.as(MQTT::Protocol::Connack)
+              connack.session_present?.should be_false
+            end
+          end
+        end
+
         it "no session present when reconnecting a clean session with a non-clean session [MQTT-3.1.2-6]" do
           with_server do |server|
             with_client_io(server) do |io|
@@ -89,6 +112,27 @@ module MqttSpecs
               )
               disconnect(io)
             end
+            with_client_io(server) do |io|
+              connack = connect(io, clean_session: false)
+              connack.should be_a(MQTT::Protocol::Connack)
+              connack = connack.as(MQTT::Protocol::Connack)
+              connack.session_present?.should be_true
+            end
+          end
+        end
+
+        it "session present when reconnecting a non-clean session after server restart [MQTT-3.1.2-4]" do
+          with_server(clean_dir: false) do |server|
+            with_client_io(server) do |io|
+              connect(io, clean_session: false)
+              subscribe(io,
+                topic_filters: [subtopic("a/topic", 0u8)],
+                packet_id: 1u16
+              )
+              disconnect(io)
+            end
+          end
+          with_server(clean_dir: true) do |server|
             with_client_io(server) do |io|
               connack = connect(io, clean_session: false)
               connack.should be_a(MQTT::Protocol::Connack)
@@ -314,7 +358,8 @@ module MqttSpecs
               disconnect(io)
             end
             sleep 100.milliseconds
-            server.vhosts["/"].queues["mqtt.client_id"].consumers.should be_empty
+            session = server.vhosts["/"].queues["mqtt.client_id"].should be_a(LavinMQ::MQTT::Session)
+            session.client.should be_nil
           end
         end
       end

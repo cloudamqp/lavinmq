@@ -8,7 +8,7 @@ def with_queue(&)
   with_amqp_server do |s|
     vhost = s.vhosts["/"]
     vhost.declare_queue("q", durable: true, auto_delete: false)
-    q = vhost.queues["q"]
+    q = vhost.queues["q"].should be_a(LavinMQ::AMQP::Queue)
     yield q
   ensure
     q.try &.delete
@@ -141,7 +141,7 @@ describe LavinMQ::AMQP::Queue do
           x.publish_confirm "test message", q.name
           q.get(no_ack: true).try(&.body_io.to_s).should eq("test message")
 
-          iq = s.vhosts["/"].queues[q.name]
+          iq = s.vhosts["/"].queues[q.name].as(LavinMQ::AMQP::Queue)
           iq.pause!
 
           x.publish_confirm "test message 2", q.name
@@ -155,12 +155,14 @@ describe LavinMQ::AMQP::Queue do
         s.vhosts.create("/")
         v = s.vhosts["/"].not_nil!
         v.declare_queue("q", true, false)
-        data_dir = s.vhosts["/"].queues["q"].as(LavinMQ::AMQP::Queue).@msg_store.@msg_dir
-        s.vhosts["/"].queues["q"].pause!
+        q = s.vhosts["/"].queues["q"].should be_a(LavinMQ::AMQP::Queue)
+        data_dir = q.@msg_store.@msg_dir
+        q.pause!
         File.exists?(File.join(data_dir, "paused")).should be_true
         s.restart
-        s.vhosts["/"].queues["q"].state.paused?.should be_true
-        s.vhosts["/"].queues["q"].resume!
+        q = s.vhosts["/"].queues["q"].should be_a(LavinMQ::AMQP::Queue)
+        q.state.paused?.should be_true
+        q.resume!
         File.exists?(File.join(data_dir, "paused")).should be_false
       end
     end
@@ -188,7 +190,7 @@ describe LavinMQ::AMQP::Queue do
           x.publish_confirm "test message", q.name
           q.get(no_ack: true).try(&.body_io.to_s).should eq("test message")
 
-          iq = s.vhosts["/"].queues[q.name]
+          iq = s.vhosts["/"].queues[q.name].should be_a(LavinMQ::AMQP::Queue)
           iq.pause!
 
           x.publish_confirm "test message 2", q.name
@@ -731,12 +733,11 @@ describe LavinMQ::AMQP::Queue do
     arguments.each do |args|
       it "should contain #{args.keys.join(", ")} when args is #{args}" do
         with_amqp_server do |s|
-          q = s.vhosts["/"].try do |vhost|
-            vhost.declare_queue("q", durable: true, auto_delete: false, arguments: AMQP::Client::Arguments.new(args))
-            vhost.queues["q"]
-          end
+          vhost = s.vhosts["/"].should_not be_nil
+          vhost.declare_queue("q", durable: true, auto_delete: false, arguments: AMQP::Client::Arguments.new(args))
+          q = vhost.queues["q"].should be_a(LavinMQ::AMQP::Queue)
 
-          effective_arguments = q.details_tuple[:effective_arguments]
+          effective_arguments = q.details_tuple[:effective_arguments].should_not be_nil
           args.keys.map(&.to_s).each do |key|
             effective_arguments.should contain key
           end
@@ -751,12 +752,11 @@ describe LavinMQ::AMQP::Queue do
     invalid_arguments.each do |args|
       it "should not contain #{args.keys.join(", ")} when args is #{args}" do
         with_amqp_server do |s|
-          q = s.vhosts["/"].try do |vhost|
-            vhost.declare_queue("q", durable: true, auto_delete: false, arguments: AMQP::Client::Arguments.new(args))
-            vhost.queues["q"]
-          end
+          vhost = s.vhosts["/"].should_not be_nil
+          vhost.declare_queue("q", durable: true, auto_delete: false, arguments: AMQP::Client::Arguments.new(args))
+          q = vhost.queues["q"].should be_a(LavinMQ::AMQP::Queue)
 
-          effective_arguments = q.details_tuple[:effective_arguments]
+          effective_arguments = q.details_tuple[:effective_arguments].should_not be_nil
           args.keys.map(&.to_s).each do |key|
             effective_arguments.should_not contain key
           end
@@ -787,14 +787,14 @@ describe LavinMQ::AMQP::Queue do
       expected = value[:expected]
       it "should be #{expected.join(", ")} with args #{args} and policy #{policy_args}" do
         with_amqp_server do |s|
-          q = s.vhosts["/"].try do |vhost|
-            vhost.declare_queue("q", durable: true, auto_delete: false, arguments: AMQP::Client::Arguments.new(args))
-            vhost.queues["q"]
-          end
+          vhost = s.vhosts["/"].should_not be_nil
+          vhost.declare_queue("q", durable: true, auto_delete: false, arguments: AMQP::Client::Arguments.new(args))
+          q = vhost.queues["q"]
+
           definition = JSON.parse(policy_args.to_json).as_h
           policy = LavinMQ::Policy.new("p1", "/", %r{"."}, LavinMQ::Policy::Target::All, definition, 1i8)
           q.apply_policy(policy, nil)
-          effective_arguments = q.details_tuple[:effective_arguments]
+          effective_arguments = q.details_tuple[:effective_arguments].should_not be_nil
           expected.each do |key|
             effective_arguments.should contain key
           end
@@ -816,19 +816,22 @@ describe LavinMQ::AMQP::Queue do
       it "should apply policy" do
         with_queue do |q|
           q.apply_policy(policy, nil)
-          q.details_tuple[:effective_policy_definition].keys.should contain "max-length"
-          q.details_tuple[:effective_policy_definition]["max-length"].should eq 100
+          effective_policy_definition = q.details_tuple[:effective_policy_definition].should_not be_nil
+          effective_policy_definition.keys.should contain "max-length"
+          effective_policy_definition["max-length"].should eq 100
         end
       end
 
       it "should replace policy" do
         with_queue do |q|
           q.apply_policy(policy, nil)
-          q.details_tuple[:effective_policy_definition].keys.should contain "max-length"
+          effective_policy_definition = q.details_tuple[:effective_policy_definition].should_not be_nil
+          effective_policy_definition.keys.should contain "max-length"
           q.apply_policy(policy2, nil)
-          q.details_tuple[:effective_policy_definition].keys.should_not contain "max-length"
-          q.details_tuple[:effective_policy_definition].keys.should contain "message-ttl"
-          q.details_tuple[:effective_policy_definition]["message-ttl"].should eq 1337
+          effective_policy_definition = q.details_tuple[:effective_policy_definition].should_not be_nil
+          effective_policy_definition.keys.should_not contain "max-length"
+          effective_policy_definition.keys.should contain "message-ttl"
+          effective_policy_definition["message-ttl"].should eq 1337
         end
       end
     end
@@ -838,9 +841,11 @@ describe LavinMQ::AMQP::Queue do
       it "should clear policy" do
         with_queue do |q|
           q.apply_policy(policy, nil)
-          q.details_tuple[:effective_policy_definition].keys.should contain "max-length"
+          effective_policy_definition = q.details_tuple[:effective_policy_definition].should_not be_nil
+          effective_policy_definition.keys.should contain "max-length"
           q.clear_policy
-          q.details_tuple[:effective_policy_definition].keys.should_not contain "max-length"
+          effective_policy_definition = q.details_tuple[:effective_policy_definition].should_not be_nil
+          effective_policy_definition.keys.should_not contain "max-length"
         end
       end
     end

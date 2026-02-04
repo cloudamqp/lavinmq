@@ -143,7 +143,7 @@ describe "Delayed Message Exchange" do
         # the message published with 6000ms should be published. Also, the new message
         # with 1500ms should be published
         sleep 2.seconds
-        queue = s.vhosts["/"].queues[q_name]
+        queue = s.vhosts["/"].queues[q_name].as(LavinMQ::AMQP::Queue)
         queue.message_count.should eq 3
         sleep 3.seconds # total 10, the 9000ms message should have been published
         queue.message_count.should eq 4

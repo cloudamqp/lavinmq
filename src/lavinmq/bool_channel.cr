@@ -48,7 +48,7 @@ class BoolChannel
   end
 
   def value
-    @value.get
+    @value.get(:acquire)
   end
 
   def set(value : Bool)

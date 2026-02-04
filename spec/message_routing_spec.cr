@@ -1,10 +1,10 @@
 require "./spec_helper"
 
 module MessageRoutingSpec
-  def self.matches(exchange : LavinMQ::Exchange, routing_key, headers = nil) : Set(LavinMQ::Destination)
+  def self.matches(exchange : LavinMQ::AMQP::Exchange, routing_key, headers = nil) : Set(LavinMQ::Destination)
     s = Set(LavinMQ::Destination).new
-    qs = Set(LavinMQ::Queue).new
-    es = Set(LavinMQ::Exchange).new
+    qs = Set(LavinMQ::AMQP::Queue).new
+    es = Set(LavinMQ::AMQP::Exchange).new
     exchange.find_queues(routing_key, headers, qs, es)
     qs.each { |q| s << q }
     s
@@ -56,57 +56,57 @@ module MessageRoutingSpec
       end
 
       it "matches prefixed star-wildcard" do
-        q1 = LavinMQ::QueueFactory.make(vhost, "q1")
+        q1 = LavinMQ::QueueFactory.make(vhost, "q1").should be_a(LavinMQ::AMQP::Queue)
         x.bind(q1, "*.test")
         matches(x, "rk2.test").should eq(Set{q1})
         x.unbind(q1, "*.test")
       end
 
       it "matches exact rk" do
-        q1 = LavinMQ::QueueFactory.make(vhost, "q1")
+        q1 = LavinMQ::QueueFactory.make(vhost, "q1").should be_a(LavinMQ::AMQP::Queue)
         x.bind(q1, "rk1")
         matches(x, "rk1", nil).should eq(Set{q1})
         x.unbind(q1, "rk1")
       end
 
       it "matches star-wildcards" do
-        q2 = LavinMQ::QueueFactory.make(vhost, "q2")
+        q2 = LavinMQ::QueueFactory.make(vhost, "q2").should be_a(LavinMQ::AMQP::Queue)
         x.bind(q2, "*")
         matches(x, "rk2").should eq(Set{q2})
         x.unbind(q2, "*")
       end
 
       it "matches star-wildcards but not too much" do
-        q22 = LavinMQ::QueueFactory.make(vhost, "q22")
+        q22 = LavinMQ::QueueFactory.make(vhost, "q22").should be_a(LavinMQ::AMQP::Queue)
         x.bind(q22, "*")
         matches(x, "rk2.a").should be_empty
         x.unbind(q22, "*")
       end
 
       it "should not match with too many star-wildcards" do
-        q3 = LavinMQ::QueueFactory.make(vhost, "q3")
+        q3 = LavinMQ::QueueFactory.make(vhost, "q3").should be_a(LavinMQ::AMQP::Queue)
         x.bind(q3, "a.*")
         matches(x, "b.c").should be_empty
         x.unbind(q3, "a.*")
       end
 
       it "should match star-wildcards in the middle" do
-        q4 = LavinMQ::QueueFactory.make(vhost, "q4")
+        q4 = LavinMQ::QueueFactory.make(vhost, "q4").should be_a(LavinMQ::AMQP::Queue)
         x.bind(q4, "c.*.d")
         matches(x, "c.a.d").should eq(Set{q4})
         x.unbind(q4, "c.*.d")
       end
 
       it "should match catch-all" do
-        q5 = LavinMQ::QueueFactory.make(vhost, "q5")
+        q5 = LavinMQ::QueueFactory.make(vhost, "q5").should be_a(LavinMQ::AMQP::Queue)
         x.bind(q5, "d.#")
         matches(x, "d.a.d").should eq(Set{q5})
         x.unbind(q5, "d.#")
       end
 
       it "should match multiple bindings" do
-        q6 = LavinMQ::QueueFactory.make(vhost, "q6")
-        q7 = LavinMQ::QueueFactory.make(vhost, "q7")
+        q6 = LavinMQ::QueueFactory.make(vhost, "q6").should be_a(LavinMQ::AMQP::Queue)
+        q7 = LavinMQ::QueueFactory.make(vhost, "q7").should be_a(LavinMQ::AMQP::Queue)
         ex = LavinMQ::AMQP::TopicExchange.new(vhost, "t55", false, false, true)
         ex.bind(q6, "rk")
         ex.bind(q7, "rk")
@@ -116,7 +116,7 @@ module MessageRoutingSpec
       end
 
       it "should not get index out of bound when matching routing keys" do
-        q8 = LavinMQ::QueueFactory.make(vhost, "q63")
+        q8 = LavinMQ::QueueFactory.make(vhost, "q63").should be_a(LavinMQ::AMQP::Queue)
         ex = LavinMQ::AMQP::TopicExchange.new(vhost, "t63", false, false, true)
         ex.bind(q8, "rk63.rk63")
         matches(ex, "rk63").should be_empty
@@ -124,7 +124,7 @@ module MessageRoutingSpec
       end
 
       it "# should consider what's comes after" do
-        q9 = LavinMQ::QueueFactory.make(vhost, "q9")
+        q9 = LavinMQ::QueueFactory.make(vhost, "q9").should be_a(LavinMQ::AMQP::Queue)
         x.bind(q9, "#.a")
         matches(x, "a.a.b").should be_empty
         matches(x, "a.a.a").should eq(Set{q9})
@@ -132,21 +132,21 @@ module MessageRoutingSpec
       end
 
       it "# should consider what's comes after" do
-        q9 = LavinMQ::QueueFactory.make(vhost, "q9")
+        q9 = LavinMQ::QueueFactory.make(vhost, "q9").should be_a(LavinMQ::AMQP::Queue)
         x.bind(q9, "#.a.a.a")
         matches(x, "a.a.b.a.a").should be_empty
         matches(x, "a.a.a.a").should eq(Set{q9})
         x.unbind(q9, "#.a.a.a")
       end
       it "# should consider what's comes after" do
-        q9 = LavinMQ::QueueFactory.make(vhost, "q9")
+        q9 = LavinMQ::QueueFactory.make(vhost, "q9").should be_a(LavinMQ::AMQP::Queue)
         x.bind(q9, "#.a.b.c")
         matches(x, "a.a.a.a.b.c").should eq(Set{q9})
         x.unbind(q9, "#.a.b.c")
       end
 
       it "# can be followed by *" do
-        q0 = LavinMQ::QueueFactory.make(vhost, "q0")
+        q0 = LavinMQ::QueueFactory.make(vhost, "q0").should be_a(LavinMQ::AMQP::Queue)
         x.bind(q0, "#.*.d")
         matches(x, "a.d.a").should be_empty
         matches(x, "a.a.d").should eq(Set{q0})
@@ -154,14 +154,14 @@ module MessageRoutingSpec
       end
 
       it "can handle multiple #" do
-        q11 = LavinMQ::QueueFactory.make(vhost, "q11")
+        q11 = LavinMQ::QueueFactory.make(vhost, "q11").should be_a(LavinMQ::AMQP::Queue)
         x.bind(q11, "#.a.#")
         matches(x, "b.b.a.b.b").should eq(Set{q11})
         x.unbind(q11, "#.a.#")
       end
 
       it "# should match zero segments" do
-        q = LavinMQ::QueueFactory.make(vhost, "q_zero_segments")
+        q = LavinMQ::QueueFactory.make(vhost, "q_zero_segments").should be_a(LavinMQ::AMQP::Queue)
         x.bind(q, "a.*.c.#")
         matches(x, "a.b.c").should eq(Set{q})
         matches(x, "a.b.c.d").should eq(Set{q})
@@ -170,28 +170,28 @@ module MessageRoutingSpec
       end
 
       it "should match double star-wildcards" do
-        q12 = LavinMQ::QueueFactory.make(vhost, "q12")
+        q12 = LavinMQ::QueueFactory.make(vhost, "q12").should be_a(LavinMQ::AMQP::Queue)
         x.bind(q12, "c.*.*")
         matches(x, "c.a.d").should eq(Set{q12})
         x.unbind(q12, "c.*.*")
       end
 
       it "should not match single star on multiple segments" do
-        q = LavinMQ::QueueFactory.make(vhost, "q123")
+        q = LavinMQ::QueueFactory.make(vhost, "q123").should be_a(LavinMQ::AMQP::Queue)
         x.bind(q, "c.*")
         matches(x, "c.a.d").should be_empty
         x.unbind(q, "c.*")
       end
 
       it "should match triple star-wildcards" do
-        q13 = LavinMQ::QueueFactory.make(vhost, "q13")
+        q13 = LavinMQ::QueueFactory.make(vhost, "q13").should be_a(LavinMQ::AMQP::Queue)
         x.bind(q13, "c.*.*.*")
         matches(x, "c.a.d.e").should eq(Set{q13})
         x.unbind(q13, "c.*.*.*")
       end
 
       it "can differentiate a.b.c from a.b" do
-        q = LavinMQ::QueueFactory.make(vhost, "")
+        q = LavinMQ::QueueFactory.make(vhost, "").should be_a(LavinMQ::AMQP::Queue)
         x.bind(q, "a.b.c")
         matches(x, "a.b.c").should eq(Set{q})
         matches(x, "a.b").should be_empty
@@ -250,7 +250,7 @@ module MessageRoutingSpec
 
       describe "unbind" do
         it "shouldn't care about argument order" do
-          q = LavinMQ::QueueFactory.make(vhost, "q")
+          q = LavinMQ::QueueFactory.make(vhost, "q").should be_a(LavinMQ::AMQP::Queue)
           args1 = {"foo": "bar", "f00": "baz"}
           args2 = {"f00": "baz", "foo": "bar"}
           x.bind(q, "", LavinMQ::AMQP::Table.new args1)
@@ -258,7 +258,7 @@ module MessageRoutingSpec
         end
 
         it "shouldn't care about argument order with many bindings" do
-          q = LavinMQ::QueueFactory.make(vhost, "q")
+          q = LavinMQ::QueueFactory.make(vhost, "q").should be_a(LavinMQ::AMQP::Queue)
           args1 = {"foo": "bar", "f00": "baz"}
           args2 = {"f00": "baz", "foo": "bar"}
           x.bind(q, "", LavinMQ::AMQP::Table.new args1)
@@ -271,13 +271,13 @@ module MessageRoutingSpec
 
       describe "match all" do
         it "should match if same args" do
-          q6 = LavinMQ::QueueFactory.make(vhost, "q6")
+          q6 = LavinMQ::QueueFactory.make(vhost, "q6").should be_a(LavinMQ::AMQP::Queue)
           x.bind(q6, "", hdrs_all)
           matches(x, "", hdrs_all).should eq(Set{q6})
         end
 
         it "should not match if not all args are the same" do
-          q7 = LavinMQ::QueueFactory.make(vhost, "q7")
+          q7 = LavinMQ::QueueFactory.make(vhost, "q7").should be_a(LavinMQ::AMQP::Queue)
           x.bind(q7, "", hdrs_all)
           msg_hdrs = hdrs_all.clone
           msg_hdrs.delete "x-match"
@@ -286,7 +286,7 @@ module MessageRoutingSpec
         end
 
         it "should not match if args are missing" do
-          q = LavinMQ::QueueFactory.make(vhost, "q")
+          q = LavinMQ::QueueFactory.make(vhost, "q").should be_a(LavinMQ::AMQP::Queue)
           bind_hdrs = hdrs_all.clone.merge!({
             "missing": "header",
           })
@@ -297,7 +297,7 @@ module MessageRoutingSpec
 
       describe "match any" do
         it "should match if any args are the same" do
-          q8 = LavinMQ::QueueFactory.make(vhost, "q8")
+          q8 = LavinMQ::QueueFactory.make(vhost, "q8").should be_a(LavinMQ::AMQP::Queue)
           x.bind(q8, "", hdrs_any)
           msg_hdrs = hdrs_any.clone
           msg_hdrs.delete "x-match"
@@ -306,7 +306,7 @@ module MessageRoutingSpec
         end
 
         it "should not match if no args are the same" do
-          q9 = LavinMQ::QueueFactory.make(vhost, "q9")
+          q9 = LavinMQ::QueueFactory.make(vhost, "q9").should be_a(LavinMQ::AMQP::Queue)
           x.bind(q9, "", hdrs_any)
           msg_hdrs = hdrs_any.clone
           msg_hdrs.delete "x-match"
@@ -316,7 +316,7 @@ module MessageRoutingSpec
         end
 
         it "should match nestled amq-protocol tables" do
-          q10 = LavinMQ::QueueFactory.make(vhost, "q10")
+          q10 = LavinMQ::QueueFactory.make(vhost, "q10").should be_a(LavinMQ::AMQP::Queue)
           bind_hdrs = LavinMQ::AMQP::Table.new({
             "x-match" => "any",
             "tbl"     => LavinMQ::AMQP::Table.new({"foo": "bar"}),
@@ -329,7 +329,7 @@ module MessageRoutingSpec
       end
 
       it "should handle multiple bindings" do
-        q10 = LavinMQ::QueueFactory.make(vhost, "q10")
+        q10 = LavinMQ::QueueFactory.make(vhost, "q10").should be_a(LavinMQ::AMQP::Queue)
         hdrs1 = LavinMQ::AMQP::Table.new({"x-match" => "any", "org" => "84codes", "user" => "test"})
         hdrs2 = LavinMQ::AMQP::Table.new({"x-match" => "all", "org" => "google", "user" => "test"})
 
@@ -342,7 +342,7 @@ module MessageRoutingSpec
       end
 
       it "should handle all Field types" do
-        q11 = LavinMQ::QueueFactory.make(vhost, "q11")
+        q11 = LavinMQ::QueueFactory.make(vhost, "q11").should be_a(LavinMQ::AMQP::Queue)
         hsh = {"k" => "v"} of String => LavinMQ::AMQP::Field
         arrf = [1] of LavinMQ::AMQP::Field
         arru = [1_u8] of LavinMQ::AMQP::Field
@@ -358,7 +358,7 @@ module MessageRoutingSpec
       end
 
       it "should handle unbind" do
-        q12 = LavinMQ::QueueFactory.make(vhost, "q12")
+        q12 = LavinMQ::QueueFactory.make(vhost, "q12").should be_a(LavinMQ::AMQP::Queue)
         hdrs1 = LavinMQ::AMQP::Table.new({
           "x-match" => "any", "org" => "84codes", "user" => "test",
         })
@@ -372,7 +372,7 @@ module MessageRoutingSpec
 
       describe "match empty" do
         it "should match if both args and headers are empty" do
-          q13 = LavinMQ::QueueFactory.make(vhost, "q13")
+          q13 = LavinMQ::QueueFactory.make(vhost, "q13").should be_a(LavinMQ::AMQP::Queue)
           x.bind(q13, "", nil)
           matches(x, "", nil).size.should eq 1
         end
@@ -384,8 +384,8 @@ module MessageRoutingSpec
     it "should handle CC in header" do
       with_amqp_server do |s|
         vhost = s.vhosts.create("x")
-        q1 = LavinMQ::QueueFactory.make(vhost, "q1")
-        q2 = LavinMQ::QueueFactory.make(vhost, "q2")
+        q1 = LavinMQ::QueueFactory.make(vhost, "q1").should be_a(LavinMQ::AMQP::Queue)
+        q2 = LavinMQ::QueueFactory.make(vhost, "q2").should be_a(LavinMQ::AMQP::Queue)
         x = LavinMQ::AMQP::DirectExchange.new(vhost, "")
         x.bind(q1, "q1", LavinMQ::AMQP::Table.new)
         x.bind(q2, "q2", LavinMQ::AMQP::Table.new)
@@ -397,15 +397,15 @@ module MessageRoutingSpec
     it "should raise if CC header isn't array" do
       with_amqp_server do |s|
         vhost = s.vhosts.create("x")
-        q1 = LavinMQ::QueueFactory.make(vhost, "q1")
-        q2 = LavinMQ::QueueFactory.make(vhost, "q2")
+        q1 = LavinMQ::QueueFactory.make(vhost, "q1").should be_a(LavinMQ::AMQP::Queue)
+        q2 = LavinMQ::QueueFactory.make(vhost, "q2").should be_a(LavinMQ::AMQP::Queue)
         x = LavinMQ::AMQP::DirectExchange.new(vhost, "")
         x.bind(q1, "q1", LavinMQ::AMQP::Table.new)
         x.bind(q2, "q2", LavinMQ::AMQP::Table.new)
         headers = LavinMQ::AMQP::Table.new
         headers["CC"] = "q2"
         expect_raises(LavinMQ::Error::PreconditionFailed) do
-          x.find_queues("q1", headers, Set(LavinMQ::Queue).new)
+          x.find_queues("q1", headers, Set(LavinMQ::AMQP::Queue).new)
         end
       end
     end
@@ -413,8 +413,8 @@ module MessageRoutingSpec
     it "should handle BCC in header" do
       with_amqp_server do |s|
         vhost = s.vhosts.create("x")
-        q1 = LavinMQ::QueueFactory.make(vhost, "q1")
-        q2 = LavinMQ::QueueFactory.make(vhost, "q2")
+        q1 = LavinMQ::QueueFactory.make(vhost, "q1").should be_a(LavinMQ::AMQP::Queue)
+        q2 = LavinMQ::QueueFactory.make(vhost, "q2").should be_a(LavinMQ::AMQP::Queue)
         x = LavinMQ::AMQP::DirectExchange.new(vhost, "")
         x.bind(q1, "q1", LavinMQ::AMQP::Table.new)
         x.bind(q2, "q2", LavinMQ::AMQP::Table.new)
@@ -427,15 +427,15 @@ module MessageRoutingSpec
     it "should raise if BCC header isn't array" do
       with_amqp_server do |s|
         vhost = s.vhosts.create("x")
-        q1 = LavinMQ::QueueFactory.make(vhost, "q1")
-        q2 = LavinMQ::QueueFactory.make(vhost, "q2")
+        q1 = LavinMQ::QueueFactory.make(vhost, "q1").should be_a(LavinMQ::AMQP::Queue)
+        q2 = LavinMQ::QueueFactory.make(vhost, "q2").should be_a(LavinMQ::AMQP::Queue)
         x = LavinMQ::AMQP::DirectExchange.new(vhost, "")
         x.bind(q1, "q1", LavinMQ::AMQP::Table.new)
         x.bind(q2, "q2", LavinMQ::AMQP::Table.new)
         headers = LavinMQ::AMQP::Table.new
         headers["BCC"] = "q2"
         expect_raises(LavinMQ::Error::PreconditionFailed) do
-          x.find_queues("q1", headers, Set(LavinMQ::Queue).new)
+          x.find_queues("q1", headers, Set(LavinMQ::AMQP::Queue).new)
         end
       end
     end
@@ -443,9 +443,9 @@ module MessageRoutingSpec
     it "should read both CC and BCC" do
       with_amqp_server do |s|
         vhost = s.vhosts.create("x")
-        q1 = LavinMQ::QueueFactory.make(vhost, "q1")
-        q2 = LavinMQ::QueueFactory.make(vhost, "q2")
-        q3 = LavinMQ::QueueFactory.make(vhost, "q3")
+        q1 = LavinMQ::QueueFactory.make(vhost, "q1").should be_a(LavinMQ::AMQP::Queue)
+        q2 = LavinMQ::QueueFactory.make(vhost, "q2").should be_a(LavinMQ::AMQP::Queue)
+        q3 = LavinMQ::QueueFactory.make(vhost, "q3").should be_a(LavinMQ::AMQP::Queue)
         x = LavinMQ::AMQP::DirectExchange.new(vhost, "")
         x.bind(q1, "q1", LavinMQ::AMQP::Table.new)
         x.bind(q2, "q2", LavinMQ::AMQP::Table.new)
@@ -462,8 +462,9 @@ module MessageRoutingSpec
     it "should only allow Session to bind" do
       with_amqp_server do |s|
         vhost = s.vhosts.create("x")
-        q1 = LavinMQ::QueueFactory.make(vhost, "q1")
+        q1 = LavinMQ::QueueFactory.make(vhost, "q1").should be_a(LavinMQ::AMQP::Queue)
         s1 = LavinMQ::QueueFactory.make(vhost, "q1", arguments: LavinMQ::AMQP::Table.new({"x-queue-type": "mqtt"}))
+        s1 = s1.should be_a(LavinMQ::MQTT::Session)
         index = LavinMQ::MQTT::TopicTree(String).new
         store = LavinMQ::MQTT::RetainStore.new("tmp/retain_store", nil, index)
         x = LavinMQ::MQTT::Exchange.new(vhost, "", store)

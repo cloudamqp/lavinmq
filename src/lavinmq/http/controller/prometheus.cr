@@ -497,7 +497,7 @@ module LavinMQ
 
       private def detailed_queue_consumer_count(vhosts, writer)
         vhosts.each do |vhost|
-          vhost.queues.each_value do |q|
+          vhost.queues.each_value.select(LavinMQ::AMQP::Queue).each do |q|
             labels = {queue: q.name, vhost: vhost.name}
             writer.write({name:   "detailed_queue_consumers",
                           value:  q.consumers.size,

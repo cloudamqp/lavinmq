@@ -22,7 +22,7 @@ module LavinMQ
       @unacked = Atomic(UInt32).new(0_u32)
       getter has_capacity : BoolChannel
 
-      def initialize(@channel : AMQP::Channel, @queue : Queue, frame : AMQP::Frame::Basic::Consume)
+      def initialize(@channel : AMQP::Channel, @queue : AMQP::Queue, frame : AMQP::Frame::Basic::Consume)
         @tag = frame.consumer_tag
         @no_ack = frame.no_ack
         @exclusive = frame.exclusive
