@@ -130,7 +130,8 @@ module MqttSpecs
     end
 
     # LavinMQ creates the session (queue) on subscribe. Make sure multiple
-    # subscribes won't ruing the session in anyway
+    # subscribes won't ruin the session in any way. This is to make sure an
+    # unreported bug won't reoccur (unacked was clear).
     it "should not ruin session when subcribing again" do
       with_server do |server|
         with_client_io(server) do |sub|
