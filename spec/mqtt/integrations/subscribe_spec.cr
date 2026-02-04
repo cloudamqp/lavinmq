@@ -26,8 +26,7 @@ module MqttSpecs
             ack.should be_nil
 
             msg = read_packet(sub_io)
-            msg.should be_a(MQTT::Protocol::Publish)
-            msg = msg.as(MQTT::Protocol::Publish)
+            msg = msg.should be_a(MQTT::Protocol::Publish)
             msg.payload.should eq payload
             msg.packet_id.should be_nil # QoS=0
           end
@@ -100,8 +99,7 @@ module MqttSpecs
 
           topic_filters = mk_topic_filters({"a/b", 0})
           suback = subscribe(io, topic_filters: topic_filters)
-          suback.should be_a(MQTT::Protocol::SubAck)
-          suback = suback.as(MQTT::Protocol::SubAck)
+          suback = suback.should be_a(MQTT::Protocol::SubAck)
           # Verify that we subscribed as qos0
           suback.return_codes.first.should eq(MQTT::Protocol::SubAck::ReturnCode::QoS0)
 
@@ -115,8 +113,7 @@ module MqttSpecs
           # Now do a second subscribe with another qos and do the same verification
           topic_filters = mk_topic_filters({"a/b", 1})
           suback = subscribe(io, topic_filters: topic_filters)
-          suback.should be_a(MQTT::Protocol::SubAck)
-          suback = suback.as(MQTT::Protocol::SubAck)
+          suback = suback.should be_a(MQTT::Protocol::SubAck)
           # Verify that we subscribed as qos1
           suback.return_codes.should eq([MQTT::Protocol::SubAck::ReturnCode::QoS1])
 
