@@ -74,7 +74,7 @@ module LavinMQ
         0_u16, 0_u16, queue.name, false,
         queue.durable?, false,
         queue.auto_delete?, false,
-        ::AMQ::Protocol::Table.new({"x-queue-type": "mqtt"})
+        queue.arguments
       )
     end
 
