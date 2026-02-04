@@ -627,7 +627,7 @@ module LavinMQ
           send_precondition_failed(frame, "Queue name isn't valid")
           return
         end
-        with_queue(frame) do |q|
+        with_queue?(frame) do |q|
           if q.nil?
             send AMQP::Frame::Queue::DeleteOk.new(frame.channel, 0_u32) unless frame.no_wait
           elsif queue_exclusive_to_other_client?(q)
@@ -647,7 +647,7 @@ module LavinMQ
         end
       end
 
-      def with_queue(frame, &)
+      def with_queue?(frame, &)
         if q = @vhost.queues[frame.queue_name]?
           if q.nil? || (q = q.as?(AMQP::Queue))
             yield q
@@ -664,8 +664,12 @@ module LavinMQ
       private def declare_queue(frame)
         if !frame.queue_name.empty? && !NameValidator.valid_entity_name?(frame.queue_name)
           send_precondition_failed(frame, "Queue name isn't valid")
-        elsif q = @vhost.queues.fetch(frame.queue_name, nil).try &.as(AMQP::Queue)
-          redeclare_queue(frame, q)
+        elsif q = @vhost.queues[frame.queue_name]? # .as?(AMQP::Queue)
+          if q = q.as?(AMQP::Queue)
+            redeclare_queue(frame, q)
+          else
+            send_precondition_failed(frame, "Queue can't be redeclared, it's not an AMQP queue")
+          end
         elsif {"amq.rabbitmq.reply-to", "amq.direct.reply-to"}.includes? frame.queue_name
           unless frame.no_wait
             send AMQP::Frame::Queue::DeclareOk.new(frame.channel, frame.queue_name, 0_u32, 0_u32)
@@ -745,23 +749,24 @@ module LavinMQ
         end
         return unless valid_q_bind_unbind?(frame)
 
-        q = @vhost.queues[frame.queue_name]?
-        if q.nil?
-          send_not_found frame, "Queue '#{frame.queue_name}' not found"
-        elsif !@vhost.exchanges.has_key? frame.exchange_name
-          send_not_found frame, "Exchange '#{frame.exchange_name}' not found"
-        elsif !@user.can_read?(@vhost.name, frame.exchange_name)
-          send_access_refused(frame, "User '#{@user.name}' doesn't have read permissions to exchange '#{frame.exchange_name}'")
-        elsif !@user.can_write?(@vhost.name, frame.queue_name)
-          send_access_refused(frame, "User '#{@user.name}' doesn't have write permissions to queue '#{frame.queue_name}'")
-        elsif queue_exclusive_to_other_client?(q)
-          send_resource_locked(frame, "Exclusive queue")
-        else
-          begin
-            @vhost.apply(frame)
-            send AMQP::Frame::Queue::BindOk.new(frame.channel) unless frame.no_wait
-          rescue ex : LavinMQ::Exchange::AccessRefused
-            send_access_refused(frame, ex.message)
+        with_queue?(frame) do |q|
+          if q.nil?
+            send_not_found frame, "Queue '#{frame.queue_name}' not found"
+          elsif !@vhost.exchanges.has_key? frame.exchange_name
+            send_not_found frame, "Exchange '#{frame.exchange_name}' not found"
+          elsif !@user.can_read?(@vhost.name, frame.exchange_name)
+            send_access_refused(frame, "User '#{@user.name}' doesn't have read permissions to exchange '#{frame.exchange_name}'")
+          elsif !@user.can_write?(@vhost.name, frame.queue_name)
+            send_access_refused(frame, "User '#{@user.name}' doesn't have write permissions to queue '#{frame.queue_name}'")
+          elsif queue_exclusive_to_other_client?(q)
+            send_resource_locked(frame, "Exclusive queue")
+          else
+            begin
+              @vhost.apply(frame)
+              send AMQP::Frame::Queue::BindOk.new(frame.channel) unless frame.no_wait
+            rescue ex : LavinMQ::Exchange::AccessRefused
+              send_access_refused(frame, ex.message)
+            end
           end
         end
       end
@@ -772,25 +777,26 @@ module LavinMQ
         end
         return unless valid_q_bind_unbind?(frame)
 
-        q = @vhost.queues[frame.queue_name]?
-        if q.nil?
-          # should return not_found according to spec but we make it idempotent
-          send AMQP::Frame::Queue::UnbindOk.new(frame.channel)
-        elsif !@vhost.exchanges.has_key? frame.exchange_name
-          # should return not_found according to spec but we make it idempotent
-          send AMQP::Frame::Queue::UnbindOk.new(frame.channel)
-        elsif !@user.can_read?(@vhost.name, frame.exchange_name)
-          send_access_refused(frame, "User doesn't have read permissions to exchange '#{frame.exchange_name}'")
-        elsif !@user.can_write?(@vhost.name, frame.queue_name)
-          send_access_refused(frame, "User doesn't have write permissions to queue '#{frame.queue_name}'")
-        elsif queue_exclusive_to_other_client?(q)
-          send_resource_locked(frame, "Exclusive queue")
-        else
-          begin
-            @vhost.apply(frame)
+        with_queue?(frame) do |q|
+          if q.nil?
+            # should return not_found according to spec but we make it idempotent
             send AMQP::Frame::Queue::UnbindOk.new(frame.channel)
-          rescue ex : LavinMQ::Exchange::AccessRefused
-            send_access_refused(frame, ex.message)
+          elsif !@vhost.exchanges.has_key? frame.exchange_name
+            # should return not_found according to spec but we make it idempotent
+            send AMQP::Frame::Queue::UnbindOk.new(frame.channel)
+          elsif !@user.can_read?(@vhost.name, frame.exchange_name)
+            send_access_refused(frame, "User doesn't have read permissions to exchange '#{frame.exchange_name}'")
+          elsif !@user.can_write?(@vhost.name, frame.queue_name)
+            send_access_refused(frame, "User doesn't have write permissions to queue '#{frame.queue_name}'")
+          elsif queue_exclusive_to_other_client?(q)
+            send_resource_locked(frame, "Exclusive queue")
+          else
+            begin
+              @vhost.apply(frame)
+              send AMQP::Frame::Queue::UnbindOk.new(frame.channel)
+            rescue ex : LavinMQ::Exchange::AccessRefused
+              send_access_refused(frame, ex.message)
+            end
           end
         end
       end
@@ -858,7 +864,7 @@ module LavinMQ
           send_precondition_failed(frame, "Queue name isn't valid")
           return
         end
-        with_queue(frame) do |q|
+        with_queue?(frame) do |q|
           if q.nil?
             send_not_found(frame, "Queue '#{frame.queue_name}' not found")
             return
