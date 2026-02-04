@@ -262,7 +262,8 @@ module LavinMQ
           store_definition(f) if !loading && f.durable && !f.exclusive
           event_tick(EventType::QueueDeclared) unless loading
         when AMQP::Frame::Queue::Delete
-          if q = @queues.delete(f.queue_name).as?(AMQP::Queue)
+          if q = @queues[f.queue_name]?.as?(AMQP::Queue)
+            @queues.delete(q.name)
             @exchanges.each_value do |ex|
               ex.bindings_details.each do |binding|
                 next unless binding.destination == q
@@ -278,25 +279,27 @@ module LavinMQ
         when AMQP::Frame::Queue::Bind
           x = @exchanges[f.exchange_name]? || return false
           q = @queues[f.queue_name]? || return false
-          case q
-          in AMQP::Queue
+          case {q, x}
+          when {AMQP::Queue, AMQP::Exchange}
             return false unless x.bind(q, f.routing_key, f.arguments)
             store_definition(f) if !loading && x.durable? && q.durable? && !q.exclusive?
-          in MQTT::Session
-            return false unless x.as(MQTT::Exchange).bind(q, f.routing_key, f.arguments)
-          in LavinMQ::Queue
+          when {MQTT::Session, MQTT::Exchange}
+            return false unless x.bind(q, f.routing_key, f.arguments)
+            store_definition(f) if !loading && q.durable?
+          else
             return false
           end
         when AMQP::Frame::Queue::Unbind
           x = @exchanges[f.exchange_name]? || return false
           q = @queues[f.queue_name]? || return false
-          case q
-          in AMQP::Queue
+          case {q, x}
+          when {AMQP::Queue, AMQP::Exchange}
             return false unless x.unbind(q, f.routing_key, f.arguments)
             store_definition(f, dirty: true) if !loading && x.durable? && q.durable? && !q.exclusive?
-          in MQTT::Session
-            return false unless x.as(MQTT::Exchange).unbind(q, f.routing_key, f.arguments)
-          in LavinMQ::Queue
+          when {MQTT::Session, MQTT::Exchange}
+            return false unless x.unbind(q, f.routing_key, f.arguments)
+            store_definition(f, dirty: true) if !loading && q.durable?
+          else
             return false
           end
         else raise "Cannot apply frame #{f.class} in vhost #{@name}"
