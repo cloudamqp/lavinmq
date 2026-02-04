@@ -149,6 +149,8 @@ module LavinMQ
 
       def client=(client : MQTT::Client?)
         return if closed?
+        # We're done if we hold the same client already
+        return if !client.nil? && (@client == client)
         @last_get_time = RoughTime.instant
 
         unless clean_session?
@@ -160,13 +162,13 @@ module LavinMQ
         end
         @unacked.clear
 
+        @log.debug { "client set to '#{client.try &.name}'" }
+
         if @client = client
           @has_client.set(true)
         else
           @has_client.set(false)
         end
-
-        @log.debug { "client set to '#{client.try &.name}'" }
       end
 
       def durable?

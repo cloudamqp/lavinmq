@@ -23,7 +23,9 @@ module LavinMQ
           @vhost.declare_queue("mqtt.#{client.client_id}", !client.@clean_session, client.@clean_session, AMQP::Table.new({"x-queue-type": "mqtt"}))
           self[client.client_id]
         end
-        session.client = client
+        if session.client != client
+          session.client = client
+        end
         session
       end
 

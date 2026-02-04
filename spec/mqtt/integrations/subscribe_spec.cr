@@ -128,5 +128,39 @@ module MqttSpecs
         end
       end
     end
+
+    # LavinMQ creates the session (queue) on subscribe. Make sure multiple
+    # subscribes won't ruing the session in anyway
+    it "should not ruin session when subcribing again" do
+      with_server do |server|
+        with_client_io(server) do |io|
+          connect(io, client_id: "sub", clean_session: false)
+          # QoS1 important so message must be acked
+          topic_filters = mk_topic_filters({"a/b", 1})
+          subscribe(io, topic_filters: topic_filters)
+
+          # Now publish a message
+          with_client_io(server) do |io|
+            connect(io, client_id: "pub")
+            publish(io, topic: "a/b", payload: "a".to_slice, qos: 1u8)
+            disconnect(io)
+          end
+
+          # Before ack, do another subscribe
+          pkt = read_packet(io).should be_a(MQTT::Protocol::Publish)
+          topic_filters = mk_topic_filters({"c/d", 1})
+          resp = subscribe(io, topic_filters: topic_filters)
+
+          # This should be succesful
+          puback(io, packet_id: pkt.packet_id)
+
+          # Pingpong to "sync" with server. Since we're waiting for "pong"
+          # we know that the server will handle the puback.
+          pingpong(io)
+
+          disconnect(io)
+        end
+      end
+    end
   end
 end
