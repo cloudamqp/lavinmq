@@ -94,12 +94,6 @@ module LavinMQ
         end
       end
 
-      private def add_consumer(consumer : Client::Channel::Consumer)
-      end
-
-      private def rm_consumer(consumer : Client::Channel::Consumer)
-      end
-
       def details_tuple
         stats = queue_stats_details
         {
