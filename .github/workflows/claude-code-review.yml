@@ -31,7 +31,7 @@ jobs:
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           use_sticky_comment: true
-          prompt: "/review-pr ${{ inputs.pr_number || github.event.pull_request.number }} Do not check CI status."
+          prompt: "/review ${{ inputs.pr_number || github.event.pull_request.number }} Do not check CI status."
           claude_args: |
             --max-turns 15
             --allowedTools "Bash(gh pr list:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
