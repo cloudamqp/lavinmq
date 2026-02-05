@@ -352,7 +352,7 @@ module LavinMQ
       end
 
       @[IniOpt(section: "oauth", ini_name: issuer)]
-      property oauth_issuer_url : URI = URI.new
+      property oauth_issuer_url : URI? = nil
       @[IniOpt(section: "oauth", ini_name: resource_server_id)]
       property oauth_resource_server_id : String? = nil
       @[IniOpt(section: "oauth", ini_name: preferred_username_claims)]

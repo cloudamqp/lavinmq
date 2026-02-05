@@ -242,7 +242,7 @@ module LavinMQ
       Auth::Password::SHA256Password.new(value)
     end
 
-    private def parse_value(value, type : URI.class)
+    private def parse_value(value, type : URI.class | URI?.class)
       URI.parse(value)
     end
 

@@ -2,7 +2,8 @@ require "./spec_helper"
 
 def create_oauth_test_authenticator(config : LavinMQ::Config? = nil)
   config ||= create_oauth_test_config
-  jwks_fetcher = LavinMQ::Auth::JWT::JWKSFetcher.new(config.oauth_issuer_url, config.oauth_jwks_cache_ttl)
+  uri = config.oauth_issuer_url || URI.new
+  jwks_fetcher = LavinMQ::Auth::JWT::JWKSFetcher.new(uri, config.oauth_jwks_cache_ttl)
   verifier = LavinMQ::Auth::JWT::TokenVerifier.new(config, jwks_fetcher)
   LavinMQ::Auth::OAuthAuthenticator.new(verifier)
 end

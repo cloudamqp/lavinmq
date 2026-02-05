@@ -3,7 +3,8 @@ require "./spec_helper"
 def create_test_authenticator(config : LavinMQ::Config? = nil)
   config ||= create_test_config
   # public_keys = LavinMQ::Auth::PublicKeys.new
-  jwks_fetcher = LavinMQ::Auth::JWT::JWKSFetcher.new(config.oauth_issuer_url, config.oauth_jwks_cache_ttl)
+  uri = config.oauth_issuer_url || URI.new
+  jwks_fetcher = LavinMQ::Auth::JWT::JWKSFetcher.new(uri, config.oauth_jwks_cache_ttl)
   verifier = LavinMQ::Auth::JWT::TokenVerifier.new(config, jwks_fetcher)
   LavinMQ::Auth::OAuthAuthenticator.new(verifier)
 end
@@ -130,7 +131,8 @@ describe LavinMQ::Auth::OAuthAuthenticator do
       config.oauth_issuer_url = URI.parse("https://auth.example.com")
       config.oauth_preferred_username_claims = ["preferred_username"]
 
-      jwks_fetcher = LavinMQ::Auth::JWT::JWKSFetcher.new(config.oauth_issuer_url, config.oauth_jwks_cache_ttl)
+      uri = config.oauth_issuer_url || URI.new
+      jwks_fetcher = LavinMQ::Auth::JWT::JWKSFetcher.new(uri, config.oauth_jwks_cache_ttl)
       verifier = LavinMQ::Auth::JWT::TokenVerifier.new(config, jwks_fetcher)
       authenticator = LavinMQ::Auth::OAuthAuthenticator.new(verifier)
       authenticator.should be_a(LavinMQ::Auth::OAuthAuthenticator)
@@ -141,7 +143,8 @@ describe LavinMQ::Auth::OAuthAuthenticator do
       config.oauth_issuer_url = URI.parse("https://auth.example.com")
       config.oauth_preferred_username_claims = ["email", "preferred_username", "sub"]
 
-      jwks_fetcher = LavinMQ::Auth::JWT::JWKSFetcher.new(config.oauth_issuer_url, config.oauth_jwks_cache_ttl)
+      uri = config.oauth_issuer_url || URI.new
+      jwks_fetcher = LavinMQ::Auth::JWT::JWKSFetcher.new(uri, config.oauth_jwks_cache_ttl)
       verifier = LavinMQ::Auth::JWT::TokenVerifier.new(config, jwks_fetcher)
       authenticator = LavinMQ::Auth::OAuthAuthenticator.new(verifier)
       authenticator.should be_a(LavinMQ::Auth::OAuthAuthenticator)
@@ -153,7 +156,8 @@ describe LavinMQ::Auth::OAuthAuthenticator do
       config.oauth_preferred_username_claims = ["preferred_username"]
       config.oauth_verify_aud = false
 
-      jwks_fetcher = LavinMQ::Auth::JWT::JWKSFetcher.new(config.oauth_issuer_url, config.oauth_jwks_cache_ttl)
+      uri = config.oauth_issuer_url || URI.new
+      jwks_fetcher = LavinMQ::Auth::JWT::JWKSFetcher.new(uri, config.oauth_jwks_cache_ttl)
       verifier = LavinMQ::Auth::JWT::TokenVerifier.new(config, jwks_fetcher)
       authenticator = LavinMQ::Auth::OAuthAuthenticator.new(verifier)
       authenticator.should be_a(LavinMQ::Auth::OAuthAuthenticator)
@@ -165,7 +169,8 @@ describe LavinMQ::Auth::OAuthAuthenticator do
       config.oauth_preferred_username_claims = ["preferred_username"]
       config.oauth_scope_prefix = "mq."
 
-      jwks_fetcher = LavinMQ::Auth::JWT::JWKSFetcher.new(config.oauth_issuer_url, config.oauth_jwks_cache_ttl)
+      uri = config.oauth_issuer_url || URI.new
+      jwks_fetcher = LavinMQ::Auth::JWT::JWKSFetcher.new(uri, config.oauth_jwks_cache_ttl)
       verifier = LavinMQ::Auth::JWT::TokenVerifier.new(config, jwks_fetcher)
       authenticator = LavinMQ::Auth::OAuthAuthenticator.new(verifier)
       authenticator.should be_a(LavinMQ::Auth::OAuthAuthenticator)
@@ -177,7 +182,8 @@ describe LavinMQ::Auth::OAuthAuthenticator do
       config.oauth_preferred_username_claims = ["preferred_username"]
       config.oauth_resource_server_id = "lavinmq-api"
 
-      jwks_fetcher = LavinMQ::Auth::JWT::JWKSFetcher.new(config.oauth_issuer_url, config.oauth_jwks_cache_ttl)
+      uri = config.oauth_issuer_url || URI.new
+      jwks_fetcher = LavinMQ::Auth::JWT::JWKSFetcher.new(uri, config.oauth_jwks_cache_ttl)
       verifier = LavinMQ::Auth::JWT::TokenVerifier.new(config, jwks_fetcher)
       authenticator = LavinMQ::Auth::OAuthAuthenticator.new(verifier)
       authenticator.should be_a(LavinMQ::Auth::OAuthAuthenticator)
