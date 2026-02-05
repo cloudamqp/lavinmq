@@ -30,8 +30,12 @@ jobs:
       - uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          use_sticky_comment: true
-          prompt: "/review ${{ inputs.pr_number || github.event.pull_request.number }} Do not check CI status."
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ inputs.pr_number || github.event.pull_request.number }}
+
+            Review this pull request. Do not check CI status.
+            Use `gh pr comment` to post your review, don't submit your review as a normal message.
           claude_args: |
             --max-turns 15
-            --allowedTools "Bash(gh pr list:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
+            --allowedTools "Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
