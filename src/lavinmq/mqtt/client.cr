@@ -84,6 +84,13 @@ module LavinMQ
         @broker.remove_client(self)
         @waitgroup.done
         close_socket
+        @log.info { "Connection disconnected for user=#{@user.name} duration=#{duration}" }
+      end
+
+      private def duration
+        ms = RoughTime.unix_ms - @connected_at
+        seconds = (ms / 1000).round.to_i
+        Time::Span.new(seconds: seconds)
       end
 
       def read_and_handle_packet
