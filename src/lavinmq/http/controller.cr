@@ -196,8 +196,9 @@ module LavinMQ
         raise HaltRequest.new(body.try { |b| b[:reason] })
       end
 
-      private def with_vhost(context, params, key = "vhost", &)
-        if (name = params[key]?) && (vhost = @amqp_server.vhosts[name]?)
+      private def with_vhost(context, params, *, vhost_key = "vhost", &)
+        if (name = params[vhost_key]?) && (vhost = @amqp_server.vhosts[name]?)
+          refuse_unless_vhost_access(context, user(context), vhost)
           yield vhost
         else
           not_found(context, "Not Found")
