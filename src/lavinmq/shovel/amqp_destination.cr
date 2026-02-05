@@ -8,7 +8,7 @@ module LavinMQ
 
       def initialize(@name : String, @uri : URI, @queue : String?, @exchange : String? = nil,
                      @exchange_key : String? = nil, @ack_mode = DEFAULT_ACK_MODE, direct_user : Auth::User? = nil)
-        unless @uri.user
+        if @uri.user.nil? && @uri.host.to_s.empty?
           if direct_user
             @uri.user = direct_user.name
             @uri.password = direct_user.plain_text_password
