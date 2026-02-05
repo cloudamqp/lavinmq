@@ -48,8 +48,8 @@ module LavinMQ
         @amqp_tls_context = create_tls_context
         @mqtt_tls_context = create_tls_context
         @http_tls_context = create_tls_context
+        warn_if_ktls_unavailable if @config.tls_ktls?
       end
-      reload_tls_context
       setup_sni_callbacks
       setup_signal_traps
       SystemD::MemoryPressure.monitor { GC.collect }
@@ -276,55 +276,57 @@ module LavinMQ
     end
 
     private def create_tls_context
-      context = OpenSSL::SSL::Context::Server.new
-      context.add_options(OpenSSL::SSL::Options.new(0x40000000)) # disable client initiated renegotiation
-      context
+      ctx = OpenSSL::SSL::Context::Server.new
+      configure_tls_context(ctx)
+      ctx
+    end
+
+    private def warn_if_ktls_unavailable
+      {% if flag?(:linux) && compare_versions(LibSSL::OPENSSL_VERSION, "3.0.0") >= 0 %}
+        unless File.exists?("/sys/module/tls")
+          Log.warn { "Kernel TLS module not loaded, kTLS will not be available (run: modprobe tls)" }
+        end
+      {% end %}
     end
 
     private def reload_tls_context
-      if amqp_tls = @amqp_tls_context
-        configure_tls_context(amqp_tls)
+      {@amqp_tls_context, @mqtt_tls_context, @http_tls_context}.each do |ctx|
+        next if ctx.nil?
+        configure_tls_context(ctx)
       end
-      if mqtt_tls = @mqtt_tls_context
-        configure_tls_context(mqtt_tls)
-      end
-      if http_tls = @http_tls_context
-        configure_tls_context(http_tls)
-      end
-      # Reload SNI host contexts
       @config.sni_manager.reload
     end
 
-    private def configure_tls_context(tls : OpenSSL::SSL::Context::Server)
+    private def configure_tls_context(ctx : OpenSSL::SSL::Context::Server)
       case @config.tls_min_version
       when "1.0"
-        tls.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_2 |
+        ctx.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_2 |
                            OpenSSL::SSL::Options::NO_TLS_V1_1 |
                            OpenSSL::SSL::Options::NO_TLS_V1)
       when "1.1"
-        tls.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_2 | OpenSSL::SSL::Options::NO_TLS_V1_1)
-        tls.add_options(OpenSSL::SSL::Options::NO_TLS_V1)
+        ctx.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_2 | OpenSSL::SSL::Options::NO_TLS_V1_1)
+        ctx.add_options(OpenSSL::SSL::Options::NO_TLS_V1)
       when "1.2", ""
-        tls.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_2)
-        tls.add_options(OpenSSL::SSL::Options::NO_TLS_V1_1 | OpenSSL::SSL::Options::NO_TLS_V1)
+        ctx.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_2)
+        ctx.add_options(OpenSSL::SSL::Options::NO_TLS_V1_1 | OpenSSL::SSL::Options::NO_TLS_V1)
       when "1.3"
-        tls.add_options(OpenSSL::SSL::Options::NO_TLS_V1_2)
+        ctx.add_options(OpenSSL::SSL::Options::NO_TLS_V1_2)
       else
         Log.warn { "Unrecognized @config value for tls_min_version: '#{@config.tls_min_version}'" }
       end
-      tls.certificate_chain = @config.tls_cert_path
-      tls.private_key = @config.tls_key_path.empty? ? @config.tls_cert_path : @config.tls_key_path
-      tls.ciphers = @config.tls_ciphers unless @config.tls_ciphers.empty?
-      reload_ssl_keylog(tls)
+      ctx.certificate_chain = @config.tls_cert_path
+      ctx.private_key = @config.tls_key_path.empty? ? @config.tls_cert_path : @config.tls_key_path
+      ctx.ciphers = @config.tls_ciphers unless @config.tls_ciphers.empty?
+      reload_ssl_keylog(ctx)
     end
 
-    private def reload_ssl_keylog(tls)
+    private def reload_ssl_keylog(ctx)
       keylog_file = @config.tls_keylog_file
       keylog_file = ENV.fetch("SSLKEYLOGFILE", "") if keylog_file.empty?
       if keylog_file.empty?
-        tls.keylog_file = nil
+        ctx.keylog_file = nil
       else
-        tls.keylog_file = keylog_file
+        ctx.keylog_file = keylog_file
         Log.info { "SSL keylog enabled, writing to #{keylog_file}" }
       end
     end

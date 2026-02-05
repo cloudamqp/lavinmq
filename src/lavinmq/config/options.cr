@@ -115,6 +115,10 @@ module LavinMQ
       @[IniOpt(section: "main")]
       property tls_keylog_file = ""
 
+      @[CliOpt("", "--tls-ktls=BOOL", "Use native socket for kTLS support (default: false)", section: "tls")]
+      @[IniOpt(section: "main")]
+      property? tls_ktls = false
+
       @[IniOpt(section: "main")]
       @[CliOpt("", "--metrics-http-bind=BIND", "IP address that the Prometheus server will bind to (default: 127.0.0.1)")]
       property metrics_http_bind = "127.0.0.1"
