@@ -48,9 +48,7 @@ module LavinMQ
       @vhosts = VHostStore.new(@data_dir, @users, @replicator)
       @mqtt_brokers = MQTT::Brokers.new(@vhosts, @replicator)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator)
-      @jwks_fetcher = Auth::JWT::JWKSFetcher.new(@config.oauth_issuer_url, @config.oauth_jwks_cache_ttl)
-      verifier = Auth::JWT::TokenVerifier.new(@config, @jwks_fetcher)
-      @authenticator = Auth::Chain.create(@config.auth_backends, @users, verifier)
+      @authenticator = Auth::Chain.create(@config, @users)
       @connection_factories = {
         Protocol::AMQP => AMQP::ConnectionFactory.new(@authenticator, @vhosts),
         Protocol::MQTT => MQTT::ConnectionFactory.new(@authenticator, @mqtt_brokers, @config),
@@ -86,7 +84,7 @@ module LavinMQ
       @closed = true
       @vhosts.close
       @replicator.try &.clear
-      @jwks_fetcher.try &.cleanup
+      @authenticator.try &.cleanup
       Fiber.yield
     end
 
@@ -95,9 +93,7 @@ module LavinMQ
       Dir.mkdir_p @data_dir
       Schema.migrate(@data_dir, @replicator)
       @users = Auth::UserStore.new(@data_dir, @replicator)
-      @jwks_fetcher = Auth::JWT::JWKSFetcher.new(@config.oauth_issuer_url, @config.oauth_jwks_cache_ttl)
-      verifier = Auth::JWT::TokenVerifier.new(@config, @jwks_fetcher)
-      @authenticator = Auth::Chain.create(@config.auth_backends, @users, verifier)
+      @authenticator = Auth::Chain.create(@config, @users)
       @vhosts = VHostStore.new(@data_dir, @users, @replicator)
       @connection_factories[Protocol::AMQP] = AMQP::ConnectionFactory.new(@authenticator, @vhosts)
       @connection_factories[Protocol::MQTT] = MQTT::ConnectionFactory.new(@authenticator, @mqtt_brokers, @config)

@@ -30,6 +30,10 @@ module LavinMQ
       rescue ex : Exception
         Log.error(exception: ex) { "authentication failed for user \"#{context.username}\": #{ex.message}" }
       end
+
+      def cleanup
+        @token_verifier.fetcher.cleanup
+      end
     end
   end
 end

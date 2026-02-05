@@ -15,15 +15,21 @@ module LavinMQ
         @backends = backends
       end
 
-      def self.create(backends : Array(String), users : UserStore, verifier : JWT::TokenVerifier) : Chain
+      def self.create(config : Config, users : UserStore) : Chain
         authenticators = [] of Authenticator
-        backends.each do |backend|
+        config.auth_backends.each do |backend|
           case backend
           when "local"
             authenticators << LocalAuthenticator.new(users)
           when "oauth"
-            verifier.fetcher.start_refresh_loop
-            authenticators << OAuthAuthenticator.new(verifier)
+            if uri = config.oauth_issuer_url
+              jwks_fetcher = Auth::JWT::JWKSFetcher.new(uri, config.oauth_jwks_cache_ttl)
+              verifier = Auth::JWT::TokenVerifier.new(config, jwks_fetcher)
+              verifier.fetcher.start_refresh_loop
+              authenticators << OAuthAuthenticator.new(verifier)
+            else
+              Log.error { "oauth authenticater added but missing setting `issuer_url` cannot start" }
+            end
           else
             raise "Unsupported authentication backend: #{backend}"
           end
@@ -33,6 +39,12 @@ module LavinMQ
           authenticators << LocalAuthenticator.new(users)
         end
         self.new(authenticators)
+      end
+
+      def cleanup
+        @backends.each do |backend|
+          backend.cleanup
+        end
       end
 
       def authenticate(context : Context) : BaseUser?
