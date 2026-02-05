@@ -34,8 +34,10 @@ module LavinMQ
       end
 
       def can_write?(vhost : String, name : String, cache : PermissionCache) : Bool
-        if @permission_revision.swap(cache.revision, :relaxed) != cache.revision
+        permission_revision = @permission_revision.lazy_get
+        if permission_revision != cache.revision
           cache.clear
+          cache.revision = permission_revision
         end
 
         key = PermissionKey.new(vhost, name)
