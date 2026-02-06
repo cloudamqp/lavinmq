@@ -1,0 +1,21 @@
+# Maintainer: CloudAMQP <contact@cloudamqp.com>
+pkgname=lavinmq
+pkgver=${version:-0.0.0}
+pkgrel=1
+pkgdesc='Message queue server implementing the AMQP 0-9-1 protocol'
+arch=('x86_64' 'aarch64')
+url='https://github.com/cloudamqp/lavinmq'
+license=('Apache-2.0')
+depends=('lz4' 'openssl' 'gc' 'pcre2' 'zlib')
+optdepends=('etcd: clustering support')
+makedepends=('crystal' 'shards' 'help2man' 'curl')
+backup=('etc/lavinmq/lavinmq.ini')
+
+build() {
+  make
+}
+
+package() {
+  make install DESTDIR="$pkgdir" UNITDIR=/usr/lib/systemd/system
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

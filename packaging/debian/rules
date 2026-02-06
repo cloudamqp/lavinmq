@@ -5,3 +5,6 @@ export TZ=UTC
 
 %:
 	dh $@
+
+execute_after_dh_installsystemd:
+	dh_installsysusers

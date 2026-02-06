@@ -1,0 +1,2 @@
+#Type Name    ID  GECOS                    Home directory
+u    lavinmq -   "LavinMQ message broker" /var/lib/lavinmq
