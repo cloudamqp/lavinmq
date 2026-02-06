@@ -14,7 +14,8 @@ module LavinMQ
       end
 
       def token_lifetime : Time::Span
-        @expires_at - RoughTime.utc
+        v = @expires_at - RoughTime.utc
+        v.negative? ? 0.seconds : v
       end
 
       def on_expiration(&block)
