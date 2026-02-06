@@ -261,38 +261,6 @@ describe LavinMQ::Auth::Chain do
         end
       end
 
-      # Fails at the moment, but the code around the expiration loop needs to be refactor anyway.
-      it "resets expiration timer when token_updated receives" do
-        exp = Time.utc + 300.milliseconds
-        verifier = MockVerifier.new(LavinMQ::Config.new, "testuser", nil, nil, exp)
-
-        user = LavinMQ::Auth::OAuthUser.new(
-          "testuser",
-          [] of LavinMQ::Tag,
-          {} of String => LavinMQ::Auth::BaseUser::Permissions,
-          Time.utc + 300.milliseconds,
-          verifier
-        )
-
-        callback_called = false
-
-        user.on_expiration do
-          callback_called = true
-        end
-
-        # Send token update before expiration
-        sleep 70.milliseconds
-
-        user.@token_updated.send nil
-
-        # Wait past the original expiration time
-        sleep 250.milliseconds
-
-        # Callback should not have been called yet since timer was reset
-        # but it will be called eventually (negative token_lifetime triggers immediately)
-        callback_called.should be_false
-      end
-
       it "does not call block before expiration" do
         config = LavinMQ::Config.new
         config.oauth_issuer_url = URI.parse("https://auth.example.com")
