@@ -201,7 +201,7 @@ module LavinMQ
           refuse_unless_vhost_access(context, user(context), vhost)
           yield vhost
         else
-          not_found(context, "Not Found")
+          access_refused(context)
         end
         context
       end
