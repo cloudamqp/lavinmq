@@ -3,7 +3,7 @@ SOURCES := $(shell find src/ -name '*.cr' 2> /dev/null)
 PERF_SOURCES := $(shell find src/lavinmqperf -name '*.cr' 2> /dev/null)
 CTL_SOURCES := $(shell find src/lavinmqctl -name '*.cr' 2> /dev/null)
 VIEW_SOURCES := $(wildcard views/*.ecr)
-VIEW_TARGETS := $(patsubst views/%.ecr,static/views/%.html,$(VIEW_SOURCES))
+VIEW_TARGETS := $(patsubst views/%.ecr,static/%.html,$(VIEW_SOURCES))
 VIEW_PARTIALS := $(wildcard views/partials/*.ecr)
 JS := static/js/lib/chunks/helpers.segment.js static/js/lib/chart.js static/js/lib/luxon.js static/js/lib/chartjs-adapter-luxon.esm.js static/js/lib/elements-8.2.0.js static/js/lib/elements-8.2.0.css $(wildcard static/js/*.js)
 CRYSTAL_FLAGS := --release
@@ -11,40 +11,6 @@ override CRYSTAL_FLAGS += --stats -Dpreview_mt -Dexecution_context --link-flags=
 .DELETE_ON_ERROR:
 
 .DEFAULT_GOAL := all
-
-.PHONY: livereload
-livereload:
-	@echo "Starting livereload server..."
-	@which livereload > /dev/null || npm install -g livereload
-	@(pid=$$!; trap 'kill -TERM $$pid' INT; livereload -p 35629 static &)
-
-.PHONY: views
-views: $(VIEW_TARGETS)
-
-.PHONY: watch-views
-watch-views:
-	@MAKE_FLAGS=$$([ "$$(uname)" = "Darwin" ] || echo "-j"); \
-	while true; do $(MAKE) -q -s views || $(MAKE) $$MAKE_FLAGS views; sleep 0.5; done
-
-.PHONY: dev-ui
-dev-ui:
-	@trap '$(MAKE) clean-views; trap - EXIT' EXIT INT TERM; \
-   $(MAKE) bin/lavinmq CRYSTAL_FLAGS=-Dlivereloadjs ; \
-	 $(MAKE) livereload & \
-	 livereload_pid=$$!; \
-	 $(MAKE) -s watch-views; \
-	 wait $$livereload_pid
-
-static/views/%.html: views/%.ecr $(VIEW_PARTIALS)
-	@mkdir -p static/views
-	@TEMP_FILE=$$(mktemp) && \
-	INPUT=$< crystal run views/_render.cr -Dlivereloadjs > $$TEMP_FILE && \
-	mv $$TEMP_FILE $@ && \
-	echo "Rendered $< to $@"
-
-.PHONY: clean-views
-clean-views:
-	$(RM) $(VIEW_TARGETS)
 
 .PHONY: all
 all: $(BINS)
@@ -183,3 +149,17 @@ clean:
 .PHONY: watch
 watch:
 	while true; do inotifywait -qqr -e modify -e create -e delete src/ && $(MAKE); done
+
+.PHONY: views
+views: $(VIEW_TARGETS)
+
+.PHONY: watch-views
+watch-views:
+	while true; do $(MAKE) -q -s views || $(MAKE) views; sleep 0.5; done
+
+static/%.html: views/%.ecr $(VIEW_PARTIALS)
+	INPUT=$< crystal run views/_render.cr > $@
+
+.PHONY: clean-views
+clean-views:
+	$(RM) $(VIEW_TARGETS)
