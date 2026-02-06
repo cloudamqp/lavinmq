@@ -94,8 +94,8 @@ module LavinMQ
 
         def fetch_jwks : JWKSResult
           # Discover jwks_uri from OIDC configuration
-          body_io, _ = fetch_url("#{@issuer_url}/.well-known/openid-configuration")
-          oidc_config = OIDCConfiguration.from_json(body_io)
+          body, _ = fetch_url("#{@issuer_url}/.well-known/openid-configuration")
+          oidc_config = OIDCConfiguration.from_json(body)
 
           # Verify issuer matches per OpenID Connect Discovery 1.0 Section 4.3
           oidc_issuer = oidc_config.issuer
@@ -105,8 +105,8 @@ module LavinMQ
 
           jwks_uri = oidc_config.jwks_uri
 
-          body_io, headers = fetch_url(jwks_uri)
-          jwks = JWKSResponse.from_json(body_io)
+          body, headers = fetch_url(jwks_uri)
+          jwks = JWKSResponse.from_json(body)
           public_keys = extract_public_keys_from_jwks(jwks)
           ttl = extract_jwks_ttl(headers)
           JWKSResult.new(public_keys, ttl)
@@ -202,7 +202,7 @@ module LavinMQ
           end
         end
 
-        private def fetch_url(url : String) : {IO, ::HTTP::Headers}
+        private def fetch_url(url : String) : {String, ::HTTP::Headers}
           uri = URI.parse(url)
           ::HTTP::Client.new(uri) do |client|
             client.connect_timeout = 5.seconds
@@ -211,7 +211,7 @@ module LavinMQ
             if !response.success?
               raise "HTTP request failed with status #{response.status_code}: #{response.body}"
             end
-            {response.body_io, response.headers}
+            {response.body, response.headers}
           end
         end
       end
