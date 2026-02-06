@@ -175,6 +175,45 @@ describe LavinMQ::HTTP::PrometheusController do
         end
       end
     end
+
+    it "should group TYPE and HELP by metric name" do
+      with_metrics_server do |http, s|
+        vhost = s.vhosts.create("grouping_test")
+        vhost.declare_queue("queue_1", true, false)
+        vhost.declare_queue("queue_2", true, false)
+        vhost.declare_queue("queue_3", true, false)
+
+        raw = http.get("/metrics/detailed?family=queue_coarse_metrics").body
+        lines = raw.lines
+
+        # Count occurrences of TYPE declarations for detailed_queue_messages_ready
+        type_count = lines.count(&.includes?("# TYPE lavinmq_detailed_queue_messages_ready"))
+        help_count = lines.count(&.includes?("# HELP lavinmq_detailed_queue_messages_ready"))
+
+        # Should appear exactly once, not once per queue
+        type_count.should eq 1
+        help_count.should eq 1
+
+        # But values should appear for each queue (3 queues)
+        value_count = lines.count(&.starts_with?("lavinmq_detailed_queue_messages_ready{"))
+        value_count.should eq 3
+
+        # Verify grouping: TYPE and HELP should immediately precede the values
+        # Find TYPE line index, HELP should be next, then values should follow
+        type_idx = lines.index(&.includes?("# TYPE lavinmq_detailed_queue_messages_ready"))
+        help_idx = lines.index(&.includes?("# HELP lavinmq_detailed_queue_messages_ready"))
+        first_value_idx = lines.index(&.starts_with?("lavinmq_detailed_queue_messages_ready{"))
+
+        type_idx.should_not be_nil
+        help_idx.should_not be_nil
+        first_value_idx.should_not be_nil
+
+        # HELP should come right after TYPE
+        help_idx.should eq(type_idx.not_nil! + 1)
+        # First value should come right after HELP
+        first_value_idx.should eq(help_idx.not_nil! + 1)
+      end
+    end
   end
 end
 

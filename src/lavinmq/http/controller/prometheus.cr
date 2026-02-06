@@ -54,6 +54,24 @@ module LavinMQ
         io << " " << m[:value] << "\n"
       end
 
+      # Write only the TYPE and HELP header for a metric (no value)
+      def write_header(name : String, type : String, help : String)
+        io = @io
+        full_name = NameWriter.new(@prefix, name)
+        io << "# TYPE " << full_name << " " << type << "\n"
+        io << "# HELP " << full_name << " " << help << "\n"
+      end
+
+      # Write only the metric value with labels (no TYPE/HELP)
+      def write_value(name : String, value : MetricValue, labels : MetricLabels)
+        return if value.nil?
+        io = @io
+        full_name = NameWriter.new(@prefix, name)
+        io << full_name
+        write_labels(io, labels)
+        io << " " << value << "\n"
+      end
+
       struct NameWriter
         def initialize(@prefix : String, @name : String)
         end
@@ -466,105 +484,131 @@ module LavinMQ
       end
 
       private def detailed_queue_coarse_metrics(vhosts, writer)
+        # Group TYPE, HELP and values together for each metric
+        writer.write_header("detailed_queue_messages_ready", "gauge",
+          "Messages ready to be delivered to consumers")
         vhosts.each do |vhost|
           vhost.queues.each_value do |q|
             labels = {queue: q.name, vhost: vhost.name}
-            ready = q.message_count
-            unacked = q.unacked_count
-            writer.write({name:   "detailed_queue_messages_ready",
-                          value:  ready,
-                          type:   "gauge",
-                          labels: labels,
-                          help:   "Messages ready to be delivered to consumers"})
-            writer.write({name:   "detailed_queue_messages_unacked",
-                          value:  unacked,
-                          type:   "gauge",
-                          labels: labels,
-                          help:   "Messages delivered to consumers but not yet acknowledged"})
-            writer.write({name:   "detailed_queue_messages",
-                          value:  ready + unacked,
-                          type:   "gauge",
-                          labels: labels,
-                          help:   "Sum of ready and unacknowledged messages - total queue depth"})
-            writer.write({name:   "detailed_queue_deduplication",
-                          value:  q.dedup_count,
-                          type:   "counter",
-                          labels: labels,
-                          help:   "Number of deduplicated messages for this queue"})
+            writer.write_value("detailed_queue_messages_ready", q.message_count, labels)
+          end
+        end
+
+        writer.write_header("detailed_queue_messages_unacked", "gauge",
+          "Messages delivered to consumers but not yet acknowledged")
+        vhosts.each do |vhost|
+          vhost.queues.each_value do |q|
+            labels = {queue: q.name, vhost: vhost.name}
+            writer.write_value("detailed_queue_messages_unacked", q.unacked_count, labels)
+          end
+        end
+
+        writer.write_header("detailed_queue_messages", "gauge",
+          "Sum of ready and unacknowledged messages - total queue depth")
+        vhosts.each do |vhost|
+          vhost.queues.each_value do |q|
+            labels = {queue: q.name, vhost: vhost.name}
+            writer.write_value("detailed_queue_messages", q.message_count + q.unacked_count, labels)
+          end
+        end
+
+        writer.write_header("detailed_queue_deduplication", "counter",
+          "Number of deduplicated messages for this queue")
+        vhosts.each do |vhost|
+          vhost.queues.each_value do |q|
+            labels = {queue: q.name, vhost: vhost.name}
+            writer.write_value("detailed_queue_deduplication", q.dedup_count, labels)
           end
         end
       end
 
       private def detailed_queue_consumer_count(vhosts, writer)
+        # Write header once
+        writer.write_header("detailed_queue_consumers", "gauge", "Consumers on a queue")
+
+        # Write values
         vhosts.each do |vhost|
           vhost.queues.each_value do |q|
             labels = {queue: q.name, vhost: vhost.name}
-            writer.write({name:   "detailed_queue_consumers",
-                          value:  q.consumers.size,
-                          type:   "gauge",
-                          labels: labels,
-                          help:   "Consumers on a queue"})
+            writer.write_value("detailed_queue_consumers", q.consumers.size, labels)
           end
         end
       end
 
       private def detailed_exchange_metrics(vhosts, writer)
+        # Write header once
+        writer.write_header("detailed_exchange_deduplication", "counter",
+          "Number of deduplicated messages for this exchange")
+
+        # Write values
         vhosts.each do |vhost|
           vhost.exchanges.each_value do |e|
             labels = {exchange: e.name, vhost: vhost.name}
-            writer.write({name:   "detailed_exchange_deduplication",
-                          value:  e.dedup_count,
-                          type:   "counter",
-                          labels: labels,
-                          help:   "Number of deduplicated messages for this queue"})
+            writer.write_value("detailed_exchange_deduplication", e.dedup_count, labels)
           end
         end
       end
 
       private def detailed_connection_coarse_metrics(vhosts, writer)
+        # Group TYPE, HELP and values together for each metric
+        writer.write_header("detailed_connection_incoming_bytes_total", "counter",
+          "Total number of bytes received on a connection")
         vhosts.each do |vhost|
           vhost.connections.each do |conn|
             labels = {channel: conn.name}
-            writer.write({name:   "detailed_connection_incoming_bytes_total",
-                          value:  conn.recv_oct_count,
-                          type:   "counter",
-                          labels: labels,
-                          help:   "Total number of bytes received on a connection"})
-            writer.write({name:   "detailed_connection_outgoing_bytes_total",
-                          value:  conn.send_oct_count,
-                          type:   "counter",
-                          labels: labels,
-                          help:   "Total number of bytes sent on a connection"})
-            writer.write({name:   "detailed_connection_channels",
-                          value:  conn.channels.size,
-                          type:   "counter",
-                          labels: labels,
-                          help:   "Channels on a connection"})
+            writer.write_value("detailed_connection_incoming_bytes_total", conn.recv_oct_count, labels)
+          end
+        end
+
+        writer.write_header("detailed_connection_outgoing_bytes_total", "counter",
+          "Total number of bytes sent on a connection")
+        vhosts.each do |vhost|
+          vhost.connections.each do |conn|
+            labels = {channel: conn.name}
+            writer.write_value("detailed_connection_outgoing_bytes_total", conn.send_oct_count, labels)
+          end
+        end
+
+        writer.write_header("detailed_connection_channels", "counter",
+          "Channels on a connection")
+        vhosts.each do |vhost|
+          vhost.connections.each do |conn|
+            labels = {channel: conn.name}
+            writer.write_value("detailed_connection_channels", conn.channels.size, labels)
           end
         end
       end
 
       private def detailed_channel_metrics(vhosts, writer)
+        # Group TYPE, HELP and values together for each metric
+        writer.write_header("detailed_channel_consumers", "gauge", "Consumers on a channel")
         vhosts.each do |vhost|
           vhost.connections.each do |conn|
             conn.channels.each_value do |ch|
               labels = {channel: ch.name}
-              d = ch.details_tuple
-              writer.write({name:   "detailed_channel_consumers",
-                            value:  d[:consumer_count],
-                            type:   "gauge",
-                            labels: labels,
-                            help:   "Consumers on a channels"})
-              writer.write({name:   "detailed_messages_unacked",
-                            value:  d[:messages_unacknowledged],
-                            type:   "gauge",
-                            labels: labels,
-                            help:   "Delivered but not yet acknowledged messages"})
-              writer.write({name:   "detailed_channel_prefetch",
-                            value:  d[:prefetch_count],
-                            type:   "gauge",
-                            labels: labels,
-                            help:   "Total limit of unacknowledged messages for all consumers on a channel"})
+              writer.write_value("detailed_channel_consumers", ch.details_tuple[:consumer_count], labels)
+            end
+          end
+        end
+
+        writer.write_header("detailed_messages_unacked", "gauge",
+          "Delivered but not yet acknowledged messages")
+        vhosts.each do |vhost|
+          vhost.connections.each do |conn|
+            conn.channels.each_value do |ch|
+              labels = {channel: ch.name}
+              writer.write_value("detailed_messages_unacked", ch.details_tuple[:messages_unacknowledged], labels)
+            end
+          end
+        end
+
+        writer.write_header("detailed_channel_prefetch", "gauge",
+          "Total limit of unacknowledged messages for all consumers on a channel")
+        vhosts.each do |vhost|
+          vhost.connections.each do |conn|
+            conn.channels.each_value do |ch|
+              labels = {channel: ch.name}
+              writer.write_value("detailed_channel_prefetch", ch.details_tuple[:prefetch_count], labels)
             end
           end
         end
