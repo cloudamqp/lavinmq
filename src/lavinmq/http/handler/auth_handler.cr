@@ -12,18 +12,16 @@ module LavinMQ
       def call(context)
         if internal_unix_socket?(context)
           context.user = @direct_user
-          return call_next(context)
         end
 
         if auth = cookie_auth(context) || basic_auth(context)
           username, password = auth
           if user = authenticate(username, password, context.request.remote_address)
             context.user = user
-            return call_next(context)
           end
         end
 
-        unauthenticated(context)
+        call_next(context)
       end
 
       private def basic_auth(context)
@@ -69,10 +67,6 @@ module LavinMQ
           return addr.to_s == HTTP::INTERNAL_UNIX_SOCKET
         end
         false
-      end
-
-      private def unauthenticated(context)
-        context.response.status_code = 401
       end
     end
   end
