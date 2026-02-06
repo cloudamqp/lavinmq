@@ -89,12 +89,12 @@ module LavinMQ
             context
           end
         rescue File::NotFoundError
-          # To enable faster frontend development, we try to serve a views from static folder.
-          # Use `make dev-ui` to compile and watch for changes.
-          return if file_path.starts_with?("/views/")
+          # Try serving compiled view (e.g. /overview -> /overview.html)
+          # Use `make views` to compile views to static/.
+          return if file_path.ends_with?(".html")
           view = file_path.lstrip("/")
           view = "overview" if view.empty?
-          file_path = "/views/#{view}.html"
+          file_path = "/#{view}.html"
           serve(context, file_path)
         end
       {% end %}

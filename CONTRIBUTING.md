@@ -34,10 +34,12 @@ If you receive a review that requests changes, switch your PR back to `draft` mo
 
 #### Frontend development
 
-Normally ECR files and static resources are baked into the binary, which is great for portability but requires recompiling the entire app for any view or JavaScript change. To streamline development, you can compile LavinMQ without release mode, compile the ECR files separately, and serve static files from the file system. Combined with a live-reload server, this provides an efficient frontend development workflow. This is all available as a make target:
+Normally ECR files and static resources are baked into the binary, which is great for portability but requires recompiling the entire app for any view or JavaScript change. To streamline development, you can compile LavinMQ without release mode, compile the ECR files separately, and serve static files from the file system:
 
-1. Compile and start live-reload server: `make dev-ui`
+1. Build the debug binary: `make bin/lavinmq CRYSTAL_FLAGS=`
+1. Watch and recompile views on change: `make watch-views`
 1. Run lavinmq in another terminal: `./bin/lavinmq -D /tmp/amqp`
+1. Refresh the browser with Ctrl-R after making changes
 
 ### Release
 

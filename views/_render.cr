@@ -1,7 +1,7 @@
 require "ecr/macros"
 require "../src/lavinmq/version"
 
-# Used by `make dev-ui` to render views to static files for faster frontend development.
+# Used by `make views` to render views to static files for faster frontend development
 {% begin %}
   {%
     source = env("INPUT").gsub(/views\/(.*)\.ecr/, "\\1")

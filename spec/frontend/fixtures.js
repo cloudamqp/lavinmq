@@ -1,13 +1,13 @@
 import * as helpers from './helpers.js'
-import { test as base, expect } from "@playwright/test";
+import { test as base, expect } from '@playwright/test'
 
 const vhosts = ['foo', 'bar']
-const vhostResponse = vhosts.map(x => { return {name: x} })
+const vhostResponse = vhosts.map(x => { return { name: x } })
 
 const test = base.extend(
   {
     vhosts,
-    vhostsLoaded: async({ page }, use) => {
+    vhostsLoaded: async ({ page }, use) => {
       const ret = new Promise(async (resolve, reject) => {
         // Wait for vhosts to be loaded and rendered
         const vhostCombobox = page.locator('#userMenuVhost')
@@ -17,16 +17,9 @@ const test = base.extend(
       })
       await use(ret)
     },
-    // This is just to get rid of error livereload.js
-    blockLivereload: [async ({ page }, use) => {
-      await page.route('**/livereload.js', async route => {
-        await route.abort()
-      })
-      use()
-    }, { auto: true }],
     // Setup vhost api response since it's a part of the layout
     loadVhosts: [async ({ page }, use) => {
-      function isApiVhost(url) {
+      function isApiVhost (url) {
         return url.pathname == '/api/vhosts'
       }
       await page.route(isApiVhost, async route => {
@@ -36,8 +29,8 @@ const test = base.extend(
     }, { auto: true }],
     // Use to map api requests to responses
     // Maybe this should be a helper...
-    apimap: async({ page }, use) => {
-      function map(method, path, response) {
+    apimap: async ({ page }, use) => {
+      function map (method, path, response) {
         path = RegExp.escape(path)
         method = method.toUpperCase()
         const pathExpr = new RegExp(`${path}(?!\/)`)
@@ -59,8 +52,8 @@ const test = base.extend(
         },
         post: (path, response) => {
           return map('POST', path, response)
-        },
-       }
+        }
+      }
       await use(apiMap)
     }
   }
