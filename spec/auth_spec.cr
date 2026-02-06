@@ -232,40 +232,29 @@ describe LavinMQ::Auth::Chain do
       lifetime.should eq 0.seconds
     end
 
-    describe "on_expiration" do
-      it "calls the block when token expires" do
+    describe "token_lifetime" do
+      it "returns zero for already expired tokens" do
         config = LavinMQ::Config.new
         config.oauth_issuer_url = URI.parse("https://auth.example.com")
         config.oauth_preferred_username_claims = ["preferred_username"]
-        verifier = MockVerifier.new(config, "testuser", nil, nil, Time.utc + 50.milliseconds)
+        verifier = MockVerifier.new(config, "testuser", nil, nil, Time.utc - 1.hour)
 
         user = LavinMQ::Auth::OAuthUser.new(
           "testuser",
           [] of LavinMQ::Tag,
           {} of String => LavinMQ::Auth::BaseUser::Permissions,
-          Time.utc + 50.milliseconds,
+          Time.utc - 1.hour,
           verifier
         )
 
-        callback_called = Channel(Nil).new
-
-        user.on_expiration do
-          callback_called.send nil
-        end
-
-        select
-        when callback_called.receive
-          # Expected behavior - callback was called
-        when timeout(500.milliseconds)
-          fail "Expected expiration callback to be called"
-        end
+        user.token_lifetime.should eq(0.seconds)
       end
 
-      it "does not call block before expiration" do
+      it "returns positive value for non-expired tokens" do
         config = LavinMQ::Config.new
         config.oauth_issuer_url = URI.parse("https://auth.example.com")
         config.oauth_preferred_username_claims = ["preferred_username"]
-        verifier = MockVerifier.new(LavinMQ::Config.new, "testuser", nil, nil, Time.utc + 1.hour)
+        verifier = MockVerifier.new(config, "testuser", nil, nil, Time.utc + 1.hour)
 
         user = LavinMQ::Auth::OAuthUser.new(
           "testuser",
@@ -275,14 +264,7 @@ describe LavinMQ::Auth::Chain do
           verifier
         )
 
-        callback_called = false
-
-        user.on_expiration do
-          callback_called = true
-        end
-
-        sleep 50.milliseconds
-        callback_called.should be_false
+        user.token_lifetime.should be > 0.seconds
       end
     end
   end
