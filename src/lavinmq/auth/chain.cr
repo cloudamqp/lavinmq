@@ -28,7 +28,7 @@ module LavinMQ
               verifier.fetcher.start_refresh_loop
               authenticators << OAuthAuthenticator.new(verifier)
             else
-              Log.error { "oauth authenticater added but missing setting `issuer_url` cannot start" }
+              Log.error { "oauth authenticator added but missing setting `issuer_url` cannot start" }
             end
           else
             raise "Unsupported authentication backend: #{backend}"
