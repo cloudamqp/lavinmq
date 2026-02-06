@@ -8,6 +8,8 @@ module LavinMQ
       include SortableJSON
       Log = ::LavinMQ::Log.for "mqtt.session"
 
+      @client : MQTT::Client? = nil
+
       protected def initialize(@vhost : VHost,
                                @name : String,
                                @auto_delete = false,
@@ -43,6 +45,10 @@ module LavinMQ
         end
       end
 
+      def client : MQTT::Client?
+        @client
+      end
+
       def client=(client : MQTT::Client?)
         return if @closed
         @last_get_time = RoughTime.monotonic
@@ -59,10 +65,11 @@ module LavinMQ
         @consumers.each do |c|
           rm_consumer c
         end
-
+        @client = client
         if c = client
           add_consumer MQTT::Consumer.new(c, self)
         end
+
         @log.debug { "client set to '#{client.try &.name}'" }
       end
 
