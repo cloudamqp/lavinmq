@@ -124,8 +124,8 @@ describe LavinMQ::Config do
           port = 5673
           tls_port = 5674
           unix_path = /tmp/lavinmq.sock
-          unix_proxy_protocol = 2
           tcp_proxy_protocol = 1
+          proxy_protocol_trusted_sources = 10.0.0.1
           heartbeat = 600
           frame_max = 262144
           channel_max = 4096
@@ -206,8 +206,8 @@ describe LavinMQ::Config do
       config.amqp_port.should eq 5673
       config.amqps_port.should eq 5674
       config.unix_path.should eq "/tmp/lavinmq.sock"
-      config.unix_proxy_protocol.should eq 2
-      config.tcp_proxy_protocol.should eq 1
+      config.tcp_proxy_protocol?.should be_true
+      config.proxy_protocol_trusted_sources[0].matches?("10.0.0.1").should be_true
       config.heartbeat.should eq 600
       config.frame_max.should eq 262144
       config.channel_max.should eq 4096
@@ -501,5 +501,22 @@ describe LavinMQ::Config do
     argv = ["-c", config_file.path]
     config.parse(argv)
     config.pidfile.should eq "/tmp/lavinmq.pid"
+  end
+
+  describe "tcp_proxy_protocol" do
+    {% for value, expected in {"1": true, "yes": true, "2": true, "-1": false, "no": false, "false": false, "0": false} %}
+      it "sets tcp_proxy_protocol to {{expected}} when value is {{value}}" do
+        config_file = File.tempfile do |file|
+          file.print <<-CONFIG
+                [amqp]
+                tcp_proxy_protocol = {{value}}
+              CONFIG
+        end
+        config = LavinMQ::Config.new
+        argv = ["-c", config_file.path]
+        config.parse(argv)
+        config.tcp_proxy_protocol?.should eq {{expected}}
+      end
+    {% end %}
   end
 end
