@@ -85,7 +85,7 @@ module LavinMQ::AMQP
       end
     rescue ::Channel::ClosedError
     ensure
-      @message_expire_fiber_active.set(false, :relaxed)
+      @message_expire_fiber_active.set(false, :release)
       @log.debug { "message_expire_loop stopped" }
     end
 
