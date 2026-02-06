@@ -19,7 +19,7 @@ module LavinMQ
       forward_missing_to @shovels
 
       # ameba:disable Metrics/CyclomaticComplexity
-      def self.validate_config!(config : JSON::Any, user : Auth::User?)
+      def self.validate_config!(config : JSON::Any, user : Auth::BaseUser?)
         dest_uris = parse_uris(config["dest-uri"]?)
         src_uris = parse_uris(config["src-uri"]?)
 
