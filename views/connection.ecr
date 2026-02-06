@@ -26,25 +26,25 @@
             <th>Heartbeat</th>
             <td id="heartbeat"></td>
           </tr>
-          <tr>
+          <tr id="amqp-auth-channel" style="display: none;">
             <th>Authentication</th>
             <td id="authentication"></td>
             <th>Channel max</th>
             <td id="channel_max"></td>
           </tr>
-          <tr>
+          <tr id="amqp-frame" style="display: none;">
             <th>Frame max</th>
             <td id="frame_max"></td>
-            <th>TLS version</th>
-            <td id="tls_version"></td>
           </tr>
           <tr>
+            <th>TLS version</th>
+            <td id="tls_version"></td>
             <th>Cipher</th>
             <td id="cipher"></td>
           </tr>
         </table>
       </section>
-      <section class="card cols-6">
+      <section class="card cols-6" id="client-properties" style="display: none;">
         <h3>Client properties</h3>
         <table class="details-table">
           <tr>
@@ -73,7 +73,7 @@
         <h3>Rates</h3>
         <div class="chart-container" id="chart"></div>
       </section>
-      <section class="card">
+      <section class="card" id="channels-section" style="display: none;">
         <h3 class="has-badge">
           Channels
           <small class="tiny-badge" id="table-count"></small>

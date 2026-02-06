@@ -27,11 +27,11 @@ module LavinMQ
       MQTT
     end
 
-    getter vhosts, users, data_dir, parameters
+    getter vhosts, users, data_dir, parameters, authenticator
     getter? closed, flow
     include ParameterTarget
 
-    @start = Time.monotonic
+    @start = Time.instant
     @closed = false
     @flow = true
     @listeners = Hash(Socket::Server, Protocol).new # Socket => protocol
@@ -47,7 +47,7 @@ module LavinMQ
       @vhosts = VHostStore.new(@data_dir, @users, @replicator)
       @mqtt_brokers = MQTT::Brokers.new(@vhosts, @replicator)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator)
-      authenticator = Auth::Chain.create(@users)
+      @authenticator = Auth::Chain.create(@users)
       @connection_factories = {
         Protocol::AMQP => AMQP::ConnectionFactory.new(authenticator, @vhosts),
         Protocol::MQTT => MQTT::ConnectionFactory.new(authenticator, @mqtt_brokers, @config),
@@ -209,18 +209,28 @@ module LavinMQ
       spawn(name: "Accept TLS socket") do
         remote_addr = client.remote_address
         set_socket_options(client)
-        ssl_client = OpenSSL::SSL::Socket::Server.new(client, context, sync_close: true)
-        set_buffer_size(ssl_client)
-        Log.debug { "#{remote_addr} connected with #{ssl_client.tls_version} #{ssl_client.cipher}" }
-        conn_info = ConnectionInfo.new(remote_addr, client.local_address)
-        conn_info.ssl = true
-        conn_info.ssl_version = ssl_client.tls_version
-        conn_info.ssl_cipher = ssl_client.cipher
-        handle_connection(ssl_client, conn_info, protocol)
+        if @config.tls_ktls?
+          ssl_client = OpenSSL::SSL::NativeSocket::Server.new(client, context, sync_close: true)
+          Log.info { "#{remote_addr} connected with #{ssl_client.tls_version} #{ssl_client.cipher} kTLS=#{ssl_client.ktls_status}" }
+          handle_tls_connection(ssl_client, client.local_address, remote_addr, protocol)
+        else
+          ssl_client = OpenSSL::SSL::Socket::Server.new(client, context, sync_close: true)
+          Log.info { "#{remote_addr} connected with #{ssl_client.tls_version} #{ssl_client.cipher}" }
+          handle_tls_connection(ssl_client, client.local_address, remote_addr, protocol)
+        end
       rescue ex
         Log.warn(exception: ex) { "Error accepting TLS connection from #{remote_addr}" }
         client.close rescue nil
       end
+    end
+
+    private def handle_tls_connection(ssl_client, local_addr, remote_addr, protocol)
+      set_buffer_size(ssl_client)
+      conn_info = ConnectionInfo.new(remote_addr, local_addr)
+      conn_info.ssl = true
+      conn_info.ssl_version = ssl_client.tls_version
+      conn_info.ssl_cipher = ssl_client.cipher
+      handle_connection(ssl_client, conn_info, protocol)
     end
 
     def listen_tls(bind, port, context, protocol : Protocol = :amqp)
@@ -498,7 +508,7 @@ module LavinMQ
     end
 
     def uptime
-      Time.monotonic - @start
+      Time.instant - @start
     end
   end
 end

@@ -8,7 +8,7 @@ module LavinMQPerf
       def run(args = ARGV)
         super(args)
 
-        r = Random::DEFAULT
+        r = Random.new
         ::AMQP::Client.start(@uri) do |c|
           ch = c.channel
           temp_q = ch.queue

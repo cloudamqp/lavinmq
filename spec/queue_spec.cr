@@ -25,9 +25,9 @@ describe LavinMQ::AMQP::Queue do
         sleep 110.milliseconds
         queue.closed?.should be_false
         ch.basic_cancel(tag)
-        start = Time.monotonic
+        start = Time.instant
         should_eventually(be_true) { queue.closed? }
-        (Time.monotonic - start).total_milliseconds.should be_close 100, 50
+        (Time.instant - start).total_milliseconds.should be_close 100, 50
       end
     end
   end
@@ -44,6 +44,58 @@ describe LavinMQ::AMQP::Queue do
         msg = wait_for { dlq.get }
         msg.not_nil!.body_io.to_s.should eq "ttl"
         q.get.should eq nil
+      end
+    end
+  end
+
+  it "Should expire message after consuming non-expiring message" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        # Create a queue with dead letter exchange so we can verify expiration happened
+        q = ch.queue("exp_test", args: AMQP::Client::Arguments.new(
+          {"x-dead-letter-exchange" => "", "x-dead-letter-routing-key" => "dlq"}
+        ))
+        dlq = ch.queue("dlq")
+        q.publish_confirm("no expiration")
+        q.publish_confirm("with expiration", props: AMQP::Client::Properties.new(expiration: "100"))
+
+        msg1 = q.get(no_ack: true).should_not be_nil
+        msg1.body_io.to_s.should eq "no expiration"
+
+        # Queue should have 1 message that should expire
+        msg = wait_for { dlq.get(no_ack: true) }.should_not be_nil
+        msg.body_io.to_s.should eq "with expiration"
+
+        # The Queue should be empty
+        q.get(no_ack: true).should be_nil
+      end
+    end
+  end
+
+  it "Should expire short-TTL message after consuming long-TTL message" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        # Create a queue with dead letter exchange so we can verify expiration happened
+        q = ch.queue("exp_test2", args: AMQP::Client::Arguments.new(
+          {"x-dead-letter-exchange" => "", "x-dead-letter-routing-key" => "dlq2"}
+        ))
+        dlq = ch.queue("dlq2")
+        # Publish message with long TTL (60 seconds)
+        q.publish_confirm("long ttl", props: AMQP::Client::Properties.new(expiration: "60000"))
+        # Publish message with short TTL (500ms)
+        q.publish_confirm("short ttl", props: AMQP::Client::Properties.new(expiration: "500"))
+
+        # Consume the long-TTL message immediately
+        msg1 = q.get(no_ack: true).should_not be_nil
+        msg1.body_io.to_s.should eq "long ttl"
+
+        # The short-TTL message should expire after ~500ms, not 60 seconds
+        msg = wait_for { dlq.get(no_ack: true) }
+        msg.should_not be_nil
+        msg.body_io.to_s.should eq "short ttl"
+
+        # The Queue should be empty
+        q.get(no_ack: true).should be_nil
       end
     end
   end
@@ -497,7 +549,7 @@ describe LavinMQ::AMQP::Queue do
       Dir.mkdir_p data_dir
       begin
         store = LavinMQ::MessageStore.new(data_dir, nil)
-        body = IO::Memory.new(Random::DEFAULT.random_bytes(LavinMQ::Config.instance.segment_size), writeable: false)
+        body = IO::Memory.new(Random::Secure.random_bytes(LavinMQ::Config.instance.segment_size), writeable: false)
         msg = LavinMQ::Message.new(1i64, "amq.topic", "rk", AMQ::Protocol::Properties.new, body.size.to_u64, body)
         sps = Array(LavinMQ::SegmentPosition).new(10) { store.push msg }
         sps.each { |sp| store.delete sp }
@@ -513,7 +565,7 @@ describe LavinMQ::AMQP::Queue do
       data_dir = File.join(LavinMQ::Config.instance.data_dir, "msgstore2")
       Dir.mkdir_p data_dir
       begin
-        body = IO::Memory.new(Random::DEFAULT.random_bytes(LavinMQ::Config.instance.segment_size), writeable: false)
+        body = IO::Memory.new(Random::Secure.random_bytes(LavinMQ::Config.instance.segment_size), writeable: false)
         msg = LavinMQ::Message.new(1i64, "amq.topic", "rk", AMQ::Protocol::Properties.new, body.size.to_u64, body)
 
         store = LavinMQ::MessageStore.new(data_dir, nil)

@@ -1,13 +1,13 @@
 BINS := bin/lavinmq bin/lavinmqctl bin/lavinmqperf
 SOURCES := $(shell find src/ -name '*.cr' 2> /dev/null)
 PERF_SOURCES := $(shell find src/lavinmqperf -name '*.cr' 2> /dev/null)
+CTL_SOURCES := $(shell find src/lavinmqctl -name '*.cr' 2> /dev/null)
 VIEW_SOURCES := $(wildcard views/*.ecr)
 VIEW_TARGETS := $(patsubst views/%.ecr,static/views/%.html,$(VIEW_SOURCES))
 VIEW_PARTIALS := $(wildcard views/partials/*.ecr)
 JS := static/js/lib/chunks/helpers.segment.js static/js/lib/chart.js static/js/lib/luxon.js static/js/lib/chartjs-adapter-luxon.esm.js static/js/lib/elements-8.2.0.js static/js/lib/elements-8.2.0.css $(wildcard static/js/*.js)
-LDFLAGS := $(shell (dpkg-buildflags --get LDFLAGS || rpm -E "%{build_ldflags}" || echo "-pie") 2>/dev/null)
 CRYSTAL_FLAGS := --release
-override CRYSTAL_FLAGS += --stats --error-on-warnings -Dpreview_mt -Dexecution_context --link-flags="$(LDFLAGS)"
+override CRYSTAL_FLAGS += --stats -Dpreview_mt -Dexecution_context --link-flags="$(LDFLAGS)"
 .DELETE_ON_ERROR:
 
 .DEFAULT_GOAL := all
@@ -61,8 +61,11 @@ bin/%-debug: src/%.cr $(SOURCES) lib $(JS) $(DOCS) | bin
 bin/lavinmq-debug: src/lavinmq.cr $(SOURCES) $(VIEW_SOURCES) $(VIEW_PARTIALS) lib $(JS) $(DOCS) | bin
 	crystal build $< -o $@ --debug $(CRYSTAL_FLAGS)
 
-bin/lavinmqctl: src/lavinmqctl.cr lib | bin
+bin/lavinmqctl: src/lavinmqctl.cr $(CTL_SOURCES) lib | bin
 	crystal build $< -o $@ -Dgc_none $(CRYSTAL_FLAGS)
+
+bin/lavinmqperf: src/lavinmqperf.cr $(PERF_SOURCES) lib | bin
+	crystal build $< -o $@ $(CRYSTAL_FLAGS)
 
 lib: shard.yml shard.lock
 	shards install --production
@@ -144,18 +147,19 @@ DOCDIR := $(PREFIX)/share/doc
 MANDIR := $(PREFIX)/share/man
 SYSCONFDIR := /etc
 UNITDIR := /lib/systemd/system
+SYSUSERSDIR := /usr/lib/sysusers.d
 SHAREDSTATEDIR := /var/lib
 
 .PHONY: install
-install: $(BINS) $(MANPAGES) extras/lavinmq.ini extras/lavinmq.service README.md CHANGELOG.md NOTICE
+install: $(BINS) $(MANPAGES) extras/lavinmq.ini extras/lavinmq.service extras/lavinmq.sysusers README.md CHANGELOG.md NOTICE
 	install -D -m 0755 -t $(DESTDIR)$(BINDIR) $(BINS)
 	install -D -m 0644 -t $(DESTDIR)$(MANDIR)/man1 $(MANPAGES)
 	install -D -m 0644 extras/lavinmq.ini $(DESTDIR)$(SYSCONFDIR)/lavinmq/lavinmq.ini
 	install -D -m 0644 extras/lavinmq.service $(DESTDIR)$(UNITDIR)/lavinmq.service
+	install -D -m 0644 extras/lavinmq.sysusers $(DESTDIR)$(SYSUSERSDIR)/lavinmq.conf
 	install -D -m 0644 -t $(DESTDIR)$(DOCDIR)/lavinmq README.md NOTICE
 	install -D -m 0644 CHANGELOG.md $(DESTDIR)$(DOCDIR)/lavinmq/changelog
-	getent passwd lavinmq >/dev/null || useradd --system --user-group --home $(SHAREDSTATEDIR)/lavinmq lavinmq
-	install -d -m 0750 -o lavinmq -g lavinmq $(DESTDIR)$(SHAREDSTATEDIR)/lavinmq
+	install -d -m 0750 $(DESTDIR)$(SHAREDSTATEDIR)/lavinmq
 
 .PHONY: uninstall
 uninstall:
@@ -163,6 +167,7 @@ uninstall:
 	$(RM) $(DESTDIR)$(MANDIR)/man1/lavinmq{,ctl,perf}.1
 	$(RM) $(DESTDIR)$(SYSCONFDIR)/lavinmq/lavinmq.ini
 	$(RM) $(DESTDIR)$(UNITDIR)/lavinmq.service
+	$(RM) $(DESTDIR)$(SYSUSERSDIR)/lavinmq.conf
 	$(RM) -r $(DESTDIR)$(DOCDIR)/lavinmq
 
 .PHONY: rpm

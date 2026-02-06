@@ -6,27 +6,13 @@ require "./http/http_server"
 require "./http/metrics_server"
 require "./in_memory_backend"
 require "./data_dir_lock"
+require "./pidfile"
 require "./etcd"
 require "./clustering/controller"
-require "../stdlib/openssl_sni"
+require "./standalone_runner"
+require "../stdlib/openssl_on_server_name"
 
 module LavinMQ
-  struct StandaloneRunner
-    # The block will be yielded when the runner's prerequisites for a leader
-    # to start are met. For the standalone runner, this is immediately.
-    # The method is blocking.
-    def run(&)
-      yield
-      loop do
-        sleep 30.seconds
-        GC.collect
-      end
-    end
-
-    def stop
-    end
-  end
-
   class Launcher
     Log = LavinMQ::Log.for "launcher"
     @amqp_tls_context : OpenSSL::SSL::Context::Server?
@@ -63,15 +49,15 @@ module LavinMQ
         @amqp_tls_context = create_tls_context
         @mqtt_tls_context = create_tls_context
         @http_tls_context = create_tls_context
+        warn_if_ktls_unavailable if @config.tls_ktls?
       end
-      reload_tls_context
       setup_sni_callbacks
       setup_signal_traps
       SystemD::MemoryPressure.monitor { GC.collect }
     end
 
     private def start : self
-      started_at = Time.monotonic
+      started_at = Time.instant
       @data_dir_lock.try &.acquire
       @amqp_server = amqp_server = LavinMQ::Server.new(@config, @replicator)
       @http_server = http_server = LavinMQ::HTTP::Server.new(amqp_server)
@@ -80,7 +66,7 @@ module LavinMQ
       start_metrics_server(amqp_server) unless @config.metrics_http_port == -1
       SystemD.notify_ready
       Fiber.yield # Yield to let listeners spawn before logging startup time
-      Log.info { "Finished startup in #{(Time.monotonic - started_at).total_seconds}s" }
+      Log.info { "Finished startup in #{(Time.instant - started_at).total_seconds}s" }
       self
     end
 
@@ -131,6 +117,8 @@ module LavinMQ
         Log.info { "Multithreading: #{ENV.fetch("CRYSTAL_WORKERS", "4")} threads" }
       {% end %}
       Log.info { "PID: #{Process.pid}" }
+      # we do this here to have nice consistent logging
+      Pidfile.new(@config.pidfile).acquire unless @config.pidfile.empty?
       Log.info { "Config file: #{@config.config_file}" } unless @config.config_file.empty?
       Log.info { "Data directory: #{@config.data_dir}" }
     end
@@ -268,9 +256,9 @@ module LavinMQ
       if @first_shutdown_attempt
         @first_shutdown_attempt = false
         stop
-        Fiber.yield
         Log.info { "Fibers: " }
         Fiber.list { |f| Log.info { f.inspect } }
+        Fiber.yield
         exit 0
       else
         Log.info { "Fibers: " }
@@ -289,55 +277,57 @@ module LavinMQ
     end
 
     private def create_tls_context
-      context = OpenSSL::SSL::Context::Server.new
-      context.add_options(OpenSSL::SSL::Options.new(0x40000000)) # disable client initiated renegotiation
-      context
+      ctx = OpenSSL::SSL::Context::Server.new
+      configure_tls_context(ctx)
+      ctx
+    end
+
+    private def warn_if_ktls_unavailable
+      {% if flag?(:linux) && compare_versions(LibSSL::OPENSSL_VERSION, "3.0.0") >= 0 %}
+        unless File.exists?("/sys/module/tls")
+          Log.warn { "Kernel TLS module not loaded, kTLS will not be available (run: modprobe tls)" }
+        end
+      {% end %}
     end
 
     private def reload_tls_context
-      if amqp_tls = @amqp_tls_context
-        configure_tls_context(amqp_tls)
+      {@amqp_tls_context, @mqtt_tls_context, @http_tls_context}.each do |ctx|
+        next if ctx.nil?
+        configure_tls_context(ctx)
       end
-      if mqtt_tls = @mqtt_tls_context
-        configure_tls_context(mqtt_tls)
-      end
-      if http_tls = @http_tls_context
-        configure_tls_context(http_tls)
-      end
-      # Reload SNI host contexts
       @config.sni_manager.reload
     end
 
-    private def configure_tls_context(tls : OpenSSL::SSL::Context::Server)
+    private def configure_tls_context(ctx : OpenSSL::SSL::Context::Server)
       case @config.tls_min_version
       when "1.0"
-        tls.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_2 |
+        ctx.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_2 |
                            OpenSSL::SSL::Options::NO_TLS_V1_1 |
                            OpenSSL::SSL::Options::NO_TLS_V1)
       when "1.1"
-        tls.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_2 | OpenSSL::SSL::Options::NO_TLS_V1_1)
-        tls.add_options(OpenSSL::SSL::Options::NO_TLS_V1)
+        ctx.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_2 | OpenSSL::SSL::Options::NO_TLS_V1_1)
+        ctx.add_options(OpenSSL::SSL::Options::NO_TLS_V1)
       when "1.2", ""
-        tls.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_2)
-        tls.add_options(OpenSSL::SSL::Options::NO_TLS_V1_1 | OpenSSL::SSL::Options::NO_TLS_V1)
+        ctx.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_2)
+        ctx.add_options(OpenSSL::SSL::Options::NO_TLS_V1_1 | OpenSSL::SSL::Options::NO_TLS_V1)
       when "1.3"
-        tls.add_options(OpenSSL::SSL::Options::NO_TLS_V1_2)
+        ctx.add_options(OpenSSL::SSL::Options::NO_TLS_V1_2)
       else
         Log.warn { "Unrecognized @config value for tls_min_version: '#{@config.tls_min_version}'" }
       end
-      tls.certificate_chain = @config.tls_cert_path
-      tls.private_key = @config.tls_key_path.empty? ? @config.tls_cert_path : @config.tls_key_path
-      tls.ciphers = @config.tls_ciphers unless @config.tls_ciphers.empty?
-      reload_ssl_keylog(tls)
+      ctx.certificate_chain = @config.tls_cert_path
+      ctx.private_key = @config.tls_key_path.empty? ? @config.tls_cert_path : @config.tls_key_path
+      ctx.ciphers = @config.tls_ciphers unless @config.tls_ciphers.empty?
+      reload_ssl_keylog(ctx)
     end
 
-    private def reload_ssl_keylog(tls)
+    private def reload_ssl_keylog(ctx)
       keylog_file = @config.tls_keylog_file
       keylog_file = ENV.fetch("SSLKEYLOGFILE", "") if keylog_file.empty?
       if keylog_file.empty?
-        tls.keylog_file = nil
+        ctx.keylog_file = nil
       else
-        tls.keylog_file = keylog_file
+        ctx.keylog_file = keylog_file
         Log.info { "SSL keylog enabled, writing to #{keylog_file}" }
       end
     end
@@ -348,7 +338,7 @@ module LavinMQ
       # Set up SNI callback for AMQP TLS context
       if amqp_tls = @amqp_tls_context
         sni_manager = @config.sni_manager
-        amqp_tls.set_sni_callback do |hostname|
+        amqp_tls.on_server_name do |hostname|
           if sni_host = sni_manager.get_host(hostname)
             Log.debug { "SNI (AMQP): Using certificate for hostname '#{hostname}'" }
             sni_host.amqp_tls_context
@@ -362,7 +352,7 @@ module LavinMQ
       # Set up SNI callback for MQTT TLS context
       if mqtt_tls = @mqtt_tls_context
         sni_manager = @config.sni_manager
-        mqtt_tls.set_sni_callback do |hostname|
+        mqtt_tls.on_server_name do |hostname|
           if sni_host = sni_manager.get_host(hostname)
             Log.debug { "SNI (MQTT): Using certificate for hostname '#{hostname}'" }
             sni_host.mqtt_tls_context
@@ -376,7 +366,7 @@ module LavinMQ
       # Set up SNI callback for HTTP TLS context
       if http_tls = @http_tls_context
         sni_manager = @config.sni_manager
-        http_tls.set_sni_callback do |hostname|
+        http_tls.on_server_name do |hostname|
           if sni_host = sni_manager.get_host(hostname)
             Log.debug { "SNI (HTTP): Using certificate for hostname '#{hostname}'" }
             sni_host.http_tls_context

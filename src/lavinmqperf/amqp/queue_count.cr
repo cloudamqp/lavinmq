@@ -39,11 +39,12 @@ module LavinMQPerf
       def run(args = ARGV)
         super(args)
         count = 0
+        r = Random.new
         c = ::AMQP::Client.new(@uri).connect
         ch = c.channel
         loop do
           @queues.times do
-            ch.queue_declare("lavinmqperf-queue-#{Random::DEFAULT.hex(8)}",
+            ch.queue_declare("lavinmqperf-queue-#{r.hex(8)}",
               durable: @durable, exclusive: @exclusive, no_wait: @no_wait, args: @args)
             @io.print '.'
           end

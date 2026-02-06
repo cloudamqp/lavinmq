@@ -9,7 +9,7 @@ module LavinMQ
       def initialize(size : UInt32? = nil)
         @size = size || 128_u32
         @lock = Mutex.new
-        @store = Hash(T, Time::Span?).new(initial_capacity: @size)
+        @store = Hash(T, Time::Instant?).new(initial_capacity: @size)
       end
 
       def contains?(key : T) : Bool
@@ -17,7 +17,7 @@ module LavinMQ
           return false unless @store.has_key?(key)
           ttd = @store[key]
           return true unless ttd
-          return true if ttd > RoughTime.monotonic
+          return true if ttd > RoughTime.instant
           @store.delete(key)
           false
         end
@@ -26,7 +26,7 @@ module LavinMQ
       def insert(key : T, ttl : UInt32? = nil)
         @lock.synchronize do
           @store.shift if @store.size >= @size
-          val = ttl.try { |v| RoughTime.monotonic + v.milliseconds }
+          val = ttl.try { |v| RoughTime.instant + v.milliseconds }
           @store[key] = val
         end
       end

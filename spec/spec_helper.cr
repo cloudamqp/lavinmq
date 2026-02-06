@@ -7,6 +7,10 @@ class Log
   def self.setup
     # noop, don't override during spec
   end
+
+  def self.setup(level : Severity, backend : Backend)
+    # noop, don't override during spec
+  end
 end
 
 require "spec"
@@ -70,25 +74,25 @@ def amqp_port(s)
 end
 
 def should_eventually(expectation, timeout = 5.seconds, file = __FILE__, line = __LINE__, &)
-  sec = Time.monotonic
+  sec = Time.instant
   loop do
     Fiber.yield
     begin
       yield.should(expectation, file: file, line: line)
       return
     rescue ex
-      raise ex if Time.monotonic - sec > timeout
+      raise ex if Time.instant - sec > timeout
     end
   end
 end
 
 def wait_for(timeout = 5.seconds, file = __FILE__, line = __LINE__, &)
-  sec = Time.monotonic
+  sec = Time.instant
   loop do
     Fiber.yield
     res = yield
     return res if res
-    break if Time.monotonic - sec > timeout
+    break if Time.instant - sec > timeout
   end
   fail "Execution expired", file: file, line: line
 end
@@ -212,8 +216,8 @@ def create_ttl_and_dl_queues(channel, queue_ttl = 1)
   {q, dlq}
 end
 
-def exit(code = 0)
-  raise SpecExit.new(code)
+def exit(status : Int32 | Process::Status = 0) : NoReturn
+  raise SpecExit.new(status.is_a?(Int32) ? status : status.exit_code)
 end
 
 class SpecExit < Exception

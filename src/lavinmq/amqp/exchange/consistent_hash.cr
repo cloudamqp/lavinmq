@@ -1,12 +1,24 @@
 require "../destination"
 require "./exchange"
+require "../../hasher.cr"
 require "../../consistent_hasher.cr"
+require "../../jump_consistent_hasher.cr"
 
 module LavinMQ
+  enum ConsistentHashAlgorithm
+    Ring
+    Jump
+  end
+
   module AMQP
     class ConsistentHashExchange < Exchange
-      @hasher = ConsistentHasher(AMQP::Destination).new
+      @hasher : Hasher(AMQP::Destination)
       @bindings = Set({Destination, BindingKey}).new
+
+      def initialize(*args, **kwargs)
+        super(*args, **kwargs)
+        @hasher = select_hasher(Config.instance.default_consistent_hash_algorithm)
+      end
 
       def type : String
         "x-consistent-hash"
@@ -14,7 +26,24 @@ module LavinMQ
 
       def handle_arguments
         super
+        if v = @arguments["x-algorithm"]?
+          if hasher = v.as?(String)
+            if algo = ConsistentHashAlgorithm.parse?(hasher)
+              @hasher = select_hasher(algo)
+              @effective_args << "x-algorithm"
+            end
+          end
+        end
         @effective_args << "x-hash-on" if @arguments["x-hash-on"]?
+      end
+
+      private def select_hasher(option : ConsistentHashAlgorithm)
+        case option
+        in .jump?
+          JumpConsistentHasher(AMQP::Destination).new
+        in .ring?
+          RingConsistentHasher(AMQP::Destination).new
+        end
       end
 
       def bindings_details : Iterator(BindingDetails)
@@ -38,7 +67,11 @@ module LavinMQ
         w = weight(routing_key)
         binding_key = BindingKey.new(routing_key, arguments)
         return false unless @bindings.delete({destination, binding_key})
-        @hasher.remove(destination.name, w)
+        # Only remove from hasher if no other bindings exist for this destination with same weight
+        has_other_binding = @bindings.any? do |d, bk|
+          d == destination && bk.routing_key == routing_key
+        end
+        @hasher.remove(destination.name, w) unless has_other_binding
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
         notify_observers(ExchangeEvent::Unbind, data)
 

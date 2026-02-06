@@ -20,6 +20,8 @@ function updateConnection (all) {
       stateEl.textContent = item.state
     }
     if (all) {
+      const isAMQP = item.protocol && item.protocol.includes('AMQP')
+
       document.getElementById('conn-username').textContent = item.user
       document.getElementById('connected_at').textContent = new Date(item.connected_at).toLocaleString()
       document.getElementById('heartbeat').textContent = item.timeout + 's'
@@ -29,8 +31,11 @@ function updateConnection (all) {
       document.getElementById('tls_version').textContent = item.tls_version
       document.getElementById('cipher').textContent = item.cipher
       const cp = item.client_properties
-      document.getElementById('cp-name').textContent = cp.connection_name
-      document.getElementById('cp-capabilities').textContent = DOM.jsonToText(cp.capabilities)
+      // Show client_id for MQTT, connection_name for AMQP
+      const clientName = isAMQP ? cp.connection_name : item.client_id
+      document.getElementById('cp-name').textContent = clientName
+      document.getElementById('cp-capabilities').textContent = cp.capabilities ? DOM.jsonToText(cp.capabilities) : ''
+
       if (cp.product_version) {
         document.getElementById('cp-product').appendChild(document.createElement('span')).textContent = cp.product
         document.getElementById('cp-product').appendChild(document.createElement('br'))
@@ -53,6 +58,14 @@ function updateConnection (all) {
         infoEl.appendChild(infoLink)
       } else {
         infoEl.textContent = cp.information || ''
+      }
+
+      // Show AMQP-only elements for AMQP connections
+      if (isAMQP) {
+        document.getElementById('amqp-auth-channel').style.display = ''
+        document.getElementById('amqp-frame').style.display = ''
+        document.getElementById('client-properties').style.display = 'block'
+        document.getElementById('channels-section').style.display = 'block'
       }
     }
   })

@@ -4,7 +4,7 @@ require "./logger"
 require "./policy"
 require "./parameter_store"
 require "./parameter"
-require "./shovel/shovel_store"
+require "./shovel/store"
 require "./federation/upstream_store"
 require "./sortable_json"
 require "./amqp/exchange/*"
@@ -35,7 +35,7 @@ module LavinMQ
     @exchanges = Hash(String, Exchange).new
     @queues = Hash(String, Queue).new
     @direct_reply_consumers = Hash(String, Client::Channel).new
-    @shovels : ShovelStore?
+    @shovels : Shovel::Store?
     @upstreams : Federation::UpstreamStore?
     @connections = Array(Client).new(512)
     @definitions_file : File
@@ -58,7 +58,7 @@ module LavinMQ
       @operator_policies = ParameterStore(OperatorPolicy).new(@data_dir, "operator_policies.json", @replicator, vhost: @name)
       @policies = ParameterStore(Policy).new(@data_dir, "policies.json", @replicator, vhost: @name)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator, vhost: @name)
-      @shovels = ShovelStore.new(self)
+      @shovels = Shovel::Store.new(self)
       @upstreams = Federation::UpstreamStore.new(self)
       load!
       spawn check_consumer_timeouts_loop, name: "Consumer timeouts loop"

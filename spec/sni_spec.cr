@@ -1,5 +1,5 @@
 require "./spec_helper"
-require "../src/stdlib/openssl_sni"
+require "../src/stdlib/openssl_on_server_name"
 
 describe LavinMQ::SNIHost do
   it "creates TLS contexts with default settings" do
@@ -203,7 +203,7 @@ describe OpenSSL::SSL::Context::Server do
     callback_called = false
     received_hostname = ""
 
-    default_ctx.set_sni_callback do |hostname|
+    default_ctx.on_server_name do |hostname|
       callback_called = true
       received_hostname = hostname
       if hostname == "alt.example.com"
@@ -242,7 +242,7 @@ describe "SNI end-to-end" do
     default_ctx.private_key = "spec/resources/server_key.pem"
 
     # Set up SNI callback
-    default_ctx.set_sni_callback do |hostname|
+    default_ctx.on_server_name do |hostname|
       if sni_host = sni_manager.get_host(hostname)
         sni_host.amqp_tls_context
       else
@@ -333,7 +333,7 @@ describe "SNI end-to-end" do
     default_ctx.private_key = "spec/resources/server_key.pem"
 
     # SNI callback to switch to mTLS context for mtls.localhost
-    default_ctx.set_sni_callback do |hostname|
+    default_ctx.on_server_name do |hostname|
       sni_manager.get_host(hostname).try(&.amqp_tls_context)
     end
 

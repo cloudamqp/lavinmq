@@ -21,6 +21,7 @@ module LavinMQPerf
       @pmessages = 0
       @cmessages = 0
       @random_bodies = false
+      @random = Random.new
       @retain = false
       @clean_session = false
       @uri = URI.parse("mqtt://localhost:1883")
@@ -97,7 +98,7 @@ module LavinMQPerf
         socket = TCPSocket.new(host, port)
         socket.keepalive = true
         socket.tcp_nodelay = false
-        socket.sync = true
+        socket.sync = false
         io = LavinMQ::MQTT::IO.new(socket)
 
         client_id = "#{role}-#{id}"
@@ -111,6 +112,7 @@ module LavinMQPerf
         )
 
         connect_packet.to_io(io)
+        io.flush
 
         response = LavinMQ::MQTT::Packet.from_io(io)
         unless response.is_a?(LavinMQ::MQTT::Connack) &&
@@ -147,7 +149,7 @@ module LavinMQPerf
         end
 
         connected.wait # wait for all clients to connect
-        start = Time.monotonic
+        start = Time.instant
         Process.on_terminate do
           abort "Aborting" if @stopped
           @stopped = true
@@ -172,8 +174,8 @@ module LavinMQPerf
         summary(start)
       end
 
-      private def summary(start : Time::Span)
-        stop = Time.monotonic
+      private def summary(start : Time::Instant)
+        stop = Time.instant
         elapsed = (stop - start).total_seconds
         avg_pub = (@pubs.get(:relaxed) / elapsed).round(1)
         avg_consume = (@consumes.get(:relaxed) / elapsed).round(1)
@@ -204,12 +206,12 @@ module LavinMQPerf
         data = Bytes.new(@size) { |i| ((i % 27 + 64)).to_u8 }
         Fiber.yield
 
-        start = Time.monotonic
+        start = Time.instant
         pubs_this_second = 0
         packet_id_generator = (1_u16..).each
         wait_until_all_are_connected(connected)
         until @stopped
-          Random::DEFAULT.random_bytes(data) if @random_bodies
+          @random.random_bytes(data) if @random_bodies
           packet_id = @qos > 0 ? packet_id_generator.next.as(UInt16) : nil
 
           publish = LavinMQ::MQTT::Publish.new(
@@ -221,6 +223,7 @@ module LavinMQPerf
             dup: false
           )
           publish.to_io(io)
+          io.flush
 
           if @qos > 0
             ack = LavinMQ::MQTT::Packet.from_io(io)
@@ -235,11 +238,11 @@ module LavinMQPerf
           if !@rate.zero?
             pubs_this_second += 1
             if pubs_this_second >= @rate
-              until_next_second = (start + 1.seconds) - Time.monotonic
+              until_next_second = (start + 1.seconds) - Time.instant
               if until_next_second > Time::Span.zero
                 sleep until_next_second
               end
-              start = Time.monotonic
+              start = Time.instant
               pubs_this_second = 0
             end
           end
@@ -253,11 +256,12 @@ module LavinMQPerf
         data = Bytes.new(@size) { |i| ((i % 27 + 64)).to_u8 }
         Fiber.yield
 
-        start = Time.monotonic
+        start = Time.instant
         consumes_this_second = 0
 
         topic_filter = LavinMQ::MQTT::Subscribe::TopicFilter.new(@topic, @qos.to_u8)
         LavinMQ::MQTT::Subscribe.new([topic_filter], packet_id: 1_u16).to_io(io)
+        io.flush
 
         suback = LavinMQ::MQTT::Packet.from_io(io)
         unless suback.is_a?(LavinMQ::MQTT::SubAck)
@@ -279,6 +283,7 @@ module LavinMQPerf
 
               if packet.qos > 0 && (packet_id = packet.packet_id)
                 LavinMQ::MQTT::PubAck.new(packet_id).to_io(io)
+                io.flush
               end
 
               if @cmessages > 0 && consumes >= @cmessages
@@ -288,11 +293,11 @@ module LavinMQPerf
               if !@consume_rate.zero?
                 consumes_this_second += 1
                 if consumes_this_second >= @consume_rate
-                  until_next_second = (start + 1.seconds) - Time.monotonic
+                  until_next_second = (start + 1.seconds) - Time.instant
                   if until_next_second > Time::Span.zero
                     sleep until_next_second
                   end
-                  start = Time.monotonic
+                  start = Time.instant
                   consumes_this_second = 0
                 end
               else
@@ -300,13 +305,17 @@ module LavinMQPerf
               end
             when LavinMQ::MQTT::PingReq
               LavinMQ::MQTT::PingResp.new.to_io(io)
+              io.flush
             end
           rescue ex : IO::TimeoutError
             @io.puts ex
             next
           end
         end
-        LavinMQ::MQTT::Disconnect.new.to_io(io) if socket && !socket.closed?
+        if socket && !socket.closed?
+          LavinMQ::MQTT::Disconnect.new.to_io(io)
+          io.flush
+        end
       end
 
       private def rerun_on_exception(done, &)

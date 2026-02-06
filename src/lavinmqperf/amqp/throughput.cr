@@ -7,6 +7,7 @@ module LavinMQPerf
   module AMQP
     class Throughput < Perf
       LATENCY_RESERVOIR_SIZE = 128 * 1024
+      BASE_INSTANT           = Time.instant
 
       @publishers = 1
       @consumers = 1
@@ -41,6 +42,7 @@ module LavinMQPerf
       @latencies_mutex = Mutex.new
       @last_latencies = Array(Float64).new
       @latencies_count : UInt64 = 0
+      @random = Random.new
 
       def initialize(io : IO = STDOUT)
         super(io)
@@ -195,7 +197,7 @@ module LavinMQPerf
 
         connected.wait # wait for all publishers to connect
 
-        start = Time.monotonic
+        start = Time.instant
         Process.on_terminate do
           abort "Aborting" if @stopped
           @stopped = true
@@ -212,15 +214,15 @@ module LavinMQPerf
           break if @stopped
           pubs_last = @pubs.get(:relaxed)
           consumes_last = @consumes.get(:relaxed)
-          report_start = Time.monotonic
+          report_start = Time.instant
           sleep 1.seconds
           report(report_start, pubs_last, consumes_last) unless @quiet
         end
         summary(start)
       end
 
-      private def report(start : Time::Span, pubs_last : UInt64, consumes_last : UInt64)
-        elapsed = (Time.monotonic - start).total_seconds
+      private def report(start : Time::Instant, pubs_last : UInt64, consumes_last : UInt64)
+        elapsed = (Time.instant - start).total_seconds
         pubs = @pubs.get(:relaxed)
         consumes = @consumes.get(:relaxed)
         pub_rate = ((pubs - pubs_last) / elapsed).round.to_i64
@@ -254,8 +256,8 @@ module LavinMQPerf
         }
       end
 
-      private def summary(start : Time::Span)
-        stop = Time.monotonic
+      private def summary(start : Time::Instant)
+        stop = Time.instant
         elapsed = (stop - start).total_seconds
         avg_pub = (@pubs.get(:relaxed) / elapsed).round.to_i64
         avg_consume = (@consumes.get(:relaxed) / elapsed).round.to_i64
@@ -312,7 +314,7 @@ module LavinMQPerf
         return if body.size < 8 # not enough data for timestamp
 
         timestamp_ns = IO::ByteFormat::LittleEndian.decode(Int64, body)
-        latency_ms = (Time.monotonic.total_nanoseconds - timestamp_ns) / 1_000_000.0
+        latency_ms = ((Time.instant - BASE_INSTANT).total_nanoseconds - timestamp_ns) / 1_000_000.0
         @latencies_mutex.synchronize do
           @latencies_count += 1
           @last_latencies << latency_ms
@@ -323,7 +325,7 @@ module LavinMQPerf
             # Replace random element with probability RESERVOIR_SIZE / count
             # Standard reservoir sampling: pick random position in [0, count),
             # and if it's within reservoir size, replace that element
-            j = Random::DEFAULT.rand(@latencies_count)
+            j = @random.rand(@latencies_count)
             @latencies[j] = latency_ms if j < LATENCY_RESERVOIR_SIZE
           end
         end
@@ -348,22 +350,22 @@ module LavinMQPerf
           ch.tx_select if @pub_in_transaction > 0
           ch.confirm_select if @max_unconfirm > 0
           wait_until_all_are_connected(connected)
-          start = Time.monotonic
+          start = Time.instant
           pubs_this_second = 0
           queues = queue_names
           queue_idx = 0
           until @stopped
             if @measure_latency
               # Write timestamp at the beginning of the message
-              IO::ByteFormat::LittleEndian.encode(Time.monotonic.total_nanoseconds.to_i64, data)
+              IO::ByteFormat::LittleEndian.encode((Time.instant - BASE_INSTANT).total_nanoseconds.to_i64, data)
               # Fill the rest with random or pattern data
               if @random_bodies
-                Random::DEFAULT.random_bytes(data[8..])
+                @random.random_bytes(data[8..])
               else
                 (8...@size).each { |i| data[i] = ((i % 27 + 64)).to_u8 }
               end
             elsif @random_bodies
-              Random::DEFAULT.random_bytes(data)
+              @random.random_bytes(data)
             end
             # When using queue pattern, rotate through queues using queue name as routing key
             routing_key = if @queue_pattern
@@ -386,11 +388,11 @@ module LavinMQPerf
             unless @rate.zero?
               pubs_this_second += 1
               if pubs_this_second >= @rate
-                until_next_second = (start + 1.seconds) - Time.monotonic
+                until_next_second = (start + 1.seconds) - Time.instant
                 if until_next_second > Time::Span.zero
                   sleep until_next_second
                 end
-                start = Time.monotonic
+                start = Time.instant
                 pubs_this_second = 0
               end
             end
@@ -486,7 +488,7 @@ module LavinMQPerf
       private class RateLimiter
         def initialize(@rate : Int32)
           @consumes_this_second = 0
-          @start = Time.monotonic
+          @start = Time.instant
           @total_consumes = 0_u64
         end
 
@@ -501,9 +503,9 @@ module LavinMQPerf
           @consumes_this_second += 1
           @total_consumes += 1
           if @consumes_this_second >= @rate
-            until_next_second = (@start + 1.seconds) - Time.monotonic
+            until_next_second = (@start + 1.seconds) - Time.instant
             sleep until_next_second if until_next_second > Time::Span.zero
-            @start = Time.monotonic
+            @start = Time.instant
             @consumes_this_second = 0
           end
         end
