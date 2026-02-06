@@ -1123,6 +1123,10 @@ footer .logo {
       padding-left: 68px;
     }
   }
+
+  .menu-tooltip:hover .toggle-menu-label {
+    opacity: 1;
+  }
 }
 
 .card:has(.table-header) {
