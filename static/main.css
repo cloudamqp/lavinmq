@@ -56,7 +56,7 @@
 
   /* Shadow and overlay colors */
   --color-shadow: rgba(39, 39, 39, 0.1);
-  --color-tooltip-bg: rgba(0, 0, 0, 0.8);
+  --color-tooltip-bg: rgba(0, 0, 0, 0.9);
 
   /* Version tab and special element colors */
   --color-version-border: light-dark(#c2c2c2, #333332);
@@ -67,7 +67,10 @@
   --color-theme-switcher-active: light-dark(#ffffff, rgba(255, 255, 255, 0.15));
 
   scrollbar-width: thin;
+  --sidebar-width: 320px;
 }
+
+:root.menu-collapsed { --sidebar-width: 68px; }
 
 /* === RESET / BASE === */
 @font-face {
@@ -158,7 +161,7 @@ main {
 }
 
 main.main-grid {
-  padding-left: 320px;
+  padding-left: var(--sidebar-width);
   padding-top: 64px;
   grid-auto-rows: max-content;
   min-height: calc(100vh - 140px);
@@ -259,7 +262,7 @@ body.login main {
 
 /* === NAVIGATION & HEADER === */
 header {
-  padding: 5px 20px;
+  padding: 5px 20px 5px 0.75rem;
   position: fixed;
   top: 0;
   left: 0;
@@ -743,15 +746,47 @@ button {
   --highlight-color: var(--color-bg-hover);
   position: fixed;
   left: 0;
-  top: 0;
+  top: 64px;
   width: 100%;
   max-width: 320px;
-  height: 100vh;
-  overflow: auto;
-  padding-top: 4rem;
-  z-index: 9998;
+  height: calc(100vh - 64px);
+  overflow-x: visible;
+  overflow-y: auto;
+  z-index: 9999;
   scrollbar-color: var(--color-scrollbar);
   scrollbar-width: thin;
+}
+
+.toggle-menu-wrapper {
+  margin-right: 1rem;
+  display: flex;
+  align-items: center;
+
+  &::after {
+    content: "";
+    width: 1px;
+    height: 24px;
+    background: var(--color-border-separator);
+    margin-left: 14px;
+    display: inline-block;
+  }
+}
+
+.btn-toggle-menu {
+  content: '';
+  border: none;
+  background-color: transparent;
+  line-height: 0;
+  padding: 0.5rem;
+  border-radius: 0.5rem;
+
+  svg {
+    margin: 0 2px;
+  }
+
+  &:hover {
+    background-color: var(--color-bg-hover);
+  }
 }
 
 footer {
@@ -990,6 +1025,108 @@ footer .logo {
 
 #menu ul li.active a i, #menu ul li a:hover img {
   opacity: 1;
+}
+
+.toggle-menu-label {
+  position: fixed;
+  transition-delay: 0s;
+  width: auto;
+  padding: 2px 8px;
+  font-size: 14px;
+  line-height: 20px;
+  opacity: 0;
+  background: var(--color-tooltip-bg);
+  color: var(--color-text-inverse);
+  pointer-events: none;
+  left: 66px;
+  font-weight: 400;
+  border-radius: 4px;
+}
+
+@media (min-width: 1000px) {
+  .menu-collapsed {
+    #menu ul li.menu-group:not(:first-child) {
+      padding-top: 0.5rem;
+    }
+
+    .menu-tooltip .menu-tooltip-label, .toggle-menu-label {
+      position: fixed;
+      transition-delay: 0s;
+      width: auto;
+      padding: 2px 8px;
+      font-size: 14px;
+      line-height: 20px;
+      opacity: 0;
+      background: var(--color-tooltip-bg);
+      color: var(--color-text-inverse);
+      pointer-events: none;
+      left: 66px;
+      font-weight: 400;
+      border-radius: 4px;
+    }
+
+    .menu-tooltip:hover .menu-tooltip-label {
+      opacity: 1;
+    }
+
+    #menu-content {
+      .menu-group {
+        margin-bottom: 0;
+
+        span {
+          display: none;
+        }
+      }
+
+      li a {
+        justify-content: center;
+      }
+
+      li a span.menu-tooltip-label {
+        transform: translateY(-50%);
+      }
+
+      li.last-menu-item a span.menu-item-label {
+        display: block;
+        font-size: 8px;
+        line-height: 10px;
+        width: 28px;
+        text-align: left;
+        border: 1px solid light-dark(#6B7280, #9D9C9A);
+        text-align: center;
+        padding: 4px 0;
+        border-radius: 2px;
+      }
+
+      .icon-blank {
+        display: none;
+      }
+    }
+
+    #menu {
+      width: auto;
+
+      ul {
+        padding: 0 0.75rem;
+      }
+
+      ul li a img {
+        margin-right: 0;
+      }
+    }
+
+    .r-c {
+      left: 68px;
+    }
+
+    footer {
+      padding-left: 68px;
+    }
+  }
+
+  .menu-tooltip:hover .toggle-menu-label {
+    opacity: 1;
+  }
 }
 
 .card:has(.table-header) {
@@ -1605,12 +1742,10 @@ fieldset.inline {
 .arg-tooltip .tooltiptext,
 .prop-tooltip .prop-tooltiptext {
   visibility: hidden;
-  width: 150px;
   background-color: var(--color-tooltip-bg);
   color: var(--color-text-inverse);
   padding: 10px 10px;
   border-radius: 6px;
-
   width: 150px;
   bottom: 100%;
   left: 50%;
@@ -2128,6 +2263,10 @@ html.theme-dark {
 }
 
 @media (max-width: 1000px) {
+  .toggle-menu-wrapper {
+    display: none;
+  }
+
   main.main-grid {
     padding-left: 24px;
   }
