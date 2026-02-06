@@ -13,7 +13,7 @@ RUN tar -czf ../lavinmq_${version}.orig.tar.gz -C /usr/src lavinmq_${version}
 COPY packaging/debian/ debian/
 RUN sed -i -E "s/^(lavinmq) \(.*\)/\1 \(${version}-1\)/" debian/changelog
 ARG DEB_BUILD_OPTIONS="parallel=2"
-RUN debuild -us -uc
+RUN debuild -us -uc -e=version
 
 FROM ubuntu:24.04 AS test
 COPY --from=builder /usr/src/*deb .
