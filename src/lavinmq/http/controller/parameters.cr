@@ -1,5 +1,6 @@
 require "../controller"
 require "../../sortable_json"
+require "../../shovel/store"
 
 module LavinMQ
   module HTTP
@@ -80,6 +81,13 @@ module LavinMQ
             value = body["value"]?
             unless value
               bad_request(context, "Field 'value' is required")
+            end
+            if component == "shovel"
+              begin
+                Shovel::Store.validate_config!(value, context.user)
+              rescue ex : Shovel::ConfigError
+                bad_request(context, ex.message)
+              end
             end
             p = Parameter.new(component, name, value)
             is_update = vhost.parameters[{component, name}]?

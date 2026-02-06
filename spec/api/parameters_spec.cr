@@ -123,6 +123,276 @@ describe LavinMQ::HTTP::ParametersController do
       end
     end
   end
+
+  describe "PUT /api/parameters/shovel/vhost/name" do
+    it "should validate shovel config with valid config" do
+      with_http_server do |http, s|
+        s.users.add_permission("guest", "/", /.*/, /.*/, /.*/)
+        body = %({
+          "value": {
+            "src-uri": "amqp://",
+            "dest-uri": "amqp://",
+            "src-queue": "source-queue",
+            "dest-queue": "dest-queue"
+          }
+        })
+        response = http.put("/api/parameters/shovel/%2f/test-shovel", body: body)
+        response.status_code.should eq 201
+      end
+    end
+
+    it "should reject shovel without source queue or exchange" do
+      with_http_server do |http, s|
+        s.users.add_permission("guest", "/", /.*/, /.*/, /.*/)
+        body = %({
+          "value": {
+            "src-uri": "amqp://",
+            "dest-uri": "amqp://",
+            "dest-queue": "dest-queue"
+          }
+        })
+        response = http.put("/api/parameters/shovel/%2f/test-shovel", body: body)
+        response.status_code.should eq 400
+        body = JSON.parse(response.body)
+        body["reason"].as_s.should contain("source requires a queue or an exchange")
+      end
+    end
+
+    it "should reject shovel without destination" do
+      with_http_server do |http, s|
+        s.users.add_permission("guest", "/", /.*/, /.*/, /.*/)
+        body = %({
+          "value": {
+            "src-uri": "amqp://",
+            "dest-uri": "amqp://",
+            "src-queue": "source-queue"
+          }
+        })
+        response = http.put("/api/parameters/shovel/%2f/test-shovel", body: body)
+        response.status_code.should eq 400
+        body = JSON.parse(response.body)
+        body["reason"].as_s.should contain("destination requires queue and/or exchange")
+      end
+    end
+
+    it "should reject shovel when user lacks write permission on destination exchange" do
+      with_http_server do |http, s|
+        s.users.create("limited", "pw", [LavinMQ::Tag::PolicyMaker])
+        s.users.add_permission("limited", "/", /.*/, /.*/, /^$/)
+        hdrs = ::HTTP::Headers{"Authorization" => "Basic bGltaXRlZDpwdw=="}
+        body = %({
+          "value": {
+            "src-uri": "amqp://",
+            "dest-uri": "amqp://",
+            "src-queue": "source-queue",
+            "dest-exchange": "dest-exchange"
+          }
+        })
+        response = http.put("/api/parameters/shovel/%2f/test-shovel", body: body, headers: hdrs)
+        response.status_code.should eq 400
+        body = JSON.parse(response.body)
+        body["reason"].as_s.should contain("can't access exchange")
+      end
+    end
+
+    it "should reject shovel when user lacks config permission on destination exchange" do
+      with_http_server do |http, s|
+        s.users.create("limited", "pw", [LavinMQ::Tag::PolicyMaker])
+        s.users.add_permission("limited", "/", /^$/, /.*/, /.*/)
+        hdrs = ::HTTP::Headers{"Authorization" => "Basic bGltaXRlZDpwdw=="}
+        body = %({
+          "value": {
+            "src-uri": "amqp://",
+            "dest-uri": "amqp://",
+            "src-queue": "source-queue",
+            "dest-exchange": "dest-exchange"
+          }
+        })
+        response = http.put("/api/parameters/shovel/%2f/test-shovel", body: body, headers: hdrs)
+        response.status_code.should eq 400
+        body = JSON.parse(response.body)
+        body["reason"].as_s.should contain("can't access exchange")
+      end
+    end
+
+    it "should reject shovel when user lacks config permission on destination queue" do
+      with_http_server do |http, s|
+        s.users.create("limited", "pw", [LavinMQ::Tag::PolicyMaker])
+        s.users.add_permission("limited", "/", /^(?!dest-queue$).*/, /.*/, /.*/)
+        hdrs = ::HTTP::Headers{"Authorization" => "Basic bGltaXRlZDpwdw=="}
+        body = %({
+          "value": {
+            "src-uri": "amqp://",
+            "dest-uri": "amqp://",
+            "src-queue": "source-queue",
+            "dest-exchange": "dest-exchange",
+            "dest-queue": "dest-queue"
+          }
+        })
+        response = http.put("/api/parameters/shovel/%2f/test-shovel", body: body, headers: hdrs)
+        response.status_code.should eq 400
+        body = JSON.parse(response.body)
+        body["reason"].as_s.should contain("can't access queue")
+      end
+    end
+
+    it "should reject shovel when user lacks read permission on source queue" do
+      with_http_server do |http, s|
+        s.users.create("limited", "pw", [LavinMQ::Tag::PolicyMaker])
+        s.users.add_permission("limited", "/", /.*/, /^$/, /.*/)
+        hdrs = ::HTTP::Headers{"Authorization" => "Basic bGltaXRlZDpwdw=="}
+        body = %({
+          "value": {
+            "src-uri": "amqp://",
+            "dest-uri": "amqp://",
+            "src-queue": "source-queue",
+            "dest-queue": "dest-queue"
+          }
+        })
+        response = http.put("/api/parameters/shovel/%2f/test-shovel", body: body, headers: hdrs)
+        response.status_code.should eq 400
+        body = JSON.parse(response.body)
+        body["reason"].as_s.should contain("can't access queue")
+      end
+    end
+
+    it "should reject shovel when user lacks config permission on source queue" do
+      with_http_server do |http, s|
+        s.users.create("limited", "pw", [LavinMQ::Tag::PolicyMaker])
+        s.users.add_permission("limited", "/", /^(?!source-queue$).*/, /.*/, /.*/)
+        hdrs = ::HTTP::Headers{"Authorization" => "Basic bGltaXRlZDpwdw=="}
+        body = %({
+          "value": {
+            "src-uri": "amqp://",
+            "dest-uri": "amqp://",
+            "src-queue": "source-queue",
+            "dest-exchange": "dest-exchange"
+          }
+        })
+        response = http.put("/api/parameters/shovel/%2f/test-shovel", body: body, headers: hdrs)
+        response.status_code.should eq 400
+        body = JSON.parse(response.body)
+        body["reason"].as_s.should contain("can't access queue")
+      end
+    end
+
+    it "should reject shovel when user lacks read permission on source exchange" do
+      with_http_server do |http, s|
+        s.users.create("limited", "pw", [LavinMQ::Tag::PolicyMaker])
+        s.users.add_permission("limited", "/", /.*/, /^(?!source-exchange$).*/, /.*/)
+        hdrs = ::HTTP::Headers{"Authorization" => "Basic bGltaXRlZDpwdw=="}
+        body = %({
+          "value": {
+            "src-uri": "amqp://",
+            "dest-uri": "amqp://",
+            "src-exchange": "source-exchange",
+            "dest-exchange": "dest-exchange"
+          }
+        })
+        response = http.put("/api/parameters/shovel/%2f/test-shovel", body: body, headers: hdrs)
+        response.status_code.should eq 400
+        body = JSON.parse(response.body)
+        body["reason"].as_s.should contain("can't access exchange")
+      end
+    end
+
+    it "should reject shovel when user lacks config permission on source exchange" do
+      with_http_server do |http, s|
+        s.users.create("limited", "pw", [LavinMQ::Tag::PolicyMaker])
+        s.users.add_permission("limited", "/", /^$/, /.*/, /.*/)
+        hdrs = ::HTTP::Headers{"Authorization" => "Basic bGltaXRlZDpwdw=="}
+        body = %({
+          "value": {
+            "src-uri": "amqp://",
+            "dest-uri": "amqp://",
+            "src-queue": "source-queue",
+            "src-exchange": "source-exchange",
+            "dest-queue": "dest-queue"
+          }
+        })
+        response = http.put("/api/parameters/shovel/%2f/test-shovel", body: body, headers: hdrs)
+        response.status_code.should eq 400
+        body = JSON.parse(response.body)
+        body["reason"].as_s.should contain("can't access exchange")
+      end
+    end
+
+    it "should allow shovel with user having sufficient permissions" do
+      with_http_server do |http, s|
+        s.users.create("sufficient", "pw", [LavinMQ::Tag::PolicyMaker])
+        s.users.add_permission("sufficient", "/", /.*/, /.*/, /.*/)
+        hdrs = ::HTTP::Headers{"Authorization" => "Basic c3VmZmljaWVudDpwdw=="}
+        body = %({
+          "value": {
+            "src-uri": "amqp://",
+            "dest-uri": "amqp://",
+            "src-queue": "source-queue",
+            "src-exchange": "source-exchange",
+            "dest-exchange": "dest-exchange",
+            "dest-queue": "dest-queue"
+          }
+        })
+        response = http.put("/api/parameters/shovel/%2f/test-shovel", body: body, headers: hdrs)
+        response.status_code.should eq 201
+      end
+    end
+
+    it "should skip validation for external URIs" do
+      with_http_server do |http, s|
+        s.users.create("limited", "pw", [LavinMQ::Tag::PolicyMaker])
+        s.users.add_permission("limited", "/", /^$/, /^$/, /^$/)
+        hdrs = ::HTTP::Headers{"Authorization" => "Basic bGltaXRlZDpwdw=="}
+        body = %({
+          "value": {
+            "src-uri": "amqp://external-host",
+            "dest-uri": "amqp://external-host",
+            "src-queue": "source-queue",
+            "dest-queue": "dest-queue"
+          }
+        })
+        response = http.put("/api/parameters/shovel/%2f/test-shovel", body: body, headers: hdrs)
+        response.status_code.should eq 201
+      end
+    end
+
+    it "should skip validation for URIs with explicit user" do
+      with_http_server do |http, s|
+        s.users.create("limited", "pw", [LavinMQ::Tag::PolicyMaker])
+        s.users.add_permission("limited", "/", /^$/, /^$/, /^$/)
+        hdrs = ::HTTP::Headers{"Authorization" => "Basic bGltaXRlZDpwdw=="}
+        body = %({
+          "value": {
+            "src-uri": "amqp://someuser:pass@localhost",
+            "dest-uri": "amqp://someuser:pass@localhost",
+            "src-queue": "source-queue",
+            "dest-queue": "dest-queue"
+          }
+        })
+        response = http.put("/api/parameters/shovel/%2f/test-shovel", body: body, headers: hdrs)
+        response.status_code.should eq 201
+      end
+    end
+
+    it "should allow shovel with source exchange and routing key without source queue" do
+      with_http_server do |http, s|
+        s.users.create("limited", "pw", [LavinMQ::Tag::PolicyMaker])
+        s.users.add_permission("limited", "/", /^amq\.topic$/, /^amq\.topic$/, /^$/)
+        hdrs = ::HTTP::Headers{"Authorization" => "Basic bGltaXRlZDpwdw=="}
+        body = %({
+          "value": {
+            "src-uri": "amqp://",
+            "dest-uri": "amqp://external-host",
+            "src-exchange": "amq.topic",
+            "src-exchange-key": "#",
+            "dest-queue": "dest-queue"
+          }
+        })
+        response = http.put("/api/parameters/shovel/%2f/test-shovel", body: body, headers: hdrs)
+        response.status_code.should eq 201
+      end
+    end
+  end
+
   describe "GET /api/global-parameters" do
     it "should return all global parameters" do
       with_http_server do |http, s|

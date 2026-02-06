@@ -19,7 +19,8 @@ module LavinMQ
         @tag = "Shovel"
         raise ArgumentError.new("At least one source uri is required") if @uris.empty?
         @uris.each do |uri|
-          unless uri.user
+          if uri.user.nil? && uri.host.to_s.empty?
+            # unless uri.user
             if direct_user
               uri.user = direct_user.name
               uri.password = direct_user.plain_text_password
