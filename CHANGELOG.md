@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add Sec-WebSockets-Protocol to websocket responses [#1621](https://github.com/cloudamqp/lavinmq/pull/1621), [#1637](https://github.com/cloudamqp/lavinmq/pull/1637)
 - A delayed exchange didn't deliver messages on time [#1600](https://github.com/cloudamqp/lavinmq/pull/1600)
 
+### Changed
+- Basic authentication check moved to backend to get rid of inline javascript [#1641](https://github.com/cloudamqp/lavinmq/pull/1641)
+
 ## [2.7.0-alpha.1] - 2025-12-07
 
 This release introduces the ability to restart closed queues, enhanced TLS capabilities including SNI and mTLS support, improved stream performance, improved clustering and federation management, and various performance optimizations.
