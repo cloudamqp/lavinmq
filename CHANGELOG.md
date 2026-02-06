@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.6] - 2026-02-06
+
+### Fixed
+- Better validation of shovel config [#1670](https://github.com/cloudamqp/lavinmq/pull/1670)
+- Refactor vhost access control in HTTP API [#1669](https://github.com/cloudamqp/lavinmq/pull/1669)
+
 ## [2.6.5] - 2026-01-28
 
 ### Fixed
