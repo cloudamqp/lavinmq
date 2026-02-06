@@ -381,11 +381,20 @@ jobs:
           ref: 37defcefa36b528b024f0b377435b459eb8eb9fc
           path: rabbit-hole
 
+      - name: Get patch file
+        uses: actions/checkout@v6
+        with:
+          repository: cloudamqp/lavinmq
+          path: lavinmq
+          # only checkout the lint rules
+          sparse-checkout: |
+            .github/rabbit-hole.patch
+          sparse-checkout-cone-mode: false
+
       - name: Setup rabbit-hole
         run: |
           cd rabbit-hole
-          curl https://raw.githubusercontent.com/cloudamqp/lavinmq/main/.github/rabbit-hole.patch -o rabbit-hole.patch
-          git apply rabbit-hole.patch
+          git apply ../lavinmq/.github/rabbit-hole.patch
           bash bin/ci/before_build.sh
         env:
           RABBITHOLE_LAVINMQCTL: ../bin/lavinmqctl
