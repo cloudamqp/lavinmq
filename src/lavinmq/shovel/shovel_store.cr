@@ -1,14 +1,78 @@
 require "./shovel"
+require "../auth/user"
 
 module LavinMQ
   class ShovelStore
+    class Error < Exception; end
+
+    class ConfigError < Error; end
+
     def initialize(@vhost : VHost)
       @shovels = Hash(String, Shovel::Runner).new
     end
 
     forward_missing_to @shovels
 
-    def parse_uris(src_uri : JSON::Any) : Array(URI)
+    # ameba:disable Metrics/CyclomaticComplexity
+    def self.validate_config!(config : JSON::Any, user : Auth::User?)
+      dest_uris = parse_uris(config["dest-uri"]?)
+      src_uris = parse_uris(config["src-uri"]?)
+
+      src_q = config["src-queue"]?.try(&.as_s)
+      src_x = config["src-exchange"]?.try(&.as_s)
+      dst = config["dest-exchange"]?.try(&.as_s)
+      dst_q = config["dest-queue"]?.try(&.as_s)
+
+      if dst.nil? && dst_q
+        dst = "" # default exchange
+      end
+
+      raise ConfigError.new("Shovel source requires a queue or an exchange") if src_q.nil? && src_x.nil?
+      raise ConfigError.new("Shovel destination requires queue and/or exchange") if dst.nil?
+
+      return unless user
+
+      dest_uris.select!(&.scheme.try &.starts_with?("amqp"))
+      dest_uris.select!(&.host.to_s.empty?)
+      dest_uris.select!(&.user.nil?)
+
+      src_uris.select!(&.scheme.try &.starts_with?("amqp"))
+      src_uris.select!(&.host.to_s.empty?)
+      src_uris.select!(&.user.nil?)
+
+      dest_uris.each do |uri|
+        vhost = uri.path
+        vhost = "/" if vhost.empty?
+        if d = dst
+          if !(user.can_write?(vhost, d) && user.can_config?(vhost, d))
+            raise ConfigError.new("#{user.name} can't access exchange '#{d}' in #{vhost}")
+          end
+        end
+        if q = dst_q
+          if !user.can_config?(vhost, q)
+            raise ConfigError.new("#{user.name} can't access queue '#{q}' in #{vhost}")
+          end
+        end
+      end
+
+      src_uris.each do |uri|
+        vhost = uri.path
+        vhost = "/" if vhost.empty?
+        if q = src_q
+          if !(user.can_read?(vhost, q) && user.can_config?(vhost, q))
+            raise ConfigError.new("#{user.name} can't access queue '#{q}' in #{vhost}")
+          end
+        end
+        if x = src_x
+          if !(user.can_read?(vhost, x) && user.can_config?(vhost, x))
+            raise ConfigError.new("#{user.name} can't access exchange '#{x}' in #{vhost}")
+          end
+        end
+      end
+    end
+
+    def self.parse_uris(src_uri : JSON::Any?) : Array(URI)
+      return Array(URI).new if src_uri.nil?
       uris = src_uri.as_s? ? [src_uri.as_s] : src_uri.as_a.map(&.as_s)
       uris.map do |uri|
         URI.parse(uri)
@@ -23,7 +87,7 @@ module LavinMQ
       ack_mode = Shovel::AckMode.parse?(ack_mode_str) || Shovel::DEFAULT_ACK_MODE
       reconnect_delay = config["reconnect-delay"]?.try &.as_i.seconds || Shovel::DEFAULT_RECONNECT_DELAY
       prefetch = config["src-prefetch-count"]?.try(&.as_i.to_u16) || Shovel::DEFAULT_PREFETCH
-      src = Shovel::AMQPSource.new(name, parse_uris(config["src-uri"]),
+      src = Shovel::AMQPSource.new(name, self.class.parse_uris(config["src-uri"]),
         config["src-queue"]?.try &.as_s?,
         config["src-exchange"]?.try &.as_s?,
         config["src-exchange-key"]?.try &.as_s?,
@@ -49,7 +113,7 @@ module LavinMQ
     end
 
     private def destination(name, config, ack_mode)
-      uris = parse_uris(config["dest-uri"])
+      uris = self.class.parse_uris(config["dest-uri"])
       destinations = uris.map do |uri|
         case uri.scheme
         when "http", "https"
