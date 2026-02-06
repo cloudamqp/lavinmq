@@ -102,6 +102,25 @@ describe LavinMQ::HTTP::PrometheusController do
         response.body.should match /Prefix too long/
       end
     end
+
+    it "should include mfile count metric" do
+      with_metrics_server do |http, _|
+        response = http.get("/metrics")
+        response.status_code.should eq 200
+        parsed_metrics = PrometheusSpecHelper.parse_prometheus(response.body)
+        mfile_metric = parsed_metrics.find { |m| m[:key] == "lavinmq_mfile_count" }
+        mfile_metric.should_not be_nil
+        mfile_metric.not_nil![:value].should be >= 0
+        {% if flag?(:linux) %}
+          mmap_metric = parsed_metrics.find { |m| m[:key] == "lavinmq_process_mmap_count" }
+          mmap_metric.should_not be_nil
+          mmap_metric.not_nil![:value].should be > 0
+          limit_metric = parsed_metrics.find { |m| m[:key] == "lavinmq_process_mmap_limit" }
+          limit_metric.should_not be_nil
+          limit_metric.not_nil![:value].should be > 0
+        {% end %}
+      end
+    end
   end
 
   describe "vhost access control" do
