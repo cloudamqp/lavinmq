@@ -66,11 +66,8 @@ module LavinMQ
         @vhost.add_connection(self)
         @log.info { "Connection established for user=#{@user.name}" }
         spawn read_loop, name: "Client#read_loop #{@connection_info.remote_address}"
-        case user = @user
-        when Auth::OAuthUser
-          user.on_expiration do
-            close_connection(nil, ConnectionReplyCode::CONNECTION_FORCED, "token expired")
-          end
+        if @user.is_a?(Auth::OAuthUser)
+          @vhost.start_oauth_monitor
         end
       end
 
@@ -216,6 +213,7 @@ module LavinMQ
       private def handle_update_secret(frame : AMQP::Frame::Connection::UpdateSecret)
         if user = @user.as?(Auth::OAuthUser)
           user.refresh(frame.secret)
+          @vhost.notify_oauth_change
           send AMQP::Frame::Connection::UpdateSecretOk.new
         else
           close_connection(frame, ConnectionReplyCode::ACCESS_REFUSED, "update-secret not supported for current authentication mechanism")
@@ -476,9 +474,8 @@ module LavinMQ
         @exclusive_queues.each(&.close)
         @exclusive_queues.clear
         @vhost.rm_connection(self)
-        case user = @user
-        when Auth::OAuthUser
-          user.cleanup
+        if @user.is_a?(Auth::OAuthUser)
+          @vhost.notify_oauth_change
         end
       end
 
