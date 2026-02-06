@@ -170,7 +170,7 @@ module LavinMQ::AMQP
       raise ex
     rescue ::Channel::ClosedError
     ensure
-      @message_expire_fiber_active.set(false, :relaxed)
+      @message_expire_fiber_active.set(false, :release)
     end
 
     # Creates @[x]_count and @[x]_rate and @[y]_log
@@ -240,7 +240,7 @@ module LavinMQ::AMQP
 
     # Ensure the expire fiber is running if there are messages that need expiring
     def ensure_expire_fiber
-      if !@closed && !@message_expire_fiber_active.get(:relaxed)
+      if !@closed && !@message_expire_fiber_active.get(:acquire)
         start_message_expire_loop if should_start_expire_fiber?
       end
     end
@@ -259,7 +259,7 @@ module LavinMQ::AMQP
     private def reset_queue_state
       @closed = false
       @state = QueueState::Running
-      @message_expire_fiber_active.set(false, :relaxed)
+      @message_expire_fiber_active.set(false, :release)
 
       # Recreate channels that were closed
       @queue_expiration_ttl_change = ::Channel(Nil).new
