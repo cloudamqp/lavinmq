@@ -46,10 +46,10 @@ describe LavinMQ::HTTP::VHostsController do
       end
     end
 
-    it "should return 404 if vhost does not exist" do
+    it "should return 403 if vhost does not exist" do
       with_http_server do |http, _|
-        response = http.get("/api/vhosts/404")
-        response.status_code.should eq 404
+        response = http.get("/api/vhosts/403")
+        response.status_code.should eq 403
       end
     end
   end
@@ -105,10 +105,10 @@ describe LavinMQ::HTTP::VHostsController do
       end
     end
 
-    it "should return 404 when trying to delete non existing vhost" do
+    it "should return 403 when trying to delete non existing vhost" do
       with_http_server do |http, _|
         response = http.delete("/api/vhosts/nonexisting")
-        response.status_code.should eq 404
+        response.status_code.should eq 403
       end
     end
 

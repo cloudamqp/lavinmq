@@ -199,9 +199,10 @@ module LavinMQ
       private def with_vhost(context, params, key = "vhost", &)
         name = params[key]
         if @amqp_server.vhosts[name]?
+          refuse_unless_vhost_access(context, user(context), name)
           yield name
         else
-          not_found(context, "Not Found")
+          access_refused(context)
         end
         context
       end
