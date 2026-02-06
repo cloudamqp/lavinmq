@@ -229,7 +229,7 @@ describe LavinMQ::Auth::Chain do
       )
 
       lifetime = user.token_lifetime
-      lifetime.should be < 0.seconds
+      lifetime.should eq 0.seconds
     end
 
     describe "on_expiration" do
