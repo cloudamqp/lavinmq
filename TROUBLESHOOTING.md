@@ -41,7 +41,7 @@ killall -USR1 lavinmq
 
 **Where to find the output:**
 
-The output goes to `stdout`, which if the LavinMQ is managed by SystemD the output is captured by `journald`:
+The output goes to `stdout`. If LavinMQ is managed by SystemD this is captured by `journald`:
 
 ```sh
 kill -USR1 $(pidof lavinmq)
