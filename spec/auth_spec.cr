@@ -131,7 +131,6 @@ describe LavinMQ::Auth::Chain do
         config.data_dir = data_dir
         users = LavinMQ::Auth::UserStore.new(data_dir, nil)
         expect_raises(Exception, /Unsupported authentication backend/) do
-          verifier = SimpleMockVerifier.new(config)
           LavinMQ::Auth::Chain.create(config, users)
         end
       end

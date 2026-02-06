@@ -48,16 +48,15 @@ module LavinMQ
         end
 
         getter public_keys : PublicKeys
-        @stopped = false
+        @stopped = BoolChannel.new(false)
 
         def initialize(issuer_url : URI, @default_cache_ttl : Time::Span)
           @issuer_url = issuer_url.to_s.chomp("/")
           @public_keys = PublicKeys.new
-          @refresh_trigger = Channel(Nil).new
         end
 
         def cleanup
-          @stopped = true
+          @stopped.set(true)
         end
 
         def start_refresh_loop
@@ -66,27 +65,19 @@ module LavinMQ
           spawn do
             loop do
               begin
-                break if @stopped
                 result = fetch_jwks
                 @public_keys.update(result.keys, result.ttl)
                 Log.info { "Refreshed JWKS with #{result.keys.size} key(s), TTL=#{result.ttl}" }
                 retry_delay = 5.seconds
                 wait_time = calculate_wait_time
                 select
-                when @refresh_trigger.receive
-                  Log.info { "Immediate JWKS refresh triggered" }
+                when @stopped.when_true.receive
+                  break
                 when timeout(wait_time)
                 end
               rescue ex
                 Log.error(exception: ex) { "Failed to fetch JWKS, retrying in #{retry_delay}: #{ex.message}" }
-
-                select
-                when @refresh_trigger.receive
-                  Log.info { "Immediate JWKS refresh triggered during retry" }
-                  retry_delay = 5.seconds
-                when timeout(retry_delay)
-                end
-
+                sleep retry_delay
                 retry_delay = {retry_delay * 2, max_retry_delay}.min
               end
             end
@@ -98,7 +89,7 @@ module LavinMQ
             remaining = expires_at - RoughTime.utc
             return remaining if remaining > 0.seconds
           end
-          5.seconds # Default minimum wait if keys expired or not set
+          1.hour
         end
 
         def fetch_jwks : JWKSResult
@@ -124,7 +115,7 @@ module LavinMQ
         private def extract_public_keys_from_jwks(jwks : JWKSResponse)
           jwks_array = jwks.keys
 
-          public_keys = {} of String => String
+          public_keys = Hash(String, String).new
           jwks_array.each_with_index do |key, idx|
             # Only process RSA keys (RFC 7517 Section 4.1)
             next unless key.kty == "RSA"
