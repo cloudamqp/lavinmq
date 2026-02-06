@@ -297,6 +297,9 @@ module LavinMQ
       @[IniOpt(section: "amqp")]
       property max_consumers_per_channel = 0
 
+      @[IniOpt(section: "main", transform: ->ConsistentHashAlgorithm.parse(String))]
+      property default_consistent_hash_algorithm : ConsistentHashAlgorithm = ConsistentHashAlgorithm::Ring
+
       # Deprecated options - these forward to the primary option in [main]
 
       @[IniOpt(ini_name: tls_cert, section: "amqp", deprecated: "tls_cert in [main]")]
