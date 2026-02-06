@@ -206,7 +206,7 @@ module LavinMQ
         context
       end
 
-      private def user(context) : Auth::User
+      private def user(context) : Auth::BaseUser
         unless user = context.user # Should it be possible to end up here with nil user?
           Log.warn { "No authorized user for request path=#{context.request.path}" }
           access_refused(context)
@@ -214,7 +214,7 @@ module LavinMQ
         user
       end
 
-      def vhosts(user : Auth::User)
+      def vhosts(user : Auth::BaseUser)
         @amqp_server.vhosts.each_value.select do |v|
           full_view_vhosts_access = user.tags.any? { |t| t.administrator? || t.monitoring? }
           amqp_access = user.permissions.has_key?(v.name)
@@ -246,7 +246,7 @@ module LavinMQ
         end
       end
 
-      private def refuse_unless_administrator(context, user : Auth::User)
+      private def refuse_unless_administrator(context, user : Auth::BaseUser)
         unless user.tags.any? &.administrator?
           Log.warn { "user=#{user.name} does not have administrator access" }
           access_refused(context)

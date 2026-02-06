@@ -3,7 +3,7 @@ module LavinMQ
     annotation CliOpt; end
     annotation IniOpt; end
     annotation EnvOpt; end
-    INI_SECTIONS = {"main", "amqp", "mqtt", "mgmt", "experimental", "clustering"}
+    INI_SECTIONS = {"main", "amqp", "mqtt", "mgmt", "experimental", "clustering", "oauth"}
 
     # Separate module for config option definitions. This keeps the option declarations
     # organized in one place, while config.cr contains the parsing and validation logic.
@@ -216,8 +216,8 @@ module LavinMQ
       @[IniOpt(section: "experimental")]
       property yield_each_delivered_bytes = 1_048_576 # max number of bytes sent to a client without tending to other tasks in the server
 
-      @[IniOpt(section: "main", transform: ->(s : String) { s.split(",").map(&.strip) })]
-      property auth_backends : Array(String) = ["local"]
+      @[IniOpt(section: "main")]
+      property auth_backends : Array(String) = Array(String).new
 
       @[CliOpt("", "--default-consumer-prefetch=NUMBER", "Default consumer prefetch (default 65535)", section: "options")]
       @[IniOpt(section: "main")]
@@ -350,6 +350,23 @@ module LavinMQ
       def amqp_default_consumer_prefetch=(value)
         @default_consumer_prefetch = value
       end
+
+      @[IniOpt(section: "oauth", ini_name: issuer)]
+      property oauth_issuer_url : URI? = nil
+      @[IniOpt(section: "oauth", ini_name: resource_server_id)]
+      property oauth_resource_server_id : String? = nil
+      @[IniOpt(section: "oauth", ini_name: preferred_username_claims)]
+      property oauth_preferred_username_claims = Array(String).new
+      @[IniOpt(section: "oauth", ini_name: additional_scopes_key)]
+      property oauth_additional_scopes_key : String? = nil
+      @[IniOpt(section: "oauth", ini_name: scope_prefix)]
+      property oauth_scope_prefix : String? = nil
+      @[IniOpt(section: "oauth", ini_name: verify_aud)]
+      property? oauth_verify_aud : Bool = true
+      @[IniOpt(section: "oauth", ini_name: audience)]
+      property oauth_audience : String? = nil
+      @[IniOpt(section: "oauth", ini_name: jwks_cache_ttl)]
+      property oauth_jwks_cache_ttl : Time::Span = 1.hours
     end
   end
 end
