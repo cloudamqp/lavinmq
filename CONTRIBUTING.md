@@ -56,44 +56,40 @@ Our project's core development happens on the main branch, where new feature bra
 gitGraph
     commit
     branch feature-1 order: 1
-    commit
-    checkout main
-    commit id:"b"
-    branch 2.4.x  order: 3
-    checkout 2.4.x
-    commit id: "v2.4.0-rc.1" tag:"v2.4.0-rc.1"
-    checkout main
-    commit
-    checkout 2.4.x
-    commit id:"bugfix 1" tag:"v2.4.0"
-    checkout main
-    cherry-pick id:"bugfix 1" tag:""
-    commit
-    branch feature-2 order: 0
-    checkout feature-2
-    commit
-    checkout 2.4.x
-    commit id:"bugfix 2" tag:"v2.4.1"
-    checkout 2.4.x
-    checkout main
-    merge 2.4.x
     checkout feature-1
     commit
     checkout main
-    merge feature-1
+    commit id:"v2.4.0-rc.1" tag:"v2.4.0-rc.1"
+    commit id:"rc-fix"
+    commit id:"v2.4.0" tag:"v2.4.0"
+    branch 2.4.x order: 3
     checkout main
+    commit id:"bugfix-1"
+    checkout 2.4.x
+    cherry-pick id:"bugfix-1" tag:"v2.4.1"
+    checkout feature-1
     commit
-    branch 2.5.x  order: 4
-    commit id:"2.5.0-rc-1" tag:"v2.5.0-rc.1"
+    checkout main
+    branch feature-2 order: 0
+    checkout feature-2
+    commit
+    checkout main
+    merge feature-1
+    commit id:"bugfix-2"
+    checkout 2.4.x
+    cherry-pick id:"bugfix-2" tag:"v2.4.2"
+    checkout main
+    commit id:"v2.5.0-rc.1" tag:"v2.5.0-rc.1"
+    commit id:"v2.5.0" tag:"v2.5.0"
+    branch 2.5.x order: 4
     checkout feature-2
     commit
     checkout main
     merge feature-2
+    commit id:"bugfix-3"
     checkout 2.5.x
-    commit id:"bugfix 3" tag:"v2.5.0"
-    commit id:"bugfix 4" tag:"v2.5.1"
+    cherry-pick id:"bugfix-3" tag:"v2.5.1"
     checkout main
-    merge 2.5.x
     commit
 ```
 
