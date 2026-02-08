@@ -55,8 +55,8 @@ const updateDetails = (nodeStats) => {
     cpuUsage = 'N/A'
   }
   document.getElementById('tr-cpu').textContent = cpuUsage
-  document.getElementById('tr-mmap-count').textContent = nodeStats.mmap_count !== undefined
-    ? numFormatter.format(nodeStats.mmap_count)
+  document.getElementById('tr-mmap-file-count').textContent = nodeStats.mmap_file_count !== undefined
+    ? numFormatter.format(nodeStats.mmap_file_count)
     : 'N/A'
   document.getElementById('tr-fiber-count').textContent = nodeStats.fiber_count !== undefined
     ? numFormatter.format(nodeStats.fiber_count)

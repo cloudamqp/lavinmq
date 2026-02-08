@@ -110,9 +110,9 @@ module LavinMQ
       end
 
       def mfile_metrics(writer)
-        writer.write({name: "mfile_mmap_count", value: MFile.mmap_count,
+        writer.write({name: "mmap_file_count", value: MFile.count,
                       type: "gauge",
-                      help: "Number of open memory-mapped files"})
+                      help: "Number of open file-backed memory maps"})
         writer.write({name: "fiber_count", value: Fiber.count,
                       type: "gauge",
                       help: "Number of fibers"})

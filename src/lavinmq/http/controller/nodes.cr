@@ -54,6 +54,7 @@ module LavinMQ
       end
 
       private def node_stats
+        fiber_count = Fiber.count
         {
           os_pid:             Process.pid.to_s,
           fd_total:           System.file_descriptor_limit[0],
@@ -76,11 +77,11 @@ module LavinMQ
           disk_free:          @amqp_server.disk_free,
           disk_free_details:  {log: @amqp_server.disk_free_log},
           partitions:         Tuple.new,
-          proc_used:          Fiber.count,
+          proc_used:          fiber_count,
           run_queue:          0,
           sockets_used:       @amqp_server.vhosts.sum { |_, v| v.connections.size },
-          mmap_count:         MFile.mmap_count,
-          fiber_count:        Fiber.count,
+          mmap_file_count:    MFile.count,
+          fiber_count:        fiber_count,
           followers:          @amqp_server.followers,
         }
       end
