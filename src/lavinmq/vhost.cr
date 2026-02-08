@@ -27,8 +27,21 @@ module LavinMQ
 
     getter name, exchanges, queues, data_dir, operator_policies, policies, parameters, shovels,
       direct_reply_consumers, connections, dir, users
-    property? flow = true
-    getter? closed = false
+
+    def flow?
+      @flow.get(:acquire)
+    end
+
+    def flow=(active : Bool)
+      @flow.set(active, :release)
+    end
+
+    def closed?
+      @closed.get(:acquire)
+    end
+
+    @flow = Atomic(Bool).new(true)
+    @closed = Atomic(Bool).new(false)
     property max_connections : Int32?
     property max_queues : Int32?
 
@@ -67,7 +80,7 @@ module LavinMQ
     private def check_consumer_timeouts_loop
       loop do
         sleep Config.instance.consumer_timeout_loop_interval.seconds
-        return if @closed
+        return if closed?
         @connections.each do |c|
           c.channels.each_value do |ch|
             ch.check_consumer_timeout
@@ -401,7 +414,7 @@ module LavinMQ
     end
 
     def close(reason = "Broker shutdown")
-      @closed = true
+      @closed.set(true, :release)
       stop_shovels
       stop_upstream_links
 
@@ -475,7 +488,7 @@ module LavinMQ
       if has_parameters || has_policies
         spawn(name: "Load parameters") do
           sleep 10.milliseconds
-          next if @closed
+          next if closed?
           apply_parameters
           apply_policies
         end

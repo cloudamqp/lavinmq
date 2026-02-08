@@ -30,7 +30,7 @@ module LavinMQ
       @actual_channel_max : UInt16
       @exclusive_queues = Array(Queue).new
       @heartbeat_interval_ms : Int64?
-      @running = true
+      @running = Atomic(Bool).new(true)
       @last_recv_frame = RoughTime.instant
       @last_sent_frame = RoughTime.instant
       rate_stats({"send_oct", "recv_oct"})
@@ -138,17 +138,17 @@ module LavinMQ
             when AMQP::Frame::Connection::Close
               @log.debug { "Client disconnected: #{frame.reply_text}" } unless frame.reply_text.empty?
               send AMQP::Frame::Connection::CloseOk.new
-              @running = false
+              @running.set(false, :release)
               next
             when AMQP::Frame::Connection::CloseOk
               @log.debug { "Confirmed disconnect" }
-              @running = false
+              @running.set(false, :release)
               return
             when AMQP::Frame::Connection::UpdateSecret
               handle_update_secret(frame)
               next
             end
-            if @running
+            if @running.get(:acquire)
               process_frame(frame)
             else
               case frame
@@ -340,7 +340,7 @@ module LavinMQ
       end
 
       def state
-        !@running ? "closed" : (@vhost.flow? ? "running" : "flow")
+        !@running.get(:acquire) ? "closed" : (@vhost.flow? ? "running" : "flow")
       end
 
       private def with_channel(frame, &)
@@ -466,7 +466,7 @@ module LavinMQ
       end
 
       private def cleanup
-        @running = false
+        @running.set(false, :release)
         i = 0u32
         @channels.each_value do |ch|
           ch.close
@@ -483,7 +483,7 @@ module LavinMQ
       end
 
       private def close_socket
-        @running = false
+        @running.set(false, :release)
         @socket.close
       rescue ex
         @log.debug { "#{ex.inspect} when closing socket" }
@@ -501,7 +501,7 @@ module LavinMQ
 
         code = ConnectionReplyCode::CONNECTION_FORCED
         send AMQP::Frame::Connection::Close.new(code.value, "#{code} - #{reason}", 0_u16, 0_u16)
-        @running = false
+        @running.set(false, :release)
       end
 
       def force_close
@@ -509,7 +509,7 @@ module LavinMQ
       end
 
       def closed?
-        !@running
+        !@running.get(:acquire)
       end
 
       def close_channel(frame : AMQ::Protocol::Frame, code : ChannelReplyCode, text)
@@ -537,7 +537,7 @@ module LavinMQ
         end
         @log.info { "Connection=#{@name} disconnected" }
       ensure
-        @running = false
+        @running.set(false, :release)
       end
 
       def send_access_refused(frame, text)
@@ -574,7 +574,7 @@ module LavinMQ
         code = ConnectionReplyCode::NOT_IMPLEMENTED
         if ex.channel.zero?
           send AMQP::Frame::Connection::Close.new(code.value, code.to_s, ex.class_id, ex.method_id)
-          @running = false
+          @running.set(false, :release)
         else
           send AMQP::Frame::Channel::Close.new(ex.channel, code.value, code.to_s, ex.class_id, ex.method_id)
           @channels.delete(ex.channel).try &.close
