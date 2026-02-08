@@ -109,6 +109,15 @@ module LavinMQ
                       help:  "Memory used for metrics collections in bytes"})
       end
 
+      def mfile_metrics(writer)
+        writer.write({name: "mfile_mmap_count", value: MFile.mmap_count,
+                      type: "gauge",
+                      help: "Number of open memory-mapped files"})
+        writer.write({name: "fiber_count", value: Fiber.count,
+                      type: "gauge",
+                      help: "Number of fibers"})
+      end
+
       def gc_metrics(writer)
         gc_stats = GC.prof_stats
 
@@ -184,6 +193,7 @@ module LavinMQ
 
           report(context.response) do
             writer = PrometheusWriter.new(context.response, prefix)
+            mfile_metrics(writer)
             gc_metrics(writer)
           end
           context
@@ -223,6 +233,7 @@ module LavinMQ
             overview_broker_metrics(vhosts, writer)
             overview_queue_metrics(vhosts, writer)
             custom_metrics(writer)
+            mfile_metrics(writer)
             gc_metrics(writer)
             global_metrics(writer)
           end

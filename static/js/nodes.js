@@ -55,6 +55,12 @@ const updateDetails = (nodeStats) => {
     cpuUsage = 'N/A'
   }
   document.getElementById('tr-cpu').textContent = cpuUsage
+  document.getElementById('tr-mmap-count').textContent = nodeStats.mmap_count !== undefined
+    ? numFormatter.format(nodeStats.mmap_count)
+    : 'N/A'
+  document.getElementById('tr-fiber-count').textContent = nodeStats.fiber_count !== undefined
+    ? numFormatter.format(nodeStats.fiber_count)
+    : 'N/A'
   if (nodeStats.disk_total !== undefined) {
     const diskUsageGb = ((nodeStats.disk_total - nodeStats.disk_free) / 1024 ** 3).toFixed(3)
     const diskTotalGb = (nodeStats.disk_total / 1024 ** 3).toFixed(0)

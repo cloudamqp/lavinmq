@@ -79,6 +79,8 @@ module LavinMQ
           proc_used:          Fiber.count,
           run_queue:          0,
           sockets_used:       @amqp_server.vhosts.sum { |_, v| v.connections.size },
+          mmap_count:         MFile.mmap_count,
+          fiber_count:        Fiber.count,
           followers:          @amqp_server.followers,
         }
       end
