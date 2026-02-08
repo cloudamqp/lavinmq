@@ -6,7 +6,17 @@ module LavinMQ
       @cache = Hash(PermissionKey, Bool).new
       property revision = 0_u32
 
-      forward_missing_to @cache
+      def []?(key : PermissionKey) : Bool?
+        @cache[key]?
+      end
+
+      def []=(key : PermissionKey, value : Bool) : Bool
+        @cache[key] = value
+      end
+
+      def clear
+        @cache.clear
+      end
     end
   end
 end
