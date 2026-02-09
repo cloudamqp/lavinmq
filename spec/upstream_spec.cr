@@ -84,7 +84,7 @@ describe LavinMQ::Federation::Upstream do
           link = upstream.link(vhost_downstream.queue("federated_q"))
           link.name.should eq "federated_q"
           wait_for { link.state.running? }
-          vhost_upstream.queues_has_key?("federated_q").should be_true
+          vhost_upstream.queue_exists?("federated_q").should be_true
         end
       ensure
         upstream.try &.close
@@ -517,11 +517,11 @@ describe LavinMQ::Federation::Upstream do
           downstream_ex = ch.exchange("downstream_ex", "topic")
           link = upstream.link(vhost.exchange(downstream_ex.name))
           wait_for { link.state.running? }
-          upstream_vhost.queues_has_key?(federation_name).should eq true
-          upstream_vhost.exchanges_has_key?(federation_name).should eq true
+          upstream_vhost.queue_exists?(federation_name).should eq true
+          upstream_vhost.exchange_exists?(federation_name).should eq true
           link.terminate
-          upstream_vhost.queues_has_key?(federation_name).should eq false
-          upstream_vhost.exchanges_has_key?(federation_name).should eq false
+          upstream_vhost.queue_exists?(federation_name).should eq false
+          upstream_vhost.exchange_exists?(federation_name).should eq false
         end
       end
     end

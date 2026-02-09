@@ -56,7 +56,7 @@ module LavinMQ
       @exchanges.shared { |h| h[name] }
     end
 
-    def exchanges_has_key?(name : String) : Bool
+    def exchange_exists?(name : String) : Bool
       @exchanges.shared(&.has_key?(name))
     end
 
@@ -86,7 +86,7 @@ module LavinMQ
       @queues.shared { |h| h[name] }
     end
 
-    def queues_has_key?(name : String) : Bool
+    def queue_exists?(name : String) : Bool
       @queues.shared(&.has_key?(name))
     end
 

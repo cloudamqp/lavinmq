@@ -670,7 +670,7 @@ module LavinMQ
           send_access_refused(frame, "Not allowed to delete the default exchange")
         elsif NameValidator.reserved_prefix?(frame.exchange_name)
           send_access_refused(frame, "Prefix #{NameValidator::PREFIX_LIST} forbidden, please choose another name")
-        elsif !@vhost.exchanges_has_key? frame.exchange_name
+        elsif !@vhost.exchange_exists? frame.exchange_name
           # should return not_found according to spec but we make it idempotent
           send AMQP::Frame::Exchange::DeleteOk.new(frame.channel) unless frame.no_wait
         elsif !@user.can_config?(@vhost.name, frame.exchange_name)
@@ -802,7 +802,7 @@ module LavinMQ
         q = @vhost.queue?(frame.queue_name)
         if q.nil?
           send_not_found frame, "Queue '#{frame.queue_name}' not found"
-        elsif !@vhost.exchanges_has_key? frame.exchange_name
+        elsif !@vhost.exchange_exists? frame.exchange_name
           send_not_found frame, "Exchange '#{frame.exchange_name}' not found"
         elsif !@user.can_read?(@vhost.name, frame.exchange_name)
           send_access_refused(frame, "User '#{@user.name}' doesn't have read permissions to exchange '#{frame.exchange_name}'")
@@ -830,7 +830,7 @@ module LavinMQ
         if q.nil?
           # should return not_found according to spec but we make it idempotent
           send AMQP::Frame::Queue::UnbindOk.new(frame.channel)
-        elsif !@vhost.exchanges_has_key? frame.exchange_name
+        elsif !@vhost.exchange_exists? frame.exchange_name
           # should return not_found according to spec but we make it idempotent
           send AMQP::Frame::Queue::UnbindOk.new(frame.channel)
         elsif !@user.can_read?(@vhost.name, frame.exchange_name)

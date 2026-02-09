@@ -68,7 +68,7 @@ describe LavinMQ::HTTP::Server do
         body = %({ "queues": [{ "name": "import_q1", "vhost": "/", "durable": true, "auto_delete": false, "arguments": {} }] })
         response = http.post("/api/definitions", body: body)
         response.status_code.should eq 200
-        s.vhosts["/"].queues_has_key?("import_q1").should be_true
+        s.vhosts["/"].queue_exists?("import_q1").should be_true
       end
     end
 
@@ -77,7 +77,7 @@ describe LavinMQ::HTTP::Server do
         body = %({ "exchanges": [{ "name": "import_x1", "type": "direct", "vhost": "/", "durable": true, "internal": false, "auto_delete": false, "arguments": {} }] })
         response = http.post("/api/definitions", body: body)
         response.status_code.should eq 200
-        s.vhosts["/"].exchanges_has_key?("import_x1").should be_true
+        s.vhosts["/"].exchange_exists?("import_x1").should be_true
       end
     end
 
@@ -460,7 +460,7 @@ describe LavinMQ::HTTP::Server do
         body = %({ "queues": [{ "name": "import_q1", "vhost": "/", "durable": true, "auto_delete": false, "arguments": {} }] })
         response = http.post("/api/definitions/%2f", body: body)
         response.status_code.should eq 200
-        s.vhosts["/"].queues_has_key?("import_q1").should be_true
+        s.vhosts["/"].queue_exists?("import_q1").should be_true
       end
     end
 
@@ -469,7 +469,7 @@ describe LavinMQ::HTTP::Server do
         body = %({ "exchanges": [{ "name": "import_x1", "type": "direct", "vhost": "/", "durable": true, "internal": false, "auto_delete": false, "arguments": {} }] })
         response = http.post("/api/definitions/%2f", body: body)
         response.status_code.should eq 200
-        s.vhosts["/"].exchanges_has_key?("import_x1").should be_true
+        s.vhosts["/"].exchange_exists?("import_x1").should be_true
       end
     end
 
@@ -568,7 +568,7 @@ describe LavinMQ::HTTP::Server do
           body = %({ "queues": [{ "name": "import_q1", "vhost": "new", "durable": true, "auto_delete": false, "arguments": {} }] })
           response = http.post("/api/definitions/new", headers: headers, body: body)
           response.status_code.should eq 200
-          s.vhosts["new"].queues_has_key?("import_q1").should be_true
+          s.vhosts["new"].queue_exists?("import_q1").should be_true
         end
       end
 
