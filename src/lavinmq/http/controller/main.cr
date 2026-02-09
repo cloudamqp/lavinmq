@@ -42,8 +42,10 @@ module LavinMQ
             next if x_vhost && vhost.name != x_vhost
             vhost.connections_each do |c|
               connections += 1
-              channels += c.channels.size
-              consumers += c.channels.each_value.sum &.consumers.size
+              channels += c.channels_size
+              consumer_sum = 0
+              c.channels_each_value { |ch| consumer_sum += ch.consumers.size }
+              consumers += consumer_sum
               stats_details = c.stats_details
               recv_rate += stats_details[:recv_oct_details][:rate]
               send_rate += stats_details[:send_oct_details][:rate]

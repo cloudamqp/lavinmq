@@ -351,8 +351,8 @@ module LavinMQ
           unacked += d[:messages_unacknowledged]
           connections += vhost.connections_size
           vhost.connections_each do |conn|
-            channels += conn.channels.size
-            conn.channels.each_value do |ch|
+            channels += conn.channels_size
+            conn.channels_each_value do |ch|
               consumers += ch.consumers.size
             end
           end
@@ -530,7 +530,7 @@ module LavinMQ
         vhosts.each do |vhost|
           vhost.queues_each_value do |q|
             labels = {queue: q.name, vhost: vhost.name}
-            writer.write_value("detailed_queue_consumers", q.consumers.size, labels)
+            writer.write_value("detailed_queue_consumers", q.consumers_size, labels)
           end
         end
       end
@@ -574,7 +574,7 @@ module LavinMQ
         vhosts.each do |vhost|
           vhost.connections_each do |conn|
             labels = {channel: conn.name}
-            writer.write_value("detailed_connection_channels", conn.channels.size, labels)
+            writer.write_value("detailed_connection_channels", conn.channels_size, labels)
           end
         end
       end
@@ -584,7 +584,7 @@ module LavinMQ
         writer.write_header("detailed_channel_consumers", "gauge", "Consumers on a channel")
         vhosts.each do |vhost|
           vhost.connections_each do |conn|
-            conn.channels.each_value do |ch|
+            conn.channels_each_value do |ch|
               labels = {channel: ch.name}
               writer.write_value("detailed_channel_consumers", ch.details_tuple[:consumer_count], labels)
             end
@@ -595,7 +595,7 @@ module LavinMQ
           "Delivered but not yet acknowledged messages")
         vhosts.each do |vhost|
           vhost.connections_each do |conn|
-            conn.channels.each_value do |ch|
+            conn.channels_each_value do |ch|
               labels = {channel: ch.name}
               writer.write_value("detailed_messages_unacked", ch.details_tuple[:messages_unacknowledged], labels)
             end
@@ -606,7 +606,7 @@ module LavinMQ
           "Total limit of unacknowledged messages for all consumers on a channel")
         vhosts.each do |vhost|
           vhost.connections_each do |conn|
-            conn.channels.each_value do |ch|
+            conn.channels_each_value do |ch|
               labels = {channel: ch.name}
               writer.write_value("detailed_channel_prefetch", ch.details_tuple[:prefetch_count], labels)
             end

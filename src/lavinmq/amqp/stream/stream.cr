@@ -176,7 +176,7 @@ module LavinMQ::AMQP
     end
 
     private def notify_all_stream_consumers
-      @consumers.each do |consumer|
+      consumers_each do |consumer|
         if stream_consumer = consumer.as?(AMQP::StreamConsumer)
           stream_consumer.notify_new_message if stream_consumer.waiting_for_messages?
         end
@@ -238,8 +238,8 @@ module LavinMQ::AMQP
 
     private def unmap_and_remove_segments
       used_segments = Set(UInt32).new
-      @consumers_lock.synchronize do
-        @consumers.each do |consumer|
+      @consumers.shared do |consumers|
+        consumers.each do |consumer|
           used_segments << consumer.as(AMQP::StreamConsumer).segment
         end
       end

@@ -342,7 +342,7 @@ module LavinMQ
         vhost.exchanges_each_value(&.update_rates)
         vhost.connections_each do |connection|
           connection.update_rates
-          connection.channels.each_value(&.update_rates)
+          connection.channels_each_value(&.update_rates)
         end
         vhost.update_rates
       end

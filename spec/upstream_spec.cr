@@ -282,7 +282,7 @@ describe LavinMQ::Federation::Upstream do
           wait_for { s.vhosts[ds_vhost.name].queues_byname(ds_queue_name).message_count == 0 }
         end
 
-        wait_for { s.vhosts[ds_vhost.name].queues_byname(ds_queue_name).consumers.empty? }
+        wait_for { s.vhosts[ds_vhost.name].queues_byname(ds_queue_name).consumers_empty? }
 
         # publish another message
         with_channel(s, vhost: us_vhost.name) do |upstream_ch|
