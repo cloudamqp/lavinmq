@@ -278,7 +278,7 @@ module DeadLetteringSpec
 
       it "should only dead letter on nack multiple with requeue=false when basic get" do
         with_dead_lettering_setup do |q, dlq, _, s|
-          queue = s.vhosts["/"].queues["q"].should be_a LavinMQ::AMQP::Queue
+          queue = s.vhosts["/"].queues_byname("q").should be_a LavinMQ::AMQP::Queue
 
           publish_n(3, q)
 

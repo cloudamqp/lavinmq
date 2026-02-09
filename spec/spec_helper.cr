@@ -124,7 +124,7 @@ def with_amqp_server(tls = false, replicator = nil,
     # everything has been cleaned up after a `with_channel` inside the `with_amqp_server`.
     closed_queues = 3.times do
       Fiber.yield
-      queues = s.vhosts.flat_map { |_, vhost| vhost.queues.values.select &.closed? }
+      queues = s.vhosts.flat_map { |_, vhost| vhost.queues_each_value.select(&.closed?).to_a }
       break if queues.empty?
       queues
     end

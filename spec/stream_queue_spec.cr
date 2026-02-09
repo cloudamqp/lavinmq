@@ -329,7 +329,7 @@ describe LavinMQ::AMQP::Stream do
           q = ch.queue("stream-max-length", args: AMQP::Client::Arguments.new(args))
           data = Bytes.new(LavinMQ::Config.instance.segment_size)
           3.times { q.publish_confirm data }
-          dir = s.vhosts["/"].queues["stream-max-length"].as(LavinMQ::AMQP::Stream).@data_dir
+          dir = s.vhosts["/"].queues_byname("stream-max-length").as(LavinMQ::AMQP::Stream).@data_dir
           File.exists?(File.join(dir, "msgs.0000000001")).should be_false
           File.exists?(File.join(dir, "meta.0000000001")).should be_false
           q.message_count.should eq 1
@@ -689,7 +689,7 @@ describe LavinMQ::AMQP::Stream do
           ch.prefetch 1
           args = {"x-queue-type": "stream"}
           q = ch.queue(queue_name, args: AMQP::Client::Arguments.new(args))
-          stream = s.vhosts["/"].queues[queue_name].as(LavinMQ::AMQP::Stream)
+          stream = s.vhosts["/"].queues_byname(queue_name).as(LavinMQ::AMQP::Stream)
           q.publish_confirm "test message"
           stream.message_count.should eq 1
 
@@ -728,7 +728,7 @@ describe LavinMQ::AMQP::Stream do
         msg = StreamSpecHelpers.consume_one(s, queue_name, consumer_tag, c_args)
         StreamSpecHelpers.offset_from_headers(msg.properties.headers).should eq 1
 
-        stream = s.vhosts["/"].queues[queue_name].as(LavinMQ::AMQP::Stream)
+        stream = s.vhosts["/"].queues_byname(queue_name).as(LavinMQ::AMQP::Stream)
         stream.close
         stream.closed?.should be_true
         stream.restart!

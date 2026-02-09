@@ -258,7 +258,7 @@ describe LavinMQ::HTTP::ExchangesController do
         response.status_code.should eq 200
         body = JSON.parse(response.body)
         body["routed"].as_bool.should be_true
-        s.vhosts["/"].queues["q1p"].message_count.should eq 1
+        s.vhosts["/"].queues_byname("q1p").message_count.should eq 1
       end
     end
 

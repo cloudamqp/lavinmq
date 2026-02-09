@@ -8,7 +8,7 @@ def with_queue(&)
   with_amqp_server do |s|
     vhost = s.vhosts["/"]
     vhost.declare_queue("q", durable: true, auto_delete: false)
-    q = vhost.queues["q"]
+    q = vhost.queues_byname("q")
     yield q
   ensure
     q.try &.delete
@@ -20,7 +20,7 @@ describe LavinMQ::AMQP::Queue do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         q = ch.queue("qexpires", args: AMQP::Client::Arguments.new({"x-expires" => 100}))
-        queue = s.vhosts["/"].queues["qexpires"]
+        queue = s.vhosts["/"].queues_byname("qexpires")
         tag = q.subscribe { }
         sleep 110.milliseconds
         queue.closed?.should be_false
@@ -141,7 +141,7 @@ describe LavinMQ::AMQP::Queue do
           x.publish_confirm "test message", q.name
           q.get(no_ack: true).try(&.body_io.to_s).should eq("test message")
 
-          iq = s.vhosts["/"].queues[q.name]
+          iq = s.vhosts["/"].queues_byname(q.name)
           iq.pause!
 
           x.publish_confirm "test message 2", q.name
@@ -155,12 +155,12 @@ describe LavinMQ::AMQP::Queue do
         s.vhosts.create("/")
         v = s.vhosts["/"].not_nil!
         v.declare_queue("q", true, false)
-        data_dir = s.vhosts["/"].queues["q"].as(LavinMQ::AMQP::Queue).@msg_store.@msg_dir
-        s.vhosts["/"].queues["q"].pause!
+        data_dir = s.vhosts["/"].queues_byname("q").as(LavinMQ::AMQP::Queue).@msg_store.@msg_dir
+        s.vhosts["/"].queues_byname("q").pause!
         File.exists?(File.join(data_dir, "paused")).should be_true
         s.restart
-        s.vhosts["/"].queues["q"].state.paused?.should be_true
-        s.vhosts["/"].queues["q"].resume!
+        s.vhosts["/"].queues_byname("q").state.paused?.should be_true
+        s.vhosts["/"].queues_byname("q").resume!
         File.exists?(File.join(data_dir, "paused")).should be_false
       end
     end
@@ -170,11 +170,11 @@ describe LavinMQ::AMQP::Queue do
         s.vhosts.create("/")
         v = s.vhosts["/"].not_nil!
         v.declare_queue("q", true, false)
-        data_dir = s.vhosts["/"].queues["q"].as(LavinMQ::AMQP::Queue).@msg_store.@msg_dir
+        data_dir = s.vhosts["/"].queues_byname("q").as(LavinMQ::AMQP::Queue).@msg_store.@msg_dir
         File.touch(File.join(data_dir, ".paused"))
         s.restart
         File.exists?(File.join(data_dir, "paused")).should be_true
-        s.vhosts["/"].queues["q"].state.paused?.should be_true
+        s.vhosts["/"].queues_byname("q").state.paused?.should be_true
       end
     end
 
@@ -188,7 +188,7 @@ describe LavinMQ::AMQP::Queue do
           x.publish_confirm "test message", q.name
           q.get(no_ack: true).try(&.body_io.to_s).should eq("test message")
 
-          iq = s.vhosts["/"].queues[q.name]
+          iq = s.vhosts["/"].queues_byname(q.name)
           iq.pause!
 
           x.publish_confirm "test message 2", q.name
@@ -221,7 +221,7 @@ describe LavinMQ::AMQP::Queue do
           x.publish_confirm "test message", q.name
           q.get(no_ack: true).try(&.body_io.to_s).should eq("test message")
 
-          iq = s.vhosts["/"].queues[q.name]
+          iq = s.vhosts["/"].queues_byname(q.name)
           iq.pause!
 
           x.publish_confirm "test message 2", q.name
@@ -253,7 +253,7 @@ describe LavinMQ::AMQP::Queue do
         tag = "consumer-to-be-canceled"
         with_channel(s) do |ch|
           q = ch.queue(q_name)
-          queue = s.vhosts["/"].queues[q_name].as(LavinMQ::AMQP::DurableQueue)
+          queue = s.vhosts["/"].queues_byname(q_name).as(LavinMQ::AMQP::DurableQueue)
           q.publish_confirm "m1"
 
           # Should get canceled
@@ -266,7 +266,7 @@ describe LavinMQ::AMQP::Queue do
         end
 
         # Queue is closed, delete to prevent spec failure because of closed queue
-        s.vhosts["/"].queues[q_name].try &.delete
+        s.vhosts["/"].queues_byname(q_name).try &.delete
       end
     end
   end
@@ -277,7 +277,7 @@ describe LavinMQ::AMQP::Queue do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           q = ch.queue(q_name, durable: true)
-          queue = s.vhosts["/"].queues[q_name].as(LavinMQ::AMQP::DurableQueue)
+          queue = s.vhosts["/"].queues_byname(q_name).as(LavinMQ::AMQP::DurableQueue)
 
           # Publish a message
           q.publish_confirm "test message"
@@ -302,7 +302,7 @@ describe LavinMQ::AMQP::Queue do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           q = ch.queue(q_name, durable: true)
-          queue = s.vhosts["/"].queues[q_name].as(LavinMQ::AMQP::DurableQueue)
+          queue = s.vhosts["/"].queues_byname(q_name).as(LavinMQ::AMQP::DurableQueue)
           q.publish_confirm "test message"
           queue.message_count.should eq 1
 
@@ -335,7 +335,7 @@ describe LavinMQ::AMQP::Queue do
           q = ch.queue(q_name, durable: true, args: AMQP::Client::Arguments.new(
             {"x-message-ttl" => 500, "x-dead-letter-exchange" => "", "x-dead-letter-routing-key" => "dlq"}
           ))
-          queue = s.vhosts["/"].queues[q_name].as(LavinMQ::AMQP::DurableQueue)
+          queue = s.vhosts["/"].queues_byname(q_name).as(LavinMQ::AMQP::DurableQueue)
 
           # Publish a message
           q.publish_confirm "test message"
@@ -358,7 +358,7 @@ describe LavinMQ::AMQP::Queue do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           ch.queue(q_name, durable: true, args: AMQP::Client::Arguments.new({"x-expires" => 100}))
-          queue = s.vhosts["/"].queues[q_name].as(LavinMQ::AMQP::DurableQueue)
+          queue = s.vhosts["/"].queues_byname(q_name).as(LavinMQ::AMQP::DurableQueue)
 
           # Close the queue
           queue.close
@@ -376,7 +376,7 @@ describe LavinMQ::AMQP::Queue do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           ch.queue(q_name, durable: true)
-          queue = s.vhosts["/"].queues[q_name].as(LavinMQ::AMQP::DurableQueue)
+          queue = s.vhosts["/"].queues_byname(q_name).as(LavinMQ::AMQP::DurableQueue)
 
           # Try to restart without closing
           queue.restart!.should be_false
@@ -399,7 +399,7 @@ describe LavinMQ::AMQP::Queue do
           x.publish_confirm "test message 3", q.name
           x.publish_confirm "test message 4", q.name
 
-          internal_queue = s.vhosts["/"].queues[q.name]
+          internal_queue = s.vhosts["/"].queues_byname(q.name)
           internal_queue.message_count.should eq 4
 
           response = http.delete("/api/queues/%2f/#{q_name}/contents")
@@ -421,7 +421,7 @@ describe LavinMQ::AMQP::Queue do
           end
 
           vhost = s.vhosts["/"]
-          internal_queue = vhost.queues[q.name]
+          internal_queue = vhost.queues_byname(q.name)
           internal_queue.message_count.should eq 10
 
           response = http.delete("/api/queues/%2f/#{q_name}/contents?count=5")
@@ -441,7 +441,7 @@ describe LavinMQ::AMQP::Queue do
 
         msg = q.get(no_ack: false)
         msg.should_not be_nil
-        sq = s.vhosts["/"].queues[q.name]
+        sq = s.vhosts["/"].queues_byname(q.name)
         sq.unacked_count.should eq 1
         msg.not_nil!.ack
         sleep 10.milliseconds
@@ -461,7 +461,7 @@ describe LavinMQ::AMQP::Queue do
           done.send msg
         end
         msg = done.receive
-        sq = s.vhosts["/"].queues[q.name]
+        sq = s.vhosts["/"].queues_byname(q.name)
         sq.unacked_count.should eq 1
         msg.ack
         sleep 10.milliseconds
@@ -475,7 +475,7 @@ describe LavinMQ::AMQP::Queue do
       with_channel(s) do |ch|
         ch.queue "transient", durable: false
       end
-      data_dir = s.vhosts["/"].queues["transient"].as(LavinMQ::AMQP::Queue).@msg_store.@msg_dir
+      data_dir = s.vhosts["/"].queues_byname("transient").as(LavinMQ::AMQP::Queue).@msg_store.@msg_dir
       s.stop
       Dir.exists?(data_dir).should be_false
     end
@@ -486,7 +486,7 @@ describe LavinMQ::AMQP::Queue do
       with_channel(s) do |ch|
         ch.queue "transient", durable: false
       end
-      data_dir = s.vhosts["/"].queues["transient"].as(LavinMQ::AMQP::Queue).@msg_store.@msg_dir
+      data_dir = s.vhosts["/"].queues_byname("transient").as(LavinMQ::AMQP::Queue).@msg_store.@msg_dir
       Dir.exists?(data_dir).should be_true
       File.exists?("#{data_dir}/msgs.0000000001").should be_false
     end
@@ -498,7 +498,7 @@ describe LavinMQ::AMQP::Queue do
       with_channel(s) do |ch|
         q = ch.queue "transient", durable: false
         q.publish_confirm "foobar"
-        data_dir = s.vhosts["/"].queues["transient"].as(LavinMQ::AMQP::Queue).@msg_store.@msg_dir
+        data_dir = s.vhosts["/"].queues_byname("transient").as(LavinMQ::AMQP::Queue).@msg_store.@msg_dir
         FileUtils.cp_r data_dir, "#{s.vhosts["/"].data_dir}.copy"
       end
       s.stop
@@ -518,7 +518,7 @@ describe LavinMQ::AMQP::Queue do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         q = ch.queue("q", auto_delete: true)
-        data_dir = s.vhosts["/"].queues["q"].as(LavinMQ::AMQP::Queue).@msg_store.@msg_dir
+        data_dir = s.vhosts["/"].queues_byname("q").as(LavinMQ::AMQP::Queue).@msg_store.@msg_dir
         sub = q.subscribe(no_ack: true) { |_| }
         Dir.exists?(data_dir).should be_true
         q.unsubscribe(sub)
@@ -641,7 +641,7 @@ describe LavinMQ::AMQP::Queue do
         s.vhosts["/"].declare_queue("expire_test_queue", true, false, AMQP::Client::Arguments.new({
           "x-message-ttl" => 600,
         }))
-        queue = s.vhosts["/"].queues["expire_test_queue"].as(LavinMQ::AMQP::DurableQueue)
+        queue = s.vhosts["/"].queues_byname("expire_test_queue").as(LavinMQ::AMQP::DurableQueue)
 
         10_000.times do
           queue.publish(LavinMQ::Message.new("ex", "rk", "body" * 250, AMQ::Protocol::Properties.new))
@@ -691,7 +691,7 @@ describe LavinMQ::AMQP::Queue do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           q = ch.queue
-          sq = s.vhosts["/"].queues[q.name].should be_a LavinMQ::AMQP::Queue
+          sq = s.vhosts["/"].queues_byname(q.name).should be_a LavinMQ::AMQP::Queue
 
           q.publish_confirm "a"
           q.publish_confirm "b"
@@ -733,7 +733,7 @@ describe LavinMQ::AMQP::Queue do
         with_amqp_server do |s|
           q = s.vhosts["/"].try do |vhost|
             vhost.declare_queue("q", durable: true, auto_delete: false, arguments: AMQP::Client::Arguments.new(args))
-            vhost.queues["q"]
+            vhost.queues_byname("q")
           end
 
           effective_arguments = q.details_tuple[:effective_arguments]
@@ -753,7 +753,7 @@ describe LavinMQ::AMQP::Queue do
         with_amqp_server do |s|
           q = s.vhosts["/"].try do |vhost|
             vhost.declare_queue("q", durable: true, auto_delete: false, arguments: AMQP::Client::Arguments.new(args))
-            vhost.queues["q"]
+            vhost.queues_byname("q")
           end
 
           effective_arguments = q.details_tuple[:effective_arguments]
@@ -789,7 +789,7 @@ describe LavinMQ::AMQP::Queue do
         with_amqp_server do |s|
           q = s.vhosts["/"].try do |vhost|
             vhost.declare_queue("q", durable: true, auto_delete: false, arguments: AMQP::Client::Arguments.new(args))
-            vhost.queues["q"]
+            vhost.queues_byname("q")
           end
           definition = JSON.parse(policy_args.to_json).as_h
           policy = LavinMQ::Policy.new("p1", "/", %r{"."}, LavinMQ::Policy::Target::All, definition, 1i8)

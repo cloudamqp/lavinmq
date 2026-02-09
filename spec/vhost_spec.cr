@@ -30,7 +30,7 @@ describe LavinMQ::VHost do
       v = s.vhosts["test"].not_nil!
       v.declare_exchange("e", "direct", true, false)
       s.restart
-      s.vhosts["test"].exchanges["e"].should_not be_nil
+      s.vhosts["test"].exchanges_byname("e").should_not be_nil
     end
   end
 
@@ -59,7 +59,7 @@ describe LavinMQ::VHost do
       v = s.vhosts["test"].not_nil!
       v.declare_queue("q", true, false)
       s.restart
-      s.vhosts["test"].queues["q"].should_not be_nil
+      s.vhosts["test"].queues_byname("q").should_not be_nil
     end
   end
 
@@ -71,7 +71,7 @@ describe LavinMQ::VHost do
       v.declare_queue("q", true, false)
       s.vhosts["test"].bind_queue("q", "e", "q")
       s.restart
-      s.vhosts["test"].exchanges["e"].bindings_details.first.destination.name.should eq "q"
+      s.vhosts["test"].exchanges_byname("e").bindings_details.first.destination.name.should eq "q"
     end
   end
 
