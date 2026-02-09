@@ -102,7 +102,7 @@ module LavinMQ
 
       def add_permission(user, vhost, config, read, write)
         perm = {config: config, read: read, write: write}
-        @users.shared do |h|
+        @users.lock do |h|
           if h[user].permissions[vhost]? && h[user].permissions[vhost] == perm
             return perm
           end
@@ -114,7 +114,7 @@ module LavinMQ
       end
 
       def rm_permission(user, vhost)
-        perm = @users.shared do |h|
+        perm = @users.lock do |h|
           if p = h[user].permissions.delete(vhost)
             h[user].clear_permissions_cache
             p
@@ -128,7 +128,7 @@ module LavinMQ
       end
 
       def rm_vhost_permissions_for_all(vhost)
-        @users.shared do |h|
+        @users.lock do |h|
           h.each_value do |user|
             user.permissions.delete(vhost)
             user.clear_permissions_cache

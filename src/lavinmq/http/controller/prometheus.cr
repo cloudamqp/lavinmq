@@ -353,7 +353,7 @@ module LavinMQ
           vhost.connections_each do |conn|
             channels += conn.channels_size
             conn.channels_each_value do |ch|
-              consumers += ch.consumers.size
+              consumers += ch.consumers_size
             end
           end
           queues += vhost.queues_size

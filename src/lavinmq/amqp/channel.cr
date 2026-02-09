@@ -1,3 +1,4 @@
+require "sync/exclusive"
 require "../stats"
 require "./client"
 require "./consumer"
@@ -20,7 +21,7 @@ module LavinMQ
       getter id, name
       property? running = true
       getter? flow = true
-      getter consumers = Array(Consumer).new
+      @consumers : Sync::Exclusive(Array(Consumer)) = Sync::Exclusive.new(Array(Consumer).new)
       getter prefetch_count : UInt16 = Config.instance.default_consumer_prefetch
       getter global_prefetch_count = 0_u16
       getter has_capacity = BoolChannel.new(true)
@@ -51,6 +52,25 @@ module LavinMQ
         @log = Logger.new(Log, @metadata)
       end
 
+      # Synchronized accessors for @consumers
+      def consumers : Array(Consumer)
+        @consumers.lock(&.dup)
+      end
+
+      def consumers_size : Int32
+        @consumers.lock(&.size)
+      end
+
+      def consumers_find(& : Consumer -> Bool) : Consumer?
+        @consumers.lock do |consumers|
+          consumers.find { |c| yield c }
+        end
+      end
+
+      def consumers_delete(consumer : Consumer) : Consumer?
+        @consumers.lock(&.delete(consumer))
+      end
+
       record Unack,
         tag : UInt64,
         queue : Queue,
@@ -64,7 +84,7 @@ module LavinMQ
           name:                    @name,
           vhost:                   @client.vhost.name,
           user:                    @client.user.name,
-          consumer_count:          @consumers.size,
+          consumer_count:          consumers_size,
           prefetch_count:          @prefetch_count,
           global_prefetch_count:   @global_prefetch_count,
           confirm:                 @confirm,
@@ -78,7 +98,7 @@ module LavinMQ
 
       def flow(active : Bool)
         @flow = active
-        @consumers.each &.flow(active)
+        @consumers.lock { |c| c.each &.flow(active) }
         send AMQP::Frame::Channel::FlowOk.new(@id, active)
       end
 
@@ -349,7 +369,7 @@ module LavinMQ
       end
 
       def consume(frame)
-        if @consumers.size >= Config.instance.max_consumers_per_channel > 0
+        if consumers_size >= Config.instance.max_consumers_per_channel > 0
           @client.send_resource_error(frame, "Max #{Config.instance.max_consumers_per_channel} consumers per channel reached")
           return
         end
@@ -381,7 +401,7 @@ module LavinMQ
               else
                 AMQP::Consumer.new(self, q, frame)
               end
-          @consumers.push(c)
+          @consumers.lock(&.push(c))
           q.add_consumer(c)
           unless frame.no_wait
             send AMQP::Frame::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag)
@@ -606,7 +626,7 @@ module LavinMQ
       end
 
       def prefetch_count=(value)
-        @consumers.each(&.prefetch_count = value)
+        @consumers.lock { |c| c.each(&.prefetch_count = value) }
         @prefetch_count = value
       end
 
@@ -650,11 +670,15 @@ module LavinMQ
 
       def close
         @running = false
-        @consumers.each_with_index(1) do |consumer, i|
+        consumers_to_close = @consumers.lock do |c|
+          arr = c.dup
+          c.clear
+          arr
+        end
+        consumers_to_close.each_with_index(1) do |consumer, i|
           consumer.close
           Fiber.yield if (i % 128) == 0
         end
-        @consumers.clear
         if drc = @direct_reply_consumer
           @client.vhost.direct_reply_consumer_delete(drc)
         end
@@ -724,9 +748,13 @@ module LavinMQ
 
       def cancel_consumer(frame)
         @log.debug { "Cancelling consumer '#{frame.consumer_tag}'" }
-        if idx = @consumers.index { |cons| cons.tag == frame.consumer_tag }
-          c = @consumers.delete_at idx
-          c.close
+        consumer = @consumers.lock do |consumers|
+          if idx = consumers.index { |cons| cons.tag == frame.consumer_tag }
+            next consumers.delete_at idx
+          end
+        end
+        if consumer
+          consumer.close
         elsif @direct_reply_consumer == frame.consumer_tag
           @direct_reply_consumer = nil
           @client.vhost.direct_reply_consumer_delete(frame.consumer_tag)
