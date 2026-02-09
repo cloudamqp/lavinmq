@@ -1,3 +1,4 @@
+require "sync/exclusive"
 require "../amqp/queue/queue"
 require "../error"
 require "./consts"
@@ -9,13 +10,14 @@ module LavinMQ
       Log = ::LavinMQ::Log.for "mqtt.session"
 
       @client : MQTT::Client? = nil
+      @unacked : Sync::Exclusive(Hash(UInt16, SegmentPosition))
 
       protected def initialize(@vhost : VHost,
                                @name : String,
                                @auto_delete = false,
                                arguments : ::AMQ::Protocol::Table = AMQP::Table.new)
         @count = 0u16
-        @unacked = Hash(UInt16, SegmentPosition).new
+        @unacked = Sync::Exclusive.new(Hash(UInt16, SegmentPosition).new)
 
         super(@vhost, @name, false, @auto_delete, arguments)
 
@@ -53,14 +55,16 @@ module LavinMQ
         return if @closed
         @last_get_time = RoughTime.instant
 
-        unless clean_session?
-          @msg_store_lock.synchronize do
-            @unacked.values.each do |sp|
-              @msg_store.requeue(sp)
+        @unacked.lock do |unacked|
+          unless clean_session?
+            @msg_store_lock.synchronize do
+              unacked.values.each do |sp|
+                @msg_store.requeue(sp)
+              end
             end
           end
+          unacked.clear
         end
-        @unacked.clear
 
         consumers_snapshot = @consumers.shared(&.dup)
         consumers_snapshot.each do |c|
@@ -125,13 +129,15 @@ module LavinMQ
             delete_message(sp)
           else
             begin
-              id = next_id
+              id = @unacked.lock do |unacked|
+                next_id(unacked)
+              end
               return false unless id
               packet = build_packet(env, id)
               @unacked_count.add(1, :relaxed)
               @unacked_bytesize.add(sp.bytesize, :relaxed)
               yield packet
-              @unacked[id] = sp
+              @unacked.lock { |unacked| unacked[id] = sp }
             rescue ex # requeue failed delivery
               @msg_store_lock.synchronize { @msg_store.requeue(sp) }
               @unacked_count.sub(1, :relaxed)
@@ -192,8 +198,11 @@ module LavinMQ
 
       def ack(packet : MQTT::PubAck) : Nil
         id = packet.packet_id
-        sp = @unacked[id]
-        @unacked.delete id
+        sp = @unacked.lock do |unacked|
+          val = unacked[id]
+          unacked.delete id
+          val
+        end
         super sp
       rescue
         raise ::IO::Error.new("Could not acknowledge package with id: #{id}")
@@ -203,11 +212,11 @@ module LavinMQ
 
       private def queue_expire_loop; end
 
-      private def next_id : UInt16?
-        return if @unacked.size == Config.instance.max_inflight_messages
+      private def next_id(unacked : Hash(UInt16, SegmentPosition)) : UInt16?
+        return if unacked.size == Config.instance.max_inflight_messages
         start_id = @count
         next_id : UInt16 = start_id &+ 1_u16
-        while @unacked.has_key?(next_id)
+        while unacked.has_key?(next_id)
           next_id &+= 1u16
           next_id = 1u16 if next_id == 0
           return if next_id == start_id

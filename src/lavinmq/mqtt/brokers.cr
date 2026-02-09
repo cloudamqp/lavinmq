@@ -1,3 +1,4 @@
+require "sync/shared"
 require "./broker"
 require "../clustering/replicator"
 require "../observable"
@@ -7,17 +8,18 @@ module LavinMQ
   module MQTT
     class Brokers
       include Observer(VHostStore::Event)
+      @brokers : Sync::Shared(Hash(String, Broker))
 
       def initialize(@vhosts : VHostStore, @replicator : Clustering::Replicator?)
-        @brokers = Hash(String, Broker).new(initial_capacity: @vhosts.size)
+        @brokers = Sync::Shared.new(Hash(String, Broker).new(initial_capacity: @vhosts.size))
         @vhosts.each do |(name, vhost)|
-          @brokers[name] = Broker.new(vhost, @replicator)
+          @brokers.lock { |brokers| brokers[name] = Broker.new(vhost, @replicator) }
         end
         @vhosts.register_observer(self)
       end
 
       def []?(vhost : String) : Broker?
-        @brokers[vhost]?
+        @brokers.shared { |brokers| brokers[vhost]? }
       end
 
       def on(event : VHostStore::Event, data : Object?)
@@ -25,11 +27,13 @@ module LavinMQ
         vhost = data.to_s
         case event
         in VHostStore::Event::Added
-          @brokers[vhost] = Broker.new(@vhosts[vhost], @replicator)
+          broker = Broker.new(@vhosts[vhost], @replicator)
+          @brokers.lock { |brokers| brokers[vhost] = broker }
         in VHostStore::Event::Deleted
-          @brokers.delete(vhost)
+          @brokers.lock { |brokers| brokers.delete(vhost) }
         in VHostStore::Event::Closed
-          @brokers[vhost].close
+          broker = @brokers.shared { |brokers| brokers[vhost]? }
+          broker.try &.close
         end
       end
     end

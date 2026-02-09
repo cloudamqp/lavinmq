@@ -1,3 +1,4 @@
+require "sync/exclusive"
 require "./client"
 require "./consts"
 require "./exchange"
@@ -11,6 +12,7 @@ module LavinMQ
   module MQTT
     class Broker
       getter vhost, sessions
+      @clients : Sync::Exclusive(Hash(String, Client))
 
       # The `Broker` class acts as an intermediary between the `Server` and MQTT connections.
       # It is initialized by the `Server` and manages client connections, sessions, and message exchange.
@@ -24,7 +26,7 @@ module LavinMQ
       # The `Broker` class helps keep the MQTT client concise and focused on the protocol.
       def initialize(@vhost : VHost, @replicator : Clustering::Replicator?)
         @sessions = Sessions.new(@vhost)
-        @clients = Hash(String, Client).new
+        @clients = Sync::Exclusive.new(Hash(String, Client).new)
         @retain_store = RetainStore.new(File.join(@vhost.data_dir, "mqtt_retained_store"), @replicator)
         @exchange = MQTT::Exchange.new(@vhost, EXCHANGE, @retain_store)
         @vhost.exchanges_unsafe_put(EXCHANGE, @exchange)
@@ -38,9 +40,8 @@ module LavinMQ
       end
 
       def add_client(io, connection_info, user, packet)
-        if prev_client = @clients[packet.client_id]?
-          prev_client.close("New client #{connection_info.remote_address} (username=#{packet.username}) connected as #{packet.client_id}")
-        end
+        prev_client = @clients.lock { |clients| clients[packet.client_id]? }
+        prev_client.try &.close("New client #{connection_info.remote_address} (username=#{packet.username}) connected as #{packet.client_id}")
         client = MQTT::Client.new(io,
           connection_info,
           user,
@@ -56,7 +57,7 @@ module LavinMQ
             session.client = client
           end
         end
-        @clients[packet.client_id] = client
+        @clients.lock { |clients| clients[packet.client_id] = client }
         @vhost.add_connection client
       end
 
@@ -68,7 +69,7 @@ module LavinMQ
             sessions.delete(client_id) if session.clean_session?
           end
         end
-        @clients.delete client_id
+        @clients.lock { |clients| clients.delete client_id }
         @vhost.rm_connection(client)
       end
 
