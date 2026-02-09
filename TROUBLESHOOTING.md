@@ -264,9 +264,3 @@ These tools are useful for diagnosing LavinMQ issues. Refer to each tool's docum
 - **strace** (Linux) / **dtruss** (macOS) - Trace system calls for low-level debugging
 - **tcpdump** - Capture network packets for protocol-level debugging
 - **Wireshark** - Analyze captured AMQP/MQTT traffic
-
-## Getting Help
-
-- **GitHub Issues**: https://github.com/cloudamqp/lavinmq/issues
-- **Documentation**: https://lavinmq.com/documentation
-- **Community**: Start discussions on GitHub, or join our [slack channel](https://join.slack.com/t/lavinmq/shared_invite/zt-1kzmlb85z-J_7QcOjMRyhECLTZ7Gprhg)
