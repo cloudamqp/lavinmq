@@ -232,7 +232,7 @@ describe LavinMQ::Server do
         q.publish_confirm ttl_msg
         msg = wait_for { dlq.get(no_ack: true) }
         msg.not_nil!.body_io.to_s.should eq(ttl_msg)
-        s.vhosts["/"].queues_byname(q.name).empty?.should be_true
+        s.vhosts["/"].queue(q.name).empty?.should be_true
         q.publish_confirm ttl_msg
         msg = wait_for { dlq.get(no_ack: true) }
         msg.not_nil!.body_io.to_s.should eq(ttl_msg)
@@ -250,7 +250,7 @@ describe LavinMQ::Server do
         msg.reject(requeue: true)
         msg = wait_for { dlq.get(no_ack: true) }
         msg.not_nil!.body_io.to_s.should eq(r_msg)
-        s.vhosts["/"].queues_byname(q.name).empty?.should be_true
+        s.vhosts["/"].queue(q.name).empty?.should be_true
       end
     end
   end
@@ -278,7 +278,7 @@ describe LavinMQ::Server do
         tag = q.subscribe(no_ack: false) { |_| done.send nil }
         done.receive
         q.unsubscribe(tag)
-        s.vhosts["/"].queues_byname("msg_q").empty?.should be_true
+        s.vhosts["/"].queue("msg_q").empty?.should be_true
       end
     end
   end
@@ -651,7 +651,7 @@ describe LavinMQ::Server do
         definitions = {"max-length" => JSON::Any.new(1_i64)} of String => JSON::Any
         s.vhosts["/"].add_policy("test", "^mlq$", "queues", definitions, 10_i8)
         sleep 10.milliseconds
-        s.vhosts["/"].queues_byname("mlq").message_count.should eq 1
+        s.vhosts["/"].queue("mlq").message_count.should eq 1
       end
     end
   end
@@ -980,7 +980,7 @@ describe LavinMQ::Server do
         msg.properties.headers.not_nil!["x-delivery-count"].as(Int32).should eq 1
         msg.reject(requeue: true)
         Fiber.yield
-        s.vhosts["/"].queues_byname("delivery_limit").empty?.should be_true
+        s.vhosts["/"].queue("delivery_limit").empty?.should be_true
       end
     end
   end
@@ -1116,8 +1116,8 @@ describe LavinMQ::Server do
         count.should eq 0
 
         Fiber.yield
-        s.vhosts["/"].queues_byname(qname).message_count.should eq 1
-        s.vhosts["/"].queues_byname(qname).unacked_count.should eq 0
+        s.vhosts["/"].queue(qname).message_count.should eq 1
+        s.vhosts["/"].queue(qname).unacked_count.should eq 0
       end
     end
   end

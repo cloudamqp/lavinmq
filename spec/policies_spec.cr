@@ -30,10 +30,10 @@ describe LavinMQ::VHost do
       vhost.queues_unsafe_put("test1", LavinMQ::QueueFactory.make(vhost, "test"))
       vhost.add_policy("test", "^.*$", "all", definitions, -10_i8)
       sleep 10.milliseconds
-      vhost.queues_byname("test1").policy.try(&.name).should eq "test"
+      vhost.queue("test1").policy.try(&.name).should eq "test"
       vhost.delete_policy("test")
       sleep 10.milliseconds
-      vhost.queues_byname("test1").policy.should be_nil
+      vhost.queue("test1").policy.should be_nil
     end
   end
 
@@ -61,7 +61,7 @@ describe LavinMQ::VHost do
       vhost.queues_unsafe_put("test", LavinMQ::QueueFactory.make(vhost, "test"))
       vhost.add_policy("ml", "^.*$", "queues", defs, 11_i8)
       sleep 10.milliseconds
-      vhost.queues_byname("test").policy.not_nil!.name.should eq "ml"
+      vhost.queue("test").policy.not_nil!.name.should eq "ml"
     end
   end
 
@@ -72,7 +72,7 @@ describe LavinMQ::VHost do
       vhost.add_policy("ml2", "^.*$", "queues", defs, 1_i8)
       vhost.add_policy("ml1", "^.*$", "queues", defs, 0_i8)
       sleep 10.milliseconds
-      vhost.queues_byname("test2").policy.not_nil!.name.should eq "ml2"
+      vhost.queue("test2").policy.not_nil!.name.should eq "ml2"
     end
   end
 
@@ -129,7 +129,7 @@ describe LavinMQ::VHost do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         ch.queue("qttl", args: AMQP::Client::Arguments.new({"x-expires" => 1000}))
-        queue = s.vhosts["/"].queues_byname("qttl").as(LavinMQ::AMQP::Queue)
+        queue = s.vhosts["/"].queue("qttl").as(LavinMQ::AMQP::Queue)
         Fiber.yield
         expire_before = queue.@expires
         expire_before.should eq 1000
@@ -283,7 +283,7 @@ describe LavinMQ::VHost do
         vhost.queues_unsafe_put("test", LavinMQ::QueueFactory.make(vhost, "test"))
         vhost.add_policy("test", "^.*$", "all", definitions, -10_i8)
         sleep 10.milliseconds
-        vhost.queues_byname("test").details_tuple[:effective_policy_definition].as(Hash(String, JSON::Any)).each_key do |k|
+        vhost.queue("test").details_tuple[:effective_policy_definition].as(Hash(String, JSON::Any)).each_key do |k|
           supported_policies.includes?(k).should be_true
         end
         vhost.delete_policy("test")
@@ -316,12 +316,12 @@ describe LavinMQ::VHost do
         vhost.queues_unsafe_put("test2", LavinMQ::QueueFactory.make(vhost, "test2", arguments: LavinMQ::AMQP::Table.new({"x-max-length" => 11_i64})))
         vhost.add_policy("test", ".*", "all", definitions, 100_i8)
         sleep 10.milliseconds
-        vhost.queues_byname("test1").as(LavinMQ::AMQP::Queue).@max_length.should eq 1
-        vhost.queues_byname("test2").as(LavinMQ::AMQP::Queue).@max_length.should eq 10
+        vhost.queue("test1").as(LavinMQ::AMQP::Queue).@max_length.should eq 1
+        vhost.queue("test2").as(LavinMQ::AMQP::Queue).@max_length.should eq 10
         vhost.delete_policy("test")
         sleep 10.milliseconds
-        vhost.queues_byname("test1").as(LavinMQ::AMQP::Queue).@max_length.should eq 1
-        vhost.queues_byname("test2").as(LavinMQ::AMQP::Queue).@max_length.should eq 11
+        vhost.queue("test1").as(LavinMQ::AMQP::Queue).@max_length.should eq 1
+        vhost.queue("test2").as(LavinMQ::AMQP::Queue).@max_length.should eq 11
       end
     end
 
@@ -332,14 +332,14 @@ describe LavinMQ::VHost do
         vhost.queues_unsafe_put("test3", LavinMQ::QueueFactory.make(vhost, "test3"))
         vhost.add_policy("test", ".*", "all", definitions, 100_i8)
         sleep 10.milliseconds
-        vhost.queues_byname("test1").as(LavinMQ::AMQP::Queue).@delivery_limit.should eq 1
-        vhost.queues_byname("test2").as(LavinMQ::AMQP::Queue).@delivery_limit.should eq 10
-        vhost.queues_byname("test3").as(LavinMQ::AMQP::Queue).@delivery_limit.should eq 10
+        vhost.queue("test1").as(LavinMQ::AMQP::Queue).@delivery_limit.should eq 1
+        vhost.queue("test2").as(LavinMQ::AMQP::Queue).@delivery_limit.should eq 10
+        vhost.queue("test3").as(LavinMQ::AMQP::Queue).@delivery_limit.should eq 10
         vhost.delete_policy("test")
         sleep 10.milliseconds
-        vhost.queues_byname("test1").as(LavinMQ::AMQP::Queue).@delivery_limit.should eq 1
-        vhost.queues_byname("test2").as(LavinMQ::AMQP::Queue).@delivery_limit.should eq 11
-        vhost.queues_byname("test3").as(LavinMQ::AMQP::Queue).@delivery_limit.should eq nil
+        vhost.queue("test1").as(LavinMQ::AMQP::Queue).@delivery_limit.should eq 1
+        vhost.queue("test2").as(LavinMQ::AMQP::Queue).@delivery_limit.should eq 11
+        vhost.queue("test3").as(LavinMQ::AMQP::Queue).@delivery_limit.should eq nil
       end
     end
   end
@@ -354,7 +354,7 @@ describe LavinMQ::VHost do
         vhost.queues_unsafe_put("test", LavinMQ::QueueFactory.make(vhost, "test"))
         vhost.add_policy("invalid-type", "^test$", "queues", defs, 0_i8)
         sleep 10.milliseconds
-        queue = vhost.queues_byname("test").as(LavinMQ::AMQP::Queue)
+        queue = vhost.queue("test").as(LavinMQ::AMQP::Queue)
         queue.@max_length.should be_nil
         queue.@message_ttl.should eq 5000
         vhost.delete_policy("invalid-type")
@@ -370,7 +370,7 @@ describe LavinMQ::VHost do
         vhost.queues_unsafe_put("test", LavinMQ::QueueFactory.make(vhost, "test"))
         vhost.add_policy("invalid-bytes", "^test$", "queues", defs, 0_i8)
         sleep 10.milliseconds
-        queue = vhost.queues_byname("test").as(LavinMQ::AMQP::Queue)
+        queue = vhost.queue("test").as(LavinMQ::AMQP::Queue)
         queue.@max_length_bytes.should be_nil
         queue.@max_length.should eq 10
         vhost.delete_policy("invalid-bytes")
@@ -386,7 +386,7 @@ describe LavinMQ::VHost do
         vhost.queues_unsafe_put("test", LavinMQ::QueueFactory.make(vhost, "test"))
         vhost.add_policy("invalid-ttl", "^test$", "queues", defs, 0_i8)
         sleep 10.milliseconds
-        queue = vhost.queues_byname("test").as(LavinMQ::AMQP::Queue)
+        queue = vhost.queue("test").as(LavinMQ::AMQP::Queue)
         queue.@message_ttl.should be_nil
         queue.@max_length.should eq 20
         vhost.delete_policy("invalid-ttl")
@@ -402,7 +402,7 @@ describe LavinMQ::VHost do
         vhost.queues_unsafe_put("test", LavinMQ::QueueFactory.make(vhost, "test"))
         vhost.add_policy("invalid-expires", "^test$", "queues", defs, 0_i8)
         sleep 10.milliseconds
-        queue = vhost.queues_byname("test").as(LavinMQ::AMQP::Queue)
+        queue = vhost.queue("test").as(LavinMQ::AMQP::Queue)
         queue.@expires.should be_nil
         queue.@max_length.should eq 15
         vhost.delete_policy("invalid-expires")
@@ -418,7 +418,7 @@ describe LavinMQ::VHost do
         vhost.queues_unsafe_put("test", LavinMQ::QueueFactory.make(vhost, "test"))
         vhost.add_policy("invalid-overflow", "^test$", "queues", defs, 0_i8)
         sleep 10.milliseconds
-        queue = vhost.queues_byname("test").as(LavinMQ::AMQP::Queue)
+        queue = vhost.queue("test").as(LavinMQ::AMQP::Queue)
         queue.@reject_on_overflow.should be_false
         queue.@max_length.should eq 25
         vhost.delete_policy("invalid-overflow")
@@ -434,7 +434,7 @@ describe LavinMQ::VHost do
         vhost.queues_unsafe_put("test", LavinMQ::QueueFactory.make(vhost, "test"))
         vhost.add_policy("invalid-dlx", "^test$", "queues", defs, 0_i8)
         sleep 10.milliseconds
-        queue = vhost.queues_byname("test").as(LavinMQ::AMQP::Queue)
+        queue = vhost.queue("test").as(LavinMQ::AMQP::Queue)
         queue.@dead_letter.@dlx.should be_nil
         queue.@max_length.should eq 30
         vhost.delete_policy("invalid-dlx")
@@ -450,7 +450,7 @@ describe LavinMQ::VHost do
         vhost.queues_unsafe_put("test", LavinMQ::QueueFactory.make(vhost, "test"))
         vhost.add_policy("invalid-dlrk", "^test$", "queues", defs, 0_i8)
         sleep 10.milliseconds
-        queue = vhost.queues_byname("test").as(LavinMQ::AMQP::Queue)
+        queue = vhost.queue("test").as(LavinMQ::AMQP::Queue)
         queue.@dead_letter.@dlx.should be_nil
         queue.@max_length.should be_nil
         vhost.delete_policy("invalid-dlrk")
@@ -466,7 +466,7 @@ describe LavinMQ::VHost do
         vhost.queues_unsafe_put("test", LavinMQ::QueueFactory.make(vhost, "test"))
         vhost.add_policy("invalid-limit", "^test$", "queues", defs, 0_i8)
         sleep 10.milliseconds
-        queue = vhost.queues_byname("test").as(LavinMQ::AMQP::Queue)
+        queue = vhost.queue("test").as(LavinMQ::AMQP::Queue)
         queue.@delivery_limit.should be_nil
         queue.@max_length.should eq 40
         vhost.delete_policy("invalid-limit")
@@ -488,7 +488,7 @@ describe LavinMQ::VHost do
         vhost.queues_unsafe_put("test", LavinMQ::QueueFactory.make(vhost, "test"))
         vhost.add_policy("mixed", "^test$", "queues", defs, 0_i8)
         sleep 10.milliseconds
-        queue = vhost.queues_byname("test").as(LavinMQ::AMQP::Queue)
+        queue = vhost.queue("test").as(LavinMQ::AMQP::Queue)
         queue.@max_length.should eq 50
         queue.@max_length_bytes.should be_nil
         queue.@message_ttl.should eq 3000

@@ -8,7 +8,7 @@ module LavinMQ
       private def exchange(context, params, vhost, key = "name")
         name = params[key]
         name = "" if name == "amq.default"
-        e = vhost.exchanges_byname?(name)
+        e = vhost.exchange?(name)
         not_found(context) unless e
         e
       end
@@ -60,7 +60,7 @@ module LavinMQ
             unless user.can_config?(vhost.name, name) && ae_ok
               access_refused(context, "User doesn't have permissions to declare exchange '#{name}'")
             end
-            e = vhost.exchanges_byname?(name)
+            e = vhost.exchange?(name)
             if e
               unless e.match?(type, durable, auto_delete, internal, tbl)
                 bad_request(context, "Existing exchange declared with other arguments arg")

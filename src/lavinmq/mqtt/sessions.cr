@@ -8,11 +8,11 @@ module LavinMQ
       end
 
       def []?(client_id : String) : Session?
-        @vhost.queues_byname?("mqtt.#{client_id}").try &.as(Session)
+        @vhost.queue?("mqtt.#{client_id}").try &.as(Session)
       end
 
       def [](client_id : String) : Session
-        @vhost.queues_byname("mqtt.#{client_id}").as(Session)
+        @vhost.queue("mqtt.#{client_id}").as(Session)
       end
 
       def declare(client : Client)

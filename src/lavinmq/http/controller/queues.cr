@@ -9,13 +9,13 @@ module LavinMQ
     module QueueHelpers
       private def find_queue(context, params, vhost, key = "name")
         name = params[key]
-        q = vhost.queues_byname?(name)
+        q = vhost.queue?(name)
         not_found(context, "Not Found") unless q
         q
       end
 
       private def find_stream(context, vhost, name)
-        q = vhost.queues_byname?(name)
+        q = vhost.queue?(name)
         not_found(context, "Not Found") unless q
         not_found(context, "Not Found") unless q.is_a?(LavinMQ::AMQP::Stream)
         q.as(LavinMQ::AMQP::Stream)
@@ -74,7 +74,7 @@ module LavinMQ
             unless user.can_config?(vhost.name, name) && dlx_ok
               access_refused(context, "User doesn't have permissions to declare queue '#{name}'")
             end
-            q = vhost.queues_byname?(name)
+            q = vhost.queue?(name)
             if q
               unless q.match?(durable, false, auto_delete, tbl)
                 bad_request(context, "Existing queue declared with other arguments arg")

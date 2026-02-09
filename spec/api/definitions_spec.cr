@@ -106,19 +106,19 @@ describe LavinMQ::HTTP::Server do
       ]})
         response = http.post("/api/definitions", body: body)
         response.status_code.should eq 200
-        ex = s.vhosts["/"].exchanges_byname("import_x1")
+        ex = s.vhosts["/"].exchange("import_x1")
         qs = Set(LavinMQ::Queue).new
         es = Set(LavinMQ::Exchange).new
         ex.find_queues("r.k2", nil, qs, es)
         res = Set(LavinMQ::Exchange).new
-        res << s.vhosts["/"].exchanges_byname("import_x1")
-        res << s.vhosts["/"].exchanges_byname("import_x2")
+        res << s.vhosts["/"].exchange("import_x1")
+        res << s.vhosts["/"].exchange("import_x2")
         es.should eq res
         qs = Set(LavinMQ::Queue).new
         es = Set(LavinMQ::Exchange).new
         ex.find_queues("rk", nil, qs, es)
         res = Set(LavinMQ::Queue).new
-        res << s.vhosts["/"].queues_byname("import_q1")
+        res << s.vhosts["/"].queue("import_q1")
         qs.should eq res
       end
     end
@@ -498,19 +498,19 @@ describe LavinMQ::HTTP::Server do
       ]})
         response = http.post("/api/definitions/%2f", body: body)
         response.status_code.should eq 200
-        ex = s.vhosts["/"].exchanges_byname("import_x1")
+        ex = s.vhosts["/"].exchange("import_x1")
         qs = Set(LavinMQ::Queue).new
         es = Set(LavinMQ::Exchange).new
         ex.find_queues("r.k2", nil, qs, es)
         res = Set(LavinMQ::Exchange).new
-        res << s.vhosts["/"].exchanges_byname("import_x1")
-        res << s.vhosts["/"].exchanges_byname("import_x2")
+        res << s.vhosts["/"].exchange("import_x1")
+        res << s.vhosts["/"].exchange("import_x2")
         es.should eq res
         qs = Set(LavinMQ::Queue).new
         es = Set(LavinMQ::Exchange).new
         ex.find_queues("rk", nil, qs, es)
         res = Set(LavinMQ::Queue).new
-        res << s.vhosts["/"].queues_byname("import_q1")
+        res << s.vhosts["/"].queue("import_q1")
         qs.should eq res
       end
     end
@@ -695,7 +695,7 @@ describe LavinMQ::HTTP::Server do
       args = {"x-delayed-message", false, false, false, LavinMQ::AMQP::Table.new({"x-delayed-type": "direct"})}
       vhost.declare_exchange "test", *args
       http.get("/api/definitions")
-      vhost.exchanges_byname("test").match?(*args).should be_true
+      vhost.exchange("test").match?(*args).should be_true
     end
   end
 

@@ -48,11 +48,11 @@ module LavinMQ
 
     # Synchronized exchange accessors
 
-    def exchanges_byname?(name : String) : Exchange?
+    def exchange?(name : String) : Exchange?
       @exchanges.shared { |h| h[name]? }
     end
 
-    def exchanges_byname(name : String) : Exchange
+    def exchange(name : String) : Exchange
       @exchanges.shared { |h| h[name] }
     end
 
@@ -82,11 +82,11 @@ module LavinMQ
 
     # Synchronized queue accessors
 
-    def queues_byname?(name : String) : Queue?
+    def queue?(name : String) : Queue?
       @queues.shared { |h| h[name]? }
     end
 
-    def queues_byname(name : String) : Queue
+    def queue(name : String) : Queue
       @queues.shared { |h| h[name] }
     end
 
@@ -260,7 +260,7 @@ module LavinMQ
     # When this method finishes, the position will be the same, start of the body
     def publish(msg : Message, immediate = false,
                 visited = Set(LavinMQ::Exchange).new, found_queues = Set(LavinMQ::Queue).new) : Bool
-      ex = exchanges_byname?(msg.exchange_name) || return false
+      ex = exchange?(msg.exchange_name) || return false
       ex.publish(msg, immediate, found_queues, visited)
     ensure
       visited.clear
