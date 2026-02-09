@@ -79,7 +79,8 @@ module LavinMQ
           proc_used:          Fiber.count,
           run_queue:          0,
           sockets_used:       @amqp_server.vhosts.sum { |_, v| v.connections.size },
-          followers:          merged_replicas,
+          followers:          @amqp_server.followers,
+          merged_replicas:    merged_replicas,
         }
       end
 
@@ -110,21 +111,6 @@ module LavinMQ
               remote_address: nil,
               sent_bytes:     nil,
               acked_bytes:    nil,
-            }
-          end
-        end
-
-        # Add any connected followers not yet in etcd (shouldn't happen but be safe)
-        connected.each do |follower|
-          id = follower.id.to_s(36)
-          unless known.has_key?(id)
-            result << {
-              id:             id,
-              role:           "follower",
-              insync:         false,
-              remote_address: follower.remote_address.to_s,
-              sent_bytes:     follower.sent_bytes,
-              acked_bytes:    follower.acked_bytes,
             }
           end
         end

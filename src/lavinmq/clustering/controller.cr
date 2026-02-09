@@ -149,7 +149,8 @@ class LavinMQ::Clustering::Controller
     if isr = @etcd.get(old_key)
       legacy_isr_exists = true
       if isr.split(",").map(&.to_i(36)).includes?(@id)
-        Log.info { "In sync via legacy ISR key" }
+        Log.info { "In sync via legacy ISR key, migrating to new format" }
+        @etcd.put(new_key, "1")
         return
       end
     end

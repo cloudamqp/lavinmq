@@ -233,12 +233,16 @@ module LavinMQ
         key = "#{@config.clustering_etcd_prefix}/replica/#{id.to_s(36)}/insync"
         @etcd.put(key, "1")
         Log.debug { "Marked replica #{id.to_s(36)} as in-sync" }
+      rescue ex : Etcd::Error
+        Log.error { "Failed to mark replica #{id.to_s(36)} as in-sync: #{ex.message}" }
       end
 
       private def mark_out_of_sync(id : Int32)
         key = "#{@config.clustering_etcd_prefix}/replica/#{id.to_s(36)}/insync"
         @etcd.put(key, "0")
         Log.debug { "Marked replica #{id.to_s(36)} as out-of-sync" }
+      rescue ex : Etcd::Error
+        Log.error { "Failed to mark replica #{id.to_s(36)} as out-of-sync: #{ex.message}" }
       end
 
       # Removes a replica from etcd, returns true if the replica was found and deleted
