@@ -19,7 +19,8 @@ module LavinMQ
       end
 
       def notify_observers(event : {{ EventT }}, data : Object? = nil)
-        {{ observers_ivar }}.shared { |obs| obs.each &.on(event, data) }
+        observers_copy = {{ observers_ivar }}.shared(&.to_a)
+        observers_copy.each &.on(event, data)
       end
     end
   end
