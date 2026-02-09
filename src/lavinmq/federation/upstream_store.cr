@@ -7,23 +7,23 @@ module LavinMQ
     class UpstreamStore
       include Enumerable(Upstream)
       Log = LavinMQ::Log.for "federation.upstream_store"
-      @lock : Sync::Exclusive({Hash(String, Upstream), Hash(String, Array(Upstream))})
+      @lock : Sync::Exclusive(NamedTuple(upstreams: Hash(String, Upstream), sets: Hash(String, Array(Upstream))))
 
       def initialize(@vhost : VHost)
         @metadata = ::Log::Metadata.new(nil, {vhost: @vhost.name})
         @log = Logger.new(Log, @metadata)
-        @lock = Sync::Exclusive.new({Hash(String, Upstream).new, Hash(String, Array(Upstream)).new})
+        @lock = Sync::Exclusive.new({upstreams: Hash(String, Upstream).new, sets: Hash(String, Array(Upstream)).new})
       end
 
       def each(&)
-        upstreams = @lock.lock(&.[0].values)
+        upstreams = @lock.lock(&.[:upstreams].values)
         upstreams.each do |v|
           yield v
         end
       end
 
       def []?(name : String) : Upstream?
-        @lock.lock { |state| state[0][name]? }
+        @lock.lock { |l| l[:upstreams][name]? }
       end
 
       def create_upstream(name, config)
@@ -41,13 +41,12 @@ module LavinMQ
         queue = config["queue"]?.try(&.as_s)
         new_upstream = Upstream.new(@vhost, name, uri, exchange, queue, ack_mode, expires,
           max_hops, msg_ttl, prefetch, reconnect_delay, consumer_tag)
-        prev = @lock.lock do |state|
-          upstreams, upstream_sets = state
-          prev_upstream = upstreams.delete(name)
-          upstream_sets.each do |_, set|
+        prev = @lock.lock do |l|
+          prev_upstream = l[:upstreams].delete(name)
+          l[:sets].each do |_, set|
             set.reject! { |u| u.name == name }
           end
-          upstreams[name] = new_upstream
+          l[:upstreams][name] = new_upstream
           prev_upstream
         end
         prev.try(&.close)
@@ -56,20 +55,18 @@ module LavinMQ
       end
 
       def add(upstream : Upstream)
-        prev = @lock.lock do |state|
-          upstreams = state[0]
-          prev_upstream = upstreams[upstream.name]?
-          upstreams[upstream.name] = upstream
+        prev = @lock.lock do |l|
+          prev_upstream = l[:upstreams][upstream.name]?
+          l[:upstreams][upstream.name] = upstream
           prev_upstream
         end
         prev.try &.close
       end
 
       def delete_upstream(name)
-        prev = @lock.lock do |state|
-          upstreams, upstream_sets = state
-          prev_upstream = upstreams.delete(name)
-          upstream_sets.each do |_, set|
+        prev = @lock.lock do |l|
+          prev_upstream = l[:upstreams].delete(name)
+          l[:sets].each do |_, set|
             set.reject! { |u| u.name == name }
           end
           prev_upstream
@@ -79,24 +76,23 @@ module LavinMQ
       end
 
       def link(name, resource : Queue | Exchange)
-        upstream = @lock.lock { |state| state[0][name]? }
+        upstream = @lock.lock { |l| l[:upstreams][name]? }
         upstream.try &.link(resource)
       end
 
       def stop_link(resource : Queue | Exchange)
-        upstreams = @lock.lock(&.[0].values)
+        upstreams = @lock.lock(&.[:upstreams].values)
         upstreams.each do |upstream|
           upstream.stop_link(resource)
         end
       end
 
       def create_upstream_set(name, config)
-        @lock.lock do |state|
-          upstreams, upstream_sets = state
-          upstream_sets.delete(name)
+        @lock.lock do |l|
+          l[:sets].delete(name)
           set = Array(Upstream).new
           config.as_a.each do |cfg|
-            upstream = upstreams[cfg["upstream"].as_s]
+            upstream = l[:upstreams][cfg["upstream"].as_s]
             if cfg.as_h.keys.size > 1
               upstream = upstream.dup
               config["uri"]?.try { |p| upstream.uri = URI.parse(p.as_a.first.to_s) }
@@ -112,12 +108,12 @@ module LavinMQ
             end
             set << upstream
           end
-          upstream_sets[name] = set
+          l[:sets][name] = set
         end
       end
 
       def delete_upstream_set(name)
-        @lock.lock(&.[1].delete(name))
+        @lock.lock(&.[:sets].delete(name))
         @log.info { "Upstream set '#{name}' deleted" }
       end
 
@@ -129,21 +125,19 @@ module LavinMQ
       end
 
       def get_set(name)
-        @lock.lock do |state|
-          upstreams, upstream_sets = state
+        @lock.lock do |l|
           case name
           when "all"
-            upstreams.values
+            l[:upstreams].values
           else
-            upstream_sets[name].dup
+            l[:sets][name].dup
           end
         end
       end
 
       def stop_all
-        all = @lock.lock do |state|
-          upstreams, upstream_sets = state
-          upstreams.values + upstream_sets.values.flatten
+        all = @lock.lock do |l|
+          l[:upstreams].values + l[:sets].values.flatten
         end
         all.each &.close
       end
