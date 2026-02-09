@@ -2,6 +2,19 @@ require "../spec_helper"
 
 describe LavinMQ::HTTP::Server do
   describe "POST /api/definitions" do
+    it "should refuse non-administrator users" do
+      with_http_server do |http, s|
+        s.users.delete("guest")
+        s.users.create("policymaker_user", "guest", [LavinMQ::Tag::PolicyMaker], save: false)
+        headers = HTTP::Headers{"Authorization" => "Basic cG9saWN5bWFrZXJfdXNlcjpndWVzdA=="}
+        body = %({ "vhosts":[{ "name":"test" }] })
+        response = http.post("/api/definitions", headers: headers, body: body)
+        response.status_code.should eq 403
+        body = JSON.parse(response.body)
+        body["reason"].should eq "Access refused"
+      end
+    end
+
     it "imports users" do
       with_http_server do |http, s|
         body = %({
@@ -249,6 +262,18 @@ describe LavinMQ::HTTP::Server do
   end
 
   describe "GET /api/definitions" do
+    it "should refuse non-administrator users" do
+      with_http_server do |http, s|
+        s.users.delete("guest")
+        s.users.create("management_user", "guest", [LavinMQ::Tag::Management], save: false)
+        headers = HTTP::Headers{"Authorization" => "Basic bWFuYWdlbWVudF91c2VyOmd1ZXN0"}
+        response = http.get("/api/definitions", headers: headers)
+        response.status_code.should eq 403
+        body = JSON.parse(response.body)
+        body["reason"].should eq "Access refused"
+      end
+    end
+
     it "exports users" do
       with_http_server do |http, _|
         response = http.get("/api/definitions")
@@ -428,15 +453,17 @@ describe LavinMQ::HTTP::Server do
       end
     end
     describe "user tags and vhost access" do
-      it "export vhost definitions as management user" do
+      it "should refuse management user even with vhost permissions" do
         with_http_server do |http, s|
           s.users.delete("guest")
-          s.users.create("other_name", "guest", [LavinMQ::Tag::Management], save: false) # Will be the new default_user
+          s.users.create("other_name", "guest", [LavinMQ::Tag::Management], save: false)
           s.vhosts.create("new")
           s.users.add_permission("other_name", "new", /.*/, /.*/, /.*/)
           headers = HTTP::Headers{"Authorization" => "Basic b3RoZXJfbmFtZTpndWVzdA=="}
           response = http.get("/api/definitions/new", headers: headers)
-          response.status_code.should eq 200
+          response.status_code.should eq 403
+          body = JSON.parse(response.body)
+          body["reason"].should eq "Access refused"
         end
       end
 
@@ -558,17 +585,18 @@ describe LavinMQ::HTTP::Server do
       end
     end
     describe "user tags and vhost access" do
-      it "import vhost definitions as policymaker user" do
+      it "should refuse policymaker user even with vhost permissions" do
         with_http_server do |http, s|
           s.users.delete("guest")
-          s.users.create("other_name", "guest", [LavinMQ::Tag::PolicyMaker], save: false) # Will be the new default_user
+          s.users.create("other_name", "guest", [LavinMQ::Tag::PolicyMaker], save: false)
           s.vhosts.create("new")
           s.users.add_permission("other_name", "new", /.*/, /.*/, /.*/)
           headers = HTTP::Headers{"Authorization" => "Basic b3RoZXJfbmFtZTpndWVzdA=="}
           body = %({ "queues": [{ "name": "import_q1", "vhost": "new", "durable": true, "auto_delete": false, "arguments": {} }] })
           response = http.post("/api/definitions/new", headers: headers, body: body)
-          response.status_code.should eq 200
-          s.vhosts["new"].queues.has_key?("import_q1").should be_true
+          response.status_code.should eq 403
+          body = JSON.parse(response.body)
+          body["reason"].should eq "Access refused"
         end
       end
 
@@ -604,6 +632,22 @@ describe LavinMQ::HTTP::Server do
   end
 
   describe "POST /api/definitions/upload" do
+    it "should refuse non-administrator users" do
+      with_http_server do |http, s|
+        s.users.delete("guest")
+        s.users.create("management_user", "guest", [LavinMQ::Tag::Management], save: false)
+        headers = HTTP::Headers{
+          "Authorization" => "Basic bWFuYWdlbWVudF91c2VyOmd1ZXN0",
+          "Content-Type"  => "application/json",
+        }
+        body = %({ "vhosts":[{ "name":"test" }] })
+        response = http.post("/api/definitions/upload", headers: headers, body: body)
+        response.status_code.should eq 403
+        body = JSON.parse(response.body)
+        body["reason"].should eq "Access refused"
+      end
+    end
+
     it "imports definitions from uploaded file (no Referer)" do
       with_http_server do |http, s|
         file_content = %({ "vhosts":[{ "name":"uploaded_vhost" }] }) # sanity check
