@@ -631,7 +631,7 @@ module LavinMQ
           send_precondition_failed(frame, "Exchange name isn't valid")
         elsif frame.exchange_name.empty?
           send_access_refused(frame, "Not allowed to declare the default exchange")
-        elsif e = @vhost.exchanges_fetch(frame.exchange_name, nil)
+        elsif e = @vhost.exchange?(frame.exchange_name)
           redeclare_exchange(e, frame)
         elsif frame.passive
           send_passive_not_found(frame, "Exchange '#{frame.exchange_name}' doesn't exists")
@@ -692,7 +692,7 @@ module LavinMQ
           send_precondition_failed(frame, "Queue name isn't valid")
           return
         end
-        q = @vhost.queues_fetch(frame.queue_name, nil)
+        q = @vhost.queue?(frame.queue_name)
         if q.nil?
           send AMQP::Frame::Queue::DeleteOk.new(frame.channel, 0_u32) unless frame.no_wait
         elsif queue_exclusive_to_other_client?(q)
@@ -718,7 +718,7 @@ module LavinMQ
       private def declare_queue(frame)
         if !frame.queue_name.empty? && !NameValidator.valid_entity_name?(frame.queue_name)
           send_precondition_failed(frame, "Queue name isn't valid")
-        elsif q = @vhost.queues_fetch(frame.queue_name, nil)
+        elsif q = @vhost.queue?(frame.queue_name)
           redeclare_queue(frame, q)
         elsif {"amq.rabbitmq.reply-to", "amq.direct.reply-to"}.includes? frame.queue_name
           unless frame.no_wait
@@ -861,8 +861,8 @@ module LavinMQ
       end
 
       private def bind_exchange(frame)
-        source = @vhost.exchanges_fetch(frame.source, nil)
-        destination = @vhost.exchanges_fetch(frame.destination, nil)
+        source = @vhost.exchange?(frame.source)
+        destination = @vhost.exchange?(frame.destination)
         if destination.nil?
           send_not_found frame, "Exchange '#{frame.destination}' doesn't exists"
         elsif source.nil?
@@ -880,8 +880,8 @@ module LavinMQ
       end
 
       private def unbind_exchange(frame)
-        source = @vhost.exchanges_fetch(frame.source, nil)
-        destination = @vhost.exchanges_fetch(frame.destination, nil)
+        source = @vhost.exchange?(frame.source)
+        destination = @vhost.exchange?(frame.destination)
         if destination.nil?
           # should return not_found according to spec but we make it idempotent
           send AMQP::Frame::Exchange::UnbindOk.new(frame.channel)
@@ -910,7 +910,7 @@ module LavinMQ
         end
         if !NameValidator.valid_entity_name?(frame.queue_name)
           send_precondition_failed(frame, "Queue name isn't valid")
-        elsif q = @vhost.queues_fetch(frame.queue_name, nil)
+        elsif q = @vhost.queue?(frame.queue_name)
           if queue_exclusive_to_other_client?(q)
             send_resource_locked(frame, "Queue '#{q.name}' is exclusive")
           else

@@ -56,10 +56,6 @@ module LavinMQ
       @exchanges.shared { |h| h[name] }
     end
 
-    def exchanges_fetch(name : String, default) : Exchange?
-      @exchanges.shared(&.fetch(name, default))
-    end
-
     def exchanges_has_key?(name : String) : Bool
       @exchanges.shared(&.has_key?(name))
     end
@@ -88,10 +84,6 @@ module LavinMQ
 
     def queue(name : String) : Queue
       @queues.shared { |h| h[name] }
-    end
-
-    def queues_fetch(name : String, default) : Queue?
-      @queues.shared(&.fetch(name, default))
     end
 
     def queues_has_key?(name : String) : Bool

@@ -393,7 +393,7 @@ module LavinMQ
       end
 
       def basic_get(frame)
-        if q = @client.vhost.queues_fetch(frame.queue, nil)
+        if q = @client.vhost.queue?(frame.queue)
           if @client.queue_exclusive_to_other_client?(q)
             @client.send_resource_locked(frame, "Exclusive queue")
           elsif q.has_exclusive_consumer?
