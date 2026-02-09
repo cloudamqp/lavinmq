@@ -66,19 +66,24 @@ module LavinMQ
     end
 
     def create(name : String, user : Auth::BaseUser = @users.default_user, description = "", tags = Array(String).new(0), save : Bool = true)
-      @vhosts.lock do |h|
+      created = false
+      vhost = @vhosts.lock do |h|
         if v = h[name]?
-          return v
+          next v
         end
-        vhost = VHost.new(name, @data_dir, @users, @replicator, description, tags)
+        v = VHost.new(name, @data_dir, @users, @replicator, description, tags)
+        h[name] = v
+        created = true
+        v
+      end
+      if created
         Log.info { "Created vhost #{name}" }
         @users.add_permission(user.name, name, /.*/, /.*/, /.*/)
         @users.add_permission(@users.direct_user, name, /.*/, /.*/, /.*/)
-        h[name] = vhost
         save! if save
         notify_observers(Event::Added, name)
-        vhost
       end
+      vhost
     end
 
     def delete(name) : VHost?

@@ -72,16 +72,21 @@ module LavinMQ
 
       # Adds a user to the user store
       def create(name, password, tags = Array(Tag).new, save = true)
-        @users.lock do |h|
-          if user = h[name]?
-            return user
+        created = false
+        user = @users.lock do |h|
+          if u = h[name]?
+            next u
           end
-          user = User.create(name, password, "SHA256", tags)
-          h[name] = user
+          u = User.create(name, password, "SHA256", tags)
+          h[name] = u
+          created = true
+          u
+        end
+        if created
           Log.info { "Created user=#{name}" }
           save! if save
-          user
         end
+        user
       end
 
       def add(name, password_hash, password_algorithm, tags = Array(Tag).new, save = true)

@@ -177,8 +177,8 @@ module LavinMQ
       @definitions_file = File.open(@definitions_file_path, "a+")
       @replicator.try &.register_file(@definitions_file)
       File.write(File.join(@data_dir, ".vhost"), @name)
-      @exchanges = Sync::Shared.new(Hash(String, Exchange).new)
-      @queues = Sync::Shared.new(Hash(String, Queue).new)
+      @exchanges = Sync::Shared.new(Hash(String, Exchange).new, type: :reentrant)
+      @queues = Sync::Shared.new(Hash(String, Queue).new, type: :reentrant)
       @connections = Sync::Exclusive.new(Array(Client).new(512))
       @direct_reply_consumers = Sync::Exclusive.new(Hash(String, Client::Channel).new)
       load_limits
@@ -366,7 +366,7 @@ module LavinMQ
         when AMQP::Frame::Exchange::Delete
           @exchanges.lock do |exchanges|
             if x = exchanges.delete f.exchange_name
-              exchanges.each_value do |ex|
+              exchanges.values.each do |ex|
                 ex.bindings_details.each do |binding|
                   next unless binding.destination == x
                   ex.unbind(x, binding.routing_key, binding.arguments)
@@ -409,7 +409,7 @@ module LavinMQ
           @exchanges.lock do |exchanges|
             @queues.lock do |queues|
               if q = queues.delete(f.queue_name)
-                exchanges.each_value do |ex|
+                exchanges.values.each do |ex|
                   ex.bindings_details.each do |binding|
                     next unless binding.destination == q
                     ex.unbind(q, binding.routing_key, binding.arguments)
@@ -437,8 +437,8 @@ module LavinMQ
             nil
           end
         when AMQP::Frame::Queue::Unbind
-          @exchanges.shared do |exchanges|
-            @queues.shared do |queues|
+          @exchanges.lock do |exchanges|
+            @queues.lock do |queues|
               x = exchanges[f.exchange_name]? || return false
               q = queues[f.queue_name]? || return false
               return false unless x.unbind(q, f.routing_key, f.arguments)
@@ -590,7 +590,7 @@ module LavinMQ
       # then force close the remaining (close tcp socket)
       connections_each &.force_close
       Fiber.yield # yield so that Client read_loops can shutdown
-      queues_each_value &.close
+      @queues.shared(&.values).each &.close
       Fiber.yield
       @definitions_file.close
       FileUtils.rm_rf File.join(@data_dir, "transient")

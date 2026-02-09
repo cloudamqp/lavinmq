@@ -51,16 +51,21 @@ module LavinMQ
       # add bindings from upstream exchange to x-federation-upstream exchange
       # keep downstream exchange bindings reflected on x-federation-upstream exchange
       def link(federated_exchange : Exchange) : ExchangeLink
-        existing = @links.lock { |l| l[:exchange][federated_exchange.name]? }
-        return existing if existing
-        upstream_exchange = @exchange
-        if upstream_exchange.nil? || upstream_exchange.empty?
-          upstream_exchange = federated_exchange.name
+        new_link = nil
+        link = @links.lock do |l|
+          if existing = l[:exchange][federated_exchange.name]?
+            next existing
+          end
+          upstream_exchange = @exchange
+          if upstream_exchange.nil? || upstream_exchange.empty?
+            upstream_exchange = federated_exchange.name
+          end
+          upstream_q = "federation: #{upstream_exchange} -> #{System.hostname}:#{vhost.name}:#{federated_exchange.name}"
+          new_link = ExchangeLink.new(self, federated_exchange, upstream_q, upstream_exchange)
+          l[:exchange][federated_exchange.name] = new_link
+          new_link
         end
-        upstream_q = "federation: #{upstream_exchange} -> #{System.hostname}:#{vhost.name}:#{federated_exchange.name}"
-        link = ExchangeLink.new(self, federated_exchange, upstream_q, upstream_exchange)
-        @links.lock { |l| l[:exchange][federated_exchange.name] = link }
-        link.run
+        new_link.try &.run
         link
       end
 
@@ -68,15 +73,20 @@ module LavinMQ
       # If all consumers disconnect, the connections are closed.
       # When the policy or the upstream is removed the link is also removed.
       def link(federated_q : Queue) : QueueLink
-        existing = @links.lock { |l| l[:queue][federated_q.name]? }
-        return existing if existing
-        upstream_q = @queue
-        if upstream_q.nil? || upstream_q.empty?
-          upstream_q = federated_q.name
+        new_link = nil
+        link = @links.lock do |l|
+          if existing = l[:queue][federated_q.name]?
+            next existing
+          end
+          upstream_q = @queue
+          if upstream_q.nil? || upstream_q.empty?
+            upstream_q = federated_q.name
+          end
+          new_link = QueueLink.new(self, federated_q, upstream_q)
+          l[:queue][federated_q.name] = new_link
+          new_link
         end
-        link = QueueLink.new(self, federated_q, upstream_q)
-        @links.lock { |l| l[:queue][federated_q.name] = link }
-        link.run
+        new_link.try &.run
         link
       end
 
