@@ -1,3 +1,4 @@
+require "sync/exclusive"
 require "./upstream"
 require "../logger"
 
@@ -6,22 +7,22 @@ module LavinMQ
     class UpstreamStore
       include Enumerable(Upstream)
       Log = LavinMQ::Log.for "federation.upstream_store"
-      @upstreams = Hash(String, Upstream).new
-      @upstream_sets = Hash(String, Array(Upstream)).new
+      @lock : Sync::Exclusive({Hash(String, Upstream), Hash(String, Array(Upstream))})
 
       def initialize(@vhost : VHost)
         @metadata = ::Log::Metadata.new(nil, {vhost: @vhost.name})
         @log = Logger.new(Log, @metadata)
+        @lock = Sync::Exclusive.new({Hash(String, Upstream).new, Hash(String, Array(Upstream)).new})
       end
 
       def each(&)
-        @upstreams.each_value do |v|
+        upstreams = @lock.lock { |state| state[0].values }
+        upstreams.each do |v|
           yield v
         end
       end
 
       def create_upstream(name, config)
-        do_delete_upstream(name)
         uri = config["uri"].to_s
         prefetch = config["prefetch-count"]?.try(&.as_i.to_u16) || DEFAULT_PREFETCH
         reconnect_delay = config["reconnect-delay"]?.try(&.as_i?).try &.seconds || DEFAULT_RECONNECT_DELAY
@@ -34,68 +35,85 @@ module LavinMQ
         consumer_tag = config["consumer-tag"]?.try(&.as_s?) || "federation-link-#{name}"
         # trust_user_id
         queue = config["queue"]?.try(&.as_s)
-        @upstreams[name] = Upstream.new(@vhost, name, uri, exchange, queue, ack_mode, expires,
+        new_upstream = Upstream.new(@vhost, name, uri, exchange, queue, ack_mode, expires,
           max_hops, msg_ttl, prefetch, reconnect_delay, consumer_tag)
+        prev = @lock.lock do |state|
+          upstreams, upstream_sets = state
+          prev_upstream = upstreams.delete(name)
+          upstream_sets.each do |_, set|
+            set.reject! { |u| u.name == name }
+          end
+          upstreams[name] = new_upstream
+          prev_upstream
+        end
+        prev.try(&.close)
         @log.info { "Upstream '#{name}' created" }
-        @upstreams[name]
+        new_upstream
       end
 
       def add(upstream : Upstream)
-        @upstreams[upstream.name]?.try &.close
-        @upstreams[upstream.name] = upstream
+        prev = @lock.lock do |state|
+          upstreams = state[0]
+          prev_upstream = upstreams[upstream.name]?
+          upstreams[upstream.name] = upstream
+          prev_upstream
+        end
+        prev.try &.close
       end
 
       def delete_upstream(name)
-        do_delete_upstream(name)
+        prev = @lock.lock do |state|
+          upstreams, upstream_sets = state
+          prev_upstream = upstreams.delete(name)
+          upstream_sets.each do |_, set|
+            set.reject! { |u| u.name == name }
+          end
+          prev_upstream
+        end
+        prev.try(&.close)
         @log.info { "Upstream '#{name}' deleted" }
       end
 
-      private def do_delete_upstream(name)
-        @upstreams.delete(name).try(&.close)
-        @upstream_sets.each do |_, set|
-          set.reject! do |upstream|
-            return false unless upstream.name == name
-            upstream.close
-            true
-          end
-        end
-      end
-
       def link(name, resource : Queue | Exchange)
-        @upstreams[name]?.try &.link(resource)
+        upstream = @lock.lock { |state| state[0][name]? }
+        upstream.try &.link(resource)
       end
 
       def stop_link(resource : Queue | Exchange)
-        each do |upstream|
+        upstreams = @lock.lock { |state| state[0].values }
+        upstreams.each do |upstream|
           upstream.stop_link(resource)
         end
       end
 
       def create_upstream_set(name, config)
-        @upstream_sets.delete(name)
-        upstreams = Array(Upstream).new
-        config.as_a.each do |cfg|
-          upstream = @upstreams[cfg["upstream"].as_s]
-          if cfg.as_h.keys.size > 1
-            upstream = upstream.dup
-            config["uri"]?.try { |p| upstream.uri = URI.parse(p.as_a.first.to_s) }
-            config["prefetch-count"]?.try { |p| upstream.prefetch = p.as_i.to_u16 }
-            config["reconnect-delay"]?.try { |p| upstream.reconnect_delay = p.as_i.seconds }
-            ack_mode_str = config["ack-mode"]?.try(&.as_s.delete("-")).to_s
-            AckMode.parse?(ack_mode_str).try { |p| upstream.ack_mode = p }
-            config["exchange"]?.try { |p| upstream.exchange = p.as_s }
-            config["max-hops"]?.try { |p| upstream.max_hops = p.as_i64 }
-            config["expires"]?.try { |p| upstream.expires = p.as_i64 }
-            config["message-ttl"]?.try { |p| upstream.msg_ttl = p.as_i64 }
-            config["queue"]?.try { |p| upstream.queue = p.as_s }
+        @lock.lock do |state|
+          upstreams, upstream_sets = state
+          upstream_sets.delete(name)
+          set = Array(Upstream).new
+          config.as_a.each do |cfg|
+            upstream = upstreams[cfg["upstream"].as_s]
+            if cfg.as_h.keys.size > 1
+              upstream = upstream.dup
+              config["uri"]?.try { |p| upstream.uri = URI.parse(p.as_a.first.to_s) }
+              config["prefetch-count"]?.try { |p| upstream.prefetch = p.as_i.to_u16 }
+              config["reconnect-delay"]?.try { |p| upstream.reconnect_delay = p.as_i.seconds }
+              ack_mode_str = config["ack-mode"]?.try(&.as_s.delete("-")).to_s
+              AckMode.parse?(ack_mode_str).try { |p| upstream.ack_mode = p }
+              config["exchange"]?.try { |p| upstream.exchange = p.as_s }
+              config["max-hops"]?.try { |p| upstream.max_hops = p.as_i64 }
+              config["expires"]?.try { |p| upstream.expires = p.as_i64 }
+              config["message-ttl"]?.try { |p| upstream.msg_ttl = p.as_i64 }
+              config["queue"]?.try { |p| upstream.queue = p.as_s }
+            end
+            set << upstream
           end
-          upstreams << upstream
+          upstream_sets[name] = set
         end
-        @upstream_sets[name] = upstreams
       end
 
       def delete_upstream_set(name)
-        @upstream_sets.delete(name)
+        @lock.lock { |state| state[1].delete(name) }
         @log.info { "Upstream set '#{name}' deleted" }
       end
 
@@ -107,17 +125,23 @@ module LavinMQ
       end
 
       def get_set(name)
-        case name
-        when "all"
-          @upstreams.values
-        else
-          @upstream_sets[name]
+        @lock.lock do |state|
+          upstreams, upstream_sets = state
+          case name
+          when "all"
+            upstreams.values
+          else
+            upstream_sets[name].dup
+          end
         end
       end
 
       def stop_all
-        @upstreams.each_value &.close
-        @upstream_sets.values.flatten.each &.close
+        all = @lock.lock do |state|
+          upstreams, upstream_sets = state
+          upstreams.values + upstream_sets.values.flatten
+        end
+        all.each &.close
       end
     end
   end
