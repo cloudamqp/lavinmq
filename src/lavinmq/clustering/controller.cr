@@ -31,7 +31,6 @@ class LavinMQ::Clustering::Controller
     wait_to_be_insync
     @etcd.election_campaign("#{@config.clustering_etcd_prefix}/leader", @advertised_uri, lease: @id) # blocks until becoming leader
     @is_leader.set(true)
-    @etcd.del("#{@config.clustering_etcd_prefix}/isr") # delete legacy ISR key (used up until v2.6.x)
     execute_shell_command(@config.clustering_on_leader_elected, "leader_elected")
     @repli_client.try &.close
     # TODO: make sure we still are in the ISR set

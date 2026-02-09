@@ -233,6 +233,7 @@ module LavinMQ
         key = "#{@config.clustering_etcd_prefix}/replica/#{id.to_s(36)}/insync"
         @etcd.put(key, "1")
         Log.debug { "Marked replica #{id.to_s(36)} as in-sync" }
+        update_legacy_isr
       rescue ex : Etcd::Error
         Log.error { "Failed to mark replica #{id.to_s(36)} as in-sync: #{ex.message}" }
       end
@@ -241,8 +242,23 @@ module LavinMQ
         key = "#{@config.clustering_etcd_prefix}/replica/#{id.to_s(36)}/insync"
         @etcd.put(key, "0")
         Log.debug { "Marked replica #{id.to_s(36)} as out-of-sync" }
+        update_legacy_isr
       rescue ex : Etcd::Error
         Log.error { "Failed to mark replica #{id.to_s(36)} as out-of-sync: #{ex.message}" }
+      end
+
+      # Update legacy comma-separated ISR key for backward compatibility with older versions
+      private def update_legacy_isr
+        isr_key = "#{@config.clustering_etcd_prefix}/isr"
+        ids = String.build do |str|
+          @followers.each do |f|
+            next unless f.synced?
+            f.id.to_s(str, 36)
+            str << ","
+          end
+          @id.to_s(str, 36)
+        end
+        @etcd.put(isr_key, ids)
       end
 
       # Removes a replica from etcd, returns true if the replica was found and deleted
