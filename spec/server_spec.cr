@@ -873,6 +873,34 @@ describe LavinMQ::Server do
     end
   end
 
+  it "rejects invalid message timestamp" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue
+        props = AMQP::Client::Properties.new(timestamp: Int64::MAX)
+        expect_raises(AMQP::Client::Connection::ClosedException, /FRAME_ERROR - Could not parse timestamp value/) do
+          q.publish "m1", props: props
+          q.get(no_ack: true)
+        end
+      end
+    end
+  end
+
+  it "allows any Int64 message timestamp" do
+    LavinMQ::Config.instance.validate_timestamp = false
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q = ch.queue
+        props = AMQP::Client::Properties.new(timestamp: Int64::MAX)
+        q.publish "m1", props: props
+        msg = q.get(no_ack: true).not_nil!
+        msg.body_io.to_s.should eq "m1"
+        msg.properties.timestamp_raw.should eq Int64::MAX
+      end
+    end
+    LavinMQ::Config.instance.validate_timestamp = true
+  end
+
   it "sets correct message timestamp" do
     LavinMQ::Config.instance.set_timestamp = true
     with_amqp_server do |s|

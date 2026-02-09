@@ -163,6 +163,9 @@ module LavinMQ
       property stats_log_size = 120 # 10 mins at 5s interval
 
       @[IniOpt(section: "main")]
+      property? validate_timestamp = true # validate message timestamp if true, otherwise allow any Int64
+
+      @[IniOpt(section: "main")]
       property? set_timestamp = false # in message headers when receive
 
       @[IniOpt(section: "main")]

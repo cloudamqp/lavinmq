@@ -221,7 +221,12 @@ module LavinMQ
         @publish_count.add(1, :relaxed)
         @client.vhost.event_tick(EventType::ClientPublish)
         props = @next_msg_props.not_nil!
-        props.timestamp = RoughTime.utc if props.timestamp.nil? && Config.instance.set_timestamp?
+        if props.timestamp_raw && Config.instance.validate_timestamp?
+          props.timestamp
+        end
+        if props.timestamp_raw.nil? && Config.instance.set_timestamp?
+          props.timestamp = RoughTime.utc
+        end
         msg = Message.new(RoughTime.unix_ms,
           @next_publish_exchange_name.not_nil!,
           @next_publish_routing_key.not_nil!,

@@ -92,6 +92,7 @@ describe LavinMQ::Config do
           log_file = /tmp/lavinmq-test.log
           stats_interval = 10000
           stats_log_size = 240
+          validate_timestamp = false
           set_timestamp = true
           socket_buffer_size = 32768
           tcp_nodelay = true
@@ -175,6 +176,7 @@ describe LavinMQ::Config do
       config.log_file.should eq "/tmp/lavinmq-test.log"
       config.stats_interval.should eq 10000
       config.stats_log_size.should eq 240
+      config.validate_timestamp?.should be_false
       config.set_timestamp?.should be_true
       config.socket_buffer_size.should eq 32768
       config.tcp_nodelay?.should be_true
