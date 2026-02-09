@@ -14,6 +14,10 @@ module LavinMQ
         @cache[key] = value
       end
 
+      def size
+        @cache.size
+      end
+
       def clear
         @cache.clear
       end

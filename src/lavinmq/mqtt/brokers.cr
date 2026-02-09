@@ -30,7 +30,7 @@ module LavinMQ
           broker = Broker.new(@vhosts[vhost], @replicator)
           @brokers.lock { |brokers| brokers[vhost] = broker }
         in VHostStore::Event::Deleted
-          @brokers.lock { |brokers| brokers.delete(vhost) }
+          @brokers.lock(&.delete(vhost))
         in VHostStore::Event::Closed
           broker = @brokers.shared { |brokers| brokers[vhost]? }
           broker.try &.close

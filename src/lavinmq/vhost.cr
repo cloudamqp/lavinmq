@@ -57,11 +57,11 @@ module LavinMQ
     end
 
     def exchanges_fetch(name : String, default) : Exchange?
-      @exchanges.shared { |h| h.fetch(name, default) }
+      @exchanges.shared(&.fetch(name, default))
     end
 
     def exchanges_has_key?(name : String) : Bool
-      @exchanges.shared { |h| h.has_key?(name) }
+      @exchanges.shared(&.has_key?(name))
     end
 
     def exchanges_each_value(& : Exchange ->) : Nil
@@ -91,11 +91,11 @@ module LavinMQ
     end
 
     def queues_fetch(name : String, default) : Queue?
-      @queues.shared { |h| h.fetch(name, default) }
+      @queues.shared(&.fetch(name, default))
     end
 
     def queues_has_key?(name : String) : Bool
-      @queues.shared { |h| h.has_key?(name) }
+      @queues.shared(&.has_key?(name))
     end
 
     def queues_each_value(& : Queue ->) : Nil
@@ -156,11 +156,11 @@ module LavinMQ
     end
 
     def direct_reply_consumer_delete(consumer_tag : String) : Client::Channel?
-      @direct_reply_consumers.lock { |h| h.delete(consumer_tag) }
+      @direct_reply_consumers.lock(&.delete(consumer_tag))
     end
 
     def direct_reply_consumer_has_key?(consumer_tag : String) : Bool
-      @direct_reply_consumers.lock { |h| h.has_key?(consumer_tag) }
+      @direct_reply_consumers.lock(&.has_key?(consumer_tag))
     end
 
     @exchanges : Sync::Shared(Hash(String, Exchange))
@@ -510,7 +510,7 @@ module LavinMQ
 
     def rm_connection(client : Client)
       event_tick(EventType::ConnectionClosed)
-      @connections.lock { |a| a.delete client }
+      @connections.lock(&.delete(client))
     end
 
     SHOVEL                  = "shovel"

@@ -43,7 +43,7 @@ module LavinMQ
       end
 
       def has_key?(name : String) : Bool
-        @users.shared { |h| h.has_key?(name) }
+        @users.shared(&.has_key?(name))
       end
 
       def size : Int32
@@ -59,7 +59,7 @@ module LavinMQ
       end
 
       def select(*args)
-        @users.shared { |h| h.select(*args) }
+        @users.shared(&.select(*args))
       end
 
       def each(&)
@@ -134,7 +134,7 @@ module LavinMQ
 
       def delete(name, save = true) : User?
         return if name == DIRECT_USER
-        user = @users.lock { |h| h.delete(name) }
+        user = @users.lock(&.delete(name))
         if user
           user.permissions.clear
           user.clear_permissions_cache

@@ -37,7 +37,7 @@ module LavinMQ
     end
 
     def has_key?(id) : Bool
-      @parameters.shared { |h| h.has_key?(id) }
+      @parameters.shared(&.has_key?(id))
     end
 
     def size : Int32
@@ -62,7 +62,7 @@ module LavinMQ
     end
 
     def delete(id, save = true) : T?
-      parameter = @parameters.lock { |h| h.delete(id) }
+      parameter = @parameters.lock(&.delete(id))
       if parameter
         save! if save
         parameter

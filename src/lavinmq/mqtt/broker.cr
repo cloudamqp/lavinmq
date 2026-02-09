@@ -69,7 +69,7 @@ module LavinMQ
             sessions.delete(client_id) if session.clean_session?
           end
         end
-        @clients.lock { |clients| clients.delete client_id }
+        @clients.lock(&.delete(client_id))
         @vhost.rm_connection(client)
       end
 

@@ -35,7 +35,8 @@ module LavinMQ
           break if @closed
           next @msg_store.empty.when_false.receive? if @msg_store.empty?
           next @consumers_empty.when_false.receive? if consumers_empty?
-          consumer = consumers_first?.not_nil!.as(MQTT::Consumer)
+          consumer = consumers_first?.as?(MQTT::Consumer)
+          next unless consumer
           get_packet do |pub_packet|
             consumer.deliver(pub_packet)
           end

@@ -64,7 +64,7 @@ module MqttSpecs
 
           with_client_io(server) do |subscriber_io|
             connect(subscriber_io, username: "guest", password: "guest".to_slice)
-            initial_publish_count = server.@mqtt_brokers.@brokers["/"].@exchange.@publish_in_count.get
+            initial_publish_count = server.@mqtt_brokers.[]?("/").not_nil!.@exchange.@publish_in_count.get
 
             # Create a client with no write permissions and a will message
             will_socket = nil
@@ -76,7 +76,7 @@ module MqttSpecs
             end
 
             sleep 0.1.seconds
-            final_publish_count = server.@mqtt_brokers.@brokers["/"].@exchange.@publish_in_count.get
+            final_publish_count = server.@mqtt_brokers.[]?("/").not_nil!.@exchange.@publish_in_count.get
             final_publish_count.should eq(initial_publish_count)
           end
         end

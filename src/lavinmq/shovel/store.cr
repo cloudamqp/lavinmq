@@ -46,7 +46,7 @@ module LavinMQ
       end
 
       def has_key?(name : String) : Bool
-        @shovels.lock { |h| h.has_key?(name) }
+        @shovels.lock(&.has_key?(name))
       end
 
       # ameba:disable Metrics/CyclomaticComplexity
@@ -142,7 +142,7 @@ module LavinMQ
       end
 
       def delete(name)
-        shovel = @shovels.lock { |h| h.delete(name) }
+        shovel = @shovels.lock(&.delete(name))
         if shovel
           shovel.delete
           shovel

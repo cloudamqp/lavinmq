@@ -16,10 +16,14 @@ module LavinMQ
       end
 
       def each(&)
-        upstreams = @lock.lock { |state| state[0].values }
+        upstreams = @lock.lock(&.[0].values)
         upstreams.each do |v|
           yield v
         end
+      end
+
+      def []?(name : String) : Upstream?
+        @lock.lock { |state| state[0][name]? }
       end
 
       def create_upstream(name, config)
@@ -80,7 +84,7 @@ module LavinMQ
       end
 
       def stop_link(resource : Queue | Exchange)
-        upstreams = @lock.lock { |state| state[0].values }
+        upstreams = @lock.lock(&.[0].values)
         upstreams.each do |upstream|
           upstream.stop_link(resource)
         end
@@ -113,7 +117,7 @@ module LavinMQ
       end
 
       def delete_upstream_set(name)
-        @lock.lock { |state| state[1].delete(name) }
+        @lock.lock(&.[1].delete(name))
         @log.info { "Upstream set '#{name}' deleted" }
       end
 

@@ -823,7 +823,7 @@ describe LavinMQ::Server do
         ch.queue("test", args: args)
         sleep 5.milliseconds
         Fiber.yield
-        s.vhosts["/"].queues.has_key?("test").should be_false
+        s.vhosts["/"].queues_has_key?("test").should be_false
       end
     end
   end
@@ -837,7 +837,7 @@ describe LavinMQ::Server do
         q.subscribe(no_ack: true) { |_| }
         sleep 50.milliseconds
         Fiber.yield
-        s.vhosts["/"].queues.has_key?("test").should be_true
+        s.vhosts["/"].queues_has_key?("test").should be_true
       end
     end
   end

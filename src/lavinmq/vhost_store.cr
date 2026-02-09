@@ -42,7 +42,7 @@ module LavinMQ
     end
 
     def has_key?(name : String) : Bool
-      @vhosts.shared { |h| h.has_key?(name) }
+      @vhosts.shared(&.has_key?(name))
     end
 
     def size : Int32
@@ -82,7 +82,7 @@ module LavinMQ
     end
 
     def delete(name) : VHost?
-      vhost = @vhosts.lock { |h| h.delete(name) }
+      vhost = @vhosts.lock(&.delete(name))
       if vhost
         @users.rm_vhost_permissions_for_all(name)
         vhost.delete

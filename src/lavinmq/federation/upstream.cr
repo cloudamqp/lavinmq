@@ -29,12 +29,12 @@ module LavinMQ
       # delete x-federation-upstream exchange on upstream
       # delete queue on upstream
       def stop_link(federated_exchange : Exchange)
-        old = @links.lock { |state| state[1].delete(federated_exchange.name) }
+        old = @links.lock(&.[1].delete(federated_exchange.name))
         old.try(&.terminate)
       end
 
       def stop_link(federated_q : Queue)
-        old = @links.lock { |state| state[0].delete(federated_q.name) }
+        old = @links.lock(&.[0].delete(federated_q.name))
         old.try(&.terminate)
       end
 

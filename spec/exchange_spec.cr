@@ -280,10 +280,10 @@ describe LavinMQ::Exchange do
             downstream_vhost.upstreams.create_upstream("upstream", config)
             definition = {"federation-upstream" => JSON::Any.new("upstream")}
             downstream_vhost.add_policy("fed", "^amq.topic", "exchanges", definition, 1i8)
-            wait_for(100.milliseconds) { downstream_vhost.upstreams.@upstreams["upstream"]?.try &.links.present? }
+            wait_for(100.milliseconds) { downstream_vhost.upstreams["upstream"]?.try &.links.present? }
 
             downstream_vhost.delete_policy("fed")
-            wait_for(100.milliseconds) { downstream_vhost.upstreams.@upstreams["upstream"]?.try &.links.empty? }
+            wait_for(100.milliseconds) { downstream_vhost.upstreams["upstream"]?.try &.links.empty? }
           end
         end
       end
@@ -297,7 +297,7 @@ describe LavinMQ::Exchange do
           downstream_vhost.upstreams.create_upstream("upstream", config)
           definition = {"federation-upstream" => JSON::Any.new("upstream")}
           downstream_vhost.add_policy("fed", "^amq.topic", "exchanges", definition, 1i8)
-          wait_for(100.milliseconds) { downstream_vhost.upstreams.@upstreams["upstream"]?.try &.links.present? }
+          wait_for(100.milliseconds) { downstream_vhost.upstreams["upstream"]?.try &.links.present? }
         end
       end
 
@@ -311,7 +311,7 @@ describe LavinMQ::Exchange do
             downstream_vhost.add_policy("fed", "^fed", "exchanges", definition, 1i8)
             downstream_vhost.declare_exchange("fed.internal", "topic", durable: true, auto_delete: false, internal: true)
             wait_for(100.milliseconds) { downstream_vhost.exchanges_byname("fed.internal").policy.try &.name == "fed" }
-            downstream_vhost.upstreams.@upstreams["upstream"].links.empty?.should be_true
+            downstream_vhost.upstreams["upstream"]?.try(&.links.empty?).should be_true
           end
         end
       end

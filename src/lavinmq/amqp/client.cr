@@ -424,10 +424,10 @@ module LavinMQ
         when AMQP::Frame::Channel::Open
           open_channel(frame)
         when AMQP::Frame::Channel::Close
-          @channels.lock { |chs| chs.delete(frame.channel) }.try &.close
+          @channels.lock(&.delete(frame.channel)).try &.close
           send AMQP::Frame::Channel::CloseOk.new(frame.channel), true
         when AMQP::Frame::Channel::CloseOk
-          @channels.lock { |chs| chs.delete(frame.channel) }.try &.close
+          @channels.lock(&.delete(frame.channel)).try &.close
         when AMQP::Frame::Channel::Flow
           with_channel frame, &.flow(frame.active)
         when AMQP::Frame::Channel::FlowOk
@@ -555,7 +555,7 @@ module LavinMQ
         else
           send AMQP::Frame::Channel::Close.new(frame.channel, code.value, text, 0, 0)
         end
-        @channels.lock { |chs| chs.delete(frame.channel) }.try &.close
+        @channels.lock(&.delete(frame.channel)).try &.close
       end
 
       def close_connection(frame : AMQ::Protocol::Frame?, code : ConnectionReplyCode, text)
@@ -609,7 +609,7 @@ module LavinMQ
           @running.set(false, :release)
         else
           send AMQP::Frame::Channel::Close.new(ex.channel, code.value, code.to_s, ex.class_id, ex.method_id)
-          @channels.lock { |chs| chs.delete(ex.channel) }.try &.close
+          @channels.lock(&.delete(ex.channel)).try &.close
         end
       end
 
