@@ -21,6 +21,8 @@ module LavinMQ
                 {{member.stringify.downcase}}
             {% end %}
           {% end %}
+        else #  should we every reach this?
+          self.to_s.downcase
         end
       {% end %}
     end
