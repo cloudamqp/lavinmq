@@ -80,6 +80,14 @@ module LavinMQ
         end
       end
 
+      macro state_classes
+        if u = context.user
+          u.tags.join(context.response, " ") do |tag, io|
+            io << "user-tag-" << tag.to_downcase_s
+          end
+        end
+      end
+
       # etag won't change in runtime
       {% if flag?(:release) %}
         ETagBase = LavinMQ::VERSION
