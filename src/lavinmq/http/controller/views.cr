@@ -9,6 +9,9 @@ module LavinMQ
     class ViewsController
       include Router
 
+      # Collect all paths for static views. Used by specs to test all paths
+      ALL_PATHS = [] of String
+
       Log = LavinMQ::Log.for "http.views"
 
       def initialize
@@ -50,6 +53,7 @@ module LavinMQ
       # end
       # ```
       macro static_view(path, *, auth_required = true, view = nil, &block)
+        ALL_PATHS << {{path}}
         {% view = path[1..] if view.nil? %}
         get {{ path }} do |context, params|
           redirect_unless_logged_in! if {{ auth_required }}
@@ -99,7 +103,7 @@ module LavinMQ
         ending = "\""
         tags = 0u8
         if u = user
-          tags = user.tags.sum(&.to_u8)
+          tags = user.tags.reduce(0u8) { |acc, t| acc | t.to_u8 }
         end
         tags = tags.to_s
         size = beginning.size + ETagBase.size + 1 + tags.size + ending.size
