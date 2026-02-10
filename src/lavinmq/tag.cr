@@ -11,7 +11,7 @@ module LavinMQ
       list.split(",").compact_map { |t| Tag.parse?(t.strip) }
     end
 
-    # This is to not have to allocate memory we serialize it or what ever
+    # This removes the need of doing .to_s.downcase which causes an extra allocation
     def to_downcase_s
       {% begin %}
         case self
@@ -21,7 +21,7 @@ module LavinMQ
                 {{member.stringify.downcase}}
             {% end %}
           {% end %}
-        else #  should we every reach this?
+        else #  should we ever reach this?
           self.to_s.downcase
         end
       {% end %}
