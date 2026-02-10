@@ -35,13 +35,12 @@ jobs:
             PR_NUMBER: ${{ inputs.pr_number || github.event.pull_request.number }}
 
             Review this PR and report ONLY problems that need fixing.
-            Skip positive feedback and confirmation of what's working correctly.
+            You have a maximum of 15 turns — finish well within that limit.
 
             Steps:
             1. Run `gh pr diff` to read the changes
-            2. Analyze the diff for issues
-            3. Post your findings with `gh pr comment`
-            4. Before posting, check if you've already commented (via `gh api`) and update that comment instead of creating a new one.
+            2. Analyze the diff. Only use Read/Glob/Grep if the diff alone is insufficient to understand a change.
+            3. Post findings with `gh pr comment --edit-last` (to update any previous review), or `gh pr comment` if no previous comment exists.
 
             Report only:
             - Bugs and logic errors
@@ -53,11 +52,12 @@ jobs:
             If no problems found, say "No issues found."
 
             Do NOT:
-            - Check CI status
-            - Check previous commits or comments
+            - Check CI status or previous commits
             - Run specs
-            - Use Emojis
+            - Use emojis
+            - Explore the codebase broadly — only read specific files when needed
 
           claude_args: |
+            --model claude-opus-4-6
             --max-turns 15
-            --allowedTools "Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh api:*),Read,Glob,Grep"
+            --allowedTools "Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Read,Glob,Grep"
