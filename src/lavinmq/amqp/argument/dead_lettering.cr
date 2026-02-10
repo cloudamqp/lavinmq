@@ -45,7 +45,7 @@ module LavinMQ::AMQP
         def route(msg : BytesMessage, reason) # ameba:disable Metrics/CyclomaticComplexity
           # No dead letter exchange => nothing to do
           return unless dlx = (msg.dlx || dlx())
-          ex = @vhost.exchanges[dlx.to_s]? || return
+          ex = @vhost.exchange?(dlx.to_s) || return
 
           dlrk = msg.dlrk || dlrk()
 

@@ -316,6 +316,7 @@ module LavinMQ
               @log.debug { "Waiting for consumers" }
               select
               when @consumer_available.receive?
+                return if @consumer_available.closed?
                 consume_upstream_and_federate(q, no_ack)
               when @state_changed.receive?
                 return if @state_changed.closed?

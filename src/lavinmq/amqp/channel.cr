@@ -1,3 +1,4 @@
+require "sync/exclusive"
 require "../stats"
 require "./client"
 require "./consumer"
@@ -20,7 +21,7 @@ module LavinMQ
       getter id, name
       property? running = true
       getter? flow = true
-      getter consumers = Array(Consumer).new
+      @consumers : Sync::Exclusive(Array(Consumer)) = Sync::Exclusive.new(Array(Consumer).new)
       getter prefetch_count : UInt16 = Config.instance.default_consumer_prefetch
       getter global_prefetch_count = 0_u16
       getter has_capacity = BoolChannel.new(true)
@@ -51,6 +52,25 @@ module LavinMQ
         @log = Logger.new(Log, @metadata)
       end
 
+      # Synchronized accessors for @consumers
+      def consumers : Array(Consumer)
+        @consumers.lock(&.dup)
+      end
+
+      def consumers_size : Int32
+        @consumers.lock(&.size)
+      end
+
+      def consumers_find(& : Consumer -> Bool) : Consumer?
+        @consumers.lock do |consumers|
+          consumers.find { |c| yield c }
+        end
+      end
+
+      def consumers_delete(consumer : Consumer) : Consumer?
+        @consumers.lock(&.delete(consumer))
+      end
+
       record Unack,
         tag : UInt64,
         queue : Queue,
@@ -64,7 +84,7 @@ module LavinMQ
           name:                    @name,
           vhost:                   @client.vhost.name,
           user:                    @client.user.name,
-          consumer_count:          @consumers.size,
+          consumer_count:          consumers_size,
           prefetch_count:          @prefetch_count,
           global_prefetch_count:   @global_prefetch_count,
           confirm:                 @confirm,
@@ -78,7 +98,7 @@ module LavinMQ
 
       def flow(active : Bool)
         @flow = active
-        @consumers.each &.flow(active)
+        @consumers.lock { |c| c.each &.flow(active) }
         send AMQP::Frame::Channel::FlowOk.new(@id, active)
       end
 
@@ -111,7 +131,7 @@ module LavinMQ
           return
         end
         raise LavinMQ::Error::UnexpectedFrame.new(frame) if @next_publish_exchange_name
-        if ex = @client.vhost.exchanges[frame.exchange]?
+        if ex = @client.vhost.exchange?(frame.exchange)
           if !ex.internal?
             @next_publish_exchange_name = frame.exchange
             @next_publish_routing_key = frame.routing_key
@@ -300,7 +320,7 @@ module LavinMQ
       private def direct_reply?(msg) : Bool
         return false unless msg.routing_key.starts_with? "amq.direct.reply-to."
         consumer_tag = msg.routing_key[20..]
-        if ch = @client.vhost.direct_reply_consumers[consumer_tag]?
+        if ch = @client.vhost.direct_reply_consumer?(consumer_tag)
           confirm do
             deliver = AMQP::Frame::Basic::Deliver.new(ch.id, consumer_tag,
               1_u64, false,
@@ -349,7 +369,7 @@ module LavinMQ
       end
 
       def consume(frame)
-        if @consumers.size >= Config.instance.max_consumers_per_channel > 0
+        if consumers_size >= Config.instance.max_consumers_per_channel > 0
           @client.send_resource_error(frame, "Max #{Config.instance.max_consumers_per_channel} consumers per channel reached")
           return
         end
@@ -363,11 +383,11 @@ module LavinMQ
           end
           @log.debug { "Saving direct reply consumer #{frame.consumer_tag}" }
           @direct_reply_consumer = frame.consumer_tag
-          @client.vhost.direct_reply_consumers[frame.consumer_tag] = self
+          @client.vhost.direct_reply_consumer_set(frame.consumer_tag, self)
           unless frame.no_wait
             send AMQP::Frame::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag)
           end
-        elsif q = @client.vhost.queues[frame.queue]?
+        elsif q = @client.vhost.queue?(frame.queue)
           if @client.queue_exclusive_to_other_client?(q)
             @client.send_resource_locked(frame, "Exclusive queue")
             return
@@ -381,7 +401,7 @@ module LavinMQ
               else
                 AMQP::Consumer.new(self, q, frame)
               end
-          @consumers.push(c)
+          @consumers.lock(&.push(c))
           q.add_consumer(c)
           unless frame.no_wait
             send AMQP::Frame::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag)
@@ -393,7 +413,7 @@ module LavinMQ
       end
 
       def basic_get(frame)
-        if q = @client.vhost.queues.fetch(frame.queue, nil)
+        if q = @client.vhost.queue?(frame.queue)
           if @client.queue_exclusive_to_other_client?(q)
             @client.send_resource_locked(frame, "Exclusive queue")
           elsif q.has_exclusive_consumer?
@@ -413,7 +433,7 @@ module LavinMQ
             ok = q.basic_get(frame.no_ack) do |env|
               delivery_tag = next_delivery_tag(q, env.segment_position, frame.no_ack, nil)
               unless frame.no_ack # track unacked messages
-                q.basic_get_unacked << UnackedMessage.new(self, delivery_tag, RoughTime.instant)
+                q.basic_get_unacked_push(UnackedMessage.new(self, delivery_tag, RoughTime.instant))
               end
               get_ok = AMQP::Frame::Basic::GetOk.new(frame.channel, delivery_tag,
                 env.redelivered, env.message.exchange_name,
@@ -509,7 +529,7 @@ module LavinMQ
           c.ack(unack.sp)
         end
         unack.queue.ack(unack.sp)
-        unack.queue.basic_get_unacked.reject! { |u| u.channel == self && u.delivery_tag == unack.tag }
+        unack.queue.basic_get_unacked_reject! { |u| u.channel == self && u.delivery_tag == unack.tag }
         @client.vhost.event_tick(EventType::ClientAck)
         @ack_count.add(1, :relaxed)
       end
@@ -588,7 +608,7 @@ module LavinMQ
           c.reject(unack.sp, requeue)
         end
         unack.queue.reject(unack.sp, requeue)
-        unack.queue.basic_get_unacked.reject! { |u| u.channel == self && u.delivery_tag == unack.tag }
+        unack.queue.basic_get_unacked_reject! { |u| u.channel == self && u.delivery_tag == unack.tag }
         @reject_count.add(1, :relaxed)
         @client.vhost.event_tick(EventType::ClientReject)
       end
@@ -606,7 +626,7 @@ module LavinMQ
       end
 
       def prefetch_count=(value)
-        @consumers.each(&.prefetch_count = value)
+        @consumers.lock { |c| c.each(&.prefetch_count = value) }
         @prefetch_count = value
       end
 
@@ -650,19 +670,23 @@ module LavinMQ
 
       def close
         @running = false
-        @consumers.each_with_index(1) do |consumer, i|
+        consumers_to_close = @consumers.lock do |c|
+          arr = c.dup
+          c.clear
+          arr
+        end
+        consumers_to_close.each_with_index(1) do |consumer, i|
           consumer.close
           Fiber.yield if (i % 128) == 0
         end
-        @consumers.clear
         if drc = @direct_reply_consumer
-          @client.vhost.direct_reply_consumers.delete(drc)
+          @client.vhost.direct_reply_consumer_delete(drc)
         end
         @unack_lock.synchronize do
           @unacked.each do |unack|
             @log.debug { "Requeing unacked msg #{unack.sp}" }
             unack.queue.reject(unack.sp, true)
-            unack.queue.basic_get_unacked.reject! { |u| u.channel == self && u.delivery_tag == unack.tag }
+            unack.queue.basic_get_unacked_reject! { |u| u.channel == self && u.delivery_tag == unack.tag }
           end
           @unacked.clear
         end
@@ -724,12 +748,16 @@ module LavinMQ
 
       def cancel_consumer(frame)
         @log.debug { "Cancelling consumer '#{frame.consumer_tag}'" }
-        if idx = @consumers.index { |cons| cons.tag == frame.consumer_tag }
-          c = @consumers.delete_at idx
-          c.close
+        consumer = @consumers.lock do |consumers|
+          if idx = consumers.index { |cons| cons.tag == frame.consumer_tag }
+            next consumers.delete_at idx
+          end
+        end
+        if consumer
+          consumer.close
         elsif @direct_reply_consumer == frame.consumer_tag
           @direct_reply_consumer = nil
-          @client.vhost.direct_reply_consumers.delete(frame.consumer_tag)
+          @client.vhost.direct_reply_consumer_delete(frame.consumer_tag)
         end
         unless frame.no_wait
           send AMQP::Frame::Basic::CancelOk.new(frame.channel, frame.consumer_tag)

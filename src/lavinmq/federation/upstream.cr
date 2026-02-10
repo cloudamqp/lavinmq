@@ -1,12 +1,12 @@
 require "uri"
+require "sync/exclusive"
 require "./constants"
 require "./link"
 
 module LavinMQ
   module Federation
     class Upstream
-      @q_links = Hash(String, QueueLink).new
-      @ex_links = Hash(String, ExchangeLink).new
+      @links : Sync::Exclusive(NamedTuple(queue: Hash(String, QueueLink), exchange: Hash(String, ExchangeLink)))
       @queue : String?
       @exchange : String?
       @expires : Int64?
@@ -23,20 +23,23 @@ module LavinMQ
                      consumer_tag = nil)
         @consumer_tag = "federation-link-#{@name}"
         @uri = URI.parse(raw_uri)
+        @links = Sync::Exclusive.new({queue: Hash(String, QueueLink).new, exchange: Hash(String, ExchangeLink).new})
       end
 
       # delete x-federation-upstream exchange on upstream
       # delete queue on upstream
       def stop_link(federated_exchange : Exchange)
-        @ex_links.delete(federated_exchange.name).try(&.terminate)
+        old = @links.lock(&.[:exchange].delete(federated_exchange.name))
+        old.try(&.terminate)
       end
 
       def stop_link(federated_q : Queue)
-        @q_links.delete(federated_q.name).try(&.terminate)
+        old = @links.lock(&.[:queue].delete(federated_q.name))
+        old.try(&.terminate)
       end
 
       def links : Array(Link)
-        @q_links.values + @ex_links.values
+        @links.lock { |l| l[:queue].values + l[:exchange].values }
       end
 
       # declare queue on upstream
@@ -48,17 +51,21 @@ module LavinMQ
       # add bindings from upstream exchange to x-federation-upstream exchange
       # keep downstream exchange bindings reflected on x-federation-upstream exchange
       def link(federated_exchange : Exchange) : ExchangeLink
-        if link = @ex_links[federated_exchange.name]?
-          return link
+        new_link = nil
+        link = @links.lock do |l|
+          if existing = l[:exchange][federated_exchange.name]?
+            next existing
+          end
+          upstream_exchange = @exchange
+          if upstream_exchange.nil? || upstream_exchange.empty?
+            upstream_exchange = federated_exchange.name
+          end
+          upstream_q = "federation: #{upstream_exchange} -> #{System.hostname}:#{vhost.name}:#{federated_exchange.name}"
+          new_link = ExchangeLink.new(self, federated_exchange, upstream_q, upstream_exchange)
+          l[:exchange][federated_exchange.name] = new_link
+          new_link
         end
-        upstream_exchange = @exchange
-        if upstream_exchange.nil? || upstream_exchange.empty?
-          upstream_exchange = federated_exchange.name
-        end
-        upstream_q = "federation: #{upstream_exchange} -> #{System.hostname}:#{vhost.name}:#{federated_exchange.name}"
-        link = ExchangeLink.new(self, federated_exchange, upstream_q, upstream_exchange)
-        @ex_links[federated_exchange.name] = link
-        link.run
+        new_link.try &.run
         link
       end
 
@@ -66,23 +73,31 @@ module LavinMQ
       # If all consumers disconnect, the connections are closed.
       # When the policy or the upstream is removed the link is also removed.
       def link(federated_q : Queue) : QueueLink
-        if link = @q_links[federated_q.name]?
-          return link
+        new_link = nil
+        link = @links.lock do |l|
+          if existing = l[:queue][federated_q.name]?
+            next existing
+          end
+          upstream_q = @queue
+          if upstream_q.nil? || upstream_q.empty?
+            upstream_q = federated_q.name
+          end
+          new_link = QueueLink.new(self, federated_q, upstream_q)
+          l[:queue][federated_q.name] = new_link
+          new_link
         end
-        upstream_q = @queue
-        if upstream_q.nil? || upstream_q.empty?
-          upstream_q = federated_q.name
-        end
-        link = QueueLink.new(self, federated_q, upstream_q)
-        @q_links[federated_q.name] = link
-        link.run
+        new_link.try &.run
         link
       end
 
       def close
-        links.each(&.terminate)
-        @ex_links.clear
-        @q_links.clear
+        to_terminate = @links.lock do |l|
+          result = l[:queue].values.map(&.as(Link)) + l[:exchange].values.map(&.as(Link))
+          l[:queue].clear
+          l[:exchange].clear
+          result
+        end
+        to_terminate.each(&.terminate)
       end
     end
   end

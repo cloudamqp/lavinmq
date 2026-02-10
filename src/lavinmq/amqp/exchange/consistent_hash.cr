@@ -1,3 +1,4 @@
+require "sync/shared"
 require "../destination"
 require "./exchange"
 require "../../hasher.cr"
@@ -13,7 +14,7 @@ module LavinMQ
   module AMQP
     class ConsistentHashExchange < Exchange
       @hasher : Hasher(AMQP::Destination)
-      @bindings = Set({Destination, BindingKey}).new
+      @bindings : Sync::Shared(Set({Destination, BindingKey})) = Sync::Shared.new(Set({Destination, BindingKey}).new)
 
       def initialize(*args, **kwargs)
         super(*args, **kwargs)
@@ -47,17 +48,26 @@ module LavinMQ
       end
 
       def bindings_details : Iterator(BindingDetails)
-        @bindings.each.map do |destination, binding_key|
-          BindingDetails.new(name, vhost.name, binding_key, destination)
-        end
+        @bindings.shared do |bindings|
+          bindings.map do |destination, binding_key|
+            BindingDetails.new(name, vhost.name, binding_key, destination)
+          end
+        end.each
       end
 
       def bind(destination : Destination, routing_key : String, arguments : AMQP::Table?)
         validate_delayed_binding!(destination)
         w = weight(routing_key)
         binding_key = BindingKey.new(routing_key, arguments)
-        return false unless @bindings.add?({destination, binding_key})
-        @hasher.add(destination.name, w, destination)
+        added = @bindings.lock do |bindings|
+          if bindings.add?({destination, binding_key})
+            @hasher.add(destination.name, w, destination)
+            true
+          else
+            false
+          end
+        end
+        return false unless added
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
         notify_observers(ExchangeEvent::Bind, data)
         true
@@ -66,23 +76,33 @@ module LavinMQ
       def unbind(destination : Destination, routing_key : String, arguments : AMQP::Table?)
         w = weight(routing_key)
         binding_key = BindingKey.new(routing_key, arguments)
-        return false unless @bindings.delete({destination, binding_key})
-        # Only remove from hasher if no other bindings exist for this destination with same weight
-        has_other_binding = @bindings.any? do |d, bk|
-          d == destination && bk.routing_key == routing_key
+        result = @bindings.lock do |bindings|
+          deleted = bindings.delete({destination, binding_key})
+          if deleted
+            # Only remove from hasher if no other bindings exist for this destination with same weight
+            has_other_binding = bindings.any? do |d, bk|
+              d == destination && bk.routing_key == routing_key
+            end
+            @hasher.remove(destination.name, w) unless has_other_binding
+            {true, @auto_delete && bindings.empty?}
+          else
+            {false, false}
+          end
         end
-        @hasher.remove(destination.name, w) unless has_other_binding
+        return false unless result[0]
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
         notify_observers(ExchangeEvent::Unbind, data)
 
-        delete if @auto_delete && @bindings.empty?
+        delete if result[1]
         true
       end
 
       def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
         key = hash_key(routing_key, headers)
-        if d = @hasher.get(key)
-          yield d
+        @bindings.shared do |_bindings|
+          if d = @hasher.get(key)
+            yield d
+          end
         end
       end
 

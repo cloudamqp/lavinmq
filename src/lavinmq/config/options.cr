@@ -297,6 +297,11 @@ module LavinMQ
       @[IniOpt(section: "amqp")]
       property max_consumers_per_channel = 0
 
+      @[CliOpt("", "--thread-count=COUNT", "Number of worker threads (default: number of CPUs)", section: "options")]
+      @[IniOpt(section: "main")]
+      @[EnvOpt("LAVINMQ_THREAD_COUNT")]
+      property thread_count = 0 # 0 means auto-detect (CPU count)
+
       @[IniOpt(section: "main", transform: ->ConsistentHashAlgorithm.parse(String))]
       property default_consistent_hash_algorithm : ConsistentHashAlgorithm = ConsistentHashAlgorithm::Ring
 

@@ -25,7 +25,7 @@ module LavinMQ
         get "/api/vhosts/:vhost/connections" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            page(context, vhost.connections.each)
+            page(context, vhost.connections_each)
           end
         end
 
@@ -45,7 +45,7 @@ module LavinMQ
 
         get "/api/connections/:name/channels" do |context, params|
           with_connection(context, params) do |connection|
-            page(context, connection.channels.each_value)
+            page(context, connection.channels_each_value.each)
           end
         end
 

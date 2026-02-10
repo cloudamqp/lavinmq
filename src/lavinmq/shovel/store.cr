@@ -1,3 +1,4 @@
+require "sync/exclusive"
 require "./runner"
 require "./amqp_source"
 require "./http_destination.cr"
@@ -12,11 +13,41 @@ module LavinMQ
     class ConfigError < Error; end
 
     class Store
+      @shovels : Sync::Exclusive(Hash(String, Shovel::Runner))
+
       def initialize(@vhost : VHost)
-        @shovels = Hash(String, Shovel::Runner).new
+        @shovels = Sync::Exclusive.new(Hash(String, Shovel::Runner).new)
       end
 
-      forward_missing_to @shovels
+      # Explicit accessors replacing forward_missing_to
+
+      def []?(name : String) : Shovel::Runner?
+        @shovels.lock { |h| h[name]? }
+      end
+
+      def [](name : String) : Shovel::Runner
+        @shovels.lock { |h| h[name] }
+      end
+
+      def each_value(& : Shovel::Runner ->)
+        @shovels.lock { |h| h.each_value { |v| yield v } }
+      end
+
+      def each_value : Iterator(Shovel::Runner)
+        @shovels.lock(&.values).each
+      end
+
+      def size : Int32
+        @shovels.lock(&.size)
+      end
+
+      def empty? : Bool
+        @shovels.lock(&.empty?)
+      end
+
+      def has_key?(name : String) : Bool
+        @shovels.lock(&.has_key?(name))
+      end
 
       # ameba:disable Metrics/CyclomaticComplexity
       def self.validate_config!(config : JSON::Any, user : Auth::BaseUser?)
@@ -85,7 +116,7 @@ module LavinMQ
       end
 
       def create(name, config)
-        @shovels[name]?.try &.terminate
+        @shovels.lock { |h| h[name]?.try &.terminate }
         delete_after_str = config["src-delete-after"]?.try(&.as_s.delete("-")).to_s
         delete_after = Shovel::DeleteAfter.parse?(delete_after_str) || Shovel::DEFAULT_DELETE_AFTER
         ack_mode_str = config["ack-mode"]?.try(&.as_s.delete("-")).to_s
@@ -103,7 +134,7 @@ module LavinMQ
           direct_user: @vhost.users.direct_user)
         dest = destination(name, config, ack_mode)
         shovel = Shovel::Runner.new(src, dest, name, @vhost, reconnect_delay)
-        @shovels[name] = shovel
+        @shovels.lock { |h| h[name] = shovel }
         spawn(shovel.run, name: "Shovel name=#{name} vhost=#{@vhost.name}")
         shovel
       rescue KeyError
@@ -111,7 +142,8 @@ module LavinMQ
       end
 
       def delete(name)
-        if shovel = @shovels.delete name
+        shovel = @shovels.lock(&.delete(name))
+        if shovel
           shovel.delete
           shovel
         end

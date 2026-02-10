@@ -1,3 +1,4 @@
+require "sync/shared"
 require "openssl"
 require "socket"
 require "./channel"
@@ -16,7 +17,7 @@ module LavinMQ
       include Stats
       include SortableJSON
 
-      getter vhost, channels, log, name
+      getter vhost, log, name
       getter user
       getter max_frame_size : UInt32
       getter channel_max : UInt16
@@ -26,11 +27,11 @@ module LavinMQ
       getter connection_info : ConnectionInfo
 
       @connected_at = RoughTime.unix_ms
-      @channels = Hash(UInt16, Client::Channel).new
+      @channels : Sync::Shared(Hash(UInt16, Client::Channel)) = Sync::Shared.new(Hash(UInt16, Client::Channel).new)
       @actual_channel_max : UInt16
       @exclusive_queues = Array(Queue).new
       @heartbeat_interval_ms : Int64?
-      @running = true
+      @running = Atomic(Bool).new(true)
       @last_recv_frame = RoughTime.instant
       @last_sent_frame = RoughTime.instant
       rate_stats({"send_oct", "recv_oct"})
@@ -83,9 +84,28 @@ module LavinMQ
         @connection_info.remote_address.to_s
       end
 
+      # Synchronized accessors for @channels
+      def channels_size : Int32
+        @channels.shared(&.size)
+      end
+
+      def channels_each_value(& : Client::Channel ->) : Nil
+        @channels.shared do |channels|
+          channels.each_value { |ch| yield ch }
+        end
+      end
+
+      def channels_each_value : Array(Client::Channel)
+        @channels.shared(&.values)
+      end
+
+      def channels_byid?(id) : Client::Channel?
+        @channels.shared { |chs| chs[id]? }
+      end
+
       def details_tuple
         {
-          channels:          @channels.size,
+          channels:          channels_size,
           connected_at:      @connected_at,
           type:              "network",
           channel_max:       @channel_max,
@@ -138,17 +158,17 @@ module LavinMQ
             when AMQP::Frame::Connection::Close
               @log.debug { "Client disconnected: #{frame.reply_text}" } unless frame.reply_text.empty?
               send AMQP::Frame::Connection::CloseOk.new
-              @running = false
+              @running.set(false, :release)
               next
             when AMQP::Frame::Connection::CloseOk
               @log.debug { "Confirmed disconnect" }
-              @running = false
+              @running.set(false, :release)
               return
             when AMQP::Frame::Connection::UpdateSecret
               handle_update_secret(frame)
               next
             end
-            if @running
+            if @running.get(:acquire)
               process_frame(frame)
             else
               case frame
@@ -230,7 +250,7 @@ module LavinMQ
       def send(frame : AMQP::Frame, channel_is_open : Bool? = nil) : Bool
         return false if closed?
         if channel_is_open.nil?
-          channel_is_open = frame.channel.zero? || @channels[frame.channel]?.try &.running?
+          channel_is_open = frame.channel.zero? || @channels.shared { |chs| chs[frame.channel]?.try &.running? }
         end
         unless channel_is_open
           @log.debug { "Channel #{frame.channel} is closed so is not sending #{frame.inspect}" }
@@ -340,11 +360,11 @@ module LavinMQ
       end
 
       def state
-        !@running ? "closed" : (@vhost.flow? ? "running" : "flow")
+        !@running.get(:acquire) ? "closed" : (@vhost.flow? ? "running" : "flow")
       end
 
       private def with_channel(frame, &)
-        if ch = @channels[frame.channel]?
+        if ch = @channels.shared { |chs| chs[frame.channel]? }
           if ch.running?
             yield ch
           else
@@ -373,14 +393,24 @@ module LavinMQ
       end
 
       private def open_channel(frame)
-        if @channels.has_key? frame.channel
+        result = @channels.lock do |channels|
+          if channels.has_key? frame.channel
+            :already_open
+          elsif channels.size >= @actual_channel_max
+            :max_reached
+          else
+            channels[frame.channel] = AMQP::Channel.new(self, frame.channel)
+            :ok
+          end
+        end
+        case result
+        when :already_open
           close_connection(frame, ConnectionReplyCode::CHANNEL_ERROR, "second 'channel.open' seen")
-        elsif @channels.size >= @actual_channel_max
-          reply_text = "number of channels opened (#{@channels.size})" \
+        when :max_reached
+          reply_text = "number of channels opened (#{channels_size})" \
                        " has reached the negotiated channel_max (#{@actual_channel_max})"
           close_connection(frame, ConnectionReplyCode::NOT_ALLOWED, reply_text)
-        else
-          @channels[frame.channel] = AMQP::Channel.new(self, frame.channel)
+        when :ok
           @vhost.event_tick(EventType::ChannelCreated)
           send AMQP::Frame::Channel::OpenOk.new(frame.channel)
         end
@@ -394,10 +424,10 @@ module LavinMQ
         when AMQP::Frame::Channel::Open
           open_channel(frame)
         when AMQP::Frame::Channel::Close
-          @channels.delete(frame.channel).try &.close
+          @channels.lock(&.delete(frame.channel)).try &.close
           send AMQP::Frame::Channel::CloseOk.new(frame.channel), true
         when AMQP::Frame::Channel::CloseOk
-          @channels.delete(frame.channel).try &.close
+          @channels.lock(&.delete(frame.channel)).try &.close
         when AMQP::Frame::Channel::Flow
           with_channel frame, &.flow(frame.active)
         when AMQP::Frame::Channel::FlowOk
@@ -466,13 +496,15 @@ module LavinMQ
       end
 
       private def cleanup
-        @running = false
+        @running.set(false, :release)
         i = 0u32
-        @channels.each_value do |ch|
-          ch.close
-          Fiber.yield if (i &+= 1) % 512 == 0
+        @channels.lock do |channels|
+          channels.each_value do |ch|
+            ch.close
+            Fiber.yield if (i &+= 1) % 512 == 0
+          end
+          channels.clear
         end
-        @channels.clear
         @exclusive_queues.each(&.close)
         @exclusive_queues.clear
         @vhost.rm_connection(self)
@@ -483,7 +515,7 @@ module LavinMQ
       end
 
       private def close_socket
-        @running = false
+        @running.set(false, :release)
         @socket.close
       rescue ex
         @log.debug { "#{ex.inspect} when closing socket" }
@@ -501,7 +533,7 @@ module LavinMQ
 
         code = ConnectionReplyCode::CONNECTION_FORCED
         send AMQP::Frame::Connection::Close.new(code.value, "#{code} - #{reason}", 0_u16, 0_u16)
-        @running = false
+        @running.set(false, :release)
       end
 
       def force_close
@@ -509,7 +541,7 @@ module LavinMQ
       end
 
       def closed?
-        !@running
+        !@running.get(:acquire)
       end
 
       def close_channel(frame : AMQ::Protocol::Frame, code : ChannelReplyCode, text)
@@ -523,7 +555,7 @@ module LavinMQ
         else
           send AMQP::Frame::Channel::Close.new(frame.channel, code.value, text, 0, 0)
         end
-        @channels.delete(frame.channel).try &.close
+        @channels.lock(&.delete(frame.channel)).try &.close
       end
 
       def close_connection(frame : AMQ::Protocol::Frame?, code : ConnectionReplyCode, text)
@@ -537,7 +569,7 @@ module LavinMQ
         end
         @log.info { "Connection=#{@name} disconnected" }
       ensure
-        @running = false
+        @running.set(false, :release)
       end
 
       def send_access_refused(frame, text)
@@ -574,10 +606,10 @@ module LavinMQ
         code = ConnectionReplyCode::NOT_IMPLEMENTED
         if ex.channel.zero?
           send AMQP::Frame::Connection::Close.new(code.value, code.to_s, ex.class_id, ex.method_id)
-          @running = false
+          @running.set(false, :release)
         else
           send AMQP::Frame::Channel::Close.new(ex.channel, code.value, code.to_s, ex.class_id, ex.method_id)
-          @channels.delete(ex.channel).try &.close
+          @channels.lock(&.delete(ex.channel)).try &.close
         end
       end
 
@@ -599,7 +631,7 @@ module LavinMQ
           send_precondition_failed(frame, "Exchange name isn't valid")
         elsif frame.exchange_name.empty?
           send_access_refused(frame, "Not allowed to declare the default exchange")
-        elsif e = @vhost.exchanges.fetch(frame.exchange_name, nil)
+        elsif e = @vhost.exchange?(frame.exchange_name)
           redeclare_exchange(e, frame)
         elsif frame.passive
           send_passive_not_found(frame, "Exchange '#{frame.exchange_name}' doesn't exists")
@@ -638,12 +670,12 @@ module LavinMQ
           send_access_refused(frame, "Not allowed to delete the default exchange")
         elsif NameValidator.reserved_prefix?(frame.exchange_name)
           send_access_refused(frame, "Prefix #{NameValidator::PREFIX_LIST} forbidden, please choose another name")
-        elsif !@vhost.exchanges.has_key? frame.exchange_name
+        elsif !@vhost.exchange_exists? frame.exchange_name
           # should return not_found according to spec but we make it idempotent
           send AMQP::Frame::Exchange::DeleteOk.new(frame.channel) unless frame.no_wait
         elsif !@user.can_config?(@vhost.name, frame.exchange_name)
           send_access_refused(frame, "User '#{@user.name}' doesn't have permissions to delete exchange '#{frame.exchange_name}'")
-        elsif frame.if_unused && @vhost.exchanges[frame.exchange_name].in_use?
+        elsif frame.if_unused && @vhost.exchange(frame.exchange_name).in_use?
           send_precondition_failed(frame, "Exchange '#{frame.exchange_name}' in use")
         else
           @vhost.apply(frame)
@@ -660,7 +692,7 @@ module LavinMQ
           send_precondition_failed(frame, "Queue name isn't valid")
           return
         end
-        q = @vhost.queues.fetch(frame.queue_name, nil)
+        q = @vhost.queue?(frame.queue_name)
         if q.nil?
           send AMQP::Frame::Queue::DeleteOk.new(frame.channel, 0_u32) unless frame.no_wait
         elsif queue_exclusive_to_other_client?(q)
@@ -686,7 +718,7 @@ module LavinMQ
       private def declare_queue(frame)
         if !frame.queue_name.empty? && !NameValidator.valid_entity_name?(frame.queue_name)
           send_precondition_failed(frame, "Queue name isn't valid")
-        elsif q = @vhost.queues.fetch(frame.queue_name, nil)
+        elsif q = @vhost.queue?(frame.queue_name)
           redeclare_queue(frame, q)
         elsif {"amq.rabbitmq.reply-to", "amq.direct.reply-to"}.includes? frame.queue_name
           unless frame.no_wait
@@ -694,7 +726,7 @@ module LavinMQ
           end
         elsif frame.queue_name.starts_with?("amq.direct.reply-to.")
           consumer_tag = frame.queue_name[20..]
-          if @vhost.direct_reply_consumers.has_key? consumer_tag
+          if @vhost.direct_reply_consumer_has_key? consumer_tag
             send AMQP::Frame::Queue::DeclareOk.new(frame.channel, frame.queue_name, 0_u32, 1_u32)
           else
             send_not_found(frame, "Queue '#{frame.queue_name}' doesn't exists")
@@ -703,7 +735,7 @@ module LavinMQ
           send_passive_not_found(frame, "Queue '#{frame.queue_name}' doesn't exists")
         elsif NameValidator.reserved_prefix?(frame.queue_name)
           send_access_refused(frame, "Prefix #{NameValidator::PREFIX_LIST} forbidden, please choose another name")
-        elsif @vhost.max_queues.try { |max| @vhost.queues.size >= max }
+        elsif @vhost.max_queues.try { |max| @vhost.queues_size >= max }
           send_access_refused(frame, "queue limit in vhost '#{@vhost.name}' (#{@vhost.max_queues}) is reached")
         else
           declare_new_queue(frame)
@@ -749,7 +781,7 @@ module LavinMQ
         @vhost.apply(frame)
         @last_queue_name = frame.queue_name
         if frame.exclusive
-          @exclusive_queues << @vhost.queues[frame.queue_name]
+          @exclusive_queues << @vhost.queue(frame.queue_name)
         end
         unless frame.no_wait
           send AMQP::Frame::Queue::DeclareOk.new(frame.channel, frame.queue_name, 0_u32, 0_u32)
@@ -767,10 +799,10 @@ module LavinMQ
         end
         return unless valid_q_bind_unbind?(frame)
 
-        q = @vhost.queues[frame.queue_name]?
+        q = @vhost.queue?(frame.queue_name)
         if q.nil?
           send_not_found frame, "Queue '#{frame.queue_name}' not found"
-        elsif !@vhost.exchanges.has_key? frame.exchange_name
+        elsif !@vhost.exchange_exists? frame.exchange_name
           send_not_found frame, "Exchange '#{frame.exchange_name}' not found"
         elsif !@user.can_read?(@vhost.name, frame.exchange_name)
           send_access_refused(frame, "User '#{@user.name}' doesn't have read permissions to exchange '#{frame.exchange_name}'")
@@ -794,11 +826,11 @@ module LavinMQ
         end
         return unless valid_q_bind_unbind?(frame)
 
-        q = @vhost.queues[frame.queue_name]?
+        q = @vhost.queue?(frame.queue_name)
         if q.nil?
           # should return not_found according to spec but we make it idempotent
           send AMQP::Frame::Queue::UnbindOk.new(frame.channel)
-        elsif !@vhost.exchanges.has_key? frame.exchange_name
+        elsif !@vhost.exchange_exists? frame.exchange_name
           # should return not_found according to spec but we make it idempotent
           send AMQP::Frame::Queue::UnbindOk.new(frame.channel)
         elsif !@user.can_read?(@vhost.name, frame.exchange_name)
@@ -829,8 +861,8 @@ module LavinMQ
       end
 
       private def bind_exchange(frame)
-        source = @vhost.exchanges.fetch(frame.source, nil)
-        destination = @vhost.exchanges.fetch(frame.destination, nil)
+        source = @vhost.exchange?(frame.source)
+        destination = @vhost.exchange?(frame.destination)
         if destination.nil?
           send_not_found frame, "Exchange '#{frame.destination}' doesn't exists"
         elsif source.nil?
@@ -848,8 +880,8 @@ module LavinMQ
       end
 
       private def unbind_exchange(frame)
-        source = @vhost.exchanges.fetch(frame.source, nil)
-        destination = @vhost.exchanges.fetch(frame.destination, nil)
+        source = @vhost.exchange?(frame.source)
+        destination = @vhost.exchange?(frame.destination)
         if destination.nil?
           # should return not_found according to spec but we make it idempotent
           send AMQP::Frame::Exchange::UnbindOk.new(frame.channel)
@@ -878,7 +910,7 @@ module LavinMQ
         end
         if !NameValidator.valid_entity_name?(frame.queue_name)
           send_precondition_failed(frame, "Queue name isn't valid")
-        elsif q = @vhost.queues.fetch(frame.queue_name, nil)
+        elsif q = @vhost.queue?(frame.queue_name)
           if queue_exclusive_to_other_client?(q)
             send_resource_locked(frame, "Queue '#{q.name}' is exclusive")
           else

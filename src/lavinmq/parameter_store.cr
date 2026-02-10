@@ -1,4 +1,5 @@
 require "json"
+require "sync/shared"
 require "./parameter"
 require "./logger"
 
@@ -8,22 +9,61 @@ module LavinMQ
 
     Log = LavinMQ::Log.for "parameter_store"
 
+    @parameters : Sync::Shared(Hash(ParameterId?, T))
+
     def initialize(@data_dir : String, @file_name : String, @replicator : Clustering::Replicator?, vhost : String? = nil)
       metadata = vhost ? ::Log::Metadata.build({vhost: vhost}) : ::Log::Metadata.empty
       @log = Logger.new(Log, metadata)
-      @parameters = Hash(ParameterId?, T).new
+      @parameters = Sync::Shared.new(Hash(ParameterId?, T).new)
       load!
     end
 
-    forward_missing_to @parameters
+    # Explicit accessors replacing forward_missing_to
+
+    def []?(id) : T?
+      @parameters.shared { |h| h[id]? }
+    end
+
+    def [](id) : T
+      @parameters.shared { |h| h[id] }
+    end
+
+    def each_value(& : T ->)
+      @parameters.shared { |h| h.each_value { |v| yield v } }
+    end
+
+    def each_value : Iterator(T)
+      @parameters.shared(&.values).each
+    end
+
+    def has_key?(id) : Bool
+      @parameters.shared(&.has_key?(id))
+    end
+
+    def size : Int32
+      @parameters.shared(&.size)
+    end
+
+    def values : Array(T)
+      @parameters.shared(&.values)
+    end
+
+    def empty? : Bool
+      @parameters.shared(&.empty?)
+    end
+
+    def any?(& : {ParameterId?, T} -> Bool) : Bool
+      @parameters.shared { |h| h.any? { |kv| yield kv } }
+    end
 
     def create(parameter : T, save = true)
-      @parameters[parameter.name] = parameter
+      @parameters.lock { |h| h[parameter.name] = parameter }
       save! if save
     end
 
     def delete(id, save = true) : T?
-      if parameter = @parameters.delete id
+      parameter = @parameters.lock(&.delete(id))
+      if parameter
         save! if save
         parameter
       end
@@ -31,7 +71,7 @@ module LavinMQ
 
     def apply(parameter : Parameter? = nil, &)
       itr = if parameter.nil?
-              @parameters.each_value
+              values.each
             else
               [parameter].each
             end
@@ -45,8 +85,10 @@ module LavinMQ
     end
 
     def each(&)
-      @parameters.each do |kv|
-        yield kv
+      @parameters.shared do |h|
+        h.each do |kv|
+          yield kv
+        end
       end
     end
 

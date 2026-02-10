@@ -40,19 +40,21 @@ module LavinMQ
 
           vhosts(user(context)).each do |vhost|
             next if x_vhost && vhost.name != x_vhost
-            vhost.connections.each do |c|
+            vhost.connections_each do |c|
               connections += 1
-              channels += c.channels.size
-              consumers += c.channels.each_value.sum &.consumers.size
+              channels += c.channels_size
+              consumer_sum = 0
+              c.channels_each_value { |ch| consumer_sum += ch.consumers_size }
+              consumers += consumer_sum
               stats_details = c.stats_details
               recv_rate += stats_details[:recv_oct_details][:rate]
               send_rate += stats_details[:send_oct_details][:rate]
               add_logs!(recv_rate_log, stats_details[:recv_oct_details][:log])
               add_logs!(send_rate_log, stats_details[:send_oct_details][:log])
             end
-            exchanges += vhost.exchanges.size
-            queues += vhost.queues.size
-            vhost.queues.each_value do |q|
+            exchanges += vhost.exchanges_size
+            queues += vhost.queues_size
+            vhost.queues_each_value do |q|
               ready += q.message_count
               unacked += q.unacked_count
               add_logs!(ready_log, q.message_count_log)
@@ -135,7 +137,7 @@ module LavinMQ
               IO::Memory.new("test"))
             ok = vhost.publish(msg)
             env = nil
-            vhost.queues["aliveness-test"].basic_get(true) { |e| env = e }
+            vhost.queue("aliveness-test").basic_get(true) { |e| env = e }
             ok = ok && env && String.new(env.message.body) == "test"
             {status: ok ? "ok" : "failed"}.to_json(context.response)
           end

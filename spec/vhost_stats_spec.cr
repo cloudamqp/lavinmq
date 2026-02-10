@@ -26,7 +26,7 @@ describe LavinMQ::VHost do
     it "should not delete stats when connection is closed" do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]
-        wait_for { s.connections.sum(&.channels.size).zero? }
+        wait_for { s.connections.sum(&.channels_size).zero? }
 
         s.update_stats_rates
         initial_channels_created = vhost.channel_created_count
@@ -58,7 +58,7 @@ describe LavinMQ::VHost do
           vhost.connection_closed_count.should eq(initial_connections_closed)
         end
 
-        wait_for { vhost.@connections.empty? }
+        wait_for { vhost.connections_size == 0 }
 
         s.update_stats_rates
         vhost.connection_created_count.should eq(initial_connections_created + 1)

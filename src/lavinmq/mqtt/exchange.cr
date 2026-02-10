@@ -1,3 +1,4 @@
+require "sync/shared"
 require "../amqp/exchange"
 require "./consts"
 require "../destination"
@@ -26,9 +27,9 @@ module LavinMQ
         end
       end
 
-      @bindings = Hash(BindingKey, Set(MQTT::Session)).new do |h, k|
+      @bindings : Sync::Shared(Hash(BindingKey, Set(MQTT::Session))) = Sync::Shared.new(Hash(BindingKey, Set(MQTT::Session)).new do |h, k|
         h[k] = Set(MQTT::Session).new
-      end
+      end)
       @tree = MQTT::SubscriptionTree(MQTT::Session).new
 
       def type : String
@@ -55,11 +56,13 @@ module LavinMQ
 
         msg = Message.new(timestamp, EXCHANGE, packet.topic, properties, bodysize, body)
         count = 0u32
-        @tree.each_entry(packet.topic) do |queue, qos|
-          msg.properties.delivery_mode = qos
-          if queue.publish(msg)
-            count += 1
-            msg.body_io.rewind
+        @bindings.shared do |_bindings|
+          @tree.each_entry(packet.topic) do |queue, qos|
+            msg.properties.delivery_mode = qos
+            if queue.publish(msg)
+              count += 1
+              msg.body_io.rewind
+            end
           end
         end
         @unroutable_count.add(1, :relaxed) if count.zero?
@@ -68,11 +71,15 @@ module LavinMQ
       end
 
       def bindings_details : Iterator(BindingDetails)
-        @bindings.each.flat_map do |binding_key, ds|
-          ds.each.map do |d|
-            BindingDetails.new(name, vhost.name, binding_key.inner, d)
+        result = Array(BindingDetails).new
+        @bindings.shared do |bindings|
+          bindings.each do |binding_key, ds|
+            ds.each do |d|
+              result << BindingDetails.new(name, vhost.name, binding_key.inner, d)
+            end
           end
         end
+        result.each
       end
 
       # Only here to make superclass happy
@@ -82,8 +89,10 @@ module LavinMQ
       def bind(destination : MQTT::Session, routing_key : String, arguments = nil) : Bool
         qos = arguments.try { |h| h[QOS_HEADER]?.try(&.as(UInt8)) } || 0u8
         binding_key = BindingKey.new(routing_key, arguments)
-        @bindings[binding_key].add destination
-        @tree.subscribe(routing_key, destination, qos)
+        @bindings.lock do |bindings|
+          bindings[binding_key].add destination
+          @tree.subscribe(routing_key, destination, qos)
+        end
 
         data = BindingDetails.new(name, vhost.name, binding_key.inner, destination)
         notify_observers(ExchangeEvent::Bind, data)
@@ -92,16 +101,18 @@ module LavinMQ
 
       def unbind(destination : MQTT::Session, routing_key, arguments = nil) : Bool
         binding_key = BindingKey.new(routing_key, arguments)
-        rk_bindings = @bindings[binding_key]
-        rk_bindings.delete destination
-        @bindings.delete binding_key if rk_bindings.empty?
-
-        @tree.unsubscribe(routing_key, destination)
+        should_delete = @bindings.lock do |bindings|
+          rk_bindings = bindings[binding_key]
+          rk_bindings.delete destination
+          bindings.delete binding_key if rk_bindings.empty?
+          @tree.unsubscribe(routing_key, destination)
+          @auto_delete && bindings.each_value.all?(&.empty?)
+        end
 
         data = BindingDetails.new(name, vhost.name, binding_key.inner, destination)
         notify_observers(ExchangeEvent::Unbind, data)
 
-        delete if @auto_delete && @bindings.each_value.all?(&.empty?)
+        delete if should_delete
         true
       end
 

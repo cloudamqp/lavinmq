@@ -54,13 +54,6 @@ end
 
 def with_channel(s : LavinMQ::Server, file = __FILE__, line = __LINE__, **args, &)
   name = "lavinmq-spec-#{file}:#{line}"
-  s.@listeners
-    .select { |k, v| k.is_a?(TCPServer) && v.amqp? }
-    .keys
-    .select(TCPServer)
-    .first
-    .local_address
-    .port
   args = {port: amqp_port(s), name: name}.merge(args)
   conn = AMQP::Client.new(**args).connect
   ch = conn.channel
@@ -70,7 +63,7 @@ ensure
 end
 
 def amqp_port(s)
-  s.@listeners.keys.select(TCPServer).first.local_address.port
+  wait_for { s.@listeners.keys.select(TCPServer).first? }.local_address.port
 end
 
 def should_eventually(expectation, timeout = 5.seconds, file = __FILE__, line = __LINE__, &)
@@ -124,7 +117,7 @@ def with_amqp_server(tls = false, replicator = nil,
     # everything has been cleaned up after a `with_channel` inside the `with_amqp_server`.
     closed_queues = 3.times do
       Fiber.yield
-      queues = s.vhosts.flat_map { |_, vhost| vhost.queues.values.select &.closed? }
+      queues = s.vhosts.flat_map { |_, vhost| vhost.queues_each_value.select(&.closed?).to_a }
       break if queues.empty?
       queues
     end

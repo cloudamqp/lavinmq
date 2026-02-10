@@ -15,8 +15,8 @@ module LavinMQ
         get "/api/vhosts/:vhost/channels" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            conns = vhost.connections.each
-            channels = conns.flat_map(&.channels.each_value)
+            conns = vhost.connections_each
+            channels = conns.flat_map(&.channels_each_value.each)
             page(context, channels)
           end
         end
@@ -44,7 +44,7 @@ module LavinMQ
       end
 
       private def all_channels(user)
-        Iterator(Client::Channel).chain(connections(user).map(&.channels.each_value))
+        Iterator(Client::Channel).chain(connections(user).map(&.channels_each_value.each))
       end
 
       private def with_channel(context, params, &)

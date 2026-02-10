@@ -40,7 +40,7 @@ module ObservableSpec
           observable.register_observer(obs1 = Observer(FooEvent).new { |_, _| nil })
           observable.register_observer(obs2 = Observer(FooEvent).new { |_, _| nil })
 
-          observable.@__t_observers.should eq Set{obs1, obs2}
+          observable.@__t_observers.get.should eq Set{obs1, obs2}
         end
       end
 
@@ -52,7 +52,7 @@ module ObservableSpec
           observable.register_observer(obs2 = Observer(FooEvent).new { |_, _| nil })
           observable.unregister_observer(obs1)
 
-          observable.@__t_observers.should eq Set{obs2}
+          observable.@__t_observers.get.should eq Set{obs2}
         end
       end
 
