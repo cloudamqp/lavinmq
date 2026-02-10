@@ -99,4 +99,37 @@ describe LavinMQ::HTTP::MainController do
       user.tags = original_tags
     end
   end
+
+  it "GET each path includes user tags as classes on html element for different users" do
+    pp LavinMQ::HTTP::ViewsController::ALL_PATHS
+    with_http_server do |http, s|
+      user = s.users["guest"]
+      original_tags = user.tags
+
+      test_cases = [
+        [] of LavinMQ::Tag,
+        [LavinMQ::Tag::Administrator],
+        [LavinMQ::Tag::Administrator, LavinMQ::Tag::Monitoring],
+        [LavinMQ::Tag::Administrator, LavinMQ::Tag::Monitoring, LavinMQ::Tag::PolicyMaker],
+      ]
+
+      test_cases.each do |tags|
+        user.tags = tags
+
+        LavinMQ::HTTP::ViewsController::ALL_PATHS.each do |path|
+          next if path == "/login"
+
+          response = http.get path, HEADERS
+          response.status_code.should eq 200
+
+          tags.each do |tag|
+            tag_class = "user-tag-#{tag.to_s.downcase}"
+            response.body.should contain(tag_class)
+          end
+        end
+      end
+
+      user.tags = original_tags
+    end
+  end
 end

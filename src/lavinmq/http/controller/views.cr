@@ -9,9 +9,6 @@ module LavinMQ
     class ViewsController
       include Router
 
-      # Collect all paths for static views. Used by specs to test all paths
-      ALL_PATHS = [] of String
-
       Log = LavinMQ::Log.for "http.views"
 
       def initialize
@@ -40,6 +37,11 @@ module LavinMQ
         static_view "/operator-policies"
       end
 
+      {% begin %}
+        # Collect all paths for static views. Used by specs to test all paths
+        ALL_PATHS = [] of String
+      {% end %}
+
       # Generate a get handler for given path. If no view is specified, path without initial
       # slash will be used as view.
       #
@@ -53,7 +55,7 @@ module LavinMQ
       # end
       # ```
       macro static_view(path, *, auth_required = true, view = nil, &block)
-        ALL_PATHS << {{path}}
+        {% ALL_PATHS << path %}
         {% view = path[1..] if view.nil? %}
         get {{ path }} do |context, params|
           redirect_unless_logged_in! if {{ auth_required }}
