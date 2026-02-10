@@ -88,7 +88,6 @@ module LavinMQ
         end
       end
 
-      # etag won't change in runtime
       {% if flag?(:release) %}
         ETagBase = LavinMQ::VERSION
       {% else %}
