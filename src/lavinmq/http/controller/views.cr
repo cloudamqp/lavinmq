@@ -98,10 +98,11 @@ module LavinMQ
         beginning = "W/\""
         ending = "\""
         tags = 0u8
-        size = beginning.size + ETagBase.size + 1 + sizeof(UInt8) + ending.size
         if u = user
           tags = user.tags.sum(&.to_u8)
         end
+        tags = tags.to_s
+        size = beginning.size + ETagBase.size + 1 + tags.size + ending.size
         ret = String.build(size) do |str|
           str << beginning
           str << ETagBase
