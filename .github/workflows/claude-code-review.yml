@@ -32,10 +32,32 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           prompt: |
             REPO: ${{ github.repository }}
-            PR NUMBER: ${{ inputs.pr_number || github.event.pull_request.number }}
+            PR_NUMBER: ${{ inputs.pr_number || github.event.pull_request.number }}
 
-            Review this pull request. Do not check CI status.
-            Use `gh pr comment` to post your review, don't submit your review as a normal message.
+            Review this PR and report ONLY problems that need fixing.
+            Skip positive feedback and confirmation of what's working correctly.
+
+            Steps:
+            1. Run `gh pr diff` to read the changes
+            2. Analyze the diff for issues
+            3. Post your findings with `gh pr comment`
+            4. Before posting, check if you've already commented (via `gh api`) and update that comment instead of creating a new one.
+
+            Report only:
+            - Bugs and logic errors
+            - Security vulnerabilities
+            - Performance issues (especially allocations in hot paths)
+            - Missing error handling
+            - Crystal anti-patterns
+
+            If no problems found, say "No issues found."
+
+            Do NOT:
+            - Check CI status
+            - Check previous commits or comments
+            - Run specs
+            - Use Emojis
+
           claude_args: |
             --max-turns 15
-            --allowedTools "Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
+            --allowedTools "Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh api:*),Read,Glob,Grep"
