@@ -101,7 +101,6 @@ describe LavinMQ::HTTP::MainController do
   end
 
   it "GET each path includes user tags as classes on html element for different users" do
-    pp LavinMQ::HTTP::ViewsController::ALL_PATHS
     with_http_server do |http, s|
       user = s.users["guest"]
       original_tags = user.tags
