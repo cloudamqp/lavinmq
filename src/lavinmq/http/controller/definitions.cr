@@ -38,25 +38,22 @@ module LavinMQ
 
         get "/api/definitions/:vhost" do |context, params|
           with_vhost(context, params) do |vhost|
-            refuse_unless_management(context, user(context), vhost)
-            refuse_unless_vhost_access(context, user(context), vhost)
+            refuse_unless_administrator(context, user(context))
             VHostDefinitions.new(@amqp_server, @amqp_server.vhosts[vhost]).export(context.response)
           end
         end
 
         post "/api/definitions/:vhost" do |context, params|
           with_vhost(context, params) do |vhost|
-            refuse_unless_policymaker(context, user(context), vhost)
-            refuse_unless_vhost_access(context, user(context), vhost)
+            refuse_unless_administrator(context, user(context))
             body = parse_body(context)
             VHostDefinitions.new(@amqp_server, @amqp_server.vhosts[vhost]).import(body)
           end
         end
 
         post "/api/definitions/:vhost/upload" do |context, params|
+          refuse_unless_administrator(context, user(context))
           with_vhost(context, params) do |vhost|
-            refuse_unless_policymaker(context, user(context), vhost)
-            refuse_unless_vhost_access(context, user(context), vhost)
             ::HTTP::FormData.parse(context.request) do |part|
               if part.name == "file"
                 body = JSON.parse(part.body)
