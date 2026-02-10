@@ -105,7 +105,7 @@ module LavinMQ
         ending = "\""
         tags = 0u8
         if u = user
-          tags = user.tags.reduce(0u8) { |acc, t| acc | t.to_u8 }
+          tags = u.tags.reduce(0u8) { |acc, t| acc | t.to_u8 }
         end
         tags = tags.to_s
         size = beginning.size + ETagBase.size + 1 + tags.size + ending.size
