@@ -352,7 +352,9 @@ module LavinMQ
                 "hashing_algorithm": u.user_details["hashing_algorithm"],
                 "name":              u.name,
                 "password_hash":     u.user_details["password_hash"],
-                "tags":              u.tags,
+                # Because Tag enum is annotated as Flags we need this map, because
+                # a Flags enum is serialized to an array.
+                "tags": u.tags.each.map(&.to_downcase_s),
               }.to_json(json)
             end
           end
