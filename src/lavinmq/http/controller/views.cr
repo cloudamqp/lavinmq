@@ -77,7 +77,7 @@ module LavinMQ
 
       macro inline_js
         {% if flag?(:release) || flag?(:bake_static) %}
-          {{ read_file("./static/js/inline.js") }}
+          {{ read_file("#{__DIR__}/../../../../static/js/inline.js") }}
         {% else %}
           File.read("./static/js/inline.js")
         {% end %}
