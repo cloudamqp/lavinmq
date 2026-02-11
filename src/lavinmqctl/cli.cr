@@ -147,6 +147,9 @@ class LavinMQCtl
     @parser.on("cluster_status", "Display cluster status") do
       @cmd = "cluster_status"
     end
+    @parser.on("check_leader", "Display the leader node name") do
+      @cmd = "check_leader"
+    end
     @parser.on("definitions", "Generate definitions json from a data directory") do
       @cmd = "definitions"
     end
@@ -269,6 +272,7 @@ class LavinMQCtl
     when "delete_exchange"       then delete_exchange
     when "status"                then status
     when "cluster_status"        then cluster_status
+    when "check_leader"          then check_leader
     when "set_vhost_limits"      then set_vhost_limits
     when "set_permissions"       then set_permissions
     when "definitions"           then definitions
@@ -799,6 +803,16 @@ class LavinMQCtl
       }
       output cluster_status_obj
     end
+  end
+
+  private def check_leader
+    resp = http.get "/api/nodes"
+    handle_response(resp, 200)
+    body = JSON.parse(resp.body)
+    leader_obj = {
+      leader: body.dig(0, "name"),
+    }
+    output leader_obj
   end
 
   private def set_vhost_limits

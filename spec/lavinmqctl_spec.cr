@@ -302,6 +302,14 @@ describe "LavinMQCtl" do
       end
     end
 
+    it "should show leader" do
+      with_http_server do |(http, s)|
+        result = run_lavinmqctl(http.addr.to_s, ["check_leader"])
+        result[:exit].should eq(0)
+        result[:stdout].should contain("leader")
+      end
+    end
+
     # Error cases
     it "should fail when creating user with missing password" do
       with_http_server do |(http, s)|
