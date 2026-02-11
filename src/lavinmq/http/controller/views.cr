@@ -9,7 +9,6 @@ module LavinMQ
   module HTTP
     class ViewsController
       include Router
-
       Log = LavinMQ::Log.for "http.views"
 
       def initialize
@@ -75,25 +74,26 @@ module LavinMQ
       BASE_CSP = "default-src 'none'; style-src 'self'; font-src 'self'; " \
                  "img-src 'self'; connect-src 'self'; script-src 'self' "
 
-      macro inline_js
-        {% if flag?(:release) || flag?(:bake_static) %}
-          {{ read_file("#{__DIR__}/../../../../static/js/inline.js") }}
-        {% else %}
-          File.read("./static/js/inline.js")
-        {% end %}
-      end
-
       {% if flag?(:release) || flag?(:bake_static) %}
-        FULL_CSP = "{{BASE_CSP.id}} 'sha256-#{Digest::SHA256.base64digest(inline_js)}'"
-      {% end %}
+        macro inline_js
+          {{ read_file("#{__DIR__}/../../../../static/js/inline.js") }}
+        end
 
-      macro csp
-        {% if flag?(:release) || flag?(:bake_static) %}
+        # declare as constant to make sure its allocated once
+        FULL_CSP = "{{BASE_CSP.id}} 'sha256-#{Digest::SHA256.base64digest(inline_js)}'"
+
+        macro csp
           FULL_CSP
-        {% else %}
+        end
+      {% else %}
+        macro inline_js
+          File.read("./static/js/inline.js")
+        end
+
+        macro csp
           "#{BASE_CSP} 'sha256-#{Digest::SHA256.base64digest(inline_js)}'"
-        {% end %}
-      end
+        end
+      {% end %}
 
       macro redirect_unless_logged_in!
         if !context.request.cookies.has_key?("m")
