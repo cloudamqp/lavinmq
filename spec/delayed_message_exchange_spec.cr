@@ -91,6 +91,7 @@ describe "Delayed Message Exchange" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           x = ch.exchange(x_name, "topic", args: x_args)
+          # No consumer bound, so message stays in the delayed queue
           hdrs = AMQP::Client::Arguments.new({"x-delay" => 300_000})
           x.publish_confirm "test message", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
           s.vhosts["/"].queues[delay_q_name].message_count.should eq 1
