@@ -38,6 +38,8 @@ module LavinMQ
     @shovels : Shovel::Store?
     @upstreams : Federation::UpstreamStore?
     @connections = Array(Client).new(512)
+    @oauth_notify = Channel(Nil).new
+    @oauth_loop_started = false
     @definitions_file : File
     @definitions_lock = Mutex.new(:reentrant)
     @definitions_file_path : String
@@ -73,6 +75,56 @@ module LavinMQ
             ch.check_consumer_timeout
           end
         end
+      end
+    end
+
+    private def oauth_expiration_loop
+      loop do
+        return if @closed
+
+        # Check for expired tokens and find the nearest expiration
+        has_oauth = false
+        min_lifetime = Time::Span::MAX
+        @connections.each do |c|
+          if (amqp = c.as?(AMQP::Client)) && (user = amqp.user.as?(Auth::OAuthUser))
+            has_oauth = true
+            lifetime = user.token_lifetime
+            if lifetime <= Time::Span::ZERO
+              amqp.close("token expired")
+            elsif lifetime < min_lifetime
+              min_lifetime = lifetime
+            end
+          end
+        end
+
+        unless has_oauth
+          # No OAuth connections — block until one is added
+          @oauth_notify.receive
+          next
+        end
+
+        # Wait until the nearest expiration or a change notification
+        select
+        when @oauth_notify.receive
+        when timeout(min_lifetime)
+        end
+      end
+    rescue Channel::ClosedError
+      # VHost shutting down
+    end
+
+    def start_oauth_monitor
+      unless @oauth_loop_started
+        @oauth_loop_started = true
+        spawn oauth_expiration_loop, name: "OAuth expiration loop #{@name}"
+      end
+      notify_oauth_change
+    end
+
+    def notify_oauth_change
+      select
+      when @oauth_notify.send(nil)
+      else
       end
     end
 
@@ -402,6 +454,7 @@ module LavinMQ
 
     def close(reason = "Broker shutdown")
       @closed = true
+      @oauth_notify.close
       stop_shovels
       stop_upstream_links
 
