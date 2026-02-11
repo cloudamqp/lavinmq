@@ -84,12 +84,12 @@ module LavinMQ
       end
 
       {% if flag?(:release) || flag?(:bake_static) %}
-        INLINE_JS_SHA256 = Digest::SHA256.base64digest(inline_js)
+        FULL_CSP = "{{BASE_CSP.id}} 'sha256-#{Digest::SHA256.base64digest(inline_js)}'"
       {% end %}
 
       macro csp
         {% if flag?(:release) || flag?(:bake_static) %}
-          "#{BASE_CSP} 'sha256-#{INLINE_JS_SHA256}'"
+          FULL_CSP
         {% else %}
           "#{BASE_CSP} 'sha256-#{Digest::SHA256.base64digest(inline_js)}'"
         {% end %}
