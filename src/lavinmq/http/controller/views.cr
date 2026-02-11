@@ -3,6 +3,7 @@ require "../router"
 require "../../version"
 require "html"
 require "digest/md5"
+require "digest/sha256"
 
 module LavinMQ
   module HTTP
@@ -63,12 +64,35 @@ module LavinMQ
             context.response.headers.add("ETag", ETag)
             context.response.headers.add("X-Frame-Options", "SAMEORIGIN")
             context.response.headers.add("Referrer-Policy", "same-origin")
-            context.response.headers.add("Content-Security-Policy", "default-src 'none'; style-src 'self'; font-src 'self'; img-src 'self'; connect-src 'self'; script-src 'self' 'sha256-7WqJMeRnYJHbEWj9TgKVXAh9Vz/3wErO1WSGhQ2LTf4='")
+            context.response.headers.add("Content-Security-Policy", csp)
             {{ block.body if block }}
             render {{ view }}
           end
           context
         end
+      end
+
+      BASE_CSP = "default-src 'none'; style-src 'self'; font-src 'self'; " \
+                 "img-src 'self'; connect-src 'self'; script-src 'self' "
+
+      macro inline_js
+        {% if flag?(:release) || flag?(:bake_static) %}
+          {{ read_file("./static/js/inline.js") }}
+        {% else %}
+          File.read("./static/js/inline.js")
+        {% end %}
+      end
+
+      {% if flag?(:release) || flag?(:bake_static) %}
+        INLINE_JS_SHA256 = Digest::SHA256.base64digest(inline_js)
+      {% end %}
+
+      macro csp
+        {% if flag?(:release) || flag?(:bake_static) %}
+          "#{BASE_CSP} 'sha256-#{INLINE_JS_SHA256}'"
+        {% else %}
+          "#{BASE_CSP} 'sha256-#{Digest::SHA256.base64digest(inline_js)}'"
+        {% end %}
       end
 
       macro redirect_unless_logged_in!

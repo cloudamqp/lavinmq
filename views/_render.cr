@@ -11,6 +11,10 @@ require "../src/lavinmq/version"
     ECR.embed("views/\{{file.id}}.ecr", STDOUT)
   end
 
+  macro inline_js
+    {{ read_file("./static/js/inline.js") }}
+  end
+
   macro active_path?(path)
     local_path = if "#{\{{path}}}" == "."
       "overview"
