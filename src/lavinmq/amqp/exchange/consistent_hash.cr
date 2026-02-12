@@ -59,7 +59,7 @@ module LavinMQ
         return false unless @bindings.add?({destination, binding_key})
         @hasher.add(destination.name, w, destination)
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
-        notify_observers(ExchangeEvent::Bind, data)
+        notify_bind(data)
         true
       end
 
@@ -73,7 +73,7 @@ module LavinMQ
         end
         @hasher.remove(destination.name, w) unless has_other_binding
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
-        notify_observers(ExchangeEvent::Unbind, data)
+        notify_unbind(data)
 
         delete if @auto_delete && @bindings.empty?
         true
