@@ -14,8 +14,11 @@ document.getElementById('login').addEventListener('submit', (e) => {
   tryLogin(user, pass)
 })
 
-function tryLogin (user, pass) {
-  Auth.login(user, pass)
-    .then(() => window.location.assign('.'))
-    .catch(() => window.alert('Authentication failure'))
+async function tryLogin (user, pass) {
+  const res = await Auth.login(user, pass)
+  if (res) {
+    window.location.assign('.')
+  } else {
+    window.alert('Authentication failure')
+  }
 }
