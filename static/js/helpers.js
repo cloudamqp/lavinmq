@@ -180,17 +180,23 @@ function disableUserMenuVhost () {
 
 const stateClasses = new class {
   #values
+  #state_classes = [] // track what classes handle
   constructor () {
     this.#values = document.documentElement.classList
     const value = window.localStorage.getItem('lmq.stateclasses')
     if (!(value === null || value === '')) {
-      this.#values.add(...value.split(' '))
+      this.#state_classes = value.split(' ')
+      this.#values.add(this.#state_classes)
     }
   }
 
-  #persist () {
-    if (this.#values.length > 0) {
-      window.localStorage.setItem('lmq.stateclasses', this.#values.toString())
+  #persist (track = null) {
+    if (track && !this.#state_classes.includes(track)) {
+      this.#state_classes.push(track)
+    }
+    if (this.#values.length > 0 && this.#state_classes.length > 0) {
+      const klasses = this.#values.values().filter(i => this.#state_classes.includes(i)).toArray()
+      window.localStorage.setItem('lmq.stateclasses', klasses.join(' '))
     } else {
       window.localStorage.removeItem('lmq.stateclasses')
     }
@@ -202,14 +208,14 @@ const stateClasses = new class {
 
   toggle (klass) {
     const ret = this.#values.toggle(klass)
-    this.#persist()
+    this.#persist(klass)
     return ret
   }
 
   add (klass) {
     if (!this.#values.contains(klass)) {
       this.#values.add(klass)
-      this.#persist()
+      this.#persist(klass)
     }
   }
 
