@@ -216,7 +216,7 @@ const stateClasses = new class {
   remove (toRemove) {
     if (typeof toRemove === 'string') {
       this.#values.remove(toRemove)
-    } if (toRemove instanceof Array) {
+    } else if (toRemove instanceof Array) {
       this.#values.remove(...toRemove)
     } else if (toRemove instanceof RegExp) {
       this.#values.remove(...this.#values.values().filter(v => toRemove.test(v)))
