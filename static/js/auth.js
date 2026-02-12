@@ -46,7 +46,7 @@ async function whoAmI (forceReload = false) {
       }
     }
     // Do we have cached and valid info?
-    if (whoAmI && whoAmI.name == getUsername() && (whoAmI._ts + 3600 * 1000) > Date.now()) {
+    if (whoAmI && whoAmI.name === getUsername() && (whoAmI._ts + 3600 * 1000) > Date.now()) {
       return whoAmI
     }
   }
