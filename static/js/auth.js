@@ -57,6 +57,8 @@ async function whoAmI(forceReload = false) {
           stateClasses.remove(/^user-tag-/)
           data['tags'].split(",").forEach(t => stateClasses.add(`user-tag-${t}`))
           data['_ts'] = Date.now()
+          delete data['password_hash']
+          delete data['hashing_algorithm']
           window.localStorage.setItem('whoami', JSON.stringify(data))
           return data
         })
