@@ -181,7 +181,6 @@ function disableUserMenuVhost () {
 const stateClasses = new class {
   #get() {
     const value = window.localStorage.getItem("stateclasses")
-    console.log(`#get value=${value}`)
     if (value === null || value === "") {
       return []
     }
