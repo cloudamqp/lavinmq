@@ -39,7 +39,11 @@ async function whoAmI(forceReload = false) {
     const data = window.localStorage.getItem('whoami')
     let whoAmI = null
     if (data) {
-      whoAmI = JSON.parse(data)
+      try {
+        whoAmI = JSON.parse(data)
+      } catch (e) {
+        window.localStorage.removeItem('whoami')
+      }
     }
     // Do we have cached and valid info?
     if (whoAmI && whoAmI['name'] == getUsername() && (whoAmI['_ts']+3600*1000) > Date.now()) {
