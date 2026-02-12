@@ -1,4 +1,4 @@
-import { stateClasses } from "./helpers.js"
+import { stateClasses } from './helpers.js'
 
 function getUsername () {
   return window.atob(getAuth()).split(':')[0]
@@ -22,19 +22,19 @@ function getCookie (key) {
     ?.split('=')[1]
 }
 
-async function login(username, password) {
+async function login (username, password) {
   const auth = window.btoa(`${username}:${password}`)
   document.cookie = `m=|:${encodeURIComponent(auth)}; samesite=strict; max-age=${60 * 60 * 8}`
   return whoAmI(true)
 }
 
-function logout() {
+function logout () {
   stateClasses.remove(/^user-tag-/)
   window.localStorage.removeItem('lmq.whoami')
   document.cookie = 'm=; max-age=0'
 }
 
-async function whoAmI(forceReload = false) {
+async function whoAmI (forceReload = false) {
   if (!forceReload) {
     const data = window.localStorage.getItem('lmq.whoami')
     let whoAmI = null
@@ -46,7 +46,7 @@ async function whoAmI(forceReload = false) {
       }
     }
     // Do we have cached and valid info?
-    if (whoAmI && whoAmI['name'] == getUsername() && (whoAmI['_ts']+3600*1000) > Date.now()) {
+    if (whoAmI && whoAmI.name == getUsername() && (whoAmI._ts + 3600 * 1000) > Date.now()) {
       return whoAmI
     }
   }
@@ -55,10 +55,10 @@ async function whoAmI(forceReload = false) {
       if (resp.ok) {
         return await resp.json().then(data => {
           stateClasses.remove(/^user-tag-/)
-          data['tags'].split(",").forEach(t => stateClasses.add(`user-tag-${t}`))
-          data['_ts'] = Date.now()
-          delete data['password_hash']
-          delete data['hashing_algorithm']
+          data.tags.split(',').forEach(t => stateClasses.add(`user-tag-${t}`))
+          data._ts = Date.now()
+          delete data.password_hash
+          delete data.hashing_algorithm
           window.localStorage.setItem('lmq.whoami', JSON.stringify(data))
           return data
         })
