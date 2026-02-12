@@ -178,6 +178,59 @@ function disableUserMenuVhost () {
   vhostMenu.title = 'Current view is locked to a specific vhost'
 }
 
+const stateClasses = new class {
+  #get() {
+    const value = window.localStorage.getItem("stateclasses")
+    console.log(`#get value=${value}`)
+    if (value === null || value === "") {
+      return []
+    }
+    return value.split(" ")
+
+  }
+  #set(klasses) {
+    const current = this.#get()
+    const toRemove = current.filter(c => !klasses.includes(c))
+    if (toRemove.length > 0) {
+      document.documentElement.classList.remove(...toRemove)
+    }
+    if (klasses.length > 0) {
+      window.localStorage.setItem("stateclasses", klasses.join(" "))
+      document.documentElement.classList.add(...klasses)
+    } else {
+      window.localStorage.removeItem("stateclasses")
+    }
+  }
+  has(klass) {
+    return this.#get().includes(klass)
+  }
+  toggle(klass) {
+    if (this.has(klass)) {
+      this.remove(klass)
+      return false
+    } else {
+      this.add(klass)
+      return true
+    }
+  }
+  add(klass) {
+    const klasses = this.#get()
+    if (klass === "" || klasses.includes(klass)) {
+      return
+    }
+    klasses.push(klass)
+    this.#set(klasses)
+  }
+  remove(klass) {
+     const klasses = this.#get()
+    const idx = klasses.indexOf(klass)
+    if (idx == -1) {
+      return
+    }
+    klasses.splice(idx, 1)
+    this.#set(klasses)
+ }
+}
 export {
   addVhostOptions,
   formatNumber,
@@ -188,5 +241,6 @@ export {
   formatJSONargument,
   autoCompleteDatalist,
   formatTimestamp,
-  disableUserMenuVhost
+  disableUserMenuVhost,
+  stateClasses
 }

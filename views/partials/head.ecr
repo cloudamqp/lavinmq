@@ -1,8 +1,10 @@
 <script>
   (function () {
     try {
-      var collapsed = window.localStorage.getItem("menuCollapsed") === "true";
-      document.documentElement.classList.toggle("menu-collapsed", collapsed);
+      const classes = window.localStorage.getItem('stateclasses')
+      if (classes) {
+        document.documentElement.classList.add(classes.split(" "))
+      }
     } catch (e) {}
   })();
 </script>
