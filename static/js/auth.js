@@ -55,7 +55,8 @@ async function whoAmI (forceReload = false) {
       if (resp.ok) {
         return await resp.json().then(data => {
           stateClasses.remove(/^user-tag-/)
-          if (tags = data.tags && (tags != '')) {
+          const tags = data.tags
+          if (tags && (tags !== '')) {
             tags.split(',').filter(Boolean).forEach(t => stateClasses.add(`user-tag-${t}`))
           }
           data._ts = Date.now()
