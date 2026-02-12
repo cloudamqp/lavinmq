@@ -12,11 +12,7 @@ module LavinMQ
         path = context.request.path
         if context.request.method.in?("GET", "HEAD") && !path.starts_with?("/api/")
           path = "/docs/index.html" if path == "/docs/"
-          if path.ends_with?(".html") && !path.starts_with?("/docs/")
-            call_next(context)
-          else
-            serve(context, path) || call_next(context)
-          end
+          serve(context, path) || call_next(context)
         else
           call_next(context)
         end
