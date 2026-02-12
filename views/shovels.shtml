@@ -1,15 +1,15 @@
-<%- pagename = "Shovels" -%>
+<!--#set var="TITLE" value="Shovels" -->
 <!DOCTYPE html>
 <html lang="en" class="shovels">
   <head>
-    <% render "partials/head" %>
+    <!--#include file="partials/head.html" -->
     <script type="module" src="js/shovels.js"></script>
   </head>
   <body>
-    <% render "partials/header" %>
+    <!--#include file="partials/header.html" -->
     <main class="main-grid">
       <div id="breadcrumbs" class="cols-12">
-          <h2 class="page-title"><span><%=pagename%></span><div class="tiny-badge" id="pagename-label"></div></h2>
+          <h2 class="page-title"><span><!--#echo var="TITLE" --></span><div class="tiny-badge" id="pagename-label"></div></h2>
       </div>
       <section class="card">
         <div class="table-wrapper">
@@ -131,6 +131,6 @@
         </div>
       </form>
     </main>
-    <% render "partials/footer" %>
+    <!--#include file="partials/footer.html" -->
   </body>
 </html>
