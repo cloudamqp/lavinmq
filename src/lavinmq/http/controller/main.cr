@@ -7,7 +7,7 @@ module LavinMQ
     class MainController < Controller
       include StatsHelpers
 
-      OVERVIEW_STATS = {"ack", "deliver", "get", "deliver_get", "publish", "confirm", "redeliver", "reject", "recv_oct", "send_oct"}
+      OVERVIEW_STATS = {"ack", "deliver", "get", "deliver_get", "publish", "confirm", "redeliver", "reject"}
       EXCHANGE_TYPES = {
         {name: "direct", human: "Direct"},
         {name: "fanout", human: "Fanout"},
