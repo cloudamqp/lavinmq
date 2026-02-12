@@ -1,15 +1,15 @@
-<%- pagename = "Federation" %>
+<!--#set var="TITLE" value="Federation" -->
 <!DOCTYPE html>
 <html lang="en" class="federation">
   <head>
-    <% render "partials/head" %>
+    <!--#include file="partials/head.shtml" -->
     <script type="module" src="js/federation.js"></script>
   </head>
   <body>
-    <% render "partials/header" %>
+    <!--#include file="partials/header.shtml" -->
     <main class="main-grid">
       <div id="breadcrumbs" class="cols-12">
-          <h2 class="page-title"><span><%=pagename%></span></h2>
+          <h2 class="page-title"><span><!--#echo var="TITLE" --></span></h2>
       </div>
       <section class="card">
         <div class="table-header">
@@ -134,6 +134,6 @@
         </div>
       </form>
     </main>
-    <% render "partials/footer" %>
+    <!--#include file="partials/footer.shtml" -->
   </body>
 </html>

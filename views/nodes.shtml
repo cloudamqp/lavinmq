@@ -1,15 +1,15 @@
-<%- pagename = "Nodes" -%>
+<!--#set var="TITLE" value="Nodes" -->
 <!DOCTYPE html>
 <html lang="en" class="nodes">
   <head>
-    <% render "partials/head" %>
+    <!--#include file="partials/head.shtml" -->
     <script type="module" src="js/nodes.js"></script>
   </head>
   <body>
-    <% render "partials/header" %>
+    <!--#include file="partials/header.shtml" -->
     <main class="main-grid">
       <div id="breadcrumbs" class="cols-12">
-          <h2 class="page-title"><span><%=pagename%></span></h2>
+          <h2 class="page-title"><span><!--#echo var="TITLE" --></span></h2>
       </div>
       <section class="card cols-6">
         <h3>Details</h3>
@@ -101,6 +101,6 @@
         </div>
       </section>
     </main>
-    <% render "partials/footer" %>
+    <!--#include file="partials/footer.shtml" -->
   </body>
 </html>
