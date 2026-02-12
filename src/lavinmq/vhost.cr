@@ -23,7 +23,7 @@ module LavinMQ
 
     rate_stats({"channel_closed", "channel_created", "connection_closed", "connection_created",
                 "queue_declared", "queue_deleted", "ack", "deliver", "deliver_no_ack", "deliver_get", "get", "get_no_ack", "publish", "confirm",
-                "redeliver", "reject", "consumer_added", "consumer_removed", "recv_oct", "send_oct"})
+                "redeliver", "reject", "consumer_added", "consumer_removed"})
 
     getter name, exchanges, queues, data_dir, operator_policies, policies, parameters, shovels,
       direct_reply_consumers, connections, dir, users
@@ -692,14 +692,6 @@ module LavinMQ
         @deliver_no_ack_count.add(1, :relaxed)
         @deliver_get_count.add(1, :relaxed)
       end
-    end
-
-    def add_recv_bytes(bytes : UInt64) : Nil
-      @recv_oct_count.add(bytes, :relaxed)
-    end
-
-    def add_send_bytes(bytes : UInt64) : Nil
-      @send_oct_count.add(bytes, :relaxed)
     end
 
     def sync : Nil

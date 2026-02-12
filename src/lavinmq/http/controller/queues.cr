@@ -195,10 +195,8 @@ module LavinMQ
                 get_count.times do
                   q.basic_get(false, true) do |env|
                     sps << env.segment_position
-                    # Track vhost-level metrics for HTTP API consumption
                     event_type = ack ? EventType::ClientGet : EventType::ClientGetNoAck
                     vhost.event_tick(event_type)
-                    vhost.add_send_bytes(env.message.bodysize.to_u64)
                     j.object do
                       payload_encoding = "string"
                       j.field("payload_bytes", env.message.bodysize)
