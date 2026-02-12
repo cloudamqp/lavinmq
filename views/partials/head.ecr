@@ -3,7 +3,7 @@
     try {
       const classes = window.localStorage.getItem('stateclasses')
       if (classes) {
-        document.documentElement.classList.add(classes.split(" "))
+        document.documentElement.classList.add(...classes.split(" "))
       }
     } catch (e) {}
   })();

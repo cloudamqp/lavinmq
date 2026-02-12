@@ -63,7 +63,7 @@ module LavinMQ
             context.response.headers.add("ETag", ETag)
             context.response.headers.add("X-Frame-Options", "SAMEORIGIN")
             context.response.headers.add("Referrer-Policy", "same-origin")
-            context.response.headers.add("Content-Security-Policy", "default-src 'none'; style-src 'self'; font-src 'self'; img-src 'self'; connect-src 'self'; script-src 'self' 'sha256-KLPK4NRPtcP6eG8N/YVUuf+iXuRMr+KhbQCA4drQdLg='")
+            context.response.headers.add("Content-Security-Policy", "default-src 'none'; style-src 'self'; font-src 'self'; img-src 'self'; connect-src 'self'; script-src 'self' 'sha256-rBEOkQeF5bJjspshjMll9adYa0awhFXz2vxDAzIkHOs='")
             {{ block.body if block }}
             render {{ view }}
           end
