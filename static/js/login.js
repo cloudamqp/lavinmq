@@ -1,3 +1,4 @@
+import { stateClasses } from "./helpers.js"
 if (window.location.hash) {
   const params = new URLSearchParams(window.location.hash.substring(1))
   const user = params.get('username')
@@ -19,8 +20,13 @@ function tryLogin (user, pass) {
   window.fetch('api/whoami')
     .then(resp => {
       if (resp.ok) {
-        window.location.assign('.')
+        resp.json().then(data => {
+          console.log(data)
+          data["tags"].split(",").forEach(t => stateClasses.add(`user-tag-${t}`))
+          window.location.assign('.')
+        })
       } else {
+        stateClasses.remove(/^user-tag-/)
         document.cookie = 'm=; max-age=0'
         window.alert('Authentication failure')
       }

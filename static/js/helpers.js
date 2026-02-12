@@ -221,13 +221,19 @@ const stateClasses = new class {
     klasses.push(klass)
     this.#set(klasses)
   }
-  remove(klass) {
-     const klasses = this.#get()
-    const idx = klasses.indexOf(klass)
-    if (idx == -1) {
-      return
+  remove(toRemove) {
+    const klasses = this.#get()
+    if (typeof(toRemove) == 'string') {
+      toRemove = [toRemove]
+    } else if (typeof(toRemove) == 'object' && toRemove.constructor == RegExp) {
+      toRemove = klasses.filter(k => toRemove.test(k))
     }
-    klasses.splice(idx, 1)
+    toRemove.forEach(klass => {
+      const idx = klasses.indexOf(klass)
+      if (idx > -1) {
+        klasses.splice(idx, 1)
+      }
+    })
     this.#set(klasses)
  }
 }

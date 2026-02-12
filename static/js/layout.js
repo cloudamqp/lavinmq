@@ -31,6 +31,7 @@ document.getElementById('userMenuVhost').addEventListener('change', (e) => {
 
 document.getElementById('signoutLink').addEventListener('click', () => {
   document.cookie = 'm=; max-age=0'
+  Helpers.stateClasses.remove(/^user-tag-/)
   window.location.assign('login')
 })
 
