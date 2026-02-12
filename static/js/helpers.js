@@ -187,7 +187,8 @@ const stateClasses = new class {
       this.#values.add(...value.split(" "))
     }
   }
-  #update() {
+
+  #persist () {
     if (this.#values.length > 0) {
       window.localStorage.setItem("lmq.stateclasses", this.#values.toString())
     } else {
@@ -199,13 +200,13 @@ const stateClasses = new class {
   }
   toggle(klass) {
     const ret = this.#values.toggle(klass)
-    this.#update()
-    return ret 
+    this.#persist()
+    return ret
   }
   add(klass) {
     if (!this.#values.contains(klass)) {
       this.#values.add(klass)
-      this.#update()
+      this.#persist()
     }
   }
   remove(toRemove) {
@@ -216,7 +217,7 @@ const stateClasses = new class {
     } else if (toRemove instanceof RegExp) {
       this.#values.remove(...this.#values.values().filter(v => toRemove.test(v)))
     }
-    this.#update()
+    this.#persist()
   }
 }
 export {
