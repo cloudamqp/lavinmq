@@ -1,4 +1,4 @@
-import { stateClasses } from "./helpers.js"
+import * as Auth from './auth.js'
 if (window.location.hash) {
   const params = new URLSearchParams(window.location.hash.substring(1))
   const user = params.get('username')
@@ -14,21 +14,11 @@ document.getElementById('login').addEventListener('submit', (e) => {
   tryLogin(user, pass)
 })
 
-function tryLogin (user, pass) {
-  const auth = window.btoa(`${user}:${pass}`)
-  document.cookie = `m=|:${encodeURIComponent(auth)}; samesite=strict; max-age=${60 * 60 * 8}`
-  window.fetch('api/whoami')
-    .then(resp => {
-      if (resp.ok) {
-        resp.json().then(data => {
-          console.log(data)
-          data["tags"].split(",").forEach(t => stateClasses.add(`user-tag-${t}`))
-          window.location.assign('.')
-        })
-      } else {
-        stateClasses.remove(/^user-tag-/)
-        document.cookie = 'm=; max-age=0'
-        window.alert('Authentication failure')
-      }
-    })
+async function tryLogin (user, pass) {
+  const res = await Auth.login(user, pass)
+  if (res) {
+    window.location.assign('.')
+  } else {
+    window.alert('Authentication failure')
+  }
 }
