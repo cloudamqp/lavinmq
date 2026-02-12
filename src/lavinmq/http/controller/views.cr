@@ -80,7 +80,7 @@ module LavinMQ
         end
 
         # declare as constant to make sure its allocated once
-        FULL_CSP = "{{BASE_CSP.id}} 'sha256-#{Digest::SHA256.base64digest(inline_js)}'"
+        FULL_CSP = "#{BASE_CSP} 'sha256-#{Digest::SHA256.base64digest(inline_js)}'"
 
         macro csp
           FULL_CSP
