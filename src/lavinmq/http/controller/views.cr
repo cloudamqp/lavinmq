@@ -87,7 +87,7 @@ module LavinMQ
         end
       {% else %}
         macro inline_js
-          File.read("./static/js/_inline.js")
+          File.read("#{__DIR__}/../../../../static/js/_inline.js")
         end
 
         macro csp
