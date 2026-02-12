@@ -16,7 +16,9 @@ request() {
 # test all static files, except empty ones like .gitkeep
 for path in $(find static -type f ! -path '*/.*' | sed 's/static\///')
 do
-    request $path
+  # Ignore any path with a dir or file starting with _
+  [[ $path =~ (^_|/_) ]] && continue
+  request $path
 done
 
 [[ $FAILURES -gt 0 ]] && exit 1 || true
