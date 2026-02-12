@@ -1,6 +1,8 @@
 import * as Auth from './auth.js'
 import * as Helpers from './helpers.js'
 
+Auth.whoAmI() // Ensure we have whoami data.
+
 document.getElementById('username').textContent = Auth.getUsername()
 
 const menuButton = document.getElementById('menu-button')
@@ -30,7 +32,7 @@ document.getElementById('userMenuVhost').addEventListener('change', (e) => {
 })
 
 document.getElementById('signoutLink').addEventListener('click', () => {
-  document.cookie = 'm=; max-age=0'
+  Auth.logout()
   window.location.assign('login')
 })
 
