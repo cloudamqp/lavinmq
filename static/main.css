@@ -1746,18 +1746,18 @@ fieldset.inline {
   color: var(--color-text-inverse);
   padding: 10px 10px;
   border-radius: 6px;
-  width: 150px;
+  width: max-content;
+  max-width: 400px;
+  min-width: 150px;
   bottom: 100%;
   left: 50%;
-  margin-left: -75px;
+  transform: translateX(-50%);
   position: absolute;
   z-index: 1;
   white-space: normal;
 }
 
 .prop-tooltip .prop-tooltiptext {
-  margin-left: -65px;
-  width: 200px;
   margin-bottom: 5px;
 }
 
