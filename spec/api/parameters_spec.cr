@@ -516,6 +516,17 @@ describe LavinMQ::HTTP::ParametersController do
     end
   end
   describe "DELETE /api/global-parameters/name" do
+    it "should refuse management users from deleting a global parameter" do
+      with_http_server do |http, s|
+        s.users.create("arnold", "pw", [LavinMQ::Tag::Management])
+        hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
+        p = LavinMQ::Parameter.new(nil, "name", JSON::Any.new({} of String => JSON::Any))
+        s.add_parameter(p)
+        response = http.delete("/api/global-parameters/name", headers: hdrs)
+        response.status_code.should eq 403
+      end
+    end
+
     it "should delete parameter" do
       with_http_server do |http, s|
         p = LavinMQ::Parameter.new(nil, "name", JSON::Any.new({} of String => JSON::Any))
