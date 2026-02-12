@@ -19,7 +19,7 @@ module LavinMQ
       def user_details
         {
           name: name,
-          tags: tags.map(&.to_s.downcase).join(","),
+          tags: tags.map(&.to_downcase_s).join(","),
         }
       end
 

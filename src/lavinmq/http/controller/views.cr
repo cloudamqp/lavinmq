@@ -37,6 +37,11 @@ module LavinMQ
         static_view "/operator-policies"
       end
 
+      {% begin %}
+        # Collect all paths for static views. Used by specs to test all paths
+        ALL_PATHS = [] of String
+      {% end %}
+
       # Generate a get handler for given path. If no view is specified, path without initial
       # slash will be used as view.
       #
@@ -50,17 +55,19 @@ module LavinMQ
       # end
       # ```
       macro static_view(path, *, auth_required = true, view = nil, &block)
+        {% ALL_PATHS << path %}
         {% view = path[1..] if view.nil? %}
         get {{ path }} do |context, params|
           redirect_unless_logged_in! if {{ auth_required }}
           if_non_match = context.request.headers["If-None-Match"]?
-          Log.trace { "static_view path={{ path.id }} etag=#{ETag} if-non-match=#{if_non_match}" }
-          if if_non_match == ETag
+          etag = etag(context.user)
+          Log.trace { "static_view path={{ path.id }} etag=#{etag} if-non-match=#{if_non_match}" }
+          if if_non_match == etag
             context.response.status_code = 304
           else
             context.response.content_type = "text/html;charset=utf-8"
             context.response.headers.add("Cache-Control", "no-cache")
-            context.response.headers.add("ETag", ETag)
+            context.response.headers.add("ETag", etag)
             context.response.headers.add("X-Frame-Options", "SAMEORIGIN")
             context.response.headers.add("Referrer-Policy", "same-origin")
             context.response.headers.add("Content-Security-Policy", "default-src 'none'; style-src 'self'; font-src 'self'; img-src 'self'; connect-src 'self'; script-src 'self' 'sha256-7WqJMeRnYJHbEWj9TgKVXAh9Vz/3wErO1WSGhQ2LTf4='")
@@ -79,12 +86,38 @@ module LavinMQ
         end
       end
 
-      # etag won't change in runtime
+      macro state_classes
+        if u = context.user
+          u.tags.join(context.response, " ") do |tag, io|
+            io << "user-tag-" << tag.to_downcase_s
+          end
+        end
+      end
+
       {% if flag?(:release) %}
-        ETag = %(W/"#{LavinMQ::VERSION}")
+        ETagBase = LavinMQ::VERSION
       {% else %}
-        ETag = %(W/"{{ `date +%s`.strip }}")
+        ETagBase = "{{ `date +%s`.strip }}"
       {% end %}
+
+      def etag(user)
+        beginning = "W/\""
+        ending = "\""
+        tags = 0u8
+        if u = user
+          tags = u.tags.reduce(0u8) { |acc, t| acc | t.to_u8 }
+        end
+        tags = tags.to_s
+        size = beginning.size + ETagBase.size + 1 + tags.size + ending.size
+        ret = String.build(size) do |str|
+          str << beginning
+          str << ETagBase
+          str << ";"
+          str << tags
+          str << ending
+        end
+        ret
+      end
 
       # Render an ecr file from views dir
       macro render(file)

@@ -109,7 +109,7 @@ module LavinMQ
           name:              @name,
           password_hash:     @password,
           hashing_algorithm: @password.try &.hash_algorithm,
-          tags:              @tags.map(&.to_s.downcase).join(","),
+          tags:              @tags.map(&.to_downcase_s).join(","),
         }
       end
 
