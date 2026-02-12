@@ -12,7 +12,11 @@ module LavinMQ
         path = context.request.path
         if context.request.method.in?("GET", "HEAD") && !path.starts_with?("/api/")
           path = "/docs/index.html" if path == "/docs/"
-          serve(context, path) || call_next(context)
+          if path.ends_with?(".html") && !path.starts_with?("/docs/")
+            call_next(context)
+          else
+            serve(context, path) || call_next(context)
+          end
         else
           call_next(context)
         end
@@ -89,13 +93,7 @@ module LavinMQ
             context
           end
         rescue File::NotFoundError
-          # Try serving compiled view (e.g. /overview -> /overview.html)
-          # Use `make views` to compile views to static/.
-          return if file_path.ends_with?(".html")
-          view = file_path.lstrip("/")
-          view = "overview" if view.empty?
-          file_path = "/#{view}.html"
-          serve(context, file_path)
+          nil
         end
       {% end %}
 

@@ -1,0 +1,16 @@
+<!--#set var="TITLE" value="Not Allowed" -->
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <!--#include file="partials/head.html" -->
+  </head>
+  <body>
+    <!--#include file="partials/header.html" -->
+    <main>
+      <section class="card">
+        <h1>401 - Not Allowed</h1>
+      </section>
+    </main>
+    <!--#include file="partials/footer.html" -->
+  </body>
+</html>

@@ -1,7 +1,6 @@
 require "../controller"
 require "../router"
 require "../../version"
-require "html"
 require "digest/md5"
 
 module LavinMQ
@@ -37,18 +36,6 @@ module LavinMQ
         static_view "/operator-policies"
       end
 
-      # Generate a get handler for given path. If no view is specified, path without initial
-      # slash will be used as view.
-      #
-      # Optional block can be given to modify context or set variables before view is rendered.
-      #
-      # This would render views/json_data.ecr and change content type:
-      #
-      # ```
-      # static_view "/json", "json_data" do
-      #   context.response.content_type = "application/json"
-      # end
-      # ```
       macro static_view(path, *, auth_required = true, view = nil, &block)
         {% view = path[1..] if view.nil? %}
         get {{ path }} do |context, params|
@@ -65,7 +52,14 @@ module LavinMQ
             context.response.headers.add("Referrer-Policy", "same-origin")
             context.response.headers.add("Content-Security-Policy", "default-src 'none'; style-src 'self'; font-src 'self'; img-src 'self'; connect-src 'self'; script-src 'self' 'sha256-7WqJMeRnYJHbEWj9TgKVXAh9Vz/3wErO1WSGhQ2LTf4='")
             {{ block.body if block }}
-            render {{ view }}
+            {% if flag?(:release) %}
+              context.response.print({{ read_file("static/#{view.id}.html") }})
+            {% else %}
+              File.open(File.join(PUBLIC_DIR, {{ "#{view.id}.html" }})) do |file|
+                file.read_buffering = false
+                IO.copy(file, context.response)
+              end
+            {% end %}
           end
           context
         end
@@ -79,23 +73,14 @@ module LavinMQ
         end
       end
 
+      PUBLIC_DIR = "#{__DIR__}/../../../../static"
+
       # etag won't change in runtime
       {% if flag?(:release) %}
         ETag = %(W/"#{LavinMQ::VERSION}")
       {% else %}
         ETag = %(W/"{{ `date +%s`.strip }}")
       {% end %}
-
-      # Render an ecr file from views dir
-      macro render(file)
-        ECR.embed "views/{{ file.id }}.ecr", context.response
-      end
-
-      macro active_path?(path)
-        context.request.path == "/#{{{ path }}}" ||
-          context.request.path == "/#{{{ path }}}".chomp('s') ||
-          (context.request.path == "/" && {{ path }} == ".")
-      end
     end
   end
 end

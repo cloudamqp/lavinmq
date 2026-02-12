@@ -1,6 +1,17 @@
 import * as Auth from './auth.js'
 import * as Helpers from './helpers.js'
 
+// Highlight active menu item based on current path
+;(function () {
+  const path = window.location.pathname.replace(/^\//, '') || '.'
+  document.querySelectorAll('#menu-content > li > a').forEach(link => {
+    const href = link.getAttribute('href')
+    if (href === path || href === path + 's' || (href === '.' && (path === '' || path === '/'))) {
+      link.parentElement.classList.add('active')
+    }
+  })
+})()
+
 document.getElementById('username').textContent = Auth.getUsername()
 
 const menuButton = document.getElementById('menu-button')
