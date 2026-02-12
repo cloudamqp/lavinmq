@@ -50,6 +50,8 @@ async function whoAmI(forceReload = false) {
       if (resp.ok) {
         return await resp.json().then(data => {
           data['_ts'] = Date.now()
+          delete data['password_hash']
+          delete data['hashing_algorithm']
           window.localStorage.setItem('whoami', JSON.stringify(data))
           return data
         })
