@@ -12,7 +12,7 @@ require "../src/lavinmq/version"
   end
 
   macro inline_js
-    {{ read_file("./static/js/inline.js") }}
+    {{ read_file("./static/js/_inline.js") }}
   end
 
   macro active_path?(path)
