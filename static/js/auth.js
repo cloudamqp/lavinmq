@@ -30,19 +30,19 @@ async function login(username, password) {
 
 function logout() {
   stateClasses.remove(/^user-tag-/)
-  window.localStorage.removeItem('whoami')
+  window.localStorage.removeItem('lmq.whoami')
   document.cookie = 'm=; max-age=0'
 }
 
 async function whoAmI(forceReload = false) {
   if (!forceReload) {
-    const data = window.localStorage.getItem('whoami')
+    const data = window.localStorage.getItem('lmq.whoami')
     let whoAmI = null
     if (data) {
       try {
         whoAmI = JSON.parse(data)
       } catch (e) {
-        window.localStorage.removeItem('whoami')
+        window.localStorage.removeItem('lmq.whoami')
       }
     }
     // Do we have cached and valid info?
@@ -59,7 +59,7 @@ async function whoAmI(forceReload = false) {
           data['_ts'] = Date.now()
           delete data['password_hash']
           delete data['hashing_algorithm']
-          window.localStorage.setItem('whoami', JSON.stringify(data))
+          window.localStorage.setItem('lmq.whoami', JSON.stringify(data))
           return data
         })
       } else {

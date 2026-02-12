@@ -182,16 +182,16 @@ const stateClasses = new class {
   #values;
   constructor() {
     this.#values = document.documentElement.classList
-    const value = window.localStorage.getItem("stateclasses")
+    const value = window.localStorage.getItem("lmq.stateclasses")
     if (!(value === null || value === "")) {
       this.#values.add(...value.split(" "))
     }
   }
   #update() {
     if (this.#values.length > 0) {
-      window.localStorage.setItem("stateclasses", this.#values.toString())
+      window.localStorage.setItem("lmq.stateclasses", this.#values.toString())
     } else {
-      window.localStorage.removeItem("stateclasses")
+      window.localStorage.removeItem("lmq.stateclasses")
     }
   }
   has(klass) {
