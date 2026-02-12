@@ -186,7 +186,7 @@ const stateClasses = new class {
     this.#values = document.documentElement.classList
     const value = window.localStorage.getItem('lmq.stateclasses')
     if (!(value === null || value === '')) {
-      this.#state_classes = value.split(' ')
+      this.#state_classes = value.split(' ').filter(Boolean)
       this.#values.add(...this.#state_classes)
     }
   }
