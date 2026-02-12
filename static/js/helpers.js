@@ -179,36 +179,41 @@ function disableUserMenuVhost () {
 }
 
 const stateClasses = new class {
-  #values;
-  constructor() {
+  #values
+  constructor () {
     this.#values = document.documentElement.classList
-    const value = window.localStorage.getItem("lmq.stateclasses")
-    if (!(value === null || value === "")) {
-      this.#values.add(...value.split(" "))
+    const value = window.localStorage.getItem('lmq.stateclasses')
+    if (!(value === null || value === '')) {
+      this.#values.add(...value.split(' '))
     }
   }
-  #update() {
+
+  #update () {
     if (this.#values.length > 0) {
-      window.localStorage.setItem("lmq.stateclasses", this.#values.toString())
+      window.localStorage.setItem('lmq.stateclasses', this.#values.toString())
     } else {
-      window.localStorage.removeItem("lmq.stateclasses")
+      window.localStorage.removeItem('lmq.stateclasses')
     }
   }
-  has(klass) {
+
+  has (klass) {
     return this.#values.contains(klass)
   }
-  toggle(klass) {
+
+  toggle (klass) {
     const ret = this.#values.toggle(klass)
     this.#update()
-    return ret 
+    return ret
   }
-  add(klass) {
+
+  add (klass) {
     if (!this.#values.contains(klass)) {
       this.#values.add(klass)
       this.#update()
     }
   }
-  remove(toRemove) {
+
+  remove (toRemove) {
     if (typeof toRemove === 'string') {
       this.#values.remove(toRemove)
     } if (toRemove instanceof Array) {
@@ -218,7 +223,7 @@ const stateClasses = new class {
     }
     this.#update()
   }
-}
+}()
 export {
   addVhostOptions,
   formatNumber,

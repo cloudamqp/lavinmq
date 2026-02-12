@@ -99,8 +99,6 @@ class ThemeSwitcher {
 // Initialize theme switcher when DOM is loaded
 window.themeSwitcher = new ThemeSwitcher()
 
-
-
 // Check if sidebar is collapsed or expanded
 document.addEventListener('DOMContentLoaded', () => {
   const sidebarCollapsed = Helpers.stateClasses.has('menu-collapsed')
