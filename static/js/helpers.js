@@ -179,62 +179,45 @@ function disableUserMenuVhost () {
 }
 
 const stateClasses = new class {
-  #get() {
+  #values;
+  constructor() {
+    this.#values = document.documentElement.classList
     const value = window.localStorage.getItem("stateclasses")
-    if (value === null || value === "") {
-      return []
+    if (!(value === null || value === "")) {
+      this.#values.add(...value.split(" "))
     }
-    return value.split(" ")
-
   }
-  #set(klasses) {
-    const current = this.#get()
-    const toRemove = current.filter(c => !klasses.includes(c))
-    if (toRemove.length > 0) {
-      document.documentElement.classList.remove(...toRemove)
-    }
-    if (klasses.length > 0) {
-      window.localStorage.setItem("stateclasses", klasses.join(" "))
-      document.documentElement.classList.add(...klasses)
+  #update() {
+    if (this.#values.length > 0) {
+      window.localStorage.setItem("stateclasses", this.#values.toString())
     } else {
       window.localStorage.removeItem("stateclasses")
     }
   }
   has(klass) {
-    return this.#get().includes(klass)
+    return this.#values.contains(klass)
   }
   toggle(klass) {
-    if (this.has(klass)) {
-      this.remove(klass)
-      return false
-    } else {
-      this.add(klass)
-      return true
-    }
+    const ret = this.#values.toggle(klass)
+    this.#update()
+    return ret 
   }
   add(klass) {
-    const klasses = this.#get()
-    if (klass === "" || klasses.includes(klass)) {
-      return
+    if (!this.#values.contains(klass)) {
+      this.#values.add(klass)
+      this.#update()
     }
-    klasses.push(klass)
-    this.#set(klasses)
   }
   remove(toRemove) {
-    const klasses = this.#get()
-    if (typeof(toRemove) == 'string') {
-      toRemove = [toRemove]
-    } else if (typeof(toRemove) == 'object' && toRemove.constructor == RegExp) {
-      toRemove = klasses.filter(k => toRemove.test(k))
+    if (toRemove instanceof String) {
+      this.#values.remove(toRemove)
+    } if (toRemove instanceof Array) {
+      this.#values.remove(...toRemove)
+    } else if (toRemove instanceof RegExp) {
+      this.#values.remove(...this.#values.entries().filter(v => toRemove.test(v)))
     }
-    toRemove.forEach(klass => {
-      const idx = klasses.indexOf(klass)
-      if (idx > -1) {
-        klasses.splice(idx, 1)
-      }
-    })
-    this.#set(klasses)
- }
+    this.#update()
+  }
 }
 export {
   addVhostOptions,
