@@ -1,7 +1,7 @@
 <script>
   (function () {
     try {
-      const classes = window.localStorage.getItem('stateclasses')
+      const classes = window.localStorage.getItem('lmq.stateclasses')
       if (classes) {
         document.documentElement.classList.add(...classes.split(" "))
       }
