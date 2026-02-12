@@ -55,7 +55,9 @@ async function whoAmI (forceReload = false) {
       if (resp.ok) {
         return await resp.json().then(data => {
           stateClasses.remove(/^user-tag-/)
-          data.tags.split(',').forEach(t => stateClasses.add(`user-tag-${t}`))
+          if (tags = data.tags && (tags != '')) {
+            tags.split(',').filter(Boolean).forEach(t => stateClasses.add(`user-tag-${t}`))
+          }
           data._ts = Date.now()
           delete data.password_hash
           delete data.hashing_algorithm
