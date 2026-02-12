@@ -131,7 +131,7 @@ class ThemeSwitcher {
 
 // Check if sidebar is collapsed or expanded
 document.addEventListener('DOMContentLoaded', () => {
-  const sidebarCollapsed = window.localStorage.getItem('menuCollapsed')
+  const sidebarCollapsed = Helpers.stateClasses.has('menu-collapsed')
   const toggleLabel = document.querySelector('.toggle-menu-label')
 
   if (sidebarCollapsed) {
@@ -146,16 +146,14 @@ document.addEventListener('DOMContentLoaded', () => {
 })
 
 document.getElementById('toggle-menu').addEventListener('click', () => {
-  document.documentElement.classList.toggle('menu-collapsed')
+  const added = Helpers.stateClasses.toggle('menu-collapsed')
   const toggleLabel = document.querySelector('.toggle-menu-label')
 
   // Save state
-  if (document.documentElement.classList.contains('menu-collapsed')) {
-    window.localStorage.setItem('menuCollapsed', 'true')
+  if (added) {
     toggleLabel.textContent = 'Expand sidebar'
     updateMenuTooltips()
   } else {
-    window.localStorage.removeItem('menuCollapsed')
     toggleLabel.textContent = 'Collapse sidebar'
   }
 })
