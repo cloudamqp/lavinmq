@@ -76,7 +76,7 @@ module LavinMQ
 
       {% if flag?(:release) || flag?(:bake_static) %}
         macro inline_js
-          {{ read_file("#{__DIR__}/../../../../static/js/inline.js") }}
+          {{ read_file("#{__DIR__}/../../../../static/js/_inline.js") }}
         end
 
         # declare as constant to make sure its allocated once
@@ -87,7 +87,7 @@ module LavinMQ
         end
       {% else %}
         macro inline_js
-          File.read("./static/js/inline.js")
+          File.read("./static/js/_inline.js")
         end
 
         macro csp

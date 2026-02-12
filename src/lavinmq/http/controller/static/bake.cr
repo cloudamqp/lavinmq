@@ -3,6 +3,7 @@ require "compress/zlib"
 
 def recursive_bake(dir)
   Dir.each_child(dir) do |child|
+    next if child[0] == '_'
     path = File.join(dir, child)
     if File.directory? path
       recursive_bake path
