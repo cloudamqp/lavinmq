@@ -180,13 +180,14 @@ function disableUserMenuVhost () {
 
 const stateClasses = new class {
   #values
-  #state_classes = [] // track what classes handle
+  // track any classes handled by stateClasses
+  #state_classes = []
   constructor () {
     this.#values = document.documentElement.classList
     const value = window.localStorage.getItem('lmq.stateclasses')
     if (!(value === null || value === '')) {
       this.#state_classes = value.split(' ')
-      this.#values.add(this.#state_classes)
+      this.#values.add(...this.#state_classes)
     }
   }
 
