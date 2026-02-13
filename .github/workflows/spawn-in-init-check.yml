@@ -99,6 +99,7 @@ jobs:
           else
             echo "mode=changed-files" >> "$GITHUB_OUTPUT"
             echo "No cached baseline found, checking changed files only."
+            git config --global --add safe.directory "$(pwd)"
             BASE="${{ github.event.pull_request.base.sha }}"
             if [ -n "$BASE" ]; then
               git fetch origin "$BASE" --depth=1 2>/dev/null || true
