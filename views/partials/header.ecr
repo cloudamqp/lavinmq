@@ -64,7 +64,7 @@
       {
         title: "Cluster",
         items: [
-          { href: ".", label: "Overview", icon: "img/icons/icon-overview-light.svg" },
+          { href: ".", label: "Overview", icon: nil },
           { href: "nodes", label: "Nodes", icon: "img/icons/icon-nodes-light.svg" },
           { href: "logs", label: "Logs", icon: "img/icons/icon-logs-light.svg" },
         ]
@@ -105,9 +105,8 @@
       <li class="menu-group"><span><%= group[:title] %></span></li>
 
       <% group[:items].each do |item| -%>
-        <li<%= " class=\"active\"" if active_path?(item[:href]) %>>
+        <li class="<%= item[:href] == "." ? "overview" : item[:href] %>">
           <a href="<%= item[:href] %>" class="menu-tooltip">
-            <img src="<%= item[:icon] %>"/>
             <span class="menu-item-label menu-tooltip-label"><%= item[:label] %></span>
           </a>
         </li>
@@ -115,6 +114,6 @@
 
     <%- end -%>
 
-    <li class="last-menu-item"><a class="menu-item" href="docs/" target="_blank"><span class="menu-item-label">HTTP API</span> <img class="icon-blank" src="img/icons/icon-external-light.svg" /></a></li>
+    <li class="http-api"><a class="menu-item" href="docs/" target="_blank"><span class="menu-item-label">HTTP API</span></a></li>
   </ul>
 </nav>
