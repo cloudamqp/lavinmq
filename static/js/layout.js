@@ -56,7 +56,7 @@ class ThemeSwitcher {
     this.init()
   }
 
-  #setSystemColor(mql) {
+  #setSystemColor (mql) {
     if (mql.matches) {
       this.systemColor = 'dark'
       console.log('system color = dark')
@@ -70,7 +70,7 @@ class ThemeSwitcher {
   }
 
   init () {
-    const mql = window.matchMedia('(prefers-color-scheme: dark)');
+    const mql = window.matchMedia('(prefers-color-scheme: dark)')
     this.#setSystemColor(mql)
     mql.addEventListener('change', mql => this.#setSystemColor(mql))
     // Add event listeners to theme buttons
@@ -105,7 +105,7 @@ class ThemeSwitcher {
       } else {
         document.documentElement.classList.add('system-light')
         document.documentElement.classList.remove('system-dark')
-       }
+      }
     }
   }
 
