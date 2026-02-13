@@ -25,7 +25,6 @@ module LavinMQPerf
       @random = Random.new
       @retain = false
       @clean_session = false
-      @tls_no_verify = false
       @uri = URI.parse("mqtt://localhost:1883")
 
       def initialize(io : IO = STDOUT)
@@ -77,9 +76,6 @@ module LavinMQPerf
         end
         @parser.on("--clean-session", "Use clean session") do
           @clean_session = true
-        end
-        @parser.on("--tls-no-verify", "Skip TLS certificate verification") do
-          @tls_no_verify = true
         end
         @parser.on("-u uri", "--uri=uri", "MQTT broker URI (default mqtt://localhost:1883)") do |v|
           @uri = URI.parse(v)
@@ -136,7 +132,9 @@ module LavinMQPerf
 
         if tls
           ssl_context = OpenSSL::SSL::Context::Client.new
-          ssl_context.verify_mode = OpenSSL::SSL::VerifyMode::NONE if @tls_no_verify
+          if @uri.query_params["verify"]? =~ /^none$/i
+            ssl_context.verify_mode = OpenSSL::SSL::VerifyMode::NONE
+          end
           begin
             ssl_socket = OpenSSL::SSL::Socket::Client.new(tcp_socket, context: ssl_context, sync_close: true, hostname: host)
           rescue ex
