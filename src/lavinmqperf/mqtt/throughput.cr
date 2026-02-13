@@ -138,7 +138,7 @@ module LavinMQPerf
           ssl_context = OpenSSL::SSL::Context::Client.new
           ssl_context.verify_mode = OpenSSL::SSL::VerifyMode::NONE if @tls_no_verify
           begin
-            ssl_socket = OpenSSL::SSL::Socket::Client.new(tcp_socket, context: ssl_context, hostname: host)
+            ssl_socket = OpenSSL::SSL::Socket::Client.new(tcp_socket, context: ssl_context, sync_close: true, hostname: host)
           rescue ex
             tcp_socket.close rescue nil
             raise ex
