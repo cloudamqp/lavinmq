@@ -100,9 +100,9 @@ jobs:
             echo "mode=changed-files" >> "$GITHUB_OUTPUT"
             echo "No cached baseline found, checking changed files only."
             BASE="${{ github.event.pull_request.base.sha }}"
-            HEAD="${{ github.sha }}"
-            if [ -n "$BASE" ] && [ -n "$HEAD" ]; then
-              git diff --name-only "$BASE"..."$HEAD" -- 'src/**' > /tmp/changed-files.txt
+            if [ -n "$BASE" ]; then
+              git fetch origin "$BASE" --depth=1 2>/dev/null || true
+              git diff --name-only "$BASE" "${{ github.sha }}" -- 'src/**' > /tmp/changed-files.txt
             else
               git diff --name-only HEAD~1 -- 'src/**' > /tmp/changed-files.txt
             fi
