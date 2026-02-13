@@ -56,7 +56,23 @@ class ThemeSwitcher {
     this.init()
   }
 
+  #setSystemColor(mql) {
+    if (mql.matches) {
+      this.systemColor = 'dark'
+      console.log('system color = dark')
+    } else {
+      this.systemColor = 'light'
+      console.log('system color = light')
+    }
+    if (this.currentTheme == 'system') {
+      this.applyTheme('system') // make sure right system class is used
+    }
+  }
+
   init () {
+    const mql = window.matchMedia('(prefers-color-scheme: dark)');
+    this.#setSystemColor(mql)
+    mql.addEventListener('change', mql => this.#setSystemColor(mql))
     // Add event listeners to theme buttons
     document.querySelectorAll('#theme-switcher button').forEach(button => {
       button.addEventListener('click', _ => this.setTheme(button.dataset.theme))
@@ -76,11 +92,20 @@ class ThemeSwitcher {
     if (theme === 'light') {
       Helpers.stateClasses.add('theme-light')
       Helpers.stateClasses.remove('theme-dark')
+      document.documentElement.classList.remove('system-light', 'system-dark')
     } else if (theme === 'dark') {
       Helpers.stateClasses.add('theme-dark')
       Helpers.stateClasses.remove('theme-light')
+      document.documentElement.classList.remove('system-light', 'system-dark')
     } else { // system
       Helpers.stateClasses.remove(/^theme-/)
+      if (this.systemColor == 'dark') {
+        document.documentElement.classList.add('system-dark')
+        document.documentElement.classList.remove('system-light')
+      } else {
+        document.documentElement.classList.add('system-light')
+        document.documentElement.classList.remove('system-dark')
+       }
     }
   }
 
