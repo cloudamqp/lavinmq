@@ -89,6 +89,9 @@ class MFile < IO
   private def file_size(fd) : Int64
     code = LibC.fstat(fd, out stat)
     raise File::Error.from_errno("Unable to get info", file: @path) if code < 0
+    spawn() do
+      STDOUT.puts "Just a spawn"
+    end
     stat.st_size.to_i64
   end
 
