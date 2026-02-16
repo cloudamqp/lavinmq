@@ -59,12 +59,10 @@ class ThemeSwitcher {
   #setSystemColor (mql) {
     if (mql.matches) {
       this.systemColor = 'dark'
-      console.log('system color = dark')
     } else {
       this.systemColor = 'light'
-      console.log('system color = light')
     }
-    if (this.currentTheme == 'system') {
+    if (this.currentTheme === 'system') {
       this.applyTheme('system') // make sure right system class is used
     }
   }
@@ -99,7 +97,7 @@ class ThemeSwitcher {
       document.documentElement.classList.remove('system-light', 'system-dark')
     } else { // system
       Helpers.stateClasses.remove(/^theme-/)
-      if (this.systemColor == 'dark') {
+      if (this.systemColor === 'dark') {
         document.documentElement.classList.add('system-dark')
         document.documentElement.classList.remove('system-light')
       } else {
