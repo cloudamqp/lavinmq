@@ -13,7 +13,7 @@
       <img alt="LavinMQ logo" class="dark" id="logo" src="img/logo-lavinmq-all-white.svg" width="120" height="24">
       <img alt="LavinMQ logo" class="light" id="logo-light" src="img/logo-lavinmq-all-dark.svg" width="120" height="24">
     </a>
-    <span class="version-tab" id="version"><%= LavinMQ::VERSION %></span>
+    <span class="version-tab" id="version"><!--#echo var="VERSION" --></span>
   </div>
   <button id="usermenu-button"></button>
   <nav id="user-menu">
@@ -60,59 +60,85 @@
 <nav id="menu">
   <button id="menu-button"></button>
   <ul id="menu-content">
-    <% [
-      {
-        title: "Cluster",
-        items: [
-          { href: ".", label: "Overview", icon: nil },
-          { href: "nodes", label: "Nodes", icon: "img/icons/icon-nodes-light.svg" },
-          { href: "logs", label: "Logs", icon: "img/icons/icon-logs-light.svg" },
-        ]
-      },
-      {
-        title: "Clients",
-        items: [
-          { href: "connections", label: "Connections", icon: "img/icons/icon-connections-light.svg" },
-          { href: "channels", label: "Channels", icon: "img/icons/icon-channels-light.svg" },
-          { href: "consumers", label: "Consumers", icon: "img/icons/icon-consumers-light.svg" },
-        ]
-      },
-      {
-        title: "Messaging",
-        items: [
-          { href: "exchanges", label: "Exchanges", icon: "img/icons/icon-exchanges-light.svg" },
-          { href: "queues", label: "Queues", icon: "img/icons/icon-queues-light.svg" },
-        ]
-      },
-      {
-        title: "Bridges",
-        items: [
-          { href: "shovels", label: "Shovels", icon: "img/icons/icon-shovels-light.svg" },
-          { href: "federation", label: "Federation", icon: "img/icons/icon-federation-light.svg" },
-        ]
-      },
-      {
-        title: "Administration",
-        items: [
-          { href: "vhosts", label: "Virtual hosts", icon: "img/icons/icon-vhosts-light.svg" },
-          { href: "policies", label: "Policies", icon: "img/icons/icon-policies-light.svg" },
-          { href: "operator-policies", label: "Operator policies", icon: "img/icons/icon-opolicies-light.svg" },
-          { href: "users", label: "Users", icon: "img/icons/icon-users-light.svg" },
-        ]
-      },
-    ].each do |group| -%>
+    <li class="menu-group"><span>Cluster</span></li>
+    <li class="overview">
+      <a href="." class="menu-tooltip">
+        <span class="menu-item-label menu-tooltip-label">Overview</span>
+      </a>
+    </li>
+    <li class="nodes">
+      <a href="nodes" class="menu-tooltip">
+        <span class="menu-item-label menu-tooltip-label">Nodes</span>
+      </a>
+    </li>
+    <li class="logs">
+      <a href="logs" class="menu-tooltip">
+        <span class="menu-item-label menu-tooltip-label">Logs</span>
+      </a>
+    </li>
 
-      <li class="menu-group"><span><%= group[:title] %></span></li>
+    <li class="menu-group"><span>Clients</span></li>
+    <li class="connections">
+      <a href="connections" class="menu-tooltip">
+        <span class="menu-item-label menu-tooltip-label">Connections</span>
+      </a>
+    </li>
+    <li class="channels">
+      <a href="channels" class="menu-tooltip">
+        <span class="menu-item-label menu-tooltip-label">Channels</span>
+      </a>
+    </li>
+    <li class="consumers">
+      <a href="consumers" class="menu-tooltip">
+        <span class="menu-item-label menu-tooltip-label">Consumers</span>
+      </a>
+    </li>
 
-      <% group[:items].each do |item| -%>
-        <li class="<%= item[:href] == "." ? "overview" : item[:href] %>">
-          <a href="<%= item[:href] %>" class="menu-tooltip">
-            <span class="menu-item-label menu-tooltip-label"><%= item[:label] %></span>
-          </a>
-        </li>
-      <%- end -%>
+    <li class="menu-group"><span>Messaging</span></li>
+    <li class="exchanges">
+      <a href="exchanges" class="menu-tooltip">
+        <span class="menu-item-label menu-tooltip-label">Exchanges</span>
+      </a>
+    </li>
+    <li class="queues">
+      <a href="queues" class="menu-tooltip">
+        <span class="menu-item-label menu-tooltip-label">Queues</span>
+      </a>
+    </li>
 
-    <%- end -%>
+    <li class="menu-group"><span>Bridges</span></li>
+    <li class="shovels">
+      <a href="shovels" class="menu-tooltip">
+        <span class="menu-item-label menu-tooltip-label">Shovels</span>
+      </a>
+    </li>
+    <li class="federation">
+      <a href="federation" class="menu-tooltip">
+        <span class="menu-item-label menu-tooltip-label">Federation</span>
+      </a>
+    </li>
+
+    <li class="menu-group"><span>Administration</span></li>
+    <li class="vhosts">
+      <a href="vhosts" class="menu-tooltip">
+        <span class="menu-item-label menu-tooltip-label">Virtual hosts</span>
+      </a>
+    </li>
+    <li class="policies">
+      <a href="policies" class="menu-tooltip">
+        <span class="menu-item-label menu-tooltip-label">Policies</span>
+      </a>
+    </li>
+    <li class="operator-policies">
+      <a href="operator-policies" class="menu-tooltip">
+        <span class="menu-item-label menu-tooltip-label">Operator policies</span>
+      </a>
+    </li>
+    <li class="users">
+      <a href="users" class="menu-tooltip">
+        <span class="menu-item-label menu-tooltip-label">Users</span>
+      </a>
+    </li>
 
     <li class="http-api"><a class="menu-item" href="docs/" target="_blank"><span class="menu-item-label">HTTP API</span></a></li>
   </ul>

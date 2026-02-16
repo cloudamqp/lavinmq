@@ -1,15 +1,15 @@
-<%- pagename = "Connection" -%>
+<!--#set var="TITLE" value="Connection" -->
 <!DOCTYPE html>
 <html lang="en" class="connections">
   <head>
-    <% render "partials/head" %>
+    <!--#include file="partials/head.html" -->
    <script type="module" src="js/connection.js"></script>
   </head>
   <body>
-    <% render "partials/header" %>
+    <!--#include file="partials/header.html" -->
     <main class="main-grid">
       <div id="breadcrumbs" class="cols-12">
-          <h2 class="page-title"><%=pagename%><div id="pagename-label" class="subpage-title"></div></h2>
+          <h2 class="page-title"><!--#echo var="TITLE" --><div id="pagename-label" class="subpage-title"></div></h2>
       </div>
       <section class="card cols-6">
         <h3>Details</h3>
@@ -105,6 +105,6 @@
         <button type="submit" class="btn btn-outlined"><span>Close</span><img src="img/icon-cross.svg" /></button>
       </form>
     </main>
-    <% render "partials/footer" %>
+    <!--#include file="partials/footer.html" -->
   </body>
 </html>
