@@ -33,15 +33,18 @@ module LavinMQ
       @durable = durable
       @acks = Hash(UInt32, MFile).new { |acks, seg| acks[seg] = open_ack_file(seg) }
       load_segments_from_disk
-      delete_orphan_ack_files
-      load_deleted_from_disk
-      load_stats_from_segments
-      delete_unused_segments
+      unless @closed
+        delete_orphan_ack_files
+        load_deleted_from_disk
+        load_stats_from_segments
+        delete_unused_segments
+      end
+
       @wfile_id = @segments.last_key
       @wfile = @segments.last_value
       @rfile_id = @segments.first_key
       @rfile = @segments.first_value
-      @empty.set empty?
+      @empty.set empty? unless @closed
     end
 
     def push(msg) : SegmentPosition
@@ -260,7 +263,7 @@ module LavinMQ
       @empty.close
       # To make sure that all replication actions for the segments
       # have finished wait for a delete action of a nonexistent file
-      if replicator = @replicator
+      if (replicator = @replicator) && !replicator.all_followers.empty?
         wg = WaitGroup.new
         replicator.delete_file(File.join(@msg_dir, "nonexistent"), wg)
         spawn(name: "wait for file deletion is replicated") do
@@ -447,6 +450,7 @@ module LavinMQ
           read_metadata_file(seg, mfile)
         rescue File::NotFoundError | MetadataError
           produce_metadata(seg, mfile)
+          break if @closed
           write_metadata_file(seg, mfile) unless seg == @segments.last_key # this segment is not full yet
         end
 

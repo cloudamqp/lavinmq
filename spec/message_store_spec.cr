@@ -231,4 +231,57 @@ describe LavinMQ::MessageStore do
       end
     end
   end
+
+  it "closes gracefully when segment has corrupt schema version with replicator" do
+    with_etcd do
+      mktmpdir do |dir|
+        # Create a valid store with a message, then close it
+        store = LavinMQ::MessageStore.new(dir, nil)
+        store.push(LavinMQ::Message.new("ex", "rk", "body"))
+        store.close
+
+        # Corrupt the schema version at the start of the segment file
+        seg_file = Dir.children(dir).find!(&.starts_with?("msgs."))
+        File.open(File.join(dir, seg_file), "r+") { |f| f.write("abcd".to_slice) }
+
+        # With a replicator (no followers), close spawns a fiber that races
+        # with the constructor — this should close gracefully, not crash
+        replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Etcd.new("localhost:12379"), 0)
+        begin
+          store = LavinMQ::MessageStore.new(dir, replicator)
+          store.closed.should be_true
+        ensure
+          replicator.close
+        end
+      end
+    end
+  end
+
+  it "closes gracefully when a middle segment is corrupt with replicator" do
+    with_etcd do
+      mktmpdir do |dir|
+        # Create a store with multiple segments (one message per segment)
+        store = LavinMQ::MessageStore.new(dir, nil)
+        msg_size = LavinMQ::Config.instance.segment_size.to_u64 - (LavinMQ::BytesMessage::MIN_BYTESIZE + 5)
+        msg = LavinMQ::Message.new(RoughTime.unix_ms, "e", "k", AMQ::Protocol::Properties.new, msg_size, IO::Memory.new("a" * msg_size))
+        3.times { store.push(msg) }
+        store.@segments.size.should eq 3
+        store.close
+
+        # Corrupt the schema version of the second segment
+        seg_files = Dir.children(dir).select(&.starts_with?("msgs.")).sort!
+        File.open(File.join(dir, seg_files[1]), "r+") { |f| f.write("abcd".to_slice) }
+
+        # With a replicator (no followers), this should close gracefully
+        # even though valid segments before the corrupt one were already loaded
+        replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Etcd.new("localhost:12379"), 0)
+        begin
+          store = LavinMQ::MessageStore.new(dir, replicator)
+          store.closed.should be_true
+        ensure
+          replicator.close
+        end
+      end
+    end
+  end
 end
