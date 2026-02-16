@@ -48,13 +48,13 @@ function forbidden () {
 // Scrolling
 function setScrollMode (toBottom) {
   shouldAutoScroll = toBottom
-  localStorage.setItem('logScrollMode', toBottom ? 'bottom' : 'top')
+  localStorage.setItem('lmq.logScrollMode', toBottom ? 'bottom' : 'top')
   btnToBottom.setAttribute('aria-pressed', String(toBottom))
   btnToTop.setAttribute('aria-pressed', String(!toBottom))
 }
 
 // Initialize from saved preference, default to newest
-const savedMode = localStorage.getItem('logScrollMode')
+const savedMode = localStorage.getItem('lmq.logScrollMode')
 const initialMode = savedMode ? savedMode === 'bottom' : true
 setScrollMode(initialMode)
 
