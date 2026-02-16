@@ -385,6 +385,7 @@ module LavinMQPerf
             pubs = @pubs.add(1, :relaxed) + 1
             ch.tx_commit if @pub_in_transaction > 0 && (pubs % @pub_in_transaction) == 0
             break if pubs >= @pmessages > 0
+            Fiber.yield if @rate.zero? && pubs % (128*1024) == 0
             unless @rate.zero?
               pubs_this_second += 1
               if pubs_this_second >= @rate
@@ -418,23 +419,25 @@ module LavinMQPerf
           q.bind(@exchange, @routing_key) unless @exchange.empty?
           wait_until_all_are_connected(connected)
           rate_limiter = RateLimiter.new(@consume_rate)
+          local_consumes = 0_u64
           q.subscribe(tag: "c", no_ack: @ack.zero?, block: true, args: @consumer_args) do |m|
-            handle_consumed_message(ch, m, data, rate_limiter)
+            local_consumes += 1
+            handle_consumed_message(ch, m, data, rate_limiter, local_consumes)
           end
         end
       end
 
-      private def handle_consumed_message(ch, m, data, rate_limiter)
+      private def handle_consumed_message(ch, m, data, rate_limiter, local_consumes : UInt64)
         consumes = @consumes.add(1, :relaxed) + 1
         body = m.body_io.to_slice
         record_latency(body) if @measure_latency
         verify_message_body(body, data) if @verify
-        m.ack(multiple: true) if @ack > 0 && consumes % @ack == 0
-        ch.tx_commit if @ack_in_transaction > 0 && (consumes % @ack_in_transaction) == 0
+        m.ack(multiple: true) if @ack > 0 && local_consumes % @ack == 0
+        ch.tx_commit if @ack_in_transaction > 0 && (local_consumes % @ack_in_transaction) == 0
         if @stopped || consumes >= @cmessages > 0
           ch.close
         end
-        rate_limiter.limit(consumes)
+        rate_limiter.limit
       end
 
       private def poll_consume(connected, queue_name : String)
@@ -492,16 +495,15 @@ module LavinMQPerf
           @total_consumes = 0_u64
         end
 
-        def limit(consume_count : UInt64? = nil)
+        def limit
+          @total_consumes += 1
           if @rate.zero?
             # When no rate limiting, yield periodically to avoid blocking other fibers
-            count = consume_count || @total_consumes
-            Fiber.yield if count % (128*1024) == 0
+            Fiber.yield if @total_consumes % (128*1024) == 0
             return
           end
 
           @consumes_this_second += 1
-          @total_consumes += 1
           if @consumes_this_second >= @rate
             until_next_second = (@start + 1.seconds) - Time.instant
             sleep until_next_second if until_next_second > Time::Span.zero
