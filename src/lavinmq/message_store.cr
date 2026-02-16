@@ -427,7 +427,9 @@ module LavinMQ
             end
           rescue ex
             @log.error { "Could not initialize segment #{seg}, closing message store: #{ex.message}" }
+            @segments[seg] = file
             close
+            break
           end
         end
         file.pos = 4
