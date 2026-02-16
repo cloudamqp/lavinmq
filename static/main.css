@@ -67,7 +67,7 @@
   --color-theme-switcher-active: light-dark(#ffffff, rgba(255, 255, 255, 0.15));
 
   scrollbar-width: thin;
-  --sidebar-width: 320px;
+  --sidebar-width: 260px;
 }
 
 :root.menu-collapsed { --sidebar-width: 68px; }
@@ -287,7 +287,7 @@ header {
   display: inline-block;
 }
 
-.theme-light {
+.theme-light  {
   #logo-light {
     display: block;
   }
@@ -748,7 +748,7 @@ button {
   left: 0;
   top: 64px;
   width: 100%;
-  max-width: 320px;
+  max-width: var(--sidebar-width);
   height: calc(100vh - 64px);
   overflow-x: visible;
   overflow-y: auto;
@@ -948,6 +948,79 @@ footer .logo {
   margin: 0 8px;
 }
 
+.theme-light {
+  --icon-overview: url(img/icons/icon-overview-dark.svg);
+  --icon-nodes: url(img/icons/icon-nodes-dark.svg);
+  --icon-logs: url(img/icons/icon-logs-dark.svg);
+  --icon-connections: url(img/icons/icon-connections-dark.svg);
+  --icon-channels: url(img/icons/icon-channels-dark.svg);
+  --icon-consumers: url(img/icons/icon-consumers-dark.svg);
+  --icon-exchanges: url(img/icons/icon-exchanges-dark.svg);
+  --icon-queues: url(img/icons/icon-queues-dark.svg);
+  --icon-shovels: url(img/icons/icon-shovels-dark.svg);
+  --icon-federation: url(img/icons/icon-federation-dark.svg);
+  --icon-vhosts: url(img/icons/icon-vhosts-dark.svg);
+  --icon-policies: url(img/icons/icon-policies-dark.svg);
+  --icon-operator-policies: url(img/icons/icon-opolicies-dark.svg);
+  --icon-users: url(img/icons/icon-users-dark.svg);
+  --icon-http-api: url(img/icons/icon-external-dark.svg);
+}
+.theme-dark {
+  --icon-overview: url(img/icons/icon-overview-light.svg);
+  --icon-nodes: url(img/icons/icon-nodes-light.svg);
+  --icon-logs: url(img/icons/icon-logs-light.svg);
+  --icon-connections: url(img/icons/icon-connections-light.svg);
+  --icon-channels: url(img/icons/icon-channels-light.svg);
+  --icon-consumers: url(img/icons/icon-consumers-light.svg);
+  --icon-exchanges: url(img/icons/icon-exchanges-light.svg);
+  --icon-queues: url(img/icons/icon-queues-light.svg);
+  --icon-shovels: url(img/icons/icon-shovels-light.svg);
+  --icon-federation: url(img/icons/icon-federation-light.svg);
+  --icon-vhosts: url(img/icons/icon-vhosts-light.svg);
+  --icon-policies: url(img/icons/icon-policies-light.svg);
+  --icon-operator-policies: url(img/icons/icon-opolicies-light.svg);
+  --icon-users: url(img/icons/icon-users-light.svg);
+  --icon-http-api: url(img/icons/icon-external-light.svg);
+}
+@media (prefers-color-scheme: light) {
+  html:not(.theme-dark) {
+    --icon-overview: url(img/icons/icon-overview-dark.svg);
+    --icon-nodes: url(img/icons/icon-nodes-dark.svg);
+    --icon-logs: url(img/icons/icon-logs-dark.svg);
+    --icon-connections: url(img/icons/icon-connections-dark.svg);
+    --icon-channels: url(img/icons/icon-channels-dark.svg);
+    --icon-consumers: url(img/icons/icon-consumers-dark.svg);
+    --icon-exchanges: url(img/icons/icon-exchanges-dark.svg);
+    --icon-queues: url(img/icons/icon-queues-dark.svg);
+    --icon-shovels: url(img/icons/icon-shovels-dark.svg);
+    --icon-federation: url(img/icons/icon-federation-dark.svg);
+    --icon-vhosts: url(img/icons/icon-vhosts-dark.svg);
+    --icon-policies: url(img/icons/icon-policies-dark.svg);
+    --icon-operator-policies: url(img/icons/icon-opolicies-dark.svg);
+    --icon-users: url(img/icons/icon-users-dark.svg);
+    --icon-http-api: url(img/icons/icon-external-dark.svg);
+  }
+}
+@media (prefers-color-scheme: dark) {
+  html:not(.theme-light) {
+    --icon-overview: url(img/icons/icon-overview-light.svg);
+    --icon-nodes: url(img/icons/icon-nodes-light.svg);
+    --icon-logs: url(img/icons/icon-logs-light.svg);
+    --icon-connections: url(img/icons/icon-connections-light.svg);
+    --icon-channels: url(img/icons/icon-channels-light.svg);
+    --icon-consumers: url(img/icons/icon-consumers-light.svg);
+    --icon-exchanges: url(img/icons/icon-exchanges-light.svg);
+    --icon-queues: url(img/icons/icon-queues-light.svg);
+    --icon-shovels: url(img/icons/icon-shovels-light.svg);
+    --icon-federation: url(img/icons/icon-federation-light.svg);
+    --icon-vhosts: url(img/icons/icon-vhosts-light.svg);
+    --icon-policies: url(img/icons/icon-policies-light.svg);
+    --icon-operator-policies: url(img/icons/icon-opolicies-light.svg);
+    --icon-users: url(img/icons/icon-users-light.svg);
+    --icon-http-api: url(img/icons/icon-external-light.svg);
+  }
+}
+
 #menu>ul {
   margin-top: 20px;
 }
@@ -955,77 +1028,160 @@ footer .logo {
 #menu ul {
   list-style: none;
   padding: 0 1.5rem;
-}
 
-#menu ul li.menu-group {
-  font-size: 12px;
-  line-height: 16px;
-  letter-spacing: 1.2px;
-  text-transform: uppercase;
-  margin-bottom: 0.5rem;
-}
+ & li.menu-group {
+    font-size: 12px;
+    line-height: 16px;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    margin-bottom: 0.5rem;
 
-#menu ul li.menu-group:not(:first-child) {
-  margin-top: 0.5rem;
-  padding-top: 1rem;
-  border-top: 1px solid var(--color-border-separator);
-}
+    &:not(:first-child) {
+      margin-top: 0.5rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--color-border-separator);
+    }
+  }
 
-#menu ul li.last-menu-item {
-  margin-top: 1rem;
-  border-top: 1px solid var(--color-border-separator);
+  li:not(.menu-group) {
+    a {
+      background-repeat: no-repeat;
+      background-position: 0.5rem center;
+      border-radius: 8px;
+    }
 
-  a {
-    margin-top: 0.5rem;
+    a:hover {
+      background-color: var(--highlight-color);
+      color: var(--color-text-primary);
+    }
+
+    a {
+      display: flex;
+      align-items: center;
+      padding: 0.5rem 2.5rem 0.5rem;
+      font-size: 0.875rem;
+      line-height: 1.25rem;
+      font-weight: 600;
+      text-decoration: none;
+      margin: 2px auto;
+    }
+
+    a, a:visited {
+      color: var(--color-text-secondary);
+      text-decoration: none;
+    }
+
+    &.overview {
+      a { background-image: var(--icon-overview); }
+      .overview & a {
+        background-color: var(--highlight-color);
+        color: var(--color-text-primary);
+      }
+    }
+    &.nodes {
+     a { background-image: var(--icon-nodes); }
+      .nodes & a {
+        background-color: var(--highlight-color);
+        color: var(--color-text-primary);
+      }
+    }
+    &.logs {
+      a { background-image: var(--icon-logs); }
+      .logs & a {
+        background-color: var(--highlight-color);
+        color: var(--color-text-primary);
+      }
+    }
+    &.connections {
+      a { background-image: var(--icon-connections); }
+      .connections & a {
+        background-color: var(--highlight-color);
+        color: var(--color-text-primary);
+      }
+    }
+    &.channels {
+      a { background-image: var(--icon-channels); }
+      .channels & a {
+        background-color: var(--highlight-color);
+        color: var(--color-text-primary);
+      }
+    }
+    &.consumers {
+      a { background-image: var(--icon-consumers); }
+      .consumers & a {
+        background-color: var(--highlight-color);
+        color: var(--color-text-primary);
+      }
+    }
+    &.exchanges {
+      a { background-image: var(--icon-exchanges); }
+      .exchanges & a {
+        background-color: var(--highlight-color);
+        color: var(--color-text-primary);
+      }
+    }
+    &.queues {
+      a { background-image: var(--icon-queues); }
+      .queues & a {
+        background-color: var(--highlight-color);
+        color: var(--color-text-primary);
+      }
+    }
+    &.shovels {
+      a { background-image: var(--icon-shovels); }
+      .shovels & a {
+        background-color: var(--highlight-color);
+        color: var(--color-text-primary);
+      }
+    }
+    &.federation {
+      a { background-image: var(--icon-federation); }
+      .federation & a {
+        background-color: var(--highlight-color);
+        color: var(--color-text-primary);
+      }
+    }
+    &.vhosts {
+      a { background-image: var(--icon-vhosts); }
+      .vhosts & a {
+        background-color: var(--highlight-color);
+        color: var(--color-text-primary);
+      }
+    }
+    &.policies {
+      a { background-image: var(--icon-policies); }
+      .policies & a {
+        background-color: var(--highlight-color);
+        color: var(--color-text-primary);
+      }
+    }
+    &.operator-policies {
+      a { background-image: var(--icon-operator-policies); }
+      .operator-policies & a {
+        background-color: var(--highlight-color);
+        color: var(--color-text-primary);
+      }
+    }
+    &.users {
+      a { background-image: var(--icon-users); }
+      .users & a {
+        background-color: var(--highlight-color);
+        color: var(--color-text-primary);
+      }
+    }
+
+    &.http-api {
+      margin-top: 1rem;
+      border-top: 1px solid var(--color-border-separator);
+      a {
+       background-image: var(--icon-http-api); 
+        margin-top: 0.5rem;
+      }
+    }
   }
 }
 
-#menu ul li a {
-  display: flex;
-  align-items: center;
-  padding: 0.5rem;
-  font-size: 0.875rem;
-  line-height: 1.25rem;
-  border-radius: 8px;
-  font-weight: 600;
-  text-decoration: none;
-  margin: 2px auto;
-}
 
-#menu ul a,
-#menu ul a:visited {
-  color: var(--color-text-secondary);
-  text-decoration: none;
-}
-
-#menu ul a:hover {
-  background-color: var(--highlight-color);
-  color: var(--color-text-primary);
-}
-
-#menu li.active a {
-  background-color: var(--highlight-color);
-  color: var(--color-text-primary);
-}
-
-#menu ul li a img {
-  width: 1.5rem;
-  height: 1.5rem;
-  margin-right: 1rem;
-  opacity: .7;
-
-  &.icon-blank {
-    width: 1.25rem;
-    height: 1.25rem;
-    margin-left: 0.5rem;
-    position: relative;
-    bottom: 0.125rem;
-  }
-}
-
-#menu ul li.active a i, #menu ul li a:hover img {
-  opacity: 1;
-}
 
 .toggle-menu-label {
   position: fixed;
@@ -1045,10 +1201,6 @@ footer .logo {
 
 @media (min-width: 1000px) {
   .menu-collapsed {
-    #menu ul li.menu-group:not(:first-child) {
-      padding-top: 0.5rem;
-    }
-
     .menu-tooltip .menu-tooltip-label, .toggle-menu-label {
       position: fixed;
       transition-delay: 0s;
@@ -1069,64 +1221,68 @@ footer .logo {
       opacity: 1;
     }
 
-    #menu-content {
-      .menu-group {
-        margin-bottom: 0;
-
-        span {
-          display: none;
-        }
-      }
-
-      li a {
-        justify-content: center;
-      }
-
-      li a span.menu-tooltip-label {
-        transform: translateY(-50%);
-      }
-
-      li.last-menu-item a span.menu-item-label {
-        display: block;
-        font-size: 8px;
-        line-height: 10px;
-        width: 28px;
-        text-align: left;
-        border: 1px solid light-dark(#6B7280, #9D9C9A);
-        text-align: center;
-        padding: 4px 0;
-        border-radius: 2px;
-      }
-
-      .icon-blank {
-        display: none;
-      }
-    }
 
     #menu {
       width: auto;
-
       ul {
         padding: 0 0.75rem;
+
+        li.menu-group:not(:first-child) {
+          padding-top: 0.5rem;
+        }
+
+        li.menu-group {
+          margin-bottom: 0;
+
+          span {
+            display: none;
+          }
+        }
+
+        li a span.menu-tooltip-label {
+          transform: translateY(-50%);
+        }
+
+        li:not(.menu-group) a {
+          justify-content: center; 
+          background-position: center center;
+            padding: 1.5rem;
+        }
+
+        li.http-api {
+          background-image: none;
+          padding-top: 0.5rem;
+          a {
+            background-image: none;
+            padding: 0;
+            min-height: 48px;
+            min-width: 48px;
+            span.menu-item-label {
+              margin: auto 0.5rem;
+              font-size: 8px;
+              line-height: 10px;
+              text-align: left;
+              border: 1px solid light-dark(#6B7280, #9D9C9A);
+              text-align: center;
+              padding: 4px;
+              border-radius: 2px;
+            }
+          }
+        }
       }
-
-      ul li a img {
-        margin-right: 0;
-      }
-    }
-
-    .r-c {
-      left: 68px;
-    }
-
-    footer {
-      padding-left: 68px;
     }
   }
 
-  .menu-tooltip:hover .toggle-menu-label {
-    opacity: 1;
+
+  .r-c {
+    left: 68px;
   }
+
+  footer {
+    padding-left: 68px;
+  }
+}
+
 }
 
 .card:has(.table-header) {
