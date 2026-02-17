@@ -578,6 +578,123 @@ module DeadLetteringSpec
           end
         end
       end
+
+      it "should not stack overflow on three-queue dead letter cycle with max-length" do
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            a = ch.queue("a", args: AMQP::Client::Arguments.new({
+              "x-max-length"              => 1,
+              "x-dead-letter-exchange"    => "",
+              "x-dead-letter-routing-key" => "b",
+            }))
+            b = ch.queue("b", args: AMQP::Client::Arguments.new({
+              "x-max-length"              => 1,
+              "x-dead-letter-exchange"    => "",
+              "x-dead-letter-routing-key" => "c",
+            }))
+            c = ch.queue("c", args: AMQP::Client::Arguments.new({
+              "x-max-length"              => 1,
+              "x-dead-letter-exchange"    => "",
+              "x-dead-letter-routing-key" => "a",
+            }))
+
+            ch.default_exchange.publish_confirm("a1", a.name)
+            ch.default_exchange.publish_confirm("b1", b.name)
+            ch.default_exchange.publish_confirm("c1", c.name)
+            ch.default_exchange.publish_confirm("a2", a.name)
+
+            sleep 0.1.seconds
+
+            a.message_count.should eq 1
+            b.message_count.should eq 1
+            c.message_count.should eq 1
+          end
+        end
+      end
+
+      it "should dead letter normally after a depth-limited cycle" do
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            # Set up a cycle that hits the depth limit
+            a = ch.queue("a", args: AMQP::Client::Arguments.new({
+              "x-max-length"              => 1,
+              "x-dead-letter-exchange"    => "",
+              "x-dead-letter-routing-key" => "b",
+            }))
+            b = ch.queue("b", args: AMQP::Client::Arguments.new({
+              "x-max-length"              => 1,
+              "x-dead-letter-exchange"    => "",
+              "x-dead-letter-routing-key" => "a",
+            }))
+
+            ch.default_exchange.publish_confirm("a1", a.name)
+            ch.default_exchange.publish_confirm("b1", b.name)
+            ch.default_exchange.publish_confirm("a2", a.name)
+
+            sleep 0.1.seconds
+
+            # Now set up a normal (non-cyclic) dead letter path and verify it works
+            dlq = ch.queue("dlq")
+            q = ch.queue("q", args: AMQP::Client::Arguments.new({
+              "x-dead-letter-exchange"    => "",
+              "x-dead-letter-routing-key" => "dlq",
+            }))
+
+            ch.default_exchange.publish_confirm("msg1", q.name)
+            get1(q, &.nack(requeue: false))
+
+            msg = get1(dlq)
+            msg.body_io.to_s.should eq "msg1"
+          end
+        end
+      end
+
+      it "should dead letter expired messages through a multi-hop chain" do
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            # a (ttl) → b (ttl) → c, verify message arrives at c
+            c = ch.queue("c")
+            ch.queue("b", args: AMQP::Client::Arguments.new({
+              "x-message-ttl"             => 1,
+              "x-dead-letter-exchange"    => "",
+              "x-dead-letter-routing-key" => "c",
+            }))
+            ch.queue("a", args: AMQP::Client::Arguments.new({
+              "x-message-ttl"             => 1,
+              "x-dead-letter-exchange"    => "",
+              "x-dead-letter-routing-key" => "b",
+            }))
+
+            ch.default_exchange.publish_confirm("msg1", "a")
+
+            msg = get1(c)
+            msg.body_io.to_s.should eq "msg1"
+          end
+        end
+      end
+
+      it "should dead letter overflow to a non-cyclic destination" do
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            dlq = ch.queue("dlq")
+            q = ch.queue("q", args: AMQP::Client::Arguments.new({
+              "x-max-length"              => 2,
+              "x-dead-letter-exchange"    => "",
+              "x-dead-letter-routing-key" => "dlq",
+            }))
+
+            ch.default_exchange.publish_confirm("msg1", q.name)
+            ch.default_exchange.publish_confirm("msg2", q.name)
+            ch.default_exchange.publish_confirm("msg3", q.name)
+
+            wait_for { dlq.message_count == 1 }
+            q.message_count.should eq 2
+
+            msg = get1(dlq)
+            msg.body_io.to_s.should eq "msg1"
+          end
+        end
+      end
     end
 
     describe "Header Validation" do
