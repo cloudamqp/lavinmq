@@ -354,6 +354,7 @@ module LavinMQPerf
           pubs_this_second = 0
           queues = queue_names
           queue_idx = 0
+          local_pubs = 0_u64
           until @stopped
             if @measure_latency
               # Write timestamp at the beginning of the message
@@ -385,7 +386,8 @@ module LavinMQPerf
             pubs = @pubs.add(1, :relaxed) + 1
             ch.tx_commit if @pub_in_transaction > 0 && (pubs % @pub_in_transaction) == 0
             break if pubs >= @pmessages > 0
-            Fiber.yield if @rate.zero? && pubs % (128*1024) == 0
+            local_pubs += 1
+            Fiber.yield if @rate.zero? && local_pubs % (128*1024) == 0
             unless @rate.zero?
               pubs_this_second += 1
               if pubs_this_second >= @rate
