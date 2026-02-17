@@ -33,7 +33,7 @@ module LavinMQ
     include ParameterTarget
 
     @start = Time.instant
-    @closed = false
+    @closed = BoolChannel.new(false)
     @flow = true
     @listeners = Hash(Socket::Server, Protocol).new # Socket => protocol
     @connection_factories = Hash(Protocol, ConnectionFactory).new
@@ -55,6 +55,10 @@ module LavinMQ
       }
       apply_parameter
       spawn stats_loop, name: "Server#stats_loop"
+    end
+
+    def closed?
+      @closed.value
     end
 
     def followers
@@ -80,8 +84,7 @@ module LavinMQ
     end
 
     def stop
-      return if @closed
-      @closed = true
+      return if @closed.swap(true)
       @vhosts.close
       @replicator.try &.clear
       @authenticator.try &.cleanup
@@ -99,7 +102,7 @@ module LavinMQ
       @connection_factories[Protocol::MQTT] = MQTT::ConnectionFactory.new(@authenticator, @mqtt_brokers, @config)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator)
       apply_parameter
-      @closed = false
+      @closed.set(false)
       Fiber.yield
     end
 
@@ -112,7 +115,7 @@ module LavinMQ
       Log.info { "Listening for #{protocol} on #{s.local_address}" }
       loop do
         client = s.accept? || break
-        next client.close if @closed
+        next client.close if closed?
         accept_tcp(client, protocol)
       end
     rescue ex : IO::Error
@@ -162,7 +165,7 @@ module LavinMQ
       Log.info { "Listening for #{protocol} on #{s.local_address}" }
       loop do # do not try to use while
         client = s.accept? || break
-        next client.close if @closed
+        next client.close if closed?
         accept_unix(client, protocol)
       end
     rescue ex : IO::Error
@@ -198,7 +201,7 @@ module LavinMQ
       Log.info { "Listening for #{protocol} on #{s.local_address} (TLS)" }
       loop do # do not try to use while
         client = s.accept? || break
-        next client.close if @closed
+        next client.close if closed?
         accept_tls(client, context, protocol)
       end
     rescue ex : IO::Error | OpenSSL::Error
@@ -255,7 +258,7 @@ module LavinMQ
     end
 
     def close
-      @closed = true
+      @closed.set(true)
       Log.debug { "Closing listeners" }
       @listeners.each_key &.close
       Log.debug { "Closing vhosts" }

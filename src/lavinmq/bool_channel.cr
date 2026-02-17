@@ -48,11 +48,11 @@ class BoolChannel
   end
 
   def value
-    @value.get
+    @value.get(:acquire)
   end
 
-  def set(value : Bool)
-    return if @value.swap(value) == value
+  def swap(value : Bool)
+    return value if @value.swap(value) == value
     if value
       @when_false.deactivate
       @when_true.activate
@@ -60,6 +60,12 @@ class BoolChannel
       @when_true.deactivate
       @when_false.activate
     end
+    !value
+  end
+
+  def set(value : Bool) : Nil
+    swap(value)
+    nil
   end
 
   def close
