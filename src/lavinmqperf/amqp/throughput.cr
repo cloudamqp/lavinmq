@@ -386,7 +386,7 @@ module LavinMQPerf
             pubs = @pubs.add(1, :relaxed) + 1
             ch.tx_commit if @pub_in_transaction > 0 && (pubs % @pub_in_transaction) == 0
             break if pubs >= @pmessages > 0
-            local_pubs += 1
+            local_pubs &+= 1
             Fiber.yield if @rate.zero? && local_pubs % (128*1024) == 0
             unless @rate.zero?
               pubs_this_second += 1
@@ -498,7 +498,7 @@ module LavinMQPerf
         end
 
         def limit
-          @total_consumes += 1
+          @total_consumes &+= 1
           if @rate.zero?
             # When no rate limiting, yield periodically to avoid blocking other fibers
             Fiber.yield if @total_consumes % (128*1024) == 0
