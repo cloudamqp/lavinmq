@@ -15,6 +15,12 @@ module LavinMQ::AMQP
       class DeadLetterer
         property dlx : String? = nil
         property dlrk : String? = nil
+        # Tracks recursive dead-letter routing depth to prevent stack overflow
+        # from cascading overflow cycles (e.g. queue A overflows to B, B overflows to A).
+        # Each overflow shifts out a different message with no x-death history,
+        # so x-death based cycle detection can't catch these cross-queue chains.
+        MAX_ROUTING_DEPTH = 128
+        @@routing_depth = Atomic(Int32).new(0)
 
         def initialize(@vhost : VHost, @queue_name : String, @log : Logger)
         end
@@ -45,44 +51,55 @@ module LavinMQ::AMQP
         def route(msg : BytesMessage, reason) # ameba:disable Metrics/CyclomaticComplexity
           # No dead letter exchange => nothing to do
           return unless dlx = (msg.dlx || dlx())
-          ex = @vhost.exchanges[dlx.to_s]? || return
 
-          dlrk = msg.dlrk || dlrk()
-
-          props = create_message_properties(msg, reason)
-          routing_headers = props.headers
-
-          # If a dead lettering key exists, no routing to CC/BCC should be done
-          # but the header should be maintained, so we must clone and remove them
-          # for routing
-          if dlrk && (rk = routing_headers.try &.clone)
-            rk.delete("CC")
-            rk.delete("BCC")
-            routing_headers = rk
+          if @@routing_depth.add(1, :relaxed) >= MAX_ROUTING_DEPTH
+            @@routing_depth.sub(1, :relaxed)
+            @log.warn { "Dead letter routing depth limit reached, dropping message" }
+            return
           end
-          routing_rk = (dlrk || msg.routing_key).to_s
 
-          # We're not publishing to an exchange, the queue itself is responsible
-          # for delivering to destinations. This is to be able to do correct
-          # cycle detection and to not create a lot of faulty stats.
-          # This means that no delay, consistent hash check or such is performed
-          # if the dead letter exchange has any of these features enabled.
-          queues = Set(LavinMQ::Queue).new
-          ex.find_queues(routing_rk, routing_headers, queues)
-          return if queues.empty?
+          begin
+            ex = @vhost.exchanges[dlx.to_s]? || return
 
-          is_cycle = cycle?(props, reason)
+            dlrk = msg.dlrk || dlrk()
 
-          dead_lettered_msg = Message.new(
-            RoughTime.unix_ms, dlx.to_s, routing_rk.to_s,
-            props, msg.bodysize, IO::Memory.new(msg.body))
+            props = create_message_properties(msg, reason)
+            routing_headers = props.headers
 
-          queues.each do |q|
-            next if is_cycle && q.name == @queue_name
-            @log.trace { "dead lettering dest=#{q.name} msg=#{dead_lettered_msg}" }
-            q.publish(dead_lettered_msg)
-          rescue ex
-            @log.warn(exception: ex) { "Unexpected error when dead-lettering to #{q.name}" }
+            # If a dead lettering key exists, no routing to CC/BCC should be done
+            # but the header should be maintained, so we must clone and remove them
+            # for routing
+            if dlrk && (rk = routing_headers.try &.clone)
+              rk.delete("CC")
+              rk.delete("BCC")
+              routing_headers = rk
+            end
+            routing_rk = (dlrk || msg.routing_key).to_s
+
+            # We're not publishing to an exchange, the queue itself is responsible
+            # for delivering to destinations. This is to be able to do correct
+            # cycle detection and to not create a lot of faulty stats.
+            # This means that no delay, consistent hash check or such is performed
+            # if the dead letter exchange has any of these features enabled.
+            queues = Set(LavinMQ::Queue).new
+            ex.find_queues(routing_rk, routing_headers, queues)
+            return if queues.empty?
+
+            is_cycle = cycle?(props, reason)
+
+            dead_lettered_msg = Message.new(
+              RoughTime.unix_ms, dlx.to_s, routing_rk.to_s,
+              props, msg.bodysize, IO::Memory.new(msg.body))
+
+            queues.each do |q|
+              next if is_cycle && q.name == @queue_name
+              @log.trace { "dead lettering dest=#{q.name} msg=#{dead_lettered_msg}" }
+              q.publish(dead_lettered_msg)
+            rescue ex
+              @log.warn(exception: ex) { "Unexpected error when dead-lettering to #{q.name}" }
+            end
+          ensure
+            @@routing_depth.sub(1, :relaxed)
           end
         end
 

@@ -545,6 +545,39 @@ module DeadLetteringSpec
           msg.body_io.to_s.should eq "msg1"
         end
       end
+
+      it "should not stack overflow on multi-queue dead letter cycle with max-length" do
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            # Queue A dead-letters to Queue B, Queue B dead-letters to Queue A
+            # Both have max-length=1, so publishing to either triggers cascading overflow
+            a = ch.queue("a", args: AMQP::Client::Arguments.new({
+              "x-max-length"              => 1,
+              "x-dead-letter-exchange"    => "",
+              "x-dead-letter-routing-key" => "b",
+            }))
+            b = ch.queue("b", args: AMQP::Client::Arguments.new({
+              "x-max-length"              => 1,
+              "x-dead-letter-exchange"    => "",
+              "x-dead-letter-routing-key" => "a",
+            }))
+
+            # Fill both queues
+            ch.default_exchange.publish_confirm("a1", a.name)
+            ch.default_exchange.publish_confirm("b1", b.name)
+
+            # This publish triggers: a overflows → dead-letter to b → b overflows → dead-letter to a → ...
+            # Without a depth limit this would stack overflow (SEGV)
+            ch.default_exchange.publish_confirm("a2", a.name)
+
+            sleep 0.1.seconds
+
+            # Server should still be alive and queues should respect max-length
+            a.message_count.should eq 1
+            b.message_count.should eq 1
+          end
+        end
+      end
     end
 
     describe "Header Validation" do
