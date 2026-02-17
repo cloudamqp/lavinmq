@@ -384,9 +384,9 @@ module LavinMQPerf
             end
             queue_idx += 1 if @queue_pattern
             pubs = @pubs.add(1, :relaxed) + 1
-            ch.tx_commit if @pub_in_transaction > 0 && (pubs % @pub_in_transaction) == 0
-            break if pubs >= @pmessages > 0
             local_pubs &+= 1
+            ch.tx_commit if @pub_in_transaction > 0 && (local_pubs % @pub_in_transaction) == 0
+            break if pubs >= @pmessages > 0
             Fiber.yield if @rate.zero? && local_pubs % (128*1024) == 0
             unless @rate.zero?
               pubs_this_second += 1
@@ -458,11 +458,13 @@ module LavinMQPerf
           q.bind(@exchange, @routing_key) unless @exchange.empty?
           wait_until_all_are_connected(connected)
           rate_limiter = RateLimiter.new(@consume_rate)
+          local_consumes = 0_u64
           loop do
             if msg = q.get(no_ack: @ack.zero?)
               consumes = @consumes.add(1, :relaxed) + 1
+              local_consumes &+= 1
               record_latency(msg.body_io.to_slice) if @measure_latency
-              msg.ack(multiple: true) if @ack > 0 && consumes % @ack == 0
+              msg.ack(multiple: true) if @ack > 0 && local_consumes % @ack == 0
               break if @stopped || consumes >= @cmessages > 0
               rate_limiter.limit
             end
