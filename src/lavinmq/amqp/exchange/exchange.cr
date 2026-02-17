@@ -4,12 +4,10 @@ require "../../binding_details"
 require "../destination"
 require "../../error"
 require "../../exchange"
-require "../../observable"
 require "../../policy"
 require "../../stats"
 require "../../sortable_json"
 require "../queue"
-require "./event"
 
 module LavinMQ
   module AMQP
@@ -17,7 +15,48 @@ module LavinMQ
       include PolicyTarget
       include Stats
       include SortableJSON
-      include Observable(ExchangeEvent)
+      @on_bind = Array(Proc(BindingDetails, Nil)).new
+      @on_unbind = Array(Proc(BindingDetails, Nil)).new
+      @on_deleted = Array(Proc(Nil)).new
+
+      def on_bind(&block : BindingDetails ->) : Proc(BindingDetails, Nil)
+        @on_bind << block
+        block
+      end
+
+      def off_bind(callback : Proc(BindingDetails, Nil))
+        @on_bind.delete(callback)
+      end
+
+      def on_unbind(&block : BindingDetails ->) : Proc(BindingDetails, Nil)
+        @on_unbind << block
+        block
+      end
+
+      def off_unbind(callback : Proc(BindingDetails, Nil))
+        @on_unbind.delete(callback)
+      end
+
+      def on_deleted(&block : ->) : Proc(Nil)
+        @on_deleted << block
+        block
+      end
+
+      def off_deleted(callback : Proc(Nil))
+        @on_deleted.delete(callback)
+      end
+
+      protected def notify_bind(data : BindingDetails)
+        @on_bind.each &.call(data)
+      end
+
+      protected def notify_unbind(data : BindingDetails)
+        @on_unbind.each &.call(data)
+      end
+
+      protected def notify_deleted
+        @on_deleted.each &.call
+      end
 
       getter name, arguments, vhost, type, alternate_exchange
       getter? durable, internal, auto_delete
@@ -156,7 +195,7 @@ module LavinMQ
         @deleted = true
         @delayed_queue.try &.delete
         @vhost.delete_exchange(@name)
-        notify_observers(ExchangeEvent::Deleted)
+        notify_deleted
       end
 
       # This outer macro will add a finished macro hook to all inherited classes

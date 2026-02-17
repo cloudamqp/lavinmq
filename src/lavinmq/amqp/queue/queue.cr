@@ -2,7 +2,6 @@ require "digest/sha1"
 require "../../logger"
 require "../../segment_position"
 require "../../policy"
-require "../../observable"
 require "../../stats"
 require "../../sortable_json"
 require "../../client/channel/consumer"
@@ -10,7 +9,6 @@ require "../../message"
 require "../../error"
 require "../../queue"
 require "./state"
-require "./event"
 require "../../message_store"
 require "../../unacked_message"
 require "../../deduplication"
@@ -21,7 +19,6 @@ require "../argument"
 module LavinMQ::AMQP
   class Queue < LavinMQ::Queue
     include PolicyTarget
-    include Observable(QueueEvent)
     include Stats
     include SortableJSON
 
@@ -446,7 +443,6 @@ module LavinMQ::AMQP
       # TODO: When closing due to ReadError, queue is deleted if exclusive
       delete if !durable? || @exclusive
       Fiber.yield
-      notify_observers(QueueEvent::Closed)
       @log.debug { "Closed" }
       true
     end
@@ -461,7 +457,6 @@ module LavinMQ::AMQP
       end
       @vhost.delete_queue(@name)
       @log.info { "(messages=#{message_count}) Deleted" }
-      notify_observers(QueueEvent::Deleted)
       true
     end
 
@@ -841,7 +836,6 @@ module LavinMQ::AMQP
       @has_priority_consumers = true unless consumer.priority.zero?
       @log.debug { "Adding consumer (now #{@consumers.size})" }
       @vhost.event_tick(EventType::ConsumerAdded)
-      notify_observers(QueueEvent::ConsumerAdded, consumer)
     end
 
     getter? has_priority_consumers = false
@@ -862,7 +856,6 @@ module LavinMQ::AMQP
             end
           end
           @vhost.event_tick(EventType::ConsumerRemoved)
-          notify_observers(QueueEvent::ConsumerRemoved, consumer)
         end
       end
       if @consumers.empty?

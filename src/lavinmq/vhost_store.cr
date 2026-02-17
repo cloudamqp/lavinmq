@@ -1,17 +1,29 @@
 require "json"
 require "./vhost"
 require "./auth/base_user"
-require "./observable"
 
 module LavinMQ
   class VHostStore
-    enum Event
-      Added
-      Deleted
-      Closed
-    end
     include Enumerable({String, VHost})
-    include Observable(Event)
+
+    @on_added = Array(Proc(String, Nil)).new
+    @on_deleted = Array(Proc(String, Nil)).new
+    @on_closed = Array(Proc(String, Nil)).new
+
+    def on_added(&block : String ->) : Proc(String, Nil)
+      @on_added << block
+      block
+    end
+
+    def on_deleted(&block : String ->) : Proc(String, Nil)
+      @on_deleted << block
+      block
+    end
+
+    def on_closed(&block : String ->) : Proc(String, Nil)
+      @on_closed << block
+      block
+    end
 
     Log = LavinMQ::Log.for "vhost_store"
 
@@ -38,7 +50,7 @@ module LavinMQ
       @users.add_permission(@users.direct_user, name, /.*/, /.*/, /.*/)
       @vhosts[name] = vhost
       save! if save
-      notify_observers(Event::Added, name)
+      @on_added.each &.call(name)
       vhost
     end
 
@@ -46,7 +58,7 @@ module LavinMQ
       if vhost = @vhosts.delete name
         @users.rm_vhost_permissions_for_all(name)
         vhost.delete
-        notify_observers(Event::Deleted, name)
+        @on_deleted.each &.call(name)
         Log.info { "Deleted vhost #{name}" }
         save!
         vhost
@@ -58,7 +70,7 @@ module LavinMQ
         @vhosts.each_value do |vhost|
           wg.spawn do
             vhost.close
-            notify_observers(Event::Closed, vhost.name)
+            @on_closed.each &.call(vhost.name)
           end
         end
       end
