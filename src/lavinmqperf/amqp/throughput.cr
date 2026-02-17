@@ -421,7 +421,7 @@ module LavinMQPerf
           rate_limiter = RateLimiter.new(@consume_rate)
           local_consumes = 0_u64
           q.subscribe(tag: "c", no_ack: @ack.zero?, block: true, args: @consumer_args) do |m|
-            local_consumes += 1
+            local_consumes &+= 1
             handle_consumed_message(ch, m, data, rate_limiter, local_consumes)
           end
         end
