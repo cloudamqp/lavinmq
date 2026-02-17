@@ -530,6 +530,34 @@ module DeadLetteringSpec
         end
       end
 
+      it "should not stack overflow on multi-queue DLX cycle with max-length" do
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            a = ch.queue("a", args: AMQP::Client::Arguments.new({
+              "x-max-length"              => 1,
+              "x-dead-letter-exchange"    => "",
+              "x-dead-letter-routing-key" => "b",
+            }))
+            b = ch.queue("b", args: AMQP::Client::Arguments.new({
+              "x-max-length"              => 1,
+              "x-dead-letter-exchange"    => "",
+              "x-dead-letter-routing-key" => "a",
+            }))
+
+            # Fill both queues to their limit
+            ch.default_exchange.publish_confirm("msg1", a.name)
+            ch.default_exchange.publish_confirm("msg2", b.name)
+            # This triggers: A overflows → B (full) overflows → A (full) overflows → ...
+            ch.default_exchange.publish_confirm("msg3", a.name)
+
+            sleep 0.1.seconds
+
+            a.message_count.should be <= 1
+            b.message_count.should be <= 1
+          end
+        end
+      end
+
       it "dead_letter_routing_key_cycle_with_reject" do
         qargs = {
           "x-dead-letter-exchange"    => "",

@@ -15,6 +15,10 @@ module LavinMQ::AMQP
       class DeadLetterer
         property dlx : String? = nil
         property dlrk : String? = nil
+        # Tracks which queues are currently in a dead-letter routing chain
+        # per fiber, to prevent infinite recursion from DLX cycles (A→B→A).
+        # Same pattern as Set#add? guard in Exchange#find_queues.
+        @@visited_queues = Hash(Fiber, Set(String)).new
 
         def initialize(@vhost : VHost, @queue_name : String, @log : Logger)
         end
@@ -42,9 +46,33 @@ module LavinMQ::AMQP
         # It's done like this to be able to dead letter to all destinations
         # except to the queue itself if a cycle is detected.
         # This is also how it's done in rabbitmq
-        def route(msg : BytesMessage, reason) # ameba:disable Metrics/CyclomaticComplexity
+        def route(msg : BytesMessage, reason)
           # No dead letter exchange => nothing to do
           return unless dlx = (msg.dlx || dlx())
+          fiber = Fiber.current
+          if visited = @@visited_queues[fiber]?
+            # Already in a dead-letter chain, check for cycle
+            unless visited.add?(@queue_name)
+              @log.warn { "Dropping dead letter from #{@queue_name}: DLX cycle detected" }
+              return
+            end
+            begin
+              route_internal(msg, reason, dlx)
+            ensure
+              visited.delete(@queue_name)
+            end
+          else
+            # Top-level entry: create visited set and own cleanup
+            @@visited_queues[fiber] = Set{@queue_name}
+            begin
+              route_internal(msg, reason, dlx)
+            ensure
+              @@visited_queues.delete(fiber)
+            end
+          end
+        end
+
+        private def route_internal(msg, reason, dlx)
           ex = @vhost.exchanges[dlx.to_s]?.as?(AMQP::Exchange) || return
 
           dlrk = msg.dlrk || dlrk()
