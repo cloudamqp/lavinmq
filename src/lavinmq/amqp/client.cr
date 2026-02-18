@@ -246,6 +246,7 @@ module LavinMQ
         end
         @last_sent_frame = RoughTime.instant
         @send_oct_count.add(8_u64 + frame.bytesize, :relaxed)
+        @vhost.add_send_bytes(8_u64 + frame.bytesize)
         if frame.is_a?(AMQP::Frame::Connection::CloseOk)
           return false
         end
@@ -285,6 +286,7 @@ module LavinMQ
           socket.write_bytes frame, ::IO::ByteFormat::NetworkEndian
           socket.flush if websocket
           @send_oct_count.add(8_u64 + frame.bytesize, :relaxed)
+          @vhost.add_send_bytes(8_u64 + frame.bytesize)
           # Remove BCC header to not expose it to clients.
           # Table#delete will always make the underlying IO writable, even if
           # key doesn't exists. Therefore we do the has_key? check to not
@@ -300,6 +302,7 @@ module LavinMQ
           socket.write_bytes header, ::IO::ByteFormat::NetworkEndian
           socket.flush if websocket
           @send_oct_count.add(8_u64 + header.bytesize, :relaxed)
+          @vhost.add_send_bytes(8_u64 + header.bytesize)
           pos = 0
           while pos < msg.bodysize
             length = Math.min(msg.bodysize - pos, @max_frame_size - 8).to_u32
@@ -315,6 +318,7 @@ module LavinMQ
             socket.write_bytes body, ::IO::ByteFormat::NetworkEndian
             socket.flush if websocket
             @send_oct_count.add(8_u64 + body.bytesize, :relaxed)
+            @vhost.add_send_bytes(8_u64 + body.bytesize)
             pos += length
           end
           socket.flush if flush && !websocket # Websockets need to send one frame per WS frame
@@ -390,6 +394,7 @@ module LavinMQ
       private def process_frame(frame) : Nil
         @last_recv_frame = RoughTime.instant
         @recv_oct_count.add(8_u64 + frame.bytesize, :relaxed)
+        @vhost.add_recv_bytes(8_u64 + frame.bytesize)
         case frame
         when AMQP::Frame::Channel::Open
           open_channel(frame)
