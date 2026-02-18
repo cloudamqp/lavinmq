@@ -10,6 +10,7 @@ require "./pidfile"
 require "./etcd"
 require "./clustering/controller"
 require "./standalone_runner"
+require "../stdlib/openssl_on_server_name"
 
 module LavinMQ
   class Launcher
