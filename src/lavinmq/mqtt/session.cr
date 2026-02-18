@@ -86,7 +86,7 @@ module LavinMQ
         end
       end
 
-      def publish(msg : Message) : Bool
+      def publish(msg : Message, dlx_depth : Int32 = 0) : Bool
         # Do not enqueue messages with QoS 0 if there are no consumers subscribed to the session
         return true if msg.properties.delivery_mode == 0 && @consumers.empty?
         super
