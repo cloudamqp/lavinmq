@@ -182,10 +182,29 @@ Table.renderTable('followers', followersTableOpts, (tr, item, firstRender) => {
   if (firstRender) {
     Table.renderCell(tr, 0, item.id)
   }
-  Table.renderCell(tr, 1, item.remote_address)
-  Table.renderCell(tr, 2, humanizeBytes(item.sent_bytes), 'right')
-  Table.renderCell(tr, 3, humanizeBytes(item.acked_bytes), 'right')
-  Table.renderCell(tr, 4, humanizeBytes(item.sent_bytes - item.acked_bytes), 'right')
+  const isLeader = item.role === 'leader'
+  const connected = item.remote_address !== null
+  Table.renderCell(tr, 1, isLeader ? 'Leader' : (connected ? '✓' : '✗'), 'center')
+  Table.renderCell(tr, 2, item.insync ? '✓' : '✗', 'center')
+  Table.renderCell(tr, 3, item.remote_address || '-')
+  Table.renderCell(tr, 4, connected ? humanizeBytes(item.sent_bytes) : '-', 'right')
+  Table.renderCell(tr, 5, connected ? humanizeBytes(item.acked_bytes) : '-', 'right')
+  Table.renderCell(tr, 6, connected ? humanizeBytes(item.sent_bytes - item.acked_bytes) : '-', 'right')
+  if (!connected && !isLeader) {
+    const btn = document.createElement('button')
+    btn.className = 'btn btn-red'
+    btn.textContent = 'Forget'
+    btn.onclick = () => {
+      if (window.confirm(`Are you sure you want to forget replica ${item.id}?`)) {
+        HTTP.request('DELETE', `api/nodes/${item.id}`).then(() => {
+          update(updateCharts)
+        })
+      }
+    }
+    Table.renderCell(tr, 7, btn)
+  } else {
+    Table.renderCell(tr, 7, '')
+  }
 })
 
 function updateCharts (response) {

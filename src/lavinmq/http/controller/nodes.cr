@@ -80,7 +80,43 @@ module LavinMQ
           run_queue:          0,
           sockets_used:       @amqp_server.vhosts.sum { |_, v| v.connections.size },
           followers:          @amqp_server.followers,
+          merged_replicas:    merged_replicas,
         }
+      end
+
+      # Merges all known replicas from etcd with connected followers
+      private def merged_replicas
+        known = @amqp_server.known_replicas
+        connected = @amqp_server.all_followers
+        connected_by_id = connected.to_h { |f| {f.id.to_s(36), f} }
+        leader_id = @amqp_server.leader_id.try(&.to_s(36))
+
+        # Build list from all known replicas
+        result = known.map do |id, insync|
+          is_leader = id == leader_id
+          if follower = connected_by_id[id]?
+            {
+              id:             id,
+              role:           is_leader ? "leader" : "follower",
+              insync:         insync,
+              remote_address: follower.remote_address.to_s,
+              sent_bytes:     follower.sent_bytes,
+              acked_bytes:    follower.acked_bytes,
+            }
+          else
+            {
+              id:             id,
+              role:           is_leader ? "leader" : "follower",
+              insync:         insync,
+              remote_address: nil,
+              sent_bytes:     nil,
+              acked_bytes:    nil,
+            }
+          end
+        end
+
+        # Sort with leader first
+        result.sort_by! { |r| r[:role] == "leader" ? 0 : 1 }
       end
 
       private def stats(context)
@@ -106,6 +142,29 @@ module LavinMQ
             stats(context).to_json(context.response)
           else
             context.response.status_code = 404
+          end
+          context
+        end
+
+        delete "/api/nodes/:id" do |context, params|
+          refuse_unless_administrator(context, user(context))
+          id_str = params["id"]
+          id = id_str.to_i32?(36)
+          unless id
+            bad_request(context, "Invalid replica ID")
+          end
+          # Don't allow forgetting the leader
+          if @amqp_server.leader_id == id
+            bad_request(context, "Cannot forget the leader node")
+          end
+          # Don't allow forgetting connected replicas
+          if @amqp_server.all_followers.any? { |f| f.id == id }
+            bad_request(context, "Cannot forget a connected replica")
+          end
+          if @amqp_server.forget_replica(id)
+            context.response.status_code = 204
+          else
+            not_found(context, "Replica not found")
           end
           context
         end

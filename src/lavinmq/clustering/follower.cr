@@ -13,14 +13,14 @@ module LavinMQ
       end
       Log = LavinMQ::Log.for "clustering.follower"
 
-      @acked_bytes = 0_i64
-      @sent_bytes = 0_i64
       @actions = Channel(Action).new(Config.instance.clustering_max_unsynced_actions)
       @running = WaitGroup.new
       @state = State::Syncing
       getter id = -1
       getter remote_address
       getter state
+      getter acked_bytes = 0_i64
+      getter sent_bytes = 0_i64
 
       def initialize(@socket : TCPSocket, @data_dir : String, @file_index : FileIndex)
         @socket.sync = true # Use buffering in lz4

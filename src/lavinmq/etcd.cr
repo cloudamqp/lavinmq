@@ -45,6 +45,16 @@ module LavinMQ
       raise Error.new("key #{key} not set")
     end
 
+    # Sets value only if key doesn't exist
+    # Returns true if the key was created, false if it already exists
+    def put_new(key, value) : Bool
+      compare = %({"target":"CREATE","key":"#{Base64.strict_encode key}","create_revision":"0"})
+      put = %({"requestPut":{"key":"#{Base64.strict_encode key}","value":"#{Base64.strict_encode value}"}})
+      request = %({"compare":[#{compare}],"success":[#{put}]})
+      json = post("/v3/kv/txn", request)
+      json["succeeded"]?.try(&.as_bool) || false
+    end
+
     def get(key) : String?
       json = post("/v3/kv/range", %({"key":"#{Base64.strict_encode key}"}))
       if value = json.dig?("kvs", 0, "value").try(&.as_s)
@@ -52,18 +62,16 @@ module LavinMQ
       end
     end
 
-    def get_prefix(key) : Hash(String, String)
+    def get_prefix(key) : Array(Tuple(String, String))
       range_end = key.to_slice.dup
       range_end.update(-1) { |v| v + 1 }
       json = post("/v3/kv/range", %({"key":"#{Base64.strict_encode key}","range_end":"#{Base64.strict_encode range_end}"}))
-      kvs = json["kvs"].as_a
-      h = Hash(String, String).new(initial_capacity: kvs.size)
-      kvs.each do |kv|
-        key = Base64.decode_string kv["key"].as_s
-        value = Base64.decode_string kv["value"].as_s
-        h[key] = value
+      kvs = json["kvs"]?.try(&.as_a) || return [] of Tuple(String, String)
+      kvs.map do |kv|
+        k = Base64.decode_string kv["key"].as_s
+        v = Base64.decode_string kv["value"].as_s
+        {k, v}
       end
-      h
     end
 
     def put(key, value) : String?

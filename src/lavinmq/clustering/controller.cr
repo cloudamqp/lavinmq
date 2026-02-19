@@ -67,12 +67,24 @@ class LavinMQ::Clustering::Controller
     begin
       id = File.read(id_file_path).to_i(36)
     rescue File::NotFoundError
-      id = rand(Int32::MAX)
+      id = next_cluster_node_id
       Dir.mkdir_p @config.data_dir
       File.write(id_file_path, id.to_s(36))
-      Log.info { "Generated new clustering ID" }
+      Log.info { "Generated new clustering ID: #{id.to_s(36)}" }
     end
     id
+  end
+
+  # Generate a unique sequential cluster node ID
+  # Tries to create replica/<id>/insync key, incrementing until finding an unused ID
+  private def next_cluster_node_id : Int32
+    prefix = @config.clustering_etcd_prefix
+    id = 1
+    loop do
+      key = "#{prefix}/replica/#{id.to_s(36)}/insync"
+      return id if @etcd.put_new(key, "0")
+      id += 1
+    end
   end
 
   # Replicate from the leader
@@ -123,16 +135,56 @@ class LavinMQ::Clustering::Controller
   end
 
   def wait_to_be_insync
-    if isr = @etcd.get("#{@config.clustering_etcd_prefix}/isr")
-      unless isr.split(",").map(&.to_i(36)).includes?(@id)
-        Log.info { "ISR: #{isr}" }
-        Log.info { "Not in sync, waiting for a leader" }
-        @etcd.watch("#{@config.clustering_etcd_prefix}/isr") do |value|
-          break if value.try &.split(",").map(&.to_i(36)).includes?(@id)
-        end
-        Log.info { "In sync with leader" }
+    new_key = "#{@config.clustering_etcd_prefix}/replica/#{@id.to_s(36)}/insync"
+    old_key = "#{@config.clustering_etcd_prefix}/isr"
+
+    # Check if already in sync via new key format
+    if @etcd.get(new_key) == "1"
+      return
+    end
+
+    # Check if already in sync via old comma-separated format (used up until v2.6.x)
+    legacy_isr_exists = false
+    if isr = @etcd.get(old_key)
+      legacy_isr_exists = true
+      if isr.split(",").map(&.to_i(36)).includes?(@id)
+        Log.info { "In sync via legacy ISR key, migrating to new format" }
+        @etcd.put(new_key, "1")
+        return
       end
     end
+
+    # Not in sync, need to wait
+    Log.info { "Replica #{@id.to_s(36)} not in sync, waiting for leader" }
+    insync = Channel(Nil).new
+
+    # Watch new individual key format
+    spawn(name: "watch new insync key") do
+      @etcd.watch(new_key) do |value|
+        if value == "1"
+          insync.close
+          break
+        end
+      end
+    end
+
+    # Watch old comma-separated ISR key format only if it exists (backwards compatibility
+    # during rolling upgrades where old leader uses comma-separated format, used up until v2.6.x)
+    if legacy_isr_exists
+      spawn(name: "watch legacy isr key") do
+        @etcd.watch(old_key) do |value|
+          # Break if deleted (new leader took over) or if we're now in the ISR
+          break if value.nil?
+          if value.split(",").map(&.to_i(36)).includes?(@id)
+            insync.close
+            break
+          end
+        end
+      end
+    end
+
+    insync.receive?
+    Log.info { "In sync with leader" }
   end
 
   private def execute_shell_command(command : String, event : String)

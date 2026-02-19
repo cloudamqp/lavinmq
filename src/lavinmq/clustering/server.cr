@@ -31,8 +31,8 @@ module LavinMQ
       @followers = Array(Follower).new(4)
       @password : String
       @files = Hash(String, MFile?).new
-      @dirty_isr = true
-      @id : Int32
+      @disconnected_followers = Array(Int32).new
+      getter id : Int32
       @config : Config
 
       def initialize(config : Config, @etcd : Etcd, @id : Int32)
@@ -143,6 +143,23 @@ module LavinMQ
         end
       end
 
+      # Returns all known replicas from etcd with their insync status
+      # Key format: {prefix}/replica/{id}/insync with value "1" or "0"
+      def known_replicas : Hash(String, Bool)
+        prefix = "#{@config.clustering_etcd_prefix}/replica/"
+        kvs = @etcd.get_prefix(prefix)
+        result = Hash(String, Bool).new(initial_capacity: kvs.size)
+        kvs.each do |(key, value)|
+          # Extract replica ID from key like "lavinmq/replica/1a/insync"
+          parts = key.split('/', 4)
+          if parts.size == 4 && parts[3] == "insync"
+            replica_id = parts[2]
+            result[replica_id] = value == "1"
+          end
+        end
+        result
+      end
+
       def password : String
         key = "#{@config.clustering_etcd_prefix}/clustering_secret"
         secret = Random::Secure.base64(32)
@@ -159,6 +176,7 @@ module LavinMQ
       def listen(server : TCPServer)
         server.listen
         @checksums.restore
+        mark_insync(@id)
         Log.info { "Listening on #{server.local_address}" }
         @listeners << server
 
@@ -182,20 +200,21 @@ module LavinMQ
             @followers.delete(stale_follower)
             stale_follower.close
           end
+          @disconnected_followers.delete(follower.id)
           @followers << follower # Starts in Syncing state
         end
-        follower.full_sync # sync the bulk
-        @lock.synchronize do
-          follower.full_sync    # sync the last
-          follower.mark_synced! # Change state to Synced
-          update_isr
-        end
         begin
+          follower.full_sync # sync the bulk
+          @lock.synchronize do
+            follower.full_sync    # sync the last
+            follower.mark_synced! # Change state to Synced
+            mark_insync(follower.id)
+          end
           follower.action_loop
         ensure
           @lock.synchronize do
             @followers.delete(follower)
-            @dirty_isr = true
+            @disconnected_followers << follower.id
           end
         end
       rescue ex : AuthenticationError
@@ -210,7 +229,26 @@ module LavinMQ
         follower.try &.close
       end
 
-      private def update_isr
+      private def mark_insync(id : Int32)
+        key = "#{@config.clustering_etcd_prefix}/replica/#{id.to_s(36)}/insync"
+        @etcd.put(key, "1")
+        Log.debug { "Marked replica #{id.to_s(36)} as in-sync" }
+        update_legacy_isr
+      rescue ex : Etcd::Error
+        Log.error { "Failed to mark replica #{id.to_s(36)} as in-sync: #{ex.message}" }
+      end
+
+      private def mark_out_of_sync(id : Int32)
+        key = "#{@config.clustering_etcd_prefix}/replica/#{id.to_s(36)}/insync"
+        @etcd.put(key, "0")
+        Log.debug { "Marked replica #{id.to_s(36)} as out-of-sync" }
+        update_legacy_isr
+      rescue ex : Etcd::Error
+        Log.error { "Failed to mark replica #{id.to_s(36)} as out-of-sync: #{ex.message}" }
+      end
+
+      # Update legacy comma-separated ISR key for backward compatibility with older versions
+      private def update_legacy_isr
         isr_key = "#{@config.clustering_etcd_prefix}/isr"
         ids = String.build do |str|
           @followers.each do |f|
@@ -220,9 +258,19 @@ module LavinMQ
           end
           @id.to_s(str, 36)
         end
-        Log.info { "In-sync replicas: #{ids}" }
         @etcd.put(isr_key, ids)
-        @dirty_isr = false
+      end
+
+      # Removes a replica from etcd, returns true if the replica was found and deleted
+      def forget_replica(id : Int32) : Bool
+        key = "#{@config.clustering_etcd_prefix}/replica/#{id.to_s(36)}/insync"
+        deleted = @etcd.del(key)
+        if deleted > 0
+          Log.info { "Forgot replica #{id.to_s(36)}" }
+          true
+        else
+          false
+        end
       end
 
       def close
@@ -237,7 +285,8 @@ module LavinMQ
 
       private def each_follower(& : Follower -> Nil) : Nil
         @lock.synchronize do
-          update_isr if @dirty_isr
+          @disconnected_followers.each { |id| mark_out_of_sync(id) }
+          @disconnected_followers.clear
           @followers.each do |f|
             next if f.syncing? # Performing a full sync
             yield f
