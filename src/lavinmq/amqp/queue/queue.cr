@@ -559,11 +559,13 @@ module LavinMQ::AMQP
         d.add(msg)
       end
       return PublishResult::Overflow if reject_on_overflow?(msg)
+      was_empty = @msg_store.empty?
       @msg_store_lock.synchronize do
         @msg_store.push(msg)
         drop_overflow(dlx_tasks)
       end
       @publish_count.add(1, :relaxed)
+      ensure_consumers_deliver_loops if was_empty
       PublishResult::Ok
     rescue ex : MessageStore::Error
       @log.error(ex) { "Queue closed due to error" }
@@ -587,6 +589,14 @@ module LavinMQ::AMQP
         end
       end
       false
+    end
+
+    private def ensure_consumers_deliver_loops : Nil
+      @consumers_lock.synchronize do
+        @consumers.each do |consumer|
+          consumer.ensure_deliver_loop
+        end
+      end
     end
 
     # ameba:disable Metrics/CyclomaticComplexity
@@ -861,10 +871,12 @@ module LavinMQ::AMQP
               return expire_msg(env, :delivery_limit)
             end
           end
+          was_empty = @msg_store.empty?
           @msg_store_lock.synchronize do
             @msg_store.requeue(sp)
           end
           drop_overflow
+          ensure_consumers_deliver_loops if was_empty
         end
       else
         expire_msg(sp, :rejected)
