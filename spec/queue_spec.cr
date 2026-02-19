@@ -34,12 +34,11 @@ describe LavinMQ::AMQP::Queue do
       end
       s.stop
       RoughTime.paused do |t|
+        # Move time so message will be expired on startup
         t.travel 2.seconds
         s.restart
         with_channel(s) do |ch|
-          dlq = ch.queue("dlq")
-          # This should succeed:
-          wait_for(timeout: 200.milliseconds) { dlq.get }
+          ch.queue("dlq").get.should_not be_nil, failure_message: "Message not dead lettered?!"
         end
       end
     end
