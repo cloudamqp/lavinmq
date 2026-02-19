@@ -527,11 +527,13 @@ module LavinMQ::AMQP
         d.add(msg)
       end
       reject_on_overflow(msg)
+      was_empty = @msg_store.empty?
       @msg_store_lock.synchronize do
         @msg_store.push(msg)
         drop_overflow(dlx_tasks)
       end
       @publish_count.add(1, :relaxed)
+      ensure_consumers_deliver_loops if was_empty
       true
     rescue ex : MessageStore::Error
       @log.error(ex) { "Queue closed due to error" }
@@ -552,6 +554,14 @@ module LavinMQ::AMQP
         if @msg_store.bytesize + msg.bytesize >= mlb
           @log.debug { " Overflow reject message msg=#{msg}" }
           raise RejectOverFlow.new
+        end
+      end
+    end
+
+    private def ensure_consumers_deliver_loops : Nil
+      @consumers_lock.synchronize do
+        @consumers.each do |consumer|
+          consumer.ensure_deliver_loop
         end
       end
     end
@@ -825,10 +835,12 @@ module LavinMQ::AMQP
               return expire_msg(sp, :delivery_limit)
             end
           end
+          was_empty = @msg_store.empty?
           @msg_store_lock.synchronize do
             @msg_store.requeue(sp)
           end
           drop_overflow
+          ensure_consumers_deliver_loops if was_empty
         end
       else
         expire_msg(sp, :rejected)
