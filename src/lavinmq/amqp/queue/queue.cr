@@ -92,6 +92,7 @@ module LavinMQ::AMQP
     getter? internal = false
 
     private def queue_expire_loop
+      @vhost.closed.when_false.receive?
       loop do
         break unless @expires
         @consumers_empty.when_true.receive
@@ -110,6 +111,7 @@ module LavinMQ::AMQP
     end
 
     private def message_expire_loop
+      @vhost.closed.when_false.receive?
       loop do
         @consumers_empty.when_true.receive
         @log.debug { "Consumers empty" }
