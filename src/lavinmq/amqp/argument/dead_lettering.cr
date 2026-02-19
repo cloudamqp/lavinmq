@@ -42,7 +42,7 @@ module LavinMQ::AMQP
         # It's done like this to be able to dead letter to all destinations
         # except to the queue itself if a cycle is detected.
         # This is also how it's done in rabbitmq
-        def route(msg : BytesMessage, reason) # ameba:disable Metrics/CyclomaticComplexity
+        def route(msg : BytesMessage, reason)
           # No dead letter exchange => nothing to do
           return unless dlx = (msg.dlx || dlx())
           ex = @vhost.exchanges[dlx.to_s]?.as?(AMQP::Exchange) || return
