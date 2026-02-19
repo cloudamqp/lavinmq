@@ -52,7 +52,18 @@ class BoolChannel
   end
 
   def swap(value : Bool)
-    return value if @value.swap(value) == value
+    ret = @value.swap(value)
+    update_active_channel(value) unless ret == value
+    ret
+  end
+
+  def set(value : Bool) : Nil
+    @value.set(value)
+    update_active_channel(value)
+    nil
+  end
+
+  private def update_active_channel(value)
     if value
       @when_false.deactivate
       @when_true.activate
@@ -60,12 +71,6 @@ class BoolChannel
       @when_true.deactivate
       @when_false.activate
     end
-    !value
-  end
-
-  def set(value : Bool) : Nil
-    swap(value)
-    nil
   end
 
   def close
