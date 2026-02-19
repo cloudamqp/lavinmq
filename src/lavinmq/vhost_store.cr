@@ -89,6 +89,8 @@ module LavinMQ
         Log.debug { "Loading default vhosts" }
         create("/")
       end
+      # Wait for vhosts to be loaded ("not closed")
+      @vhosts.each_value &.closed.when_false.receive
       Log.debug { "#{size} vhosts loaded" }
     rescue ex
       Log.error(exception: ex) { "Failed to load vhosts" }
