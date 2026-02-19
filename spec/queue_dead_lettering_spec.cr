@@ -564,7 +564,7 @@ module DeadLetteringSpec
             # "fill" queues
             ch.default_exchange.publish("m1", "q1")
             ch.default_exchange.publish("m2", "q2")
-            # not overflow q1
+            # now overflow q1
             ch.default_exchange.publish("m3", "q1")
             # m1 should be dead lettered to q2, which in turn is overflowed so
             # m2 is dead letterd to q1. q1 overflowed again and m3 is dead lettered
@@ -602,7 +602,7 @@ module DeadLetteringSpec
             ch.default_exchange.publish("m1", "q1")
             ch.default_exchange.publish("m2", "q2")
             ch.default_exchange.publish("m3", "q3")
-            # not overflow q1
+            # now overflow q1
             ch.default_exchange.publish("m4", "q1")
 
             # messages should end up in the queue before the queue they were
