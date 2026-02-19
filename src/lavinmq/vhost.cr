@@ -28,7 +28,12 @@ module LavinMQ
     getter name, exchanges, queues, data_dir, operator_policies, policies, parameters, shovels,
       direct_reply_consumers, connections, dir, users
     property? flow = true
-    getter? closed = false
+    getter closed = BoolChannel.new(true)
+
+    def closed?
+      @closed.value
+    end
+
     property max_connections : Int32?
     property max_queues : Int32?
 
@@ -401,7 +406,7 @@ module LavinMQ
     end
 
     def close(reason = "Broker shutdown")
-      @closed = true
+      return if @closed.swap(true)
       stop_shovels
       stop_upstream_links
 
@@ -480,6 +485,7 @@ module LavinMQ
           apply_policies
         end
       end
+      closed.set(false)
       Fiber.yield
     end
 
