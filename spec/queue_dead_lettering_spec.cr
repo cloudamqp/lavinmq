@@ -545,6 +545,74 @@ module DeadLetteringSpec
           msg.body_io.to_s.should eq "msg1"
         end
       end
+
+      pending "should detect cycle with two queues in chain" do
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            qargs1 = {
+              "x-max-length"              => 1,
+              "x-dead-letter-exchange"    => "",
+              "x-dead-letter-routing-key" => "q2",
+            }
+            q1 = ch.queue("q1", args: AMQP::Client::Arguments.new(qargs1))
+            qargs2 = {
+              "x-max-length"              => 1,
+              "x-dead-letter-exchange"    => "",
+              "x-dead-letter-routing-key" => "q1",
+            }
+            q2 = ch.queue("q2", args: AMQP::Client::Arguments.new(qargs2))
+            # "fill" queues
+            ch.default_exchange.publish("m1", "q1")
+            ch.default_exchange.publish("m2", "q2")
+            # not overflow q1
+            ch.default_exchange.publish("m3", "q1")
+            # m1 should be dead lettered to q2, which in turn is overflowed so
+            # m2 is dead letterd to q1. q1 overflowed again and m3 is dead lettered
+            # to q2. When q2 now overflows m1 shouldn't be dead lettered to q1,
+            # but instead be dropped.
+
+            get1(q1).body_io.to_s.should eq "m2"
+            get1(q2).body_io.to_s.should eq "m3"
+          end
+        end
+      end
+
+      pending "should detect cycle with three queues in chain" do
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            qargs1 = {
+              "x-max-length"              => 1,
+              "x-dead-letter-exchange"    => "",
+              "x-dead-letter-routing-key" => "q2",
+            }
+            q1 = ch.queue("q1", args: AMQP::Client::Arguments.new(qargs1))
+            qargs2 = {
+              "x-max-length"              => 1,
+              "x-dead-letter-exchange"    => "",
+              "x-dead-letter-routing-key" => "q3",
+            }
+            q2 = ch.queue("q2", args: AMQP::Client::Arguments.new(qargs2))
+            qargs3 = {
+              "x-max-length"              => 1,
+              "x-dead-letter-exchange"    => "",
+              "x-dead-letter-routing-key" => "q1",
+            }
+            q3 = ch.queue("q3", args: AMQP::Client::Arguments.new(qargs3))
+            # "fill" queues
+            ch.default_exchange.publish("m1", "q1")
+            ch.default_exchange.publish("m2", "q2")
+            ch.default_exchange.publish("m3", "q3")
+            # not overflow q1
+            ch.default_exchange.publish("m4", "q1")
+
+            # messages should end up in the queue before the queue they were
+            # published to
+            get1(q1).body_io.to_s.should eq "m2"
+            get1(q2).body_io.to_s.should eq "m3"
+            get1(q3).body_io.to_s.should eq "m4"
+          end
+        end
+      end
     end
 
     describe "Header Validation" do
