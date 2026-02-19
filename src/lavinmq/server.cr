@@ -46,6 +46,7 @@ module LavinMQ
       Schema.migrate(@data_dir, @replicator)
       @users = Auth::UserStore.new(@data_dir, @replicator)
       @vhosts = VHostStore.new(@data_dir, @users, @replicator)
+      @vhosts.load!
       @mqtt_brokers = MQTT::Brokers.new(@vhosts, @replicator)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator)
       @authenticator = Auth::Chain.create(@config, @users)
@@ -98,6 +99,7 @@ module LavinMQ
       @users = Auth::UserStore.new(@data_dir, @replicator)
       @authenticator = Auth::Chain.create(@config, @users)
       @vhosts = VHostStore.new(@data_dir, @users, @replicator)
+      @vhosts.load!
       @connection_factories[Protocol::AMQP] = AMQP::ConnectionFactory.new(@authenticator, @vhosts)
       @connection_factories[Protocol::MQTT] = MQTT::ConnectionFactory.new(@authenticator, @mqtt_brokers, @config)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator)
