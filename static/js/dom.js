@@ -12,7 +12,7 @@ function parseJSON (data) {
 
 function jsonToText (obj) {
   if (obj == null) return ''
-  return JSON.stringify(obj, undefined, 2).replace(/["{},]/g, '').trim()
+  return JSON.stringify(obj, undefined, 2).replace(/["{},]/g, '').replace(/^ +/gm, '').trim()
 }
 
 function toastImpl (text, type = 'success') {
