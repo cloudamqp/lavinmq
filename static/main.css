@@ -1380,6 +1380,10 @@ footer .logo {
   color: var(--color-text-muted);
 }
 
+.details-table pre {
+  margin: 0;
+}
+
 #q-features span,
 #e-features span {
   cursor: help;
