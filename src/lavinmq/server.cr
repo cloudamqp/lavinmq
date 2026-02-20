@@ -29,7 +29,7 @@ module LavinMQ
     end
 
     getter vhosts, users, data_dir, parameters, authenticator
-    getter? closed, flow
+    getter? flow
     include ParameterTarget
 
     @start = Time.instant
