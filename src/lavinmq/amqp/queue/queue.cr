@@ -113,43 +113,43 @@ module LavinMQ::AMQP
     private def message_expire_loop
       loop do
         @msg_store.empty.when_false.receive
-        @log.debug { "Message store not empty" }
+        @log.debug { "message_expire_loop=\"Message store not empty\"" }
         if @consumers.empty?
           if ttl = time_to_message_expiration
-            @log.debug { "Next message TTL: #{ttl}" }
+            @log.debug { "message_expire_loop=\"Next message\" ttl=\"#{ttl}\"" }
             select
             when @message_ttl_change.receive
-              @log.debug { "Message TTL changed" }
+              @log.debug { "message_expire_loop=\"Message TTL changed\" ttl=\"#{ttl}\" consumers=0" }
             when @drop_overflow_channel.receive
-              @log.debug { "Drop overflow" }
+              @log.debug { "message_expire_loop=\"Drop overflow\" ttl=\"#{ttl}\" consumers=0" }
               drop_overflow
             when @msg_store.empty.when_true.receive
-              @log.debug { "Message store is empty" }
+              @log.debug { "message_expire_loop=\"Message store is empty\" ttl=\"#{ttl}\" consumers=0" }
             when @consumers_empty.when_false.receive
-              @log.debug { "Got consumers" }
+              @log.debug { "message_expire_loop=\"Got consumers\" ttl=\"#{ttl}\" consumers=0" }
             when timeout ttl
-              @log.debug { "Message TTL reached" }
+              @log.debug { "message_expire_loop=\"Message TTL reached\" ttl=\"#{ttl}\" consumers=0" }
               expire_messages
               drop_overflow
             end
           else
             select
             when @message_ttl_change.receive
-              @log.debug { "Message TTL changed" }
+              @log.debug { "message_expire_loop=\"Message TTL changed\" ttl=\"nil\" consumer=0" }
             when @drop_overflow_channel.receive
-              @log.debug { "Drop overflow" }
+              @log.debug { "message_expire_loop=\"Drop overflow\" ttl=\"nil\" consumer=0" }
               drop_overflow
             when @msg_store.empty.when_true.receive
-              @log.debug { "Msg store is empty" }
+              @log.debug { "message_expire_loop=\"Msg store is empty\" ttl=\"nil\" consumer=0" }
             end
           end
         else
           select
           when @drop_overflow_channel.receive
-            @log.debug { "Drop overflow" }
+            @log.debug { "message_expire_loop=\"Drop overflow while having consumers\"" }
             drop_overflow
           when @consumers_empty.when_true.receive
-            @log.debug { "Consumers empty" }
+            @log.debug { "message_expire_loop=\"Lost consumers\"" }
           end
         end
       end
