@@ -1,0 +1,20 @@
+name: Sync to lavinmq-security
+
+on:
+  push:
+    branches:
+      - main
+      - 'v[0-9]+.[0-9]+.x'
+
+jobs:
+  sync:
+    name: Sync branch to lavinmq-security
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Push to lavinmq-security
+        run: git push "https://${{ secrets.REPO_ACCESS_84C }}@github.com/84codes/lavinmq-security.git" "${{ github.ref_name }}:${{ github.ref_name }}"
