@@ -200,6 +200,10 @@ module LavinMQ
 
       private def message_expire_loop; end
 
+      private def signal_drop_overflow : Nil
+        drop_overflow if (@max_length || @max_length_bytes) && !immediate_delivery?
+      end
+
       private def queue_expire_loop; end
 
       private def next_id : UInt16?

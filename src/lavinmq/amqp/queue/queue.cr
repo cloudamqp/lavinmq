@@ -64,6 +64,7 @@ module LavinMQ::AMQP
     @consumers = Array(Client::Channel::Consumer).new
     @consumers_lock = Mutex.new
     @message_ttl_change = ::Channel(Nil).new
+    @drop_overflow_channel = ::Channel(Nil).new
 
     getter basic_get_unacked = Deque(UnackedMessage).new
     @unacked_count = Atomic(UInt32).new(0u32)
@@ -111,32 +112,44 @@ module LavinMQ::AMQP
 
     private def message_expire_loop
       loop do
-        @consumers_empty.when_true.receive
-        @log.debug { "Consumers empty" }
         @msg_store.empty.when_false.receive
-        @log.debug { "Message store not empty" }
-        next unless @consumers.empty?
-        if ttl = time_to_message_expiration
-          @log.debug { "Next message TTL: #{ttl}" }
-          select
-          when @message_ttl_change.receive
-            @log.debug { "Message TTL changed" }
-          when @msg_store.empty.when_true.receive # might be empty now (from basic get)
-            @log.debug { "Message store is empty" }
-          when @consumers_empty.when_false.receive
-            @log.debug { "Got consumers" }
-          when timeout ttl
-            @log.debug { "Message TTL reached" }
-            expire_messages
+        @log.debug { "message_expire_loop=\"Message store not empty\"" }
+        if @consumers.empty?
+          if ttl = time_to_message_expiration
+            @log.debug { "message_expire_loop=\"Next message\" ttl=\"#{ttl}\"" }
+            select
+            when @message_ttl_change.receive
+              @log.debug { "message_expire_loop=\"Message TTL changed\" ttl=\"#{ttl}\" consumers=0" }
+            when @drop_overflow_channel.receive
+              @log.debug { "message_expire_loop=\"Drop overflow\" ttl=\"#{ttl}\" consumers=0" }
+              drop_overflow
+            when @msg_store.empty.when_true.receive
+              @log.debug { "message_expire_loop=\"Message store is empty\" ttl=\"#{ttl}\" consumers=0" }
+            when @consumers_empty.when_false.receive
+              @log.debug { "message_expire_loop=\"Got consumers\" ttl=\"#{ttl}\" consumers=0" }
+            when timeout ttl
+              @log.debug { "message_expire_loop=\"Message TTL reached\" ttl=\"#{ttl}\" consumers=0" }
+              expire_messages
+              drop_overflow
+            end
+          else
+            select
+            when @message_ttl_change.receive
+              @log.debug { "message_expire_loop=\"Message TTL changed\" ttl=\"nil\" consumer=0" }
+            when @drop_overflow_channel.receive
+              @log.debug { "message_expire_loop=\"Drop overflow\" ttl=\"nil\" consumer=0" }
+              drop_overflow
+            when @msg_store.empty.when_true.receive
+              @log.debug { "message_expire_loop=\"Msg store is empty\" ttl=\"nil\" consumer=0" }
+            end
           end
         else
-          # first message in queue should not be expired
-          # wait for empty queue or TTL change
           select
-          when @message_ttl_change.receive
-            @log.debug { "Message TTL changed" }
-          when @msg_store.empty.when_true.receive
-            @log.debug { "Msg store is empty" }
+          when @drop_overflow_channel.receive
+            @log.debug { "message_expire_loop=\"Drop overflow while having consumers\"" }
+            drop_overflow
+          when @consumers_empty.when_true.receive
+            @log.debug { "message_expire_loop=\"Lost consumers\"" }
           end
         end
       end
@@ -212,6 +225,7 @@ module LavinMQ::AMQP
       # Recreate channels that were closed
       @queue_expiration_ttl_change = ::Channel(Nil).new
       @message_ttl_change = ::Channel(Nil).new
+      @drop_overflow_channel = ::Channel(Nil).new
       @paused = BoolChannel.new(false)
       @consumers_empty = BoolChannel.new(true)
       @single_active_consumer_change = ::Channel(Client::Channel::Consumer).new
@@ -429,6 +443,7 @@ module LavinMQ::AMQP
       @state = QueueState::Closed
       @queue_expiration_ttl_change.close
       @message_ttl_change.close
+      @drop_overflow_channel.close
       @paused.close
       @consumers_empty.close
       @consumers_lock.synchronize do
@@ -521,7 +536,7 @@ module LavinMQ::AMQP
         @msg_store.push(msg)
       end
       @publish_count.add(1, :relaxed)
-      drop_overflow_if_no_immediate_delivery
+      signal_drop_overflow
       true
     rescue ex : MessageStore::Error
       @log.error(ex) { "Queue closed due to error" }
@@ -546,8 +561,8 @@ module LavinMQ::AMQP
       end
     end
 
-    private def drop_overflow_if_no_immediate_delivery : Nil
-      drop_overflow if (@max_length || @max_length_bytes) && !immediate_delivery?
+    private def signal_drop_overflow : Nil
+      @drop_overflow_channel.try_send?(nil) if (@max_length || @max_length_bytes) && !immediate_delivery?
     end
 
     private def drop_overflow : Nil
@@ -816,7 +831,7 @@ module LavinMQ::AMQP
           @msg_store_lock.synchronize do
             @msg_store.requeue(sp)
           end
-          drop_overflow_if_no_immediate_delivery
+          signal_drop_overflow
         end
       else
         expire_msg(sp, :rejected)
