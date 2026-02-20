@@ -483,7 +483,7 @@ module LavinMQ
       if has_parameters || has_policies
         spawn(name: "Load parameters") do
           sleep 10.milliseconds
-          next if @closed
+          next if closed?
           apply_parameters
           apply_policies
         end
