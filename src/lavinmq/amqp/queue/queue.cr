@@ -225,6 +225,7 @@ module LavinMQ::AMQP
       # Recreate channels that were closed
       @queue_expiration_ttl_change = ::Channel(Nil).new
       @message_ttl_change = ::Channel(Nil).new
+      @drop_overflow_channel = ::Channel(Nil).new
       @paused = BoolChannel.new(false)
       @consumers_empty = BoolChannel.new(true)
       @single_active_consumer_change = ::Channel(Client::Channel::Consumer).new
