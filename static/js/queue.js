@@ -201,7 +201,8 @@ document.querySelector('#addBinding').addEventListener('submit', function (evt) 
     arguments: args
   }
   HTTP.request('POST', url, { body })
-    .then(() => {
+    .then(res => {
+      if (res && res.is_error) return
       bindingsTable.reload()
       evt.target.reset()
       DOM.toast('Exchange ' + e + ' bound to queue')
