@@ -567,32 +567,38 @@ module LavinMQ::AMQP
 
     private def drop_overflow : Nil
       counter = 0
+
       if ml = @max_length
-        @msg_store_lock.synchronize do
-          while @msg_store.size > ml
-            env = @msg_store.shift? || break
-            @log.debug { "Overflow drop head sp=#{env.segment_position}" }
-            expire_msg(env, :maxlen)
-            counter &+= 1
-            if counter >= 16 * 1024
-              Fiber.yield
-              counter = 0
+        loop do
+          env = @msg_store_lock.synchronize do
+            if @msg_store.size > ml
+              @msg_store.shift?
             end
+          end
+          break unless env
+          expire_msg(env, :maxlen)
+          counter &+= 1
+          if counter >= 16 * 1024
+            Fiber.yield
+            counter = 0
           end
         end
       end
 
       if mlb = @max_length_bytes
-        @msg_store_lock.synchronize do
-          while @msg_store.bytesize > mlb
-            env = @msg_store.shift? || break
-            @log.debug { "Overflow drop head sp=#{env.segment_position}" }
-            expire_msg(env, :maxlenbytes)
-            counter &+= 1
-            if counter >= 16 * 1024
-              Fiber.yield
-              counter = 0
+        loop do
+          env = @msg_store_lock.synchronize do
+            if @msg_store.size > mlb
+              @msg_store.shift?
             end
+          end
+          break unless env
+          @log.debug { "Overflow drop head sp=#{env.segment_position}" }
+          expire_msg(env, :maxlenbytes)
+          counter &+= 1
+          if counter >= 16 * 1024
+            Fiber.yield
+            counter = 0
           end
         end
       end
