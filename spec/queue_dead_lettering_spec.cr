@@ -577,7 +577,7 @@ module DeadLetteringSpec
         end
       end
 
-      pending "should detect cycle with three queues in chain" do
+      it "should detect cycle with three queues in chain" do
         with_amqp_server do |s|
           with_channel(s) do |ch|
             qargs1 = {
