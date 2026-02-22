@@ -667,20 +667,17 @@ module LavinMQ::AMQP
 
     private def expire_messages : Nil
       i = 0
-      @msg_store_lock.synchronize do
-        loop do
-          env = @msg_store.first? || break
-          msg = env.message
+      loop do
+        env = @msg_store_lock.synchronize do
+          first_env = @msg_store.first? || break
+          msg = first_env.message
           @log.debug { "Checking if next message #{msg} has expired" }
-          if has_expired?(msg)
-            # shift it out from the msgs store, first time was just a peek
-            env = @msg_store.shift? || break
-            expire_msg(env, :expired)
-            i += 1
-          else
-            break
-          end
-        end
+          break unless has_expired?(msg)
+          # shift it out from the msgs store, first time was just a peek
+          @msg_store.shift?
+        end || break
+        expire_msg(env, :expired)
+        i += 1
       end
       @log.info { "Expired #{i} messages" } if i > 0
     end
