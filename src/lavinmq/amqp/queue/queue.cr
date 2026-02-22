@@ -613,7 +613,8 @@ module LavinMQ::AMQP
             delivery_count = @deliveries.fetch(first_env.segment_position, 0) || break
             break unless delivery_count > limit
             @msg_store.shift?
-          end || break
+          end
+          break unless env
           @log.debug { "Over delivery limit, drop sp=#{env.segment_position}" }
           expire_msg(env, :delivery_limit)
           counter &+= 1
@@ -675,7 +676,8 @@ module LavinMQ::AMQP
           break unless has_expired?(msg)
           # shift it out from the msgs store, first time was just a peek
           @msg_store.shift?
-        end || break
+        end
+        break unless env
         expire_msg(env, :expired)
         i += 1
       end
