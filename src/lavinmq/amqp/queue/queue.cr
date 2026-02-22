@@ -588,7 +588,7 @@ module LavinMQ::AMQP
       if mlb = @max_length_bytes
         loop do
           env = @msg_store_lock.synchronize do
-            if @msg_store.size > mlb
+            if @msg_store.bytesize > mlb
               @msg_store.shift?
             end
           end
