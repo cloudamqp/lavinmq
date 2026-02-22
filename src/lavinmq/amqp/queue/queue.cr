@@ -607,19 +607,19 @@ module LavinMQ::AMQP
     private def drop_redelivered : Nil
       counter = 0
       if limit = @delivery_limit
-        @msg_store_lock.synchronize do
-          loop do
-            env = @msg_store.first? || break
-            delivery_count = @deliveries.fetch(env.segment_position, 0) || break
+        loop do
+          env = @msg_store_lock.synchronize do
+            first_env = @msg_store.first? || break
+            delivery_count = @deliveries.fetch(first_env.segment_position, 0) || break
             break unless delivery_count > limit
-            env = @msg_store.shift? || break
-            @log.debug { "Over delivery limit, drop sp=#{env.segment_position}" }
-            expire_msg(env, :delivery_limit)
-            counter &+= 1
-            if counter >= 16 * 1024
-              Fiber.yield
-              counter = 0
-            end
+            @msg_store.shift?
+          end || break
+          @log.debug { "Over delivery limit, drop sp=#{env.segment_position}" }
+          expire_msg(env, :delivery_limit)
+          counter &+= 1
+          if counter >= 16 * 1024
+            Fiber.yield
+            counter = 0
           end
         end
       end
