@@ -92,7 +92,7 @@ module LavinMQ
       @vhosts.close
     end
 
-    private def stop
+    def stop
       raise "stop called but already closed" if @closed.swap(true)
       @vhosts.close
       @replicator.try &.clear
