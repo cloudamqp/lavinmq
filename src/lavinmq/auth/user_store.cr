@@ -21,7 +21,33 @@ module LavinMQ
         load!
       end
 
-      forward_missing_to @users
+      def []?(name : String) : User?
+        @users[name]?
+      end
+
+      def [](name : String) : User
+        @users[name]
+      end
+
+      def each_value(& : User ->) : Nil
+        @users.each_value { |u| yield u }
+      end
+
+      def each_value : Iterator(User)
+        @users.each_value
+      end
+
+      def has_key?(name : String) : Bool
+        @users.has_key?(name)
+      end
+
+      def size : Int32
+        @users.size
+      end
+
+      def values : Array(User)
+        @users.values
+      end
 
       def each(&)
         @users.each do |kv|

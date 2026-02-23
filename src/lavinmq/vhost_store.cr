@@ -20,7 +20,37 @@ module LavinMQ
       load!
     end
 
-    forward_missing_to @vhosts
+    def []?(name : String) : VHost?
+      @vhosts[name]?
+    end
+
+    def [](name : String) : VHost
+      @vhosts[name]
+    end
+
+    def each_value(& : VHost ->) : Nil
+      @vhosts.each_value { |v| yield v }
+    end
+
+    def each_value : Iterator(VHost)
+      @vhosts.each_value
+    end
+
+    def has_key?(name : String) : Bool
+      @vhosts.has_key?(name)
+    end
+
+    def size : Int32
+      @vhosts.size
+    end
+
+    def values : Array(VHost)
+      @vhosts.values
+    end
+
+    def first_value : VHost
+      @vhosts.first_value
+    end
 
     def each(&)
       @vhosts.each do |kv|
