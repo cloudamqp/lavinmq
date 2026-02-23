@@ -228,7 +228,7 @@ module LavinMQ
 
       def cancel
         @channel.send AMQP::Frame::Basic::Cancel.new(@channel.id, @tag, no_wait: true)
-        @channel.consumers.delete self
+        @channel.consumers_delete(self)
         close
       end
 

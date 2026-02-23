@@ -14,7 +14,7 @@ module LavinMQ
       include Stats
       include SortableJSON
 
-      getter channels, log, name, user, client_id, socket, connection_info
+      getter log, name, user, client_id, socket, connection_info
       getter? clean_session
       @connected_at = RoughTime.unix_ms
       @channels = Hash(UInt16, Client::Channel).new
@@ -24,6 +24,23 @@ module LavinMQ
 
       def vhost
         @broker.vhost
+      end
+
+      # Stub channel accessors for polymorphic dispatch with AMQP::Client
+
+      def channels_size : Int32
+        0
+      end
+
+      def channels_each_value(& : LavinMQ::Client::Channel ->) : Nil
+      end
+
+      def channels_each_value : Iterator(LavinMQ::Client::Channel)
+        ([] of LavinMQ::Client::Channel).each
+      end
+
+      def channels_byid?(id : UInt16) : LavinMQ::Client::Channel?
+        nil
       end
 
       def initialize(@io : MQTT::IO,
