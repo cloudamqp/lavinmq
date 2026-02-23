@@ -189,7 +189,7 @@ module LavinMQ
           return
         end
         connections_each do |c|
-          c.channels.each_value do |ch|
+          c.channels_each_value do |ch|
             ch.check_consumer_timeout
           end
         end

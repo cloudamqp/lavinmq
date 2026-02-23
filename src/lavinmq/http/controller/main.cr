@@ -42,8 +42,8 @@ module LavinMQ
             next if x_vhost && vhost.name != x_vhost
             vhost.connections_each do |c|
               connections += 1
-              channels += c.channels.size
-              consumers += c.channels.each_value.sum &.consumers.size
+              channels += c.channels_size
+              consumers += c.channels_each_value.sum &.consumers_size
             end
             exchanges += vhost.exchanges_size
             queues += vhost.queues_size

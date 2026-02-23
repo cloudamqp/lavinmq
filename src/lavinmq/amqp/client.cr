@@ -16,7 +16,7 @@ module LavinMQ
       include Stats
       include SortableJSON
 
-      getter vhost, channels, log, name
+      getter vhost, log, name
       getter user
       getter max_frame_size : UInt32
       getter channel_max : UInt16
@@ -36,6 +36,24 @@ module LavinMQ
       rate_stats({"send_oct", "recv_oct"})
       DEFAULT_EX = "amq.default"
       Log        = LavinMQ::Log.for "amqp.client"
+
+      # Channel accessors
+
+      def channels_size : Int32
+        @channels.size
+      end
+
+      def channels_each_value(& : Client::Channel ->) : Nil
+        @channels.each_value { |ch| yield ch }
+      end
+
+      def channels_each_value : Iterator(Client::Channel)
+        @channels.each_value
+      end
+
+      def channels_byid?(id : UInt16) : Client::Channel?
+        @channels[id]?
+      end
 
       def initialize(@socket : IO,
                      @connection_info : ConnectionInfo,

@@ -20,7 +20,24 @@ module LavinMQ
       getter id, name
       property? running = true
       getter? flow = true
-      getter consumers = Array(Consumer).new
+      @consumers = Array(Consumer).new
+
+      def consumers : Array(Consumer)
+        @consumers.dup
+      end
+
+      def consumers_size : Int32
+        @consumers.size
+      end
+
+      def consumers_find(& : Consumer -> Bool) : Consumer?
+        @consumers.find { |c| yield c }
+      end
+
+      def consumers_delete(consumer : Consumer) : Consumer?
+        @consumers.delete(consumer)
+      end
+
       getter prefetch_count : UInt16 = Config.instance.default_consumer_prefetch
       getter global_prefetch_count = 0_u16
       getter has_capacity = BoolChannel.new(true)
