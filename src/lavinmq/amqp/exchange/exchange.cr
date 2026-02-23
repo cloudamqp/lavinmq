@@ -47,15 +47,15 @@ module LavinMQ
       end
 
       protected def notify_bind(data : BindingDetails)
-        @on_bind.each &.call(data)
+        @on_bind.dup.each &.call(data)
       end
 
       protected def notify_unbind(data : BindingDetails)
-        @on_unbind.each &.call(data)
+        @on_unbind.dup.each &.call(data)
       end
 
       protected def notify_deleted
-        @on_deleted.each &.call
+        @on_deleted.dup.each &.call
       end
 
       getter name, arguments, vhost, type, alternate_exchange

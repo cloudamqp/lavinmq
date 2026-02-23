@@ -50,7 +50,7 @@ module LavinMQ
       @users.add_permission(@users.direct_user, name, /.*/, /.*/, /.*/)
       @vhosts[name] = vhost
       save! if save
-      @on_added.each &.call(name)
+      @on_added.dup.each &.call(name)
       vhost
     end
 
@@ -58,7 +58,7 @@ module LavinMQ
       if vhost = @vhosts.delete name
         @users.rm_vhost_permissions_for_all(name)
         vhost.delete
-        @on_deleted.each &.call(name)
+        @on_deleted.dup.each &.call(name)
         Log.info { "Deleted vhost #{name}" }
         save!
         vhost
@@ -70,7 +70,7 @@ module LavinMQ
         @vhosts.each_value do |vhost|
           wg.spawn do
             vhost.close
-            @on_closed.each &.call(vhost.name)
+            @on_closed.dup.each &.call(vhost.name)
           end
         end
       end

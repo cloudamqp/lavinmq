@@ -37,7 +37,7 @@ module LavinMQ::AMQP
     end
 
     protected def notify_deleted
-      @on_deleted.each &.call
+      @on_deleted.dup.each &.call
     end
 
     VALIDATOR_INT_ZERO = ArgumentValidator::IntValidator.new(min_value: 0)
