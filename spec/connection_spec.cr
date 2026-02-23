@@ -103,7 +103,7 @@ describe LavinMQ::Server do
         conn = AMQP::Client.new(port: amqp_port(s), channel_max: 0).connect
         conn.channel
         conn.channel
-        s.connections.first.channels_size.should eq 2
+        s.connections.first.channel_count.should eq 2
         s.connections.first.as(LavinMQ::AMQP::Client).channel_max.should eq 0
       end
     end

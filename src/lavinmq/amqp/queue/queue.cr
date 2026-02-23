@@ -95,11 +95,11 @@ module LavinMQ::AMQP
       @consumers.any? { |c| yield c }
     end
 
-    def consumers_each(& : Client::Channel::Consumer ->) : Nil
+    def each_consumer(& : Client::Channel::Consumer ->) : Nil
       @consumers.each { |c| yield c }
     end
 
-    def consumers_first? : Client::Channel::Consumer?
+    def first_consumer : Client::Channel::Consumer?
       @consumers.first?
     end
 

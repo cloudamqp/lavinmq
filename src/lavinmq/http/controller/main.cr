@@ -40,10 +40,10 @@ module LavinMQ
 
           vhosts(user(context)).each do |vhost|
             next if x_vhost && vhost.name != x_vhost
-            vhost.connections_each do |c|
+            vhost.each_connection do |c|
               connections += 1
-              channels += c.channels_size
-              consumers += c.channels_each_value.sum &.consumers_size
+              channels += c.channel_count
+              consumers += c.each_channel.sum &.consumers_size
               stats_details = c.stats_details
               recv_rate += stats_details[:recv_oct_details][:rate]
               send_rate += stats_details[:send_oct_details][:rate]
@@ -52,7 +52,7 @@ module LavinMQ
             end
             exchanges += vhost.exchanges_size
             queues += vhost.queues_size
-            vhost.queues_each_value do |q|
+            vhost.each_queue do |q|
               ready += q.message_count
               unacked += q.unacked_count
               add_logs!(ready_log, q.message_count_log)

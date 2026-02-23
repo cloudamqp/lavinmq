@@ -29,14 +29,14 @@ module LavinMQ
       # ameba:disable Metrics/CyclomaticComplexity
       private def register_routes
         get "/api/queues" do |context, _|
-          itr = Iterator(Queue).chain(vhosts(user(context)).map &.queues_each_value)
+          itr = Iterator(Queue).chain(vhosts(user(context)).map &.each_queue)
           page(context, itr)
         end
 
         get "/api/queues/:vhost" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            page(context, vhost.queues_each_value)
+            page(context, vhost.each_queue)
           end
         end
 

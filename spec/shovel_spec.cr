@@ -29,7 +29,7 @@ describe LavinMQ::Shovel do
           s.vhosts["/"].queue("source").publish(LavinMQ::Message.new("", "", ""))
           expect_raises(AMQP::Client::Connection::ClosedException) do
             source.each do
-              s.vhosts["/"].connections_each &.close("spec")
+              s.vhosts["/"].each_connection &.close("spec")
             end
           end
           source.started?.should be_false

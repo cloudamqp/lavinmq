@@ -65,11 +65,11 @@ module LavinMQ
       @exchanges.has_key?(name)
     end
 
-    def exchanges_each_value(& : Exchange ->) : Nil
+    def each_exchange(& : Exchange ->) : Nil
       @exchanges.each_value { |v| yield v }
     end
 
-    def exchanges_each_value : Iterator(Exchange)
+    def each_exchange : Iterator(Exchange)
       @exchanges.each_value
     end
 
@@ -99,11 +99,11 @@ module LavinMQ
       @queues.has_key?(name)
     end
 
-    def queues_each_value(& : Queue ->) : Nil
+    def each_queue(& : Queue ->) : Nil
       @queues.each_value { |v| yield v }
     end
 
-    def queues_each_value : Iterator(Queue)
+    def each_queue : Iterator(Queue)
       @queues.each_value
     end
 
@@ -125,11 +125,11 @@ module LavinMQ
 
     # Connection accessors
 
-    def connections_each(& : Client ->) : Nil
+    def each_connection(& : Client ->) : Nil
       @connections.each { |c| yield c }
     end
 
-    def connections_each : Iterator(Client)
+    def each_connection : Iterator(Client)
       @connections.each
     end
 
@@ -185,8 +185,8 @@ module LavinMQ
       loop do
         sleep Config.instance.consumer_timeout_loop_interval.seconds
         return if closed?
-        connections_each do |c|
-          c.channels_each_value do |ch|
+        each_connection do |c|
+          c.each_channel do |ch|
             ch.check_consumer_timeout
           end
         end
@@ -263,7 +263,7 @@ module LavinMQ
     def message_details
       ready = unacked = 0_u64
       ack = confirm = deliver = deliver_no_ack = get = get_no_ack = publish = redeliver = return_unroutable = deliver_get = 0_u64
-      queues_each_value do |q|
+      each_queue do |q|
         ready += q.message_count
         unacked += q.unacked_count
         ack += q.ack_count
@@ -410,7 +410,7 @@ module LavinMQ
 
     def queue_bindings(queue : Queue) : Iterator(BindingDetails)
       default_binding = BindingDetails.new("", name, BindingKey.new(queue.name), queue)
-      bindings = exchanges_each_value.flat_map do |ex|
+      bindings = each_exchange.flat_map do |ex|
         ex.bindings_details.select { |binding| binding.destination == queue }
       end
       {default_binding}.each.chain(bindings)
@@ -539,9 +539,9 @@ module LavinMQ
       end
       close_done.close
       # then force close the remaining (close tcp socket)
-      connections_each &.force_close
+      each_connection &.force_close
       Fiber.yield # yield so that Client read_loops can shutdown
-      queues_each_value &.close
+      each_queue &.close
       Fiber.yield
       @definitions_file.close
       FileUtils.rm_rf File.join(@data_dir, "transient")
@@ -557,7 +557,7 @@ module LavinMQ
       resources = if resources
                     resources.each
                   else
-                    Iterator.chain({queues_each_value, exchanges_each_value})
+                    Iterator.chain({each_queue, each_exchange})
                   end
       policies = @policies.values.sort_by!(&.priority).reverse
       operator_policies = @operator_policies.values.sort_by!(&.priority).reverse

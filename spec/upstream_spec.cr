@@ -187,7 +187,7 @@ describe LavinMQ::Federation::Upstream do
 
         # Disconnect the federation link
         conn_id = nil
-        upstream_vhost.connections_each do |conn|
+        upstream_vhost.each_connection do |conn|
           next unless conn.client_name.starts_with?("Federation link")
           conn_id = conn.object_id
           conn.close
@@ -196,7 +196,7 @@ describe LavinMQ::Federation::Upstream do
         upstream.links.first.@state_changed.try_send nil
         wait_for { upstream_vhost.connections_size == 1 }
         conn = nil
-        upstream_vhost.connections_each { |c| conn = c if c.name.starts_with?("Federation link") }
+        upstream_vhost.each_connection { |c| conn = c if c.name.starts_with?("Federation link") }
         # Verify that it's a new connection... Any better assertion that can be done?
         conn.object_id.should_not eq conn_id
       end
@@ -442,7 +442,7 @@ describe LavinMQ::Federation::Upstream do
           end
         end
         all_empty = true
-        upstream_vhost.queues_each_value { |q| all_empty = false unless q.empty? }
+        upstream_vhost.each_queue { |q| all_empty = false unless q.empty? }
         all_empty.should be_true
       end
     end
@@ -484,7 +484,7 @@ describe LavinMQ::Federation::Upstream do
             upstream_ex.publish_confirm "msg1", "rk1"
             msgs.should be_receiving "msg1"
 
-            upstream_vhost.connections_each do |conn|
+            upstream_vhost.each_connection do |conn|
               next unless conn.client_name.starts_with?("Federation link")
               conn.close
             end
@@ -507,7 +507,7 @@ describe LavinMQ::Federation::Upstream do
           end
         end
         all_empty = true
-        upstream_vhost.queues_each_value { |q| all_empty = false unless q.empty? }
+        upstream_vhost.each_queue { |q| all_empty = false unless q.empty? }
         all_empty.should be_true
       end
     end

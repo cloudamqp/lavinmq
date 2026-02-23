@@ -39,19 +39,19 @@ module LavinMQ
 
       # Channel accessors
 
-      def channels_size : Int32
+      def channel_count : Int32
         @channels.size
       end
 
-      def channels_each_value(& : Client::Channel ->) : Nil
+      def each_channel(& : Client::Channel ->) : Nil
         @channels.each_value { |ch| yield ch }
       end
 
-      def channels_each_value : Iterator(Client::Channel)
+      def each_channel : Iterator(Client::Channel)
         @channels.each_value
       end
 
-      def channels_byid?(id : UInt16) : Client::Channel?
+      def channel?(id : UInt16) : Client::Channel?
         @channels[id]?
       end
 

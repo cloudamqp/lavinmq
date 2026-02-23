@@ -28,18 +28,18 @@ module LavinMQ
 
       # Stub channel accessors for polymorphic dispatch with AMQP::Client
 
-      def channels_size : Int32
+      def channel_count : Int32
         0
       end
 
-      def channels_each_value(& : LavinMQ::Client::Channel ->) : Nil
+      def each_channel(& : LavinMQ::Client::Channel ->) : Nil
       end
 
-      def channels_each_value : Iterator(LavinMQ::Client::Channel)
+      def each_channel : Iterator(LavinMQ::Client::Channel)
         ([] of LavinMQ::Client::Channel).each
       end
 
-      def channels_byid?(id : UInt16) : LavinMQ::Client::Channel?
+      def channel?(id : UInt16) : LavinMQ::Client::Channel?
         nil
       end
 
