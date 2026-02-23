@@ -223,7 +223,7 @@ describe LavinMQ::Exchange do
           ch.exchange("test", "topic", args: args)
           ch.queue.bind("test", "#")
           ex = s.vhosts["/"].exchange("test")
-          q = s.vhosts["/"].queues_each_value.first
+          q = s.vhosts["/"].each_queue.first
           props = LavinMQ::AMQP::Properties.new(headers: LavinMQ::AMQP::Table.new({
             "x-deduplication-header" => "msg1",
           }))
@@ -252,7 +252,7 @@ describe LavinMQ::Exchange do
           ch.exchange("test", "topic", args: args)
           ch.queue.bind("test", "#")
           ex = s.vhosts["/"].exchange("test")
-          q = s.vhosts["/"].queues_each_value.first
+          q = s.vhosts["/"].each_queue.first
           props = LavinMQ::AMQP::Properties.new(headers: LavinMQ::AMQP::Table.new({
             "custom" => "msg1",
           }))

@@ -30,11 +30,11 @@ module LavinMQ
         @consumers.size
       end
 
-      def consumers_find(& : Consumer -> Bool) : Consumer?
+      def find_consumer(& : Consumer -> Bool) : Consumer?
         @consumers.find { |c| yield c }
       end
 
-      def consumers_delete(consumer : Consumer) : Consumer?
+      def delete_consumer(consumer : Consumer) : Consumer?
         @consumers.delete(consumer)
       end
 
