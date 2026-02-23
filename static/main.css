@@ -1380,6 +1380,11 @@ footer .logo {
   color: var(--color-text-muted);
 }
 
+#cp-capabilities {
+  white-space: pre-line;
+  margin: 0
+}
+
 #q-features span,
 #e-features span {
   cursor: help;
