@@ -12,7 +12,7 @@ module LavinMQ
       end
 
       def [](client_id : String) : Session
-        @vhost.queue?("mqtt.#{client_id}").not_nil!.as(Session)
+        @vhost.queue("mqtt.#{client_id}").as(Session)
       end
 
       def declare(client : Client)
