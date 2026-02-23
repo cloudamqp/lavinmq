@@ -7,23 +7,22 @@ def recursive_bake(dir)
     if File.directory? path
       recursive_bake path
     else
-      if already_compressed?(path)
-        data = File.read(path)
-        etag = %(W/"#{Digest::MD5.hexdigest(data)}")
-        deflated = false
-      else
-        io = IO::Memory.new
-        Compress::Zlib::Writer.open(io, Compress::Zlib::BEST_COMPRESSION) do |zlib|
-          File.open(path) do |f|
-            etag = %(W/"#{Digest::MD5.hexdigest(f)}")
-            f.rewind
-            IO.copy(f, zlib)
+      File.open(path) do |f|
+        etag = %(W/"#{Digest::MD5.hexdigest(f)}")
+        f.rewind
+        if already_compressed?(path)
+          data = String.build(f.size) { |s| IO.copy(f, s) }
+          deflated = false
+        else
+          data = String.build(f.size) do |io|
+            Compress::Zlib::Writer.open(io, Compress::Zlib::BEST_COMPRESSION) do |zlib|
+              IO.copy(f, zlib)
+            end
           end
+          deflated = true
         end
-        data = io.to_s
-        deflated = true
+        puts %(when #{path.lchop(ARGV[0]).inspect}\n  {Bytes.literal(#{data.bytes.join(", ")}), #{etag.inspect}, #{deflated}})
       end
-      puts %(when #{path.lchop(ARGV[0]).inspect}\n  {Bytes.literal(#{data.bytes.join(", ")}), #{etag.inspect}, #{deflated}})
     end
   end
 end
