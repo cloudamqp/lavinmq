@@ -20,6 +20,12 @@ def recursive_bake(dir)
             end
           end
           deflated = true
+          # Only use the deflated version if it's actually smaller than the original
+          if data.bytesize >= File.size(path)
+            f.rewind
+            data = String.build(f.size) { |s| IO.copy(f, s) }
+            deflated = false
+          end
         end
         puts %(when #{path.lchop(ARGV[0]).inspect}\n  {Bytes.literal(#{data.bytes.join(", ")}), #{etag.inspect}, #{deflated}})
       end
