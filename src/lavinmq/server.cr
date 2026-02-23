@@ -29,12 +29,20 @@ module LavinMQ
     end
 
     getter vhosts, users, data_dir, parameters, authenticator
-    getter? flow
     include ParameterTarget
 
     @start = Time.instant
     @closed = BoolChannel.new(false)
     @flow = true
+
+    def closed? : Bool
+      @closed.value
+    end
+
+    def flow? : Bool
+      @flow
+    end
+
     @listeners = Hash(Socket::Server, Protocol).new # Socket => protocol
     @connection_factories = Hash(Protocol, ConnectionFactory).new
     @replicator : Clustering::Replicator?
@@ -56,10 +64,6 @@ module LavinMQ
       }
       apply_parameter
       spawn stats_loop, name: "Server#stats_loop"
-    end
-
-    def closed?
-      @closed.value
     end
 
     def followers
