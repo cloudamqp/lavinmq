@@ -8,8 +8,8 @@ def recursive_bake(dir)
       recursive_bake path
     else
       if already_compressed?(path)
-        bytes = File.read(path)
-        etag = %(W/"#{Digest::MD5.hexdigest(bytes)}")
+        data = File.read(path)
+        etag = %(W/"#{Digest::MD5.hexdigest(data)}")
         deflated = false
       else
         io = IO::Memory.new
@@ -20,10 +20,10 @@ def recursive_bake(dir)
             IO.copy(f, zlib)
           end
         end
-        bytes = io.to_s
+        data = io.to_s
         deflated = true
       end
-      puts %("#{path.lchop(ARGV[0])}": {#{bytes.inspect}.to_slice, #{etag.inspect}, #{deflated}},)
+      puts %(when #{path.lchop(ARGV[0]).inspect}\n  {Bytes.literal(#{data.bytes.join(", ")}), #{etag.inspect}, #{deflated}})
     end
   end
 end

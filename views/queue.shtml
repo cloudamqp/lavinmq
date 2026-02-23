@@ -1,15 +1,15 @@
-<%- pagename = "Stream" -%>
+<!--#set var="TITLE" value="Queue" -->
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="queues">
   <head>
-    <% render "partials/head" %>
-    <script type="module" src="js/stream.js"></script>
+    <!--#include file="partials/head.html" -->
+    <script type="module" src="js/queue.js"></script>
   </head>
   <body>
-    <% render "partials/header" %>
+    <!--#include file="partials/header.html" -->
     <main class="queue-main main-grid">
       <div id="breadcrumbs" class="cols-12">
-          <h2 class="page-title"><%=pagename%><div id="pagename-label" class="subpage-title"></div></h2>
+          <h2 class="page-title"><!--#echo var="TITLE" --><div id="pagename-label" class="subpage-title"></div></h2>
       </div>
       <section class="card cols-4">
         <h3>Details</h3>
@@ -39,6 +39,11 @@
             <td id="q-effective-policy-definition"></td>
           </tr>
         </table>
+        <form method="put" id="restartQueue" class="form hide">
+          <label>
+            <button type="submit" class="btn btn-green">Restart queue</button>
+          </label>
+        </form>
       </section>
       <section class="card cols-5">
         <h3>Messages</h3>
@@ -54,6 +59,18 @@
             <td id="q-total"></td>
             <td id="q-total-bytes"></td>
             <td id="q-total-avg-bytes"></td>
+          </tr>
+          <tr>
+            <th>Ready</th>
+            <td id="q-messages-ready"></td>
+            <td id="q-message-bytes-ready"></td>
+            <td id="q-ready-avg-bytes"></td>
+          </tr>
+          <tr>
+            <th><a id="unacked-link" href="">Unacked</a></th>
+            <td id="q-messages-unacknowledged"></td>
+            <td id="q-message-bytes-unacknowledged"></td>
+            <td id="q-unacked-avg-bytes"></td>
           </tr>
         </table>
       </section>
@@ -109,7 +126,7 @@
         </div>
       </section>
       <form method="post" id="addBinding" class="form card cols-6">
-        <h3>Add a binding to this stream</h3>
+        <h3>Add a binding to this queue</h3>
         <label>
           <span>From exchange</span>
           <input name="source" type="text" required list="exchange-list">
@@ -129,7 +146,7 @@
         <h3 class="with-desc">Publish message</h3>
         <p class="card-desc pre-form">
           Message will be published to the default exchange with routing key <span class="queue"></span>, routing it to
-          this stream.
+          this queue.
         </p>
         <label>
           <span>Delivery mode</span>
@@ -198,12 +215,12 @@
         <form method="post" id="getMessages" class="form">
           <h3>Get messages</h3>
           <label>
-            <span>Offset</span>
-            <input type="text" name="offset" value="first">
-          </label>
-          <label>
-            <span>Count</span>
-            <input type="number" name="messages" value=1>
+            <span>Mode</span>
+            <select class="dropdown" name="mode">
+              <option value="get">Get Ack</option>
+              <option value="reject_requeue_true" selected>Reject and Requeue</option>
+              <option value="reject_requeue_false">Reject</option>
+            </select>
           </label>
           <label>
             <span>Encoding</span>
@@ -212,12 +229,16 @@
               <option value="base64">Base64</option>
             </select>
           </label>
+          <label>
+            <span>Messages</span>
+            <input type="number" name="messages" value=1 min="1" max="1000">
+            <small id="dataTags">Maximum 1000 messages</small>
+          </label>
           <button type="submit" class="btn btn-outlined">Get message(s)</button>
         </form>
       </section>
-      <!--
       <form method="post" id="moveMessages" class="form card cols-6">
-        <h3>Copy messages</h3>
+        <h3>Move messages</h3>
         <label>
           <span>Destination queue</span>
           <input type="text" name="shovel-destination" list="queue-list">
@@ -226,9 +247,9 @@
         </label>
         <button type="submit" class="btn btn-outlined">Move messages</button>
       </form>
-      -->
       <div id="message-template" class="hide message card">
-        <h4 class="message-header">Offset <span class="message-number"></span></h4>
+        <h4 class="message-header">Message <span class="message-number"></span></h4>
+        <p>The server reported <span class="messages-remaining"></span> messages remaining.</p>
         <table>
           <tr>
             <th>Exchange</th>
@@ -237,6 +258,10 @@
           <tr>
             <th>Routing key</th>
             <td class="message-routing-key"></td>
+          </tr>
+          <tr>
+            <th>Redelivered</th>
+            <td class="message-redelivered"></td>
           </tr>
           <tr>
             <th>Properties</th>
@@ -258,28 +283,38 @@
       </div>
       <div id="messages" class="cols-12"></div>
       <section class="card cols-4">
-        <h3>Pause Stream</h3>
+        <h3>Pause Queue</h3>
         <form method="put" id="pauseQueue" class="form">
           <label>
-            <button type="submit" class="btn btn-yellow">Pause stream</button>
+            <button type="submit" class="btn btn-yellow">Pause queue</button>
           </label>
         </form>
         <form method="put" id="resumeQueue" class="form hide">
           <label>
-            <button type="submit" class="btn btn-yellow">Resume stream</button>
+            <button type="submit" class="btn btn-yellow">Resume queue</button>
           </label>
         </form>
-        <p class="card-desc">Pausing a stream will stop deliveries to all consumers.</p>
+        <p class="card-desc">Pausing a queue will stop deliveries to all consumers.</p>
       </section>
+      <form method="delete" id="purgeQueue" class="form card cols-4">
+        <h3>Purge queue</h3>
+        <label>
+          <span>Number of messages</span>
+          <input type="number" name="count" min="1" placeholder="All">
+        </label>
+        <label>
+          <button type="submit" class="btn btn-red">Purge queue</button>
+        </label>
+      </form>
       <section class="card cols-4">
-        <h3>Delete stream</h3>
+        <h3>Delete queue</h3>
         <form method="delete" id="deleteQueue" class="form">
           <label>
-            <button type="submit" class="btn btn-red">Delete stream</button>
+            <button type="submit" class="btn btn-red">Delete queue</button>
           </label>
         </form>
       </section>
     </main>
-    <% render "partials/footer" %>
+    <!--#include file="partials/footer.html" -->
   </body>
 </html>

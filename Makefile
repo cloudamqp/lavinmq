@@ -2,9 +2,10 @@ BINS := bin/lavinmq bin/lavinmqctl bin/lavinmqperf
 SOURCES := $(shell find src/ -name '*.cr' 2> /dev/null)
 PERF_SOURCES := $(shell find src/lavinmqperf -name '*.cr' 2> /dev/null)
 CTL_SOURCES := $(shell find src/lavinmqctl -name '*.cr' 2> /dev/null)
-VIEW_SOURCES := $(wildcard views/*.ecr)
-VIEW_TARGETS := $(patsubst views/%.ecr,static/%.html,$(VIEW_SOURCES))
-VIEW_PARTIALS := $(wildcard views/partials/*.ecr)
+VIEW_SOURCES := $(wildcard views/*.shtml)
+VIEW_TARGETS := $(patsubst views/%.shtml,static/%.html,$(VIEW_SOURCES))
+VIEW_PARTIALS := $(wildcard views/partials/*.html)
+VERSION := $(patsubst v%,%,$(or $(version),$(shell git describe --tags 2>/dev/null || shards version)))
 JS := static/js/lib/chunks/helpers.segment.js static/js/lib/chart.js static/js/lib/luxon.js static/js/lib/chartjs-adapter-luxon.esm.js static/js/lib/elements-8.2.0.js static/js/lib/elements-8.2.0.css $(wildcard static/js/*.js)
 CRYSTAL_FLAGS := --release
 override CRYSTAL_FLAGS += --stats -Dpreview_mt -Dexecution_context --link-flags="$(LDFLAGS)"
@@ -18,13 +19,13 @@ all: $(BINS)
 bin/%: src/%.cr $(SOURCES) lib $(JS) $(DOCS) | bin
 	crystal build $< -o $@ $(CRYSTAL_FLAGS)
 
-bin/lavinmq: src/lavinmq.cr $(SOURCES) $(VIEW_SOURCES) $(VIEW_PARTIALS) lib $(JS) $(DOCS) | bin
+bin/lavinmq: src/lavinmq.cr $(SOURCES) $(VIEW_TARGETS) lib $(JS) $(DOCS) | bin
 	crystal build $< -o $@ $(CRYSTAL_FLAGS)
 
 bin/%-debug: src/%.cr $(SOURCES) lib $(JS) $(DOCS) | bin
 	crystal build $< -o $@ --debug $(CRYSTAL_FLAGS)
 
-bin/lavinmq-debug: src/lavinmq.cr $(SOURCES) $(VIEW_SOURCES) $(VIEW_PARTIALS) lib $(JS) $(DOCS) | bin
+bin/lavinmq-debug: src/lavinmq.cr $(SOURCES) $(VIEW_TARGETS) lib $(JS) $(DOCS) | bin
 	crystal build $< -o $@ --debug $(CRYSTAL_FLAGS)
 
 bin/lavinmqctl: src/lavinmqctl.cr $(CTL_SOURCES) lib | bin
@@ -157,8 +158,8 @@ views: $(VIEW_TARGETS)
 watch-views:
 	while true; do $(MAKE) -q -s views || $(MAKE) views; sleep 0.5; done
 
-static/%.html: views/%.ecr $(VIEW_PARTIALS)
-	INPUT=$< crystal run views/_render.cr > $@
+static/%.html: views/%.shtml $(VIEW_PARTIALS) views/render.sh
+	views/render.sh $< "$(VERSION)" > $@
 
 .PHONY: clean-views
 clean-views:

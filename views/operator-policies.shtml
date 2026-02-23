@@ -1,19 +1,19 @@
-<%- pagename = "Policies" -%>
+<!--#set var="TITLE" value="Operator policies" -->
 <!DOCTYPE html>
-<html lang="en" class="policies">
+<html lang="en" class="operator-policies">
   <head>
-    <% render "partials/head" %>
+    <!--#include file="partials/head.html" -->
     <script type="module" src="js/policies.js"></script>
   </head>
   <body>
-    <% render "partials/header" %>
+    <!--#include file="partials/header.html" -->
     <main class="main-grid">
       <div id="breadcrumbs" class="cols-12">
-          <h2 class="page-title"><%=pagename%><div class="tiny-badge" id="pagename-label"></div></h2>
+          <h2 class="page-title"><span><!--#echo var="TITLE" --></span><div class="tiny-badge" id="pagename-label"></div></h2>
       </div>
       <section class="card">
         <div class="table-header">
-          <h2>Manage policies</h2>
+          <h2>Manage operator policies</h2>
         </div>
         <div class="table-wrapper">
           <div id="table-error"></div>
@@ -35,8 +35,8 @@
       </section>
       <form method="put" id="createPolicy" class="form card">
         <h3>
-          <span class="when-create">Add policy</span>
-          <span class="when-edit">Edit policy</span>
+          <span class="when-create">Add operator policy</span>
+          <span class="when-edit">Edit operator policy</span>
         </h3>
         <label class="when-create">
           <span>Virtual host</span>
@@ -73,30 +73,9 @@
               <span class="tooltiptext">How long a message published to a queue can live before it is discarded
                 (milliseconds).</span>
             </a> |
-            <a class="arg-tooltip" data-tag="overflow">Overflow behaviour
-              <span class="tooltiptext">This determines what happens to messages when the maximum length of a queue is
-                reached. Valid value are: drop-head (default) or reject-publish.</span>
-            </a> |
             <a class="arg-tooltip" data-tag="expires" data-value="0">Auto expire
               <span class="tooltiptext">How long a queue can be unused for before it is automatically deleted
                 (milliseconds).</span>
-            </a> |
-            <a class="arg-tooltip" data-tag="dead-letter-exchange">Dead letter exchange
-              <span class="tooltiptext">Optional name of an exchange to which messages will be republished if they are
-                rejected or expire.</span>
-            </a> |
-            <a class="arg-tooltip" data-tag="dead-letter-routing-key">Dead letter routing key
-              <span class="tooltiptext">Optional replacement routing key to use when a message is dead-lettered. If not
-                set, the message's original routing key will be used.</span>
-            </a> |
-            <a class="arg-tooltip" data-tag="federation-upstream">Federation upstream
-              <span class="tooltiptext">Chooses a specific upstream set to use for federation. Incompatible with
-                federation-upstream-set.</span>
-            </a> |
-            <a class="arg-tooltip" data-tag="federation-upstream-set">Federation upstream set
-              <span class="tooltiptext">Chooses the name of a set of upstreams to use with federation, or "all" to use
-                all
-                upstreams. Incompatible with federation-upstream.</span>
             </a> |
             <a class="arg-tooltip" data-tag="delivery-limit" data-value="0">Delivery limit
               <span class="tooltiptext">The number of times a message can be redelivered before dropped or
@@ -113,13 +92,13 @@
           <span>Priority</span>
           <input type="number" name="priority" value="0" max="10" min="-10" step="1" required>
         </label>
-        <button type="submit" class="btn btn-green when-create">Add policy</button>
+        <button type="submit" class="btn btn-green when-create">Add operator policy</button>
         <div class="when-edit flex gap-2">
           <button type="submit" class="btn btn-green">Update</button>
           <button type="reset" class="btn btn-outlined cancel">Cancel</button>
         </div>
       </form>
     </main>
-    <% render "partials/footer" %>
+    <!--#include file="partials/footer.html" -->
   </body>
 </html>
