@@ -25,6 +25,21 @@ module LavinMQ::AMQP
     include ArgumentTarget
     include Argument::DeadLettering
 
+    @on_deleted = Array(Proc(Nil)).new
+
+    def on_deleted(&block : ->) : Proc(Nil)
+      @on_deleted << block
+      block
+    end
+
+    def off_deleted(callback : Proc(Nil))
+      @on_deleted.delete(callback)
+    end
+
+    protected def notify_deleted
+      @on_deleted.each &.call
+    end
+
     VALIDATOR_INT_ZERO = ArgumentValidator::IntValidator.new(min_value: 0)
     VALIDATOR_INT_ONE  = ArgumentValidator::IntValidator.new(min_value: 1)
     VALIDATOR_STRING   = ArgumentValidator::StringValidator.new
@@ -457,6 +472,7 @@ module LavinMQ::AMQP
       end
       @vhost.delete_queue(@name)
       @log.info { "(messages=#{message_count}) Deleted" }
+      notify_deleted
       true
     end
 

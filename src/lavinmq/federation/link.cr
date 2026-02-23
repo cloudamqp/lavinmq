@@ -184,10 +184,12 @@ module LavinMQ
         EXCHANGE = ""
 
         @consumer_available = Channel(Nil).new
+        @deleted_cb : Proc(Nil)?
 
         def initialize(@upstream : Upstream, @federated_q : Queue, @upstream_q : String)
           super(@upstream)
           @metadata = @metadata.extend({link: @federated_q.name})
+          @deleted_cb = @federated_q.on_deleted { on_queue_deleted }
 
           spawn(monitor_consumers, name: "#{@federated_q.name}: consumer monitor")
         end
@@ -248,7 +250,16 @@ module LavinMQ
 
         def terminate
           super
+          @deleted_cb.try { |cb| @federated_q.off_deleted(cb) }
           @consumer_available.close
+        end
+
+        private def on_queue_deleted
+          return if @state.terminated? || @state.terminating?
+          @log.debug { "event=deleted" }
+          @upstream.stop_link(@federated_q)
+        rescue e
+          @log.error { "Could not process event=deleted error=#{e.inspect_with_backtrace}" }
         end
 
         private def notify_consumer_available
