@@ -1,4 +1,5 @@
 require "./spec_helper"
+require "../src/stdlib/openssl_on_server_name"
 
 describe LavinMQ::SNIHost do
   it "creates TLS contexts with default settings" do
@@ -307,6 +308,113 @@ describe "SNI end-to-end" do
       ssl_client3.close
     ensure
       tcp_client3.close
+    end
+
+    tcp_server.close
+    server_done.receive
+  end
+
+  it "rejects connection without client cert when mTLS is enabled via SNI" do
+    sni_manager = LavinMQ::SNIManager.new
+    mtls_host = LavinMQ::SNIHost.new("mtls.localhost")
+    mtls_host.tls_cert = "spec/resources/server_certificate.pem"
+    mtls_host.tls_key = "spec/resources/server_key.pem"
+    mtls_host.tls_verify_peer = true
+    mtls_host.tls_ca_cert = "spec/resources/ca_certificate.pem"
+    sni_manager.add_host(mtls_host)
+
+    mtls_host.amqp_tls_context.verify_mode.should eq(OpenSSL::SSL::VerifyMode::PEER | OpenSSL::SSL::VerifyMode::FAIL_IF_NO_PEER_CERT)
+
+    default_ctx = OpenSSL::SSL::Context::Server.new
+    default_ctx.verify_mode = OpenSSL::SSL::VerifyMode::NONE
+    default_ctx.certificate_chain = "spec/resources/server_certificate.pem"
+    default_ctx.private_key = "spec/resources/server_key.pem"
+
+    default_ctx.on_server_name do |hostname|
+      sni_manager.get_host(hostname).try(&.amqp_tls_context)
+    end
+
+    tcp_server = TCPServer.new("127.0.0.1", 0)
+    port = tcp_server.local_address.port
+
+    server_done = Channel(Nil).new
+
+    spawn do
+      if client = tcp_server.accept?
+        begin
+          ssl_socket = OpenSSL::SSL::Socket::Server.new(client, default_ctx)
+          ssl_socket.close
+        rescue
+        ensure
+          client.close
+        end
+      end
+      server_done.send(nil)
+    end
+
+    tcp_client = TCPSocket.new("127.0.0.1", port)
+    client_ctx = OpenSSL::SSL::Context::Client.new
+    client_ctx.verify_mode = OpenSSL::SSL::VerifyMode::NONE
+    begin
+      expect_raises(Exception) do
+        ssl_client = OpenSSL::SSL::Socket::Client.new(tcp_client, client_ctx, hostname: "mtls.localhost")
+        ssl_client.gets
+      end
+    ensure
+      tcp_client.close
+    end
+
+    tcp_server.close
+    server_done.receive
+  end
+
+  it "accepts connection with valid client cert when mTLS is enabled via SNI" do
+    sni_manager = LavinMQ::SNIManager.new
+    mtls_host = LavinMQ::SNIHost.new("mtls.localhost")
+    mtls_host.tls_cert = "spec/resources/server_certificate.pem"
+    mtls_host.tls_key = "spec/resources/server_key.pem"
+    mtls_host.tls_verify_peer = true
+    mtls_host.tls_ca_cert = "spec/resources/ca_certificate.pem"
+    sni_manager.add_host(mtls_host)
+
+    default_ctx = OpenSSL::SSL::Context::Server.new
+    default_ctx.verify_mode = OpenSSL::SSL::VerifyMode::NONE
+    default_ctx.certificate_chain = "spec/resources/server_certificate.pem"
+    default_ctx.private_key = "spec/resources/server_key.pem"
+
+    default_ctx.on_server_name do |hostname|
+      sni_manager.get_host(hostname).try(&.amqp_tls_context)
+    end
+
+    tcp_server = TCPServer.new("127.0.0.1", 0)
+    port = tcp_server.local_address.port
+
+    server_done = Channel(Nil).new
+
+    spawn do
+      if client = tcp_server.accept?
+        begin
+          ssl_socket = OpenSSL::SSL::Socket::Server.new(client, default_ctx)
+          ssl_socket.close
+        rescue
+        ensure
+          client.close
+        end
+      end
+      server_done.send(nil)
+    end
+
+    tcp_client = TCPSocket.new("127.0.0.1", port)
+    client_ctx = OpenSSL::SSL::Context::Client.new
+    client_ctx.verify_mode = OpenSSL::SSL::VerifyMode::NONE
+    client_ctx.certificate_chain = "spec/resources/client_certificate.pem"
+    client_ctx.private_key = "spec/resources/client_key.pem"
+    begin
+      ssl_client = OpenSSL::SSL::Socket::Client.new(tcp_client, client_ctx, hostname: "mtls.localhost")
+      ssl_client.gets
+      ssl_client.close
+    ensure
+      tcp_client.close
     end
 
     tcp_server.close
