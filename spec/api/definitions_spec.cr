@@ -81,7 +81,7 @@ describe LavinMQ::HTTP::Server do
         body = %({ "queues": [{ "name": "import_q1", "vhost": "/", "durable": true, "auto_delete": false, "arguments": {} }] })
         response = http.post("/api/definitions", body: body)
         response.status_code.should eq 200
-        s.vhosts["/"].queues.has_key?("import_q1").should be_true
+        s.vhosts["/"].queue_exists?("import_q1").should be_true
       end
     end
 
@@ -90,7 +90,7 @@ describe LavinMQ::HTTP::Server do
         body = %({ "exchanges": [{ "name": "import_x1", "type": "direct", "vhost": "/", "durable": true, "internal": false, "auto_delete": false, "arguments": {} }] })
         response = http.post("/api/definitions", body: body)
         response.status_code.should eq 200
-        s.vhosts["/"].exchanges.has_key?("import_x1").should be_true
+        s.vhosts["/"].exchange_exists?("import_x1").should be_true
       end
     end
 
@@ -119,19 +119,19 @@ describe LavinMQ::HTTP::Server do
       ]})
         response = http.post("/api/definitions", body: body)
         response.status_code.should eq 200
-        ex = s.vhosts["/"].exchanges["import_x1"]
+        ex = s.vhosts["/"].exchange("import_x1")
         qs = Set(LavinMQ::Queue).new
         es = Set(LavinMQ::Exchange).new
         ex.find_queues("r.k2", nil, qs, es)
         res = Set(LavinMQ::Exchange).new
-        res << s.vhosts["/"].exchanges["import_x1"]
-        res << s.vhosts["/"].exchanges["import_x2"]
+        res << s.vhosts["/"].exchange("import_x1")
+        res << s.vhosts["/"].exchange("import_x2")
         es.should eq res
         qs = Set(LavinMQ::Queue).new
         es = Set(LavinMQ::Exchange).new
         ex.find_queues("rk", nil, qs, es)
         res = Set(LavinMQ::Queue).new
-        res << s.vhosts["/"].queues["import_q1"]
+        res << s.vhosts["/"].queue("import_q1")
         qs.should eq res
       end
     end
@@ -487,7 +487,7 @@ describe LavinMQ::HTTP::Server do
         body = %({ "queues": [{ "name": "import_q1", "vhost": "/", "durable": true, "auto_delete": false, "arguments": {} }] })
         response = http.post("/api/definitions/%2f", body: body)
         response.status_code.should eq 200
-        s.vhosts["/"].queues.has_key?("import_q1").should be_true
+        s.vhosts["/"].queue_exists?("import_q1").should be_true
       end
     end
 
@@ -496,7 +496,7 @@ describe LavinMQ::HTTP::Server do
         body = %({ "exchanges": [{ "name": "import_x1", "type": "direct", "vhost": "/", "durable": true, "internal": false, "auto_delete": false, "arguments": {} }] })
         response = http.post("/api/definitions/%2f", body: body)
         response.status_code.should eq 200
-        s.vhosts["/"].exchanges.has_key?("import_x1").should be_true
+        s.vhosts["/"].exchange_exists?("import_x1").should be_true
       end
     end
 
@@ -525,19 +525,19 @@ describe LavinMQ::HTTP::Server do
       ]})
         response = http.post("/api/definitions/%2f", body: body)
         response.status_code.should eq 200
-        ex = s.vhosts["/"].exchanges["import_x1"]
+        ex = s.vhosts["/"].exchange("import_x1")
         qs = Set(LavinMQ::Queue).new
         es = Set(LavinMQ::Exchange).new
         ex.find_queues("r.k2", nil, qs, es)
         res = Set(LavinMQ::Exchange).new
-        res << s.vhosts["/"].exchanges["import_x1"]
-        res << s.vhosts["/"].exchanges["import_x2"]
+        res << s.vhosts["/"].exchange("import_x1")
+        res << s.vhosts["/"].exchange("import_x2")
         es.should eq res
         qs = Set(LavinMQ::Queue).new
         es = Set(LavinMQ::Exchange).new
         ex.find_queues("rk", nil, qs, es)
         res = Set(LavinMQ::Queue).new
-        res << s.vhosts["/"].queues["import_q1"]
+        res << s.vhosts["/"].queue("import_q1")
         qs.should eq res
       end
     end
@@ -739,7 +739,7 @@ describe LavinMQ::HTTP::Server do
       args = {"x-delayed-message", false, false, false, LavinMQ::AMQP::Table.new({"x-delayed-type": "direct"})}
       vhost.declare_exchange "test", *args
       http.get("/api/definitions")
-      vhost.exchanges["test"].match?(*args).should be_true
+      vhost.exchange("test").match?(*args).should be_true
     end
   end
 
