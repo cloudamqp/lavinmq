@@ -21,8 +21,6 @@ module LavinMQ
 
       getter name, arguments, vhost, type, alternate_exchange
       getter? durable, internal, auto_delete
-      getter policy : Policy?
-      getter operator_policy : OperatorPolicy?
       getter? delayed = false
 
       @alternate_exchange : String?
@@ -107,9 +105,9 @@ module LavinMQ
         {
           name: @name, type: type, durable: @durable, auto_delete: @auto_delete,
           internal: @internal, arguments: @arguments, vhost: @vhost.name,
-          policy: @policy.try &.name,
-          operator_policy: @operator_policy.try &.name,
-          effective_policy_definition: Policy.merge_definitions(@policy, @operator_policy),
+          policy: policy.try &.name,
+          operator_policy: operator_policy.try &.name,
+          effective_policy_definition: Policy.merge_definitions(policy, operator_policy),
           message_stats: current_stats_details,
           effective_arguments: @effective_args,
         }
