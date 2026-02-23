@@ -593,7 +593,6 @@ module LavinMQ::AMQP
             end
           end
           break unless env
-          @log.debug { "Overflow drop head sp=#{env.segment_position}" }
           expire_msg(env, :maxlenbytes)
           counter &+= 1
           if counter >= 16 * 1024
@@ -615,7 +614,6 @@ module LavinMQ::AMQP
             @msg_store.shift?
           end
           break unless env
-          @log.debug { "Over delivery limit, drop sp=#{env.segment_position}" }
           expire_msg(env, :delivery_limit)
           counter &+= 1
           if counter >= 16 * 1024
@@ -628,7 +626,6 @@ module LavinMQ::AMQP
 
     private def time_to_message_expiration : Time::Span?
       env = @msg_store_lock.synchronize { @msg_store.first? } || return
-      @log.debug { "Checking if message #{env.message} has to be expired" }
       if expire_at = expire_at(env.message)
         expire_in = expire_at - RoughTime.unix_ms
         if expire_in > 0
@@ -672,7 +669,7 @@ module LavinMQ::AMQP
         env = @msg_store_lock.synchronize do
           first_env = @msg_store.first? || break
           msg = first_env.message
-          @log.debug { "Checking if next message #{msg} has expired" }
+          @log.debug { "Checking if next message has expired sp=#{first_env.segment_position}" }
           break unless has_expired?(msg)
           # shift it out from the msgs store, first time was just a peek
           @msg_store.shift?
@@ -690,6 +687,7 @@ module LavinMQ::AMQP
         env = Envelope.new(sp, msg, false)
         expire_msg(env, reason)
       else
+        @log.debug { "Dropping sp=#{sp} reason=#{reason}" }
         delete_message sp
       end
     end
@@ -697,7 +695,7 @@ module LavinMQ::AMQP
     private def expire_msg(env : Envelope, reason : Symbol)
       sp = env.segment_position
       msg = env.message
-      @log.debug { "Expiring #{sp} now due to #{reason}" }
+      @log.debug { "Expiring sp=#{sp} reason=#{reason}" }
 
       @dead_letter.route(msg, reason)
 
