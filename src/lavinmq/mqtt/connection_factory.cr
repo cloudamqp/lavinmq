@@ -66,8 +66,7 @@ module LavinMQ
 
         user = @authenticator.authenticate(context)
         return unless user
-        has_vhost_permissions = user.try &.permissions.has_key?(vhost)
-        return unless has_vhost_permissions
+        return unless user.find_permission(vhost)
         broker = @brokers[vhost]?
         return unless broker
 
