@@ -16,9 +16,9 @@ describe LavinMQ::VHost do
       )
     )
     with_amqp_server do |s|
-      exchanges = s.vhosts["test"].exchanges
-      src_x = exchanges["source.exchange"]
-      dst_x = exchanges["destination.exchange"]
+      vhost = s.vhosts["test"]
+      src_x = vhost.exchange("source.exchange")
+      dst_x = vhost.exchange("destination.exchange")
       src_x.bindings_details.to_a.should_not be_empty
       dst_x.bindings_details.to_a.should_not be_empty
     end

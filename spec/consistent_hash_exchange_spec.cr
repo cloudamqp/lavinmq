@@ -9,8 +9,8 @@ describe LavinMQ::AMQP::ConsistentHashExchange do
         vhost = s.vhosts["/"]
         vhost.declare_exchange "con-hash", "x-consistent-hash", durable: true, auto_delete: false
         vhost.declare_queue "my-queue", durable: true, auto_delete: false
-        exchange = vhost.exchanges["con-hash"].should be_a(LavinMQ::AMQP::ConsistentHashExchange)
-        queue = vhost.queues["my-queue"].as(LavinMQ::AMQP::Queue)
+        exchange = vhost.exchange("con-hash").should be_a(LavinMQ::AMQP::ConsistentHashExchange)
+        queue = vhost.queue("my-queue").as(LavinMQ::AMQP::Queue)
         expect_raises(LavinMQ::Error::PreconditionFailed) do
           exchange.bind(queue, "non-numeric", nil)
         end
@@ -25,8 +25,8 @@ describe LavinMQ::AMQP::ConsistentHashExchange do
         vhost = s.vhosts["/"]
         vhost.declare_exchange "con-hash", "x-consistent-hash", durable: true, auto_delete: false
         vhost.declare_queue "my-queue", durable: true, auto_delete: false
-        exchange = vhost.exchanges["con-hash"].should be_a(LavinMQ::AMQP::ConsistentHashExchange)
-        queue = vhost.queues["my-queue"].as(LavinMQ::AMQP::Queue)
+        exchange = vhost.exchange("con-hash").should be_a(LavinMQ::AMQP::ConsistentHashExchange)
+        queue = vhost.queue("my-queue").as(LavinMQ::AMQP::Queue)
         expect_raises(LavinMQ::Error::PreconditionFailed) do
           exchange.unbind(queue, "non-numeric", nil)
         end
@@ -257,7 +257,7 @@ describe LavinMQ::AMQP::ConsistentHashExchange do
         with_channel(s) do |ch|
           x_args = AMQP::Client::Arguments.new({"x-algorithm" => "jump"})
           ch.exchange(x_name, "x-consistent-hash", args: x_args)
-          ex = s.vhosts["/"].exchanges[x_name].as(LavinMQ::AMQP::ConsistentHashExchange)
+          ex = s.vhosts["/"].exchange(x_name).as(LavinMQ::AMQP::ConsistentHashExchange)
           ex.@hasher.class.should eq JumpConsistentHasher(LavinMQ::AMQP::Exchange | LavinMQ::AMQP::Queue)
         end
       end
@@ -267,7 +267,7 @@ describe LavinMQ::AMQP::ConsistentHashExchange do
         with_channel(s) do |ch|
           x_args = AMQP::Client::Arguments.new({"x-algorithm" => "ring"})
           ch.exchange(x_name, "x-consistent-hash", args: x_args)
-          ex = s.vhosts["/"].exchanges[x_name].as(LavinMQ::AMQP::ConsistentHashExchange)
+          ex = s.vhosts["/"].exchange(x_name).as(LavinMQ::AMQP::ConsistentHashExchange)
           ex.@hasher.class.should eq RingConsistentHasher(LavinMQ::AMQP::Exchange | LavinMQ::AMQP::Queue)
         end
       end
@@ -277,7 +277,7 @@ describe LavinMQ::AMQP::ConsistentHashExchange do
         with_channel(s) do |ch|
           LavinMQ::Config.instance.default_consistent_hash_algorithm.should eq LavinMQ::ConsistentHashAlgorithm::Ring
           ch.exchange(x_name, "x-consistent-hash")
-          ex = s.vhosts["/"].exchanges[x_name].as(LavinMQ::AMQP::ConsistentHashExchange)
+          ex = s.vhosts["/"].exchange(x_name).as(LavinMQ::AMQP::ConsistentHashExchange)
           ex.@hasher.class.should eq RingConsistentHasher(LavinMQ::AMQP::Exchange | LavinMQ::AMQP::Queue)
         end
       end
@@ -288,7 +288,7 @@ describe LavinMQ::AMQP::ConsistentHashExchange do
           LavinMQ::Config.instance.default_consistent_hash_algorithm.should eq LavinMQ::ConsistentHashAlgorithm::Ring
           x_args = AMQP::Client::Arguments.new({"x-algorithm" => "juump"})
           ch.exchange(x_name, "x-consistent-hash", args: x_args)
-          ex = s.vhosts["/"].exchanges[x_name].as(LavinMQ::AMQP::ConsistentHashExchange)
+          ex = s.vhosts["/"].exchange(x_name).as(LavinMQ::AMQP::ConsistentHashExchange)
           ex.@hasher.class.should eq RingConsistentHasher(LavinMQ::AMQP::Exchange | LavinMQ::AMQP::Queue)
         end
       end

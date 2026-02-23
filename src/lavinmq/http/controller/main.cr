@@ -40,14 +40,14 @@ module LavinMQ
 
           vhosts(user(context)).each do |vhost|
             next if x_vhost && vhost.name != x_vhost
-            vhost.connections.each do |c|
+            vhost.connections_each do |c|
               connections += 1
               channels += c.channels.size
               consumers += c.channels.each_value.sum &.consumers.size
             end
-            exchanges += vhost.exchanges.size
-            queues += vhost.queues.size
-            vhost.queues.each_value do |q|
+            exchanges += vhost.exchanges_size
+            queues += vhost.queues_size
+            vhost.queues_each_value do |q|
               ready += q.message_count
               unacked += q.unacked_count
               add_logs!(ready_log, q.message_count_log)
@@ -134,7 +134,7 @@ module LavinMQ
               IO::Memory.new("test"))
             ok = vhost.publish(msg)
             env = nil
-            vhost.queues["aliveness-test"].basic_get(true) { |e| env = e }
+            vhost.queue("aliveness-test").basic_get(true) { |e| env = e }
             ok = ok && env && String.new(env.message.body) == "test"
             {status: ok ? "ok" : "failed"}.to_json(context.response)
           end
