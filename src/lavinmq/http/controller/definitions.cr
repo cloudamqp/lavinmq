@@ -282,7 +282,7 @@ module LavinMQ
         private def export_queues(json)
           json.array do
             vhosts.each_value do |v|
-              v.queues_each_value do |q|
+              v.each_queue do |q|
                 next if q.exclusive?
                 {
                   "name":        q.name,
@@ -299,7 +299,7 @@ module LavinMQ
         private def export_exchanges(json)
           json.array do
             vhosts.each_value do |v|
-              v.exchanges_each_value.reject(&.internal?).each do |e|
+              v.each_exchange.reject(&.internal?).each do |e|
                 delayed = e.arguments["x-delayed-exchange"]?
                 if delayed
                   arguments = e.arguments.clone
@@ -323,7 +323,7 @@ module LavinMQ
         private def export_bindings(json)
           json.array do
             vhosts.each_value do |v|
-              v.exchanges_each_value do |e|
+              v.each_exchange do |e|
                 e.bindings_details.each do |b|
                   b.to_json(json)
                 end

@@ -201,7 +201,7 @@ describe LavinMQ::VHost do
   pending "GC segments" do
     with_amqp_server do |s|
       vhost = s.vhosts["/"]
-      vhost.queues_each_value &.delete
+      vhost.each_queue &.delete
       vhost.queues_clear
 
       msg_size = 5120

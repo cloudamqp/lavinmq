@@ -5,7 +5,7 @@ module LavinMQ
   module HTTP
     module BindingHelpers
       private def bindings(vhost)
-        vhost.exchanges_each_value.flat_map do |e|
+        vhost.each_exchange.flat_map do |e|
           e.bindings_details
         end
       end
