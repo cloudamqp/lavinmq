@@ -41,6 +41,12 @@ module LavinMQ
         @log = Logger.new(Log, metadata)
         @log.info { "Connection established for user=#{@user.name}" }
         spawn read_loop, name: "MQTT read_loop #{@connection_info.remote_address}"
+        case user = @user
+        when Auth::OAuthUser
+          user.on_expiration do
+            close("token expired")
+          end
+        end
       end
 
       def client_name
