@@ -19,7 +19,7 @@ module LavinMQ::AMQP
         def initialize(@vhost : VHost, @queue_name : String, @log : Logger)
         end
 
-        private def cycle?(props, reason) : Bool
+        private def cycle?(qname, props, reason) : Bool
           unless headers = props.headers
             return false
           end
@@ -33,7 +33,7 @@ module LavinMQ::AMQP
           xdeaths.each do |field|
             next unless xdeath = field.as?(AMQ::Protocol::Table)
             return false if xdeath["reason"]? == "rejected"
-            return true if xdeath["queue"]? == @queue_name && xdeath["reason"] == reason.to_s
+            return true if xdeath["queue"]? == qname && xdeath["reason"] == reason.to_s
           end
           false
         end
@@ -42,7 +42,7 @@ module LavinMQ::AMQP
         # It's done like this to be able to dead letter to all destinations
         # except to the queue itself if a cycle is detected.
         # This is also how it's done in rabbitmq
-        def route(msg : BytesMessage, reason) # ameba:disable Metrics/CyclomaticComplexity
+        def route(msg : BytesMessage, reason)
           # No dead letter exchange => nothing to do
           return unless dlx = (msg.dlx || dlx())
           ex = @vhost.exchanges[dlx.to_s]? || return
@@ -71,14 +71,12 @@ module LavinMQ::AMQP
           ex.find_queues(routing_rk, routing_headers, queues)
           return if queues.empty?
 
-          is_cycle = cycle?(props, reason)
-
           dead_lettered_msg = Message.new(
             RoughTime.unix_ms, dlx.to_s, routing_rk.to_s,
             props, msg.bodysize, IO::Memory.new(msg.body))
 
           queues.each do |q|
-            next if is_cycle && q.name == @queue_name
+            next if cycle?(q.name, props, reason)
             @log.trace { "dead lettering dest=#{q.name} msg=#{dead_lettered_msg}" }
             q.publish(dead_lettered_msg)
           rescue ex
