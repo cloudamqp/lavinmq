@@ -7,6 +7,10 @@ module LavinMQ
     getter operator_policy : OperatorPolicy?
     getter effective_policy_args = Array(String).new
 
+    def reapply_policy
+      apply_policy(@policy, @operator_policy)
+    end
+
     def apply_policy(policy : Policy?, operator_policy : OperatorPolicy?)
       clear_policy
       effective_policy_args = Array(String).new

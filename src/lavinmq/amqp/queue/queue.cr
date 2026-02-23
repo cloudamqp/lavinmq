@@ -204,7 +204,7 @@ module LavinMQ::AMQP
       @msg_store = init_msg_store(@data_dir)
       @empty = @msg_store.empty
       start.tap do |started|
-        apply_policy(@policy, @operator_policy) if started
+        reapply_policy if started
       end
     end
 
