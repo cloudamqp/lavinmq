@@ -198,7 +198,7 @@ describe LavinMQ::HTTP::Server do
         sleep 0.1.seconds # Start the shovel
         wait_for do
           shovels = s.vhosts["/"].shovels.not_nil!
-          shovels.each_value.all? &.running?
+          shovels.values_dup.all? &.running?
         end
         s.vhosts["/"].parameters.any? { |_, p| p.parameter_name == "import_shovel_param" }
           .should be_true

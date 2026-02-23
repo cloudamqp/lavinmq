@@ -27,8 +27,8 @@ module LavinMQ
       @parameters.each_value { |p| yield p }
     end
 
-    def each_value : Iterator(T)
-      @parameters.each_value
+    def values_dup : Array(T)
+      @parameters.values
     end
 
     def has_key?(id) : Bool

@@ -21,14 +21,14 @@ module LavinMQ
       # ameba:disable Metrics/CyclomaticComplexity
       private def register_routes
         get "/api/exchanges" do |context, _params|
-          itr = vhosts(user(context)).flat_map &.each_exchange
+          itr = vhosts(user(context)).flat_map &.exchanges_dup
           page(context, itr)
         end
 
         get "/api/exchanges/:vhost" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            page(context, vhost.each_exchange)
+            page(context, vhost.exchanges_dup)
           end
         end
 
