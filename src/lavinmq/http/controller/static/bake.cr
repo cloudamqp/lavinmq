@@ -13,7 +13,7 @@ def recursive_bake(dir)
         deflated = false
       else
         io = IO::Memory.new
-        Compress::Zlib::Writer.open(io) do |zlib|
+        Compress::Zlib::Writer.open(io, Compress::Zlib::BEST_COMPRESSION) do |zlib|
           File.open(path) do |f|
             etag = %(W/"#{Digest::MD5.hexdigest(f)}")
             f.rewind
