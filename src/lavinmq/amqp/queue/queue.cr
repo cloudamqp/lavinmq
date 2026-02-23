@@ -203,7 +203,9 @@ module LavinMQ::AMQP
       reset_queue_state
       @msg_store = init_msg_store(@data_dir)
       @empty = @msg_store.empty
-      start
+      start.tap do |started|
+        apply_policy(@policy, @operator_policy) if started
+      end
     end
 
     private def reset_queue_state
