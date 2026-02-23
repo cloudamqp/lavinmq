@@ -62,11 +62,7 @@ module LavinMQ
             unless routing_key
               bad_request(context, "Field 'routing_key' is required")
             end
-            begin
-              ok = e.vhost.bind_queue(q.name, e.name, routing_key, arguments)
-            rescue ex : Error::PreconditionFailed
-              bad_request(context, ex.message)
-            end
+            ok = e.vhost.bind_queue(q.name, e.name, routing_key, arguments)
             props = BindingKey.new(routing_key, arguments).properties_key
             context.response.headers["Location"] = q.name + "/" + props
             context.response.status_code = 201
@@ -151,11 +147,7 @@ module LavinMQ
             unless routing_key
               bad_request(context, "Field 'routing_key' is required")
             end
-            begin
-              source.vhost.bind_exchange(destination.name, source.name, routing_key, arguments)
-            rescue ex : Error::PreconditionFailed
-              bad_request(context, ex.message)
-            end
+            source.vhost.bind_exchange(destination.name, source.name, routing_key, arguments)
             props = BindingKey.new(routing_key, arguments).properties_key
             context.response.headers["Location"] = context.request.path + "/" + props
             context.response.status_code = 201
