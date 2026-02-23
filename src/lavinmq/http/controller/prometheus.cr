@@ -530,7 +530,7 @@ module LavinMQ
         vhosts.each do |vhost|
           vhost.queues_each_value do |q|
             labels = {queue: q.name, vhost: vhost.name}
-            writer.write_value("detailed_queue_consumers", q.consumers.size, labels)
+            writer.write_value("detailed_queue_consumers", q.consumers_size, labels)
           end
         end
       end

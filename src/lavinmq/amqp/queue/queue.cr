@@ -65,7 +65,7 @@ module LavinMQ::AMQP
     @consumers_lock = Mutex.new
     @message_ttl_change = ::Channel(Nil).new
 
-    getter basic_get_unacked = Deque(UnackedMessage).new
+    @basic_get_unacked = Deque(UnackedMessage).new
     @unacked_count = Atomic(UInt32).new(0u32)
     @unacked_bytesize = Atomic(UInt64).new(0u64)
 
@@ -75,6 +75,50 @@ module LavinMQ::AMQP
 
     def unacked_bytesize
       @unacked_bytesize.get(:relaxed)
+    end
+
+    # Consumer accessors
+
+    def consumers : Array(Client::Channel::Consumer)
+      @consumers.dup
+    end
+
+    def consumers_size : Int32
+      @consumers.size
+    end
+
+    def consumers_empty? : Bool
+      @consumers.empty?
+    end
+
+    def consumers_any?(& : Client::Channel::Consumer -> Bool) : Bool
+      @consumers.any? { |c| yield c }
+    end
+
+    def consumers_each(& : Client::Channel::Consumer ->) : Nil
+      @consumers.each { |c| yield c }
+    end
+
+    def consumers_first? : Client::Channel::Consumer?
+      @consumers.first?
+    end
+
+    # BasicGet unacked accessors
+
+    def basic_get_unacked_push(msg : UnackedMessage) : Nil
+      @basic_get_unacked << msg
+    end
+
+    def basic_get_unacked_reject!(& : UnackedMessage -> Bool) : Nil
+      @basic_get_unacked.reject! { |u| yield u }
+    end
+
+    def basic_get_unacked_each : Iterator(UnackedMessage)
+      @basic_get_unacked.each
+    end
+
+    def basic_get_unacked_size : Int32
+      @basic_get_unacked.size
     end
 
     @msg_store_lock = Mutex.new(:reentrant)
@@ -152,7 +196,7 @@ module LavinMQ::AMQP
       {"ack", "deliver", "deliver_no_ack", "deliver_get", "confirm", "get", "get_no_ack", "publish", "redeliver", "reject", "return_unroutable", "dedup"},
       {"message_count", "unacked_count"})
 
-    getter name, arguments, vhost, consumers
+    getter name, arguments, vhost
     getter? auto_delete, exclusive
     getter policy : Policy?
     getter operator_policy : OperatorPolicy?
@@ -764,7 +808,7 @@ module LavinMQ::AMQP
           end
         end
       end
-      unacked_messages.chain(self.basic_get_unacked.each)
+      unacked_messages.chain(@basic_get_unacked.each)
     end
 
     private def with_delivery_count_header(env) : Envelope?
