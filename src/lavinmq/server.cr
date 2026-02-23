@@ -29,12 +29,20 @@ module LavinMQ
     end
 
     getter vhosts, users, data_dir, parameters, authenticator
-    getter? closed, flow
     include ParameterTarget
 
     @start = Time.instant
     @closed = false
     @flow = true
+
+    def closed? : Bool
+      @closed
+    end
+
+    def flow? : Bool
+      @flow
+    end
+
     @listeners = Hash(Socket::Server, Protocol).new # Socket => protocol
     @connection_factories = Hash(Protocol, ConnectionFactory).new
     @replicator : Clustering::Replicator?
