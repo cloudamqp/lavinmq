@@ -23,7 +23,7 @@ def recursive_bake(dir)
         data = io.to_s
         deflated = true
       end
-      puts %("#{path.lchop(ARGV[0])}": {Bytes.literal(#{data.bytes.join(", ")}), #{etag.inspect}, #{deflated}},)
+      puts %(when #{path.lchop(ARGV[0]).inspect}\n  {Bytes.literal(#{data.bytes.join(", ")}), #{etag.inspect}, #{deflated}})
     end
   end
 end
