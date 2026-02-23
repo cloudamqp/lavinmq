@@ -22,6 +22,10 @@ module LavinMQ
         Log.error { "method=#{context.request.method} path=#{context.request.path} status=403 error=#{ex.inspect_with_backtrace}" }
         context.response.status_code = 403
         {error: "access_refused", reason: "Access Refused"}.to_json(context.response)
+      rescue ex : LavinMQ::Error::PreconditionFailed
+        Log.error { "method=#{context.request.method} path=#{context.request.path} status=400 error=\"#{ex.message}\"" }
+        context.response.status_code = 400
+        {error: "bad_request", reason: ex.message.to_s}.to_json(context.response)
       rescue ex : Exception
         Log.error { "method=#{context.request.method} path=#{context.request.path} status=500 error=#{ex.inspect_with_backtrace}" }
         context.response.status_code = 500
