@@ -99,11 +99,13 @@ module LavinMQ
       d1 = p1.definition
       d2 = p2.definition
       merged = Hash(String, JSON::Any).new
-      Iterator.chain({d1.each, d2.each}).each do |k, v|
-        if value = v.as_i64?
-          merged[k] = v unless merged[k]?.try(&.as_i64?.try { |i| i < value })
-        else
-          merged[k] = v
+      {d1, d2}.each do |d|
+        d.each do |k, v|
+          if value = v.as_i64?
+            merged[k] = v unless merged[k]?.try(&.as_i64?.try { |i| i < value })
+          else
+            merged[k] = v
+          end
         end
       end
       merged.select { |key, _| SUPPORTED_POLICIES.includes?(key) }

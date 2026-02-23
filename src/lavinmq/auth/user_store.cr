@@ -33,8 +33,8 @@ module LavinMQ
         @users.each_value { |u| yield u }
       end
 
-      def each_value : Iterator(User)
-        @users.each_value
+      def values_dup : Array(User)
+        @users.values
       end
 
       def has_key?(name : String) : Bool

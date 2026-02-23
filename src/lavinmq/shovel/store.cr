@@ -28,8 +28,8 @@ module LavinMQ
         @shovels.each_value { |r| yield r }
       end
 
-      def each_value : Iterator(Runner)
-        @shovels.each_value
+      def values_dup : Array(Runner)
+        @shovels.values
       end
 
       def size : Int32

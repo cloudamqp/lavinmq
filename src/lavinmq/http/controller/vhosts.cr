@@ -19,8 +19,8 @@ module LavinMQ
     class VHostsController < Controller
       private def register_routes
         get "/api/vhosts" do |context, _params|
-          vhosts = vhosts(user(context)).map { |v| VHostView.new(v) }
-          page(context, vhosts)
+          arr = vhosts(user(context)).map { |v| VHostView.new(v) }
+          page(context, arr)
         end
 
         get "/api/vhosts/:name" do |context, params|

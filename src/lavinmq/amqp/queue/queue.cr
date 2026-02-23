@@ -113,8 +113,8 @@ module LavinMQ::AMQP
       @basic_get_unacked.reject! { |u| yield u }
     end
 
-    def basic_get_unacked_each : Iterator(UnackedMessage)
-      @basic_get_unacked.each
+    def basic_get_unacked_dup : Array(UnackedMessage)
+      @basic_get_unacked.to_a
     end
 
     def basic_get_unacked_size : Int32
@@ -799,16 +799,16 @@ module LavinMQ::AMQP
       raise ClosedError.new(cause: ex)
     end
 
-    def unacked_messages
-      unacked_messages = consumers.each.select(AMQP::Consumer).flat_map do |c|
-        c.unacked_messages.each.compact_map do |u|
+    def unacked_messages : Array(UnackedMessage)
+      result = consumers.select(AMQP::Consumer).flat_map do |c|
+        c.unacked_messages.compact_map do |u|
           next unless u.queue == self
           if consumer = u.consumer
             UnackedMessage.new(c.channel, u.tag, u.delivered_at, consumer.tag)
           end
         end
       end
-      unacked_messages.chain(@basic_get_unacked.each)
+      result.concat(@basic_get_unacked.to_a)
     end
 
     private def with_delivery_count_header(env) : Envelope?

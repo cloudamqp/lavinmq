@@ -69,8 +69,8 @@ module LavinMQ
       @exchanges.each_value { |v| yield v }
     end
 
-    def each_exchange : Iterator(Exchange)
-      @exchanges.each_value
+    def exchanges_dup : Array(Exchange)
+      @exchanges.values
     end
 
     def exchanges_size : Int32
@@ -103,8 +103,8 @@ module LavinMQ
       @queues.each_value { |v| yield v }
     end
 
-    def each_queue : Iterator(Queue)
-      @queues.each_value
+    def queues_dup : Array(Queue)
+      @queues.values
     end
 
     def queues_size : Int32
@@ -129,8 +129,8 @@ module LavinMQ
       @connections.each { |c| yield c }
     end
 
-    def each_connection : Iterator(Client)
-      @connections.each
+    def connections_dup : Array(Client)
+      @connections.dup
     end
 
     def connections_size : Int32
@@ -408,12 +408,12 @@ module LavinMQ
       end
     end
 
-    def queue_bindings(queue : Queue) : Iterator(BindingDetails)
+    def queue_bindings(queue : Queue) : Array(BindingDetails)
       default_binding = BindingDetails.new("", name, BindingKey.new(queue.name), queue)
-      bindings = each_exchange.flat_map do |ex|
+      bindings = exchanges_dup.flat_map do |ex|
         ex.bindings_details.select { |binding| binding.destination == queue }
       end
-      {default_binding}.each.chain(bindings)
+      [default_binding] + bindings
     end
 
     def add_operator_policy(name : String, pattern : String, apply_to : String,
@@ -554,11 +554,7 @@ module LavinMQ
     end
 
     private def apply_policies(resources : Array(Queue | Exchange) | Nil = nil)
-      resources = if resources
-                    resources.each
-                  else
-                    Iterator.chain({each_queue, each_exchange})
-                  end
+      resources ||= (queues_dup.map(&.as(Queue | Exchange)) + exchanges_dup.map(&.as(Queue | Exchange)))
       policies = @policies.values.sort_by!(&.priority).reverse
       operator_policies = @operator_policies.values.sort_by!(&.priority).reverse
       resources.each do |resource|

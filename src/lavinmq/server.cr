@@ -111,8 +111,8 @@ module LavinMQ
       Fiber.yield
     end
 
-    def connections
-      Iterator(Client).chain(@vhosts.each_value.map(&.each_connection))
+    def connections : Array(Client)
+      @vhosts.values.flat_map(&.connections_dup)
     end
 
     def listen(s : TCPServer, protocol : Protocol)

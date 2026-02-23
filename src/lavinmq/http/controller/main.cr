@@ -43,7 +43,7 @@ module LavinMQ
             vhost.each_connection do |c|
               connections += 1
               channels += c.channel_count
-              consumers += c.each_channel.sum &.consumers_size
+              consumers += c.channels_dup.sum &.consumers_size
               stats_details = c.stats_details
               recv_rate += stats_details[:recv_oct_details][:rate]
               send_rate += stats_details[:send_oct_details][:rate]
@@ -142,20 +142,20 @@ module LavinMQ
         end
 
         get "/api/federation-links" do |context, _params|
-          itrs = vhosts(user(context)).flat_map do |vhost|
+          arr = vhosts(user(context)).flat_map do |vhost|
             vhost.upstreams.not_nil!.flat_map do |upstream|
-              upstream.links.each
+              upstream.links
             end
           end
-          page(context, itrs)
+          page(context, arr)
         end
 
         get "/api/federation-links/:vhost" do |context, params|
           with_vhost(context, params) do |vhost|
-            itrs = vhost.upstreams.not_nil!.map do |upstream|
-              upstream.links.each
+            arr = vhost.upstreams.not_nil!.flat_map do |upstream|
+              upstream.links
             end
-            page(context, Iterator(Federation::Upstream::Link).chain(itrs))
+            page(context, arr)
           end
         end
 
