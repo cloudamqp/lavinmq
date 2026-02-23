@@ -29,7 +29,7 @@ def recursive_bake(dir)
 end
 
 def already_compressed?(path)
-  File.extname(path).in?(".webp", ".png")
+  File.extname(path).in?(".webp", ".png", ".woff2")
 end
 
 recursive_bake(ARGV[0])
