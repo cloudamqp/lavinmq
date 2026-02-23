@@ -111,7 +111,7 @@ module LavinMQ
           return
         end
         raise LavinMQ::Error::UnexpectedFrame.new(frame) if @next_publish_exchange_name
-        if ex = @client.vhost.exchanges[frame.exchange]?
+        if ex = @client.vhost.exchange?(frame.exchange)
           if !ex.internal?
             @next_publish_exchange_name = frame.exchange
             @next_publish_routing_key = frame.routing_key
@@ -300,7 +300,7 @@ module LavinMQ
       private def direct_reply?(msg) : Bool
         return false unless msg.routing_key.starts_with? "amq.direct.reply-to."
         consumer_tag = msg.routing_key[20..]
-        if ch = @client.vhost.direct_reply_consumers[consumer_tag]?
+        if ch = @client.vhost.direct_reply_consumer?(consumer_tag)
           confirm do
             deliver = AMQP::Frame::Basic::Deliver.new(ch.id, consumer_tag,
               1_u64, false,
@@ -363,11 +363,11 @@ module LavinMQ
           end
           @log.debug { "Saving direct reply consumer #{frame.consumer_tag}" }
           @direct_reply_consumer = frame.consumer_tag
-          @client.vhost.direct_reply_consumers[frame.consumer_tag] = self
+          @client.vhost.direct_reply_consumer_set(frame.consumer_tag, self)
           unless frame.no_wait
             send AMQP::Frame::Basic::ConsumeOk.new(frame.channel, frame.consumer_tag)
           end
-        elsif q = @client.vhost.queues[frame.queue]?
+        elsif q = @client.vhost.queue?(frame.queue)
           if @client.queue_exclusive_to_other_client?(q)
             @client.send_resource_locked(frame, "Exclusive queue")
             return
@@ -393,7 +393,7 @@ module LavinMQ
       end
 
       def basic_get(frame)
-        if q = @client.vhost.queues.fetch(frame.queue, nil)
+        if q = @client.vhost.queue?(frame.queue)
           if @client.queue_exclusive_to_other_client?(q)
             @client.send_resource_locked(frame, "Exclusive queue")
           elsif q.has_exclusive_consumer?
@@ -656,7 +656,7 @@ module LavinMQ
         end
         @consumers.clear
         if drc = @direct_reply_consumer
-          @client.vhost.direct_reply_consumers.delete(drc)
+          @client.vhost.direct_reply_consumer_delete(drc)
         end
         @unack_lock.synchronize do
           @unacked.each do |unack|
@@ -729,7 +729,7 @@ module LavinMQ
           c.close
         elsif @direct_reply_consumer == frame.consumer_tag
           @direct_reply_consumer = nil
-          @client.vhost.direct_reply_consumers.delete(frame.consumer_tag)
+          @client.vhost.direct_reply_consumer_delete(frame.consumer_tag)
         end
         unless frame.no_wait
           send AMQP::Frame::Basic::CancelOk.new(frame.channel, frame.consumer_tag)

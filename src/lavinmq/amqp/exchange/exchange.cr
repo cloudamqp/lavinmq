@@ -135,7 +135,7 @@ module LavinMQ
 
       def in_use?
         return true unless bindings_details.empty?
-        @vhost.exchanges.any? do |_, x|
+        @vhost.exchanges_any? do |_, x|
           x.bindings_details.any? { |bd| bd.destination == self }
         end
       end
@@ -146,7 +146,7 @@ module LavinMQ
 
         @delayed_queue = queue = AMQP::DelayedExchangeQueue.create(@vhost, @name, durable: durable?, auto_delete: @auto_delete)
 
-        @vhost.queues[queue.name] = queue
+        @vhost.queues_unsafe_put(queue.name, queue)
       end
 
       REPUBLISH_HEADERS = {"x-head", "x-tail", "x-from"}
@@ -270,8 +270,8 @@ module LavinMQ
           find_cc_queues(hdrs, "BCC", queues)
         end
 
-        if queues.empty? && alternate_exchange
-          @vhost.exchanges[alternate_exchange]?.try do |ae|
+        if queues.empty? && (ae_name = alternate_exchange)
+          @vhost.exchange?(ae_name).try do |ae|
             ae.find_queues(routing_key, headers, queues, exchanges)
           end
         end

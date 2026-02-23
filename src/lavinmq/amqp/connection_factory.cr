@@ -169,7 +169,7 @@ module LavinMQ
         vhost_name = open.vhost.empty? ? "/" : open.vhost
         if vhost = @vhosts[vhost_name]?
           if user.find_permission(vhost_name)
-            if vhost.max_connections.try { |max| vhost.connections.size >= max }
+            if vhost.max_connections.try { |max| vhost.connections_size >= max }
               log.warn { "Max connections (#{vhost.max_connections}) reached for vhost #{vhost_name}" }
               reply_text = "access to vhost '#{vhost_name}' refused: connection limit (#{vhost.max_connections}) is reached"
               return close_connection(socket, ConnectionReplyCode::NOT_ALLOWED, reply_text, open)
