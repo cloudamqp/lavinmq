@@ -60,6 +60,55 @@ describe "Delayed Message Exchange" do
         wait_for { s.vhosts["/"].queues[delay_q_name].message_count == 0 }
       end
     end
+
+    it "should rebuild index on restart with truncated segment and acked messages" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          x = ch.exchange(x_name, "topic", args: x_args)
+          q = ch.queue("delayed_q")
+          q.bind(x.name, "#")
+          hdrs = AMQP::Client::Arguments.new({"x-delay" => 1})
+          x.publish_confirm "test message", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
+          wait_for { s.vhosts["/"].queues["delayed_q"].message_count == 1 }
+        end
+        # All messages in delayed queue are now expired and acked
+        s.vhosts["/"].queues[delay_q_name].message_count.should eq 0
+        data_dir = File.join(s.vhosts["/"].data_dir, Digest::SHA1.hexdigest(delay_q_name))
+
+        s.stop
+
+        # Truncate segment file mid-message, simulating a crash where
+        # mmap data wasn't fully flushed to disk
+        seg_file = File.join(data_dir, "msgs.0000000001")
+        File.open(seg_file, "r+") { |f| f.truncate(f.size // 2) }
+
+        s.restart
+        s.vhosts["/"].queues[delay_q_name].message_count.should eq 0
+      end
+    end
+
+    it "should rebuild index on restart preserving valid messages despite trailing corrupt data" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          x = ch.exchange(x_name, "topic", args: x_args)
+          # No consumer bound, so message stays in the delayed queue
+          hdrs = AMQP::Client::Arguments.new({"x-delay" => 300_000})
+          x.publish_confirm "test message", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
+          s.vhosts["/"].queues[delay_q_name].message_count.should eq 1
+        end
+        data_dir = File.join(s.vhosts["/"].data_dir, Digest::SHA1.hexdigest(delay_q_name))
+
+        s.stop
+
+        # Append a partial message (just a non-zero timestamp, no body),
+        # simulating a crash mid-write
+        seg_file = File.join(data_dir, "msgs.0000000001")
+        File.open(seg_file, "a") { |f| f.write_bytes(1i64, IO::ByteFormat::SystemEndian) }
+
+        s.restart
+        s.vhosts["/"].queues[delay_q_name].message_count.should eq 1
+      end
+    end
   end
 
   q_name = "delayed_q"
