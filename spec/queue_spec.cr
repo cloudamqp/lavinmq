@@ -372,6 +372,29 @@ describe LavinMQ::AMQP::Queue do
       end
     end
 
+    it "should reapply policies after restart" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue(q_name, durable: true)
+          queue = s.vhosts["/"].queues[q_name].as(LavinMQ::AMQP::DurableQueue)
+
+          # Apply a max-length policy
+          definition = {"max-length" => JSON::Any.new(2i64)}
+          policy = LavinMQ::Policy.new("test", "/", /.*/, LavinMQ::Policy::Target::Queues, definition, 0i8)
+          queue.apply_policy(policy, nil)
+
+          # Close and restart the queue
+          queue.close
+          queue.closed?.should be_true
+          queue.restart!.should be_true
+
+          # Publish 4 messages, only 2 should be kept
+          4.times { |i| q.publish_confirm "msg #{i}" }
+          queue.message_count.should eq 2
+        end
+      end
+    end
+
     it "should not restart if queue is still running" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
