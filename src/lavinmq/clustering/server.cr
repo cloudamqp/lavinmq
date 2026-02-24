@@ -28,6 +28,7 @@ module LavinMQ
       Log = LavinMQ::Log.for "clustering.server"
 
       @lock = Mutex.new(:unchecked)
+      @sync_lock = Mutex.new(:unchecked)
       @followers = Array(Follower).new(4)
       @password : String
       @files = Hash(String, MFile?).new
@@ -184,7 +185,13 @@ module LavinMQ
           end
           @followers << follower # Starts in Syncing state
         end
-        follower.full_sync # sync the bulk
+        # Only allow one follower to do bulk sync at a time
+        # The bandwidth between nodes should be very high, so
+        # better with one fully synced than 2 partially synced followers
+        # Also @files and @checksums are not protected by locks
+        @sync_lock.synchronize do
+          follower.full_sync # sync the bulk
+        end
         @lock.synchronize do
           follower.full_sync    # sync the last
           follower.mark_synced! # Change state to Synced
