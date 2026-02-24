@@ -132,8 +132,10 @@ module LavinMQPerf
 
         if tls
           ssl_context = OpenSSL::SSL::Context::Client.new
-          if @uri.query_params["verify"]? =~ /^none$/i
-            ssl_context.verify_mode = OpenSSL::SSL::VerifyMode::NONE
+          if verify_param = @uri.query_params["verify"]?
+            if verify_mode = OpenSSL::SSL::VerifyMode.parse?(verify_param)
+              ssl_context.verify_mode = verify_mode
+            end
           end
           begin
             ssl_socket = OpenSSL::SSL::Socket::Client.new(tcp_socket, context: ssl_context, sync_close: true, hostname: host)
