@@ -84,16 +84,8 @@ module LavinMQ
       "amqp://#{addr}"
     end
 
-    def close
-      return if @closed.swap(true)
-      Log.debug { "Closing listeners" }
-      @listeners.each_key &.close
-      Log.debug { "Closing vhosts" }
-      @vhosts.close
-    end
-
     def stop
-      raise "stop called but already closed" if @closed.swap(true)
+      return if @closed.swap(true)
       @vhosts.close
       @replicator.try &.clear
       @authenticator.try &.cleanup
@@ -265,6 +257,14 @@ module LavinMQ
 
     def listen_clustering(server : TCPServer)
       @replicator.try &.listen(server)
+    end
+
+    def close
+      @closed.set(true)
+      Log.debug { "Closing listeners" }
+      @listeners.each_key &.close
+      Log.debug { "Closing vhosts" }
+      @vhosts.close
     end
 
     def add_parameter(parameter : Parameter)
