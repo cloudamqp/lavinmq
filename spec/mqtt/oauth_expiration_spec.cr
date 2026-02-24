@@ -15,7 +15,7 @@ module MqttSpecs
 
         # Create OAuthUser with a very short-lived token
         permissions = {"/" => {config: /.*/, read: /.*/, write: /.*/}}
-        user = OAuthUserHelper.create_user(RoughTime.utc + 1.second, permissions)
+        user = OAuthUserHelper.create_user(RoughTime.utc + 50.milliseconds, permissions)
 
         broker = server.@mqtt_brokers.@brokers["/"]
         packet = MQTT::Protocol::Connect.new(
@@ -33,10 +33,7 @@ module MqttSpecs
         reader.closed?.should be_false
 
         # Wait for token to expire and the on_expiration callback to fire
-        sleep 1.5.seconds
-
-        # Client should be disconnected after token expiry
-        reader.closed?.should be_true
+        wait_for { reader.closed? }.should be_true
       ensure
         writer.try &.close
       end
@@ -64,7 +61,7 @@ module MqttSpecs
 
         broker.add_client(mqtt_io, conn_info, user, packet)
 
-        sleep 500.milliseconds
+        sleep 50.milliseconds
 
         # Client should still be connected
         reader.closed?.should be_false
