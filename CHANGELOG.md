@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+- Delayed message store crash on corrupt segment data [#1694](https://github.com/cloudamqp/lavinmq/pull/1694)
+- Dead letter cycle detection [#1723](https://github.com/cloudamqp/lavinmq/pull/1723)
+- Allow any timestamp in AMQP messages [#1705](https://github.com/cloudamqp/lavinmq/pull/1705)
+- Reapply policies after queue restart [#1737](https://github.com/cloudamqp/lavinmq/pull/1737)
+- Only allow one follower to do bulk sync at a time [#1720](https://github.com/cloudamqp/lavinmq/pull/1720)
+- Disconnect MQTT clients on OAuth token expiration [#1746](https://github.com/cloudamqp/lavinmq/pull/1746)
+- MQTT OAuth wildcard vhost matching and user cleanup on disconnect [#1745](https://github.com/cloudamqp/lavinmq/pull/1745)
+- Copy SSL options to new SNI contexts [#1583](https://github.com/cloudamqp/lavinmq/pull/1583)
+- Return 400 for invalid binding routing key [#1734](https://github.com/cloudamqp/lavinmq/pull/1734)
+- Consumer starvation in lavinmqperf throughput mode [#1712](https://github.com/cloudamqp/lavinmq/pull/1712)
+- UI: Tooltip sizing [#1700](https://github.com/cloudamqp/lavinmq/pull/1700)
+- UI: Tooltip z-index to appear above menus [#1729](https://github.com/cloudamqp/lavinmq/pull/1729)
+- UI: Collapse whitespace in client capabilities display [#1733](https://github.com/cloudamqp/lavinmq/pull/1733)
+- UI: Empty cells in connection details for consistent rendering [#1732](https://github.com/cloudamqp/lavinmq/pull/1732)
+
 ## [2.7.0-rc.1] - 2026-02-11
 
 This release introduces OAuth2/OIDC authentication, kernel TLS offloading, a rewritten configuration system, Jump consistent hash exchange algorithm, and the ability to restart closed queues. It also brings enhanced TLS capabilities including SNI and mTLS support, improved stream performance, improved clustering and federation management, and many bug fixes.
