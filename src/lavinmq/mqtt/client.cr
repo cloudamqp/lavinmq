@@ -82,6 +82,10 @@ module LavinMQ
         publish_will
       ensure
         @broker.remove_client(self)
+        case user = @user
+        when Auth::OAuthUser
+          user.cleanup
+        end
         @waitgroup.done
         close_socket
         @log.info { "Connection disconnected for user=#{@user.name} duration=#{duration}" }
