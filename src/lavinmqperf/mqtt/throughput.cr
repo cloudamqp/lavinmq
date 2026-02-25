@@ -208,6 +208,7 @@ module LavinMQPerf
 
         start = Time.instant
         pubs_this_second = 0
+        local_pubs = 0_u64
         packet_id_generator = (1_u16..).each
         wait_until_all_are_connected(connected)
         until @stopped
@@ -233,7 +234,9 @@ module LavinMQPerf
           end
 
           pubs = @pubs.add(1, :relaxed) + 1
+          local_pubs &+= 1
           break if @pmessages > 0 && pubs >= @pmessages
+          Fiber.yield if @rate.zero? && local_pubs % (128*1024) == 0
 
           if !@rate.zero?
             pubs_this_second += 1
