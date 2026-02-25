@@ -89,6 +89,7 @@ module LavinMQ
             yield({path, calculated_hash})
           else
             if file = mfile
+              next if file.closed?
               sha1.update file.to_slice
               file.dontneed
             else
@@ -108,7 +109,11 @@ module LavinMQ
       def with_file(filename, & : MFile | File | Nil -> _)
         if @files.has_key? filename
           if mfile = @files[filename]
-            yield mfile
+            if mfile.closed?
+              yield nil
+            else
+              yield mfile
+            end
           else
             path = File.join(@data_dir, filename)
             if File.exists? path
