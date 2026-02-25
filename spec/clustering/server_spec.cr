@@ -40,4 +40,104 @@ describe LavinMQ::Clustering::Server, tags: "etcd" do
       end
     end
   end
+
+  describe "thread safety" do
+    it "concurrent files_with_hash and mutations don't crash" do
+      data_dir = LavinMQ::Config.instance.data_dir
+      Dir.mkdir_p(data_dir)
+      server = LavinMQ::Clustering::Server.new(
+        LavinMQ::Config.instance,
+        LavinMQ::Etcd.new("localhost:12379"),
+        0)
+
+      mfiles = Array(MFile).new
+      10.times do |i|
+        mfile = MFile.new(File.join(data_dir, "concurrent_test_#{i}"), 1024)
+        mfile.print "content_#{i}"
+        server.register_file(mfile)
+        mfiles << mfile
+      end
+
+      mt = Fiber::ExecutionContext::Parallel.new("test-concurrent-hash", 2)
+      done = Channel(Nil).new
+      iterations = 200
+
+      # Reader on a parallel thread: iterate files_with_hash
+      mt.spawn do
+        iterations.times do
+          server.files_with_hash { |_path, _hash| }
+        end
+        done.send nil
+      end
+
+      # Writer on main thread: mix of mutations
+      iterations.times do |i|
+        mfile = mfiles[i % mfiles.size]
+        case i % 5
+        when 0 then server.delete_file(mfile.path, WaitGroup.new(0))
+        when 1 then server.replace_file(mfile.path)
+        when 2 then server.append(mfile.path, "data".to_slice)
+        else        server.register_file(mfile)
+        end
+      end
+
+      select
+      when done.receive
+      when timeout(30.seconds)
+        fail "Timed out waiting for concurrent operations"
+      end
+
+      server.nr_of_files.should be >= 0
+    ensure
+      mfiles.try &.each { |mf| mf.delete rescue nil }
+    end
+
+    it "concurrent with_file and mutations don't crash" do
+      data_dir = LavinMQ::Config.instance.data_dir
+      Dir.mkdir_p(data_dir)
+      server = LavinMQ::Clustering::Server.new(
+        LavinMQ::Config.instance,
+        LavinMQ::Etcd.new("localhost:12379"),
+        0)
+
+      mfiles = Array(MFile).new
+      10.times do |i|
+        mfile = MFile.new(File.join(data_dir, "concurrent_wf_#{i}"), 1024)
+        mfile.print "content_#{i}"
+        server.register_file(mfile)
+        mfiles << mfile
+      end
+
+      mt = Fiber::ExecutionContext::Parallel.new("test-concurrent-wf", 2)
+      done = Channel(Nil).new
+      iterations = 200
+
+      # Reader on a parallel thread: call with_file repeatedly
+      mt.spawn do
+        iterations.times do |i|
+          key = "concurrent_wf_#{i % mfiles.size}"
+          server.with_file(key) { |_f| }
+        end
+        done.send nil
+      end
+
+      # Writer on main thread: register and delete files
+      iterations.times do |i|
+        mfile = mfiles[i % mfiles.size]
+        if i % 3 == 0
+          server.delete_file(mfile.path, WaitGroup.new(0))
+        else
+          server.register_file(mfile)
+        end
+      end
+
+      select
+      when done.receive
+      when timeout(30.seconds)
+        fail "Timed out waiting for concurrent operations"
+      end
+    ensure
+      mfiles.try &.each { |mf| mf.delete rescue nil }
+    end
+  end
 end

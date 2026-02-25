@@ -29,6 +29,7 @@ module LavinMQ
 
       @lock = Mutex.new(:unchecked)
       @sync_lock = Mutex.new(:unchecked)
+      @files_lock = Mutex.new(:unchecked)
       @followers = Array(Follower).new(4)
       @password : String
       @files = Hash(String, MFile?).new
@@ -45,49 +46,57 @@ module LavinMQ
       end
 
       def clear
-        @files.clear
-        @checksums.clear
+        @files_lock.synchronize do
+          @files.clear
+          @checksums.clear
+        end
       end
 
       def register_file(file : File)
         path = strip_datadir file.path
-        @files[path] = nil
+        @files_lock.synchronize { @files[path] = nil }
       end
 
       def register_file(mfile : MFile)
         path = strip_datadir mfile.path
-        @files[path] = mfile
+        @files_lock.synchronize { @files[path] = mfile }
       end
 
       def replace_file(path : String) # only non mfiles are ever replaced
         path = strip_datadir path
-        @files[path] = nil
-        @checksums.delete(path)
+        @files_lock.synchronize do
+          @files[path] = nil
+          @checksums.delete(path)
+        end
         each_follower &.replace(path)
       end
 
       def append(path : String, obj)
         path = strip_datadir path
-        @checksums.delete(path)
+        @files_lock.synchronize { @checksums.delete(path) }
         each_follower &.append(path, obj)
       end
 
       def delete_file(path : String, wg)
         path = strip_datadir path
-        @files.delete(path)
-        @checksums.delete(path)
+        @files_lock.synchronize do
+          @files.delete(path)
+          @checksums.delete(path)
+        end
         each_follower &.delete(path, wg)
       end
 
       def nr_of_files
-        @files.size
+        @files_lock.synchronize { @files.size }
       end
 
       def files_with_hash(& : Tuple(String, Bytes) -> Nil)
+        snapshot = @files_lock.synchronize { @files.dup }
         sha1 = Digest::SHA1.new
-        @files.each do |path, mfile|
-          if calculated_hash = @checksums[path]?
-            yield({path, calculated_hash})
+        snapshot.each do |path, mfile|
+          cached_hash = @files_lock.synchronize { @checksums[path]? }
+          if cached_hash
+            yield({path, cached_hash})
           else
             if file = mfile
               sha1.update file.to_slice
@@ -98,7 +107,7 @@ module LavinMQ
               sha1.file filename
             end
             hash = sha1.final
-            @checksums[path] = hash
+            @files_lock.synchronize { @checksums[path] = hash }
             sha1.reset
             Fiber.yield # CPU bound so allow other fibers to run here
             yield({path, hash})
@@ -107,8 +116,9 @@ module LavinMQ
       end
 
       def with_file(filename, & : MFile | File | Nil -> _)
-        if @files.has_key? filename
-          if mfile = @files[filename]
+        has_key, mfile = @files_lock.synchronize { {@files.has_key?(filename), @files[filename]?} }
+        if has_key
+          if mfile
             yield mfile
           else
             path = File.join(@data_dir, filename)
@@ -188,7 +198,6 @@ module LavinMQ
         # Only allow one follower to do bulk sync at a time
         # The bandwidth between nodes should be very high, so
         # better with one fully synced than 2 partially synced followers
-        # Also @files and @checksums are not protected by locks
         @sync_lock.synchronize do
           follower.full_sync # sync the bulk
         end
