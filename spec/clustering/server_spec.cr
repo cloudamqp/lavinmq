@@ -42,6 +42,7 @@ describe LavinMQ::Clustering::Server do
 
     it "should skip MFiles that are closed during iteration" do
       data_dir = LavinMQ::Config.instance.data_dir
+      Dir.mkdir_p(data_dir)
       server = LavinMQ::Clustering::Server.new(
         LavinMQ::Config.instance,
         LavinMQ::Etcd.new("localhost:12379"),
@@ -77,6 +78,7 @@ describe LavinMQ::Clustering::Server do
   describe "#with_file" do
     it "should yield nil for a closed MFile" do
       data_dir = LavinMQ::Config.instance.data_dir
+      Dir.mkdir_p(data_dir)
       server = LavinMQ::Clustering::Server.new(
         LavinMQ::Config.instance,
         LavinMQ::Etcd.new("localhost:12379"),
