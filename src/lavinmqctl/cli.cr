@@ -224,6 +224,7 @@ class LavinMQCtl
         @args["queue"] = JSON::Any.new(v)
       end
     end
+    @parser.separator("\nMiscellaneous:")
     @parser.on("-v", "--version", "Show version") { @io.puts LavinMQ::VERSION; exit 0 }
     @parser.on("--build-info", "Show build information") { @io.puts LavinMQ::BUILD_INFO; exit 0 }
     @parser.on("-h", "--help", "Show this help") do
