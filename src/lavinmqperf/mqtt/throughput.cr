@@ -3,6 +3,7 @@ require "json"
 require "wait_group"
 require "../perf"
 require "atomic"
+require "openssl"
 
 module LavinMQPerf
   module MQTT
@@ -85,20 +86,18 @@ module LavinMQPerf
       @consumes = Atomic(UInt64).new(0_u64)
       @stopped = false
 
-      private def create_client(id : Int32, role : String) : {TCPSocket, LavinMQ::MQTT::IO}
+      private def create_client(id : Int32, role : String) : {IO, LavinMQ::MQTT::IO}
         if @uri.host == @uri.port == nil
           @uri = URI.parse("mqtt://#{@uri.scheme}:#{@uri.path}")
         end
 
+        tls = @uri.scheme == "mqtts"
         host = @uri.host || "localhost"
-        port = @uri.port || 1883
+        port = @uri.port || (tls ? 8883 : 1883)
         user = @uri.user || "guest"
         password = @uri.password || "guest"
 
-        socket = TCPSocket.new(host, port)
-        socket.keepalive = true
-        socket.tcp_nodelay = false
-        socket.sync = false
+        socket = connect_socket(host, port, tls)
         io = LavinMQ::MQTT::IO.new(socket)
 
         client_id = "#{role}-#{id}"
@@ -123,6 +122,32 @@ module LavinMQPerf
 
         @io.puts "Connected to broker with --uri=#{@uri}"
         {socket, io}
+      end
+
+      private def connect_socket(host : String, port : Int32, tls : Bool) : IO
+        tcp_socket = TCPSocket.new(host, port)
+        tcp_socket.keepalive = true
+        tcp_socket.tcp_nodelay = false
+        tcp_socket.sync = false
+
+        if tls
+          ssl_context = OpenSSL::SSL::Context::Client.new
+          if verify_param = @uri.query_params["verify"]?
+            if verify_mode = OpenSSL::SSL::VerifyMode.parse?(verify_param)
+              ssl_context.verify_mode = verify_mode
+            end
+          end
+          begin
+            ssl_socket = OpenSSL::SSL::Socket::Client.new(tcp_socket, context: ssl_context, sync_close: true, hostname: host)
+          rescue ex
+            tcp_socket.close rescue nil
+            raise ex
+          end
+          ssl_socket.sync = false
+          return ssl_socket
+        end
+
+        tcp_socket
       end
 
       def run(args = ARGV)
@@ -248,6 +273,8 @@ module LavinMQPerf
           end
         end
         LavinMQ::MQTT::Disconnect.new.to_io(io) if socket && !socket.closed?
+      ensure
+        socket.try &.close rescue nil
       end
 
       # ameba:disable Metrics/CyclomaticComplexity
@@ -316,6 +343,8 @@ module LavinMQPerf
           LavinMQ::MQTT::Disconnect.new.to_io(io)
           io.flush
         end
+      ensure
+        socket.try &.close rescue nil
       end
 
       private def rerun_on_exception(done, &)
