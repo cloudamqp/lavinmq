@@ -87,6 +87,7 @@ module LavinMQ
         sha1 = Digest::SHA1.new
         @files.each do |path, mfile|
           if calculated_hash = @checksums[path]?
+            next if mfile && mfile.closed?
             yield({path, calculated_hash})
           else
             if file = mfile
