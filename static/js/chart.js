@@ -12,7 +12,7 @@ Chart.register(Title)
 Chart.register(Filler)
 
 const chartColors = ['#54be7e', '#4589ff', '#d12771', '#d2a106', '#08bdba', '#bae6ff', '#ba4e00',
-  '#d4bbff', '#8a3ffc', '#33b1ff', '#007d79', '#770F1C']
+  '#d4bbff', '#8a3ffc', '#33b1ff', '#007d79', '#770f1c']
 
 const POLLING_RATE = 5000
 const X_AXIS_LENGTH = 600000 // 10 min
