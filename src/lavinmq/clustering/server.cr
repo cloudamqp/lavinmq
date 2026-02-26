@@ -106,8 +106,8 @@ module LavinMQ
               yield({path, hash})
             end
           rescue ex : IO::Error
-            Log.error(exception: ex) { "MFile closed during hash calculation: #{path}" }
-            raise ex
+            Log.warn(exception: ex) { "MFile closed during hash calculation: #{path}" }
+            next
           end
         end
       end
@@ -118,7 +118,12 @@ module LavinMQ
             if mfile.closed?
               yield nil
             else
-              yield mfile
+              begin
+                yield mfile
+              rescue ex : IO::Error
+                Log.warn(exception: ex) { "MFile closed during with_file: #{filename}" }
+                yield nil
+              end
             end
           else
             path = File.join(@data_dir, filename)
