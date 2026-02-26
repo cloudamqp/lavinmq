@@ -58,12 +58,11 @@ describe LavinMQ::Clustering::Server, tags: "etcd" do
         mfiles << mfile
       end
 
-      mt = Fiber::ExecutionContext::Parallel.new("test-concurrent-hash", 2)
       done = Channel(Nil).new
-      iterations = 200
+      iterations = 1_000_000
 
-      # Reader on a parallel thread: iterate files_with_hash
-      mt.spawn do
+      # Reader on a separate thread: iterate files_with_hash
+      Fiber::ExecutionContext::Isolated.new("test-concurrent-hash") do
         iterations.times do
           server.files_with_hash { |_path, _hash| }
         end
@@ -90,6 +89,7 @@ describe LavinMQ::Clustering::Server, tags: "etcd" do
       server.nr_of_files.should be >= 0
     ensure
       mfiles.try &.each { |mf| mf.delete rescue nil }
+      FileUtils.rm_rf LavinMQ::Config.instance.data_dir
     end
 
     it "concurrent with_file and mutations don't crash" do
@@ -108,12 +108,11 @@ describe LavinMQ::Clustering::Server, tags: "etcd" do
         mfiles << mfile
       end
 
-      mt = Fiber::ExecutionContext::Parallel.new("test-concurrent-wf", 2)
       done = Channel(Nil).new
-      iterations = 200
+      iterations = 1_000_000
 
-      # Reader on a parallel thread: call with_file repeatedly
-      mt.spawn do
+      # Reader on a separate thread: call with_file repeatedly
+      Fiber::ExecutionContext::Isolated.new("test-concurrent-wf") do
         iterations.times do |i|
           key = "concurrent_wf_#{i % mfiles.size}"
           server.with_file(key) { |_f| }
@@ -138,6 +137,7 @@ describe LavinMQ::Clustering::Server, tags: "etcd" do
       end
     ensure
       mfiles.try &.each { |mf| mf.delete rescue nil }
+      FileUtils.rm_rf LavinMQ::Config.instance.data_dir
     end
   end
 end
