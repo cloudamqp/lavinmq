@@ -86,24 +86,29 @@ module LavinMQ
       def files_with_hash(& : Tuple(String, Bytes) -> Nil)
         sha1 = Digest::SHA1.new
         @files.each do |path, mfile|
-          if calculated_hash = @checksums[path]?
-            next if mfile && mfile.closed?
-            yield({path, calculated_hash})
-          else
-            if file = mfile
-              next if file.closed?
-              sha1.update file.to_slice
-              file.dontneed
+          begin
+            if calculated_hash = @checksums[path]?
+              next if mfile && mfile.closed?
+              yield({path, calculated_hash})
             else
-              filename = File.join(@data_dir, path)
-              next unless File.exists? filename
-              sha1.file filename
+              if file = mfile
+                next if file.closed?
+                sha1.update file.to_slice
+                file.dontneed
+              else
+                filename = File.join(@data_dir, path)
+                next unless File.exists? filename
+                sha1.file filename
+              end
+              hash = sha1.final
+              @checksums[path] = hash
+              sha1.reset
+              Fiber.yield # CPU bound so allow other fibers to run here
+              yield({path, hash})
             end
-            hash = sha1.final
-            @checksums[path] = hash
-            sha1.reset
-            Fiber.yield # CPU bound so allow other fibers to run here
-            yield({path, hash})
+          rescue ex : IO::Error
+            Log.error(exception: ex) { "MFile closed during hash calculation: #{path}" }
+            raise ex
           end
         end
       end
