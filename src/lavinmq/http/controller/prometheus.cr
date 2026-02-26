@@ -423,6 +423,24 @@ module LavinMQ
                         type:   "gauge",
                         help:   "Bytes that hasn't been synchronized with the follower yet"})
         end
+        writer.write({name:  "mfile_count",
+                      value: MFile.mmap_count,
+                      type:  "gauge",
+                      help:  "Number of MFile memory-mapped files"})
+        {% if flag?(:linux) %}
+          if count = count_proc_maps_lines
+            writer.write({name:  "process_mmap_count",
+                          value: count,
+                          type:  "gauge",
+                          help:  "Total number of virtual memory areas in the process"})
+          end
+          if max = File.read?("/proc/sys/vm/max_map_count")
+            writer.write({name:  "process_mmap_limit",
+                          value: max.to_i64,
+                          type:  "gauge",
+                          help:  "System limit for memory-mapped regions (vm.max_map_count)"})
+          end
+        {% end %}
       end
 
       SERVER_METRICS = {:connection_created, :connection_closed, :channel_created, :channel_closed,
@@ -612,6 +630,21 @@ module LavinMQ
             end
           end
         end
+      end
+
+      # Count lines in /proc/self/maps without allocating the entire file content.
+      # Reads in chunks and counts newlines incrementally to reduce memory usage.
+      private def count_proc_maps_lines : Int64?
+        File.open("/proc/self/maps", "r") do |file|
+          count = 0i64
+          buffer = uninitialized UInt8[4096]
+          while (bytes_read = file.read(buffer.to_slice)) > 0
+            count += buffer.to_slice[0, bytes_read].count('\n'.ord.to_u8)
+          end
+          count
+        end
+      rescue
+        nil
       end
     end
   end
