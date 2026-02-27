@@ -225,8 +225,11 @@ module LavinMQ
           Log.info { "#{remote_addr} connected with #{ssl_client.tls_version} #{ssl_client.cipher}" }
           handle_tls_connection(ssl_client, client.local_address, remote_addr, protocol)
         end
+      rescue ex : OpenSSL::SSL::Error
+        Log.warn { "Error accepting TLS connection from #{remote_addr}: #{ex.message}" }
+        client.close rescue nil
       rescue ex
-        Log.warn(exception: ex) { "Error accepting TLS connection from #{remote_addr}" }
+        Log.error(exception: ex) { "Error accepting TLS connection from #{remote_addr}" }
         client.close rescue nil
       end
     end
