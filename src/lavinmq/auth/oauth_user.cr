@@ -7,8 +7,6 @@ module LavinMQ
       getter tags : Array(Tag)
       getter permissions : Hash(String, Permissions)
 
-      @token_updated = Channel(Nil).new
-
       def initialize(@name : String, @tags : Array(Tag), @permissions : Hash(String, Permissions),
                      @expires_at : Time, @verifier : JWT::TokenVerifier)
       end
@@ -16,26 +14,6 @@ module LavinMQ
       def token_lifetime : Time::Span
         v = @expires_at - RoughTime.utc
         v.negative? ? 0.seconds : v
-      end
-
-      def on_expiration(&block)
-        spawn(name: "OAuthUser#on_expiration") do
-          loop do
-            select
-            when @token_updated.receive
-              next
-            when timeout(token_lifetime)
-              block.call
-              break
-            end
-          end
-        rescue Channel::ClosedError
-          # Channel closed, exit gracefully
-        end
-      end
-
-      def cleanup
-        @token_updated.close
       end
 
       def refresh(new_secret : String)
@@ -51,7 +29,6 @@ module LavinMQ
         @permissions = claims.permissions
         @expires_at = claims.expires_at
         clear_permissions_cache
-        @token_updated.send nil
       end
 
       def find_permission(vhost : String) : Permissions?
