@@ -154,8 +154,6 @@ module LavinMQ::AMQP
 
     getter name, arguments, vhost, consumers
     getter? auto_delete, exclusive
-    getter policy : Policy?
-    getter operator_policy : OperatorPolicy?
     getter? closed = false
     getter state = QueueState::Running
     getter empty : BoolChannel
@@ -492,12 +490,12 @@ module LavinMQ::AMQP
         unacked_bytes:                unacked_bytesize, # Deprecated, to be removed in next major version
         message_bytes_unacknowledged: unacked_bytesize,
         unacked_avg_bytes:            unacked_avg_bytes,
-        operator_policy:              @operator_policy.try &.name,
-        policy:                       @policy.try &.name,
+        operator_policy:              operator_policy.try &.name,
+        policy:                       policy.try &.name,
         exclusive_consumer_tag:       @exclusive ? @consumers.first?.try(&.tag) : nil,
         single_active_consumer_tag:   @single_active_consumer.try &.tag,
         state:                        @state,
-        effective_policy_definition:  Policy.merge_definitions(@policy, @operator_policy),
+        effective_policy_definition:  Policy.merge_definitions(policy, operator_policy),
         message_stats:                current_stats_details,
         effective_arguments:          @effective_args,
         effective_policy_arguments:   effective_policy_args,
