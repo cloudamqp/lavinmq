@@ -301,6 +301,7 @@ module LavinMQ::AMQP
       super
       io.write_bytes @segment_first_offset[seg]
       io.write_bytes @segment_first_ts[seg]
+      io.write_bytes @segment_last_ts[seg]
     end
 
     def drop_overflow
@@ -368,18 +369,31 @@ module LavinMQ::AMQP
       if empty?
         @segment_first_offset[seg] = @last_offset + 1
         @segment_first_ts[seg] = RoughTime.unix_ms
+        @segment_last_ts[seg] = RoughTime.unix_ms
       else
         previous_segment_first_offset = @segment_first_offset[seg - 1]? || 1i64
         previous_segment_msg_count = @segment_msg_count[seg - 1]? || 0i64
         msg = BytesMessage.from_bytes(mfile.to_slice + 4u32)
         @segment_first_offset[seg] = previous_segment_first_offset + previous_segment_msg_count
         @segment_first_ts[seg] = msg.timestamp
+        # NOTE: scan_last_ts re-scans the segment even though super already did.
+        # This path only runs when metadata files are missing, so the cost is acceptable.
+        @segment_last_ts[seg] = scan_last_ts(mfile)
       end
     end
 
     private def read_extra_metadata_fields(file : File, seg : UInt32)
       stored_offset = file.read_bytes(Int64)
       @segment_first_ts[seg] = file.read_bytes(Int64)
+
+      begin
+        @segment_last_ts[seg] = file.read_bytes(Int64)
+      rescue IO::EOFError
+        # Old metadata format without last_ts, scan segment to find it
+        @log.warn { "Metadata for segment #{seg} is missing last_ts, scanning segment to determine it" }
+        @segment_last_ts[seg] = scan_last_ts(@segments[seg])
+        write_metadata_file(seg, @segments[seg])
+      end
 
       # Validate and fix (possibly) incorrect offsets from existing metadata
       @segment_first_offset[seg] = if seg == 1u32
@@ -391,6 +405,16 @@ module LavinMQ::AMQP
                                    else
                                      stored_offset # No previous segment info, use stored value
                                    end
+    end
+
+    private def scan_last_ts(mfile) : Int64
+      last_ts = 0i64
+      mfile.pos = 4
+      while mfile.pos < mfile.size
+        last_ts = IO::ByteFormat::SystemEndian.decode(Int64, mfile.to_slice(mfile.pos, 8))
+        BytesMessage.skip(mfile)
+      end
+      last_ts
     end
 
     class OffsetError < Exception
