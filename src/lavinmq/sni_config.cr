@@ -43,16 +43,22 @@ module LavinMQ
     property http_tls_ca_cert : String? = nil
     property http_tls_keylog_file : String? = nil
 
-    @amqp_tls_context : OpenSSL::SSL::Context::Server?
-    @mqtt_tls_context : OpenSSL::SSL::Context::Server?
-    @http_tls_context : OpenSSL::SSL::Context::Server?
+    getter amqp_tls_context : OpenSSL::SSL::Context::Server
+    getter mqtt_tls_context : OpenSSL::SSL::Context::Server
+    getter http_tls_context : OpenSSL::SSL::Context::Server
 
     def initialize(@hostname : String)
+      @amqp_tls_context = uninitialized OpenSSL::SSL::Context::Server
+      @mqtt_tls_context = uninitialized OpenSSL::SSL::Context::Server
+      @http_tls_context = uninitialized OpenSSL::SSL::Context::Server
+      reload
     end
 
-    # Get or create the TLS context for AMQP
-    def amqp_tls_context : OpenSSL::SSL::Context::Server
-      @amqp_tls_context ||= create_tls_context(
+    # Reload the TLS contexts (e.g., on SIGHUP)
+    # Creates new contexts atomically to avoid race conditions
+    # ameba:disable Metrics/CyclomaticComplexity
+    def reload
+      @amqp_tls_context = create_tls_context(
         @amqp_tls_cert || @tls_cert,
         @amqp_tls_key || @tls_key,
         @amqp_tls_min_version || @tls_min_version,
@@ -61,11 +67,7 @@ module LavinMQ
         @amqp_tls_ca_cert || @tls_ca_cert,
         @amqp_tls_keylog_file || @tls_keylog_file
       )
-    end
-
-    # Get or create the TLS context for MQTT
-    def mqtt_tls_context : OpenSSL::SSL::Context::Server
-      @mqtt_tls_context ||= create_tls_context(
+      @mqtt_tls_context = create_tls_context(
         @mqtt_tls_cert || @tls_cert,
         @mqtt_tls_key || @tls_key,
         @mqtt_tls_min_version || @tls_min_version,
@@ -74,11 +76,7 @@ module LavinMQ
         @mqtt_tls_ca_cert || @tls_ca_cert,
         @mqtt_tls_keylog_file || @tls_keylog_file
       )
-    end
-
-    # Get or create the TLS context for HTTP
-    def http_tls_context : OpenSSL::SSL::Context::Server
-      @http_tls_context ||= create_tls_context(
+      @http_tls_context = create_tls_context(
         @http_tls_cert || @tls_cert,
         @http_tls_key || @tls_key,
         @http_tls_min_version || @tls_min_version,
@@ -89,18 +87,19 @@ module LavinMQ
       )
     end
 
-    # Reload the TLS contexts (e.g., on SIGHUP)
-    def reload
-      @amqp_tls_context = nil
-      @mqtt_tls_context = nil
-      @http_tls_context = nil
-    end
-
     private def create_tls_context(cert_path, key_path, min_version, ciphers, verify_peer, ca_cert, keylog_file) : OpenSSL::SSL::Context::Server
       context = OpenSSL::SSL::Context::Server.new
       context.add_options(OpenSSL::SSL::Options.new(0x40000000)) # disable client initiated renegotiation
+      set_min_tls_version(context, min_version)
+      context.certificate_chain = cert_path
+      context.private_key = key_path.empty? ? cert_path : key_path
+      context.ciphers = ciphers unless ciphers.empty?
+      set_verify_peer(context, verify_peer, ca_cert)
+      set_keylog_file(context, keylog_file)
+      context
+    end
 
-      # Set TLS version
+    private def set_min_tls_version(context, min_version) : Nil
       case min_version
       when "1.0"
         context.remove_options(OpenSSL::SSL::Options::NO_TLS_V1_2 |
@@ -117,33 +116,22 @@ module LavinMQ
       else
         Log.warn { "Unrecognized tls_min_version for SNI host '#{@hostname}': '#{min_version}'" }
       end
+    end
 
-      # Set certificate and key
-      context.certificate_chain = cert_path
-      context.private_key = key_path.empty? ? cert_path : key_path
-
-      # Set ciphers
-      context.ciphers = ciphers unless ciphers.empty?
-
-      # Set client certificate verification (mTLS)
-      if verify_peer
-        context.verify_mode = OpenSSL::SSL::VerifyMode::PEER | OpenSSL::SSL::VerifyMode::FAIL_IF_NO_PEER_CERT
-        unless ca_cert.empty?
-          if File.directory?(ca_cert)
-            context.ca_certificates_path = ca_cert
-          else
-            context.ca_certificates = ca_cert
-          end
-        end
+    private def set_verify_peer(context, verify_peer, ca_cert) : Nil
+      return context.verify_mode = OpenSSL::SSL::VerifyMode::NONE unless verify_peer
+      context.verify_mode = OpenSSL::SSL::VerifyMode::PEER | OpenSSL::SSL::VerifyMode::FAIL_IF_NO_PEER_CERT
+      return if ca_cert.empty?
+      if File.directory?(ca_cert)
+        context.ca_certificates_path = ca_cert
       else
-        context.verify_mode = OpenSSL::SSL::VerifyMode::NONE
+        context.ca_certificates = ca_cert
       end
+    end
 
-      # Set keylog file
+    private def set_keylog_file(context, keylog_file) : Nil
       keylog_file = ENV.fetch("SSLKEYLOGFILE", "") if keylog_file.empty?
       context.keylog_file = keylog_file unless keylog_file.empty?
-
-      context
     end
   end
 
