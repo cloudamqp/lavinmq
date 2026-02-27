@@ -319,6 +319,9 @@ module LavinMQ
       ctx.private_key = @config.tls_key_path.empty? ? @config.tls_cert_path : @config.tls_key_path
       ctx.ciphers = @config.tls_ciphers unless @config.tls_ciphers.empty?
       reload_ssl_keylog(ctx)
+    rescue e : OpenSSL::Error
+      Log.error { "Failed to initiate the OpenSSL context: #{e.message}" }
+      exit 1
     end
 
     private def reload_ssl_keylog(ctx)
