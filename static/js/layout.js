@@ -84,21 +84,8 @@ class ThemeSwitcher {
   }
 
   applyTheme (theme) {
-    const html = document.documentElement
-
-    // Remove existing theme classes
-    html.classList.remove('theme-light', 'theme-dark')
-
-    if (theme === 'light') {
-      html.classList.add('theme-light')
-      html.style.colorScheme = 'light'
-    } else if (theme === 'dark') {
-      html.classList.add('theme-dark')
-      html.style.colorScheme = 'dark'
-    } else { // system
-      // Let CSS color-scheme handle it
-      html.style.colorScheme = 'light dark'
-    }
+    // Uses the global applyTheme() defined in partials/theme.ecr
+    applyTheme(theme)
   }
 
   updateActiveButton () {
@@ -112,22 +99,6 @@ class ThemeSwitcher {
     }
   }
 }
-
-// Initialize theme immediately to prevent flash
-(function () {
-  const savedTheme = window.localStorage.getItem('theme') || 'system'
-  const html = document.documentElement
-
-  if (savedTheme === 'light') {
-    html.classList.add('theme-light')
-    html.style.colorScheme = 'light'
-  } else if (savedTheme === 'dark') {
-    html.classList.add('theme-dark')
-    html.style.colorScheme = 'dark'
-  } else {
-    html.style.colorScheme = 'light dark'
-  }
-})()
 
 // Check if sidebar is collapsed or expanded
 document.addEventListener('DOMContentLoaded', () => {
