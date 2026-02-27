@@ -85,7 +85,13 @@ module LavinMQ::AMQP
       end
     rescue ::Channel::ClosedError
     ensure
+      @message_expire_fiber_active.set(false, :release)
       @log.debug { "message_expire_loop stopped" }
+    end
+
+    # Delayed exchange queues always need their expire fiber running
+    private def should_start_expire_fiber? : Bool
+      true
     end
 
     def expire_messages
