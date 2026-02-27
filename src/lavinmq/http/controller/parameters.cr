@@ -108,12 +108,12 @@ module LavinMQ
         end
 
         get "/api/global-parameters" do |context, _params|
-          refuse_unless_administrator(context, user(context))
+          refuse_unless_policymaker(context, user(context))
           page(context, @amqp_server.parameters.each_value.map { |p| map_parameter(nil, p) })
         end
 
         get "/api/global-parameters/:name" do |context, params|
-          refuse_unless_administrator(context, user(context))
+          refuse_unless_policymaker(context, user(context))
           name = params["name"]
           param = param(context, @amqp_server.parameters, {nil, name})
           map_parameter(nil, param).to_json(context.response)
@@ -121,7 +121,7 @@ module LavinMQ
         end
 
         put "/api/global-parameters/:name" do |context, params|
-          refuse_unless_administrator(context, user(context))
+          refuse_unless_policymaker(context, user(context))
           name = params["name"]
           body = parse_body(context)
           value = body["value"]?
