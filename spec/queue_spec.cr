@@ -16,6 +16,34 @@ def with_queue(&)
 end
 
 describe LavinMQ::AMQP::Queue do
+  it "should not expire message before server is fully started" do
+    # https://github.com/cloudamqp/lavinmq/issues/1697
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        # Must go via a queue with binding keys
+        dlq = ch.queue("dlq")
+        dlq.bind(ch.topic_exchange.name, dlq.name)
+        q = ch.queue("ttl", args: AMQP::Client::Arguments.new(
+          {"x-message-ttl" => 1000, "x-dead-letter-exchange" => "amq.topic", "x-dead-letter-routing-key" => dlq.name}
+        ))
+        # declare a queue after ttl that will cause yields in its message store during load
+        other_queue = ch.queue("other")
+        x = ch.default_exchange
+        x.publish_confirm("foo", other_queue.name)
+        x.publish_confirm("ttl", q.name)
+      end
+      s.stop
+      RoughTime.paused do |t|
+        # Move time so message will be expired on startup
+        t.travel 2.seconds
+        s.restart
+        with_channel(s) do |ch|
+          ch.queue("dlq").get.should_not be_nil, failure_message: "Message not dead lettered?!"
+        end
+      end
+    end
+  end
+
   it "should expire itself after last consumer disconnects" do
     with_amqp_server do |s|
       with_channel(s) do |ch|

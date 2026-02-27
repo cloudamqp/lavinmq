@@ -17,7 +17,6 @@ module LavinMQ
 
     def initialize(@data_dir : String, @users : Auth::UserStore, @replicator : Clustering::Replicator?)
       @vhosts = Hash(String, VHost).new
-      load!
     end
 
     forward_missing_to @vhosts
@@ -72,7 +71,7 @@ module LavinMQ
       end
     end
 
-    private def load!
+    def load!
       path = File.join(@data_dir, "vhosts.json")
       if File.exists? path
         Log.debug { "Loading vhosts from file" }
@@ -90,6 +89,8 @@ module LavinMQ
         Log.debug { "Loading default vhosts" }
         create("/")
       end
+      # Wait for vhosts to be loaded ("not closed")
+      @vhosts.each_value &.closed.when_false.receive
       Log.debug { "#{size} vhosts loaded" }
     rescue ex
       Log.error(exception: ex) { "Failed to load vhosts" }

@@ -48,11 +48,22 @@ class BoolChannel
   end
 
   def value
-    @value.get
+    @value.get(:acquire)
   end
 
-  def set(value : Bool)
-    return if @value.swap(value) == value
+  def swap(value : Bool)
+    ret = @value.swap(value)
+    update_active_channel(value) unless ret == value
+    ret
+  end
+
+  def set(value : Bool) : Nil
+    @value.set(value)
+    update_active_channel(value)
+    nil
+  end
+
+  private def update_active_channel(value)
     if value
       @when_false.deactivate
       @when_true.activate
