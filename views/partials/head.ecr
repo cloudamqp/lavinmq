@@ -1,10 +1,9 @@
+<% render "partials/theme" %>
 <script>
-  (function () {
-    try {
-      var collapsed = window.localStorage.getItem("menuCollapsed") === "true";
-      document.documentElement.classList.toggle("menu-collapsed", collapsed);
-    } catch (e) {}
-  })();
+  try {
+    var collapsed = window.localStorage.getItem("menuCollapsed") === "true";
+    document.documentElement.classList.toggle("menu-collapsed", collapsed);
+  } catch (e) {}
 </script>
 <script type="module" src="js/layout.js"></script>
 <title><%=pagename%> | LavinMQ</title>

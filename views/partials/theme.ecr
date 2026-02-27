@@ -1,0 +1,18 @@
+<script>
+  function applyTheme(theme) {
+    var html = document.documentElement;
+    html.classList.remove("theme-light", "theme-dark");
+    if (theme === "light") {
+      html.classList.add("theme-light");
+      html.style.colorScheme = "light";
+    } else if (theme === "dark") {
+      html.classList.add("theme-dark");
+      html.style.colorScheme = "dark";
+    } else {
+      html.style.colorScheme = "light dark";
+    }
+  }
+  try {
+    applyTheme(localStorage.getItem("theme") || "system");
+  } catch (e) {}
+</script>
