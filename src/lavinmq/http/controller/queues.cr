@@ -191,6 +191,8 @@ module LavinMQ
                 get_count.times do
                   q.basic_get(false, true) do |env|
                     sps << env.segment_position
+                    event_type = ack ? EventType::ClientGet : EventType::ClientGetNoAck
+                    vhost.event_tick(event_type)
                     j.object do
                       payload_encoding = "string"
                       j.field("payload_bytes", env.message.bodysize)
