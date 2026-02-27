@@ -268,8 +268,16 @@ module LavinMQ
         replicator.delete_file(File.join(@msg_dir, "nonexistent"), wg)
         spawn(name: "wait for file deletion is replicated") do
           wg.wait
-          @segments.each_value &.close
-          @acks.each_value &.close
+          # "Re-register" the files with path only so replicator won't
+          # use closed mfiles
+          @segments.each_value do |segment|
+            replicator.register_file segment.path
+            segment.close
+          end
+          @acks.each_value do |ackfile|
+            replicator.register_file ackfile.path
+            ackfile.close
+          end
         end
       else
         @segments.each_value &.close
