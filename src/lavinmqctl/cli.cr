@@ -65,7 +65,7 @@ class LavinMQCtl
   end
 
   def parse_cmd
-    @parser.separator("\nCommands:")
+    @parser.separator("\nCommands")
     COMPAT_CMDS.each do |cmd|
       @parser.on(cmd[0], cmd[1]) do
         @cmd = cmd[0]
@@ -224,11 +224,12 @@ class LavinMQCtl
         @args["queue"] = JSON::Any.new(v)
       end
     end
+    @parser.separator("\nMiscellaneous")
     @parser.on("-v", "--version", "Show version") { @io.puts LavinMQ::VERSION; exit 0 }
     @parser.on("--build-info", "Show build information") { @io.puts LavinMQ::BUILD_INFO; exit 0 }
     @parser.on("-h", "--help", "Show this help") do
       @io.puts @parser
-      exit 1
+      exit 0
     end
     @parser.invalid_option { |arg| abort "Invalid argument: #{arg}" }
   end
@@ -348,7 +349,7 @@ class LavinMQCtl
   end
 
   private def global_options
-    @parser.separator("\nGlobal options:")
+    @parser.separator("\nGlobal options")
     @parser.on("-p vhost", "--vhost=vhost", "Specify vhost") do |v|
       @options["vhost"] = v
     end
