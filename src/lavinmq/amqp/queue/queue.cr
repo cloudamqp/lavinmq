@@ -64,6 +64,7 @@ module LavinMQ::AMQP
     @consumers = Array(Client::Channel::Consumer).new
     @consumers_lock = Mutex.new
     @message_ttl_change = ::Channel(Nil).new
+    @drop_overflow_channel = ::Channel(Nil).new
 
     getter basic_get_unacked = Deque(UnackedMessage).new
     @unacked_count = Atomic(UInt32).new(0u32)
@@ -113,32 +114,44 @@ module LavinMQ::AMQP
     private def message_expire_loop
       @vhost.closed.when_false.receive?
       loop do
-        @consumers_empty.when_true.receive
-        @log.debug { "Consumers empty" }
         @msg_store.empty.when_false.receive
-        @log.debug { "Message store not empty" }
-        next unless @consumers.empty?
-        if ttl = time_to_message_expiration
-          @log.debug { "Next message TTL: #{ttl}" }
-          select
-          when @message_ttl_change.receive
-            @log.debug { "Message TTL changed" }
-          when @msg_store.empty.when_true.receive # might be empty now (from basic get)
-            @log.debug { "Message store is empty" }
-          when @consumers_empty.when_false.receive
-            @log.debug { "Got consumers" }
-          when timeout ttl
-            @log.debug { "Message TTL reached" }
-            expire_messages
+        @log.debug { "message_expire_loop=\"Message store not empty\"" }
+        if @consumers.empty?
+          if ttl = time_to_message_expiration
+            @log.debug { "message_expire_loop=\"Next message\" ttl=\"#{ttl}\"" }
+            select
+            when @message_ttl_change.receive
+              @log.debug { "message_expire_loop=\"Message TTL changed\" ttl=\"#{ttl}\" consumers=0" }
+            when @drop_overflow_channel.receive
+              @log.debug { "message_expire_loop=\"Drop overflow\" ttl=\"#{ttl}\" consumers=0" }
+              drop_overflow
+            when @msg_store.empty.when_true.receive
+              @log.debug { "message_expire_loop=\"Message store is empty\" ttl=\"#{ttl}\" consumers=0" }
+            when @consumers_empty.when_false.receive
+              @log.debug { "message_expire_loop=\"Got consumers\" ttl=\"#{ttl}\" consumers=0" }
+            when timeout ttl
+              @log.debug { "message_expire_loop=\"Message TTL reached\" ttl=\"#{ttl}\" consumers=0" }
+              expire_messages
+              drop_overflow
+            end
+          else
+            select
+            when @message_ttl_change.receive
+              @log.debug { "message_expire_loop=\"Message TTL changed\" ttl=\"nil\" consumer=0" }
+            when @drop_overflow_channel.receive
+              @log.debug { "message_expire_loop=\"Drop overflow\" ttl=\"nil\" consumer=0" }
+              drop_overflow
+            when @msg_store.empty.when_true.receive
+              @log.debug { "message_expire_loop=\"Msg store is empty\" ttl=\"nil\" consumer=0" }
+            end
           end
         else
-          # first message in queue should not be expired
-          # wait for empty queue or TTL change
           select
-          when @message_ttl_change.receive
-            @log.debug { "Message TTL changed" }
-          when @msg_store.empty.when_true.receive
-            @log.debug { "Msg store is empty" }
+          when @drop_overflow_channel.receive
+            @log.debug { "message_expire_loop=\"Drop overflow while having consumers\"" }
+            drop_overflow
+          when @consumers_empty.when_true.receive
+            @log.debug { "message_expire_loop=\"Lost consumers\"" }
           end
         end
       end
@@ -216,6 +229,7 @@ module LavinMQ::AMQP
       # Recreate channels that were closed
       @queue_expiration_ttl_change = ::Channel(Nil).new
       @message_ttl_change = ::Channel(Nil).new
+      @drop_overflow_channel = ::Channel(Nil).new
       @paused = BoolChannel.new(false)
       @consumers_empty = BoolChannel.new(true)
       @single_active_consumer_change = ::Channel(Client::Channel::Consumer).new
@@ -433,6 +447,7 @@ module LavinMQ::AMQP
       @state = QueueState::Closed
       @queue_expiration_ttl_change.close
       @message_ttl_change.close
+      @drop_overflow_channel.close
       @paused.close
       @consumers_empty.close
       @consumers_lock.synchronize do
@@ -525,7 +540,7 @@ module LavinMQ::AMQP
         @msg_store.push(msg)
       end
       @publish_count.add(1, :relaxed)
-      drop_overflow_if_no_immediate_delivery
+      signal_drop_overflow
       true
     rescue ex : MessageStore::Error
       @log.error(ex) { "Queue closed due to error" }
@@ -550,38 +565,43 @@ module LavinMQ::AMQP
       end
     end
 
-    private def drop_overflow_if_no_immediate_delivery : Nil
-      drop_overflow if (@max_length || @max_length_bytes) && !immediate_delivery?
+    private def signal_drop_overflow : Nil
+      @drop_overflow_channel.try_send?(nil) if (@max_length || @max_length_bytes) && !immediate_delivery?
     end
 
     private def drop_overflow : Nil
       counter = 0
+
       if ml = @max_length
-        @msg_store_lock.synchronize do
-          while @msg_store.size > ml
-            env = @msg_store.shift? || break
-            @log.debug { "Overflow drop head sp=#{env.segment_position}" }
-            expire_msg(env, :maxlen)
-            counter &+= 1
-            if counter >= 16 * 1024
-              Fiber.yield
-              counter = 0
+        loop do
+          env = @msg_store_lock.synchronize do
+            if @msg_store.size > ml
+              @msg_store.shift?
             end
+          end
+          break unless env
+          expire_msg(env, :maxlen)
+          counter &+= 1
+          if counter >= 16 * 1024
+            Fiber.yield
+            counter = 0
           end
         end
       end
 
       if mlb = @max_length_bytes
-        @msg_store_lock.synchronize do
-          while @msg_store.bytesize > mlb
-            env = @msg_store.shift? || break
-            @log.debug { "Overflow drop head sp=#{env.segment_position}" }
-            expire_msg(env, :maxlenbytes)
-            counter &+= 1
-            if counter >= 16 * 1024
-              Fiber.yield
-              counter = 0
+        loop do
+          env = @msg_store_lock.synchronize do
+            if @msg_store.bytesize > mlb
+              @msg_store.shift?
             end
+          end
+          break unless env
+          expire_msg(env, :maxlenbytes)
+          counter &+= 1
+          if counter >= 16 * 1024
+            Fiber.yield
+            counter = 0
           end
         end
       end
@@ -590,19 +610,19 @@ module LavinMQ::AMQP
     private def drop_redelivered : Nil
       counter = 0
       if limit = @delivery_limit
-        @msg_store_lock.synchronize do
-          loop do
-            env = @msg_store.first? || break
-            delivery_count = @deliveries.fetch(env.segment_position, 0) || break
+        loop do
+          env = @msg_store_lock.synchronize do
+            first_env = @msg_store.first? || break
+            delivery_count = @deliveries.fetch(first_env.segment_position, 0) || break
             break unless delivery_count > limit
-            env = @msg_store.shift? || break
-            @log.debug { "Over delivery limit, drop sp=#{env.segment_position}" }
-            expire_msg(env, :delivery_limit)
-            counter &+= 1
-            if counter >= 16 * 1024
-              Fiber.yield
-              counter = 0
-            end
+            @msg_store.shift?
+          end
+          break unless env
+          expire_msg(env, :delivery_limit)
+          counter &+= 1
+          if counter >= 16 * 1024
+            Fiber.yield
+            counter = 0
           end
         end
       end
@@ -610,7 +630,6 @@ module LavinMQ::AMQP
 
     private def time_to_message_expiration : Time::Span?
       env = @msg_store_lock.synchronize { @msg_store.first? } || return
-      @log.debug { "Checking if message #{env.message} has to be expired" }
       if expire_at = expire_at(env.message)
         expire_in = expire_at - RoughTime.unix_ms
         if expire_in > 0
@@ -650,20 +669,18 @@ module LavinMQ::AMQP
 
     private def expire_messages : Nil
       i = 0
-      @msg_store_lock.synchronize do
-        loop do
-          env = @msg_store.first? || break
-          msg = env.message
-          @log.debug { "Checking if next message #{msg} has expired" }
-          if has_expired?(msg)
-            # shift it out from the msgs store, first time was just a peek
-            env = @msg_store.shift? || break
-            expire_msg(env, :expired)
-            i += 1
-          else
-            break
-          end
+      loop do
+        env = @msg_store_lock.synchronize do
+          first_env = @msg_store.first? || break
+          msg = first_env.message
+          @log.debug { "Checking if next message has expired sp=#{first_env.segment_position}" }
+          break unless has_expired?(msg)
+          # shift it out from the msgs store, first time was just a peek
+          @msg_store.shift?
         end
+        break unless env
+        expire_msg(env, :expired)
+        i += 1
       end
       @log.info { "Expired #{i} messages" } if i > 0
     end
@@ -674,6 +691,7 @@ module LavinMQ::AMQP
         env = Envelope.new(sp, msg, false)
         expire_msg(env, reason)
       else
+        @log.debug { "Dropping sp=#{sp} reason=#{reason}" }
         delete_message sp
       end
     end
@@ -681,7 +699,7 @@ module LavinMQ::AMQP
     private def expire_msg(env : Envelope, reason : Symbol)
       sp = env.segment_position
       msg = env.message
-      @log.debug { "Expiring #{sp} now due to #{reason}" }
+      @log.debug { "Expiring sp=#{sp} reason=#{reason}" }
 
       @dead_letter.route(msg, reason)
 
@@ -820,7 +838,7 @@ module LavinMQ::AMQP
           @msg_store_lock.synchronize do
             @msg_store.requeue(sp)
           end
-          drop_overflow_if_no_immediate_delivery
+          signal_drop_overflow
         end
       else
         expire_msg(sp, :rejected)
