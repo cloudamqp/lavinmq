@@ -16,7 +16,33 @@ module LavinMQ
         @shovels = Hash(String, Shovel::Runner).new
       end
 
-      forward_missing_to @shovels
+      def []?(name : String) : Runner?
+        @shovels[name]?
+      end
+
+      def [](name : String) : Runner
+        @shovels[name]
+      end
+
+      def each_value(& : Runner ->) : Nil
+        @shovels.each_value { |r| yield r }
+      end
+
+      def values_dup : Array(Runner)
+        @shovels.values
+      end
+
+      def size : Int32
+        @shovels.size
+      end
+
+      def empty? : Bool
+        @shovels.empty?
+      end
+
+      def has_key?(name : String) : Bool
+        @shovels.has_key?(name)
+      end
 
       # ameba:disable Metrics/CyclomaticComplexity
       def self.validate_config!(config : JSON::Any, user : Auth::BaseUser?)

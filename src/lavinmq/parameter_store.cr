@@ -15,7 +15,41 @@ module LavinMQ
       load!
     end
 
-    forward_missing_to @parameters
+    def []?(id) : T?
+      @parameters[id]?
+    end
+
+    def [](id) : T
+      @parameters[id]
+    end
+
+    def each_value(& : T ->) : Nil
+      @parameters.each_value { |p| yield p }
+    end
+
+    def values_dup : Array(T)
+      @parameters.values
+    end
+
+    def has_key?(id) : Bool
+      @parameters.has_key?(id)
+    end
+
+    def size : Int32
+      @parameters.size
+    end
+
+    def values : Array(T)
+      @parameters.values
+    end
+
+    def empty? : Bool
+      @parameters.empty?
+    end
+
+    def any?(& : {ParameterId?, T} -> Bool) : Bool
+      @parameters.any? { |kv| yield kv }
+    end
 
     def create(parameter : T, save = true)
       @parameters[parameter.name] = parameter

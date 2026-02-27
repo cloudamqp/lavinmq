@@ -25,19 +25,136 @@ module LavinMQ
                 "queue_declared", "queue_deleted", "ack", "deliver", "deliver_no_ack", "deliver_get", "get", "get_no_ack", "publish", "confirm",
                 "redeliver", "reject", "consumer_added", "consumer_removed"})
 
-    getter name, exchanges, queues, data_dir, operator_policies, policies, parameters, shovels,
-      direct_reply_consumers, connections, dir, users
-    property? flow = true
-    getter? closed = false
+    getter name, data_dir, operator_policies, policies, parameters, shovels, dir, users
     property max_connections : Int32?
     property max_queues : Int32?
 
+    @flow = true
+    @closed = false
     @exchanges = Hash(String, Exchange).new
     @queues = Hash(String, Queue).new
     @direct_reply_consumers = Hash(String, Client::Channel).new
     @shovels : Shovel::Store?
     @upstreams : Federation::UpstreamStore?
     @connections = Array(Client).new(512)
+
+    # Bool accessors (later become Atomic)
+    def flow? : Bool
+      @flow
+    end
+
+    def flow=(active : Bool)
+      @flow = active
+    end
+
+    def closed? : Bool
+      @closed
+    end
+
+    # Exchange accessors
+
+    def exchange?(name : String) : Exchange?
+      @exchanges[name]?
+    end
+
+    def exchange(name : String) : Exchange
+      @exchanges[name]
+    end
+
+    def exchange_exists?(name : String) : Bool
+      @exchanges.has_key?(name)
+    end
+
+    def each_exchange(& : Exchange ->) : Nil
+      @exchanges.each_value { |v| yield v }
+    end
+
+    def exchanges_dup : Array(Exchange)
+      @exchanges.values
+    end
+
+    def exchanges_size : Int32
+      @exchanges.size
+    end
+
+    def exchanges_any?(& : {String, Exchange} -> Bool) : Bool
+      @exchanges.any? { |kv| yield kv }
+    end
+
+    protected def exchanges_unsafe_put(name : String, exchange : Exchange) : Nil
+      @exchanges[name] = exchange
+    end
+
+    # Queue accessors
+
+    def queue?(name : String) : Queue?
+      @queues[name]?
+    end
+
+    def queue(name : String) : Queue
+      @queues[name]
+    end
+
+    def queue_exists?(name : String) : Bool
+      @queues.has_key?(name)
+    end
+
+    def each_queue(& : Queue ->) : Nil
+      @queues.each_value { |v| yield v }
+    end
+
+    def queues_dup : Array(Queue)
+      @queues.values
+    end
+
+    def queues_size : Int32
+      @queues.size
+    end
+
+    def queues_values : Array(Queue)
+      @queues.values
+    end
+
+    protected def queues_unsafe_put(name : String, queue : Queue) : Nil
+      @queues[name] = queue
+    end
+
+    protected def queues_clear : Nil
+      @queues.clear
+    end
+
+    # Connection accessors
+
+    def each_connection(& : Client ->) : Nil
+      @connections.each { |c| yield c }
+    end
+
+    def connections_dup : Array(Client)
+      @connections.dup
+    end
+
+    def connections_size : Int32
+      @connections.size
+    end
+
+    # Direct reply consumer accessors
+
+    def direct_reply_consumer?(consumer_tag : String) : Client::Channel?
+      @direct_reply_consumers[consumer_tag]?
+    end
+
+    def direct_reply_consumer_set(consumer_tag : String, channel : Client::Channel) : Nil
+      @direct_reply_consumers[consumer_tag] = channel
+    end
+
+    def direct_reply_consumer_delete(consumer_tag : String) : Client::Channel?
+      @direct_reply_consumers.delete(consumer_tag)
+    end
+
+    def direct_reply_consumer_has_key?(consumer_tag : String) : Bool
+      @direct_reply_consumers.has_key?(consumer_tag)
+    end
+
     @definitions_file : File
     @definitions_lock = Mutex.new(:reentrant)
     @definitions_file_path : String
@@ -67,9 +184,9 @@ module LavinMQ
     private def check_consumer_timeouts_loop
       loop do
         sleep Config.instance.consumer_timeout_loop_interval.seconds
-        return if @closed
-        @connections.each do |c|
-          c.channels.each_value do |ch|
+        return if closed?
+        each_connection do |c|
+          c.each_channel do |ch|
             ch.check_consumer_timeout
           end
         end
@@ -125,7 +242,7 @@ module LavinMQ
     # When this method finishes, the position will be the same, start of the body
     def publish(msg : Message, immediate = false,
                 visited = Set(LavinMQ::Exchange).new, found_queues = Set(LavinMQ::Queue).new) : Bool
-      ex = @exchanges[msg.exchange_name]? || return false
+      ex = exchange?(msg.exchange_name) || return false
       ex.publish(msg, immediate, found_queues, visited)
     ensure
       visited.clear
@@ -146,7 +263,7 @@ module LavinMQ
     def message_details
       ready = unacked = 0_u64
       ack = confirm = deliver = deliver_no_ack = get = get_no_ack = publish = redeliver = return_unroutable = deliver_get = 0_u64
-      @queues.each_value do |q|
+      each_queue do |q|
         ready += q.message_count
         unacked += q.unacked_count
         ack += q.ack_count
@@ -291,12 +408,12 @@ module LavinMQ
       end
     end
 
-    def queue_bindings(queue : Queue) : Iterator(BindingDetails)
+    def queue_bindings(queue : Queue) : Array(BindingDetails)
       default_binding = BindingDetails.new("", name, BindingKey.new(queue.name), queue)
-      bindings = @exchanges.each_value.flat_map do |ex|
+      bindings = exchanges_dup.flat_map do |ex|
         ex.bindings_details.select { |binding| binding.destination == queue }
       end
-      {default_binding}.each.chain(bindings)
+      [default_binding] + bindings
     end
 
     def add_operator_policy(name : String, pattern : String, apply_to : String,
@@ -418,13 +535,13 @@ module LavinMQ
       when close_done.receive?
         @log.info { "All connections closed gracefully" }
       when timeout 15.seconds
-        @log.warn { "Timeout waiting for connections to close. #{@connections.size} left that will be forced closed." }
+        @log.warn { "Timeout waiting for connections to close. #{connections_size} left that will be forced closed." }
       end
       close_done.close
       # then force close the remaining (close tcp socket)
-      @connections.each &.force_close
+      each_connection &.force_close
       Fiber.yield # yield so that Client read_loops can shutdown
-      @queues.each_value &.close
+      each_queue &.close
       Fiber.yield
       @definitions_file.close
       FileUtils.rm_rf File.join(@data_dir, "transient")
@@ -437,11 +554,7 @@ module LavinMQ
     end
 
     private def apply_policies(resources : Array(Queue | Exchange) | Nil = nil)
-      resources = if resources
-                    resources.each
-                  else
-                    Iterator.chain({@queues.each_value, @exchanges.each_value})
-                  end
+      resources ||= (queues_dup.map(&.as(Queue | Exchange)) + exchanges_dup.map(&.as(Queue | Exchange)))
       policies = @policies.values.sort_by!(&.priority).reverse
       operator_policies = @operator_policies.values.sort_by!(&.priority).reverse
       resources.each do |resource|

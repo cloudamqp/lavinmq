@@ -40,19 +40,19 @@ module LavinMQ
 
           vhosts(user(context)).each do |vhost|
             next if x_vhost && vhost.name != x_vhost
-            vhost.connections.each do |c|
+            vhost.each_connection do |c|
               connections += 1
-              channels += c.channels.size
-              consumers += c.channels.each_value.sum &.consumers.size
+              channels += c.channel_count
+              consumers += c.channels_dup.sum &.consumers_size
               stats_details = c.stats_details
               recv_rate += stats_details[:recv_oct_details][:rate]
               send_rate += stats_details[:send_oct_details][:rate]
               add_logs!(recv_rate_log, stats_details[:recv_oct_details][:log])
               add_logs!(send_rate_log, stats_details[:send_oct_details][:log])
             end
-            exchanges += vhost.exchanges.size
-            queues += vhost.queues.size
-            vhost.queues.each_value do |q|
+            exchanges += vhost.exchanges_size
+            queues += vhost.queues_size
+            vhost.each_queue do |q|
               ready += q.message_count
               unacked += q.unacked_count
               add_logs!(ready_log, q.message_count_log)
@@ -135,27 +135,27 @@ module LavinMQ
               IO::Memory.new("test"))
             ok = vhost.publish(msg)
             env = nil
-            vhost.queues["aliveness-test"].basic_get(true) { |e| env = e }
+            vhost.queue("aliveness-test").basic_get(true) { |e| env = e }
             ok = ok && env && String.new(env.message.body) == "test"
             {status: ok ? "ok" : "failed"}.to_json(context.response)
           end
         end
 
         get "/api/federation-links" do |context, _params|
-          itrs = vhosts(user(context)).flat_map do |vhost|
+          arr = vhosts(user(context)).flat_map do |vhost|
             vhost.upstreams.not_nil!.flat_map do |upstream|
-              upstream.links.each
+              upstream.links
             end
           end
-          page(context, itrs)
+          page(context, arr)
         end
 
         get "/api/federation-links/:vhost" do |context, params|
           with_vhost(context, params) do |vhost|
-            itrs = vhost.upstreams.not_nil!.map do |upstream|
-              upstream.links.each
+            arr = vhost.upstreams.not_nil!.flat_map do |upstream|
+              upstream.links
             end
-            page(context, Iterator(Federation::Upstream::Link).chain(itrs))
+            page(context, arr)
           end
         end
 

@@ -18,8 +18,8 @@ module LavinMQ
         "headers"
       end
 
-      def bindings_details : Iterator(BindingDetails)
-        @bindings.each.flat_map do |_args, ds|
+      def bindings_details : Array(BindingDetails)
+        @bindings.flat_map do |_args, ds|
           ds.map do |d, binding_key|
             BindingDetails.new(name, vhost.name, binding_key, d)
           end

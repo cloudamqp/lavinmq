@@ -16,7 +16,7 @@ describe "Delayed Message Exchange" do
 
         with_channel(s) do |ch|
           ch.exchange(x_name, "topic", args: x_args)
-          q = s.vhosts["/"].queues[legacy_q_name]?
+          q = s.vhosts["/"].queue?(legacy_q_name)
           q.should_not be_nil
         end
       end
@@ -26,7 +26,7 @@ describe "Delayed Message Exchange" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
           ch.exchange(x_name, "topic", args: x_args)
-          q = s.vhosts["/"].queues[delay_q_name]?
+          q = s.vhosts["/"].queue?(delay_q_name)
           q.should_not be_nil
           dlx_exchange = q.not_nil!.arguments["x-dead-letter-exchange"]?.try &.as?(String)
           dlx_exchange.should eq x_name
@@ -41,7 +41,7 @@ describe "Delayed Message Exchange" do
           ch.exchange(x_name, "topic", args: x_args)
           ch.exchange("", delay_q_name, args: x_args)
           ch.basic_publish_confirm "test", exchange: "", routing_key: delay_q_name
-          s.vhosts["/"].queues[delay_q_name].message_count.should eq 0
+          s.vhosts["/"].queue(delay_q_name).message_count.should eq 0
         end
       end
     end
@@ -52,12 +52,12 @@ describe "Delayed Message Exchange" do
         with_channel(s) do |ch|
           ex = ch.exchange(x_name, "topic", args: x_args)
           ex.publish_confirm "test message", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
-          s.vhosts["/"].queues[delay_q_name].message_count.should eq 1
+          s.vhosts["/"].queue(delay_q_name).message_count.should eq 1
         end
         s.restart
-        s.vhosts["/"].queues[delay_q_name].message_count.should eq 1
+        s.vhosts["/"].queue(delay_q_name).message_count.should eq 1
         sleep 1.second
-        wait_for { s.vhosts["/"].queues[delay_q_name].message_count == 0 }
+        wait_for { s.vhosts["/"].queue(delay_q_name).message_count == 0 }
       end
     end
 
@@ -120,7 +120,7 @@ describe "Delayed Message Exchange" do
         q.bind(x.name, "#")
         hdrs = AMQP::Client::Arguments.new({"x-delay" => 1})
         x.publish "test message", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
-        queue = s.vhosts["/"].queues[q_name]
+        queue = s.vhosts["/"].queue(q_name)
         queue.message_count.should eq 0
         wait_for { queue.message_count == 1 }
         queue.message_count.should eq 1
@@ -138,7 +138,7 @@ describe "Delayed Message Exchange" do
         hdrs = AMQP::Client::Arguments.new({"x-delay" => 1})
         x.publish "test message 1", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
         x.publish "test message 2", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
-        queue = s.vhosts["/"].queues[q_name]
+        queue = s.vhosts["/"].queue(q_name)
         queue.message_count.should eq 0
         wait_for { queue.message_count == 2 }
         queue.message_count.should eq 2
@@ -158,7 +158,7 @@ describe "Delayed Message Exchange" do
         x.publish "delay-long", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
         hdrs = AMQP::Client::Arguments.new({"x-delay" => 1})
         x.publish "delay-short", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
-        queue = s.vhosts["/"].queues[q_name]
+        queue = s.vhosts["/"].queue(q_name)
         queue.message_count.should eq 0
         wait_for { queue.message_count >= 1 }
         q.get(no_ack: true).try(&.body_io.to_s).should eq("delay-short")
@@ -192,7 +192,7 @@ describe "Delayed Message Exchange" do
         # the message published with 6000ms should be published. Also, the new message
         # with 1500ms should be published
         sleep 2.seconds
-        queue = s.vhosts["/"].queues[q_name]
+        queue = s.vhosts["/"].queue(q_name)
         queue.message_count.should eq 3
         sleep 3.seconds # total 10, the 9000ms message should have been published
         queue.message_count.should eq 4
@@ -215,7 +215,7 @@ describe "Delayed Message Exchange" do
         q.bind(x.name, "rk")
         hdrs = AMQP::Client::Arguments.new({"x-delay" => 5})
         x.publish "test message", "rk", props: AMQP::Client::Properties.new(headers: hdrs)
-        queue = s.vhosts["/"].queues[q_name]
+        queue = s.vhosts["/"].queue(q_name)
         queue.message_count.should eq 0
         wait_for(200.milliseconds) { queue.message_count == 1 }
         queue.message_count.should eq 1
@@ -256,7 +256,7 @@ describe "Delayed Message Exchange" do
         x = ch.exchange(x_name, "topic", args: x_args)
         q = ch.queue(q_name)
         q.bind(x.name, "#")
-        ex = s.vhosts["/"].exchanges[x_name].as(LavinMQ::AMQP::Exchange)
+        ex = s.vhosts["/"].exchange(x_name).as(LavinMQ::AMQP::Exchange)
 
         delayed_q = ex.@delayed_queue.should_not be_nil
 
@@ -291,7 +291,7 @@ describe "Delayed Message Exchange" do
       with_channel(s) do |ch|
         ch.exchange(x_name, "topic", args: x_args)
         # The internal delayed queue should exist
-        internal_queue = s.vhosts["/"].queues[delay_q_name]?
+        internal_queue = s.vhosts["/"].queue?(delay_q_name)
         internal_queue.should_not be_nil
 
         # Attempting to bind the delayed exchange to its internal queue should raise an error
@@ -315,12 +315,12 @@ describe "Delayed Message Exchange" do
         x.publish "test message", "test.routing.key"
 
         # Message should reach the bound queue, not create a loop
-        queue = s.vhosts["/"].queues[q_name]
+        queue = s.vhosts["/"].queue(q_name)
         wait_for { queue.message_count == 1 }
         queue.message_count.should eq 1
 
         # Internal delayed queue should remain empty
-        internal_queue = s.vhosts["/"].queues[delay_q_name]
+        internal_queue = s.vhosts["/"].queue(delay_q_name)
         internal_queue.message_count.should eq 0
       end
     end

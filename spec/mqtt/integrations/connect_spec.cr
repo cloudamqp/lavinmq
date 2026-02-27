@@ -171,7 +171,7 @@ module MqttSpecs
           with_server do |server|
             with_client_io(server) do |io|
               connect(io, client_id: "", clean_session: true)
-              server.vhosts["/"].connections.select(LavinMQ::MQTT::Client).first.client_id.should_not eq("")
+              server.vhosts["/"].connections_dup.select(LavinMQ::MQTT::Client).first.client_id.should_not eq("")
             end
           end
         end
@@ -314,7 +314,7 @@ module MqttSpecs
               disconnect(io)
             end
             sleep 100.milliseconds
-            server.vhosts["/"].queues["mqtt.client_id"].consumers.should be_empty
+            server.vhosts["/"].queue("mqtt.client_id").consumers_empty?.should be_true
           end
         end
       end
