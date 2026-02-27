@@ -31,6 +31,7 @@ module LavinMQ
     getter? closed = false
     property max_connections : Int32?
     property max_queues : Int32?
+    property? sparkplug_aware = false
 
     @exchanges = Hash(String, Exchange).new
     @queues = Hash(String, Queue).new
@@ -88,11 +89,17 @@ module LavinMQ
       store_limits
     end
 
+    def sparkplug_aware=(value : Bool) : Nil
+      @sparkplug_aware = value
+      store_limits
+    end
+
     private def load_limits
       File.open(File.join(@data_dir, "limits.json")) do |f|
         limits = JSON.parse(f)
         @max_queues = limits["max-queues"]?.try &.as_i?
         @max_connections = limits["max-connections"]?.try &.as_i?
+        @sparkplug_aware = limits["sparkplug-aware"]?.try(&.as_bool?) || false
         @replicator.try &.register_file(f)
       end
     rescue File::NotFoundError
@@ -104,6 +111,7 @@ module LavinMQ
           json.object do
             json.field "max-queues", @max_queues if @max_queues
             json.field "max-connections", @max_connections if @max_connections
+            json.field "sparkplug-aware", @sparkplug_aware if @sparkplug_aware
           end
         end
       end
