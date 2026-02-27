@@ -39,5 +39,60 @@ describe LavinMQ::Clustering::Server do
         file.try &.delete
       end
     end
+
+    it "should skip MFiles that are closed during iteration" do
+      data_dir = LavinMQ::Config.instance.data_dir
+      Dir.mkdir_p(data_dir)
+      server = LavinMQ::Clustering::Server.new(
+        LavinMQ::Config.instance,
+        LavinMQ::Etcd.new("localhost:12379"),
+        0)
+      mfile1 = MFile.new(File.join(data_dir, "test1"), 1024)
+      mfile1.print "foo"
+      server.register_file(mfile1)
+
+      mfile2 = MFile.new(File.join(data_dir, "test2"), 1024)
+      mfile2.print "bar"
+      server.register_file(mfile2)
+
+      # Simulate queue churn: when the block is called for the first
+      # file, close the second MFile. Without the fix, the iteration
+      # would raise IO::Error("Closed mfile") on the next file.
+      yielded_paths = [] of String
+      first = true
+      server.files_with_hash do |path, _hash|
+        if first
+          first = false
+          mfile2.close
+        end
+        yielded_paths << path
+      end
+
+      yielded_paths.size.should eq 1
+    ensure
+      mfile1.try &.delete
+      mfile2.try &.delete
+    end
+  end
+
+  describe "#with_file" do
+    it "should yield nil for a closed MFile" do
+      data_dir = LavinMQ::Config.instance.data_dir
+      Dir.mkdir_p(data_dir)
+      server = LavinMQ::Clustering::Server.new(
+        LavinMQ::Config.instance,
+        LavinMQ::Etcd.new("localhost:12379"),
+        0)
+      mfile = MFile.new(File.join(data_dir, "test_closed"), 1024)
+      mfile.print "foo"
+      server.register_file(mfile)
+      mfile.close
+
+      server.with_file("test_closed") do |f|
+        f.should be_nil
+      end
+    ensure
+      mfile.try &.delete
+    end
   end
 end
