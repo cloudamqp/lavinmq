@@ -3,7 +3,6 @@ require "../../logger"
 require "../../segment_position"
 require "../../policy"
 require "../../observable"
-require "../../stats"
 require "../../sortable_json"
 require "../../client/channel/consumer"
 require "../../message"
@@ -17,13 +16,14 @@ require "../../deduplication"
 require "../../bool_channel"
 require "../argument_target"
 require "../argument"
+require "../../queue_stats"
 
 module LavinMQ::AMQP
   class Queue < LavinMQ::Queue
     include PolicyTarget
     include Observable(QueueEvent)
-    include Stats
     include SortableJSON
+    include QueueStats
 
     include ArgumentTarget
     include Argument::DeadLettering
@@ -66,16 +66,6 @@ module LavinMQ::AMQP
     @message_ttl_change = ::Channel(Nil).new
 
     getter basic_get_unacked = Deque(UnackedMessage).new
-    @unacked_count = Atomic(UInt32).new(0u32)
-    @unacked_bytesize = Atomic(UInt64).new(0u64)
-
-    def unacked_count
-      @unacked_count.get(:relaxed)
-    end
-
-    def unacked_bytesize
-      @unacked_bytesize.get(:relaxed)
-    end
 
     @msg_store_lock = Mutex.new(:reentrant)
     @msg_store : MessageStore
@@ -147,11 +137,6 @@ module LavinMQ::AMQP
     rescue ::Channel::ClosedError
     end
 
-    # Creates @[x]_count and @[x]_rate and @[y]_log
-    rate_stats(
-      {"ack", "deliver", "deliver_no_ack", "deliver_get", "confirm", "get", "get_no_ack", "publish", "redeliver", "reject", "return_unroutable", "dedup"},
-      {"message_count", "unacked_count"})
-
     getter name, arguments, vhost, consumers
     getter? auto_delete, exclusive
     getter policy : Policy?
@@ -218,8 +203,7 @@ module LavinMQ::AMQP
       @consumers_empty = BoolChannel.new(true)
       @single_active_consumer_change = ::Channel(Client::Channel::Consumer).new
       @deliver_loop_wg = WaitGroup.new
-      @unacked_count.set(0u32, :relaxed)
-      @unacked_bytesize.set(0u64, :relaxed)
+      reset_queue_stats
     end
 
     # own method so that it can be overriden in other queue implementations
@@ -468,9 +452,7 @@ module LavinMQ::AMQP
     end
 
     def details_tuple
-      unacked_count = unacked_count()
-      unacked_bytesize = unacked_bytesize()
-      unacked_avg_bytes = unacked_count.zero? ? 0u64 : unacked_bytesize//unacked_count
+      stats = queue_stats_details
       {
         name:                         @name,
         durable:                      durable?,
@@ -479,19 +461,19 @@ module LavinMQ::AMQP
         arguments:                    @arguments,
         consumers:                    @consumers.size,
         vhost:                        @vhost.name,
-        messages:                     @msg_store.size + unacked_count,
-        total_bytes:                  @msg_store.bytesize + unacked_bytesize,
-        messages_persistent:          durable? ? @msg_store.size + unacked_count : 0,
+        messages:                     @msg_store.size + stats[:messages_unacknowledged],
+        total_bytes:                  @msg_store.bytesize + stats[:message_bytes_unacknowledged],
+        messages_persistent:          durable? ? @msg_store.size + stats[:messages_unacknowledged] : 0,
         ready:                        @msg_store.size, # Deprecated, to be removed in next major version
         messages_ready:               @msg_store.size,
         ready_bytes:                  @msg_store.bytesize, # Deprecated, to be removed in next major version
         message_bytes_ready:          @msg_store.bytesize,
         ready_avg_bytes:              @msg_store.avg_bytesize,
-        unacked:                      unacked_count, # Deprecated, to be removed in next major version
-        messages_unacknowledged:      unacked_count,
-        unacked_bytes:                unacked_bytesize, # Deprecated, to be removed in next major version
-        message_bytes_unacknowledged: unacked_bytesize,
-        unacked_avg_bytes:            unacked_avg_bytes,
+        unacked:                      stats[:unacked], # Deprecated, to be removed in next major version
+        messages_unacknowledged:      stats[:messages_unacknowledged],
+        unacked_bytes:                stats[:unacked_bytes], # Deprecated, to be removed in next major version
+        message_bytes_unacknowledged: stats[:message_bytes_unacknowledged],
+        unacked_avg_bytes:            stats[:unacked_avg_bytes],
         operator_policy:              @operator_policy.try &.name,
         policy:                       @policy.try &.name,
         exclusive_consumer_tag:       @exclusive ? @consumers.first?.try(&.tag) : nil,
