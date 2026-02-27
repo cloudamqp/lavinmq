@@ -1,6 +1,7 @@
 require "http/client"
 require "json"
 require "option_parser"
+require "./tui"
 require "../lavinmq/version"
 require "../lavinmq/http/constants"
 require "../lavinmq/shovel/constants"
@@ -224,6 +225,12 @@ class LavinMQCtl
         @args["queue"] = JSON::Any.new(v)
       end
     end
+    @parser.on("tui", "Start interactive dashboard (TUI)") do
+      @cmd = "tui"
+      @parser.on("-i INTERVAL", "--interval=INTERVAL", "Poll interval in seconds (default: 1.0)") do |v|
+        @options["interval"] = v
+      end
+    end
     @parser.on("-v", "--version", "Show version") { @io.puts LavinMQ::VERSION; exit 0 }
     @parser.on("--build-info", "Show build information") { @io.puts LavinMQ::BUILD_INFO; exit 0 }
     @parser.on("-h", "--help", "Show this help") do
@@ -279,6 +286,7 @@ class LavinMQCtl
     when "list_federations"      then list_federations
     when "add_federation"        then add_federation
     when "delete_federation"     then delete_federation
+    when "tui"                   then start_tui
     when "stop_app"
     when "start_app"
     else
@@ -924,5 +932,10 @@ class LavinMQCtl
     url = "/api/parameters/federation-upstream/#{URI.encode_www_form(vhost)}/#{URI.encode_www_form(name)}"
     resp = http.delete url
     handle_response(resp, 204)
+  end
+
+  private def start_tui
+    interval = @options["interval"]?.try(&.to_f) || 1.0
+    TUI.new(http, interval).start
   end
 end
