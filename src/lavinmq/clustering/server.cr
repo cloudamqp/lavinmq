@@ -251,6 +251,9 @@ module LavinMQ
           rescue Channel::ClosedError
             Log.info { "Follower disconnected address=#{f.remote_address} id=#{f.id.to_s(36)}" }
             Fiber.yield # Allow other fiber to run to remove the follower from array
+          rescue ex : FollowerTooSlowError
+            Log.warn { ex.message }
+            f.close
           end
         end
       end

@@ -214,20 +214,18 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
     end
   end
 
-  it "won't deadlock under high load when a follower disconnects [#926]" do
+  it "disconnects slow follower instead of blocking leader [#926]" do
     LavinMQ::Config.instance.clustering_max_unsynced_actions = 1
     replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Etcd.new("localhost:12379"), 0)
     tcp_server = TCPServer.new("localhost", 0)
     spawn(replicator.listen(tcp_server), name: "repli server spec")
 
     client_io = TCPSocket.new("localhost", tcp_server.local_address.port)
-    # This is raw clustering negotiation
+    # Raw clustering negotiation
     client_io.write LavinMQ::Clustering::Start
     client_io.write_bytes replicator.password.bytesize.to_u8, IO::ByteFormat::LittleEndian
     client_io.write replicator.password.to_slice
-    # Read the password accepted byte (we assume it's correct)
     client_io.read_byte
-    # Send the follower id
     client_io.write_bytes 2i32, IO::ByteFormat::LittleEndian
     client_io.flush
     client_lz4 = Compress::LZ4::Reader.new(client_io)
@@ -240,47 +238,20 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
         client_lz4.skip filename_len
         client_lz4.skip sha1_size
       end
-      # 0 means we're done requesting files for this full sync
       client_io.write_bytes 0i32
       client_io.flush
     end
 
-    appended = Channel(Bool).new
-    spawn do
-      # Fill the action queue
-      loop do
-        replicator.append("#{LavinMQ::Config.instance.data_dir}/path", 1)
-        appended.send true
-      rescue Channel::ClosedError
-        break
-      end
+    # Follower is synced but not consuming actions, so channel fills up.
+    # send_action is non-blocking: when full, the follower is disconnected.
+    # Send enough actions to fill the channel and trigger disconnect.
+    (LavinMQ::Config.instance.clustering_max_unsynced_actions + 2).times do
+      replicator.append("#{LavinMQ::Config.instance.data_dir}/path", 1)
     end
 
-    # Wait for the action queue to fill up
-    loop do
-      select
-      when appended.receive?
-      when timeout 0.1.seconds
-        # @action is a Channel. Let's look at its internal deque
-        action_queue = replicator.@followers.first.@actions.@queue.not_nil!("no deque? no follower?")
-        break if action_queue.size == action_queue.@capacity # full?
-      end
-    end
-
-    # Now disconnect the follower. Our "fill action queue" fiber should continue
-    client_io.close
-
-    select
-    when appended.receive?
-    when timeout 0.1.seconds
-      replicator.@followers.first.@actions.close
-      deadlock = true
-    end
-
-    appended.close
-    if deadlock
-      fail "deadlock detected"
-    end
+    # The slow follower should have been removed
+    wait_for { replicator.all_followers.empty? }
+    replicator.all_followers.should be_empty
   ensure
     FileUtils.mkdir_p LavinMQ::Config.instance.data_dir
     replicator.try &.close
