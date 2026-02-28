@@ -5,6 +5,7 @@ require "../auth/user_store"
 require "../vhost_store"
 require "../client/connection_factory"
 require "../auth/authenticator"
+require "../auth_failure_tracker"
 require "./connection_reply_code"
 
 module LavinMQ
@@ -13,6 +14,7 @@ module LavinMQ
       Log = LavinMQ::Log.for "amqp.connection_factory"
 
       def initialize(@authenticator : Auth::Authenticator, @vhosts : VHostStore)
+        @auth_failure_tracker = AuthFailureTracker.new
       end
 
       def start(socket, connection_info) : Client?
@@ -119,7 +121,14 @@ module LavinMQ
         user = @authenticator.authenticate(context)
         return user if user
 
-        log.info { "Authentication failure for user \"#{username}\"" }
+        ip = remote_address.address
+        @auth_failure_tracker.track(username, ip) do |suppressed|
+          if suppressed > 0
+            log.info { "Authentication failure for user \"#{username}\" (repeated #{suppressed} times in the last #{AuthFailureTracker::SUPPRESSION_WINDOW.total_seconds.to_i}s)" }
+          else
+            log.info { "Authentication failure for user \"#{username}\"" }
+          end
+        end
         props = start_ok.client_properties
         if capabilities = props["capabilities"]?.try &.as?(AMQP::Table)
           if capabilities["authentication_failure_close"]?.try &.as?(Bool)

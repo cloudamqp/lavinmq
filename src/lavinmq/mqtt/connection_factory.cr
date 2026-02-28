@@ -6,6 +6,7 @@ require "./brokers"
 require "../auth/base_user"
 require "../client/connection_factory"
 require "../auth/authenticator"
+require "../auth_failure_tracker"
 
 module LavinMQ
   module MQTT
@@ -14,6 +15,7 @@ module LavinMQ
 
       def initialize(@authenticator : Auth::Authenticator,
                      @brokers : Brokers, @config : Config)
+        @auth_failure_tracker = AuthFailureTracker.new
       end
 
       def start(socket : ::IO, connection_info : ConnectionInfo)
@@ -30,7 +32,15 @@ module LavinMQ
               connack io, session_present, Connack::ReturnCode::Accepted
               return broker.add_client(io, connection_info, user, packet)
             else
-              logger.warn { "Authentication failure for user \"#{packet.username}\"" }
+              ip = connection_info.remote_address.address
+              username = packet.username || ""
+              @auth_failure_tracker.track(username, ip) do |suppressed|
+                if suppressed > 0
+                  logger.warn { "Authentication failure for user \"#{username}\" (repeated #{suppressed} times in the last #{AuthFailureTracker::SUPPRESSION_WINDOW.total_seconds.to_i}s)" }
+                else
+                  logger.warn { "Authentication failure for user \"#{username}\"" }
+                end
+              end
               connack io, false, Connack::ReturnCode::NotAuthorized
             end
           end
