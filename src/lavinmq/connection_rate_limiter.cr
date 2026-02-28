@@ -2,7 +2,8 @@ module LavinMQ
   # Token bucket rate limiter for incoming connections.
   # Fiber-safe (single-threaded Crystal runtime).
   class ConnectionRateLimiter
-    Log = LavinMQ::Log.for "rate_limiter"
+    Log             = LavinMQ::Log.for "rate_limiter"
+    MAX_TRACKED_IPS = 100_000
 
     @global_tokens : Float64
     @global_last_refill : Time::Instant
@@ -18,9 +19,11 @@ module LavinMQ
     end
 
     # Returns true if the connection should be allowed.
+    # Per-IP is checked first to avoid consuming a global token
+    # when the per-IP limit already rejects the connection.
     def allow?(remote_address : String) : Bool
       return true unless rate_limiting_enabled?
-      allow_global? && allow_per_ip?(remote_address)
+      allow_per_ip?(remote_address) && allow_global?
     end
 
     private def rate_limiting_enabled? : Bool
@@ -44,6 +47,10 @@ module LavinMQ
 
       now = Time.instant
       unless @per_ip_last_refill.has_key?(ip)
+        if @per_ip_tokens.size >= MAX_TRACKED_IPS
+          Log.warn { "Per-IP tracking limit reached (#{MAX_TRACKED_IPS}), rejecting new IP: #{ip}" }
+          return false
+        end
         @per_ip_tokens[ip] = limit.to_f
         @per_ip_last_refill[ip] = now
       end
