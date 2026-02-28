@@ -41,7 +41,7 @@ module LavinMQ
           entry.count = 0
           entry.last_logged_at = now
           @failures[key] = entry
-          yield suppressed if suppressed > 0
+          yield suppressed
           true
         else
           entry.count += 1
