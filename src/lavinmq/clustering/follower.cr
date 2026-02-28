@@ -189,8 +189,11 @@ module LavinMQ
 
       private def send_action(action : Action) : Int64
         lag_size = action.lag_size
+        unless @actions.try_send(action)
+          action.done
+          raise FollowerTooSlowError.new(self)
+        end
         @sent_bytes += lag_size
-        @actions.send action
         lag_size
       rescue ex : Channel::ClosedError
         action.done
