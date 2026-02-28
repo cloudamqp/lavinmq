@@ -1,4 +1,5 @@
 ARG build_image=84codes/crystal:latest-fedora-42
+ARG test_image=fedora:42
 
 FROM $build_image AS builder
 # Enable CRB repository for el-9 to access help2man
@@ -23,12 +24,14 @@ ARG MAKEFLAGS=-j2
 RUN rpmbuild -ba /root/rpmbuild/SPECS/lavinmq.spec
 RUN rpmlint /root/rpmbuild/RPMS/* || true
 
-FROM fedora:42 AS test
+FROM $test_image AS test
 COPY --from=builder /root/rpmbuild/RPMS /tmp/RPMS
 RUN find /tmp/RPMS -type f -exec dnf install -y {} \;
 RUN lavinmq --version
 RUN getent passwd lavinmq
 
-# Copy the deb package to a scratch image, that then can be exported
+# Copy the RPM packages to a scratch image, that then can be exported.
+# Copying from 'test' (not 'builder') ensures the test stage is executed.
 FROM scratch
-COPY --from=builder /root/rpmbuild/RPMS /root/rpmbuild/SRPMS .
+COPY --from=test /tmp/RPMS .
+COPY --from=builder /root/rpmbuild/SRPMS .
