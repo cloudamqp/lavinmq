@@ -38,24 +38,16 @@ module LavinMQ
         client_id = config.oauth_client_id || oauth_error(context, 503, "OAuth not configured")
 
         auth_ep = oidc_config.authorization_endpoint || raise "OIDC missing authorization_endpoint"
-
         verifier, challenge = OAuth2::PKCE.generate
         state = Random::Secure.urlsafe_base64(32)
 
-        context.response.cookies << ::HTTP::Cookie.new(
-          name: "oauth_state",
-          value: "#{state}:#{verifier}",
-          path: "/oauth",
-          http_only: true,
-          secure: secure_cookie?,
-          samesite: ::HTTP::Cookie::SameSite::Lax,
-          max_age: 5.minutes
-        )
+        set_cookie(context, "oauth_state", "#{state}:#{verifier}",
+          path: "/oauth", http_only: true,
+          samesite: ::HTTP::Cookie::SameSite::Lax, max_age: 5.minutes)
 
-        redirect_uri = build_redirect_uri
         params = ::URI::Params.build do |p|
           p.add "client_id", client_id
-          p.add "redirect_uri", redirect_uri
+          p.add "redirect_uri", build_redirect_uri
           p.add "response_type", "code"
           p.add "scope", "openid profile"
           p.add "code_challenge", challenge
@@ -77,56 +69,23 @@ module LavinMQ
       end
 
       private def handle_callback(context) : ::HTTP::Server::Context
-        config = Config.instance
-        oauth_redirect_error(context, "OAuth not configured") unless config.oauth_issuer_url
-        client_id = config.oauth_client_id || oauth_redirect_error(context, "OAuth not configured")
-
-        cookie_value = context.request.cookies["oauth_state"]?.try(&.value) || oauth_redirect_error(context, "Missing OAuth state")
-        sep = cookie_value.index(':') || oauth_redirect_error(context, "Invalid OAuth state cookie")
-        cookie_state = cookie_value[0...sep]
-        code_verifier = cookie_value[sep + 1..]
-
-        oauth_redirect_error(context, "State mismatch") unless context.request.query_params["state"]? == cookie_state
-        code = context.request.query_params["code"]? || oauth_redirect_error(context, "Missing authorization code")
+        code, code_verifier, client_id = validate_callback(context)
 
         token_ep = oidc_config.token_endpoint || raise "OIDC missing token_endpoint"
-
-        redirect_uri = build_redirect_uri
-        token_response = OAuth2::TokenExchange.new(token_ep, client_id).exchange(code, redirect_uri, code_verifier)
+        token_response = OAuth2::TokenExchange.new(token_ep, client_id)
+          .exchange(code, build_redirect_uri, code_verifier)
 
         auth_context = Auth::Context.new("", token_response.access_token.to_slice, context.request.remote_address)
         user = @authenticator.authenticate(auth_context)
         oauth_redirect_error(context, "Token validation failed") if user.nil? || user.tags.empty?
 
-        cookie_max_age = if expires_in = token_response.expires_in
-                           Math.min(expires_in, 8.hours.total_seconds.to_i64).seconds
-                         else
-                           8.hours
-                         end
+        max_age = token_response.expires_in.try { |e| Math.min(e, 8.hours.total_seconds.to_i64).seconds } || 8.hours
 
-        context.response.cookies << ::HTTP::Cookie.new(
-          name: "m",
-          value: token_response.access_token,
-          path: "/",
-          http_only: true,
-          secure: secure_cookie?,
-          samesite: ::HTTP::Cookie::SameSite::Strict,
-          max_age: cookie_max_age
-        )
-        context.response.cookies << ::HTTP::Cookie.new(
-          name: "oauth_user",
-          value: extract_username(token_response.access_token),
-          path: "/",
-          secure: secure_cookie?,
-          samesite: ::HTTP::Cookie::SameSite::Strict,
-          max_age: cookie_max_age
-        )
-        context.response.cookies << ::HTTP::Cookie.new(
-          name: "oauth_state",
-          value: "",
-          path: "/oauth",
-          max_age: 0.seconds
-        )
+        set_cookie(context, "m", token_response.access_token,
+          path: "/", http_only: true, samesite: ::HTTP::Cookie::SameSite::Strict, max_age: max_age)
+        set_cookie(context, "oauth_user", extract_username(token_response.access_token),
+          path: "/", samesite: ::HTTP::Cookie::SameSite::Strict, max_age: max_age)
+        expire_cookie(context, "oauth_state", "/oauth")
 
         context.response.status = ::HTTP::Status::FOUND
         context.response.headers["Location"] = "/"
@@ -141,15 +100,36 @@ module LavinMQ
       end
 
       private def handle_logout(context) : ::HTTP::Server::Context
-        context.response.cookies << ::HTTP::Cookie.new(
-          name: "m", value: "", path: "/", max_age: 0.seconds
-        )
-        context.response.cookies << ::HTTP::Cookie.new(
-          name: "oauth_user", value: "", path: "/", max_age: 0.seconds
-        )
+        expire_cookie(context, "m", "/")
+        expire_cookie(context, "oauth_user", "/")
         context.response.status = ::HTTP::Status::FOUND
         context.response.headers["Location"] = "/login"
         context
+      end
+
+      private def validate_callback(context) : {String, String, String}
+        config = Config.instance
+        oauth_redirect_error(context, "OAuth not configured") unless config.oauth_issuer_url
+        client_id = config.oauth_client_id || oauth_redirect_error(context, "OAuth not configured")
+
+        cookie_value = context.request.cookies["oauth_state"]?.try(&.value) || oauth_redirect_error(context, "Missing OAuth state")
+        sep = cookie_value.index(':') || oauth_redirect_error(context, "Invalid OAuth state cookie")
+        oauth_redirect_error(context, "State mismatch") unless context.request.query_params["state"]? == cookie_value[0...sep]
+        code = context.request.query_params["code"]? || oauth_redirect_error(context, "Missing authorization code")
+
+        {code, cookie_value[sep + 1..], client_id}
+      end
+
+      private def set_cookie(context, name, value, path = "/", http_only = false,
+                             samesite = ::HTTP::Cookie::SameSite::Strict,
+                             max_age = 8.hours)
+        context.response.cookies << ::HTTP::Cookie.new(
+          name: name, value: value, path: path, http_only: http_only,
+          secure: secure_cookie?, samesite: samesite, max_age: max_age)
+      end
+
+      private def expire_cookie(context, name, path)
+        context.response.cookies << ::HTTP::Cookie.new(name: name, value: "", path: path, max_age: 0.seconds)
       end
 
       private def oauth_error(context, status_code, message) : NoReturn
@@ -168,9 +148,7 @@ module LavinMQ
       private def extract_username(access_token : String) : String
         parts = access_token.split('.')
         return "SSO User" unless parts.size == 3
-        base64 = parts[1].tr("-_", "+/")
-        padded = base64 + "=" * ((4 - base64.size % 4) % 4)
-        payload = JSON.parse(Base64.decode_string(padded))
+        payload = JSON.parse(Auth::JWT::RS256Parser.base64url_decode(parts[1]))
         Config.instance.oauth_preferred_username_claims.each do |claim|
           if value = payload[claim]?.try(&.as_s?)
             return URI.encode_path(value)
