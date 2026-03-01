@@ -1,4 +1,4 @@
-window.fetch('oauth/enabled')
+window.fetch('/oauth/enabled')
   .then(resp => resp.json())
   .then(data => {
     if (data.enabled) {

@@ -2,14 +2,13 @@ function getUsername () {
   const oauthUser = getCookie('oauth_user')
   if (oauthUser) return decodeURIComponent(oauthUser)
   const m = getCookie('m')
-  if (!m) return
+  if (!m || m.startsWith('eyJ')) return
   return window.atob(getAuth()).split(':')[0]
 }
 
 function getPassword () {
-  if (getCookie('oauth_user')) return null
   const m = getCookie('m')
-  if (!m) return
+  if (!m || m.startsWith('eyJ')) return null
   return window.atob(getAuth()).split(':')[1]
 }
 
