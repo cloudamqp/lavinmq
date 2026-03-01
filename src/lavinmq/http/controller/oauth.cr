@@ -46,7 +46,7 @@ module LavinMQ
           value: "#{state}:#{verifier}",
           path: "/oauth",
           http_only: true,
-          secure: true,
+          secure: secure_cookie?,
           samesite: ::HTTP::Cookie::SameSite::Lax,
           max_age: 5.minutes
         )
@@ -107,7 +107,7 @@ module LavinMQ
           value: token_response.access_token,
           path: "/",
           http_only: true,
-          secure: true,
+          secure: secure_cookie?,
           samesite: ::HTTP::Cookie::SameSite::Strict,
           max_age: cookie_max_age
         )
@@ -115,7 +115,7 @@ module LavinMQ
           name: "oauth_user",
           value: extract_username(token_response.access_token),
           path: "/",
-          secure: true,
+          secure: secure_cookie?,
           samesite: ::HTTP::Cookie::SameSite::Strict,
           max_age: cookie_max_age
         )
@@ -181,6 +181,10 @@ module LavinMQ
       private def build_redirect_uri : String
         base_url = Config.instance.oauth_mgmt_base_url || raise "oauth_mgmt_base_url must be configured when OAuth is enabled"
         "#{base_url.chomp("/")}/oauth/callback"
+      end
+
+      private def secure_cookie? : Bool
+        Config.instance.oauth_mgmt_base_url.try(&.starts_with?("https")) || false
       end
 
       class OAuthError < Exception; end
