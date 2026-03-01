@@ -22,6 +22,7 @@ module LavinMQ
           StrictTransportSecurity.new,
           StaticController.new,
           AuthHandler.new(@amqp_server.authenticator, @amqp_server.users.direct_user),
+          OAuthController.new(@amqp_server.authenticator),
           WebsocketProxy.new(@amqp_server),
           ViewsController.new,
           ApiErrorHandler.new,

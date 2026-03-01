@@ -367,6 +367,10 @@ module LavinMQ
       property oauth_audience : String? = nil
       @[IniOpt(section: "oauth", ini_name: jwks_cache_ttl)]
       property oauth_jwks_cache_ttl : Time::Span = 1.hours
+      @[IniOpt(section: "oauth", ini_name: client_id)]
+      property oauth_client_id : String? = nil
+      @[IniOpt(section: "oauth", ini_name: mgmt_base_url)]
+      property oauth_mgmt_base_url : String? = nil
     end
   end
 end
