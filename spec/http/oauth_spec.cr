@@ -133,6 +133,7 @@ describe "OAuth2" do
       with_http_server do |http, _|
         LavinMQ::Config.instance.oauth_client_id = "test-client"
         LavinMQ::Config.instance.oauth_issuer_url = URI.parse("https://idp.example.com")
+        LavinMQ::Config.instance.oauth_mgmt_base_url = "https://localhost:15672"
 
         response = ::HTTP::Client.get(http.test_uri("/oauth/enabled"), headers: ::HTTP::Headers.new)
         response.status_code.should eq 200
@@ -140,6 +141,7 @@ describe "OAuth2" do
       ensure
         LavinMQ::Config.instance.oauth_client_id = nil
         LavinMQ::Config.instance.oauth_issuer_url = nil
+        LavinMQ::Config.instance.oauth_mgmt_base_url = nil
       end
     end
   end
