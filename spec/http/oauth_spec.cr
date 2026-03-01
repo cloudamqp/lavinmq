@@ -32,6 +32,9 @@ describe "OAuth2" do
         )
         response.status_code.should eq 302
         response.headers["Location"].should contain("Missing%20OAuth%20state")
+      ensure
+        LavinMQ::Config.instance.oauth_client_id = nil
+        LavinMQ::Config.instance.oauth_issuer_url = nil
       end
     end
 
@@ -49,6 +52,9 @@ describe "OAuth2" do
         )
         response.status_code.should eq 302
         response.headers["Location"].should contain("State%20mismatch")
+      ensure
+        LavinMQ::Config.instance.oauth_client_id = nil
+        LavinMQ::Config.instance.oauth_issuer_url = nil
       end
     end
 
@@ -66,6 +72,9 @@ describe "OAuth2" do
         )
         response.status_code.should eq 302
         response.headers["Location"].should contain("Missing%20authorization%20code")
+      ensure
+        LavinMQ::Config.instance.oauth_client_id = nil
+        LavinMQ::Config.instance.oauth_issuer_url = nil
       end
     end
   end
@@ -128,6 +137,9 @@ describe "OAuth2" do
         response = ::HTTP::Client.get(http.test_uri("/oauth/enabled"), headers: ::HTTP::Headers.new)
         response.status_code.should eq 200
         JSON.parse(response.body)["enabled"].as_bool.should be_true
+      ensure
+        LavinMQ::Config.instance.oauth_client_id = nil
+        LavinMQ::Config.instance.oauth_issuer_url = nil
       end
     end
   end

@@ -96,6 +96,12 @@ module LavinMQ
         auth_context = Auth::Context.new("", token_response.access_token.to_slice, context.request.remote_address)
         oauth_redirect_error(context, "Token validation failed") unless @authenticator.authenticate(auth_context)
 
+        cookie_max_age = if expires_in = token_response.expires_in
+                           Math.min(expires_in, 8.hours.total_seconds.to_i64).seconds
+                         else
+                           8.hours
+                         end
+
         context.response.cookies << ::HTTP::Cookie.new(
           name: "m",
           value: token_response.access_token,
@@ -103,7 +109,7 @@ module LavinMQ
           http_only: true,
           secure: true,
           samesite: ::HTTP::Cookie::SameSite::Strict,
-          max_age: 8.hours
+          max_age: cookie_max_age
         )
         context.response.cookies << ::HTTP::Cookie.new(
           name: "oauth_user",
@@ -111,7 +117,7 @@ module LavinMQ
           path: "/",
           secure: true,
           samesite: ::HTTP::Cookie::SameSite::Strict,
-          max_age: 8.hours
+          max_age: cookie_max_age
         )
         context.response.cookies << ::HTTP::Cookie.new(
           name: "oauth_state",
@@ -148,7 +154,8 @@ module LavinMQ
       private def extract_username(access_token : String) : String
         parts = access_token.split('.')
         return "SSO User" unless parts.size == 3
-        padded = parts[1] + "=" * ((4 - parts[1].size % 4) % 4)
+        base64 = parts[1].tr("-_", "+/")
+        padded = base64 + "=" * ((4 - base64.size % 4) % 4)
         payload = JSON.parse(Base64.decode_string(padded))
         Config.instance.oauth_preferred_username_claims.each do |claim|
           if value = payload[claim]?.try(&.as_s?)
@@ -161,6 +168,8 @@ module LavinMQ
         "SSO User"
       end
 
+      # Cached for the lifetime of the process. OIDC endpoints are essentially
+      # static; a server restart is needed if the IdP changes them.
       private def oidc_config : Auth::JWT::JWKSFetcher::OIDCConfiguration
         @oidc_config ||= begin
           config = Config.instance
