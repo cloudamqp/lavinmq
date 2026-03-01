@@ -21,11 +21,12 @@ module LavinMQ
         get "/oauth/enabled" { |context, _params| handle_enabled(context) }
         get "/oauth/authorize" { |context, _params| handle_authorize(context) }
         get "/oauth/callback" { |context, _params| handle_callback(context) }
+        get "/oauth/logout" { |context, _params| handle_logout(context) }
       end
 
       private def handle_enabled(context) : ::HTTP::Server::Context
         config = Config.instance
-        enabled = !!(config.oauth_client_id && config.oauth_issuer_url)
+        enabled = !!(config.oauth_client_id && config.oauth_issuer_url && config.oauth_mgmt_base_url)
         context.response.content_type = "application/json"
         {enabled: enabled}.to_json(context.response)
         context
@@ -94,7 +95,8 @@ module LavinMQ
         token_response = OAuth2::TokenExchange.new(token_ep, client_id).exchange(code, redirect_uri, code_verifier)
 
         auth_context = Auth::Context.new("", token_response.access_token.to_slice, context.request.remote_address)
-        oauth_redirect_error(context, "Token validation failed") unless @authenticator.authenticate(auth_context)
+        user = @authenticator.authenticate(auth_context)
+        oauth_redirect_error(context, "Token validation failed") unless user && !user.tags.empty?
 
         cookie_max_age = if expires_in = token_response.expires_in
                            Math.min(expires_in, 8.hours.total_seconds.to_i64).seconds
@@ -135,6 +137,18 @@ module LavinMQ
         Log.error(exception: ex) { "OAuth callback failed: #{ex.message}" }
         context.response.status = ::HTTP::Status::FOUND
         context.response.headers["Location"] = "/login?error=#{URI.encode_path_segment("OAuth authentication failed")}"
+        context
+      end
+
+      private def handle_logout(context) : ::HTTP::Server::Context
+        context.response.cookies << ::HTTP::Cookie.new(
+          name: "m", value: "", path: "/", max_age: 0.seconds
+        )
+        context.response.cookies << ::HTTP::Cookie.new(
+          name: "oauth_user", value: "", path: "/", max_age: 0.seconds
+        )
+        context.response.status = ::HTTP::Status::FOUND
+        context.response.headers["Location"] = "/login"
         context
       end
 
