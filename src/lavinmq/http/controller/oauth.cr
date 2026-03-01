@@ -157,7 +157,7 @@ module LavinMQ
         payload = JSON.parse(Auth::JWT::RS256Parser.base64url_decode(parts[1]))
         Config.instance.oauth_preferred_username_claims.each do |claim|
           if value = payload[claim]?.try(&.as_s?)
-            return URI.encode_path(value)
+            return URI.encode_www_form(value)
           end
         end
         "SSO User"
