@@ -96,7 +96,7 @@ module LavinMQ
 
         auth_context = Auth::Context.new("", token_response.access_token.to_slice, context.request.remote_address)
         user = @authenticator.authenticate(auth_context)
-        oauth_redirect_error(context, "Token validation failed") unless user && !user.tags.empty?
+        oauth_redirect_error(context, "Token validation failed") if user.nil? || user.tags.empty?
 
         cookie_max_age = if expires_in = token_response.expires_in
                            Math.min(expires_in, 8.hours.total_seconds.to_i64).seconds
