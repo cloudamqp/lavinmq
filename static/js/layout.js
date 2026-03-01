@@ -1,6 +1,8 @@
 import * as Auth from './auth.js'
 import * as Helpers from './helpers.js'
 
+Auth.whoAmI() // Ensure we have whoami data.
+
 document.getElementById('username').textContent = Auth.getUsername()
 
 const menuButton = document.getElementById('menu-button')
@@ -30,7 +32,7 @@ document.getElementById('userMenuVhost').addEventListener('change', (e) => {
 })
 
 document.getElementById('signoutLink').addEventListener('click', () => {
-  document.cookie = 'm=; max-age=0'
+  Auth.logout()
   window.location.assign('login')
 })
 
@@ -45,32 +47,34 @@ usermenuButton.addEventListener('click', (e) => {
 // Theme switcher functionality
 class ThemeSwitcher {
   constructor () {
-    this.currentTheme = window.localStorage.getItem('theme') || 'system'
+    this.currentTheme = 'system'
+    if (Helpers.stateClasses.has('theme-light')) {
+      this.currentTheme = 'light'
+    } else if (Helpers.stateClasses.has('theme-dark')) {
+      this.currentTheme = 'dark'
+    }
     this.init()
   }
 
-  init () {
-    // Set initial theme
-    this.applyTheme(this.currentTheme)
+  #setSystemColor (mql) {
+    if (mql.matches) {
+      this.systemColor = 'dark'
+    } else {
+      this.systemColor = 'light'
+    }
+    if (this.currentTheme === 'system') {
+      this.applyTheme('system') // make sure right system class is used
+    }
+  }
 
+  init () {
+    const mql = window.matchMedia('(prefers-color-scheme: dark)')
+    this.#setSystemColor(mql)
+    mql.addEventListener('change', mql => this.#setSystemColor(mql))
     // Add event listeners to theme buttons
     document.querySelectorAll('#theme-switcher button').forEach(button => {
-      button.addEventListener('click', (e) => {
-        // Find the button element (in case target is the img inside)
-        const buttonElement = e.target.closest('button')
-        const theme = buttonElement.dataset.theme
-        this.setTheme(theme)
-      })
+      button.addEventListener('click', _ => this.setTheme(button.dataset.theme))
     })
-
-    // Listen for system theme changes
-    if (window.matchMedia) {
-      window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
-        if (this.currentTheme === 'system') {
-          this.applyTheme('system')
-        }
-      })
-    }
 
     // Set initial active button
     this.updateActiveButton()
@@ -78,26 +82,28 @@ class ThemeSwitcher {
 
   setTheme (theme) {
     this.currentTheme = theme
-    window.localStorage.setItem('theme', theme)
     this.applyTheme(theme)
     this.updateActiveButton()
   }
 
   applyTheme (theme) {
-    const html = document.documentElement
-
-    // Remove existing theme classes
-    html.classList.remove('theme-light', 'theme-dark')
-
     if (theme === 'light') {
-      html.classList.add('theme-light')
-      html.style.colorScheme = 'light'
+      Helpers.stateClasses.add('theme-light')
+      Helpers.stateClasses.remove('theme-dark')
+      document.documentElement.classList.remove('system-light', 'system-dark')
     } else if (theme === 'dark') {
-      html.classList.add('theme-dark')
-      html.style.colorScheme = 'dark'
+      Helpers.stateClasses.add('theme-dark')
+      Helpers.stateClasses.remove('theme-light')
+      document.documentElement.classList.remove('system-light', 'system-dark')
     } else { // system
-      // Let CSS color-scheme handle it
-      html.style.colorScheme = 'light dark'
+      Helpers.stateClasses.remove(/^theme-/)
+      if (this.systemColor === 'dark') {
+        document.documentElement.classList.add('system-dark')
+        document.documentElement.classList.remove('system-light')
+      } else {
+        document.documentElement.classList.add('system-light')
+        document.documentElement.classList.remove('system-dark')
+      }
     }
   }
 
@@ -113,25 +119,12 @@ class ThemeSwitcher {
   }
 }
 
-// Initialize theme immediately to prevent flash
-(function () {
-  const savedTheme = window.localStorage.getItem('theme') || 'system'
-  const html = document.documentElement
-
-  if (savedTheme === 'light') {
-    html.classList.add('theme-light')
-    html.style.colorScheme = 'light'
-  } else if (savedTheme === 'dark') {
-    html.classList.add('theme-dark')
-    html.style.colorScheme = 'dark'
-  } else {
-    html.style.colorScheme = 'light dark'
-  }
-})()
+// Initialize theme switcher when DOM is loaded
+window.themeSwitcher = new ThemeSwitcher()
 
 // Check if sidebar is collapsed or expanded
 document.addEventListener('DOMContentLoaded', () => {
-  const sidebarCollapsed = window.localStorage.getItem('menuCollapsed')
+  const sidebarCollapsed = Helpers.stateClasses.has('menu-collapsed')
   const toggleLabel = document.querySelector('.toggle-menu-label')
 
   if (sidebarCollapsed) {
@@ -139,23 +132,15 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 })
 
-// Initialize theme switcher when DOM is loaded
-document.addEventListener('DOMContentLoaded', () => {
-  // Store theme switcher instance on window for debugging
-  window.themeSwitcher = new ThemeSwitcher()
-})
-
 document.getElementById('toggle-menu').addEventListener('click', () => {
-  document.documentElement.classList.toggle('menu-collapsed')
+  const added = Helpers.stateClasses.toggle('menu-collapsed')
   const toggleLabel = document.querySelector('.toggle-menu-label')
 
   // Save state
-  if (document.documentElement.classList.contains('menu-collapsed')) {
-    window.localStorage.setItem('menuCollapsed', 'true')
+  if (added) {
     toggleLabel.textContent = 'Expand sidebar'
     updateMenuTooltips()
   } else {
-    window.localStorage.removeItem('menuCollapsed')
     toggleLabel.textContent = 'Collapse sidebar'
   }
 })
