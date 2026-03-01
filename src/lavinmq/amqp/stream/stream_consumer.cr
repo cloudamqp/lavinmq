@@ -106,6 +106,9 @@ module LavinMQ
         end
       rescue ex : ClosedError | Queue::ClosedError | AMQP::Channel::ClosedError | ::Channel::ClosedError
         @log.debug { "deliver loop exiting: #{ex.inspect}" }
+      ensure
+        @deliver_loop_running.set(false, :release)
+        ensure_deliver_loop unless @closed || @queue.empty?
       end
 
       private def wait_for_queue_ready
@@ -123,6 +126,7 @@ module LavinMQ
       end
 
       def notify_new_message
+        ensure_deliver_loop
         @new_message_available.set(true)
       end
 
