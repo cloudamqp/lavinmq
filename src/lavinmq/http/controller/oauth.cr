@@ -11,6 +11,8 @@ module LavinMQ
 
       Log = LavinMQ::Log.for "http.oauth"
 
+      @oidc_config : Auth::JWT::JWKSFetcher::OIDCConfiguration?
+
       def initialize(@authenticator : Auth::Authenticator)
         register_routes
       end
@@ -31,11 +33,10 @@ module LavinMQ
 
       private def handle_authorize(context) : ::HTTP::Server::Context
         config = Config.instance
-        issuer_url = config.oauth_issuer_url || oauth_error(context, 503, "OAuth not configured")
+        oauth_error(context, 503, "OAuth not configured") unless config.oauth_issuer_url
         client_id = config.oauth_client_id || oauth_error(context, 503, "OAuth not configured")
 
-        oidc = Auth::JWT::JWKSFetcher.new(issuer_url, config.oauth_jwks_cache_ttl).fetch_oidc_config
-        auth_ep = oidc.authorization_endpoint || raise "OIDC missing authorization_endpoint"
+        auth_ep = oidc_config.authorization_endpoint || raise "OIDC missing authorization_endpoint"
 
         verifier, challenge = OAuth2::PKCE.generate
         state = Random::Secure.urlsafe_base64(32)
@@ -50,7 +51,7 @@ module LavinMQ
           max_age: 5.minutes
         )
 
-        redirect_uri = build_redirect_uri(context.request)
+        redirect_uri = build_redirect_uri
         params = ::URI::Params.build do |p|
           p.add "client_id", client_id
           p.add "redirect_uri", redirect_uri
@@ -76,7 +77,7 @@ module LavinMQ
 
       private def handle_callback(context) : ::HTTP::Server::Context
         config = Config.instance
-        issuer_url = config.oauth_issuer_url || oauth_redirect_error(context, "OAuth not configured")
+        oauth_redirect_error(context, "OAuth not configured") unless config.oauth_issuer_url
         client_id = config.oauth_client_id || oauth_redirect_error(context, "OAuth not configured")
 
         cookie_value = context.request.cookies["oauth_state"]?.try(&.value) || oauth_redirect_error(context, "Missing OAuth state")
@@ -87,10 +88,9 @@ module LavinMQ
         oauth_redirect_error(context, "State mismatch") unless context.request.query_params["state"]? == cookie_state
         code = context.request.query_params["code"]? || oauth_redirect_error(context, "Missing authorization code")
 
-        oidc = Auth::JWT::JWKSFetcher.new(issuer_url, config.oauth_jwks_cache_ttl).fetch_oidc_config
-        token_ep = oidc.token_endpoint || raise "OIDC missing token_endpoint"
+        token_ep = oidc_config.token_endpoint || raise "OIDC missing token_endpoint"
 
-        redirect_uri = build_redirect_uri(context.request)
+        redirect_uri = build_redirect_uri
         token_response = OAuth2::TokenExchange.new(token_ep, client_id).exchange(code, redirect_uri, code_verifier)
 
         auth_context = Auth::Context.new("", token_response.access_token.to_slice, context.request.remote_address)
@@ -99,6 +99,15 @@ module LavinMQ
         context.response.cookies << ::HTTP::Cookie.new(
           name: "m",
           value: token_response.access_token,
+          path: "/",
+          http_only: true,
+          secure: true,
+          samesite: ::HTTP::Cookie::SameSite::Strict,
+          max_age: 8.hours
+        )
+        context.response.cookies << ::HTTP::Cookie.new(
+          name: "oauth_user",
+          value: extract_username(token_response.access_token),
           path: "/",
           secure: true,
           samesite: ::HTTP::Cookie::SameSite::Strict,
@@ -136,14 +145,33 @@ module LavinMQ
         raise OAuthError.new
       end
 
-      private def build_redirect_uri(request : ::HTTP::Request) : String
-        if base_url = Config.instance.oauth_mgmt_base_url
-          "#{base_url.chomp("/")}/oauth/callback"
-        else
-          host = request.headers["Host"]? || "localhost"
-          scheme = request.headers["X-Forwarded-Proto"]? || "http"
-          "#{scheme}://#{host}/oauth/callback"
+      private def extract_username(access_token : String) : String
+        parts = access_token.split('.')
+        return "SSO User" unless parts.size == 3
+        padded = parts[1] + "=" * ((4 - parts[1].size % 4) % 4)
+        payload = JSON.parse(Base64.decode_string(padded))
+        Config.instance.oauth_preferred_username_claims.each do |claim|
+          if value = payload[claim]?.try(&.as_s?)
+            return URI.encode_path(value)
+          end
         end
+        "SSO User"
+      rescue ex
+        Log.debug(exception: ex) { "Could not extract username from JWT" }
+        "SSO User"
+      end
+
+      private def oidc_config : Auth::JWT::JWKSFetcher::OIDCConfiguration
+        @oidc_config ||= begin
+          config = Config.instance
+          issuer_url = config.oauth_issuer_url || raise "OAuth issuer not configured"
+          Auth::JWT::JWKSFetcher.new(issuer_url, config.oauth_jwks_cache_ttl).fetch_oidc_config
+        end
+      end
+
+      private def build_redirect_uri : String
+        base_url = Config.instance.oauth_mgmt_base_url || raise "oauth_mgmt_base_url must be configured when OAuth is enabled"
+        "#{base_url.chomp("/")}/oauth/callback"
       end
 
       class OAuthError < Exception; end

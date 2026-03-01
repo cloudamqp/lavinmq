@@ -1,32 +1,15 @@
-function isJwt (value) {
-  return value && value.startsWith('eyJ')
-}
-
-function getJwtPayload (jwt) {
-  try {
-    const parts = jwt.split('.')
-    if (parts.length !== 3) return null
-    const payload = JSON.parse(window.atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')))
-    return payload
-  } catch {
-    return null
-  }
-}
-
 function getUsername () {
+  const oauthUser = getCookie('oauth_user')
+  if (oauthUser) return decodeURIComponent(oauthUser)
   const m = getCookie('m')
   if (!m) return
-  if (isJwt(m)) {
-    const payload = getJwtPayload(m)
-    return payload?.preferred_username || payload?.sub || 'SSO User'
-  }
   return window.atob(getAuth()).split(':')[0]
 }
 
 function getPassword () {
+  if (getCookie('oauth_user')) return null
   const m = getCookie('m')
   if (!m) return
-  if (isJwt(m)) return null
   return window.atob(getAuth()).split(':')[1]
 }
 
