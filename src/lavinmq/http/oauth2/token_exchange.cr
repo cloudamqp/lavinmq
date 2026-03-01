@@ -36,7 +36,7 @@ module LavinMQ
               body: form
             )
             unless response.success?
-              raise "Token exchange failed: HTTP #{response.status_code} — #{response.body}"
+              raise "Token exchange failed: HTTP #{response.status_code}"
             end
             TokenResponse.from_json(response.body)
           end
