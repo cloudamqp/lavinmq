@@ -1,9 +1,6 @@
 require "amqp-client"
-require "../observable"
 require "../logger"
 require "../sortable_json"
-require "../amqp/queue/event"
-require "../amqp/exchange/event"
 
 module LavinMQ
   module Federation
@@ -184,14 +181,15 @@ module LavinMQ
       end
 
       class QueueLink < Link
-        include Observer(QueueEvent)
         EXCHANGE = ""
 
         @consumer_available = Channel(Nil).new
+        @deleted_cb : Proc(Nil)?
 
         def initialize(@upstream : Upstream, @federated_q : Queue, @upstream_q : String)
           super(@upstream)
           @metadata = @metadata.extend({link: @federated_q.name})
+          @deleted_cb = @federated_q.on_deleted { on_queue_deleted }
 
           spawn(monitor_consumers, name: "#{@federated_q.name}: consumer monitor")
         end
@@ -251,9 +249,17 @@ module LavinMQ
         end
 
         def terminate
-          @federated_q.unregister_observer(self)
           super
+          @deleted_cb.try { |cb| @federated_q.off_deleted(cb) }
           @consumer_available.close
+        end
+
+        private def on_queue_deleted
+          return if @state.terminated? || @state.terminating?
+          @log.debug { "event=deleted" }
+          @upstream.stop_link(@federated_q)
+        rescue e
+          @log.error { "Could not process event=deleted error=#{e.inspect_with_backtrace}" }
         end
 
         private def notify_consumer_available
@@ -261,19 +267,6 @@ module LavinMQ
           when @consumer_available.send nil
           when @federated_q.consumers_empty.when_true.receive
           end
-        end
-
-        def on(event : QueueEvent, data)
-          return if @state.terminated? || @state.terminating?
-          @log.debug { "event=#{event} data=#{data}" }
-          case event
-          in .deleted?, .closed?
-            @upstream.stop_link(@federated_q)
-          in .consumer_added?, .consumer_removed?
-            nil
-          end
-        rescue e
-          @log.error { "Could not process event=#{event} data=#{data} error=#{e.inspect_with_backtrace}" }
         end
 
         private def setup_queue(upstream_client)
@@ -327,8 +320,10 @@ module LavinMQ
       end
 
       class ExchangeLink < Link
-        include Observer(ExchangeEvent)
         @consumer_ex : ::AMQP::Client::Exchange?
+        @bind_cb : Proc(BindingDetails, Nil)?
+        @unbind_cb : Proc(BindingDetails, Nil)?
+        @deleted_cb : Proc(Nil)?
 
         def initialize(@upstream : Upstream, @federated_ex : Exchange, @upstream_q : String,
                        @upstream_exchange : String)
@@ -347,37 +342,38 @@ module LavinMQ
           x_received_from.size < @upstream.max_hops
         end
 
-        def on(event : ExchangeEvent, data)
+        private def on_exchange_bind(b : BindingDetails)
           return if @state.terminated? || @state.terminating?
-          @log.debug { "event=#{event} data=#{data}" }
-          case event
-          in .deleted?
-            @upstream.stop_link(@federated_ex)
-          in .bind?
-            b = data_as_binding_details(data)
-            updated, args = update_bound_from?(b.arguments)
-            if updated
-              with_consumer_ex do |ex|
-                ex.bind(@upstream_exchange, b.routing_key, args: args)
-              end
-            end
-          in .unbind?
-            b = data_as_binding_details(data)
-            updated, args = update_bound_from?(b.arguments)
-            if updated
-              with_consumer_ex do |ex|
-                ex.unbind(@upstream_exchange, b.routing_key, args: args)
-              end
+          @log.debug { "event=bind data=#{b}" }
+          updated, args = update_bound_from?(b.arguments)
+          if updated
+            with_consumer_ex do |ex|
+              ex.bind(@upstream_exchange, b.routing_key, args: args)
             end
           end
         rescue e
-          @log.error { "Could not process event=#{event} data=#{data} error=#{e.inspect_with_backtrace}" }
+          @log.error { "Could not process event=bind data=#{b} error=#{e.inspect_with_backtrace}" }
         end
 
-        private def data_as_binding_details(data) : BindingDetails
-          b = data.as?(BindingDetails)
-          raise ArgumentError.new("Expected data to be of type BindingDetails") unless b
-          b
+        private def on_exchange_unbind(b : BindingDetails)
+          return if @state.terminated? || @state.terminating?
+          @log.debug { "event=unbind data=#{b}" }
+          updated, args = update_bound_from?(b.arguments)
+          if updated
+            with_consumer_ex do |ex|
+              ex.unbind(@upstream_exchange, b.routing_key, args: args)
+            end
+          end
+        rescue e
+          @log.error { "Could not process event=unbind data=#{b} error=#{e.inspect_with_backtrace}" }
+        end
+
+        private def on_exchange_deleted
+          return if @state.terminated? || @state.terminating?
+          @log.debug { "event=deleted" }
+          @upstream.stop_link(@federated_ex)
+        rescue e
+          @log.error { "Could not process event=deleted error=#{e.inspect_with_backtrace}" }
         end
 
         private def with_consumer_ex(&)
@@ -390,7 +386,9 @@ module LavinMQ
 
         def terminate
           super
-          @federated_ex.unregister_observer(self)
+          @bind_cb.try { |cb| @federated_ex.off_bind(cb) }
+          @unbind_cb.try { |cb| @federated_ex.off_unbind(cb) }
+          @deleted_cb.try { |cb| @federated_ex.off_deleted(cb) }
           cleanup
         end
 
@@ -438,7 +436,9 @@ module LavinMQ
             uch.queue_bind(@upstream_q, @upstream_q, routing_key: "")
             ex
           end
-          @federated_ex.register_observer(self)
+          @bind_cb = @federated_ex.on_bind { |data| on_exchange_bind(data) }
+          @unbind_cb = @federated_ex.on_unbind { |data| on_exchange_unbind(data) }
+          @deleted_cb = @federated_ex.on_deleted { on_exchange_deleted }
           @federated_ex.bindings_details.each do |binding|
             updated, args = update_bound_from?(binding.arguments)
             if updated

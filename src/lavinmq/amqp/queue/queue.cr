@@ -2,7 +2,6 @@ require "digest/sha1"
 require "../../logger"
 require "../../segment_position"
 require "../../policy"
-require "../../observable"
 require "../../stats"
 require "../../sortable_json"
 require "../../client/channel/consumer"
@@ -10,7 +9,6 @@ require "../../message"
 require "../../error"
 require "../../queue"
 require "./state"
-require "./event"
 require "../../message_store"
 require "../../unacked_message"
 require "../../deduplication"
@@ -21,12 +19,26 @@ require "../argument"
 module LavinMQ::AMQP
   class Queue < LavinMQ::Queue
     include PolicyTarget
-    include Observable(QueueEvent)
     include Stats
     include SortableJSON
 
     include ArgumentTarget
     include Argument::DeadLettering
+
+    @on_deleted = Array(Proc(Nil)).new
+
+    def on_deleted(&block : ->) : Proc(Nil)
+      @on_deleted << block
+      block
+    end
+
+    def off_deleted(callback : Proc(Nil))
+      @on_deleted.delete(callback)
+    end
+
+    protected def notify_deleted
+      @on_deleted.dup.each &.call
+    end
 
     VALIDATOR_INT_ZERO = ArgumentValidator::IntValidator.new(min_value: 0)
     VALIDATOR_INT_ONE  = ArgumentValidator::IntValidator.new(min_value: 1)
@@ -450,7 +462,6 @@ module LavinMQ::AMQP
       # TODO: When closing due to ReadError, queue is deleted if exclusive
       delete if !durable? || @exclusive
       Fiber.yield
-      notify_observers(QueueEvent::Closed)
       @log.debug { "Closed" }
       true
     end
@@ -465,7 +476,7 @@ module LavinMQ::AMQP
       end
       @vhost.delete_queue(@name)
       @log.info { "(messages=#{message_count}) Deleted" }
-      notify_observers(QueueEvent::Deleted)
+      notify_deleted
       true
     end
 
@@ -845,7 +856,6 @@ module LavinMQ::AMQP
       @has_priority_consumers = true unless consumer.priority.zero?
       @log.debug { "Adding consumer (now #{@consumers.size})" }
       @vhost.event_tick(EventType::ConsumerAdded)
-      notify_observers(QueueEvent::ConsumerAdded, consumer)
     end
 
     getter? has_priority_consumers = false
@@ -866,7 +876,6 @@ module LavinMQ::AMQP
             end
           end
           @vhost.event_tick(EventType::ConsumerRemoved)
-          notify_observers(QueueEvent::ConsumerRemoved, consumer)
         end
       end
       if @consumers.empty?

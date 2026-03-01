@@ -86,7 +86,7 @@ module LavinMQ
         @tree.subscribe(routing_key, destination, qos)
 
         data = BindingDetails.new(name, vhost.name, binding_key.inner, destination)
-        notify_observers(ExchangeEvent::Bind, data)
+        notify_bind(data)
         true
       end
 
@@ -99,7 +99,7 @@ module LavinMQ
         @tree.unsubscribe(routing_key, destination)
 
         data = BindingDetails.new(name, vhost.name, binding_key.inner, destination)
-        notify_observers(ExchangeEvent::Unbind, data)
+        notify_unbind(data)
 
         delete if @auto_delete && @bindings.each_value.all?(&.empty?)
         true

@@ -20,7 +20,7 @@ module LavinMQ
         binding_key = BindingKey.new(routing_key, arguments)
         return false unless @bindings.add?({destination, binding_key})
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
-        notify_observers(ExchangeEvent::Bind, data)
+        notify_bind(data)
         true
       end
 
@@ -28,7 +28,7 @@ module LavinMQ
         binding_key = BindingKey.new(routing_key, arguments)
         return false unless @bindings.delete({destination, binding_key})
         data = BindingDetails.new(name, vhost.name, binding_key, destination)
-        notify_observers(ExchangeEvent::Unbind, data)
+        notify_unbind(data)
         delete if @auto_delete && @bindings.empty?
         true
       end
