@@ -130,7 +130,7 @@ jobs:
         run: bin/lavinmq --build-info
 
       - name: Upload bin/
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: bin
           path: bin/
@@ -164,7 +164,7 @@ jobs:
           sudo apt-get install -y make liblz4-1
 
       - name: Download lavinmq
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: bin
           path: bin
@@ -188,7 +188,7 @@ jobs:
       - name: Run tests
         run: npx playwright test --config ./spec/frontend/playwright.config.js --reporter list
 
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         if: ${{ !cancelled() }}
         with:
           name: playwright-report
@@ -207,7 +207,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y make openjdk-21-jre-headless liblz4-1
 
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: bin
           path: bin
@@ -265,7 +265,7 @@ jobs:
       - name: Checkout LavinMQ for bunny_definitions.json
         uses: actions/checkout@v6
 
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: bin
           path: bin
@@ -318,7 +318,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y liblz4-1
 
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: bin
           path: bin
@@ -359,7 +359,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y liblz4-1
 
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: bin
           path: bin
@@ -419,7 +419,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: bin
           path: bin
