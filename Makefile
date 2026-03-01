@@ -163,3 +163,7 @@ static/%.html: views/%.ecr $(VIEW_PARTIALS)
 .PHONY: clean-views
 clean-views:
 	$(RM) $(VIEW_TARGETS)
+
+.PHONY: optimize-assets
+optimize-assets:
+	find static/ -type f -name "*.svg" -exec npx svgo {} --multipass --precision=2 \;
