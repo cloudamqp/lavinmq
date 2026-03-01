@@ -14,7 +14,9 @@ module LavinMQ
           context.user = @direct_user
         end
 
-        if auth = cookie_auth(context) || basic_auth(context)
+        if user = jwt_cookie_auth(context)
+          context.user = user
+        elsif auth = cookie_auth(context) || basic_auth(context)
           username, password = auth
           if user = authenticate(username, password, context.request.remote_address)
             context.user = user
@@ -38,6 +40,17 @@ module LavinMQ
           if idx = m.value.rindex(':')
             auth = URI.decode(m.value[idx + 1..])
             return decode(auth)
+          end
+        end
+      end
+
+      private def jwt_cookie_auth(context) : Auth::BaseUser?
+        if m = context.request.cookies["m"]?
+          value = m.value
+          if value.starts_with?("eyJ")
+            auth_context = Auth::Context.new("", value.to_slice, context.request.remote_address)
+            user = @authenticator.authenticate(auth_context)
+            return user if user && !user.tags.empty?
           end
         end
       end
