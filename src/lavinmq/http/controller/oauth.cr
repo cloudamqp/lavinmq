@@ -12,6 +12,7 @@ module LavinMQ
       Log = LavinMQ::Log.for "http.oauth"
 
       @oidc_config : Auth::JWT::JWKSFetcher::OIDCConfiguration?
+      @oidc_mutex = Mutex.new
 
       def initialize(@authenticator : Auth::Authenticator)
         register_routes
@@ -112,6 +113,11 @@ module LavinMQ
         oauth_redirect_error(context, "OAuth not configured") unless config.oauth_issuer_url
         client_id = config.oauth_client_id || oauth_redirect_error(context, "OAuth not configured")
 
+        if error = context.request.query_params["error"]?
+          description = context.request.query_params["error_description"]? || error
+          oauth_redirect_error(context, description)
+        end
+
         cookie_value = context.request.cookies["oauth_state"]?.try(&.value) || oauth_redirect_error(context, "Missing OAuth state")
         sep = cookie_value.index(':') || oauth_redirect_error(context, "Invalid OAuth state cookie")
         oauth_redirect_error(context, "State mismatch") unless context.request.query_params["state"]? == cookie_value[0...sep]
@@ -163,10 +169,12 @@ module LavinMQ
       # Cached for the lifetime of the process. OIDC endpoints are essentially
       # static; a server restart is needed if the IdP changes them.
       private def oidc_config : Auth::JWT::JWKSFetcher::OIDCConfiguration
-        @oidc_config ||= begin
-          config = Config.instance
-          issuer_url = config.oauth_issuer_url || raise "OAuth issuer not configured"
-          Auth::JWT::JWKSFetcher.new(issuer_url, config.oauth_jwks_cache_ttl).fetch_oidc_config
+        @oidc_mutex.synchronize do
+          @oidc_config ||= begin
+            config = Config.instance
+            issuer_url = config.oauth_issuer_url || raise "OAuth issuer not configured"
+            Auth::JWT::JWKSFetcher.new(issuer_url, config.oauth_jwks_cache_ttl).fetch_oidc_config
+          end
         end
       end
 
