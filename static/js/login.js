@@ -23,7 +23,7 @@ window.fetch('oauth/enabled')
 const searchParams = new URLSearchParams(window.location.search)
 if (searchParams.has('error')) {
   window.alert(searchParams.get('error'))
-  history.replaceState(null, '', window.location.pathname)
+  window.history.replaceState(null, '', window.location.pathname)
 }
 
 if (window.location.hash) {
