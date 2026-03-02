@@ -79,6 +79,14 @@ describe LavinMQ::Auth::JWT::TokenParser do
       claims.username.should eq("sub-user")
     end
 
+    it "defaults to 'sub' claim when preferred_username_claims is not configured" do
+      parser = TokenParserTestHelper.create_token_parser(Array(String).new)
+      payload = LavinMQ::Auth::JWT::Payload.new(exp: RoughTime.utc.to_unix + 3600, sub: "sub-user")
+      token = TokenParserTestHelper.create_mock_token(payload)
+      claims = parser.parse(token)
+      claims.username.should eq("sub-user")
+    end
+
     it "raises when no username claim is found" do
       parser = TokenParserTestHelper.create_token_parser(["email", "preferred_username"])
       payload = LavinMQ::Auth::JWT::Payload.new(exp: RoughTime.utc.to_unix + 3600, sub: "sub-user")
