@@ -230,9 +230,8 @@ describe LavinMQ::AMQP::Stream do
         # Fill segment 1 — two half-segment messages won't fit, so second triggers new segment
         q.publish_confirm data
         # Sleep to create a timestamp gap
-        sleep 0.5.seconds
+        sleep 1.seconds
         target_time = Time.utc
-        sleep 0.5.seconds
         # This publish can't fit in current segment, creates a new one with first_ts > target
         q.publish_confirm data
         # Consume from timestamp in the gap — find_offset_in_segments must cross segment boundary
