@@ -1,6 +1,6 @@
 module LavinMQ
   # Token bucket rate limiter for incoming connections.
-  # Fiber-safe (single-threaded Crystal runtime).
+  # Thread-safe via a mutex.
   class ConnectionRateLimiter
     Log             = LavinMQ::Log.for "rate_limiter"
     MAX_TRACKED_IPS = 100_000
@@ -9,6 +9,7 @@ module LavinMQ
       tokens : Float64,
       last_refill : Time::Instant
 
+    @mu = Mutex.new
     @global_tokens : Float64
     @global_last_refill : Time::Instant
     @last_log_time : Time::Instant
@@ -29,7 +30,7 @@ module LavinMQ
     # This is acceptable since tokens refill continuously.
     def allow?(remote_address : String) : Bool
       return true unless rate_limiting_enabled?
-      allow_per_ip?(remote_address) && allow_global?
+      @mu.synchronize { allow_per_ip?(remote_address) && allow_global? }
     end
 
     private def rate_limiting_enabled? : Bool
@@ -84,10 +85,11 @@ module LavinMQ
 
     def log_rate_limited(remote_address : String)
       now = Time.instant
-      if (now - @last_log_time).total_seconds >= 1.0
+      @mu.synchronize do
+        return unless (now - @last_log_time).total_seconds >= 1.0
         @last_log_time = now
-        Log.warn { "Connection rate limited: #{remote_address}" }
       end
+      Log.warn { "Connection rate limited: #{remote_address}" }
     end
 
     # Remove stale per-IP entries to prevent unbounded growth.
@@ -95,8 +97,10 @@ module LavinMQ
     def cleanup_stale_entries
       return if @config.connection_rate_limit_per_ip <= 0
       now = Time.instant
-      @per_ip.reject! do |_ip, state|
-        (now - state.last_refill).total_seconds > 60
+      @mu.synchronize do
+        @per_ip.reject! do |_ip, state|
+          (now - state.last_refill).total_seconds > 60
+        end
       end
     end
 
