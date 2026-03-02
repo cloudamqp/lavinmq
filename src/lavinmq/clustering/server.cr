@@ -110,6 +110,7 @@ module LavinMQ
           if cached_hash
             yield({path, cached_hash})
           else
+            next unless @files_lock.synchronize { @files.has_key?(path) }
             if file = mfile
               sha1.update file.to_slice
               file.dontneed
@@ -119,7 +120,7 @@ module LavinMQ
               sha1.file filename
             end
             hash = sha1.final
-            @files_lock.synchronize { @checksums[path] = hash }
+            @files_lock.synchronize { @checksums[path] = hash if @files.has_key?(path) }
             sha1.reset
             Fiber.yield # CPU bound so allow other fibers to run here
             yield({path, hash})
@@ -187,7 +188,7 @@ module LavinMQ
 
       def listen(server : TCPServer)
         server.listen
-        @checksums.restore
+        @checksums.restore # called before accepting followers, no lock needed
         Log.info { "Listening on #{server.local_address}" }
         @listeners << server
 
@@ -267,7 +268,7 @@ module LavinMQ
           @followers.clear
         end
         Fiber.yield # required for follower/listener fibers to actually finish
-        @checksums.store
+        @files_lock.synchronize { @checksums.store }
       end
 
       private def each_follower(& : Follower -> Nil) : Nil
