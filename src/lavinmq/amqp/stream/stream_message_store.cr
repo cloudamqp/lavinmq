@@ -212,16 +212,14 @@ module LavinMQ::AMQP
       end
     end
 
-    def read(segment : UInt32, position : UInt32, offset : Int64? = nil) : Envelope?
+    def read(segment : UInt32, position : UInt32, offset : Int64) : Envelope?
       return if @closed
       rfile = @segments[segment]
       return if position == rfile.size
       begin
         msg = BytesMessage.from_bytes(rfile.to_slice + position)
         sp = SegmentPosition.new(segment, position, msg.bytesize.to_u32)
-        if offset
-          msg.properties.headers = add_offset_header(msg.properties.headers, offset)
-        end
+        msg.properties.headers = add_offset_header(msg.properties.headers, offset)
         Envelope.new(sp, msg, redelivered: false)
       rescue ex
         puts "read segment=#{segment} position=#{position}"
