@@ -5,6 +5,10 @@ module LavinMQ
     Log             = LavinMQ::Log.for "rate_limiter"
     MAX_TRACKED_IPS = 100_000
 
+    private record PerIPState,
+      tokens : Float64,
+      last_refill : Time::Instant
+
     @global_tokens : Float64
     @global_last_refill : Time::Instant
     @last_log_time : Time::Instant
@@ -13,15 +17,16 @@ module LavinMQ
     def initialize(@config : Config)
       @global_tokens = @config.connection_rate_limit.to_f
       @global_last_refill = Time.instant
-      @per_ip_tokens = Hash(String, Float64).new
-      @per_ip_last_refill = Hash(String, Time::Instant).new
+      @per_ip = Hash(String, PerIPState).new
       @last_log_time = Time.instant
       @last_table_full_log_time = Time.instant
     end
 
     # Returns true if the connection should be allowed.
     # Per-IP is checked first to avoid consuming a global token
-    # when the per-IP limit already rejects the connection.
+    # when the per-IP limit rejects the connection. Note: if per-IP
+    # passes but global rejects, the per-IP token is still consumed.
+    # This is acceptable since tokens refill continuously.
     def allow?(remote_address : String) : Bool
       return true unless rate_limiting_enabled?
       allow_per_ip?(remote_address) && allow_global?
@@ -57,25 +62,22 @@ module LavinMQ
       return true if limit <= 0
 
       now = Time.instant
-      unless @per_ip_last_refill.has_key?(ip)
-        if @per_ip_tokens.size >= MAX_TRACKED_IPS
+      unless @per_ip.has_key?(ip)
+        if @per_ip.size >= MAX_TRACKED_IPS
           evict_oldest_entry
         end
-        @per_ip_tokens[ip] = limit.to_f
-        @per_ip_last_refill[ip] = now
+        @per_ip[ip] = PerIPState.new(limit.to_f, now)
       end
 
-      last_refill = @per_ip_last_refill[ip]
-      tokens = @per_ip_tokens[ip]
-      elapsed = (now - last_refill).total_seconds
-      tokens = Math.min(limit.to_f, tokens + elapsed * limit)
-      @per_ip_last_refill[ip] = now
+      state = @per_ip[ip]
+      elapsed = (now - state.last_refill).total_seconds
+      tokens = Math.min(limit.to_f, state.tokens + elapsed * limit)
 
       if tokens >= 1.0
-        @per_ip_tokens[ip] = tokens - 1.0
+        @per_ip[ip] = PerIPState.new(tokens - 1.0, now)
         true
       else
-        @per_ip_tokens[ip] = tokens
+        @per_ip[ip] = PerIPState.new(tokens, now)
         false
       end
     end
@@ -93,23 +95,21 @@ module LavinMQ
     def cleanup_stale_entries
       return if @config.connection_rate_limit_per_ip <= 0
       now = Time.instant
-      @per_ip_last_refill.reject! do |ip, last_refill|
-        if (now - last_refill).total_seconds > 60
-          @per_ip_tokens.delete(ip)
-          true
-        end
+      @per_ip.reject! do |_ip, state|
+        (now - state.last_refill).total_seconds > 60
       end
     end
 
+    # Evict the oldest-inserted entry. Crystal's Hash is
+    # insertion-ordered, so `first` is O(1).
     private def evict_oldest_entry
       now = Time.instant
       if (now - @last_table_full_log_time).total_seconds >= 1.0
         @last_table_full_log_time = now
         Log.warn { "Per-IP tracking limit reached (#{MAX_TRACKED_IPS}), evicting oldest entry" }
       end
-      oldest_ip = @per_ip_last_refill.min_by { |_, t| t }[0]
-      @per_ip_last_refill.delete(oldest_ip)
-      @per_ip_tokens.delete(oldest_ip)
+      oldest_ip = @per_ip.first_key
+      @per_ip.delete(oldest_ip)
     end
   end
 end
