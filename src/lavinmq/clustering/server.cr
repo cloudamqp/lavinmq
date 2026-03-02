@@ -253,7 +253,8 @@ module LavinMQ
             Fiber.yield # Allow other fiber to run to remove the follower from array
           rescue ex : FollowerTooSlowError
             Log.warn { ex.message }
-            f.close
+            f.disconnect
+            Fiber.yield # Allow action_loop fiber to handle the closed socket and exit
           end
         end
       end

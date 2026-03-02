@@ -200,6 +200,13 @@ module LavinMQ
         raise ex
       end
 
+      # Non-blocking disconnect: closes the channel and socket to interrupt any
+      # blocked IO in action_loop. Full cleanup is done by handle_socket's ensure.
+      def disconnect
+        @actions.close
+        @socket.close rescue nil
+      end
+
       def close
         @actions.close
         @running.wait # let action_loop finish
