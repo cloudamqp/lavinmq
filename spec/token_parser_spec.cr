@@ -286,6 +286,20 @@ describe LavinMQ::Auth::JWT::TokenParser do
         claims = parser.parse(token)
         claims.permissions.should be_empty
       end
+
+      it "extracts scopes from multiple additional_scopes_keys" do
+        parser = TokenParserTestHelper.create_token_parser(["sub"], additional_scopes_key: "roles,permissions")
+        payload = LavinMQ::Auth::JWT::Payload.new(
+          exp: RoughTime.utc.to_unix + 3600,
+          sub: "user"
+        )
+        payload["roles"] = JSON.parse(%(["read:myvhost/*"]))
+        payload["permissions"] = JSON.parse(%(["write:myvhost/*"]))
+        token = TokenParserTestHelper.create_mock_token(payload)
+        claims = parser.parse(token)
+        claims.permissions["myvhost"][:read].should eq(/.*/)
+        claims.permissions["myvhost"][:write].should eq(/.*/)
+      end
     end
   end
 
