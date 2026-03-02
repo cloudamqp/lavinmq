@@ -8,6 +8,7 @@ module LavinMQ
     @global_tokens : Float64
     @global_last_refill : Time::Instant
     @last_log_time : Time::Instant
+    @last_table_full_log_time : Time::Instant
 
     def initialize(@config : Config)
       @global_tokens = @config.connection_rate_limit.to_f
@@ -15,7 +16,7 @@ module LavinMQ
       @per_ip_tokens = Hash(String, Float64).new
       @per_ip_last_refill = Hash(String, Time::Instant).new
       @last_log_time = Time.instant
-      @log_suppressed = false
+      @last_table_full_log_time = Time.instant
     end
 
     # Returns true if the connection should be allowed.
@@ -34,11 +35,21 @@ module LavinMQ
     private def allow_global? : Bool
       limit = @config.connection_rate_limit
       return true if limit <= 0
-      consume_token(
-        limit,
-        pointerof(@global_tokens),
-        pointerof(@global_last_refill)
+
+      now = Time.instant
+      elapsed = (now - @global_last_refill).total_seconds
+      @global_tokens = Math.min(
+        limit.to_f,
+        @global_tokens + elapsed * limit
       )
+      @global_last_refill = now
+
+      if @global_tokens >= 1.0
+        @global_tokens -= 1.0
+        true
+      else
+        false
+      end
     end
 
     private def allow_per_ip?(ip : String) : Bool
@@ -48,8 +59,7 @@ module LavinMQ
       now = Time.instant
       unless @per_ip_last_refill.has_key?(ip)
         if @per_ip_tokens.size >= MAX_TRACKED_IPS
-          Log.warn { "Per-IP tracking limit reached (#{MAX_TRACKED_IPS}), rejecting new IP: #{ip}" }
-          return false
+          evict_oldest_entry
         end
         @per_ip_tokens[ip] = limit.to_f
         @per_ip_last_refill[ip] = now
@@ -70,36 +80,11 @@ module LavinMQ
       end
     end
 
-    private def consume_token(
-      limit : Int32,
-      tokens_ptr : Pointer(Float64),
-      last_refill_ptr : Pointer(Time::Instant),
-    ) : Bool
-      now = Time.instant
-      elapsed = (now - last_refill_ptr.value).total_seconds
-      tokens = Math.min(
-        limit.to_f,
-        tokens_ptr.value + elapsed * limit
-      )
-      last_refill_ptr.value = now
-
-      if tokens >= 1.0
-        tokens_ptr.value = tokens - 1.0
-        true
-      else
-        tokens_ptr.value = tokens
-        false
-      end
-    end
-
     def log_rate_limited(remote_address : String)
       now = Time.instant
       if (now - @last_log_time).total_seconds >= 1.0
         @last_log_time = now
         Log.warn { "Connection rate limited: #{remote_address}" }
-        @log_suppressed = false
-      elsif !@log_suppressed
-        @log_suppressed = true
       end
     end
 
@@ -114,6 +99,17 @@ module LavinMQ
           true
         end
       end
+    end
+
+    private def evict_oldest_entry
+      now = Time.instant
+      if (now - @last_table_full_log_time).total_seconds >= 1.0
+        @last_table_full_log_time = now
+        Log.warn { "Per-IP tracking limit reached (#{MAX_TRACKED_IPS}), evicting oldest entry" }
+      end
+      oldest_ip = @per_ip_last_refill.min_by { |_, t| t }[0]
+      @per_ip_last_refill.delete(oldest_ip)
+      @per_ip_tokens.delete(oldest_ip)
     end
   end
 end
