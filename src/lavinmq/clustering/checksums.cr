@@ -8,6 +8,7 @@ module LavinMQ
       end
 
       def store : Nil
+        Dir.mkdir_p(@data_dir)
         File.open(File.join(@data_dir, "checksums.sha1"), "w") do |f|
           @checksums.each do |path, hash|
             f.puts "#{hash.hexstring} *#{path}"
