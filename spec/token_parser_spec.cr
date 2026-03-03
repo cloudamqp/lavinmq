@@ -8,7 +8,7 @@ module TokenParserTestHelper
     preferred_username_claims = ["sub", "client_id"],
     resource_server_id : String? = nil,
     scope_prefix : String? = nil,
-    additional_scopes_key : String? = nil,
+    additional_scopes_key = [] of String,
   ) : LavinMQ::Auth::JWT::TokenParser
     config = LavinMQ::Config.new
     config.oauth_issuer_url = URI.parse("https://auth.example.com")
@@ -216,7 +216,7 @@ describe LavinMQ::Auth::JWT::TokenParser do
 
     describe "additional_scopes_key parsing" do
       it "extracts scopes from additional_scopes_key string claim" do
-        parser = TokenParserTestHelper.create_token_parser(["sub"], additional_scopes_key: "permissions")
+        parser = TokenParserTestHelper.create_token_parser(["sub"], additional_scopes_key: ["permissions"])
         payload = LavinMQ::Auth::JWT::Payload.new(
           exp: RoughTime.utc.to_unix + 3600,
           sub: "user"
@@ -228,7 +228,7 @@ describe LavinMQ::Auth::JWT::TokenParser do
       end
 
       it "extracts scopes from additional_scopes_key array claim" do
-        parser = TokenParserTestHelper.create_token_parser(["sub"], additional_scopes_key: "permissions")
+        parser = TokenParserTestHelper.create_token_parser(["sub"], additional_scopes_key: ["permissions"])
         payload = LavinMQ::Auth::JWT::Payload.new(
           exp: RoughTime.utc.to_unix + 3600,
           sub: "user"
@@ -244,7 +244,7 @@ describe LavinMQ::Auth::JWT::TokenParser do
         parser = TokenParserTestHelper.create_token_parser(
           ["sub"],
           resource_server_id: "lavinmq",
-          additional_scopes_key: "permissions"
+          additional_scopes_key: ["permissions"]
         )
         payload = LavinMQ::Auth::JWT::Payload.new(
           exp: RoughTime.utc.to_unix + 3600,
@@ -259,7 +259,7 @@ describe LavinMQ::Auth::JWT::TokenParser do
       it "extracts scopes from hash claim without resource_server_id" do
         parser = TokenParserTestHelper.create_token_parser(
           ["sub"],
-          additional_scopes_key: "permissions"
+          additional_scopes_key: ["permissions"]
         )
         payload = LavinMQ::Auth::JWT::Payload.new(
           exp: RoughTime.utc.to_unix + 3600,
@@ -275,7 +275,7 @@ describe LavinMQ::Auth::JWT::TokenParser do
         parser = TokenParserTestHelper.create_token_parser(
           ["sub"],
           resource_server_id: "lavinmq",
-          additional_scopes_key: "permissions"
+          additional_scopes_key: ["permissions"]
         )
         payload = LavinMQ::Auth::JWT::Payload.new(
           exp: RoughTime.utc.to_unix + 3600,
@@ -288,7 +288,7 @@ describe LavinMQ::Auth::JWT::TokenParser do
       end
 
       it "extracts scopes from multiple additional_scopes_keys" do
-        parser = TokenParserTestHelper.create_token_parser(["sub"], additional_scopes_key: "roles,permissions")
+        parser = TokenParserTestHelper.create_token_parser(["sub"], additional_scopes_key: ["roles", "permissions"])
         payload = LavinMQ::Auth::JWT::Payload.new(
           exp: RoughTime.utc.to_unix + 3600,
           sub: "user"
