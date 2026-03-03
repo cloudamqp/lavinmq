@@ -336,6 +336,27 @@ describe LavinMQ::AMQP::Stream do
         end
       end
     end
+
+    it "should not lose messages on restart when max-age is set" do
+      queue_name = Random::Secure.hex
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          args = {"x-queue-type": "stream", "x-max-age": "1h"}
+          q = ch.queue(queue_name, args: AMQP::Client::Arguments.new(args))
+          data = Bytes.new(LavinMQ::Config.instance.segment_size)
+          3.times { q.publish_confirm data }
+          q.message_count.should eq 3
+        end
+
+        # Close and reopen the message store directly to simulate a restart
+        data_dir = File.join(s.vhosts["/"].data_dir, Digest::SHA1.hexdigest queue_name)
+        msg_store = LavinMQ::AMQP::StreamMessageStore.new(data_dir, nil)
+        msg_store.max_age = 1.hour
+        msg_store.drop_overflow
+        msg_store.size.should eq 3
+        msg_store.close
+      end
+    end
   end
 
   it "doesn't support basic_get" do

@@ -299,6 +299,7 @@ module LavinMQ::AMQP
       super
       io.write_bytes @offset_index[seg]
       io.write_bytes @timestamp_index[seg]
+      io.write_bytes @segment_last_ts[seg]
     end
 
     def drop_overflow
@@ -370,14 +371,42 @@ module LavinMQ::AMQP
       msg = BytesMessage.from_bytes(mfile.to_slice + 4u32)
       @offset_index[seg] = offset_from_headers(msg.properties.headers)
       @timestamp_index[seg] = msg.timestamp
+
+      if empty?
+        @segment_last_ts[seg] = RoughTime.unix_ms
+      else
+        # NOTE: scan_last_ts re-scans the segment even though super already did.
+        # This path only runs when metadata files are missing, so the cost is acceptable.
+        @segment_last_ts[seg] = scan_last_ts(mfile)
+      end
     rescue IndexError
       @offset_index[seg] = @last_offset
       @timestamp_index[seg] = RoughTime.unix_ms
+      @segment_last_ts[seg] = RoughTime.unix_ms
     end
 
     private def read_extra_metadata_fields(file : File, seg : UInt32)
       @offset_index[seg] = file.read_bytes(Int64)
       @timestamp_index[seg] = file.read_bytes(Int64)
+      begin
+        @segment_last_ts[seg] = file.read_bytes(Int64)
+      rescue IO::EOFError
+        # Old metadata format without last_ts, scan segment to find it
+        @log.warn { "Metadata for segment #{seg} is missing last_ts, scanning segment to determine it" }
+        @segment_last_ts[seg] = scan_last_ts(@segments[seg])
+        write_metadata_file(seg, @segments[seg])
+      end
+    end
+
+    private def scan_last_ts(mfile) : Int64
+      last_ts = 0i64
+      mfile.pos = 4
+      while mfile.pos < mfile.size
+        last_ts = IO::ByteFormat::SystemEndian.decode(Int64, mfile.to_slice(mfile.pos, 8))
+        BytesMessage.skip(mfile)
+      end
+      mfile.pos = 4
+      last_ts
     end
 
     class OffsetError < Exception
