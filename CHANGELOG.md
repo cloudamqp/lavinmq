@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.9] - 2026-03-03
+
+### Fixed
+- Persist segment_last_ts to prevent message loss on restart with max-age [#1760](https://github.com/cloudamqp/lavinmq/pull/1760)
+- Don't expire messages before server is fully started [#1714](https://github.com/cloudamqp/lavinmq/pull/1714)
+- Return 400 for invalid binding routing key [#1734](https://github.com/cloudamqp/lavinmq/pull/1734)
+- Fix invalid JSON warning on empty binding arguments [#1749](https://github.com/cloudamqp/lavinmq/pull/1749)
+- Dead letter cycle detection [#1723](https://github.com/cloudamqp/lavinmq/pull/1723)
+- Prevent consumer starvation in lavinmqperf throughput [#1712](https://github.com/cloudamqp/lavinmq/pull/1712)
+- Gracefully close message store on corrupt segments [#1710](https://github.com/cloudamqp/lavinmq/pull/1710)
+- Allow any timestamp in AMQP messages [#1705](https://github.com/cloudamqp/lavinmq/pull/1705)
+- Fix delayed message store crash on corrupt segment data [#1694](https://github.com/cloudamqp/lavinmq/pull/1694)
+- Don't delete/clear MQTT session if new client exists [#1665](https://github.com/cloudamqp/lavinmq/pull/1665)
+
 ## [2.6.8] - 2026-02-10
 
 ### Fixed
