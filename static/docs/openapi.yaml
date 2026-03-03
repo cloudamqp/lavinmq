@@ -1,7 +1,7 @@
 ---
 openapi: 3.0.3
 info:
-  version: v2.6.8
+  version: v2.6.9
   title: LavinMQ HTTP API
   description: HTTP API to programmatically manage all aspects of LavinMQ.
   contact:
@@ -9,9 +9,9 @@ info:
     url: https://www.lavinmq.com/
     email: contact@lavinmq.com
 servers:
-- url: /api
+  - url: /api
 security:
-- BasicAuth: []
+  - BasicAuth: []
 components:
   securitySchemes:
     BasicAuth:
@@ -88,7 +88,7 @@ components:
     parameters:
       "$ref": "./schemas/parameters.yaml#/parameters"
     parameters-PutParameterRequestBody:
-      "$ref": "./schemas/parameters.yaml#/PutParameterRequestBody" 
+      "$ref": "./schemas/parameters.yaml#/PutParameterRequestBody"
     parameters-shovel-value:
       "$ref": "./schemas/parameters.yaml#/shovel-value"
     parameters-federation-upstream-value:
@@ -287,37 +287,37 @@ paths:
   "/vhost-limits/{vhost}/{type}":
     "$ref": "./paths/vhost-limits.yaml#/~1vhost-limits~1{vhost}~1{type}"
 tags:
-- name: bindings
-  description: Manage bindings.
-- name: channels
-  description: Get information about open channels.
-- name: connections
-  description: Manage open connections.
-- name: consumers
-  description: Manage connected consumers.
-- name: definitions
-  description: Import and export server definitions.
-- name: exchanges
-  description: Manage exchanges.
-- name: main
-  description: Query the server for various information (e.g. federation links, extensions).
-- name: shovels
-  description: Manage shovels.
-- name: nodes
-  description: Get node statistics.
-- name: parameters
-  description: Manage parameters.
-- name: policies
-  description: Manage policies.
-- name: permissions
-  description: Manage permissions.
-- name: queues
-  description: Manage queues.
-- name: users
-  description: Manage users.
-- name: vhosts
-  description: Manage vhosts.
-- name: auth
-  description: Hash a password.
-- name: vhost-limits
-  description: Manage vhost limits.
+  - name: bindings
+    description: Manage bindings.
+  - name: channels
+    description: Get information about open channels.
+  - name: connections
+    description: Manage open connections.
+  - name: consumers
+    description: Manage connected consumers.
+  - name: definitions
+    description: Import and export server definitions.
+  - name: exchanges
+    description: Manage exchanges.
+  - name: main
+    description: Query the server for various information (e.g. federation links, extensions).
+  - name: shovels
+    description: Manage shovels.
+  - name: nodes
+    description: Get node statistics.
+  - name: parameters
+    description: Manage parameters.
+  - name: policies
+    description: Manage policies.
+  - name: permissions
+    description: Manage permissions.
+  - name: queues
+    description: Manage queues.
+  - name: users
+    description: Manage users.
+  - name: vhosts
+    description: Manage vhosts.
+  - name: auth
+    description: Hash a password.
+  - name: vhost-limits
+    description: Manage vhost limits.
