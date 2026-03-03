@@ -20,6 +20,7 @@ require "./mqtt/connection_factory"
 require "./stats"
 require "./auth/chain"
 require "./auth/jwt/jwks_fetcher"
+require "./connection_rate_limiter"
 
 module LavinMQ
   class Server
@@ -38,6 +39,7 @@ module LavinMQ
     @listeners = Hash(Socket::Server, Protocol).new # Socket => protocol
     @connection_factories = Hash(Protocol, ConnectionFactory).new
     @replicator : Clustering::Replicator?
+    @rate_limiter : ConnectionRateLimiter
     Log = LavinMQ::Log.for "server"
 
     def initialize(@config : Config, @replicator = nil)
@@ -54,6 +56,7 @@ module LavinMQ
         Protocol::AMQP => AMQP::ConnectionFactory.new(@authenticator, @vhosts),
         Protocol::MQTT => MQTT::ConnectionFactory.new(@authenticator, @mqtt_brokers, @config),
       }
+      @rate_limiter = ConnectionRateLimiter.new(@config)
       apply_parameter
       spawn stats_loop, name: "Server#stats_loop"
     end
@@ -102,6 +105,7 @@ module LavinMQ
       @vhosts.load!
       @connection_factories[Protocol::AMQP] = AMQP::ConnectionFactory.new(@authenticator, @vhosts)
       @connection_factories[Protocol::MQTT] = MQTT::ConnectionFactory.new(@authenticator, @mqtt_brokers, @config)
+      @rate_limiter = ConnectionRateLimiter.new(@config)
       @parameters = ParameterStore(Parameter).new(@data_dir, "parameters.json", @replicator)
       apply_parameter
       @closed.set(false)
@@ -127,8 +131,13 @@ module LavinMQ
     end
 
     private def accept_tcp(client, protocol)
+      remote_address = client.remote_address
+      unless @rate_limiter.allow?(remote_address.address)
+        @rate_limiter.log_rate_limited(remote_address.to_s)
+        client.close rescue nil
+        return
+      end
       spawn(name: "Accept TCP socket") do
-        remote_address = client.remote_address
         set_socket_options(client)
         set_buffer_size(client)
         conn_info = extract_conn_info(client)
@@ -177,6 +186,11 @@ module LavinMQ
     end
 
     private def accept_unix(client, protocol)
+      unless @rate_limiter.allow?("unix")
+        @rate_limiter.log_rate_limited("unix")
+        client.close rescue nil
+        return
+      end
       spawn(name: "Accept UNIX socket") do
         remote_address = client.remote_address
         set_buffer_size(client)
@@ -213,8 +227,13 @@ module LavinMQ
     end
 
     private def accept_tls(client, context, protocol)
+      remote_addr = client.remote_address
+      unless @rate_limiter.allow?(remote_addr.address)
+        @rate_limiter.log_rate_limited(remote_addr.to_s)
+        client.close rescue nil
+        return
+      end
       spawn(name: "Accept TLS socket") do
-        remote_addr = client.remote_address
         set_socket_options(client)
         if @config.tls_ktls?
           ssl_client = OpenSSL::SSL::NativeSocket::Server.new(client, context, sync_close: true)
@@ -413,6 +432,7 @@ module LavinMQ
         @gc_stats = GC.prof_stats
 
         control_flow!
+        @rate_limiter.cleanup_stale_entries
         sleep @config.stats_interval.milliseconds
       end
     ensure
