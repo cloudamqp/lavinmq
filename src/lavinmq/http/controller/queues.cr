@@ -85,7 +85,7 @@ module LavinMQ
             elsif name.bytesize > UInt8::MAX
               bad_request(context, "Queue name too long, can't exceed 255 characters")
             else
-              vhost.declare_queue(name, durable, auto_delete, tbl)
+              @amqp_server.vhosts[vhost].declare_queue(name, durable, auto_delete, tbl)
               context.response.status_code = 201
             end
           end
