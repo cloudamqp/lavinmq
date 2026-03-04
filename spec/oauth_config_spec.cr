@@ -94,6 +94,20 @@ describe LavinMQ::Config do
       config.oauth_additional_scopes_key.should eq(["custom_permissions"])
     end
 
+    it "parses multiple comma-separated additional_scopes_keys" do
+      config_file = File.tempfile do |file|
+        file.print <<-CONFIG
+        [oauth]
+        issuer_url = https://auth.example.com
+        additional_scopes_key = roles, permissions
+        CONFIG
+      end
+
+      config = LavinMQ::Config.new
+      config.parse(["-c", config_file.path])
+      config.oauth_additional_scopes_key.should eq(["roles", "permissions"])
+    end
+
     it "parses scope_prefix" do
       config_file = File.tempfile do |file|
         file.print <<-CONFIG
