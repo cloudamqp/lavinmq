@@ -17,9 +17,9 @@ describe LavinMQ::Config do
       config.oauth_preferred_username_claims.should eq(["sub", "client_id"])
     end
 
-    it "sets default oauth_additional_scopes_key to nil" do
+    it "sets default oauth_additional_scopes_key to empty array" do
       config = LavinMQ::Config.new
-      config.oauth_additional_scopes_key.should be_nil
+      config.oauth_additional_scopes_key.should be_empty
     end
 
     it "sets default oauth_scope_prefix to nil" do
@@ -91,7 +91,7 @@ describe LavinMQ::Config do
 
       config = LavinMQ::Config.new
       config.parse(["-c", config_file.path])
-      config.oauth_additional_scopes_key.should eq("custom_permissions")
+      config.oauth_additional_scopes_key.should eq(["custom_permissions"])
     end
 
     it "parses scope_prefix" do

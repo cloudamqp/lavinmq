@@ -55,7 +55,7 @@ module JWTTestHelper
     audience : String? = nil,
     resource_server_id : String? = nil,
     scope_prefix : String? = nil,
-    additional_scopes_key : String? = nil,
+    additional_scopes_key = [] of String,
   ) : LavinMQ::Auth::JWT::TokenVerifier
     config = LavinMQ::Config.new
     config.oauth_issuer_url = URI.parse(issuer_url)
@@ -84,7 +84,7 @@ module JWTTestHelper
     audience : String? = nil,
     resource_server_id : String? = nil,
     scope_prefix : String? = nil,
-    additional_scopes_key : String? = nil,
+    additional_scopes_key = [] of String,
   ) : TestableTokenVerifier
     config = LavinMQ::Config.new
     config.oauth_issuer_url = URI.parse(issuer_url)
