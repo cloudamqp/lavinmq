@@ -182,17 +182,18 @@ module LavinMQ
           end
           @followers << follower # Starts in Syncing state
         end
-        # Only allow one follower to do bulk sync at a time
+        # Only allow one follower to do full sync at a time
         # The bandwidth between nodes should be very high, so
         # better with one fully synced than 2 partially synced followers
         # Also @files and @checksums are not protected by locks
+        # @sync_lock is always acquired before @lock to avoid deadlock
         @sync_lock.synchronize do
           follower.full_sync # sync the bulk
-        end
-        @lock.synchronize do
-          follower.full_sync    # sync the last
-          follower.mark_synced! # Change state to Synced
-          update_isr
+          @lock.synchronize do
+            follower.full_sync    # sync the last
+            follower.mark_synced! # Change state to Synced
+            update_isr
+          end
         end
         begin
           follower.action_loop
