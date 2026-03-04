@@ -33,9 +33,8 @@ module LavinMQ
       @durable = durable
       @acks = Hash(UInt32, MFile).new { |acks, seg| acks[seg] = open_ack_file(seg) }
       load_segments_from_disk
+      load_ack_files
       unless @closed
-        delete_orphan_ack_files
-        load_deleted_from_disk
         load_stats_from_segments
         delete_unused_segments
       end
@@ -261,7 +260,6 @@ module LavinMQ
     def close : Nil
       return if @closed
       @closed = true
-      delete_orphan_ack_files
       @empty.close
       # To make sure that all replication actions for the segments
       # have finished wait for a delete action of a nonexistent file
@@ -365,37 +363,49 @@ module LavinMQ
       mfile
     end
 
-    private def load_deleted_from_disk
+    private def load_ack_files : Nil
       count = 0u32
-      ack_files = 0u32
-      Dir.each(@msg_dir) do |f|
-        ack_files += 1 if f.starts_with? "acks."
-      end
+      Dir.each_child(@msg_dir) do |f|
+        next unless f.starts_with? "acks."
+        seg = f[5, 10].to_u32
+        path = File.join(@msg_dir, f)
 
-      @log.debug { "Loading #{ack_files} ack files" }
-      Dir.each_child(@msg_dir) do |child|
-        next unless child.starts_with? "acks."
-        seg = child[5, 10].to_u32
-        acked = Array(UInt32).new
-        File.open(File.join(@msg_dir, child), "a+") do |file|
-          loop do
-            pos = UInt32.from_io(file, IO::ByteFormat::SystemEndian)
-            if pos.zero? # pos 0 doesn't exists (first valid is 4), must be a sparse file
-              file.truncate(file.pos - 4)
+        # The ack file is orphaned if there is no corrensponding msg file
+        msgs_path = File.join(@msg_dir, "msgs.#{seg.to_s.rjust(10, '0')}")
+        unless File.exists?(msgs_path)
+          @log.warn { "Deleting orphaned ack file: #{path}" }
+          File.delete(path)
+          @replicator.try &.delete_file(path, WaitGroup.new)
+          next
+        end
+
+        # We must replicate the files even if the store is closed
+        if @closed
+          @replicator.try &.register_file path
+        else
+          acked = Array(UInt32).new
+          File.open(path, "a+") do |file|
+            loop do
+              pos = UInt32.from_io(file, IO::ByteFormat::SystemEndian)
+              if pos.zero? # pos 0 doesn't exists (first valid is 4), must be a sparse file
+                file.truncate(file.pos - 4)
+                break
+              end
+              acked << pos
+            rescue IO::EOFError
               break
             end
-            acked << pos
-          rescue IO::EOFError
-            break
+            @replicator.try &.register_file(file)
           end
-          @replicator.try &.register_file(file)
+          @acks[seg] = open_ack_file(seg)
+          @deleted[seg] = acked.sort! unless acked.empty?
         end
-        @acks[seg] = open_ack_file(seg)
-        @log.debug { "Loaded #{count}/#{ack_files} ack files" } if (count += 1) % 128 == 0
-        @deleted[seg] = acked.sort! unless acked.empty?
+        count += 1
         Fiber.yield
       end
       @log.debug { "Loaded #{count} ack files" }
+    rescue File::NotFoundError
+      # msg_dir does not exist, nothing to load
     end
 
     private def load_segments_from_disk : Nil
@@ -568,21 +578,6 @@ module LavinMQ
           false
         end
       end
-    end
-
-    private def delete_orphan_ack_files
-      Dir.each_child(@msg_dir) do |f|
-        next unless f.starts_with? "acks."
-        seg = f[5, 10].to_u32
-        unless @segments.has_key?(seg)
-          path = File.join(@msg_dir, f)
-          @log.warn { "Deleting orphaned ack file: #{path}" }
-          File.delete(path)
-          @replicator.try &.delete_file(path, WaitGroup.new)
-        end
-      end
-    rescue File::NotFoundError
-      # msg_dir does not exist, nothing to delete
     end
 
     private def deleted?(seg, pos) : Bool
