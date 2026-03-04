@@ -1867,12 +1867,16 @@ pre.arguments .inactive-argument:before {
   font-weight: 600;
 }
 
+#livelog table td {
+  text-overflow: ellipsis;
+  max-width: 200px;
+  overflow:hidden;
+}
+
 #livelog table td,
 #livelog table th {
   padding: 4px 8px;
   text-align: left;
-  text-overflow: ellipsis;
-  overflow:hidden;
 }
 
 #livelog table thead .livelog-timestamp {
