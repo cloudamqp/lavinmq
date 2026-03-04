@@ -1871,6 +1871,8 @@ pre.arguments .inactive-argument:before {
 #livelog table th {
   padding: 4px 8px;
   text-align: left;
+  text-overflow: ellipsis;
+  overflow:hidden;
 }
 
 #livelog table thead .livelog-timestamp {
@@ -1882,7 +1884,7 @@ pre.arguments .inactive-argument:before {
 }
 
 #livelog table thead .livelog-source {
-  width: 150px;
+  width: 200px;
 }
 
 #livelog table thead .livelog-message {
