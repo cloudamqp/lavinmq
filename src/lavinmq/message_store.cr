@@ -370,7 +370,7 @@ module LavinMQ
         seg = f[5, 10].to_u32
         path = File.join(@msg_dir, f)
 
-        # The ack file is orphaned if there is no corrensponding msg file
+        # The ack file is orphaned if there is no corresponding msg file
         msgs_path = File.join(@msg_dir, "msgs.#{seg.to_s.rjust(10, '0')}")
         unless File.exists?(msgs_path)
           @log.warn { "Deleting orphaned ack file: #{path}" }
