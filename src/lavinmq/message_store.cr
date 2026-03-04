@@ -243,9 +243,11 @@ module LavinMQ
         wg = WaitGroup.new
         replicator.delete_file(file.path, wg)
         spawn(name: "wait for file deletion is replicated") do
-          wg.wait
-        ensure
-          file.close
+          replicator.wait_for_sync do
+            wg.wait
+          ensure
+            file.close
+          end
         end
       else
         file.close
