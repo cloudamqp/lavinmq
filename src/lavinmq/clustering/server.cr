@@ -134,6 +134,12 @@ module LavinMQ
         end
       end
 
+      def wait_for_sync(& : -> Nil) : Nil
+        @sync_lock.synchronize do
+          yield
+        end
+      end
+
       def followers : Array(Follower)
         @lock.synchronize do
           @followers.select(&.synced?).dup # for thread safety

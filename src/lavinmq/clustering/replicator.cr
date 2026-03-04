@@ -16,6 +16,7 @@ module LavinMQ
       abstract def listen(server : TCPServer)
       abstract def clear
       abstract def password : String
+      abstract def wait_for_sync(& : -> Nil) : Nil
     end
   end
 end

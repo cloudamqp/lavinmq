@@ -55,6 +55,10 @@ class SpyReplicator
   def password : String
     ""
   end
+
+  def wait_for_sync(& : -> Nil) : Nil
+    yield
+  end
 end
 
 def mktmpdir(&)
