@@ -3,7 +3,6 @@ require "file_utils"
 require "time"
 require "../src/lavinmq/message_store"
 
-# Replicator mock to "record" files being registered
 class SpyReplicator
   include LavinMQ::Clustering::Replicator
 
@@ -428,6 +427,69 @@ describe LavinMQ::MessageStore do
         sleep 1.millisecond
         file_registrations = replicator.registered_files.select { |_, t| t == :path }
         file_registrations.keys.map { |p| File.basename(p) }.should contain("msgs.0000000001")
+      end
+    end
+
+    it "registers all segment files when the first segment is corrupt" do
+      mktmpdir do |dir|
+        store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+        msg_size = LavinMQ::Config.instance.segment_size.to_u64 - (LavinMQ::BytesMessage::MIN_BYTESIZE + 5)
+        msg = LavinMQ::Message.new(RoughTime.unix_ms, "e", "k", AMQ::Protocol::Properties.new, msg_size, IO::Memory.new("a" * msg_size))
+        3.times { store.push(msg) }
+        store.close
+        wait_for { store.closed }
+
+        seg_files = Dir.children(dir).select(&.starts_with?("msgs.")).sort!
+        File.open(File.join(dir, seg_files[0]), "r+") { |f| f.write("abcd".to_slice) }
+
+        replicator = SpyReplicator.new
+        store = LavinMQ::MessageStore.new(dir, replicator)
+        sleep 1.millisecond
+        store.closed.should be_true
+        registered = replicator.registered_files.keys.map { |p| File.basename(p) }
+        seg_files.each { |f| registered.should contain(f) }
+      end
+    end
+
+    it "registers all segment files when a middle segment is corrupt" do
+      mktmpdir do |dir|
+        store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+        msg_size = LavinMQ::Config.instance.segment_size.to_u64 - (LavinMQ::BytesMessage::MIN_BYTESIZE + 5)
+        msg = LavinMQ::Message.new(RoughTime.unix_ms, "e", "k", AMQ::Protocol::Properties.new, msg_size, IO::Memory.new("a" * msg_size))
+        4.times { store.push(msg) }
+        store.close
+        wait_for { store.closed }
+
+        seg_files = Dir.children(dir).select(&.starts_with?("msgs.")).sort!
+        File.open(File.join(dir, seg_files[1]), "r+") { |f| f.write("abcd".to_slice) }
+
+        replicator = SpyReplicator.new
+        store = LavinMQ::MessageStore.new(dir, replicator)
+        sleep 1.millisecond
+        store.closed.should be_true
+        registered = replicator.registered_files.keys.map { |p| File.basename(p) }
+        seg_files.each { |f| registered.should contain(f) }
+      end
+    end
+
+    it "registers all segment files when the last segment is corrupt" do
+      mktmpdir do |dir|
+        store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+        msg_size = LavinMQ::Config.instance.segment_size.to_u64 - (LavinMQ::BytesMessage::MIN_BYTESIZE + 5)
+        msg = LavinMQ::Message.new(RoughTime.unix_ms, "e", "k", AMQ::Protocol::Properties.new, msg_size, IO::Memory.new("a" * msg_size))
+        3.times { store.push(msg) }
+        store.close
+        wait_for { store.closed }
+
+        seg_files = Dir.children(dir).select(&.starts_with?("msgs.")).sort!
+        File.open(File.join(dir, seg_files.last), "r+") { |f| f.write("abcd".to_slice) }
+
+        replicator = SpyReplicator.new
+        store = LavinMQ::MessageStore.new(dir, replicator)
+        sleep 1.millisecond
+        store.closed.should be_true
+        registered = replicator.registered_files.keys.map { |p| File.basename(p) }
+        seg_files.each { |f| registered.should contain(f) }
       end
     end
   end

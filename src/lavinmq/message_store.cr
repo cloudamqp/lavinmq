@@ -442,6 +442,13 @@ module LavinMQ
           rescue ex
             @log.error { "Could not initialize segment #{seg}, closing message store: #{ex.message}" }
             @segments[seg] = file
+            # Register remaining segments by path so the replicator knows about
+            # all files on disk even though we won't load them due to the abort.
+            if replicator = @replicator
+              ids[(idx + 1)..].each do |remaining_seg|
+                replicator.register_file File.join(@msg_dir, "msgs.#{remaining_seg.to_s.rjust(10, '0')}")
+              end
+            end
             close
             break
           end
