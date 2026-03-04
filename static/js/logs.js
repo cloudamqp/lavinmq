@@ -16,6 +16,7 @@ evtSource.onmessage = (event) => {
   const tdSev = document.createElement('td')
   tdSev.textContent = severity
   const tdSrc = document.createElement('td')
+  tdSrc.title = source
   tdSrc.textContent = source
   const preMsg = document.createElement('pre')
   preMsg.textContent = message
