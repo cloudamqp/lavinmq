@@ -33,7 +33,7 @@ module LavinMQ
       @durable = durable
       @acks = Hash(UInt32, MFile).new { |acks, seg| acks[seg] = open_ack_file(seg) }
       load_segments_from_disk
-      load_ack_files
+      load_acks_from_disk
       unless @closed
         load_stats_from_segments
         delete_unused_segments
@@ -363,7 +363,7 @@ module LavinMQ
       mfile
     end
 
-    private def load_ack_files : Nil
+    private def load_acks_from_disk : Nil
       count = 0u32
       Dir.each_child(@msg_dir) do |f|
         next unless f.starts_with? "acks."
