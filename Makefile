@@ -86,6 +86,10 @@ js: $(JS)
 .PHONY: deps
 deps: js lib
 
+.PHONY: hooks
+hooks:
+	git config core.hooksPath .githooks
+
 .PHONY: lint
 lint: lib
 	lib/ameba/bin/ameba src/ spec/
