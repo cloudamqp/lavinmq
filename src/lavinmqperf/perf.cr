@@ -24,6 +24,7 @@ module LavinMQPerf
 
     def run(args = ARGV)
       @parser.parse(args)
+      abort "Unexpected argument: #{args.join(", ")}\n\n#{@parser}" unless args.empty?
     end
 
     macro build_flags
