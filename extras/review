@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Run the same review Claude bot does on GitHub PRs.
+# Usage:
+#   extras/review          — review local changes not yet on origin/main
+#   extras/review <pr>     — review a specific PR number (exact same input as the bot)
+
+RAW=false
+PR_NUMBER=""
+for arg in "$@"; do
+  case "$arg" in
+    --raw) RAW=true ;;
+    *) PR_NUMBER="$arg" ;;
+  esac
+done
+
+DIFF_FILE=$(mktemp)
+trap 'rm -f "$DIFF_FILE"' EXIT
+
+if [[ -n "$PR_NUMBER" ]]; then
+  if ! [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]; then
+    echo "Invalid PR number: $PR_NUMBER" >&2
+    exit 1
+  fi
+  command gh pr diff "$PR_NUMBER" --repo cloudamqp/lavinmq > "$DIFF_FILE" || {
+    echo "Failed to fetch diff for PR #$PR_NUMBER" >&2
+    exit 1
+  }
+else
+  BASE=$(git merge-base HEAD origin/main)
+  git diff "$BASE"...HEAD -- > "$DIFF_FILE"
+fi
+
+if [[ ! -s "$DIFF_FILE" ]]; then
+  echo "No changes to review."
+  exit 0
+fi
+
+# Load shared review criteria and model from .claude/ config
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+CRITERIA=$(cat "$SCRIPT_DIR/../.claude/review-criteria.md")
+MODEL_FILE="$SCRIPT_DIR/../.claude/review-model"
+if [[ ! -f "$MODEL_FILE" ]]; then
+  echo "Missing $MODEL_FILE (should contain the Claude model ID to use)" >&2
+  exit 1
+fi
+MODEL=$(tr -d '[:space:]' < "$MODEL_FILE")
+
+PROMPT="Review the following diff and report ONLY problems that need fixing.
+
+$CRITERIA"
+
+# Prevent nested Claude Code sessions (claude -p hangs inside CLAUDECODE)
+unset CLAUDECODE
+OUTPUT=$({ printf '%s\n\n```diff\n' "$PROMPT"; cat "$DIFF_FILE"; printf '```'; } | claude -p --no-session-persistence --effort medium --model "$MODEL") || {
+  echo "Review failed (claude exited $?)" >&2
+  exit 1
+}
+
+if [[ "$RAW" == true ]]; then
+  echo "$OUTPUT"
+elif [[ -t 1 ]] && command -v glow &>/dev/null; then
+  echo "$OUTPUT" | glow --pager -
+else
+  echo "$OUTPUT"
+  if [[ -t 1 ]]; then
+    echo "(tip: install glow for rendered markdown output)" >&2
+  fi
+fi

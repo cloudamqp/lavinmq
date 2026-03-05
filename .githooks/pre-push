@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Skip if we can't find a common ancestor with main (e.g. orphan branch)
+BASE=$(git merge-base HEAD origin/main 2>/dev/null || echo "")
+if [[ -z "$BASE" ]]; then
+  exit 0
+fi
+
+# Write diff to temp file to avoid unbounded shell variables
+DIFF_FILE=$(mktemp)
+REVIEW_FILE=""
+trap 'rm -f "$DIFF_FILE" "$REVIEW_FILE"' EXIT
+git diff "$BASE"...HEAD -- > "$DIFF_FILE"
+if [[ ! -s "$DIFF_FILE" ]]; then
+  exit 0
+fi
+
+# Gracefully degrade if Claude CLI isn't installed
+if ! command -v claude &>/dev/null; then
+  echo "Claude CLI not found, skipping review"
+  exit 0
+fi
+
+ROOT="$(git rev-parse --show-toplevel)"
+CRITERIA=$(git show HEAD:.claude/review-criteria.md)
+
+if [[ -n "${CLAUDECODE:-}" ]]; then
+  # Inside a Claude Code session: can't spawn nested claude -p (it hangs).
+  # Instead, emit the diff and criteria to stderr so the parent Claude Code
+  # session picks it up and reviews interactively.
+  {
+    printf '%s\n\n%s\n\n```diff\n' \
+      "Review the following diff and report ONLY problems that need fixing." \
+      "$CRITERIA"
+    cat "$DIFF_FILE"
+    printf '```\n\n---\nINSTRUCTION: The push was intentionally blocked by the review hook.\nReview the diff above against the criteria. Present each finding to the user one by one.\nAsk for approval before making any changes. Do not fix anything without explicit user confirmation.\nIf there are no issues, tell the user and push with --no-verify to bypass the hook.\n'
+  } >&2
+  exit 1
+fi
+
+# Ask interactive terminal users if they want to run the review
+if [[ -e /dev/tty ]]; then
+  read -r -p "Run Claude review before pushing? [Y/n] " answer </dev/tty 2>/dev/tty || answer="y"
+  if [[ "$answer" =~ ^[Nn]$ ]]; then
+    exit 0
+  fi
+fi
+
+# Run the review script and render output
+echo "Running Claude review before push..."
+REVIEW_FILE=$(mktemp)
+"$ROOT/extras/review" --raw > "$REVIEW_FILE"
+if command -v glow &>/dev/null; then
+  glow --pager - < "$REVIEW_FILE"
+else
+  cat "$REVIEW_FILE"
+  if [[ -t 1 ]]; then
+    echo "(tip: install glow for rendered markdown output)" >&2
+  fi
+fi
+
+# Let the user decide what to do with the findings
+if ! grep -qF "No issues found" "$REVIEW_FILE"; then
+  echo ""
+  echo "Issues found. What do you want to do?"
+  echo "  1) Push anyway"
+  echo "  2) Abort"
+  echo "  3) Address with Claude"
+  read -r -p "Choice [1-3]: " choice </dev/tty 2>/dev/tty || choice="2"
+  case "$choice" in
+    1) exit 0 ;;
+    3)
+      { printf 'Here are the review findings. Ask me what to address.\n\n'; cat "$REVIEW_FILE"; } | claude
+      echo "When ready, run: git push --no-verify" >&2
+      exit 1
+      ;;
+    *) exit 1 ;;
+  esac
+fi

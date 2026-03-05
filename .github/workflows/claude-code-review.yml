@@ -27,6 +27,21 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.ref || github.ref }}
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+      - name: Load review config
+        id: config
+        run: |
+          {
+            DELIM="EOF_$(openssl rand -hex 16)"
+            echo "criteria<<$DELIM"
+            cat .claude/review-criteria.md
+            echo "$DELIM"
+            MODEL=$(tr -d '[:space:]' < .claude/review-model)
+            if [[ -z "$MODEL" ]]; then
+              echo "::error::.claude/review-model is empty or missing"
+              exit 1
+            fi
+            echo "model=$MODEL"
+          } >> "$GITHUB_OUTPUT"
       - uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -42,22 +57,9 @@ jobs:
             2. Analyze the diff. Only use Read/Glob/Grep if the diff alone is insufficient to understand a change.
             3. Post findings with `gh pr comment --edit-last` (to update any previous review), or `gh pr comment` if no previous comment exists.
 
-            Report only:
-            - Bugs and logic errors
-            - Security vulnerabilities
-            - Performance issues (especially allocations in hot paths)
-            - Missing error handling
-            - Crystal anti-patterns
-
-            If no problems found, say "No issues found."
-
-            Do NOT:
-            - Check CI status or previous commits
-            - Run specs
-            - Use emojis
-            - Explore the codebase broadly — only read specific files when needed
+            ${{ steps.config.outputs.criteria }}
 
           claude_args: |
-            --model claude-opus-4-6
+            --model ${{ steps.config.outputs.model }}
             --max-turns 20
             --allowedTools "Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Read,Glob,Grep"
