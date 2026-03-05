@@ -24,3 +24,7 @@ shards:
     git: https://github.com/84codes/systemd.cr.git
     version: 3.0.0
 
+  termisu:
+    git: https://github.com/omarluq/termisu.git
+    version: 0.3.0
+
