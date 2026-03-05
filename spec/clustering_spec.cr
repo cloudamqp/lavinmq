@@ -21,15 +21,19 @@ private def do_full_sync(tcp_server, replicator, wg : WaitGroup? = nil) : Fiber:
   Fiber::ExecutionContext::Isolated.new("test-follower") do
     client_io = TCPSocket.new("localhost", tcp_server.local_address.port)
     begin
+      # Handshake and authentication
       client_io.write LavinMQ::Clustering::Start
       client_io.write_bytes replicator.password.bytesize.to_u8, IO::ByteFormat::LittleEndian
       client_io.write replicator.password.to_slice
       client_io.read_byte
       client_io.write_bytes 2i32, IO::ByteFormat::LittleEndian
       client_io.flush
-      wg.try &.done # negotiation done — server is now entering files_with_hash on @mt
+      # Signal that full sync is about to start
+      wg.try &.done
       sha1_size = Digest::SHA1.new.digest_size
       client_lz4 = Compress::LZ4::Reader.new(client_io)
+      # Do the full sync two times without requesting files (everything is up
+      # to date)
       2.times do
         loop do
           filename_len = client_lz4.read_bytes Int32, IO::ByteFormat::LittleEndian
@@ -37,6 +41,7 @@ private def do_full_sync(tcp_server, replicator, wg : WaitGroup? = nil) : Fiber:
           client_lz4.skip filename_len
           client_lz4.skip sha1_size
         end
+        # 0 means "requesting files done"
         client_io.write_bytes 0i32
         client_io.flush
       end

@@ -3,6 +3,7 @@ require "file_utils"
 require "time"
 require "../src/lavinmq/message_store"
 
+# Replicator mock to "record" files being registered
 class SpyReplicator
   include LavinMQ::Clustering::Replicator
 
