@@ -311,6 +311,7 @@ jobs:
     runs-on: ubuntu-24.04
     needs: compile
     continue-on-error: true
+    if: github.event.pull_request.head.repo.full_name == github.repository
 
     steps:
       - name: Install dependencies
