@@ -32,6 +32,25 @@ If you receive a review that requests changes, switch your PR back to `draft` mo
 1. Build API docs with `make docs` (requires `npx`)
 1. Build with `shards build`
 
+#### AI-assisted review (opt-in)
+
+The repo includes optional hooks and tooling for AI-assisted code review. None of this affects normal development workflows unless you opt in.
+
+- **Pre-push git hook** (`.githooks/pre-push`): Runs a Claude-powered review of your changes before pushing. Asks before running, and if issues are found you can push anyway, abort, or fix interactively. Enable with:
+
+  ```sh
+  git config core.hooksPath .githooks
+  ```
+
+- **Auto-format hook** (`.claude/settings.json`): When using Claude Code in the repo, automatically runs `crystal tool format`, `ameba --fix`, and `npx standard --fix` on edited files. No setup needed beyond having the tools installed.
+
+- **Local review script** (`extras/review`): Runs the same AI review that runs on GitHub PRs, but locally. Requires the `claude` CLI.
+
+  ```sh
+  extras/review          # review local changes vs origin/main
+  extras/review 123      # review a specific PR number
+  ```
+
 #### Frontend development
 
 Normally ECR files and static resources are baked into the binary, which is great for portability but requires recompiling the entire app for any view or JavaScript change. To streamline development, you can compile LavinMQ without release mode, compile the ECR files separately, and serve static files from the file system:
