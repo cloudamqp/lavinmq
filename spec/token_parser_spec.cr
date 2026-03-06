@@ -87,6 +87,15 @@ describe LavinMQ::Auth::JWT::TokenParser do
       claims.username.should eq("sub-user")
     end
 
+    it "falls back to 'client_id' when 'sub' is missing and no claims configured" do
+      parser = TokenParserTestHelper.create_token_parser(Array(String).new)
+      payload = LavinMQ::Auth::JWT::Payload.new(exp: RoughTime.utc.to_unix + 3600)
+      payload["client_id"] = JSON::Any.new("my-service-account")
+      token = TokenParserTestHelper.create_mock_token(payload)
+      claims = parser.parse(token)
+      claims.username.should eq("my-service-account")
+    end
+
     it "raises when no username claim is found" do
       parser = TokenParserTestHelper.create_token_parser(["email", "preferred_username"])
       payload = LavinMQ::Auth::JWT::Payload.new(exp: RoughTime.utc.to_unix + 3600, sub: "sub-user")
