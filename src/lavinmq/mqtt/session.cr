@@ -28,16 +28,20 @@ module LavinMQ
       end
 
       private def deliver_loop
-        i = 0
+        delivered_bytes = 0_i32
         loop do
           break if @closed
           next @msg_store.empty.when_false.receive? if @msg_store.empty?
           next @consumers_empty.when_false.receive? if @consumers.empty?
           consumer = @consumers.first.as(MQTT::Consumer)
-          get_packet do |pub_packet|
+          get_packet do |pub_packet, bytesize|
             consumer.deliver(pub_packet)
+            delivered_bytes &+= bytesize
           end
-          Fiber.yield if (i &+= 1) % 32768 == 0
+          if delivered_bytes > Config.instance.yield_each_delivered_bytes
+            delivered_bytes = 0
+            Fiber.yield
+          end
         rescue ex
           @log.error(exception: ex) { "Failed to deliver message in deliver_loop" }
           @consumers.each &.close
@@ -107,7 +111,7 @@ module LavinMQ
         @vhost.unbind_queue(@name, EXCHANGE, rk, arguments || AMQP::Table.new)
       end
 
-      private def get_packet(& : MQTT::Publish -> Nil) : Bool
+      private def get_packet(& : MQTT::Publish, UInt32 -> Nil) : Bool
         raise ClosedError.new if @closed
         loop do
           env = @msg_store_lock.synchronize { @msg_store.shift? } || break
@@ -116,7 +120,7 @@ module LavinMQ
           if no_ack
             begin
               packet = build_packet(env, nil)
-              yield packet
+              yield packet, sp.bytesize
             rescue ex # requeue failed delivery
               @msg_store_lock.synchronize { @msg_store.requeue(sp) }
               raise ex
@@ -129,7 +133,7 @@ module LavinMQ
               packet = build_packet(env, id)
               @unacked_count.add(1, :relaxed)
               @unacked_bytesize.add(sp.bytesize, :relaxed)
-              yield packet
+              yield packet, sp.bytesize
               @unacked[id] = sp
             rescue ex # requeue failed delivery
               @msg_store_lock.synchronize { @msg_store.requeue(sp) }
