@@ -5,7 +5,53 @@ require "../src/lavinmq/clustering/controller"
 
 alias IndexTree = LavinMQ::MQTT::TopicTree(String)
 
-describe LavinMQ::Clustering::Client do
+private def populate_msg_store(msg_store)
+  segment_size = LavinMQ::Config.instance.segment_size
+  msg_size = 1000_u64
+  num_messages = (segment_size // msg_size) + 10
+  props = LavinMQ::AMQP::Properties.new
+  num_messages.times do
+    msg = LavinMQ::Message.new(Time.utc.to_unix_ms, "exchange", "rk", props, msg_size, IO::Memory.new("x" * msg_size.to_i))
+    msg_store.push(msg)
+  end
+  msg_store.@segments.size.should be > 1
+end
+
+private def do_full_sync(tcp_server, replicator, wg : WaitGroup? = nil) : Fiber::ExecutionContext::Isolated
+  Fiber::ExecutionContext::Isolated.new("test-follower") do
+    client_io = TCPSocket.new("localhost", tcp_server.local_address.port)
+    begin
+      # Handshake and authentication
+      client_io.write LavinMQ::Clustering::Start
+      client_io.write_bytes replicator.password.bytesize.to_u8, IO::ByteFormat::LittleEndian
+      client_io.write replicator.password.to_slice
+      client_io.read_byte
+      client_io.write_bytes 2i32, IO::ByteFormat::LittleEndian
+      client_io.flush
+      # Signal that full sync is about to start
+      wg.try &.done
+      sha1_size = Digest::SHA1.new.digest_size
+      client_lz4 = Compress::LZ4::Reader.new(client_io)
+      # Do the full sync two times without requesting files (everything is up
+      # to date)
+      2.times do
+        loop do
+          filename_len = client_lz4.read_bytes Int32, IO::ByteFormat::LittleEndian
+          break if filename_len.zero?
+          client_lz4.skip filename_len
+          client_lz4.skip sha1_size
+        end
+        # 0 means "requesting files done"
+        client_io.write_bytes 0i32
+        client_io.flush
+      end
+    ensure
+      client_io.close
+    end
+  end
+end
+
+describe LavinMQ::Clustering::Client, tags: "etcd" do
   add_etcd_around_each
 
   it "can stream changes" do
@@ -284,5 +330,50 @@ describe LavinMQ::Clustering::Client do
   ensure
     FileUtils.mkdir_p LavinMQ::Config.instance.data_dir
     replicator.try &.close
+  end
+
+  describe "full sync when message store is closed" do
+    it "succeeds when message store is already closed before sync" do
+      msg_dir = File.join(LavinMQ::Config.instance.data_dir, "sync_after_close_test")
+      FileUtils.mkdir_p(msg_dir)
+      replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Etcd.new("localhost:12379"), 0)
+      msg_store = LavinMQ::MessageStore.new(msg_dir, replicator)
+      populate_msg_store(msg_store)
+
+      msg_store.close
+      Fiber.yield # let the spawned close fiber run so MFiles are unmapped
+
+      tcp_server = TCPServer.new("localhost", 0)
+      spawn(replicator.listen(tcp_server), name: "repli server spec")
+
+      do_full_sync(tcp_server, replicator).wait
+    ensure
+      replicator.try &.close
+      tcp_server.try &.close
+      FileUtils.rm_rf msg_dir if msg_dir
+    end
+
+    it "is not aborted when message store is closed concurrently" do
+      msg_dir = File.join(LavinMQ::Config.instance.data_dir, "sync_close_concurrent_test")
+      FileUtils.mkdir_p(msg_dir)
+      replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, LavinMQ::Etcd.new("localhost:12379"), 0)
+      msg_store = LavinMQ::MessageStore.new(msg_dir, replicator)
+      populate_msg_store(msg_store)
+
+      tcp_server = TCPServer.new("localhost", 0)
+      spawn(replicator.listen(tcp_server), name: "repli server spec")
+
+      wg = WaitGroup.new(1)
+      follower_ctx = do_full_sync(tcp_server, replicator, wg)
+
+      wg.wait         # suspend until negotiation is done and files_with_hash has started
+      msg_store.close # concurrent close — simulates a corrupt segment triggering close
+      Fiber.yield     # let the spawned close fiber run: wg.wait → segment.close (munmap)
+      follower_ctx.wait
+    ensure
+      replicator.try &.close
+      tcp_server.try &.close
+      FileUtils.rm_rf msg_dir if msg_dir
+    end
   end
 end

@@ -49,14 +49,22 @@ module LavinMQ
         @checksums.clear
       end
 
+      def register_file(path : String)
+        path = strip_datadir path
+        @files[path] = nil
+        @checksums.delete(path)
+      end
+
       def register_file(file : File)
         path = strip_datadir file.path
         @files[path] = nil
+        @checksums.delete(path)
       end
 
       def register_file(mfile : MFile)
         path = strip_datadir mfile.path
         @files[path] = mfile
+        @checksums.delete(path)
       end
 
       def replace_file(path : String) # only non mfiles are ever replaced
@@ -123,6 +131,12 @@ module LavinMQ
           end
         else
           yield nil
+        end
+      end
+
+      def wait_for_sync(& : -> Nil) : Nil
+        @sync_lock.synchronize do
+          yield
         end
       end
 

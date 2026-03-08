@@ -243,9 +243,11 @@ module LavinMQ
         wg = WaitGroup.new
         replicator.delete_file(file.path, wg)
         spawn(name: "wait for file deletion is replicated") do
-          wg.wait
-        ensure
-          file.close
+          replicator.wait_for_sync do
+            wg.wait
+          ensure
+            file.close
+          end
         end
       else
         file.close
@@ -263,13 +265,25 @@ module LavinMQ
       @empty.close
       # To make sure that all replication actions for the segments
       # have finished wait for a delete action of a nonexistent file
-      if (replicator = @replicator) && !replicator.all_followers.empty?
+      if replicator = @replicator
         wg = WaitGroup.new
         replicator.delete_file(File.join(@msg_dir, "nonexistent"), wg)
         spawn(name: "wait for file deletion is replicated") do
           wg.wait
-          @segments.each_value &.close
-          @acks.each_value &.close
+          # Wait for any full sync to be done before we close mfiles, else we
+          # may get a SEGFAULT or an aborted sync because MFile closed is raised.
+          replicator.wait_for_sync do
+            # "Re-register" the files with path only so replicator won't
+            # use closed mfiles.
+            @segments.each_value do |segment|
+              replicator.register_file segment.path
+              segment.close
+            end
+            @acks.each_value do |ackfile|
+              replicator.register_file ackfile.path
+              ackfile.close
+            end
+          end
         end
       else
         @segments.each_value &.close
