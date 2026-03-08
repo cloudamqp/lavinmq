@@ -3,6 +3,7 @@ require "../mfile"
 module LavinMQ
   module Clustering
     module Replicator
+      abstract def register_file(path : String)
       abstract def register_file(file : File)
       abstract def register_file(mfile : MFile)
       abstract def replace_file(path : String) # only non mfiles are ever replaced
@@ -15,6 +16,7 @@ module LavinMQ
       abstract def listen(server : TCPServer)
       abstract def clear
       abstract def password : String
+      abstract def wait_for_sync(& : -> Nil) : Nil
     end
   end
 end
