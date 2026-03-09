@@ -194,7 +194,7 @@ module LavinMQ
     end
 
     def listen(bind = "::", port = 5672, protocol : Protocol = :amqp)
-      s = TCPServer.new(bind, port)
+      s = TCPServer.new(bind, port, backlog: 4096)
       listen(s, protocol)
     end
 
@@ -241,7 +241,7 @@ module LavinMQ
     end
 
     def listen_tls(bind, port, context, protocol : Protocol = :amqp)
-      listen_tls(TCPServer.new(bind, port), context, protocol)
+      listen_tls(TCPServer.new(bind, port, backlog: 4096), context, protocol)
     end
 
     def listen_unix(path : String, protocol : Protocol)
@@ -252,7 +252,7 @@ module LavinMQ
     end
 
     def listen_clustering(bind, port)
-      @replicator.try &.listen(TCPServer.new(bind, port))
+      @replicator.try &.listen(TCPServer.new(bind, port, backlog: 4096))
     end
 
     def listen_clustering(server : TCPServer)

@@ -64,6 +64,7 @@ module LavinMQ::AMQP
     @consumers = Array(Client::Channel::Consumer).new
     @consumers_lock = Mutex.new
     @message_ttl_change = ::Channel(Nil).new
+    getter consumer_notify = ::Channel(Nil).new(1)
 
     getter basic_get_unacked = Deque(UnackedMessage).new
     @unacked_count = Atomic(UInt32).new(0u32)
@@ -216,6 +217,7 @@ module LavinMQ::AMQP
       # Recreate channels that were closed
       @queue_expiration_ttl_change = ::Channel(Nil).new
       @message_ttl_change = ::Channel(Nil).new
+      @consumer_notify = ::Channel(Nil).new(1)
       @paused = BoolChannel.new(false)
       @consumers_empty = BoolChannel.new(true)
       @single_active_consumer_change = ::Channel(Client::Channel::Consumer).new
@@ -433,6 +435,7 @@ module LavinMQ::AMQP
       @state = QueueState::Closed
       @queue_expiration_ttl_change.close
       @message_ttl_change.close
+      @consumer_notify.close
       @paused.close
       @consumers_empty.close
       @consumers_lock.synchronize do
@@ -524,6 +527,7 @@ module LavinMQ::AMQP
       @msg_store_lock.synchronize do
         @msg_store.push(msg)
       end
+      @consumer_notify.try_send?(nil)
       @publish_count.add(1, :relaxed)
       drop_overflow_if_no_immediate_delivery
       true
@@ -820,6 +824,7 @@ module LavinMQ::AMQP
           @msg_store_lock.synchronize do
             @msg_store.requeue(sp)
           end
+          @consumer_notify.try_send?(nil)
           drop_overflow_if_no_immediate_delivery
         end
       else

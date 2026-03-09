@@ -155,7 +155,7 @@ module LavinMQ
           @log.debug { "Waiting for queue not to be empty" }
           flush
           select
-          when @queue.empty.when_false.receive
+          when @queue.consumer_notify.receive
           when @notify_closed.receive
           end
           return true
