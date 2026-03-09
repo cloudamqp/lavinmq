@@ -22,7 +22,6 @@ module LavinMQ
 
         private def extract_username(payload : JWT::Payload) : String
           claims = @config.oauth_preferred_username_claims
-          claims = {"sub", "client_id"} if claims.empty?
           claims.each do |claim|
             # Check standard JWT properties first
             username = case claim

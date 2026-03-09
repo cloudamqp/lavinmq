@@ -12,9 +12,9 @@ describe LavinMQ::Config do
       config.oauth_jwks_cache_ttl.should eq(1.hours)
     end
 
-    it "sets default oauth_preferred_username_claims to empty array" do
+    it "sets default oauth_preferred_username_claims to sub and client_id" do
       config = LavinMQ::Config.new
-      config.oauth_preferred_username_claims.should be_empty
+      config.oauth_preferred_username_claims.should eq(["sub", "client_id"])
     end
 
     it "sets default oauth_additional_scopes_key to nil" do

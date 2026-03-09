@@ -5,7 +5,7 @@ module TokenParserTestHelper
   extend self
 
   def create_token_parser(
-    preferred_username_claims = ["preferred_username"],
+    preferred_username_claims = ["sub", "client_id"],
     resource_server_id : String? = nil,
     scope_prefix : String? = nil,
     additional_scopes_key : String? = nil,
@@ -80,7 +80,7 @@ describe LavinMQ::Auth::JWT::TokenParser do
     end
 
     it "defaults to 'sub' claim when preferred_username_claims is not configured" do
-      parser = TokenParserTestHelper.create_token_parser(Array(String).new)
+      parser = TokenParserTestHelper.create_token_parser
       payload = LavinMQ::Auth::JWT::Payload.new(exp: RoughTime.utc.to_unix + 3600, sub: "sub-user")
       token = TokenParserTestHelper.create_mock_token(payload)
       claims = parser.parse(token)
@@ -88,7 +88,7 @@ describe LavinMQ::Auth::JWT::TokenParser do
     end
 
     it "falls back to 'client_id' when 'sub' is missing and no claims configured" do
-      parser = TokenParserTestHelper.create_token_parser(Array(String).new)
+      parser = TokenParserTestHelper.create_token_parser
       payload = LavinMQ::Auth::JWT::Payload.new(exp: RoughTime.utc.to_unix + 3600)
       payload["client_id"] = JSON::Any.new("my-service-account")
       token = TokenParserTestHelper.create_mock_token(payload)
