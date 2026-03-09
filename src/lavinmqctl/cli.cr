@@ -404,11 +404,11 @@ class LavinMQCtl
       @options["format"] = v
     end
     @parser.on("--etcd-endpoints=ENDPOINTS",
-               "Comma-separated etcd endpoints (or LAVINMQ_CLUSTERING_ETCD_ENDPOINTS)") do |v|
+      "Comma-separated etcd endpoints (or LAVINMQ_CLUSTERING_ETCD_ENDPOINTS)") do |v|
       @options["etcd-endpoints"] = v
     end
     @parser.on("--etcd-prefix=PREFIX",
-               "etcd key prefix used by LavinMQ (default: lavinmq)") do |v|
+      "etcd key prefix used by LavinMQ (default: lavinmq)") do |v|
       @options["etcd-prefix"] = v
     end
   end
