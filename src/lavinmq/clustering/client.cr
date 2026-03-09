@@ -151,6 +151,7 @@ module LavinMQ
         remote_hash = Bytes.new(sha1.digest_size)
         files_to_delete = ls_r(@data_dir)
         requested_files = Array(String).new
+        file_count = 0
         loop do
           filename_len = lz4.read_bytes Int32, IO::ByteFormat::LittleEndian
           break if filename_len.zero?
@@ -161,7 +162,7 @@ module LavinMQ
           files_to_delete.delete(path)
           if File.exists? path
             unless local_hash = @checksums[filename]?
-              Log.info { "Calculating checksum for #{filename}" }
+              Log.debug { "Calculating checksum for #{filename}" }
               sha1.file(path)
               local_hash = sha1.final
               @checksums[filename] = local_hash
@@ -169,27 +170,34 @@ module LavinMQ
               Fiber.yield # CPU bound, so allow other fibers to run
             end
             if local_hash != remote_hash
-              Log.info { "Mismatching hash: #{path}" }
+              Log.debug { "Mismatching hash: #{path}" }
               File.delete path
               requested_files << filename
               request_file(filename, socket)
             else
-              Log.info { "Matching hash: #{path}" }
+              Log.debug { "Matching hash: #{path}" }
             end
           else
             requested_files << filename
             request_file(filename, socket)
           end
+          Log.info { "Compared #{file_count} files" } if (file_count &+= 1) % 128 == 0
         end
         end_of_file_list(socket)
-        Log.info { "List of files received" }
-        files_to_delete.each do |path|
-          Log.info { "File not on leader: #{path}" }
-          File.delete path
+        Log.info { "Compared #{file_count} files, #{requested_files.size} to sync" }
+        unless files_to_delete.empty?
+          Log.info { "Deleting #{files_to_delete.size} files not on leader" }
+          files_to_delete.each do |path|
+            Log.debug { "File not on leader: #{path}" }
+            File.delete path
+          end
         end
+        received_count = 0
         requested_files.each do |filename|
           file_from_socket(filename, lz4)
+          Log.info { "Received #{received_count}/#{requested_files.size} files" } if (received_count &+= 1) % 128 == 0
         end
+        Log.info { "Received all #{requested_files.size} files" } unless requested_files.empty?
       end
 
       private def ls_r(dir) : Array(String)
@@ -213,7 +221,7 @@ module LavinMQ
       end
 
       private def request_file(filename, socket)
-        Log.info { "Requesting #{filename}" }
+        Log.debug { "Requesting #{filename}" }
         socket.write_bytes filename.bytesize, IO::ByteFormat::LittleEndian
         socket.write filename.to_slice
       end
@@ -241,7 +249,7 @@ module LavinMQ
           remaining.zero? || raise IO::EOFError.new
           @checksums[filename] = sha1.final
         end
-        Log.info { "Received #{filename}, #{length.humanize_bytes}" }
+        Log.debug { "Received #{filename}, #{length.humanize_bytes}" }
       end
 
       private def stream_changes(socket, lz4)
