@@ -124,7 +124,7 @@ module LavinMQ
           break if filename_len.zero?
           filename = socket.read_string(filename_len)
           requested_files << filename
-          Log.info { "#{filename} requested" }
+          Log.debug { "#{filename} requested" }
         end
         Log.info { "#{requested_files.size} files requested" }
         total_requested_bytes = requested_files.sum(0i64) do |p|
@@ -137,6 +137,7 @@ module LavinMQ
           end
         end
         sent_bytes = 0i64
+        uploaded_count = 0
         start = Time.instant
         requested_files.each do |filename|
           file_size = send_requested_file(filename)
@@ -146,10 +147,13 @@ module LavinMQ
           total_time_taken = (Time.instant - start).total_seconds
           bps = (sent_bytes / total_time_taken).round.to_u64
           time_left = bps > 0 ? (total_requested_bytes / bps).round(1) : 0
-          Log.info { "Uploaded #{filename} in #{bps.humanize_bytes}/s" }
-          Log.info { "#{total_requested_bytes.humanize_bytes} left, expected #{time_left}s left" }
+          Log.debug { "Uploaded #{filename} at #{bps.humanize_bytes}/s" }
+          if (uploaded_count &+= 1) % 128 == 0
+            Log.info { "Uploaded #{uploaded_count}/#{requested_files.size} files at #{bps.humanize_bytes}/s, #{total_requested_bytes.humanize_bytes} left (~#{time_left}s)" }
+          end
           Fiber.yield
         end
+        Log.info { "Uploaded all #{requested_files.size} files" } unless requested_files.empty?
         @lz4.flush
       end
 
