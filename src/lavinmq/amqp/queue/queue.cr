@@ -86,6 +86,7 @@ module LavinMQ::AMQP
     getter consumer_timeout : UInt64? = Config.instance.consumer_timeout
 
     getter consumers_empty = BoolChannel.new(true)
+    getter consumer_wakeup = ::Channel(Nil).new(1)
     @queue_expiration_ttl_change = ::Channel(Nil).new
     @effective_args = Array(String).new
 
@@ -218,6 +219,7 @@ module LavinMQ::AMQP
       @message_ttl_change = ::Channel(Nil).new
       @paused = BoolChannel.new(false)
       @consumers_empty = BoolChannel.new(true)
+      @consumer_wakeup = ::Channel(Nil).new(1)
       @single_active_consumer_change = ::Channel(Client::Channel::Consumer).new
       @deliver_loop_wg = WaitGroup.new
       @unacked_count.set(0u32, :relaxed)
@@ -435,6 +437,7 @@ module LavinMQ::AMQP
       @message_ttl_change.close
       @paused.close
       @consumers_empty.close
+      @consumer_wakeup.close
       @consumers_lock.synchronize do
         @consumers.each &.cancel
         @consumers.clear
@@ -524,6 +527,7 @@ module LavinMQ::AMQP
       @msg_store_lock.synchronize do
         @msg_store.push(msg)
       end
+      @consumer_wakeup.try_send? nil
       @publish_count.add(1, :relaxed)
       drop_overflow_if_no_immediate_delivery
       true
@@ -739,6 +743,7 @@ module LavinMQ::AMQP
             yield env # deliver the message
           rescue ex   # requeue failed delivery
             @msg_store_lock.synchronize { @msg_store.requeue(sp) }
+            @consumer_wakeup.try_send? nil
             raise ex
           end
           delete_message(sp)
@@ -750,6 +755,7 @@ module LavinMQ::AMQP
         end
         # Signal expire loop to recalculate wait time for next message
         @message_ttl_change.try_send? nil
+        @consumer_wakeup.try_send? nil unless @msg_store.empty?
         return true
       end
       false
@@ -820,6 +826,7 @@ module LavinMQ::AMQP
           @msg_store_lock.synchronize do
             @msg_store.requeue(sp)
           end
+          @consumer_wakeup.try_send? nil
           drop_overflow_if_no_immediate_delivery
         end
       else
