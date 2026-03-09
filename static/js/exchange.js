@@ -102,12 +102,7 @@ document.querySelector('#addBinding').addEventListener('submit', function (evt) 
     routing_key: data.get('routing_key').trim(),
     arguments: args
   }
-  HTTP.request('POST', url, { body })
-    .then(res => {
-      if (res && res.is_error) return
-      bindingsTable.reload()
-      evt.target.reset()
-    })
+  HTTP.submitForm(evt.target, 'POST', url, { body, table: bindingsTable })
     .catch(e => {
       if (e.status === 404) {
         const type = t === 'q' ? 'Queue' : 'Exchange'
