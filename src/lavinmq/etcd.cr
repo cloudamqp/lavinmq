@@ -162,6 +162,15 @@ module LavinMQ
       end
     end
 
+    def election_leader(name) : String?
+      json = post("/v3/election/leader", %({"name":"#{Base64.strict_encode name}"}))
+      if value = json.dig?("kv", "value")
+        Base64.decode_string(value.as_s)
+      end
+    rescue Error
+      nil
+    end
+
     private def post(path, body) : JSON::Any
       with_tcp do |conn|
         return post_request(conn.socket, conn.address, conn.auth, path, body)

@@ -7,6 +7,7 @@ require "../lavinmq/shovel/constants"
 require "../lavinmq/federation/constants"
 require "../lavinmq/definitions_generator"
 require "../lavinmq/auth/user"
+require "../lavinmq/etcd"
 
 class LavinMQCtl
   @options = {} of String => String
@@ -59,6 +60,12 @@ class LavinMQCtl
     self.banner = "Usage: #{PROGRAM_NAME} [arguments] entity"
     if host = ENV["LAVINMQCTL_HOST"]?
       @options["host"] = host
+    end
+    if ep = ENV["LAVINMQ_CLUSTERING_ETCD_ENDPOINTS"]?
+      @options["etcd-endpoints"] = ep
+    end
+    if pfx = ENV["LAVINMQ_CLUSTERING_ETCD_PREFIX"]?
+      @options["etcd-prefix"] = pfx
     end
     global_options
     parse_cmd
@@ -224,6 +231,12 @@ class LavinMQCtl
         @args["queue"] = JSON::Any.new(v)
       end
     end
+    @parser.on("list_in_sync_replicas", "List nodes in the in-sync replica set") do
+      @cmd = "list_in_sync_replicas"
+      self.banner = "Usage: #{PROGRAM_NAME} list_in_sync_replicas"
+    end
+
+    @parser.separator("")
     @parser.on("-v", "--version", "Show version") { @io.puts LavinMQ::VERSION; exit 0 }
     @parser.on("--build-info", "Show build information") { @io.puts LavinMQ::BUILD_INFO; exit 0 }
     @parser.on("-h", "--help", "Show this help") do
@@ -279,6 +292,7 @@ class LavinMQCtl
     when "list_federations"      then list_federations
     when "add_federation"        then add_federation
     when "delete_federation"     then delete_federation
+    when "list_in_sync_replicas" then list_in_sync_replicas
     when "stop_app"
     when "start_app"
     else
@@ -388,6 +402,14 @@ class LavinMQCtl
         abort "Invalid format: #{v}"
       end
       @options["format"] = v
+    end
+    @parser.on("--etcd-endpoints=ENDPOINTS",
+               "Comma-separated etcd endpoints (or LAVINMQ_CLUSTERING_ETCD_ENDPOINTS)") do |v|
+      @options["etcd-endpoints"] = v
+    end
+    @parser.on("--etcd-prefix=PREFIX",
+               "etcd key prefix used by LavinMQ (default: lavinmq)") do |v|
+      @options["etcd-prefix"] = v
     end
   end
 
@@ -924,5 +946,33 @@ class LavinMQCtl
     url = "/api/parameters/federation-upstream/#{URI.encode_www_form(vhost)}/#{URI.encode_www_form(name)}"
     resp = http.delete url
     handle_response(resp, 204)
+  end
+
+  private def list_in_sync_replicas
+    endpoints = @options["etcd-endpoints"]? ||
+                abort "Specify etcd endpoints with --etcd-endpoints or LAVINMQ_CLUSTERING_ETCD_ENDPOINTS"
+    prefix = @options["etcd-prefix"]? || "lavinmq"
+    etcd = LavinMQ::Etcd.new(endpoints)
+
+    isr_str = etcd.get("#{prefix}/isr") ||
+              abort "No ISR data found in etcd (key: #{prefix}/isr). Is LavinMQ running in a cluster?"
+    node_ids = isr_str.split(',').map(&.strip).reject(&.empty?)
+
+    # Build node_id -> address from etcd election candidates.
+    # Each candidate stores its advertised_uri under {prefix}/leader/{hex_lease_id}
+    # where hex_lease_id.to_i64(16).to_s(36) == node_id
+    candidates = etcd.get_prefix("#{prefix}/leader/")
+    id_to_uri = candidates.each_with_object(Hash(String, String).new) do |(key, uri), h|
+      hex = key.split('/').last
+      h[hex.to_i64(16).to_s(36)] = uri
+    end
+
+    leader_uri = etcd.election_leader("#{prefix}/leader")
+
+    output node_ids.map { |id|
+      address = id_to_uri[id]? || ""
+      role = address == leader_uri ? "leader" : "follower"
+      {node_id: id, address: address, role: role}
+    }, ["node_id", "address", "role"]
   end
 end
