@@ -236,7 +236,6 @@ class LavinMQCtl
       self.banner = "Usage: #{PROGRAM_NAME} list_in_sync_replicas"
     end
 
-    @parser.separator("\nMiscellaneous")
     @parser.on("-v", "--version", "Show version") { @io.puts LavinMQ::VERSION; exit 0 }
     @parser.on("--build-info", "Show build information") { @io.puts LavinMQ::BUILD_INFO; exit 0 }
     @parser.on("-h", "--help", "Show this help") do
@@ -949,8 +948,7 @@ class LavinMQCtl
   end
 
   private def list_in_sync_replicas
-    endpoints = @options["etcd-endpoints"]? ||
-                abort "Specify etcd endpoints with --etcd-endpoints or LAVINMQ_CLUSTERING_ETCD_ENDPOINTS"
+    endpoints = @options["etcd-endpoints"]? || "localhost:2379"
     prefix = @options["etcd-prefix"]? || "lavinmq"
     etcd = LavinMQ::Etcd.new(endpoints)
 
@@ -971,7 +969,13 @@ class LavinMQCtl
 
     output node_ids.map { |id|
       address = id_to_uri[id]? || ""
-      role = address == leader_uri ? "leader" : "follower"
+      role = if leader_uri.nil?
+               "unknown"
+             elsif address == leader_uri
+               "leader"
+             else
+               "follower"
+             end
       {node_id: id, address: address, role: role}
     }, ["node_id", "address", "role"]
   end
