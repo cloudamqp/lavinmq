@@ -56,7 +56,7 @@ module LavinMQ
       range_end = key.to_slice.dup
       range_end.update(-1) { |v| v + 1 }
       json = post("/v3/kv/range", %({"key":"#{Base64.strict_encode key}","range_end":"#{Base64.strict_encode range_end}"}))
-      kvs = json["kvs"].as_a
+      kvs = json["kvs"]?.try(&.as_a) || return Hash(String, String).new
       h = Hash(String, String).new(initial_capacity: kvs.size)
       kvs.each do |kv|
         key = Base64.decode_string kv["key"].as_s
