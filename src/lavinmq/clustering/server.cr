@@ -54,13 +54,15 @@ module LavinMQ
 
       def register_file(path : String)
         path = strip_datadir path
-        @files[path] = nil
-        @checksums.delete(path)
+        @files_lock.synchronize do
+          @files[path] = nil
+          @checksums.delete(path)
+        end
       end
 
       def register_file(file : File)
         path = strip_datadir file.path
-        @files_lock.synchronize do 
+        @files_lock.synchronize do
           @files[path] = nil
           @checksums.delete(path)
         end
@@ -68,7 +70,7 @@ module LavinMQ
 
       def register_file(mfile : MFile)
         path = strip_datadir mfile.path
-        @files_lock.synchronize do 
+        @files_lock.synchronize do
           @files[path] = mfile
           @checksums.delete(path)
         end
