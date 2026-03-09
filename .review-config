@@ -1,0 +1,2 @@
+MODEL=claude-opus-4-6
+CRITERIA=.claude/review-criteria.md

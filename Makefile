@@ -86,10 +86,6 @@ js: $(JS)
 .PHONY: deps
 deps: js lib
 
-# Run `make hooks` to opt in to local git hooks
-.PHONY: hooks
-hooks:
-	git config core.hooksPath .githooks
 
 .PHONY: lint
 lint: lib
