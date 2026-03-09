@@ -210,12 +210,11 @@ document.querySelector('#createShovel').addEventListener('submit', function (evt
   } else {
     body.value['dest-exchange'] = data.get('dest-endpoint')
   }
-  HTTP.request('PUT', url, { body })
-    .then(() => {
-      dataSource.reload()
-      evt.target.reset()
-      DOM.toast(`Shovel ${name} saved`)
-    })
+  HTTP.submitForm(evt.target, 'PUT', url, {
+    body,
+    table: dataSource,
+    toast: `Shovel ${name} saved`
+  })
 })
 
 // function updateAutocomplete (e, id) {
