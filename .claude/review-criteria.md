@@ -4,6 +4,7 @@ Report only issues you are confident about:
 - Performance issues (especially allocations in hot paths)
 - Missing error handling
 - Crystal anti-patterns
+- Missing specs (all code changes must have corresponding specs)
 
 Quality bar:
 - Only report issues you'd block a PR for. Skip stylistic nits and minor suggestions.

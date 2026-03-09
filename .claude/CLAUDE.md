@@ -25,3 +25,4 @@ Standard library sources: `crystal env CRYSTAL_PATH` shows compiler search paths
 ## Key Patterns
 - Avoid allocations in hot paths (message publishing and delivery)
 - SEGFAULTs due to use of MFiles after close is a common source of bugs
+- All code changes must have corresponding specs. New features need specs, bug fixes need regression specs.
