@@ -68,14 +68,13 @@ function noencode (v) {
   return new NoUrlEscapeString(v)
 }
 
-function submitForm (form, method, url, options = {}) {
-  const { body, table, toast, onSuccess } = options
+async function submitForm (form, method, url, options = {}) {
+  const { body, table, toast } = options
   return request(method, url, { body })
     .then(res => {
       if (res?.is_error) return
       if (table) table.reload()
       if (toast) DOM.toast(toast)
-      if (onSuccess) onSuccess(res)
       form.reset()
     })
 }
