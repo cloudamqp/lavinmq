@@ -3,7 +3,6 @@ require "file_utils"
 require "time"
 require "../src/lavinmq/message_store"
 
-# Replicator mock to "record" files being registered
 class SpyReplicator
   include LavinMQ::Clustering::Replicator
 
@@ -428,6 +427,83 @@ describe LavinMQ::MessageStore do
         sleep 1.millisecond
         file_registrations = replicator.registered_files.select { |_, t| t == :path }
         file_registrations.keys.map { |p| File.basename(p) }.should contain("msgs.0000000001")
+      end
+    end
+
+    it "registers ack files from all segments on normal startup" do
+      mktmpdir do |dir|
+        store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+        msg_size = LavinMQ::Config.instance.segment_size.to_u64 - (LavinMQ::BytesMessage::MIN_BYTESIZE + 5)
+        msg = LavinMQ::Message.new(RoughTime.unix_ms, "e", "k", AMQ::Protocol::Properties.new, msg_size, IO::Memory.new("a" * msg_size))
+        3.times { store.push(msg) }
+        store.close
+        wait_for { store.closed }
+
+        seg_files = Dir.children(dir).select(&.starts_with?("msgs.")).sort!
+        ack_files = seg_files.map(&.sub("msgs.", "acks."))
+        ack_files.each { |f| File.open(File.join(dir, f), "w", &.write_bytes(4_u32)) }
+
+        replicator = SpyReplicator.new
+        store = LavinMQ::MessageStore.new(dir, replicator)
+        store.close
+        registered = replicator.registered_files.keys.map { |p| File.basename(p) }
+        ack_files.each { |f| registered.should contain(f) }
+      end
+    end
+
+    it "deletes orphaned ack file and registers valid ack files when a segment is corrupt" do
+      mktmpdir do |dir|
+        store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+        msg_size = LavinMQ::Config.instance.segment_size.to_u64 - (LavinMQ::BytesMessage::MIN_BYTESIZE + 5)
+        msg = LavinMQ::Message.new(RoughTime.unix_ms, "e", "k", AMQ::Protocol::Properties.new, msg_size, IO::Memory.new("a" * msg_size))
+        3.times { store.push(msg) }
+        store.close
+        wait_for { store.closed }
+
+        seg_files = Dir.children(dir).select(&.starts_with?("msgs.")).sort!
+        ack_files = seg_files.map(&.sub("msgs.", "acks."))
+        ack_files.each { |f| File.open(File.join(dir, f), "w", &.write_bytes(4_u32)) }
+        orphan_ack = File.join(dir, "acks.0000000099")
+        File.write(orphan_ack, "")
+        File.open(File.join(dir, seg_files[0]), "r+") { |f| f.write("abcd".to_slice) }
+
+        replicator = SpyReplicator.new
+        store = LavinMQ::MessageStore.new(dir, replicator)
+        sleep 1.millisecond
+        store.closed.should be_true
+        registered = replicator.registered_files.keys.map { |p| File.basename(p) }
+        ack_files.each { |f| registered.should contain(f) }
+        replicator.deleted_files.should contain(orphan_ack)
+        File.exists?(orphan_ack).should be_false
+      end
+    end
+
+    [
+      {"first segment", 3, 0},
+      {"middle segment", 4, 1},
+      {"last segment", 3, -1},
+    ].each do |desc, n_segments, corrupt_idx|
+      it "registers all files when the #{desc} is corrupt" do
+        mktmpdir do |dir|
+          store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+          msg_size = LavinMQ::Config.instance.segment_size.to_u64 - (LavinMQ::BytesMessage::MIN_BYTESIZE + 5)
+          msg = LavinMQ::Message.new(RoughTime.unix_ms, "e", "k", AMQ::Protocol::Properties.new, msg_size, IO::Memory.new("a" * msg_size))
+          n_segments.times { store.push(msg) }
+          store.close
+          wait_for { store.closed }
+
+          seg_files = Dir.children(dir).select(&.starts_with?("msgs.")).sort!
+          ack_files = seg_files.map(&.sub("msgs.", "acks."))
+          ack_files.each { |f| File.open(File.join(dir, f), "w", &.write_bytes(4_u32)) }
+          File.open(File.join(dir, seg_files[corrupt_idx]), "r+") { |f| f.write("abcd".to_slice) }
+
+          replicator = SpyReplicator.new
+          store = LavinMQ::MessageStore.new(dir, replicator)
+          sleep 1.millisecond
+          store.closed.should be_true
+          registered = replicator.registered_files.keys.map { |p| File.basename(p) }
+          (seg_files + ack_files).each { |f| registered.should contain(f) }
+        end
       end
     end
   end
