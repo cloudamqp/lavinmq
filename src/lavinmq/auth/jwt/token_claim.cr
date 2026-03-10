@@ -61,7 +61,7 @@ module LavinMQ
             scopes.concat(scope_str.split)
           end
 
-          if scopes_key = @config.oauth_additional_scopes_key
+          @config.oauth_additional_scopes_keys.each do |scopes_key|
             if claim = payload[scopes_key]?
               scopes.concat(extract_scopes_from_claim(claim))
             end

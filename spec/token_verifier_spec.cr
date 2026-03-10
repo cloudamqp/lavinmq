@@ -55,7 +55,7 @@ module JWTTestHelper
     audience : String? = nil,
     resource_server_id : String? = nil,
     scope_prefix : String? = nil,
-    additional_scopes_key : String? = nil,
+    additional_scopes_keys = [] of String,
   ) : LavinMQ::Auth::JWT::TokenVerifier
     config = LavinMQ::Config.new
     config.oauth_issuer_url = URI.parse(issuer_url)
@@ -64,7 +64,7 @@ module JWTTestHelper
     config.oauth_audience = audience
     config.oauth_resource_server_id = resource_server_id
     config.oauth_scope_prefix = scope_prefix
-    config.oauth_additional_scopes_key = additional_scopes_key
+    config.oauth_additional_scopes_keys = additional_scopes_keys
 
     jwks_fetcher = MockJWKSFetcher.new
     LavinMQ::Auth::JWT::TokenVerifier.new(config, jwks_fetcher)
@@ -84,7 +84,7 @@ module JWTTestHelper
     audience : String? = nil,
     resource_server_id : String? = nil,
     scope_prefix : String? = nil,
-    additional_scopes_key : String? = nil,
+    additional_scopes_keys = [] of String,
   ) : TestableTokenVerifier
     config = LavinMQ::Config.new
     config.oauth_issuer_url = URI.parse(issuer_url)
@@ -93,7 +93,7 @@ module JWTTestHelper
     config.oauth_audience = audience
     config.oauth_resource_server_id = resource_server_id
     config.oauth_scope_prefix = scope_prefix
-    config.oauth_additional_scopes_key = additional_scopes_key
+    config.oauth_additional_scopes_keys = additional_scopes_keys
 
     jwks_fetcher = MockJWKSFetcher.new
     TestableTokenVerifier.new(config, jwks_fetcher)

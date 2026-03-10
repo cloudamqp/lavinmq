@@ -8,14 +8,14 @@ module TokenParserTestHelper
     preferred_username_claims = ["sub", "client_id"],
     resource_server_id : String? = nil,
     scope_prefix : String? = nil,
-    additional_scopes_key : String? = nil,
+    additional_scopes_keys = [] of String,
   ) : LavinMQ::Auth::JWT::TokenParser
     config = LavinMQ::Config.new
     config.oauth_issuer_url = URI.parse("https://auth.example.com")
     config.oauth_preferred_username_claims = preferred_username_claims
     config.oauth_resource_server_id = resource_server_id
     config.oauth_scope_prefix = scope_prefix
-    config.oauth_additional_scopes_key = additional_scopes_key
+    config.oauth_additional_scopes_keys = additional_scopes_keys
     LavinMQ::Auth::JWT::TokenParser.new(config)
   end
 
@@ -214,9 +214,9 @@ describe LavinMQ::Auth::JWT::TokenParser do
       end
     end
 
-    describe "additional_scopes_key parsing" do
-      it "extracts scopes from additional_scopes_key string claim" do
-        parser = TokenParserTestHelper.create_token_parser(["sub"], additional_scopes_key: "permissions")
+    describe "additional_scopes_keys parsing" do
+      it "extracts scopes from additional_scopes_keys string claim" do
+        parser = TokenParserTestHelper.create_token_parser(["sub"], additional_scopes_keys: ["permissions"])
         payload = LavinMQ::Auth::JWT::Payload.new(
           exp: RoughTime.utc.to_unix + 3600,
           sub: "user"
@@ -227,8 +227,8 @@ describe LavinMQ::Auth::JWT::TokenParser do
         claims.permissions["myvhost"][:read].should eq(/.*/)
       end
 
-      it "extracts scopes from additional_scopes_key array claim" do
-        parser = TokenParserTestHelper.create_token_parser(["sub"], additional_scopes_key: "permissions")
+      it "extracts scopes from additional_scopes_keys array claim" do
+        parser = TokenParserTestHelper.create_token_parser(["sub"], additional_scopes_keys: ["permissions"])
         payload = LavinMQ::Auth::JWT::Payload.new(
           exp: RoughTime.utc.to_unix + 3600,
           sub: "user"
@@ -240,11 +240,11 @@ describe LavinMQ::Auth::JWT::TokenParser do
         claims.permissions["myvhost"][:write].should eq(/.*/)
       end
 
-      it "extracts scopes from additional_scopes_key hash claim with resource_server_id" do
+      it "extracts scopes from additional_scopes_keys hash claim with resource_server_id" do
         parser = TokenParserTestHelper.create_token_parser(
           ["sub"],
           resource_server_id: "lavinmq",
-          additional_scopes_key: "permissions"
+          additional_scopes_keys: ["permissions"]
         )
         payload = LavinMQ::Auth::JWT::Payload.new(
           exp: RoughTime.utc.to_unix + 3600,
@@ -259,7 +259,7 @@ describe LavinMQ::Auth::JWT::TokenParser do
       it "extracts scopes from hash claim without resource_server_id" do
         parser = TokenParserTestHelper.create_token_parser(
           ["sub"],
-          additional_scopes_key: "permissions"
+          additional_scopes_keys: ["permissions"]
         )
         payload = LavinMQ::Auth::JWT::Payload.new(
           exp: RoughTime.utc.to_unix + 3600,
@@ -275,7 +275,7 @@ describe LavinMQ::Auth::JWT::TokenParser do
         parser = TokenParserTestHelper.create_token_parser(
           ["sub"],
           resource_server_id: "lavinmq",
-          additional_scopes_key: "permissions"
+          additional_scopes_keys: ["permissions"]
         )
         payload = LavinMQ::Auth::JWT::Payload.new(
           exp: RoughTime.utc.to_unix + 3600,
@@ -285,6 +285,20 @@ describe LavinMQ::Auth::JWT::TokenParser do
         token = TokenParserTestHelper.create_mock_token(payload)
         claims = parser.parse(token)
         claims.permissions.should be_empty
+      end
+
+      it "extracts scopes from multiple additional_scopes_keys" do
+        parser = TokenParserTestHelper.create_token_parser(["sub"], additional_scopes_keys: ["roles", "permissions"])
+        payload = LavinMQ::Auth::JWT::Payload.new(
+          exp: RoughTime.utc.to_unix + 3600,
+          sub: "user"
+        )
+        payload["roles"] = JSON.parse(%(["read:myvhost/*"]))
+        payload["permissions"] = JSON.parse(%(["write:myvhost/*"]))
+        token = TokenParserTestHelper.create_mock_token(payload)
+        claims = parser.parse(token)
+        claims.permissions["myvhost"][:read].should eq(/.*/)
+        claims.permissions["myvhost"][:write].should eq(/.*/)
       end
     end
   end

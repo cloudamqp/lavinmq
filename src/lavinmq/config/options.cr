@@ -357,8 +357,8 @@ module LavinMQ
       property oauth_resource_server_id : String? = nil
       @[IniOpt(section: "oauth", ini_name: preferred_username_claims)]
       property oauth_preferred_username_claims : Array(String) = ["sub", "client_id"]
-      @[IniOpt(section: "oauth", ini_name: additional_scopes_key)]
-      property oauth_additional_scopes_key : String? = nil
+      @[IniOpt(section: "oauth", ini_name: additional_scopes_keys)]
+      property oauth_additional_scopes_keys = Array(String).new
       @[IniOpt(section: "oauth", ini_name: scope_prefix)]
       property oauth_scope_prefix : String? = nil
       @[IniOpt(section: "oauth", ini_name: verify_aud)]
