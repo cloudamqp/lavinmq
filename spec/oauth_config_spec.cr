@@ -17,9 +17,9 @@ describe LavinMQ::Config do
       config.oauth_preferred_username_claims.should eq(["sub", "client_id"])
     end
 
-    it "sets default oauth_additional_scopes_key to empty array" do
+    it "sets default oauth_additional_scopes_keys to empty array" do
       config = LavinMQ::Config.new
-      config.oauth_additional_scopes_key.should be_empty
+      config.oauth_additional_scopes_keys.should be_empty
     end
 
     it "sets default oauth_scope_prefix to nil" do
@@ -80,18 +80,18 @@ describe LavinMQ::Config do
       config.oauth_preferred_username_claims.should eq(["email", "preferred_username", "sub"])
     end
 
-    it "parses additional_scopes_key" do
+    it "parses additional_scopes_keys" do
       config_file = File.tempfile do |file|
         file.print <<-CONFIG
         [oauth]
         issuer_url = https://auth.example.com
-        additional_scopes_key = custom_permissions
+        additional_scopes_keys = custom_permissions
         CONFIG
       end
 
       config = LavinMQ::Config.new
       config.parse(["-c", config_file.path])
-      config.oauth_additional_scopes_key.should eq(["custom_permissions"])
+      config.oauth_additional_scopes_keys.should eq(["custom_permissions"])
     end
 
     it "parses multiple comma-separated additional_scopes_keys" do
@@ -99,13 +99,13 @@ describe LavinMQ::Config do
         file.print <<-CONFIG
         [oauth]
         issuer_url = https://auth.example.com
-        additional_scopes_key = roles, permissions
+        additional_scopes_keys = roles, permissions
         CONFIG
       end
 
       config = LavinMQ::Config.new
       config.parse(["-c", config_file.path])
-      config.oauth_additional_scopes_key.should eq(["roles", "permissions"])
+      config.oauth_additional_scopes_keys.should eq(["roles", "permissions"])
     end
 
     it "parses scope_prefix" do
