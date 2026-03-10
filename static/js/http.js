@@ -87,13 +87,14 @@ function noencode (v) {
 }
 
 async function submitForm (form, method, url, options = {}) {
-  const { body, table, toast } = options
+  const { body, table, toast, callback } = options
   return request(method, url, { body })
     .then(res => {
       if (res?.is_error) return
       if (table) table.reload()
       if (toast) DOM.toast(toast)
       form.reset()
+      if (callback) callback()
     })
 }
 
