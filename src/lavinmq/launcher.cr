@@ -87,6 +87,7 @@ module LavinMQ
       @amqp_server.try &.close rescue nil
       @metrics_server.try &.close rescue nil
       @runner.stop
+      @config.close_logger
     end
 
     private def print_ascii_logo

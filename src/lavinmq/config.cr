@@ -5,6 +5,7 @@ require "ini"
 require "./version"
 require "./log_formatter"
 require "./in_memory_backend"
+require "./log/rate_limit_backend"
 require "./auth/password"
 require "./sni_config"
 require "./config/options"
@@ -14,6 +15,8 @@ module LavinMQ
     include Options
     @@instance : Config = self.new
     getter sni_manager : SNIManager = SNIManager.new
+    @rate_limit_backend : ::Log::RateLimitBackend? = nil
+    @log_io : IO = STDOUT
 
     def self.instance : LavinMQ::Config
       @@instance
@@ -265,8 +268,16 @@ module LavinMQ
       setup_logger
     end
 
+    def close_logger : Nil
+      @rate_limit_backend.try &.close
+      @log_io.close if @log_io.is_a?(File)
+    end
+
     private def setup_logger
       log_file = (path = @log_file) ? File.open(path, "a") : STDOUT
+      @rate_limit_backend.try &.close      # flush summaries while old IO is still open
+      @log_io.close if @log_io.is_a?(File) # then close old IO
+      @log_io = log_file
       broadcast_backend = ::Log::BroadcastBackend.new
       backend = if journald_stream?
                   ::Log::IOBackend.new(io: log_file, formatter: JournalLogFormat)
@@ -274,7 +285,10 @@ module LavinMQ
                   ::Log::IOBackend.new(io: log_file, formatter: StdoutLogFormat)
                 end
 
-      broadcast_backend.append(backend, @log_level)
+      rate_limit_backend = ::Log::RateLimitBackend.new(backend,
+        sources: ["amqp.connection_factory", "mqtt.connection_factory"])
+      @rate_limit_backend = rate_limit_backend
+      broadcast_backend.append(rate_limit_backend, @log_level)
 
       in_memory_backend = ::Log::InMemoryBackend.instance
       broadcast_backend.append(in_memory_backend, @log_level)
