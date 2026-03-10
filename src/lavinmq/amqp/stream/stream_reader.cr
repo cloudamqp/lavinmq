@@ -14,8 +14,13 @@ module LavinMQ::AMQP
       offset, segment, position = store.find_offset(@start_offset)
       loop do
         break if store.closed
-        env = store.read(segment, position, offset)
+        env = store.read(segment, position)
         if env
+          if headers = env.message.properties.headers
+            headers["x-stream-offset"] = offset
+          else
+            env.message.properties.headers = AMQP::Table.new({"x-stream-offset": offset})
+          end
           position += env.segment_position.bytesize
           offset += 1
         else
