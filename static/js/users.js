@@ -1,7 +1,6 @@
 import * as HTTP from './http.js'
 import * as Helpers from './helpers.js'
 import * as Table from './table.js'
-import * as DOM from './dom.js'
 
 let usersTable = null
 HTTP.request('GET', 'api/permissions').then(permissions => {
