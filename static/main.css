@@ -1867,6 +1867,12 @@ pre.arguments .inactive-argument:before {
   font-weight: 600;
 }
 
+#livelog table td {
+  text-overflow: ellipsis;
+  max-width: 200px;
+  overflow:hidden;
+}
+
 #livelog table td,
 #livelog table th {
   padding: 4px 8px;
@@ -1882,7 +1888,7 @@ pre.arguments .inactive-argument:before {
 }
 
 #livelog table thead .livelog-source {
-  width: 150px;
+  width: 200px;
 }
 
 #livelog table thead .livelog-message {
