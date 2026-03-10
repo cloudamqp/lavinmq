@@ -30,16 +30,16 @@ jobs:
       - name: Load review config
         id: config
         run: |
+          source .review-config
+          if [[ -z "$MODEL" || -z "$CRITERIA" ]]; then
+            echo "::error::.review-config must define MODEL and CRITERIA"
+            exit 1
+          fi
           {
             DELIM="EOF_$(openssl rand -hex 16)"
             echo "criteria<<$DELIM"
-            cat .claude/review-criteria.md
+            cat "$CRITERIA"
             echo "$DELIM"
-            MODEL=$(tr -d '[:space:]' < .claude/review-model)
-            if [[ -z "$MODEL" ]]; then
-              echo "::error::.claude/review-model is empty or missing"
-              exit 1
-            fi
             echo "model=$MODEL"
           } >> "$GITHUB_OUTPUT"
       - uses: anthropics/claude-code-action@v1
