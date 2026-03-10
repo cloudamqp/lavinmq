@@ -107,23 +107,27 @@ module LavinMQ
       def files_with_hash(& : Tuple(String, Bytes) -> Nil)
         snapshot = @files_lock.synchronize { @files.dup }
         sha1 = Digest::SHA1.new
-        snapshot.each do |path, mfile|
+        snapshot.each do |path, _|
           cached_hash = @files_lock.synchronize { @checksums[path]? }
           if cached_hash
             yield({path, cached_hash})
           else
-            next unless @files_lock.synchronize { @files.has_key?(path) }
-            if file = mfile
-              sha1.update file.to_slice
-              file.dontneed
-            else
-              filename = File.join(@data_dir, path)
-              next unless File.exists? filename
-              sha1.file filename
+            hash = @files_lock.synchronize do
+              next unless @files.has_key?(path)
+              if file = @files[path]?
+                sha1.update file.to_slice
+                file.dontneed
+              else
+                filename = File.join(@data_dir, path)
+                next unless File.exists? filename
+                sha1.file filename
+              end
+              h = sha1.final
+              @checksums[path] = h
+              sha1.reset
+              h
             end
-            hash = sha1.final
-            @files_lock.synchronize { @checksums[path] = hash if @files.has_key?(path) }
-            sha1.reset
+            next unless hash
             Fiber.yield # CPU bound so allow other fibers to run here
             yield({path, hash})
           end
