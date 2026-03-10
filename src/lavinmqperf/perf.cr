@@ -17,6 +17,7 @@ module LavinMQPerf
       @parser.on("-v", "--version", "Show version") { @io.puts LavinMQ::VERSION; exit 0 }
       @parser.on("--build-info", "Show build information") { @io.puts BUILD_INFO; exit 0 }
       @parser.invalid_option { |arg| abort "Invalid argument: #{arg}" }
+      @parser.unknown_args { |args| abort "Unexpected argument: #{args.join(", ")}\n\n#{@parser}" unless args.empty? }
       @parser.on("--uri=URI", "URI to connect to (default #{@uri})") do |v|
         @uri = URI.parse(v)
       end
