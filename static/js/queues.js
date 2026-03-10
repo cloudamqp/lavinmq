@@ -168,9 +168,10 @@ document.querySelector('#declare').addEventListener('submit', function (evt) {
   HTTP.submitForm(evt.target, 'PUT', url, {
     body,
     table: queuesTable,
-    toast: 'Queue ' + queue + ' created'
-  }).then(function () {
-    evt.target.querySelector('select[name="vhost"]').value = decodeURIComponent(vhost) // Keep selected vhost selected
+    toast: 'Queue ' + queue + ' created',
+    callback: function () {
+      evt.target.querySelector('select[name="vhost"]').value = decodeURIComponent(vhost) // Keep selected vhost selected
+    }
   })
 })
 queuesTable.on('updated', _ => {
