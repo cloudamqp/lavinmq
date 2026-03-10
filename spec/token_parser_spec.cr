@@ -567,6 +567,86 @@ describe LavinMQ::Auth::JWT::TokenParser do
     end
   end
 
+  describe "duplicate permission scope combining" do
+    it "combines duplicate read scopes for the same vhost" do
+      parser = TokenParserTestHelper.create_token_parser(["sub"])
+      payload = LavinMQ::Auth::JWT::Payload.new(
+        exp: RoughTime.utc.to_unix + 3600,
+        sub: "user",
+        scope: "read:myvhost/q1 read:myvhost/q2 read:myvhost/q3"
+      )
+      token = TokenParserTestHelper.create_mock_token(payload)
+      claims = parser.parse(token)
+      read_regex = claims.permissions["myvhost"][:read]
+      read_regex.matches?("q1").should be_true
+      read_regex.matches?("q2").should be_true
+      read_regex.matches?("q3").should be_true
+      read_regex.matches?("other").should be_false
+    end
+
+    it "combines duplicate write scopes for the same vhost" do
+      parser = TokenParserTestHelper.create_token_parser(["sub"])
+      payload = LavinMQ::Auth::JWT::Payload.new(
+        exp: RoughTime.utc.to_unix + 3600,
+        sub: "user",
+        scope: "write:myvhost/ex1 write:myvhost/ex2 write:myvhost/ex3"
+      )
+      token = TokenParserTestHelper.create_mock_token(payload)
+      claims = parser.parse(token)
+      write_regex = claims.permissions["myvhost"][:write]
+      write_regex.matches?("ex1").should be_true
+      write_regex.matches?("ex2").should be_true
+      write_regex.matches?("ex3").should be_true
+      write_regex.matches?("other").should be_false
+    end
+
+    it "combines duplicate configure scopes for the same vhost" do
+      parser = TokenParserTestHelper.create_token_parser(["sub"])
+      payload = LavinMQ::Auth::JWT::Payload.new(
+        exp: RoughTime.utc.to_unix + 3600,
+        sub: "user",
+        scope: "configure:myvhost/q1 configure:myvhost/q2 configure:myvhost/q3"
+      )
+      token = TokenParserTestHelper.create_mock_token(payload)
+      claims = parser.parse(token)
+      config_regex = claims.permissions["myvhost"][:config]
+      config_regex.matches?("q1").should be_true
+      config_regex.matches?("q2").should be_true
+      config_regex.matches?("q3").should be_true
+      config_regex.matches?("other").should be_false
+    end
+
+    it "does not affect different permission types on the same vhost" do
+      parser = TokenParserTestHelper.create_token_parser(["sub"])
+      payload = LavinMQ::Auth::JWT::Payload.new(
+        exp: RoughTime.utc.to_unix + 3600,
+        sub: "user",
+        scope: "read:myvhost/queue1 write:myvhost/exchange1"
+      )
+      token = TokenParserTestHelper.create_mock_token(payload)
+      claims = parser.parse(token)
+      claims.permissions["myvhost"][:read].matches?("queue1").should be_true
+      claims.permissions["myvhost"][:read].matches?("exchange1").should be_false
+      claims.permissions["myvhost"][:write].matches?("exchange1").should be_true
+      claims.permissions["myvhost"][:write].matches?("queue1").should be_false
+    end
+
+    it "does not combine scopes across different vhosts" do
+      parser = TokenParserTestHelper.create_token_parser(["sub"])
+      payload = LavinMQ::Auth::JWT::Payload.new(
+        exp: RoughTime.utc.to_unix + 3600,
+        sub: "user",
+        scope: "read:vhost1/queue1 read:vhost2/queue2"
+      )
+      token = TokenParserTestHelper.create_mock_token(payload)
+      claims = parser.parse(token)
+      claims.permissions["vhost1"][:read].matches?("queue1").should be_true
+      claims.permissions["vhost1"][:read].matches?("queue2").should be_false
+      claims.permissions["vhost2"][:read].matches?("queue2").should be_true
+      claims.permissions["vhost2"][:read].matches?("queue1").should be_false
+    end
+  end
+
   describe "combined tags and permissions" do
     it "parses both tags and permissions from same scope" do
       parser = TokenParserTestHelper.create_token_parser(["sub"])
