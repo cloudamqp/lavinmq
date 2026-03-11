@@ -52,7 +52,7 @@ jobs:
             DEB_BUILD_OPTIONS="parallel=1"
           outputs: builds
 
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         name: Upload artifact
         with:
           name: deb-packages-${{ matrix.os }}

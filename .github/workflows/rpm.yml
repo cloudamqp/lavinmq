@@ -51,7 +51,7 @@ jobs:
             MAKEFLAGS=-j1
           outputs: RPMS
 
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         name: Upload artifact
         with:
           name: rpm-packages-${{ matrix.os }}
