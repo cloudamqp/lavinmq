@@ -1,5 +1,6 @@
 require "./mfile"
 require "./segment_position"
+require "./log_rate_limiter"
 require "log"
 require "file_utils"
 require "./clustering/server"
@@ -478,6 +479,7 @@ module LavinMQ
       else
         @log.debug { "Loading #{@segments.size} segments" }
       end
+      log_limiter = LogRateLimiter.new(2.seconds)
       @segments.each do |seg, mfile|
         begin
           read_metadata_file(seg, mfile)
@@ -487,10 +489,11 @@ module LavinMQ
           write_metadata_file(seg, mfile) unless seg == @segments.last_key # this segment is not full yet
         end
 
+        counter &+= 1
         if is_long_queue
-          @log.info { "Loaded #{counter}/#{@segments.size} segments, #{@size} messages" } if (counter &+= 1) % 128 == 0
+          log_limiter.do { @log.info { "Loaded #{counter}/#{@segments.size} segments, #{@size} messages" } }
         else
-          @log.debug { "Loaded #{counter}/#{@segments.size} segments, #{@size} messages" } if (counter &+= 1) % 128 == 0
+          @log.debug { "Loaded #{counter}/#{@segments.size} segments, #{@size} messages" } if counter % 128 == 0
         end
       end
       @log.info { "Loaded #{counter} segments, #{@size} messages" }
