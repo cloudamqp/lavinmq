@@ -105,6 +105,8 @@ module LavinMQ
       end
 
       def files_with_hash(& : Tuple(String, Bytes) -> Nil)
+        # Snapshot @files to allow safe iteration without holding the lock,
+        # as other threads may mutate @files concurrently
         snapshot = @files_lock.synchronize { @files.dup }
         sha1 = Digest::SHA1.new
         snapshot.each do |path, _|
@@ -112,7 +114,10 @@ module LavinMQ
           if cached_hash
             yield({path, cached_hash})
           else
+            # Hold @files_lock during SHA1 computation to prevent the file
+            # from being deleted or unmapped while we're reading it
             hash = @files_lock.synchronize do
+              # has_key? needed because `@files[path]? == nil` means both "not found" and "non-MFile"
               next unless @files.has_key?(path)
               if file = @files[path]?
                 sha1.update file.to_slice
@@ -128,13 +133,14 @@ module LavinMQ
               h
             end
             next unless hash
-            sleep 1.milliseconds
+            sleep 1.milliseconds # release @files_lock between files so publishing threads can acquire it
             yield({path, hash})
           end
         end
       end
 
       def with_file(filename, & : MFile | File | Nil -> _)
+        # has_key? needed because `@files[filename]? == nil` means both "not found" and "non-MFile"
         has_key, mfile = @files_lock.synchronize { {@files.has_key?(filename), @files[filename]?} }
         if has_key
           if mfile
