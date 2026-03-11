@@ -30,13 +30,14 @@ module LavinMQ
       private def register_routes
         get "/api/queues" do |context, _|
           itr = Iterator(Queue).chain(vhosts(user(context)).map &.queues.each_value)
+          itr = itr.reject(&.internal?)
           page(context, itr)
         end
 
         get "/api/queues/:vhost" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            page(context, vhost.queues.each_value)
+            page(context, vhost.queues.each_value.reject(&.internal?))
           end
         end
 
