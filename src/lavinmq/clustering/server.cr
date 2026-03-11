@@ -128,7 +128,7 @@ module LavinMQ
               h
             end
             next unless hash
-            Fiber.yield # CPU bound so allow other fibers to run here
+            sleep 1.milliseconds
             yield({path, hash})
           end
         end
