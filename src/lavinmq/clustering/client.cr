@@ -1,5 +1,6 @@
 require "../data_dir_lock"
 require "../clustering"
+require "../log_rate_limiter"
 require "./checksums"
 require "./proxy"
 require "lz4"
@@ -152,6 +153,8 @@ module LavinMQ
         files_to_delete = ls_r(@data_dir)
         requested_files = Array(String).new
         file_count = 0
+        Log.info { "Calculating checksums and comparing files" }
+        log_limiter = LogRateLimiter.new(2.seconds)
         loop do
           filename_len = lz4.read_bytes Int32, IO::ByteFormat::LittleEndian
           break if filename_len.zero?
@@ -170,7 +173,7 @@ module LavinMQ
               Fiber.yield # CPU bound, so allow other fibers to run
             end
             if local_hash != remote_hash
-              Log.debug { "Mismatching hash: #{path}" }
+              Log.info { "Mismatching hash: #{path}" }
               File.delete path
               requested_files << filename
               request_file(filename, socket)
@@ -181,7 +184,8 @@ module LavinMQ
             requested_files << filename
             request_file(filename, socket)
           end
-          Log.info { "Compared #{file_count} files" } if (file_count &+= 1) % 128 == 0
+          file_count &+= 1
+          log_limiter.do { Log.info { "Compared #{file_count} files" } }
         end
         end_of_file_list(socket)
         Log.info { "Compared #{file_count} files, #{requested_files.size} to sync" }
@@ -193,9 +197,11 @@ module LavinMQ
           end
         end
         received_count = 0
+        log_limiter = LogRateLimiter.new(2.seconds)
         requested_files.each do |filename|
           file_from_socket(filename, lz4)
-          Log.info { "Received #{received_count}/#{requested_files.size} files" } if (received_count &+= 1) % 128 == 0
+          received_count &+= 1
+          log_limiter.do { Log.info { "Received #{received_count}/#{requested_files.size} files" } }
         end
         Log.info { "Received all #{requested_files.size} files" } unless requested_files.empty?
       end
