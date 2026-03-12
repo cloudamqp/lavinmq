@@ -1,6 +1,7 @@
 require "./actions"
 require "./file_index"
 require "../config"
+require "../rate_limiter"
 require "socket"
 require "wait_group"
 
@@ -105,11 +106,13 @@ module LavinMQ
       private def send_file_list(lz4 = @lz4)
         Log.info { "Calculating hashes for #{@file_index.nr_of_files} files" }
         count = 0
+        log_limiter = RateLimiter.new(2.seconds)
         @file_index.files_with_hash do |path, hash|
           lz4.write_bytes path.bytesize.to_i32, IO::ByteFormat::LittleEndian
           lz4.write path.to_slice
           lz4.write hash
-          Log.info { "Calculated hash for #{count}/#{@file_index.nr_of_files} files" } if (count &+= 1) % 32 == 0
+          count &+= 1
+          log_limiter.do { Log.info { "Calculated hash for #{count}/#{@file_index.nr_of_files} files" } }
         end
         lz4.write_bytes 0i32 # 0 means end of file list
         lz4.flush
@@ -124,7 +127,7 @@ module LavinMQ
           break if filename_len.zero?
           filename = socket.read_string(filename_len)
           requested_files << filename
-          Log.info { "#{filename} requested" }
+          Log.debug { "#{filename} requested" }
         end
         Log.info { "#{requested_files.size} files requested" }
         total_requested_bytes = requested_files.sum(0i64) do |p|
@@ -137,19 +140,23 @@ module LavinMQ
           end
         end
         sent_bytes = 0i64
+        uploaded_count = 0
+        log_limiter = RateLimiter.new(2.seconds)
         start = Time.instant
         requested_files.each do |filename|
           file_size = send_requested_file(filename)
 
           sent_bytes += file_size
+          uploaded_count &+= 1
           total_requested_bytes -= file_size
           total_time_taken = (Time.instant - start).total_seconds
           bps = (sent_bytes / total_time_taken).round.to_u64
           time_left = bps > 0 ? (total_requested_bytes / bps).round(1) : 0
-          Log.info { "Uploaded #{filename} in #{bps.humanize_bytes}/s" }
-          Log.info { "#{total_requested_bytes.humanize_bytes} left, expected #{time_left}s left" }
+          Log.debug { "Uploaded #{filename} at #{bps.humanize_bytes}/s" }
+          log_limiter.do { Log.info { "Uploaded #{uploaded_count}/#{requested_files.size} files at #{bps.humanize_bytes}/s, #{total_requested_bytes.humanize_bytes} left (~#{time_left}s)" } }
           Fiber.yield
         end
+        Log.info { "Uploaded all #{requested_files.size} files" } unless requested_files.empty?
         @lz4.flush
       end
 
