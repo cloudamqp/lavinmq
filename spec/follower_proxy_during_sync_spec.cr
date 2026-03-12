@@ -7,29 +7,9 @@ require "../src/lavinmq/proxy_protocol"
 class SlowClusteringServer < LavinMQ::Clustering::Server
   # Override files_with_hash to add delays during sync to simulate slow network
   def files_with_hash(& : Tuple(String, Bytes) -> Nil)
-    sha1 = Digest::SHA1.new
-    @files.each do |path, mfile|
-      if calculated_hash = @checksums[path]?
-        yield({path, calculated_hash})
-      else
-        if file = mfile
-          sha1.update file.to_slice
-          file.dontneed
-        else
-          filename = File.join(@data_dir, path)
-          next unless File.exists? filename
-          sha1.file filename
-        end
-        hash = sha1.final
-        @checksums[path] = hash
-        sha1.reset
-
-        # Add delay to slow down sync when testing
-        sleep 0.1.seconds
-
-        Fiber.yield
-        yield({path, hash})
-      end
+    super do |tuple|
+      sleep 0.1.seconds
+      yield tuple
     end
   end
 
@@ -41,7 +21,7 @@ class SlowClusteringServer < LavinMQ::Clustering::Server
       @followers.clear
     end
     Fiber.yield # required for follower/listener fibers to actually finish
-    # Skip @checksums.store to avoid file write errors in tests
+    # Skip checksums.store to avoid file write errors in tests
   end
 end
 

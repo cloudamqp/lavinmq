@@ -98,14 +98,14 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
       msg_store.@segments.size.should be > 1
 
       msg_store.close
-      files_before = replicator.@files.keys.sort!
+      files_before = replicator.file_keys.sort!
       replicator.close
 
       # Re-open the message store and verify the same files are registered
       replicator = LavinMQ::Clustering::Server.new(LavinMQ::Config.instance, etcd, node_id + 1)
       msg_store = LavinMQ::MessageStore.new(msg_dir, replicator)
       msg_store.close
-      files_after = replicator.@files.keys.sort!
+      files_after = replicator.file_keys.sort!
 
       files_before.size.should be > 2
       files_before.find(&.ends_with?("meta.0000000001")).should_not be_nil

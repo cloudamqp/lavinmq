@@ -104,6 +104,10 @@ module LavinMQ
         @file_index_lock.shared { |(files, _checksums)| files.size }
       end
 
+      def file_keys
+        @file_index_lock.shared { |(files, _checksums)| files.keys }
+      end
+
       def files_with_hash(& : Tuple(String, Bytes) -> Nil)
         # Snapshot @files to allow safe iteration without holding the lock,
         # as other threads may mutate @files concurrently
