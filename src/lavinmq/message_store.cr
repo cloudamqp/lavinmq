@@ -235,16 +235,16 @@ module LavinMQ
     end
 
     private def delete_file(file : MFile, including_meta = false)
-      File.delete?(meta_file_name(file)) if including_meta
       file.delete(raise_on_missing: false)
       if replicator = @replicator
-        replicator.delete_file(meta_file_name(file), WaitGroup.new) if including_meta
         wg = WaitGroup.new
+        replicator.delete_file(meta_file_name(file), wg) if including_meta
         replicator.delete_file(file.path, wg)
         spawn(name: "wait for file deletion is replicated") do
           replicator.wait_for_sync do
             wg.wait
           ensure
+            File.delete?(meta_file_name(file)) if including_meta
             file.close
           end
         end
