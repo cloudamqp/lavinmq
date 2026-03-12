@@ -109,6 +109,63 @@ describe LavinMQ::Server do
     end
   end
 
+  describe "invalid frame end" do
+    it "should respond with frame error when routing key exceeds 255 bytes" do
+      with_amqp_server do |s|
+        io = TCPSocket.new("localhost", amqp_port(s))
+        io.read_timeout = 5.seconds
+
+        # AMQP handshake
+        io.write AMQ::Protocol::PROTOCOL_START_0_9_1.to_slice
+        io.flush
+        AMQ::Protocol::Frame.from_io(io) { |f| f.as(AMQ::Protocol::Frame::Connection::Start) }
+        response = "\u0000guest\u0000guest"
+        io.write_bytes(AMQ::Protocol::Frame::Connection::StartOk.new(
+          AMQ::Protocol::Table.new, "PLAIN", response, ""),
+          IO::ByteFormat::NetworkEndian)
+        io.flush
+        tune = AMQ::Protocol::Frame.from_io(io) { |f| f.as(AMQ::Protocol::Frame::Connection::Tune) }
+        io.write_bytes AMQ::Protocol::Frame::Connection::TuneOk.new(
+          channel_max: tune.channel_max, frame_max: tune.frame_max, heartbeat: 0_u16),
+          IO::ByteFormat::NetworkEndian
+        io.write_bytes AMQ::Protocol::Frame::Connection::Open.new("/"), IO::ByteFormat::NetworkEndian
+        io.flush
+        AMQ::Protocol::Frame.from_io(io) { |f| f.as(AMQ::Protocol::Frame::Connection::OpenOk) }
+        io.write_bytes AMQ::Protocol::Frame::Channel::Open.new(1_u16), IO::ByteFormat::NetworkEndian
+        io.flush
+        AMQ::Protocol::Frame.from_io(io) { |f| f.as(AMQ::Protocol::Frame::Channel::OpenOk) }
+
+        # Simulate a broken client sending a 10,000-byte routing key
+        # with a truncated ShortString length byte (10000 & 0xFF = 16)
+        routing_key = "x" * 10_000
+        exchange = "amq.direct"
+
+        payload = IO::Memory.new
+        IO::ByteFormat::NetworkEndian.encode(60_u16, payload) # class_id (Basic)
+        IO::ByteFormat::NetworkEndian.encode(40_u16, payload) # method_id (Publish)
+        IO::ByteFormat::NetworkEndian.encode(0_u16, payload)  # reserved1
+        payload.write_byte(exchange.bytesize.to_u8)           # exchange ShortString
+        payload.write(exchange.to_slice)
+        payload.write_byte((routing_key.bytesize & 0xFF).to_u8) # truncated length byte
+        payload.write(routing_key.to_slice)                     # full 10,000 bytes
+        payload.write_byte(0_u8)                                # mandatory=false, immediate=false
+
+        io.write_byte(1_u8)                                          # frame type (Method)
+        IO::ByteFormat::NetworkEndian.encode(1_u16, io)              # channel
+        IO::ByteFormat::NetworkEndian.encode(payload.pos.to_u32, io) # frame size
+        io.write(payload.to_slice)
+        io.write_byte(206_u8) # frame end
+        io.flush
+
+        resp = AMQ::Protocol::Frame.from_io(io) { |f| f }
+        close = resp.as(AMQ::Protocol::Frame::Connection::Close)
+        close.reply_code.should eq 501
+      ensure
+        io.try &.close
+      end
+    end
+  end
+
   describe "frame_max" do
     it "should not accept a frame_max from the client lower than the server config" do
       with_amqp_server do |s|
