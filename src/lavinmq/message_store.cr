@@ -249,6 +249,7 @@ module LavinMQ
           end
         end
       else
+        File.delete?(meta_file_name(file)) if including_meta
         file.close
       end
     end
