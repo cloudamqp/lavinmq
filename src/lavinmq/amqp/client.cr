@@ -162,7 +162,7 @@ module LavinMQ
         rescue ex : AMQ::Protocol::Error::NotImplemented
           @log.error { ex.inspect }
           send_not_implemented(ex)
-        rescue ex : AMQ::Protocol::Error::FrameDecode
+        rescue ex : AMQ::Protocol::Error::FrameDecode | AMQ::Protocol::Error::InvalidFrameEnd
           @log.error(exception: ex) { "AMQP frame decode error" }
           send_frame_error(ex.message)
           break
