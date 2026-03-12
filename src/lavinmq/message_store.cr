@@ -1,6 +1,6 @@
 require "./mfile"
 require "./segment_position"
-require "./log_rate_limiter"
+require "./rate_limiter"
 require "log"
 require "file_utils"
 require "./clustering/server"
@@ -480,7 +480,7 @@ module LavinMQ
       else
         @log.debug { "Loading #{@segments.size} segments" }
       end
-      log_limiter = LogRateLimiter.new(2.seconds)
+      log_limiter = RateLimiter.new(2.seconds)
       @segments.each do |seg, mfile|
         begin
           read_metadata_file(seg, mfile)

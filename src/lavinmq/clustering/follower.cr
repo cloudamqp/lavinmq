@@ -1,7 +1,7 @@
 require "./actions"
 require "./file_index"
 require "../config"
-require "../log_rate_limiter"
+require "../rate_limiter"
 require "socket"
 require "wait_group"
 
@@ -106,7 +106,7 @@ module LavinMQ
       private def send_file_list(lz4 = @lz4)
         Log.info { "Calculating hashes for #{@file_index.nr_of_files} files" }
         count = 0
-        log_limiter = LogRateLimiter.new(2.seconds)
+        log_limiter = RateLimiter.new(2.seconds)
         @file_index.files_with_hash do |path, hash|
           lz4.write_bytes path.bytesize.to_i32, IO::ByteFormat::LittleEndian
           lz4.write path.to_slice
@@ -141,7 +141,7 @@ module LavinMQ
         end
         sent_bytes = 0i64
         uploaded_count = 0
-        log_limiter = LogRateLimiter.new(2.seconds)
+        log_limiter = RateLimiter.new(2.seconds)
         start = Time.instant
         requested_files.each do |filename|
           file_size = send_requested_file(filename)
