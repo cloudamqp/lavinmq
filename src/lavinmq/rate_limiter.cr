@@ -1,5 +1,5 @@
 module LavinMQ
-  struct LogRateLimiter
+  struct RateLimiter
     def initialize(@interval : Time::Span)
       @last = Time.instant - @interval
     end
