@@ -594,7 +594,7 @@ module LavinMQ
             false, e.arguments)
           io.write_bytes f
         end
-        @queues.each_value.select(&.durable?).reject(&.internal?).each do |q|
+        @queues.each_value.select(&.durable?).each do |q|
           f = AMQP::Frame::Queue::Declare.new(0_u16, 0_u16, q.name, false, q.durable?, q.exclusive?,
             q.auto_delete?, false, q.arguments)
           io.write_bytes f
