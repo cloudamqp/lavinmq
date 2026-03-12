@@ -1,6 +1,6 @@
 require "../data_dir_lock"
 require "../clustering"
-require "../log_rate_limiter"
+require "../rate_limiter"
 require "./checksums"
 require "./proxy"
 require "lz4"
@@ -154,7 +154,7 @@ module LavinMQ
         requested_files = Array(String).new
         file_count = 0
         Log.info { "Calculating checksums and comparing files" }
-        log_limiter = LogRateLimiter.new(2.seconds)
+        log_limiter = RateLimiter.new(2.seconds)
         loop do
           filename_len = lz4.read_bytes Int32, IO::ByteFormat::LittleEndian
           break if filename_len.zero?
@@ -197,7 +197,7 @@ module LavinMQ
           end
         end
         received_count = 0
-        log_limiter = LogRateLimiter.new(2.seconds)
+        log_limiter = RateLimiter.new(2.seconds)
         requested_files.each do |filename|
           file_from_socket(filename, lz4)
           received_count &+= 1
