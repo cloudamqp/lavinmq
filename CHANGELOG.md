@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `lavinmqctl --help` touchups [#1755](https://github.com/cloudamqp/lavinmq/pull/1755)
 
 ### Fixed
+- Use `openssl dgst` instead of `sha256sum` in Makefile for macOS portability [#1818](https://github.com/cloudamqp/lavinmq/pull/1818)
 - Replicate files in closed message stores [#1794](https://github.com/cloudamqp/lavinmq/pull/1794)
 - Replication shouldn't break if mfiles are closed [#1792](https://github.com/cloudamqp/lavinmq/pull/1792)
 - Only allow one follower to do bulk sync at a time [#1720](https://github.com/cloudamqp/lavinmq/pull/1720), [#1780](https://github.com/cloudamqp/lavinmq/pull/1780)
