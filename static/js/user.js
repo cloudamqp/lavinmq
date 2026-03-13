@@ -95,12 +95,11 @@ document.querySelector('#updateUser').addEventListener('submit', function (evt) 
   }
   HTTP.submitForm(evt.target, 'PUT', url, {
     body,
-    toast: 'User updated',
-    callback: function () {
-      updateUser()
-      pwd.disabled = false
-      pwd.required = true
-    }
+  }).then(() =>{
+    DOM.toast('User updated')
+    updateUser()
+    pwd.disabled = false
+    pwd.required = true
   })
 })
 

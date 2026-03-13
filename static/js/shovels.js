@@ -212,8 +212,9 @@ document.querySelector('#createShovel').addEventListener('submit', function (evt
   }
   HTTP.submitForm(evt.target, 'PUT', url, {
     body,
-    table: dataSource,
-    toast: `Shovel ${name} saved`
+    table: dataSource
+  }).then(()=> {
+    DOM.toast(`Shovel ${name} saved`)
   })
 })
 

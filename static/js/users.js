@@ -51,8 +51,9 @@ document.querySelector('#createUser').addEventListener('submit', function (evt) 
   }
   HTTP.submitForm(evt.target, 'PUT', url, {
     body,
-    table: usersTable,
-    toast: toastText
+    table: usersTable
+  }).then(()=> {
+    DOM.toast(toastText)
   })
 })
 
