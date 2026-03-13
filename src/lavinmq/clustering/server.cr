@@ -35,18 +35,18 @@ module LavinMQ
       @dirty_isr = true
       @id : Int32
       @config : Config
-      @file_index_lock : Sync::Shared(Tuple(Hash(String, MFile?), Checksums))
+      @file_index : Sync::Shared(Tuple(Hash(String, MFile?), Checksums))
 
       def initialize(config : Config, @etcd : Etcd, @id : Int32)
         Log.info { "ID: #{@id.to_s(36)}" }
         @config = config
         @data_dir = @config.data_dir
         @password = password
-        @file_index_lock = Sync::Shared.new({Hash(String, MFile?).new, Checksums.new(@data_dir)}, :unchecked)
+        @file_index = Sync::Shared.new({Hash(String, MFile?).new, Checksums.new(@data_dir)}, :unchecked)
       end
 
       def clear
-        @file_index_lock.lock do |(files, checksums)|
+        @file_index.lock do |files, checksums|
           files.clear
           checksums.clear
         end
@@ -54,7 +54,7 @@ module LavinMQ
 
       def register_file(path : String)
         path = strip_datadir path
-        @file_index_lock.lock do |(files, checksums)|
+        @file_index.lock do |files, checksums|
           files[path] = nil
           checksums.delete(path)
         end
@@ -62,7 +62,7 @@ module LavinMQ
 
       def register_file(file : File)
         path = strip_datadir file.path
-        @file_index_lock.lock do |(files, checksums)|
+        @file_index.lock do |files, checksums|
           files[path] = nil
           checksums.delete(path)
         end
@@ -70,7 +70,7 @@ module LavinMQ
 
       def register_file(mfile : MFile)
         path = strip_datadir mfile.path
-        @file_index_lock.lock do |(files, checksums)|
+        @file_index.lock do |files, checksums|
           files[path] = mfile
           checksums.delete(path)
         end
@@ -78,7 +78,7 @@ module LavinMQ
 
       def replace_file(path : String) # only non mfiles are ever replaced
         path = strip_datadir path
-        @file_index_lock.lock do |(files, checksums)|
+        @file_index.lock do |files, checksums|
           files[path] = nil
           checksums.delete(path)
         end
@@ -87,13 +87,13 @@ module LavinMQ
 
       def append(path : String, obj)
         path = strip_datadir path
-        @file_index_lock.lock { |(_files, checksums)| checksums.delete(path) }
+        @file_index.lock { |_files, checksums| checksums.delete(path) }
         each_follower &.append(path, obj)
       end
 
       def delete_file(path : String, wg)
         path = strip_datadir path
-        @file_index_lock.lock do |(files, checksums)|
+        @file_index.lock do |files, checksums|
           files.delete(path)
           checksums.delete(path)
         end
@@ -101,26 +101,22 @@ module LavinMQ
       end
 
       def nr_of_files
-        @file_index_lock.shared { |(files, _checksums)| files.size }
-      end
-
-      def file_keys
-        @file_index_lock.shared { |(files, _checksums)| files.keys }
+        @file_index.shared { |files, _checksums| files.size }
       end
 
       def files_with_hash(& : Tuple(String, Bytes) -> Nil)
         # Snapshot @files to allow safe iteration without holding the lock,
         # as other threads may mutate @files concurrently
-        snapshot = @file_index_lock.shared { |(files, _checksums)| files.dup }
+        snapshot = @file_index.shared { |files, _checksums| files.dup }
         sha1 = Digest::SHA1.new
         snapshot.each do |path, _|
-          cached_hash = @file_index_lock.shared { |(_files, checksums)| checksums[path]? }
+          cached_hash = @file_index.shared { |_files, checksums| checksums[path]? }
           if cached_hash
             yield({path, cached_hash})
           else
             # Hold shared lock during SHA1 computation to prevent the file
             # from being deleted or unmapped while we're reading it
-            hash = @file_index_lock.shared do |(files, _checksums)|
+            hash = @file_index.shared do |files, _checksums|
               # has_key? needed because `files[path]? == nil` means both "not found" and "non-MFile"
               next unless files.has_key?(path)
               if file = files[path]?
@@ -134,7 +130,7 @@ module LavinMQ
               sha1.final.tap { sha1.reset }
             end
             next unless hash
-            @file_index_lock.lock { |(_files, checksums)| checksums[path] = hash }
+            @file_index.lock { |_files, checksums| checksums[path] = hash }
             sleep 1.milliseconds # allow publishing threads to acquire exclusive lock between files
             yield({path, hash})
           end
@@ -143,7 +139,7 @@ module LavinMQ
 
       def with_file(filename, & : MFile | File | Nil -> _)
         # has_key? needed because `files[filename]? == nil` means both "not found" and "non-MFile"
-        has_key, mfile = @file_index_lock.shared { |(files, _checksums)| {files.has_key?(filename), files[filename]?} }
+        has_key, mfile = @file_index.shared { |files, _checksums| {files.has_key?(filename), files[filename]?} }
         if has_key
           if mfile
             yield mfile
@@ -203,7 +199,7 @@ module LavinMQ
       def listen(server : TCPServer)
         server.listen
         # called before accepting followers, no lock needed
-        @file_index_lock.lock { |(_files, checksums)| checksums.restore }
+        @file_index.lock { |_files, checksums| checksums.restore }
         Log.info { "Listening on #{server.local_address}" }
         @listeners << server
 
@@ -283,7 +279,7 @@ module LavinMQ
           @followers.clear
         end
         Fiber.yield # required for follower/listener fibers to actually finish
-        @file_index_lock.lock { |(_files, checksums)| checksums.store }
+        @file_index.lock { |_files, checksums| checksums.store }
       end
 
       private def each_follower(& : Follower -> Nil) : Nil
