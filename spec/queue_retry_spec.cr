@@ -17,8 +17,9 @@ module QueueRetrySpec
           ch.default_exchange.publish_confirm("msg1", q.name)
 
           msg = wait_for { q.get(no_ack: false) }
-          msg.not_nil!.body_io.to_s.should eq "msg1"
-          msg.not_nil!.reject(requeue: false)
+          msg = msg.should_not be_nil
+          msg.body_io.to_s.should eq "msg1"
+          msg.reject(requeue: false)
 
           # Message should reappear after retry delay with x-retry-count: 1
           msg2 = wait_for { q.get(no_ack: true) }
