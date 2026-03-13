@@ -202,8 +202,9 @@ document.querySelector('#addBinding').addEventListener('submit', function (evt) 
   }
   HTTP.submitForm(evt.target, 'POST', url, {
     body,
-    table: bindingsTable,
-    toast: 'Exchange ' + e + ' bound to queue'
+    table: bindingsTable
+  }).then(() => {
+    DOM.toast(`Exchange ${e} bound to queue`)
   }).catch(err => {
     if (err.status === 404) {
       DOM.toast.error(`Exchange '${e}' does not exist and needs to be created first.`)
@@ -296,8 +297,9 @@ document.querySelector('#moveMessages').addEventListener('submit', function (evt
     }
   }
   HTTP.submitForm(evt.target, 'PUT', url, {
-    body,
-    toast: 'Moving messages to ' + dest
+    body
+  }).then(() => {
+    DOM.toast(`Moving messages to ${dest}`)
   })
 })
 

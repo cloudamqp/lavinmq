@@ -96,8 +96,9 @@ document.querySelector('#addExchange').addEventListener('submit', function (evt)
   }
   HTTP.submitForm(evt.target, 'PUT', url, {
     body,
-    table: exchangeTable,
-    toast: 'Exchange ' + exchange + ' created'
+    table: exchangeTable
+  }).then(() => {
+    DOM.toast(`Exhange ${exchange} created`)
   })
 })
 

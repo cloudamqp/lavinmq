@@ -1,5 +1,3 @@
-import * as DOM from './dom.js'
-
 function request (method, path, options = {}) {
   const body = options.body
   const headers = options.headers || new window.Headers()
@@ -69,14 +67,12 @@ function noencode (v) {
 }
 
 async function submitForm (form, method, url, options = {}) {
-  const { body, table, toast, callback } = options
+  const { body, table } = options
   return request(method, url, { body })
     .then(res => {
       if (res?.is_error) return
       if (table) table.reload()
-      if (toast) DOM.toast(toast)
       form.reset()
-      if (callback) callback()
     })
 }
 

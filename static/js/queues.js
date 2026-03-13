@@ -167,13 +167,13 @@ document.querySelector('#declare').addEventListener('submit', function (evt) {
 
   HTTP.submitForm(evt.target, 'PUT', url, {
     body,
-    table: queuesTable,
-    toast: 'Queue ' + queue + ' created',
-    callback: function () {
-      evt.target.querySelector('select[name="vhost"]').value = decodeURIComponent(vhost) // Keep selected vhost selected
-    }
+    table: queuesTable
+  }).then(() => {
+    DOM.toast(`Queue ${queue} created`)
+    evt.target.querySelector('select[name="vhost"]').value = decodeURIComponent(vhost) // Keep selected vhost selected
   })
 })
+
 queuesTable.on('updated', _ => {
   const checked = document.querySelectorAll('input[data-name]:checked')
   document.getElementById('multi-queue-count').textContent = checked.length

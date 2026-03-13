@@ -180,8 +180,9 @@ document.querySelector('#addBinding').addEventListener('submit', function (evt) 
   }
   HTTP.submitForm(evt.target, 'POST', url, {
     body,
-    table: bindingsTable,
-    toast: 'Exchange ' + e + ' bound to queue'
+    table: bindingsTable
+  }).then(() => {
+    DOM.toast(`Exchange ${e} bound to queue`)
   })
 })
 
