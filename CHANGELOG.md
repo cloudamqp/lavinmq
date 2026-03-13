@@ -7,21 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed
+- OAuth: Parse permissions from multiple additional claims [#1791](https://github.com/cloudamqp/lavinmq/pull/1791)
+- OAuth: Default to "sub" and "client_id" when `preferred_username_claims` is not configured [#1779](https://github.com/cloudamqp/lavinmq/pull/1779)
+- `lavinmqctl --help` touchups [#1755](https://github.com/cloudamqp/lavinmq/pull/1755)
+
 ### Fixed
+- Replicate files in closed message stores [#1794](https://github.com/cloudamqp/lavinmq/pull/1794)
+- Replication shouldn't break if mfiles are closed [#1792](https://github.com/cloudamqp/lavinmq/pull/1792)
+- Only allow one follower to do bulk sync at a time [#1720](https://github.com/cloudamqp/lavinmq/pull/1720), [#1780](https://github.com/cloudamqp/lavinmq/pull/1780)
+- Add `Sync::Shared` lock for `@files` and `@checksums` in `Clustering::Server` [#1753](https://github.com/cloudamqp/lavinmq/pull/1753)
+- Don't delete metadata files during full sync [#1814](https://github.com/cloudamqp/lavinmq/pull/1814)
+- Persist `segment_last_ts` to prevent message loss on restart in streams with max-age [#1760](https://github.com/cloudamqp/lavinmq/pull/1760)
+- Reset position when crossing segment boundary in `find_offset_in_segments` [#1772](https://github.com/cloudamqp/lavinmq/pull/1772)
+- Gracefully close message store on corrupt segments [#1710](https://github.com/cloudamqp/lavinmq/pull/1710)
+- Don't expire messages before server is fully started [#1714](https://github.com/cloudamqp/lavinmq/pull/1714)
 - Delayed message store crash on corrupt segment data [#1694](https://github.com/cloudamqp/lavinmq/pull/1694)
 - Dead letter cycle detection [#1723](https://github.com/cloudamqp/lavinmq/pull/1723)
-- Allow any timestamp in AMQP messages [#1705](https://github.com/cloudamqp/lavinmq/pull/1705)
 - Reapply policies after queue restart [#1737](https://github.com/cloudamqp/lavinmq/pull/1737)
-- Only allow one follower to do bulk sync at a time [#1720](https://github.com/cloudamqp/lavinmq/pull/1720)
 - Disconnect MQTT clients on OAuth token expiration [#1746](https://github.com/cloudamqp/lavinmq/pull/1746)
 - MQTT OAuth wildcard vhost matching and user cleanup on disconnect [#1745](https://github.com/cloudamqp/lavinmq/pull/1745)
+- OAuth: Combine duplicate permission scopes instead of overwriting [#1809](https://github.com/cloudamqp/lavinmq/pull/1809)
+- added missing `x-stream-offset` header in StreamReader responses [#1774](https://github.com/cloudamqp/lavinmq/pull/1774)
+- Return frame error for corrupt frames with invalid frame end [#1813](https://github.com/cloudamqp/lavinmq/pull/1813)
+- Allow any timestamp in AMQP messages [#1705](https://github.com/cloudamqp/lavinmq/pull/1705)
 - Copy SSL options to new SNI contexts [#1583](https://github.com/cloudamqp/lavinmq/pull/1583)
 - Return 400 for invalid binding routing key [#1734](https://github.com/cloudamqp/lavinmq/pull/1734)
 - Consumer starvation in lavinmqperf throughput mode [#1712](https://github.com/cloudamqp/lavinmq/pull/1712)
+- Support for mqtts in `lavinmqperf` [#1702](https://github.com/cloudamqp/lavinmq/pull/1702)
+- Print usage on unexpected arguments in lavinmqperf [#1796](https://github.com/cloudamqp/lavinmq/pull/1796)
+- Honor `yield_each_delivered_bytes` setting for MQTT [#1783](https://github.com/cloudamqp/lavinmq/pull/1783)
+- UI: Chart color consistency [#1756](https://github.com/cloudamqp/lavinmq/pull/1756)
 - UI: Tooltip sizing [#1700](https://github.com/cloudamqp/lavinmq/pull/1700)
 - UI: Tooltip z-index to appear above menus [#1729](https://github.com/cloudamqp/lavinmq/pull/1729)
 - UI: Collapse whitespace in client capabilities display [#1733](https://github.com/cloudamqp/lavinmq/pull/1733)
 - UI: Empty cells in connection details for consistent rendering [#1732](https://github.com/cloudamqp/lavinmq/pull/1732)
+- UI: Rename "Routing key" to "Binding key" in binding view [#1748](https://github.com/cloudamqp/lavinmq/pull/1748)
+- UI: Overlapping sources in logs [#1790](https://github.com/cloudamqp/lavinmq/pull/1790)
+- UI: Invalid JSON warning on empty binding arguments [#1749](https://github.com/cloudamqp/lavinmq/pull/1749)
 
 ## [2.7.0-rc.1] - 2026-02-11
 
