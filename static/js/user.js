@@ -94,8 +94,8 @@ document.querySelector('#updateUser').addEventListener('submit', function (evt) 
     body.password = data.get('password')
   }
   HTTP.submitForm(evt.target, 'PUT', url, {
-    body,
-  }).then(() =>{
+    body
+  }).then(() => {
     DOM.toast('User updated')
     updateUser()
     pwd.disabled = false

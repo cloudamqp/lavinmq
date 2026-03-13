@@ -213,7 +213,7 @@ document.querySelector('#createShovel').addEventListener('submit', function (evt
   HTTP.submitForm(evt.target, 'PUT', url, {
     body,
     table: dataSource
-  }).then(()=> {
+  }).then(() => {
     DOM.toast(`Shovel ${name} saved`)
   })
 })
