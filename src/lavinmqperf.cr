@@ -2,6 +2,7 @@ require "log"
 require "./lavinmq/version"
 require "./lavinmqperf/amqp/*"
 require "./lavinmqperf/mqtt/*"
+require "./lavinmqperf/http/*"
 require "./stdlib/*"
 
 {% unless flag?(:release) %}
@@ -13,7 +14,7 @@ Log.setup_from_env
 
 module LavinMQPerf
   # Default to 'amqp' if the first argument is not a protocol or an option
-  protocols = {"amqp", "mqtt"}
+  protocols = {"amqp", "mqtt", "http"}
   protocol = protocols.includes?(ARGV[0]?) ? ARGV.shift : "amqp"
   case protocol
   when "amqp"
@@ -36,6 +37,13 @@ module LavinMQPerf
     when "throughput" then MQTT::Throughput.new.run
     when /^.+$/       then Perf.new.run([mode.not_nil!])
     else                   abort Perf.new.mqtt_banner
+    end
+  when "http"
+    mode = ARGV.shift?
+    case mode
+    when "throughput" then HTTP::Throughput.new.run
+    when /^.+$/       then Perf.new.run([mode.not_nil!])
+    else                   abort "Usage: #{PROGRAM_NAME} http throughput [arguments]"
     end
   when /^.+$/
     Perf.new.run([protocol.not_nil!])
