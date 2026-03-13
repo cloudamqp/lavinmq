@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 ### Fixed
+- Use `openssl dgst` instead of `sha256sum` in Makefile for macOS portability [#1818](https://github.com/cloudamqp/lavinmq/pull/1818)
 - Delayed message store crash on corrupt segment data [#1694](https://github.com/cloudamqp/lavinmq/pull/1694)
 - Dead letter cycle detection [#1723](https://github.com/cloudamqp/lavinmq/pull/1723)
 - Allow any timestamp in AMQP messages [#1705](https://github.com/cloudamqp/lavinmq/pull/1705)
