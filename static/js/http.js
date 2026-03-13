@@ -70,7 +70,7 @@ async function submitForm (form, method, url, options = {}) {
   const { body, table } = options
   return request(method, url, { body })
     .then(res => {
-      if (res?.is_error) return
+      if (res?.is_error) throw new Error(`HTTP error: ${res.status}`)
       if (table) table.reload()
       form.reset()
     })
