@@ -8,6 +8,7 @@ require "../message"
 require "../mfile"
 require "crypto/subtle"
 require "lz4"
+require "sync/shared"
 require "../etcd"
 
 module LavinMQ
@@ -31,92 +32,116 @@ module LavinMQ
       @sync_lock = Mutex.new(:unchecked)
       @followers = Array(Follower).new(4)
       @password : String
-      @files = Hash(String, MFile?).new
       @dirty_isr = true
       @id : Int32
       @config : Config
+      @file_index : Sync::Shared(Tuple(Hash(String, MFile?), Checksums))
 
       def initialize(config : Config, @etcd : Etcd, @id : Int32)
         Log.info { "ID: #{@id.to_s(36)}" }
         @config = config
         @data_dir = @config.data_dir
         @password = password
-        @checksums = Checksums.new(@data_dir)
+        @file_index = Sync::Shared.new({Hash(String, MFile?).new, Checksums.new(@data_dir)}, :unchecked)
       end
 
       def clear
-        @files.clear
-        @checksums.clear
+        @file_index.lock do |files, checksums|
+          files.clear
+          checksums.clear
+        end
       end
 
       def register_file(path : String)
         path = strip_datadir path
-        @files[path] = nil
-        @checksums.delete(path)
+        @file_index.lock do |files, checksums|
+          files[path] = nil
+          checksums.delete(path)
+        end
       end
 
       def register_file(file : File)
         path = strip_datadir file.path
-        @files[path] = nil
-        @checksums.delete(path)
+        @file_index.lock do |files, checksums|
+          files[path] = nil
+          checksums.delete(path)
+        end
       end
 
       def register_file(mfile : MFile)
         path = strip_datadir mfile.path
-        @files[path] = mfile
-        @checksums.delete(path)
+        @file_index.lock do |files, checksums|
+          files[path] = mfile
+          checksums.delete(path)
+        end
       end
 
       def replace_file(path : String) # only non mfiles are ever replaced
         path = strip_datadir path
-        @files[path] = nil
-        @checksums.delete(path)
+        @file_index.lock do |files, checksums|
+          files[path] = nil
+          checksums.delete(path)
+        end
         each_follower &.replace(path)
       end
 
       def append(path : String, obj)
         path = strip_datadir path
-        @checksums.delete(path)
+        @file_index.lock { |_files, checksums| checksums.delete(path) }
         each_follower &.append(path, obj)
       end
 
       def delete_file(path : String, wg)
         path = strip_datadir path
-        @files.delete(path)
-        @checksums.delete(path)
+        @file_index.lock do |files, checksums|
+          files.delete(path)
+          checksums.delete(path)
+        end
         each_follower &.delete(path, wg)
       end
 
       def nr_of_files
-        @files.size
+        @file_index.shared { |files, _checksums| files.size }
       end
 
       def files_with_hash(& : Tuple(String, Bytes) -> Nil)
+        # Snapshot @files to allow safe iteration without holding the lock,
+        # as other threads may mutate @files concurrently
+        snapshot = @file_index.shared { |files, _checksums| files.dup }
         sha1 = Digest::SHA1.new
-        @files.each do |path, mfile|
-          if calculated_hash = @checksums[path]?
-            yield({path, calculated_hash})
+        snapshot.each do |path, _|
+          cached_hash = @file_index.shared { |_files, checksums| checksums[path]? }
+          if cached_hash
+            yield({path, cached_hash})
           else
-            if file = mfile
-              sha1.update file.to_slice
-              file.dontneed
-            else
-              filename = File.join(@data_dir, path)
-              next unless File.exists? filename
-              sha1.file filename
+            # Hold shared lock during SHA1 computation to prevent the file
+            # from being deleted or unmapped while we're reading it
+            hash = @file_index.shared do |files, _checksums|
+              # has_key? needed because `files[path]? == nil` means both "not found" and "non-MFile"
+              next unless files.has_key?(path)
+              if file = files[path]?
+                sha1.update file.to_slice
+                file.dontneed
+              else
+                filename = File.join(@data_dir, path)
+                next unless File.exists? filename
+                sha1.file filename
+              end
+              sha1.final.tap { sha1.reset }
             end
-            hash = sha1.final
-            @checksums[path] = hash
-            sha1.reset
-            Fiber.yield # CPU bound so allow other fibers to run here
+            next unless hash
+            @file_index.lock { |_files, checksums| checksums[path] = hash }
+            sleep 1.milliseconds # allow publishing threads to acquire exclusive lock between files
             yield({path, hash})
           end
         end
       end
 
       def with_file(filename, & : MFile | File | Nil -> _)
-        if @files.has_key? filename
-          if mfile = @files[filename]
+        # has_key? needed because `files[filename]? == nil` means both "not found" and "non-MFile"
+        has_key, mfile = @file_index.shared { |files, _checksums| {files.has_key?(filename), files[filename]?} }
+        if has_key
+          if mfile
             yield mfile
           else
             path = File.join(@data_dir, filename)
@@ -173,7 +198,8 @@ module LavinMQ
 
       def listen(server : TCPServer)
         server.listen
-        @checksums.restore
+        # called before accepting followers, no lock needed
+        @file_index.lock { |_files, checksums| checksums.restore }
         Log.info { "Listening on #{server.local_address}" }
         @listeners << server
 
@@ -202,7 +228,6 @@ module LavinMQ
         # Only allow one follower to do full sync at a time
         # The bandwidth between nodes should be very high, so
         # better with one fully synced than 2 partially synced followers
-        # Also @files and @checksums are not protected by locks
         # @sync_lock is always acquired before @lock to avoid deadlock
         @sync_lock.synchronize do
           follower.full_sync # sync the bulk
@@ -254,7 +279,7 @@ module LavinMQ
           @followers.clear
         end
         Fiber.yield # required for follower/listener fibers to actually finish
-        @checksums.store
+        @file_index.lock { |_files, checksums| checksums.store }
       end
 
       private def each_follower(& : Follower -> Nil) : Nil
