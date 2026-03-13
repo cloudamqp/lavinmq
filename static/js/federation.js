@@ -87,7 +87,7 @@ document.querySelector('#createUpstream').addEventListener('submit', function (e
   HTTP.submitForm(evt.target, 'PUT', url, {
     body,
     table: upstreamsTable
-  }).then(()=> {
+  }).then(() => {
     DOM.toast(`Upstream ${name} saved`)
   })
 })
