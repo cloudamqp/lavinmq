@@ -116,6 +116,8 @@ module LavinMQ::AMQP
       loop do
         @msg_store.empty.when_false.receive
         @log.debug { "message_expire_loop=\"Message store not empty\"" }
+        # Always check overflow here
+        drop_overflow
         if @consumers.empty?
           if ttl = time_to_message_expiration
             @log.debug { "message_expire_loop=\"Next message\" ttl=\"#{ttl}\"" }
@@ -124,7 +126,6 @@ module LavinMQ::AMQP
               @log.debug { "message_expire_loop=\"Message TTL changed\" ttl=\"#{ttl}\" consumers=0" }
             when @drop_overflow_channel.receive
               @log.debug { "message_expire_loop=\"Drop overflow\" ttl=\"#{ttl}\" consumers=0" }
-              drop_overflow
             when @msg_store.empty.when_true.receive
               @log.debug { "message_expire_loop=\"Message store is empty\" ttl=\"#{ttl}\" consumers=0" }
             when @consumers_empty.when_false.receive
@@ -132,7 +133,6 @@ module LavinMQ::AMQP
             when timeout ttl
               @log.debug { "message_expire_loop=\"Message TTL reached\" ttl=\"#{ttl}\" consumers=0" }
               expire_messages
-              drop_overflow
             end
           else
             select
@@ -140,7 +140,6 @@ module LavinMQ::AMQP
               @log.debug { "message_expire_loop=\"Message TTL changed\" ttl=\"nil\" consumer=0" }
             when @drop_overflow_channel.receive
               @log.debug { "message_expire_loop=\"Drop overflow\" ttl=\"nil\" consumer=0" }
-              drop_overflow
             when @msg_store.empty.when_true.receive
               @log.debug { "message_expire_loop=\"Msg store is empty\" ttl=\"nil\" consumer=0" }
             end
@@ -149,7 +148,6 @@ module LavinMQ::AMQP
           select
           when @drop_overflow_channel.receive
             @log.debug { "message_expire_loop=\"Drop overflow while having consumers\"" }
-            drop_overflow
           when @consumers_empty.when_true.receive
             @log.debug { "message_expire_loop=\"Lost consumers\"" }
           end
@@ -570,8 +568,9 @@ module LavinMQ::AMQP
     end
 
     private def drop_overflow : Nil
-      counter = 0
+      return if immediate_delivery?
 
+      counter = 0
       if ml = @max_length
         loop do
           env = @msg_store_lock.synchronize do
