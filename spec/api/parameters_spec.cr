@@ -406,6 +406,24 @@ describe LavinMQ::HTTP::ParametersController do
         body.as_a.each { |v| keys.each { |k| v.as_h.keys.should contain(k) } }
       end
     end
+
+    it "should allow policymaker to list global parameters" do
+      with_http_server do |http, s|
+        s.users.create("arnold", "pw", [LavinMQ::Tag::PolicyMaker])
+        hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
+        response = http.get("/api/global-parameters", headers: hdrs)
+        response.status_code.should eq 200
+      end
+    end
+
+    it "should refuse management users from listing global parameters" do
+      with_http_server do |http, s|
+        s.users.create("arnold", "pw", [LavinMQ::Tag::Management])
+        hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
+        response = http.get("/api/global-parameters", headers: hdrs)
+        response.status_code.should eq 403
+      end
+    end
   end
   describe "GET /api/global-parameters/name" do
     it "should return parameter" do
@@ -416,8 +434,38 @@ describe LavinMQ::HTTP::ParametersController do
         response.status_code.should eq 200
       end
     end
+
+    it "should allow policymaker to get a global parameter" do
+      with_http_server do |http, s|
+        p = LavinMQ::Parameter.new(nil, "name", JSON::Any.new({} of String => JSON::Any))
+        s.add_parameter(p)
+        s.users.create("arnold", "pw", [LavinMQ::Tag::PolicyMaker])
+        hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
+        response = http.get("/api/global-parameters/name", headers: hdrs)
+        response.status_code.should eq 200
+      end
+    end
+
+    it "should refuse management users from getting a global parameter" do
+      with_http_server do |http, s|
+        s.users.create("arnold", "pw", [LavinMQ::Tag::Management])
+        hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
+        response = http.get("/api/global-parameters/name", headers: hdrs)
+        response.status_code.should eq 403
+      end
+    end
   end
   describe "PUT /api/global-parameters/name" do
+    it "should refuse management users from creating a global parameter" do
+      with_http_server do |http, s|
+        s.users.create("arnold", "pw", [LavinMQ::Tag::Management])
+        hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
+        body = %({"value": {}})
+        response = http.put("/api/global-parameters/name", headers: hdrs, body: body)
+        response.status_code.should eq 403
+      end
+    end
+
     it "should create global parameter" do
       with_http_server do |http, s|
         s.delete_parameter(nil, "name")
@@ -468,6 +516,17 @@ describe LavinMQ::HTTP::ParametersController do
     end
   end
   describe "DELETE /api/global-parameters/name" do
+    it "should refuse management users from deleting a global parameter" do
+      with_http_server do |http, s|
+        s.users.create("arnold", "pw", [LavinMQ::Tag::Management])
+        hdrs = ::HTTP::Headers{"Authorization" => "Basic YXJub2xkOnB3"}
+        p = LavinMQ::Parameter.new(nil, "name", JSON::Any.new({} of String => JSON::Any))
+        s.add_parameter(p)
+        response = http.delete("/api/global-parameters/name", headers: hdrs)
+        response.status_code.should eq 403
+      end
+    end
+
     it "should delete parameter" do
       with_http_server do |http, s|
         p = LavinMQ::Parameter.new(nil, "name", JSON::Any.new({} of String => JSON::Any))
