@@ -300,6 +300,12 @@ module LavinMQ
       @[IniOpt(section: "main", transform: ->ConsistentHashAlgorithm.parse(String))]
       property default_consistent_hash_algorithm : ConsistentHashAlgorithm = ConsistentHashAlgorithm::Ring
 
+      @[IniOpt(section: "main")]
+      property connection_rate_limit = 0 # max new connections per second, 0 = unlimited
+
+      @[IniOpt(section: "main")]
+      property connection_rate_limit_per_ip = 0 # max new connections per second per source IP, 0 = unlimited
+
       # Deprecated options - these forward to the primary option in [main]
 
       @[IniOpt(ini_name: tls_cert, section: "amqp", deprecated: "tls_cert in [main]")]
