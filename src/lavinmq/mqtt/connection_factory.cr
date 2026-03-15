@@ -30,7 +30,8 @@ module LavinMQ
               connack io, session_present, Connack::ReturnCode::Accepted
               return broker.add_client(io, connection_info, user, packet)
             else
-              logger.warn { "Authentication failure for user \"#{packet.username}\"" }
+              username = packet.username || ""
+              logger.warn { "Authentication failure for user \"#{username}\"" }
               connack io, false, Connack::ReturnCode::NotAuthorized
             end
           end
