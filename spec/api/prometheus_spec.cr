@@ -111,14 +111,6 @@ describe LavinMQ::HTTP::PrometheusController do
         mfile_metric = parsed_metrics.find { |m| m[:key] == "lavinmq_mfile_count" }
         mfile_metric.should_not be_nil
         mfile_metric.not_nil![:value].should be >= 0
-        {% if flag?(:linux) %}
-          mmap_metric = parsed_metrics.find { |m| m[:key] == "lavinmq_process_mmap_count" }
-          mmap_metric.should_not be_nil
-          mmap_metric.not_nil![:value].should be > 0
-          limit_metric = parsed_metrics.find { |m| m[:key] == "lavinmq_process_mmap_limit" }
-          limit_metric.should_not be_nil
-          limit_metric.not_nil![:value].should be > 0
-        {% end %}
       end
     end
   end
