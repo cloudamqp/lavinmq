@@ -563,7 +563,7 @@ module LavinMQ::AMQP
     end
 
     private def signal_drop_overflow : Nil
-      @drop_overflow_channel.try_send?(nil) if (@max_length || @max_length_bytes) && !immediate_delivery?
+      @drop_overflow_channel.try_send?(nil) # if (@max_length || @max_length_bytes) && !immediate_delivery?
     end
 
     private def drop_overflow : Nil
