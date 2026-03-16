@@ -178,6 +178,59 @@ function disableUserMenuVhost () {
   vhostMenu.title = 'Current view is locked to a specific vhost'
 }
 
+const stateClasses = new class {
+  #values
+  // track any classes handled by stateClasses
+  #state_classes = []
+  constructor () {
+    this.#values = document.documentElement.classList
+    const value = window.localStorage.getItem('lmq.stateclasses')
+    if (!(value === null || value === '')) {
+      this.#state_classes = value.split(' ').filter(Boolean)
+      this.#values.add(...this.#state_classes)
+    }
+  }
+
+  #persist (track = null) {
+    if (track && !this.#state_classes.includes(track)) {
+      this.#state_classes.push(track)
+    }
+    if (this.#values.length > 0 && this.#state_classes.length > 0) {
+      const klasses = this.#values.values().filter(i => this.#state_classes.includes(i)).toArray()
+      window.localStorage.setItem('lmq.stateclasses', klasses.join(' '))
+    } else {
+      window.localStorage.removeItem('lmq.stateclasses')
+    }
+  }
+
+  has (klass) {
+    return this.#values.contains(klass)
+  }
+
+  toggle (klass) {
+    const ret = this.#values.toggle(klass)
+    this.#persist(klass)
+    return ret
+  }
+
+  add (klass) {
+    if (!this.#values.contains(klass)) {
+      this.#values.add(klass)
+      this.#persist(klass)
+    }
+  }
+
+  remove (toRemove) {
+    if (typeof toRemove === 'string') {
+      this.#values.remove(toRemove)
+    } else if (toRemove instanceof Array) {
+      this.#values.remove(...toRemove)
+    } else if (toRemove instanceof RegExp) {
+      this.#values.remove(...this.#values.values().filter(v => toRemove.test(v)))
+    }
+    this.#persist()
+  }
+}()
 export {
   addVhostOptions,
   formatNumber,
@@ -188,5 +241,6 @@ export {
   formatJSONargument,
   autoCompleteDatalist,
   formatTimestamp,
-  disableUserMenuVhost
+  disableUserMenuVhost,
+  stateClasses
 }
