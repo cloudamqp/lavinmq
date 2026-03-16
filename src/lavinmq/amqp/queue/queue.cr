@@ -116,7 +116,6 @@ module LavinMQ::AMQP
       loop do
         @msg_store.empty.when_false.receive
         @log.debug { "message_expire_loop=\"Message store not empty\"" }
-        # Always check overflow here
         drop_overflow
         if @consumers.empty?
           if ttl = time_to_message_expiration
@@ -287,14 +286,14 @@ module LavinMQ::AMQP
         unless @max_length.try &.< value.as_i64
           @max_length = value.as_i64
           @effective_args.delete("x-max-length")
-          drop_overflow
+          signal_drop_overflow
           return true
         end
       when "max-length-bytes"
         unless @max_length_bytes.try &.< value.as_i64
           @max_length_bytes = value.as_i64
           @effective_args.delete("x-max-length-bytes")
-          drop_overflow
+          signal_drop_overflow
           return true
         end
       when "message-ttl"
