@@ -47,7 +47,7 @@ module LavinMQ::AMQP
         @msg_store.push(msg)
       end
       @publish_count.add(1, :relaxed)
-      @message_ttl_change.send nil
+      cleanup_messages(CleanupReason::TTLChange)
       true
     rescue ex : MessageStore::Error
       @log.error(ex) { "Queue closed due to error" }
@@ -71,13 +71,13 @@ module LavinMQ::AMQP
           end
           select
           when @msg_store.empty.when_true.receive # purge?
-          when @message_ttl_change.receive
+          when @cleanup_message_channel.receive
           when timeout ttl
             expire_messages
           end
         else
           select
-          when @message_ttl_change.receive
+          when @cleanup_message_channel.receive
           when @msg_store.empty.when_false.receive
             Fiber.yield
           end

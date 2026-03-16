@@ -63,8 +63,11 @@ module LavinMQ::AMQP
     @deliveries = Hash(SegmentPosition, Int32).new
     @consumers = Array(Client::Channel::Consumer).new
     @consumers_lock = Mutex.new
-    @message_ttl_change = ::Channel(Nil).new
-    @drop_overflow_channel = ::Channel(Nil).new
+    enum CleanupReason
+      TTLChange
+      Overflow
+    end
+    @cleanup_message_channel = ::Channel(CleanupReason).new
 
     getter basic_get_unacked = Deque(UnackedMessage).new
     @unacked_count = Atomic(UInt32).new(0u32)
@@ -121,10 +124,8 @@ module LavinMQ::AMQP
           if ttl = time_to_message_expiration
             @log.debug { "message_expire_loop=\"Next message\" ttl=\"#{ttl}\"" }
             select
-            when @message_ttl_change.receive
-              @log.debug { "message_expire_loop=\"Message TTL changed\" ttl=\"#{ttl}\" consumers=0" }
-            when @drop_overflow_channel.receive
-              @log.debug { "message_expire_loop=\"Drop overflow\" ttl=\"#{ttl}\" consumers=0" }
+            when reason = @cleanup_message_channel.receive
+              @log.debug { "message_expire_loop=\"Message cleanup\" reason=#{reason} ttl=\"#{ttl}\" consumers=0" }
             when @msg_store.empty.when_true.receive
               @log.debug { "message_expire_loop=\"Message store is empty\" ttl=\"#{ttl}\" consumers=0" }
             when @consumers_empty.when_false.receive
@@ -135,18 +136,16 @@ module LavinMQ::AMQP
             end
           else
             select
-            when @message_ttl_change.receive
-              @log.debug { "message_expire_loop=\"Message TTL changed\" ttl=\"nil\" consumer=0" }
-            when @drop_overflow_channel.receive
-              @log.debug { "message_expire_loop=\"Drop overflow\" ttl=\"nil\" consumer=0" }
+            when reason = @cleanup_message_channel.receive
+              @log.debug { "message_expire_loop=\"Message cleanup\" reason=#{reason} ttl=\"nil\" consumers=0" }
             when @msg_store.empty.when_true.receive
               @log.debug { "message_expire_loop=\"Msg store is empty\" ttl=\"nil\" consumer=0" }
             end
           end
         else
           select
-          when @drop_overflow_channel.receive
-            @log.debug { "message_expire_loop=\"Drop overflow while having consumers\"" }
+          when reason = @cleanup_message_channel.receive
+            @log.debug { "message_expire_loop=\"Message cleanup\" reason=#{reason} having consumers" }
           when @consumers_empty.when_true.receive
             @log.debug { "message_expire_loop=\"Lost consumers\"" }
           end
@@ -225,8 +224,7 @@ module LavinMQ::AMQP
       @state = QueueState::Running
       # Recreate channels that were closed
       @queue_expiration_ttl_change = ::Channel(Nil).new
-      @message_ttl_change = ::Channel(Nil).new
-      @drop_overflow_channel = ::Channel(Nil).new
+      @cleanup_message_channel = ::Channel(CleanupReason).new
       @paused = BoolChannel.new(false)
       @consumers_empty = BoolChannel.new(true)
       @single_active_consumer_change = ::Channel(Client::Channel::Consumer).new
@@ -286,20 +284,20 @@ module LavinMQ::AMQP
         unless @max_length.try &.< value.as_i64
           @max_length = value.as_i64
           @effective_args.delete("x-max-length")
-          signal_drop_overflow
+          cleanup_messages(CleanupReason::Overflow)
           return true
         end
       when "max-length-bytes"
         unless @max_length_bytes.try &.< value.as_i64
           @max_length_bytes = value.as_i64
           @effective_args.delete("x-max-length-bytes")
-          signal_drop_overflow
+          cleanup_messages(CleanupReason::Overflow)
           return true
         end
       when "message-ttl"
         unless @message_ttl.try &.< value.as_i64
           @message_ttl = value.as_i64
-          @message_ttl_change.try_send? nil
+          cleanup_messages(CleanupReason::TTLChange)
           @effective_args.delete("x-message-ttl")
           return true
         end
@@ -373,7 +371,7 @@ module LavinMQ::AMQP
       @effective_args << "x-max-length-bytes" if @max_length_bytes
       @message_ttl = parse_header("x-message-ttl", Int).try &.to_i64
       @effective_args << "x-message-ttl" if @message_ttl
-      @message_ttl_change.try_send? nil
+      cleanup_messages(CleanupReason::TTLChange)
       @delivery_limit = parse_header("x-delivery-limit", Int).try &.to_i64
       @effective_args << "x-delivery-limit" if @delivery_limit
       overflow = parse_header("x-overflow", String)
@@ -443,8 +441,7 @@ module LavinMQ::AMQP
       @closed = true
       @state = QueueState::Closed
       @queue_expiration_ttl_change.close
-      @message_ttl_change.close
-      @drop_overflow_channel.close
+      @cleanup_message_channel.close
       @paused.close
       @consumers_empty.close
       @consumers_lock.synchronize do
@@ -537,7 +534,7 @@ module LavinMQ::AMQP
         @msg_store.push(msg)
       end
       @publish_count.add(1, :relaxed)
-      signal_drop_overflow
+      cleanup_messages(CleanupReason::Overflow)
       true
     rescue ex : MessageStore::Error
       @log.error(ex) { "Queue closed due to error" }
@@ -562,8 +559,8 @@ module LavinMQ::AMQP
       end
     end
 
-    private def signal_drop_overflow : Nil
-      @drop_overflow_channel.try_send?(nil) # if (@max_length || @max_length_bytes) && !immediate_delivery?
+    private def cleanup_messages(reason : CleanupReason) : Nil
+      @cleanup_message_channel.try_send?(reason) if (@max_length || @max_length_bytes) && !immediate_delivery?
     end
 
     private def drop_overflow : Nil
@@ -765,7 +762,7 @@ module LavinMQ::AMQP
           # requeuing of failed delivery is up to the consumer
         end
         # Signal expire loop to recalculate wait time for next message
-        @message_ttl_change.try_send? nil
+        cleanup_messages(CleanupReason::TTLChange)
         return true
       end
       false
@@ -836,7 +833,7 @@ module LavinMQ::AMQP
           @msg_store_lock.synchronize do
             @msg_store.requeue(sp)
           end
-          signal_drop_overflow
+          cleanup_messages(CleanupReason::Overflow)
         end
       else
         expire_msg(sp, :rejected)
@@ -909,7 +906,7 @@ module LavinMQ::AMQP
       @log.info { "Purged #{delete_count} messages" }
       # Signal expire loop to recalculate wait time for next message
       if delete_count > 0
-        @message_ttl_change.try_send? nil
+        cleanup_messages(CleanupReason::TTLChange)
       end
       delete_count
     rescue ex : MessageStore::Error
