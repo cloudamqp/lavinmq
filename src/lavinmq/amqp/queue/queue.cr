@@ -560,7 +560,7 @@ module LavinMQ::AMQP
     end
 
     private def cleanup_messages(reason : CleanupReason) : Nil
-      @cleanup_message_channel.try_send?(reason) if (@max_length || @max_length_bytes) && !immediate_delivery?
+      @cleanup_message_channel.try_send?(reason)
     end
 
     private def drop_overflow : Nil
