@@ -47,7 +47,7 @@ module LavinMQ::AMQP
         @msg_store.push(msg)
       end
       @publish_count.add(1, :relaxed)
-      cleanup_messages(CleanupReason::TTLChange)
+      @cleanup_message_channel.try_send?(CleanupReason::TTLChange)
       true
     rescue ex : MessageStore::Error
       @log.error(ex) { "Queue closed due to error" }
