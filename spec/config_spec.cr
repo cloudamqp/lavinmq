@@ -442,15 +442,18 @@ describe LavinMQ::Config do
       end
       stderr_file = File.tempfile("stderr")
       old_stderr = STDERR.dup
-      STDERR.reopen(File.open(stderr_file.path, "w"))
+      file = File.open(stderr_file.path, "w")
       begin
+        STDERR.reopen(file)
         config = LavinMQ::Config.new
         argv = ["-c", config_file.path]
         config.parse(argv)
       ensure
         STDERR.reopen(old_stderr)
+        file.close
       end
       File.read(stderr_file.path).should match(/is deprecated/)
+      stderr_file.delete
     end
 
     it "should log warning for cli options" do
@@ -461,15 +464,18 @@ describe LavinMQ::Config do
       end
       stderr_file = File.tempfile("stderr")
       old_stderr = STDERR.dup
-      STDERR.reopen(File.open(stderr_file.path, "w"))
+      file = File.open(stderr_file.path, "w")
       begin
+        STDERR.reopen(file)
         config = LavinMQ::Config.new
         argv = ["-c", config_file.path, "--default-password", "8Yw8kj5HkhfRxQ/3kbTAO/nmgqGpkvMsGDbUWXA6+jTF3JP3"]
         config.parse(argv)
       ensure
         STDERR.reopen(old_stderr)
+        file.close
       end
       File.read(stderr_file.path).should match(/is deprecated/)
+      stderr_file.delete
     end
 
     it "should forward ini option values to the new property" do
