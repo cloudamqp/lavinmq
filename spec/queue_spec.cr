@@ -945,7 +945,7 @@ describe LavinMQ::AMQP::Queue do
     it "should handle both TTL expiration and max-length on the same queue" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
-          dlq = ch.queue("ttl_overflow_dlq")
+          ch.queue("ttl_overflow_dlq")
           args = AMQP::Client::Arguments.new({
             "x-max-length"              => 3_i64,
             "x-message-ttl"             => 500,
