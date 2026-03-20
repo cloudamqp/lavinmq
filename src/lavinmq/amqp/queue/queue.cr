@@ -560,6 +560,7 @@ module LavinMQ::AMQP
     end
 
     private def drop_overflow : Nil
+      return unless @max_length || @max_length_bytes
       return if immediate_delivery?
 
       counter = 0
