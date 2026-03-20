@@ -896,4 +896,94 @@ describe LavinMQ::AMQP::Queue do
       end
     end
   end
+
+  describe "async overflow drop" do
+    it "should enforce max-length without consumers" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          args = AMQP::Client::Arguments.new({"x-max-length" => 3_i64})
+          q = ch.queue("overflow_no_consumer", args: args)
+          5.times { |i| q.publish_confirm "msg-#{i}" }
+          queue = s.vhosts["/"].queues["overflow_no_consumer"]
+          wait_for { queue.message_count <= 3 }
+          queue.message_count.should eq 3
+        end
+      end
+    end
+
+    it "should enforce max-length-bytes without consumers" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          body = "x" * 100
+          # Allow room for 2 messages but not 3
+          args = AMQP::Client::Arguments.new({"x-max-length-bytes" => 250_i64})
+          q = ch.queue("overflow_bytes_no_consumer", args: args)
+          5.times { q.publish_confirm body }
+          queue = s.vhosts["/"].queues["overflow_bytes_no_consumer"]
+          wait_for { queue.message_count <= 2 }
+          queue.message_count.should be <= 2
+        end
+      end
+    end
+
+    it "should not drop overflow when consumers can deliver" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          args = AMQP::Client::Arguments.new({"x-max-length" => 2_i64})
+          q = ch.queue("overflow_with_consumer", args: args)
+          msgs = [] of AMQP::Client::DeliverMessage
+          q.subscribe { |msg| msgs << msg }
+          5.times { |i| q.publish_confirm "msg-#{i}" }
+          wait_for { msgs.size == 5 }
+          msgs.size.should eq 5
+        end
+      end
+    end
+  end
+
+  describe "TTL and overflow interaction" do
+    it "should handle both TTL expiration and max-length on the same queue" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          dlq = ch.queue("ttl_overflow_dlq")
+          args = AMQP::Client::Arguments.new({
+            "x-max-length"              => 3_i64,
+            "x-message-ttl"             => 500,
+            "x-dead-letter-exchange"    => "",
+            "x-dead-letter-routing-key" => "ttl_overflow_dlq",
+          })
+          q = ch.queue("ttl_overflow_q", args: args)
+          queue = s.vhosts["/"].queues["ttl_overflow_q"]
+
+          # Publish 5 messages — overflow should drop 2 (max-length=3)
+          5.times { |i| q.publish_confirm "msg-#{i}" }
+          wait_for { queue.message_count <= 3 }
+          queue.message_count.should eq 3
+
+          # Wait for TTL to expire remaining messages
+          wait_for { queue.message_count == 0 }
+          queue.message_count.should eq 0
+
+          # All 5 should end up dead-lettered (2 maxlen + 3 expired)
+          dlq_queue = s.vhosts["/"].queues["ttl_overflow_dlq"]
+          wait_for { dlq_queue.message_count == 5 }
+          dlq_queue.message_count.should eq 5
+        end
+      end
+    end
+
+    it "should still expire TTL messages when overflow signal arrives" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          args = AMQP::Client::Arguments.new({"x-message-ttl" => 200})
+          q = ch.queue("ttl_with_overflow_signal", args: args)
+          queue = s.vhosts["/"].queues["ttl_with_overflow_signal"]
+
+          3.times { |i| q.publish_confirm "msg-#{i}" }
+          wait_for { queue.message_count == 0 }
+          queue.message_count.should eq 0
+        end
+      end
+    end
+  end
 end
