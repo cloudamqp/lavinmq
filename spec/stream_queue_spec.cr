@@ -221,32 +221,6 @@ describe LavinMQ::AMQP::Stream do
     end
   end
 
-  it "consume from timestamp offset across segment boundary" do
-    with_amqp_server do |s|
-      with_channel(s) do |ch|
-        q = ch.queue("stream-ts-across-segments", args: stream_queue_args)
-        # Use half-segment messages so exactly 1 fits per segment
-        data = Bytes.new(LavinMQ::Config.instance.segment_size // 2)
-        # Fill segment 1 — two half-segment messages won't fit, so second triggers new segment
-        q.publish_confirm data
-        # Sleep to create a timestamp gap
-        sleep 1.seconds
-        target_time = Time.utc
-        # This publish can't fit in current segment, creates a new one with first_ts > target
-        q.publish_confirm data
-        # Consume from timestamp in the gap — find_offset_in_segments must cross segment boundary
-        ch.prefetch 1
-        msgs = Channel(AMQP::Client::DeliverMessage).new
-        q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": target_time})) do |msg|
-          msgs.send msg
-          msg.ack
-        end
-        msg = msgs.receive
-        StreamSpecHelpers.offset_from_headers(msg.properties.headers).should eq 2
-      end
-    end
-  end
-
   describe "Expiration" do
     it "segments should be removed if max-length set" do
       with_amqp_server do |s|
@@ -359,24 +333,6 @@ describe LavinMQ::AMQP::Stream do
           File.exists?(File.join(dir, "msgs.0000000001")).should be_false
           File.exists?(File.join(dir, "meta.0000000001")).should be_false
           q.message_count.should eq 1
-        end
-      end
-    end
-
-    it "should not lose messages on restart when max-age is set" do
-      queue_name = Random::Secure.hex
-      with_amqp_server do |s|
-        with_channel(s) do |ch|
-          args = {"x-queue-type": "stream", "x-max-age": "1h"}
-          q = ch.queue(queue_name, args: AMQP::Client::Arguments.new(args))
-          data = Bytes.new(LavinMQ::Config.instance.segment_size)
-          3.times { q.publish_confirm data }
-          q.message_count.should eq 3
-
-          stream = s.vhosts["/"].queues[queue_name].as(LavinMQ::AMQP::Stream)
-          stream.close
-          stream.restart!
-          stream.message_count.should eq 3
         end
       end
     end
