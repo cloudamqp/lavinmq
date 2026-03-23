@@ -614,4 +614,28 @@ describe LavinMQ::Config do
     config.http_bind.should eq "0.0.0.0"
     config.mqtt_bind.should eq "0.0.0.0"
   end
+
+  it "parses deprecated --guest-only-loopback CLI flag" do
+    config = LavinMQ::Config.new
+    argv = ["--guest-only-loopback", "false"]
+    config.parse(argv)
+    config.default_user_only_loopback?.should be_false
+  ensure
+    ENV.delete("LAVINMQ_DATADIR")
+  end
+
+  it "parses deprecated guest_only_loopback INI option" do
+    config_file = File.tempfile do |file|
+      file.print <<-CONFIG
+        [main]
+        guest_only_loopback = false
+      CONFIG
+    end
+    config = LavinMQ::Config.new
+    config.parse(["-c", config_file.path])
+    config.default_user_only_loopback?.should be_false
+  ensure
+    config_file.try &.delete
+    ENV.delete("LAVINMQ_DATADIR")
+  end
 end
