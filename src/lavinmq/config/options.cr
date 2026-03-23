@@ -250,7 +250,11 @@ module LavinMQ
 
       @[CliOpt("", "--guest-only-loopback=BOOL", "Limit guest user to only connect from loopback address", deprecated: "Use --default-user-only-loopback instead.", section: "options")]
       @[IniOpt(section: "main", deprecated: "default_user_only_loopback")]
-      property? guest_only_loopback : Bool = true
+      @guest_only_loopback : Bool = true
+
+      def guest_only_loopback=(value : Bool)
+        @default_user_only_loopback = value
+      end
 
       @[CliOpt("", "--no-data-dir-lock", "Don't put a file lock in the data directory (default true)", section: "options")]
       @[IniOpt(section: "main")]
