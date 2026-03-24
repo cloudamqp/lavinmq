@@ -328,6 +328,15 @@ module LavinMQ
   end
 
   class GlobalDefinitions < DefinitionsImporter
+    Log = LavinMQ::Log.for "definitions"
+
+    def self.import_from_file(path : String, amqp_server : Server)
+      Log.info { "Importing definitions from #{path}" }
+      body = JSON.parse(File.read(path))
+      new(amqp_server).import(body)
+      Log.info { "Definitions imported from #{path}" }
+    end
+
     def import(body)
       import_users(body)
       import_vhosts(body)

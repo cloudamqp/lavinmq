@@ -140,16 +140,7 @@ module LavinMQ
     private def load_definitions(amqp_server)
       path = @config.load_definitions
       return if path.empty?
-      Log.info { "Importing definitions from #{path}" }
-      body = JSON.parse(File.read(path))
-      GlobalDefinitions.new(amqp_server).import(body)
-      Log.info { "Definitions imported from #{path}" }
-    rescue File::NotFoundError
-      Log.error { "Definitions file not found: #{path}" }
-      raise "Definitions file not found: #{path}"
-    rescue ex : JSON::ParseException
-      Log.error { "Invalid JSON in definitions file #{path}: #{ex.message}" }
-      raise "Invalid JSON in definitions file #{path}: #{ex.message}"
+      GlobalDefinitions.import_from_file(path, amqp_server)
     end
 
     private def setup_log_exchange(amqp_server)

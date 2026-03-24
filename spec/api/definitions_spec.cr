@@ -1,7 +1,7 @@
 require "../spec_helper"
 
 describe LavinMQ::GlobalDefinitions do
-  describe "load_definitions config" do
+  describe ".import_from_file" do
     it "imports definitions from a JSON file" do
       defs = {
         "queues" => [
@@ -12,9 +12,30 @@ describe LavinMQ::GlobalDefinitions do
       File.write(tmpfile, defs.to_json)
       begin
         with_amqp_server do |s|
-          body = JSON.parse(File.read(tmpfile))
-          LavinMQ::GlobalDefinitions.new(s).import(body)
+          LavinMQ::GlobalDefinitions.import_from_file(tmpfile, s)
           s.vhosts["/"].queues.has_key?("load_def_q1").should be_true
+        end
+      ensure
+        File.delete?(tmpfile)
+      end
+    end
+
+    it "raises if definitions file not found" do
+      with_amqp_server do |s|
+        expect_raises(File::NotFoundError) do
+          LavinMQ::GlobalDefinitions.import_from_file("/tmp/nonexistent_#{rand(100000)}.json", s)
+        end
+      end
+    end
+
+    it "raises on invalid JSON" do
+      tmpfile = File.tempname("lavinmq-defs", ".json")
+      File.write(tmpfile, "not valid json")
+      begin
+        with_amqp_server do |s|
+          expect_raises(JSON::ParseException) do
+            LavinMQ::GlobalDefinitions.import_from_file(tmpfile, s)
+          end
         end
       ensure
         File.delete?(tmpfile)
