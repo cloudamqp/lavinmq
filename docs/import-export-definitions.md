@@ -17,8 +17,8 @@ An exported definitions file can be used to restore the basic setup on a seconda
 
 Definitions can be exported or imported as a JSON using any of the following methods:
 
-- The [LavinMQ management interface](/documentation/management-interface-overview)
-- Using [lavinmqctl](/documentation/lavinmqctl) commands export_definitions and import_defintions
+- The [LavinMQ management interface](management-interface-overview.md)
+- Using [lavinmqctl](lavinmqctl.md) commands export_definitions and import_defintions
 - Calling the [api/definitions](https://docs.lavinmq.com/http-api.html#tag/definitions) API endpoint
 
 Note: Be aware that the exported definitions contain hashed passwords.
@@ -27,7 +27,7 @@ Note: Be aware that the exported definitions contain hashed passwords.
 
 The LavinMQ management overview tab contains two sections, namely Upload definitions and Export definitions.
 
-<img alt="Upload and export definitions in LavinMQ management interface" src="/img/docs/docs-dm/add-remove-defs-dm-2x.png" class="border border-[#414040]" />
+<img alt="Upload and export definitions in LavinMQ management interface" src="img/docs/add-remove-defs-dm-2x.png" class="border border-[#414040]" />
 
 #### Upload definitions
 

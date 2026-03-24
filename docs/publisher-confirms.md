@@ -1,7 +1,7 @@
 
 <!-- prettier-ignore-start -->
 
-Messages in transit might get lost if the broker goes down before LavinMQ has the chance to receive it. This can happen in the event of a connection failure or during a broker restart. Sometimes you want these messages to be retransmitted from the publisher to the LavinMQ server. Publish confirm lets the client knows when to retransmit messages. [Consumer acknowledgements](/documentation/consumer-acknowledgements) are the same concept but on the consumer side; the client confirms when it has received a message from the LavinMQ.
+Messages in transit might get lost if the broker goes down before LavinMQ has the chance to receive it. This can happen in the event of a connection failure or during a broker restart. Sometimes you want these messages to be retransmitted from the publisher to the LavinMQ server. Publish confirm lets the client knows when to retransmit messages. [Consumer acknowledgements](consumer-acknowledgements.md) are the same concept but on the consumer side; the client confirms when it has received a message from the LavinMQ.
 
 ### What is Publisher Confirms?
 

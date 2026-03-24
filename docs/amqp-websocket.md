@@ -93,4 +93,4 @@ client.on('message', function (topic, message) {
 
 ### WebSocket tutorial
 Dive in with our hands-on guide to get started with WebSockets in LavinMQ.
-Try out the [websocket tutorial](/documentation/websocket-tutorial).
+Try out the [websocket tutorial](https://lavinmq.com/documentation/websocket-tutorial).

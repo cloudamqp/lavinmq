@@ -49,7 +49,7 @@ queue = channel.queue("bunny_queue", arguments: {"x-max-priority" => 3})
 
 ### Consumer Interaction
 
-Consumers do not take the message priority into account, and simply process messages in the given order. A consumer connected to an empty queue will process all messages coming into it regardless of priorities. Using [prefetch](/documentation/prefetch) (*basic.qos*) can limit the number of messages sent out for delivery and still make the opportunity for the queue to prioritize incoming messages.
+Consumers do not take the message priority into account, and simply process messages in the given order. A consumer connected to an empty queue will process all messages coming into it regardless of priorities. Using [prefetch](prefetch.md) (*basic.qos*) can limit the number of messages sent out for delivery and still make the opportunity for the queue to prioritize incoming messages.
 
 ## Learning and tips
 

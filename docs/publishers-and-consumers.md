@@ -29,7 +29,7 @@
 
 ## Publishing messages
 
-To publish messages, clients establish a connection with LavinMQ. This connection serves as a pathway for communication between the client and the message broker. Within this connection, clients create a channel, which is a virtual communication pathway that allows them to interact with the message broker. For more information, refer to the documentation on [connections and channels](/documentation/amqp-connections-and-channels).
+To publish messages, clients establish a connection with LavinMQ. This connection serves as a pathway for communication between the client and the message broker. Within this connection, clients create a channel, which is a virtual communication pathway that allows them to interact with the message broker. For more information, refer to the documentation on [connections and channels](amqp-connections-and-channels.md).
 
 **Example:** Clients can start publishing messages once the connection and channel are established.
 
@@ -54,15 +54,15 @@ channel.basic_publish(
 connection.close()
 ```
 
-- Messages are sent to an [exchange](/documentation/amqp-exchanges), not directly to a queue.
-- The exchange receives messages from publishers and routes them to the correct queue(s) based on [bindings](/documentation/amqp-bindings).
+- Messages are sent to an [exchange](amqp-exchanges.md), not directly to a queue.
+- The exchange receives messages from publishers and routes them to the correct queue(s) based on [bindings](amqp-bindings.md).
 - The routing key, set by the publisher, determines the message's destination.
 
-Refer to the documentation on [exchanges](/documentation/amqp-exchanges) and [queues](/documentation/amqp-queues) for more information.
+Refer to the documentation on [exchanges](amqp-exchanges.md) and [queues](amqp-queues.md) for more information.
 
 ### Publishing to a non-existing exchange
 
-If a message is published to a non-existing exchange, the message broker typically discards the message. This happens because the exchange is responsible for routing messages, so if it doesn’t exist, there is no way for the message to reach its intended destination. However, an [Alternate Exchange](/documentation/alternate-exchange) can be configured to handle undelivered messages.
+If a message is published to a non-existing exchange, the message broker typically discards the message. This happens because the exchange is responsible for routing messages, so if it doesn’t exist, there is no way for the message to reach its intended destination. However, an [Alternate Exchange](alternate-exchange.md) can be configured to handle undelivered messages.
 
 ### The publisher lifecycle
 
@@ -133,8 +133,8 @@ Consumers are designed to be persistent, receiving multiple messages over time. 
 
 For more information about consumers and their various applications, refer to the following resources:
 
-- [Single Active Consumer](/documentation/single-active-consumer)
-- [Consumer priorities](/documentation/consumer-priorities)
-- [The Competing Consumer Pattern](/documentation/task-queue-python)
+- [Single Active Consumer](single-active-consumer.md)
+- [Consumer priorities](consumer-priorities.md)
+- [The Competing Consumer Pattern](https://lavinmq.com/documentation/task-queue-python)
 
 <!-- prettier-ignore-end -->

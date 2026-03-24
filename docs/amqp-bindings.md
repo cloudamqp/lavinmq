@@ -71,7 +71,7 @@ routing_key = "test"
 channel.queue_bind(exchange=exchange_name, queue=queue_name, routing_key=routing_key)
 ```
 
-Read more about how different [exchanges](/documentation/amqp-exchanges) are using routing keys.
+Read more about how different [exchanges](amqp-exchanges.md) are using routing keys.
 
 ### Header attributes
 
@@ -79,7 +79,7 @@ Headers can be added to a message to provide additional context and control how 
 
 A headers exchange is a type of exchange that routes messages based on these headers instead of the routing key. In a headers exchange, the routing logic is determined by the presence and values of headers in the message.
 
-When using the [header exchange](/documentation/amqp-exchanges#headers-exchange), an argument called `x-match` is used as part of the binding. The message's headers are matched to the binding's headers. This header specifies whether all headers must match or just one.
+When using the [header exchange](amqp-exchanges.md#headers-exchange), an argument called `x-match` is used as part of the binding. The message's headers are matched to the binding's headers. This header specifies whether all headers must match or just one.
 
 - The `x-match` header can have two values: `all` or `any`.
   - `all`: The message must match all the headers specified in the binding.

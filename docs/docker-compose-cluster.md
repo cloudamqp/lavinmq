@@ -3,7 +3,7 @@
 
 This guide will help you set up a 3-node LavinMQ cluster with [Docker Compose](https://docs.docker.com/compose/). 
 
-This will set up a development cluster with 3 LavinMQ nodes and 1 etcd node. LavinMQ uses etcd to track which nodes are in-sync. Note that we suggest running multiple etcd nodes in a production environment. For more information on clustering, see the [clustering docs](/documentation/clustering).
+This will set up a development cluster with 3 LavinMQ nodes and 1 etcd node. LavinMQ uses etcd to track which nodes are in-sync. Note that we suggest running multiple etcd nodes in a production environment. For more information on clustering, see the [clustering docs](clustering.md).
 
 ## Configuration
 

@@ -3,7 +3,7 @@ A policy can be set to limit the number of messages stored in a queue. This can 
 
 ## Policy for Max Queue length
 
-The maximum length allowed for a queue can be configured by setting a [policy](/documentation/policies). Policies can be set from a terminal using [lavinmqctl](/documentation/lavinmqctl) or by using the [HTTP API](https://docs.lavinmq.com/http-api.html) or [Web Management Interface](/documentation/management-interface-overview).
+The maximum length allowed for a queue can be configured by setting a [policy](policies.md). Policies can be set from a terminal using [lavinmqctl](lavinmqctl.md) or by using the [HTTP API](https://docs.lavinmq.com/http-api.html) or [Web Management Interface](management-interface-overview.md).
 
 The policy must be given a name and a pattern or exact match to determine which queues should have this policy. Additional options can be set including the number of messages or the total size of stored messages and how to handle messages published beyond the limit.
 
@@ -11,7 +11,7 @@ The policy must be given a name and a pattern or exact match to determine which 
 
 The Overflow setting determines what happens when messages beyond the allowed limit are sent to the queue. The options are to dequeue messages from the head of the queue (‘drop-head’) or to reject the message (‘reject-publish’). The default configuration for overflow is ‘drop-head’.
 
-If the queue has a [dead-letter policy](/documentation/policies) and overflow is set to ‘drop-head’, the dequeued messages will be sent to the dead letter queue. Otherwise, the dequeued messages will be deleted. In the case of ‘reject-publish’, new messages published to the queue that exceed the limit messages will be rejected.
+If the queue has a [dead-letter policy](policies.md) and overflow is set to ‘drop-head’, the dequeued messages will be sent to the dead letter queue. Otherwise, the dequeued messages will be deleted. In the case of ‘reject-publish’, new messages published to the queue that exceed the limit messages will be rejected.
 
 ## Max Queue Length
 
@@ -23,7 +23,7 @@ Alternatively, the queue can be limited by the size of the message data queue in
 
 ## Example Policies
 
-Using the [lavinmqctl cli](/documentation/lavinmqctl), we can set a max length queue policy for a queue. For this example, we want the policy to apply to a single queue (so we match the full queue name, ‘IT/Helpdesk/Requests’), to limit the number of messages in the queue to 1,000, and to reject messages published that exceed this limit. The policy name will be set to MessageCountLimit:
+Using the [lavinmqctl cli](lavinmqctl.md), we can set a max length queue policy for a queue. For this example, we want the policy to apply to a single queue (so we match the full queue name, ‘IT/Helpdesk/Requests’), to limit the number of messages in the queue to 1,000, and to reject messages published that exceed this limit. The policy name will be set to MessageCountLimit:
 
 {% highlight shell %}
 avalanchmqctl set_policy MessageCountLimit "IT/Helpdesk/Requests" \

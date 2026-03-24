@@ -84,9 +84,9 @@ connection.close()
 
 In addition to the **`x-queue-type`** argument, Streams support three additional queue arguments that can be specified at queue declaration or via a policy.
 
-- **`x-max-length`** - Sets the maximum number of messages allowed in the stream at any given time. See [**retention**](/documentation/streams#data-retention). Default: not set.
-- **`x-max-length-bytes`** - Sets the maximum size of the Stream in bytes. See [**retention**](/documentation/streams#data-retention). Default: not set.
-- **`x-max-age`** - This argument will control how long a message survives in a LavinMQ Stream. The unit of this configuration could either be in years (Y), months (M), days (D), hours (h), minutes (m), or seconds (s). See [**retention**](/documentation/streams#data-retention). Default: not set.
+- **`x-max-length`** - Sets the maximum number of messages allowed in the stream at any given time. See [**retention**](streams.md#data-retention). Default: not set.
+- **`x-max-length-bytes`** - Sets the maximum size of the Stream in bytes. See [**retention**](streams.md#data-retention). Default: not set.
+- **`x-max-age`** - This argument will control how long a message survives in a LavinMQ Stream. The unit of this configuration could either be in years (Y), months (M), days (D), hours (h), minutes (m), or seconds (s). See [**retention**](streams.md#data-retention). Default: not set.
 
 ### 3. Consuming from the stream
 
@@ -163,7 +163,7 @@ connection.close()
 
 Offsets in Streams serve a similar purpose as indexes in arrays. To start reading from a specific index in a Stream, simply specify an offset in the consumer query. Essentially, every message in a Stream has an offset. For instance, the following image illustrates how messages and their corresponding offsets would appear in a given Stream:
 
-![Streams](/img/docs/lavinmq-streams-offsets.png)
+![Streams](img/docs/lavinmq-streams-offsets.png)
 
 ## Data retention
 

@@ -1,7 +1,7 @@
 
 **Note:** It is hard to talk about webhooks in LavinMQ without referencing shovel.
 Thus, we highly recommend that you go through our
-[guide on shovel](/documentation/shovel) first, if you are not familiar with it,
+[guide on shovel](shovel.md) first, if you are not familiar with it,
 before going through this guide.
 
 Shovels in other brokers like RabbitMQ only allow moving messages between queues
@@ -34,10 +34,10 @@ destination as the HTTP endpoint capable of receiving POST requests.
 
 The image below demonstrates what this would look like:
 
-<img alt="LavinMQ Webhook" src="/img/docs/docs-dm/add-shovel-dm-2x.png" class="border border-[#414040]"/>
+<img alt="LavinMQ Webhook" src="img/docs/add-shovel-dm-2x.png" class="border border-[#414040]"/>
 
 If you are not familiar with what each field does in the image above,
-again, we encourage you to go through our [guide on shovel](/documentation/shovel).
+again, we encourage you to go through our [guide on shovel](shovel.md).
 
 In summary, we are trying to create a shovel named
 `webhookShovel`. The **source** section is where we specify the LavinMQ server

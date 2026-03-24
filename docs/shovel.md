@@ -196,7 +196,7 @@ Full API documentation can be found in the HTTP API for [parameters for componen
 
 LavinMQ shovels also support setting an HTTP target as the destination (`dest-uri`). This functionality, called webhooks, allows messages to be forwarded to an HTTP endpoint instead of another AMQP broker. This is particularly useful for integrating with external systems or services that expose HTTP APIs.
 
-For more details on webhooks, refer to the [webhooks documentation](/documentation/webhooks).
+For more details on webhooks, refer to the [webhooks documentation](webhooks.md).
 
 ### Pausing a shovel
 

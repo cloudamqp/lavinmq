@@ -15,7 +15,7 @@ Defining properties and arguments can be beneficial, and in some cases crucial. 
 
 ## Properties and Arguments
 
-Properties and Arguments can be defined for [Queues](/documentation/amqp-queues), [Exchanges](/documentation/amqp-exchanges), and [Messages](/documentation/amqp-the-protocol#message-and-content) in LavinMQ.
+Properties and Arguments can be defined for [Queues](amqp-queues.md), [Exchanges](amqp-exchanges.md), and [Messages](amqp-the-protocol.md#message-and-content) in LavinMQ.
 
 Properties are specified in the AMQP protocol 0.9.1. and implemented by LavinMQ.
 
@@ -25,7 +25,7 @@ Arguments are additional, optional features to the mandatory properties. Some Ar
 
 Examples of Queue properties are “passive”, which determines if the queue already exists, and “durable” which tell if the queue remains when a server restarts.
 
-Example Queue Arguments are [“x-max-priority”](/documentation/message-priority), which is setting a maximum number of priorities, and “x-message-ttl” which is setting managing queue TTL.
+Example Queue Arguments are [“x-max-priority”](message-priority.md), which is setting a maximum number of priorities, and “x-message-ttl” which is setting managing queue TTL.
 
 ### Exchange Properties and Arguments
 
@@ -62,18 +62,18 @@ channel.queue_declare("test_queue", arguments={
 
 A queue or exchange can be created via the Management Interface. A message can also be sent through the management interface.
 
-When manually creating a queue through the [LavinMQ Web Management Interface](/documentation/management-interface-overview) the arguments are set in a free text field and can be added to it with quick links. Properties can be set as true or false.
+When manually creating a queue through the [LavinMQ Web Management Interface](management-interface-overview.md) the arguments are set in a free text field and can be added to it with quick links. Properties can be set as true or false.
 
-<img src="/img/docs/docs-dm/add-queue-dm-2x.png" style="margin-bottom: 8px;" alt="Setting  arguments via Management Interface" class="border border-gray-200 rounded-xl"/> <small class="mt-2 block text-center">Illustration of a queue created with the durability property set to true, and two arguments, x-max-length and x-message-ttl</small>
+<img src="img/docs/add-queue-dm-2x.png" style="margin-bottom: 8px;" alt="Setting  arguments via Management Interface" class="border border-gray-200 rounded-xl"/> <small class="mt-2 block text-center">Illustration of a queue created with the durability property set to true, and two arguments, x-max-length and x-message-ttl</small>
 
-<img src="/img/docs/docs-dm/publish-message-dm-2x.png" style="margin-bottom: 8px;" alt="Setting  arguments via Management Interface" class="border border-gray-200 rounded-xl"/> <small class="mt-2 block text-center">Illustration of a message published with TTL expiration set to 36000000 milliseconds</small>
+<img src="img/docs/publish-message-dm-2x.png" style="margin-bottom: 8px;" alt="Setting  arguments via Management Interface" class="border border-gray-200 rounded-xl"/> <small class="mt-2 block text-center">Illustration of a message published with TTL expiration set to 36000000 milliseconds</small>
 
 ## Arguments and Policies
 
-Arguments can also be set using [Policies](/documentation/policies).
+Arguments can also be set using [Policies](policies.md).
 
 To set arguments, the use of policies is recommended. Policies make it possible to configure arguments for one or many queues at once, and the queues will all be updated when you’re updating the policy definition. To reduce the overhead work of configuring every single queue and exchange with arguments, the use of policies are perfect. Policies enable a way to configure multiple queues or exchanges in a consistent way, reducing the risk for sloppy mistakes in the configuration. A queue can only be applied by one policy simultaneously, but there is a priority system along with the regex recognition in order to manage several policies.
 
-![Setting arguments through policies](/img/docs/lavinmq-arguments-policy.jpg)
+![Setting arguments through policies](img/docs/lavinmq-arguments-policy.jpg)
 
-![Updating argument through policies](/img/docs/lavinmq-policy-argument-update.jpg)
+![Updating argument through policies](img/docs/lavinmq-policy-argument-update.jpg)

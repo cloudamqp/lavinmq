@@ -1,7 +1,7 @@
 
 Messages in LavinMQ are placed onto the queue in the sequential order in which they are received. The first message is placed in position 1, the second message in position 2, and so on. Messages are then consumed from the head of the queue, meaning that message 1 gets consumed first. This is called the FIFO method (first in first out). A message received by the broker is _enqueued_ (added to the queue). If there is a consumer subscribed to the queue, a message is _dequeued_ (removed from the queue) when it is sent to the consumer.
 
-![LavinMQ FIFO - First in, First out](/img/docs/lavinmq-fifo-enqueue-dequeue.jpg)
+![LavinMQ FIFO - First in, First out](img/docs/lavinmq-fifo-enqueue-dequeue.jpg)
 
 ## Factors that influence message ordering
 
@@ -16,7 +16,7 @@ Order processing can be broken when messages are redelivered. Causes of message 
 The amount of resends for unhandled messages can be adjusted, to prevent the queue from filling up. `x-delivery-limit` is configurable as a policy or queue argument. If the x-delivery-limit is set, the message will be dead-lettered or deleted after X amount of redeliveries.
 Every redeliver of a message to a consumer is counted. When the redelivery count exceeds the given limit, the message is `dead-lettered` or deleted.
 
-![LavinMQ Message Redelivery](/img/docs/lavinmq-dead-lettering.jpg)
+![LavinMQ Message Redelivery](img/docs/lavinmq-dead-lettering.jpg)
 
 ### Multiple competing consumers
 
@@ -24,17 +24,17 @@ In a case where there are multiple receiving services, or more than one consumer
 
 In the illustration below, chronological message processing is not guaranteed. Messages 1, 2, and 3 are directed to different consumers, and LavinMQ cannot force the consumer that received message 1 to finish processing it before the other consumer processes message 2 (and the same for the consumer processing message 3).
 
-![LavinMQ multiple consumers](/img/docs/lavinmq-multiple-competing-consumers.jpg)
+![LavinMQ multiple consumers](img/docs/lavinmq-multiple-competing-consumers.jpg)
 
 ### Multiple connections or channels
 
 Publishing applications can assume that messages published on a single channel will be enqueued in their published order. When publishing happens on multiple connections or channels, their messages will be routed concurrently and interleaved. See the illustration below.
 
-![LavinMQ FIFO - First in, First out](/img/docs/lavinmq-multiple-connections-channels.jpg)
+![LavinMQ FIFO - First in, First out](img/docs/lavinmq-multiple-connections-channels.jpg)
 
 ### Message priority
 
-LavinMQ allows special messages to be sent with a [higher priority](/documentation/message-priority) than normal messages. This can be useful in cases such as an urgent alarm or a task that must be handled immediately. These designated messages are placed at the head of the queue and will be directed to the next available consumer. This configuration overrides the FIFO message ordering.
+LavinMQ allows special messages to be sent with a [higher priority](message-priority.md) than normal messages. This can be useful in cases such as an urgent alarm or a task that must be handled immediately. These designated messages are placed at the head of the queue and will be directed to the next available consumer. This configuration overrides the FIFO message ordering.
 
 Note: Setting a Redelivery-limit (_x-delivery-limit_) will ensure that messages are only delivered X times according to the configuration mentioned above.
 

@@ -248,11 +248,11 @@ The internal exchange should be set if the exchange is going to be used in the e
 
 ### Delayed Exchanges
 
-Delayed exchanges introduce a delay before delivering messages, enabling delayed processing or scheduling of tasks. Read more in the [Delayed Exchanges documentation](/documentation/delayed-message).
+Delayed exchanges introduce a delay before delivering messages, enabling delayed processing or scheduling of tasks. Read more in the [Delayed Exchanges documentation](delayed-message.md).
 
 ### Exchange arguments (optional properties)
 
-The specifications of AMQP 0.9.1 enable support for various features called [arguments](/documentation/arguments-and-properties). Depending on the argument, their settings can be changed after the exchange declaration.
+The specifications of AMQP 0.9.1 enable support for various features called [arguments](arguments-and-properties.md). Depending on the argument, their settings can be changed after the exchange declaration.
 
 It is recommended that exchange arguments are set using policies to configure multiple queues simultaneously and ensure they are updated automatically when the policy definition changes.
 
@@ -277,7 +277,7 @@ It is recommended that exchange arguments are set using policies to configure mu
 
 ## Dead Letter Exchange
 
-A queue declared with the x-dead-letter-exchange property will send rejected messages, negatively acknowledged (nacked) without a requeue setting, or expired (due to TTL) to the specified dead-letter-exchange. For more information, read about the [Dead Letter Exchange](/documentation/dead-letter-exchange).
+A queue declared with the x-dead-letter-exchange property will send rejected messages, negatively acknowledged (nacked) without a requeue setting, or expired (due to TTL) to the specified dead-letter-exchange. For more information, read about the [Dead Letter Exchange](dead-letter-exchange.md).
 
 ## Exchange to Exchange bindings
 

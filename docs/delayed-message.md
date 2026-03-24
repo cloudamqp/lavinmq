@@ -29,7 +29,7 @@ LavinMQ can delay message delivery by adding a controlled waiting period between
 
 When a delayed exchange is declared, LavinMQ automatically creates an internal queue that stores the delayed messages. This internal queue is configured with a `dead-letter-exchange` argument that handles message routing once the delay period expires.
 
-![Delayed Exchange](/img/docs/docs-dm/delayed-exchange.png)
+![Delayed Exchange](img/docs/delayed-exchange.png)
 
 When a message is published to a delayed exchange, it is routed to an internal queue and stored with a delay specified in the message header, using the `x-delay` header. The internal queue assigns a Time-to-Live (TTL) equal to the value of `x-delay`. The message remains in the queue during this TTL until the delay period expires. Unlike a traditional FIFO queue, where messages are processed in order, this internal queue prioritises messages based on their individual delay values. This means messages can expire independently, without waiting for other messages to expire first. After expiration, the internal queue re-publishes the message to a dead-letter exchange set up to match the delayed exchange. Since the message is re-published with no delay, it will be routed directly to the queues bound to the routing key.
 

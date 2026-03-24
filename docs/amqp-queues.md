@@ -27,7 +27,7 @@
   </div>
 </div>
 
-LavinMQ supports two types of queues: standard queues and stream queues. Standard queues are designed for short-term message storage, where messages are discarded once handled. If multiple message processing times are required, LavinMQ offers stream queues. In stream queues, messages are not deleted after consumption, allowing multiple consumers to read the same message and enabling message replay. Read the [Stream queues documentation](/documentation/streams) for more information.
+LavinMQ supports two types of queues: standard queues and stream queues. Standard queues are designed for short-term message storage, where messages are discarded once handled. If multiple message processing times are required, LavinMQ offers stream queues. In stream queues, messages are not deleted after consumption, allowing multiple consumers to read the same message and enabling message replay. Read the [Stream queues documentation](streams.md) for more information.
 
 ## Using a queue
 
@@ -129,7 +129,7 @@ The specifications of AMQP 0.9.1 enable support for various features called argu
 
 It is recommended that queue arguments are set using policies to configure multiple queues simultaneously and ensure they are updated automatically when the policy definition changes.
 
-Read more about [policies](/documentation/policies).
+Read more about [policies](policies.md).
 
 <div class="bg-[#181818] mt-6 border border-[#414040] text-[#FAFAFA] overflow-hidden">
   <div style="overflow: auto;">
@@ -171,7 +171,7 @@ Read more about [policies](/documentation/policies).
 				</tr>
 				<tr>
 					<td><span class="font-semibold">Max Priority</span> <br/>(<code class="language-plaintext highlighter-rouge">x-max-priority</code> : Int)</td>
-					<td>Enables <strong>message prioritization</strong> with a priority range between <strong>1 and 255</strong>. Read more about message priority <a href="/documentation/message-priority">here</a>.</td>
+					<td>Enables <strong>message prioritization</strong> with a priority range between <strong>1 and 255</strong>. Read more about message priority <a href="message-priority.md">here</a>.</td>
 				</tr>
 				<tr>
 					<td><span class="font-semibold">Stream Queue</span> <br/>(<code class="language-plaintext highlighter-rouge">x-queue-type=stream</code>)</td>
@@ -214,4 +214,4 @@ Resuming a queue using RabbitMQ HTTP API:
 
 `curl -X PUT [http://guest:guest@localhost:15672/api/queues/vhost_name/queue_name/](http://guest:guest@localhost:15672/api/queues/vhost/queue/pause)resume`
 
-![Management Interface pause queue](/img/docs/pause-queue.png)
+![Management Interface pause queue](img/docs/pause-queue.png)

@@ -20,7 +20,7 @@ This feedback mechanism assures the producer that messages have been reliably
 accepted by LavinMQ.
 
 For more information, you can read our documentation on
-[publisher confirms](/documentation/publisher-confirms).
+[publisher confirms](publisher-confirms.md).
 
 ## Consumer Acknowledgements
 
@@ -31,7 +31,7 @@ isn't received, LavinMQ assumes something went wrong and the message is left in
 the queue.
 
 For more information, you can read our documentation on
-[consumer acknowledgements](/documentation/consumer-acknowledgements).
+[consumer acknowledgements](consumer-acknowledgements.md).
 
 ## Durable Queues and Persistent Messages
 
@@ -50,7 +50,7 @@ Transactions in LavinMQ offer the highest level of message persistence guarantee
 
 To learn more about transactions in LavinMQ and how they offer the highest level
 of message durability guarantee compared to pubisher confirms and consumer
-acknowledgements, check out our documentation on [transactions](/documentation/transactions).
+acknowledgements, check out our documentation on [transactions](transactions.md).
 
 ## Wrap up
 

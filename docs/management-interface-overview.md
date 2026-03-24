@@ -41,15 +41,15 @@ The management interface supports both dark and light themes. Toggle between the
 
 The Overview tab shows a quick and easy snapshot of the LavinMQ state. From the top right corner, you can choose to view metrics for all vhosts, or a specific one. This is also the location to view your user login name and to logout. The LavinMQ version is found in the top left corner next to the LavinMQ logo. When a certain vhost is specified in the top right, note that the tab will show different information depending on which vhost is selected.
 
-<!-- ![LavinMQ Management Interface](/img/docs/management-interface-overview.jpg) -->
+<!-- ![LavinMQ Management Interface](img/docs/management-interface-overview.jpg) -->
 
-<img class="border border-[#414040]" alt="LavinMQ Management Interface" src="/img/docs/docs-dm/overview-dm-2x.png" />
+<img class="border border-[#414040]" alt="LavinMQ Management Interface" src="img/docs/overview-dm-2x.png" />
 
 There are a couple of sections in this view:
 
 - An overview of the number of connections, channels, consumers, exchanges, and queues as well as uptime. Click on connections, channels, exchanges, and queues to drill down to a more detailed view.
 - Graphs for the number of queued messages with ready, unacked, and total, as well as Data Rates in bytes per second and Message Rates in messages per second. The graphs will show data for the last 5 minutes or hover over them to show the metric for a specific time. Hide metrics by clicking on the name on the right side of the graph. A checkmark (&#10003;) will show if the metric is displayed in the graph.
-- Definitions export and upload section, used to export and [upload definitions](/documentation/import-export-definitions) from a file.
+- Definitions export and upload section, used to export and [upload definitions](import-export-definitions.md) from a file.
 
 The Queued message graph will show the total number of messages in queues and messages that are being processed by consumers.
 
@@ -57,27 +57,27 @@ The Queued message graph will show the total number of messages in queues and me
 - Ready: When a message is in the ready state, it means that the message is still in a queue, waiting to be processed by a consumer.
 - Total: Shows the total amount of messages in the queue, unacknowledged and ready messages.
 
-<!-- ![LavinMQ queued messages](/img/docs/lavinmq-queued-messages.png) -->
+<!-- ![LavinMQ queued messages](img/docs/lavinmq-queued-messages.png) -->
 
-<img class="border border-[#414040]" alt="LavinMQ queued messages" src="/img/docs/docs-dm/queued-messages-dm-2x.png" />
+<img class="border border-[#414040]" alt="LavinMQ queued messages" src="img/docs/queued-messages-dm-2x.png" />
 
 The data rates graph shows how many bytes of data are being sent and received by the broker per second.
 
-<!-- ![Data rates](/img/docs/lavinmq-data-rates.png) -->
+<!-- ![Data rates](img/docs/lavinmq-data-rates.png) -->
 
-<img class="border border-[#414040]" alt="Data rates" src="/img/docs/docs-dm/data-rates-dm-2x.png" />
+<img class="border border-[#414040]" alt="Data rates" src="img/docs/data-rates-dm-2x.png" />
 
 The message rates graph shows how many messages are being published, delivered, get, acknowledged, redelivered and rejected each second.
 
-<!-- ![Message rates](/img/docs/lavinmq-message-rate.png) -->
+<!-- ![Message rates](img/docs/lavinmq-message-rate.png) -->
 
-<img class="border border-[#414040]" alt="Message rates" src="/img/docs/docs-dm/message-rates-dm-2x.png" />
+<img class="border border-[#414040]" alt="Message rates" src="img/docs/message-rates-dm-2x.png" />
 
 Definitions include node and cluster objects such as vhosts, queues, users, permissions, policies, exchanges, bindings, and parameters. It is possible to upload and export definitions per vhost or for all vhosts. When the definitions are downloaded, a json file will be created. When a file is selected to be uploaded, it needs to be in json format. Definitions can be used to restore the objects listed above and be used as a backup.
 
-<!-- ![Message rates](/img/docs/lavinmq-upload-definitions.png) -->
+<!-- ![Message rates](img/docs/lavinmq-upload-definitions.png) -->
 
-<img class="border border-[#414040]" alt="Message rates" src="/img/docs/docs-dm/add-remove-defs-dm-2x.png" />
+<img class="border border-[#414040]" alt="Message rates" src="img/docs/add-remove-defs-dm-2x.png" />
 
 ## LavinMQ Management Interface Connections
 
@@ -108,21 +108,21 @@ This tab shows a detailed view of all connections connected to the broker. The t
 - Sent bytes
 - Delivered bytes
 
-<!-- ![Connections](/img/docs/lavinmq-connections.png) -->
+<!-- ![Connections](img/docs/lavinmq-connections.png) -->
 
-<img class="border border-[#414040]" alt="Connections" src="/img/docs/docs-dm/connections-dm-2x.png" />
+<img class="border border-[#414040]" alt="Connections" src="img/docs/connections-dm-2x.png" />
 
 Clicking on the name of the connection gives an even more detailed view. This view shows details for a specific connection, its client properties, data rates, channels, and a way to close the connection. From here you can also drill down further to channels
 
-<!--![Channels](/img/docs/lavinmq-channels.png) -->
+<!--![Channels](img/docs/lavinmq-channels.png) -->
 
-<img class="border border-[#414040]" alt="Channels" src="/img/docs/docs-dm/channels-dm-2x.png" />
+<img class="border border-[#414040]" alt="Channels" src="img/docs/channels-dm-2x.png" />
 
-<!-- ![Connection details](/img/docs/lavinmq-connection-details.png) -->
+<!-- ![Connection details](img/docs/lavinmq-connection-details.png) -->
 
-<img class="border border-[#414040]" alt="Connection details" src="/img/docs/docs-dm/single-connection-dm-2x.png" />
+<img class="border border-[#414040]" alt="Connection details" src="img/docs/single-connection-dm-2x.png" />
 
-<!-- ![Channel details](/img/docs/lavinmq-channel-information.png) -->
+<!-- ![Channel details](img/docs/lavinmq-channel-information.png) -->
 
 ## Channels
 
@@ -136,17 +136,17 @@ The Channels tab shows a detailed view of all channels open. The table includes 
 - Prefetch limit: prefetch limit for consumers, 0 if unlimited.
 - Unacked messages: number of messages that are unacked by consumers via the channel.
 
-<!-- ![Channels](/img/docs/lavinmq-channels.png) -->
+<!-- ![Channels](img/docs/lavinmq-channels.png) -->
 
-<img class="border border-[#414040]" alt="Channels" src="/img/docs/docs-dm/channels-dm-2x.png" />
+<img class="border border-[#414040]" alt="Channels" src="img/docs/channels-dm-2x.png" />
 
 Clicking on the name of the channel gives an even more detailed view. This view will show details for a specific channel, it’s stats, message rates, and consumers. From here you can also drill down further to the consumer linked queue.
 
-<!-- ![Channels](/img/docs/lavinmq-channels.png) -->
+<!-- ![Channels](img/docs/lavinmq-channels.png) -->
 
-<!-- ![Channel details](/img/docs/lavinmq-channel-details.png) -->
+<!-- ![Channel details](img/docs/lavinmq-channel-details.png) -->
 
-<img class="border border-[#414040]" alt="Channel details" src="/img/docs/docs-dm/channel-details-dm-2x.png" />
+<img class="border border-[#414040]" alt="Channel details" src="img/docs/channel-details-dm-2x.png" />
 
 ## Queues
 
@@ -175,19 +175,19 @@ Queues have different parameters and arguments depending on how they were create
 
 You can also create a queue from this view.
 
-<!-- ![Channel details](/img/docs/lavinmq-queues.png) -->
+<!-- ![Channel details](img/docs/lavinmq-queues.png) -->
 
-<img class="border border-[#414040]" alt="Channel details" src="/img/docs/docs-dm/queues-dm-2x.png" />
+<img class="border border-[#414040]" alt="Channel details" src="img/docs/queues-dm-2x.png" />
 
 Clicking on the name of the queue gives a more detailed view. This view will show details for a specific queue, message stats, arguments, message rates, consumers, and bindings. It will give you options to add a binding to the queue, publish a message, get messages, move messages, pause, delete and purge.
 
 From here you can also drill down further to exchanges and consumer channels as well as cancel a consumer and delete a binding.
 
-<!-- ![Channel details](/img/docs/lavinmq-queues-details.png)
+<!-- ![Channel details](img/docs/lavinmq-queues-details.png)
 
-![Channel details](/img/docs/lavinmq-bindings.png) -->
+![Channel details](img/docs/lavinmq-bindings.png) -->
 
-<img class="border border-[#414040]" alt="Channel details" src="/img/docs/docs-dm/single-queue-dm-2x.png" />
+<img class="border border-[#414040]" alt="Channel details" src="img/docs/single-queue-dm-2x.png" />
 
 ## Exchanges
 
@@ -201,15 +201,15 @@ The Exchanges tab shows a detailed view of all exchanges. The table includes the
 
 Features and types can be specified when the exchange is created. In this list there are some amq.\* exchanges that are created by default. You can also add an exchange from this view.
 
-<!-- ![Channel details](/img/docs/lavinmq-exchanges.png) -->
+<!-- ![Channel details](img/docs/lavinmq-exchanges.png) -->
 
-<img class="border border-[#414040]" alt="Channel details" src="/img/docs/docs-dm/exchanges-dm-2x.png" />
+<img class="border border-[#414040]" alt="Channel details" src="img/docs/exchanges-dm-2x.png" />
 
 Clicking on the name of the exchange gives a more detailed view. This view shows details for a specific exchange, message rates, and bindings. It will give you options to add a binding from this exchange, publish a message, and delete the exchange.
 
-<!-- ![Channel details](/img/docs/lavinmq-exchanges-details.png) -->
+<!-- ![Channel details](img/docs/lavinmq-exchanges-details.png) -->
 
-<img class="border border-[#414040]" alt="Channel details" src="/img/docs/docs-dm/single-exchange-dm-2x.png" />
+<img class="border border-[#414040]" alt="Channel details" src="img/docs/single-exchange-dm-2x.png" />
 
 ## Users
 
@@ -223,17 +223,17 @@ The Users tab shows a detailed view of all users. The table includes the columns
 Users can be added from the management interface and assigned permissions using
 tags and vhosts.
 
-<!-- ![Channel details](/img/docs/lavinmq-users.png) -->
+<!-- ![Channel details](img/docs/lavinmq-users.png) -->
 
-<img class="border border-[#414040]" alt="Channel details" src="/img/docs/docs-dm/users-dm-2x.png" />
+<img class="border border-[#414040]" alt="Channel details" src="img/docs/users-dm-2x.png" />
 
 ### Create a user in LavinMQ Management Interface
 
 First, create a user with a password and permission tags, then click on the name of the user to set detailed permissions. From the detailed view you can set missions to a specific vhost, and the subsequent read, write and configure access the user should have to that vhost. Delete permissions by clicking the Clear button. Or you can update a user’s password and remove tags as well as delete the user.
 
-<!-- ![Channel details](/img/docs/lavinmq-user-details.png) -->
+<!-- ![Channel details](img/docs/lavinmq-user-details.png) -->
 
-<img class="border border-[#414040]" alt="Channel details" src="/img/docs/docs-dm/single-user-dm-2x.png" />
+<img class="border border-[#414040]" alt="Channel details" src="img/docs/single-user-dm-2x.png" />
 
 ## Virtual hosts
 
@@ -247,13 +247,13 @@ Virtual hosts (vhosts), are like a virtual machine for a physical server, allowi
 
 You can create a vhost from this view, or click on the name of an already existing vhost to show more details.
 
-<!-- ![virtual host](/img/docs/lavinmq-vhost.png) -->
+<!-- ![virtual host](img/docs/lavinmq-vhost.png) -->
 
-<img class="border border-[#414040]" alt="Virtual host" src="/img/docs/docs-dm/vhosts-dm-2x.png" />
+<img class="border border-[#414040]" alt="Virtual host" src="img/docs/vhosts-dm-2x.png" />
 
-<!-- ![virtual host details](/img/docs/lavinmq-vhost-details.png) -->
+<!-- ![virtual host details](img/docs/lavinmq-vhost-details.png) -->
 
-<img class="border border-[#414040]" alt="Virtual host details" src="/img/docs/docs-dm/single-vhost-dm-2x.png" />
+<img class="border border-[#414040]" alt="Virtual host details" src="img/docs/single-vhost-dm-2x.png" />
 
 ### Vhost Limits API
 
@@ -279,9 +279,9 @@ The Nodes tab shows information about the server on which LavinMQ is running, su
 - Channel churn (created and closed)
 - Queue churn (declared and deleted)
 
-<!-- ![Nodes in LavinMQ](/img/docs/lavinmq-nodes.png) -->
+<!-- ![Nodes in LavinMQ](img/docs/lavinmq-nodes.png) -->
 
-<img class="border border-[#414040]" alt="Nodes in LavinMQ" src="/img/docs/docs-dm/nodes-dm-2x.png" />
+<img class="border border-[#414040]" alt="Nodes in LavinMQ" src="img/docs/nodes-dm-2x.png" />
 
 ## Policies
 
@@ -295,9 +295,9 @@ The Policies tab shows a detailed view of all policies. The table includes the c
 - Definition: the definition of the policy, as a JSON term.
 - Priority: the priority of the policy as an integer. Higher numbers indicate greater precedence.
 
-<!-- ![Nodes in LavinMQ](/img/docs/lavinmq-policy.png) -->
+<!-- ![Nodes in LavinMQ](img/docs/lavinmq-policy.png) -->
 
-<img class="border border-[#414040]" alt="Nodes in LavinMQ" src="/img/docs/docs-dm/policies-dm.png" />
+<img class="border border-[#414040]" alt="Nodes in LavinMQ" src="img/docs/policies-dm.png" />
 
 ### Create a policy
 
@@ -308,11 +308,11 @@ Only one policy can be applied to a queue and/or exchange at a certain time, so 
 The shovels tab shows a detailed view of all shovels created and has an option to create new shovels. Shovels are used to move messages from a source to a destination. The source and destination can be in the same broker, or between different brokers.
 
 For more information on how to create a shovel, go to
-[the Shovel Documentation](/documentation/shovel)
+[the Shovel Documentation](shovel.md)
 
-<!-- ![Nodes in LavinMQ](/img/docs/lavinmq-shovel.png) -->
+<!-- ![Nodes in LavinMQ](img/docs/lavinmq-shovel.png) -->
 
-<img class="border border-[#414040]" alt="Nodes in LavinMQ" src="/img/docs/docs-dm/shovels-dm-2x.png" />
+<img class="border border-[#414040]" alt="Nodes in LavinMQ" src="img/docs/shovels-dm-2x.png" />
 
 ## Federation
 
@@ -321,11 +321,11 @@ The federation tab shows a detailed view of all federations created and has an o
 Federation is used to transfer messages between brokers. It transfers messages from one broker to another broker. There are two ways of configuring a federation, via queue federation or exchange federation.
 
 For more information on how to create a federation, go to
-[the Federation Documentation](/documentation/federation)
+[the Federation Documentation](federation.md)
 
-<!-- ![Nodes in LavinMQ](/img/docs/lavinmq-federation.png) -->
+<!-- ![Nodes in LavinMQ](img/docs/lavinmq-federation.png) -->
 
-<img class="border border-[#414040]" alt="Nodes in LavinMQ" src="/img/docs/docs-dm/federation-dm-2x.png" />
+<img class="border border-[#414040]" alt="Nodes in LavinMQ" src="img/docs/federation-dm-2x.png" />
 
 ## HTTP API
 

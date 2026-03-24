@@ -29,7 +29,7 @@
 
 When a client establishes a connection to the LavinMQ server, it specifies the vhost in which it operates, for example `amqp://myuser:mypassword@localhost:5672/myvhost`
 
-<img src="/img/docs/lavinmq-vhost-example.png" class="border border-[#414040]" alt="LavinMQ vhost" />
+<img src="img/docs/lavinmq-vhost-example.png" class="border border-[#414040]" alt="LavinMQ vhost" />
 
 Resources such as exchanges and queues are named entities inside the vhost container, making each vhost function as a LavinMQ mini-server. When configuring LavinMQ, at least one vhost is required; by default, it is named “/”.
 
@@ -66,4 +66,4 @@ To create a vhost in LavinMQ, use the management interface or the HTTP API. A ne
 3. Enter a vhost name and adjust permissions.
 4. Click _Add virtual host_ to create it.
 
-<img class="border border-[#414040]" alt="Management Interface vhost" src="/img/docs/docs-dm/vhost-dm.png" />
+<img class="border border-[#414040]" alt="Management Interface vhost" src="img/docs/vhost-dm.png" />

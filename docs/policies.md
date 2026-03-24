@@ -1,7 +1,7 @@
 
-In order to ensure uniformly configured queues and exchanges, LavinMQ (AMQP) includes the ability to define Policies and [Arguments](/documentation/arguments-and-properties). The specifications of the AMQP protocol (0.9.1) enables support for various features, called Arguments. Depending on which argument you implement, changes can be made to their settings after the queue declaration. Arguments define certain configurations, such as message and queue TTL, different consumer priorities, and queue length limit. Policies make it possible to configure arguments for one or many queues and exchanges at once, and the queues/exchanges will all be updated when the policy definition is updated. Policies can be changed at any time, and changes will affect all matching queues and exchanges.
+In order to ensure uniformly configured queues and exchanges, LavinMQ (AMQP) includes the ability to define Policies and [Arguments](arguments-and-properties.md). The specifications of the AMQP protocol (0.9.1) enables support for various features, called Arguments. Depending on which argument you implement, changes can be made to their settings after the queue declaration. Arguments define certain configurations, such as message and queue TTL, different consumer priorities, and queue length limit. Policies make it possible to configure arguments for one or many queues and exchanges at once, and the queues/exchanges will all be updated when the policy definition is updated. Policies can be changed at any time, and changes will affect all matching queues and exchanges.
 
-![LavinMQ Arguments Policy](/img/docs/lavinmq-arguments-policy.jpg)
+![LavinMQ Arguments Policy](img/docs/lavinmq-arguments-policy.jpg)
 
 ### What is a policy?
 
@@ -19,7 +19,7 @@ A policy can be set when you want to apply a TTL on a set of queues. Policies co
 
 A policy is applied when the pattern, a [regular expression](https://en.wikipedia.org/wiki/Regular_expression), matches a queue or exchange. As soon as a policy is created it will be applied to the matching queues and/or exchanges and its arguments will be amended to the definitions. As the match occurs continuously changes can easily be applied to multiple queues that are up and running. For example, if a TTL is to be set on a group of queues, or if multiple queues are to be deleted or purged at once. A policy is also applied every time an exchange or queue is created if a match exists. Only one policy can be matched to every queue or exchange at once, but one policy may be set to apply multiple arguments.
 
-Policies are created per vhost, with a pattern that defines where it will be applied and a parameter that defines what the policy will do. The parameter is entered as a key (the parameter name) and a value (the parameter value), also called a key-value pair. Policies can be set from a terminal using [lavinmqctl](/documentation/lavinmqctl) or by using the [HTTP API](https://docs.lavinmq.com/http-api.html#tag/policies) or [Web Management Interface](/documentation/management-interface-overview).
+Policies are created per vhost, with a pattern that defines where it will be applied and a parameter that defines what the policy will do. The parameter is entered as a key (the parameter name) and a value (the parameter value), also called a key-value pair. Policies can be set from a terminal using [lavinmqctl](lavinmqctl.md) or by using the [HTTP API](https://docs.lavinmq.com/http-api.html#tag/policies) or [Web Management Interface](management-interface-overview.md).
 
 ## How to create and view policies
 
@@ -45,11 +45,11 @@ Filling the name, patterns, and definition fields is mandatory. Note that below 
 
 A priority should be used if multiple policies are used where the patterns overlap.
 
-<img class="border border-[#414040]" src="/img/docs/docs-dm/policies-dm.png"/>
+<img class="border border-[#414040]" src="img/docs/policies-dm.png"/>
 
 ## Policies in lavinmqctl
 
-The following commands are available for policies via [lavinmqctl](/documentation/lavinmqctl).
+The following commands are available for policies via [lavinmqctl](lavinmqctl.md).
 
 #### List Policies
 

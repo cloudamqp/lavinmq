@@ -12,7 +12,7 @@
           underlying networking tasks, including initial authentication, IP resolution, and
           networking.
         </p>
-				<img alt="LavinMQ connection start" class="border border-[#414040]" src="/img/docs/amqp-connections-and-channels-one.png" />
+				<img alt="LavinMQ connection start" class="border border-[#414040]" src="img/docs/amqp-connections-and-channels-one.png" />
     </div>
   </div>
 
@@ -24,7 +24,7 @@
     </h3>
     <div id="sect2" class="accordion-content" role="region" aria-labelledby="accordion2">
       <p>A channel acts as a virtual connection inside a TCP connection.</p>
-			<img alt="LavinMQ channel" class="border border-[#414040]" src="/img/docs/amqp-connections-and-channels-two.png" />
+			<img alt="LavinMQ channel" class="border border-[#414040]" src="img/docs/amqp-connections-and-channels-two.png" />
     </div>
   </div>
 
@@ -51,7 +51,7 @@ A connection is created by:
 3. The receiving server authenticates the client.
 4. A connection is now established.
 
-<img alt="LavinMQ channel" class="border border-[#414040]" src="/img/docs/amqp-connections-and-channels-three.png" />
+<img alt="LavinMQ channel" class="border border-[#414040]" src="img/docs/amqp-connections-and-channels-three.png" />
 
 **Example:** Establishing a connection
 
@@ -71,7 +71,7 @@ Every AMQP protocol-related operation occurs over a channel, such as sending mes
 
 Closing a connection closes all associated channels.
 
-<img alt="LavinMQ channel" class="border border-[#414040]" src="/img/docs/amqp-connections-and-channels-four.png" />
+<img alt="LavinMQ channel" class="border border-[#414040]" src="img/docs/amqp-connections-and-channels-four.png" />
 
 A channel can be opened right after successfully opening a connection.
 

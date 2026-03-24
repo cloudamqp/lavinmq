@@ -14,7 +14,7 @@
           <li>Exceeding queue length limits.</li>
         </ul>
         <p>Instead of being lost, these messages are published to the DLX, which then routes them to a queue for later processing.</p>
-        <img src="/img/docs/dead-letter-exchange-illustration.png" class="border border-[#414040]" />
+        <img src="img/docs/dead-letter-exchange-illustration.png" class="border border-[#414040]" />
     </div>
   </div>
 
@@ -104,7 +104,7 @@ channel.basic_publish(
 lavinmqctl set_policy dead_lettering ".*" '{"dead-letter-exchange":"dlx_exchange", "x-dead-letter-routing-key": "dead_routing_key"}' --apply-to queues
 ```
 
-The policy would attach the dead letter exchange, `dlx_exchange` to all queues. Using the lavinmqctl is just one way of defining policies. Read the [documentation on policies](/documentation/policies) for more information on other approaches.
+The policy would attach the dead letter exchange, `dlx_exchange` to all queues. Using the lavinmqctl is just one way of defining policies. Read the [documentation on policies](policies.md) for more information on other approaches.
 
 
 <!-- prettier-ignore-end -->

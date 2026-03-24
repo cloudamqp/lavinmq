@@ -1,7 +1,7 @@
 
 All routed messages in LavinMQ are written directly to the disk, into something called a _Message Store_. The Message Store is a series of files (segments). A routed message is located in the Message Store, with a reference from the queue’s index to the message store.
 
-![Message Store in LavinMQ](/img/docs/lavinmq-message-store.jpg)
+![Message Store in LavinMQ](img/docs/lavinmq-message-store.jpg)
 
 A routed message is a message that is not dropped by the exchange, including messages that are routed via alternate exchanges. Once a message is routed to a queue the segment number, the position in that segment, and some other metadata are written to its queues index and then placed in the queue.
 

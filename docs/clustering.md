@@ -1,13 +1,12 @@
-
 <!-- prettier-ignore-start -->
 
-LavinMQ 2.0 and above supports clustering to ensure high availability for your messaging infrastructure. It achieves this by integrating with etcd, a distributed key-value store based on the [Raft consensus algorithm](/blog/lavinmq-high-availability). Consequently, LavinMQ can now run in either cluster or standalone mode. This configuration can be adjusted in the `/etc/lavinmq/lavinmq.ini` file.
+LavinMQ 2.0 and above supports clustering to ensure high availability for your messaging infrastructure. It achieves this by integrating with etcd, a distributed key-value store based on the [Raft consensus algorithm](https://lavinmq.com/blog/lavinmq-high-availability). Consequently, LavinMQ can now run in either cluster or standalone mode. This configuration can be adjusted in the `/etc/lavinmq/lavinmq.ini` file.
 
 ## What is clustering in LavinMQ?
 
 Clustering in LavinMQ creates a leader node and one or more follower nodes. The leader tracks changes—like published messages, acknowledgments, and metadata updates—by recording them in a log. This log, which represents the shared state as a sequence of actions, is replicated to follower nodes in real-time. LavinMQ ensures that these actions are consistently processed across the entire cluster.
 
-![Clustering in LavinMQ](/img/blog/2024-09-10-high-availability/illustration-1-3.svg)
+![Clustering in LavinMQ](img/docs/illustration-1-3.svg)
 
 ## When can I use clustering?
 
@@ -82,7 +81,7 @@ sudo apt-get update
 sudo apt-get install lavinmq
 ```
 
-[Read our LavinMQ installation guide](/documentation/installation-guide) for more information.
+[Read our LavinMQ installation guide](https://lavinmq.com/documentation/installation-guide) for more information.
 
 ### Step 5: Configure LavinMQ
 
@@ -137,7 +136,7 @@ On starting, a LavinMQ node checks if it can become the leader. If a leader alre
 
 ### Step 7: Start sending data.
 
-Time to start publishing messages to your LavinMQ cluster. [Get started with LavinMQ](/documentation/getting-started) using the various resources we have curated for you.
+Time to start publishing messages to your LavinMQ cluster. [Get started with LavinMQ](https://lavinmq.com/documentation/getting-started) using the various resources we have curated for you.
 
 ### Optional: Configure your cluster's DNS
 

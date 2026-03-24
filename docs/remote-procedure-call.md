@@ -61,7 +61,6 @@ In the code shown above is a callback queue added for every RPC request, which
 might be confusing since it's not clear to which request the response belongs.
 A `correlation_id` (a unique value) can therefore be sent with every request.
 
-![]()
 
 {% highlight python %}
 channel.basic_publish(

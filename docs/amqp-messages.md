@@ -1,4 +1,3 @@
-
 <div class="accordion">
   <div class="accordion-item">
     <h3>
@@ -14,28 +13,34 @@
   </div>
 </div>
 
-<lottie-player src="/animations/lavinmq-animation.json" background="transparent" speed="1" style="width: 100%; height: auto" loop autoplay></lottie-player>
+<!--  -->
 
 ## Message Components
 
 An AMQP message is built from two essential parts: the payload and a set of attributes. The payload is the actual data, while the attributes are the metadata that tell the broker how to handle it.
 
 ### Message payload
+
 This is the actual data to send, it can be any binary format. The broker does not inspect or modify the payload; it only transports it.
 
-#### Payload encoding 
-Payload encoding is a key used by some client tools and APIs, like the LavinMQ HTTP API, to define how the payload should be interpreted before it is sent to the broker. This key specifies whether the payload should be handled as a `string` (UTF-8 encoded) or as `base64`. Payload encoding is not part of the standard AMQP protocol. 
+#### Payload encoding
+
+Payload encoding is a key used by some client tools and APIs, like the LavinMQ HTTP API, to define how the payload should be interpreted before it is sent to the broker. This key specifies whether the payload should be handled as a `string` (UTF-8 encoded) or as `base64`. Payload encoding is not part of the standard AMQP protocol.
 
 ### Delivery mode
+
 In LavinMQ, every message sent is persistent by default. This ensures that all messages are saved to disk and will survive a broker restart, guaranteeing message durability.
 
-### Routing key 
-The routing key is a message attribute that the exchange looks at when deciding how to route the message to one or more queues, depending on its type. 
+### Routing key
 
-### Attributes 
+The routing key is a message attribute that the exchange looks at when deciding how to route the message to one or more queues, depending on its type.
+
+### Attributes
+
 These are the meta-information that tell the broker how to handle the message. This includes both standard properties and custom headers. Properties are a predefined set of fields from the AMQP protocol, such as content-type and delivery-mode.
 
 #### [Properties]
+
 <div class="bg-[#181818] border border-[#414040] text-[#FAFAFA] overflow-hidden">
   <div style="overflow: auto;">
     <table class="divide-y divide-gray-300 conf-table">
@@ -57,13 +62,13 @@ These are the meta-information that tell the broker how to handle the message. T
       <tr>
         <td class="font-semibold">expiration</td>
         <td>
-					A string representing the message's time-to-live (TTL) in milliseconds. 
+					A string representing the message's time-to-live (TTL) in milliseconds.
         </td>
       </tr>
       <tr>
         <td class="font-semibold">priority</td>
         <td>
-					A number from 0 to 9 to set message priority. Read more about [message priority](/documentation/message-priority).
+					A number from 0 to 9 to set message priority. Read more about [message priority](message-priority.md).
         </td>
       </tr>
       <tr>
@@ -89,7 +94,7 @@ These are the meta-information that tell the broker how to handle the message. T
         <td>
 					The ID of the user who published the message.
         </td>
-			</tr>	
+			</tr>
 			<tr>
         <td class="font-semibold">app_id</td>
         <td>
@@ -113,12 +118,12 @@ These are the meta-information that tell the broker how to handle the message. T
 </div>
 
 #### Custom headers
+
 Custom headers are a flexible key-value map for adding application-specific metadata.
 
 ## Example message
 
 <!-- prettier-ignore -->
-
 {% highlight shell %}
 {% raw %}
 {
@@ -133,7 +138,6 @@ Custom headers are a flexible key-value map for adding application-specific meta
 {% endraw %}
 {% endhighlight %}
 
-
 ### Message acknowledgements
 
 Messages in transit between LavinMQ and the consumer might get lost and have
@@ -143,7 +147,7 @@ consumer acknowledgments assures that messages have been delivered. When it
 comes to message publishing, a publish confirm is the same concept.
 
 Read more about
-[consumer acknowledgments](/documentation/consumer-acknowledgements).
+[consumer acknowledgments](consumer-acknowledgements.md).
 
 ### Message ordering in LavinMQ
 
@@ -151,9 +155,9 @@ Messages in LavinMQ are placed onto the queue in the sequential order in
 which they are received. The first message is placed in position 1, the second
 message in position 2, and so on. Messages are then consumed from the head of
 the queue, meaning that message 1 gets consumed first. This is called the FIFO
-method (first in first out). 
+method (first in first out).
 
-Read more about [message ordering](/documentation/message-ordering) in
+Read more about [message ordering](message-ordering.md) in
 LavinMQ.
 
 ### Details on the message store in LavinMQ
@@ -161,9 +165,10 @@ LavinMQ.
 All routed messages in LavinMQ are written directly to the disk into
 something called a Message Store. The Message Store is a series of files
 (segments). A routed message is located in the Message Store, with a reference
-from the queue’s index to the [message store](/documentation/message-store).
+from the queue’s index to the [message store](message-store.md).
 
 ### Message size
+
 The default message size limit in LavinMQ is 128 MB. This limit is on the message payload and can be configured.
 It's generally recommended to keep messages small. Larger messages can consume more memory and disk resources, potentially affecting broker performance and stability.
-Read more about [message configurations](/documentation/configuration-files).
+Read more about [message configurations](configuration-files.md).

@@ -21,8 +21,8 @@
     </h3>
     <div id="sect2" class="accordion-content" role="region" aria-labelledby="accordion2">
       <p>LavinMQ prefetch controls how many messages a consumer can receive before acknowledging them, preventing messages from piling up at the client. By limiting unacknowledged messages, it ensures consumers process data efficiently without getting overwhelmed. This keeps all consumers actively engaged, balancing the workload and optimizing resource usage.</p>
-      <img class="border border-[#414040]" src="/img/docs/prefetch-1.png" />
-      <img class="border border-[#414040]" src="/img/docs/prefetch-2.png" />
+      <img class="border border-[#414040]" src="img/docs/prefetch-1.png" />
+      <img class="border border-[#414040]" src="img/docs/prefetch-2.png" />
     </div>
   </div>
 </div>
@@ -58,6 +58,6 @@ channel.queue_declare(queue='task_queue', durable=True)
 channel.basic_qos(prefetch_count=3, global=False)
 ```
 
-![LavinMQ Prefetch example](/img/docs/prefetch-3.png)
+![LavinMQ Prefetch example](img/docs/prefetch-3.png)
 
-Looking for help on setting the prefetch value? Check out our blog, ["How to set the correct prefetch value in LavinMQ"](/blog/correct-prefetch-value), for more information.
+Looking for help on setting the prefetch value? Check out our blog, ["How to set the correct prefetch value in LavinMQ"](https://lavinmq.com/blog/correct-prefetch-value), for more information.

@@ -101,7 +101,7 @@ The federation functionality comes as standard on LavinMQ, so there is no need t
 - A federation link
 - The policy that matches the queues/exchanges that should be federated.
 
-![Federation add upstream](/img/docs/docs-dm/add-new-upstream-dm-2x.png)
+![Federation add upstream](img/docs/add-new-upstream-dm-2x.png)
 
 Here is a list of all configuration with descriptions related to federations:
 
@@ -114,7 +114,7 @@ Here is a list of all configuration with descriptions related to federations:
     - connect to server-name, with credentials and SSL
   - `amqps://server-name?cacertfile=/path/to/cacert.pem&certfile=/path/to/cert .pem&keyfile=/path/to/key.pem&verify=verify_peer &fail_if_no_peer_cert=true&auth_mechanism=external`
     - connect to server-name, with SSL and EXTERNAL authentication
-- [Prefetch](/documentation/prefetch) is the maximum number of unacknowledged
+- [Prefetch](prefetch.md) is the maximum number of unacknowledged
   messages that will be in flight at one time.
 - Reconnection delay is the time in seconds to wait after a network link goes
   down before trying to reconnection.
@@ -148,7 +148,7 @@ on broker B (the downstream server). Configuring the federation can be done via
 the LavinMQ Management Interface or the HTTP API, but in this example, we
 will focus on the LavinMQ Management Interface.
 
-![Federation example](/img/docs/lavinmq-federation-example.jpg)
+![Federation example](img/docs/lavinmq-federation-example.jpg)
 
 When configuring the federation, we will enable messages to be moved or copied
 from cluster A to cluster B. In this example, we will create a queue named
@@ -168,7 +168,7 @@ downstream server.
     Configure the federation link on the downstream server (B) by going to the
     LavinMQ Management Interface and click on the tab Federation and fill in
     the section <em>Add a new upstream</em>.<br/>
-    <img src="/img/docs/docs-dm/add-new-upstream-v2-dm-2x.png" alt="Federation add upstream example" class="border border-[#414040]">
+    <img src="img/docs/add-new-upstream-v2-dm-2x.png" alt="Federation add upstream example" class="border border-[#414040]">
   </li>
   <li>
     Create a policy on the downstream server (B) that matches the
@@ -179,7 +179,7 @@ downstream server.
     apply to an upstream set or a single upstream of exchanges and/or queues. In
     this example we apply to all upstreams, federation-upstream-set is set to all.
     <br/>
-    <img src="/img/docs/docs-dm/add-policy-dm-2x.png" alt="Update federation policy" class="border border-[#414040]">
+    <img src="img/docs/add-policy-dm-2x.png" alt="Update federation policy" class="border border-[#414040]">
   </li>
   <li>
     We then need to create queues, exchanges, and bindings for the downstream
