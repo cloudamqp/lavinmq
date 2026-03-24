@@ -10,7 +10,7 @@ require "./pidfile"
 require "./etcd"
 require "./clustering/controller"
 require "./standalone_runner"
-require "./http/controller/definitions"
+require "./definitions"
 require "../stdlib/openssl_on_server_name"
 
 module LavinMQ
@@ -142,7 +142,7 @@ module LavinMQ
       return if path.empty?
       Log.info { "Importing definitions from #{path}" }
       body = JSON.parse(File.read(path))
-      HTTP::DefinitionsController::GlobalDefinitions.new(amqp_server).import(body)
+      GlobalDefinitions.new(amqp_server).import(body)
       Log.info { "Definitions imported from #{path}" }
     rescue File::NotFoundError
       Log.error { "Definitions file not found: #{path}" }

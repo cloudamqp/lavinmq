@@ -1,6 +1,6 @@
 require "../spec_helper"
 
-describe LavinMQ::HTTP::DefinitionsController::GlobalDefinitions do
+describe LavinMQ::GlobalDefinitions do
   describe "load_definitions config" do
     it "imports definitions from a JSON file" do
       defs = {
@@ -13,7 +13,7 @@ describe LavinMQ::HTTP::DefinitionsController::GlobalDefinitions do
       begin
         with_amqp_server do |s|
           body = JSON.parse(File.read(tmpfile))
-          LavinMQ::HTTP::DefinitionsController::GlobalDefinitions.new(s).import(body)
+          LavinMQ::GlobalDefinitions.new(s).import(body)
           s.vhosts["/"].queues.has_key?("load_def_q1").should be_true
         end
       ensure
@@ -779,7 +779,7 @@ describe LavinMQ::HTTP::Server do
       response = http.get("/api/definitions")
       body = JSON.parse(response.body)
       http.delete("/api/exchanges/%2f/test-delayed")
-      LavinMQ::HTTP::DefinitionsController::GlobalDefinitions.new(s).import(body)
+      LavinMQ::GlobalDefinitions.new(s).import(body)
       response = http.get("/api/exchanges/%2f/test-delayed")
       response.status_code.should eq 200
     end
