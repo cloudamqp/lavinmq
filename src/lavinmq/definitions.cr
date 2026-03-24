@@ -124,13 +124,22 @@ module LavinMQ
           read = p["read"].as_s
           write = p["write"].as_s
           @amqp_server.users[user].permissions[vhost] = {
-            config: Regex.new(configure),
-            read:   Regex.new(read),
-            write:  Regex.new(write),
+            config: parse_regex(configure, "configure", user, vhost),
+            read:   parse_regex(read, "read", user, vhost),
+            write:  parse_regex(write, "write", user, vhost),
           }
         end
         @amqp_server.users.save!
       end
+    end
+
+    private def parse_regex(pattern, field, user, vhost)
+      Regex.new(pattern)
+    rescue ex : ArgumentError
+      raise ArgumentError.new(
+        "Invalid regex in #{field} permission for user '#{user}' " \
+        "in vhost '#{vhost}': #{ex.message}"
+      )
     end
 
     private def import_users(body)

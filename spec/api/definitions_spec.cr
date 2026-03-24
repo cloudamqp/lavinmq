@@ -28,6 +28,29 @@ describe LavinMQ::GlobalDefinitions do
       end
     end
 
+    it "raises on invalid regex in permissions" do
+      defs = {
+        "users" => [
+          {"name" => "regexuser", "password_hash" => "+pHuxkR9fCyrrwXjOD4BP4XbzO3l8LJr8YkThMgJ0yVHFRE+",
+           "hashing_algorithm" => "rabbit_password_hashing_sha256", "tags" => "administrator"},
+        ],
+        "permissions" => [
+          {"user" => "regexuser", "vhost" => "/", "configure" => "[", "read" => ".*", "write" => ".*"},
+        ],
+      }
+      tmpfile = File.tempname("lavinmq-defs", ".json")
+      File.write(tmpfile, defs.to_json)
+      begin
+        with_amqp_server do |s|
+          expect_raises(ArgumentError, /Invalid regex in configure permission/) do
+            LavinMQ::GlobalDefinitions.import_from_file(tmpfile, s)
+          end
+        end
+      ensure
+        File.delete?(tmpfile)
+      end
+    end
+
     it "raises on invalid JSON" do
       tmpfile = File.tempname("lavinmq-defs", ".json")
       File.write(tmpfile, "not valid json")
