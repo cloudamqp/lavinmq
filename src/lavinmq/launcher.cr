@@ -10,6 +10,7 @@ require "./pidfile"
 require "./etcd"
 require "./clustering/controller"
 require "./standalone_runner"
+require "./http/controller/definitions"
 require "../stdlib/openssl_on_server_name"
 
 module LavinMQ
@@ -64,6 +65,7 @@ module LavinMQ
       setup_log_exchange(amqp_server)
       start_listeners(amqp_server, http_server)
       start_metrics_server(amqp_server) unless @config.metrics_http_port == -1
+      load_definitions(amqp_server)
       SystemD.notify_ready
       Fiber.yield # Yield to let listeners spawn before logging startup time
       Log.info { "Finished startup in #{(Time.instant - started_at).total_seconds}s" }
@@ -133,6 +135,21 @@ module LavinMQ
           Log.warn { "sysctl -w vm.max_map_count=1000000" }
         end
       {% end %}
+    end
+
+    private def load_definitions(amqp_server)
+      path = @config.load_definitions
+      return if path.empty?
+      Log.info { "Importing definitions from #{path}" }
+      body = JSON.parse(File.read(path))
+      HTTP::DefinitionsController::GlobalDefinitions.new(amqp_server).import(body)
+      Log.info { "Definitions imported from #{path}" }
+    rescue File::NotFoundError
+      Log.error { "Definitions file not found: #{path}" }
+      raise "Definitions file not found: #{path}"
+    rescue ex : JSON::ParseException
+      Log.error { "Invalid JSON in definitions file #{path}: #{ex.message}" }
+      raise "Invalid JSON in definitions file #{path}: #{ex.message}"
     end
 
     private def setup_log_exchange(amqp_server)

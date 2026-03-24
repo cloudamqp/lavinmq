@@ -1,5 +1,28 @@
 require "../spec_helper"
 
+describe LavinMQ::HTTP::DefinitionsController::GlobalDefinitions do
+  describe "load_definitions config" do
+    it "imports definitions from a JSON file" do
+      defs = {
+        "queues" => [
+          {"name" => "load_def_q1", "vhost" => "/", "durable" => true, "auto_delete" => false, "arguments" => {} of String => String},
+        ],
+      }
+      tmpfile = File.tempname("lavinmq-defs", ".json")
+      File.write(tmpfile, defs.to_json)
+      begin
+        with_amqp_server do |s|
+          body = JSON.parse(File.read(tmpfile))
+          LavinMQ::HTTP::DefinitionsController::GlobalDefinitions.new(s).import(body)
+          s.vhosts["/"].queues.has_key?("load_def_q1").should be_true
+        end
+      ensure
+        File.delete?(tmpfile)
+      end
+    end
+  end
+end
+
 describe LavinMQ::HTTP::Server do
   describe "POST /api/definitions" do
     it "should refuse non-administrator users" do
