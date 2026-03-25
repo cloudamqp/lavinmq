@@ -450,10 +450,12 @@ describe LavinMQ::Config do
         config.parse(argv)
       ensure
         STDERR.reopen(old_stderr)
+        old_stderr.close
         file.close
       end
       File.read(stderr_file.path).should match(/is deprecated/)
-      stderr_file.delete
+    ensure
+      stderr_file.try &.delete
     end
 
     it "should log warning for cli options" do
@@ -472,10 +474,12 @@ describe LavinMQ::Config do
         config.parse(argv)
       ensure
         STDERR.reopen(old_stderr)
+        old_stderr.close
         file.close
       end
       File.read(stderr_file.path).should match(/is deprecated/)
-      stderr_file.delete
+    ensure
+      stderr_file.try &.delete
     end
 
     it "should forward ini option values to the new property" do
