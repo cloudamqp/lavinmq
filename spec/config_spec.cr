@@ -440,12 +440,22 @@ describe LavinMQ::Config do
         default_password = +pHuxkR9fCyrrwXjOD4BP4XbzO3l8LJr8YkThMgJ0yVHFRE+
       CONFIG
       end
-      logs = Log.capture(level: :info) do
+      stderr_file = File.tempfile("stderr")
+      old_stderr = STDERR.dup
+      file = File.open(stderr_file.path, "w")
+      begin
+        STDERR.reopen(file)
         config = LavinMQ::Config.new
         argv = ["-c", config_file.path]
         config.parse(argv)
+      ensure
+        STDERR.reopen(old_stderr)
+        old_stderr.close
+        file.close
       end
-      logs.check(:warn, /is deprecated/)
+      File.read(stderr_file.path).should match(/is deprecated/)
+    ensure
+      stderr_file.try &.delete
     end
 
     it "should log warning for cli options" do
@@ -454,12 +464,22 @@ describe LavinMQ::Config do
         [main]
       CONFIG
       end
-      logs = Log.capture(level: :info) do
+      stderr_file = File.tempfile("stderr")
+      old_stderr = STDERR.dup
+      file = File.open(stderr_file.path, "w")
+      begin
+        STDERR.reopen(file)
         config = LavinMQ::Config.new
         argv = ["-c", config_file.path, "--default-password", "8Yw8kj5HkhfRxQ/3kbTAO/nmgqGpkvMsGDbUWXA6+jTF3JP3"]
         config.parse(argv)
+      ensure
+        STDERR.reopen(old_stderr)
+        old_stderr.close
+        file.close
       end
-      logs.check(:warn, /is deprecated/)
+      File.read(stderr_file.path).should match(/is deprecated/)
+    ensure
+      stderr_file.try &.delete
     end
 
     it "should forward ini option values to the new property" do

@@ -200,15 +200,15 @@ module LavinMQ
         {% for var in ivars_in_section %}
          when "{{var[:ini_name]}}"
          {% if (deprecated = var[:deprecated]) %}
-           Log.warn { "Config {{var[:ini_name]}} is deprecated, use {{deprecated.id}} instead" }
+           STDERR.puts "WARNING: Config {{var[:ini_name]}} is deprecated, use {{deprecated.id}} instead"
          {% end %}
          self.{{var[:var_name]}} = parse_value(v, {{var[:transform]}})
         {% end %}
      else
-       Log.warn { "Unknown setting #{name} in section {{section.id}}" }
+       STDERR.puts "WARNING: Unknown setting '#{name}' in section [{{section.id}}]"
       end
     rescue ex
-      Log.error { "Failed to handle value for '#{name}' in [{{section.id}}]: #{ex.message}" }
+      STDERR.puts "ERROR: Failed to handle value for '#{name}' in [{{section.id}}]: #{ex.message}"
       abort
     end
   {% end %}
@@ -363,7 +363,7 @@ module LavinMQ
       private def do_setup_parser(parser, *args)
         parser.on(*args) do |val|
           if msg = @deprecation_warn_msg
-            Log.warn { msg }
+            STDERR.puts "WARNING: #{msg}"
           end
           @set_value.call(val)
         end
