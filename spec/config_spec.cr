@@ -432,62 +432,6 @@ describe LavinMQ::Config do
     expect_raises(OptionParser::InvalidOption) { config.parse(argv) }
   end
 
-  describe "with deprecated options" do
-    it "should log warning for ini options" do
-      config_file = File.tempfile do |file|
-        file.print <<-CONFIG
-        [main]
-        default_password = +pHuxkR9fCyrrwXjOD4BP4XbzO3l8LJr8YkThMgJ0yVHFRE+
-      CONFIG
-      end
-      logs = Log.capture(level: :info) do
-        config = LavinMQ::Config.new
-        argv = ["-c", config_file.path]
-        config.parse(argv)
-      end
-      logs.check(:warn, /is deprecated/)
-    end
-
-    it "should log warning for cli options" do
-      config_file = File.tempfile do |file|
-        file.print <<-CONFIG
-        [main]
-      CONFIG
-      end
-      logs = Log.capture(level: :info) do
-        config = LavinMQ::Config.new
-        argv = ["-c", config_file.path, "--default-password", "8Yw8kj5HkhfRxQ/3kbTAO/nmgqGpkvMsGDbUWXA6+jTF3JP3"]
-        config.parse(argv)
-      end
-      logs.check(:warn, /is deprecated/)
-    end
-
-    it "should forward ini option values to the new property" do
-      config_file = File.tempfile do |file|
-        file.print <<-CONFIG
-        [main]
-        default_password = 8Yw8kj5HkhfRxQ/3kbTAO/nmgqGpkvMsGDbUWXA6+jTF3JP3
-      CONFIG
-      end
-      config = LavinMQ::Config.new
-      argv = ["-c", config_file.path]
-      config.parse(argv)
-      config.default_password_hash.to_s.should eq "8Yw8kj5HkhfRxQ/3kbTAO/nmgqGpkvMsGDbUWXA6+jTF3JP3"
-    end
-
-    it "should forward cli option values to the new property" do
-      config_file = File.tempfile do |file|
-        file.print <<-CONFIG
-        [main]
-      CONFIG
-      end
-      config = LavinMQ::Config.new
-      argv = ["-c", config_file.path, "--default-password", "8Yw8kj5HkhfRxQ/3kbTAO/nmgqGpkvMsGDbUWXA6+jTF3JP3"]
-      config.parse(argv)
-      config.default_password_hash.to_s.should eq "8Yw8kj5HkhfRxQ/3kbTAO/nmgqGpkvMsGDbUWXA6+jTF3JP3"
-    end
-  end
-
   it "parses pidfile from config" do
     config_file = File.tempfile do |file|
       file.print <<-CONFIG
@@ -501,29 +445,5 @@ describe LavinMQ::Config do
     argv = ["-c", config_file.path]
     config.parse(argv)
     config.pidfile.should eq "/tmp/lavinmq.pid"
-  end
-
-  it "parses deprecated --guest-only-loopback CLI flag" do
-    config = LavinMQ::Config.new
-    argv = ["--guest-only-loopback", "false"]
-    config.parse(argv)
-    config.default_user_only_loopback?.should be_false
-  ensure
-    ENV.delete("LAVINMQ_DATADIR")
-  end
-
-  it "parses deprecated guest_only_loopback INI option" do
-    config_file = File.tempfile do |file|
-      file.print <<-CONFIG
-        [main]
-        guest_only_loopback = false
-      CONFIG
-    end
-    config = LavinMQ::Config.new
-    config.parse(["-c", config_file.path])
-    config.default_user_only_loopback?.should be_false
-  ensure
-    config_file.try &.delete
-    ENV.delete("LAVINMQ_DATADIR")
   end
 end

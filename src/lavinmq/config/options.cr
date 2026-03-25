@@ -248,7 +248,7 @@ module LavinMQ
       @[IniOpt(section: "main")]
       property? default_user_only_loopback : Bool = true
 
-      @[CliOpt("", "--guest-only-loopback=BOOL", "Limit guest user to only connect from loopback address", deprecated: "Use --default-user-only-loopback instead.", section: "options")]
+      @[CliOpt("", "--guest-only-loopback=BOOL", "Limit guest user to only connect from loopback address", deprecated: "Deprecated: Use --default-user-only-loopback instead.", section: "options")]
       @[IniOpt(section: "main", deprecated: "default_user_only_loopback")]
       @guest_only_loopback : Bool = true
 
