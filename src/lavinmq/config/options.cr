@@ -28,7 +28,7 @@ module LavinMQ
       @[CliOpt("-b BIND", "--bind=BIND", "IP address that both the AMQP and HTTP servers will listen on (default: 127.0.0.1)", ->parse_bind(String), section: "bindings")]
       property bind = "127.0.0.1"
 
-      @[CliOpt("-p PORT", "--port=PORT", "AMQP port to listen on (default: 5672)", section: "bindings")]
+      @[CliOpt("-p PORT", "--amqp-port=PORT", "AMQP port to listen on (default: 5672)", section: "bindings")]
       @[IniOpt(ini_name: port, section: "amqp")]
       @[EnvOpt("LAVINMQ_AMQP_PORT")]
       property amqp_port = 5672
@@ -54,12 +54,15 @@ module LavinMQ
       @[EnvOpt("LAVINMQ_AMQPS_PORT")]
       property amqps_port = 5671
 
+      @[CliOpt("", "--mqtt-bind=BIND", "IP address that the MQTT server will listen on (default: 127.0.0.1)", section: "bindings")]
       @[IniOpt(ini_name: bind, section: "mqtt")]
       property mqtt_bind = "127.0.0.1"
 
+      @[CliOpt("", "--mqtt-port=PORT", "MQTT port to listen on (default: 1883)", section: "bindings")]
       @[IniOpt(ini_name: port, section: "mqtt")]
       property mqtt_port = 1883
 
+      @[CliOpt("", "--mqtts-port=PORT", "MQTTS port to listen on (default: 8883)", section: "bindings")]
       @[IniOpt(ini_name: tls_port, section: "mqtt")]
       property mqtts_port = 8883
 

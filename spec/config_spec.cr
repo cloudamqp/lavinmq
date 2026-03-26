@@ -264,6 +264,9 @@ describe LavinMQ::Config do
       "--http-bind=172.16.0.1",
       "--http-port=15673",
       "--http-unix-path=/tmp/http.sock",
+      "--mqtt-bind=10.0.0.2",
+      "--mqtt-port=1884",
+      "--mqtts-port=8884",
       "--mqtt-unix-path=/tmp/mqtt.sock",
       "--https-port=15675",
       "--cert=/etc/ssl/cert.pem",
@@ -297,6 +300,9 @@ describe LavinMQ::Config do
     config.http_bind.should eq "172.16.0.1"
     config.http_port.should eq 15673
     config.http_unix_path.should eq "/tmp/http.sock"
+    config.mqtt_bind.should eq "10.0.0.2"
+    config.mqtt_port.should eq 1884
+    config.mqtts_port.should eq 8884
     config.mqtt_unix_path.should eq "/tmp/mqtt.sock"
     config.https_port.should eq 15675
     config.tls_cert_path.should eq "/etc/ssl/cert.pem"
@@ -399,6 +405,23 @@ describe LavinMQ::Config do
       ENV.delete("LAVINMQ_CLUSTERING_MAX_UNSYNCED_ACTIONS")
       ENV.delete("LAVINMQ_CLUSTERING_PORT")
     end
+  end
+
+  it "accepts deprecated [http] section as alias for [mgmt]" do
+    config_file = File.tempfile do |file|
+      file.print <<-CONFIG
+        [main]
+        data_dir = /tmp/lavinmq-spec
+        [http]
+        port = 15699
+      CONFIG
+    end
+    io = IO::Memory.new
+    config = LavinMQ::Config.new(io)
+    argv = ["-c", config_file.path]
+    config.parse(argv)
+    config.http_port.should eq 15699
+    io.to_s.should match(/\[http\] is deprecated/)
   end
 
   it "will not parse ini sections that do not exist" do
