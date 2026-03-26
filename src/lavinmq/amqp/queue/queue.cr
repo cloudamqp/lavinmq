@@ -67,7 +67,8 @@ module LavinMQ::AMQP
       TTLChange
       Overflow
     end
-    @cleanup_message_channel = ::Channel(CleanupReason).new(1)
+    # @cleanup_message_channel = ::Channel(CleanupReason).new(1)
+    @cleanup_messages = BoolChannel.new(false)
 
     getter basic_get_unacked = Deque(UnackedMessage).new
     @unacked_count = Atomic(UInt32).new(0u32)
@@ -115,7 +116,9 @@ module LavinMQ::AMQP
     end
 
     private def message_expire_loop
+      puts "waiting for vhost closed false"
       @vhost.closed.when_false.receive?
+      puts "waited for vhost closed false"
       loop do
         @msg_store.empty.when_false.receive
         @log.debug { "message_expire_loop=\"Message store not empty\"" }
@@ -124,7 +127,9 @@ module LavinMQ::AMQP
           if ttl = time_to_message_expiration
             @log.debug { "message_expire_loop=\"Next message\" ttl=\"#{ttl}\"" }
             select
-            when reason = @cleanup_message_channel.receive
+            # when reason = @cleanup_message_channel.receive
+            when @cleanup_messages.when_true.receive
+              reason = "cleanup"
               @log.debug { "message_expire_loop=\"Message cleanup\" reason=#{reason} ttl=\"#{ttl}\" consumers=0" }
             when @msg_store.empty.when_true.receive
               @log.debug { "message_expire_loop=\"Message store is empty\" ttl=\"#{ttl}\" consumers=0" }
@@ -136,7 +141,8 @@ module LavinMQ::AMQP
             end
           else
             select
-            when reason = @cleanup_message_channel.receive
+            when @cleanup_messages.when_true.receive
+              reason = "cleanup"
               @log.debug { "message_expire_loop=\"Message cleanup\" reason=#{reason} ttl=\"nil\" consumers=0" }
             when @msg_store.empty.when_true.receive
               @log.debug { "message_expire_loop=\"Msg store is empty\" ttl=\"nil\" consumer=0" }
@@ -144,7 +150,8 @@ module LavinMQ::AMQP
           end
         else
           select
-          when reason = @cleanup_message_channel.receive
+          when @cleanup_messages.when_true.receive
+            reason = "cleanup"
             @log.debug { "message_expire_loop=\"Message cleanup\" reason=#{reason} having consumers" }
           when @consumers_empty.when_true.receive
             @log.debug { "message_expire_loop=\"Lost consumers\"" }
@@ -224,7 +231,8 @@ module LavinMQ::AMQP
       @state = QueueState::Running
       # Recreate channels that were closed
       @queue_expiration_ttl_change = ::Channel(Nil).new
-      @cleanup_message_channel = ::Channel(CleanupReason).new
+      # @cleanup_message_channel = ::Channel(CleanupReason).new
+      @cleanup_messages.set(false)
       @paused = BoolChannel.new(false)
       @consumers_empty = BoolChannel.new(true)
       @single_active_consumer_change = ::Channel(Client::Channel::Consumer).new
@@ -441,7 +449,8 @@ module LavinMQ::AMQP
       @closed = true
       @state = QueueState::Closed
       @queue_expiration_ttl_change.close
-      @cleanup_message_channel.close
+      # @cleanup_message_channel.close
+      @cleanup_messages.set(false)
       @paused.close
       @consumers_empty.close
       @consumers_lock.synchronize do
@@ -533,10 +542,10 @@ module LavinMQ::AMQP
       drop_done = true
       @msg_store_lock.synchronize do
         @msg_store.push(msg)
+        @publish_count.add(1, :relaxed)
         drop_done = drop_head_on_overflow
       end
       drop_head_on_overflow_async unless drop_done
-      @publish_count.add(1, :relaxed)
       true
     rescue ex : MessageStore::Error
       @log.error(ex) { "Queue closed due to error" }
@@ -545,11 +554,17 @@ module LavinMQ::AMQP
     end
 
     private def drop_head_on_overflow : Bool
+      # drop head?
       return true if @reject_on_overflow
+      # any limit set?
       return true unless (ml = @max_length) || (mlb = @max_length_bytes)
-      return true if immediate_delivery?
+      # handle special case...
+      return true if immediate_delivery? && (ml == 0 || mlb == 0)
+      # can't drop from publishing fiber if dead lettering
       return false if @dead_letter.dlx
 
+      # try to drop as many messages as possible and needed, but as soon as
+      # a message is to be dead lettered it must be done "async" from another fiber
       if max_length = ml
         while @msg_store.size > max_length
           env = @msg_store.first? || break
@@ -578,18 +593,18 @@ module LavinMQ::AMQP
     end
 
     private def drop_head_on_overflow_async(wait = true)
+      @cleanup_messages.set(true)
       if wait
         select
         when @msg_store.empty.when_true.receive
-        when @cleanup_message_channel.send(CleanupReason::Overflow)
+        when @cleanup_messages.when_false.receive
         end
-      else
-        @cleanup_message_channel.try_send?(CleanupReason::Overflow)
       end
     end
 
     private def message_ttl_changed
-      @cleanup_message_channel.try_send(CleanupReason::TTLChange)
+      @cleanup_messages.set(true)
+      # @cleanup_message_channel.try_send(CleanupReason::TTLChange)
     end
 
     private def reject_on_overflow(msg) : Nil
@@ -610,6 +625,7 @@ module LavinMQ::AMQP
     end
 
     private def drop_overflow : Nil
+      @cleanup_messages.set(false)
       return unless @max_length || @max_length_bytes
       return if immediate_delivery?
 

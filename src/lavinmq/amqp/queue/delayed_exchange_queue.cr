@@ -47,7 +47,8 @@ module LavinMQ::AMQP
         @msg_store.push(msg)
       end
       @publish_count.add(1, :relaxed)
-      @cleanup_message_channel.try_send?(CleanupReason::TTLChange)
+      # @cleanup_message_channel.try_send?(CleanupReason::TTLChange)
+      message_ttl_changed
       true
     rescue ex : MessageStore::Error
       @log.error(ex) { "Queue closed due to error" }
@@ -63,6 +64,7 @@ module LavinMQ::AMQP
 
     # simplify the message expire loop, as this queue can't have consumers or message-ttl
     private def message_expire_loop
+      @vhost.closed.when_false.receive?
       loop do
         if ttl = time_to_message_expiration
           if ttl <= Time::Span::ZERO
@@ -71,13 +73,17 @@ module LavinMQ::AMQP
           end
           select
           when @msg_store.empty.when_true.receive # purge?
-          when @cleanup_message_channel.receive
+            # when @cleanup_message_channel.receive
+          when @cleanup_messages.when_true.receive
+            @cleanup_messages.set(false) # reset signal
           when timeout ttl
             expire_messages
           end
         else
           select
-          when @cleanup_message_channel.receive
+          # when @cleanup_message_channel.receive
+          when @cleanup_messages.when_true.receive
+            @cleanup_messages.set(false) # reset signal
           when @msg_store.empty.when_false.receive
             Fiber.yield
           end
