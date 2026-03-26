@@ -14,12 +14,13 @@ module LavinMQ
     include Options
     @@instance : Config = self.new
     getter sni_manager : SNIManager = SNIManager.new
+    @io : IO = STDERR
 
     def self.instance : LavinMQ::Config
       @@instance
     end
 
-    private def initialize
+    private def initialize(@io : IO = STDERR)
     end
 
     # Parse configuration from environment, command line arguments and configuration file.
@@ -82,7 +83,10 @@ module LavinMQ
           %}
           # Create Option object with CLI args and a block that parses and stores the value
           # when the option is encountered during command line parsing
-          sections[:{{section_id}}][:options] << Option.new({{parser_arg.splat}}, {{cli_opt[:deprecated]}}) do |value|
+          sections[:{{section_id}}][:options] << Option.new({{parser_arg.splat}}) do |value|
+            {% if cli_opt[:deprecated] %}
+              @io.puts "WARNING: {{cli_opt[:deprecated].id}}"
+            {% end %}
             self.{{ivar.name.id}} = parse_value(value, {{value_parser}})
           end
         {% end %}
@@ -163,11 +167,11 @@ module LavinMQ
         when "http_tls_ca_cert"     then host.http_tls_ca_cert = v
         when "http_tls_keylog_file" then host.http_tls_keylog_file = v
         else
-          STDERR.puts "WARNING: Unrecognized configuration 'sni:#{hostname}/#{config}'"
+          @io.puts "WARNING: Unrecognized configuration 'sni:#{hostname}/#{config}'"
         end
       end
       if host.tls_cert.empty?
-        STDERR.puts "WARNING: SNI host '#{hostname}' missing required tls_cert"
+        @io.puts "WARNING: SNI host '#{hostname}' missing required tls_cert"
       else
         @sni_manager.add_host(host)
       end
@@ -200,15 +204,15 @@ module LavinMQ
         {% for var in ivars_in_section %}
          when "{{var[:ini_name]}}"
          {% if (deprecated = var[:deprecated]) %}
-           STDERR.puts "WARNING: Config {{var[:ini_name]}} is deprecated, use {{deprecated.id}} instead"
+           @io.puts "WARNING: Config {{var[:ini_name]}} is deprecated, use {{deprecated.id}} instead"
          {% end %}
          self.{{var[:var_name]}} = parse_value(v, {{var[:transform]}})
         {% end %}
      else
-       STDERR.puts "WARNING: Unknown setting '#{name}' in section [{{section.id}}]"
+       @io.puts "WARNING: Unknown setting '#{name}' in section [{{section.id}}]"
       end
     rescue ex
-      STDERR.puts "ERROR: Failed to handle value for '#{name}' in [{{section.id}}]: #{ex.message}"
+      @io.puts "ERROR: Failed to handle value for '#{name}' in [{{section.id}}]: #{ex.message}"
       abort
     end
   {% end %}
@@ -331,11 +335,11 @@ module LavinMQ
     struct Option
       include Comparable(Option)
 
-      def self.new(short_flag : String, long_flag : String, description : String, deprecation_warn_msg : String?, &block : Proc(String, Nil))
-        new(short_flag, long_flag, description, deprecation_warn_msg, block)
+      def self.new(short_flag : String, long_flag : String, description : String, &block : Proc(String, Nil))
+        new(short_flag, long_flag, description, block)
       end
 
-      protected def initialize(@short_flag : String, @long_flag : String, @description : String, @deprecation_warn_msg : String?, @set_value : Proc(String, Nil))
+      protected def initialize(@short_flag : String, @long_flag : String, @description : String, @set_value : Proc(String, Nil))
       end
 
       def <=>(other : Option)
@@ -362,9 +366,6 @@ module LavinMQ
 
       private def do_setup_parser(parser, *args)
         parser.on(*args) do |val|
-          if msg = @deprecation_warn_msg
-            STDERR.puts "WARNING: #{msg}"
-          end
           @set_value.call(val)
         end
       end
