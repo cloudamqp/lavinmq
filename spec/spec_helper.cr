@@ -35,7 +35,7 @@ init_config
 # Allow creating custom config objects for specs
 module LavinMQ
   class Config
-    def initialize
+    def initialize(@io : IO = STDERR)
     end
 
     def self.instance=(instance)
@@ -231,13 +231,5 @@ class SpecExit < Exception
 
   def initialize(@code)
     super "Exiting with code #{@code}"
-  end
-end
-
-module LavinMQ
-  # Allow creating new Config object without using the singleton
-  class Config
-    def initialize
-    end
   end
 end
