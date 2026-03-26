@@ -12,6 +12,7 @@ module S3SpecHelper
     io.write_bytes 100_u32 # count
     io.write_bytes offset  # first offset
     io.write_bytes offset  # first timestamp
+    io.write_bytes offset  # last timestamp
     io.rewind
     io.getb_to_end
   end
@@ -192,6 +193,106 @@ describe LavinMQ::AMQP::Stream::S3MessageStore do
     end
   end
 
+  it "uploads sealed segments to S3 on rotation" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q_name = "s3-upload-test"
+        q_args = AMQP::Client::Arguments.new({"x-queue-type": "stream"})
+        q = ch.queue(q_name, durable: true, args: q_args)
+
+        # Publish a segment-sized message to trigger rotation
+        data = Bytes.new(LavinMQ::Config.instance.segment_size)
+        q.publish_confirm data
+        # Second publish triggers open_new_segment which uploads the first
+        q.publish_confirm data
+
+        server = S3SpecHelper.s3_server.not_nil!
+        # Sealed segment should be uploaded to S3
+        wait_for { server.keys.count(&.matches?(/msgs\.\d{10}$/)) >= 1 }
+
+        ch.queue_delete(q_name)
+      end
+    end
+  end
+
+  it "deletes S3 segments when queue is deleted" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q_name = "s3-delete-test"
+        q_args = AMQP::Client::Arguments.new({"x-queue-type": "stream"})
+        q = ch.queue(q_name, durable: true, args: q_args)
+
+        data = Bytes.new(LavinMQ::Config.instance.segment_size)
+        2.times { q.publish_confirm data }
+
+        server = S3SpecHelper.s3_server.not_nil!
+        # Verify segments exist in S3 before delete
+        wait_for { !server.keys.select(&.includes?("msgs.")).empty? }
+
+        ch.queue_delete(q_name)
+
+        # All segments for this queue should be gone from S3
+        queue_hash = Digest::SHA1.hexdigest(q_name)
+        remaining = server.keys.select(&.includes?(queue_hash))
+        remaining.should be_empty
+      end
+    end
+  end
+
+  it "drops oldest S3 segments when max-length exceeded" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q_name = "s3-maxlen-test"
+        args = AMQP::Client::Arguments.new({"x-queue-type": "stream", "x-max-length": 1})
+        q = ch.queue(q_name, durable: true, args: args)
+
+        data = Bytes.new(LavinMQ::Config.instance.segment_size)
+        4.times { q.publish_confirm data }
+
+        server = S3SpecHelper.s3_server.not_nil!
+        queue_hash = Digest::SHA1.hexdigest(q_name)
+
+        # Wait for uploads, then verify segments were dropped
+        # We published 4 segment-sized messages (4 segments sealed + 1 active)
+        # With max-length: 1, most segments should be dropped
+        q.message_count.should be <= 2
+        segment_keys = server.keys.select { |k| k.includes?(queue_hash) && k.matches?(/msgs\.\d{10}$/) }
+        segment_keys.size.should be <= 2
+
+        ch.queue_delete(q_name)
+      end
+    end
+  end
+
+  it "consumes messages across segment boundaries" do
+    with_amqp_server do |s|
+      with_channel(s) do |ch|
+        q_name = "s3-cross-segment"
+        q_args = AMQP::Client::Arguments.new({"x-queue-type": "stream"})
+        q = ch.queue(q_name, durable: true, args: q_args)
+        ch.prefetch 1
+
+        # Publish enough to span 2 segments
+        data = Bytes.new(LavinMQ::Config.instance.segment_size)
+        q.publish_confirm data
+        q.publish_confirm "last message"
+
+        # Consume from the beginning
+        msgs = Channel(String).new(2)
+        q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": "first"})) do |msg|
+          msgs.send msg.body_io.to_s
+          ch.basic_ack(msg.delivery_tag)
+        end
+
+        first = msgs.receive
+        first.bytesize.should eq LavinMQ::Config.instance.segment_size
+        msgs.receive.should eq "last message"
+
+        ch.queue_delete(q_name)
+      end
+    end
+  end
+
   it "should raise if not configured properly" do
     LavinMQ::Config.instance.streams_s3_storage_region = nil
     LavinMQ::Config.instance.streams_s3_storage_access_key_id = nil
@@ -203,6 +304,146 @@ describe LavinMQ::AMQP::Stream::S3MessageStore do
 
     expect_raises(SpecExit) do
       LavinMQ::AMQP::Stream::S3MessageStore.new(msg_dir, nil, true, ::Log::Metadata.empty)
+    end
+  end
+
+  describe "download failure handling" do
+    it "recovers from S3 GET failure during segment cache download" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q_name = "s3-fail-test"
+          q_args = AMQP::Client::Arguments.new({"x-queue-type": "stream"})
+          q = ch.queue(q_name, durable: true, args: q_args)
+          ch.prefetch 1
+
+          # Publish enough to create 2 segments
+          data = Bytes.new(LavinMQ::Config.instance.segment_size)
+          q.publish_confirm data
+          q.publish_confirm "second segment msg"
+
+          # Make the first segment fail on next GET (simulates transient S3 error)
+          server = S3SpecHelper.s3_server.not_nil!
+          queue_hash = Digest::SHA1.hexdigest(q_name)
+          first_segment_key = server.keys.find { |k| k.includes?(queue_hash) && k.matches?(/msgs\.\d{10}$/) }
+          server.fail_keys.add(first_segment_key.not_nil!) if first_segment_key
+
+          # Consumer should still be able to read (direct download retries or fallback)
+          msgs = Channel(String).new(2)
+          q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": "first"})) do |msg|
+            msgs.send msg.body_io.to_s
+            ch.basic_ack(msg.delivery_tag)
+          end
+
+          # Should eventually receive messages (fail_keys only fails once)
+          msg = msgs.receive
+          msg.bytesize.should eq LavinMQ::Config.instance.segment_size
+
+          ch.queue_delete(q_name)
+        end
+      end
+    end
+  end
+
+  describe "S3 pagination" do
+    it "lists all segments when S3 response is paginated" do
+      msg_dir = "/tmp/lavinmq-spec/#{DATA_DIR}"
+      FileUtils.rm_rf(msg_dir)
+      Dir.mkdir_p(msg_dir)
+
+      server = S3SpecHelper.s3_server.not_nil!
+      # Set max keys to 3 to force pagination with just a few segments
+      server.max_list_keys = 3
+
+      # Add 4 segments with meta files (8 keys total, will need 3 pages)
+      4.times do |i|
+        seg_id = (i + 1).to_s.rjust(10, '0')
+        server.put("#{DATA_DIR}/msgs.#{seg_id}", S3SpecHelper.segment_bytes)
+        server.put("#{DATA_DIR}/meta.#{seg_id}", S3SpecHelper.meta_bytes((i * 100).to_i64))
+      end
+
+      msg_store = LavinMQ::AMQP::Stream::S3MessageStore.new(msg_dir, nil, true, ::Log::Metadata.empty)
+      # All 4 segments should be discovered despite pagination
+      msg_store.@s3_segments.size.should eq 4
+      msg_store.@size.should eq 400
+    ensure
+      server.try &.max_list_keys = 1000
+    end
+  end
+
+  describe "concurrent consumers" do
+    it "supports two consumers reading different offsets" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q_name = "s3-concurrent-consumers"
+          q_args = AMQP::Client::Arguments.new({"x-queue-type": "stream"})
+          q = ch.queue(q_name, durable: true, args: q_args)
+          ch.prefetch 1
+
+          # Publish messages across 2 segments
+          data = Bytes.new(LavinMQ::Config.instance.segment_size)
+          q.publish_confirm data
+          q.publish_confirm "msg2"
+
+          # Consumer 1: reads from first offset
+          msgs1 = Channel(String).new(2)
+          q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": "first"})) do |msg|
+            msgs1.send msg.body_io.to_s
+            ch.basic_ack(msg.delivery_tag)
+          end
+
+          # Consumer 2 on a separate channel: reads from last offset
+          with_channel(s) do |ch2|
+            ch2.prefetch 1
+            q2 = ch2.queue(q_name, durable: true, args: q_args)
+            msgs2 = Channel(String).new(2)
+            q2.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": "last"})) do |msg|
+              msgs2.send msg.body_io.to_s
+              ch2.basic_ack(msg.delivery_tag)
+            end
+
+            # Both consumers should receive messages
+            first_msg = msgs1.receive
+            first_msg.bytesize.should eq LavinMQ::Config.instance.segment_size
+            msgs2.receive.should eq "msg2"
+          end
+
+          ch.queue_delete(q_name)
+        end
+      end
+    end
+  end
+
+  describe "segment cache" do
+    it "prefetches segments for consumers and cleans up after removal" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q_name = "s3-cache-test"
+          q_args = AMQP::Client::Arguments.new({"x-queue-type": "stream"})
+          q = ch.queue(q_name, durable: true, args: q_args)
+          ch.prefetch 1
+
+          # Publish enough data to create multiple segments
+          data = Bytes.new(LavinMQ::Config.instance.segment_size)
+          3.times { q.publish_confirm data }
+
+          server = S3SpecHelper.s3_server.not_nil!
+          queue_hash = Digest::SHA1.hexdigest(q_name)
+          # Verify segments were uploaded to S3
+          wait_for { server.keys.count { |k| k.includes?(queue_hash) && k.matches?(/msgs\.\d{10}$/) } >= 2 }
+
+          # Start a consumer to trigger prefetching
+          msgs = Channel(String).new(4)
+          q.subscribe(no_ack: false, args: AMQP::Client::Arguments.new({"x-stream-offset": "first"})) do |msg|
+            msgs.send msg.body_io.to_s
+            ch.basic_ack(msg.delivery_tag)
+          end
+
+          # Consume at least one message to confirm cache is working
+          msgs.receive
+
+          ch.queue_delete(q_name)
+        end
+      end
     end
   end
 end

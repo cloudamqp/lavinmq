@@ -615,6 +615,10 @@ module LavinMQ
       def initialize(mfile : MFile, cause = nil)
         super("path=#{mfile.path} pos=#{mfile.pos} size=#{mfile.size}", cause: cause)
       end
+
+      def initialize(message : String)
+        super(message)
+      end
     end
   end
 end

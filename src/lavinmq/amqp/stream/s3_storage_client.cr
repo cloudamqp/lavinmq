@@ -4,47 +4,64 @@ require "xml"
 require "../../config"
 require "../../rough_time"
 require "../../mfile"
+require "../../message_store"
 
 module LavinMQ::AMQP
   class S3StorageClient
     @s3_signer : Awscr::Signer::Signers::V4
     @log : Logger
+    @relative_prefix : String # e.g. "vhost_hash/queue_hash"
 
     HTTP_CONNECT_TIMEOUT = 200.milliseconds
-    HTTP_READ_TIMEOUT    = 500.milliseconds
+    # Read timeout is intentionally short: fail fast and retry quickly,
+    # relying on quick failover to a responsive S3 endpoint.
+    HTTP_READ_TIMEOUT = 500.milliseconds
 
     def initialize(@msg_dir : String, metadata : ::Log::Metadata = ::Log::Metadata.empty)
       @log = Logger.new(Log, metadata)
       @s3_signer = s3_signer
+      @relative_prefix = @msg_dir[Config.instance.data_dir.bytesize + 1..]
+      @file_mutex = Mutex.new
+    end
+
+    # Compute the S3 path for a local file
+    def s3_path(local_path : String) : String
+      local_path[Config.instance.data_dir.bytesize + 1..]
     end
 
     # List all segments in the S3 bucket for this stream
-    # Returns a hash mapping segment ID to segment info
     def s3_segments_from_bucket(max_retries = 5) : Hash(UInt32, NamedTuple(path: String, etag: String, size: Int64, meta: Bool))
       s3_segments = Hash(UInt32, NamedTuple(path: String, etag: String, size: Int64, meta: Bool)).new
-      prefix = @msg_dir[Config.instance.data_dir.bytesize + 1..] + "/"
+      prefix = @relative_prefix + "/"
       continuation_token : String? = nil
       retries = 0
 
-      loop do
-        begin
-          path = "/?delimiter=%2F&encoding-type=url&list-type=2&prefix=#{prefix}&max-keys=1000"
-          if token = continuation_token
-            path += "&continuation-token=#{URI.encode_path(token)}"
+      h = http_client(with_timeouts: true)
+      begin
+        loop do
+          begin
+            path = "/?delimiter=%2F&encoding-type=url&list-type=2&prefix=#{prefix}&max-keys=1000"
+            if token = continuation_token
+              path += "&continuation-token=#{URI.encode_path(token)}"
+            end
+            response = h.get(path)
+            continuation_token = list_of_files_from_xml(XML.parse(response.body), s3_segments)
+            retries = 0 # Reset on success
+            break unless continuation_token
+          rescue ex : IO::TimeoutError | IO::Error
+            retries += 1
+            if retries > max_retries
+              raise MessageStore::Error.new("Failed to list S3 bucket after #{max_retries} retries: #{ex.message}")
+            end
+            @log.warn { "Error listing S3 bucket (attempt #{retries}/#{max_retries}): #{ex.message}" }
+            sleep (retries * 100).milliseconds
+            # Reconnect on error — the previous connection may be broken
+            h.close rescue nil
+            h = http_client(with_timeouts: true)
           end
-          response = http_client(with_timeouts: true).get(path)
-          continuation_token = list_of_files_from_xml(XML.parse(response.body), s3_segments)
-          retries = 0 # Reset on success
-          break unless continuation_token
-        rescue ex : IO::TimeoutError | IO::Error
-          retries += 1
-          if retries > max_retries
-            @log.error { "Failed to list S3 bucket after #{max_retries} retries: #{ex.message}" }
-            break
-          end
-          @log.warn { "Error listing S3 bucket (attempt #{retries}/#{max_retries}): #{ex.message}" }
-          sleep (2 ** retries).milliseconds # Exponential backoff
         end
+      ensure
+        h.close
       end
 
       @log.info { "Found #{s3_segments.size} segments in S3" }
@@ -105,6 +122,7 @@ module LavinMQ::AMQP
       path = s3_seg[:path] if path == ""
       etag = s3_seg[:etag] if etag == ""
       size = s3_seg[:size] if size == 0_i64
+      # Sticky flag: once a meta file is seen for this segment, keep it true
       meta = s3_seg[:meta] if meta == false
 
       s3_segments[seg_id] = {path: path, etag: etag, size: size, meta: meta}
@@ -112,14 +130,12 @@ module LavinMQ::AMQP
 
     # Download a segment from S3
     # Returns MFile on success, nil on failure
-    # Does NOT retry - caller is responsible for retry logic
     def download_segment(segment_id : UInt32, s3_segments, h : ::HTTP::Client) : MFile?
       @log.debug { "Downloading segment: #{segment_id}" }
       return unless s3_segments[segment_id]?
 
       s3file_path = s3_segments[segment_id][:path]
       path = File.join(Config.instance.data_dir, s3file_path)
-      temp_path = make_temp_path(path)
 
       h.get("/#{s3file_path}") do |response|
         if response.status_code != 200
@@ -128,24 +144,23 @@ module LavinMQ::AMQP
         end
 
         bytesize = response.headers["Content-Length"].to_i32
-        rfile = MFile.new(temp_path, bytesize)
+        rfile = @file_mutex.synchronize { MFile.new(make_temp_path(path), bytesize) }
 
         begin
           IO.copy response.body_io, rfile
 
-          # Check if another download completed while we were downloading
-          if File.exists?(path)
-            @log.debug { "Segment #{segment_id} already exists, discarding download" }
-            rfile.delete
-            rfile.close
-            return nil
+          @file_mutex.synchronize do
+            if File.exists?(path)
+              @log.debug { "Segment #{segment_id} already exists, discarding download" }
+              rfile.delete
+              rfile.close
+              return nil
+            end
+            rfile.rename(path)
           end
-
-          rfile.rename(path)
           @log.debug { "Downloaded segment: #{segment_id}" }
           return rfile
         rescue ex
-          # Clean up temp file on any error
           rfile.delete rescue nil
           rfile.close rescue nil
           raise ex
@@ -154,34 +169,45 @@ module LavinMQ::AMQP
     end
 
     # Download metadata file from S3
-    # Returns MFile on success, nil on failure
-    # Does NOT retry - caller is responsible for retry logic
-    def download_meta_file(segment_id : UInt32, s3_segments, h : ::HTTP::Client) : MFile?
+    def download_meta_file(segment_id : UInt32, s3_segments, h : ::HTTP::Client, max_retries = 3) : MFile?
       @log.debug { "Downloading meta for segment: #{segment_id}" }
       return unless s3_segments[segment_id]?
 
       s3_meta_path = meta_file_name(s3_segments[segment_id][:path])
       path = File.join(Config.instance.data_dir, s3_meta_path)
+      retries = 0
 
-      h.get("/#{s3_meta_path}") do |response|
-        if response.status_code != 200
-          @log.debug { "Meta file not found for segment #{segment_id}: HTTP #{response.status_code}" }
+      loop do
+        h.get("/#{s3_meta_path}") do |response|
+          if response.status_code == 404
+            @log.debug { "Meta file not found for segment #{segment_id}" }
+            return nil
+          end
+          if response.status_code != 200
+            raise "HTTP #{response.status_code}"
+          end
+          bytesize = response.headers["Content-Length"].to_i32
+          rfile = MFile.new(path, bytesize)
+          IO.copy response.body_io, rfile
+          return rfile
+        end
+      rescue ex
+        retries += 1
+        if retries > max_retries
+          @log.error { "Failed to download meta for segment #{segment_id} after #{max_retries} retries: #{ex.message}" }
           return nil
         end
-        bytesize = response.headers["Content-Length"].to_i32
-        rfile = MFile.new(path, bytesize)
-        IO.copy response.body_io, rfile
-        return rfile
+        @log.warn { "Failed to download meta for segment #{segment_id} (attempt #{retries}/#{max_retries}): #{ex.message}" }
+        sleep (retries * 100).milliseconds
       end
     end
 
-    # Upload a file to S3
-    # Retries on failure with exponential backoff
+    # Upload a file to S3 with retries
     def upload_file_to_s3(path : String, slice : Bytes, max_retries = 3) : String
       retries = 0
       loop do
         begin
-          response = http_client(with_timeouts: true).put(path, body: slice)
+          response = with_http_client(with_timeouts: true) { |h| h.put(path, body: slice) }
           if response.status_code == 200
             return response.headers["ETag"]
           end
@@ -192,19 +218,16 @@ module LavinMQ::AMQP
             raise Exception.new("Failed to upload #{path} to S3 after #{max_retries} retries: #{ex.message}")
           end
           @log.warn { "Failed to upload #{path} to S3 (attempt #{retries}/#{max_retries}): #{ex.message}" }
-          sleep (2 ** retries).milliseconds
+          sleep (retries * 100).milliseconds
         end
       end
     end
 
     # Delete a segment and its metadata from S3
     def delete_from_s3(s3_seg)
-      h = http_client(with_timeouts: true)
-      begin
+      with_http_client(with_timeouts: true) do |h|
         delete_from_s3(h, s3_seg[:path])
         delete_from_s3(h, meta_file_name(s3_seg[:path]))
-      ensure
-        h.close
       end
     end
 
@@ -214,6 +237,16 @@ module LavinMQ::AMQP
         @log.error { "Failed to delete #{path} from S3: HTTP #{response.status_code}" }
       else
         @log.debug { "Deleted #{path} from S3" }
+      end
+    end
+
+    # Block-based HTTP client that ensures cleanup
+    def with_http_client(with_timeouts = false, &)
+      h = http_client(with_timeouts)
+      begin
+        yield h
+      ensure
+        h.close
       end
     end
 
@@ -233,7 +266,19 @@ module LavinMQ::AMQP
       h
     end
 
-    def s3_signer : Awscr::Signer::Signers::V4
+    # Replaces "msgs.DDDDDDDDDD" suffix with "meta.DDDDDDDDDD"
+    # Hard-coded byte offsets (15 = "msgs." + 10-digit ID) used intentionally
+    # to avoid string allocation from sub/gsub.
+    def meta_file_name(path : String) : String
+      raw = path.to_slice
+      String.build(path.size) do |io|
+        io.write raw[0, raw.size - 15]
+        io.write "meta.".to_slice
+        io.write raw[-10..]
+      end
+    end
+
+    private def s3_signer : Awscr::Signer::Signers::V4
       if (region = Config.instance.streams_s3_storage_region) &&
          (access_key = Config.instance.streams_s3_storage_access_key_id) &&
          (secret_key = Config.instance.streams_s3_storage_secret_access_key)
@@ -252,20 +297,6 @@ module LavinMQ::AMQP
         i += 1
       end
       temp_path
-    end
-
-    private def meta_file_name(path : String) : String
-      # We assume the path ends with "msgs.<10 chars>"
-      raw = path.to_slice
-
-      # This is basically the same as using sub("msgs.", "meta.") but with #sub
-      # the first occurrence of "msgs." would be replaced, not the last one.
-      # This also requires only one allocation.
-      String.build(path.size) do |io|
-        io.write raw[0, raw.size - 15]
-        io.write "meta.".to_slice
-        io.write raw[-10..]
-      end
     end
   end
 end

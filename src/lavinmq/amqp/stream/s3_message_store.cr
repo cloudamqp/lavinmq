@@ -9,213 +9,91 @@ module LavinMQ::AMQP
   class Stream < DurableQueue
     class S3MessageStore < StreamMessageStore
       @s3_segments = Hash(UInt32, NamedTuple(path: String, etag: String, size: Int64, meta: Bool)).new
-      property storage_client : S3StorageClient
+      getter storage_client : S3StorageClient
       @segment_cache : S3SegmentCache?
 
       MAX_RUNNING_FIBERS = 8
 
       def initialize(@msg_dir : String, @replicator : Clustering::Replicator?,
                      durable : Bool = true, metadata : ::Log::Metadata = ::Log::Metadata.empty)
-        @log = Logger.new(Log, metadata)
-        @durable = durable
-        @acks = Hash(UInt32, MFile).new
-        @consumer_offsets = MFile.new(File.join(@msg_dir, "consumer_offsets"), Config.instance.segment_size)
-        @last_offset = 0_i64
-
         @storage_client = S3StorageClient.new(@msg_dir, metadata)
-        @s3_segments = @storage_client.s3_segments_from_bucket || Hash(UInt32, NamedTuple(path: String, etag: String, size: Int64, meta: Bool)).new
-        load_segments_from_disk
-        load_stats_from_segments
+        @s3_segments = @storage_client.s3_segments_from_bucket
 
+        # Ensure last S3 segment and all meta files are local before base init
+        prepare_local_files_from_s3
+
+        super # MessageStore + StreamMessageStore init (loads local segments/stats)
+
+        # Load stats for S3-only segments (those without local MFiles)
+        load_s3_only_segment_stats
+
+        # Recalculate after loading S3 segment stats
         @last_offset = get_last_offset
-        @rfile_id = @segments.last_key
-        @rfile = @segments.last_value
-        @wfile_id = @rfile_id
-        @wfile = @segments.last_value
 
-        @replicator.try &.register_file @consumer_offsets
-        @consumer_offset_positions = restore_consumer_offset_positions
+        # Open a new segment if the current one has messages.
+        # Downloaded S3 segments are complete and shouldn't be appended to.
+        # This triggers open_new_segment which uploads the previous segment.
+        open_new_segment unless @segment_msg_count[@wfile_id].zero?
 
-        open_new_segment unless @segment_msg_count[@wfile_id] == 0 # if no messages in the last segment, use it
-        @empty.set empty?
+        # Upload any remaining local segments not yet in S3
+        upload_missing_segments_to_s3
 
-        drop_overflow
-        segment_cache = S3SegmentCache.new(@storage_client, @s3_segments, @segments, @msg_dir, metadata)
-        segment_cache.spawn_download_fibers
-        @segment_cache = segment_cache
+        @segment_cache = S3SegmentCache.new(@storage_client, @s3_segments, @segments, @msg_dir, metadata)
       end
 
-      private def load_stats_from_segments : Nil
-        is_long_queue = (@s3_segments.size + @segments.size) > 255
-        @log.info { "Loading: #{@s3_segments.size} segments from S3 and #{@segments.size} local segments" }
-
-        segments = load_stats_from_s3_segments(is_long_queue)
-        segments = load_stats_from_local_files(segments, is_long_queue)
-        @segments = segments.sort! { |a, b| a[0] <=> b[0] }.to_h
-        @log.debug { "Loaded #{segments.size} segments, #{@size} messages" }
-        if @segments.empty?
-          @log.debug { "No segments found, creating new segment" }
-          seg = if @s3_segments.size > 0
-                  @s3_segments.last_key + 1
+      private def open_new_segment(next_msg_size = 0) : MFile
+        prev_seg_id = @wfile_id unless @wfile_id.zero? || @segment_msg_count[@wfile_id]?.try(&.zero?)
+        super.tap do
+          if prev_seg_id
+            spawn(name: "S3MessageStore#upload-segment-#{prev_seg_id}") do
+              3.times do |attempt|
+                upload_segment_to_s3(prev_seg_id)
+                break
+              rescue ex
+                if attempt < 2
+                  @log.warn { "Failed to upload segment #{prev_seg_id} to S3 (attempt #{attempt + 1}/3): #{ex.message}" }
+                  sleep (attempt + 1).seconds
                 else
-                  1_u32
-                end
-          path = File.join(@msg_dir, "msgs.#{seg.to_s.rjust(10, '0')}")
-          file = MFile.new(path, Config.instance.segment_size)
-          file.write_bytes Schema::VERSION
-          @replicator.try &.append path, Schema::VERSION
-          @segments[seg] = file
-        end
-      end
-
-      private def load_stats_from_local_files(segments, is_long_queue)
-        counter = segments.size
-        @segments.each do |seg, mfile|
-          if @segment_msg_count[seg].zero? # only load segment if stats not already read from meta file
-            @log.debug { "Loading stats for local segment: #{seg}, not uploaded to S3 yet" }
-            begin
-              read_metadata_file(seg, mfile)
-            rescue File::NotFoundError
-              mfile.pos = 4
-              produce_metadata(seg, mfile)
-              write_metadata_file(seg, mfile) unless @segment_msg_count[seg].zero?
-            end
-          end
-          if @segment_msg_count[seg].zero? # don't upload empty segments
-            @log.debug { "Deleting empty segment #{seg} from local storage" }
-            delete_file(mfile)
-            @segments.delete(seg)
-            @segment_msg_count.delete(seg)
-          else
-            @replicator.try &.register_file mfile
-            segments << {seg, mfile}
-            upload_segment_to_s3(mfile, seg)
-          end
-          if is_long_queue
-            @log.info { "Loaded #{counter}/#{@s3_segments.size} segments, #{@size} messages" } if (counter &+= 1) % 128 == 0
-          else
-            @log.debug { "Loaded #{counter}/#{@s3_segments.size} segments, #{@size} messages" } if (counter &+= 1) % 128 == 0
-          end
-          Fiber.yield
-        end
-        segments
-      end
-
-      private def load_stats_from_s3_segments(is_long_queue)
-        segments = Array(Tuple(UInt32, MFile)).new(@s3_segments.size)
-        counter = 0
-        segment_keys = @s3_segments.keys
-        mutex = Mutex.new
-        wg = WaitGroup.new([MAX_RUNNING_FIBERS, @s3_segments.size].min)
-        [MAX_RUNNING_FIBERS, @s3_segments.size].min.times do
-          spawn do
-            while seg = mutex.synchronize { segment_keys.shift? }
-              s3file = @s3_segments[seg]
-              path = File.join(Config.instance.data_dir, s3file[:path])
-              load_stats_from_meta_file(path, seg, s3file)
-              file = verify_local_file?(s3file, seg)
-              mutex.synchronize { segments << {seg, file} } if file
-
-              # download segment from s3 if meta file was not found and local file is not valid
-              # always download last segment unless it exists locally
-              if @segment_msg_count[seg].zero? || seg == @s3_segments.last_key
-                client = @storage_client.http_client(with_timeouts: true)
-                begin
-                  file ||= @storage_client.download_segment(seg, @s3_segments, client)
-                ensure
-                  client.close
-                end
-                if mfile = file
-                  @replicator.try &.register_file mfile
-                  mutex.synchronize { segments << {seg, mfile} }
-                  mfile.pos = 4
-                  produce_metadata(seg, mfile)
-                  write_metadata_file(seg, mfile)
-                  slice = Bytes.new(20)
-                  File.open(meta_file_name(path), &.read_fully(slice))
-                  meta_s3_path = meta_file_name(path[Config.instance.data_dir.bytesize + 1..])
-                  @storage_client.upload_file_to_s3("/#{meta_s3_path}", slice)
-                else
-                  @log.error { "Failed to load segment #{path}" }
+                  @log.error { "Failed to upload segment #{prev_seg_id} to S3 after 3 attempts: #{ex.message}" }
                 end
               end
-              counter += 1
-              if is_long_queue
-                @log.info { "Loaded #{counter}/#{@s3_segments.size} segments, #{@size} messages" } if counter % 128 == 0
-              else
-                @log.debug { "Loaded #{counter}/#{@s3_segments.size} segments, #{@size} messages" } if counter % 128 == 0
-              end
-              Fiber.yield
             end
-            wg.done
-          end
-        end
-        wg.wait
-        segments
-      end
-
-      private def load_stats_from_meta_file(path, seg, s3file)
-        meta_path = meta_file_name(path)
-        if File.exists?(meta_path)
-          read_metadata_file(seg, meta_path, s3file[:size])
-          unless s3file[:meta] # upload to s3 unless it exists there
-            Log.info { "Uploading metadata file for segment #{seg} to S3" }
-            slice = Bytes.new(20)
-            File.open(meta_path, &.read_fully(slice))
-            meta_s3_path = meta_file_name(path[Config.instance.data_dir.bytesize + 1..])
-            @storage_client.upload_file_to_s3("/#{meta_s3_path}", slice)
-          end
-        else
-          client = @storage_client.http_client(with_timeouts: true)
-          begin
-            if meta_file = @storage_client.download_meta_file(seg, @s3_segments, client)
-              read_metadata_file_from_s3(seg, meta_file)
-            end
-          ensure
-            client.close
           end
         end
       end
 
-      private def read_metadata_file(seg, meta_path, bytesize)
-        return unless File.exists?(meta_path)
-        File.open(meta_path) do |file|
-          read_metadata(file, seg)
-          @bytesize += bytesize
+      private def download_segment(seg_id : UInt32) : MFile?
+        return nil unless @s3_segments[seg_id]?
+
+        # Try the segment cache first (may already be downloading)
+        if cache = @segment_cache
+          if mfile = cache.wait_for_segment(seg_id)
+            return mfile
+          end
         end
-      end
 
-      private def read_metadata_file_from_s3(seg, mfile)
-        read_metadata(mfile, seg)
-        mfile.dontneed
-        @bytesize += @s3_segments[seg][:size] - 4
-      end
-
-      private def read_metadata(file, seg)
-        count = file.read_bytes(UInt32)
-        @segment_first_offset[seg] = file.read_bytes(Int64)
-        @segment_first_ts[seg] = file.read_bytes(Int64)
-        @segment_msg_count[seg] = count
-        @size += count unless seg == @s3_segments.last_key # will be added when reading file later
-        @log.debug { "Reading metadata from #{file.path}: #{count} msgs" }
-      end
-
-      private def verify_local_file?(s3file, seg_id) : MFile | Nil
-        path = File.join(Config.instance.data_dir, s3file[:path])
-        return unless File.exists?(path)
-        mfile = @segments[seg_id]
-
-        digest = Digest::MD5.new
-        digest.update mfile.to_slice
-
-        @segments.delete(seg_id) # remove reference to local file
-        unless (local_hash = digest.hexfinal) == s3file[:etag]
-          @log.debug { "Local file #{path} has different etag than S3: #{local_hash} != #{s3file[:etag]}" }
-          File.delete(path)
-          return
+        # Direct download as fallback
+        @storage_client.with_http_client(with_timeouts: true) do |h|
+          if mfile = @storage_client.download_segment(seg_id, @s3_segments, h)
+            @segments[seg_id] = mfile
+            return mfile
+          end
         end
-        @log.debug { "Loading local file: #{path}" }
-        mfile
+        # Another fiber may have downloaded it concurrently
+        @segments[seg_id]?
+      end
+
+      # -- Overrides --
+
+      def next_segment_id(segment) : UInt32?
+        local = super
+        s3 = @s3_segments.each_key.find { |sid| sid > segment }
+        case {local, s3}
+        when {UInt32, UInt32} then Math.min(local, s3)
+        when {UInt32, nil}    then local
+        when {nil, UInt32}    then s3
+        else                       nil
+        end
       end
 
       def close : Nil
@@ -223,140 +101,154 @@ module LavinMQ::AMQP
         super
       end
 
+      def delete
+        super
+        @s3_segments.each_value do |s3_seg|
+          @storage_client.delete_from_s3(s3_seg)
+        end
+        @s3_segments.clear
+      end
+
       def add_consumer(tag, segment)
-        @segment_cache.try &.current_read_segments.[tag] = segment
+        if cache = @segment_cache
+          cache.notify_consumer_added
+          cache.current_read_segments[tag] = segment
+          cache.ensure_fibers_running
+        end
       end
 
       def remove_consumer(tag)
-        @segment_cache.try &.current_read_segments.delete(tag)
-      end
-
-      # Wait for download of the next segment if needed
-      # Times out after ~30 seconds to avoid infinite wait if segment is unavailable
-      private def next_segment(consumer) : MFile?
-        consumer.segment += 1
-        @segment_cache.try &.current_read_segments.[consumer.tag] = consumer.segment
-        consumer.pos = 4u32
-
-        unless @segments[consumer.segment]?
-          return unless @s3_segments[consumer.segment]?
-          counter = 0
-          max_wait_iterations = 3000 # ~30 seconds at 10ms intervals
-          while !@segments[consumer.segment]?
-            sleep 10.milliseconds
-            counter &+= 1
-            if counter % 128 == 0
-              @log.info { "Waiting for segment #{consumer.segment} to be downloaded" }
-            end
-            if counter >= max_wait_iterations
-              @log.error { "Timeout waiting for segment #{consumer.segment} to be downloaded" }
-              return nil
-            end
-          end
+        if cache = @segment_cache
+          cache.current_read_segments.delete(tag)
+          cache.notify_consumer_removed
         end
-        @segments[consumer.segment]
-      end
-
-      private def open_new_segment(next_msg_size = 0) : MFile
-        if !@wfile_id.zero? && !@segment_msg_count[@wfile_id].zero?
-          write_metadata_file(@wfile_id, @wfile)
-          @wfile.truncate(@wfile.size)
-        end
-        next_id = @wfile_id + 1
-        path = File.join(@msg_dir, "msgs.#{next_id.to_s.rjust(10, '0')}")
-        capacity = Math.max(Config.instance.segment_size, next_msg_size + 4)
-        wfile = MFile.new(path, capacity)
-        wfile.write_bytes Schema::VERSION
-        wfile.pos = 4
-        @replicator.try &.register_file wfile
-        @replicator.try &.append path, Schema::VERSION
-        @wfile_id = next_id
-        @wfile = @segments[@wfile_id] = wfile
-
-        drop_overflow
-        @segment_first_offset[@wfile_id] = @last_offset + 1
-        @segment_first_ts[@wfile_id] = RoughTime.unix_ms
-
-        delete_unused_segments
-        upload_missing_segments_to_s3
-        wfile
-      rescue ex
-        @log.error { "Failed to open new segment: #{ex}" }
-        raise ex
-      end
-
-      private def upload_missing_segments_to_s3
-        @segments.reject { |seg_id, _s| seg_id == @wfile_id || @s3_segments[seg_id]? }.each do |seg_id, segment|
-          upload_segment_to_s3(segment, seg_id)
-        end
-      end
-
-      private def upload_segment_to_s3(segment, seg_id)
-        return if @s3_segments[seg_id]?
-        return unless @segment_msg_count[seg_id] > 0 # don't upload empty segments
-        @log.debug { "Uploading file to s3: /#{segment.path[Config.instance.data_dir.bytesize + 1..]}" }
-        path = "/#{segment.path[Config.instance.data_dir.bytesize + 1..]}"
-        etag = @storage_client.upload_file_to_s3(path, segment.to_slice)
-        meta_path = meta_file_name(segment.path)
-        if File.exists?(meta_path)
-          @storage_client.upload_file_to_s3(meta_file_name(path), File.open(meta_path, &.getb_to_end))
-        end
-
-        @s3_segments[seg_id] = {
-          path: path[1..],
-          etag: etag,
-          size: segment.size,
-          meta: true,
-        }
       end
 
       private def drop_segments_while(& : UInt32 -> Bool)
-        @s3_segments.reject! do |seg_id, s3_seg|
+        # Iterate segment_msg_count (the authoritative index of all segments,
+        # including those not yet uploaded to S3) instead of just @s3_segments
+        @segment_msg_count.reject! do |seg_id, msg_count|
           should_drop = yield seg_id
           break unless should_drop
-          next if seg_id == @wfile_id # never delete the last active segment
-          msg_count = @segment_msg_count.delete(seg_id)
-          @size -= msg_count if msg_count
+          next if seg_id == @wfile_id # never delete the active segment
+
+          @size -= msg_count
           @segment_last_ts.delete(seg_id)
           @segment_first_offset.delete(seg_id)
           @segment_first_ts.delete(seg_id)
-          @bytesize -= s3_seg[:size] - 4
-          @storage_client.delete_from_s3(s3_seg)
+
+          if s3_seg = @s3_segments.delete(seg_id)
+            @bytesize -= s3_seg[:size] - 4
+            @storage_client.delete_from_s3(s3_seg)
+          elsif mfile = @segments[seg_id]?
+            @bytesize -= mfile.size - 4
+          end
+
           if mfile = @segments.delete(seg_id)
-            delete_file(mfile)
+            delete_file(mfile, including_meta: true)
           end
           true
         end
       end
 
-      def delete
-        super
-        @s3_segments.reject! do |_seg_id, s3_seg|
-          @storage_client.delete_from_s3(s3_seg)
+      # -- S3-specific private methods --
+
+      # Download meta files and last segment from S3 so base init can process them
+      private def prepare_local_files_from_s3
+        return if @s3_segments.empty?
+
+        # Download meta files (each gets its own client to avoid connection issues)
+        @s3_segments.each do |seg_id, s3_seg|
+          next unless s3_seg[:meta] # only download if meta exists in S3
+          meta_path = File.join(@msg_dir, "meta.#{seg_id.to_s.rjust(10, '0')}")
+          next if File.exists?(meta_path)
+          @storage_client.with_http_client(with_timeouts: true) do |h|
+            @storage_client.download_meta_file(seg_id, @s3_segments, h)
+          end
+        end
+
+        # Ensure last S3 segment is local (we need it for writing)
+        last_seg = @s3_segments.each_key.max
+        local_path = File.join(@msg_dir, "msgs.#{last_seg.to_s.rjust(10, '0')}")
+        unless File.exists?(local_path)
+          @storage_client.with_http_client(with_timeouts: true) do |h|
+            @storage_client.download_segment(last_seg, @s3_segments, h)
+          end
         end
       end
 
-      # Download segment if needed
-      private def find_offset_in_segments(offset : Int | Time, retries = 5) : Tuple(Int64, UInt32, UInt32)
-        segment = offset_index_lookup(offset)
-        unless @segments[segment]?
-          client = @storage_client.http_client(with_timeouts: true)
-          begin
-            if mfile = @storage_client.download_segment(segment, @s3_segments, client)
-              @segments[segment] = mfile
-            else
-              if (retries -= 1) <= 0
-                raise "Segment #{segment} not found in S3 and could not be downloaded"
-              else
-                @log.warn { "Segment #{segment} not found in S3, retrying download" }
-                return find_offset_in_segments(offset, retries)
+      # Load stats for S3 segments that don't have local MFiles
+      # (Base init only loaded stats for segments in @segments)
+      private def load_s3_only_segment_stats
+        @s3_segments.each do |seg_id, s3_seg|
+          next if @segment_msg_count[seg_id]? && !@segment_msg_count[seg_id].zero?
+
+          meta_path = File.join(@msg_dir, "meta.#{seg_id.to_s.rjust(10, '0')}")
+          if File.exists?(meta_path)
+            read_s3_meta_file(seg_id, meta_path, s3_seg[:size])
+          else
+            # No meta file available, download segment and produce metadata
+            @storage_client.with_http_client(with_timeouts: true) do |h|
+              if mfile = @storage_client.download_segment(seg_id, @s3_segments, h)
+                @segments[seg_id] = mfile
+                mfile.pos = 4
+                produce_metadata(seg_id, mfile)
+                write_metadata_file(seg_id, mfile)
+                upload_meta_to_s3(seg_id, mfile)
               end
             end
-          ensure
-            client.close
           end
         end
-        super(offset)
+      end
+
+      private def read_s3_meta_file(seg_id, meta_path, s3_size)
+        File.open(meta_path) do |file|
+          count = file.read_bytes(UInt32)
+          @segment_msg_count[seg_id] = count
+          @segment_first_offset[seg_id] = file.read_bytes(Int64)
+          @segment_first_ts[seg_id] = file.read_bytes(Int64)
+          begin
+            @segment_last_ts[seg_id] = file.read_bytes(Int64)
+          rescue IO::EOFError
+            # Older meta format without last_ts
+          end
+          @size += count
+          @bytesize += s3_size - 4
+        end
+      end
+
+      private def upload_segment_to_s3(seg_id : UInt32)
+        return if @s3_segments[seg_id]?
+        return unless @segment_msg_count[seg_id]? && @segment_msg_count[seg_id] > 0
+
+        mfile = @segments[seg_id]? || return
+        s3_path = "/#{@storage_client.s3_path(mfile.path)}"
+        @log.debug { "Uploading segment to S3: #{s3_path}" }
+        etag = @storage_client.upload_file_to_s3(s3_path, mfile.to_slice)
+
+        upload_meta_to_s3(seg_id, mfile)
+
+        @s3_segments[seg_id] = {
+          path: s3_path[1..],
+          etag: etag,
+          size: mfile.size,
+          meta: true,
+        }
+      end
+
+      private def upload_meta_to_s3(seg_id : UInt32, mfile : MFile)
+        meta_path = meta_file_name(mfile)
+        if File.exists?(meta_path)
+          s3_meta_path = "/#{@storage_client.s3_path(meta_path)}"
+          @storage_client.upload_file_to_s3(s3_meta_path, File.open(meta_path, &.getb_to_end))
+        end
+      end
+
+      private def upload_missing_segments_to_s3
+        @segments.each do |seg_id, _mfile|
+          next if seg_id == @wfile_id
+          upload_segment_to_s3(seg_id)
+        end
       end
     end
   end

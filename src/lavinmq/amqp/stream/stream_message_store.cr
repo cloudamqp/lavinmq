@@ -96,15 +96,19 @@ module LavinMQ::AMQP
       {@last_offset + 1, @segments.last_key, @segments.last_value.size.to_u32}
     end
 
+    # ameba:disable Metrics/CyclomaticComplexity
     private def find_offset_in_segments(offset : Int | Time) : Tuple(Int64, UInt32, UInt32)
       segment = offset_index_lookup(offset)
+      download_segment(segment) unless @segments[segment]?
       pos = 4u32
       msg_offset = @segment_first_offset[segment] || 0i64
       loop do
         rfile = @segments[segment]?
         if rfile.nil? || pos == rfile.size
-          if segment = @segments.each_key.find { |sid| sid > segment }
-            rfile = @segments[segment]
+          if seg_id = next_segment_id(segment)
+            download_segment(seg_id) unless @segments[seg_id]?
+            rfile = @segments[seg_id]? || return last_offset_seg_pos
+            segment = seg_id
             pos = 4u32
             msg_offset = @segment_first_offset[segment]
           else
@@ -215,7 +219,7 @@ module LavinMQ::AMQP
 
     def read(segment : UInt32, position : UInt32) : Envelope?
       return if @closed
-      rfile = @segments[segment]
+      rfile = @segments[segment]? || download_segment(segment) || return
       return if position == rfile.size
       begin
         msg = BytesMessage.from_bytes(rfile.to_slice + position)
@@ -273,11 +277,17 @@ module LavinMQ::AMQP
     end
 
     private def next_segment(consumer) : MFile?
-      if seg_id = next_segment_id(consumer.segment)
-        consumer.segment = seg_id
-        consumer.pos = 4u32
-        @segments[seg_id]
-      end
+      seg_id = next_segment_id(consumer.segment) || return
+      consumer.segment = seg_id
+      consumer.pos = 4u32
+      @segments[seg_id]? || download_segment(seg_id)
+    end
+
+    # Called when a consumer or offset lookup needs a segment that isn't
+    # available locally. Returns nil by default. S3 subclass overrides this
+    # to download the segment from S3 and add it to @segments.
+    private def download_segment(seg_id : UInt32) : MFile?
+      nil
     end
 
     def push(msg) : SegmentPosition

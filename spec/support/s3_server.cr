@@ -3,11 +3,15 @@ require "digest/md5"
 require "xml"
 
 # MinimalS3Server provides an in-memory S3-compatible server for testing
-# Supports: ListObjectsV2, GetObject, PutObject, DeleteObject
+# Supports: ListObjectsV2 (with pagination), GetObject, PutObject, DeleteObject
 class MinimalS3Server
   @storage = Hash(String, Bytes).new
   @server : HTTP::Server?
   @port : Int32
+  # Keys that should return 500 on GET (for testing download failures)
+  property fail_keys = Set(String).new
+  # Max keys per ListObjectsV2 response (default: 1000, lower for pagination tests)
+  property max_list_keys : Int32 = 1000
 
   def initialize(@port = 0)
   end
@@ -50,6 +54,7 @@ class MinimalS3Server
 
   def clear
     @storage.clear
+    @fail_keys.clear
   end
 
   def put(key : String, data : Bytes)
@@ -101,14 +106,29 @@ class MinimalS3Server
 
   private def handle_list_objects(request : HTTP::Request, response : HTTP::Server::Response, query : URI::Params)
     prefix = query["prefix"]? || ""
+    continuation_token = query["continuation-token"]?
 
-    # Filter keys by prefix
-    matching_keys = @storage.keys.select(&.starts_with?(prefix))
+    # Filter and sort keys by prefix
+    matching_keys = @storage.keys.select(&.starts_with?(prefix)).sort!
+
+    # Handle continuation token (skip keys up to and including the token)
+    if continuation_token
+      start_idx = matching_keys.index { |k| k > continuation_token } || matching_keys.size
+      matching_keys = matching_keys[start_idx..]
+    end
+
+    # Paginate
+    is_truncated = matching_keys.size > @max_list_keys
+    page_keys = matching_keys[0, @max_list_keys]
 
     # Build XML response
     xml_resp = XML.build(indent: "  ") do |xml|
       xml.element("ListBucketResult", xmlns: "http://s3.amazonaws.com/doc/2006-03-01/") do
-        matching_keys.each do |key|
+        xml.element("IsTruncated") { xml.text is_truncated.to_s }
+        if is_truncated
+          xml.element("NextContinuationToken") { xml.text page_keys.last }
+        end
+        page_keys.each do |key|
           data = @storage[key]
           etag = calculate_etag(data)
 
@@ -129,6 +149,13 @@ class MinimalS3Server
 
   private def handle_get_object(request : HTTP::Request, response : HTTP::Server::Response)
     key = request.path.lstrip('/')
+
+    if @fail_keys.includes?(key)
+      @fail_keys.delete(key) # Fail once then recover
+      response.status = HTTP::Status::INTERNAL_SERVER_ERROR
+      response.print "Simulated failure"
+      return
+    end
 
     if data = @storage[key]?
       etag = calculate_etag(data)

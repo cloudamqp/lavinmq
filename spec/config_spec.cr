@@ -169,7 +169,6 @@ describe LavinMQ::Config do
           region = us-east-1
           access_key_id = AKIAIOSFODNN7EXAMPLE
           secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
-          session_token = AQoDYXdzEJr
           endpoint = https://s3.example.com
           local_segments_per_stream = 100
         CONFIG
@@ -260,7 +259,6 @@ describe LavinMQ::Config do
       config.streams_s3_storage_region.should eq "us-east-1"
       config.streams_s3_storage_access_key_id.should eq "AKIAIOSFODNN7EXAMPLE"
       config.streams_s3_storage_secret_access_key.should eq "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
-      config.streams_s3_storage_session_token.should eq "AQoDYXdzEJr"
       config.streams_s3_storage_endpoint.should eq "https://s3.example.com"
       config.streams_s3_storage_local_segments_per_stream.should eq 100
     ensure
@@ -306,7 +304,6 @@ describe LavinMQ::Config do
       "--s3-storage-region=eu-west-1",
       "--s3-storage-access-key-id=AKIACLIEXAMPLE",
       "--s3-storage-secret-access-key=cliSecretKey123",
-      "--s3-storage-session-token=cliSessionToken",
       "--s3-storage-endpoint=https://s3.cli.example.com",
       "--s3-storage-local-segments=75",
     ]
@@ -346,7 +343,6 @@ describe LavinMQ::Config do
     config.streams_s3_storage_region.should eq "eu-west-1"
     config.streams_s3_storage_access_key_id.should eq "AKIACLIEXAMPLE"
     config.streams_s3_storage_secret_access_key.should eq "cliSecretKey123"
-    config.streams_s3_storage_session_token.should eq "cliSessionToken"
     config.streams_s3_storage_endpoint.should eq "https://s3.cli.example.com"
     config.streams_s3_storage_local_segments_per_stream.should eq 75
   end
