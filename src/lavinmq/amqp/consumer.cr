@@ -81,7 +81,7 @@ module LavinMQ
           {% end %}
           queue.consume_get(@no_ack) do |env|
             deliver(env.message, env.segment_position, env.redelivered)
-            delivered_bytes &+= env.message.bytesize
+            delivered_bytes &+= env.segment_position.bytesize
             @channel.increment_deliver_count(env.redelivered, @no_ack)
           end
           if delivered_bytes > Config.instance.yield_each_delivered_bytes
