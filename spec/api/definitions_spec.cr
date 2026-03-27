@@ -1,5 +1,72 @@
 require "../spec_helper"
 
+describe LavinMQ::GlobalDefinitions do
+  describe ".import_from_file" do
+    it "imports definitions from a JSON file" do
+      defs = {
+        "queues" => [
+          {"name" => "load_def_q1", "vhost" => "/", "durable" => true, "auto_delete" => false, "arguments" => {} of String => String},
+        ],
+      }
+      tmpfile = File.tempname("lavinmq-defs", ".json")
+      File.write(tmpfile, defs.to_json)
+      begin
+        with_amqp_server do |s|
+          LavinMQ::GlobalDefinitions.import_from_file(tmpfile, s)
+          s.vhosts["/"].queues.has_key?("load_def_q1").should be_true
+        end
+      ensure
+        File.delete?(tmpfile)
+      end
+    end
+
+    it "raises if definitions file not found" do
+      with_amqp_server do |s|
+        expect_raises(File::NotFoundError) do
+          LavinMQ::GlobalDefinitions.import_from_file("/tmp/nonexistent_#{rand(100000)}.json", s)
+        end
+      end
+    end
+
+    it "raises on invalid regex in permissions" do
+      defs = {
+        "users" => [
+          {"name" => "regexuser", "password_hash" => "+pHuxkR9fCyrrwXjOD4BP4XbzO3l8LJr8YkThMgJ0yVHFRE+",
+           "hashing_algorithm" => "rabbit_password_hashing_sha256", "tags" => "administrator"},
+        ],
+        "permissions" => [
+          {"user" => "regexuser", "vhost" => "/", "configure" => "[", "read" => ".*", "write" => ".*"},
+        ],
+      }
+      tmpfile = File.tempname("lavinmq-defs", ".json")
+      File.write(tmpfile, defs.to_json)
+      begin
+        with_amqp_server do |s|
+          expect_raises(ArgumentError, /Invalid regex in configure permission/) do
+            LavinMQ::GlobalDefinitions.import_from_file(tmpfile, s)
+          end
+        end
+      ensure
+        File.delete?(tmpfile)
+      end
+    end
+
+    it "raises on invalid JSON" do
+      tmpfile = File.tempname("lavinmq-defs", ".json")
+      File.write(tmpfile, "not valid json")
+      begin
+        with_amqp_server do |s|
+          expect_raises(JSON::ParseException) do
+            LavinMQ::GlobalDefinitions.import_from_file(tmpfile, s)
+          end
+        end
+      ensure
+        File.delete?(tmpfile)
+      end
+    end
+  end
+end
+
 describe LavinMQ::HTTP::Server do
   describe "POST /api/definitions" do
     it "should refuse non-administrator users" do
@@ -756,7 +823,7 @@ describe LavinMQ::HTTP::Server do
       response = http.get("/api/definitions")
       body = JSON.parse(response.body)
       http.delete("/api/exchanges/%2f/test-delayed")
-      LavinMQ::HTTP::DefinitionsController::GlobalDefinitions.new(s).import(body)
+      LavinMQ::GlobalDefinitions.new(s).import(body)
       response = http.get("/api/exchanges/%2f/test-delayed")
       response.status_code.should eq 200
     end
