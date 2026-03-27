@@ -21,7 +21,7 @@ module LavinMQ
       @file_digests = Hash(String, Digest::SHA1).new
       @follower_done = Channel(Nil).new
 
-      def initialize(@config : Config, @id : Int32, @password : String, proxy = true)
+      def initialize(@config : Config, @id : Int32, @password : String, @proxy = true)
         System.maximize_fd_limit
         @data_dir = config.data_dir
         @files = Hash(String, File).new do |h, k|
@@ -36,14 +36,6 @@ module LavinMQ
         @checksums = Checksums.new(@data_dir)
         @checksums.restore
 
-        if proxy
-          @amqp_proxy = Proxy.new(@config.amqp_bind, @config.amqp_port)
-          @http_proxy = Proxy.new(@config.http_bind, @config.http_port)
-          @mqtt_proxy = Proxy.new(@config.mqtt_bind, @config.mqtt_port)
-          @unix_amqp_proxy = Proxy.new(@config.unix_path) unless @config.unix_path.empty?
-          @unix_http_proxy = Proxy.new(@config.http_unix_path) unless @config.http_unix_path.empty?
-          @unix_mqtt_proxy = Proxy.new(@config.mqtt_unix_path) unless @config.mqtt_unix_path.empty?
-        end
         start_metrics_server unless @config.metrics_http_port == -1
         HTTP::Server.follower_internal_socket_http_server
       end
@@ -70,30 +62,15 @@ module LavinMQ
         Log.info { "Following #{host}:#{port}" }
         @host = host
         @port = port
-        if amqp_proxy = @amqp_proxy
-          spawn amqp_proxy.forward_to(host, @config.amqp_port, true), name: "AMQP proxy"
-        end
-        if http_proxy = @http_proxy
-          spawn http_proxy.forward_to(host, @config.http_port), name: "HTTP proxy"
-        end
-        if mqtt_proxy = @mqtt_proxy
-          spawn mqtt_proxy.forward_to(host, @config.mqtt_port), name: "MQTT proxy"
-        end
-        if unix_amqp_proxy = @unix_amqp_proxy
-          spawn unix_amqp_proxy.forward_to(host, @config.amqp_port), name: "AMQP proxy"
-        end
-        if unix_http_proxy = @unix_http_proxy
-          spawn unix_http_proxy.forward_to(host, @config.http_port), name: "HTTP proxy"
-        end
-        if unix_mqtt_proxy = @unix_mqtt_proxy
-          spawn unix_mqtt_proxy.forward_to(host, @config.mqtt_port), name: "MQTT proxy"
-        end
+        proxies_started = false
         loop do
           @socket = socket = TCPSocket.new(host, port)
           socket.sync = true
           socket.read_buffering = false # use lz4 buffering
           lz4 = Compress::LZ4::Reader.new(socket)
           sync(socket, lz4)
+          start_proxies(host) unless proxies_started
+          proxies_started = true
           Log.info { "Streaming changes" }
           stream_changes(socket, lz4)
         rescue ex : IO::Error
@@ -123,6 +100,35 @@ module LavinMQ
 
       def follows?(host : String, port : Int32) : Bool
         @host == host && @port == port
+      end
+
+      private def start_proxies(host)
+        return unless @proxy
+        Log.info { "Sync complete, starting proxies to #{host}" }
+        @amqp_proxy = Proxy.new(@config.amqp_bind, @config.amqp_port).tap do |p|
+          spawn p.forward_to(host, @config.amqp_port, true), name: "AMQP proxy"
+        end
+        @http_proxy = Proxy.new(@config.http_bind, @config.http_port).tap do |p|
+          spawn p.forward_to(host, @config.http_port), name: "HTTP proxy"
+        end
+        @mqtt_proxy = Proxy.new(@config.mqtt_bind, @config.mqtt_port).tap do |p|
+          spawn p.forward_to(host, @config.mqtt_port), name: "MQTT proxy"
+        end
+        unless @config.unix_path.empty?
+          @unix_amqp_proxy = Proxy.new(@config.unix_path).tap do |p|
+            spawn p.forward_to(host, @config.amqp_port), name: "AMQP proxy"
+          end
+        end
+        unless @config.http_unix_path.empty?
+          @unix_http_proxy = Proxy.new(@config.http_unix_path).tap do |p|
+            spawn p.forward_to(host, @config.http_port), name: "HTTP proxy"
+          end
+        end
+        unless @config.mqtt_unix_path.empty?
+          @unix_mqtt_proxy = Proxy.new(@config.mqtt_unix_path).tap do |p|
+            spawn p.forward_to(host, @config.mqtt_port), name: "MQTT proxy"
+          end
+        end
       end
 
       private def sync(socket, lz4)
