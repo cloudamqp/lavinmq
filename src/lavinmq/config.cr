@@ -116,6 +116,9 @@ module LavinMQ
         when {{section}}
           parse_section({{section}}, settings)
         {% end %}
+        when "http"
+          @io.puts "WARNING: Config section [http] is deprecated, use [mgmt] instead"
+          parse_section("mgmt", settings)
         when .starts_with?("sni:") then parse_sni(section[4..], settings)
         when "replication"
           abort("#{file}: [replication] is deprecated and replaced with [clustering], see the README for more information")
