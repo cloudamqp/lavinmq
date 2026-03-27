@@ -44,11 +44,6 @@ module LavinMQ
               connections += 1
               channels += c.channels.size
               consumers += c.channels.each_value.sum &.consumers.size
-              stats_details = c.stats_details
-              recv_rate += stats_details[:recv_oct_details][:rate]
-              send_rate += stats_details[:send_oct_details][:rate]
-              add_logs!(recv_rate_log, stats_details[:recv_oct_details][:log])
-              add_logs!(send_rate_log, stats_details[:send_oct_details][:log])
             end
             exchanges += vhost.exchanges.size
             queues += vhost.queues.size
@@ -59,6 +54,10 @@ module LavinMQ
               add_logs!(unacked_log, q.unacked_count_log)
             end
             vhost_stats_details = vhost.stats_details
+            recv_rate += vhost_stats_details[:recv_oct_details][:rate]
+            send_rate += vhost_stats_details[:send_oct_details][:rate]
+            add_logs!(recv_rate_log, vhost_stats_details[:recv_oct_details][:log])
+            add_logs!(send_rate_log, vhost_stats_details[:send_oct_details][:log])
             {% for sm in OVERVIEW_STATS %}
               {{ sm.id }}_count += vhost_stats_details[:{{ sm.id }}]
               {{ sm.id }}_rate += vhost_stats_details[:{{ sm.id }}_details][:rate]

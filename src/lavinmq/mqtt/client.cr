@@ -107,6 +107,7 @@ module LavinMQ
         packet = @io.read_packet
         @log.trace { "Received packet:  #{packet.inspect}" }
         @recv_oct_count.add(packet.bytesize, :relaxed)
+        vhost.add_recv_bytes(packet.bytesize.to_u64)
 
         case packet
         when MQTT::Publish     then recieve_publish(packet)
@@ -125,6 +126,7 @@ module LavinMQ
           @io.write_packet(packet)
           @io.flush
           @send_oct_count.add(packet.bytesize, :relaxed)
+          vhost.add_send_bytes(packet.bytesize.to_u64)
         end
         case packet
         when MQTT::Publish
