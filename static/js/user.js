@@ -14,6 +14,10 @@ function updateUser () {
       document.getElementById('tags').textContent = item.tags
       document.getElementById('hasPassword').textContent = hasPassword
       tagHelper(item.tags)
+    }).catch(e => {
+      if (e.status === 404) {
+        DOM.showEntityNotFound('User', user, 'users')
+      }
     })
 }
 

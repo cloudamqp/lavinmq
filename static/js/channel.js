@@ -94,6 +94,7 @@ const prefetchHandler = () => {
 
 const prefetch = prefetchHandler()
 document.getElementById('ch-prefetch').appendChild(prefetch.el)
+let channelUpdateInterval = null
 function updateChannel () {
   HTTP.request('GET', channelUrl).then(item => {
     Chart.update(chart, item.message_stats)
@@ -118,7 +119,12 @@ function updateChannel () {
       chMode.replaceChildren(confirmSpan)
     }
     document.getElementById('ch-global-prefetch').textContent = Helpers.formatNumber(item.global_prefetch_count)
+  }).catch(e => {
+    if (e.status === 404) {
+      clearInterval(channelUpdateInterval)
+      DOM.showEntityNotFound('Channel', channel, 'channels')
+    }
   })
 }
 updateChannel()
-setInterval(updateChannel, 5000)
+channelUpdateInterval = setInterval(updateChannel, 5000)
