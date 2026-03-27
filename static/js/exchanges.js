@@ -94,12 +94,12 @@ document.querySelector('#addExchange').addEventListener('submit', function (evt)
     type: data.get('type'),
     arguments: DOM.parseJSON(data.get('arguments'))
   }
-  HTTP.request('PUT', url, { body })
-    .then(() => {
-      exchangeTable.reload()
-      DOM.toast('Exchange ' + exchange + ' created')
-      evt.target.reset()
-    })
+  HTTP.submitForm(evt.target, 'PUT', url, {
+    body,
+    table: exchangeTable
+  }).then(() => {
+    DOM.toast(`Exhange ${exchange} created`)
+  })
 })
 
 document.querySelector('#dataTags').addEventListener('click', e => {
