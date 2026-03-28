@@ -163,4 +163,64 @@ describe LavinMQ::Client::Channel::Consumer do
       end
     end
   end
+
+  describe "on-demand deliver_loop" do
+    it "delivers messages published after consumer connects to empty queue" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("on-demand-deliver-loop")
+          msgs = Channel(String).new
+
+          q.subscribe(no_ack: true) do |msg|
+            msgs.send msg.body_io.to_s
+          end
+
+          q.publish("test1")
+          q.publish("test2")
+
+          msgs.receive.should eq "test1"
+          msgs.receive.should eq "test2"
+        end
+      end
+    end
+
+    it "delivers messages already in queue when consumer connects" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("on-demand-deliver-loop-nonempty")
+          q.publish("pre-existing")
+
+          msgs = Channel(String).new
+          q.subscribe(no_ack: true) do |msg|
+            msgs.send msg.body_io.to_s
+          end
+
+          msgs.receive.should eq "pre-existing"
+        end
+      end
+    end
+
+    it "delivers requeued messages to consumers on empty queue" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("on-demand-deliver-loop-requeue")
+          ch.prefetch 1
+          msgs = Channel(AMQP::Client::DeliverMessage).new
+
+          q.subscribe(no_ack: false) do |msg|
+            msgs.send msg
+          end
+
+          q.publish("requeue-me")
+          msg = msgs.receive
+          msg.body_io.to_s.should eq "requeue-me"
+          msg.reject(requeue: true)
+
+          msg2 = msgs.receive
+          msg2.body_io.to_s.should eq "requeue-me"
+          msg2.ack
+        end
+      end
+    end
+  end
 end
