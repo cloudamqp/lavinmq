@@ -163,6 +163,14 @@ describe LavinMQ::Config do
           advertised_uri = lavinmq://localhost:5680
           on_leader_elected = echo "Leader elected"
           on_leader_lost = echo "Leader lost"
+
+          [s3-storage]
+          enabled = true
+          region = us-east-1
+          access_key_id = AKIAIOSFODNN7EXAMPLE
+          secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+          endpoint = https://s3.example.com
+          local_segments_per_stream = 100
         CONFIG
       end
       config = LavinMQ::Config.new
@@ -245,6 +253,14 @@ describe LavinMQ::Config do
       config.clustering_advertised_uri.should eq "lavinmq://localhost:5680"
       config.clustering_on_leader_elected.should eq "echo \"Leader elected\""
       config.clustering_on_leader_lost.should eq "echo \"Leader lost\""
+
+      # S3 Storage section
+      config.streams_s3_storage?.should be_true
+      config.streams_s3_storage_region.should eq "us-east-1"
+      config.streams_s3_storage_access_key_id.should eq "AKIAIOSFODNN7EXAMPLE"
+      config.streams_s3_storage_secret_access_key.should eq "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+      config.streams_s3_storage_endpoint.should eq "https://s3.example.com"
+      config.streams_s3_storage_local_segments_per_stream.should eq 100
     ensure
       # Reset log level to default for other specs
       Log.setup(:fatal)
@@ -287,6 +303,12 @@ describe LavinMQ::Config do
       "--clustering-etcd-prefix=cli-prefix",
       "--clustering-max-unsynced-actions=4096",
       "--clustering-port=5680",
+      "--s3-storage=true",
+      "--s3-storage-region=eu-west-1",
+      "--s3-storage-access-key-id=AKIACLIEXAMPLE",
+      "--s3-storage-secret-access-key=cliSecretKey123",
+      "--s3-storage-endpoint=https://s3.cli.example.com",
+      "--s3-storage-local-segments=75",
     ]
     config.parse(argv)
 
@@ -323,6 +345,12 @@ describe LavinMQ::Config do
     config.clustering_etcd_prefix.should eq "cli-prefix"
     config.clustering_max_unsynced_actions.should eq 4096
     config.clustering_port.should eq 5680
+    config.streams_s3_storage?.should be_true
+    config.streams_s3_storage_region.should eq "eu-west-1"
+    config.streams_s3_storage_access_key_id.should eq "AKIACLIEXAMPLE"
+    config.streams_s3_storage_secret_access_key.should eq "cliSecretKey123"
+    config.streams_s3_storage_endpoint.should eq "https://s3.cli.example.com"
+    config.streams_s3_storage_local_segments_per_stream.should eq 75
   end
 
   it "can parse -d/--debug flag for verbose logging" do
