@@ -39,7 +39,7 @@ module LavinMQ
       end
 
       def loopback?
-        @address == "::1" || @address.starts_with? "127."
+        @address == "::1" || @address.starts_with?("127.") || @address.starts_with?("::ffff:127.")
       end
     end
   end
