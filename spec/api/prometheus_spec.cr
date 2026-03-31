@@ -223,29 +223,33 @@ describe LavinMQ::HTTP::PrometheusController do
           # Publish 2 messages
           2.times { q.publish "test message" }
 
-          # Consume and ack both via basic_get (synchronous)
-          2.times do
-            msg = q.get(no_ack: false)
-            msg.should_not be_nil
-            msg.try &.ack
+          # Consume and ack both via subscribe
+          delivered_count = 0
+          q.subscribe(no_ack: false) do |delivery|
+            delivered_count += 1
+            delivery.ack
+          end
+          wait_for { delivered_count == 2 }
+
+          should_eventually(eq(2)) do
+            raw = http.get("/metrics/detailed?family=queue_coarse_metrics").body
+            parsed = PrometheusSpecHelper.parse_prometheus(raw)
+            delivered = parsed.find { |m|
+              m[:key] == "lavinmq_detailed_queue_messages_delivered_total" &&
+                m[:attrs]["queue"] == "test_detailed_counters"
+            }
+            delivered.not_nil![:value]
           end
 
-          raw = http.get("/metrics/detailed?family=queue_coarse_metrics").body
-          parsed = PrometheusSpecHelper.parse_prometheus(raw)
-
-          delivered = parsed.find { |m|
-            m[:key] == "lavinmq_detailed_queue_messages_delivered_total" &&
-              m[:attrs]["queue"] == "test_detailed_counters"
-          }
-          delivered.should_not be_nil
-          delivered.not_nil![:value].should eq 2
-
-          acked = parsed.find { |m|
-            m[:key] == "lavinmq_detailed_queue_messages_acked_total" &&
-              m[:attrs]["queue"] == "test_detailed_counters"
-          }
-          acked.should_not be_nil
-          acked.not_nil![:value].should eq 2
+          should_eventually(eq(2)) do
+            raw = http.get("/metrics/detailed?family=queue_coarse_metrics").body
+            parsed = PrometheusSpecHelper.parse_prometheus(raw)
+            acked = parsed.find { |m|
+              m[:key] == "lavinmq_detailed_queue_messages_acked_total" &&
+                m[:attrs]["queue"] == "test_detailed_counters"
+            }
+            acked.not_nil![:value]
+          end
         end
       end
     end
