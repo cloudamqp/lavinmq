@@ -235,6 +235,10 @@ class LavinMQCtl
       @cmd = "list_in_sync_replicas"
       self.banner = "Usage: #{PROGRAM_NAME} list_in_sync_replicas"
     end
+    @parser.on("list_etcd_members", "List etcd cluster members") do
+      @cmd = "list_etcd_members"
+      self.banner = "Usage: #{PROGRAM_NAME} list_etcd_members"
+    end
 
     @parser.on("-v", "--version", "Show version") { @io.puts LavinMQ::VERSION; exit 0 }
     @parser.on("--build-info", "Show build information") { @io.puts LavinMQ::BUILD_INFO; exit 0 }
@@ -292,6 +296,7 @@ class LavinMQCtl
     when "add_federation"        then add_federation
     when "delete_federation"     then delete_federation
     when "list_in_sync_replicas" then list_in_sync_replicas
+    when "list_etcd_members"     then list_etcd_members
     when "stop_app"
     when "start_app"
     else
@@ -945,6 +950,14 @@ class LavinMQCtl
     url = "/api/parameters/federation-upstream/#{URI.encode_www_form(vhost)}/#{URI.encode_www_form(name)}"
     resp = http.delete url
     handle_response(resp, 204)
+  end
+
+  private def list_etcd_members
+    endpoints = @options["etcd-endpoints"]? || "localhost:2379"
+    etcd = LavinMQ::Etcd.new(endpoints)
+    members = etcd.member_list
+    abort "No members found. Is etcd running?" if members.empty?
+    output members, ["name", "peer_urls", "client_urls", "learner"]
   end
 
   private def list_in_sync_replicas
