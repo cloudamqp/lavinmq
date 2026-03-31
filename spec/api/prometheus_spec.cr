@@ -223,13 +223,12 @@ describe LavinMQ::HTTP::PrometheusController do
           # Publish 2 messages
           2.times { q.publish "test message" }
 
-          # Consume and ack both via subscribe
-          delivered_count = 0
-          q.subscribe(no_ack: false) do |delivery|
-            delivered_count += 1
-            delivery.ack
+          # Consume and ack both via basic_get (synchronous)
+          2.times do
+            msg = q.get(no_ack: false)
+            msg.should_not be_nil
+            msg.try &.ack
           end
-          wait_for { delivered_count == 2 }
 
           raw = http.get("/metrics/detailed?family=queue_coarse_metrics").body
           parsed = PrometheusSpecHelper.parse_prometheus(raw)
