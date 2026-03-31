@@ -162,6 +162,18 @@ module LavinMQ
       end
     end
 
+    def member_list : Array(NamedTuple(name: String, peer_urls: String, client_urls: String, learner: Bool))
+      json = post("/v3/cluster/member/list", "{}")
+      members = json["members"]?.try(&.as_a) || return [] of NamedTuple(name: String, peer_urls: String, client_urls: String, learner: Bool)
+      members.map do |m|
+        name = m["name"]?.try(&.as_s) || ""
+        peer_urls = m["peerURLs"]?.try(&.as_a.map(&.as_s).join(",")) || ""
+        client_urls = m["clientURLs"]?.try(&.as_a.map(&.as_s).join(",")) || ""
+        learner = m["isLearner"]?.try(&.as_bool) || false
+        {name: name, peer_urls: peer_urls, client_urls: client_urls, learner: learner}
+      end
+    end
+
     def election_leader(name) : String?
       json = post("/v3/election/leader", %({"name":"#{Base64.strict_encode name}"}))
       if value = json.dig?("kv", "value")
