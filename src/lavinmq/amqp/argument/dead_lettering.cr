@@ -84,17 +84,21 @@ module LavinMQ::AMQP
           ex.find_queues(routing_rk, routing_headers, queues)
           return if queues.empty?
 
-          dead_lettered_msg = Message.new(
-            RoughTime.unix_ms, dlx.to_s, routing_rk.to_s,
-            props, msg.bodysize, IO::Memory.new(msg.body))
-
           if ctx = dlx_context
+            dead_lettered_msg = Message.new(
+              RoughTime.unix_ms, dlx.to_s, routing_rk.to_s,
+              props, msg.bodysize, IO::Memory.new(msg.body.dup))
+
             queues.each do |q|
               next if cycle?(q.name, props, reason)
               @log.trace { "dead lettering dest=#{q.name} msg=#{dead_lettered_msg}" }
               ctx << {q, dead_lettered_msg}
             end
           else
+            dead_lettered_msg = Message.new(
+              RoughTime.unix_ms, dlx.to_s, routing_rk.to_s,
+              props, msg.bodysize, IO::Memory.new(msg.body))
+
             queues.each do |q|
               next if cycle?(q.name, props, reason)
               @log.trace { "dead lettering dest=#{q.name} msg=#{dead_lettered_msg}" }
