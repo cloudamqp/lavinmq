@@ -12,9 +12,22 @@ module LavinMQ::AMQP
         add_argument_validator "x-dead-letter-routing-key", ArgumentValidator::DeadLetteringValidator.new
       end
 
+      struct Context
+        @pending = Deque({AMQP::Queue, Message}).new
+
+        def <<(item : {AMQP::Queue, Message})
+          @pending << item
+        end
+
+        def shift?
+          @pending.shift?
+        end
+      end
+
       class DeadLetterer
         property dlx : String? = nil
         property dlrk : String? = nil
+        @context = Context.new
 
         def initialize(@vhost : VHost, @queue_name : String, @log : Logger)
         end
@@ -42,7 +55,7 @@ module LavinMQ::AMQP
         # It's done like this to be able to dead letter to all destinations
         # except to the queue itself if a cycle is detected.
         # This is also how it's done in rabbitmq
-        def route(msg : BytesMessage, reason)
+        def route(msg : BytesMessage, reason, dlx_context : Context? = nil)
           # No dead letter exchange => nothing to do
           return unless dlx = (msg.dlx || dlx())
           ex = @vhost.exchanges[dlx.to_s]?.as?(AMQP::Exchange) || return
@@ -75,12 +88,28 @@ module LavinMQ::AMQP
             RoughTime.unix_ms, dlx.to_s, routing_rk.to_s,
             props, msg.bodysize, IO::Memory.new(msg.body))
 
-          queues.each do |q|
-            next if cycle?(q.name, props, reason)
-            @log.trace { "dead lettering dest=#{q.name} msg=#{dead_lettered_msg}" }
-            q.publish(dead_lettered_msg)
-          rescue ex
-            @log.warn(exception: ex) { "Unexpected error when dead-lettering to #{q.name}" }
+          if ctx = dlx_context
+            queues.each do |q|
+              next if cycle?(q.name, props, reason)
+              @log.trace { "dead lettering dest=#{q.name} msg=#{dead_lettered_msg}" }
+              ctx << {q, dead_lettered_msg}
+            end
+          else
+            queues.each do |q|
+              next if cycle?(q.name, props, reason)
+              @log.trace { "dead lettering dest=#{q.name} msg=#{dead_lettered_msg}" }
+              @context << {q, dead_lettered_msg}
+            end
+            while item = @context.shift?
+              q, m = item
+              begin
+                q.publish(m, dlx_context: @context)
+              rescue Queue::RejectOverFlow
+                # noop
+              rescue ex
+                @log.warn(exception: ex) { "Unexpected error when dead lettering to #{q.name}" }
+              end
+            end
           end
         end
 

@@ -111,7 +111,7 @@ module LavinMQ::AMQP
     end
 
     # save message id / segment position
-    def publish(msg : Message) : Bool
+    def publish(msg : Message, dlx_context : Argument::DeadLettering::Context? = nil) : Bool
       return false if @state.closed?
       @msg_store_lock.synchronize do
         @msg_store.push(msg)

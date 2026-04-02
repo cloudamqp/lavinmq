@@ -275,14 +275,20 @@ module LavinMQ::AMQP
         unless @max_length.try &.< value.as_i64
           @max_length = value.as_i64
           @effective_args.delete("x-max-length")
-          drop_overflow
+          spawn do
+            @vhost.closed.when_false.receive?
+            drop_overflow
+          end
           return true
         end
       when "max-length-bytes"
         unless @max_length_bytes.try &.< value.as_i64
           @max_length_bytes = value.as_i64
           @effective_args.delete("x-max-length-bytes")
-          drop_overflow
+          spawn do
+            @vhost.closed.when_false.receive?
+            drop_overflow
+          end
           return true
         end
       when "message-ttl"
@@ -323,7 +329,10 @@ module LavinMQ::AMQP
         unless @delivery_limit.try &.< value.as_i64
           @delivery_limit = value.as_i64
           @effective_args.delete("x-delivery-limit")
-          drop_redelivered
+          spawn do
+            @vhost.closed.when_false.receive?
+            drop_redelivered
+          end
           return true
         end
       when "federation-upstream"
@@ -511,7 +520,7 @@ module LavinMQ::AMQP
 
     class Closed < Exception; end
 
-    def publish(msg : Message) : Bool
+    def publish(msg : Message, dlx_context : Argument::DeadLettering::Context? = nil) : Bool
       return false if @deleted || @state.closed?
       if d = @deduper
         if d.duplicate?(msg)
@@ -523,9 +532,9 @@ module LavinMQ::AMQP
       reject_on_overflow(msg)
       @msg_store_lock.synchronize do
         @msg_store.push(msg)
+        drop_overflow_if_no_immediate_delivery(dlx_context)
       end
       @publish_count.add(1, :relaxed)
-      drop_overflow_if_no_immediate_delivery
       true
     rescue ex : MessageStore::Error
       @log.error(ex) { "Queue closed due to error" }
@@ -550,18 +559,20 @@ module LavinMQ::AMQP
       end
     end
 
-    private def drop_overflow_if_no_immediate_delivery : Nil
-      drop_overflow if (@max_length || @max_length_bytes) && !immediate_delivery?
+    private def drop_overflow_if_no_immediate_delivery(dlx_context : Argument::DeadLettering::Context? = nil) : Nil
+      return unless (ml = @max_length) || (mlb = @max_length_bytes)
+      return if ((ml == 0) || (mlb == 0)) && immediate_delivery?
+      drop_overflow(dlx_context)
     end
 
-    private def drop_overflow : Nil
+    private def drop_overflow(dlx_context : Argument::DeadLettering::Context? = nil) : Nil
       counter = 0
       if ml = @max_length
         @msg_store_lock.synchronize do
           while @msg_store.size > ml
             env = @msg_store.shift? || break
             @log.debug { "Overflow drop head sp=#{env.segment_position}" }
-            expire_msg(env, :maxlen)
+            expire_msg(env, :maxlen, dlx_context)
             counter &+= 1
             if counter >= 16 * 1024
               Fiber.yield
@@ -576,7 +587,7 @@ module LavinMQ::AMQP
           while @msg_store.bytesize > mlb
             env = @msg_store.shift? || break
             @log.debug { "Overflow drop head sp=#{env.segment_position}" }
-            expire_msg(env, :maxlenbytes)
+            expire_msg(env, :maxlenbytes, dlx_context)
             counter &+= 1
             if counter >= 16 * 1024
               Fiber.yield
@@ -668,22 +679,22 @@ module LavinMQ::AMQP
       @log.info { "Expired #{i} messages" } if i > 0
     end
 
-    private def expire_msg(sp : SegmentPosition, reason : Symbol)
+    private def expire_msg(sp : SegmentPosition, reason : Symbol, dlx_context : Argument::DeadLettering::Context? = nil)
       if sp.has_dlx? || @dead_letter.dlx
         msg = @msg_store_lock.synchronize { @msg_store[sp] }
         env = Envelope.new(sp, msg, false)
-        expire_msg(env, reason)
+        expire_msg(env, reason, dlx_context)
       else
         delete_message sp
       end
     end
 
-    private def expire_msg(env : Envelope, reason : Symbol)
+    private def expire_msg(env : Envelope, reason : Symbol, dlx_context : Argument::DeadLettering::Context? = nil)
       sp = env.segment_position
       msg = env.message
       @log.debug { "Expiring #{sp} now due to #{reason}" }
 
-      @dead_letter.route(msg, reason)
+      @dead_letter.route(msg, reason, dlx_context)
 
       delete_message sp
     end
