@@ -142,7 +142,7 @@ module LavinMQ::AMQP
     private def queue_expire_loop
     end
 
-    def publish(message : Message) : Bool
+    def publish(message : Message, dlx_context : Argument::DeadLettering::Context? = nil) : Bool
       # This queue should never be published too
       false
     end

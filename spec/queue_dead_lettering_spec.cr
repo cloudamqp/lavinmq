@@ -577,6 +577,59 @@ module DeadLetteringSpec
         end
       end
 
+      it "should not stack overflow with two mutually dead-lettering queues" do
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            n = 10_000
+            q1 = ch.queue("dlx_mutual_q1", args: AMQP::Client::Arguments.new({
+              "x-max-length"              => n,
+              "x-dead-letter-exchange"    => "",
+              "x-dead-letter-routing-key" => "dlx_mutual_q2",
+            }))
+            q2 = ch.queue("dlx_mutual_q2", args: AMQP::Client::Arguments.new({
+              "x-max-length"              => n,
+              "x-dead-letter-exchange"    => "",
+              "x-dead-letter-routing-key" => "dlx_mutual_q1",
+            }))
+            n.times { |i| ch.default_exchange.publish("q1-#{i}", q1.name) }
+            n.times { |i| ch.default_exchange.publish("q2-#{i}", q2.name) }
+            wait_for { q1.message_count == n && q2.message_count == n }
+            ch.default_exchange.publish("trigger", q1.name)
+            wait_for(30.seconds) { q1.message_count == n && q2.message_count == n }
+
+            q1_msg = q1.get(no_ack: true).should_not be_nil
+            q1_msg.body_io.to_s.should eq "q2-0"
+
+            q2_msg = q2.get(no_ack: true).should_not be_nil
+            q2_msg.body_io.to_s.should eq "q1-1"
+          end
+        end
+      end
+
+      it "should not stack overflow with a long chain" do
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            n = 200
+            queues = Array(AMQP::Client::Queue).new(n)
+            n.times do |i|
+              qargs = if i < n - 1
+                        {
+                          "x-max-length"              => 1,
+                          "x-dead-letter-exchange"    => "",
+                          "x-dead-letter-routing-key" => "dlx_chain_q#{i + 1}",
+                        }
+                      else
+                        {"x-max-length" => 1}
+                      end
+              queues << ch.queue("dlx_chain_q#{i}", args: AMQP::Client::Arguments.new(qargs))
+            end
+            queues.each { |q| ch.default_exchange.publish("fill", q.name) }
+            ch.default_exchange.publish("trigger", queues.first.name)
+            wait_for { queues.last.message_count == 1 }
+          end
+        end
+      end
+
       it "should detect cycle with three queues in chain" do
         with_amqp_server do |s|
           with_channel(s) do |ch|

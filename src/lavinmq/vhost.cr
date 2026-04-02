@@ -1,4 +1,5 @@
 require "json"
+require "sync/mutex"
 require "../stdlib/*"
 require "./logger"
 require "./policy"
