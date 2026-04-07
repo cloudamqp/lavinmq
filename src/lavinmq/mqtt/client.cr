@@ -164,7 +164,7 @@ module LavinMQ
 
       def recieve_subscribe(packet : MQTT::Subscribe)
         if Config.instance.mqtt_permission_check_enabled?
-          if !user.can_read?(@broker.vhost.name, EXCHANGE) && !user.can_write?(@broker.vhost.name, "mqtt.#{client_id}")
+          unless user.can_read?(@broker.vhost.name, EXCHANGE) && user.can_write?(@broker.vhost.name, "mqtt.#{client_id}")
             Log.debug { "Access refused: user '#{user.name}' does not have permissions" }
             close_socket
             return
