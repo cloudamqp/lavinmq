@@ -19,7 +19,7 @@ module LavinMQ
       @[CliOpt("-D DIRECTORY", "--data-dir=DIRECTORY", "Data directory", section: "options")]
       @[IniOpt(section: "main")]
       @[EnvOpt("LAVINMQ_DATADIR")]
-      property data_dir : String = "/var/lib/lavinmq"
+      property data_dir : String = ENV.fetch("STATE_DIRECTORY", "/var/lib/lavinmq")
 
       @[CliOpt("-l LEVEL", "--log-level=LEVEL", "Log level (Default: info)", ->::Log::Severity.parse(String), section: "options")]
       @[IniOpt(section: "main", transform: ->::Log::Severity.parse(String))]
