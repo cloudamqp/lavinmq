@@ -87,11 +87,7 @@ module LavinMQ
             {% if cli_opt[:deprecated] %}
               @io.puts "WARNING: {{cli_opt[:deprecated].id}}"
             {% end %}
-            {% if ivar.type.resolve == Bool && !cli_opt.args[1].includes?("=") %}
-              self.{{ivar.name.id}} = {{!cli_opt.args[1].starts_with?("--no-")}}
-            {% else %}
-              self.{{ivar.name.id}} = parse_value(value, {{value_parser}})
-            {% end %}
+            self.{{ivar.name.id}} = parse_value(value, {{value_parser}})
           end
         {% end %}
         sections.each do |_section_id, section|
