@@ -79,6 +79,10 @@ module LavinMQ
           return unless @state.paused?
           delete_paused_file
           @log.info { "Resuming federation link #{name}" }
+          # Wait for the old run_loop fiber to fully exit.
+          # It closes @state_changed in its ensure block, which unblocks this receive.
+          old_channel = @state_changed
+          old_channel.receive? unless old_channel.closed?
           @state_changed = Channel(State?).new
           state(State::Stopped)
           spawn(run_loop, name: "Federation link #{@upstream.vhost.name}/#{name}")
