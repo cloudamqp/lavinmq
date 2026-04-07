@@ -281,6 +281,8 @@ describe LavinMQ::Config do
       "--default-user=cliuser",
       "--default-user-only-loopback=false",
       "--no-data-dir-lock",
+      "--clustering",
+      "--raise-gc-warn",
       "--clustering-advertised-uri=lavinmq://test:5679",
       "--clustering-bind=0.0.0.0",
       "--clustering-etcd-endpoints=etcd1:2379,etcd2:2379",
@@ -317,6 +319,8 @@ describe LavinMQ::Config do
     config.default_user.should eq "cliuser"
     config.default_user_only_loopback?.should be_false
     config.data_dir_lock?.should be_false
+    config.clustering?.should be_true
+    config.raise_gc_warn?.should be_true
     config.clustering_advertised_uri.should eq "lavinmq://test:5679"
     config.clustering_bind.should eq "0.0.0.0"
     config.clustering_etcd_endpoints.should eq "etcd1:2379,etcd2:2379"
