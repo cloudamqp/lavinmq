@@ -61,7 +61,10 @@ module LavinMQ
         end
 
         def run
-          return if @state.paused?
+          if @state.paused?
+            @state_changed.close
+            return
+          end
           @log.info { "Starting" }
           spawn(run_loop, name: "Federation link #{@upstream.vhost.name}/#{name}")
           Fiber.yield
