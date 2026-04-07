@@ -264,6 +264,7 @@ module LavinMQ
     private def parse_bind(value)
       @amqp_bind = value
       @http_bind = value
+      @mqtt_bind = value
     end
 
     def reload

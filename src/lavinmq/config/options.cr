@@ -25,7 +25,7 @@ module LavinMQ
       @[IniOpt(section: "main", transform: ->::Log::Severity.parse(String))]
       property log_level : ::Log::Severity = DEFAULT_LOG_LEVEL
 
-      @[CliOpt("-b BIND", "--bind=BIND", "IP address that both the AMQP and HTTP servers will listen on (default: 127.0.0.1)", ->parse_bind(String), section: "bindings")]
+      @[CliOpt("-b BIND", "--bind=BIND", "IP address that the AMQP, MQTT and HTTP servers will listen on (default: 127.0.0.1)", ->parse_bind(String), section: "bindings")]
       property bind = "127.0.0.1"
 
       @[CliOpt("-p PORT", "--amqp-port=PORT", "AMQP port to listen on (default: 5672)", section: "bindings")]

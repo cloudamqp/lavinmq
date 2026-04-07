@@ -523,4 +523,13 @@ describe LavinMQ::Config do
     config.parse(argv)
     config.pidfile.should eq "/tmp/lavinmq.pid"
   end
+
+  it "should set amqp, http and mqtt bind with -b flag" do
+    config = LavinMQ::Config.new
+    argv = ["-b", "0.0.0.0"]
+    config.parse(argv)
+    config.amqp_bind.should eq "0.0.0.0"
+    config.http_bind.should eq "0.0.0.0"
+    config.mqtt_bind.should eq "0.0.0.0"
+  end
 end
