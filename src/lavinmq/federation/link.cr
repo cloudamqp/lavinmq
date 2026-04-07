@@ -1,4 +1,5 @@
 require "amqp-client"
+require "digest/sha1"
 require "../observable"
 require "../logger"
 require "../sortable_json"
@@ -22,6 +23,7 @@ module LavinMQ
         @upstream_channel : ::AMQP::Client::Channel?
         @metadata : ::Log::Metadata
         @state_changed = Channel(State?).new
+        @paused_file_path : String
 
         def initialize(@upstream : Upstream)
           @metadata = ::Log::Metadata.new(nil, {vhost: @upstream.vhost.name, upstream: @upstream.name})
@@ -29,6 +31,11 @@ module LavinMQ
           uri = @upstream.uri
           ui = uri.userinfo
           @scrubbed_uri = ui.nil? ? uri.to_s : uri.to_s.sub("#{ui}@", "")
+          hash = Digest::SHA1.hexdigest("#{@upstream.vhost.name}/#{@upstream.name}/#{name}")
+          @paused_file_path = File.join(Config.instance.data_dir, "federation.#{hash}.paused")
+          if File.exists?(@paused_file_path)
+            @state = State::Paused
+          end
         end
 
         def details_tuple
@@ -54,9 +61,40 @@ module LavinMQ
         end
 
         def run
+          return if @state.paused?
           @log.info { "Starting" }
           spawn(run_loop, name: "Federation link #{@upstream.vhost.name}/#{name}")
           Fiber.yield
+        end
+
+        def pause
+          return if @state.terminated?
+          File.write(@paused_file_path, name)
+          @log.info { "Pausing federation link #{name}" }
+          state(State::Paused)
+          @upstream_connection.try &.close
+        end
+
+        def resume
+          return unless @state.paused?
+          delete_paused_file
+          @log.info { "Resuming federation link #{name}" }
+          @state_changed = Channel(State?).new
+          state(State::Stopped)
+          spawn(run_loop, name: "Federation link #{@upstream.vhost.name}/#{name}")
+          Fiber.yield
+        end
+
+        def paused?
+          @state.paused?
+        end
+
+        def running?
+          @state.running?
+        end
+
+        def delete_paused_file
+          FileUtils.rm(@paused_file_path) if File.exists?(@paused_file_path)
         end
 
         private def state(state)
@@ -70,34 +108,41 @@ module LavinMQ
         # Does not trigger reconnect, but a graceful close
         def terminate
           return if @state.terminated?
+          delete_paused_file
           state(State::Terminating)
           @upstream_connection.try &.close
         end
 
+        private def should_stop_loop?
+          stop_link? || @state.paused?
+        end
+
         private def run_loop
           loop do
-            break if stop_link?
+            break if should_stop_loop?
             state(State::Starting)
             start_link
-            break if stop_link?
+            break if should_stop_loop?
             state(State::Stopped)
             wait_before_reconnect
-            break if stop_link?
+            break if should_stop_loop?
             @log.info { "Federation try reconnect" }
           rescue ex
-            break if stop_link?
+            break if should_stop_loop?
             @log.info { "Federation link state=#{@state} error=#{ex.inspect}" }
             state(State::Stopped)
             @error = ex.message
             wait_before_reconnect
-            break if stop_link?
+            break if should_stop_loop?
             @log.info { "Federation try reconnect" }
           end
           @log.info { "Federation link stopped" }
         ensure
-          state(State::Terminated)
+          unless @state.paused?
+            state(State::Terminated)
+            @log.info { "Terminated" }
+          end
           @state_changed.close
-          @log.info { "Terminated" }
         end
 
         private def wait_before_reconnect
@@ -108,6 +153,7 @@ module LavinMQ
               break
             when event = @state_changed.receive?
               break if stop_link?(event)
+              break if event.try &.paused?
               @log.debug { "#wait_before_reconnect @state_changed.received? triggerd " \
                            "@state_changed.closed?=#{@state_changed.closed?}" }
             end
@@ -167,6 +213,7 @@ module LavinMQ
           ::AMQP::Client.start(upstream_uri) do |upstream_connection|
             upstream_connection.on_close do
               next if stop_link?
+              next if @state.paused?
               state(State::Stopped)
             end
             yield @upstream_connection = upstream_connection
@@ -177,6 +224,7 @@ module LavinMQ
           Starting
           Running
           Stopped
+          Paused
           Terminating
           Terminated
           Error

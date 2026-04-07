@@ -61,6 +61,10 @@ module LavinMQ
         end
       end
 
+      def find_link(upstream_name : String, resource_name : String) : Upstream::Link?
+        @upstreams[upstream_name]?.try &.find_link(resource_name)
+      end
+
       def link(name, resource : Queue | Exchange)
         @upstreams[name]?.try &.link(resource)
       end
