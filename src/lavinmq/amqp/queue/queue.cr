@@ -520,7 +520,11 @@ module LavinMQ::AMQP
 
     class Closed < Exception; end
 
-    def publish(msg : Message, dlx_context : Argument::DeadLettering::Context? = nil) : Bool
+    def publish(msg : Message) : Bool
+      publish_internal(msg)
+    end
+
+    protected def publish_internal(msg : Message, dlx_context : Argument::DeadLettering::Context? = nil) : Bool
       return false if @deleted || @state.closed?
       if d = @deduper
         if d.duplicate?(msg)
@@ -694,9 +698,9 @@ module LavinMQ::AMQP
       msg = env.message
       @log.debug { "Expiring #{sp} now due to #{reason}" }
 
-      @dead_letter.route(msg, reason, dlx_context)
-
-      delete_message sp
+      @dead_letter.route(msg, reason, dlx_context) do
+        delete_message sp
+      end
     end
 
     private def expire_queue : Bool
