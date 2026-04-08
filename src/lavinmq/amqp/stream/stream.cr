@@ -110,8 +110,12 @@ module LavinMQ::AMQP
       @msg_store.as(StreamMessageStore)
     end
 
+    def publish(msg : Message) : Bool
+      publish_internal(msg, nil)
+    end
+
     # save message id / segment position
-    def publish(msg : Message, dlx_context : Argument::DeadLettering::Context? = nil) : Bool
+    protected def publish_internal(msg : Message, dlx_context : Argument::DeadLettering::Context?) : Bool
       return false if @state.closed?
       @msg_store_lock.synchronize do
         @msg_store.push(msg)

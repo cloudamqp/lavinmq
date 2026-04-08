@@ -13,9 +13,9 @@ module LavinMQ::AMQP
       end
 
       struct Context
-        @pending = Deque({AMQP::Queue, Message}).new
+        @pending = Deque({AMQP::Queue, Message, Proc(Nil)}).new
 
-        def <<(item : {AMQP::Queue, Message})
+        def <<(item : {AMQP::Queue, Message, Proc(Nil)})
           @pending << item
         end
 
@@ -55,9 +55,9 @@ module LavinMQ::AMQP
         # It's done like this to be able to dead letter to all destinations
         # except to the queue itself if a cycle is detected.
         # This is also how it's done in rabbitmq
-        def route(msg : BytesMessage, reason, dlx_context : Context? = nil)
+        def route(msg : BytesMessage, reason, dlx_context : Context? = nil, &done : Proc(Nil))
           # No dead letter exchange => nothing to do
-          return unless dlx = (msg.dlx || dlx())
+          return done.call unless dlx = (msg.dlx || dlx())
           ex = @vhost.exchanges[dlx.to_s]?.as?(AMQP::Exchange) || return
 
           dlrk = msg.dlrk || dlrk()
@@ -82,36 +82,41 @@ module LavinMQ::AMQP
           # if the dead letter exchange has any of these features enabled.
           queues = Set(AMQP::Queue).new
           ex.find_queues(routing_rk, routing_headers, queues)
-          return if queues.empty?
+          return done.call if queues.empty?
 
-          if ctx = dlx_context
-            dead_lettered_msg = Message.new(
-              RoughTime.unix_ms, dlx.to_s, routing_rk.to_s,
-              props, msg.bodysize, IO::Memory.new(msg.body.dup))
+          first_in_chain = dlx_context.nil?
+          ctx = dlx_context || @context
 
-            queues.each do |q|
-              next if cycle?(q.name, props, reason)
-              @log.trace { "dead lettering dest=#{q.name} msg=#{dead_lettered_msg}" }
-              ctx << {q, dead_lettered_msg}
+          dead_letter_msg = Message.new(
+            RoughTime.unix_ms, dlx.to_s, routing_rk.to_s,
+            props, msg.bodysize, IO::Memory.new(msg.body))
+
+          queues.each do |q|
+            if cycle?(q.name, props, reason)
+              @log.trace { "dead lettering cycle dest=#{q.name} msg=#{dead_letter_msg}" }
+            else
+              @log.trace { "dead lettering dest=#{q.name} msg=#{dead_letter_msg}" }
+              ctx << {q, dead_letter_msg, done}
             end
-          else
-            dead_lettered_msg = Message.new(
-              RoughTime.unix_ms, dlx.to_s, routing_rk.to_s,
-              props, msg.bodysize, IO::Memory.new(msg.body))
+          end
 
-            queues.each do |q|
-              next if cycle?(q.name, props, reason)
-              @log.trace { "dead lettering dest=#{q.name} msg=#{dead_lettered_msg}" }
-              @context << {q, dead_lettered_msg}
-            end
-            while item = @context.shift?
-              q, m = item
+          drain_context if first_in_chain
+        end
+
+        private def drain_context
+          while item = @context.shift?
+            q, m, done = item
+            begin
+              q.publish_internal(m, dlx_context: @context)
+            rescue Queue::RejectOverFlow
+              # noop
+            rescue ex
+              @log.warn(exception: ex) { "Unexpected error when dead lettering to #{q.name}, messages dropped" }
+            ensure
               begin
-                q.publish(m, dlx_context: @context)
-              rescue Queue::RejectOverFlow
-                # noop
+                done.call
               rescue ex
-                @log.warn(exception: ex) { "Unexpected error when dead lettering to #{q.name}" }
+                @log.warn(exception: ex) { "Unexpected error when dead lettering done to #{q.name}" }
               end
             end
           end
