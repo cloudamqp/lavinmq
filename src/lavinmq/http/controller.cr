@@ -61,18 +61,7 @@ module LavinMQ
         if sort_by = context.request.query_params.fetch("sort", nil).try &.split(".")
           sorted_items = all_items.to_a
           begin
-            if first_element = sorted_items.first?
-              case v = dig(first_element, sort_by)
-              when Number
-                sorted_items.sort_by! { |i| dig(i, sort_by).as(Number) }
-              when String
-                sorted_items.sort_by! { |i| dig(i, sort_by).as(String).downcase }
-              when QueueState
-                sorted_items.sort_by! { |i| dig(i, sort_by).as(QueueState) }
-              else
-                bad_request(context, "Can't sort on type #{v.class}")
-              end
-            end
+            sort_by_key!(sorted_items, sort_by, context)
           rescue KeyError | TypeCastError
             bad_request(context, "Sort key #{sort_by.join(".")} is not valid")
           end
@@ -85,12 +74,32 @@ module LavinMQ
         end
       end
 
+      private def sort_by_key!(sorted_items, sort_by, context)
+        # Find first non-nil value to determine the sort type
+        sample_value = sorted_items.each do |item|
+          v = dig(item, sort_by)
+          break v unless v.nil?
+        end
+        case sample_value
+        when Number
+          sorted_items.sort_by! { |i| dig(i, sort_by).as?(Number) || 0 }
+        when String
+          sorted_items.sort_by! { |i| (dig(i, sort_by).as?(String) || "").downcase }
+        when QueueState
+          sorted_items.sort_by! { |i| dig(i, sort_by).as?(QueueState) || QueueState::Closed }
+        when Nil
+          nil # all values are nil, nothing to sort
+        else
+          bad_request(context, "Can't sort on type #{sample_value.class}")
+        end
+      end
+
       private def dig(tuple : NamedTuple, keys : Array(String))
         if keys.size > 1
           nt = tuple[keys.first].as?(NamedTuple) || raise KeyError.new("'#{keys.first}' is not a nested tuple")
           dig(nt, keys[1..])
         else
-          tuple[keys.first]? || 0
+          tuple[keys.first]?
         end
       end
 
