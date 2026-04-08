@@ -205,6 +205,9 @@ module LavinMQ
       property free_disk_warn : Int64 = 0_i64 # bytes
 
       @[IniOpt(section: "main")]
+      property load_definitions = "" # path to a JSON definitions file to import on startup
+
+      @[IniOpt(section: "main")]
       property max_deleted_definitions = 8192 # number of deleted queues, unbinds etc that compacts the definitions file
 
       @[IniOpt(section: "main")]
