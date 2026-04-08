@@ -39,6 +39,14 @@ jobs:
       - name: Generate version string
         run: echo "version=$(./packaging/rpm/rpm-version)" >> $GITHUB_ENV
 
+      - name: Determine test image
+        run: |
+          OS="${{ matrix.os }}"
+          case "$OS" in
+            fedora-*) echo "test_image=fedora:${OS#fedora-}" >> $GITHUB_ENV ;;
+            el-*) echo "test_image=rockylinux:${OS#el-}" >> $GITHUB_ENV ;;
+          esac
+
       - uses: depot/setup-action@v1
       - uses: depot/build-push-action@v1
         with:
@@ -47,6 +55,7 @@ jobs:
           pull: true
           build-args: |
             build_image=84codes/crystal:latest-${{ matrix.os }}
+            test_image=${{ env.test_image }}
             version=${{ env.version }}
             MAKEFLAGS=-j1
           outputs: RPMS
