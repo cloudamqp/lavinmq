@@ -255,14 +255,14 @@ module LavinMQ
       @[IniOpt(section: "main", deprecated: "default_user_only_loopback")]
       property? guest_only_loopback : Bool = true
 
-      @[CliOpt("", "--no-data-dir-lock", "Don't put a file lock in the data directory (default true)", section: "options")]
+      @[CliOpt("", "--no-data-dir-lock", "Don't put a file lock in the data directory (default true)", ->(_v : String) { false }, section: "options")]
       @[IniOpt(section: "main")]
       property? data_dir_lock : Bool = true
 
-      @[CliOpt("", "--raise-gc-warn", "Raise on GC warnings", section: "options")]
+      @[CliOpt("", "--raise-gc-warn", "Raise on GC warnings", ->(_v : String) { true }, section: "options")]
       property? raise_gc_warn : Bool = false
 
-      @[CliOpt("", "--clustering", "Enable clustering", section: "clustering")]
+      @[CliOpt("", "--clustering", "Enable clustering", ->(_v : String) { true }, section: "clustering")]
       @[IniOpt(ini_name: enabled, section: "clustering")]
       @[EnvOpt("LAVINMQ_CLUSTERING")]
       property? clustering = false
