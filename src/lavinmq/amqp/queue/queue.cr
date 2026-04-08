@@ -536,7 +536,7 @@ module LavinMQ::AMQP
       reject_on_overflow(msg)
       @msg_store_lock.synchronize do
         @msg_store.push(msg)
-        drop_overflow_if_no_immediate_delivery(dlx_context)
+        drop_overflow(dlx_context)
       end
       @publish_count.add(1, :relaxed)
       true
@@ -563,13 +563,12 @@ module LavinMQ::AMQP
       end
     end
 
-    private def drop_overflow_if_no_immediate_delivery(dlx_context : Argument::DeadLettering::Context? = nil) : Nil
-      return unless (ml = @max_length) || (mlb = @max_length_bytes)
-      return if ((ml == 0) || (mlb == 0)) && immediate_delivery?
-      drop_overflow(dlx_context)
-    end
-
     private def drop_overflow(dlx_context : Argument::DeadLettering::Context? = nil) : Nil
+      return unless (ml = @max_length) || (mlb = @max_length_bytes)
+      # Special case when a limit is set to 0 and a consumer accepts, the messages
+      # should be delivered instantly
+      return if ((ml == 0) || (mlb == 0)) && immediate_delivery?
+
       counter = 0
       if ml = @max_length
         @msg_store_lock.synchronize do
@@ -835,7 +834,7 @@ module LavinMQ::AMQP
           @msg_store_lock.synchronize do
             @msg_store.requeue(sp)
           end
-          drop_overflow_if_no_immediate_delivery
+          drop_overflow
         end
       else
         expire_msg(sp, :rejected)
