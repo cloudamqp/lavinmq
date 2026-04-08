@@ -12,10 +12,12 @@ module LavinMQ::AMQP
         add_argument_validator "x-dead-letter-routing-key", ArgumentValidator::DeadLetteringValidator.new
       end
 
-      struct Context
-        @pending = Deque({AMQP::Queue, Message, Proc(Nil)}).new
+      alias MessageRoutedCallback = Proc(Nil)
 
-        def <<(item : {AMQP::Queue, Message, Proc(Nil)})
+      struct Context
+        @pending = Deque({AMQP::Queue, Message, MessageRoutedCallback}).new
+
+        def <<(item : {AMQP::Queue, Message, MessageRoutedCallback})
           @pending << item
         end
 
@@ -55,9 +57,9 @@ module LavinMQ::AMQP
         # It's done like this to be able to dead letter to all destinations
         # except to the queue itself if a cycle is detected.
         # This is also how it's done in rabbitmq
-        def route(msg : BytesMessage, reason, dlx_context : Context? = nil, &done : Proc(Nil))
+        def route(msg : BytesMessage, reason, dlx_context : Context? = nil, &routed : MessageRoutedCallback) : Nil
           # No dead letter exchange => nothing to do
-          return done.call unless dlx = (msg.dlx || dlx())
+          return routed.call unless dlx = (msg.dlx || dlx())
           ex = @vhost.exchanges[dlx.to_s]?.as?(AMQP::Exchange) || return
 
           dlrk = msg.dlrk || dlrk()
@@ -82,7 +84,7 @@ module LavinMQ::AMQP
           # if the dead letter exchange has any of these features enabled.
           queues = Set(AMQP::Queue).new
           ex.find_queues(routing_rk, routing_headers, queues)
-          return done.call if queues.empty?
+          return routed.call if queues.empty?
 
           first_in_chain = dlx_context.nil?
           ctx = dlx_context || @context
@@ -96,7 +98,7 @@ module LavinMQ::AMQP
               @log.trace { "dead lettering cycle dest=#{q.name} msg=#{dead_letter_msg}" }
             else
               @log.trace { "dead lettering dest=#{q.name} msg=#{dead_letter_msg}" }
-              ctx << {q, dead_letter_msg, done}
+              ctx << {q, dead_letter_msg, routed}
             end
           end
 
@@ -105,18 +107,18 @@ module LavinMQ::AMQP
 
         private def drain_context
           while item = @context.shift?
-            q, m, done = item
+            dst_q, msg, routed = item
             begin
-              q.publish_internal(m, dlx_context: @context)
+              dst_q.publish_internal(msg, dlx_context: @context)
             rescue Queue::RejectOverFlow
               # noop
             rescue ex
-              @log.warn(exception: ex) { "Unexpected error when dead lettering to #{q.name}, messages dropped" }
+              @log.warn(exception: ex) { "Unexpected error when dead lettering to #{dst_q.name}, messages dropped" }
             ensure
               begin
-                done.call
+                routed.call
               rescue ex
-                @log.warn(exception: ex) { "Unexpected error when dead lettering done to #{q.name}" }
+                @log.warn(exception: ex) { "Unexpected error when dead lettering done to #{dst_q.name}" }
               end
             end
           end
