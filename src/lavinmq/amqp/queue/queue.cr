@@ -563,6 +563,7 @@ module LavinMQ::AMQP
       end
     end
 
+    # ameba:disable Metrics/CyclomaticComplexity
     private def drop_overflow(dlx_context : Argument::DeadLettering::Context? = nil) : Nil
       return unless (ml = @max_length) || (mlb = @max_length_bytes)
       # Special case when a limit is set to 0 and a consumer accepts, the messages
