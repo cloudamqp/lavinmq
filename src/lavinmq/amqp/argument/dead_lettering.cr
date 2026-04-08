@@ -62,7 +62,7 @@ module LavinMQ::AMQP
         def route(msg : BytesMessage, reason, dlx_context : Context? = nil, &routed : MessageRoutedCallback) : Nil
           # No dead letter exchange => nothing to do
           return routed.call unless dlx = (msg.dlx || dlx())
-          ex = @vhost.exchanges[dlx.to_s]?.as?(AMQP::Exchange) || return
+          ex = @vhost.exchanges[dlx.to_s]?.as?(AMQP::Exchange) || return routed.call
 
           dlrk = msg.dlrk || dlrk()
 
