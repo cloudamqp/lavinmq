@@ -50,18 +50,43 @@ const upstreamsTable = Table.renderTable('upstreamTable', utOpts, (tr, item) => 
   Table.renderCell(tr, 11, buttons, 'right')
 })
 
-const linksOpts = { url: linksUrl, keyColumns: ['vhost', 'name'], countId: 'links-count' }
+const linksOpts = { url: linksUrl, keyColumns: ['vhost', 'upstream', 'resource'], countId: 'links-count' }
 
-Table.renderTable('linksTable', linksOpts, (tr, item) => {
+const linksTable = Table.renderTable('linksTable', linksOpts, (tr, item) => {
   const resourceDiv = document.createElement('span')
   resourceDiv.textContent = item.resource
   resourceDiv.appendChild(document.createElement('br'))
   resourceDiv.appendChild(document.createElement('small')).textContent = item.type
   Table.renderCell(tr, 0, item.vhost)
-  Table.renderCell(tr, 1, item.name)
+  Table.renderCell(tr, 1, item.upstream)
   Table.renderCell(tr, 2, decodeURI(item.uri))
   Table.renderCell(tr, 3, resourceDiv)
-  Table.renderCell(tr, 4, item.timestamp)
+  Table.renderCell(tr, 4, item.status)
+  Table.renderCell(tr, 5, item.timestamp)
+
+  const isRunning = ['running', 'starting'].includes(item.status)
+  const pauseLabel = isRunning ? 'Pause' : 'Resume'
+  const pauseBtn = DOM.button.edit({
+    click: function () {
+      const action = isRunning ? 'pause' : 'resume'
+      const url = HTTP.url`api/federation-links/${item.vhost}/${item.upstream}/${item.resource}/${action}`
+      if (!window.confirm('Are you sure?')) return
+      HTTP.request('PUT', url)
+        .then(() => {
+          linksTable.reload()
+          DOM.toast(`Federation link ${item.resource} ${isRunning ? 'paused' : 'resumed'}`)
+        })
+        .catch((err) => {
+          console.error(err)
+          DOM.toast.error(`Federation link ${item.resource} failed to ${isRunning ? 'pause' : 'resume'}`)
+        })
+    },
+    text: pauseLabel
+  })
+  const buttons = document.createElement('div')
+  buttons.classList.add('buttons')
+  buttons.append(pauseBtn)
+  Table.renderCell(tr, 6, buttons, 'right')
 })
 
 document.querySelector('#createUpstream').addEventListener('submit', function (evt) {
