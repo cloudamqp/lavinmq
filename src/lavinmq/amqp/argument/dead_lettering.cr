@@ -12,9 +12,25 @@ module LavinMQ::AMQP
         add_argument_validator "x-dead-letter-routing-key", ArgumentValidator::DeadLetteringValidator.new
       end
 
+      alias MessageRoutedCallback = Proc(Nil)
+      alias Task = {AMQP::Queue, Message} | MessageRoutedCallback
+
+      struct Context
+        @pending = Deque(Task).new
+
+        def <<(task : Task)
+          @pending << task
+        end
+
+        def shift?
+          @pending.shift?
+        end
+      end
+
       class DeadLetterer
         property dlx : String? = nil
         property dlrk : String? = nil
+        @context = Context.new
 
         def initialize(@vhost : VHost, @queue_name : String, @log : Logger)
         end
@@ -42,10 +58,12 @@ module LavinMQ::AMQP
         # It's done like this to be able to dead letter to all destinations
         # except to the queue itself if a cycle is detected.
         # This is also how it's done in rabbitmq
-        def route(msg : BytesMessage, reason)
+
+        # ameba:disable Metrics/CyclomaticComplexity
+        def route(msg : BytesMessage, reason, dlx_context : Context? = nil, &routed : MessageRoutedCallback) : Nil
           # No dead letter exchange => nothing to do
-          return unless dlx = (msg.dlx || dlx())
-          ex = @vhost.exchanges[dlx.to_s]?.as?(AMQP::Exchange) || return
+          return routed.call unless dlx = (msg.dlx || dlx())
+          ex = @vhost.exchanges[dlx.to_s]?.as?(AMQP::Exchange) || return routed.call
 
           dlrk = msg.dlrk || dlrk()
 
@@ -69,18 +87,47 @@ module LavinMQ::AMQP
           # if the dead letter exchange has any of these features enabled.
           queues = Set(AMQP::Queue).new
           ex.find_queues(routing_rk, routing_headers, queues)
-          return if queues.empty?
+          return routed.call if queues.empty?
 
-          dead_lettered_msg = Message.new(
+          first_in_chain = dlx_context.nil?
+          ctx = dlx_context || @context
+
+          dead_letter_msg = Message.new(
             RoughTime.unix_ms, dlx.to_s, routing_rk.to_s,
             props, msg.bodysize, IO::Memory.new(msg.body))
 
           queues.each do |q|
-            next if cycle?(q.name, props, reason)
-            @log.trace { "dead lettering dest=#{q.name} msg=#{dead_lettered_msg}" }
-            q.publish(dead_lettered_msg)
-          rescue ex
-            @log.warn(exception: ex) { "Unexpected error when dead-lettering to #{q.name}" }
+            if cycle?(q.name, props, reason)
+              @log.trace { "dead lettering cycle dest=#{q.name} msg=#{dead_letter_msg}" }
+            else
+              @log.trace { "dead lettering dest=#{q.name} msg=#{dead_letter_msg}" }
+              ctx << {q, dead_letter_msg}
+            end
+          end
+          ctx << routed
+
+          drain_context if first_in_chain
+        end
+
+        private def drain_context
+          while task = @context.shift?
+            case task
+            when MessageRoutedCallback
+              begin
+                task.call
+              rescue ex
+                @log.warn(exception: ex) { "Unexpected error in dead letter routed callback" }
+              end
+            else
+              dst_q, msg = task
+              begin
+                dst_q.publish_internal(msg, dlx_context: @context)
+              rescue Queue::RejectOverFlow
+                # noop
+              rescue ex
+                @log.warn(exception: ex) { "Unexpected error when dead lettering to #{dst_q.name}, messages dropped" }
+              end
+            end
           end
         end
 

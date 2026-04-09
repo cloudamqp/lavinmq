@@ -143,7 +143,10 @@ module LavinMQ::AMQP
     end
 
     def publish(message : Message) : Bool
-      # This queue should never be published too
+      false
+    end
+
+    protected def publish_internal(message : Message, dlx_context : Argument::DeadLettering::Context?) : Bool
       false
     end
 
