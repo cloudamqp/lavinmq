@@ -13,11 +13,11 @@ module LavinMQ
       DEFAULT_PASSWORD_HASH = Auth::Password::SHA256Password.new("+pHuxkR9fCyrrwXjOD4BP4XbzO3l8LJr8YkThMgJ0yVHFRE+") # Hash of 'guest'
 
       @[CliOpt("-c CONFIG", "--config=CONFIG", "Path to config file", section: "options")]
-      @[EnvOpt("LAVINMQ_CONFIGURATION_DIRECTORY")]
       property config_file = ""
 
       @[CliOpt("-D DIRECTORY", "--data-dir=DIRECTORY", "Data directory", section: "options")]
       @[IniOpt(section: "main")]
+      @[EnvOpt("STATE_DIRECTORY")]
       @[EnvOpt("LAVINMQ_DATADIR")]
       property data_dir : String = "/var/lib/lavinmq"
 

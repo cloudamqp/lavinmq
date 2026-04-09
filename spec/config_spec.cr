@@ -411,6 +411,84 @@ describe LavinMQ::Config do
     end
   end
 
+  it "uses systemd STATE_DIRECTORY as default for data_dir" do
+    begin
+      ENV["STATE_DIRECTORY"] = "/var/lib/custom-state"
+      config = LavinMQ::Config.new
+      config.parse([] of String)
+      config.data_dir.should eq "/var/lib/custom-state"
+    ensure
+      ENV.delete("STATE_DIRECTORY")
+    end
+  end
+
+  it "STATE_DIRECTORY takes precedence over INI data_dir" do
+    config_file = File.tempfile do |file|
+      file.print <<-CONFIG
+        [main]
+        data_dir = /tmp/lavinmq-ini
+      CONFIG
+    end
+    begin
+      ENV["STATE_DIRECTORY"] = "/var/lib/custom-state"
+      config = LavinMQ::Config.new
+      config.parse(["-c", config_file.path])
+      config.data_dir.should eq "/var/lib/custom-state"
+    ensure
+      ENV.delete("STATE_DIRECTORY")
+    end
+  end
+
+  it "LAVINMQ_DATADIR takes precedence over STATE_DIRECTORY" do
+    begin
+      ENV["STATE_DIRECTORY"] = "/var/lib/custom-state"
+      ENV["LAVINMQ_DATADIR"] = "/var/lib/lavinmq-explicit"
+      config = LavinMQ::Config.new
+      config.parse([] of String)
+      config.data_dir.should eq "/var/lib/lavinmq-explicit"
+    ensure
+      ENV.delete("STATE_DIRECTORY")
+      ENV.delete("LAVINMQ_DATADIR")
+    end
+  end
+
+  it "uses systemd CONFIGURATION_DIRECTORY for config file lookup" do
+    config_dir = File.tempname("lavinmq-conf")
+    Dir.mkdir_p(config_dir)
+    File.write(File.join(config_dir, "lavinmq.ini"), "[main]\nlog_level = fatal\n")
+    begin
+      ENV["CONFIGURATION_DIRECTORY"] = config_dir
+      config = LavinMQ::Config.new
+      config.parse([] of String)
+      config.config_file.should eq File.join(config_dir, "lavinmq.ini")
+    ensure
+      ENV.delete("CONFIGURATION_DIRECTORY")
+      FileUtils.rm_rf(config_dir)
+    end
+  end
+
+  it "LAVINMQ_CONFIGURATION_DIRECTORY takes precedence over CONFIGURATION_DIRECTORY" do
+    config_dir = File.tempname("lavinmq-conf")
+    Dir.mkdir_p(config_dir)
+    File.write(File.join(config_dir, "lavinmq.ini"), "[main]\nlog_level = fatal\n")
+    systemd_dir = File.tempname("lavinmq-systemd")
+    Dir.mkdir_p(systemd_dir)
+    File.write(File.join(systemd_dir, "lavinmq.ini"), "[main]\nlog_level = fatal\n")
+    begin
+      ENV["CONFIGURATION_DIRECTORY"] = systemd_dir
+      ENV["LAVINMQ_CONFIGURATION_DIRECTORY"] = config_dir
+      config = LavinMQ::Config.new
+      config.parse([] of String)
+      # config_file should NOT point to the systemd_dir
+      config.config_file.should_not contain systemd_dir
+    ensure
+      ENV.delete("CONFIGURATION_DIRECTORY")
+      ENV.delete("LAVINMQ_CONFIGURATION_DIRECTORY")
+      FileUtils.rm_rf(config_dir)
+      FileUtils.rm_rf(systemd_dir)
+    end
+  end
+
   it "accepts deprecated [http] section as alias for [mgmt]" do
     config_file = File.tempfile do |file|
       file.print <<-CONFIG
