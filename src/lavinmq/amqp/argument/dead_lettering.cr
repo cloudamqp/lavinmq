@@ -13,12 +13,13 @@ module LavinMQ::AMQP
       end
 
       alias MessageRoutedCallback = Proc(Nil)
+      alias Task = {AMQP::Queue, Message} | MessageRoutedCallback
 
       struct Context
-        @pending = Deque({AMQP::Queue, Message, MessageRoutedCallback}).new
+        @pending = Deque(Task).new
 
-        def <<(item : {AMQP::Queue, Message, MessageRoutedCallback})
-          @pending << item
+        def <<(task : Task)
+          @pending << task
         end
 
         def shift?
@@ -100,27 +101,31 @@ module LavinMQ::AMQP
               @log.trace { "dead lettering cycle dest=#{q.name} msg=#{dead_letter_msg}" }
             else
               @log.trace { "dead lettering dest=#{q.name} msg=#{dead_letter_msg}" }
-              ctx << {q, dead_letter_msg, routed}
+              ctx << {q, dead_letter_msg}
             end
           end
+          ctx << routed
 
           drain_context if first_in_chain
         end
 
         private def drain_context
-          while item = @context.shift?
-            dst_q, msg, routed = item
-            begin
-              dst_q.publish_internal(msg, dlx_context: @context)
-            rescue Queue::RejectOverFlow
-              # noop
-            rescue ex
-              @log.warn(exception: ex) { "Unexpected error when dead lettering to #{dst_q.name}, messages dropped" }
-            ensure
+          while task = @context.shift?
+            case task
+            when MessageRoutedCallback
               begin
-                routed.call
+                task.call
               rescue ex
-                @log.warn(exception: ex) { "Unexpected error when dead lettering done to #{dst_q.name}" }
+                @log.warn(exception: ex) { "Unexpected error in dead letter routed callback" }
+              end
+            else
+              dst_q, msg = task
+              begin
+                dst_q.publish_internal(msg, dlx_context: @context)
+              rescue Queue::RejectOverFlow
+                # noop
+              rescue ex
+                @log.warn(exception: ex) { "Unexpected error when dead lettering to #{dst_q.name}, messages dropped" }
               end
             end
           end
