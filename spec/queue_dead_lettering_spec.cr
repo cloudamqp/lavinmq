@@ -993,5 +993,67 @@ module DeadLetteringSpec
         #  end
       end
     end
+
+    describe "Routed Callback" do
+      # The routed callback deletes the source message from storage.
+      # With a fanout DLX routing to two queues, the old code stored
+      # the same callback once per destination and called it N times.
+      # Correct behavior: source empties to 0 (called at least once)
+      # and both destinations receive all messages (routing completed).
+      # A double-call would attempt to delete the same segment twice,
+      # risking store corruption or stat errors.
+      it "is called once when dead lettering to multiple queues" do
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            ch.exchange_declare("dlx_fanout", "fanout")
+            src = ch.queue("src_fanout", args: AMQP::Client::Arguments.new({
+              "x-dead-letter-exchange" => "dlx_fanout",
+            }))
+            dst1 = ch.queue("dst_fanout_1")
+            dst2 = ch.queue("dst_fanout_2")
+            dst1.bind("dlx_fanout", "")
+            dst2.bind("dlx_fanout", "")
+
+            n = 3
+            n.times { |i| ch.default_exchange.publish_confirm("msg#{i + 1}", src.name) }
+            get_n(n, src, &.reject(requeue: false))
+
+            wait_for { src.message_count == 0 }
+            wait_for { dst1.message_count == n }
+            wait_for { dst2.message_count == n }
+
+            src.message_count.should eq 0
+            dst1.message_count.should eq n
+            dst2.message_count.should eq n
+          end
+        end
+      end
+
+      # When cycle detection drops all destinations the routed callback
+      # must still fire so the source message is removed from storage.
+      # The queue self-binds to the fanout DLX: on first TTL the message
+      # is re-queued with an x-death entry; on the second TTL the cycle
+      # is detected and every destination is skipped. Without the fix
+      # the callback is never enqueued and the message leaks, leaving
+      # message_count > 0 after the sleep.
+      it "is called once when all dead letter destinations are cycles" do
+        with_amqp_server do |s|
+          with_channel(s) do |ch|
+            ch.exchange_declare("dlx_fanout_cycle", "fanout")
+            q = ch.queue("q_fanout_cycle", args: AMQP::Client::Arguments.new({
+              "x-message-ttl"          => 1,
+              "x-dead-letter-exchange" => "dlx_fanout_cycle",
+            }))
+            q.bind("dlx_fanout_cycle", "")
+
+            2.times { |i| ch.default_exchange.publish_confirm("msg#{i + 1}", q.name) }
+
+            sleep 0.1.seconds
+
+            q.message_count.should eq 0
+          end
+        end
+      end
+    end
   end
 end
