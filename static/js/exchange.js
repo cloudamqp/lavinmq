@@ -15,6 +15,7 @@ const chart = Chart.render('chart', 'msgs/s')
 document.title = exchange + ' | LavinMQ'
 
 const exchangeUrl = HTTP.url`api/exchanges/${vhost}/${exchange}`
+let exchangeUpdateInterval = null
 function updateExchange (all) {
   HTTP.request('GET', exchangeUrl).then(item => {
     Chart.update(chart, item.message_stats)
@@ -51,10 +52,15 @@ function updateExchange (all) {
         document.getElementById('e-policy').appendChild(policyLink)
       }
     }
+  }).catch(e => {
+    if (e.status === 404) {
+      clearInterval(exchangeUpdateInterval)
+      DOM.showEntityNotFound('Exchange', exchange, 'exchanges')
+    }
   })
 }
 updateExchange(true)
-setInterval(updateExchange, 5000)
+exchangeUpdateInterval = setInterval(updateExchange, 5000)
 
 const tableOptions = {
   dataSource: new UrlDataSource(exchangeUrl + '/bindings/source', { useQueryState: false }),

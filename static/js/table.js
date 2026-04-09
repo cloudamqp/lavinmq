@@ -35,7 +35,10 @@ function renderTable (id, options = {}, renderRow) {
   dataSource.on('update', updateTable)
   dataSource.on('error', error => {
     console.log(error)
-    toggleDisplayError(id, 'Error fetching data: ' + error.detail)
+    toggleDisplayError(id, 'Error fetching data: ' + (error.detail || error))
+  })
+  dataSource.on('not_found', () => {
+    toggleDisplayError(id, 'This resource no longer exists. It may have been deleted.')
   })
   dataSource.reload()
 

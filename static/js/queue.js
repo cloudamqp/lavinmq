@@ -89,6 +89,7 @@ function handleQueueState (state) {
 
 const chart = Chart.render('chart', 'msgs/s')
 const queueUrl = HTTP.url`api/queues/${vhost}/${queue}`
+let queueUpdateInterval = null
 function updateQueue (all) {
   HTTP.request('GET', queueUrl + '?consumer_list_length=' + consumerListLength)
     .then(item => {
@@ -154,10 +155,15 @@ function updateQueue (all) {
           qArgs.appendChild(div)
         }
       }
+    }).catch(e => {
+      if (e.status === 404) {
+        clearInterval(queueUpdateInterval)
+        DOM.showEntityNotFound('Queue', queue, 'queues')
+      }
     })
 }
 updateQueue(true)
-setInterval(updateQueue, 5000)
+queueUpdateInterval = setInterval(updateQueue, 5000)
 
 const tableOptions = {
   dataSource: new UrlDataSource(queueUrl + '/bindings', { useQueryState: false }),
