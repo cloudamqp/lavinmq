@@ -418,6 +418,23 @@ describe LavinMQ::Config do
     end
   end
 
+  it "STATE_DIRECTORY takes precedence over INI data_dir" do
+    config_file = File.tempfile do |file|
+      file.print <<-CONFIG
+        [main]
+        data_dir = /tmp/lavinmq-ini
+      CONFIG
+    end
+    begin
+      ENV["STATE_DIRECTORY"] = "/var/lib/custom-state"
+      config = LavinMQ::Config.new
+      config.parse(["-c", config_file.path])
+      config.data_dir.should eq "/var/lib/custom-state"
+    ensure
+      ENV.delete("STATE_DIRECTORY")
+    end
+  end
+
   it "LAVINMQ_DATADIR takes precedence over STATE_DIRECTORY" do
     begin
       ENV["STATE_DIRECTORY"] = "/var/lib/custom-state"

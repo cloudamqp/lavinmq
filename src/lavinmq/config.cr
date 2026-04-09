@@ -51,10 +51,12 @@ module LavinMQ
 
     private def parse_env
       {% for ivar in @type.instance_vars.select(&.annotation(EnvOpt)) %}
-        {% env_name, transform = ivar.annotation(EnvOpt).args %}
-        if v = ENV.fetch({{env_name}}, nil)
-          @{{ivar}} = parse_value(v, {{transform || ivar.type}})
-        end
+        {% for ann in ivar.annotations(EnvOpt) %}
+          {% env_name, transform = ann.args %}
+          if v = ENV.fetch({{env_name}}, nil)
+            @{{ivar}} = parse_value(v, {{transform || ivar.type}})
+          end
+        {% end %}
       {% end %}
     end
 
