@@ -125,6 +125,22 @@ describe LavinMQ::SNIManager do
     manager.get_host("example.com").should be_nil
     manager.get_host("other.com").should be_nil
   end
+
+  it "get_exact_host does not resolve wildcards" do
+    manager = LavinMQ::SNIManager.new
+
+    wildcard_host = LavinMQ::SNIHost.new("*.example.com")
+    wildcard_host.tls_cert = "spec/resources/server_certificate.pem"
+    wildcard_host.tls_key = "spec/resources/server_key.pem"
+    manager.add_host(wildcard_host)
+
+    # get_host resolves wildcards
+    manager.get_host("foo.example.com").should eq(wildcard_host)
+    # get_exact_host does not
+    manager.get_exact_host("foo.example.com").should be_nil
+    # get_exact_host finds the wildcard by its literal name
+    manager.get_exact_host("*.example.com").should eq(wildcard_host)
+  end
 end
 
 describe LavinMQ::Config do
@@ -184,6 +200,45 @@ describe LavinMQ::Config do
       mtls_host = config.sni_manager.get_host("mtls.example.com").not_nil!
       mtls_host.tls_verify_peer?.should be_true
       mtls_host.http_tls_verify_peer.should eq(false)
+    ensure
+      File.delete(config_file)
+    end
+  end
+
+  it "exact-match section after wildcard does not corrupt wildcard host" do
+    config = LavinMQ::Config.new
+    config.data_dir = "/tmp/lavinmq-sni-spec"
+
+    config_content = <<-INI
+    [main]
+    data_dir = /tmp/lavinmq-sni-spec
+
+    [sni:*.example.com]
+    tls_cert = spec/resources/wildcard_example_certificate.pem
+    tls_key = spec/resources/wildcard_example_key.pem
+
+    [sni:test.example.com]
+    tls_cert = spec/resources/foobar_localhost_certificate.pem
+    tls_key = spec/resources/foobar_localhost_key.pem
+    INI
+
+    config_file = File.tempname("lavinmq", ".ini")
+    File.write(config_file, config_content)
+
+    begin
+      config.parse(["-c", config_file])
+
+      # Wildcard host keeps its own cert
+      wildcard = config.sni_manager.get_exact_host("*.example.com").not_nil!
+      wildcard.tls_cert.should eq("spec/resources/wildcard_example_certificate.pem")
+
+      # Exact-match host is registered separately
+      exact = config.sni_manager.get_exact_host("test.example.com").not_nil!
+      exact.tls_cert.should eq("spec/resources/foobar_localhost_certificate.pem")
+
+      # Runtime lookup: exact match takes precedence over wildcard
+      config.sni_manager.get_host("test.example.com").should eq(exact)
+      config.sni_manager.get_host("foo.example.com").should eq(wildcard)
     ensure
       File.delete(config_file)
     end
