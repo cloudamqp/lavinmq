@@ -896,4 +896,73 @@ describe LavinMQ::AMQP::Queue do
       end
     end
   end
+
+  describe "Idle fiber management" do
+    it "should not start message_expire_loop for empty queue" do
+      with_amqp_server do |s|
+        vhost = s.vhosts["/"]
+        vhost.declare_queue("empty_q", durable: false, auto_delete: false)
+        queue = vhost.queues["empty_q"]
+        queue.message_expire_fiber_active?.should be_false
+      end
+    end
+
+    it "should not start message_expire_loop for queue with no TTL messages" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("no_ttl_test")
+          queue = s.vhosts["/"].queues["no_ttl_test"]
+
+          # Publish message without TTL
+          q.publish_confirm("test message")
+
+          # Fiber should not start
+          queue.message_expire_fiber_active?.should be_false
+        end
+      end
+    end
+
+    it "should start fiber when TTL message published and expire it" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("ttl_test", args: AMQP::Client::Arguments.new({"x-message-ttl" => 10}))
+          queue = s.vhosts["/"].queues["ttl_test"]
+
+          # Should not have fiber initially (empty queue)
+          queue.message_expire_fiber_active?.should be_false
+
+          # Publish message with TTL
+          q.publish_confirm("test message")
+
+          # Fiber should start
+          queue.message_expire_fiber_active?.should be_true
+
+          # Message should be expired
+          should_eventually(be_true) { queue.empty? }
+        end
+      end
+    end
+
+    it "should start fiber when message with per-message TTL is published" do
+      with_amqp_server do |s|
+        with_channel(s) do |ch|
+          q = ch.queue("per_msg_ttl_test")
+          queue = s.vhosts["/"].queues["per_msg_ttl_test"]
+
+          # Should not have fiber initially
+          queue.message_expire_fiber_active?.should be_false
+
+          # Publish message with per-message TTL
+          props = AMQP::Client::Properties.new(expiration: "10")
+          ch.default_exchange.publish_confirm("test message", q.name, props: props)
+
+          # Fiber should start
+          queue.message_expire_fiber_active?.should be_true
+
+          # Message should be expired
+          should_eventually(be_true) { queue.empty? }
+        end
+      end
+    end
+  end
 end
