@@ -229,7 +229,7 @@ describe LavinMQ::Config do
       config.parse(["-c", config_file])
 
       # Wildcard host keeps its own cert
-      wildcard = config.sni_manager.get_exact_host("*.example.com").not_nil!
+      wildcard = config.sni_manager.get_exact_host("*.example.com").should_not be_nil
       wildcard.tls_cert.should eq("spec/resources/wildcard_example_certificate.pem")
 
       # Exact-match host is registered separately
