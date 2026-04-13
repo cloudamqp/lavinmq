@@ -134,7 +134,7 @@ module LavinMQ
 
     # ameba:disable Metrics/CyclomaticComplexity
     private def parse_sni(hostname : String, settings)
-      host = @sni_manager.get_host(hostname) || SNIHost.new(hostname)
+      host = @sni_manager.get_exact_host(hostname) || SNIHost.new(hostname)
       settings.each do |config, v|
         case config
         # Default TLS settings
