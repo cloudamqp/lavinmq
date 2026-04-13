@@ -174,6 +174,16 @@ module LavinMQ
       @hosts[hostname]? || get_wildcard_host(hostname)
     end
 
+    # Lookup by exact section name only, no wildcard resolution.
+    # Used during config parsing to find a previously registered host.
+    def get_exact_host(hostname : String) : SNIHost?
+      if hostname.starts_with?("*.")
+        @wildcard_hosts[hostname[1..]]?
+      else
+        @hosts[hostname]?
+      end
+    end
+
     private def get_wildcard_host(hostname : String) : SNIHost?
       # Find the first dot and look up the suffix (e.g. "foo.example.com" -> ".example.com")
       if dot_idx = hostname.index('.')
