@@ -85,7 +85,7 @@ module LavinMQ
           end
           @replicator.try &.register_file(f)
         end
-      else
+      elsif Config.instance.load_definitions.empty?
         Log.debug { "Loading default vhosts" }
         create("/")
       end

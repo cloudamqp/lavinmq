@@ -1,7 +1,77 @@
 require "../spec_helper"
+require "../../src/lavinmq/definitions"
 
 describe LavinMQ::GlobalDefinitions do
   describe ".import_from_file" do
+    it "does not overwrite existing users" do
+      defs = {
+        "users" => [
+          {"name" => "guest", "password_hash" => "$2a$04$PuoK2zgHy/NHRU3CRUCidOKaSTwFkv97Sm.zTspKZRWJkn6l37YOe",
+           "hashing_algorithm" => "Bcrypt", "tags" => "administrator"},
+        ],
+      }
+      tmpfile = File.tempname("lavinmq-defs", ".json")
+      File.write(tmpfile, defs.to_json)
+      begin
+        with_amqp_server do |s|
+          original_hash = s.users["guest"].user_details["password_hash"]
+          LavinMQ::GlobalDefinitions.import_from_file(tmpfile, s)
+          s.users["guest"].user_details["password_hash"].should eq original_hash
+        end
+      ensure
+        File.delete?(tmpfile)
+      end
+    end
+
+    it "does not overwrite existing permissions" do
+      defs = {
+        "permissions" => [
+          {"user" => "guest", "vhost" => "/", "configure" => "^new$", "read" => "^new$", "write" => "^new$"},
+        ],
+      }
+      tmpfile = File.tempname("lavinmq-defs", ".json")
+      File.write(tmpfile, defs.to_json)
+      begin
+        with_amqp_server do |s|
+          original_config = s.users["guest"].permissions["/"][:config]
+          LavinMQ::GlobalDefinitions.import_from_file(tmpfile, s)
+          s.users["guest"].permissions["/"][:config].should eq original_config
+        end
+      ensure
+        File.delete?(tmpfile)
+      end
+    end
+
+    it "skips default vhost and user when load_definitions is configured" do
+      defs = {
+        "users" => [
+          {"name" => "admin", "password_hash" => "$2a$04$g5IMwYwvgDLACYdAQxCpCulKuK/Ym2I56Tz6T9Wi9DGdKQG.DE8Gi",
+           "hashing_algorithm" => "Bcrypt", "tags" => "administrator"},
+        ],
+        "vhosts" => [
+          {"name" => "production"},
+        ],
+        "permissions" => [
+          {"user" => "admin", "vhost" => "production", "configure" => ".*", "read" => ".*", "write" => ".*"},
+        ],
+      }
+      tmpfile = File.tempname("lavinmq-defs", ".json")
+      File.write(tmpfile, defs.to_json)
+      begin
+        config = LavinMQ::Config.new
+        config.load_definitions = tmpfile
+        with_amqp_server(config: config) do |s|
+          LavinMQ::GlobalDefinitions.import_from_file(tmpfile, s)
+          s.vhosts["/"]?.should be_nil
+          s.users["guest"]?.should be_nil
+          s.vhosts["production"]?.should_not be_nil
+          s.users["admin"]?.should_not be_nil
+        end
+      ensure
+        File.delete?(tmpfile)
+      end
+    end
+
     it "imports definitions from a JSON file" do
       defs = {
         "queues" => [
