@@ -233,7 +233,7 @@ describe LavinMQ::Config do
       wildcard.tls_cert.should eq("spec/resources/wildcard_example_certificate.pem")
 
       # Exact-match host is registered separately
-      exact = config.sni_manager.get_exact_host("test.example.com").not_nil!
+      exact = config.sni_manager.get_exact_host("test.example.com").should_not be_nil
       exact.tls_cert.should eq("spec/resources/foobar_localhost_certificate.pem")
 
       # Runtime lookup: exact match takes precedence over wildcard
