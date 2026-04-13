@@ -27,8 +27,9 @@ module LavinMQ
     # Command line arguments take precedence over environment variables,
     # which take precedence over the configuration file.
     def parse(argv = ARGV)
+      config_dir = ENV.fetch("LAVINMQ_CONFIGURATION_DIRECTORY") { ENV.fetch("CONFIGURATION_DIRECTORY", "/etc/lavinmq") }
       @config_file = File.exists?(
-        File.join(ENV.fetch("LAVINMQ_CONFIGURATION_DIRECTORY", "/etc/lavinmq"), "lavinmq.ini")) ? File.join(ENV.fetch("LAVINMQ_CONFIGURATION_DIRECTORY", "/etc/lavinmq"), "lavinmq.ini") : ""
+        File.join(config_dir, "lavinmq.ini")) ? File.join(config_dir, "lavinmq.ini") : ""
       parse_config_from_cli(argv)
       parse_ini(@config_file)
       parse_env()
@@ -50,10 +51,12 @@ module LavinMQ
 
     private def parse_env
       {% for ivar in @type.instance_vars.select(&.annotation(EnvOpt)) %}
-        {% env_name, transform = ivar.annotation(EnvOpt).args %}
-        if v = ENV.fetch({{env_name}}, nil)
-          @{{ivar}} = parse_value(v, {{transform || ivar.type}})
-        end
+        {% for ann in ivar.annotations(EnvOpt) %}
+          {% env_name, transform = ann.args %}
+          if v = ENV.fetch({{env_name}}, nil)
+            @{{ivar}} = parse_value(v, {{transform || ivar.type}})
+          end
+        {% end %}
       {% end %}
     end
 
