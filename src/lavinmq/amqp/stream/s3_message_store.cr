@@ -119,15 +119,11 @@ module LavinMQ::AMQP
 
       private def download_segment(seg_id : UInt32) : MFile?
         return nil unless @s3_segments[seg_id]?
+        return @segments[seg_id] if @segments[seg_id]? # raced with prefetch
 
-        # Try the segment cache first (may already be downloading)
-        if cache = @segment_cache
-          if mfile = cache.wait_for_segment(seg_id)
-            return mfile
-          end
-        end
-
-        # Direct download as fallback (no aggressive timeouts for large files)
+        # Download directly. If a cache worker is concurrently downloading the
+        # same segment, the filesystem rename in S3StorageClient#download_segment
+        # arbitrates — the loser's bytes are discarded. Wasted GET, not a bug.
         3.times do |attempt|
           @storage_client.with_http_client(with_timeouts: false) do |h|
             if mfile = @storage_client.download_segment(seg_id, @s3_segments, h)

@@ -26,7 +26,6 @@ module LavinMQ::AMQP
       @pending_mutex = Mutex.new
       @pending = Set(UInt32).new
       @download_queue = ::Channel(UInt32).new(256)
-      @download_complete = ::Channel(UInt32).new(256)
       @fibers_running = Atomic(Bool).new(false)
       @closed = false
       @running_loops = Atomic(Int32).new(0)
@@ -42,7 +41,6 @@ module LavinMQ::AMQP
       # Recreate channels if they were closed by a previous shutdown
       if @download_queue.closed?
         @download_queue = ::Channel(UInt32).new(256)
-        @download_complete = ::Channel(UInt32).new(256)
         @cleanup_signal = ::Channel(Nil).new(1)
       end
       @running_loops.set(2) # coordinator + cleanup
@@ -79,34 +77,7 @@ module LavinMQ::AMQP
     def close
       @closed = true
       @download_queue.close
-      @download_complete.close
       @cleanup_signal.close
-    end
-
-    # Wait for a specific segment to become available.
-    # Returns the MFile once downloaded, or nil on timeout.
-    def wait_for_segment(seg_id : UInt32, timeout = 1.seconds) : MFile?
-      return @segments[seg_id] if @segments[seg_id]?
-      return nil unless @s3_segments[seg_id]?
-      return unless @fibers_running.get
-
-      deadline = Time.instant + timeout
-      loop do
-        remaining = deadline - Time.instant
-        if remaining <= Time::Span.zero
-          @log.error { "Timeout waiting for segment #{seg_id} to be downloaded" }
-          return nil
-        end
-        select
-        when completed_id = @download_complete.receive
-          return @segments[seg_id] if seg_id == completed_id && @segments[seg_id]?
-        when timeout(remaining)
-          @log.error { "Timeout waiting for segment #{seg_id} to be downloaded" }
-          return nil
-        end
-      end
-    rescue ::Channel::ClosedError
-      @segments[seg_id]?
     end
 
     private def download_worker(worker_id : Int32)
@@ -130,11 +101,6 @@ module LavinMQ::AMQP
               end
             end
             @pending_mutex.synchronize { @pending.delete(seg_id) }
-            # Notify anyone waiting for this segment
-            select
-            when @download_complete.send(seg_id)
-            else
-            end
           else
             @pending_mutex.synchronize { @pending.delete(seg_id) }
           end
@@ -286,7 +252,6 @@ module LavinMQ::AMQP
     private def mark_fibers_stopped
       if @running_loops.sub(1) == 1 # was 1, now 0 — we're the last loop
         @download_queue.close
-        @download_complete.close
         @cleanup_signal.close
         @fibers_running.set(false)
         @log.debug { "All background fibers stopped" }
