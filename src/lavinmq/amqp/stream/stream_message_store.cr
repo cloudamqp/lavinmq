@@ -233,7 +233,7 @@ module LavinMQ::AMQP
     end
 
     # Ensure the segment the consumer needs is available locally.
-    # No-op for local storage; S3 subclass overrides to download ahead of the lock.
+    # No-op for local storage; BlobMessageStore overrides to download ahead of the lock.
     def ensure_available(consumer : AMQP::StreamConsumer) : Nil
     end
 
@@ -290,8 +290,8 @@ module LavinMQ::AMQP
     end
 
     # Called when a consumer or offset lookup needs a segment that isn't
-    # available locally. Returns nil by default. S3 subclass overrides this
-    # to download the segment from S3 and add it to @segments.
+    # available locally. Returns nil by default. BlobMessageStore overrides this
+    # to download the segment from remote storage and add it to @segments.
     private def download_segment(seg_id : UInt32) : MFile?
       nil
     end

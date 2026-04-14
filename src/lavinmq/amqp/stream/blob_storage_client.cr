@@ -9,7 +9,7 @@ require "../../mfile"
 require "../../message_store"
 
 module LavinMQ::AMQP
-  class S3StorageClient
+  class BlobStorageClient
     @s3_signer : Awscr::Signer::Signers::V4
     @log : Logger
     @relative_prefix : String # e.g. "vhost_hash/queue_hash"
@@ -24,14 +24,14 @@ module LavinMQ::AMQP
       @file_mutex = Mutex.new
     end
 
-    # Compute the S3 path for a local file
-    def s3_path(local_path : String) : String
+    # Compute the remote path for a local file
+    def remote_path(local_path : String) : String
       local_path[Config.instance.data_dir.bytesize + 1..]
     end
 
-    # List all segments in the S3 bucket for this stream
-    def s3_segments_from_bucket(max_retries = 5) : Hash(UInt32, NamedTuple(path: String, etag: String, size: Int64, meta: Bool))
-      s3_segments = Hash(UInt32, NamedTuple(path: String, etag: String, size: Int64, meta: Bool)).new
+    # List all segments in the remote bucket for this stream
+    def remote_segments_from_bucket(max_retries = 5) : Hash(UInt32, NamedTuple(path: String, etag: String, size: Int64, meta: Bool))
+      remote_segments = Hash(UInt32, NamedTuple(path: String, etag: String, size: Int64, meta: Bool)).new
       prefix = @relative_prefix + "/"
       continuation_token : String? = nil
       retries = 0
@@ -45,15 +45,15 @@ module LavinMQ::AMQP
               path += "&continuation-token=#{URI.encode_path(token)}"
             end
             response = h.get(path)
-            continuation_token = list_of_files_from_xml(XML.parse(response.body), s3_segments)
+            continuation_token = list_of_files_from_xml(XML.parse(response.body), remote_segments)
             retries = 0 # Reset on success
             break unless continuation_token
           rescue ex : IO::TimeoutError | IO::Error
             retries += 1
             if retries > max_retries
-              raise MessageStore::Error.new("Failed to list S3 bucket after #{max_retries} retries: #{ex.message}")
+              raise MessageStore::Error.new("Failed to list remote bucket after #{max_retries} retries: #{ex.message}")
             end
-            @log.warn { "Error listing S3 bucket (attempt #{retries}/#{max_retries}): #{ex.message}" }
+            @log.warn { "Error listing remote bucket (attempt #{retries}/#{max_retries}): #{ex.message}" }
             sleep (retries * 100).milliseconds
             # Reconnect on error — the previous connection may be broken
             h.close rescue nil
@@ -64,16 +64,16 @@ module LavinMQ::AMQP
         h.close
       end
 
-      @log.info { "Found #{s3_segments.size} segments in S3" }
-      s3_segments
+      @log.info { "Found #{remote_segments.size} segments in remote storage" }
+      remote_segments
     end
 
-    def list_of_files_from_xml(document, s3_segments) : String?
+    def list_of_files_from_xml(document, remote_segments) : String?
       list_bucket_results = document.first_element_child
       return unless list_bucket_results
 
       contents_elements = list_bucket_results.xpath_nodes("//*[local-name()='Contents']")
-      contents_elements.each { |content| parse_xml_element(content, s3_segments) }
+      contents_elements.each { |content| parse_xml_element(content, remote_segments) }
 
       is_truncated_node = list_bucket_results.xpath_node(".//*[local-name()='IsTruncated']")
       if is_truncated_node && is_truncated_node.content == "true"
@@ -83,7 +83,7 @@ module LavinMQ::AMQP
       nil
     end
 
-    private def parse_xml_element(content, s3_segments)
+    private def parse_xml_element(content, remote_segments)
       path = etag = ""
       id = 0_u32
       size = 0_i64
@@ -92,7 +92,7 @@ module LavinMQ::AMQP
         path = key_node.content
         if match = path.match(/\/meta\.(\d{10})$/)
           id = match[1].to_u32
-          update_s3_segment_list(s3_segments, id, "", "", 0_i64, true)
+          update_remote_segment_list(remote_segments, id, "", "", 0_i64, true)
           return
         elsif match = path.match(/\/msgs\.(\d{10})$/)
           id = match[1].to_u32
@@ -114,30 +114,30 @@ module LavinMQ::AMQP
         size = size_node.content.to_i64
       end
 
-      update_s3_segment_list(s3_segments, id, path, etag, size, false)
+      update_remote_segment_list(remote_segments, id, path, etag, size, false)
     end
 
-    private def update_s3_segment_list(s3_segments, seg_id : UInt32, path : String = "", etag : String = "", size : Int64 = 0_i64, meta : Bool = false)
-      s3_seg = s3_segments[seg_id]? || {path: path, etag: etag, size: size, meta: meta}
-      path = s3_seg[:path] if path == ""
-      etag = s3_seg[:etag] if etag == ""
-      size = s3_seg[:size] if size == 0_i64
+    private def update_remote_segment_list(remote_segments, seg_id : UInt32, path : String = "", etag : String = "", size : Int64 = 0_i64, meta : Bool = false)
+      remote_seg = remote_segments[seg_id]? || {path: path, etag: etag, size: size, meta: meta}
+      path = remote_seg[:path] if path == ""
+      etag = remote_seg[:etag] if etag == ""
+      size = remote_seg[:size] if size == 0_i64
       # Sticky flag: once a meta file is seen for this segment, keep it true
-      meta = s3_seg[:meta] if meta == false
+      meta = remote_seg[:meta] if meta == false
 
-      s3_segments[seg_id] = {path: path, etag: etag, size: size, meta: meta}
+      remote_segments[seg_id] = {path: path, etag: etag, size: size, meta: meta}
     end
 
-    # Download a segment from S3
+    # Download a segment from remote storage
     # Returns MFile on success, nil on failure
-    def download_segment(segment_id : UInt32, s3_segments, h : ::HTTP::Client) : MFile?
+    def download_segment(segment_id : UInt32, remote_segments, h : ::HTTP::Client) : MFile?
       @log.debug { "Downloading segment: #{segment_id}" }
-      return unless s3_segments[segment_id]?
+      return unless remote_segments[segment_id]?
 
-      s3file_path = s3_segments[segment_id][:path]
-      path = File.join(Config.instance.data_dir, s3file_path)
+      remote_file_path = remote_segments[segment_id][:path]
+      path = File.join(Config.instance.data_dir, remote_file_path)
 
-      h.get("/#{s3file_path}") do |response|
+      h.get("/#{remote_file_path}") do |response|
         if response.status_code != 200
           @log.warn { "Failed to download segment #{segment_id}: HTTP #{response.status_code}" }
           return nil
@@ -168,17 +168,17 @@ module LavinMQ::AMQP
       end
     end
 
-    # Download metadata file from S3
-    def download_meta_file(segment_id : UInt32, s3_segments, h : ::HTTP::Client, max_retries = 3) : MFile?
+    # Download metadata file from remote storage
+    def download_meta_file(segment_id : UInt32, remote_segments, h : ::HTTP::Client, max_retries = 3) : MFile?
       @log.debug { "Downloading meta for segment: #{segment_id}" }
-      return unless s3_segments[segment_id]?
+      return unless remote_segments[segment_id]?
 
-      s3_meta_path = meta_file_name(s3_segments[segment_id][:path])
-      path = File.join(Config.instance.data_dir, s3_meta_path)
+      remote_meta_path = meta_file_name(remote_segments[segment_id][:path])
+      path = File.join(Config.instance.data_dir, remote_meta_path)
       retries = 0
 
       loop do
-        h.get("/#{s3_meta_path}") do |response|
+        h.get("/#{remote_meta_path}") do |response|
           if response.status_code == 404
             @log.debug { "Meta file not found for segment #{segment_id}" }
             return nil
@@ -202,15 +202,15 @@ module LavinMQ::AMQP
       end
     end
 
-    # Upload a file to S3 with retries
-    def upload_file_to_s3(path : String, slice : Bytes, max_retries = 3) : String
+    # Upload a file to remote storage with retries
+    def upload_file(path : String, slice : Bytes, max_retries = 3) : String
       with_http_client(with_timeouts: false) do |h|
-        upload_file_to_s3(h, path, slice, max_retries)
+        upload_file(h, path, slice, max_retries)
       end
     end
 
     # Upload using an existing HTTP client (for worker pools)
-    def upload_file_to_s3(h : ::HTTP::Client, path : String, slice : Bytes, max_retries = 3) : String
+    def upload_file(h : ::HTTP::Client, path : String, slice : Bytes, max_retries = 3) : String
       retries = 0
       loop do
         begin
@@ -222,32 +222,32 @@ module LavinMQ::AMQP
         rescue ex
           retries += 1
           if retries > max_retries
-            raise Exception.new("Failed to upload #{path} to S3 after #{max_retries} retries: #{ex.message}")
+            raise Exception.new("Failed to upload #{path} to remote storage after #{max_retries} retries: #{ex.message}")
           end
-          @log.warn { "Failed to upload #{path} to S3 (attempt #{retries}/#{max_retries}): #{ex.message}" }
+          @log.warn { "Failed to upload #{path} to remote storage (attempt #{retries}/#{max_retries}): #{ex.message}" }
           sleep (retries * 100).milliseconds
         end
       end
     end
 
-    # Delete a segment and its metadata from S3
-    def delete_from_s3(s3_seg)
+    # Delete a segment and its metadata from remote storage
+    def delete_remote(remote_seg)
       with_http_client(with_timeouts: true) do |h|
-        delete_from_s3(h, s3_seg[:path])
-        delete_from_s3(h, meta_file_name(s3_seg[:path]))
+        delete_remote(h, remote_seg[:path])
+        delete_remote(h, meta_file_name(remote_seg[:path]))
       end
     end
 
-    def delete_from_s3(h : ::HTTP::Client, path : String)
+    def delete_remote(h : ::HTTP::Client, path : String)
       response = h.delete("/#{path}")
       if response.status_code != 204
-        @log.error { "Failed to delete #{path} from S3: HTTP #{response.status_code}" }
+        @log.error { "Failed to delete #{path} from remote storage: HTTP #{response.status_code}" }
       else
-        @log.debug { "Deleted #{path} from S3" }
+        @log.debug { "Deleted #{path} from remote storage" }
       end
     end
 
-    # Batch delete up to 1000 objects per request using S3 multi-object delete
+    # Batch delete up to 1000 objects per request using multi-object delete
     def delete_objects(keys : Array(String))
       return if keys.empty?
       with_http_client(with_timeouts: false) do |h|
@@ -272,9 +272,9 @@ module LavinMQ::AMQP
       headers = ::HTTP::Headers{"Content-MD5" => md5, "Content-Type" => "application/xml"}
       response = h.post("/?delete", headers: headers, body: body)
       if response.status_code != 200
-        @log.error { "S3 multi-object delete failed: HTTP #{response.status_code}" }
+        @log.error { "Multi-object delete failed: HTTP #{response.status_code}" }
       else
-        @log.debug { "Deleted #{keys.size} objects from S3" }
+        @log.debug { "Deleted #{keys.size} objects from remote storage" }
       end
     end
 
@@ -288,10 +288,10 @@ module LavinMQ::AMQP
       end
     end
 
-    # Create an HTTP client for S3 operations
+    # Create an HTTP client for remote storage operations
     def http_client(with_timeouts = false) : ::HTTP::Client
-      endpoint = Config.instance.streams_s3_storage_endpoint
-      raise "S3 storage endpoint not configured" unless endpoint
+      endpoint = Config.instance.blob_storage_endpoint
+      raise "Blob storage endpoint not configured" unless endpoint
 
       h = ::HTTP::Client.new(URI.parse(endpoint))
       h.before_request do |request|
@@ -321,13 +321,13 @@ module LavinMQ::AMQP
     end
 
     private def s3_signer : Awscr::Signer::Signers::V4
-      if (region = Config.instance.streams_s3_storage_region) &&
-         (access_key = Config.instance.streams_s3_storage_access_key_id) &&
-         (secret_key = Config.instance.streams_s3_storage_secret_access_key)
+      if (region = Config.instance.blob_storage_region) &&
+         (access_key = Config.instance.blob_storage_access_key_id) &&
+         (secret_key = Config.instance.blob_storage_secret_access_key)
         Awscr::Signer::Signers::V4.new("s3", region, access_key, secret_key)
       else
-        Log.fatal { "S3 storage for streams is enabled, but region or access key is not set" }
-        abort "S3 storage for streams is enabled, but region or access key is not set"
+        Log.fatal { "Blob storage region or access key is not set" }
+        abort "Blob storage region or access key is not set"
       end
     end
 
