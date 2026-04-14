@@ -2,9 +2,9 @@ require "http/server"
 require "digest/md5"
 require "xml"
 
-# MinimalS3Server provides an in-memory S3-compatible server for testing
+# MinimalBlobServer provides an in-memory S3-compatible server for testing
 # Supports: ListObjectsV2 (with pagination), GetObject, PutObject, DeleteObject
-class MinimalS3Server
+class MinimalBlobServer
   @storage = Hash(String, Bytes).new
   @server : HTTP::Server?
   @port : Int32

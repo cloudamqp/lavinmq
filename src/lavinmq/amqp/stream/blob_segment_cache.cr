@@ -1,10 +1,10 @@
-require "./s3_storage_client"
+require "./blob_storage_client"
 require "../../mfile"
 require "../../rough_time"
 require "../../config"
 
 module LavinMQ::AMQP
-  class S3SegmentCache
+  class BlobSegmentCache
     @log : Logger
     @idle_since : Time::Instant? = nil
     property current_read_segments = Hash(String, UInt32).new
@@ -15,8 +15,8 @@ module LavinMQ::AMQP
     IDLE_SHUTDOWN_TIMEOUT = 30.seconds
 
     def initialize(
-      @storage_client : S3StorageClient,
-      @s3_segments : Hash(UInt32, NamedTuple(path: String, etag: String, size: Int64, meta: Bool)),
+      @storage_client : BlobStorageClient,
+      @remote_segments : Hash(UInt32, NamedTuple(path: String, etag: String, size: Int64, meta: Bool)),
       @segments : Hash(UInt32, MFile),
       @msg_dir : String,
       metadata : ::Log::Metadata = ::Log::Metadata.empty,
@@ -45,10 +45,10 @@ module LavinMQ::AMQP
       end
       @running_loops.set(2) # coordinator + cleanup
       NUM_DOWNLOAD_WORKERS.times do |i|
-        spawn download_worker(i), name: "S3SegmentCache#worker-#{i}"
+        spawn download_worker(i), name: "BlobSegmentCache#worker-#{i}"
       end
-      spawn coordinator_loop, name: "S3SegmentCache#coordinator"
-      spawn cleanup_loop, name: "S3SegmentCache#cleanup"
+      spawn coordinator_loop, name: "BlobSegmentCache#coordinator"
+      spawn cleanup_loop, name: "BlobSegmentCache#cleanup"
     end
 
     # Signal that a consumer was removed. Triggers an immediate cleanup pass.
@@ -61,7 +61,7 @@ module LavinMQ::AMQP
       end
     end
 
-    # Signal that a segment was uploaded to S3. Triggers an immediate cleanup pass.
+    # Signal that a segment was uploaded. Triggers an immediate cleanup pass.
     def notify_upload_complete
       select
       when @cleanup_signal.send(nil)
@@ -88,7 +88,7 @@ module LavinMQ::AMQP
 
         @log.debug { "Worker #{worker_id}: downloading segment #{seg_id}" }
         begin
-          if mfile = @storage_client.download_segment(seg_id, @s3_segments, client)
+          if mfile = @storage_client.download_segment(seg_id, @remote_segments, client)
             @segments_mutex.synchronize do
               if @segments[seg_id]?
                 # Another worker finished first, discard our copy
@@ -139,8 +139,8 @@ module LavinMQ::AMQP
       wanted = segments_to_prefetch
 
       wanted.each do |seg_id|
-        next if @segments[seg_id]?        # Already local
-        next unless @s3_segments[seg_id]? # Must exist in S3
+        next if @segments[seg_id]?            # Already local
+        next unless @remote_segments[seg_id]? # Must exist in remote storage
 
         should_queue = @pending_mutex.synchronize do
           next false if @pending.includes?(seg_id)
@@ -166,7 +166,7 @@ module LavinMQ::AMQP
 
       # Ensure at least 3 segments per consumer so prefetching is useful even
       # when many consumers share a small local_segments_per_stream budget
-      budget = Math.max(3, Config.instance.streams_s3_storage_local_segments_per_stream // readers.size)
+      budget = Math.max(3, Config.instance.blob_storage_local_segments_per_stream // readers.size)
 
       readers.flat_map do |_consumer, segment|
         (0...budget).map { |i| segment + i }
@@ -202,16 +202,16 @@ module LavinMQ::AMQP
     end
 
     private def run_cleanup
-      max_local = Config.instance.streams_s3_storage_local_segments_per_stream
+      max_local = Config.instance.blob_storage_local_segments_per_stream
       return if @segments.size <= max_local
 
       wanted = segments_to_prefetch.to_set
       currently_reading = @current_read_segments.values.to_set
 
       # Segments safe to remove: not wanted by prefetch, not actively being read,
-      # and re-downloadable from S3 (never remove the write segment or local-only segments)
+      # and re-downloadable from remote storage (never remove the write segment or local-only segments)
       removable = @segments.keys.reject do |seg_id|
-        wanted.includes?(seg_id) || currently_reading.includes?(seg_id) || !@s3_segments[seg_id]?
+        wanted.includes?(seg_id) || currently_reading.includes?(seg_id) || !@remote_segments[seg_id]?
       end
 
       if @current_read_segments.empty?

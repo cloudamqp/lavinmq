@@ -66,7 +66,7 @@ module LavinMQ
           bindings:     {description: "Bindings", options: Array(Option).new},
           tls:          {description: "TLS", options: Array(Option).new},
           clustering:   {description: "Clustering", options: Array(Option).new},
-          "s3-storage": {description: "S3 Storage", options: Array(Option).new},
+          "blob-storage": {description: "Blob Storage", options: Array(Option).new},
         }
         # Build sections structure and populate with CLI options from annotated instance variables
         {% for ivar in @type.instance_vars.select(&.annotation(CliOpt)) %}

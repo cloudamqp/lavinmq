@@ -1,11 +1,11 @@
 require "./spec_helper"
-require "./support/s3_server"
-require "./../src/lavinmq/amqp/stream/s3_message_store"
+require "./support/blob_server"
+require "./../src/lavinmq/amqp/stream/blob_message_store"
 
 DATA_DIR = "42099b4af021e53fd8fd4e056c2568d7c2e3ffa8/77d9712623c4368721b466d1c24d447e9c53c8d3"
 
-module S3SpecHelper
-  class_property s3_server : MinimalS3Server?
+module BlobSpecHelper
+  class_property blob_server : MinimalBlobServer?
 
   def self.meta_bytes(offset)
     io = IO::Memory.new
@@ -42,63 +42,62 @@ module S3SpecHelper
     io.getb_to_end
   end
 
-  def self.setup_s3_with_files
-    if server = s3_server
+  def self.setup_remote_with_files
+    if server = blob_server
       server.clear
 
-      # Add segment and meta files to S3
+      # Add segment and meta files to remote storage
       server.put("#{DATA_DIR}/msgs.0000000001", segment_bytes())
       server.put("#{DATA_DIR}/msgs.0000000002", segment_bytes())
       server.put("#{DATA_DIR}/meta.0000000001", meta_bytes(0_i64))
       server.put("#{DATA_DIR}/meta.0000000002", meta_bytes(100_i64))
     else
-      fail("No s3 server")
+      fail("No blob server")
     end
   end
 end
 
-describe LavinMQ::AMQP::Stream::S3MessageStore do
+describe LavinMQ::AMQP::Stream::BlobMessageStore do
   Spec.before_suite do
-    # Start S3 server once for all tests
-    s3_server = MinimalS3Server.new
-    s3_server.start
-    S3SpecHelper.s3_server = s3_server
+    # Start blob server once for all tests
+    blob_server = MinimalBlobServer.new
+    blob_server.start
+    BlobSpecHelper.blob_server = blob_server
   end
 
   Spec.after_suite do
-    # Stop S3 server after all tests
-    S3SpecHelper.s3_server.try(&.stop)
+    # Stop blob server after all tests
+    BlobSpecHelper.blob_server.try(&.stop)
   end
 
   before_each do
-    # Clear S3 storage before each test
-    S3SpecHelper.s3_server.try(&.clear)
+    # Clear blob storage before each test
+    BlobSpecHelper.blob_server.try(&.clear)
 
-    # Configure LavinMQ to use our test S3 server
-    if server = S3SpecHelper.s3_server
-      LavinMQ::Config.instance.streams_s3_storage = true
-      LavinMQ::Config.instance.streams_s3_storage_endpoint = "http://#{server.endpoint}"
-      LavinMQ::Config.instance.streams_s3_storage_region = "us-east-1"
-      LavinMQ::Config.instance.streams_s3_storage_access_key_id = "test_access_key"
-      LavinMQ::Config.instance.streams_s3_storage_secret_access_key = "test_secret_key"
+    # Configure LavinMQ to use our test blob server
+    if server = BlobSpecHelper.blob_server
+      LavinMQ::Config.instance.blob_storage_endpoint = "http://#{server.endpoint}"
+      LavinMQ::Config.instance.blob_storage_region = "us-east-1"
+      LavinMQ::Config.instance.blob_storage_access_key_id = "test_access_key"
+      LavinMQ::Config.instance.blob_storage_secret_access_key = "test_secret_key"
     else
-      fail("No s3 server")
+      fail("No blob server")
     end
   end
 
   after_each do
     FileUtils.rm_rf("/tmp/lavinmq-spec/#{DATA_DIR}")
-    LavinMQ::Config.instance.streams_s3_storage = false
+    LavinMQ::Config.instance.blob_storage_endpoint = nil
   end
 
-  it "should get file list from s3" do
+  it "should get file list from remote storage" do
     msg_dir = "/tmp/lavinmq-spec/#{DATA_DIR}"
     FileUtils.rm_rf(msg_dir)
     Dir.mkdir_p(msg_dir)
-    S3SpecHelper.setup_s3_with_files
-    msg_store = LavinMQ::AMQP::Stream::S3MessageStore.new(msg_dir, nil, true, ::Log::Metadata.empty)
+    BlobSpecHelper.setup_remote_with_files
+    msg_store = LavinMQ::AMQP::Stream::BlobMessageStore.new(msg_dir, nil, true, ::Log::Metadata.empty)
 
-    msg_store.@s3_segments.size.should eq 2
+    msg_store.@remote_segments.size.should eq 2
     msg_store.@segments.size.should eq 2
     msg_store.@size.should eq 200
   end
@@ -107,23 +106,23 @@ describe LavinMQ::AMQP::Stream::S3MessageStore do
     msg_dir = "/tmp/lavinmq-spec/#{DATA_DIR}"
     FileUtils.rm_rf(msg_dir)
     Dir.mkdir_p(msg_dir)
-    File.write(File.join(msg_dir, "msgs.0000000003"), S3SpecHelper.segment_bytes)
-    S3SpecHelper.setup_s3_with_files
-    msg_store = LavinMQ::AMQP::Stream::S3MessageStore.new(msg_dir, nil, true, ::Log::Metadata.empty)
+    File.write(File.join(msg_dir, "msgs.0000000003"), BlobSpecHelper.segment_bytes)
+    BlobSpecHelper.setup_remote_with_files
+    msg_store = LavinMQ::AMQP::Stream::BlobMessageStore.new(msg_dir, nil, true, ::Log::Metadata.empty)
 
     # Local-only segment is uploaded asynchronously by upload workers
-    wait_for { msg_store.@s3_segments.size == 3 }
+    wait_for { msg_store.@remote_segments.size == 3 }
     msg_store.@segments.size.should eq 3
     msg_store.@size.should eq 300
   end
 
-  # Publish a message and verify it can be consumed with S3 storage
-  it "can publish and consume with s3 storage" do
+  # Publish a message and verify it can be consumed with blob storage
+  it "can publish and consume with blob storage" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
         q_name = "test_queue"
         ch.prefetch 1
-        q_args = LavinMQ::AMQP::Table.new({"x-queue-type": "stream"})
+        q_args = LavinMQ::AMQP::Table.new({"x-queue-type": "blob-stream"})
         q = ch.queue(q_name, durable: true, args: q_args)
 
         # Publish a message
@@ -145,8 +144,8 @@ describe LavinMQ::AMQP::Stream::S3MessageStore do
       msg_dir = "/tmp/lavinmq-spec/#{DATA_DIR}"
       FileUtils.rm_rf(msg_dir)
       Dir.mkdir_p(msg_dir)
-      File.write(File.join(msg_dir, "msgs.0000000001"), S3SpecHelper.segment_bytes)
-      File.write(File.join(msg_dir, "msgs.0000000002"), S3SpecHelper.segment_bytes)
+      File.write(File.join(msg_dir, "msgs.0000000001"), BlobSpecHelper.segment_bytes)
+      File.write(File.join(msg_dir, "msgs.0000000002"), BlobSpecHelper.segment_bytes)
       digest = Digest::MD5.new
       digest.update(File.open(File.join(msg_dir, "msgs.0000000001"), &.getb_to_end))
       etag1 = digest.hexfinal
@@ -154,17 +153,17 @@ describe LavinMQ::AMQP::Stream::S3MessageStore do
       digest.update(File.open(File.join(msg_dir, "msgs.0000000002"), &.getb_to_end))
       etag2 = digest.hexfinal
 
-      # Add files to S3 (no meta files, just segments)
-      if server = S3SpecHelper.s3_server
-        server.put("#{DATA_DIR}/msgs.0000000001", S3SpecHelper.segment_bytes)
-        server.put("#{DATA_DIR}/msgs.0000000002", S3SpecHelper.segment_bytes)
+      # Add files to remote storage (no meta files, just segments)
+      if server = BlobSpecHelper.blob_server
+        server.put("#{DATA_DIR}/msgs.0000000001", BlobSpecHelper.segment_bytes)
+        server.put("#{DATA_DIR}/msgs.0000000002", BlobSpecHelper.segment_bytes)
       else
-        fail("No s3 server")
+        fail("No blob server")
       end
 
-      msg_store = LavinMQ::AMQP::Stream::S3MessageStore.new(msg_dir, nil, true, ::Log::Metadata.empty)
+      msg_store = LavinMQ::AMQP::Stream::BlobMessageStore.new(msg_dir, nil, true, ::Log::Metadata.empty)
 
-      msg_store.@s3_segments.size.should eq 2
+      msg_store.@remote_segments.size.should eq 2
       msg_store.@segments.size.should eq 3
       msg_store.@size.should eq 200
       digest = Digest::MD5.new
@@ -179,43 +178,43 @@ describe LavinMQ::AMQP::Stream::S3MessageStore do
       msg_dir = "/tmp/lavinmq-spec/#{DATA_DIR}"
       FileUtils.rm_rf(msg_dir)
       Dir.mkdir_p(msg_dir)
-      File.write(File.join(msg_dir, "msgs.0000000001"), S3SpecHelper.segment_bytes)
-      File.write(File.join(msg_dir, "msgs.0000000002"), S3SpecHelper.segment_bytes)
+      File.write(File.join(msg_dir, "msgs.0000000001"), BlobSpecHelper.segment_bytes)
+      File.write(File.join(msg_dir, "msgs.0000000002"), BlobSpecHelper.segment_bytes)
 
-      # S3 has no files (empty)
-      msg_store = LavinMQ::AMQP::Stream::S3MessageStore.new(msg_dir, nil, true, ::Log::Metadata.empty)
+      # Remote storage has no files (empty)
+      msg_store = LavinMQ::AMQP::Stream::BlobMessageStore.new(msg_dir, nil, true, ::Log::Metadata.empty)
 
       # Local-only segments are uploaded asynchronously by upload workers
-      wait_for { msg_store.@s3_segments.size == 2 }
+      wait_for { msg_store.@remote_segments.size == 2 }
       msg_store.@segments.size.should eq 3
       msg_store.@size.should eq 200
     end
 
-    it "should download segments from s3" do
+    it "should download segments from remote storage" do
       msg_dir = "/tmp/lavinmq-spec/#{DATA_DIR}"
       FileUtils.rm_rf(msg_dir)
       Dir.mkdir_p(msg_dir)
 
-      # Add segments to S3 (no meta files)
-      if server = S3SpecHelper.s3_server
-        server.put("#{DATA_DIR}/msgs.0000000001", S3SpecHelper.segment_bytes)
-        server.put("#{DATA_DIR}/msgs.0000000002", S3SpecHelper.segment_bytes)
+      # Add segments to remote storage (no meta files)
+      if server = BlobSpecHelper.blob_server
+        server.put("#{DATA_DIR}/msgs.0000000001", BlobSpecHelper.segment_bytes)
+        server.put("#{DATA_DIR}/msgs.0000000002", BlobSpecHelper.segment_bytes)
       else
-        fail("No s3 server")
+        fail("No blob server")
       end
 
-      msg_store = LavinMQ::AMQP::Stream::S3MessageStore.new(msg_dir, nil, true, ::Log::Metadata.empty)
-      msg_store.@s3_segments.size.should eq 2
+      msg_store = LavinMQ::AMQP::Stream::BlobMessageStore.new(msg_dir, nil, true, ::Log::Metadata.empty)
+      msg_store.@remote_segments.size.should eq 2
       msg_store.@segments.size.should eq 3
       msg_store.@size.should eq 200
     end
   end
 
-  it "uploads sealed segments to S3 on rotation" do
+  it "uploads sealed segments to remote storage on rotation" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
-        q_name = "s3-upload-test"
-        q_args = AMQP::Client::Arguments.new({"x-queue-type": "stream"})
+        q_name = "blob-upload-test"
+        q_args = AMQP::Client::Arguments.new({"x-queue-type": "blob-stream"})
         q = ch.queue(q_name, durable: true, args: q_args)
 
         # Publish a segment-sized message to trigger rotation
@@ -224,8 +223,8 @@ describe LavinMQ::AMQP::Stream::S3MessageStore do
         # Second publish triggers open_new_segment which uploads the first
         q.publish_confirm data
 
-        server = S3SpecHelper.s3_server.not_nil!
-        # Sealed segment should be uploaded to S3
+        server = BlobSpecHelper.blob_server.not_nil!
+        # Sealed segment should be uploaded to remote storage
         wait_for { server.keys.count(&.matches?(/msgs\.\d{10}$/)) >= 1 }
 
         ch.queue_delete(q_name)
@@ -233,23 +232,23 @@ describe LavinMQ::AMQP::Stream::S3MessageStore do
     end
   end
 
-  it "deletes S3 segments when queue is deleted" do
+  it "deletes remote segments when queue is deleted" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
-        q_name = "s3-delete-test"
-        q_args = AMQP::Client::Arguments.new({"x-queue-type": "stream"})
+        q_name = "blob-delete-test"
+        q_args = AMQP::Client::Arguments.new({"x-queue-type": "blob-stream"})
         q = ch.queue(q_name, durable: true, args: q_args)
 
         data = Bytes.new(LavinMQ::Config.instance.segment_size)
         2.times { q.publish_confirm data }
 
-        server = S3SpecHelper.s3_server.not_nil!
-        # Verify segments exist in S3 before delete
+        server = BlobSpecHelper.blob_server.not_nil!
+        # Verify segments exist in remote storage before delete
         wait_for { !server.keys.select(&.includes?("msgs.")).empty? }
 
         ch.queue_delete(q_name)
 
-        # All segments for this queue should be gone from S3
+        # All segments for this queue should be gone from remote storage
         queue_hash = Digest::SHA1.hexdigest(q_name)
         remaining = server.keys.select(&.includes?(queue_hash))
         remaining.should be_empty
@@ -257,17 +256,17 @@ describe LavinMQ::AMQP::Stream::S3MessageStore do
     end
   end
 
-  it "drops oldest S3 segments when max-length exceeded" do
+  it "drops oldest remote segments when max-length exceeded" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
-        q_name = "s3-maxlen-test"
-        args = AMQP::Client::Arguments.new({"x-queue-type": "stream", "x-max-length": 1})
+        q_name = "blob-maxlen-test"
+        args = AMQP::Client::Arguments.new({"x-queue-type": "blob-stream", "x-max-length": 1})
         q = ch.queue(q_name, durable: true, args: args)
 
         data = Bytes.new(LavinMQ::Config.instance.segment_size)
         4.times { q.publish_confirm data }
 
-        server = S3SpecHelper.s3_server.not_nil!
+        server = BlobSpecHelper.blob_server.not_nil!
         queue_hash = Digest::SHA1.hexdigest(q_name)
 
         # Wait for uploads, then verify segments were dropped
@@ -285,8 +284,8 @@ describe LavinMQ::AMQP::Stream::S3MessageStore do
   it "consumes messages across segment boundaries" do
     with_amqp_server do |s|
       with_channel(s) do |ch|
-        q_name = "s3-cross-segment"
-        q_args = AMQP::Client::Arguments.new({"x-queue-type": "stream"})
+        q_name = "blob-cross-segment"
+        q_args = AMQP::Client::Arguments.new({"x-queue-type": "blob-stream"})
         q = ch.queue(q_name, durable: true, args: q_args)
         ch.prefetch 1
 
@@ -312,25 +311,25 @@ describe LavinMQ::AMQP::Stream::S3MessageStore do
   end
 
   it "should raise if not configured properly" do
-    LavinMQ::Config.instance.streams_s3_storage_region = nil
-    LavinMQ::Config.instance.streams_s3_storage_access_key_id = nil
-    LavinMQ::Config.instance.streams_s3_storage_secret_access_key = nil
+    LavinMQ::Config.instance.blob_storage_region = nil
+    LavinMQ::Config.instance.blob_storage_access_key_id = nil
+    LavinMQ::Config.instance.blob_storage_secret_access_key = nil
 
     msg_dir = "/tmp/lavinmq-spec/#{DATA_DIR}"
     FileUtils.rm_rf(msg_dir)
     Dir.mkdir_p(msg_dir)
 
     expect_raises(SpecExit) do
-      LavinMQ::AMQP::Stream::S3MessageStore.new(msg_dir, nil, true, ::Log::Metadata.empty)
+      LavinMQ::AMQP::Stream::BlobMessageStore.new(msg_dir, nil, true, ::Log::Metadata.empty)
     end
   end
 
   describe "download failure handling" do
-    it "recovers from S3 GET failure during segment cache download" do
+    it "recovers from remote storage GET failure during segment cache download" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
-          q_name = "s3-fail-test"
-          q_args = AMQP::Client::Arguments.new({"x-queue-type": "stream"})
+          q_name = "blob-fail-test"
+          q_args = AMQP::Client::Arguments.new({"x-queue-type": "blob-stream"})
           q = ch.queue(q_name, durable: true, args: q_args)
           ch.prefetch 1
 
@@ -339,8 +338,8 @@ describe LavinMQ::AMQP::Stream::S3MessageStore do
           q.publish_confirm data
           q.publish_confirm "second segment msg"
 
-          # Make the first segment fail on next GET (simulates transient S3 error)
-          server = S3SpecHelper.s3_server.not_nil!
+          # Make the first segment fail on next GET (simulates transient remote storage error)
+          server = BlobSpecHelper.blob_server.not_nil!
           queue_hash = Digest::SHA1.hexdigest(q_name)
           first_segment_key = server.keys.find { |k| k.includes?(queue_hash) && k.matches?(/msgs\.\d{10}$/) }
           server.fail_keys.add(first_segment_key.not_nil!) if first_segment_key
@@ -362,26 +361,26 @@ describe LavinMQ::AMQP::Stream::S3MessageStore do
     end
   end
 
-  describe "S3 pagination" do
-    it "lists all segments when S3 response is paginated" do
+  describe "pagination" do
+    it "lists all segments when remote storage response is paginated" do
       msg_dir = "/tmp/lavinmq-spec/#{DATA_DIR}"
       FileUtils.rm_rf(msg_dir)
       Dir.mkdir_p(msg_dir)
 
-      server = S3SpecHelper.s3_server.not_nil!
+      server = BlobSpecHelper.blob_server.not_nil!
       # Set max keys to 3 to force pagination with just a few segments
       server.max_list_keys = 3
 
       # Add 4 segments with meta files (8 keys total, will need 3 pages)
       4.times do |i|
         seg_id = (i + 1).to_s.rjust(10, '0')
-        server.put("#{DATA_DIR}/msgs.#{seg_id}", S3SpecHelper.segment_bytes)
-        server.put("#{DATA_DIR}/meta.#{seg_id}", S3SpecHelper.meta_bytes((i * 100).to_i64))
+        server.put("#{DATA_DIR}/msgs.#{seg_id}", BlobSpecHelper.segment_bytes)
+        server.put("#{DATA_DIR}/meta.#{seg_id}", BlobSpecHelper.meta_bytes((i * 100).to_i64))
       end
 
-      msg_store = LavinMQ::AMQP::Stream::S3MessageStore.new(msg_dir, nil, true, ::Log::Metadata.empty)
+      msg_store = LavinMQ::AMQP::Stream::BlobMessageStore.new(msg_dir, nil, true, ::Log::Metadata.empty)
       # All 4 segments should be discovered despite pagination
-      msg_store.@s3_segments.size.should eq 4
+      msg_store.@remote_segments.size.should eq 4
       msg_store.@size.should eq 400
     ensure
       server.try &.max_list_keys = 1000
@@ -392,8 +391,8 @@ describe LavinMQ::AMQP::Stream::S3MessageStore do
     it "supports two consumers reading different offsets" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
-          q_name = "s3-concurrent-consumers"
-          q_args = AMQP::Client::Arguments.new({"x-queue-type": "stream"})
+          q_name = "blob-concurrent-consumers"
+          q_args = AMQP::Client::Arguments.new({"x-queue-type": "blob-stream"})
           q = ch.queue(q_name, durable: true, args: q_args)
           ch.prefetch 1
 
@@ -431,38 +430,38 @@ describe LavinMQ::AMQP::Stream::S3MessageStore do
     end
   end
 
-  describe "last_offset after S3 restart" do
+  describe "last_offset after restart" do
     it "computes correct last_offset when write segment is empty" do
       msg_dir = "/tmp/lavinmq-spec/#{DATA_DIR}"
       FileUtils.rm_rf(msg_dir)
       Dir.mkdir_p(msg_dir)
-      S3SpecHelper.setup_s3_with_files
+      BlobSpecHelper.setup_remote_with_files
 
-      msg_store = LavinMQ::AMQP::Stream::S3MessageStore.new(msg_dir, nil, true, ::Log::Metadata.empty)
-      # 2 S3 segments with 100 msgs each: last_offset should be 199
+      msg_store = LavinMQ::AMQP::Stream::BlobMessageStore.new(msg_dir, nil, true, ::Log::Metadata.empty)
+      # 2 remote segments with 100 msgs each: last_offset should be 199
       # (segment 1: offsets 0..99, segment 2: offsets 100..199)
       msg_store.last_offset.should eq 199
     end
 
-    it "has correct segment_first_offset ordering after S3 load" do
+    it "has correct segment_first_offset ordering after remote load" do
       msg_dir = "/tmp/lavinmq-spec/#{DATA_DIR}"
       FileUtils.rm_rf(msg_dir)
       Dir.mkdir_p(msg_dir)
-      S3SpecHelper.setup_s3_with_files
+      BlobSpecHelper.setup_remote_with_files
 
-      msg_store = LavinMQ::AMQP::Stream::S3MessageStore.new(msg_dir, nil, true, ::Log::Metadata.empty)
+      msg_store = LavinMQ::AMQP::Stream::BlobMessageStore.new(msg_dir, nil, true, ::Log::Metadata.empty)
       offsets = msg_store.@segment_first_offset
       # Keys should be in ascending order
       offsets.keys.should eq offsets.keys.sort!
     end
 
-    it "consumes all messages from offset 0 with only S3 segments" do
+    it "consumes all messages from offset 0 with only remote segments" do
       msg_dir = "/tmp/lavinmq-spec/#{DATA_DIR}"
       FileUtils.rm_rf(msg_dir)
       Dir.mkdir_p(msg_dir)
-      S3SpecHelper.setup_s3_with_files
+      BlobSpecHelper.setup_remote_with_files
 
-      msg_store = LavinMQ::AMQP::Stream::S3MessageStore.new(msg_dir, nil, true, ::Log::Metadata.empty)
+      msg_store = LavinMQ::AMQP::Stream::BlobMessageStore.new(msg_dir, nil, true, ::Log::Metadata.empty)
 
       offset, segment, pos = msg_store.find_offset(0)
       offset.should eq 0
@@ -475,8 +474,8 @@ describe LavinMQ::AMQP::Stream::S3MessageStore do
     it "prefetches segments for consumers and cleans up after removal" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
-          q_name = "s3-cache-test"
-          q_args = AMQP::Client::Arguments.new({"x-queue-type": "stream"})
+          q_name = "blob-cache-test"
+          q_args = AMQP::Client::Arguments.new({"x-queue-type": "blob-stream"})
           q = ch.queue(q_name, durable: true, args: q_args)
           ch.prefetch 1
 
@@ -484,9 +483,9 @@ describe LavinMQ::AMQP::Stream::S3MessageStore do
           data = Bytes.new(LavinMQ::Config.instance.segment_size)
           3.times { q.publish_confirm data }
 
-          server = S3SpecHelper.s3_server.not_nil!
+          server = BlobSpecHelper.blob_server.not_nil!
           queue_hash = Digest::SHA1.hexdigest(q_name)
-          # Verify segments were uploaded to S3
+          # Verify segments were uploaded to remote storage
           wait_for { server.keys.count { |k| k.includes?(queue_hash) && k.matches?(/msgs\.\d{10}$/) } >= 2 }
 
           # Start a consumer to trigger prefetching
@@ -511,20 +510,20 @@ describe LavinMQ::AMQP::Stream::S3MessageStore do
       FileUtils.rm_rf(msg_dir)
       Dir.mkdir_p(msg_dir)
 
-      server = S3SpecHelper.s3_server.not_nil!
-      # Add segments to S3 (no meta files)
-      server.put("#{DATA_DIR}/msgs.0000000001", S3SpecHelper.segment_bytes)
-      server.put("#{DATA_DIR}/msgs.0000000002", S3SpecHelper.segment_bytes)
+      server = BlobSpecHelper.blob_server.not_nil!
+      # Add segments to remote storage (no meta files)
+      server.put("#{DATA_DIR}/msgs.0000000001", BlobSpecHelper.segment_bytes)
+      server.put("#{DATA_DIR}/msgs.0000000002", BlobSpecHelper.segment_bytes)
 
       # Add catalog with metadata for both segments
-      catalog = S3SpecHelper.catalog_bytes([
+      catalog = BlobSpecHelper.catalog_bytes([
         {1_u32, 100_u32, 0_i64, 0_i64, 0_i64},
         {2_u32, 100_u32, 100_i64, 100_i64, 100_i64},
       ])
       server.put("#{DATA_DIR}/segments.catalog", catalog)
 
-      msg_store = LavinMQ::AMQP::Stream::S3MessageStore.new(msg_dir, nil, true, ::Log::Metadata.empty)
-      msg_store.@s3_segments.size.should eq 2
+      msg_store = LavinMQ::AMQP::Stream::BlobMessageStore.new(msg_dir, nil, true, ::Log::Metadata.empty)
+      msg_store.@remote_segments.size.should eq 2
       msg_store.@size.should eq 200
       msg_store.last_offset.should eq 199
 
@@ -532,14 +531,14 @@ describe LavinMQ::AMQP::Stream::S3MessageStore do
       File.exists?(File.join(msg_dir, "segments.catalog")).should be_true
     end
 
-    it "falls back to meta files when catalog is missing from S3" do
+    it "falls back to meta files when catalog is missing from remote storage" do
       msg_dir = "/tmp/lavinmq-spec/#{DATA_DIR}"
       FileUtils.rm_rf(msg_dir)
       Dir.mkdir_p(msg_dir)
-      S3SpecHelper.setup_s3_with_files # segments + meta, no catalog
+      BlobSpecHelper.setup_remote_with_files # segments + meta, no catalog
 
-      msg_store = LavinMQ::AMQP::Stream::S3MessageStore.new(msg_dir, nil, true, ::Log::Metadata.empty)
-      msg_store.@s3_segments.size.should eq 2
+      msg_store = LavinMQ::AMQP::Stream::BlobMessageStore.new(msg_dir, nil, true, ::Log::Metadata.empty)
+      msg_store.@remote_segments.size.should eq 2
       msg_store.@size.should eq 200
       msg_store.last_offset.should eq 199
     end
@@ -549,20 +548,20 @@ describe LavinMQ::AMQP::Stream::S3MessageStore do
       FileUtils.rm_rf(msg_dir)
       Dir.mkdir_p(msg_dir)
 
-      server = S3SpecHelper.s3_server.not_nil!
-      # Only 1 segment in S3
-      server.put("#{DATA_DIR}/msgs.0000000002", S3SpecHelper.segment_bytes)
+      server = BlobSpecHelper.blob_server.not_nil!
+      # Only 1 segment in remote storage
+      server.put("#{DATA_DIR}/msgs.0000000002", BlobSpecHelper.segment_bytes)
 
       # Catalog has entries for 2 segments (segment 1 was deleted)
-      catalog = S3SpecHelper.catalog_bytes([
+      catalog = BlobSpecHelper.catalog_bytes([
         {1_u32, 100_u32, 0_i64, 0_i64, 0_i64},
         {2_u32, 100_u32, 100_i64, 100_i64, 100_i64},
       ])
       server.put("#{DATA_DIR}/segments.catalog", catalog)
 
-      msg_store = LavinMQ::AMQP::Stream::S3MessageStore.new(msg_dir, nil, true, ::Log::Metadata.empty)
-      # Only segment 2 should be counted (segment 1 not in S3 LIST)
-      msg_store.@s3_segments.size.should eq 1
+      msg_store = LavinMQ::AMQP::Stream::BlobMessageStore.new(msg_dir, nil, true, ::Log::Metadata.empty)
+      # Only segment 2 should be counted (segment 1 not in remote storage LIST)
+      msg_store.@remote_segments.size.should eq 1
       msg_store.@size.should eq 100
     end
 
@@ -571,21 +570,21 @@ describe LavinMQ::AMQP::Stream::S3MessageStore do
       FileUtils.rm_rf(msg_dir)
       Dir.mkdir_p(msg_dir)
 
-      server = S3SpecHelper.s3_server.not_nil!
-      # 2 segments in S3, with meta files
-      server.put("#{DATA_DIR}/msgs.0000000001", S3SpecHelper.segment_bytes)
-      server.put("#{DATA_DIR}/msgs.0000000002", S3SpecHelper.segment_bytes)
-      server.put("#{DATA_DIR}/meta.0000000001", S3SpecHelper.meta_bytes(0_i64))
-      server.put("#{DATA_DIR}/meta.0000000002", S3SpecHelper.meta_bytes(100_i64))
+      server = BlobSpecHelper.blob_server.not_nil!
+      # 2 segments in remote storage, with meta files
+      server.put("#{DATA_DIR}/msgs.0000000001", BlobSpecHelper.segment_bytes)
+      server.put("#{DATA_DIR}/msgs.0000000002", BlobSpecHelper.segment_bytes)
+      server.put("#{DATA_DIR}/meta.0000000001", BlobSpecHelper.meta_bytes(0_i64))
+      server.put("#{DATA_DIR}/meta.0000000002", BlobSpecHelper.meta_bytes(100_i64))
 
       # Catalog only has segment 1 (segment 2 was uploaded after last catalog sync)
-      catalog = S3SpecHelper.catalog_bytes([
+      catalog = BlobSpecHelper.catalog_bytes([
         {1_u32, 100_u32, 0_i64, 0_i64, 0_i64},
       ])
       server.put("#{DATA_DIR}/segments.catalog", catalog)
 
-      msg_store = LavinMQ::AMQP::Stream::S3MessageStore.new(msg_dir, nil, true, ::Log::Metadata.empty)
-      msg_store.@s3_segments.size.should eq 2
+      msg_store = LavinMQ::AMQP::Stream::BlobMessageStore.new(msg_dir, nil, true, ::Log::Metadata.empty)
+      msg_store.@remote_segments.size.should eq 2
       msg_store.@size.should eq 200
       msg_store.last_offset.should eq 199
     end
@@ -595,17 +594,17 @@ describe LavinMQ::AMQP::Stream::S3MessageStore do
       FileUtils.rm_rf(msg_dir)
       Dir.mkdir_p(msg_dir)
 
-      server = S3SpecHelper.s3_server.not_nil!
-      server.put("#{DATA_DIR}/msgs.0000000001", S3SpecHelper.segment_bytes)
+      server = BlobSpecHelper.blob_server.not_nil!
+      server.put("#{DATA_DIR}/msgs.0000000001", BlobSpecHelper.segment_bytes)
 
       # Catalog has two entries for segment 1 — second should win
-      catalog = S3SpecHelper.catalog_bytes([
+      catalog = BlobSpecHelper.catalog_bytes([
         {1_u32, 50_u32, 0_i64, 0_i64, 0_i64},  # old entry
         {1_u32, 100_u32, 0_i64, 0_i64, 0_i64}, # corrected entry
       ])
       server.put("#{DATA_DIR}/segments.catalog", catalog)
 
-      msg_store = LavinMQ::AMQP::Stream::S3MessageStore.new(msg_dir, nil, true, ::Log::Metadata.empty)
+      msg_store = LavinMQ::AMQP::Stream::BlobMessageStore.new(msg_dir, nil, true, ::Log::Metadata.empty)
       msg_store.@size.should eq 100
     end
 
@@ -614,29 +613,29 @@ describe LavinMQ::AMQP::Stream::S3MessageStore do
       FileUtils.rm_rf(msg_dir)
       Dir.mkdir_p(msg_dir)
 
-      server = S3SpecHelper.s3_server.not_nil!
-      server.put("#{DATA_DIR}/msgs.0000000001", S3SpecHelper.segment_bytes)
+      server = BlobSpecHelper.blob_server.not_nil!
+      server.put("#{DATA_DIR}/msgs.0000000001", BlobSpecHelper.segment_bytes)
 
       # Valid catalog + 5 junk bytes
-      valid = S3SpecHelper.catalog_bytes([
+      valid = BlobSpecHelper.catalog_bytes([
         {1_u32, 100_u32, 0_i64, 0_i64, 0_i64},
       ])
       corrupted = Bytes.new(valid.size + 5)
       corrupted.copy_from(valid)
       server.put("#{DATA_DIR}/segments.catalog", corrupted)
 
-      msg_store = LavinMQ::AMQP::Stream::S3MessageStore.new(msg_dir, nil, true, ::Log::Metadata.empty)
+      msg_store = LavinMQ::AMQP::Stream::BlobMessageStore.new(msg_dir, nil, true, ::Log::Metadata.empty)
       msg_store.@size.should eq 100
 
       # Local catalog should have been truncated to valid size
-      File.size(File.join(msg_dir, "segments.catalog")).should eq S3SpecHelper::CATALOG_RECORD_SIZE
+      File.size(File.join(msg_dir, "segments.catalog")).should eq BlobSpecHelper::CATALOG_RECORD_SIZE
     end
 
     it "appends to catalog on segment upload" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
-          q_name = "s3-catalog-append"
-          q_args = AMQP::Client::Arguments.new({"x-queue-type": "stream"})
+          q_name = "blob-catalog-append"
+          q_args = AMQP::Client::Arguments.new({"x-queue-type": "blob-stream"})
           q = ch.queue(q_name, durable: true, args: q_args)
 
           # Publish enough to trigger segment rotation + upload
@@ -644,7 +643,7 @@ describe LavinMQ::AMQP::Stream::S3MessageStore do
           q.publish_confirm data
           q.publish_confirm data
 
-          server = S3SpecHelper.s3_server.not_nil!
+          server = BlobSpecHelper.blob_server.not_nil!
           queue_hash = Digest::SHA1.hexdigest(q_name)
 
           # Wait for segment upload
@@ -654,25 +653,25 @@ describe LavinMQ::AMQP::Stream::S3MessageStore do
           catalog_files = Dir.glob("/tmp/lavinmq-spec/**/#{queue_hash}/segments.catalog")
           catalog_files.size.should eq 1
           catalog_path = catalog_files.first
-          wait_for { File.size(catalog_path) >= S3SpecHelper::CATALOG_RECORD_SIZE }
-          (File.size(catalog_path) % S3SpecHelper::CATALOG_RECORD_SIZE).should eq 0
+          wait_for { File.size(catalog_path) >= BlobSpecHelper::CATALOG_RECORD_SIZE }
+          (File.size(catalog_path) % BlobSpecHelper::CATALOG_RECORD_SIZE).should eq 0
 
           ch.queue_delete(q_name)
         end
       end
     end
 
-    it "deletes catalog from S3 when queue is deleted" do
+    it "deletes catalog from remote storage when queue is deleted" do
       with_amqp_server do |s|
         with_channel(s) do |ch|
-          q_name = "s3-catalog-delete"
-          q_args = AMQP::Client::Arguments.new({"x-queue-type": "stream"})
+          q_name = "blob-catalog-delete"
+          q_args = AMQP::Client::Arguments.new({"x-queue-type": "blob-stream"})
           q = ch.queue(q_name, durable: true, args: q_args)
 
           data = Bytes.new(LavinMQ::Config.instance.segment_size)
           2.times { q.publish_confirm data }
 
-          server = S3SpecHelper.s3_server.not_nil!
+          server = BlobSpecHelper.blob_server.not_nil!
           queue_hash = Digest::SHA1.hexdigest(q_name)
           wait_for { !server.keys.select(&.includes?("msgs.")).empty? }
 
@@ -690,26 +689,26 @@ describe LavinMQ::AMQP::Stream::S3MessageStore do
       FileUtils.rm_rf(msg_dir)
       Dir.mkdir_p(msg_dir)
 
-      server = S3SpecHelper.s3_server.not_nil!
-      server.put("#{DATA_DIR}/msgs.0000000001", S3SpecHelper.segment_bytes)
-      server.put("#{DATA_DIR}/msgs.0000000002", S3SpecHelper.segment_bytes)
+      server = BlobSpecHelper.blob_server.not_nil!
+      server.put("#{DATA_DIR}/msgs.0000000001", BlobSpecHelper.segment_bytes)
+      server.put("#{DATA_DIR}/msgs.0000000002", BlobSpecHelper.segment_bytes)
 
-      catalog = S3SpecHelper.catalog_bytes([
+      catalog = BlobSpecHelper.catalog_bytes([
         {1_u32, 100_u32, 0_i64, 0_i64, 0_i64},
         {2_u32, 100_u32, 100_i64, 100_i64, 100_i64},
       ])
       server.put("#{DATA_DIR}/segments.catalog", catalog)
 
       # First init downloads catalog
-      store1 = LavinMQ::AMQP::Stream::S3MessageStore.new(msg_dir, nil, true, ::Log::Metadata.empty)
+      store1 = LavinMQ::AMQP::Stream::BlobMessageStore.new(msg_dir, nil, true, ::Log::Metadata.empty)
       store1.close
 
-      # Remove catalog from S3 — local copy should suffice
+      # Remove catalog from remote storage — local copy should suffice
       server.delete("#{DATA_DIR}/segments.catalog")
 
       # Keep local files but re-init
-      store2 = LavinMQ::AMQP::Stream::S3MessageStore.new(msg_dir, nil, true, ::Log::Metadata.empty)
-      store2.@s3_segments.size.should eq 2
+      store2 = LavinMQ::AMQP::Stream::BlobMessageStore.new(msg_dir, nil, true, ::Log::Metadata.empty)
+      store2.@remote_segments.size.should eq 2
       store2.@size.should eq 200
     end
   end
