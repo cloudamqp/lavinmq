@@ -116,7 +116,7 @@ module LavinMQ::AMQP
               begin
                 task.call
               rescue ex
-                @log.warn(exception: ex) { "Unexpected error in dead letter routed callback" }
+                @log.error(exception: ex) { "Unexpected error in dead letter routed callback" }
               end
             else
               dst_q, msg = task
@@ -125,7 +125,7 @@ module LavinMQ::AMQP
               rescue Queue::RejectOverFlow
                 # noop
               rescue ex : Exception
-                @log.warn(exception: ex) { "Unexpected error when dead lettering to #{dst_q.name}, messages dropped" }
+                @log.error(exception: ex) { "Unexpected error when dead lettering to #{dst_q.name}, messages dropped" }
               end
             end
           end
