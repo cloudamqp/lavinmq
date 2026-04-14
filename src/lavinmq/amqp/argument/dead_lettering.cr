@@ -16,14 +16,14 @@ module LavinMQ::AMQP
       alias Task = {AMQP::Queue, Message} | MessageRoutedCallback
 
       struct Context
-        @pending = Deque(Task).new
+        @pending_tasks = Deque(Task).new
 
-        def <<(task : Task)
-          @pending << task
+        def enqueue(task : Task)
+          @pending_tasks << task
         end
 
-        def shift?
-          @pending.shift?
+        def dequeue? : Task?
+          @pending_tasks.shift?
         end
       end
 
@@ -101,16 +101,16 @@ module LavinMQ::AMQP
               @log.trace { "dead lettering cycle dest=#{q.name} msg=#{dead_letter_msg}" }
             else
               @log.trace { "dead lettering dest=#{q.name} msg=#{dead_letter_msg}" }
-              ctx << {q, dead_letter_msg}
+              ctx.enqueue({q, dead_letter_msg})
             end
           end
-          ctx << routed
+          ctx.enqueue(routed)
 
           drain_context if first_in_chain
         end
 
         private def drain_context
-          while task = @context.shift?
+          while task = @context.dequeue?
             case task
             when MessageRoutedCallback
               begin
