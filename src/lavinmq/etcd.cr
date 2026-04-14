@@ -162,16 +162,21 @@ module LavinMQ
       end
     end
 
-    def member_list : Array(NamedTuple(name: String, peer_urls: String, client_urls: String, learner: Bool))
+    def member_list : Array(NamedTuple(id: UInt64, name: String, peer_urls: String, client_urls: String, learner: Bool))
       json = post("/v3/cluster/member/list", "{}")
-      members = json["members"]?.try(&.as_a) || return [] of NamedTuple(name: String, peer_urls: String, client_urls: String, learner: Bool)
+      members = json["members"]?.try(&.as_a) || return [] of NamedTuple(id: UInt64, name: String, peer_urls: String, client_urls: String, learner: Bool)
       members.map do |m|
+        id = m["ID"]?.try(&.as_s.to_u64) || 0_u64
         name = m["name"]?.try(&.as_s) || ""
         peer_urls = m["peerURLs"]?.try(&.as_a.map(&.as_s).join(",")) || ""
         client_urls = m["clientURLs"]?.try(&.as_a.map(&.as_s).join(",")) || ""
         learner = m["isLearner"]?.try(&.as_bool) || false
-        {name: name, peer_urls: peer_urls, client_urls: client_urls, learner: learner}
+        {id: id, name: name, peer_urls: peer_urls, client_urls: client_urls, learner: learner}
       end
+    end
+
+    def move_leader(target_id : UInt64) : Nil
+      post("/v3/maintenance/transfer-leadership", %({"targetID":"#{target_id}"}))
     end
 
     def election_leader(name) : String?

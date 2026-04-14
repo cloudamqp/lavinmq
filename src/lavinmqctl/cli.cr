@@ -239,6 +239,13 @@ class LavinMQCtl
       @cmd = "list_etcd_members"
       self.banner = "Usage: #{PROGRAM_NAME} list_etcd_members"
     end
+    @parser.on("move_etcd_leader", "Transfer etcd leadership to another member") do
+      @cmd = "move_etcd_leader"
+      self.banner = "Usage: #{PROGRAM_NAME} move_etcd_leader --node=NAME"
+      @parser.on("--node=NAME", "Name of the target etcd member") do |v|
+        @options["node"] = v
+      end
+    end
 
     @parser.on("-v", "--version", "Show version") { @io.puts LavinMQ::VERSION; exit 0 }
     @parser.on("--build-info", "Show build information") { @io.puts LavinMQ::BUILD_INFO; exit 0 }
@@ -297,6 +304,7 @@ class LavinMQCtl
     when "delete_federation"     then delete_federation
     when "list_in_sync_replicas" then list_in_sync_replicas
     when "list_etcd_members"     then list_etcd_members
+    when "move_etcd_leader"      then move_etcd_leader
     when "stop_app"
     when "start_app"
     else
@@ -958,6 +966,17 @@ class LavinMQCtl
     members = etcd.member_list
     abort "No members found. Is etcd running?" if members.empty?
     output members, ["name", "peer_urls", "client_urls", "learner"]
+  end
+
+  private def move_etcd_leader
+    name = @options["node"]? || abort "Missing required flag: --node=NAME"
+    endpoints = @options["etcd-endpoints"]? || "localhost:2379"
+    etcd = LavinMQ::Etcd.new(endpoints)
+    members = etcd.member_list
+    target = members.find { |m| m[:name] == name } || abort "Member '#{name}' not found"
+    abort "Member '#{name}' is a learner and cannot be elected leader" if target[:learner]
+    etcd.move_leader(target[:id])
+    @io.puts "Leadership transferred to '#{name}'"
   end
 
   private def list_in_sync_replicas
