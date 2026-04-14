@@ -17,6 +17,7 @@
   --color-bg-elevated: light-dark(#FFFFFF, #1D1D1D);
   --color-bg-input: light-dark(#F4F4F4, #2D2C2C);
   --color-bg-hover: light-dark(#F4F4F4, #2d2c2c);
+  --color-bg-tr-hover: light-dark(#F9F9FA, #242424);
 
   --color-border-primary: light-dark(rgb(0 0 0 / 0.1), rgb(247 245 242 / 0.1));
   --color-border-secondary: light-dark(#d1d5db, #414040);
@@ -1131,10 +1132,10 @@ footer .logo {
 
 .card:has(.table-header) {
   padding: 0 0 1.5rem;
+}
 
-  .table-wrapper {
-    padding: 0 1.5rem;
-  }
+.table thead {
+  background-color: var(--color-border-separator);
 }
 
 .table-header {
@@ -1216,10 +1217,6 @@ footer .logo {
   color: var(--color-text-primary);
 }
 
-.table tbody {
-  border-bottom: 1px solid var(--color-border-primary);
-}
-
 .col-toggle {
   position: absolute;
   top: 15px;
@@ -1229,8 +1226,7 @@ footer .logo {
 
 .table th {
   font-weight: normal;
-  border-bottom: 1px solid var(--color-border-tertiary);
-  padding: 0.75rem 1.5rem 0.5rem 0.75rem;
+  padding: 0.5rem 1.5rem 0.5rem 1.5rem;
   text-align: left;
   white-space: nowrap;
 }
@@ -1271,13 +1267,17 @@ footer .logo {
 }
 
 .table tbody td {
-  border-top: 1px solid var(--color-border-primary);
-  padding: 0.75rem 1.55rem 0.75rem 0.55rem;
+  /*border-top: 1px solid var(--color-border-primary);*/
+  padding: 0.75rem 1.55rem 0.75rem 1.5rem;
   color: var(--color-text-muted);
   white-space: nowrap;
   height: 3.5rem;
   font-size: 14px;
   line-height: 20px;
+
+  &:first-child {
+    padding-left: 1.5rem;
+  }
 }
 
 .table tbody a {
@@ -1299,7 +1299,7 @@ footer .logo {
 }
 
 .table tbody tr:nth-of-type(odd) {
-  background-color: var(--color-table-row-odd);
+  background-color: var(--color-table-row-even);
 }
 
 .table tbody tr:nth-of-type(even) {
@@ -1308,6 +1308,15 @@ footer .logo {
 
 .table.plain-table tbody tr {
   background-color: var(--color-table-row-even);
+}
+
+table tbody tr.internal,
+table tbody tr.internal:hover {
+  background: repeating-linear-gradient(-45deg, var(--color-table-row-odd), var(--color-table-row-odd) 10px, var(--color-border-primary) 0, var(--color-border-primary) 11px);
+}
+
+table tbody tr:hover td {
+  background-color: var(--color-bg-tr-hover);
 }
 
 [id$="-error"] {
