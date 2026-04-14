@@ -124,7 +124,7 @@ module LavinMQ::AMQP
                 dst_q.publish_internal(msg, dlx_context: @context)
               rescue Queue::RejectOverFlow
                 # noop
-              rescue ex
+              rescue ex : Exception
                 @log.warn(exception: ex) { "Unexpected error when dead lettering to #{dst_q.name}, messages dropped" }
               end
             end
