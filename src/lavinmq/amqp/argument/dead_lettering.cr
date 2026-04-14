@@ -15,7 +15,7 @@ module LavinMQ::AMQP
       alias MessageRoutedCallback = Proc(Nil)
       alias Task = {AMQP::Queue, Message} | MessageRoutedCallback
 
-      struct Context
+      struct Tasks
         @pending_tasks = Deque(Task).new
 
         def enqueue(task : Task)
@@ -30,7 +30,7 @@ module LavinMQ::AMQP
       class DeadLetterer
         property dlx : String? = nil
         property dlrk : String? = nil
-        @context = Context.new
+        @tasks = Tasks.new
 
         def initialize(@vhost : VHost, @queue_name : String, @log : Logger)
         end
@@ -60,7 +60,7 @@ module LavinMQ::AMQP
         # This is also how it's done in rabbitmq
 
         # ameba:disable Metrics/CyclomaticComplexity
-        def route(msg : BytesMessage, reason, dlx_context : Context? = nil, &routed : MessageRoutedCallback) : Nil
+        def route(msg : BytesMessage, reason, dlx_tasks : Tasks? = nil, &routed : MessageRoutedCallback) : Nil
           # No dead letter exchange => nothing to do
           return routed.call unless dlx = (msg.dlx || dlx())
           ex = @vhost.exchanges[dlx.to_s]?.as?(AMQP::Exchange) || return routed.call
@@ -89,8 +89,8 @@ module LavinMQ::AMQP
           ex.find_queues(routing_rk, routing_headers, queues)
           return routed.call if queues.empty?
 
-          first_in_chain = dlx_context.nil?
-          ctx = dlx_context || @context
+          first_in_chain = dlx_tasks.nil?
+          ctx = dlx_tasks || @tasks
 
           dead_letter_msg = Message.new(
             RoughTime.unix_ms, dlx.to_s, routing_rk.to_s,
@@ -110,7 +110,7 @@ module LavinMQ::AMQP
         end
 
         private def drain_context
-          while task = @context.dequeue?
+          while task = @tasks.dequeue?
             case task
             when MessageRoutedCallback
               begin
@@ -121,7 +121,7 @@ module LavinMQ::AMQP
             else
               dst_q, msg = task
               begin
-                dst_q.publish_internal(msg, dlx_context: @context)
+                dst_q.publish_internal(msg, dlx_tasks: @tasks)
               rescue Queue::RejectOverFlow
                 # noop
               rescue ex : Exception

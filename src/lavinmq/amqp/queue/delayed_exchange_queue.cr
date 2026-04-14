@@ -146,7 +146,7 @@ module LavinMQ::AMQP
       false
     end
 
-    protected def publish_internal(message : Message, dlx_context : Argument::DeadLettering::Context?) : Bool
+    protected def publish_internal(message : Message, dlx_tasks : Argument::DeadLettering::Tasks?) : Bool
       false
     end
 
