@@ -1,7 +1,7 @@
 require "../spec_helper"
 require "../../src/lavinmq/clustering/server"
 
-describe LavinMQ::Clustering::Server do
+describe LavinMQ::Clustering::Server, tags: "etcd" do
   add_etcd_around_each
 
   describe "#files_with_hash" do

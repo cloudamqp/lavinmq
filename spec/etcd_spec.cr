@@ -4,7 +4,7 @@ require "file_utils"
 require "http/client"
 require "./spec_helper"
 
-describe LavinMQ::Etcd do
+describe LavinMQ::Etcd, tags: "etcd" do
   it "can put and get" do
     cluster = EtcdCluster.new(1)
     cluster.run do
