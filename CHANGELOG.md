@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.11] - 2026-04-15
+
+### Fixed
+- Return frame error for corrupt frames with invalid frame end [#1813](https://github.com/cloudamqp/lavinmq/pull/1813)
+- Fix MQTT subscribe permission check logic [#1836](https://github.com/cloudamqp/lavinmq/pull/1836)
+
 ## [2.6.10] - 2026-03-09
 
 ### Fixed
