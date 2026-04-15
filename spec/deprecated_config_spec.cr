@@ -1,4 +1,3 @@
-require "log/spec"
 require "./spec_helper"
 require "../src/lavinmq/config"
 
@@ -125,11 +124,10 @@ describe LavinMQ::Config, "deprecated options" do
       config_file = File.tempfile do |file|
         file.print "[#{section}]\n#{key} = #{value}"
       end
-      logs = Log.capture(level: :info) do
-        config = LavinMQ::Config.new
-        config.parse(["-c", config_file.path])
-      end
-      logs.check(:warn, /deprecated/i)
+      io = IO::Memory.new
+      config = LavinMQ::Config.new(io)
+      config.parse(["-c", config_file.path])
+      io.to_s.should match(/deprecated/i)
     ensure
       config_file.try &.delete
     end
@@ -141,11 +139,10 @@ describe LavinMQ::Config, "deprecated options" do
       next unless entry = DEPRECATED_FORWARDS[deprecated]?
       value = entry[:value]
       clean_flag = flag.split("=").first
-      logs = Log.capture(level: :info) do
-        config = LavinMQ::Config.new
-        config.parse([clean_flag, value])
-      end
-      logs.check(:warn, /deprecated/i)
+      io = IO::Memory.new
+      config = LavinMQ::Config.new(io)
+      config.parse([clean_flag, value])
+      io.to_s.should match(/deprecated/i)
     end
   end
 end
