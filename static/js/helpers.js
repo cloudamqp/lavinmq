@@ -188,22 +188,21 @@ const stateClasses = new class {
   // track any classes handled by stateClasses. As soon as a class has been added
   // to stateClasses it should be tracked "forever", thus nothing is removed from
   // state_classes
-  #state_classes = []
+  #state_classes = new Set();
   constructor () {
     this.#values = document.documentElement.classList
     const value = window.localStorage.getItem('lmq.stateclasses')
     if (!(value === null || value === '')) {
-      this.#state_classes = value.split(' ').filter(Boolean)
+      this.#state_classes = new Set(value.split(' ').filter(Boolean))
       this.#values.add(...this.#state_classes)
     }
   }
-
   #persist (track = null) {
-    if (track && !this.#state_classes.includes(track)) {
-      this.#state_classes.push(track)
+    if (track) {
+      this.#state_classes.add(track)
     }
-    if (this.#values.length > 0 && this.#state_classes.length > 0) {
-      const klasses = this.#values.values().filter(i => this.#state_classes.includes(i)).toArray()
+    if (this.#values.length > 0 && this.#state_classes.size > 0) {
+      const klasses = this.#values.values().filter(i => this.#state_classes.has(i)).toArray()
       window.localStorage.setItem('lmq.stateclasses', klasses.join(' '))
     } else {
       window.localStorage.removeItem("lmq.stateclasses")
@@ -223,13 +222,21 @@ const stateClasses = new class {
       this.#persist(klass)
     }
   }
-  remove(toRemove) {
+  remove(toRemove, untrack = false) {
     if (typeof toRemove === 'string') {
-      this.#values.remove(toRemove)
+      toRemove = new RegExp(`^${toRemove}$`)
     } else if (toRemove instanceof Array) {
-      this.#values.remove(...toRemove)
-    } else if (toRemove instanceof RegExp) {
+      toRemove = new RegExp(`^${toRemove.join('|')}$`)
+    }
+    if (toRemove instanceof RegExp) {
       this.#values.remove(...this.#values.values().filter(v => toRemove.test(v)))
+      if (untrack)  {
+        this.#state_classes.values().forEach(v => {
+          if (toRemove.test(v)) {
+            this.#state_classes.delete(v)
+          }
+        })
+      }
     }
     this.#persist()
   }
