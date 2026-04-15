@@ -46,10 +46,12 @@ usermenuButton.addEventListener('click', (e) => {
 class ThemeSwitcher {
   constructor () {
     this.currentTheme = 'system'
-    if (Helpers.stateClasses.has('theme-light')) {
-      this.currentTheme = 'light'
-    } else if (Helpers.stateClasses.has('theme-dark')) {
-      this.currentTheme = 'dark'
+    if (!Helpers.stateClasses.has('system')) {
+      if (Helpers.stateClasses.has('theme-light')) {
+        this.currentTheme = 'light'
+      } else if (Helpers.stateClasses.has('theme-dark')) {
+        this.currentTheme = 'dark'
+      }
     }
     this.init()
   }
@@ -87,24 +89,19 @@ class ThemeSwitcher {
   }
 
   applyTheme (theme) {
+    if (theme === 'system') {
+      Helpers.stateClasses.add('system')
+      theme = this.systemColor
+    } else {
+      Helpers.stateClasses.remove('system')
+    }
     if (theme === 'light') {
       Helpers.stateClasses.add('theme-light')
       Helpers.stateClasses.remove('theme-dark')
-      document.documentElement.classList.remove('system-light', 'system-dark')
-    } else if (theme === 'dark') {
+    } else {
       Helpers.stateClasses.add('theme-dark')
       Helpers.stateClasses.remove('theme-light')
-      document.documentElement.classList.remove('system-light', 'system-dark')
-    } else { // system
-      Helpers.stateClasses.remove(/^theme-/, true)
-      if (this.systemColor == 'dark') {
-        document.documentElement.classList.add('theme-dark')
-        document.documentElement.classList.remove('theme-light')
-      } else {
-        document.documentElement.classList.add('theme-light')
-        document.documentElement.classList.remove('theme-dark')
-       }
-    }
+    } 
   }
 
   updateActiveButton () {
