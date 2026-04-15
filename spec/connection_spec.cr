@@ -118,22 +118,23 @@ describe LavinMQ::Server do
         # AMQP handshake
         io.write AMQ::Protocol::PROTOCOL_START_0_9_1.to_slice
         io.flush
-        AMQ::Protocol::Frame.from_io(io) { |f| f.as(AMQ::Protocol::Frame::Connection::Start) }
+        stream = AMQ::Protocol::Stream.new(io)
+        stream.next_frame.as(AMQ::Protocol::Frame::Connection::Start)
         response = "\u0000guest\u0000guest"
         io.write_bytes(AMQ::Protocol::Frame::Connection::StartOk.new(
           AMQ::Protocol::Table.new, "PLAIN", response, ""),
           IO::ByteFormat::NetworkEndian)
         io.flush
-        tune = AMQ::Protocol::Frame.from_io(io) { |f| f.as(AMQ::Protocol::Frame::Connection::Tune) }
+        tune = stream.next_frame.as(AMQ::Protocol::Frame::Connection::Tune)
         io.write_bytes AMQ::Protocol::Frame::Connection::TuneOk.new(
           channel_max: tune.channel_max, frame_max: tune.frame_max, heartbeat: 0_u16),
           IO::ByteFormat::NetworkEndian
         io.write_bytes AMQ::Protocol::Frame::Connection::Open.new("/"), IO::ByteFormat::NetworkEndian
         io.flush
-        AMQ::Protocol::Frame.from_io(io) { |f| f.as(AMQ::Protocol::Frame::Connection::OpenOk) }
+        stream.next_frame.as(AMQ::Protocol::Frame::Connection::OpenOk)
         io.write_bytes AMQ::Protocol::Frame::Channel::Open.new(1_u16), IO::ByteFormat::NetworkEndian
         io.flush
-        AMQ::Protocol::Frame.from_io(io) { |f| f.as(AMQ::Protocol::Frame::Channel::OpenOk) }
+        stream.next_frame.as(AMQ::Protocol::Frame::Channel::OpenOk)
 
         # Simulate a broken client sending a 10,000-byte routing key
         # with a truncated ShortString length byte (10000 & 0xFF = 16)
@@ -157,8 +158,7 @@ describe LavinMQ::Server do
         io.write_byte(206_u8) # frame end
         io.flush
 
-        resp = AMQ::Protocol::Frame.from_io(io) { |f| f }
-        close = resp.as(AMQ::Protocol::Frame::Connection::Close)
+        close = stream.next_frame.as(AMQ::Protocol::Frame::Connection::Close)
         close.reply_code.should eq 501
       ensure
         io.try &.close

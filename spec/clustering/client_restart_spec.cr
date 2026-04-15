@@ -1,6 +1,6 @@
 require "../spec_helper"
 
-describe LavinMQ::Clustering::Client do
+describe LavinMQ::Clustering::Client, tags: "etcd" do
   add_etcd_around_each
 
   # Fixes #1366 - metrics_server is not closed when a follower client is closed
