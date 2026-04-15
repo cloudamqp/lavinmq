@@ -10,6 +10,7 @@ require "./pidfile"
 require "./etcd"
 require "./clustering/controller"
 require "./standalone_runner"
+require "./definitions"
 require "../stdlib/openssl_on_server_name"
 
 module LavinMQ
@@ -62,6 +63,7 @@ module LavinMQ
       @amqp_server = amqp_server = LavinMQ::Server.new(@config, @replicator)
       @http_server = http_server = LavinMQ::HTTP::Server.new(amqp_server)
       setup_log_exchange(amqp_server)
+      load_definitions(amqp_server)
       start_listeners(amqp_server, http_server)
       start_metrics_server(amqp_server) unless @config.metrics_http_port == -1
       SystemD.notify_ready
@@ -133,6 +135,12 @@ module LavinMQ
           Log.warn { "sysctl -w vm.max_map_count=1000000" }
         end
       {% end %}
+    end
+
+    private def load_definitions(amqp_server)
+      path = @config.load_definitions
+      return if path.empty?
+      GlobalDefinitions.import_from_file(path, amqp_server)
     end
 
     private def setup_log_exchange(amqp_server)
