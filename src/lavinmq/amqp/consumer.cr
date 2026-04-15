@@ -9,6 +9,7 @@ module LavinMQ
   module AMQP
     class Consumer < LavinMQ::Client::Channel::Consumer
       include SortableJSON
+      include Stats
       Log = LavinMQ::Log.for "amqp.consumer"
       getter tag : String
       getter priority : Int32
@@ -21,6 +22,8 @@ module LavinMQ
       @metadata : ::Log::Metadata
       @unacked = Atomic(UInt32).new(0_u32)
       getter has_capacity : BoolChannel
+
+      rate_stats({"deliver", "deliver_bytes"})
 
       def initialize(@channel : AMQP::Channel, @queue : Queue, frame : AMQP::Frame::Basic::Consume)
         @tag = frame.consumer_tag
@@ -208,6 +211,8 @@ module LavinMQ
           unacked = @unacked.add(1, :relaxed)
           @has_capacity.set(false) if (unacked + 1) == @prefetch_count
         end
+        @deliver_count.add(1, :relaxed)
+        @deliver_bytes_count.add(msg.bytesize.to_u64, :relaxed)
         delivery_tag = @channel.next_delivery_tag(@queue, sp, @no_ack, self)
         deliver = AMQP::Frame::Basic::Deliver.new(@channel.id, @tag,
           delivery_tag,
@@ -267,6 +272,7 @@ module LavinMQ
             number:          channel_details[:number],
             name:            channel_details[:name],
           },
+          message_stats: current_stats_details,
         }
       end
 
