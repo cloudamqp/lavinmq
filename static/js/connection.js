@@ -14,6 +14,7 @@ document.title = `Connection ${connection} | LavinMQ`
 document.querySelector('#pagename-label').textContent = connection
 
 const connectionUrl = `api/connections/${connection}`
+let connectionUpdateInterval = null
 function updateConnection (all) {
   HTTP.request('GET', connectionUrl).then(item => {
     const stats = { send_details: item.send_oct_details, receive_details: item.recv_oct_details }
@@ -71,10 +72,15 @@ function updateConnection (all) {
         document.getElementById('channels-section').style.display = 'block'
       }
     }
+  }).catch(e => {
+    if (e.status === 404) {
+      clearInterval(connectionUpdateInterval)
+      DOM.showEntityNotFound('Connection', connection, 'connections')
+    }
   })
 }
 updateConnection(true)
-setInterval(updateConnection, 5000)
+connectionUpdateInterval = setInterval(updateConnection, 5000)
 const channelsDataSource = new UrlDataSource(connectionUrl + '/channels', { useQueryState: false })
 const tableOptions = {
   dataSource: channelsDataSource,

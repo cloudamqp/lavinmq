@@ -11,6 +11,10 @@ HTTP.request('GET', vhostUrl).then(item => {
   document.getElementById('messages_ready').textContent = item.messages_ready.toLocaleString()
   document.getElementById('messages_unacknowledged').textContent = item.messages_unacknowledged.toLocaleString()
   document.getElementById('messages_total').textContent = item.messages.toLocaleString()
+}).catch(e => {
+  if (e.status === 404) {
+    DOM.showEntityNotFound('Virtual host', vhost, 'vhosts')
+  }
 })
 
 function fetchLimits () {

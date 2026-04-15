@@ -151,11 +151,12 @@ class DataSource {
     }).catch(err => {
       this._enqueueReload()
       if (err.status === 401) { return }
-      if (err.message) {
-        this.emit('error', err.message)
-      } else {
-        this.emit('error', err)
+      if (err.status === 404) {
+        this.emit('not_found')
+        return
       }
+      const message = err.message || err.reason || String(err)
+      this.emit('error', message)
     })
   }
 
