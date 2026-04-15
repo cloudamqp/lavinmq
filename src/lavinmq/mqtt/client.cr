@@ -94,13 +94,13 @@ module LavinMQ
         end
         @waitgroup.done
         close_socket
-        @log.info { "Connection disconnected for user=#{@user.name} duration=#{duration}" }
+        @log.info { "Connection disconnected for user=#{@user.name} duration=#{duration}s" }
       end
 
       private def duration
         ms = RoughTime.unix_ms - @connected_at
         seconds = (ms / 1000).round.to_i
-        Time::Span.new(seconds: seconds)
+        Time::Span.new(seconds: seconds).total_seconds
       end
 
       def read_and_handle_packet
