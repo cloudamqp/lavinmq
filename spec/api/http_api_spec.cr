@@ -236,6 +236,26 @@ describe LavinMQ::HTTP::Server do
       end
     end
 
+    it "should sort by column with nil values" do
+      with_http_server do |http, s|
+        vhost = s.vhosts["/"]
+        vhost.declare_exchange("no-policy-ex", "direct", durable: false, auto_delete: false)
+        vhost.declare_exchange("has-policy-ex", "direct", durable: false, auto_delete: false)
+        definitions = {"federation-upstream" => JSON::Any.new("test")} of String => JSON::Any
+        vhost.add_policy("test-policy", "^has-policy", "exchanges", definitions, 0_i8)
+
+        response = http.get("/api/exchanges/%2F?page=1&sort=policy")
+        response.status_code.should eq 200
+        items = JSON.parse(response.body).as_h["items"].as_a
+        policies = items.map { |i| i["policy"]?.try(&.as_s?) }
+        non_nil = policies.compact
+        non_nil.should eq non_nil.sort
+
+        response = http.get("/api/exchanges/%2F?page=1&sort=policy&sort_reverse=true")
+        response.status_code.should eq 200
+      end
+    end
+
     it "should sort results by nested keys" do
       stats_interval = LavinMQ::Config.instance.stats_interval
       LavinMQ::Config.instance.stats_interval = 1000
