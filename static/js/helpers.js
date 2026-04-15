@@ -178,9 +178,16 @@ function disableUserMenuVhost () {
   vhostMenu.title = 'Current view is locked to a specific vhost'
 }
 
+// Keep tracks of classes that has a "stateful" meaning, e.g. a user role or
+// the current theme. It will store active classes in local storage in a space
+// separate list that can be applied to html tag on load to prevent flickering
+// for design dependant on states (e.g. theme).
+// Classes are also added to the html element.
 const stateClasses = new class {
   #values
-  // track any classes handled by stateClasses
+  // track any classes handled by stateClasses. As soon as a class has been added
+  // to stateClasses it should be tracked "forever", thus nothing is removed from
+  // state_classes
   #state_classes = []
   constructor () {
     this.#values = document.documentElement.classList
