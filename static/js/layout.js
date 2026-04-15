@@ -96,13 +96,13 @@ class ThemeSwitcher {
       Helpers.stateClasses.remove('theme-light')
       document.documentElement.classList.remove('system-light', 'system-dark')
     } else { // system
-      Helpers.stateClasses.remove(/^theme-/)
+      Helpers.stateClasses.remove(/^theme-/, true)
       if (this.systemColor == 'dark') {
-        document.documentElement.classList.add('system-dark')
-        document.documentElement.classList.remove('system-light')
+        document.documentElement.classList.add('theme-dark')
+        document.documentElement.classList.remove('theme-light')
       } else {
-        document.documentElement.classList.add('system-light')
-        document.documentElement.classList.remove('system-dark')
+        document.documentElement.classList.add('theme-light')
+        document.documentElement.classList.remove('theme-dark')
        }
     }
   }
