@@ -178,6 +178,66 @@ function disableUserMenuVhost () {
   vhostMenu.title = 'Current view is locked to a specific vhost'
 }
 
+// Keep tracks of classes that has a "stateful" meaning, e.g. a user role or
+// the current theme. It will store active classes in local storage in a space
+// separate list that can be applied to html tag on load to prevent flickering
+// for design dependant on states (e.g. theme).
+// Classes are also added to the html element.
+const stateClasses = new class {
+  #values
+  // track any classes handled by stateClasses. As soon as a class has been added
+  // to stateClasses it should be tracked "forever", thus nothing is removed from
+  // state_classes
+  #state_classes = []
+  constructor () {
+    this.#values = document.documentElement.classList
+    const value = window.localStorage.getItem('lmq.stateclasses')
+    if (!(value === null || value === '')) {
+      this.#state_classes = value.split(' ').filter(Boolean)
+      this.#values.add(...this.#state_classes)
+    }
+  }
+
+  #persist (track = null) {
+    if (track && !this.#state_classes.includes(track)) {
+      this.#state_classes.push(track)
+    }
+    if (this.#values.length > 0 && this.#state_classes.length > 0) {
+      const klasses = this.#values.values().filter(i => this.#state_classes.includes(i)).toArray()
+      window.localStorage.setItem('lmq.stateclasses', klasses.join(' '))
+    } else {
+      window.localStorage.removeItem('lmq.stateclasses')
+    }
+  }
+
+  has (klass) {
+    return this.#values.contains(klass)
+  }
+
+  toggle (klass) {
+    const ret = this.#values.toggle(klass)
+    this.#persist(klass)
+    return ret
+  }
+
+  add (klass) {
+    if (!this.#values.contains(klass)) {
+      this.#values.add(klass)
+      this.#persist(klass)
+    }
+  }
+
+  remove (toRemove) {
+    if (typeof toRemove === 'string') {
+      this.#values.remove(toRemove)
+    } else if (toRemove instanceof Array) {
+      this.#values.remove(...toRemove)
+    } else if (toRemove instanceof RegExp) {
+      this.#values.remove(...this.#values.values().filter(v => toRemove.test(v)))
+    }
+    this.#persist()
+  }
+}()
 export {
   addVhostOptions,
   formatNumber,
@@ -188,5 +248,6 @@ export {
   formatJSONargument,
   autoCompleteDatalist,
   formatTimestamp,
-  disableUserMenuVhost
+  disableUserMenuVhost,
+  stateClasses
 }
