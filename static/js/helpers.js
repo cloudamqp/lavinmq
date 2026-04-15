@@ -222,7 +222,7 @@ const stateClasses = new class {
       this.#persist(klass)
     }
   }
-  remove(toRemove, untrack = false) {
+  remove(toRemove) {
     if (typeof toRemove === 'string') {
       toRemove = new RegExp(`^${toRemove}$`)
     } else if (toRemove instanceof Array) {
@@ -230,13 +230,6 @@ const stateClasses = new class {
     }
     if (toRemove instanceof RegExp) {
       this.#values.remove(...this.#values.values().filter(v => toRemove.test(v)))
-      if (untrack)  {
-        this.#state_classes.values().forEach(v => {
-          if (toRemove.test(v)) {
-            this.#state_classes.delete(v)
-          }
-        })
-      }
     }
     this.#persist()
   }
