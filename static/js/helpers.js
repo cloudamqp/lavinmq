@@ -188,7 +188,7 @@ const stateClasses = new class {
   // track any classes handled by stateClasses. As soon as a class has been added
   // to stateClasses it should be tracked "forever", thus nothing is removed from
   // state_classes
-  #state_classes = new Set();
+  #state_classes = new Set()
   constructor () {
     this.#values = document.documentElement.classList
     const value = window.localStorage.getItem('lmq.stateclasses')
@@ -197,6 +197,7 @@ const stateClasses = new class {
       this.#values.add(...this.#state_classes)
     }
   }
+
   #persist (track = null) {
     if (track) {
       this.#state_classes.add(track)
@@ -205,24 +206,28 @@ const stateClasses = new class {
       const klasses = this.#values.values().filter(i => this.#state_classes.has(i)).toArray()
       window.localStorage.setItem('lmq.stateclasses', klasses.join(' '))
     } else {
-      window.localStorage.removeItem("lmq.stateclasses")
+      window.localStorage.removeItem('lmq.stateclasses')
     }
   }
-  has(klass) {
+
+  has (klass) {
     return this.#values.contains(klass)
   }
-  toggle(klass) {
+
+  toggle (klass) {
     const ret = this.#values.toggle(klass)
     this.#persist(klass)
     return ret
   }
-  add(klass) {
+
+  add (klass) {
     if (!this.#values.contains(klass)) {
       this.#values.add(klass)
       this.#persist(klass)
     }
   }
-  remove(toRemove) {
+
+  remove (toRemove) {
     if (typeof toRemove === 'string') {
       toRemove = new RegExp(`^${toRemove}$`)
     } else if (toRemove instanceof Array) {
@@ -233,7 +238,7 @@ const stateClasses = new class {
     }
     this.#persist()
   }
-}
+}()
 export {
   addVhostOptions,
   formatNumber,
