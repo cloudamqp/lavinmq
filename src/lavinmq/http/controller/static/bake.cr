@@ -7,29 +7,34 @@ def recursive_bake(dir)
     if File.directory? path
       recursive_bake path
     else
-      if already_compressed?(path)
-        bytes = File.read(path)
-        etag = %(W/"#{Digest::MD5.hexdigest(bytes)}")
-        deflated = false
-      else
-        io = IO::Memory.new
-        Compress::Zlib::Writer.open(io) do |zlib|
-          File.open(path) do |f|
-            etag = %(W/"#{Digest::MD5.hexdigest(f)}")
+      File.open(path) do |f|
+        etag = %(W/"#{Digest::MD5.hexdigest(f)}")
+        f.rewind
+        if already_compressed?(path)
+          data = String.build(f.size) { |s| IO.copy(f, s) }
+          deflated = false
+        else
+          data = String.build(f.size) do |io|
+            Compress::Zlib::Writer.open(io, Compress::Zlib::BEST_COMPRESSION) do |zlib|
+              IO.copy(f, zlib)
+            end
+          end
+          deflated = true
+          # Only use the deflated version if it's actually smaller than the original
+          if data.bytesize >= File.size(path)
             f.rewind
-            IO.copy(f, zlib)
+            data = String.build(f.size) { |s| IO.copy(f, s) }
+            deflated = false
           end
         end
-        bytes = io.to_s
-        deflated = true
+        puts %(when #{path.lchop(ARGV[0]).inspect}\n  {Bytes.literal(#{data.bytes.join(", ")}), #{etag.inspect}, #{deflated}})
       end
-      puts %("#{path.lchop(ARGV[0])}": {#{bytes.inspect}.to_slice, #{etag.inspect}, #{deflated}},)
     end
   end
 end
 
 def already_compressed?(path)
-  File.extname(path).in?(".webp", ".png")
+  File.extname(path).in?(".webp", ".png", ".woff2")
 end
 
 recursive_bake(ARGV[0])
