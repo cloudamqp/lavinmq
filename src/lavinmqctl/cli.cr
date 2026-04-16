@@ -36,7 +36,7 @@ class LavinMQCtl
     {% begin %}
       {% for section in SECTIONS %}
         @parser.separator({{"\n" + section}})
-        {% for method in @type.methods.select(&.annotation(Cmd)) %}
+        {% for method in @type.methods.select(&.annotation(Cmd)).sort_by(&.name) %}
           {% ann = method.annotation(Cmd) %}
           {% if ann[:section] == section %}
             @parser.on({{method.name.stringify}}, {{ann[0]}}) do
