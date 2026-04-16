@@ -5,64 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.7.0-rc.3] - 2026-04-14
-
-### Fixed
-
-- Stack overflow with circular or long dead-letter chains [#1845](https://github.com/cloudamqp/lavinmq/pull/1845)
-- SNI config parsing wildcard host corruption [#1847](https://github.com/cloudamqp/lavinmq/pull/1847)
-- `data_dir` and `config_file` not reading systemd environment variables [#1844](https://github.com/cloudamqp/lavinmq/pull/1844)
-- Warnings not being printed during config parsing [#1821](https://github.com/cloudamqp/lavinmq/pull/1821)
-- Restore CLI options removed in config rewrite [#1833](https://github.com/cloudamqp/lavinmq/pull/1833)
-- Handle valueless boolean CLI flags at compile time [#1842](https://github.com/cloudamqp/lavinmq/pull/1842)
-- `-b` flag not setting MQTT bind address [#1843](https://github.com/cloudamqp/lavinmq/pull/1843)
-- MQTT subscribe permission check logic [#1836](https://github.com/cloudamqp/lavinmq/pull/1836)
-
-## [2.7.0-rc.2] - 2026-03-24
-
-### Changed
-
-- OAuth: Parse permissions from multiple additional claims [#1791](https://github.com/cloudamqp/lavinmq/pull/1791)
-- OAuth: Default to "sub" and "client_id" when `preferred_username_claims` is not configured [#1779](https://github.com/cloudamqp/lavinmq/pull/1779)
-- `lavinmqctl --help` touchups [#1755](https://github.com/cloudamqp/lavinmq/pull/1755)
-
-### Fixed
-
-- Use `openssl dgst` instead of `sha256sum` in Makefile for macOS portability [#1818](https://github.com/cloudamqp/lavinmq/pull/1818)
-- Replicate files in closed message stores [#1794](https://github.com/cloudamqp/lavinmq/pull/1794)
-- Replication shouldn't break if mfiles are closed [#1792](https://github.com/cloudamqp/lavinmq/pull/1792)
-- Only allow one follower to do bulk sync at a time [#1720](https://github.com/cloudamqp/lavinmq/pull/1720), [#1780](https://github.com/cloudamqp/lavinmq/pull/1780)
-- Add `Sync::Shared` lock for `@files` and `@checksums` in `Clustering::Server` [#1753](https://github.com/cloudamqp/lavinmq/pull/1753)
-- Don't delete metadata files during full sync [#1814](https://github.com/cloudamqp/lavinmq/pull/1814)
-- Persist `segment_last_ts` to prevent message loss on restart in streams with max-age [#1760](https://github.com/cloudamqp/lavinmq/pull/1760)
-- Reset position when crossing segment boundary in `find_offset_in_segments` [#1772](https://github.com/cloudamqp/lavinmq/pull/1772)
-- Gracefully close message store on corrupt segments [#1710](https://github.com/cloudamqp/lavinmq/pull/1710)
-- Don't expire messages before server is fully started [#1714](https://github.com/cloudamqp/lavinmq/pull/1714)
-- Delayed message store crash on corrupt segment data [#1694](https://github.com/cloudamqp/lavinmq/pull/1694)
-- Dead letter cycle detection [#1723](https://github.com/cloudamqp/lavinmq/pull/1723)
-- Reapply policies after queue restart [#1737](https://github.com/cloudamqp/lavinmq/pull/1737)
-- Disconnect MQTT clients on OAuth token expiration [#1746](https://github.com/cloudamqp/lavinmq/pull/1746)
-- MQTT OAuth wildcard vhost matching and user cleanup on disconnect [#1745](https://github.com/cloudamqp/lavinmq/pull/1745)
-- OAuth: Combine duplicate permission scopes instead of overwriting [#1809](https://github.com/cloudamqp/lavinmq/pull/1809)
-- added missing `x-stream-offset` header in StreamReader responses [#1774](https://github.com/cloudamqp/lavinmq/pull/1774)
-- Return frame error for corrupt frames with invalid frame end [#1813](https://github.com/cloudamqp/lavinmq/pull/1813)
-- Allow any timestamp in AMQP messages [#1705](https://github.com/cloudamqp/lavinmq/pull/1705)
-- Copy SSL options to new SNI contexts [#1583](https://github.com/cloudamqp/lavinmq/pull/1583)
-- Return 400 for invalid binding routing key [#1734](https://github.com/cloudamqp/lavinmq/pull/1734)
-- Consumer starvation in lavinmqperf throughput mode [#1712](https://github.com/cloudamqp/lavinmq/pull/1712)
-- Support for mqtts in `lavinmqperf` [#1702](https://github.com/cloudamqp/lavinmq/pull/1702)
-- Print usage on unexpected arguments in lavinmqperf [#1796](https://github.com/cloudamqp/lavinmq/pull/1796)
-- Honor `yield_each_delivered_bytes` setting for MQTT [#1783](https://github.com/cloudamqp/lavinmq/pull/1783)
-- UI: Chart color consistency [#1756](https://github.com/cloudamqp/lavinmq/pull/1756)
-- UI: Tooltip sizing [#1700](https://github.com/cloudamqp/lavinmq/pull/1700)
-- UI: Tooltip z-index to appear above menus [#1729](https://github.com/cloudamqp/lavinmq/pull/1729)
-- UI: Collapse whitespace in client capabilities display [#1733](https://github.com/cloudamqp/lavinmq/pull/1733)
-- UI: Empty cells in connection details for consistent rendering [#1732](https://github.com/cloudamqp/lavinmq/pull/1732)
-- UI: Rename "Routing key" to "Binding key" in binding view [#1748](https://github.com/cloudamqp/lavinmq/pull/1748)
-- UI: Overlapping sources in logs [#1790](https://github.com/cloudamqp/lavinmq/pull/1790)
-- UI: Invalid JSON warning on empty binding arguments [#1749](https://github.com/cloudamqp/lavinmq/pull/1749)
-
-## [2.7.0-rc.1] - 2026-02-11
+## [2.7.0] - 2026-04-16
 
 This release introduces OAuth2/OIDC authentication, kernel TLS offloading, a rewritten configuration system, Jump consistent hash exchange algorithm, and the ability to restart closed queues. It also brings enhanced TLS capabilities including SNI and mTLS support, improved stream performance, improved clustering and federation management, and many bug fixes.
 
@@ -79,6 +22,7 @@ This release introduces OAuth2/OIDC authentication, kernel TLS offloading, a rew
 - `--pidfile` CLI option [#1570](https://github.com/cloudamqp/lavinmq/pull/1570)
 - Connection duration logged on disconnect [#1662](https://github.com/cloudamqp/lavinmq/pull/1662)
 - Collapsible sidebar menu in the management UI [#1553](https://github.com/cloudamqp/lavinmq/pull/1553)
+- Support for mqtts in `lavinmqperf` [#1702](https://github.com/cloudamqp/lavinmq/pull/1702)
 
 ### Changed
 
@@ -94,14 +38,52 @@ This release introduces OAuth2/OIDC authentication, kernel TLS offloading, a rew
 - Graceful shutdown for StandaloneRunner [#1577](https://github.com/cloudamqp/lavinmq/pull/1577)
 - MQTT performance improved by flushing socket per packet instead of per write [#1651](https://github.com/cloudamqp/lavinmq/pull/1651)
 - Crystal 1.19 compatibility [#1620](https://github.com/cloudamqp/lavinmq/pull/1620)
+- `lavinmqctl --help` touchups [#1755](https://github.com/cloudamqp/lavinmq/pull/1755)
 
 ### Fixed
 
+- Dead letter cycle detection [#1723](https://github.com/cloudamqp/lavinmq/pull/1723)
+- MQTT subscribe permission check logic [#1836](https://github.com/cloudamqp/lavinmq/pull/1836)
 - MQTT sessions no longer deleted or cleared if a new client has already taken over the session [#1665](https://github.com/cloudamqp/lavinmq/pull/1665)
-- Restored `-d`/`--debug` and `--mqtt-unix-path` CLI options accidentally removed in config rewrite [#1654](https://github.com/cloudamqp/lavinmq/pull/1654)
-- INI config option names that stopped working after the config rewrite [#1635](https://github.com/cloudamqp/lavinmq/pull/1635)
-- Log system now properly registered on config parse at startup [#1650](https://github.com/cloudamqp/lavinmq/pull/1650)
+- Honor `yield_each_delivered_bytes` setting for MQTT [#1783](https://github.com/cloudamqp/lavinmq/pull/1783)
+- Replicate files in closed message stores [#1794](https://github.com/cloudamqp/lavinmq/pull/1794)
+- Replication shouldn't break if mfiles are closed [#1792](https://github.com/cloudamqp/lavinmq/pull/1792)
+- Only allow one follower to do bulk sync at a time [#1720](https://github.com/cloudamqp/lavinmq/pull/1720), [#1780](https://github.com/cloudamqp/lavinmq/pull/1780)
+- Add `Sync::Shared` lock for `@files` and `@checksums` in `Clustering::Server` [#1753](https://github.com/cloudamqp/lavinmq/pull/1753)
+- Don't delete metadata files during full sync [#1814](https://github.com/cloudamqp/lavinmq/pull/1814)
+- Persist `segment_last_ts` to prevent message loss on restart in streams with max-age [#1760](https://github.com/cloudamqp/lavinmq/pull/1760)
+- Reset position when crossing segment boundary in `find_offset_in_segments` [#1772](https://github.com/cloudamqp/lavinmq/pull/1772)
+- Gracefully close message store on corrupt segments [#1710](https://github.com/cloudamqp/lavinmq/pull/1710)
+- Don't expire messages before server is fully started [#1714](https://github.com/cloudamqp/lavinmq/pull/1714)
+- Delayed message store crash on corrupt segment data [#1694](https://github.com/cloudamqp/lavinmq/pull/1694)
+- Missing `x-stream-offset` header in StreamReader responses [#1774](https://github.com/cloudamqp/lavinmq/pull/1774)
+- Return frame error for corrupt frames with invalid frame end [#1813](https://github.com/cloudamqp/lavinmq/pull/1813)
+- Allow any timestamp in AMQP messages [#1705](https://github.com/cloudamqp/lavinmq/pull/1705)
+- Return 400 for invalid binding routing key [#1734](https://github.com/cloudamqp/lavinmq/pull/1734)
+- Use `openssl dgst` instead of `sha256sum` in Makefile for macOS portability [#1818](https://github.com/cloudamqp/lavinmq/pull/1818)
+- Consumer starvation in lavinmqperf throughput mode [#1712](https://github.com/cloudamqp/lavinmq/pull/1712)
+- Print usage on unexpected arguments in lavinmqperf [#1796](https://github.com/cloudamqp/lavinmq/pull/1796)
 - Prefetch button icons in CSS [#1556](https://github.com/cloudamqp/lavinmq/pull/1556)
+- UI: Chart color consistency [#1756](https://github.com/cloudamqp/lavinmq/pull/1756)
+- UI: Tooltip sizing [#1700](https://github.com/cloudamqp/lavinmq/pull/1700)
+- UI: Tooltip z-index to appear above menus [#1729](https://github.com/cloudamqp/lavinmq/pull/1729)
+- UI: Collapse whitespace in client capabilities display [#1733](https://github.com/cloudamqp/lavinmq/pull/1733)
+- UI: Empty cells in connection details for consistent rendering [#1732](https://github.com/cloudamqp/lavinmq/pull/1732)
+- UI: Rename "Routing key" to "Binding key" in binding view [#1748](https://github.com/cloudamqp/lavinmq/pull/1748)
+- UI: Overlapping sources in logs [#1790](https://github.com/cloudamqp/lavinmq/pull/1790)
+- UI: Invalid JSON warning on empty binding arguments [#1749](https://github.com/cloudamqp/lavinmq/pull/1749)
+
+## [2.7.0-rc.3] - 2026-04-14
+
+See <https://github.com/cloudamqp/lavinmq/releases/tag/v2.7.0-rc.3> for changes in this pre-release
+
+## [2.7.0-rc.2] - 2026-03-24
+
+See <https://github.com/cloudamqp/lavinmq/releases/tag/v2.7.0-rc.2> for changes in this pre-release
+
+## [2.7.0-rc.1] - 2026-02-11
+
+See <https://github.com/cloudamqp/lavinmq/releases/tag/v2.7.0-rc.1> for changes in this pre-release
 
 ## [2.7.0-alpha.1] - 2025-12-07
 

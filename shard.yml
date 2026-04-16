@@ -1,5 +1,5 @@
 name: lavinmq
-version: 2.7.0-rc.3
+version: 2.7.0
 
 authors:
   - Carl Hörberg <carl@cloudamqp.com>
