@@ -62,7 +62,7 @@ class ThemeSwitcher {
     } else {
       this.systemColor = 'light'
     }
-    if (this.currentTheme == 'system') {
+    if (this.currentTheme === 'system') {
       this.applyTheme('system') // make sure right system class is used
     }
   }
