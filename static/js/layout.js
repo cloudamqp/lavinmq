@@ -56,7 +56,7 @@ class ThemeSwitcher {
     this.init()
   }
 
-  #setSystemColor(mql) {
+  #setSystemColor (mql) {
     if (mql.matches) {
       this.systemColor = 'dark'
     } else {
@@ -68,7 +68,7 @@ class ThemeSwitcher {
   }
 
   init () {
-    const mql = window.matchMedia('(prefers-color-scheme: dark)');
+    const mql = window.matchMedia('(prefers-color-scheme: dark)')
     this.#setSystemColor(mql)
     mql.addEventListener('change', mql => this.#setSystemColor(mql))
     // Add event listeners to theme buttons
@@ -99,7 +99,7 @@ class ThemeSwitcher {
     } else {
       Helpers.stateClasses.add('theme-dark')
       Helpers.stateClasses.remove('theme-light')
-    } 
+    }
   }
 
   updateActiveButton () {
@@ -116,8 +116,6 @@ class ThemeSwitcher {
 
 // Initialize theme switcher when DOM is loaded
 window.themeSwitcher = new ThemeSwitcher()
-
-
 
 // Check if sidebar is collapsed or expanded
 document.addEventListener('DOMContentLoaded', () => {
