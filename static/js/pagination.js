@@ -54,7 +54,7 @@ class Pagination {
     if (pages < 6) {
       for (let p = 1; p <= pages; p++) {
         active = page === p ? 'active' : ''
-        links.push(this.#makeLink(p, p, active))
+        links.push(this.#makeLink(p, p, { class: active }))
       }
     } else {
       if (page === 1) {
