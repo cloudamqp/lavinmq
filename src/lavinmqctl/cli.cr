@@ -17,67 +17,11 @@ class LavinMQCtl
   @http : HTTP::Client?
   @io : IO
 
-  USER_CMDS = {
-    {"add_user", "Creates a new user", "<username> <password>"},
-    {"delete_user", "Delete a user", "<username>"},
-    {"list_users", "List user names and tags", ""},
-    {"change_password", "Change the user password", "<username> <new_password>"},
-    {"set_user_tags", "Sets user tags", "<username> <tags>"},
-    {"set_permissions", "Set permissions for a user", "<username> <configure> <write> <read>"},
-    {"hash_password", "Hash a password", "<password>"},
-  }
+  annotation Cmd; end
 
-  VHOST_CMDS = {
-    {"add_vhost", "Creates a virtual host", "<vhost>"},
-    {"delete_vhost", "Deletes a virtual host", "<vhost>"},
-    {"list_vhosts", "Lists virtual hosts", ""},
-    {"set_vhost_limits", "Set VHost limits (max-connections, max-queues)", "<json>"},
-  }
-
-  QUEUE_CMDS = {
-    {"list_queues", "Lists queues and their properties", ""},
-    {"purge_queue", "Purges a queue (removes all messages in it)", "<queue>"},
-    {"pause_queue", "Pause all consumers on a queue", "<queue>"},
-    {"resume_queue", "Resume all consumers on a queue", "<queue>"},
-    {"restart_queue", "Restarts a closed queue", "<queue>"},
-    {"delete_queue", "Delete queue", "<queue>"},
-  }
-
-  EXCHANGE_CMDS = {
-    {"list_exchanges", "Lists exchanges", ""},
-    {"delete_exchange", "Delete exchange", "<name>"},
-  }
-
-  POLICY_CMDS = {
-    {"list_policies", "Lists all policies in a virtual host", ""},
-    {"clear_policy", "Clears (removes) a policy", "<name>"},
-  }
-
-  CONNECTION_CMDS = {
-    {"list_connections", "Lists AMQP 0.9.1 connections for the node", ""},
-    {"close_connection", "Instructs the broker to close a connection by pid", "<pid> <reason>"},
-    {"close_all_connections", "Instructs the broker to close all connections for the specified vhost or entire node", "<reason>"},
-  }
-
-  DEFINITION_CMDS = {
-    {"export_definitions", "Exports definitions in JSON", ""},
-    {"import_definitions", "Import definitions in JSON", "<file>"},
-  }
-
-  SHOVEL_CMDS = {
-    {"list_shovels", "Lists shovels", ""},
-    {"delete_shovel", "Delete a shovel", "<name>"},
-  }
-
-  FEDERATION_CMDS = {
-    {"list_federations", "Lists federation upstreams", ""},
-    {"delete_federation", "Delete a federation upstream", "<name>"},
-  }
-
-  SERVER_CMDS = {
-    {"stop_app", "Stop the AMQP broker", ""},
-    {"start_app", "Starts the AMQP broker", ""},
-  }
+  SECTIONS = {"User Management", "Virtual Hosts", "Queues", "Exchanges",
+              "Policies", "Connections", "Definitions", "Shovels",
+              "Federation", "Server"}
 
   def initialize(@io : IO = STDOUT)
     self.banner = "Usage: #{PROGRAM_NAME} [arguments] entity"
@@ -88,250 +32,181 @@ class LavinMQCtl
     parse_cmd
   end
 
-  private def register_cmds(group)
-    group.each do |cmd|
-      @parser.on(cmd[0], cmd[1]) do
-        @cmd = cmd[0]
-        self.banner = "Usage: #{PROGRAM_NAME} #{cmd[0]} #{cmd[2]}"
-      end
+  def parse_cmd
+    {% begin %}
+      {% for section in SECTIONS %}
+        @parser.separator({{"\n" + section}})
+        {% for method in @type.methods.select(&.annotation(Cmd)).sort_by(&.name) %}
+          {% ann = method.annotation(Cmd) %}
+          {% if ann[:section] == section %}
+            @parser.on({{method.name.stringify}}, {{ann[0]}}) do
+              @cmd = {{method.name.stringify}}
+              self.banner = "Usage: #{PROGRAM_NAME} {{method.name.id}} {{ann[1].id}}"
+              {% if ann[:has_options] %}
+                parse_{{method.name.id}}_options
+              {% end %}
+            end
+          {% end %}
+        {% end %}
+      {% end %}
+    {% end %}
+    @parser.invalid_option { |arg| abort "Invalid argument: #{arg}" }
+  end
+
+  private def parse_create_queue_options
+    @parser.on("--auto-delete", "Auto delete queue when last consumer is removed") do
+      @options["auto_delete"] = "true"
+    end
+    @parser.on("--durable", "Make the queue durable") do
+      @options["durable"] = "true"
+    end
+    @parser.on("--expires", "") do |v|
+      @args["x-expires"] = JSON::Any.new(v.to_i64)
+    end
+    @parser.on("--max-length", "Set a max length for the queue") do |v|
+      @args["x-max-length"] = JSON::Any.new(v.to_i64)
+    end
+    @parser.on("--message-ttl", "Message time to live") do |v|
+      @args["x-message-ttl"] = JSON::Any.new(v.to_i64)
+    end
+    @parser.on("--delivery-limit", "How many time a message will be delivered before dead lettered") do |v|
+      @args["x-delivery-limit"] = JSON::Any.new(v.to_i64)
+    end
+    @parser.on("--reject-on-overflow", "Reject publish if max-length is met, otherwise messages in the queue is dropped") do
+      @args["x-overflow"] = JSON::Any.new("reject-publish")
+    end
+    @parser.on("--dead-letter-exchange", "To which exchange to dead letter messages") do |v|
+      @args["x-dead-letter-exchange"] = JSON::Any.new(v)
+    end
+    @parser.on("--dead-letter-routing-key", "Which routing key to use when dead lettering") do |v|
+      @args["x-dead-letter-routing-key"] = JSON::Any.new(v)
+    end
+    @parser.on("--stream-queue", "Create a Stream Queue") do
+      @args["x-queue-type"] = JSON::Any.new("stream")
     end
   end
 
-  def parse_cmd
-    @parser.separator("\nUser Management")
-    register_cmds(USER_CMDS)
+  private def parse_create_exchange_options
+    @parser.on("--auto-delete", "Auto delete exchange") do
+      @options["auto_delete"] = "true"
+    end
+    @parser.on("--durable", "Make the exchange durable") do
+      @options["durable"] = "true"
+    end
+    @parser.on("--internal", "Make the exchange internal") do
+      @options["internal"] = "true"
+    end
+    @parser.on("--delayed", "Make the exchange delayed") do
+      @options["delayed"] = "true"
+    end
+    @parser.on("--alternate-exchange", "Exchange to route all unroutable messages to") do |v|
+      @args["x-alternate-exchange"] = JSON::Any.new(v)
+    end
+    @parser.on("--persist-messages", "Number of messages to persist in the exchange") do |v|
+      @args["x-persist-messages"] = JSON::Any.new(v.to_i64)
+    end
+    @parser.on("--persist-ms", "Persist messages in the exchange for this amount of time") do |v|
+      @args["x-persist-ms"] = JSON::Any.new(v.to_i64)
+    end
+  end
 
-    @parser.separator("\nVirtual Hosts")
-    register_cmds(VHOST_CMDS)
+  private def parse_set_policy_options
+    @parser.on("--priority=priority", "Specify priority") do |v|
+      @options["priority"] = v
+    end
+    @parser.on("--apply-to=apply-to", "Apply-to") do |v|
+      @options["apply-to"] = v
+    end
+  end
 
-    @parser.separator("\nQueues")
-    register_cmds(QUEUE_CMDS)
-    @parser.on("create_queue", "Create queue") do
-      @cmd = "create_queue"
-      self.banner = "Usage: #{PROGRAM_NAME} create_queue <name>"
-      @parser.on("--auto-delete", "Auto delete queue when last consumer is removed") do
-        @options["auto_delete"] = "true"
-      end
-      @parser.on("--durable", "Make the queue durable") do
-        @options["durable"] = "true"
-      end
-      @parser.on("--expires", "") do |v|
-        @args["x-expires"] = JSON::Any.new(v.to_i64)
-      end
-      @parser.on("--max-length", "Set a max length for the queue") do |v|
-        @args["x-max-length"] = JSON::Any.new(v.to_i64)
-      end
-      @parser.on("--message-ttl", "Message time to live") do |v|
-        @args["x-message-ttl"] = JSON::Any.new(v.to_i64)
-      end
-      @parser.on("--delivery-limit", "How many time a message will be delivered before dead lettered") do |v|
-        @args["x-delivery-limit"] = JSON::Any.new(v.to_i64)
-      end
-      @parser.on("--reject-on-overflow", "Reject publish if max-length is met, otherwise messages in the queue is dropped") do
-        @args["x-overflow"] = JSON::Any.new("reject-publish")
-      end
-      @parser.on("--dead-letter-exchange", "To which exchange to dead letter messages") do |v|
-        @args["x-dead-letter-exchange"] = JSON::Any.new(v)
-      end
-      @parser.on("--dead-letter-routing-key", "Which routing key to use when dead lettering") do |v|
-        @args["x-dead-letter-routing-key"] = JSON::Any.new(v)
-      end
-      @parser.on("--stream-queue", "Create a Stream Queue") do
-        @args["x-queue-type"] = JSON::Any.new("stream")
-      end
+  private def parse_add_shovel_options
+    @parser.on("--src-uri=URI", "Source URI (required)") do |v|
+      @args["src-uri"] = JSON::Any.new(v)
     end
+    @parser.on("--dest-uri=URI", "Destination URI (required)") do |v|
+      @args["dest-uri"] = JSON::Any.new(v)
+    end
+    @parser.on("--src-queue=QUEUE", "Source queue name") do |v|
+      @args["src-queue"] = JSON::Any.new(v)
+    end
+    @parser.on("--dest-queue=QUEUE", "Destination queue name") do |v|
+      @args["dest-queue"] = JSON::Any.new(v)
+    end
+    @parser.on("--src-exchange=EXCHANGE", "Source exchange name") do |v|
+      @args["src-exchange"] = JSON::Any.new(v)
+    end
+    @parser.on("--dest-exchange=EXCHANGE", "Destination exchange name") do |v|
+      @args["dest-exchange"] = JSON::Any.new(v)
+    end
+    @parser.on("--src-exchange-key=KEY", "Source routing key") do |v|
+      @args["src-exchange-key"] = JSON::Any.new(v)
+    end
+    @parser.on("--dest-exchange-key=KEY", "Destination routing key") do |v|
+      @args["dest-exchange-key"] = JSON::Any.new(v)
+    end
+    @parser.on("--src-prefetch-count=COUNT", "Source prefetch count") do |v|
+      @args["src-prefetch-count"] = JSON::Any.new(v.to_i64)
+    end
+    @parser.on("--src-delete-after=AFTER", "Delete after mode (never, queue-length, count)") do |v|
+      @args["src-delete-after"] = JSON::Any.new(v)
+    end
+    @parser.on("--ack-mode=MODE", "Acknowledgment mode (on-confirm, on-publish, no-ack)") do |v|
+      @args["ack-mode"] = JSON::Any.new(v)
+    end
+    @parser.on("--reconnect-delay=SECONDS", "Reconnect delay in seconds") do |v|
+      @args["reconnect-delay"] = JSON::Any.new(v.to_i64)
+    end
+  end
 
-    @parser.separator("\nExchanges")
-    register_cmds(EXCHANGE_CMDS)
-    @parser.on("create_exchange", "Create exchange") do
-      @cmd = "create_exchange"
-      self.banner = "Usage: #{PROGRAM_NAME} create_exchange <type> <name>"
-      @parser.on("--auto-delete", "Auto delete exchange") do
-        @options["auto_delete"] = "true"
-      end
-      @parser.on("--durable", "Make the exchange durable") do
-        @options["durable"] = "true"
-      end
-      @parser.on("--internal", "Make the exchange internal") do
-        @options["internal"] = "true"
-      end
-      @parser.on("--delayed", "Make the exchange delayed") do
-        @options["delayed"] = "true"
-      end
-      @parser.on("--alternate-exchange", "Exchange to route all unroutable messages to") do |v|
-        @args["x-alternate-exchange"] = JSON::Any.new(v)
-      end
-      @parser.on("--persist-messages", "Number of messages to persist in the exchange") do |v|
-        @args["x-persist-messages"] = JSON::Any.new(v.to_i64)
-      end
-      @parser.on("--persist-ms", "Persist messages in the exchange for this amount of time") do |v|
-        @args["x-persist-ms"] = JSON::Any.new(v.to_i64)
-      end
+  private def parse_add_federation_options
+    @parser.on("--uri=URI", "Upstream URI (required)") do |v|
+      @args["uri"] = JSON::Any.new(v)
     end
-
-    @parser.separator("\nPolicies")
-    register_cmds(POLICY_CMDS)
-    @parser.on("set_policy", "Sets or updates a policy") do
-      @cmd = "set_policy"
-      self.banner = "Usage: #{PROGRAM_NAME} set_policy <name> <pattern> <definition>"
-      @parser.on("--priority=priority", "Specify priority") do |v|
-        @options["priority"] = v
-      end
-      @parser.on("--apply-to=apply-to", "Apply-to") do |v|
-        @options["apply-to"] = v
-      end
+    @parser.on("--expires=SECONDS", "Expiry time for federation link") do |v|
+      @args["expires"] = JSON::Any.new(v.to_i64)
     end
-    @parser.separator("\nConnections")
-    register_cmds(CONNECTION_CMDS)
-
-    @parser.separator("\nDefinitions")
-    register_cmds(DEFINITION_CMDS)
-    @parser.on("definitions", "Generate definitions json from a data directory") do
-      @cmd = "definitions"
+    @parser.on("--message-ttl=MILLISECONDS", "Message TTL for federation") do |v|
+      @args["message-ttl"] = JSON::Any.new(v.to_i64)
     end
-
-    @parser.separator("\nShovels")
-    register_cmds(SHOVEL_CMDS)
-    @parser.on("add_shovel", "Create a shovel") do
-      @cmd = "add_shovel"
-      self.banner = "Usage: #{PROGRAM_NAME} add_shovel <name> --src-uri=<uri> --dest-uri=<uri>"
-      @parser.on("--src-uri=URI", "Source URI (required)") do |v|
-        @args["src-uri"] = JSON::Any.new(v)
-      end
-      @parser.on("--dest-uri=URI", "Destination URI (required)") do |v|
-        @args["dest-uri"] = JSON::Any.new(v)
-      end
-      @parser.on("--src-queue=QUEUE", "Source queue name") do |v|
-        @args["src-queue"] = JSON::Any.new(v)
-      end
-      @parser.on("--dest-queue=QUEUE", "Destination queue name") do |v|
-        @args["dest-queue"] = JSON::Any.new(v)
-      end
-      @parser.on("--src-exchange=EXCHANGE", "Source exchange name") do |v|
-        @args["src-exchange"] = JSON::Any.new(v)
-      end
-      @parser.on("--dest-exchange=EXCHANGE", "Destination exchange name") do |v|
-        @args["dest-exchange"] = JSON::Any.new(v)
-      end
-      @parser.on("--src-exchange-key=KEY", "Source routing key") do |v|
-        @args["src-exchange-key"] = JSON::Any.new(v)
-      end
-      @parser.on("--dest-exchange-key=KEY", "Destination routing key") do |v|
-        @args["dest-exchange-key"] = JSON::Any.new(v)
-      end
-      @parser.on("--src-prefetch-count=COUNT", "Source prefetch count") do |v|
-        @args["src-prefetch-count"] = JSON::Any.new(v.to_i64)
-      end
-      @parser.on("--src-delete-after=AFTER", "Delete after mode (never, queue-length, count)") do |v|
-        @args["src-delete-after"] = JSON::Any.new(v)
-      end
-      @parser.on("--ack-mode=MODE", "Acknowledgment mode (on-confirm, on-publish, no-ack)") do |v|
-        @args["ack-mode"] = JSON::Any.new(v)
-      end
-      @parser.on("--reconnect-delay=SECONDS", "Reconnect delay in seconds") do |v|
-        @args["reconnect-delay"] = JSON::Any.new(v.to_i64)
-      end
+    @parser.on("--max-hops=COUNT", "Maximum hops for federation") do |v|
+      @args["max-hops"] = JSON::Any.new(v.to_i64)
     end
-    @parser.separator("\nFederation")
-    register_cmds(FEDERATION_CMDS)
-    @parser.on("add_federation", "Create a federation upstream") do
-      @cmd = "add_federation"
-      self.banner = "Usage: #{PROGRAM_NAME} add_federation <name> --uri=<uri>"
-      @parser.on("--uri=URI", "Upstream URI (required)") do |v|
-        @args["uri"] = JSON::Any.new(v)
-      end
-      @parser.on("--expires=SECONDS", "Expiry time for federation link") do |v|
-        @args["expires"] = JSON::Any.new(v.to_i64)
-      end
-      @parser.on("--message-ttl=MILLISECONDS", "Message TTL for federation") do |v|
-        @args["message-ttl"] = JSON::Any.new(v.to_i64)
-      end
-      @parser.on("--max-hops=COUNT", "Maximum hops for federation") do |v|
-        @args["max-hops"] = JSON::Any.new(v.to_i64)
-      end
-      @parser.on("--prefetch-count=COUNT", "Prefetch count for federation") do |v|
-        @args["prefetch-count"] = JSON::Any.new(v.to_i64)
-      end
-      @parser.on("--reconnect-delay=SECONDS", "Reconnect delay in seconds") do |v|
-        @args["reconnect-delay"] = JSON::Any.new(v.to_i64)
-      end
-      @parser.on("--ack-mode=MODE", "Acknowledgment mode (on-confirm, on-publish, no-ack)") do |v|
-        @args["ack-mode"] = JSON::Any.new(v)
-      end
-      @parser.on("--consumer-tag=TAG", "Consumer tag for federation link") do |v|
-        @args["consumer-tag"] = JSON::Any.new(v)
-      end
-      @parser.on("--exchange=EXCHANGE", "Exchange name to federate") do |v|
-        @args["exchange"] = JSON::Any.new(v)
-      end
-      @parser.on("--queue=QUEUE", "Queue name to federate") do |v|
-        @args["queue"] = JSON::Any.new(v)
-      end
+    @parser.on("--prefetch-count=COUNT", "Prefetch count for federation") do |v|
+      @args["prefetch-count"] = JSON::Any.new(v.to_i64)
     end
-    @parser.separator("\nServer")
-    register_cmds(SERVER_CMDS)
-    @parser.on("status", "Display server status") do
-      @cmd = "status"
+    @parser.on("--reconnect-delay=SECONDS", "Reconnect delay in seconds") do |v|
+      @args["reconnect-delay"] = JSON::Any.new(v.to_i64)
     end
-    @parser.on("cluster_status", "Display cluster status") do
-      @cmd = "cluster_status"
+    @parser.on("--ack-mode=MODE", "Acknowledgment mode (on-confirm, on-publish, no-ack)") do |v|
+      @args["ack-mode"] = JSON::Any.new(v)
     end
-
-    @parser.invalid_option { |arg| abort "Invalid argument: #{arg}" }
+    @parser.on("--consumer-tag=TAG", "Consumer tag for federation link") do |v|
+      @args["consumer-tag"] = JSON::Any.new(v)
+    end
+    @parser.on("--exchange=EXCHANGE", "Exchange name to federate") do |v|
+      @args["exchange"] = JSON::Any.new(v)
+    end
+    @parser.on("--queue=QUEUE", "Queue name to federate") do |v|
+      @args["queue"] = JSON::Any.new(v)
+    end
   end
 
   def banner=(@banner : String)
     @parser.banner = @banner
   end
 
-  # ameba:disable Metrics/CyclomaticComplexity
   def run_cmd
     @parser.parse
+    {% begin %}
     case @cmd
-    when "create_queue"          then create_queue
-    when "delete_queue"          then delete_queue
-    when "import_definitions"    then import_definitions
-    when "export_definitions"    then export_definitions
-    when "set_user_tags"         then set_user_tags
-    when "add_user"              then add_user
-    when "list_users"            then list_users
-    when "delete_user"           then delete_user
-    when "change_password"       then change_password
-    when "list_queues"           then list_queues
-    when "purge_queue"           then purge_queue
-    when "pause_queue"           then pause_queue
-    when "resume_queue"          then resume_queue
-    when "restart_queue"         then restart_queue
-    when "list_vhosts"           then list_vhosts
-    when "add_vhost"             then add_vhost
-    when "delete_vhost"          then delete_vhost
-    when "clear_policy"          then clear_policy
-    when "list_policies"         then list_policies
-    when "set_policy"            then set_policy
-    when "list_connections"      then list_connections
-    when "close_connection"      then close_connection
-    when "close_all_connections" then close_all_connections
-    when "list_exchanges"        then list_exchanges
-    when "create_exchange"       then create_exchange
-    when "delete_exchange"       then delete_exchange
-    when "status"                then status
-    when "cluster_status"        then cluster_status
-    when "set_vhost_limits"      then set_vhost_limits
-    when "set_permissions"       then set_permissions
-    when "definitions"           then definitions
-    when "hash_password"         then hash_password
-    when "list_shovels"          then list_shovels
-    when "add_shovel"            then add_shovel
-    when "delete_shovel"         then delete_shovel
-    when "list_federations"      then list_federations
-    when "add_federation"        then add_federation
-    when "delete_federation"     then delete_federation
-    when "stop_app"
-    when "start_app"
+    {% for method in @type.methods.select(&.annotation(Cmd)) %}
+    when {{method.name.stringify}} then {{method.name.id}}
+    {% end %}
     else
       @io.puts @parser
       abort
     end
+    {% end %}
   rescue ex : OptionParser::MissingOption
     abort ex
   rescue ex : IO::Error
@@ -528,6 +403,7 @@ class LavinMQCtl
     items
   end
 
+  @[Cmd("Import definitions in JSON", "<file>", section: "Definitions")]
   private def import_definitions
     file = ARGV.shift? || ""
     resp = if file == "-"
@@ -543,6 +419,7 @@ class LavinMQCtl
     handle_response(resp, 200)
   end
 
+  @[Cmd("Exports definitions in JSON", "", section: "Definitions")]
   private def export_definitions
     url = "/api/definitions"
     url += "/#{URI.encode_www_form(@options["vhost"])}" if @options.has_key?("vhost")
@@ -551,6 +428,7 @@ class LavinMQCtl
     output resp.body
   end
 
+  @[Cmd("List user names and tags", "", section: "User Management")]
   private def list_users
     @io.puts "Listing users ..." unless quiet?
     uu = get("/api/users").map do |u|
@@ -560,6 +438,7 @@ class LavinMQCtl
     output uu
   end
 
+  @[Cmd("Creates a new user", "<username> <password>", section: "User Management")]
   private def add_user
     username = ARGV.shift?
     password = ARGV.shift?
@@ -568,6 +447,7 @@ class LavinMQCtl
     handle_response(resp, 201, 204)
   end
 
+  @[Cmd("Delete a user", "<username>", section: "User Management")]
   private def delete_user
     username = ARGV.shift?
     abort @banner unless username
@@ -575,6 +455,7 @@ class LavinMQCtl
     handle_response(resp, 204)
   end
 
+  @[Cmd("Sets user tags", "<username> <tags>", section: "User Management")]
   private def set_user_tags
     username = ARGV.shift?
     tags = ARGV.join(",")
@@ -583,6 +464,7 @@ class LavinMQCtl
     handle_response(resp, 201, 204)
   end
 
+  @[Cmd("Change the user password", "<username> <new_password>", section: "User Management")]
   private def change_password
     username = ARGV.shift?
     pwd = ARGV.shift?
@@ -591,6 +473,7 @@ class LavinMQCtl
     handle_response(resp, 204)
   end
 
+  @[Cmd("Lists queues and their properties", "", section: "Queues")]
   private def list_queues
     vhost = @options["vhost"]? || "/"
     @io.puts "Listing queues for vhost #{vhost} ..." unless quiet?
@@ -601,6 +484,7 @@ class LavinMQCtl
     output qq
   end
 
+  @[Cmd("Purges a queue (removes all messages in it)", "<queue>", section: "Queues")]
   private def purge_queue
     vhost = @options["vhost"]? || "/"
     queue = ARGV.shift?
@@ -609,6 +493,7 @@ class LavinMQCtl
     handle_response(resp, 204)
   end
 
+  @[Cmd("Pause all consumers on a queue", "<queue>", section: "Queues")]
   private def pause_queue
     vhost = @options["vhost"]? || "/"
     queue = ARGV.shift?
@@ -617,6 +502,7 @@ class LavinMQCtl
     handle_response(resp, 204)
   end
 
+  @[Cmd("Resume all consumers on a queue", "<queue>", section: "Queues")]
   private def resume_queue
     vhost = @options["vhost"]? || "/"
     queue = ARGV.shift?
@@ -625,6 +511,7 @@ class LavinMQCtl
     handle_response(resp, 204)
   end
 
+  @[Cmd("Restarts a closed queue", "<queue>", section: "Queues")]
   private def restart_queue
     vhost = @options["vhost"]? || "/"
     queue = ARGV.shift?
@@ -633,6 +520,7 @@ class LavinMQCtl
     handle_response(resp, 204)
   end
 
+  @[Cmd("Lists AMQP 0.9.1 connections for the node", "", section: "Connections")]
   private def list_connections
     columns = ARGV
     columns = ["user", "peer_host", "peer_port", "state"] if columns.empty?
@@ -680,6 +568,7 @@ class LavinMQCtl
     @io.print ']'
   end
 
+  @[Cmd("Instructs the broker to close a connection by pid", "<pid> <reason>", section: "Connections")]
   private def close_connection
     name = ARGV.shift?
     abort @banner unless name
@@ -689,6 +578,7 @@ class LavinMQCtl
     handle_response(resp, 204)
   end
 
+  @[Cmd("Instructs the broker to close all connections for the specified vhost or entire node", "<reason>", section: "Connections")]
   private def close_all_connections
     conns = get("/api/connections")
     closed_conns = [] of NamedTuple(name: String)
@@ -703,6 +593,7 @@ class LavinMQCtl
     output closed_conns, ["closed_connections"]
   end
 
+  @[Cmd("Lists virtual hosts", "", section: "Virtual Hosts")]
   private def list_vhosts
     @io.puts "Listing vhosts ..." unless quiet?
     vv = get("/api/vhosts").map do |u|
@@ -712,6 +603,7 @@ class LavinMQCtl
     output vv
   end
 
+  @[Cmd("Creates a virtual host", "<vhost>", section: "Virtual Hosts")]
   private def add_vhost
     name = ARGV.shift?
     abort @banner unless name
@@ -719,6 +611,7 @@ class LavinMQCtl
     handle_response(resp, 201, 204)
   end
 
+  @[Cmd("Deletes a virtual host", "<vhost>", section: "Virtual Hosts")]
   private def delete_vhost
     name = ARGV.shift?
     abort @banner unless name
@@ -726,6 +619,7 @@ class LavinMQCtl
     handle_response(resp, 204)
   end
 
+  @[Cmd("Clears (removes) a policy", "<name>", section: "Policies")]
   private def clear_policy
     vhost = @options["vhost"]? || "/"
     name = ARGV.shift?
@@ -734,12 +628,14 @@ class LavinMQCtl
     handle_response(resp, 204)
   end
 
+  @[Cmd("Lists all policies in a virtual host", "", section: "Policies")]
   private def list_policies
     vhost = @options["vhost"]? || "/"
     @io.puts "Listing policies for vhost #{vhost} ..." unless quiet?
     output get("/api/policies/#{URI.encode_www_form(vhost)}")
   end
 
+  @[Cmd("Sets or updates a policy", "<name> <pattern> <definition>", section: "Policies", has_options: true)]
   private def set_policy
     vhost = @options["vhost"]? || "/"
     name = ARGV.shift?
@@ -756,6 +652,7 @@ class LavinMQCtl
     handle_response(resp, 201, 204)
   end
 
+  @[Cmd("Create queue", "<name>", section: "Queues", has_options: true)]
   private def create_queue
     name = ARGV.shift?
     vhost = @options["vhost"]? || "/"
@@ -770,6 +667,7 @@ class LavinMQCtl
     handle_response(resp, 201, 204)
   end
 
+  @[Cmd("Delete queue", "<queue>", section: "Queues")]
   private def delete_queue
     name = ARGV.shift?
     vhost = @options["vhost"]? || "/"
@@ -779,6 +677,7 @@ class LavinMQCtl
     handle_response(resp, 204)
   end
 
+  @[Cmd("Lists exchanges", "", section: "Exchanges")]
   private def list_exchanges
     vhost = @options["vhost"]? || "/"
     @io.puts "Listing exchanges for vhost #{vhost} ..." unless quiet?
@@ -793,6 +692,7 @@ class LavinMQCtl
     output ee
   end
 
+  @[Cmd("Create exchange", "<type> <name>", section: "Exchanges", has_options: true)]
   private def create_exchange
     etype = ARGV.shift?
     name = ARGV.shift?
@@ -811,6 +711,7 @@ class LavinMQCtl
     handle_response(resp, 201, 204)
   end
 
+  @[Cmd("Delete exchange", "<name>", section: "Exchanges")]
   private def delete_exchange
     name = ARGV.shift?
     vhost = @options["vhost"]? || "/"
@@ -820,6 +721,7 @@ class LavinMQCtl
     handle_response(resp, 204)
   end
 
+  @[Cmd("Display server status", "", section: "Server")]
   private def status
     resp = http.get "/api/overview"
     handle_response(resp, 200)
@@ -840,6 +742,7 @@ class LavinMQCtl
     output(status_obj)
   end
 
+  @[Cmd("Display cluster status", "", section: "Server")]
   private def cluster_status
     resp = http.get "/api/nodes"
     handle_response(resp, 200)
@@ -854,6 +757,13 @@ class LavinMQCtl
     end
   end
 
+  @[Cmd("Stop the AMQP broker", "", section: "Server")]
+  private def stop_app; end
+
+  @[Cmd("Starts the AMQP broker", "", section: "Server")]
+  private def start_app; end
+
+  @[Cmd("Set VHost limits (max-connections, max-queues)", "<json>", section: "Virtual Hosts")]
   private def set_vhost_limits
     vhost = @options["vhost"]? || "/"
     data = ARGV.shift?
@@ -873,6 +783,7 @@ class LavinMQCtl
     ok || abort "max-queues or max-connections required"
   end
 
+  @[Cmd("Set permissions for a user", "<username> <configure> <write> <read>", section: "User Management")]
   private def set_permissions
     user = ARGV.shift?
     configure = ARGV.shift?
@@ -890,17 +801,20 @@ class LavinMQCtl
     handle_response(resp, 201, 204)
   end
 
+  @[Cmd("Generate definitions json from a data directory", "", section: "Definitions")]
   private def definitions
     data_dir = ARGV.shift? || abort "definitions <datadir>"
     DefinitionsGenerator.new(data_dir).generate(@io)
   end
 
+  @[Cmd("Hash a password", "<password>", section: "User Management")]
   private def hash_password
     password = ARGV.shift?
     abort @banner unless password
     output LavinMQ::Auth::User.hash_password(password, "SHA256")
   end
 
+  @[Cmd("Lists shovels", "", section: "Shovels")]
   private def list_shovels
     vhost = @options["vhost"]? || "/"
     @io.puts "Listing shovels for vhost #{vhost} ..." unless quiet?
@@ -915,6 +829,7 @@ class LavinMQCtl
     output ss
   end
 
+  @[Cmd("Create a shovel", "<name> --src-uri=<uri> --dest-uri=<uri>", section: "Shovels", has_options: true)]
   private def add_shovel
     name = ARGV.shift?
     vhost = @options["vhost"]? || "/"
@@ -933,6 +848,7 @@ class LavinMQCtl
     handle_response(resp, 201, 204)
   end
 
+  @[Cmd("Delete a shovel", "<name>", section: "Shovels")]
   private def delete_shovel
     name = ARGV.shift?
     vhost = @options["vhost"]? || "/"
@@ -942,6 +858,7 @@ class LavinMQCtl
     handle_response(resp, 204)
   end
 
+  @[Cmd("Lists federation upstreams", "", section: "Federation")]
   private def list_federations
     vhost = @options["vhost"]? || "/"
     @io.puts "Listing federation upstreams for vhost #{vhost} ..." unless quiet?
@@ -952,6 +869,7 @@ class LavinMQCtl
     output ff
   end
 
+  @[Cmd("Create a federation upstream", "<name> --uri=<uri>", section: "Federation", has_options: true)]
   private def add_federation
     name = ARGV.shift?
     vhost = @options["vhost"]? || "/"
@@ -970,6 +888,7 @@ class LavinMQCtl
     handle_response(resp, 201, 204)
   end
 
+  @[Cmd("Delete a federation upstream", "<name>", section: "Federation")]
   private def delete_federation
     name = ARGV.shift?
     vhost = @options["vhost"]? || "/"
