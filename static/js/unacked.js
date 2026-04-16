@@ -10,7 +10,7 @@ const queue = search.get('name')
 const vhost = search.get('vhost')
 const url = HTTP.url`api/queues/${vhost}/${queue}/unacked`
 document.getElementById('queue-link').href = HTTP.url`queue#vhost=${vhost}&name=${queue}`
-document.getElementById('queue-link').innerHTML = queue
+document.getElementById('queue-link').textContent = queue
 document.querySelector('#pagename-label').textContent = `${queue} in virtual host ${vhost}`
 
 const tableOptions = {

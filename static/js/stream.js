@@ -96,11 +96,21 @@ function updateQueue (all) {
         loadMoreConsumersBtn.textContent = `Showing ${item.consumer_details.length} of total ${item.consumers} consumers, click to load more`
       }
       if (all) {
-        let features = ''
-        features += item.durable ? ' <span title="Durable">D</span>' : ''
-        features += item.auto_delete ? ' <span title="Auto delete">AD</span>' : ''
-        features += item.exclusive ? ' <span title="Exclusive">E</span>' : ''
-        document.getElementById('q-features').innerHTML = features
+        const featuresEl = document.getElementById('q-features')
+        featuresEl.textContent = ''
+        const featureMap = [
+          [item.durable, 'D', 'Durable'],
+          [item.auto_delete, 'AD', 'Auto delete'],
+          [item.exclusive, 'E', 'Exclusive']
+        ]
+        for (const [enabled, abbrev, title] of featureMap) {
+          if (enabled) {
+            const span = document.createElement('span')
+            span.title = title
+            span.textContent = ' ' + abbrev
+            featuresEl.appendChild(span)
+          }
+        }
         document.querySelector('#pagename-label').textContent = queue + ' in virtual host ' + item.vhost
         document.querySelector('.queue').textContent = queue
         if (item.policy) {

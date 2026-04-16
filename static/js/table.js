@@ -234,12 +234,12 @@ function renderColumnSelector (table) {
     const allCol = table.getElementsByTagName('th')
     for (let i = 0; i < allCol.length; i++) {
       const col = allCol[i]
-      if (col.innerHTML.length === 0) {
+      if (col.textContent.length === 0) {
         continue
       }
       const checked = !col.classList.contains('hide') ? 'checked' : ''
       str += `<label>
-                  <span>${col.innerHTML}</span>
+                  <span>${col.textContent}</span>
                   <input type="checkbox" class="col-toggle-checkbox" ${checked} data-index=${i}>
                 </label>`
     }
