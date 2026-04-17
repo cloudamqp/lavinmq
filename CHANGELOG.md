@@ -73,6 +73,13 @@ This release introduces OAuth2/OIDC authentication, kernel TLS offloading, a rew
 - UI: Overlapping sources in logs [#1790](https://github.com/cloudamqp/lavinmq/pull/1790)
 - UI: Invalid JSON warning on empty binding arguments [#1749](https://github.com/cloudamqp/lavinmq/pull/1749)
 
+## [2.6.11] - 2026-04-15
+
+### Fixed
+
+- Return frame error for corrupt frames with invalid frame end [#1813](https://github.com/cloudamqp/lavinmq/pull/1813)
+- Fix MQTT subscribe permission check logic [#1836](https://github.com/cloudamqp/lavinmq/pull/1836)
+
 ## [2.7.0-rc.3] - 2026-04-14
 
 See <https://github.com/cloudamqp/lavinmq/releases/tag/v2.7.0-rc.3> for changes in this pre-release
@@ -81,13 +88,32 @@ See <https://github.com/cloudamqp/lavinmq/releases/tag/v2.7.0-rc.3> for changes 
 
 See <https://github.com/cloudamqp/lavinmq/releases/tag/v2.7.0-rc.2> for changes in this pre-release
 
+## [2.6.10] - 2026-03-09
+
+### Fixed
+
+- Only allow one follower to do bulk sync at a time [#1720](https://github.com/cloudamqp/lavinmq/pull/1720), [#1780](https://github.com/cloudamqp/lavinmq/pull/1780)
+- Replication shouldn't break if mfiles are closed [#1792](https://github.com/cloudamqp/lavinmq/pull/1792)
+- Replicate files in closed message stores [#1794](https://github.com/cloudamqp/lavinmq/pull/1794)
+
+## [2.6.9] - 2026-03-03
+
+### Fixed
+
+- Persist `segment_last_ts` to prevent message loss on restart with max-age [#1760](https://github.com/cloudamqp/lavinmq/pull/1760)
+- Don't expire messages before server is fully started [#1714](https://github.com/cloudamqp/lavinmq/pull/1714)
+- Return 400 for invalid binding routing key [#1734](https://github.com/cloudamqp/lavinmq/pull/1734)
+- Fix invalid JSON warning on empty binding arguments [#1749](https://github.com/cloudamqp/lavinmq/pull/1749)
+- Dead letter cycle detection [#1723](https://github.com/cloudamqp/lavinmq/pull/1723)
+- Prevent consumer starvation in lavinmqperf throughput [#1712](https://github.com/cloudamqp/lavinmq/pull/1712)
+- Gracefully close message store on corrupt segments [#1710](https://github.com/cloudamqp/lavinmq/pull/1710)
+- Allow any timestamp in AMQP messages [#1705](https://github.com/cloudamqp/lavinmq/pull/1705)
+- Fix delayed message store crash on corrupt segment data [#1694](https://github.com/cloudamqp/lavinmq/pull/1694)
+- Don't delete/clear MQTT session if new client exists [#1665](https://github.com/cloudamqp/lavinmq/pull/1665)
+
 ## [2.7.0-rc.1] - 2026-02-11
 
 See <https://github.com/cloudamqp/lavinmq/releases/tag/v2.7.0-rc.1> for changes in this pre-release
-
-## [2.7.0-alpha.1] - 2025-12-07
-
-See <https://github.com/cloudamqp/lavinmq/releases/tag/v2.7.0-alpha.1> for changes in this pre-release
 
 ## [2.6.8] - 2026-02-10
 
@@ -146,6 +172,10 @@ See <https://github.com/cloudamqp/lavinmq/releases/tag/v2.7.0-alpha.1> for chang
 - Bugfix and refactor dead lettering [#1552](https://github.com/cloudamqp/lavinmq/pull/1552)
 - BCC remove on delivery [#1557](https://github.com/cloudamqp/lavinmq/pull/1557)
 - Topic exchange # wildcard now matches zero segments [#1608](https://github.com/cloudamqp/lavinmq/pull/1608)
+
+## [2.7.0-alpha.1] - 2025-12-07
+
+See <https://github.com/cloudamqp/lavinmq/releases/tag/v2.7.0-alpha.1> for changes in this pre-release
 
 ## [2.6.1] - 2025-12-07
 
