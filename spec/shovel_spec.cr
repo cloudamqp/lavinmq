@@ -800,4 +800,36 @@ describe LavinMQ::Shovel do
       end
     end
   end
+
+  describe "Store.validate_config!" do
+    it "looks up vhost permissions by bare name (strips leading slash from URI path)" do
+      with_amqp_server do |s|
+        user = s.users.create("shovel_user", "pass")
+        s.users.add_permission("shovel_user", "test", /.*/, /.*/, /.*/)
+        config = JSON.parse({
+          "src-uri":    "amqp:///test",
+          "dest-uri":   "amqp:///test",
+          "src-queue":  "q1",
+          "dest-queue": "q2",
+        }.to_json)
+        LavinMQ::Shovel::Store.validate_config!(config, user)
+      end
+    end
+
+    it "raises when user lacks permission on the named vhost" do
+      with_amqp_server do |s|
+        user = s.users.create("shovel_user2", "pass")
+        s.users.add_permission("shovel_user2", "/", /.*/, /.*/, /.*/)
+        config = JSON.parse({
+          "src-uri":    "amqp:///test",
+          "dest-uri":   "amqp:///test",
+          "src-queue":  "q1",
+          "dest-queue": "q2",
+        }.to_json)
+        expect_raises(LavinMQ::Shovel::ConfigError) do
+          LavinMQ::Shovel::Store.validate_config!(config, user)
+        end
+      end
+    end
+  end
 end
