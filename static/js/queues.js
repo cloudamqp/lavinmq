@@ -87,32 +87,39 @@ const queuesTable = Table.renderTable('table', tableOptions, function (tr, item,
     }
     const features = document.createElement('span')
     features.className = 'features'
-    if (item.durable) {
+    if (item.internal) {
       const durable = document.createElement('span')
-      durable.textContent = 'D '
-      durable.title = 'Durable'
+      durable.textContent = 'I'
+      durable.title = 'Internal'
       features.appendChild(durable)
-    }
-    if (item.auto_delete) {
-      const autoDelete = document.createElement('span')
-      autoDelete.textContent = 'AD '
-      autoDelete.title = 'Auto Delete'
-      features.appendChild(autoDelete)
-    }
-    if (item.exclusive) {
-      const exclusive = document.createElement('span')
-      exclusive.textContent = 'E '
-      exclusive.title = 'Exclusive'
-      features.appendChild(exclusive)
-    }
-    if (Object.keys(item.arguments).length > 0) {
-      const argsTooltip = Object.entries(item.arguments)
-        .map(([key, value]) => `${key}: ${JSON.stringify(value)}`)
-        .join('\n')
-      const argsSpan = document.createElement('span')
-      argsSpan.textContent = 'Args '
-      argsSpan.title = argsTooltip
-      features.appendChild(argsSpan)
+    } else {
+      if (item.durable) {
+        const durable = document.createElement('span')
+        durable.textContent = 'D '
+        durable.title = 'Durable'
+        features.appendChild(durable)
+      }
+      if (item.auto_delete) {
+        const autoDelete = document.createElement('span')
+        autoDelete.textContent = 'AD '
+        autoDelete.title = 'Auto Delete'
+        features.appendChild(autoDelete)
+      }
+      if (item.exclusive) {
+        const exclusive = document.createElement('span')
+        exclusive.textContent = 'E '
+        exclusive.title = 'Exclusive'
+        features.appendChild(exclusive)
+      }
+      if (Object.keys(item.arguments).length > 0) {
+        const argsTooltip = Object.entries(item.arguments)
+          .map(([key, value]) => `${key}: ${JSON.stringify(value)}`)
+          .join('\n')
+        const argsSpan = document.createElement('span')
+        argsSpan.textContent = 'Args '
+        argsSpan.title = argsTooltip
+        features.appendChild(argsSpan)
+      }
     }
     const queueLink = document.createElement('a')
     const qType = item.arguments['x-queue-type']
