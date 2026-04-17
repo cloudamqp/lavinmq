@@ -28,18 +28,16 @@ module LavinMQ
     struct IPAddress
       getter address : String
       getter port : UInt16
+      getter? loopback : Bool
 
       def initialize(ip_address : Socket::IPAddress)
         @address = ip_address.address
         @port = ip_address.port.to_u16!
+        @loopback = ip_address.loopback?
       end
 
       def to_s(io)
         io << @address << ':' << @port
-      end
-
-      def loopback?
-        @address == "::1" || @address.starts_with?("127.") || @address.starts_with?("::ffff:127.")
       end
     end
   end
