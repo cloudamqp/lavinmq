@@ -7,6 +7,8 @@ require "../lavinmq/shovel/constants"
 require "../lavinmq/federation/constants"
 require "../lavinmq/definitions_generator"
 require "../lavinmq/auth/user"
+require "file_utils"
+require "ini"
 
 class LavinMQCtl
   @options = {} of String => String
@@ -150,6 +152,13 @@ class LavinMQCtl
     @parser.on("definitions", "Generate definitions json from a data directory") do
       @cmd = "definitions"
     end
+    @parser.on("reset", "Removes the node from any cluster and deletes all messages and metadata") do
+      @cmd = "reset"
+      self.banner = "Usage: #{PROGRAM_NAME} reset"
+      @parser.on("-f", "--force", "Skip confirmation prompt") do
+        @options["force"] = "yes"
+      end
+    end
     @parser.on("add_shovel", "Create a shovel") do
       @cmd = "add_shovel"
       self.banner = "Usage: #{PROGRAM_NAME} add_shovel <name> --src-uri=<uri> --dest-uri=<uri>"
@@ -273,6 +282,7 @@ class LavinMQCtl
     when "set_vhost_limits"      then set_vhost_limits
     when "set_permissions"       then set_permissions
     when "definitions"           then definitions
+    when "reset"                 then reset
     when "hash_password"         then hash_password
     when "list_shovels"          then list_shovels
     when "add_shovel"            then add_shovel
@@ -841,6 +851,55 @@ class LavinMQCtl
   private def definitions
     data_dir = ARGV.shift? || abort "definitions <datadir>"
     DefinitionsGenerator.new(data_dir).generate(@io)
+  end
+
+  private def reset
+    data_dir = resolve_data_dir
+    abort "Not a directory: #{data_dir}" unless Dir.exists?(data_dir)
+
+    unless @options["force"]?
+      STDERR.print "Reset node at #{data_dir}? All messages and metadata will be permanently deleted. [y/N] "
+      answer = STDIN.gets.to_s.strip.downcase
+      abort "Reset cancelled." unless answer == "y" || answer == "yes"
+    end
+
+    lock_path = File.join(data_dir, ".lock")
+    lock = File.open(lock_path, "a+")
+    begin
+      lock.flock_exclusive(blocking: false)
+    rescue IO::Error
+      lock.close
+      raise Exception.new("LavinMQ is running. Please stop it first with 'lavinmqctl stop_app'.")
+    end
+
+    @io.puts "Resetting node ..." unless quiet?
+    Dir.each_child(data_dir) do |entry|
+      vhost_path = File.join(data_dir, entry)
+      FileUtils.rm_rf(vhost_path) if File.directory?(vhost_path)
+    end
+    File.delete?(File.join(data_dir, "users.json"))
+    File.delete?(File.join(data_dir, "vhosts.json"))
+    File.delete?(File.join(data_dir, "parameters.json"))
+    File.delete?(File.join(data_dir, ".clustering_id"))
+  ensure
+    lock.try(&.close)
+  end
+
+  private def resolve_data_dir : String
+    if data_dir = ENV["LAVINMQ_DATADIR"]?
+      return data_dir
+    end
+    config_dir = ENV.fetch("LAVINMQ_CONFIGURATION_DIRECTORY", "/etc/lavinmq")
+    config_file = File.join(config_dir, "lavinmq.ini")
+    if File.file?(config_file)
+      ini = INI.parse(File.read(config_file))
+      if main = ini["main"]?
+        if data_dir = main["data_dir"]?
+          return data_dir
+        end
+      end
+    end
+    "/var/lib/lavinmq"
   end
 
   private def hash_password
