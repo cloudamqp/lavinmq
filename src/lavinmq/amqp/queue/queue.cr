@@ -177,7 +177,7 @@ module LavinMQ::AMQP
       @log = Logger.new(Log, @metadata)
       dotqueue_file = File.join(@data_dir, ".queue")
       File.open(dotqueue_file, "w") { |f| f.sync = true; f.print @name }
-      @vhost.@replicator.try { |r| r.replace_file(dotqueue_file) }
+      @vhost.@replicator.try &.replace_file(dotqueue_file)
       @msg_store = init_msg_store(@data_dir)
       @empty = @msg_store.empty
       @dead_letter = Argument::DeadLettering::DeadLetterer.new(@vhost, @name, @log)
