@@ -864,14 +864,12 @@ class LavinMQCtl
     end
 
     lock_path = File.join(data_dir, ".lock")
-    lock = File.exists?(lock_path) ? File.open(lock_path, "r") : nil
-    if lock
-      begin
-        lock.flock_exclusive(blocking: false)
-      rescue IO::Error
-        lock.close
-        raise Exception.new("LavinMQ is running. Please stop it first with 'lavinmqctl stop_app'.")
-      end
+    lock = File.open(lock_path, "a+")
+    begin
+      lock.flock_exclusive(blocking: false)
+    rescue IO::Error
+      lock.close
+      raise Exception.new("LavinMQ is running. Please stop it first with 'lavinmqctl stop_app'.")
     end
 
     @io.puts "Resetting node ..." unless quiet?
