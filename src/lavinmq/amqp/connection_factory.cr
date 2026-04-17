@@ -189,12 +189,6 @@ module LavinMQ
         nil
       end
 
-      private def default_user_only_loopback?(remote_address, user) : Bool
-        return true unless user.name == Config.instance.default_user
-        return true unless Config.instance.default_user_only_loopback?
-        remote_address.loopback?
-      end
-
       private def close_connection(socket, code : ConnectionReplyCode, text, frame)
         text = "#{code} - #{text}"
         socket.write_bytes(
