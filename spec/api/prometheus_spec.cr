@@ -217,6 +217,40 @@ describe LavinMQ::HTTP::PrometheusController do
   end
 end
 
+def with_follower_metrics_server(&)
+  # Passing nil for amqp_server wires up FollowerPrometheusController — the same path a real follower takes.
+  h = LavinMQ::HTTP::MetricsServer.new(nil)
+  begin
+    addr = h.bind_tcp("::1", 0)
+    spawn(name: "follower metrics listen") { h.listen }
+    Fiber.yield
+    yield HTTPSpecHelper.new(addr)
+  ensure
+    h.close
+  end
+end
+
+describe LavinMQ::HTTP::FollowerPrometheusController do
+  it "returns gc metrics on /metrics" do
+    with_follower_metrics_server do |http|
+      response = http.get("/metrics")
+      response.status_code.should eq 200
+      response.body.lines.any?(&.starts_with? "telemetry_scrape_duration_seconds").should be_true
+      response.body.lines.any?(&.starts_with? "lavinmq_gc_heap_size_bytes").should be_true
+    end
+  end
+
+  it "returns 200 on /metrics/detailed with only scrape telemetry" do
+    with_follower_metrics_server do |http|
+      response = http.get("/metrics/detailed?family=queue_coarse_metrics")
+      response.status_code.should eq 200
+      response.body.lines.any?(&.starts_with? "telemetry_scrape_duration_seconds").should be_true
+      response.body.lines.any?(&.starts_with? "lavinmq_gc_heap_size_bytes").should be_false
+      response.body.lines.any?(&.starts_with? "lavinmq_detailed_queue_messages_ready").should be_false
+    end
+  end
+end
+
 class PrometheusSpecHelper
   class Invalid < Exception
     def initialize
