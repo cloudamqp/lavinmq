@@ -155,6 +155,9 @@ class LavinMQCtl
     @parser.on("reset", "Removes the node from any cluster and deletes all messages and metadata") do
       @cmd = "reset"
       self.banner = "Usage: #{PROGRAM_NAME} reset"
+      @parser.on("-f", "--force", "Skip confirmation prompt") do
+        @options["force"] = "yes"
+      end
     end
     @parser.on("add_shovel", "Create a shovel") do
       @cmd = "add_shovel"
@@ -853,18 +856,24 @@ class LavinMQCtl
   private def reset
     data_dir = resolve_data_dir
     abort "Not a directory: #{data_dir}" unless Dir.exists?(data_dir)
+
+    unless @options["force"]?
+      STDERR.print "Reset node at #{data_dir}? All messages and metadata will be permanently deleted. [y/N] "
+      answer = STDIN.gets.to_s.strip.downcase
+      abort "Reset cancelled." unless answer == "y" || answer == "yes"
+    end
+
     lock_path = File.join(data_dir, ".lock")
-    if File.exists?(lock_path)
-      lock = File.open(lock_path, "r")
+    lock = File.exists?(lock_path) ? File.open(lock_path, "r") : nil
+    if lock
       begin
         lock.flock_exclusive(blocking: false)
-        lock.flock_unlock
-      rescue
-        abort "LavinMQ is running. Please stop it first with 'lavinmqctl stop_app'."
-      ensure
+      rescue IO::Error
         lock.close
+        raise Exception.new("LavinMQ is running. Please stop it first with 'lavinmqctl stop_app'.")
       end
     end
+
     @io.puts "Resetting node ..." unless quiet?
     Dir.each_child(data_dir) do |entry|
       vhost_path = File.join(data_dir, entry)
@@ -874,6 +883,8 @@ class LavinMQCtl
     File.delete?(File.join(data_dir, "vhosts.json"))
     File.delete?(File.join(data_dir, "parameters.json"))
     File.delete?(File.join(data_dir, ".clustering_id"))
+  ensure
+    lock.try(&.close)
   end
 
   private def resolve_data_dir : String

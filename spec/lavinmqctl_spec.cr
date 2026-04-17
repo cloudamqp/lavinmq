@@ -385,7 +385,7 @@ describe "LavinMQCtl" do
         stdout = IO::Memory.new
         begin
           ARGV.clear
-          ARGV << "reset"
+          ARGV.concat(["reset", "--force"])
           ENV["LAVINMQ_DATADIR"] = data_dir
           LavinMQCtl.new(stdout).run_cmd
         ensure
@@ -411,7 +411,7 @@ describe "LavinMQCtl" do
         original_argv = ARGV.dup
         begin
           ARGV.clear
-          ARGV << "reset"
+          ARGV.concat(["reset", "--force"])
           ENV["LAVINMQ_CONFIGURATION_DIRECTORY"] = config_dir
           LavinMQCtl.new(IO::Memory.new).run_cmd
         ensure
@@ -430,20 +430,18 @@ describe "LavinMQCtl" do
         File.open(lock_path, "w") do |lock|
           lock.flock_exclusive
           original_argv = ARGV.dup
-          exit_code = 0
           begin
             ARGV.clear
-            ARGV << "reset"
+            ARGV.concat(["reset", "--force"])
             ENV["LAVINMQ_DATADIR"] = data_dir
-            LavinMQCtl.new(IO::Memory.new).run_cmd
-          rescue ex
-            exit_code = 1
+            expect_raises(Exception, /running/) do
+              LavinMQCtl.new(IO::Memory.new).run_cmd
+            end
           ensure
             ENV.delete("LAVINMQ_DATADIR")
             ARGV.clear
             ARGV.concat(original_argv)
           end
-          exit_code.should eq(1)
         end
       end
     end
