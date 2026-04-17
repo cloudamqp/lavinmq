@@ -188,6 +188,14 @@ module LavinMQ
           end
           context
         end
+
+        # Followers have no AMQP state for per-family samples. Respond 200 with only the
+        # scrape telemetry so Prometheus doesn't mark `/metrics/detailed` targets as failed.
+        get "/metrics/detailed" do |context, _|
+          context.response.content_type = "text/plain"
+          report(context.response) { }
+          context
+        end
       end
     end
 
