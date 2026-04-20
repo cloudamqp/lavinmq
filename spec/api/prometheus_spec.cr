@@ -217,19 +217,6 @@ describe LavinMQ::HTTP::PrometheusController do
   end
 end
 
-def with_follower_metrics_server(&)
-  # Passing nil for amqp_server wires up FollowerPrometheusController — the same path a real follower takes.
-  h = LavinMQ::HTTP::MetricsServer.new(nil)
-  begin
-    addr = h.bind_tcp("::1", 0)
-    spawn(name: "follower metrics listen") { h.listen }
-    Fiber.yield
-    yield HTTPSpecHelper.new(addr)
-  ensure
-    h.close
-  end
-end
-
 describe LavinMQ::HTTP::FollowerPrometheusController do
   it "returns gc metrics on /metrics" do
     with_follower_metrics_server do |http|
