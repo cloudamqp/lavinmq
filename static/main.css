@@ -1434,12 +1434,12 @@ footer .logo {
   background-color: var(--color-table-row-even);
 }
 
-table tbody tr.internal,
-table tbody tr.internal:hover {
+.table tbody tr.internal,
+.table tbody tr.internal:hover {
   background: repeating-linear-gradient(-45deg, var(--color-table-row-odd), var(--color-table-row-odd) 10px, var(--color-border-primary) 0, var(--color-border-primary) 11px);
 }
 
-table tbody tr:hover td {
+.table tbody tr:hover td {
   background-color: var(--color-bg-tr-hover);
 }
 
@@ -1829,25 +1829,27 @@ fieldset.inline {
   text-decoration: none;
   text-align: center;
   font-weight: bold;
-}
+} 
 
 .pagination .page-item.disabled a {
   cursor: default;
 }
 
+.pagination .page-item a:hover {
+  background-color: var(--color-table-row-odd);
+}
+
 .pagination .page-item.active a {
-  background-color: var(--color-link);
+  background-color: var(--color-border-secondary);
   color: white;
 }
 
 .pagination .page-item:first-child {
   border-left: 1px solid var(--color-border-secondary);
-  border-bottom-left-radius: 3px;
 }
 
 .pagination .page-item:last-child {
   border-right: 1px solid var(--color-border-secondary);
-  border-bottom-right-radius: 3px;
 }
 
 .tooltip {
