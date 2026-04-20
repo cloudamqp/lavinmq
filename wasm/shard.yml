@@ -1,0 +1,8 @@
+name: lavinmq-wasm
+version: 0.1.0
+
+crystal: ">= 1.9"
+
+targets:
+  lavinmq-wasm:
+    main: src/main.cr

@@ -1,0 +1,735 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LavinMQ Router — Interactive Demo</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --border: #2d3142;
+    --accent: #6c63ff;
+    --accent2: #ff6584;
+    --green: #43d9ad;
+    --yellow: #ffd700;
+    --text: #e2e8f0;
+    --muted: #8892a4;
+    --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  header {
+    padding: 2rem 2rem 1rem;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .logo {
+    width: 36px; height: 36px;
+    background: var(--accent);
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 1.1rem; color: white;
+  }
+
+  header h1 { font-size: 1.25rem; font-weight: 600; }
+  header p { font-size: 0.85rem; color: var(--muted); margin-top: 0.1rem; }
+
+  .badge {
+    margin-left: auto;
+    background: #1e2433;
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 0.2rem 0.75rem;
+    font-size: 0.75rem;
+    color: var(--green);
+    display: flex; align-items: center; gap: 0.4rem;
+  }
+  .badge::before { content: ''; width: 7px; height: 7px; background: var(--green); border-radius: 50%; }
+
+  main {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 2rem;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+  }
+
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.5rem;
+  }
+
+  .card h2 {
+    font-size: 0.9rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    margin-bottom: 1.25rem;
+    display: flex; align-items: center; gap: 0.5rem;
+    width: 100%;
+  }
+
+  .card h2 span { font-size: 1rem; }
+
+  label { font-size: 0.85rem; color: var(--muted); display: block; margin-bottom: 0.35rem; }
+
+  select, input[type="text"] {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    padding: 0.55rem 0.75rem;
+    font-size: 0.9rem;
+    font-family: var(--font-mono);
+    margin-bottom: 1rem;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  select:focus, input:focus { border-color: var(--accent); }
+
+  .field-row { display: flex; gap: 0.5rem; margin-bottom: 0.6rem; }
+  .field-row input { margin-bottom: 0; flex: 1; }
+  .field-row .btn-remove {
+    background: none; border: 1px solid #3a3f56; color: var(--muted);
+    border-radius: 6px; padding: 0.4rem 0.7rem; cursor: pointer; font-size: 0.9rem;
+    transition: all 0.15s;
+  }
+  .field-row .btn-remove:hover { border-color: var(--accent2); color: var(--accent2); }
+
+  .btn {
+    background: var(--accent);
+    border: none; border-radius: 8px;
+    color: white; padding: 0.55rem 1.1rem;
+    font-size: 0.85rem; font-weight: 500; cursor: pointer;
+    transition: opacity 0.15s;
+  }
+  .btn:hover { opacity: 0.85; }
+  .btn-outline {
+    background: none; border: 1px solid var(--border);
+    color: var(--muted);
+  }
+  .btn-outline:hover { border-color: var(--accent); color: var(--accent); opacity: 1; }
+
+  .btn-row { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+
+  .result-box {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    min-height: 80px;
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+  }
+
+  .queue-chip {
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    background: #1c2940; border: 1px solid #2a4a7a;
+    border-radius: 6px; padding: 0.3rem 0.75rem;
+    color: #7ec8e3; font-size: 0.82rem; margin: 0.2rem;
+    font-family: var(--font-mono);
+  }
+
+  .queue-chip.matched {
+    background: #152b1e; border-color: #2a6a45;
+    color: var(--green);
+  }
+
+  .queue-chip.matched::before { content: '✓ '; }
+
+  .no-match {
+    color: var(--muted);
+    font-style: italic;
+    display: flex; align-items: center; gap: 0.5rem;
+  }
+  .no-match::before { content: '∅'; font-size: 1.1rem; font-style: normal; }
+
+  .policy-card {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.75rem;
+    margin-bottom: 0.6rem;
+    transition: border-color 0.2s, opacity 0.2s;
+  }
+  .policy-card.matches { border-color: #2a6a45; }
+  .policy-card.winner { border-color: var(--yellow); box-shadow: 0 0 0 1px var(--yellow)22; }
+  .policy-card.no-match { opacity: 0.45; }
+
+  .policy-card-header {
+    display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;
+  }
+  .policy-name { font-weight: 600; font-family: var(--font-mono); font-size: 0.9rem; flex: 1; }
+  .badge-pill {
+    border-radius: 20px; padding: 0.1rem 0.55rem; font-size: 0.7rem;
+    font-weight: 600; letter-spacing: 0.04em; white-space: nowrap;
+  }
+  .badge-winner { background: #2b2300; color: var(--yellow); border: 1px solid #5a4800; }
+  .badge-match  { background: #152b1e; color: var(--green);  border: 1px solid #2a6a45; }
+  .badge-skip   { background: #1e1e1e; color: var(--muted);  border: 1px solid var(--border); }
+
+  .policy-meta { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.6rem; }
+  .meta-tag {
+    font-size: 0.72rem; padding: 0.15rem 0.5rem;
+    background: #1e2433; border: 1px solid var(--border);
+    border-radius: 4px; color: var(--muted); font-family: var(--font-mono);
+  }
+  .meta-tag span { color: var(--text); }
+
+  .policy-inputs { display: flex; flex-direction: column; gap: 0.35rem; }
+  .policy-inputs .field-row { margin-bottom: 0; }
+  .policy-inputs input, .policy-inputs select {
+    margin-bottom: 0; font-size: 0.8rem; padding: 0.35rem 0.6rem;
+  }
+
+  .arg-tags { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.5rem; }
+  .arg-tag {
+    display: inline-flex; gap: 0.3rem; align-items: center;
+    background: #152b1e; border: 1px solid #2a6a45;
+    border-radius: 5px; padding: 0.2rem 0.6rem;
+    font-size: 0.78rem; font-family: var(--font-mono);
+  }
+  .arg-tag .arg-key { color: var(--muted); }
+  .arg-tag .arg-val { color: var(--green); font-weight: 600; }
+
+  .winner-box {
+    background: var(--bg); border: 1px solid var(--yellow);
+    border-radius: 10px; padding: 1rem 1.25rem;
+  }
+  .winner-box .winner-name {
+    font-size: 1.1rem; font-weight: 700; font-family: var(--font-mono);
+    color: var(--yellow); margin-bottom: 0.3rem;
+  }
+  .winner-box .winner-meta { font-size: 0.8rem; color: var(--muted); margin-bottom: 0.75rem; }
+
+  .full-width { grid-column: 1 / -1; }
+
+  .queue-chip-edit {
+    display: flex; align-items: center; gap: 0.5rem;
+    background: #0c1624; border: 1px solid #1e3a5f;
+    border-radius: 8px; padding: 0.45rem 0.65rem;
+    margin-bottom: 0.45rem; transition: border-color 0.15s;
+  }
+  .queue-chip-edit:focus-within { border-color: #4a8abf; }
+  .queue-dot { width: 8px; height: 8px; border-radius: 50%; background: #3a7abf; flex-shrink: 0; }
+  .queue-dot.active { background: var(--green); box-shadow: 0 0 6px var(--green)88; }
+  .queue-chip-edit input {
+    background: none; border: none; color: #7ec8e3;
+    font-family: var(--font-mono); font-size: 0.85rem;
+    outline: none; flex: 1; margin-bottom: 0; padding: 0; width: 0;
+  }
+  .queue-msg-count {
+    font-size: 0.72rem; font-family: var(--font-mono);
+    background: #152b1e; border: 1px solid #2a6a45;
+    border-radius: 12px; padding: 0.1rem 0.5rem;
+    color: var(--green); min-width: 1.4rem; text-align: center;
+    transition: all 0.3s;
+  }
+  .queue-msg-count.zero { background: #1a1d27; border-color: var(--border); color: var(--muted); }
+
+  .diagram {
+    display: flex; align-items: center; gap: 0.75rem;
+    flex-wrap: wrap; margin-top: 0.75rem;
+  }
+  .diagram-node {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.4rem 0.8rem;
+    font-size: 0.82rem;
+    font-family: var(--font-mono);
+  }
+  .diagram-arrow { color: var(--muted); font-size: 1.1rem; }
+  .diagram-node.exchange { border-color: var(--accent); color: var(--accent); }
+  .diagram-node.queue-node { border-color: var(--green); color: var(--green); }
+  .diagram-node.msg { border-color: var(--yellow); color: var(--yellow); }
+
+  #status {
+    font-size: 0.8rem; color: var(--muted);
+    padding: 0.5rem 0; text-align: center;
+    grid-column: 1 / -1;
+  }
+  #status.error { color: var(--accent2); }
+  #status.ok { color: var(--green); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">L</div>
+  <div>
+    <h1>LavinMQ Routing Demo</h1>
+    <p>Powered by the actual LavinMQ routing engine compiled to WebAssembly</p>
+  </div>
+  <div class="badge" id="wasmBadge">Loading WASM…</div>
+</header>
+
+<main>
+  <p id="status">Initialising WebAssembly module…</p>
+
+  <!-- ── Left column: Queues + Exchange ── -->
+  <div style="display:flex;flex-direction:column;gap:1.5rem">
+
+    <!-- Queues -->
+    <div class="card">
+      <h2><span>📦</span> Queues</h2>
+      <div id="queuesList"></div>
+      <datalist id="queueNames"></datalist>
+      <button class="btn btn-outline" style="width:100%;margin-top:0.25rem" onclick="addQueue()">+ Add queue</button>
+    </div>
+
+    <!-- Exchange -->
+    <div class="card">
+      <h2><span>⚡</span> Exchange</h2>
+      <label>Type</label>
+      <select id="exchangeType" onchange="onExchangeTypeChange()">
+        <option value="topic">topic</option>
+        <option value="direct">direct</option>
+        <option value="fanout">fanout</option>
+        <option value="headers">headers</option>
+        <option value="x-consistent-hash">x-consistent-hash</option>
+      </select>
+      <div id="exchangeArgsPanel" style="display:none;margin-bottom:1rem">
+        <label>Exchange arguments</label>
+        <div class="field-row" style="gap:0.75rem">
+          <div style="flex:1">
+            <label style="font-size:0.72rem">x-algorithm</label>
+            <select id="xAlgorithm" onchange="route(true)" style="margin-bottom:0;font-size:0.8rem;padding:0.35rem 0.6rem">
+              <option value="ring">ring</option>
+              <option value="jump">jump</option>
+            </select>
+          </div>
+          <div style="flex:2">
+            <label style="font-size:0.72rem">x-hash-on (header name, empty = routing key)</label>
+            <input type="text" id="xHashOn" placeholder="routing-key (default)" oninput="route(true)" style="margin-bottom:0;font-size:0.8rem;padding:0.35rem 0.6rem" />
+          </div>
+        </div>
+      </div>
+      <label>Bindings</label>
+      <div id="bindingsList"></div>
+      <button class="btn btn-outline" style="width:100%;margin-top:0.25rem" onclick="addBinding()">+ Add binding</button>
+    </div>
+
+  </div>
+
+  <!-- ── Right column: Publish + Result ── -->
+  <div class="card">
+    <h2><span>✉️</span> Publish Message
+      <button class="btn btn-outline" onclick="resetCounts()" style="margin-left:auto;font-size:0.72rem;padding:0.2rem 0.6rem;letter-spacing:0;text-transform:none">Reset counts</button>
+    </h2>
+
+    <label>Routing key</label>
+    <div style="display:flex;gap:0.5rem;align-items:center">
+      <input type="text" id="routingKey" value="logs.error.critical" oninput="route(true)" style="flex:1" />
+      <button class="btn" onclick="route(false)" style="white-space:nowrap;padding:0.45rem 1rem;font-size:0.8rem">▶ Publish</button>
+    </div>
+
+    <label>Headers <span style="color:var(--muted);font-weight:400;font-size:0.75rem">(key=value per line · for headers exchange)</span></label>
+    <textarea id="headers" rows="3"
+      style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:0.55rem 0.75rem;font-family:var(--font-mono);font-size:0.85rem;resize:vertical;outline:none;transition:border-color 0.2s"
+      oninput="route(true)">format=pdf
+type=report</textarea>
+
+    <div style="margin-top:1.25rem">
+      <label>Queues</label>
+      <div id="queueResult" style="display:flex;flex-direction:column;gap:0.4rem;min-height:2rem"></div>
+    </div>
+
+    <div class="diagram" id="diagram" style="margin-top:1.25rem"></div>
+  </div>
+
+  <!-- ── Policy Matcher (full width) ── -->
+  <div class="card full-width">
+    <h2><span>🛡️</span> Policy Matcher</h2>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;align-items:start">
+
+      <div>
+        <div style="display:flex;gap:0.75rem;margin-bottom:1rem">
+          <div style="flex:2">
+            <label>Resource name</label>
+            <input type="text" id="policyResource" value="ha.orders" oninput="matchPolicy()" style="margin-bottom:0" />
+          </div>
+          <div style="flex:1">
+            <label>Type</label>
+            <select id="policyResourceType" onchange="matchPolicy()" style="margin-bottom:0">
+              <option value="queue">queue</option>
+              <option value="exchange">exchange</option>
+            </select>
+          </div>
+        </div>
+        <label style="margin-bottom:0.5rem">Policies</label>
+        <div id="policiesList"></div>
+        <button class="btn btn-outline" onclick="addPolicy()" style="margin-top:0.25rem;width:100%">+ Add policy</button>
+      </div>
+
+      <div>
+        <label>Applied policy</label>
+        <div id="policyResult">
+          <span class="no-match" style="display:block;padding:1rem">no policy matched</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script type="module">
+import { loadRouter } from './lavinmq-router.js';
+
+// ── WASM loader ──────────────────────────────────────────────────────────────
+
+let router = null;
+
+async function loadWasm() {
+  const badge = document.getElementById('wasmBadge');
+  const status = document.getElementById('status');
+  try {
+    router = await loadRouter('./lavinmq-router.wasm');
+    badge.textContent = 'WASM ready';
+    badge.style.color = 'var(--green)';
+    status.className = 'ok';
+    status.textContent = 'WebAssembly module loaded — routing powered by LavinMQ\'s Crystal source';
+    setTimeout(() => status.style.display = 'none', 3000);
+    route(true);
+    matchPolicy();
+  } catch (e) {
+    badge.textContent = 'WASM error';
+    badge.style.color = 'var(--accent2)';
+    status.className = 'error';
+    status.textContent = 'Failed to load WASM: ' + e.message + '. Serve this page over HTTP (not file://).';
+  }
+}
+
+// ── State ────────────────────────────────────────────────────────────────────
+
+window.queues = [
+  { name: 'all-logs'   },
+  { name: 'error-logs' },
+  { name: 'info-logs'  },
+];
+
+// msgCounts tracks how many messages were routed to each queue this session
+window.msgCounts = {};
+
+window.bindings = [
+  { queue: 'all-logs',    rk: 'logs.#' },
+  { queue: 'error-logs',  rk: 'logs.error.*' },
+  { queue: 'info-logs',   rk: 'logs.info' },
+];
+
+window.policies = [
+  { name: 'ha-all',   pattern: '.*',    apply_to: 'queues', priority: 0, definition: '{"ha-mode":"all"}' },
+  { name: 'ttl-60s',  pattern: '^ha[.]', apply_to: 'all',   priority: 5, definition: '{"message-ttl":60000}' },
+];
+
+// ── Render ───────────────────────────────────────────────────────────────────
+
+function renderQueues() {
+  const list = document.getElementById('queuesList');
+  list.innerHTML = queues.map((q, i) => {
+    const count = msgCounts[q.name] || 0;
+    return `
+    <div class="queue-chip-edit">
+      <span class="queue-dot${count > 0 ? ' active' : ''}"></span>
+      <input type="text" list="queueNames" value="${esc(q.name)}"
+        oninput="queues[${i}].name=this.value;syncQueueName(${i},this.value)"
+        placeholder="queue name" />
+      <span class="queue-msg-count${count === 0 ? ' zero' : ''}">${count}</span>
+      <button class="btn-remove" onclick="(function(){const n=queues[${i}].name;queues.splice(${i},1);bindings=bindings.filter(b=>b.queue!==n);delete msgCounts[n];window.renderQueues();window.renderBindings();route(true);})()">✕</button>
+    </div>`;
+  }).join('');
+  updateQueueDatalist();
+}
+
+function syncQueueName(idx, newName) {
+  const old = queues[idx]?.name;
+  bindings.forEach(b => { if (b.queue === old) b.queue = newName; });
+  queues[idx].name = newName;
+  updateQueueDatalist();
+  renderBindings();
+  route(true);
+}
+
+function updateQueueDatalist() {
+  const dl = document.getElementById('queueNames');
+  if (dl) dl.innerHTML = queues.map(q => `<option value="${esc(q.name)}">`).join('');
+}
+
+window.renderQueues = renderQueues;
+window.syncQueueName = syncQueueName;
+
+function renderBindings() {
+  const type = document.getElementById('exchangeType').value;
+  const showRk = type !== 'fanout';
+  const isHeaders = type === 'headers';
+  const isHash = type === 'x-consistent-hash';
+  const rkPlaceholder = isHeaders ? 'format=pdf type=report' : isHash ? 'weight (e.g. 1)' : 'routing.key.#';
+  const list = document.getElementById('bindingsList');
+  list.innerHTML = bindings.map((b, i) => `
+    <div class="field-row">
+      <input type="text" list="queueNames" placeholder="queue name" value="${esc(b.queue)}"
+        oninput="bindings[${i}].queue=this.value;route(true)" style="flex:1.2" />
+      ${showRk ? `<input type="text" placeholder="${rkPlaceholder}"
+          value="${esc(b.rk||'')}" oninput="bindings[${i}].rk=this.value;route(true)" style="flex:2" />` : ''}
+      <button class="btn-remove" onclick="bindings.splice(${i},1);window.renderBindings();route(true)">✕</button>
+    </div>`).join('');
+}
+
+function renderPolicies(winnerName = null, matchedNames = new Set()) {
+  const resource = document.getElementById('policyResource')?.value || '';
+  const rtype = document.getElementById('policyResourceType')?.value || 'queue';
+  const list = document.getElementById('policiesList');
+
+  list.innerHTML = policies.map((p, i) => {
+    const isWinner = p.name === winnerName;
+    const doesMatch = matchedNames.has(p.name);
+    const cardClass = isWinner ? 'winner' : doesMatch ? 'matches' : 'no-match';
+    const badge = isWinner
+      ? `<span class="badge-pill badge-winner">★ applied</span>`
+      : doesMatch
+        ? `<span class="badge-pill badge-match">✓ matches</span>`
+        : `<span class="badge-pill badge-skip">✗ skipped</span>`;
+
+    let def = {};
+    try { def = JSON.parse(p.definition); } catch {}
+    const defTags = Object.entries(def).map(([k,v]) =>
+      `<span class="meta-tag"><span>${k}:</span> <span>${JSON.stringify(v)}</span></span>`
+    ).join('');
+
+    return `
+    <div class="policy-card ${cardClass}">
+      <div class="policy-card-header">
+        <span class="policy-name">${esc(p.name)}</span>
+        ${badge}
+      </div>
+      <div class="policy-meta">
+        <span class="meta-tag">pattern: <span>${esc(p.pattern)}</span></span>
+        <span class="meta-tag">apply-to: <span>${p.apply_to}</span></span>
+        <span class="meta-tag">priority: <span>${p.priority}</span></span>
+        ${defTags}
+      </div>
+      <div class="policy-inputs">
+        <div class="field-row">
+          <input type="text" placeholder="name" value="${esc(p.name)}" oninput="policies[${i}].name=this.value;matchPolicy()" style="flex:1" />
+          <input type="text" placeholder="pattern (regex)" value="${esc(p.pattern)}" oninput="policies[${i}].pattern=this.value;matchPolicy()" style="flex:2" />
+          <button class="btn-remove" onclick="policies.splice(${i},1);window.renderPolicies();matchPolicy()">✕</button>
+        </div>
+        <div class="field-row">
+          <select onchange="policies[${i}].apply_to=this.value;matchPolicy()" style="flex:1;margin-bottom:0">
+            ${['all','queues','exchanges'].map(v=>`<option ${p.apply_to===v?'selected':''}>${v}</option>`).join('')}
+          </select>
+          <input type="number" placeholder="priority" value="${p.priority}" oninput="policies[${i}].priority=+this.value;matchPolicy()" style="flex:0.5;margin-bottom:0" />
+          <input type="text" placeholder='{"max-length":1000}' value="${esc(p.definition)}" oninput="policies[${i}].definition=this.value;matchPolicy()" style="flex:2;margin-bottom:0" />
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+window.renderPolicies = renderPolicies;
+
+window.renderBindings = renderBindings;
+
+function esc(s) { return String(s).replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+
+window.addQueue = function() {
+  queues.push({ name: 'queue-' + (queues.length + 1) });
+  renderQueues();
+};
+
+window.addBinding = function() {
+  const type = document.getElementById('exchangeType').value;
+  const defaultQueue = queues[0]?.name || 'queue-1';
+  bindings.push({ queue: defaultQueue, rk: type === 'topic' ? 'new.#' : type === 'direct' ? defaultQueue : type === 'x-consistent-hash' ? '1' : '' });
+  renderBindings(); route(true);
+};
+
+window.addPolicy = function() {
+  policies.push({ name: 'policy-' + (policies.length+1), pattern: '.*', apply_to: 'all', priority: 0, definition: '{}' });
+  renderPolicies(); matchPolicy();
+};
+
+window.onExchangeTypeChange = function() {
+  const type = document.getElementById('exchangeType').value;
+  document.getElementById('exchangeArgsPanel').style.display = type === 'x-consistent-hash' ? 'block' : 'none';
+  renderBindings();
+  route(true);
+};
+
+window.resetCounts = function() {
+  msgCounts = {};
+  route(true);
+};
+
+// ── Route ────────────────────────────────────────────────────────────────────
+
+window.route = async function(noCount = false) {
+  if (!router) return;
+  const type = document.getElementById('exchangeType').value;
+  const rk = document.getElementById('routingKey').value;
+
+  const headerLines = document.getElementById('headers').value.trim().split('\n').filter(Boolean);
+  const headers = {};
+  headerLines.forEach(l => {
+    const [k, ...vs] = l.split('=');
+    if (k) headers[k.trim()] = vs.join('=').trim();
+  });
+
+  const builtBindings = bindings.map(b => {
+    if (type === 'headers') {
+      const args = {};
+      (b.rk || '').split(/\s+/).forEach(kv => {
+        const [k, ...vs] = kv.split('=');
+        if (k) args[k.trim()] = vs.join('=').trim();
+      });
+      return { queue: b.queue, arguments: args };
+    }
+    return { queue: b.queue, routingKey: b.rk || '' };
+  });
+
+  try {
+    const exchangeArguments = {};
+    if (type === 'x-consistent-hash') {
+      exchangeArguments['x-algorithm'] = document.getElementById('xAlgorithm').value;
+      const hashOn = document.getElementById('xHashOn').value.trim();
+      if (hashOn) exchangeArguments['x-hash-on'] = hashOn;
+    }
+    const { matchedQueues } = await router.route({ exchangeType: type, routingKey: rk, bindings: builtBindings, headers, exchangeArguments });
+    renderRouteResult(matchedQueues, type, rk, noCount);
+  } catch (e) {
+    document.getElementById('routeResult').innerHTML = `<span style="color:var(--accent2)">${e.message||e}</span>`;
+  }
+};
+
+function renderRouteResult(matched, type, rk, noCount = false) {
+  const matchedSet = new Set(matched);
+
+  if (!noCount) {
+    matched.forEach(q => { msgCounts[q] = (msgCounts[q] || 0) + 1; });
+  }
+
+  // Show all defined queues with match status
+  const box = document.getElementById('queueResult');
+  const allDefined = queues.map(q => q.name);
+  // Also show any bound queues not in the defined list (orphan bindings)
+  const boundOnly = [...new Set(bindings.map(b => b.queue))].filter(n => !allDefined.includes(n));
+  const allToShow = [...allDefined, ...boundOnly];
+
+  if (allToShow.length === 0) {
+    box.innerHTML = '<span class="no-match">no queues defined</span>';
+  } else {
+    box.innerHTML = allToShow.map(q => {
+      const hit = matchedSet.has(q);
+      const count = msgCounts[q] || 0;
+      const isOrphan = !allDefined.includes(q);
+      return `
+        <div class="queue-chip-edit" style="${hit ? 'border-color:#2a6a45;background:#0a1f10' : isOrphan ? 'opacity:0.4' : ''}">
+          <span class="queue-dot${hit ? ' active' : ''}"></span>
+          <span style="font-family:var(--font-mono);font-size:0.85rem;color:${hit ? 'var(--green)' : '#7ec8e3'};flex:1">${q}${isOrphan ? ' <span style="color:var(--muted);font-size:0.72rem">(unbound)</span>' : ''}</span>
+          <span class="queue-msg-count${count === 0 ? ' zero' : ''}">${count}</span>
+        </div>`;
+    }).join('');
+  }
+
+  // Update queue dots in the queues section too
+  renderQueues();
+
+  const diag = document.getElementById('diagram');
+  diag.innerHTML = `
+    <div class="diagram-node msg">✉ ${rk || '(no key)'}</div>
+    <div class="diagram-arrow">→</div>
+    <div class="diagram-node exchange">[${type}]</div>
+    <div class="diagram-arrow">→</div>
+    ${matched.length
+      ? matched.map(q => `<div class="diagram-node queue-node">📦 ${q}</div>`).join('<div class="diagram-arrow">+</div>')
+      : '<span style="color:var(--muted)">∅ dropped</span>'}
+  `;
+}
+
+// ── Policy ───────────────────────────────────────────────────────────────────
+
+window.matchPolicy = async function() {
+  if (!router) return;
+  const resource = document.getElementById('policyResource').value;
+  const rtype = document.getElementById('policyResourceType').value;
+
+  const pols = policies.map(p => ({
+    name: p.name,
+    pattern: p.pattern,
+    applyTo: p.apply_to,
+    priority: p.priority,
+    definition: (() => { try { return JSON.parse(p.definition); } catch { return {}; } })(),
+  }));
+
+  // Main call (all policies) + one call per policy to get per-card match status
+  const requests = [
+    { action: 'match_policy', policies: pols.map(p => ({...p, apply_to: p.applyTo})), resource_name: resource, resource_type: rtype },
+    ...pols.map(p => ({ action: 'match_policy', policies: [{...p, apply_to: p.applyTo}], resource_name: resource, resource_type: rtype })),
+  ];
+
+  try {
+    const results = await router.batch(requests);
+    const [main, ...perPolicy] = results;
+    const matchedNames = new Set(
+      pols.filter((_, i) => perPolicy[i]?.matched_policy != null).map(p => p.name)
+    );
+    const winnerName = main?.matched_policy?.name || null;
+
+    renderPolicies(winnerName, matchedNames);
+
+    const box = document.getElementById('policyResult');
+    if (main?.matched_policy) {
+      const pol = main.matched_policy;
+      const args = main.effective_args || {};
+      const argTags = Object.entries(args).map(([k, v]) =>
+        `<div class="arg-tag"><span class="arg-key">${k}</span><span class="arg-val">${JSON.stringify(v)}</span></div>`
+      ).join('');
+      const allMatched = [...matchedNames];
+      const others = allMatched.filter(n => n !== winnerName);
+      box.innerHTML = `
+        <div class="winner-box">
+          <div style="font-size:0.72rem;color:var(--yellow);font-weight:600;letter-spacing:0.08em;margin-bottom:0.4rem">★ APPLIED POLICY</div>
+          <div class="winner-name">${pol.name}</div>
+          <div class="winner-meta">
+            pattern <code style="color:var(--text)">${pol.pattern}</code> ·
+            apply-to <strong style="color:var(--text)">${pol.apply_to}</strong> ·
+            priority <strong style="color:var(--text)">${pol.priority}</strong>
+            ${others.length ? `· <span style="color:var(--muted)">beats: ${others.join(', ')}</span>` : ''}
+          </div>
+          ${argTags ? `<div style="font-size:0.75rem;color:var(--muted);margin-bottom:0.4rem">Effective arguments:</div><div class="arg-tags">${argTags}</div>` : '<div style="color:var(--muted);font-size:0.8rem">no arguments defined</div>'}
+        </div>`;
+    } else {
+      box.innerHTML = '<span class="no-match" style="display:block;padding:1rem">no policy matched</span>';
+    }
+  } catch (e) {
+    document.getElementById('policyResult').innerHTML = `<span style="color:var(--accent2)">${e.message||e}</span>`;
+  }
+};
+
+// ── Init ─────────────────────────────────────────────────────────────────────
+
+renderQueues();
+renderBindings();
+renderPolicies();
+loadWasm();
+</script>
+</body>
+</html>
