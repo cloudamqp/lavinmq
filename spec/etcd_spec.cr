@@ -184,7 +184,7 @@ class EtcdCluster
   @ports : Array(Int32)
 
   def initialize(nodes = 3)
-    @ports = (100..998).to_a.sample(nodes)
+    @ports = (100..999).sample(nodes)
   end
 
   def endpoints
