@@ -429,16 +429,13 @@ def collect(b, pid, duration, debug_bpf=False):
         for k, v in b["tid_to_fiber"].items()
     }
 
+    debug_info = None
     if debug_bpf:
-        hits_resume = b["uprobe_hits"][0].value
-        hits_getter = b["uprobe_hits"][1].value
-        print(f"\n[bpf] uprobe_hits: resume={hits_resume}  getter={hits_getter}")
-        if tid_fiber:
-            print(f"[bpf] tid_to_fiber ({len(tid_fiber)} entries):")
-            for tid, name in sorted(tid_fiber.items()):
-                print(f"  TID {tid:6d}  name={name!r}")
-        else:
-            print("[bpf] tid_to_fiber: empty — uprobes not firing or fiber pointers invalid")
+        debug_info = {
+            "hits_resume": b["uprobe_hits"][0].value,
+            "hits_getter": b["uprobe_hits"][1].value,
+            "tid_fiber":   tid_fiber,
+        }
 
     user_sym_counts = defaultdict(int)
     thread_info = defaultdict(lambda: {
@@ -471,6 +468,7 @@ def collect(b, pid, duration, debug_bpf=False):
     return {
         "user":    user_sym_counts,
         "threads": thread_info,
+        "debug":   debug_info,
     }
 
 
@@ -623,6 +621,15 @@ def cmd_top(args):
         while True:
             data = collect(b, pid, args.duration, debug_bpf=args.debug_bpf)
             render(data, pid, args.duration, args.freq, args.lines, has_uprobe)
+            if args.debug_bpf and data.get("debug"):
+                d = data["debug"]
+                print(f"\n[bpf] uprobe_hits: resume={d['hits_resume']}  getter={d['hits_getter']}")
+                if d["tid_fiber"]:
+                    print(f"[bpf] tid_to_fiber ({len(d['tid_fiber'])} entries):")
+                    for tid, name in sorted(d["tid_fiber"].items()):
+                        print(f"  TID {tid:6d}  name={name!r}")
+                else:
+                    print("[bpf] tid_to_fiber: empty — uprobes not firing or fiber pointers invalid")
             if not args.watch:
                 break
     except KeyboardInterrupt:
