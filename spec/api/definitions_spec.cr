@@ -69,6 +69,7 @@ describe LavinMQ::GlobalDefinitions do
         end
       ensure
         File.delete?(tmpfile)
+        LavinMQ::Config.instance.load_definitions = ""
       end
     end
 
