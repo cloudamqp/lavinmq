@@ -487,29 +487,56 @@ def cmd_top(args):
         sys.exit(f"Error: no process with PID {pid}.")
 
     binary = binary_for_pid(pid)
+    if args.verbose:
+        print(f"[diag] binary: {binary}")
 
     fiber_sym_addr, fiber_sym_name = find_fiber_resume_sym(binary)
+    if args.verbose:
+        if fiber_sym_addr:
+            print(f"[diag] fiber resume sym (from binary): 0x{fiber_sym_addr:x}  {fiber_sym_name}")
+        else:
+            print(f"[diag] fiber resume sym (from binary): not found")
 
     fiber_name_offset = args.fiber_name_offset
     debug_binary = None
     if fiber_name_offset is None:
         fiber_name_offset = find_fiber_name_offset(binary)
+        if args.verbose:
+            print(f"[diag] @name offset (from binary): {fiber_name_offset}")
         if fiber_name_offset is None:
             debug_binary = find_debug_binary(binary)
+            if args.verbose:
+                print(f"[diag] debug binary: {debug_binary or 'not found'}")
             if debug_binary:
                 fiber_name_offset = find_fiber_name_offset(debug_binary)
-        if fiber_name_offset is None:
-            print(
-                f"{DIM}Warning: could not determine @name offset from DWARF.\n"
-                f"  Fiber uprobe disabled. Options to enable:\n"
-                f"    apt install lavinmq-dbg          # Debian/Ubuntu\n"
-                f"    dnf install lavinmq-debuginfo    # RHEL/Fedora\n"
-                f"    make bin/lavinmq.dbg             # from source\n"
-                f"    --fiber-name-offset N            # manual override{RESET}"
-            )
+                if args.verbose:
+                    print(f"[diag] @name offset (from debug binary): {fiber_name_offset}")
+    else:
+        if args.verbose:
+            print(f"[diag] @name offset: {fiber_name_offset} (from --fiber-name-offset)")
 
-    if fiber_sym_addr is None and debug_binary:
-        fiber_sym_addr, fiber_sym_name = find_fiber_resume_sym(debug_binary)
+    if fiber_name_offset is None:
+        print(
+            f"{DIM}Warning: could not determine @name offset from DWARF.\n"
+            f"  Fiber uprobe disabled. Options to enable:\n"
+            f"    apt install lavinmq-dbg          # Debian/Ubuntu\n"
+            f"    dnf install lavinmq-debuginfo    # RHEL/Fedora\n"
+            f"    make bin/lavinmq.dbg             # from source\n"
+            f"    --fiber-name-offset N            # manual override{RESET}"
+        )
+
+    if fiber_sym_addr is None:
+        if debug_binary is None:
+            debug_binary = find_debug_binary(binary)
+            if args.verbose and debug_binary:
+                print(f"[diag] debug binary (sym lookup): {debug_binary}")
+        if debug_binary:
+            fiber_sym_addr, fiber_sym_name = find_fiber_resume_sym(debug_binary)
+            if args.verbose:
+                if fiber_sym_addr:
+                    print(f"[diag] fiber resume sym (from debug binary): 0x{fiber_sym_addr:x}  {fiber_sym_name}")
+                else:
+                    print(f"[diag] fiber resume sym (from debug binary): not found")
 
     has_uprobe = fiber_sym_addr is not None and fiber_name_offset is not None
 
@@ -577,6 +604,8 @@ def main():
                      help="re-sample continuously until Ctrl+C")
     top.add_argument("--fiber-name-offset", type=int, default=None, metavar="N",
                      help="byte offset of @name in Crystal::Fiber (auto-detected from DWARF)")
+    top.add_argument("--verbose", "-v", action="store_true",
+                     help="print diagnostic info: binary path, symbol lookup results, DWARF offsets")
 
     args = parser.parse_args()
     if args.command == "top":
