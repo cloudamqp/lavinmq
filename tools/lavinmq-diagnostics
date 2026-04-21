@@ -97,28 +97,13 @@ int sample_stack(struct bpf_perf_event_data *ctx) {
     return 0;
 }
 
-/* ── Fiber set-current uprobe ─────────────────────────────────────────────── */
-/*                                                                              */
-/* Attached to Thread#current_fiber=(fiber : Fiber).                           */
-/* Called on every fiber context switch by the execution-context scheduler.    */
-/*   rdi = self (Thread object)                                                 */
-/*   rsi = fiber (the Fiber being made current on this thread)                 */
-/*                                                                              */
-/* We read fiber.@name and store it in tid_to_fiber keyed by the running TID   */
-/* so the CPU sampler can attribute hot threads to specific queues/connections. */
-/*                                                                              */
-/* String? is stored as a raw pointer: 0 = nil, else → Crystal String object.  */
+/* ── Shared helper: record fiber name for current TID ─────────────────────── */
 
-int on_fiber_resume(struct pt_regs *ctx) {
-    u64 id  = bpf_get_current_pid_tgid();
-    u32 pid = id >> 32;
-    u32 tid = (u32)id;
-
+static __always_inline void record_fiber(u32 pid, u32 tid, u64 fiber) {
     if (TARGET_PID && pid != (u32)TARGET_PID)
-        return 0;
-
-    /* rsi = fiber (second argument; rdi = self = Thread) */
-    u64 fiber = (u64)PT_REGS_PARM2(ctx);
+        return;
+    if (!fiber)
+        return;
 
     u64 name_ptr = 0;
     bpf_probe_read_user(&name_ptr, sizeof(name_ptr),
@@ -132,6 +117,29 @@ int on_fiber_resume(struct pt_regs *ctx) {
     }
 
     tid_to_fiber.update(&tid, &fname);
+}
+
+/* ── uprobe: Thread#current_fiber=(fiber) ─────────────────────────────────── */
+/*                                                                              */
+/* Fires on every fiber context switch.                                         */
+/*   rdi = self (Thread), rsi = fiber being made current                        */
+
+int on_fiber_set(struct pt_regs *ctx) {
+    u64 id  = bpf_get_current_pid_tgid();
+    record_fiber(id >> 32, (u32)id, (u64)PT_REGS_PARM2(ctx));
+    return 0;
+}
+
+/* ── uretprobe: Thread#current_fiber (getter) ─────────────────────────────── */
+/*                                                                              */
+/* Fires whenever the runtime reads the current fiber (scheduling, GC roots,   */
+/* I/O checks). Captures long-lived fibers that started before the tool and    */
+/* never switch during the sample window.                                       */
+/*   rax = return value = current Fiber*                                        */
+
+int on_fiber_get(struct pt_regs *ctx) {
+    u64 id  = bpf_get_current_pid_tgid();
+    record_fiber(id >> 32, (u32)id, (u64)PT_REGS_RC(ctx));
     return 0;
 }
 """
@@ -161,18 +169,12 @@ def binary_for_pid(pid):
     return os.readlink(f"/proc/{pid}/exe")
 
 
-def find_fiber_resume_sym(binary):
-    """Return (address, mangled_name) of Thread#current_fiber=, or (None, None).
+def find_sym(binary, substring):
+    """Return (address, mangled_name) of the shortest symbol containing substring.
 
-    With -Dexecution_context, Crystal has no Fiber#resume.  The scheduler calls
-    Thread#current_fiber=(fiber) on every context switch, passing the incoming
-    Fiber as rsi (PARM2).  This is the universal hook point across isolated and
-    parallel execution contexts.
-
-    Tries nm first (fast, works on full binaries).  Falls back to readelf -Ws
-    for split-debug (.dbg) files where objcopy --only-keep-debug converts code
-    sections to SHT_NOBITS, causing nm to report function symbols as 'b' instead
-    of 'T', which --defined-only then filters out.
+    Tries nm --defined-only first (fast, works on full binaries).  Falls back to
+    readelf -Ws for split-debug .dbg files where objcopy --only-keep-debug marks
+    code sections SHT_NOBITS, causing nm to report them as 'b' not 'T'.
     """
     try:
         out = subprocess.check_output(
@@ -184,7 +186,7 @@ def find_fiber_resume_sym(binary):
             parts = line.split(None, 2)
             if len(parts) < 3 or parts[1] not in ("T", "t"):
                 continue
-            if "Thread#current_fiber=" in parts[2]:
+            if substring in parts[2]:
                 candidates.append((int(parts[0], 16), parts[2]))
         if candidates:
             candidates.sort(key=lambda x: len(x[1]))
@@ -192,8 +194,6 @@ def find_fiber_resume_sym(binary):
     except (subprocess.CalledProcessError, FileNotFoundError):
         pass
 
-    # readelf -Ws uses Type=FUNC regardless of whether the section is SHT_NOBITS,
-    # so it works on .dbg split-debug files where nm fails.
     try:
         out = subprocess.check_output(
             ["readelf", "-Ws", binary],
@@ -201,10 +201,9 @@ def find_fiber_resume_sym(binary):
         ).decode(errors="replace")
         candidates = []
         for line in out.splitlines():
-            if "FUNC" not in line or "Fiber#resume" not in line:
+            if "FUNC" not in line or substring not in line:
                 continue
             parts = line.split()
-            # format: Num: Value Size Type Bind Vis Ndx Name
             if len(parts) < 8:
                 continue
             try:
@@ -212,7 +211,7 @@ def find_fiber_resume_sym(binary):
             except ValueError:
                 continue
             name = parts[-1]
-            if addr > 0 and "Thread#current_fiber=" in name:
+            if addr > 0 and substring in name:
                 candidates.append((addr, name))
         if candidates:
             candidates.sort(key=lambda x: len(x[1]))
@@ -504,30 +503,25 @@ def cmd_top(args):
     if args.verbose:
         print(f"[diag] binary: {binary}")
 
-    fiber_sym_addr, fiber_sym_name = find_fiber_resume_sym(binary)
-    if args.verbose:
-        if fiber_sym_addr:
-            print(f"[diag] fiber resume sym (from binary): 0x{fiber_sym_addr:x}  {fiber_sym_name}")
-        else:
-            print(f"[diag] fiber resume sym (from binary): not found")
+    # Resolve symbols — stripped binaries need the debug companion.
+    debug_binary = find_debug_binary(binary)
+    sym_binary = debug_binary or binary
 
+    set_addr, set_name = find_sym(sym_binary, "Thread#current_fiber=")
+    get_addr, get_name = find_sym(sym_binary, "Thread#current_fiber:")
+
+    if args.verbose:
+        print(f"[diag] debug binary:       {debug_binary or 'not found'}")
+        print(f"[diag] setter (switch):    {f'0x{set_addr:x}  {set_name}' if set_addr else 'not found'}")
+        print(f"[diag] getter (long-lived):{f'0x{get_addr:x}  {get_name}' if get_addr else 'not found'}")
+
+    # Resolve @name offset in Crystal::Fiber from DWARF.
     fiber_name_offset = args.fiber_name_offset
-    debug_binary = None
     if fiber_name_offset is None:
-        fiber_name_offset = find_fiber_name_offset(binary)
-        if args.verbose:
-            print(f"[diag] @name offset (from binary): {fiber_name_offset}")
-        if fiber_name_offset is None:
-            debug_binary = find_debug_binary(binary)
-            if args.verbose:
-                print(f"[diag] debug binary: {debug_binary or 'not found'}")
-            if debug_binary:
-                fiber_name_offset = find_fiber_name_offset(debug_binary)
-                if args.verbose:
-                    print(f"[diag] @name offset (from debug binary): {fiber_name_offset}")
-    else:
-        if args.verbose:
-            print(f"[diag] @name offset: {fiber_name_offset} (from --fiber-name-offset)")
+        fiber_name_offset = find_fiber_name_offset(binary) or find_fiber_name_offset(sym_binary)
+    if args.verbose:
+        src = "DWARF" if args.fiber_name_offset is None else "--fiber-name-offset"
+        print(f"[diag] @name offset:       {fiber_name_offset}  (from {src})")
 
     if fiber_name_offset is None:
         print(
@@ -539,20 +533,7 @@ def cmd_top(args):
             f"    --fiber-name-offset N            # manual override{RESET}"
         )
 
-    if fiber_sym_addr is None:
-        if debug_binary is None:
-            debug_binary = find_debug_binary(binary)
-            if args.verbose and debug_binary:
-                print(f"[diag] debug binary (sym lookup): {debug_binary}")
-        if debug_binary:
-            fiber_sym_addr, fiber_sym_name = find_fiber_resume_sym(debug_binary)
-            if args.verbose:
-                if fiber_sym_addr:
-                    print(f"[diag] fiber resume sym (from debug binary): 0x{fiber_sym_addr:x}  {fiber_sym_name}")
-                else:
-                    print(f"[diag] fiber resume sym (from debug binary): not found")
-
-    has_uprobe = fiber_sym_addr is not None and fiber_name_offset is not None
+    has_uprobe = (set_addr is not None or get_addr is not None) and fiber_name_offset is not None
 
     prog = (
         BPF_PROGRAM
@@ -570,11 +551,14 @@ def cmd_top(args):
     )
 
     if has_uprobe:
-        b.attach_uprobe(name=binary, addr=fiber_sym_addr, fn_name="on_fiber_resume")
+        if set_addr:
+            b.attach_uprobe(name=binary, addr=set_addr, fn_name="on_fiber_set")
+        if get_addr:
+            b.attach_uretprobe(name=binary, addr=get_addr, fn_name="on_fiber_get")
         print(
-            f"Attached fiber uprobe: {fiber_sym_name}\n"
-            f"  Fiber @name offset: {fiber_name_offset} bytes  |  "
-            f"String content offset: {CRYSTAL_STRING_CONTENT_OFFSET} bytes"
+            f"Fiber probes attached — @name offset {fiber_name_offset} bytes\n"
+            f"  setter (switch):     {set_name or 'not found'}\n"
+            f"  getter (long-lived): {get_name or 'not found'}"
         )
     else:
         print(
