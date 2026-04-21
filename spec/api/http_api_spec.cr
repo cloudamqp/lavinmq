@@ -256,6 +256,20 @@ describe LavinMQ::HTTP::Server do
       end
     end
 
+    it "should sort by column when all values are nil" do
+      with_http_server do |http, s|
+        vhost = s.vhosts["/"]
+        vhost.declare_exchange("no-policy-a", "direct", durable: false, auto_delete: false)
+        vhost.declare_exchange("no-policy-b", "direct", durable: false, auto_delete: false)
+
+        response = http.get("/api/exchanges/%2F?page=1&sort=policy")
+        response.status_code.should eq 200
+
+        response = http.get("/api/exchanges/%2F?page=1&sort=policy&sort_reverse=true")
+        response.status_code.should eq 200
+      end
+    end
+
     it "should sort results by nested keys" do
       stats_interval = LavinMQ::Config.instance.stats_interval
       LavinMQ::Config.instance.stats_interval = 1000
