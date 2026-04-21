@@ -242,7 +242,7 @@ def find_fiber_name_offset(binary):
                     at_name_member = False
 
             if "DW_AT_name" in line:
-                if not in_fiber_class and re.search(r":\s*Crystal::Fiber\s*$", line):
+                if not in_fiber_class and re.search(r":\s*Fiber\s*$", line):
                     in_fiber_class = True
                 elif in_fiber_class and re.search(r":\s*@name\s*$", line):
                     at_name_member = True
