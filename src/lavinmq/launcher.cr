@@ -146,7 +146,10 @@ module LavinMQ
     private def setup_log_exchange(amqp_server)
       return unless @config.log_exchange?
       exchange_name = "amq.lavinmq.log"
-      vhost = amqp_server.vhosts["/"]
+      unless vhost = amqp_server.vhosts["/"]?
+        Log.warn { "log_exchange enabled but default vhost \"/\" is missing, skipping" }
+        return
+      end
       vhost.declare_exchange(exchange_name, "topic", true, false, true)
       spawn(name: "Log Exchange") do
         log_channel = ::Log::InMemoryBackend.instance.add_channel
