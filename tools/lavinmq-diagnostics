@@ -50,6 +50,7 @@ CRYSTAL_STRING_CONTENT_OFFSET = 8
 
 BPF_PROGRAM = r"""
 #include <uapi/linux/ptrace.h>
+#include <linux/sched.h>
 
 #define FIBER_NAME_LEN 64
 
@@ -64,12 +65,17 @@ struct key_t {
     char comm[TASK_COMM_LEN];
 };
 
+/* BPF_HASH requires a named struct as value type — plain arrays not allowed. */
+struct fiber_name_t {
+    char name[FIBER_NAME_LEN];
+};
+
 BPF_STACK_TRACE(user_stacks,    16384);
 BPF_STACK_TRACE(kernel_stacks,   8192);
 BPF_HASH(counts, struct key_t, u64, 16384);
 
 /* Fiber uprobe map: tid → current Crystal fiber name */
-BPF_HASH(tid_to_fiber, u32, char[FIBER_NAME_LEN], 1024);
+BPF_HASH(tid_to_fiber, u32, struct fiber_name_t, 1024);
 
 /* ── CPU clock sampler ────────────────────────────────────────────────────── */
 
@@ -115,14 +121,14 @@ int on_fiber_resume(struct pt_regs *ctx) {
     bpf_probe_read_user(&name_ptr, sizeof(name_ptr),
                         (void *)(fiber + FIBER_NAME_OFFSET));
 
-    char name[FIBER_NAME_LEN] = {};
+    struct fiber_name_t fname = {};
     if (name_ptr) {
         /* Crystal String: +0 bytesize(i32) +4 length(i32) +8 content(bytes) */
-        bpf_probe_read_user_str(name, FIBER_NAME_LEN,
+        bpf_probe_read_user_str(fname.name, FIBER_NAME_LEN,
                                 (void *)(name_ptr + STRING_CONTENT_OFFSET));
     }
 
-    tid_to_fiber.update(&tid, &name);
+    tid_to_fiber.update(&tid, &fname);
     return 0;
 }
 """
@@ -216,7 +222,8 @@ def find_debug_binary(binary):
 def find_fiber_name_offset(binary):
     """Parse DWARF debug info to find the byte offset of @name in Crystal::Fiber.
 
-    Streams readelf output to avoid loading the full debug section into memory.
+    Uses depth-aware parsing so that nested types inside Fiber (Fiber::Context,
+    Fiber::Stack, etc.) don't reset the search state.
     Returns an int offset, or None if DWARF is unavailable or parsing fails.
     """
     try:
@@ -228,27 +235,45 @@ def find_fiber_name_offset(binary):
     except FileNotFoundError:
         return None
 
-    in_fiber_class = False
+    # fiber_depth: DWARF nesting depth of the Fiber class DIE, or None
+    fiber_depth = None
+    current_depth = 0
+    pending_class = False  # True after DW_TAG_class/struct, waiting to check DW_AT_name
     at_name_member = False
     result = None
 
     try:
         for line in proc.stdout:
-            if "DW_TAG_" in line:
-                if "DW_TAG_class_type" in line or "DW_TAG_structure_type" in line:
-                    in_fiber_class = False
-                    at_name_member = False
-                elif "DW_TAG_member" in line:
+            # DIE header lines look like: " <depth><offset>: Abbrev Number: N (DW_TAG_foo)"
+            die_m = re.match(r"\s*<(\d+)><[0-9a-f]+>:\s*Abbrev Number", line)
+            if die_m:
+                depth = int(die_m.group(1))
+                current_depth = depth
+                pending_class = False
+
+                # Leaving Fiber class scope: sibling or ancestor DIE
+                if fiber_depth is not None and depth <= fiber_depth:
+                    fiber_depth = None
                     at_name_member = False
 
+                if "DW_TAG_class_type" in line or "DW_TAG_structure_type" in line:
+                    if fiber_depth is None:
+                        pending_class = True
+                elif "DW_TAG_member" in line and fiber_depth is not None:
+                    at_name_member = False
+                continue
+
             if "DW_AT_name" in line:
-                if not in_fiber_class and re.search(r":\s*Fiber\s*$", line):
-                    in_fiber_class = True
-                elif in_fiber_class and re.search(r":\s*@name\s*$", line):
+                if pending_class and re.search(r":\s*Fiber\s*$", line):
+                    fiber_depth = current_depth
+                    pending_class = False
+                elif fiber_depth is not None and re.search(r":\s*@name\s*$", line):
                     at_name_member = True
 
             if at_name_member and "DW_AT_data_member_location" in line:
                 m = re.search(r":\s*(\d+)\s*$", line.strip())
+                if not m:
+                    m = re.search(r"DW_OP_plus_uconst:\s*(\d+)", line)
                 if m:
                     result = int(m.group(1))
                     break
@@ -331,7 +356,7 @@ def collect(b, pid, duration):
         time.sleep(0.5)
 
     tid_fiber = {
-        k.value: v.decode("utf-8", errors="replace").rstrip("\x00")
+        k.value: v.name.decode("utf-8", errors="replace").rstrip("\x00")
         for k, v in b["tid_to_fiber"].items()
     }
 
