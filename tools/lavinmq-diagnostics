@@ -49,6 +49,7 @@ except ImportError:
 #   +8  content            (null-terminated byte array)
 CRYSTAL_STRING_CONTENT_OFFSET = 8
 
+
 BPF_PROGRAM = r"""
 #include <uapi/linux/ptrace.h>
 #include <linux/sched.h>
@@ -119,13 +120,14 @@ static __always_inline void record_fiber(u32 pid, u32 tid, u64 fiber) {
     tid_to_fiber.update(&tid, &fname);
 }
 
-/* ── uprobe: Thread#current_fiber=(fiber) ─────────────────────────────────── */
+/* ── uprobe: Fiber::ExecutionContext::Parallel::Scheduler#resume(fiber) ──────── */
 /*                                                                              */
-/* Fires on every fiber context switch.                                         */
-/*   rdi = self (Thread), rsi = fiber being made current                        */
+/* Called by the parallel scheduler each time it resumes a fiber. 148 bytes,   */
+/* not inlined. The target Fiber is passed directly:                            */
+/*   rdi = self (Scheduler), rsi = fiber being resumed                          */
 
-int on_fiber_set(struct pt_regs *ctx) {
-    u64 id  = bpf_get_current_pid_tgid();
+int on_fiber_resume(struct pt_regs *ctx) {
+    u64 id = bpf_get_current_pid_tgid();
     record_fiber(id >> 32, (u32)id, (u64)PT_REGS_PARM2(ctx));
     return 0;
 }
@@ -133,12 +135,11 @@ int on_fiber_set(struct pt_regs *ctx) {
 /* ── uretprobe: Thread#current_fiber (getter) ─────────────────────────────── */
 /*                                                                              */
 /* Fires whenever the runtime reads the current fiber (scheduling, GC roots,   */
-/* I/O checks). Captures long-lived fibers that started before the tool and    */
-/* never switch during the sample window.                                       */
+/* I/O checks). Captures long-lived fibers that never switch during the window. */
 /*   rax = return value = current Fiber*                                        */
 
 int on_fiber_get(struct pt_regs *ctx) {
-    u64 id  = bpf_get_current_pid_tgid();
+    u64 id = bpf_get_current_pid_tgid();
     record_fiber(id >> 32, (u32)id, (u64)PT_REGS_RC(ctx));
     return 0;
 }
@@ -220,6 +221,33 @@ def find_sym(binary, substring):
         pass
 
     return None, None
+
+
+def find_syms(binary, *substrings):
+    """Return all (address, name) pairs where the symbol contains ALL substrings."""
+    results = []
+    try:
+        out = subprocess.check_output(
+            ["readelf", "-Ws", binary],
+            stderr=subprocess.DEVNULL,
+        ).decode(errors="replace")
+        for line in out.splitlines():
+            if "FUNC" not in line:
+                continue
+            if not all(s in line for s in substrings):
+                continue
+            parts = line.split()
+            if len(parts) < 8:
+                continue
+            try:
+                addr = int(parts[1], 16)
+            except ValueError:
+                continue
+            if addr > 0:
+                results.append((addr, parts[-1]))
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pass
+    return results
 
 
 def find_debug_binary(binary):
@@ -507,13 +535,17 @@ def cmd_top(args):
     debug_binary = find_debug_binary(binary)
     sym_binary = debug_binary or binary
 
-    set_addr, set_name = find_sym(sym_binary, "Thread#current_fiber=")
+    # Both ExecutionContext resume variants take (self, fiber) with fiber in rsi.
+    resume_syms = find_syms(sym_binary, "ExecutionContext", "#resume<Fiber>")
     get_addr, get_name = find_sym(sym_binary, "Thread#current_fiber:")
 
     if args.verbose:
-        print(f"[diag] debug binary:       {debug_binary or 'not found'}")
-        print(f"[diag] setter (switch):    {f'0x{set_addr:x}  {set_name}' if set_addr else 'not found'}")
-        print(f"[diag] getter (long-lived):{f'0x{get_addr:x}  {get_name}' if get_addr else 'not found'}")
+        print(f"[diag] debug binary:        {debug_binary or 'not found'}")
+        for addr, name in resume_syms:
+            print(f"[diag] resume (switch):     0x{addr:x}  {name}")
+        if not resume_syms:
+            print(f"[diag] resume (switch):     not found")
+        print(f"[diag] getter (long-lived): {f'0x{get_addr:x}  {get_name}' if get_addr else 'not found'}")
 
     # Resolve @name offset in Crystal::Fiber from DWARF.
     fiber_name_offset = args.fiber_name_offset
@@ -533,13 +565,13 @@ def cmd_top(args):
             f"    --fiber-name-offset N            # manual override{RESET}"
         )
 
-    has_uprobe = (set_addr is not None or get_addr is not None) and fiber_name_offset is not None
+    has_uprobe = (bool(resume_syms) or get_addr is not None) and fiber_name_offset is not None
 
     prog = (
         BPF_PROGRAM
         .replace("TARGET_PID",            str(pid))
         .replace("FIBER_NAME_OFFSET",     str(fiber_name_offset or 0))
-        .replace("STRING_CONTENT_OFFSET", str(CRYSTAL_STRING_CONTENT_OFFSET))
+.replace("STRING_CONTENT_OFFSET", str(CRYSTAL_STRING_CONTENT_OFFSET))
     )
     b = BPF(text=prog)
 
@@ -551,13 +583,14 @@ def cmd_top(args):
     )
 
     if has_uprobe:
-        if set_addr:
-            b.attach_uprobe(name=binary, addr=set_addr, fn_name="on_fiber_set")
+        for addr, name in resume_syms:
+            b.attach_uprobe(name=binary, addr=addr, fn_name="on_fiber_resume")
         if get_addr:
             b.attach_uretprobe(name=binary, addr=get_addr, fn_name="on_fiber_get")
+        resume_lines = "\n".join(f"  resume:              {name}" for _, name in resume_syms) or "  resume:              not found"
         print(
             f"Fiber probes attached — @name offset {fiber_name_offset} bytes\n"
-            f"  setter (switch):     {set_name or 'not found'}\n"
+            f"{resume_lines}\n"
             f"  getter (long-lived): {get_name or 'not found'}"
         )
     else:
