@@ -257,6 +257,18 @@ def find_syms(binary, *substrings):
     return results
 
 
+def get_build_id(path):
+    """Return the GNU build-ID hex string for an ELF, or None."""
+    try:
+        out = subprocess.check_output(
+            ["readelf", "-n", path], stderr=subprocess.DEVNULL,
+        ).decode(errors="replace")
+        m = re.search(r"Build ID:\s*([0-9a-f]+)", out)
+        return m.group(1) if m else None
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return None
+
+
 def find_debug_binary(binary):
     """Locate the split debug file for binary, following standard Linux conventions.
 
@@ -547,13 +559,33 @@ def cmd_top(args):
     if args.verbose:
         print(f"[diag] binary: {binary}")
 
-    # Resolve symbols — stripped binaries need the debug companion.
+    # Resolve symbols — prefer the running binary's own symbol table (works when
+    # built with debug info). Fall back to the split debug companion for stripped
+    # binaries, but only if its build-ID matches the running binary.
     debug_binary = find_debug_binary(binary)
-    sym_binary = debug_binary or binary
 
-    # Both ExecutionContext resume variants take (self, fiber) with fiber in rsi.
-    resume_syms = find_syms(sym_binary, "ExecutionContext", "#resume<Fiber>")
-    get_addr, get_name = find_sym(sym_binary, "Thread#current_fiber:")
+    resume_syms = find_syms(binary, "ExecutionContext", "#resume<Fiber>")
+    get_addr, get_name = find_sym(binary, "Thread#current_fiber:")
+
+    if debug_binary:
+        bin_id = get_build_id(binary)
+        dbg_id = get_build_id(debug_binary)
+        id_match = (bin_id is None or dbg_id is None or bin_id == dbg_id)
+        if not id_match:
+            print(
+                f"WARNING: build-ID mismatch — debug file is stale!\n"
+                f"  binary: {bin_id}\n"
+                f"  debug:  {dbg_id}\n"
+                f"  Addresses from {debug_binary} are WRONG for the running binary.\n"
+                f"  Rebuild with:  make bin/lavinmq.dbg\n"
+                f"  Fiber uprobe disabled until rebuilt."
+            )
+            debug_binary = None
+        else:
+            if not resume_syms:
+                resume_syms = find_syms(debug_binary, "ExecutionContext", "#resume<Fiber>")
+            if not get_addr:
+                get_addr, get_name = find_sym(debug_binary, "Thread#current_fiber:")
 
     if args.verbose:
         print(f"[diag] debug binary:        {debug_binary or 'not found'}")
@@ -600,9 +632,15 @@ def cmd_top(args):
 
     if has_uprobe:
         for addr, name in resume_syms:
-            b.attach_uprobe(name=binary, addr=addr, fn_name="on_fiber_resume")
+            try:
+                b.attach_uprobe(name=binary, addr=addr, fn_name="on_fiber_resume")
+            except Exception as e:
+                print(f"WARNING: attach_uprobe failed for 0x{addr:x} ({name}): {e}")
         if get_addr:
-            b.attach_uretprobe(name=binary, addr=get_addr, fn_name="on_fiber_get")
+            try:
+                b.attach_uretprobe(name=binary, addr=get_addr, fn_name="on_fiber_get")
+            except Exception as e:
+                print(f"WARNING: attach_uretprobe failed for 0x{get_addr:x} ({get_name}): {e}")
         resume_lines = "\n".join(f"  resume:              {name}" for _, name in resume_syms) or "  resume:              not found"
         print(
             f"Fiber probes attached — @name offset {fiber_name_offset} bytes\n"
