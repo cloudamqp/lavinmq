@@ -98,6 +98,24 @@ describe LavinMQ::GlobalDefinitions do
       end
     end
 
+    it "skips permissions for unknown users without crashing" do
+      defs = {
+        "permissions" => [
+          {"user" => "ghost", "vhost" => "/", "configure" => ".*", "read" => ".*", "write" => ".*"},
+        ],
+      }
+      tmpfile = File.tempname("lavinmq-defs", ".json")
+      File.write(tmpfile, defs.to_json)
+      begin
+        with_amqp_server do |s|
+          LavinMQ::GlobalDefinitions.import_from_file(tmpfile, s)
+          s.users["ghost"]?.should be_nil
+        end
+      ensure
+        File.delete?(tmpfile)
+      end
+    end
+
     it "raises on invalid regex in permissions" do
       defs = {
         "users" => [

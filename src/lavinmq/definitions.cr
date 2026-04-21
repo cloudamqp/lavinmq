@@ -2,6 +2,8 @@ require "./vhost"
 
 module LavinMQ
   abstract class DefinitionsImporter
+    Log = LavinMQ::Log.for "definitions"
+
     def initialize(@amqp_server : LavinMQ::Server)
     end
 
@@ -124,7 +126,11 @@ module LavinMQ
           configure = p["configure"].as_s
           read = p["read"].as_s
           write = p["write"].as_s
-          @amqp_server.users[user].permissions[vhost] = {
+          unless u = @amqp_server.users[user]?
+            Log.warn { "No user named #{user}, can't import permissions" }
+            next
+          end
+          u.permissions[vhost] = {
             config: parse_regex(configure, "configure", user, vhost),
             read:   parse_regex(read, "read", user, vhost),
             write:  parse_regex(write, "write", user, vhost),
