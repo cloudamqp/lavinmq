@@ -598,7 +598,9 @@ def cmd_top(args):
     # Resolve @name offset in Crystal::Fiber from DWARF.
     fiber_name_offset = args.fiber_name_offset
     if fiber_name_offset is None:
-        fiber_name_offset = find_fiber_name_offset(binary) or find_fiber_name_offset(sym_binary)
+        fiber_name_offset = find_fiber_name_offset(binary)
+        if fiber_name_offset is None and debug_binary:
+            fiber_name_offset = find_fiber_name_offset(debug_binary)
     if args.verbose:
         src = "DWARF" if args.fiber_name_offset is None else "--fiber-name-offset"
         print(f"[diag] @name offset:       {fiber_name_offset}  (from {src})")
