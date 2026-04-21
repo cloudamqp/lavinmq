@@ -62,7 +62,6 @@ struct key_t {
     u32 tid;
     u32 cpu;
     int user_stack_id;
-    int kernel_stack_id;
     char comm[TASK_COMM_LEN];
 };
 
@@ -71,8 +70,7 @@ struct fiber_name_t {
     char name[FIBER_NAME_LEN];
 };
 
-BPF_STACK_TRACE(user_stacks,    16384);
-BPF_STACK_TRACE(kernel_stacks,   8192);
+BPF_STACK_TRACE(user_stacks, 16384);
 BPF_HASH(counts, struct key_t, u64, 16384);
 
 /* Fiber uprobe map: tid → current Crystal fiber name */
@@ -92,8 +90,8 @@ int sample_stack(struct bpf_perf_event_data *ctx) {
     key.pid             = pid;
     key.tid             = tid;
     key.cpu             = bpf_get_smp_processor_id();
-    key.user_stack_id   = user_stacks.get_stackid(ctx,   BPF_F_USER_STACK | BPF_F_REUSE_STACKID);
-    key.kernel_stack_id = kernel_stacks.get_stackid(ctx, BPF_F_REUSE_STACKID);
+    key.user_stack_id   = user_stacks.get_stackid(ctx, BPF_F_USER_STACK | BPF_F_REUSE_STACKID);
+    key.kernel_stack_id = -1;
     bpf_get_current_comm(&key.comm, sizeof(key.comm));
 
     counts.increment(key);
@@ -310,7 +308,7 @@ def find_fiber_name_offset(binary):
                 if pending_class and re.search(r":\s*Fiber\s*$", line):
                     fiber_depth = current_depth
                     pending_class = False
-                elif fiber_depth is not None and re.search(r":\s*@name\s*$", line):
+                elif fiber_depth is not None and re.search(r":\s*@?name\s*$", line):
                     at_name_member = True
 
             if at_name_member and "DW_AT_data_member_location" in line:
@@ -380,15 +378,10 @@ def resolve_user_sym(b, addr, pid):
     return raw.decode("utf-8", errors="replace").lstrip("*")
 
 
-def resolve_ksym(b, addr):
-    raw = b.ksym(addr, show_module=False, show_offset=False)
-    return raw.decode("utf-8", errors="replace")
-
 
 def collect(b, pid, duration):
     b["counts"].clear()
     b["user_stacks"].clear()
-    b["kernel_stacks"].clear()
     # tid_to_fiber is NOT cleared — it persists across windows and reflects
     # the most recently resumed fiber on each thread.
 
@@ -403,14 +396,13 @@ def collect(b, pid, duration):
         for k, v in b["tid_to_fiber"].items()
     }
 
-    user_sym_counts   = defaultdict(int)
-    kernel_sym_counts = defaultdict(int)
+    user_sym_counts = defaultdict(int)
     thread_info = defaultdict(lambda: {
         "total": 0,
         "syms":  defaultdict(int),
         "cpus":  defaultdict(int),
         "comm":  "",
-        "fiber": "",
+        "fiber": None,  # None = uprobe hasn't fired for this TID yet
     })
 
     for key, count in b["counts"].items():
@@ -423,23 +415,17 @@ def collect(b, pid, duration):
                 user_sym = resolve_user_sym(b, frames[0], pid)
         user_sym_counts[user_sym] += n
 
-        if key.kernel_stack_id >= 0:
-            frames = list(b["kernel_stacks"].walk(key.kernel_stack_id))
-            if frames:
-                kernel_sym_counts[resolve_ksym(b, frames[0])] += n
-
         t = thread_info[key.tid]
         t["total"] += n
         t["syms"][user_sym] += n
         t["cpus"][key.cpu] += n
         if not t["comm"]:
             t["comm"] = key.comm.decode("utf-8", errors="replace").rstrip("\x00")
-        if not t["fiber"] and key.tid in tid_fiber:
-            t["fiber"] = tid_fiber[key.tid]
+        if t["fiber"] is None and key.tid in tid_fiber:
+            t["fiber"] = tid_fiber[key.tid]  # "" means unnamed fiber (uprobe fired, @name is nil)
 
     return {
         "user":    user_sym_counts,
-        "kernel":  kernel_sym_counts,
         "threads": thread_info,
     }
 
@@ -472,41 +458,27 @@ def render(data, pid, duration, freq, lines, has_uprobe):
 
     # ── Per-thread breakdown ──────────────────────────────────────────────────
     section("Per-Thread Breakdown")
-    if has_uprobe:
-        print(f"  {'TID':>8}  {'Fiber':<44}  {'Samples':>8}  {'CPU%':>5}  {'CPUs':>6}")
-        print("  " + "─" * 84)
-        for tid, info in sorted(data["threads"].items(), key=lambda x: x[1]["total"], reverse=True)[:lines]:
-            pct      = info["total"] / total * 100
-            cpu_list = ",".join(str(c) for c in sorted(info["cpus"]))
-            fiber    = info["fiber"] or info["comm"] or "?"
-            print(f"  {tid:>8}  {trunc(fiber, 44):<44}  {info['total']:>8,}  {pct:>4.1f}%  {cpu_list:>6}")
-    else:
-        print(f"  {'TID':>8}  {'Thread':<12}  {'Samples':>8}  {'CPU%':>5}  {'CPUs':>6}  {'Top Function':<36}")
-        print("  " + "─" * 86)
-        for tid, info in sorted(data["threads"].items(), key=lambda x: x[1]["total"], reverse=True)[:lines]:
-            pct      = info["total"] / total * 100
-            top_sym  = max(info["syms"], key=info["syms"].get)
-            cpu_list = ",".join(str(c) for c in sorted(info["cpus"]))
-            comm     = info["comm"] or "?"
-            print(
-                f"  {tid:>8}  {trunc(comm, 12):<12}  {info['total']:>8,}  {pct:>4.1f}%"
-                f"  {cpu_list:>6}  {trunc(top_sym, 36):<36}"
-            )
+    print(f"  {'TID':>8}  {'Fiber':<30}  {'Top Function':<28}  {'Samples':>8}  {'CPU%':>5}  {'CPUs':>6}")
+    print("  " + "─" * 96)
+    for tid, info in sorted(data["threads"].items(), key=lambda x: x[1]["total"], reverse=True)[:lines]:
+        pct      = info["total"] / total * 100
+        top_sym  = max(info["syms"], key=info["syms"].get) if info["syms"] else "?"
+        cpu_list = ",".join(str(c) for c in sorted(info["cpus"]))
 
-    # ── Kernel hot functions ──────────────────────────────────────────────────
-    section("Kernel Hot Functions  (samples caught inside a syscall)")
-    if data["kernel"]:
-        ksyms_total = sum(data["kernel"].values())
-        print(f"  {ksyms_total:,} of {total:,} samples ({ksyms_total/total*100:.1f}%) were inside a syscall\n")
-        print(f"  {'Rank':>4}  {'Kernel Function':<52}  {'Samples':>8}  {'CPU%':>5}  Bar")
-        print("  " + "─" * 82)
-        for i, (sym, count) in enumerate(
-            sorted(data["kernel"].items(), key=lambda x: x[1], reverse=True)[:lines], 1
-        ):
-            pct = count / total * 100
-            print(f"  {i:>4}  {trunc(sym, 52):<52}  {count:>8,}  {pct:>4.1f}%  {bar(pct)}")
-    else:
-        print(f"  {DIM}No kernel stack samples — all CPU time was in user space.{RESET}")
+        if has_uprobe:
+            if info["fiber"] is None:
+                fiber = info["comm"] or "?"  # uprobe never fired for this TID
+            elif info["fiber"]:
+                fiber = info["fiber"]         # named fiber
+            else:
+                fiber = "(unnamed)"           # uprobe fired, @name is nil
+        else:
+            fiber = info["comm"] or "?"
+
+        print(
+            f"  {tid:>8}  {trunc(fiber, 30):<30}  {trunc(top_sym, 28):<28}"
+            f"  {info['total']:>8,}  {pct:>4.1f}%  {cpu_list:>6}"
+        )
 
     print(f"\n  {DIM}{time.strftime('%Y-%m-%d %H:%M:%S')}  |  Ctrl+C to exit{RESET}", end="")
     if has_unknown:
