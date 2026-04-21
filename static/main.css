@@ -1444,7 +1444,7 @@ footer .logo {
 }
 
 .table-multihead {
-  box-shadow: inset -9px 0px 0px 0px var(--color-table-row-even),
+  box-shadow: inset -9px 0px 0px 0px var(--color-border-separator),
     inset -10px 0px 0px 0px var(--color-text-inverse);
 }
 
