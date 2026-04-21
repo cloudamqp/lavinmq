@@ -564,7 +564,9 @@ def cmd_top(args):
     # binaries, but only if its build-ID matches the running binary.
     debug_binary = find_debug_binary(binary)
 
-    resume_syms = find_syms(binary, "ExecutionContext", "#resume<Fiber>")
+    # Search for any execution context resume variant (Parallel, Isolated,
+    # MultiThreaded, etc.) — broaden to catch all scheduler implementations.
+    resume_syms = find_syms(binary, "#resume<Fiber>")
     get_addr, get_name = find_sym(binary, "Thread#current_fiber:")
 
     if debug_binary:
@@ -583,7 +585,7 @@ def cmd_top(args):
             debug_binary = None
         else:
             if not resume_syms:
-                resume_syms = find_syms(debug_binary, "ExecutionContext", "#resume<Fiber>")
+                resume_syms = find_syms(debug_binary, "#resume<Fiber>")
             if not get_addr:
                 get_addr, get_name = find_sym(debug_binary, "Thread#current_fiber:")
 
