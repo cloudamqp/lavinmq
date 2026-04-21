@@ -19,7 +19,7 @@ A resource efficient message queue server implementing the AMQP protocol
 %check
 
 %build
-make
+make CRYSTAL_FLAGS="--debug --release"
 
 %install
 make install DESTDIR=%{buildroot} UNITDIR=%{_unitdir}

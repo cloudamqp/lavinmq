@@ -6,5 +6,11 @@ export TZ=UTC
 %:
 	dh $@
 
+override_dh_auto_build:
+	$(MAKE) bin/lavinmq.dbg bin/lavinmqctl bin/lavinmqperf man
+
+execute_after_dh_auto_install:
+	$(MAKE) install-dbg DESTDIR=$(CURDIR)/debian/lavinmq-dbg
+
 execute_after_dh_installsystemd:
 	dh_installsysusers

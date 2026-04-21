@@ -27,6 +27,14 @@ bin/%-debug: src/%.cr $(SOURCES) lib $(JS) $(DOCS) | bin
 bin/lavinmq-debug: src/lavinmq.cr $(SOURCES) $(VIEW_SOURCES) $(VIEW_PARTIALS) lib $(JS) $(DOCS) | bin
 	crystal build $< -o $@ --debug $(CRYSTAL_FLAGS)
 
+# Build lavinmq with DWARF, extract to .dbg, strip the installed binary.
+# Used by lavinmq-dbg / lavinmq-debuginfo packaging targets.
+bin/lavinmq.dbg: src/lavinmq.cr $(SOURCES) $(VIEW_SOURCES) $(VIEW_PARTIALS) lib $(JS) $(DOCS) | bin
+	crystal build $< -o bin/lavinmq --debug $(CRYSTAL_FLAGS)
+	objcopy --only-keep-debug bin/lavinmq $@
+	objcopy --strip-debug --add-gnu-debuglink=$@ bin/lavinmq
+	chmod a-x $@
+
 bin/lavinmqctl: src/lavinmqctl.cr $(CTL_SOURCES) lib | bin
 	crystal build $< -o $@ -Dgc_none $(CRYSTAL_FLAGS)
 
@@ -110,6 +118,7 @@ format:
 DESTDIR :=
 PREFIX := /usr
 BINDIR := $(PREFIX)/bin
+DEBUGDIR := /usr/lib/debug
 DOCDIR := $(PREFIX)/share/doc
 MANDIR := $(PREFIX)/share/man
 SYSCONFDIR := /etc
@@ -129,6 +138,11 @@ install: $(BINS) $(MANPAGES) extras/lavinmq.ini extras/lavinmq.service extras/la
 	install -D -m 0644 CHANGELOG.md $(DESTDIR)$(DOCDIR)/lavinmq/changelog
 	install -d -m 0750 $(DESTDIR)$(SHAREDSTATEDIR)/lavinmq
 
+.PHONY: install-dbg
+install-dbg: bin/lavinmq.dbg
+	install -D -m 0644 bin/lavinmq.dbg \
+		$(DESTDIR)$(DEBUGDIR)$(BINDIR)/lavinmq.debug
+
 .PHONY: uninstall
 uninstall:
 	$(RM) $(DESTDIR)$(BINDIR)/lavinmq{,ctl,perf,diagnostics}
@@ -146,7 +160,7 @@ rpm:
 
 .PHONY: clean
 clean:
-	$(RM) $(BINS) $(DOCS) $(MANPAGES) $(VIEW_TARGETS)
+	$(RM) $(BINS) bin/lavinmq.dbg $(DOCS) $(MANPAGES) $(VIEW_TARGETS)
 
 .PHONY: watch
 watch:

@@ -177,6 +177,42 @@ def find_fiber_resume_sym(binary):
     return candidates[0]
 
 
+def find_debug_binary(binary):
+    """Locate the split debug file for binary, following standard Linux conventions.
+
+    Checks in order:
+      1. binary.debug / binary.dbg  alongside the binary  (dev / install-dbg)
+      2. /usr/lib/debug/<binary_path>.debug               (Debian dh_strip / RPM find-debuginfo)
+      3. /usr/lib/debug/.build-id/xx/yyyyyy.debug         (build-ID symlink, both distros)
+
+    Returns the path string, or None if not found.
+    """
+    for suffix in (".debug", ".dbg"):
+        path = binary + suffix
+        if os.path.exists(path):
+            return path
+
+    for suffix in (".debug", ".dbg"):
+        path = f"/usr/lib/debug{binary}{suffix}"
+        if os.path.exists(path):
+            return path
+
+    try:
+        out = subprocess.check_output(
+            ["readelf", "-n", binary],
+            stderr=subprocess.DEVNULL,
+        ).decode(errors="replace")
+        m = re.search(r"Build ID:\s*([0-9a-f]{2})([0-9a-f]+)", out)
+        if m:
+            path = f"/usr/lib/debug/.build-id/{m.group(1)}/{m.group(2)}.debug"
+            if os.path.exists(path):
+                return path
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pass
+
+    return None
+
+
 def find_fiber_name_offset(binary):
     """Parse DWARF debug info to find the byte offset of @name in Crystal::Fiber.
 
@@ -407,8 +443,10 @@ def render(data, pid, duration, freq, lines, has_uprobe):
     print(f"\n  {DIM}{time.strftime('%Y-%m-%d %H:%M:%S')}  |  Ctrl+C to exit{RESET}", end="")
     if has_unknown:
         print(
-            f"\n\n  {DIM}Note: '[unknown]' symbols — rebuild with debug info:\n"
-            f"  make bin/lavinmq CRYSTAL_FLAGS=--debug{RESET}",
+            f"\n\n  {DIM}Note: '[unknown]' symbols — install debug info:\n"
+            f"    apt install lavinmq-dbg        # Debian/Ubuntu\n"
+            f"    dnf install lavinmq-debuginfo  # RHEL/Fedora\n"
+            f"    make bin/lavinmq.dbg           # from source{RESET}",
             end="",
         )
     print()
@@ -428,15 +466,25 @@ def cmd_top(args):
     fiber_sym_addr, fiber_sym_name = find_fiber_resume_sym(binary)
 
     fiber_name_offset = args.fiber_name_offset
+    debug_binary = None
     if fiber_name_offset is None:
         fiber_name_offset = find_fiber_name_offset(binary)
         if fiber_name_offset is None:
+            debug_binary = find_debug_binary(binary)
+            if debug_binary:
+                fiber_name_offset = find_fiber_name_offset(debug_binary)
+        if fiber_name_offset is None:
             print(
-                f"{DIM}Warning: could not determine @name offset from DWARF "
-                f"(binary may lack debug info).\n"
-                f"  Fiber uprobe disabled. Pass --fiber-name-offset N to enable.\n"
-                f"  Or rebuild: make bin/lavinmq CRYSTAL_FLAGS=--debug{RESET}"
+                f"{DIM}Warning: could not determine @name offset from DWARF.\n"
+                f"  Fiber uprobe disabled. Options to enable:\n"
+                f"    apt install lavinmq-dbg          # Debian/Ubuntu\n"
+                f"    dnf install lavinmq-debuginfo    # RHEL/Fedora\n"
+                f"    make bin/lavinmq.dbg             # from source\n"
+                f"    --fiber-name-offset N            # manual override{RESET}"
             )
+
+    if fiber_sym_addr is None and debug_binary:
+        fiber_sym_addr, fiber_sym_name = find_fiber_resume_sym(debug_binary)
 
     has_uprobe = fiber_sym_addr is not None and fiber_name_offset is not None
 
