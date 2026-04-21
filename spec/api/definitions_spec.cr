@@ -98,6 +98,33 @@ describe LavinMQ::GlobalDefinitions do
       end
     end
 
+    it "preserves admin permissions from definitions file on fresh boot" do
+      defs = {
+        "users" => [
+          {"name" => "myadmin", "password_hash" => "+pHuxkR9fCyrrwXjOD4BP4XbzO3l8LJr8YkThMgJ0yVHFRE+",
+           "hashing_algorithm" => "rabbit_password_hashing_sha256", "tags" => "administrator"},
+        ],
+        "vhosts"      => [{"name" => "restricted_vh"}],
+        "permissions" => [
+          {"user" => "myadmin", "vhost" => "restricted_vh",
+           "configure" => "^only$", "read" => "^only$", "write" => "^only$"},
+        ],
+      }
+      tmpfile = File.tempname("lavinmq-defs", ".json")
+      File.write(tmpfile, defs.to_json)
+      begin
+        with_amqp_server do |s|
+          LavinMQ::GlobalDefinitions.import_from_file(tmpfile, s)
+          perms = s.users["myadmin"].permissions["restricted_vh"]
+          perms[:config].should eq(/^only$/)
+          perms[:read].should eq(/^only$/)
+          perms[:write].should eq(/^only$/)
+        end
+      ensure
+        File.delete?(tmpfile)
+      end
+    end
+
     it "skips permissions for unknown users without crashing" do
       defs = {
         "permissions" => [

@@ -371,8 +371,8 @@ module LavinMQ
 
     def import(body, skip_existing = false)
       import_users(body, skip_existing)
-      import_vhosts(body)
       import_permissions(body, skip_existing)
+      import_vhosts(body)
       import_queues(body)
       import_exchanges(body)
       import_bindings(body)
