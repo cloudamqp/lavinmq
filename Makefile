@@ -120,6 +120,7 @@ SHAREDSTATEDIR := /var/lib
 .PHONY: install
 install: $(BINS) $(MANPAGES) extras/lavinmq.ini extras/lavinmq.service extras/lavinmq.sysusers README.md CHANGELOG.md NOTICE
 	install -D -m 0755 -t $(DESTDIR)$(BINDIR) $(BINS)
+	install -D -m 0755 tools/lavinmq-diagnostics $(DESTDIR)$(BINDIR)/lavinmq-diagnostics
 	install -D -m 0644 -t $(DESTDIR)$(MANDIR)/man1 $(MANPAGES)
 	install -D -m 0644 extras/lavinmq.ini $(DESTDIR)$(SYSCONFDIR)/lavinmq/lavinmq.ini
 	install -D -m 0644 extras/lavinmq.service $(DESTDIR)$(UNITDIR)/lavinmq.service
@@ -130,7 +131,7 @@ install: $(BINS) $(MANPAGES) extras/lavinmq.ini extras/lavinmq.service extras/la
 
 .PHONY: uninstall
 uninstall:
-	$(RM) $(DESTDIR)$(BINDIR)/lavinmq{,ctl,perf}
+	$(RM) $(DESTDIR)$(BINDIR)/lavinmq{,ctl,perf,diagnostics}
 	$(RM) $(DESTDIR)$(MANDIR)/man1/lavinmq{,ctl,perf}.1
 	$(RM) $(DESTDIR)$(SYSCONFDIR)/lavinmq/lavinmq.ini
 	$(RM) $(DESTDIR)$(UNITDIR)/lavinmq.service

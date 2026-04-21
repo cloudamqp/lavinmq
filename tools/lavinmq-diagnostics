@@ -1,0 +1,218 @@
+#!/usr/bin/env python3
+"""
+lavinmq-diagnostics top — CPU hot functions for LavinMQ
+
+Uses BPF perf event sampling to capture user-space stack traces of the
+LavinMQ process and shows which functions spend the most time on CPU.
+
+Requires: python3-bpfcc (Debian/Ubuntu) or bcc-tools (RHEL/Fedora)
+          CAP_BPF + CAP_PERFMON, or kernel.perf_event_paranoid <= 1
+          LavinMQ built with debug info for readable symbol names
+"""
+
+import argparse
+import os
+import subprocess
+import sys
+import time
+
+try:
+    from bcc import BPF, PerfType, PerfSWConfig
+except ImportError:
+    sys.exit(
+        "Error: python3-bpfcc is not installed.\n"
+        "  Debian/Ubuntu: apt install python3-bpfcc\n"
+        "  RHEL/Fedora:   dnf install bcc-tools"
+    )
+
+# BPF program: attach to CPU clock perf event, record user-space stack IDs
+BPF_PROGRAM = r"""
+#include <uapi/linux/ptrace.h>
+
+BPF_STACK_TRACE(stack_traces, 16384);
+BPF_HASH(counts, u32, u64, 16384);
+
+int sample_stack(struct bpf_perf_event_data *ctx) {
+    u32 pid = bpf_get_current_pid_tgid() >> 32;
+    if (TARGET_PID && pid != (u32)TARGET_PID)
+        return 0;
+    u32 stack_id = stack_traces.get_stackid(ctx, BPF_F_USER_STACK | BPF_F_REUSE_STACKID);
+    if ((int)stack_id >= 0)
+        counts.increment(stack_id);
+    return 0;
+}
+"""
+
+
+def find_pid(args):
+    if args.pid:
+        return args.pid
+
+    pidfile = args.pidfile
+    if pidfile and os.path.exists(pidfile):
+        try:
+            return int(open(pidfile).read().strip())
+        except (ValueError, OSError):
+            pass
+
+    try:
+        out = subprocess.check_output(["pgrep", "-x", "lavinmq"], stderr=subprocess.DEVNULL)
+        pids = out.decode().strip().split()
+        if len(pids) == 1:
+            return int(pids[0])
+        if len(pids) > 1:
+            sys.exit(
+                f"Error: multiple lavinmq processes found: {', '.join(pids)}\n"
+                "Use --pid to specify which one."
+            )
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pass
+
+    sys.exit(
+        "Error: lavinmq process not found.\n"
+        "Is it running? Use --pid PID or --pidfile PATH to specify."
+    )
+
+
+def check_permissions():
+    if os.geteuid() == 0:
+        return
+    try:
+        paranoid = int(open("/proc/sys/kernel/perf_event_paranoid").read().strip())
+    except (OSError, ValueError):
+        sys.exit("Error: cannot read perf_event_paranoid. Run as root or grant CAP_BPF + CAP_PERFMON.")
+    if paranoid > 1:
+        sys.exit(
+            f"Error: kernel.perf_event_paranoid={paranoid} (must be <= 1 for unprivileged BPF profiling).\n"
+            "Fix:  sudo sysctl -w kernel.perf_event_paranoid=1\n"
+            "  or: run lavinmq-diagnostics as root."
+        )
+
+
+def collect(b, pid, duration):
+    b["counts"].clear()
+    b["stack_traces"].clear()
+
+    deadline = time.monotonic() + duration
+    while time.monotonic() < deadline:
+        if not os.path.exists(f"/proc/{pid}"):
+            sys.exit(f"\nProcess {pid} exited during sampling.")
+        time.sleep(0.5)
+
+    func_counts = {}
+    for stack_id, count in b["counts"].items():
+        frames = list(b["stack_traces"].walk(stack_id.value))
+        if not frames:
+            continue
+        sym = b.sym(frames[0], pid, show_module=False, show_offset=False)
+        name = sym.decode("utf-8", errors="replace").lstrip("*")
+        func_counts[name] = func_counts.get(name, 0) + count.value
+
+    return func_counts
+
+
+def render(func_counts, pid, duration, freq, lines):
+    total = sum(func_counts.values()) or 1
+    ranked = sorted(func_counts.items(), key=lambda x: x[1], reverse=True)[:lines]
+
+    print("\033[H\033[2J", end="")
+    print(
+        f"\033[1mLavinMQ CPU Hot Functions\033[0m"
+        f" — PID {pid}"
+        f" — {duration}s @ {freq}Hz"
+        f" — {total:,} samples\n"
+    )
+    print(f"  {'Rank':>4}  {'Function':<58}  {'Samples':>8}  {'CPU%':>5}  Bar")
+    print("  " + "─" * 90)
+
+    for i, (func, count) in enumerate(ranked, 1):
+        pct = count / total * 100
+        bar = "█" * int(pct / 2)
+        # Truncate long names with ellipsis
+        display = func if len(func) <= 58 else func[:55] + "..."
+        print(f"  {i:>4}  {display:<58}  {count:>8,}  {pct:>4.1f}%  {bar}")
+
+    print(f"\n  {time.strftime('%Y-%m-%d %H:%M:%S')}  |  Ctrl+C to exit", end="")
+    if ranked and ranked[0][0].startswith("[unknown]"):
+        print(
+            "\n\n  Note: '[unknown]' symbols mean debug info is missing.\n"
+            "  Build with: make bin/lavinmq CRYSTAL_FLAGS=--debug",
+            end="",
+        )
+    print()
+
+
+def cmd_top(args):
+    check_permissions()
+    pid = find_pid(args)
+
+    if not os.path.exists(f"/proc/{pid}"):
+        sys.exit(f"Error: no process with PID {pid}.")
+
+    prog = BPF_PROGRAM.replace("TARGET_PID", str(pid))
+    b = BPF(text=prog)
+    b.attach_perf_event(
+        ev_type=PerfType.SOFTWARE,
+        ev_config=PerfSWConfig.CPU_CLOCK,
+        fn_name="sample_stack",
+        sample_freq=args.freq,
+    )
+
+    print(f"Sampling PID {pid} at {args.freq} Hz for {args.duration}s ...")
+
+    try:
+        while True:
+            func_counts = collect(b, pid, args.duration)
+            render(func_counts, pid, args.duration, args.freq, args.lines)
+            if not args.watch:
+                break
+    except KeyboardInterrupt:
+        print("\nDetaching.")
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        prog="lavinmq-diagnostics",
+        description="Diagnostics tools for LavinMQ",
+    )
+    subparsers = parser.add_subparsers(dest="command", metavar="COMMAND")
+    subparsers.required = True
+
+    top = subparsers.add_parser(
+        "top",
+        help="show CPU hot functions using BPF stack sampling",
+    )
+    top.add_argument(
+        "--pid", type=int, default=None, metavar="PID",
+        help="target PID (default: auto-detect via pgrep or pidfile)",
+    )
+    top.add_argument(
+        "--pidfile", metavar="PATH",
+        default="/var/run/lavinmq/lavinmq.pid",
+        help="path to LavinMQ pidfile (default: /var/run/lavinmq/lavinmq.pid)",
+    )
+    top.add_argument(
+        "--duration", type=int, default=5, metavar="SECS",
+        help="sampling window in seconds (default: 5)",
+    )
+    top.add_argument(
+        "--freq", type=int, default=99, metavar="HZ",
+        help="sampling frequency in Hz (default: 99)",
+    )
+    top.add_argument(
+        "--lines", type=int, default=20, metavar="N",
+        help="number of top functions to display (default: 20)",
+    )
+    top.add_argument(
+        "--watch", action="store_true",
+        help="re-sample continuously until Ctrl+C",
+    )
+
+    args = parser.parse_args()
+
+    if args.command == "top":
+        cmd_top(args)
+
+
+if __name__ == "__main__":
+    main()
