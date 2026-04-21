@@ -2,27 +2,32 @@
 """
 lavinmq-diagnostics top — CPU hot functions for LavinMQ
 
-Per sample the BPF program captures:
-  • user-space call stack  (what Crystal code was on CPU)
-  • kernel call stack      (which syscall was in flight, if any)
-  • TID                    (which OS thread / fiber scheduler thread)
-  • CPU core index
-  • comm                   (OS thread name, e.g. "Worker #0")
+Two BPF programs run simultaneously:
 
-Additionally, the script fetches LavinMQ's /api/diagnostics/fibers endpoint
-to list live fibers by name, which reveals which queues, exchanges, shovels
-and connections are active at sample time.
+  1. perf CPU clock sampler (99 Hz)
+     Captures: user stack, kernel stack, TID, CPU core, OS thread name.
+
+  2. uprobe on Crystal::Fiber#resume
+     On every fiber context switch, reads self->@name (the Crystal fiber name)
+     and writes it into a tid_to_fiber map keyed by TID.
+     Combined with (1) this gives exact TID → queue/connection attribution.
+
+Crystal fiber names in LavinMQ identify the workload directly:
+  "Consumer vhost=default queue=orders"
+  "Queue#message_expire_loop default/orders"
+  "Shovel name=cross-dc vhost=default"
+
+The @name field offset in Crystal::Fiber is extracted from DWARF at startup.
+Pass --fiber-name-offset N to override when the binary lacks debug info.
 
 Requires: python3-bpfcc (Debian/Ubuntu) or bcc-tools (RHEL/Fedora)
           CAP_BPF + CAP_PERFMON, or kernel.perf_event_paranoid <= 1
-          LavinMQ built with debug info for readable symbol names
+          LavinMQ built with debug info (make bin/lavinmq CRYSTAL_FLAGS=--debug)
 """
 
 import argparse
-import http.client
-import json
 import os
-import socket
+import re
 import subprocess
 import sys
 import time
@@ -37,13 +42,18 @@ except ImportError:
         "  RHEL/Fedora:   dnf install bcc-tools"
     )
 
-# Each sample records: pid, tid, cpu, both stack IDs, and the OS thread name.
-# The comm field (16 bytes) holds the kernel thread name at sample time —
-# currently Crystal worker threads are named "Worker #N", but if Crystal or
-# LavinMQ propagates fiber names to the OS thread via prctl, this becomes
-# a direct queue/connection identifier at zero cost.
+# Crystal String object layout (Crystal 1.x):
+#   +0  @bytesize : Int32  (4 bytes)
+#   +4  @length   : Int32  (Unicode codepoint count, 4 bytes)
+#   +8  content            (null-terminated byte array)
+CRYSTAL_STRING_CONTENT_OFFSET = 8
+
 BPF_PROGRAM = r"""
 #include <uapi/linux/ptrace.h>
+
+#define FIBER_NAME_LEN 64
+
+/* ── Shared maps ──────────────────────────────────────────────────────────── */
 
 struct key_t {
     u32 pid;
@@ -51,12 +61,17 @@ struct key_t {
     u32 cpu;
     int user_stack_id;
     int kernel_stack_id;
-    char comm[TASK_COMM_LEN];  /* OS thread name, max 16 bytes */
+    char comm[TASK_COMM_LEN];
 };
 
 BPF_STACK_TRACE(user_stacks,    16384);
 BPF_STACK_TRACE(kernel_stacks,   8192);
 BPF_HASH(counts, struct key_t, u64, 16384);
+
+/* Fiber uprobe map: tid → current Crystal fiber name */
+BPF_HASH(tid_to_fiber, u32, char[FIBER_NAME_LEN], 1024);
+
+/* ── CPU clock sampler ────────────────────────────────────────────────────── */
 
 int sample_stack(struct bpf_perf_event_data *ctx) {
     u64 id  = bpf_get_current_pid_tgid();
@@ -77,20 +92,45 @@ int sample_stack(struct bpf_perf_event_data *ctx) {
     counts.increment(key);
     return 0;
 }
+
+/* ── Fiber resume uprobe ──────────────────────────────────────────────────── */
+/*                                                                              */
+/* Attached to Crystal::Fiber#resume.  self (rdi / x0) is the Fiber object    */
+/* being resumed.  We read its @name field and store it in tid_to_fiber so     */
+/* that the CPU sampler can attribute hot TIDs to specific queues/connections. */
+/*                                                                              */
+/* String? is stored as a raw pointer: 0 = nil, else → Crystal String object.  */
+
+int on_fiber_resume(struct pt_regs *ctx) {
+    u64 id  = bpf_get_current_pid_tgid();
+    u32 pid = id >> 32;
+    u32 tid = (u32)id;
+
+    if (TARGET_PID && pid != (u32)TARGET_PID)
+        return 0;
+
+    u64 fiber = (u64)PT_REGS_PARM1(ctx);
+
+    u64 name_ptr = 0;
+    bpf_probe_read_user(&name_ptr, sizeof(name_ptr),
+                        (void *)(fiber + FIBER_NAME_OFFSET));
+
+    char name[FIBER_NAME_LEN] = {};
+    if (name_ptr) {
+        /* Crystal String: +0 bytesize(i32) +4 length(i32) +8 content(bytes) */
+        bpf_probe_read_user_str(name, FIBER_NAME_LEN,
+                                (void *)(name_ptr + STRING_CONTENT_OFFSET));
+    }
+
+    tid_to_fiber.update(&tid, &name);
+    return 0;
+}
 """
 
-BOLD  = "\033[1m"
+BOLD = "\033[1m"
 RESET = "\033[0m"
-DIM   = "\033[2m"
-CYAN  = "\033[36m"
-
-FIBER_CATEGORIES = [
-    ("Queue consumers",    lambda n: n.startswith("Consumer vhost=")),
-    ("Queue maintenance",  lambda n: n.startswith("Queue#")),
-    ("Connections",        lambda n: n.startswith("AMQP") or n.startswith("MQTT")),
-    ("Shovels",            lambda n: n.startswith("Shovel")),
-    ("Federation",         lambda n: n.startswith("Federation")),
-]
+DIM  = "\033[2m"
+CYAN = "\033[36m"
 
 
 def trunc(s, n):
@@ -105,6 +145,85 @@ def section(title):
     pad = "─" * max(0, 74 - len(title))
     print(f"\n{BOLD}{CYAN}── {title} {pad}{RESET}")
 
+
+# ── Binary / symbol helpers ───────────────────────────────────────────────────
+
+def binary_for_pid(pid):
+    return os.readlink(f"/proc/{pid}/exe")
+
+
+def find_fiber_resume_sym(binary):
+    """Return (address, mangled_name) of Crystal::Fiber#resume, or (None, None)."""
+    try:
+        out = subprocess.check_output(
+            ["nm", "--defined-only", "-p", binary],
+            stderr=subprocess.DEVNULL,
+        ).decode(errors="replace")
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return None, None
+
+    candidates = []
+    for line in out.splitlines():
+        parts = line.split(None, 2)
+        if len(parts) < 3 or parts[1] not in ("T", "t"):
+            continue
+        sym = parts[2]
+        if "Fiber#resume" in sym:
+            candidates.append((int(parts[0], 16), sym))
+
+    if not candidates:
+        return None, None
+    candidates.sort(key=lambda x: len(x[1]))
+    return candidates[0]
+
+
+def find_fiber_name_offset(binary):
+    """Parse DWARF debug info to find the byte offset of @name in Crystal::Fiber.
+
+    Streams readelf output to avoid loading the full debug section into memory.
+    Returns an int offset, or None if DWARF is unavailable or parsing fails.
+    """
+    try:
+        proc = subprocess.Popen(
+            ["readelf", "--debug-dump=info", binary],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            text=True, bufsize=65536,
+        )
+    except FileNotFoundError:
+        return None
+
+    in_fiber_class = False
+    at_name_member = False
+    result = None
+
+    try:
+        for line in proc.stdout:
+            if "DW_TAG_" in line:
+                if "DW_TAG_class_type" in line or "DW_TAG_structure_type" in line:
+                    in_fiber_class = False
+                    at_name_member = False
+                elif "DW_TAG_member" in line:
+                    at_name_member = False
+
+            if "DW_AT_name" in line:
+                if not in_fiber_class and re.search(r":\s*Crystal::Fiber\s*$", line):
+                    in_fiber_class = True
+                elif in_fiber_class and re.search(r":\s*@name\s*$", line):
+                    at_name_member = True
+
+            if at_name_member and "DW_AT_data_member_location" in line:
+                m = re.search(r":\s*(\d+)\s*$", line.strip())
+                if m:
+                    result = int(m.group(1))
+                    break
+    finally:
+        proc.kill()
+        proc.wait()
+
+    return result
+
+
+# ── Process helpers ───────────────────────────────────────────────────────────
 
 def find_pid(args):
     if args.pid:
@@ -144,41 +263,13 @@ def check_permissions():
         sys.exit("Error: cannot read perf_event_paranoid. Run as root or grant CAP_BPF + CAP_PERFMON.")
     if paranoid > 1:
         sys.exit(
-            f"Error: kernel.perf_event_paranoid={paranoid} (must be <= 1 for unprivileged BPF profiling).\n"
+            f"Error: kernel.perf_event_paranoid={paranoid} (must be <= 1).\n"
             "Fix:  sudo sysctl -w kernel.perf_event_paranoid=1\n"
             "  or: run lavinmq-diagnostics as root."
         )
 
 
-INTERNAL_UNIX_SOCKET = "/tmp/lavinmqctl.sock"
-
-
-class _UnixSocketHTTPConnection(http.client.HTTPConnection):
-    """HTTP connection over a UNIX domain socket (no auth required)."""
-    def __init__(self, socket_path):
-        super().__init__("localhost")
-        self._socket_path = socket_path
-
-    def connect(self):
-        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        self.sock.settimeout(self.timeout)
-        self.sock.connect(self._socket_path)
-
-
-def fetch_fibers():
-    """Fetch live fiber list via the internal UNIX socket (no auth required)."""
-    if not os.path.exists(INTERNAL_UNIX_SOCKET):
-        return None
-    try:
-        conn = _UnixSocketHTTPConnection(INTERNAL_UNIX_SOCKET)
-        conn.request("GET", "/api/diagnostics/fibers")
-        resp = conn.getresponse()
-        if resp.status == 200:
-            return json.loads(resp.read())
-    except OSError:
-        pass
-    return None
-
+# ── BPF collection ────────────────────────────────────────────────────────────
 
 def resolve_user_sym(b, addr, pid):
     raw = b.sym(addr, pid, show_module=False, show_offset=False)
@@ -194,6 +285,8 @@ def collect(b, pid, duration):
     b["counts"].clear()
     b["user_stacks"].clear()
     b["kernel_stacks"].clear()
+    # tid_to_fiber is NOT cleared — it persists across windows and reflects
+    # the most recently resumed fiber on each thread.
 
     deadline = time.monotonic() + duration
     while time.monotonic() < deadline:
@@ -201,11 +294,20 @@ def collect(b, pid, duration):
             sys.exit(f"\nProcess {pid} exited during sampling.")
         time.sleep(0.5)
 
+    tid_fiber = {
+        k.value: v.decode("utf-8", errors="replace").rstrip("\x00")
+        for k, v in b["tid_to_fiber"].items()
+    }
+
     user_sym_counts   = defaultdict(int)
     kernel_sym_counts = defaultdict(int)
-    # tid → {"total": int, "syms": {sym: n}, "cpus": {cpu: n}, "comm": str}
-    thread_info = defaultdict(lambda: {"total": 0, "syms": defaultdict(int),
-                                       "cpus": defaultdict(int), "comm": ""})
+    thread_info = defaultdict(lambda: {
+        "total": 0,
+        "syms":  defaultdict(int),
+        "cpus":  defaultdict(int),
+        "comm":  "",
+        "fiber": "",
+    })
 
     for key, count in b["counts"].items():
         n = count.value
@@ -228,6 +330,8 @@ def collect(b, pid, duration):
         t["cpus"][key.cpu] += n
         if not t["comm"]:
             t["comm"] = key.comm.decode("utf-8", errors="replace").rstrip("\x00")
+        if not t["fiber"] and key.tid in tid_fiber:
+            t["fiber"] = tid_fiber[key.tid]
 
     return {
         "user":    user_sym_counts,
@@ -236,7 +340,9 @@ def collect(b, pid, duration):
     }
 
 
-def render(data, fibers, pid, duration, freq, lines):
+# ── Rendering ─────────────────────────────────────────────────────────────────
+
+def render(data, pid, duration, freq, lines, has_uprobe):
     total = sum(data["user"].values()) or 1
     has_unknown = False
 
@@ -262,24 +368,32 @@ def render(data, fibers, pid, duration, freq, lines):
 
     # ── Per-thread breakdown ──────────────────────────────────────────────────
     section("Per-Thread Breakdown")
-    print(f"  {'TID':>8}  {'Thread':<12}  {'Samples':>8}  {'CPU%':>5}  {'CPUs':>6}  {'Top Function':<38}")
-    print("  " + "─" * 90)
-    for tid, info in sorted(data["threads"].items(), key=lambda x: x[1]["total"], reverse=True)[:lines]:
-        pct      = info["total"] / total * 100
-        top_sym  = max(info["syms"], key=info["syms"].get)
-        cpu_list = ",".join(str(c) for c in sorted(info["cpus"]))
-        comm     = info["comm"] or "?"
-        print(
-            f"  {tid:>8}  {trunc(comm, 12):<12}  {info['total']:>8,}  {pct:>4.1f}%"
-            f"  {cpu_list:>6}  {trunc(top_sym, 38):<38}"
-        )
+    if has_uprobe:
+        print(f"  {'TID':>8}  {'Fiber':<44}  {'Samples':>8}  {'CPU%':>5}  {'CPUs':>6}")
+        print("  " + "─" * 84)
+        for tid, info in sorted(data["threads"].items(), key=lambda x: x[1]["total"], reverse=True)[:lines]:
+            pct      = info["total"] / total * 100
+            cpu_list = ",".join(str(c) for c in sorted(info["cpus"]))
+            fiber    = info["fiber"] or info["comm"] or "?"
+            print(f"  {tid:>8}  {trunc(fiber, 44):<44}  {info['total']:>8,}  {pct:>4.1f}%  {cpu_list:>6}")
+    else:
+        print(f"  {'TID':>8}  {'Thread':<12}  {'Samples':>8}  {'CPU%':>5}  {'CPUs':>6}  {'Top Function':<36}")
+        print("  " + "─" * 86)
+        for tid, info in sorted(data["threads"].items(), key=lambda x: x[1]["total"], reverse=True)[:lines]:
+            pct      = info["total"] / total * 100
+            top_sym  = max(info["syms"], key=info["syms"].get)
+            cpu_list = ",".join(str(c) for c in sorted(info["cpus"]))
+            comm     = info["comm"] or "?"
+            print(
+                f"  {tid:>8}  {trunc(comm, 12):<12}  {info['total']:>8,}  {pct:>4.1f}%"
+                f"  {cpu_list:>6}  {trunc(top_sym, 36):<36}"
+            )
 
     # ── Kernel hot functions ──────────────────────────────────────────────────
     section("Kernel Hot Functions  (samples caught inside a syscall)")
     if data["kernel"]:
         ksyms_total = sum(data["kernel"].values())
-        pct_in_kernel = ksyms_total / total * 100
-        print(f"  {ksyms_total:,} of {total:,} samples ({pct_in_kernel:.1f}%) were inside a syscall\n")
+        print(f"  {ksyms_total:,} of {total:,} samples ({ksyms_total/total*100:.1f}%) were inside a syscall\n")
         print(f"  {'Rank':>4}  {'Kernel Function':<52}  {'Samples':>8}  {'CPU%':>5}  Bar")
         print("  " + "─" * 82)
         for i, (sym, count) in enumerate(
@@ -289,28 +403,6 @@ def render(data, fibers, pid, duration, freq, lines):
             print(f"  {i:>4}  {trunc(sym, 52):<52}  {count:>8,}  {pct:>4.1f}%  {bar(pct)}")
     else:
         print(f"  {DIM}No kernel stack samples — all CPU time was in user space.{RESET}")
-
-    # ── Active LavinMQ fibers ─────────────────────────────────────────────────
-    section("Active LavinMQ Fibers")
-    if fibers is None:
-        print(f"  {DIM}Unavailable — {INTERNAL_UNIX_SOCKET} not found or not responding.{RESET}")
-        print(f"  {DIM}Is LavinMQ running on this host?{RESET}")
-    else:
-        names = [f["name"] for f in fibers]
-        printed = set()
-        for label, predicate in FIBER_CATEGORIES:
-            matches = [n for n in names if predicate(n)]
-            if not matches:
-                continue
-            print(f"\n  {BOLD}{label} ({len(matches)}){RESET}")
-            for name in sorted(matches)[:lines]:
-                print(f"    {name}")
-                printed.add(name)
-        other = [n for n in names if n not in printed]
-        if other:
-            print(f"\n  {BOLD}Other ({len(other)}){RESET}")
-            for name in sorted(other)[:lines]:
-                print(f"    {name}")
 
     print(f"\n  {DIM}{time.strftime('%Y-%m-%d %H:%M:%S')}  |  Ctrl+C to exit{RESET}", end="")
     if has_unknown:
@@ -322,6 +414,8 @@ def render(data, fibers, pid, duration, freq, lines):
     print()
 
 
+# ── Command ───────────────────────────────────────────────────────────────────
+
 def cmd_top(args):
     check_permissions()
     pid = find_pid(args)
@@ -329,8 +423,31 @@ def cmd_top(args):
     if not os.path.exists(f"/proc/{pid}"):
         sys.exit(f"Error: no process with PID {pid}.")
 
-    prog = BPF_PROGRAM.replace("TARGET_PID", str(pid))
+    binary = binary_for_pid(pid)
+
+    fiber_sym_addr, fiber_sym_name = find_fiber_resume_sym(binary)
+
+    fiber_name_offset = args.fiber_name_offset
+    if fiber_name_offset is None:
+        fiber_name_offset = find_fiber_name_offset(binary)
+        if fiber_name_offset is None:
+            print(
+                f"{DIM}Warning: could not determine @name offset from DWARF "
+                f"(binary may lack debug info).\n"
+                f"  Fiber uprobe disabled. Pass --fiber-name-offset N to enable.\n"
+                f"  Or rebuild: make bin/lavinmq CRYSTAL_FLAGS=--debug{RESET}"
+            )
+
+    has_uprobe = fiber_sym_addr is not None and fiber_name_offset is not None
+
+    prog = (
+        BPF_PROGRAM
+        .replace("TARGET_PID",            str(pid))
+        .replace("FIBER_NAME_OFFSET",     str(fiber_name_offset or 0))
+        .replace("STRING_CONTENT_OFFSET", str(CRYSTAL_STRING_CONTENT_OFFSET))
+    )
     b = BPF(text=prog)
+
     b.attach_perf_event(
         ev_type=PerfType.SOFTWARE,
         ev_config=PerfSWConfig.CPU_CLOCK,
@@ -338,13 +455,22 @@ def cmd_top(args):
         sample_freq=args.freq,
     )
 
+    if has_uprobe:
+        b.attach_uprobe(name=binary, addr=fiber_sym_addr, fn_name="on_fiber_resume")
+        print(
+            f"Attached fiber uprobe: {fiber_sym_name}\n"
+            f"  @name offset: {fiber_name_offset} bytes  |  "
+            f"String content offset: {CRYSTAL_STRING_CONTENT_OFFSET} bytes"
+        )
+    else:
+        print("Fiber uprobe not attached — per-thread fiber names will be unavailable.")
+
     print(f"Sampling PID {pid} at {args.freq} Hz for {args.duration}s ...")
 
     try:
         while True:
-            fibers = fetch_fibers()
             data = collect(b, pid, args.duration)
-            render(data, fibers, pid, args.duration, args.freq, args.lines)
+            render(data, pid, args.duration, args.freq, args.lines, has_uprobe)
             if not args.watch:
                 break
     except KeyboardInterrupt:
@@ -363,31 +489,22 @@ def main():
         "top",
         help="show CPU hot functions using BPF stack sampling",
     )
-    top.add_argument(
-        "--pid", type=int, default=None, metavar="PID",
-        help="target PID (default: auto-detect via pgrep or pidfile)",
-    )
-    top.add_argument(
-        "--pidfile", metavar="PATH",
-        default="/var/run/lavinmq/lavinmq.pid",
-        help="path to LavinMQ pidfile (default: /var/run/lavinmq/lavinmq.pid)",
-    )
-    top.add_argument(
-        "--duration", type=int, default=5, metavar="SECS",
-        help="sampling window in seconds (default: 5)",
-    )
-    top.add_argument(
-        "--freq", type=int, default=99, metavar="HZ",
-        help="sampling frequency in Hz (default: 99)",
-    )
-    top.add_argument(
-        "--lines", type=int, default=20, metavar="N",
-        help="number of top entries to display per section (default: 20)",
-    )
-    top.add_argument(
-        "--watch", action="store_true",
-        help="re-sample continuously until Ctrl+C",
-    )
+    top.add_argument("--pid", type=int, default=None, metavar="PID",
+                     help="target PID (default: auto-detect)")
+    top.add_argument("--pidfile", metavar="PATH",
+                     default="/var/run/lavinmq/lavinmq.pid",
+                     help="path to LavinMQ pidfile")
+    top.add_argument("--duration", type=int, default=5, metavar="SECS",
+                     help="sampling window in seconds (default: 5)")
+    top.add_argument("--freq", type=int, default=99, metavar="HZ",
+                     help="sampling frequency in Hz (default: 99)")
+    top.add_argument("--lines", type=int, default=20, metavar="N",
+                     help="top entries per section (default: 20)")
+    top.add_argument("--watch", action="store_true",
+                     help="re-sample continuously until Ctrl+C")
+    top.add_argument("--fiber-name-offset", type=int, default=None, metavar="N",
+                     help="byte offset of @name in Crystal::Fiber (auto-detected from DWARF)")
+
     args = parser.parse_args()
     if args.command == "top":
         cmd_top(args)
