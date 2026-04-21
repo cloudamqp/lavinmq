@@ -91,7 +91,6 @@ int sample_stack(struct bpf_perf_event_data *ctx) {
     key.tid             = tid;
     key.cpu             = bpf_get_smp_processor_id();
     key.user_stack_id   = user_stacks.get_stackid(ctx, BPF_F_USER_STACK | BPF_F_REUSE_STACKID);
-    key.kernel_stack_id = -1;
     bpf_get_current_comm(&key.comm, sizeof(key.comm));
 
     counts.increment(key);
