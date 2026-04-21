@@ -2,8 +2,16 @@
 """
 lavinmq-diagnostics top — CPU hot functions for LavinMQ
 
-Uses BPF perf event sampling to capture user-space stack traces of the
-LavinMQ process and shows which functions spend the most time on CPU.
+Per sample the BPF program captures:
+  • user-space call stack  (what Crystal code was on CPU)
+  • kernel call stack      (which syscall was in flight, if any)
+  • TID                    (which OS thread / fiber scheduler thread)
+  • CPU core index
+  • comm                   (OS thread name, e.g. "Worker #0")
+
+Additionally, the script fetches LavinMQ's /api/diagnostics/fibers endpoint
+to list live fibers by name, which reveals which queues, exchanges, shovels
+and connections are active at sample time.
 
 Requires: python3-bpfcc (Debian/Ubuntu) or bcc-tools (RHEL/Fedora)
           CAP_BPF + CAP_PERFMON, or kernel.perf_event_paranoid <= 1
@@ -11,10 +19,14 @@ Requires: python3-bpfcc (Debian/Ubuntu) or bcc-tools (RHEL/Fedora)
 """
 
 import argparse
+import http.client
+import json
 import os
+import socket
 import subprocess
 import sys
 import time
+from collections import defaultdict
 
 try:
     from bcc import BPF, PerfType, PerfSWConfig
@@ -25,33 +37,82 @@ except ImportError:
         "  RHEL/Fedora:   dnf install bcc-tools"
     )
 
-# BPF program: attach to CPU clock perf event, record user-space stack IDs
+# Each sample records: pid, tid, cpu, both stack IDs, and the OS thread name.
+# The comm field (16 bytes) holds the kernel thread name at sample time —
+# currently Crystal worker threads are named "Worker #N", but if Crystal or
+# LavinMQ propagates fiber names to the OS thread via prctl, this becomes
+# a direct queue/connection identifier at zero cost.
 BPF_PROGRAM = r"""
 #include <uapi/linux/ptrace.h>
 
-BPF_STACK_TRACE(stack_traces, 16384);
-BPF_HASH(counts, u32, u64, 16384);
+struct key_t {
+    u32 pid;
+    u32 tid;
+    u32 cpu;
+    int user_stack_id;
+    int kernel_stack_id;
+    char comm[TASK_COMM_LEN];  /* OS thread name, max 16 bytes */
+};
+
+BPF_STACK_TRACE(user_stacks,    16384);
+BPF_STACK_TRACE(kernel_stacks,   8192);
+BPF_HASH(counts, struct key_t, u64, 16384);
 
 int sample_stack(struct bpf_perf_event_data *ctx) {
-    u32 pid = bpf_get_current_pid_tgid() >> 32;
+    u64 id  = bpf_get_current_pid_tgid();
+    u32 pid = id >> 32;
+    u32 tid = (u32)id;
+
     if (TARGET_PID && pid != (u32)TARGET_PID)
         return 0;
-    u32 stack_id = stack_traces.get_stackid(ctx, BPF_F_USER_STACK | BPF_F_REUSE_STACKID);
-    if ((int)stack_id >= 0)
-        counts.increment(stack_id);
+
+    struct key_t key = {};
+    key.pid             = pid;
+    key.tid             = tid;
+    key.cpu             = bpf_get_smp_processor_id();
+    key.user_stack_id   = user_stacks.get_stackid(ctx,   BPF_F_USER_STACK | BPF_F_REUSE_STACKID);
+    key.kernel_stack_id = kernel_stacks.get_stackid(ctx, BPF_F_REUSE_STACKID);
+    bpf_get_current_comm(&key.comm, sizeof(key.comm));
+
+    counts.increment(key);
     return 0;
 }
 """
+
+BOLD  = "\033[1m"
+RESET = "\033[0m"
+DIM   = "\033[2m"
+CYAN  = "\033[36m"
+
+FIBER_CATEGORIES = [
+    ("Queue consumers",    lambda n: n.startswith("Consumer vhost=")),
+    ("Queue maintenance",  lambda n: n.startswith("Queue#")),
+    ("Connections",        lambda n: n.startswith("AMQP") or n.startswith("MQTT")),
+    ("Shovels",            lambda n: n.startswith("Shovel")),
+    ("Federation",         lambda n: n.startswith("Federation")),
+]
+
+
+def trunc(s, n):
+    return s if len(s) <= n else s[:n - 3] + "..."
+
+
+def bar(pct, width=20):
+    return "█" * int(pct / 100 * width)
+
+
+def section(title):
+    pad = "─" * max(0, 74 - len(title))
+    print(f"\n{BOLD}{CYAN}── {title} {pad}{RESET}")
 
 
 def find_pid(args):
     if args.pid:
         return args.pid
 
-    pidfile = args.pidfile
-    if pidfile and os.path.exists(pidfile):
+    if args.pidfile and os.path.exists(args.pidfile):
         try:
-            return int(open(pidfile).read().strip())
+            return int(open(args.pidfile).read().strip())
         except (ValueError, OSError):
             pass
 
@@ -89,9 +150,50 @@ def check_permissions():
         )
 
 
+INTERNAL_UNIX_SOCKET = "/tmp/lavinmqctl.sock"
+
+
+class _UnixSocketHTTPConnection(http.client.HTTPConnection):
+    """HTTP connection over a UNIX domain socket (no auth required)."""
+    def __init__(self, socket_path):
+        super().__init__("localhost")
+        self._socket_path = socket_path
+
+    def connect(self):
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.sock.settimeout(self.timeout)
+        self.sock.connect(self._socket_path)
+
+
+def fetch_fibers():
+    """Fetch live fiber list via the internal UNIX socket (no auth required)."""
+    if not os.path.exists(INTERNAL_UNIX_SOCKET):
+        return None
+    try:
+        conn = _UnixSocketHTTPConnection(INTERNAL_UNIX_SOCKET)
+        conn.request("GET", "/api/diagnostics/fibers")
+        resp = conn.getresponse()
+        if resp.status == 200:
+            return json.loads(resp.read())
+    except OSError:
+        pass
+    return None
+
+
+def resolve_user_sym(b, addr, pid):
+    raw = b.sym(addr, pid, show_module=False, show_offset=False)
+    return raw.decode("utf-8", errors="replace").lstrip("*")
+
+
+def resolve_ksym(b, addr):
+    raw = b.ksym(addr, show_module=False, show_offset=False)
+    return raw.decode("utf-8", errors="replace")
+
+
 def collect(b, pid, duration):
     b["counts"].clear()
-    b["stack_traces"].clear()
+    b["user_stacks"].clear()
+    b["kernel_stacks"].clear()
 
     deadline = time.monotonic() + duration
     while time.monotonic() < deadline:
@@ -99,44 +201,122 @@ def collect(b, pid, duration):
             sys.exit(f"\nProcess {pid} exited during sampling.")
         time.sleep(0.5)
 
-    func_counts = {}
-    for stack_id, count in b["counts"].items():
-        frames = list(b["stack_traces"].walk(stack_id.value))
-        if not frames:
-            continue
-        sym = b.sym(frames[0], pid, show_module=False, show_offset=False)
-        name = sym.decode("utf-8", errors="replace").lstrip("*")
-        func_counts[name] = func_counts.get(name, 0) + count.value
+    user_sym_counts   = defaultdict(int)
+    kernel_sym_counts = defaultdict(int)
+    # tid → {"total": int, "syms": {sym: n}, "cpus": {cpu: n}, "comm": str}
+    thread_info = defaultdict(lambda: {"total": 0, "syms": defaultdict(int),
+                                       "cpus": defaultdict(int), "comm": ""})
 
-    return func_counts
+    for key, count in b["counts"].items():
+        n = count.value
+
+        user_sym = "[unknown]"
+        if key.user_stack_id >= 0:
+            frames = list(b["user_stacks"].walk(key.user_stack_id))
+            if frames:
+                user_sym = resolve_user_sym(b, frames[0], pid)
+        user_sym_counts[user_sym] += n
+
+        if key.kernel_stack_id >= 0:
+            frames = list(b["kernel_stacks"].walk(key.kernel_stack_id))
+            if frames:
+                kernel_sym_counts[resolve_ksym(b, frames[0])] += n
+
+        t = thread_info[key.tid]
+        t["total"] += n
+        t["syms"][user_sym] += n
+        t["cpus"][key.cpu] += n
+        if not t["comm"]:
+            t["comm"] = key.comm.decode("utf-8", errors="replace").rstrip("\x00")
+
+    return {
+        "user":    user_sym_counts,
+        "kernel":  kernel_sym_counts,
+        "threads": thread_info,
+    }
 
 
-def render(func_counts, pid, duration, freq, lines):
-    total = sum(func_counts.values()) or 1
-    ranked = sorted(func_counts.items(), key=lambda x: x[1], reverse=True)[:lines]
+def render(data, fibers, pid, duration, freq, lines):
+    total = sum(data["user"].values()) or 1
+    has_unknown = False
 
     print("\033[H\033[2J", end="")
     print(
-        f"\033[1mLavinMQ CPU Hot Functions\033[0m"
+        f"{BOLD}LavinMQ CPU Hot Functions{RESET}"
         f" — PID {pid}"
         f" — {duration}s @ {freq}Hz"
-        f" — {total:,} samples\n"
+        f" — {total:,} samples"
     )
-    print(f"  {'Rank':>4}  {'Function':<58}  {'Samples':>8}  {'CPU%':>5}  Bar")
-    print("  " + "─" * 90)
 
-    for i, (func, count) in enumerate(ranked, 1):
+    # ── User-space hot functions ──────────────────────────────────────────────
+    section("User-Space Hot Functions")
+    print(f"  {'Rank':>4}  {'Function':<52}  {'Samples':>8}  {'CPU%':>5}  Bar")
+    print("  " + "─" * 82)
+    for i, (sym, count) in enumerate(
+        sorted(data["user"].items(), key=lambda x: x[1], reverse=True)[:lines], 1
+    ):
         pct = count / total * 100
-        bar = "█" * int(pct / 2)
-        # Truncate long names with ellipsis
-        display = func if len(func) <= 58 else func[:55] + "..."
-        print(f"  {i:>4}  {display:<58}  {count:>8,}  {pct:>4.1f}%  {bar}")
+        if sym == "[unknown]":
+            has_unknown = True
+        print(f"  {i:>4}  {trunc(sym, 52):<52}  {count:>8,}  {pct:>4.1f}%  {bar(pct)}")
 
-    print(f"\n  {time.strftime('%Y-%m-%d %H:%M:%S')}  |  Ctrl+C to exit", end="")
-    if ranked and ranked[0][0].startswith("[unknown]"):
+    # ── Per-thread breakdown ──────────────────────────────────────────────────
+    section("Per-Thread Breakdown")
+    print(f"  {'TID':>8}  {'Thread':<12}  {'Samples':>8}  {'CPU%':>5}  {'CPUs':>6}  {'Top Function':<38}")
+    print("  " + "─" * 90)
+    for tid, info in sorted(data["threads"].items(), key=lambda x: x[1]["total"], reverse=True)[:lines]:
+        pct      = info["total"] / total * 100
+        top_sym  = max(info["syms"], key=info["syms"].get)
+        cpu_list = ",".join(str(c) for c in sorted(info["cpus"]))
+        comm     = info["comm"] or "?"
         print(
-            "\n\n  Note: '[unknown]' symbols mean debug info is missing.\n"
-            "  Build with: make bin/lavinmq CRYSTAL_FLAGS=--debug",
+            f"  {tid:>8}  {trunc(comm, 12):<12}  {info['total']:>8,}  {pct:>4.1f}%"
+            f"  {cpu_list:>6}  {trunc(top_sym, 38):<38}"
+        )
+
+    # ── Kernel hot functions ──────────────────────────────────────────────────
+    section("Kernel Hot Functions  (samples caught inside a syscall)")
+    if data["kernel"]:
+        ksyms_total = sum(data["kernel"].values())
+        pct_in_kernel = ksyms_total / total * 100
+        print(f"  {ksyms_total:,} of {total:,} samples ({pct_in_kernel:.1f}%) were inside a syscall\n")
+        print(f"  {'Rank':>4}  {'Kernel Function':<52}  {'Samples':>8}  {'CPU%':>5}  Bar")
+        print("  " + "─" * 82)
+        for i, (sym, count) in enumerate(
+            sorted(data["kernel"].items(), key=lambda x: x[1], reverse=True)[:lines], 1
+        ):
+            pct = count / total * 100
+            print(f"  {i:>4}  {trunc(sym, 52):<52}  {count:>8,}  {pct:>4.1f}%  {bar(pct)}")
+    else:
+        print(f"  {DIM}No kernel stack samples — all CPU time was in user space.{RESET}")
+
+    # ── Active LavinMQ fibers ─────────────────────────────────────────────────
+    section("Active LavinMQ Fibers")
+    if fibers is None:
+        print(f"  {DIM}Unavailable — {INTERNAL_UNIX_SOCKET} not found or not responding.{RESET}")
+        print(f"  {DIM}Is LavinMQ running on this host?{RESET}")
+    else:
+        names = [f["name"] for f in fibers]
+        printed = set()
+        for label, predicate in FIBER_CATEGORIES:
+            matches = [n for n in names if predicate(n)]
+            if not matches:
+                continue
+            print(f"\n  {BOLD}{label} ({len(matches)}){RESET}")
+            for name in sorted(matches)[:lines]:
+                print(f"    {name}")
+                printed.add(name)
+        other = [n for n in names if n not in printed]
+        if other:
+            print(f"\n  {BOLD}Other ({len(other)}){RESET}")
+            for name in sorted(other)[:lines]:
+                print(f"    {name}")
+
+    print(f"\n  {DIM}{time.strftime('%Y-%m-%d %H:%M:%S')}  |  Ctrl+C to exit{RESET}", end="")
+    if has_unknown:
+        print(
+            f"\n\n  {DIM}Note: '[unknown]' symbols — rebuild with debug info:\n"
+            f"  make bin/lavinmq CRYSTAL_FLAGS=--debug{RESET}",
             end="",
         )
     print()
@@ -162,8 +342,9 @@ def cmd_top(args):
 
     try:
         while True:
-            func_counts = collect(b, pid, args.duration)
-            render(func_counts, pid, args.duration, args.freq, args.lines)
+            fibers = fetch_fibers()
+            data = collect(b, pid, args.duration)
+            render(data, fibers, pid, args.duration, args.freq, args.lines)
             if not args.watch:
                 break
     except KeyboardInterrupt:
@@ -201,15 +382,13 @@ def main():
     )
     top.add_argument(
         "--lines", type=int, default=20, metavar="N",
-        help="number of top functions to display (default: 20)",
+        help="number of top entries to display per section (default: 20)",
     )
     top.add_argument(
         "--watch", action="store_true",
         help="re-sample continuously until Ctrl+C",
     )
-
     args = parser.parse_args()
-
     if args.command == "top":
         cmd_top(args)
 
