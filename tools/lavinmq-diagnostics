@@ -7,9 +7,10 @@ Two BPF programs run simultaneously:
   1. perf CPU clock sampler (99 Hz)
      Captures: user stack, kernel stack, TID, CPU core, OS thread name.
 
-  2. uprobe on Crystal::Fiber#resume
-     On every fiber context switch, reads self->@name (the Crystal fiber name)
-     and writes it into a tid_to_fiber map keyed by TID.
+  2. uprobe on Thread#current_fiber=(fiber : Fiber)
+     Called by the execution-context scheduler on every fiber context switch.
+     The incoming Fiber is the second argument (rsi); we read its @name field
+     and write it into a tid_to_fiber map keyed by TID.
      Combined with (1) this gives exact TID → queue/connection attribution.
 
 Crystal fiber names in LavinMQ identify the workload directly:
@@ -99,11 +100,15 @@ int sample_stack(struct bpf_perf_event_data *ctx) {
     return 0;
 }
 
-/* ── Fiber resume uprobe ──────────────────────────────────────────────────── */
+/* ── Fiber set-current uprobe ─────────────────────────────────────────────── */
 /*                                                                              */
-/* Attached to Crystal::Fiber#resume.  self (rdi / x0) is the Fiber object    */
-/* being resumed.  We read its @name field and store it in tid_to_fiber so     */
-/* that the CPU sampler can attribute hot TIDs to specific queues/connections. */
+/* Attached to Thread#current_fiber=(fiber : Fiber).                           */
+/* Called on every fiber context switch by the execution-context scheduler.    */
+/*   rdi = self (Thread object)                                                 */
+/*   rsi = fiber (the Fiber being made current on this thread)                 */
+/*                                                                              */
+/* We read fiber.@name and store it in tid_to_fiber keyed by the running TID   */
+/* so the CPU sampler can attribute hot threads to specific queues/connections. */
 /*                                                                              */
 /* String? is stored as a raw pointer: 0 = nil, else → Crystal String object.  */
 
@@ -115,7 +120,8 @@ int on_fiber_resume(struct pt_regs *ctx) {
     if (TARGET_PID && pid != (u32)TARGET_PID)
         return 0;
 
-    u64 fiber = (u64)PT_REGS_PARM1(ctx);
+    /* rsi = fiber (second argument; rdi = self = Thread) */
+    u64 fiber = (u64)PT_REGS_PARM2(ctx);
 
     u64 name_ptr = 0;
     bpf_probe_read_user(&name_ptr, sizeof(name_ptr),
@@ -159,7 +165,12 @@ def binary_for_pid(pid):
 
 
 def find_fiber_resume_sym(binary):
-    """Return (address, mangled_name) of Crystal::Fiber#resume, or (None, None).
+    """Return (address, mangled_name) of Thread#current_fiber=, or (None, None).
+
+    With -Dexecution_context, Crystal has no Fiber#resume.  The scheduler calls
+    Thread#current_fiber=(fiber) on every context switch, passing the incoming
+    Fiber as rsi (PARM2).  This is the universal hook point across isolated and
+    parallel execution contexts.
 
     Tries nm first (fast, works on full binaries).  Falls back to readelf -Ws
     for split-debug (.dbg) files where objcopy --only-keep-debug converts code
@@ -176,7 +187,7 @@ def find_fiber_resume_sym(binary):
             parts = line.split(None, 2)
             if len(parts) < 3 or parts[1] not in ("T", "t"):
                 continue
-            if "Fiber#resume" in parts[2]:
+            if "Thread#current_fiber=" in parts[2]:
                 candidates.append((int(parts[0], 16), parts[2]))
         if candidates:
             candidates.sort(key=lambda x: len(x[1]))
@@ -204,7 +215,7 @@ def find_fiber_resume_sym(binary):
             except ValueError:
                 continue
             name = parts[-1]
-            if addr > 0 and "Fiber#resume" in name:
+            if addr > 0 and "Thread#current_fiber=" in name:
                 candidates.append((addr, name))
         if candidates:
             candidates.sort(key=lambda x: len(x[1]))
@@ -591,11 +602,14 @@ def cmd_top(args):
         b.attach_uprobe(name=binary, addr=fiber_sym_addr, fn_name="on_fiber_resume")
         print(
             f"Attached fiber uprobe: {fiber_sym_name}\n"
-            f"  @name offset: {fiber_name_offset} bytes  |  "
+            f"  Fiber @name offset: {fiber_name_offset} bytes  |  "
             f"String content offset: {CRYSTAL_STRING_CONTENT_OFFSET} bytes"
         )
     else:
-        print("Fiber uprobe not attached — per-thread fiber names will be unavailable.")
+        print(
+            "Fiber uprobe not attached — per-thread fiber names will be unavailable.\n"
+            "  Run with --verbose for details, or pass --fiber-name-offset N."
+        )
 
     print(f"Sampling PID {pid} at {args.freq} Hz for {args.duration}s ...")
 
