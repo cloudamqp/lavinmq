@@ -569,28 +569,35 @@ def cmd_top(args):
     resume_syms = find_syms(binary, "#resume<Fiber>")
     get_addr, get_name = find_sym(binary, "Thread#current_fiber:")
 
+    # addr_dbg: the debug binary we trust for function *addresses* (build-ID must match).
+    # dwarf_dbg: the debug binary we use for *struct field offsets* only — struct
+    #            layout is determined by Crystal stdlib types, not app code, so a
+    #            minor source diff doesn't invalidate it.
+    addr_dbg = None
+    dwarf_dbg = debug_binary
     if debug_binary:
         bin_id = get_build_id(binary)
         dbg_id = get_build_id(debug_binary)
         id_match = (bin_id is None or dbg_id is None or bin_id == dbg_id)
-        if not id_match:
+        if id_match:
+            addr_dbg = debug_binary
+            if not resume_syms:
+                resume_syms = find_syms(addr_dbg, "#resume<Fiber>")
+            if not get_addr:
+                get_addr, get_name = find_sym(addr_dbg, "Thread#current_fiber:")
+        else:
             print(
                 f"WARNING: build-ID mismatch — debug file is stale!\n"
                 f"  binary: {bin_id}\n"
                 f"  debug:  {dbg_id}\n"
                 f"  Addresses from {debug_binary} are WRONG for the running binary.\n"
                 f"  Rebuild with:  make bin/lavinmq.dbg\n"
-                f"  Fiber uprobe disabled until rebuilt."
+                f"  Symbol addresses disabled; struct offsets still read from DWARF."
             )
-            debug_binary = None
-        else:
-            if not resume_syms:
-                resume_syms = find_syms(debug_binary, "#resume<Fiber>")
-            if not get_addr:
-                get_addr, get_name = find_sym(debug_binary, "Thread#current_fiber:")
 
     if args.verbose:
-        print(f"[diag] debug binary:        {debug_binary or 'not found'}")
+        print(f"[diag] debug binary (addr): {addr_dbg or 'not found'}")
+        print(f"[diag] debug binary (dwarf):{dwarf_dbg or 'not found'}")
         for addr, name in resume_syms:
             print(f"[diag] resume (switch):     0x{addr:x}  {name}")
         if not resume_syms:
@@ -601,8 +608,8 @@ def cmd_top(args):
     fiber_name_offset = args.fiber_name_offset
     if fiber_name_offset is None:
         fiber_name_offset = find_fiber_name_offset(binary)
-        if fiber_name_offset is None and debug_binary:
-            fiber_name_offset = find_fiber_name_offset(debug_binary)
+        if fiber_name_offset is None and dwarf_dbg:
+            fiber_name_offset = find_fiber_name_offset(dwarf_dbg)
     if args.verbose:
         src = "DWARF" if args.fiber_name_offset is None else "--fiber-name-offset"
         print(f"[diag] @name offset:       {fiber_name_offset}  (from {src})")
