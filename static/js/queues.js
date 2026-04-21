@@ -88,10 +88,10 @@ const queuesTable = Table.renderTable('table', tableOptions, function (tr, item,
     const features = document.createElement('span')
     features.className = 'features'
     if (item.internal) {
-      const durable = document.createElement('span')
-      durable.textContent = 'I'
-      durable.title = 'Internal'
-      features.appendChild(durable)
+      const internal = document.createElement('span')
+      internal.textContent = 'I'
+      internal.title = 'Internal'
+      internal.appendChild(internal)
     } else {
       if (item.durable) {
         const durable = document.createElement('span')
