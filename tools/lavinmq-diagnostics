@@ -181,9 +181,9 @@ def find_debug_binary(binary):
     """Locate the split debug file for binary, following standard Linux conventions.
 
     Checks in order:
-      1. binary.debug / binary.dbg  alongside the binary  (dev / install-dbg)
-      2. /usr/lib/debug/<binary_path>.debug               (Debian dh_strip / RPM find-debuginfo)
-      3. /usr/lib/debug/.build-id/xx/yyyyyy.debug         (build-ID symlink, both distros)
+      1. binary.debug / binary.dbg alongside the binary  (dev / install-dbg)
+      2. /usr/lib/debug/<binary_path>.debug  (Debian dh_strip / RPM find-debuginfo)
+      3. /usr/lib/debug/.build-id/xx/yyyyyy.debug  (build-ID symlink, both distros)
 
     Returns the path string, or None if not found.
     """

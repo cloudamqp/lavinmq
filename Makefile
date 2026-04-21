@@ -1,3 +1,4 @@
+UNAME_S := $(shell uname -s)
 BINS := bin/lavinmq bin/lavinmqctl bin/lavinmqperf
 SOURCES := $(shell find src/ -name '*.cr' 2> /dev/null)
 PERF_SOURCES := $(shell find src/lavinmqperf -name '*.cr' 2> /dev/null)
@@ -29,11 +30,23 @@ bin/lavinmq-debug: src/lavinmq.cr $(SOURCES) $(VIEW_SOURCES) $(VIEW_PARTIALS) li
 
 # Build lavinmq with DWARF, extract to .dbg, strip the installed binary.
 # Used by lavinmq-dbg / lavinmq-debuginfo packaging targets.
+ifeq ($(UNAME_S),Darwin)
+# macOS: cross-compile to ELF targeting Linux, extract DWARF from the .o.
+# Requires: brew install binutils   (provides objcopy under $(brew --prefix binutils)/bin)
+# Struct member offsets in DWARF are compile-time constants — no linker needed.
+GOBJCOPY := $(shell brew --prefix binutils 2>/dev/null)/bin/objcopy
+bin/lavinmq.dbg: src/lavinmq.cr $(SOURCES) $(VIEW_SOURCES) $(VIEW_PARTIALS) lib $(JS) $(DOCS) | bin
+	crystal build $< -o bin/lavinmq --cross-compile --target x86_64-unknown-linux-gnu --debug $(CRYSTAL_FLAGS) > /dev/null
+	$(GOBJCOPY) --only-keep-debug bin/lavinmq.o $@
+	$(RM) bin/lavinmq.o
+else
+# Linux: build with DWARF, split into .dbg, strip the binary.
 bin/lavinmq.dbg: src/lavinmq.cr $(SOURCES) $(VIEW_SOURCES) $(VIEW_PARTIALS) lib $(JS) $(DOCS) | bin
 	crystal build $< -o bin/lavinmq --debug $(CRYSTAL_FLAGS)
 	objcopy --only-keep-debug bin/lavinmq $@
 	objcopy --strip-debug --add-gnu-debuglink=$@ bin/lavinmq
 	chmod a-x $@
+endif
 
 bin/lavinmqctl: src/lavinmqctl.cr $(CTL_SOURCES) lib | bin
 	crystal build $< -o $@ -Dgc_none $(CRYSTAL_FLAGS)
@@ -160,7 +173,7 @@ rpm:
 
 .PHONY: clean
 clean:
-	$(RM) $(BINS) bin/lavinmq.dbg $(DOCS) $(MANPAGES) $(VIEW_TARGETS)
+	$(RM) $(BINS) bin/lavinmq.dbg bin/lavinmq.o $(DOCS) $(MANPAGES) $(VIEW_TARGETS)
 
 .PHONY: watch
 watch:
