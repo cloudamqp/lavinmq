@@ -1832,7 +1832,6 @@ fieldset.inline {
 
 .pagination .page-item.active a {
   background-color: var(--color-border-secondary);
-  color: white;
 }
 
 .pagination .page-item:first-child {

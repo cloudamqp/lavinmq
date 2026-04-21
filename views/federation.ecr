@@ -9,9 +9,12 @@
     <% render "partials/header" %>
     <main class="main-grid">
       <div id="breadcrumbs" class="cols-12">
-          <h2 class="page-title"><span><%=pagename%></span><div class="tiny-badge" id="pagename-label"></div></h2>
+          <h2 class="page-title"><span><%=pagename%></span></h2>
       </div>
       <section class="card">
+        <div class="table-header">
+          <h2><span>Manage upstreams</span><div class="tiny-badge" id="pagename-label"></div></h2>
+        </div>
         <div class="table-wrapper">
           <div id="upstreamTable-error"></div>
           <table id="upstreamTable" class="table">
@@ -36,10 +39,10 @@
           </table>
         </div>
       </section>
-      <div id="breadcrumbs" class="cols-12">
-          <h2 class="page-title"><span>Federation links</span><div class="tiny-badge" id="links-count"></div></h2>
-      </div>
       <section class="card">
+        <div class="table-header">
+          <h2 class="page-title"><span>Federation links</span><div class="tiny-badge" id="links-count"></div></h2>
+        </div>
         <div class="table-wrapper">
           <div id="linksTable-error"></div>
           <table id="linksTable" class="table">
