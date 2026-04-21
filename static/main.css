@@ -1391,17 +1391,12 @@ footer .logo {
 }
 
 .table tbody td {
-  /*border-top: 1px solid var(--color-border-primary);*/
   padding: 0.75rem 1.55rem 0.75rem 1.5rem;
   color: var(--color-text-muted);
   white-space: nowrap;
   height: 3.5rem;
   font-size: 14px;
   line-height: 20px;
-
-  &:first-child {
-    padding-left: 1.5rem;
-  }
 }
 
 .table tbody a {
@@ -1422,11 +1417,7 @@ footer .logo {
   color: var(--highlight-color) !important;
 }
 
-.table tbody tr:nth-of-type(odd) {
-  background-color: var(--color-table-row-even);
-}
-
-.table tbody tr:nth-of-type(even) {
+.table tbody tr {
   background-color: var(--color-table-row-even);
 }
 
