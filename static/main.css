@@ -1348,10 +1348,30 @@ footer .logo {
 }
 
 .table th {
-  font-weight: normal;
+  font-weight: 600;;
   padding: 0.5rem 1.5rem 0.5rem 1.5rem;
   text-align: left;
   white-space: nowrap;
+}
+
+.table .thead-group th {
+  vertical-align: bottom;
+}
+
+table th[colspan] {
+  text-align: center;
+  border: 1px solid var(--color-border-secondary);
+  border-top: 0px;
+}
+
+th.group {
+  border: 1px solid var(--color-border-secondary);
+  border-width: 0px 1px;
+}
+
+th[colspan] + th[colspan],
+th.group + th.group:not(.last) {
+  border-left: 0px;
 }
 
 .table td.checkbox {
@@ -1361,31 +1381,33 @@ footer .logo {
 
 .table th[data-sort-key] {
   cursor: pointer;
-  font-weight: bold;
   position: relative;
 }
 
-.table th[data-sort-key]:before,
-.table th[data-sort-key]:after {
-  bottom: 10px;
-  display: block;
-  font-weight: 100;
-  opacity: 0.3;
-  position: absolute;
+.table th[data-sort-key] span {
+  position: relative;
+  display: inline-block;
+  margin-left: 5px;
 }
 
-.table th[data-sort-key]:before {
+.table th[data-sort-key] span:before,
+.table th[data-sort-key] span:after {
+  font-weight: 100;
+  opacity: 0.3;
+}
+
+.table th[data-sort-key] span:before {
   content: "\2191";
   right: 9px;
 }
 
-.table th[data-sort-key]:after {
+.table th[data-sort-key] span:after {
   content: "\2193";
   right: 2px;
 }
 
-.table th.sorting_asc:before,
-.table th.sorting_desc:after {
+.table th.sorting_asc span:before,
+.table th.sorting_desc span:after {
   opacity: 1;
 }
 
