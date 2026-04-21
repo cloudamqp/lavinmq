@@ -62,8 +62,8 @@ module LavinMQ
       @data_dir_lock.try &.acquire
       @amqp_server = amqp_server = LavinMQ::Server.new(@config, @replicator)
       @http_server = http_server = LavinMQ::HTTP::Server.new(amqp_server)
-      setup_log_exchange(amqp_server)
       load_definitions(amqp_server)
+      setup_log_exchange(amqp_server)
       start_listeners(amqp_server, http_server)
       start_metrics_server(amqp_server) unless @config.metrics_http_port == -1
       SystemD.notify_ready
