@@ -77,6 +77,9 @@ BPF_HASH(counts, struct key_t, u64, 16384);
 /* Fiber uprobe map: tid → current Crystal fiber name */
 BPF_HASH(tid_to_fiber, u32, struct fiber_name_t, 1024);
 
+/* Debug counters: [0]=resume fires, [1]=getter fires */
+BPF_ARRAY(uprobe_hits, u64, 2);
+
 /* ── CPU clock sampler ────────────────────────────────────────────────────── */
 
 int sample_stack(struct bpf_perf_event_data *ctx) {
@@ -128,6 +131,8 @@ static __always_inline void record_fiber(u32 pid, u32 tid, u64 fiber) {
 
 int on_fiber_resume(struct pt_regs *ctx) {
     u64 id = bpf_get_current_pid_tgid();
+    u32 slot = 0;
+    uprobe_hits.increment(slot);
     record_fiber(id >> 32, (u32)id, (u64)PT_REGS_PARM2(ctx));
     return 0;
 }
@@ -140,6 +145,8 @@ int on_fiber_resume(struct pt_regs *ctx) {
 
 int on_fiber_get(struct pt_regs *ctx) {
     u64 id = bpf_get_current_pid_tgid();
+    u32 slot = 1;
+    uprobe_hits.increment(slot);
     record_fiber(id >> 32, (u32)id, (u64)PT_REGS_RC(ctx));
     return 0;
 }
@@ -405,7 +412,7 @@ def resolve_user_sym(b, addr, pid):
 
 
 
-def collect(b, pid, duration):
+def collect(b, pid, duration, debug_bpf=False):
     b["counts"].clear()
     b["user_stacks"].clear()
     # tid_to_fiber is NOT cleared — it persists across windows and reflects
@@ -421,6 +428,17 @@ def collect(b, pid, duration):
         k.value: v.name.decode("utf-8", errors="replace").rstrip("\x00")
         for k, v in b["tid_to_fiber"].items()
     }
+
+    if debug_bpf:
+        hits_resume = b["uprobe_hits"][0].value
+        hits_getter = b["uprobe_hits"][1].value
+        print(f"\n[bpf] uprobe_hits: resume={hits_resume}  getter={hits_getter}")
+        if tid_fiber:
+            print(f"[bpf] tid_to_fiber ({len(tid_fiber)} entries):")
+            for tid, name in sorted(tid_fiber.items()):
+                print(f"  TID {tid:6d}  name={name!r}")
+        else:
+            print("[bpf] tid_to_fiber: empty — uprobes not firing or fiber pointers invalid")
 
     user_sym_counts = defaultdict(int)
     thread_info = defaultdict(lambda: {
@@ -603,7 +621,7 @@ def cmd_top(args):
 
     try:
         while True:
-            data = collect(b, pid, args.duration)
+            data = collect(b, pid, args.duration, debug_bpf=args.debug_bpf)
             render(data, pid, args.duration, args.freq, args.lines, has_uprobe)
             if not args.watch:
                 break
@@ -640,6 +658,8 @@ def main():
                      help="byte offset of @name in Crystal::Fiber (auto-detected from DWARF)")
     top.add_argument("--verbose", "-v", action="store_true",
                      help="print diagnostic info: binary path, symbol lookup results, DWARF offsets")
+    top.add_argument("--debug-bpf", action="store_true",
+                     help="after each sample window, print uprobe hit counts and tid_to_fiber contents")
 
     args = parser.parse_args()
     if args.command == "top":
