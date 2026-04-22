@@ -66,9 +66,10 @@ struct key_t {
     char comm[TASK_COMM_LEN];
 };
 
-/* BPF_HASH requires a named struct as value type — plain arrays not allowed. */
 struct fiber_name_t {
     char name[FIBER_NAME_LEN];
+    u64  fiber_ptr;  /* raw Fiber* — 0 means uprobe hasn't fired for this TID */
+    u64  name_ptr;   /* raw @name String* — 0 means fiber has no name set     */
 };
 
 BPF_STACK_TRACE(user_stacks, 16384);
@@ -114,6 +115,8 @@ static __always_inline void record_fiber(u32 pid, u32 tid, u64 fiber) {
                         (void *)(fiber + FIBER_NAME_OFFSET));
 
     struct fiber_name_t fname = {};
+    fname.fiber_ptr = fiber;
+    fname.name_ptr  = name_ptr;
     if (name_ptr) {
         /* Crystal String: +0 bytesize(i32) +4 length(i32) +8 content(bytes) */
         bpf_probe_read_user_str(fname.name, FIBER_NAME_LEN,
@@ -424,7 +427,11 @@ def collect(b, pid, duration, debug_bpf=False):
         time.sleep(0.5)
 
     tid_fiber = {
-        k.value: v.name.decode("utf-8", errors="replace").rstrip("\x00")
+        k.value: {
+            "name":      v.name.decode("utf-8", errors="replace").rstrip("\x00"),
+            "fiber_ptr": v.fiber_ptr,
+            "name_ptr":  v.name_ptr,
+        }
         for k, v in b["tid_to_fiber"].items()
     }
 
@@ -461,7 +468,7 @@ def collect(b, pid, duration, debug_bpf=False):
         if not t["comm"]:
             t["comm"] = key.comm.decode("utf-8", errors="replace").rstrip("\x00")
         if t["fiber"] is None and key.tid in tid_fiber:
-            t["fiber"] = tid_fiber[key.tid]  # "" means unnamed fiber (uprobe fired, @name is nil)
+            t["fiber"] = tid_fiber[key.tid]["name"]  # "" means fiber has no @name set
 
     return {
         "user":    user_sym_counts,
@@ -652,10 +659,14 @@ def cmd_top(args):
                     print(f"[bpf] uprobe_hits: resume={d['hits_resume']}")
                     if d["tid_fiber"]:
                         print(f"[bpf] tid_to_fiber ({len(d['tid_fiber'])} entries):")
-                        for tid, name in sorted(d["tid_fiber"].items()):
-                            print(f"  TID {tid:6d}  name={name!r}")
+                        for tid, info in sorted(d["tid_fiber"].items()):
+                            fp   = f"0x{info['fiber_ptr']:x}" if info["fiber_ptr"] else "0x0"
+                            np   = f"0x{info['name_ptr']:x}"  if info["name_ptr"]  else "nil"
+                            name = repr(info["name"]) if info["name"] else "(unnamed)"
+                            verdict = "wrong offset?" if info["name_ptr"] and info["name_ptr"] < 0x1000 else ""
+                            print(f"  TID {tid:6d}  fiber={fp}  @name_ptr={np}  name={name}  {verdict}")
                     else:
-                        print("[bpf] tid_to_fiber: empty — uprobes not firing or fiber pointers invalid")
+                        print("[bpf] tid_to_fiber: empty — resume probe not firing")
             if not args.watch:
                 break
     except KeyboardInterrupt:
