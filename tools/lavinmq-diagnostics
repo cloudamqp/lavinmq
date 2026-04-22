@@ -29,6 +29,7 @@ Requires: python3-bpfcc (Debian/Ubuntu) or bcc-tools (RHEL/Fedora)
 import argparse
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -158,7 +159,8 @@ def bar(pct, width=20):
 
 
 def section(title):
-    pad = "─" * max(0, 74 - len(title))
+    term_w = shutil.get_terminal_size((120, 40)).columns
+    pad = "─" * max(0, term_w - len(title) - 4)
     print(f"\n{BOLD}{CYAN}── {title} {pad}{RESET}")
 
 
@@ -483,6 +485,18 @@ def collect(b, pid, duration, debug_bpf=False):
 def render(data, pid, duration, freq, lines, has_uprobe):
     total = sum(data["user"].values()) or 1
     has_unknown = False
+    term_w = shutil.get_terminal_size((120, 40)).columns
+
+    # Column widths derived from terminal width.
+    # User-space: "  {rank:4}  {fn:<fn_w}  {count:>8,}  {pct:>5}  {bar:<20}"
+    # Fixed chars: 2+4+2 + 2+8+2+5+2+20 = 47
+    fn_w = max(44, term_w - 47)
+
+    # Per-thread: "  {tid:8}  {fiber:<fiber_w}  {top:<top_w}  {count:>8,}  {pct:>5}  {cpus:>4}"
+    # Fixed chars: 2+8+2 + 2+8+2+5+2+4 = 35, plus 2 sep between fiber and top
+    thread_avail = max(60, term_w - 37)
+    fiber_w  = max(40, int(thread_avail * 0.55))
+    top_fn_w = max(24, thread_avail - fiber_w - 2)
 
     print("\033[H\033[2J", end="")
     print(
@@ -494,20 +508,20 @@ def render(data, pid, duration, freq, lines, has_uprobe):
 
     # ── User-space hot functions ──────────────────────────────────────────────
     section("User-Space Hot Functions")
-    print(f"  {'Rank':>4}  {'Function':<52}  {'Samples':>8}  {'CPU%':>5}  Bar")
-    print("  " + "─" * 82)
+    print(f"  {'Rank':>4}  {'Function':<{fn_w}}  {'Samples':>8}  {'CPU%':>5}  Bar")
+    print("  " + "─" * (fn_w + 27))
     for i, (sym, count) in enumerate(
         sorted(data["user"].items(), key=lambda x: x[1], reverse=True)[:lines], 1
     ):
         pct = count / total * 100
         if sym == "[unknown]":
             has_unknown = True
-        print(f"  {i:>4}  {trunc(sym, 52):<52}  {count:>8,}  {pct:>4.1f}%  {bar(pct)}")
+        print(f"  {i:>4}  {trunc(sym, fn_w):<{fn_w}}  {count:>8,}  {pct:>4.1f}%  {bar(pct)}")
 
     # ── Per-thread breakdown ──────────────────────────────────────────────────
     section("Per-Thread Breakdown")
-    print(f"  {'TID':>8}  {'Fiber':<30}  {'Top Function':<28}  {'Samples':>8}  {'CPU%':>5}  {'CPUs':>6}")
-    print("  " + "─" * 96)
+    print(f"  {'TID':>8}  {'Fiber':<{fiber_w}}  {'Top Function':<{top_fn_w}}  {'Samples':>8}  {'CPU%':>5}  {'CPUs':>4}")
+    print("  " + "─" * (fiber_w + top_fn_w + 33))
     for tid, info in sorted(data["threads"].items(), key=lambda x: x[1]["total"], reverse=True)[:lines]:
         pct      = info["total"] / total * 100
         top_sym  = max(info["syms"], key=info["syms"].get) if info["syms"] else "?"
@@ -515,17 +529,17 @@ def render(data, pid, duration, freq, lines, has_uprobe):
 
         if has_uprobe:
             if info["fiber"] is None:
-                fiber = info["comm"] or "?"  # uprobe never fired for this TID
+                fiber = info["comm"] or "?"
             elif info["fiber"]:
-                fiber = info["fiber"]         # named fiber
+                fiber = info["fiber"]
             else:
-                fiber = "(unnamed)"           # uprobe fired, @name is nil
+                fiber = "(unnamed)"
         else:
             fiber = info["comm"] or "?"
 
         print(
-            f"  {tid:>8}  {trunc(fiber, 30):<30}  {trunc(top_sym, 28):<28}"
-            f"  {info['total']:>8,}  {pct:>4.1f}%  {cpu_list:>6}"
+            f"  {tid:>8}  {trunc(fiber, fiber_w):<{fiber_w}}  {trunc(top_sym, top_fn_w):<{top_fn_w}}"
+            f"  {info['total']:>8,}  {pct:>4.1f}%  {cpu_list:>4}"
         )
 
     print(f"\n  {DIM}{time.strftime('%Y-%m-%d %H:%M:%S')}  |  Ctrl+C to exit{RESET}", end="")
