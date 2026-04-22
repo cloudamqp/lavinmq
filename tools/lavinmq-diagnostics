@@ -77,8 +77,8 @@ BPF_HASH(counts, struct key_t, u64, 16384);
 /* Fiber uprobe map: tid → current Crystal fiber name */
 BPF_HASH(tid_to_fiber, u32, struct fiber_name_t, 1024);
 
-/* Debug counters: [0]=resume fires, [1]=getter fires */
-BPF_ARRAY(uprobe_hits, u64, 2);
+/* Debug counter: number of resume probe fires */
+BPF_ARRAY(uprobe_hits, u64, 1);
 
 /* ── CPU clock sampler ────────────────────────────────────────────────────── */
 
@@ -137,19 +137,6 @@ int on_fiber_resume(struct pt_regs *ctx) {
     return 0;
 }
 
-/* ── uretprobe: Thread#current_fiber (getter) ─────────────────────────────── */
-/*                                                                              */
-/* Fires whenever the runtime reads the current fiber (scheduling, GC roots,   */
-/* I/O checks). Captures long-lived fibers that never switch during the window. */
-/*   rax = return value = current Fiber*                                        */
-
-int on_fiber_get(struct pt_regs *ctx) {
-    u64 id = bpf_get_current_pid_tgid();
-    u32 slot = 1;
-    uprobe_hits.increment(slot);
-    record_fiber(id >> 32, (u32)id, (u64)PT_REGS_RC(ctx));
-    return 0;
-}
 """
 
 BOLD = "\033[1m"
@@ -445,7 +432,6 @@ def collect(b, pid, duration, debug_bpf=False):
     if debug_bpf:
         debug_info = {
             "hits_resume": b["uprobe_hits"][0].value,
-            "hits_getter": b["uprobe_hits"][1].value,
             "tid_fiber":   tid_fiber,
         }
 
@@ -567,7 +553,6 @@ def cmd_top(args):
     # Search for any execution context resume variant (Parallel, Isolated,
     # MultiThreaded, etc.) — broaden to catch all scheduler implementations.
     resume_syms = find_syms(binary, "#resume<Fiber>")
-    get_addr, get_name = find_sym(binary, "Thread#current_fiber:")
 
     # addr_dbg: the debug binary we trust for function *addresses* (build-ID must match).
     # dwarf_dbg: the debug binary we use for *struct field offsets* only — struct
@@ -583,8 +568,6 @@ def cmd_top(args):
             addr_dbg = debug_binary
             if not resume_syms:
                 resume_syms = find_syms(addr_dbg, "#resume<Fiber>")
-            if not get_addr:
-                get_addr, get_name = find_sym(addr_dbg, "Thread#current_fiber:")
         else:
             print(
                 f"WARNING: build-ID mismatch — debug file is stale!\n"
@@ -602,7 +585,6 @@ def cmd_top(args):
             print(f"[diag] resume (switch):     0x{addr:x}  {name}")
         if not resume_syms:
             print(f"[diag] resume (switch):     not found")
-        print(f"[diag] getter (long-lived): {f'0x{get_addr:x}  {get_name}' if get_addr else 'not found'}")
 
     # Resolve @name offset in Crystal::Fiber from DWARF.
     fiber_name_offset = args.fiber_name_offset
@@ -624,7 +606,7 @@ def cmd_top(args):
             f"    --fiber-name-offset N            # manual override{RESET}"
         )
 
-    has_uprobe = (bool(resume_syms) or get_addr is not None) and fiber_name_offset is not None
+    has_uprobe = bool(resume_syms) and fiber_name_offset is not None
 
     prog = (
         BPF_PROGRAM
@@ -647,17 +629,8 @@ def cmd_top(args):
                 b.attach_uprobe(name=binary, addr=addr, fn_name="on_fiber_resume")
             except Exception as e:
                 print(f"WARNING: attach_uprobe failed for 0x{addr:x} ({name}): {e}")
-        if get_addr:
-            try:
-                b.attach_uretprobe(name=binary, addr=get_addr, fn_name="on_fiber_get")
-            except Exception as e:
-                print(f"WARNING: attach_uretprobe failed for 0x{get_addr:x} ({get_name}): {e}")
-        resume_lines = "\n".join(f"  resume:              {name}" for _, name in resume_syms) or "  resume:              not found"
-        print(
-            f"Fiber probes attached — @name offset {fiber_name_offset} bytes\n"
-            f"{resume_lines}\n"
-            f"  getter (long-lived): {get_name or 'not found'}"
-        )
+        resume_lines = "\n".join(f"  {name}" for _, name in resume_syms) or "  (none)"
+        print(f"Fiber probes attached — @name offset {fiber_name_offset} bytes\n{resume_lines}")
     else:
         print(
             "Fiber uprobe not attached — per-thread fiber names will be unavailable.\n"
@@ -671,14 +644,12 @@ def cmd_top(args):
             data = collect(b, pid, args.duration, debug_bpf=args.debug_bpf)
             render(data, pid, args.duration, args.freq, args.lines, has_uprobe)
             if args.debug_bpf:
-                print(f"\n[bpf] probes attached: {has_uprobe}  ({len(resume_syms)} resume(s), getter={'yes' if get_addr else 'no'})")
+                print(f"\n[bpf] probes attached: {has_uprobe}  ({len(resume_syms)} resume(s))")
                 for addr, name in resume_syms:
                     print(f"  resume  0x{addr:x}  {name}")
-                if get_addr:
-                    print(f"  getter  0x{get_addr:x}  {get_name}")
                 if data.get("debug"):
                     d = data["debug"]
-                    print(f"[bpf] uprobe_hits: resume={d['hits_resume']}  getter={d['hits_getter']}")
+                    print(f"[bpf] uprobe_hits: resume={d['hits_resume']}")
                     if d["tid_fiber"]:
                         print(f"[bpf] tid_to_fiber ({len(d['tid_fiber'])} entries):")
                         for tid, name in sorted(d["tid_fiber"].items()):
