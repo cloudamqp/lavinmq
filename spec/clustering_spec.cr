@@ -469,4 +469,57 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
       FileUtils.rm_rf msg_dir if msg_dir
     end
   end
+
+  it "replicates .queue file when queue is created" do
+    with_clustering do |cluster|
+      with_amqp_server(replicator: cluster.replicator) do |s|
+        wait_for { cluster.replicator.followers.first?.try &.synced? }
+        with_channel(s) do |ch|
+          ch.queue("dotqueue_test", durable: true)
+        end
+        vhost = s.vhosts["/"]
+        dotqfile = File.join(vhost.queues["dotqueue_test"].as(LavinMQ::AMQP::Queue).@data_dir, ".queue")
+        dotqfile_relative = dotqfile[(s.data_dir.size + 1)..]
+        replicated_dotqfile = File.join(cluster.follower_config.data_dir, dotqfile_relative)
+        wait_for { File.exists?(replicated_dotqfile) }
+        File.exists?(replicated_dotqfile).should be_true
+      end
+    end
+  end
+
+  it "removes .queue file from follower when queue is deleted" do
+    with_clustering do |cluster|
+      with_amqp_server(replicator: cluster.replicator) do |s|
+        wait_for { cluster.replicator.followers.first?.try &.synced? }
+        with_channel(s) do |ch|
+          q = ch.queue("dotqueue_test", durable: true)
+          vhost = s.vhosts["/"]
+          dotqfile = File.join(vhost.queues["dotqueue_test"].as(LavinMQ::AMQP::Queue).@data_dir, ".queue")
+          dotqfile_relative = dotqfile[(s.data_dir.size + 1)..]
+          replicated_dotqfile = File.join(cluster.follower_config.data_dir, dotqfile_relative)
+          wait_for { File.exists?(replicated_dotqfile) }
+          q.delete
+          wait_for { !File.exists?(replicated_dotqfile) }
+          File.exists?(replicated_dotqfile).should be_false
+        end
+      end
+    end
+  end
+
+  it "does not replicate .queue file for non-durable queue" do
+    with_clustering do |cluster|
+      with_amqp_server(replicator: cluster.replicator) do |s|
+        wait_for { cluster.replicator.followers.first?.try &.synced? }
+        with_channel(s) do |ch|
+          ch.queue("dotqueue_transient", durable: false)
+        end
+        vhost = s.vhosts["/"]
+        dotqfile = File.join(vhost.queues["dotqueue_transient"].as(LavinMQ::AMQP::Queue).@data_dir, ".queue")
+        dotqfile_relative = dotqfile[(s.data_dir.size + 1)..]
+        wait_for { File.exists?(dotqfile) }
+        Fiber.yield
+        cluster.replicator.with_file(dotqfile_relative, &.should(be_nil))
+      end
+    end
+  end
 end

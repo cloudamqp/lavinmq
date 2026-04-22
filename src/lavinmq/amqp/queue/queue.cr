@@ -175,7 +175,11 @@ module LavinMQ::AMQP
       @data_dir = make_data_dir
       @metadata = ::Log::Metadata.new(nil, {queue: @name, vhost: @vhost.name})
       @log = Logger.new(Log, @metadata)
-      File.open(File.join(@data_dir, ".queue"), "w") { |f| f.sync = true; f.print @name }
+      dotqueue_file = File.join(@data_dir, ".queue")
+      File.open(dotqueue_file, "w") { |f| f.sync = true; f.print @name }
+      if durable?
+        @vhost.@replicator.try &.replace_file(dotqueue_file)
+      end
       @msg_store = init_msg_store(@data_dir)
       @empty = @msg_store.empty
       @dead_letter = Argument::DeadLettering::DeadLetterer.new(@vhost, @name, @log)
@@ -471,6 +475,12 @@ module LavinMQ::AMQP
       @state = QueueState::Deleted
       @msg_store_lock.synchronize do
         @msg_store.delete
+      end
+      if durable?
+        @vhost.@replicator.try do |r|
+          dotqueue_file = File.join(@data_dir, ".queue")
+          r.delete_file(dotqueue_file, WaitGroup.new)
+        end
       end
       @vhost.delete_queue(@name)
       @log.info { "(messages=#{message_count}) Deleted" }
