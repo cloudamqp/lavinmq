@@ -43,11 +43,12 @@ except ImportError:
         "  RHEL/Fedora:   dnf install bcc-tools"
     )
 
-# Crystal String object layout (Crystal 1.x):
-#   +0  @bytesize : Int32  (4 bytes)
-#   +4  @length   : Int32  (Unicode codepoint count, 4 bytes)
-#   +8  content            (null-terminated byte array)
-CRYSTAL_STRING_CONTENT_OFFSET = 8
+# Crystal String object layout (Crystal 1.x, 64-bit):
+#   +0   type_id   : Int32  (4 bytes)  — Crystal object discriminant for is_a?
+#   +4   @bytesize : Int32  (4 bytes)
+#   +8   @length   : Int32  (Unicode codepoint count, 4 bytes)
+#   +12  content            (null-terminated byte array)
+CRYSTAL_STRING_CONTENT_OFFSET = 12
 
 
 BPF_PROGRAM = r"""
