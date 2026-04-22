@@ -26,16 +26,14 @@ module LavinMQ
       end
 
       private def handle_enabled(context) : ::HTTP::Server::Context
-        config = Config.instance
-        enabled = !!(config.oauth_client_id && config.oauth_issuer_url && config.oauth_mgmt_base_url)
         context.response.content_type = "application/json"
-        {enabled: enabled}.to_json(context.response)
+        {enabled: Config.instance.oauth_mgmt_ui_enabled?}.to_json(context.response)
         context
       end
 
       private def handle_authorize(context) : ::HTTP::Server::Context
         config = Config.instance
-        oauth_error(context, 503, "OAuth not configured") unless config.oauth_issuer_url
+        oauth_error(context, 503, "OAuth not configured") unless config.oauth_mgmt_ui_enabled?
         client_id = config.oauth_client_id || oauth_error(context, 503, "OAuth not configured")
 
         auth_ep = oidc_config.authorization_endpoint || raise "OIDC missing authorization_endpoint"
@@ -110,7 +108,7 @@ module LavinMQ
 
       private def validate_callback(context) : {String, String, String}
         config = Config.instance
-        oauth_redirect_error(context, "OAuth not configured") unless config.oauth_issuer_url
+        oauth_redirect_error(context, "OAuth not configured") unless config.oauth_mgmt_ui_enabled?
         client_id = config.oauth_client_id || oauth_redirect_error(context, "OAuth not configured")
 
         if error = context.request.query_params["error"]?
@@ -133,7 +131,7 @@ module LavinMQ
                              max_age = 8.hours)
         context.response.cookies << ::HTTP::Cookie.new(
           name: name, value: value, path: path, http_only: http_only,
-          secure: secure_cookie?, samesite: samesite, max_age: max_age)
+          secure: true, samesite: samesite, max_age: max_age)
       end
 
       private def expire_cookie(context, name, path)
@@ -183,10 +181,6 @@ module LavinMQ
       private def build_redirect_uri : String
         base_url = Config.instance.oauth_mgmt_base_url || raise "oauth_mgmt_base_url must be configured when OAuth is enabled"
         "#{base_url.chomp("/")}/oauth/callback"
-      end
-
-      private def secure_cookie? : Bool
-        Config.instance.oauth_mgmt_base_url.try(&.starts_with?("https")) || false
       end
 
       class OAuthError < Exception; end
