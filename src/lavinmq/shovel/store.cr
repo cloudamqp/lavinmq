@@ -46,8 +46,7 @@ module LavinMQ
         src_uris.select!(&.user.nil?)
 
         dest_uris.each do |uri|
-          vhost = uri.path
-          vhost = "/" if vhost.empty?
+          vhost = vhost_from_uri(uri)
           if d = dst
             if !(user.can_write?(vhost, d) && user.can_config?(vhost, d))
               raise ConfigError.new("#{user.name} can't access exchange '#{d}' in #{vhost}")
@@ -61,8 +60,7 @@ module LavinMQ
         end
 
         src_uris.each do |uri|
-          vhost = uri.path
-          vhost = "/" if vhost.empty?
+          vhost = vhost_from_uri(uri)
           if q = src_q
             if !(user.can_read?(vhost, q) && user.can_config?(vhost, q))
               raise ConfigError.new("#{user.name} can't access queue '#{q}' in #{vhost}")
@@ -74,6 +72,11 @@ module LavinMQ
             end
           end
         end
+      end
+
+      private def self.vhost_from_uri(uri : URI) : String
+        path = uri.path.lchop("/")
+        path.empty? ? "/" : path
       end
 
       def self.parse_uris(src_uri : JSON::Any?) : Array(URI)
