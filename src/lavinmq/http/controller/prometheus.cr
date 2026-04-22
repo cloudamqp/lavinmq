@@ -431,6 +431,10 @@ module LavinMQ
                         type:   "gauge",
                         help:   "Bytes that hasn't been synchronized with the follower yet"})
         end
+        writer.write({name:  "mfile_count",
+                      value: MFile.mmap_count,
+                      type:  "gauge",
+                      help:  "Number of MFile memory-mapped files"})
       end
 
       SERVER_METRICS = {:connection_created, :connection_closed, :channel_created, :channel_closed,
