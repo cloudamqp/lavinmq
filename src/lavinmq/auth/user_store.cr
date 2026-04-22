@@ -8,10 +8,6 @@ module LavinMQ
       private DIRECT_USER = "__direct"
       Log         = LavinMQ::Log.for "user_store"
 
-      def direct_user
-        @users[DIRECT_USER]
-      end
-
       def self.hidden?(name)
         DIRECT_USER == name
       end
