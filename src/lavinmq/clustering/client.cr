@@ -1,5 +1,6 @@
 require "../data_dir_lock"
 require "../clustering"
+require "../rate_limiter"
 require "./checksums"
 require "./proxy"
 require "lz4"
@@ -151,6 +152,9 @@ module LavinMQ
         remote_hash = Bytes.new(sha1.digest_size)
         files_to_delete, dirs_to_delete = ls_r(@data_dir)
         requested_files = Array(String).new
+        file_count = 0
+        Log.info { "Calculating checksums and comparing files" }
+        log_limiter = RateLimiter.new(2.seconds)
         loop do
           filename_len = lz4.read_bytes Int32, IO::ByteFormat::LittleEndian
           break if filename_len.zero?
@@ -166,7 +170,7 @@ module LavinMQ
           end
           if File.exists? path
             unless local_hash = @checksums[filename]?
-              Log.info { "Calculating checksum for #{filename}" }
+              Log.debug { "Calculating checksum for #{filename}" }
               sha1.file(path)
               local_hash = sha1.final
               @checksums[filename] = local_hash
@@ -179,26 +183,30 @@ module LavinMQ
               requested_files << filename
               request_file(filename, socket)
             else
-              Log.info { "Matching hash: #{path}" }
+              Log.debug { "Matching hash: #{path}" }
             end
           else
             requested_files << filename
             request_file(filename, socket)
           end
+          file_count &+= 1
+          log_limiter.do { Log.info { "Compared #{file_count} files" } }
         end
         end_of_file_list(socket)
-        Log.info { "List of files received" }
+        Log.info { "Compared #{file_count} files, #{requested_files.size} to sync" }
+        Log.info { "Deleting #{files_to_delete.size} files not on leader" } unless files_to_delete.empty?
         files_to_delete.each do |path|
-          Log.info { "File not on leader: #{path}" }
+          Log.debug { "File not on leader: #{path}" }
           File.delete path
         rescue ex : File::Error
           Log.warn(exception: ex) { "Failed to delete #{path}" }
         end
         # Clean up any local empty directory
         # Sort and reverse to cleanup longer paths first
+        Log.info { "Deleting #{dirs_to_delete.size} directories not on leader" } unless dirs_to_delete.empty?
         dirs_to_delete.sort!.reverse_each do |path|
           if Dir.empty? path
-            Log.info { "Dir empty or missing on leader: #{path}" }
+            Log.debug { "Dir empty or missing on leader: #{path}" }
             Dir.delete? path
           else
             Log.warn { "Dir #{path} in delete set, but not empty?" }
@@ -206,9 +214,14 @@ module LavinMQ
         rescue ex : File::Error
           Log.warn(exception: ex) { "Failed to delete #{path}" }
         end
+        received_count = 0
+        log_limiter = RateLimiter.new(2.seconds)
         requested_files.each do |filename|
           file_from_socket(filename, lz4)
+          received_count &+= 1
+          log_limiter.do { Log.info { "Received #{received_count}/#{requested_files.size} files" } }
         end
+        Log.info { "Received all #{requested_files.size} files" } unless requested_files.empty?
       end
 
       private def ls_r(dir) : {Array(String), Array(String)}
@@ -238,7 +251,7 @@ module LavinMQ
       end
 
       private def request_file(filename, socket)
-        Log.info { "Requesting #{filename}" }
+        Log.debug { "Requesting #{filename}" }
         socket.write_bytes filename.bytesize, IO::ByteFormat::LittleEndian
         socket.write filename.to_slice
       end
@@ -266,7 +279,7 @@ module LavinMQ
           remaining.zero? || raise IO::EOFError.new
           @checksums[filename] = sha1.final
         end
-        Log.info { "Received #{filename}, #{length.humanize_bytes}" }
+        Log.debug { "Received #{filename}, #{length.humanize_bytes}" }
       end
 
       private def stream_changes(socket, lz4)
