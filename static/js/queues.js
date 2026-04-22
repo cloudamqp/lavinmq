@@ -91,7 +91,7 @@ const queuesTable = Table.renderTable('table', tableOptions, function (tr, item,
       const internal = document.createElement('span')
       internal.textContent = 'I'
       internal.title = 'Internal'
-      internal.appendChild(internal)
+      features.appendChild(internal)
     } else {
       if (item.durable) {
         const durable = document.createElement('span')
