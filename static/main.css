@@ -72,6 +72,26 @@
 
 :root.menu-collapsed { --sidebar-width: 68px; }
 
+/* Theme */
+html.theme-light {
+  color-scheme: light !important;
+  .dark {
+    display: none;
+  }
+
+}
+
+html.theme-dark {
+  color-scheme: dark !important;
+  .light {
+    display: none;
+  }
+}
+
+
+
+
+
 /* === RESET / BASE === */
 @font-face {
   font-family: Inter;
@@ -287,49 +307,8 @@ header {
   display: inline-block;
 }
 
-.theme-light {
-  #logo-light {
-    display: block;
-  }
 
-  #logo {
-    display: none;
-  }
-}
 
-.theme-dark {
-  #logo {
-    display: block;
-  }
-
-  #logo-light {
-    display: none;
-  }
-}
-
-@media (prefers-color-scheme: dark) {
-  html:not(.theme-light) {
-    #logo {
-      display: block;
-    }
-
-    #logo-light {
-      display: none;
-    }
-  }
-}
-
-@media (prefers-color-scheme: light) {
-  html:not(.theme-dark) {
-    #logo-light {
-      display: block;
-    }
-
-    #logo {
-      display: none;
-    }
-  }
-}
 
 header a,
 header a:visited {
@@ -413,16 +392,8 @@ select.dropdown {
   box-shadow: none;
   background-color: var(--color-bg-input);
   color: var(--color-text-primary);
-}
 
-@media (prefers-color-scheme: light) {
-  select.dropdown {
-    background-image: url(img/arrow-down-dark.svg);
-  }
-}
-
-.theme-light {
-  select.dropdown {
+  html.theme-light & {
     background-image: url(img/arrow-down-dark.svg);
   }
 }
@@ -2053,18 +2024,6 @@ pre.arguments .inactive-argument:before {
   }
 }
 
-@media (prefers-color-scheme: light) {
-  html:not(.theme-dark) {
-    .password-toggle img {
-      filter: brightness(0) saturate(100%) invert(0%) sepia(1%) saturate(4454%) hue-rotate(319deg) brightness(90%) contrast(84%);
-    }
-
-    #menu ul li a img {
-      filter: brightness(0) saturate(100%) invert(0%) sepia(1%) saturate(4454%) hue-rotate(319deg) brightness(90%) contrast(84%);
-    }
-  }
-}
-
 #theme-switcher {
   display: flex;
   background: var(--color-theme-switcher-bg);
@@ -2099,34 +2058,6 @@ pre.arguments .inactive-argument:before {
   opacity: 0.7;
 }
 
-/* Show appropriate icon based on theme and active state */
-#theme-switcher button .theme-icon-dark {
-  display: none;
-}
-
-#theme-switcher button .theme-icon-light {
-  display: block;
-}
-
-/* Dark theme overrides */
-html.theme-dark #theme-switcher button .theme-icon-light {
-  display: none;
-}
-
-html.theme-dark #theme-switcher button .theme-icon-dark {
-  display: block;
-}
-
-/* System theme - show appropriate icon based on prefers-color-scheme */
-@media (prefers-color-scheme: dark) {
-  html:not(.theme-light) #theme-switcher button .theme-icon-light {
-    display: none;
-  }
-
-  html:not(.theme-light) #theme-switcher button .theme-icon-dark {
-    display: block;
-  }
-}
 
 /* Hover states */
 #theme-switcher button:hover {
@@ -2146,49 +2077,21 @@ html.theme-dark #theme-switcher button .theme-icon-dark {
 }
 
 /* Active state icon visibility - show inverted icon */
-#theme-switcher button.active .theme-icon-light {
-  display: none;
-}
-
-#theme-switcher button.active .theme-icon-dark {
-  display: block;
-  opacity: 1;
-}
-
-/* Dark theme active state - show light icon */
-html.theme-dark #theme-switcher button.active .theme-icon-dark {
-  display: none;
-}
-
-html.theme-dark #theme-switcher button.active .theme-icon-light {
-  display: block;
-  opacity: 1;
-}
-
-/* System theme active state */
-@media (prefers-color-scheme: dark) {
-  html:not(.theme-light) #theme-switcher button.active .theme-icon-dark {
-    display: none;
+#theme-switcher button.active .theme-icon {
+  &.light {
+    html.theme-light & { display: none }
+    html.theme-dark & { display: block }
+  }
+  &.dark {
+    html.theme-light & { display: block }
+    html.theme-dark & { display: none }
   }
 
-  html:not(.theme-light) #theme-switcher button.active .theme-icon-light {
-    display: block;
-    opacity: 1;
-  }
 }
 
 #theme-switcher button:focus {
   outline: none;
   box-shadow: 0 0 0 2px var(--color-border-primary);
-}
-
-/* Force theme color-scheme for proper system integration */
-html.theme-light {
-  color-scheme: light !important;
-}
-
-html.theme-dark {
-  color-scheme: dark !important;
 }
 
 /* === UTILITIES === */
