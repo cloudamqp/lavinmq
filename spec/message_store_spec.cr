@@ -560,6 +560,24 @@ describe LavinMQ::MessageStore do
   describe "after crash with fully acked segment" do
     # Simulates unclean shutdown where mmap msg writes were lost but ack writes survived:
     # the ack file references positions that don't exist in the msg file anymore.
+    it "prunes phantom acks across multiple segments when all positions are phantoms" do
+      mktmpdir do |dir|
+        # Two segments with only a schema header and an all-phantom ack file
+        # each — exercises the @deleted.delete(seg) branch for multiple segments.
+        [1u32, 2u32].each do |seg|
+          File.write(File.join(dir, "msgs.#{seg.to_s.rjust(10, '0')}"), "\x04\x00\x00\x00")
+          File.open(File.join(dir, "acks.#{seg.to_s.rjust(10, '0')}"), "w") do |f|
+            f.write_bytes(100u32, IO::ByteFormat::SystemEndian)
+            f.write_bytes(200u32, IO::ByteFormat::SystemEndian)
+          end
+        end
+
+        store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+        store.@deleted.empty?.should be_true
+        store.close
+      end
+    end
+
     it "does not raise EOF when ack file has phantom positions past data" do
       mktmpdir do |dir|
         setup_phantom_ack_scenario(dir)
