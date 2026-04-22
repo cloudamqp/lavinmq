@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - User permission check to source and destinations vhosts when creating shovels [#1867](https://github.com/cloudamqp/lavinmq/pull/1867)
+- Replicate the .queue file [#1869](https://github.com/cloudamqp/lavinmq/pull/1869)
+
 ## [2.7.0] - 2026-04-16
 
 This release introduces OAuth2/OIDC authentication, kernel TLS offloading, a rewritten configuration system, Jump consistent hash exchange algorithm, and the ability to restart closed queues. It also brings enhanced TLS capabilities including SNI and mTLS support, improved stream performance, improved clustering and federation management, and many bug fixes.
