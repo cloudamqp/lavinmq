@@ -548,9 +548,10 @@ module LavinMQ
     # flushes the acks file but not the corresponding msgs file, and would
     # otherwise cause shift? to skip over brand-new messages as if acked.
     private def prune_phantom_acks : Nil
-      @deleted.each do |seg, positions|
-        mfile = @segments[seg]?
-        next unless mfile
+      # Snapshot keys — prune_phantom_acks_for_segment mutates @deleted.
+      @deleted.keys.each do |seg|
+        next unless positions = @deleted[seg]?
+        next unless mfile = @segments[seg]?
         prune_phantom_acks_for_segment(seg, mfile, positions)
       end
     end
