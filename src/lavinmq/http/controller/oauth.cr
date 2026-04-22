@@ -120,7 +120,9 @@ module LavinMQ
 
         cookie_value = context.request.cookies["oauth_state"]?.try(&.value) || oauth_redirect_error(context, "Missing OAuth state")
         sep = cookie_value.index(':') || oauth_redirect_error(context, "Invalid OAuth state cookie")
-        oauth_redirect_error(context, "State mismatch") unless context.request.query_params["state"]? == cookie_value[0...sep]
+        expected_state = cookie_value[0...sep]
+        provided_state = context.request.query_params["state"]? || oauth_redirect_error(context, "State mismatch")
+        oauth_redirect_error(context, "State mismatch") unless Crypto::Subtle.constant_time_compare(expected_state, provided_state)
         code = context.request.query_params["code"]? || oauth_redirect_error(context, "Missing authorization code")
 
         {code, cookie_value[sep + 1..], client_id}
