@@ -153,17 +153,30 @@ def with_http_server(file = __FILE__, line = __LINE__, &)
   end
 end
 
+def serve_metrics(amqp_server, &)
+  h = LavinMQ::HTTP::MetricsServer.new(amqp_server)
+  begin
+    addr = h.bind_tcp("::1", ENV.has_key?("NATIVE_PORTS") ? 15692 : 0)
+    spawn(name: "metrics listen") { h.listen }
+    Fiber.yield
+    yield HTTPSpecHelper.new(addr)
+  ensure
+    h.close
+  end
+end
+
 def with_metrics_server(file = __FILE__, line = __LINE__, &)
   with_amqp_server(file: file, line: line) do |s|
-    h = LavinMQ::HTTP::MetricsServer.new(s)
-    begin
-      addr = h.bind_tcp("::1", ENV.has_key?("NATIVE_PORTS") ? 15692 : 0)
-      spawn(name: "http listen") { h.listen }
-      Fiber.yield
-      yield({HTTPSpecHelper.new(addr), s})
-    ensure
-      h.close
+    serve_metrics(s) do |http|
+      yield({http, s})
     end
+  end
+end
+
+def with_follower_metrics_server(&)
+  # Passing nil for amqp_server wires up FollowerPrometheusController — the same path a real follower takes.
+  serve_metrics(nil) do |http|
+    yield http
   end
 end
 
