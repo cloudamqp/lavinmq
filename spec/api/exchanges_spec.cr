@@ -71,11 +71,12 @@ describe LavinMQ::HTTP::ExchangesController do
 
     it "should require a known type" do
       with_http_server do |http, _|
-        body = %({ "type": "tut" })
+        unknown_type = "tut"
+        body = %({ "type": "#{unknown_type}" })
         response = http.put("/api/exchanges/%2f/faulty", body: body)
         response.status_code.should eq 400
         body = JSON.parse(response.body)
-        body["reason"].as_s.should match(/invalid exchange type/)
+        body["reason"].as_s.should match(/unknown exchange type '#{unknown_type}'/)
       end
     end
 
