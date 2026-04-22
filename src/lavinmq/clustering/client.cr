@@ -149,7 +149,7 @@ module LavinMQ
         Log.info { "Waiting for list of files" }
         sha1 = Digest::SHA1.new
         remote_hash = Bytes.new(sha1.digest_size)
-        files_to_delete = ls_r(@data_dir)
+        files_to_delete, dirs_to_delete = ls_r(@data_dir)
         requested_files = Array(String).new
         loop do
           filename_len = lz4.read_bytes Int32, IO::ByteFormat::LittleEndian
@@ -159,6 +159,11 @@ module LavinMQ
           lz4.read_fully(remote_hash)
           path = File.join(@data_dir, filename)
           files_to_delete.delete(path)
+          # Walk up the path to remove all ancestors from dirs_to_delete
+          dir = File.dirname(path)
+          while dirs_to_delete.delete(dir)
+            dir = File.dirname(dir)
+          end
           if File.exists? path
             unless local_hash = @checksums[filename]?
               Log.info { "Calculating checksum for #{filename}" }
@@ -186,24 +191,44 @@ module LavinMQ
         files_to_delete.each do |path|
           Log.info { "File not on leader: #{path}" }
           File.delete path
+        rescue ex : File::Error
+          Log.warn(exception: ex) { "Failed to delete #{path}" }
+        end
+        # Clean up any local empty directory
+        # Sort and reverse to cleanup longer paths first
+        dirs_to_delete.sort!.reverse_each do |path|
+          if Dir.empty? path
+            Log.info { "Dir empty or missing on leader: #{path}" }
+            Dir.delete? path
+          else
+            Log.warn { "Dir #{path} in delete set, but not empty?" }
+          end
+        rescue ex : File::Error
+          Log.warn(exception: ex) { "Failed to delete #{path}" }
         end
         requested_files.each do |filename|
           file_from_socket(filename, lz4)
         end
       end
 
-      private def ls_r(dir) : Array(String)
+      private def ls_r(dir) : {Array(String), Array(String)}
         files = Array(String).new
+        dirs = Array(String).new
         ls_r(dir) do |filename|
-          files << filename
+          if File.file?(filename)
+            files << filename
+          elsif File.directory?(filename)
+            dirs << filename
+          end
         end
-        files
+        {files, dirs}
       end
 
       private def ls_r(dir, &blk : String -> Nil)
         Dir.each_child(dir) do |child|
           path = File.join(dir, child)
           if File.directory? path
+            yield path
             ls_r(path, &blk)
           else
             next if child.in?(".lock", ".clustering_id")
