@@ -232,6 +232,7 @@ module LavinMQ
         deprecated: "--default-password is deprecated, use --default-password-hash", section: "options")]
       @[IniOpt(section: "main", deprecated: "default_password_hash")]
       @default_password : Auth::Password::SHA256Password = DEFAULT_PASSWORD_HASH # Hashed password for default user
+
       def default_password=(value)
         # Forward value to the new property
         @default_password_hash = value
