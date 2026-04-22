@@ -1,15 +1,15 @@
-<%- pagename = "Consumers" -%>
+<!--#set var="TITLE" value="Consumers" -->
 <!DOCTYPE html>
 <html lang="en" class="consumers">
   <head>
-    <% render "partials/head" %>
+    <!--#include file="partials/head.html" -->
     <script type="module" src="js/consumers.js"></script>
   </head>
   <body>
-    <% render "partials/header" %>
+    <!--#include file="partials/header.html" -->
     <main class="main-grid">
       <div id="breadcrumbs" class="cols-12">
-          <h2 class="page-title"><%=pagename%><div class="tiny-badge" id="pagename-label"></div></h2>
+          <h2 class="page-title"><!--#echo var="TITLE" --><div class="tiny-badge" id="pagename-label"></div></h2>
       </div>
       <section class="card">
         <div class="table-header">
@@ -35,6 +35,6 @@
         </div>
       </section>
     </main>
-    <% render "partials/footer" %>
+    <!--#include file="partials/footer.html" -->
   </body>
 </html>

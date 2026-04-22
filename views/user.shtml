@@ -1,15 +1,15 @@
-<%- pagename = "User" -%>
+<!--#set var="TITLE" value="User" -->
 <!DOCTYPE html>
 <html lang="en" class="users">
   <head>
-    <% render "partials/head" %>
+    <!--#include file="partials/head.html" -->
     <script type="module" src="js/user.js"></script>
   </head>
   <body>
-    <% render "partials/header" %>
+    <!--#include file="partials/header.html" -->
     <main class="main-grid">
       <div id="breadcrumbs" class="cols-12">
-          <h2 class="page-title"><%=pagename%><div id="pagename-label" class="subpage-title"></div></h2>
+          <h2 class="page-title"><!--#echo var="TITLE" --><div id="pagename-label" class="subpage-title"></div></h2>
       </div>
       <section class="card cols-4">
         <h3>Details</h3>
@@ -105,6 +105,6 @@
         </form>
       </section>
     </main>
-    <% render "partials/footer" %>
+    <!--#include file="partials/footer.html" -->
   </body>
 </html>

@@ -1,15 +1,10 @@
 require "../controller"
 require "../router"
-require "../../version"
-require "html"
-require "digest/md5"
 
 module LavinMQ
   module HTTP
     class ViewsController
       include Router
-
-      Log = LavinMQ::Log.for "http.views"
 
       def initialize
         static_view "/", view: "overview"
@@ -37,38 +32,18 @@ module LavinMQ
         static_view "/operator-policies"
       end
 
-      # Generate a get handler for given path. If no view is specified, path without initial
-      # slash will be used as view.
-      #
-      # Optional block can be given to modify context or set variables before view is rendered.
-      #
-      # This would render views/json_data.ecr and change content type:
-      #
-      # ```
-      # static_view "/json", "json_data" do
-      #   context.response.content_type = "application/json"
-      # end
-      # ```
-      macro static_view(path, *, auth_required = true, view = nil, &block)
+      macro static_view(path, *, auth_required = true, view = nil)
         {% view = path[1..] if view.nil? %}
         get {{ path }} do |context, params|
           redirect_unless_logged_in! if {{ auth_required }}
-          if_non_match = context.request.headers["If-None-Match"]?
-          Log.trace { "static_view path={{ path.id }} etag=#{ETag} if-non-match=#{if_non_match}" }
-          if if_non_match == ETag
-            context.response.status_code = 304
-          else
-            context.response.content_type = "text/html;charset=utf-8"
-            context.response.headers.add("Cache-Control", "no-cache")
-            context.response.headers.add("ETag", ETag)
-            context.response.headers.add("X-Frame-Options", "SAMEORIGIN")
-            context.response.headers.add("Referrer-Policy", "same-origin")
-            layout_inline_js_sha = "sha256-xCBzVV2TewAz4Dk/CrTquSJ4NTH48Y5fckwTF8Lg5bE="
-            login_inline_js_sha = "sha256-geVq8VDXlrdYEnBJnJpZGimivpOlbPNu95QQRXwEZY8="
-            context.response.headers.add("Content-Security-Policy", "default-src 'none'; style-src 'self'; font-src 'self'; img-src 'self'; connect-src 'self'; script-src 'self' '#{layout_inline_js_sha}' '#{login_inline_js_sha}'")
-            {{ block.body if block }}
-            render {{ view }}
-          end
+          context.response.headers.add("X-Frame-Options", "SAMEORIGIN")
+          context.response.headers.add("Referrer-Policy", "same-origin")
+          layout_inline_js_sha = "sha256-xCBzVV2TewAz4Dk/CrTquSJ4NTH48Y5fckwTF8Lg5bE="
+          login_inline_js_sha = "sha256-geVq8VDXlrdYEnBJnJpZGimivpOlbPNu95QQRXwEZY8="
+          context.response.headers.add("Content-Security-Policy", "default-src 'none'; style-src 'self'; font-src 'self'; img-src 'self'; connect-src 'self'; script-src 'self' '#{layout_inline_js_sha}' '#{login_inline_js_sha}'")
+          # Rewrite path to .html so StaticController (next in chain)
+          context.request.path = {{ "/#{view.id}.html" }}
+          call_next(context)
           context
         end
       end
@@ -79,24 +54,6 @@ module LavinMQ
           context.response.headers["Location"] = "login"
           next context
         end
-      end
-
-      # etag won't change in runtime
-      {% if flag?(:release) %}
-        ETag = %(W/"#{LavinMQ::VERSION}")
-      {% else %}
-        ETag = %(W/"{{ `date +%s`.strip }}")
-      {% end %}
-
-      # Render an ecr file from views dir
-      macro render(file)
-        ECR.embed "views/{{ file.id }}.ecr", context.response
-      end
-
-      macro active_path?(path)
-        context.request.path == "/#{{{ path }}}" ||
-          context.request.path == "/#{{{ path }}}".chomp('s') ||
-          (context.request.path == "/" && {{ path }} == ".")
       end
     end
   end

@@ -13,7 +13,7 @@
       <img alt="LavinMQ logo" class="dark" id="logo" src="img/logo-lavinmq-all-white.svg" width="120" height="24">
       <img alt="LavinMQ logo" class="light" id="logo-light" src="img/logo-lavinmq-all-dark.svg" width="120" height="24">
     </a>
-    <span class="version-tab" id="version"><%= LavinMQ::VERSION %></span>
+    <span class="version-tab" id="version"><!--#echo var="VERSION" --></span>
   </div>
   <button id="usermenu-button"></button>
   <nav id="user-menu">
@@ -60,59 +60,84 @@
 <nav id="menu">
   <button id="menu-button"></button>
   <ul id="menu-content">
-    <% [
-      {
-        title: "Cluster",
-        items: [
-          { href: ".", label: "Overview" },
-          { href: "nodes", label: "Nodes" },
-          { href: "logs", label: "Logs" },
-        ]
-      },
-      {
-        title: "Clients",
-        items: [
-          { href: "connections", label: "Connections" },
-          { href: "channels", label: "Channels" },
-          { href: "consumers", label: "Consumers" },
-        ]
-      },
-      {
-        title: "Messaging",
-        items: [
-          { href: "exchanges", label: "Exchanges" },
-          { href: "queues", label: "Queues" },
-        ]
-      },
-      {
-        title: "Bridges",
-        items: [
-          { href: "shovels", label: "Shovels" },
-          { href: "federation", label: "Federation" },
-        ]
-      },
-      {
-        title: "Administration",
-        items: [
-          { href: "vhosts", label: "Virtual hosts" },
-          { href: "policies", label: "Policies" },
-          { href: "operator-policies", label: "Operator policies" },
-          { href: "users", label: "Users" },
-        ]
-      },
-    ].each do |group| -%>
+    <li class="menu-group"><span>Cluster</span></li>
+    <li class="overview">
+      <a href="." class="menu-tooltip">
+        <span class="menu-item-label menu-tooltip-label">Overview</span>
+      </a>
+    </li>
+    <li class="nodes">
+      <a href="nodes" class="menu-tooltip">
+        <span class="menu-item-label menu-tooltip-label">Nodes</span>
+      </a>
+    </li>
+    <li class="logs">
+      <a href="logs" class="menu-tooltip">
+        <span class="menu-item-label menu-tooltip-label">Logs</span>
+      </a>
+    </li>
+    <li class="menu-group"><span>Clients</span></li>
+    <li class="connections">
+      <a href="connections" class="menu-tooltip">
+        <span class="menu-item-label menu-tooltip-label">Connections</span>
+      </a>
+    </li>
+    <li class="channels">
+      <a href="channels" class="menu-tooltip">
+        <span class="menu-item-label menu-tooltip-label">Channels</span>
+      </a>
+    </li>
+    <li class="consumers">
+      <a href="consumers" class="menu-tooltip">
+        <span class="menu-item-label menu-tooltip-label">Consumers</span>
+      </a>
+    </li>
 
-      <li class="menu-group"><span><%= group[:title] %></span></li>
+    <li class="menu-group"><span>Messaging</span></li>
+    <li class="exchanges">
+      <a href="exchanges" class="menu-tooltip">
+        <span class="menu-item-label menu-tooltip-label">Exchanges</span>
+      </a>
+    </li>
+    <li class="queues">
+      <a href="queues" class="menu-tooltip">
+        <span class="menu-item-label menu-tooltip-label">Queues</span>
+      </a>
+    </li>
 
-      <% group[:items].each do |item| -%>
-        <li class="<%= item[:href] == "." ? "overview" : item[:href] %>">
-          <a href="<%= item[:href] %>" class="menu-tooltip">
-            <span class="menu-item-label menu-tooltip-label"><%= item[:label] %></span>
-          </a>
-        </li>
-      <%- end -%>
+    <li class="menu-group"><span>Bridges</span></li>
+    <li class="shovels">
+      <a href="shovels" class="menu-tooltip">
+        <span class="menu-item-label menu-tooltip-label">Shovels</span>
+      </a>
+    </li>
+    <li class="federation">
+      <a href="federation" class="menu-tooltip">
+        <span class="menu-item-label menu-tooltip-label">Federation</span>
+      </a>
+    </li>
 
-    <%- end -%>
+    <li class="menu-group"><span>Administration</span></li>
+    <li class="vhosts">
+      <a href="vhosts" class="menu-tooltip">
+        <span class="menu-item-label menu-tooltip-label">Virtual hosts</span>
+      </a>
+    </li>
+    <li class="policies">
+      <a href="policies" class="menu-tooltip">
+        <span class="menu-item-label menu-tooltip-label">Policies</span>
+      </a>
+    </li>
+    <li class="operator-policies">
+      <a href="operator-policies" class="menu-tooltip">
+        <span class="menu-item-label menu-tooltip-label">Operator policies</span>
+      </a>
+    </li>
+    <li class="users">
+      <a href="users" class="menu-tooltip">
+        <span class="menu-item-label menu-tooltip-label">Users</span>
+      </a>
+    </li>
 
     <li class="http-api"><a class="menu-item" href="docs/" target="_blank"><span class="menu-item-label">HTTP API</span></a></li>
   </ul>
