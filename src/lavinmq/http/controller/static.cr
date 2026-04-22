@@ -19,12 +19,14 @@ module LavinMQ
       end
 
       {% if flag?(:release) || flag?(:bake_static) %}
-        Files = {
+        private def lookup(file_path)
+          case file_path
           {{ run("./static/bake", PUBLIC_DIR) }}
-        }
+          end
+        end
 
         private def serve(context, file_path)
-          if static_file = Files[file_path]?
+          if static_file = lookup(file_path)
             bytes, etag, deflated = static_file
             if context.request.headers["If-None-Match"]? == etag
               context.response.status_code = 304
