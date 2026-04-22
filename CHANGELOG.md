@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - User permission check to source and destinations vhosts when creating shovels [#1867](https://github.com/cloudamqp/lavinmq/pull/1867)
 - Replicate the .queue file [#1869](https://github.com/cloudamqp/lavinmq/pull/1869)
 - Clean up empty dirs on follower after full sync [#1870](https://github.com/cloudamqp/lavinmq/pull/1870)
+- Recognize IPv4-mapped IPv6 loopback addresses. Fixes default user loopback check. [#1871](https://github.com/cloudamqp/lavinmq/pull/1871)
 
 ## [2.7.0] - 2026-04-16
 
