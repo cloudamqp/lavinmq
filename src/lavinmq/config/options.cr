@@ -3,7 +3,7 @@ module LavinMQ
     annotation CliOpt; end
     annotation IniOpt; end
     annotation EnvOpt; end
-    INI_SECTIONS = {"main", "amqp", "mqtt", "mgmt", "experimental", "clustering", "oauth"}
+    INI_SECTIONS = {"main", "amqp", "mqtt", "mgmt", "experimental", "clustering", "oauth", "blob-storage"}
 
     # Separate module for config option definitions. This keeps the option declarations
     # organized in one place, while config.cr contains the parsing and validation logic.
@@ -303,6 +303,26 @@ module LavinMQ
 
       @[IniOpt(section: "main", transform: ->ConsistentHashAlgorithm.parse(String))]
       property default_consistent_hash_algorithm : ConsistentHashAlgorithm = ConsistentHashAlgorithm::Ring
+
+      @[CliOpt("", "--blob-storage-region=REGION", "Blob storage region", section: "blob-storage")]
+      @[IniOpt(ini_name: region, section: "blob-storage")]
+      property blob_storage_region : String? = nil
+
+      @[CliOpt("", "--blob-storage-access-key-id=KEY", "Blob storage access key ID", section: "blob-storage")]
+      @[IniOpt(ini_name: access_key_id, section: "blob-storage")]
+      property blob_storage_access_key_id : String? = nil
+
+      @[CliOpt("", "--blob-storage-secret-access-key=KEY", "Blob storage secret access key", section: "blob-storage")]
+      @[IniOpt(ini_name: secret_access_key, section: "blob-storage")]
+      property blob_storage_secret_access_key : String? = nil
+
+      @[CliOpt("", "--blob-storage-endpoint=ENDPOINT", "Blob storage endpoint URL (use virtual-hosted-style: https://bucket.s3.region.amazonaws.com)", section: "blob-storage")]
+      @[IniOpt(ini_name: endpoint, section: "blob-storage")]
+      property blob_storage_endpoint : String? = nil
+
+      @[CliOpt("", "--blob-storage-local-segments=NUMBER", "Number of local segments to keep per blob-stream (default: 50)", section: "blob-storage")]
+      @[IniOpt(ini_name: local_segments_per_stream, section: "blob-storage")]
+      property blob_storage_local_segments_per_stream = 50
 
       # Deprecated options - these forward to the primary option in [main]
 

@@ -35,8 +35,9 @@ module LavinMQ::AMQP
 
     private def get_last_offset : Int64
       return 0i64 if @size.zero?
+      last_count = @segment_msg_count.last_value
       offset = @segment_first_offset.last_value
-      offset += @segment_msg_count.last_value - 1
+      offset += last_count - 1 unless last_count.zero?
       offset
     end
 
@@ -52,8 +53,8 @@ module LavinMQ::AMQP
       end
 
       case offset
-      when "first" then offset_at(@segments.first_key, 4u32)
-      when "last"  then offset_at(@segments.last_key, 4u32)
+      when "first" then find_offset_in_segments(0)
+      when "last"  then find_offset_in_segments(@last_offset)
       when "next"  then last_offset_seg_pos
       when Time    then find_offset_in_segments(offset)
       when nil
@@ -96,15 +97,19 @@ module LavinMQ::AMQP
       {@last_offset + 1, @segments.last_key, @segments.last_value.size.to_u32}
     end
 
+    # ameba:disable Metrics/CyclomaticComplexity
     private def find_offset_in_segments(offset : Int | Time) : Tuple(Int64, UInt32, UInt32)
       segment = offset_index_lookup(offset)
+      download_segment(segment) unless @segments[segment]?
       pos = 4u32
       msg_offset = @segment_first_offset[segment] || 0i64
       loop do
         rfile = @segments[segment]?
         if rfile.nil? || pos == rfile.size
-          if segment = @segments.each_key.find { |sid| sid > segment }
-            rfile = @segments[segment]
+          if seg_id = next_segment_id(segment)
+            download_segment(seg_id) unless @segments[seg_id]?
+            rfile = @segments[seg_id]? || return last_offset_seg_pos
+            segment = seg_id
             pos = 4u32
             msg_offset = @segment_first_offset[segment]
           else
@@ -126,7 +131,7 @@ module LavinMQ::AMQP
     end
 
     private def offset_index_lookup(offset) : UInt32
-      seg = @segments.first_key
+      seg = @segment_first_offset.first_key
       case offset
       when Int
         @segment_first_offset.each do |seg_id, first_seg_offset|
@@ -184,7 +189,7 @@ module LavinMQ::AMQP
       return if @consumer_offsets.size.zero?
 
       offsets_to_save = Hash(String, Int64).new
-      lowest_offset_in_stream, _seg, _pos = offset_at(@segments.first_key, 4u32)
+      lowest_offset_in_stream = @segment_first_offset.first_value
       capacity = 0
       @consumer_offset_positions.each do |ctag, _pos|
         if offset = last_offset_by_consumer_tag(ctag)
@@ -215,7 +220,7 @@ module LavinMQ::AMQP
 
     def read(segment : UInt32, position : UInt32) : Envelope?
       return if @closed
-      rfile = @segments[segment]
+      rfile = @segments[segment]? || download_segment(segment) || return
       return if position == rfile.size
       begin
         msg = BytesMessage.from_bytes(rfile.to_slice + position)
@@ -225,6 +230,11 @@ module LavinMQ::AMQP
         puts "read segment=#{segment} position=#{position}"
         raise Error.new(rfile, cause: ex)
       end
+    end
+
+    # Ensure the segment the consumer needs is available locally.
+    # No-op for local storage; BlobMessageStore overrides to download ahead of the lock.
+    def ensure_available(consumer : AMQP::StreamConsumer) : Nil
     end
 
     def shift?(consumer : AMQP::StreamConsumer) : Envelope?
@@ -273,11 +283,17 @@ module LavinMQ::AMQP
     end
 
     private def next_segment(consumer) : MFile?
-      if seg_id = next_segment_id(consumer.segment)
-        consumer.segment = seg_id
-        consumer.pos = 4u32
-        @segments[seg_id]
-      end
+      seg_id = next_segment_id(consumer.segment) || return
+      consumer.segment = seg_id
+      consumer.pos = 4u32
+      @segments[seg_id]? || download_segment(seg_id)
+    end
+
+    # Called when a consumer or offset lookup needs a segment that isn't
+    # available locally. Returns nil by default. BlobMessageStore overrides this
+    # to download the segment from remote storage and add it to @segments.
+    private def download_segment(seg_id : UInt32) : MFile?
+      nil
     end
 
     def push(msg) : SegmentPosition
@@ -292,9 +308,10 @@ module LavinMQ::AMQP
 
     private def open_new_segment(next_msg_size = 0) : MFile
       super.tap do
-        drop_overflow
         @segment_first_offset[@segments.last_key] = @last_offset.zero? ? 1i64 : @last_offset
         @segment_first_ts[@segments.last_key] = RoughTime.unix_ms
+        @segment_last_ts[@segments.last_key] = RoughTime.unix_ms
+        drop_overflow
       end
     end
 
@@ -367,7 +384,7 @@ module LavinMQ::AMQP
 
     private def produce_metadata(seg, mfile)
       super
-      if empty?
+      if @segment_msg_count[seg].zero?
         @segment_first_offset[seg] = @last_offset + 1
         @segment_first_ts[seg] = RoughTime.unix_ms
         @segment_last_ts[seg] = RoughTime.unix_ms
