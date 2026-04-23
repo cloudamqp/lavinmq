@@ -27,16 +27,22 @@ test.describe('menu', _ => {
       const activeLink = page.locator(`#menu-content li.${cls} > a`)
       await expect(activeLink).toHaveText(label)
 
-      // The active <a> must have a background-color distinct from every
-      // other menu <a>, proving the CSS actually highlights it.
-      const activeBg = await activeLink.evaluate(el => window.getComputedStyle(el).backgroundColor)
-      const otherBgs = await page
-        .locator(`#menu-content li:not(.${cls}):not(.http-api) > a`)
-        .evaluateAll(els => els.map(el => window.getComputedStyle(el).backgroundColor))
-      expect(otherBgs.length).toBeGreaterThan(0)
-      for (const bg of otherBgs) {
-        expect(bg).not.toEqual(activeBg)
-      }
+      // CSS highlights the active link with background-color: var(--highlight-color).
+      // Resolve the variable via a throwaway probe appended under #menu (where
+      // --highlight-color is declared). Reading the custom property directly
+      // returns the unresolved `light-dark(...)` literal, but using it as a real
+      // background-color forces the browser to evaluate it to an rgb() value.
+      const highlight = await page.evaluate(() => {
+        const probe = document.createElement('div')
+        probe.style.backgroundColor = 'var(--highlight-color)'
+        document.querySelector('#menu').appendChild(probe)
+        const color = window.getComputedStyle(probe).backgroundColor
+        probe.remove()
+        return color
+      })
+      await expect(activeLink).toHaveCSS('background-color', highlight)
+      await expect(page.locator(`#menu-content li:not(.${cls}):not(.http-api) > a`).first())
+        .not.toHaveCSS('background-color', highlight)
     })
   }
 
