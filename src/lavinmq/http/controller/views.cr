@@ -64,7 +64,7 @@ module LavinMQ
             context.response.headers.add("X-Frame-Options", "SAMEORIGIN")
             context.response.headers.add("Referrer-Policy", "same-origin")
             layout_inline_js_sha = "sha256-xCBzVV2TewAz4Dk/CrTquSJ4NTH48Y5fckwTF8Lg5bE="
-            login_inline_js_sha = "sha256-geVq8VDXlrdYEnBJnJpZGimivpOlbPNu95QQRXwEZY8="
+            login_inline_js_sha = "sha256-3bUZcnRc7hbNc+igS1dxqJNEEypKXCvZ9ozHwAxXIvc="
             context.response.headers.add("Content-Security-Policy", "default-src 'none'; style-src 'self'; font-src 'self'; img-src 'self'; connect-src 'self'; script-src 'self' '#{layout_inline_js_sha}' '#{login_inline_js_sha}'")
             {{ block.body if block }}
             render {{ view }}
