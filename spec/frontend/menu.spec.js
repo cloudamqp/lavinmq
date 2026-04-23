@@ -1,120 +1,46 @@
-import * as helpers from './helpers.js'
 import { test, expect } from './fixtures.js'
 
 test.describe('menu', _ => {
-  test('overview menu item has active class on overview page', async ({ page }) => {
-    await page.goto('/')
-    const activeItems = await page.locator('#menu-content .active')
-    const activeItem = await activeItems.first()
-    await expect(activeItems).toHaveCount(1)
-    await expect(activeItem).toHaveText('Overview')
-  })
+  // Pages mark the active menu item by setting a class on <html> matching a
+  // class on the corresponding <li> (e.g. <html class="nodes"> + <li class="nodes">).
+  // CSS in static/main.css:1042 highlights the item via `html.<page> li.<page> a`.
+  const pages = [
+    { path: '/', cls: 'overview', label: 'Overview' },
+    { path: '/nodes', cls: 'nodes', label: 'Nodes' },
+    { path: '/logs', cls: 'logs', label: 'Logs' },
+    { path: '/connections', cls: 'connections', label: 'Connections' },
+    { path: '/channels', cls: 'channels', label: 'Channels' },
+    { path: '/consumers', cls: 'consumers', label: 'Consumers' },
+    { path: '/exchanges', cls: 'exchanges', label: 'Exchanges' },
+    { path: '/queues', cls: 'queues', label: 'Queues' },
+    { path: '/shovels', cls: 'shovels', label: 'Shovels' },
+    { path: '/federation', cls: 'federation', label: 'Federation' },
+    { path: '/vhosts', cls: 'vhosts', label: 'Virtual hosts' },
+    { path: '/policies', cls: 'policies', label: 'Policies' },
+    { path: '/operator-policies', cls: 'operator-policies', label: 'Operator policies' },
+    { path: '/users', cls: 'users', label: 'Users' }
+  ]
 
-  test('nodes menu item has active class on nodes page', async ({ page }) => {
-    await page.goto('/nodes')
-    const activeItems = await page.locator('#menu-content .active')
-    const activeItem = await activeItems.first()
-    await expect(activeItems).toHaveCount(1)
-    await expect(activeItem).toHaveText('Nodes')
-  })
+  for (const { path, cls, label } of pages) {
+    test(`${label} menu item is active on ${path} page`, async ({ page }) => {
+      await page.goto(path)
+      const activeLink = page.locator(`#menu-content li.${cls} > a`)
+      await expect(activeLink).toHaveText(label)
 
-  test('logs menu item has active class on logs page', async ({ page }) => {
-    await page.goto('/logs')
-    const activeItems = await page.locator('#menu-content .active')
-    const activeItem = await activeItems.first()
-    await expect(activeItems).toHaveCount(1)
-    await expect(activeItem).toHaveText('Logs')
-  })
+      // The active <a> must have a background-color distinct from every
+      // other menu <a>, proving the CSS actually highlights it.
+      const activeBg = await activeLink.evaluate(el => window.getComputedStyle(el).backgroundColor)
+      const otherBgs = await page
+        .locator(`#menu-content li:not(.${cls}):not(.http-api) > a`)
+        .evaluateAll(els => els.map(el => window.getComputedStyle(el).backgroundColor))
+      expect(otherBgs.length).toBeGreaterThan(0)
+      for (const bg of otherBgs) {
+        expect(bg).not.toEqual(activeBg)
+      }
+    })
+  }
 
-  test('connections menu item has active class on connections page', async ({ page }) => {
-    await page.goto('/connections')
-    const activeItems = await page.locator('#menu-content .active')
-    const activeItem = await activeItems.first()
-    await expect(activeItems).toHaveCount(1)
-    await expect(activeItem).toHaveText('Connections')
-  })
-
-  test('channels menu item has active class on channels page', async ({ page }) => {
-    await page.goto('/channels')
-    const activeItems = await page.locator('#menu-content .active')
-    const activeItem = await activeItems.first()
-    await expect(activeItems).toHaveCount(1)
-    await expect(activeItem).toHaveText('Channels')
-  })
-
-  test('consumers menu item has active class on consumers page', async ({ page }) => {
-    await page.goto('/consumers')
-    const activeItems = await page.locator('#menu-content .active')
-    const activeItem = await activeItems.first()
-    await expect(activeItems).toHaveCount(1)
-    await expect(activeItem).toHaveText('Consumers')
-  })
-
-  test('exchanges menu item has active class on exchanges page', async ({ page }) => {
-    await page.goto('/exchanges')
-    const activeItems = await page.locator('#menu-content .active')
-    const activeItem = await activeItems.first()
-    await expect(activeItems).toHaveCount(1)
-    await expect(activeItem).toHaveText('Exchanges')
-  })
-
-  test('queues menu item has active class on queues page', async ({ page }) => {
-    await page.goto('/queues')
-    const activeItems = await page.locator('#menu-content .active')
-    const activeItem = await activeItems.first()
-    await expect(activeItems).toHaveCount(1)
-    await expect(activeItem).toHaveText('Queues')
-  })
-
-  test('shovels menu item has active class on shovels page', async ({ page }) => {
-    await page.goto('/shovels')
-    const activeItems = await page.locator('#menu-content .active')
-    const activeItem = await activeItems.first()
-    await expect(activeItems).toHaveCount(1)
-    await expect(activeItem).toHaveText('Shovels')
-  })
-
-  test('federation menu item has active class on federation page', async ({ page }) => {
-    await page.goto('/federation')
-    const activeItems = await page.locator('#menu-content .active')
-    const activeItem = await activeItems.first()
-    await expect(activeItems).toHaveCount(1)
-    await expect(activeItem).toHaveText('Federation')
-  })
-
-  test('vhosts menu item has active class on vhosts page', async ({ page }) => {
-    await page.goto('/vhosts')
-    const activeItems = await page.locator('#menu-content .active')
-    const activeItem = await activeItems.first()
-    await expect(activeItems).toHaveCount(1)
-    await expect(activeItem).toHaveText('Virtual hosts')
-  })
-
-  test('policies menu item has active class on policies page', async ({ page }) => {
-    await page.goto('/policies')
-    const activeItems = await page.locator('#menu-content .active')
-    const activeItem = await activeItems.first()
-    await expect(activeItems).toHaveCount(1)
-    await expect(activeItem).toHaveText('Policies')
-  })
-
-  test('operator-policies menu item has active class on operator-policies page', async ({ page }) => {
-    await page.goto('/operator-policies')
-    const activeItems = await page.locator('#menu-content .active')
-    const activeItem = await activeItems.first()
-    await expect(activeItems).toHaveCount(1)
-    await expect(activeItem).toHaveText('Operator policies')
-  })
-
-  test('users menu item has active class on users page', async ({ page }) => {
-    await page.goto('/users')
-    const activeItems = await page.locator('#menu-content .active')
-    const activeItem = await activeItems.first()
-    await expect(activeItems).toHaveCount(1)
-    await expect(activeItem).toHaveText('Users')
-  })
-
-  test.describe("collapsible", _ => {
+  test.describe('collapsible', _ => {
     test('hover menu toggle button shows tooltip', async ({ page }) => {
       await page.goto('/')
       const toggleButton = await page.getByRole('button', { name: 'Collapse sidebar' })
