@@ -1,4 +1,13 @@
 import { test, expect } from './fixtures.js'
+import { trackCspViolations } from './helpers.js'
+
+test.describe('Content Security Policy', _ => {
+  test('authenticated page loads without CSP violations', async ({ page }) => {
+    const getViolations = await trackCspViolations(page)
+    await page.goto('/')
+    expect(await getViolations()).toEqual([])
+  })
+})
 
 test.describe('theme switcher', _ => {
   test('system theme button is active by default', async ({ page }) => {
