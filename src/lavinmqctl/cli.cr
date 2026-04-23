@@ -141,6 +141,12 @@ class LavinMQCtl
         @args["x-persist-ms"] = JSON::Any.new(v.to_i64)
       end
     end
+    @parser.on("observer", "Profile fiber CPU usage (samples for 5 seconds)") do
+      @cmd = "observer"
+      @parser.on("--watch", "Resample in a loop, clearing the screen between samples") do
+        @options["watch"] = "true"
+      end
+    end
     @parser.on("status", "Display server status") do
       @cmd = "status"
     end
@@ -268,6 +274,7 @@ class LavinMQCtl
     when "list_exchanges"        then list_exchanges
     when "create_exchange"       then create_exchange
     when "delete_exchange"       then delete_exchange
+    when "observer"              then observer
     when "status"                then status
     when "cluster_status"        then cluster_status
     when "set_vhost_limits"      then set_vhost_limits
@@ -766,6 +773,31 @@ class LavinMQCtl
     url = "/api/exchanges/#{URI.encode_www_form(vhost)}/#{URI.encode_www_form(name)}"
     resp = http.delete url
     handle_response(resp, 204)
+  end
+
+  private def observer
+    watch = @options.has_key?("watch")
+    n = 0
+    loop do
+      n += 1
+      resp = http.get("/api/observer", @headers)
+      handle_response(resp, 200)
+
+      if watch
+        @io.print "\e[2J\e[H"
+        @io.printf "=== LavinMQ fiber observer — sample #%d (Ctrl+C to stop) ===\n\n", n
+        @io.flush
+      end
+      @io.print resp.body
+      @io.flush
+
+      break unless watch
+
+      @http.try(&.close)
+      @http = nil
+    end
+  rescue IO::Error
+    # Ctrl+C or server disconnect — exit cleanly.
   end
 
   private def status
