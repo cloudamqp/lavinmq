@@ -1,0 +1,142 @@
+@font-face {
+  font-family: Inter;
+  src: url("../fonts/Inter-Regular.woff2") format("woff2");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: Inter;
+  src: url("../fonts/Inter-SemiBold.woff2") format("woff2");
+  font-weight: 600;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: Inter;
+  src: url("../fonts/Inter-Italic.woff2") format("woff2");
+  font-style: italic;
+  font-display: swap;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  background: var(--scalar-background-1);
+}
+
+.lavinmq-docs-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 20px;
+  background: var(--scalar-background-2);
+  border-bottom: 1px solid var(--scalar-border-color);
+  color: var(--scalar-color-1);
+  font-weight: 600;
+}
+
+.lavinmq-docs-header img {
+  height: 24px;
+  width: 24px;
+}
+
+.lavinmq-docs-header .spacer {
+  flex: 1;
+}
+
+.lavinmq-docs-header a {
+  color: var(--scalar-color-accent);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.lavinmq-docs-header a:hover {
+  text-decoration: underline;
+}
+
+/* Map Scalar tokens onto LavinMQ palette */
+.light-mode,
+.dark-mode {
+  --scalar-font: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  --scalar-font-code: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --scalar-radius: 4px;
+  --scalar-radius-lg: 6px;
+  --scalar-radius-xl: 8px;
+}
+
+.light-mode {
+  --scalar-color-1: #141414;
+  --scalar-color-2: #374151;
+  --scalar-color-3: #6B7280;
+  --scalar-color-accent: #3c9368;
+
+  --scalar-background-1: #FFFFFF;
+  --scalar-background-2: #F4F4F4;
+  --scalar-background-3: #f3f4f6;
+  --scalar-background-accent: rgba(60, 147, 104, 0.12);
+
+  --scalar-border-color: rgba(0, 0, 0, 0.1);
+
+  --scalar-button-1: #3c9368;
+  --scalar-button-1-color: #fafafa;
+  --scalar-button-1-hover: #348056;
+
+  --scalar-color-green: #54BE7E;
+  --scalar-color-red: #ED4337;
+  --scalar-color-yellow: #e2b149;
+  --scalar-color-blue: #3c9368;
+  --scalar-color-orange: #e2b149;
+  --scalar-color-purple: #3c9368;
+
+  --scalar-sidebar-background-1: #F4F4F4;
+  --scalar-sidebar-item-hover-background: #FFFFFF;
+  --scalar-sidebar-item-hover-color: #141414;
+  --scalar-sidebar-item-active-background: rgba(60, 147, 104, 0.12);
+  --scalar-sidebar-color-1: #141414;
+  --scalar-sidebar-color-2: #6B7280;
+  --scalar-sidebar-color-active: #3c9368;
+  --scalar-sidebar-border-color: rgba(0, 0, 0, 0.1);
+  --scalar-sidebar-search-background: #FFFFFF;
+  --scalar-sidebar-search-color: #141414;
+  --scalar-sidebar-search-border-color: rgba(0, 0, 0, 0.1);
+}
+
+.dark-mode {
+  --scalar-color-1: #fafafa;
+  --scalar-color-2: #CDCBC9;
+  --scalar-color-3: #9D9C9A;
+  --scalar-color-accent: #54BE7E;
+
+  --scalar-background-1: #181818;
+  --scalar-background-2: #1D1D1D;
+  --scalar-background-3: #2d2c2c;
+  --scalar-background-accent: rgba(84, 190, 126, 0.14);
+
+  --scalar-border-color: rgba(247, 245, 242, 0.1);
+
+  --scalar-button-1: #54BE7E;
+  --scalar-button-1-color: #181818;
+  --scalar-button-1-hover: #44FC70;
+
+  --scalar-color-green: #54BE7E;
+  --scalar-color-red: #ED4337;
+  --scalar-color-yellow: #e2b149;
+  --scalar-color-blue: #54BE7E;
+  --scalar-color-orange: #e2b149;
+  --scalar-color-purple: #54BE7E;
+
+  --scalar-sidebar-background-1: #1D1D1D;
+  --scalar-sidebar-item-hover-background: #2d2c2c;
+  --scalar-sidebar-item-hover-color: #fafafa;
+  --scalar-sidebar-item-active-background: rgba(84, 190, 126, 0.14);
+  --scalar-sidebar-color-1: #fafafa;
+  --scalar-sidebar-color-2: #9D9C9A;
+  --scalar-sidebar-color-active: #54BE7E;
+  --scalar-sidebar-border-color: rgba(247, 245, 242, 0.1);
+  --scalar-sidebar-search-background: #2D2C2C;
+  --scalar-sidebar-search-color: #fafafa;
+  --scalar-sidebar-search-border-color: rgba(247, 245, 242, 0.1);
+}
