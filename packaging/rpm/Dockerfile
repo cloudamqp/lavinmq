@@ -18,6 +18,7 @@ COPY extras/lavinmq.service extras/lavinmq.ini extras/lavinmq.sysusers extras/
 COPY static/ static/
 COPY views/ views/
 COPY src/ src/
+COPY openapi/ openapi/
 RUN tar -czf /root/rpmbuild/SOURCES/lavinmq.tar.gz -C /usr/src lavinmq
 ARG MAKEFLAGS=-j2
 RUN rpmbuild -ba /root/rpmbuild/SPECS/lavinmq.spec
