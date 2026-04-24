@@ -1,6 +1,6 @@
 # LavinMQ HTTP API OpenAPI spec
 
-OpenAPI docs rendered in browser using https://github.com/stoplightio/elements
+OpenAPI docs rendered in browser using https://github.com/scalar/scalar
 
 (Note the gotcha: the browser caches the YAML files even if they have changed, open dev console in the browser to mitigate.)
 

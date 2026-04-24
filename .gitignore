@@ -17,6 +17,7 @@ package-lock.json
 /playwright/
 /playwright-report/
 /static/*.html
+/static/docs/openapi.bundle.yaml
 .DS_Store
 .claude/settings.local.json
 .claude/scheduled_tasks.lock

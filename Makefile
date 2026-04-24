@@ -5,7 +5,9 @@ CTL_SOURCES := $(shell find src/lavinmqctl -name '*.cr' 2> /dev/null)
 VIEW_SOURCES := $(wildcard views/*.shtml)
 VIEW_TARGETS := $(patsubst views/%.shtml,static/%.html,$(VIEW_SOURCES))
 VIEW_PARTIALS := $(wildcard views/partials/*.shtml)
-JS := static/js/lib/uplot.esm.js static/js/lib/uplot.css static/js/lib/elements-8.2.0.js static/js/lib/elements-8.2.0.css $(wildcard static/js/*.js)
+JS := static/js/lib/uplot.esm.js static/js/lib/uplot.css static/js/lib/scalar-api-reference-1.52.6.js $(wildcard static/js/*.js)
+DOCS := static/docs/openapi.bundle.yaml
+OPENAPI_SOURCES := static/docs/openapi.yaml $(wildcard static/docs/paths/*.yaml) $(wildcard static/docs/schemas/*.yaml)
 CRYSTAL_FLAGS := --release
 override CRYSTAL_FLAGS += --stats --link-flags="$(LDFLAGS)"
 .DELETE_ON_ERROR:
@@ -68,15 +70,13 @@ static/js/lib/uplot.css: | static/js/lib
 	tar -zxOf- package/dist/uPlot.min.css > $@
 	[ "df630c6a8d6f8eeaff264b50f73ce5b114f646ffd9a0bb74f049b0a00135fa04 *$@" = "$$(openssl dgst -sha256 -r $@)" ]
 
-static/js/lib/elements-8.2.0.js: | static/js/lib
-	curl --fail --retry 5 -sL https://registry.npmjs.org/@stoplight/elements/-/elements-8.2.0.tgz | \
-	tar -zxOf- package/web-components.min.js > $@
-	[ "598862da6d551769ebad9d61d4e3037535de573a13d3e0bd1ded4c5fc65c5885 *$@" = "$$(openssl dgst -sha256 -r $@)" ]
+static/js/lib/scalar-api-reference-1.52.6.js: | static/js/lib
+	curl --fail --retry 5 -sL https://registry.npmjs.org/@scalar/api-reference/-/api-reference-1.52.6.tgz | \
+	tar -zxOf- package/dist/browser/standalone.js > $@
+	[ "e5cab69c3b20583a60fff3fd97eb3ae6b66fa8c0aa218ed36fb94163f2fbd66a *$@" = "$$(openssl dgst -sha256 -r $@)" ]
 
-static/js/lib/elements-8.2.0.css: | static/js/lib
-	curl --fail --retry 5 -sL https://registry.npmjs.org/@stoplight/elements/-/elements-8.2.0.tgz | \
-	tar -zxOf- package/styles.min.css > $@
-	[ "119784e23ffc39b6fa3fdb3df93f391f8250e8af141b78dfc3b6bed86079f93b *$@" = "$$(openssl dgst -sha256 -r $@)" ]
+static/docs/openapi.bundle.yaml: $(OPENAPI_SOURCES)
+	npx --yes --package=@redocly/cli@1.28.0 redocly bundle $< --output $@ --force
 
 man1/lavinmq.1: bin/lavinmq | man1
 	help2man -Nn "fast and advanced message queue server" $< -o $@
@@ -95,8 +95,11 @@ man: $(MANPAGES)
 .PHONY: js
 js: $(JS)
 
+.PHONY: docs
+docs: $(DOCS)
+
 .PHONY: deps
-deps: js lib views
+deps: js lib views docs
 
 bin/ameba: lib/ameba | bin
 	crystal build lib/ameba/bin/ameba.cr -o $@
