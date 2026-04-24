@@ -8,6 +8,7 @@ class SpyReplicator
 
   getter registered_files = Hash(String, Symbol).new
   getter deleted_files = Set(String).new
+  getter replaced_files = Array(String).new
 
   def register_file(path : String)
     @registered_files[path] = :path
@@ -22,6 +23,7 @@ class SpyReplicator
   end
 
   def replace_file(path : String)
+    @replaced_files << path
   end
 
   def append(path : String, obj)
@@ -79,6 +81,37 @@ def with_store(*, replicator = nil, durable = true, &)
     ensure
       store.close
     end
+  end
+end
+
+# Sets up a fully-acked segment 1 and appends 2 phantom ack positions past the
+# real data end — simulates an unclean shutdown where ack writes survived but
+# the matching msg writes didn't.
+def setup_phantom_ack_scenario(dir)
+  body = "a" * 1000
+  store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+  5.times { store.push(LavinMQ::Message.new("ex", "rk", body)) }
+  while env = store.shift?
+    store.delete(env.segment_position)
+  end
+  store.close
+  wait_for { store.closed }
+
+  msg_path = File.join(dir, "msgs.0000000001")
+  real_data_end = File.size(msg_path).to_u32
+  File.open(File.join(dir, "acks.0000000001"), "a") do |f|
+    f.write_bytes(real_data_end, IO::ByteFormat::SystemEndian)
+    f.write_bytes(real_data_end + 1024u32, IO::ByteFormat::SystemEndian)
+  end
+end
+
+def with_log_capture(source = "lmq.*", level : ::Log::Severity = :info, &)
+  memory = ::Log::MemoryBackend.new
+  ::Log.builder.bind(source, level, memory)
+  begin
+    yield memory
+  ensure
+    ::Log.builder.unbind(source, level, memory)
   end
 end
 
@@ -504,6 +537,158 @@ describe LavinMQ::MessageStore do
           registered = replicator.registered_files.keys.map { |p| File.basename(p) }
           (seg_files + ack_files).each { |f| registered.should contain(f) }
         end
+      end
+    end
+
+    it "replicates the rewritten ack file after pruning phantoms" do
+      mktmpdir do |dir|
+        setup_phantom_ack_scenario(dir)
+
+        replicator = SpyReplicator.new
+        store = LavinMQ::MessageStore.new(dir, replicator, durable: true)
+        store.close
+
+        replicator.replaced_files.map { |p| File.basename(p) }.should contain("acks.0000000001")
+        replicator.registered_files.keys.map { |p| File.basename(p) }.should contain("acks.0000000001")
+      end
+    end
+  end
+
+  # #1862 — on unclean shutdown, acks.* can end up with positions past the
+  # corresponding msgs.* data end (phantom acks), causing shift? to skip
+  # newly-pushed messages and raise "EOF but @size=1".
+  describe "after crash with fully acked segment" do
+    # Simulates unclean shutdown where mmap msg writes were lost but ack writes survived:
+    # the ack file references positions that don't exist in the msg file anymore.
+    it "prunes phantom acks across multiple segments when all positions are phantoms" do
+      mktmpdir do |dir|
+        # Two segments with only a schema header and an all-phantom ack file
+        # each — exercises the @deleted.delete(seg) branch for multiple segments.
+        [1u32, 2u32].each do |seg|
+          File.write(File.join(dir, "msgs.#{seg.to_s.rjust(10, '0')}"), "\x04\x00\x00\x00")
+          File.open(File.join(dir, "acks.#{seg.to_s.rjust(10, '0')}"), "w") do |f|
+            f.write_bytes(100u32, IO::ByteFormat::SystemEndian)
+            f.write_bytes(200u32, IO::ByteFormat::SystemEndian)
+          end
+        end
+
+        store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+        store.@deleted.empty?.should be_true
+        store.close
+      end
+    end
+
+    it "does not raise EOF when ack file has phantom positions past data" do
+      mktmpdir do |dir|
+        setup_phantom_ack_scenario(dir)
+
+        # Reopen — prune_phantom_acks should drop the 2 phantom positions.
+        store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+        store.@size.should eq 0
+        store.@deleted[1]?.try(&.size).should eq 5
+        store.@acks[1].size.should eq 5 * sizeof(UInt32)
+
+        body = "a" * 1000
+        store.push(LavinMQ::Message.new("ex", "rk", body))
+        store.@size.should eq 1
+
+        env = store.shift?
+        env.should_not be_nil
+        String.new(env.not_nil!.message.body).should eq body
+        store.@size.should eq 0
+        store.close
+      end
+    end
+
+    it "logs when pruning phantom ack positions" do
+      mktmpdir do |dir|
+        setup_phantom_ack_scenario(dir)
+        with_log_capture do |log|
+          store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+          store.close
+          log.entries.any?(&.message.matches?(/Pruned 2 phantom ack position\(s\) from segment 1/)).should be_true
+        end
+      end
+    end
+
+    it "does not re-prune on a second clean restart after phantom cleanup" do
+      mktmpdir do |dir|
+        setup_phantom_ack_scenario(dir)
+
+        store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+        store.close
+        wait_for { store.closed }
+
+        with_log_capture do |log|
+          store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+          store.@acks[1].size.should eq 5 * sizeof(UInt32)
+          store.close
+          log.entries.any?(&.message.matches?(/Pruned/)).should be_false
+        end
+      end
+    end
+
+    it "handles phantom ack positions without crashing when opened as non-durable" do
+      mktmpdir do |dir|
+        setup_phantom_ack_scenario(dir)
+
+        # Non-durable reopens unlink the msg/ack files as they load, so the
+        # ack file is detected as orphaned and @deleted never gets populated.
+        # The important thing is that opening doesn't crash.
+        store = LavinMQ::MessageStore.new(dir, nil, durable: false)
+        (store.@deleted[1]?.nil? || store.@deleted[1].empty?).should be_true
+        store.close
+      end
+    end
+
+    it "deletes leftover acks.*.tmp files in the data dir" do
+      mktmpdir do |dir|
+        File.write(File.join(dir, "msgs.0000000001"), "\x04\x00\x00\x00")
+        File.write(File.join(dir, "acks.0000000001"), "")
+        orphan_tmp = File.join(dir, "acks.0000000001.tmp")
+        File.write(orphan_tmp, "garbage-bytes")
+
+        store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+        store.@acks.has_key?(1u32).should be_true
+        File.exists?(orphan_tmp).should be_false
+        store.close
+      end
+    end
+
+    it "does not raise EOF when rfile.pos is at end when open_new_segment fires" do
+      mktmpdir do |dir|
+        body = "a" * 1000
+        store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+        5.times { store.push(LavinMQ::Message.new("ex", "rk", body)) }
+        while env = store.shift?
+          store.delete(env.segment_position)
+        end
+        store.close
+        wait_for { store.closed }
+
+        store = LavinMQ::MessageStore.new(dir, nil, durable: true)
+        store.@size.should eq 0
+
+        # Push-shift-ack one small msg; rfile.pos is now at end of segment 1.
+        store.push(LavinMQ::Message.new("ex", "rk", body))
+        env = store.shift?.not_nil!
+        store.delete(env.segment_position)
+        store.empty?.should be_true
+
+        # Invariant: rfile == wfile and rfile.pos == rfile.size (fully consumed).
+        store.@rfile.pos.should eq store.@rfile.size
+
+        # Now push a large message that forces open_new_segment.
+        # open_new_segment adds segment 2 and delete_unused_segments deletes segment 1.
+        # @rfile still points to orphan segment 1 with pos == size.
+        half_seg = LavinMQ::Config.instance.segment_size.to_u64 // 2 + 1
+        store.push(LavinMQ::Message.new(RoughTime.unix_ms, "e", "k",
+          AMQ::Protocol::Properties.new, half_seg, IO::Memory.new("b" * half_seg)))
+        store.@size.should eq 1
+
+        env = store.shift?
+        env.should_not be_nil
+        store.close
       end
     end
   end

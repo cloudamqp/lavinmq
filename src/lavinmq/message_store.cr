@@ -37,6 +37,7 @@ module LavinMQ
       load_acks_from_disk
       unless @closed
         load_stats_from_segments
+        prune_phantom_acks
         delete_unused_segments
       end
 
@@ -368,7 +369,14 @@ module LavinMQ
     private def load_acks_from_disk : Nil
       count = 0u32
       Dir.each_child(@msg_dir) do |f|
-        next unless f.starts_with? "acks."
+        next unless f.starts_with?("acks.")
+        if f.ends_with?(".tmp")
+          stale = File.join(@msg_dir, f)
+          @log.debug { "Deleting stale ack rewrite tempfile: #{stale}" }
+          File.delete?(stale)
+          next
+        end
+        next unless f.size == 15
         seg = f[5, 10].to_u32
         path = File.join(@msg_dir, f)
 
@@ -536,6 +544,61 @@ module LavinMQ
 
     private def read_extra_metadata_fields(file : File, seg : UInt32)
       # Used in subclasses of MessageStore to read additional metadata fields
+    end
+
+    # Removes ack positions referencing data past the reconstructed segment size.
+    # Such "phantom" acks can survive an unclean shutdown when kernel page-cache
+    # flushes the acks file but not the corresponding msgs file, and would
+    # otherwise cause shift? to skip over brand-new messages as if acked.
+    private def prune_phantom_acks : Nil
+      # Snapshot keys — prune_phantom_acks_for_segment mutates @deleted.
+      @deleted.keys.each do |seg|
+        next unless positions = @deleted[seg]?
+        next unless mfile = @segments[seg]?
+        prune_phantom_acks_for_segment(seg, mfile, positions)
+      end
+    end
+
+    private def prune_phantom_acks_for_segment(seg : UInt32, mfile : MFile, positions : Array(UInt32)) : Nil
+      data_end = mfile.size.to_u32
+      valid = positions.select { |p| p < data_end }
+      phantom_count = positions.size - valid.size
+      return if phantom_count.zero?
+
+      @log.info { "Pruned #{phantom_count} phantom ack position(s) from segment #{seg}" }
+
+      if valid.empty?
+        @deleted.delete(seg)
+      else
+        @deleted[seg] = valid
+      end
+
+      rewrite_ack_file(seg, valid)
+    end
+
+    private def rewrite_ack_file(seg : UInt32, positions : Array(UInt32)) : Nil
+      return unless @durable
+
+      final_path = File.join(@msg_dir, "acks.#{seg.to_s.rjust(10, '0')}")
+      tmp_path = "#{final_path}.tmp"
+
+      File.open(tmp_path, "w") do |f|
+        positions.each { |p| f.write_bytes(p, IO::ByteFormat::SystemEndian) }
+        f.fsync
+      end
+
+      # Unmap the old file before renaming so mmap stops pinning the old inode.
+      if old = @acks.delete(seg)
+        old.close(truncate_to_size: false)
+      end
+
+      File.rename(tmp_path, final_path)
+
+      # Ship the rewritten (short) file to followers before reopening, so
+      # ReplaceAction captures the post-rename file size rather than the
+      # capacity-sized file produced by open_ack_file's ftruncate.
+      @replicator.try &.replace_file(final_path)
+      @acks[seg] = open_ack_file(seg)
     end
 
     private def produce_metadata(seg, mfile)
