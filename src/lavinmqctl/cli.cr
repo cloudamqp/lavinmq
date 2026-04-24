@@ -17,42 +17,66 @@ class LavinMQCtl
   @http : HTTP::Client?
   @io : IO
 
-  COMPAT_CMDS = {
+  USER_CMDS = {
     {"add_user", "Creates a new user", "<username> <password>"},
-    {"change_password", "Change the user password", "<username> <new_password>"},
     {"delete_user", "Delete a user", "<username>"},
     {"list_users", "List user names and tags", ""},
+    {"change_password", "Change the user password", "<username> <new_password>"},
     {"set_user_tags", "Sets user tags", "<username> <tags>"},
-    {"list_vhosts", "Lists virtual hosts", ""},
+    {"set_permissions", "Set permissions for a user", "<username> <configure> <write> <read>"},
+    {"hash_password", "Hash a password", "<password>"},
+  }
+
+  VHOST_CMDS = {
     {"add_vhost", "Creates a virtual host", "<vhost>"},
     {"delete_vhost", "Deletes a virtual host", "<vhost>"},
-    {"clear_policy", "Clears (removes) a policy", "<name>"},
-    {"list_policies", "Lists all policies in a virtual host", ""},
-    {"list_connections", "Lists AMQP 0.9.1 connections for the node", ""},
+    {"list_vhosts", "Lists virtual hosts", ""},
+    {"set_vhost_limits", "Set VHost limits (max-connections, max-queues)", "<json>"},
+  }
+
+  QUEUE_CMDS = {
     {"list_queues", "Lists queues and their properties", ""},
     {"purge_queue", "Purges a queue (removes all messages in it)", "<queue>"},
     {"pause_queue", "Pause all consumers on a queue", "<queue>"},
     {"resume_queue", "Resume all consumers on a queue", "<queue>"},
     {"restart_queue", "Restarts a closed queue", "<queue>"},
     {"delete_queue", "Delete queue", "<queue>"},
-    {"export_definitions", "Exports definitions in JSON", ""},
-    {"import_definitions", "Import definitions in JSON", "<file>"},
-    {"close_all_connections", "Instructs the broker to close all connections for the specified vhost or entire node", "<reason>"},
-    {"close_connection", "Instructs the broker to close a connection by pid", "<pid> <reason>"},
-    {"stop_app", "Stop the AMQP broker", ""},
-    {"start_app", "Starts the AMQP broker", ""},
+  }
 
+  EXCHANGE_CMDS = {
     {"list_exchanges", "Lists exchanges", ""},
     {"delete_exchange", "Delete exchange", "<name>"},
-    {"set_vhost_limits", "Set VHost limits (max-connections, max-queues)", "<json>"},
-    {"set_permissions", "Set permissions for a user", "<username> <configure> <write> <read>"},
-    {"hash_password", "Hash a password", "<password>"},
+  }
 
+  POLICY_CMDS = {
+    {"list_policies", "Lists all policies in a virtual host", ""},
+    {"clear_policy", "Clears (removes) a policy", "<name>"},
+  }
+
+  CONNECTION_CMDS = {
+    {"list_connections", "Lists AMQP 0.9.1 connections for the node", ""},
+    {"close_connection", "Instructs the broker to close a connection by pid", "<pid> <reason>"},
+    {"close_all_connections", "Instructs the broker to close all connections for the specified vhost or entire node", "<reason>"},
+  }
+
+  DEFINITION_CMDS = {
+    {"export_definitions", "Exports definitions in JSON", ""},
+    {"import_definitions", "Import definitions in JSON", "<file>"},
+  }
+
+  SHOVEL_CMDS = {
     {"list_shovels", "Lists shovels", ""},
     {"delete_shovel", "Delete a shovel", "<name>"},
+  }
+
+  FEDERATION_CMDS = {
     {"list_federations", "Lists federation upstreams", ""},
     {"delete_federation", "Delete a federation upstream", "<name>"},
+  }
 
+  SERVER_CMDS = {
+    {"stop_app", "Stop the AMQP broker", ""},
+    {"start_app", "Starts the AMQP broker", ""},
   }
 
   def initialize(@io : IO = STDOUT)
@@ -64,24 +88,24 @@ class LavinMQCtl
     parse_cmd
   end
 
-  def parse_cmd
-    @parser.separator("\nCommands")
-    COMPAT_CMDS.each do |cmd|
+  private def register_cmds(group)
+    group.each do |cmd|
       @parser.on(cmd[0], cmd[1]) do
         @cmd = cmd[0]
         self.banner = "Usage: #{PROGRAM_NAME} #{cmd[0]} #{cmd[2]}"
       end
     end
-    @parser.on("set_policy", "Sets or updates a policy") do
-      @cmd = "set_policy"
-      self.banner = "Usage: #{PROGRAM_NAME} set_policy <name> <pattern> <definition>"
-      @parser.on("--priority=priority", "Specify priority") do |v|
-        @options["priority"] = v
-      end
-      @parser.on("--apply-to=apply-to", "Apply-to") do |v|
-        @options["apply-to"] = v
-      end
-    end
+  end
+
+  def parse_cmd
+    @parser.separator("\nUser Management")
+    register_cmds(USER_CMDS)
+
+    @parser.separator("\nVirtual Hosts")
+    register_cmds(VHOST_CMDS)
+
+    @parser.separator("\nQueues")
+    register_cmds(QUEUE_CMDS)
     @parser.on("create_queue", "Create queue") do
       @cmd = "create_queue"
       self.banner = "Usage: #{PROGRAM_NAME} create_queue <name>"
@@ -116,6 +140,9 @@ class LavinMQCtl
         @args["x-queue-type"] = JSON::Any.new("stream")
       end
     end
+
+    @parser.separator("\nExchanges")
+    register_cmds(EXCHANGE_CMDS)
     @parser.on("create_exchange", "Create exchange") do
       @cmd = "create_exchange"
       self.banner = "Usage: #{PROGRAM_NAME} create_exchange <type> <name>"
@@ -141,15 +168,30 @@ class LavinMQCtl
         @args["x-persist-ms"] = JSON::Any.new(v.to_i64)
       end
     end
-    @parser.on("status", "Display server status") do
-      @cmd = "status"
+
+    @parser.separator("\nPolicies")
+    register_cmds(POLICY_CMDS)
+    @parser.on("set_policy", "Sets or updates a policy") do
+      @cmd = "set_policy"
+      self.banner = "Usage: #{PROGRAM_NAME} set_policy <name> <pattern> <definition>"
+      @parser.on("--priority=priority", "Specify priority") do |v|
+        @options["priority"] = v
+      end
+      @parser.on("--apply-to=apply-to", "Apply-to") do |v|
+        @options["apply-to"] = v
+      end
     end
-    @parser.on("cluster_status", "Display cluster status") do
-      @cmd = "cluster_status"
-    end
+    @parser.separator("\nConnections")
+    register_cmds(CONNECTION_CMDS)
+
+    @parser.separator("\nDefinitions")
+    register_cmds(DEFINITION_CMDS)
     @parser.on("definitions", "Generate definitions json from a data directory") do
       @cmd = "definitions"
     end
+
+    @parser.separator("\nShovels")
+    register_cmds(SHOVEL_CMDS)
     @parser.on("add_shovel", "Create a shovel") do
       @cmd = "add_shovel"
       self.banner = "Usage: #{PROGRAM_NAME} add_shovel <name> --src-uri=<uri> --dest-uri=<uri>"
@@ -190,6 +232,8 @@ class LavinMQCtl
         @args["reconnect-delay"] = JSON::Any.new(v.to_i64)
       end
     end
+    @parser.separator("\nFederation")
+    register_cmds(FEDERATION_CMDS)
     @parser.on("add_federation", "Create a federation upstream") do
       @cmd = "add_federation"
       self.banner = "Usage: #{PROGRAM_NAME} add_federation <name> --uri=<uri>"
@@ -224,13 +268,15 @@ class LavinMQCtl
         @args["queue"] = JSON::Any.new(v)
       end
     end
-    @parser.separator("\nMiscellaneous")
-    @parser.on("-v", "--version", "Show version") { @io.puts LavinMQ::VERSION; exit 0 }
-    @parser.on("--build-info", "Show build information") { @io.puts LavinMQ::BUILD_INFO; exit 0 }
-    @parser.on("-h", "--help", "Show this help") do
-      @io.puts @parser
-      exit 0
+    @parser.separator("\nServer")
+    register_cmds(SERVER_CMDS)
+    @parser.on("status", "Display server status") do
+      @cmd = "status"
     end
+    @parser.on("cluster_status", "Display cluster status") do
+      @cmd = "cluster_status"
+    end
+
     @parser.invalid_option { |arg| abort "Invalid argument: #{arg}" }
   end
 
@@ -389,6 +435,12 @@ class LavinMQCtl
         abort "Invalid format: #{v}"
       end
       @options["format"] = v
+    end
+    @parser.on("-v", "--version", "Show version") { @io.puts LavinMQ::VERSION; exit 0 }
+    @parser.on("--build-info", "Show build information") { @io.puts LavinMQ::BUILD_INFO; exit 0 }
+    @parser.on("-h", "--help", "Show this help") do
+      @io.puts @parser
+      exit 0
     end
   end
 
