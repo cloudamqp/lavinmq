@@ -668,6 +668,8 @@ module LavinMQ
         q = @vhost.queues.fetch(frame.queue_name, nil)
         if q.nil?
           send AMQP::Frame::Queue::DeleteOk.new(frame.channel, 0_u32) unless frame.no_wait
+        elsif q.internal?
+          send_access_refused(frame, "Queue '#{frame.queue_name}' is an internal queue")
         elsif queue_exclusive_to_other_client?(q)
           send_resource_locked(frame, "Queue '#{q.name}' is exclusive")
         elsif frame.if_unused && !q.consumer_count.zero?
@@ -716,7 +718,9 @@ module LavinMQ
       end
 
       private def redeclare_queue(frame, q)
-        if queue_exclusive_to_other_client?(q) || invalid_exclusive_redclare?(frame, q)
+        if q.internal?
+          send_access_refused(frame, "Queue '#{frame.queue_name}' is an internal queue")
+        elsif queue_exclusive_to_other_client?(q) || invalid_exclusive_redclare?(frame, q)
           send_resource_locked(frame, "Exclusive queue")
         elsif frame.passive || q.match?(frame)
           q.redeclare
@@ -912,6 +916,12 @@ module LavinMQ
         if !NameValidator.valid_entity_name?(frame.queue)
           send_precondition_failed(frame, "Queue name isn't valid")
           return
+        end
+        if q = @vhost.queues[frame.queue]?
+          if q.internal?
+            send_access_refused(frame, "Queue '#{frame.queue}' is an internal queue")
+            return
+          end
         end
         unless @user.can_read?(@vhost.name, frame.queue)
           send_access_refused(frame, "User '#{@user.name}' doesn't have permissions to queue '#{frame.queue}'")
