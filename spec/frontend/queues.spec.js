@@ -75,12 +75,12 @@ test.describe("queues", _ => {
 
   test.describe('pagination', _ => {
     test('is visible for page_count=10', async ({ page }) => {
-      await expect(page.locator('#table .pagination .page-item')).toContainText(['Previous', 'Next'], { timeout: 10 })
+      await expect(page.locator('.pagination .page-item')).toContainText(['Previous', 'Next'], { timeout: 10 })
     })
 
     test('updates url when Next is clicked', async ({ page }) => {
       const apiQueuesRequest = helpers.waitForPathRequest(page, '/api/queues')
-      await page.locator('#table .pagination .page-item').getByText('Next').click()
+      await page.locator('.pagination .page-item').getByText('Next').click()
       await expect(page).toHaveURL(/page=2/)
       await expect(apiQueuesRequest).toHaveQueryParams('page=2')
     })
