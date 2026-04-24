@@ -164,3 +164,7 @@ static/%.html: views/%.ecr $(VIEW_PARTIALS)
 .PHONY: clean-views
 clean-views:
 	$(RM) $(VIEW_TARGETS)
+
+.PHONY: optimize-assets
+optimize-assets:
+	npx svgo --multipass --pretty --indent 2 --recursive static/
