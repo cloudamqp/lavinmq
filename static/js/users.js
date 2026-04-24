@@ -50,12 +50,12 @@ document.querySelector('#createUser').addEventListener('submit', function (evt) 
   if (data.get('password') !== '') {
     body.password = data.get('password')
   }
-  HTTP.request('PUT', url, { body })
-    .then(() => {
-      usersTable.reload()
-      DOM.toast(toastText)
-      evt.target.reset()
-    })
+  HTTP.submitForm(evt.target, 'PUT', url, {
+    body,
+    table: usersTable
+  }).then(() => {
+    DOM.toast(toastText)
+  })
 })
 
 document.querySelector('#dataTags').addEventListener('click', e => {
