@@ -9,6 +9,7 @@ COPY extras/lavinmq.service extras/lavinmq.ini extras/lavinmq.sysusers extras/
 COPY static/ static/
 COPY views/ views/
 COPY src/ src/
+COPY openapi/ openapi/
 RUN tar -czf ../lavinmq_${version}.orig.tar.gz -C /usr/src lavinmq_${version}
 COPY packaging/debian/ debian/
 RUN sed -i -E "s/^(lavinmq) \(.*\)/\1 \(${version}-1\)/" debian/changelog
