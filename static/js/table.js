@@ -21,7 +21,8 @@ function renderTable (id, options = {}, renderRow) {
   }
 
   if (options.pagination) {
-    const paginationCell = table.createTFoot().insertRow().insertCell()
+    const paginationCell = document.createElement('div')
+    table.closest('.table-wrapper').insertAdjacentElement('afterend', paginationCell)
     const paginationContainer = document.createElement('div')
     paginationCell.colSpan = table.tHead.rows[0].children.length
     paginationCell.appendChild(paginationContainer)

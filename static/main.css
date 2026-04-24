@@ -649,7 +649,7 @@ button {
   height: 16px;
   position: absolute;
   bottom: -16px;
-  left: 320px;
+  left: var(--sidebar-width);
   background: light-dark(#FFFFFF, #1D1D1D);
   overflow: hidden;
 }
@@ -762,7 +762,7 @@ footer {
   margin: 0 auto;
   text-align: center;
   width: calc(100% - 80px);
-  padding-left: 320px;
+  padding-left: var(--sidebar-width);
 
   p {
     background-color: var(--color-bg-secondary);
@@ -1021,13 +1021,13 @@ footer .logo {
 
     a:hover {
       background-color: var(--highlight-color);
-      color: var(--color-text-primary);
+      opacity: 1;
     }
 
     a {
       display: flex;
       align-items: center;
-      padding: 0.5rem 2.5rem 0.5rem;
+      padding: 0.625rem 2.5rem 0.625rem 3rem;
       font-size: 0.875rem;
       line-height: 1.25rem;
       font-weight: 600;
@@ -1036,7 +1036,7 @@ footer .logo {
     }
 
     a, a:visited {
-      color: var(--color-text-secondary);
+      opacity: 0.7;
       text-decoration: none;
     }
 
@@ -1044,98 +1044,98 @@ footer .logo {
       a { background-image: var(--icon-overview); }
       .overview & a {
         background-color: var(--highlight-color);
-        color: var(--color-text-primary);
+        opacity: 1;
       }
     }
     &.nodes {
      a { background-image: var(--icon-nodes); }
       .nodes & a {
         background-color: var(--highlight-color);
-        color: var(--color-text-primary);
+        opacity: 1;
       }
     }
     &.logs {
       a { background-image: var(--icon-logs); }
       .logs & a {
         background-color: var(--highlight-color);
-        color: var(--color-text-primary);
+        opacity: 1;
       }
     }
     &.connections {
       a { background-image: var(--icon-connections); }
       .connections & a {
         background-color: var(--highlight-color);
-        color: var(--color-text-primary);
+        opacity: 1;
       }
     }
     &.channels {
       a { background-image: var(--icon-channels); }
       .channels & a {
         background-color: var(--highlight-color);
-        color: var(--color-text-primary);
+        opacity: 1;
       }
     }
     &.consumers {
       a { background-image: var(--icon-consumers); }
       .consumers & a {
         background-color: var(--highlight-color);
-        color: var(--color-text-primary);
+        opacity: 1;
       }
     }
     &.exchanges {
       a { background-image: var(--icon-exchanges); }
       .exchanges & a {
         background-color: var(--highlight-color);
-        color: var(--color-text-primary);
+        opacity: 1;
       }
     }
     &.queues {
       a { background-image: var(--icon-queues); }
       .queues & a {
         background-color: var(--highlight-color);
-        color: var(--color-text-primary);
+        opacity: 1;
       }
     }
     &.shovels {
       a { background-image: var(--icon-shovels); }
       .shovels & a {
         background-color: var(--highlight-color);
-        color: var(--color-text-primary);
+        opacity: 1;
       }
     }
     &.federation {
       a { background-image: var(--icon-federation); }
       .federation & a {
         background-color: var(--highlight-color);
-        color: var(--color-text-primary);
+        opacity: 1;
       }
     }
     &.vhosts {
       a { background-image: var(--icon-vhosts); }
       .vhosts & a {
         background-color: var(--highlight-color);
-        color: var(--color-text-primary);
+        opacity: 1;
       }
     }
     &.policies {
       a { background-image: var(--icon-policies); }
       .policies & a {
         background-color: var(--highlight-color);
-        color: var(--color-text-primary);
+        opacity: 1;
       }
     }
     &.operator-policies {
       a { background-image: var(--icon-operator-policies); }
       .operator-policies & a {
         background-color: var(--highlight-color);
-        color: var(--color-text-primary);
+        opacity: 1;
       }
     }
     &.users {
       a { background-image: var(--icon-users); }
       .users & a {
         background-color: var(--highlight-color);
-        color: var(--color-text-primary);
+        opacity: 1;
       }
     }
 
@@ -1143,14 +1143,12 @@ footer .logo {
       margin-top: 1rem;
       border-top: 1px solid var(--color-border-separator);
       a {
-       background-image: var(--icon-http-api); 
+        background-image: var(--icon-http-api); 
         margin-top: 0.5rem;
       }
     }
   }
 }
-
-
 
 .toggle-menu-label {
   position: fixed;
@@ -1215,7 +1213,7 @@ footer .logo {
         li:not(.menu-group) a {
           justify-content: center; 
           background-position: center center;
-            padding: 1.5rem;
+          padding: 1.25rem;
         }
 
         li.http-api {
@@ -1240,18 +1238,15 @@ footer .logo {
         }
       }
     }
+
+    .r-c {
+      left: var(--sidebar-width);
+    }
+
+    footer {
+      padding-left: var(--sidebar-width);
+    }
   }
-
-
-  .r-c {
-    left: 68px;
-  }
-
-  footer {
-    padding-left: 68px;
-  }
-}
-
 }
 
 .card:has(.table-header) {
