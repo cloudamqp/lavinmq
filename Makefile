@@ -64,8 +64,8 @@ static/js/lib/scalar-api-reference-1.52.6.js: | static/js/lib
 	curl --fail --retry 5 -sLo $@ https://unpkg.com/@scalar/api-reference@1.52.6/dist/browser/standalone.js
 	[ "e5cab69c3b20583a60fff3fd97eb3ae6b66fa8c0aa218ed36fb94163f2fbd66a *$@" = "$$(openssl dgst -sha256 -r $@)" ]
 
-static/docs/openapi.bundle.yaml: $(OPENAPI_SOURCES)
-	npx --yes --package=@redocly/cli@1.28.0 redocly bundle $< --output $@ --force
+static/docs/openapi.bundle.yaml: $(OPENAPI_SOURCES) openapi/bundle.cr
+	crystal run openapi/bundle.cr -- $< $@
 
 man1/lavinmq.1: bin/lavinmq | man1
 	help2man -Nn "fast and advanced message queue server" $< -o $@
