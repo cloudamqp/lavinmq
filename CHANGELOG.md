@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.0-beta.1] - 2026-04-24
+
+### Added
+
+- RateLimiter and reduced clustering sync log verbosity [#1807](https://github.com/cloudamqp/lavinmq/pull/1807)
+- Prometheus metrics for mfiles [#1627](https://github.com/cloudamqp/lavinmq/pull/1627)
+- Aggregate data rates at vhost level for all protocols [#1699](https://github.com/cloudamqp/lavinmq/pull/1699)
+- Sorting on bindings tables [#1823](https://github.com/cloudamqp/lavinmq/pull/1823)
+
+### Changed
+
+- Use policymaker role consistently for global-parameters endpoints [#1695](https://github.com/cloudamqp/lavinmq/pull/1695)
+- Store baked static assets in read-only memory [#1742](https://github.com/cloudamqp/lavinmq/pull/1742)
+- Align exchange type error message with RabbitMQ [#1811](https://github.com/cloudamqp/lavinmq/pull/1811)
+- Optimize all SVG assets using SVGO [#1769](https://github.com/cloudamqp/lavinmq/pull/1769)
+- Refactor menu to not need the active class (no JavaScript) [#1709](https://github.com/cloudamqp/lavinmq/pull/1709)
+- Show only `I` as feature for internal queue [#1857](https://github.com/cloudamqp/lavinmq/pull/1857)
+- Styling updates for tables [#1848](https://github.com/cloudamqp/lavinmq/pull/1848)
+
+### Fixed
+
+- Deprecated `--guest-only-loopback` flag silently ignored [#1824](https://github.com/cloudamqp/lavinmq/pull/1824)
+- CSP hash for login page inline theme script [#1876](https://github.com/cloudamqp/lavinmq/pull/1876)
+- Recognize IPv4-mapped IPv6 loopback addresses [#1838](https://github.com/cloudamqp/lavinmq/pull/1838)
+- Shovel vhost permission check for named vhosts [#1856](https://github.com/cloudamqp/lavinmq/pull/1856)
+- Replicate `.queue` file [#1858](https://github.com/cloudamqp/lavinmq/pull/1858)
+- 404 on `/metrics/detailed` for follower nodes [#1859](https://github.com/cloudamqp/lavinmq/pull/1859)
+- Clean up empty directories on follower after full sync [#1865](https://github.com/cloudamqp/lavinmq/pull/1865)
+
 ## [2.7.0] - 2026-04-16
 
 This release introduces OAuth2/OIDC authentication, kernel TLS offloading, a rewritten configuration system, Jump consistent hash exchange algorithm, and the ability to restart closed queues. It also brings enhanced TLS capabilities including SNI and mTLS support, improved stream performance, improved clustering and federation management, and many bug fixes.
