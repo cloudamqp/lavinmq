@@ -46,8 +46,8 @@ module LavinMQ
         end
       end
 
-      def bindings_details : Iterator(BindingDetails)
-        @bindings.each.map do |destination, binding_key|
+      def bindings_details : Array(BindingDetails)
+        @bindings.map do |destination, binding_key|
           BindingDetails.new(name, vhost.name, binding_key, destination)
         end
       end

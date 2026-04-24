@@ -66,7 +66,7 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
 
       server = LavinMQ::Server.new(cluster.follower_config)
       begin
-        q = server.vhosts["/"].queues["repli"].as(LavinMQ::AMQP::DurableQueue)
+        q = server.vhosts["/"].queue("repli").as(LavinMQ::AMQP::DurableQueue)
         q.message_count.should eq 1
         q.basic_get(true) do |env|
           String.new(env.message.body).to_s.should eq "hello world"
@@ -478,7 +478,7 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
           ch.queue("dotqueue_test", durable: true)
         end
         vhost = s.vhosts["/"]
-        dotqfile = File.join(vhost.queues["dotqueue_test"].as(LavinMQ::AMQP::Queue).@data_dir, ".queue")
+        dotqfile = File.join(vhost.queue("dotqueue_test").as(LavinMQ::AMQP::Queue).@data_dir, ".queue")
         dotqfile_relative = dotqfile[(s.data_dir.size + 1)..]
         replicated_dotqfile = File.join(cluster.follower_config.data_dir, dotqfile_relative)
         wait_for { File.exists?(replicated_dotqfile) }
@@ -494,7 +494,7 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
         with_channel(s) do |ch|
           q = ch.queue("dotqueue_test", durable: true)
           vhost = s.vhosts["/"]
-          dotqfile = File.join(vhost.queues["dotqueue_test"].as(LavinMQ::AMQP::Queue).@data_dir, ".queue")
+          dotqfile = File.join(vhost.queue("dotqueue_test").as(LavinMQ::AMQP::Queue).@data_dir, ".queue")
           dotqfile_relative = dotqfile[(s.data_dir.size + 1)..]
           replicated_dotqfile = File.join(cluster.follower_config.data_dir, dotqfile_relative)
           wait_for { File.exists?(replicated_dotqfile) }
@@ -514,7 +514,7 @@ describe LavinMQ::Clustering::Client, tags: "etcd" do
           ch.queue("dotqueue_transient", durable: false)
         end
         vhost = s.vhosts["/"]
-        dotqfile = File.join(vhost.queues["dotqueue_transient"].as(LavinMQ::AMQP::Queue).@data_dir, ".queue")
+        dotqfile = File.join(vhost.queue("dotqueue_transient").as(LavinMQ::AMQP::Queue).@data_dir, ".queue")
         dotqfile_relative = dotqfile[(s.data_dir.size + 1)..]
         wait_for { File.exists?(dotqfile) }
         Fiber.yield

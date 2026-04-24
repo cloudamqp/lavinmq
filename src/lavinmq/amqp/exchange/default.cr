@@ -7,12 +7,12 @@ module LavinMQ
         "direct"
       end
 
-      def bindings_details : Iterator(BindingDetails)
-        Iterator(BindingDetails).empty
+      def bindings_details : Array(BindingDetails)
+        [] of BindingDetails
       end
 
       protected def each_destination(routing_key : String, headers : AMQP::Table?, & : LavinMQ::Destination ->)
-        if q = @vhost.queues[routing_key]?
+        if q = @vhost.queue?(routing_key)
           yield q
         end
       end

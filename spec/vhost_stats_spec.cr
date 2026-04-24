@@ -27,7 +27,7 @@ describe LavinMQ::VHost do
     it "should not delete stats when connection is closed" do
       with_amqp_server do |s|
         vhost = s.vhosts["/"]
-        wait_for { s.connections.sum(&.channels.size).zero? }
+        wait_for { s.connections.sum(&.channel_count).zero? }
 
         s.update_stats_rates
         initial_channels_created = vhost.channel_created_count
@@ -128,7 +128,7 @@ module VHostByteRateSpecs
       q.subscribe { received.send(nil) }
       received.receive
       conn.close(no_wait: false)
-      wait_for { vhost.connections.none?(LavinMQ::AMQP::Client) }
+      wait_for { vhost.connections_dup.none?(LavinMQ::AMQP::Client) }
     in LavinMQ::Server::Protocol::MQTT
       with_client_io(s) do |sub_io|
         connect(sub_io)
@@ -235,10 +235,10 @@ module VHostByteRateSpecs
             send_and_receive_over_protocol(protocol, s, vhost)
           end
 
-          wait_for { vhost.connections.empty? || vhost.connections.all? { |c| c.recv_oct_count > 0 } }
+          wait_for { vhost.connections_dup.empty? || vhost.connections_dup.all? { |c| c.recv_oct_count > 0 } }
 
-          conn_recv_sum = vhost.connections.sum(&.recv_oct_count)
-          conn_send_sum = vhost.connections.sum(&.send_oct_count)
+          conn_recv_sum = vhost.connections_dup.sum(&.recv_oct_count)
+          conn_send_sum = vhost.connections_dup.sum(&.send_oct_count)
 
           vhost.recv_oct_count.should be >= conn_recv_sum
           vhost.send_oct_count.should be >= conn_send_sum

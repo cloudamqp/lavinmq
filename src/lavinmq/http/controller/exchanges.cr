@@ -8,7 +8,7 @@ module LavinMQ
       private def exchange(context, params, vhost, key = "name")
         name = params[key]
         name = "" if name == "amq.default"
-        e = vhost.exchanges[name]?
+        e = vhost.exchange?(name)
         not_found(context) unless e
         e
       end
@@ -21,14 +21,14 @@ module LavinMQ
       # ameba:disable Metrics/CyclomaticComplexity
       private def register_routes
         get "/api/exchanges" do |context, _params|
-          itr = vhosts(user(context)).flat_map &.exchanges.each_value
+          itr = vhosts(user(context)).flat_map &.exchanges_dup
           page(context, itr)
         end
 
         get "/api/exchanges/:vhost" do |context, params|
           with_vhost(context, params) do |vhost|
             refuse_unless_management(context, user(context), vhost)
-            page(context, vhost.exchanges.each_value)
+            page(context, vhost.exchanges_dup)
           end
         end
 
@@ -60,7 +60,7 @@ module LavinMQ
             unless user.can_config?(vhost.name, name) && ae_ok
               access_refused(context, "User doesn't have permissions to declare exchange '#{name}'")
             end
-            e = vhost.exchanges[name]?
+            e = vhost.exchange?(name)
             if e
               unless e.match?(type, durable, auto_delete, internal, tbl)
                 bad_request(context, "Existing exchange declared with other arguments arg")
