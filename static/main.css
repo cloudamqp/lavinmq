@@ -17,6 +17,7 @@
   --color-bg-elevated: light-dark(#FFFFFF, #1D1D1D);
   --color-bg-input: light-dark(#F4F4F4, #2D2C2C);
   --color-bg-hover: light-dark(#F4F4F4, #2d2c2c);
+  --color-bg-tr-hover: light-dark(#F9F9FA, #242424);
 
   --color-border-primary: light-dark(rgb(0 0 0 / 0.1), rgb(247 245 242 / 0.1));
   --color-border-secondary: light-dark(#d1d5db, #414040);
@@ -648,7 +649,7 @@ button {
   height: 16px;
   position: absolute;
   bottom: -16px;
-  left: 320px;
+  left: var(--sidebar-width);
   background: light-dark(#FFFFFF, #1D1D1D);
   overflow: hidden;
 }
@@ -761,7 +762,7 @@ footer {
   margin: 0 auto;
   text-align: center;
   width: calc(100% - 80px);
-  padding-left: 320px;
+  padding-left: var(--sidebar-width);
 
   p {
     background-color: var(--color-bg-secondary);
@@ -1020,13 +1021,13 @@ footer .logo {
 
     a:hover {
       background-color: var(--highlight-color);
-      color: var(--color-text-primary);
+      opacity: 1;
     }
 
     a {
       display: flex;
       align-items: center;
-      padding: 0.5rem 2.5rem 0.5rem;
+      padding: 0.625rem 2.5rem 0.625rem 3rem;
       font-size: 0.875rem;
       line-height: 1.25rem;
       font-weight: 600;
@@ -1035,7 +1036,7 @@ footer .logo {
     }
 
     a, a:visited {
-      color: var(--color-text-secondary);
+      opacity: 0.7;
       text-decoration: none;
     }
 
@@ -1043,98 +1044,98 @@ footer .logo {
       a { background-image: var(--icon-overview); }
       .overview & a {
         background-color: var(--highlight-color);
-        color: var(--color-text-primary);
+        opacity: 1;
       }
     }
     &.nodes {
      a { background-image: var(--icon-nodes); }
       .nodes & a {
         background-color: var(--highlight-color);
-        color: var(--color-text-primary);
+        opacity: 1;
       }
     }
     &.logs {
       a { background-image: var(--icon-logs); }
       .logs & a {
         background-color: var(--highlight-color);
-        color: var(--color-text-primary);
+        opacity: 1;
       }
     }
     &.connections {
       a { background-image: var(--icon-connections); }
       .connections & a {
         background-color: var(--highlight-color);
-        color: var(--color-text-primary);
+        opacity: 1;
       }
     }
     &.channels {
       a { background-image: var(--icon-channels); }
       .channels & a {
         background-color: var(--highlight-color);
-        color: var(--color-text-primary);
+        opacity: 1;
       }
     }
     &.consumers {
       a { background-image: var(--icon-consumers); }
       .consumers & a {
         background-color: var(--highlight-color);
-        color: var(--color-text-primary);
+        opacity: 1;
       }
     }
     &.exchanges {
       a { background-image: var(--icon-exchanges); }
       .exchanges & a {
         background-color: var(--highlight-color);
-        color: var(--color-text-primary);
+        opacity: 1;
       }
     }
     &.queues {
       a { background-image: var(--icon-queues); }
       .queues & a {
         background-color: var(--highlight-color);
-        color: var(--color-text-primary);
+        opacity: 1;
       }
     }
     &.shovels {
       a { background-image: var(--icon-shovels); }
       .shovels & a {
         background-color: var(--highlight-color);
-        color: var(--color-text-primary);
+        opacity: 1;
       }
     }
     &.federation {
       a { background-image: var(--icon-federation); }
       .federation & a {
         background-color: var(--highlight-color);
-        color: var(--color-text-primary);
+        opacity: 1;
       }
     }
     &.vhosts {
       a { background-image: var(--icon-vhosts); }
       .vhosts & a {
         background-color: var(--highlight-color);
-        color: var(--color-text-primary);
+        opacity: 1;
       }
     }
     &.policies {
       a { background-image: var(--icon-policies); }
       .policies & a {
         background-color: var(--highlight-color);
-        color: var(--color-text-primary);
+        opacity: 1;
       }
     }
     &.operator-policies {
       a { background-image: var(--icon-operator-policies); }
       .operator-policies & a {
         background-color: var(--highlight-color);
-        color: var(--color-text-primary);
+        opacity: 1;
       }
     }
     &.users {
       a { background-image: var(--icon-users); }
       .users & a {
         background-color: var(--highlight-color);
-        color: var(--color-text-primary);
+        opacity: 1;
       }
     }
 
@@ -1142,14 +1143,12 @@ footer .logo {
       margin-top: 1rem;
       border-top: 1px solid var(--color-border-separator);
       a {
-       background-image: var(--icon-http-api); 
+        background-image: var(--icon-http-api); 
         margin-top: 0.5rem;
       }
     }
   }
 }
-
-
 
 .toggle-menu-label {
   position: fixed;
@@ -1214,7 +1213,7 @@ footer .logo {
         li:not(.menu-group) a {
           justify-content: center; 
           background-position: center center;
-            padding: 1.5rem;
+          padding: 1.25rem;
         }
 
         li.http-api {
@@ -1239,26 +1238,23 @@ footer .logo {
         }
       }
     }
+
+    .r-c {
+      left: var(--sidebar-width);
+    }
+
+    footer {
+      padding-left: var(--sidebar-width);
+    }
   }
-
-
-  .r-c {
-    left: 68px;
-  }
-
-  footer {
-    padding-left: 68px;
-  }
-}
-
 }
 
 .card:has(.table-header) {
   padding: 0 0 1.5rem;
+}
 
-  .table-wrapper {
-    padding: 0 1.5rem;
-  }
+.table thead {
+  background-color: var(--color-border-separator);
 }
 
 .table-header {
@@ -1299,7 +1295,6 @@ footer .logo {
       background-position: center center;
       font-size: 16px;
       width: 44px;
-      height: 44px;
       display: inline-block;
       border: 1px solid var(--color-border-primary);
       border-right: 0;
@@ -1340,10 +1335,6 @@ footer .logo {
   color: var(--color-text-primary);
 }
 
-.table tbody {
-  border-bottom: 1px solid var(--color-border-primary);
-}
-
 .col-toggle {
   position: absolute;
   top: 15px;
@@ -1352,11 +1343,31 @@ footer .logo {
 }
 
 .table th {
-  font-weight: normal;
-  border-bottom: 1px solid var(--color-border-tertiary);
-  padding: 0.75rem 1.5rem 0.5rem 0.75rem;
+  font-weight: 600;;
+  padding: 0.5rem 1.5rem 0.5rem 1.5rem;
   text-align: left;
   white-space: nowrap;
+}
+
+.table .thead-group th {
+  vertical-align: bottom;
+}
+
+table th[colspan] {
+  text-align: center;
+  border: 1px solid var(--color-border-secondary);
+  border-top: 0px;
+  text-transform: uppercase;
+  font-size: 10px;
+}
+
+th.group {
+  border-left: 1px solid var(--color-border-secondary);
+}
+
+th.group.last {
+  border-left: 0;
+  border-right: 1px solid var(--color-border-secondary);
 }
 
 .table td.checkbox {
@@ -1366,37 +1377,38 @@ footer .logo {
 
 .table th[data-sort-key] {
   cursor: pointer;
-  font-weight: bold;
   position: relative;
 }
 
-.table th[data-sort-key]:before,
-.table th[data-sort-key]:after {
-  bottom: 10px;
-  display: block;
-  font-weight: 100;
-  opacity: 0.3;
-  position: absolute;
+.table th[data-sort-key] span {
+  position: relative;
+  display: inline-block;
+  margin-left: 5px;
 }
 
-.table th[data-sort-key]:before {
+.table th[data-sort-key] span:before,
+.table th[data-sort-key] span:after {
+  font-weight: 100;
+  opacity: 0.3;
+}
+
+.table th[data-sort-key] span:before {
   content: "\2191";
   right: 9px;
 }
 
-.table th[data-sort-key]:after {
+.table th[data-sort-key] span:after {
   content: "\2193";
   right: 2px;
 }
 
-.table th.sorting_asc:before,
-.table th.sorting_desc:after {
+.table th.sorting_asc span:before,
+.table th.sorting_desc span:after {
   opacity: 1;
 }
 
 .table tbody td {
-  border-top: 1px solid var(--color-border-primary);
-  padding: 0.75rem 1.55rem 0.75rem 0.55rem;
+  padding: 0.75rem 1.55rem 0.75rem 1.5rem;
   color: var(--color-text-muted);
   white-space: nowrap;
   height: 3.5rem;
@@ -1422,16 +1434,21 @@ footer .logo {
   color: var(--highlight-color) !important;
 }
 
-.table tbody tr:nth-of-type(odd) {
-  background-color: var(--color-table-row-odd);
-}
-
-.table tbody tr:nth-of-type(even) {
+.table tbody tr {
   background-color: var(--color-table-row-even);
 }
 
 .table.plain-table tbody tr {
   background-color: var(--color-table-row-even);
+}
+
+.table tbody tr.internal,
+.table tbody tr.internal:hover {
+  background: repeating-linear-gradient(-45deg, var(--color-table-row-odd), var(--color-table-row-odd) 10px, var(--color-border-primary) 0, var(--color-border-primary) 11px);
+}
+
+.table tbody tr:hover td {
+  background-color: var(--color-bg-tr-hover);
 }
 
 [id$="-error"] {
@@ -1444,7 +1461,7 @@ footer .logo {
 }
 
 .table-multihead {
-  box-shadow: inset -9px 0px 0px 0px var(--color-table-row-even),
+  box-shadow: inset -9px 0px 0px 0px var(--color-border-separator),
     inset -10px 0px 0px 0px var(--color-text-inverse);
 }
 
@@ -1796,11 +1813,13 @@ fieldset.inline {
   margin: -1px 0;
   display: grid;
   grid-template-columns: repeat(10, fit-content(100px));
+  padding: 1.5rem 0 0 1.5rem;
 }
 
 .pagination .page-item {
-  border-bottom: 1px solid #ddd;
-  border-right: 1px solid #ddd;
+  border-bottom: 1px solid var(--color-border-secondary);
+  border-right: 1px solid var(--color-border-secondary);
+  border-top: 1px solid var(--color-border-secondary);
   box-sizing: content-box;
 }
 
@@ -1818,25 +1837,26 @@ fieldset.inline {
   text-decoration: none;
   text-align: center;
   font-weight: bold;
-}
+} 
 
 .pagination .page-item.disabled a {
   cursor: default;
 }
 
+.pagination .page-item a:hover {
+  background-color: var(--color-table-row-odd);
+}
+
 .pagination .page-item.active a {
-  background-color: var(--color-link);
-  color: white;
+  background-color: var(--color-border-secondary);
 }
 
 .pagination .page-item:first-child {
-  border-left: 1px solid #ddd;
-  border-bottom-left-radius: 3px;
+  border-left: 1px solid var(--color-border-secondary);
 }
 
 .pagination .page-item:last-child {
-  border-right: 1px solid #ddd;
-  border-bottom-right-radius: 3px;
+  border-right: 1px solid var(--color-border-secondary);
 }
 
 .tooltip {

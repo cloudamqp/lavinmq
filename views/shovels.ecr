@@ -12,29 +12,30 @@
           <h2 class="page-title"><span><%=pagename%></span><div class="tiny-badge" id="pagename-label"></div></h2>
       </div>
       <section class="card">
+        <div class="table-header">
+          <h2>Manage shovels</h2>
+        </div>
         <div class="table-wrapper">
           <div id="table-error"></div>
           <table id="table" class="table">
-            <thead>
+            <thead class="thead-group">
               <tr>
-                <td colspan="2"></td>
-                <td colspan="3" class="table-multihead">Source</td>
-                <td colspan="2" class="table-multihead">Destination</td>
-                <td colspan="5"></td>
+                <th rowspan="2">Virtual host</th>
+                <th rowspan="2" class="left" data-sort-key="name">Name<span></span></th>
+                <th colspan="3">Source</th>
+                <th colspan="2">Destination</th>
+                <th rowspan="2">Reconnect delay</th>
+                <th rowspan="2">Ack mode</th>
+                <th rowspan="2">Delete after</th>
+                <th rowspan="2">State</th>
+                <th rowspan="2"></th>
               </tr>
               <tr>
-                <th>Virtual host</th>
-                <th class="left" data-sort-key="name">Name</th>
-                <th class="left">Uri</th>
-                <th class="left">Endpoint</th>
-                <th class="left table-multihead">Prefetch</th>
-                <th class="left">Uri</th>
-                <th class="left table-multihead">Endpoint</th>
-                <th>Reconnect delay</th>
-                <th>Ack mode</th>
-                <th>Delete after</th>
-                <th>State</th>
-                <th></th>
+                <th class="group">Uri</th>
+                <th>Endpoint</th>
+                <th>Prefetch</th>
+                <th class="group">Uri</th>
+                <th class="group last">Endpoint</th>
               </tr>
             </thead>
             <tbody></tbody>

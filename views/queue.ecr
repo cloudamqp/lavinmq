@@ -83,10 +83,12 @@
         <div class="chart-container" id="chart"></div>
       </section>
       <section class="card">
-        <h3 class="has-badge">
-          Consumers
-          <small class="tiny-badge counter-pill" id="consumer-count"></small>
-        </h3>
+        <div class="table-header">
+          <h2 class="has-badge">
+            Consumers
+            <small class="tiny-badge counter-pill" id="consumer-count"></small>
+          </h2>
+        </div>
         <div class="table-wrapper">
           <div id="table-error"></div>
           <table id="table" class="table">
@@ -106,17 +108,19 @@
         <button class="load-more" id="load-more-consumers"></button>
       </section>
       <section class="card">
-        <h3 class="has-badge">
-          Bindings
-          <small class="tiny-badge counter-pill" id="bindings-count"></small>
-        </h3>
+        <div class="table-header">
+          <h2 class="has-badge">
+            Bindings
+            <small class="tiny-badge counter-pill" id="bindings-count"></small>
+          </h2>
+        </div>
         <div class="table-wrapper">
           <div id="bindings-table-error"></div>
           <table id="bindings-table" class="table">
             <thead>
               <tr>
-                <th data-sort-key="source" class="left">From</th>
-                <th data-sort-key="routing_key" class="left">Binding key</th>
+                <th data-sort-key="source" class="left">From<span></span></th>
+                <th data-sort-key="routing_key" class="left">Binding key<span></span></th>
                 <th class="left">Arguments</th>
                 <th></th>
               </tr>
