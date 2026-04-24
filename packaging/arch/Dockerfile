@@ -6,6 +6,7 @@ COPY extras/lavinmq.service extras/lavinmq.ini extras/lavinmq.sysusers extras/
 COPY static/ static/
 COPY views/ views/
 COPY src/ src/
+COPY openapi/ openapi/
 WORKDIR /usr/src/lavinmq
 COPY packaging/arch/PKGBUILD .
 ARG version

@@ -7,6 +7,7 @@ RUN shards install --production
 COPY ./static ./static
 COPY ./views ./views
 COPY ./src ./src
+COPY ./openapi ./openapi
 
 # Run specs on build platform
 FROM base AS spec

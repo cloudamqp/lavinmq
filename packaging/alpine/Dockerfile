@@ -6,6 +6,7 @@ RUN shards install --production
 COPY ./static ./static
 COPY ./views ./views
 COPY ./src ./src
+COPY ./openapi ./openapi
 COPY Makefile .
 ARG MAKEFLAGS=-j2
 RUN make all
