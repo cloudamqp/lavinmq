@@ -35,6 +35,15 @@ module LavinMQ
       parse_env()
       parse_cli(argv)
       setup_logger
+      if (@oauth_mgmt_base_url || @oauth_client_id) && !oauth_mgmt_ui_enabled?
+        Log.warn { "OAuth management UI SSO not enabled: requires oauth.client_id, oauth.issuer, and oauth.mgmt_base_url (https:// or http://localhost)" }
+      end
+    end
+
+    def oauth_mgmt_ui_enabled? : Bool
+      return false unless (base_url = @oauth_mgmt_base_url) && @oauth_client_id && @oauth_issuer_url
+      base_url.starts_with?("https://") || base_url.starts_with?("http://localhost") ||
+        base_url.starts_with?("http://127.0.0.1") || base_url.starts_with?("http://[::1]")
     end
 
     private def parse_config_from_cli(argv)
