@@ -1,0 +1,262 @@
+@font-face {
+  font-family: Inter;
+  src: url("../fonts/Inter-Regular.woff2") format("woff2");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: Inter;
+  src: url("../fonts/Inter-SemiBold.woff2") format("woff2");
+  font-weight: 600;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: Inter;
+  src: url("../fonts/Inter-Italic.woff2") format("woff2");
+  font-style: italic;
+  font-display: swap;
+}
+
+/* LavinMQ chrome tokens, mirrored from static/main.css. Defined here because
+   main.css is not loaded on /docs/. */
+html.theme-light {
+  --lmq-bg-primary: #F4F4F4;
+  --lmq-bg-secondary: #FFFFFF;
+  --lmq-border: rgba(0, 0, 0, 0.1);
+  --lmq-header-text: #111827;
+  --lmq-link: #3c9368;
+}
+
+html.theme-dark {
+  --lmq-bg-primary: #181818;
+  --lmq-bg-secondary: #1D1D1D;
+  --lmq-border: rgba(247, 245, 242, 0.1);
+  --lmq-header-text: #FFFFFF;
+  --lmq-link: #54BE7E;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: var(--lmq-bg-primary);
+  color: var(--lmq-header-text);
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+}
+
+/* === LavinMQ chrome above the renderer === */
+.lavinmq-docs-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 20px;
+  background: var(--lmq-bg-secondary);
+  border-bottom: 1px solid var(--lmq-border);
+  color: var(--lmq-header-text);
+  font-weight: 600;
+  flex: 0 0 auto;
+}
+
+.lavinmq-docs-header img {
+  height: 24px;
+  width: 24px;
+}
+
+.lavinmq-docs-header .spacer {
+  flex: 1;
+}
+
+.lavinmq-docs-header a {
+  color: var(--lmq-link);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.lavinmq-docs-header a:hover {
+  text-decoration: underline;
+}
+
+.lavinmq-docs-elements {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* === Map LavinMQ tokens to Stoplight Elements === */
+/* Elements ships with [data-theme=light]/[data-theme=dark] tokens. We override
+   them so the renderer matches main.css. The toggle script puts data-theme on
+   <html>, which Elements happily inherits via the cascade. */
+
+:root,
+[data-theme="light"],
+[data-theme="dark"] {
+  --font-prose: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-ui: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-code: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+[data-theme="light"] {
+  /* Backgrounds */
+  --color-canvas: #FFFFFF;
+  --color-canvas-pure: #FFFFFF;
+  --color-canvas-dialog: #FFFFFF;
+  --color-canvas-tint: #F4F4F4;
+  --color-canvas-50: #F4F4F4;
+  --color-canvas-100: #ebecf1;
+  --color-canvas-200: #d1d5db;
+  --color-canvas-300: #d1d5db;
+  --color-canvas-400: #9ca3af;
+  --color-canvas-500: #6B7280;
+  --color-canvas-dark: #141414;
+
+  /* Borders */
+  --color-border: rgba(0, 0, 0, 0.1);
+  --color-border-light: rgba(0, 0, 0, 0.06);
+  --color-border-dark: rgba(0, 0, 0, 0.2);
+  --color-border-input: rgba(0, 0, 0, 0.18);
+  --color-border-button: rgba(0, 0, 0, 0.65);
+
+  /* Text */
+  --color-text: #141414;
+  --color-text-heading: #141414;
+  --color-text-paragraph: #374151;
+  --color-text-muted: #6B7280;
+  --color-text-light: #9CA3AF;
+  --color-text-disabled: #D1D5DB;
+
+  /* Primary (LavinMQ green) */
+  --color-primary: #3c9368;
+  --color-primary-dark: #348056;
+  --color-primary-darker: #2a6c47;
+  --color-primary-light: #54BE7E;
+  --color-primary-tint: rgba(60, 147, 104, 0.18);
+  --color-text-primary: #3c9368;
+  --color-on-primary: #FFFFFF;
+  --color-link: #3c9368;
+  --color-link-dark: #2a6c47;
+
+  /* Success */
+  --color-success: #54BE7E;
+  --color-success-dark: #2a9463;
+  --color-success-darker: #1f6e4a;
+  --color-success-light: #7FD49E;
+  --color-success-tint: rgba(84, 190, 126, 0.22);
+  --color-text-success: #2a9463;
+  --color-on-success: #FFFFFF;
+
+  /* Warning */
+  --color-warning: #e2b149;
+  --color-warning-dark: #b88a25;
+  --color-warning-darker: #8a661b;
+  --color-warning-light: #f1ca7a;
+  --color-warning-tint: rgba(226, 177, 73, 0.22);
+  --color-text-warning: #b88a25;
+  --color-on-warning: #1a1a1a;
+
+  /* Danger */
+  --color-danger: #ED4337;
+  --color-danger-dark: #c1352b;
+  --color-danger-darker: #952820;
+  --color-danger-light: #f37b73;
+  --color-danger-tint: rgba(237, 67, 55, 0.22);
+  --color-text-danger: #c1352b;
+  --color-on-danger: #FFFFFF;
+
+  /* Code */
+  --color-code: #F4F4F4;
+  --color-on-code: #141414;
+}
+
+[data-theme="dark"] {
+  /* Backgrounds */
+  --color-canvas: #181818;
+  --color-canvas-pure: #181818;
+  --color-canvas-dialog: #1D1D1D;
+  --color-canvas-tint: #1D1D1D;
+  --color-canvas-50: #1D1D1D;
+  --color-canvas-100: #242424;
+  --color-canvas-200: #2D2C2C;
+  --color-canvas-300: #2D2C2C;
+  --color-canvas-400: #414040;
+  --color-canvas-500: #6B6A68;
+  --color-canvas-dark: #FAFAFA;
+
+  /* Borders */
+  --color-border: rgba(247, 245, 242, 0.1);
+  --color-border-light: rgba(247, 245, 242, 0.06);
+  --color-border-dark: rgba(247, 245, 242, 0.2);
+  --color-border-input: rgba(247, 245, 242, 0.22);
+  --color-border-button: rgba(247, 245, 242, 0.65);
+
+  /* Text */
+  --color-text: #FAFAFA;
+  --color-text-heading: #FAFAFA;
+  --color-text-paragraph: #CDCBC9;
+  --color-text-muted: #9D9C9A;
+  --color-text-light: #6B6A68;
+  --color-text-disabled: #414040;
+
+  /* Primary (LavinMQ success green in dark) */
+  --color-primary: #54BE7E;
+  --color-primary-dark: #44a86d;
+  --color-primary-darker: #348056;
+  --color-primary-light: #7FD49E;
+  --color-primary-tint: rgba(84, 190, 126, 0.18);
+  --color-text-primary: #54BE7E;
+  --color-on-primary: #181818;
+  --color-link: #54BE7E;
+  --color-link-dark: #44FC70;
+
+  /* Success */
+  --color-success: #54BE7E;
+  --color-success-dark: #44a86d;
+  --color-success-darker: #348056;
+  --color-success-light: #7FD49E;
+  --color-success-tint: rgba(84, 190, 126, 0.22);
+  --color-text-success: #54BE7E;
+  --color-on-success: #181818;
+
+  /* Warning */
+  --color-warning: #e2b149;
+  --color-warning-dark: #b88a25;
+  --color-warning-darker: #8a661b;
+  --color-warning-light: #f1ca7a;
+  --color-warning-tint: rgba(226, 177, 73, 0.22);
+  --color-text-warning: #e2b149;
+  --color-on-warning: #181818;
+
+  /* Danger */
+  --color-danger: #ED4337;
+  --color-danger-dark: #c1352b;
+  --color-danger-darker: #952820;
+  --color-danger-light: #f37b73;
+  --color-danger-tint: rgba(237, 67, 55, 0.22);
+  --color-text-danger: #ED4337;
+  --color-on-danger: #FAFAFA;
+
+  /* Code */
+  --color-code: #2D2C2C;
+  --color-on-code: #FAFAFA;
+}
+
+/* The Elements host root sets its own background; ensure it follows our canvas */
+.sl-elements,
+.sl-elements-api {
+  background: var(--color-canvas) !important;
+  color: var(--color-text) !important;
+  font-family: var(--font-prose);
+}
+
+/* Sidebar uses canvas-tint by default; nudge it onto our secondary panel */
+.sl-elements [data-test="sidebar"],
+.sl-elements .ElementsTableOfContentsItem,
+.sl-elements aside {
+  background: var(--color-bg-primary, var(--color-canvas-tint));
+}

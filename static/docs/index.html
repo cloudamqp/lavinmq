@@ -4,11 +4,32 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
     <title>LavinMQ HTTP API</title>
+    <link rel="icon" href="../img/favicon.png">
     <script src="../js/lib/elements-8.2.0.js"></script>
     <link rel="stylesheet" href="../js/lib/elements-8.2.0.css">
+    <link rel="stylesheet" href="lavinmq-docs.css">
+    <script>
+      (function () {
+        var classes = (window.localStorage.getItem('lmq.stateclasses') || '').split(' ').filter(Boolean)
+        var explicit = classes.indexOf('theme-dark') !== -1 || classes.indexOf('theme-light') !== -1
+        var dark = explicit
+          ? classes.indexOf('theme-dark') !== -1
+          : window.matchMedia('(prefers-color-scheme: dark)').matches
+        var theme = dark ? 'dark' : 'light'
+        document.documentElement.classList.add(dark ? 'theme-dark' : 'theme-light')
+        document.documentElement.setAttribute('data-theme', theme)
+      })()
+    </script>
   </head>
   <body>
+    <header class="lavinmq-docs-header">
+      <img src="../img/favicon.png" alt="LavinMQ">
+      <span>LavinMQ HTTP API</span>
+      <span class="spacer"></span>
+      <a href="../">Back to management UI</a>
+    </header>
     <elements-api
+      class="lavinmq-docs-elements"
       apiDescriptionUrl="openapi.yaml"
       router="hash"
       layout="sidebar"
@@ -18,4 +39,3 @@
       />
   </body>
 </html>
-
