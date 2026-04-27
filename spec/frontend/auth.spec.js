@@ -41,6 +41,46 @@ test.describe('login', _ => {
   })
 })
 
+test.describe('whoAmI', _ => {
+  test('logs out and redirects to /login on API failure', async ({ page, context }) => {
+    await page.route(url => url.pathname === '/api/whoami', route => route.fulfill({ status: 401 }))
+    await page.goto('/')
+    await expect(page).toHaveURL(/\/login$/)
+    const cookies = await context.cookies()
+    expect(cookies.some(c => c.name === 'm')).toBe(false)
+  })
+
+  test('caches whoami response and only fetches once', async ({ page }) => {
+    let callCount = 0
+    await page.route(url => url.pathname === '/api/whoami', async route => {
+      callCount++
+      await route.fallback()
+    })
+    await page.goto('/')
+    await page.goto('/')
+    expect(callCount).toBe(1)
+  })
+
+  test('fetches whoami again if missing from localStorage', async ({ page }) => {
+    let callCount = 0
+    await page.route(url => url.pathname === '/api/whoami', async route => {
+      callCount++
+      await route.fallback()
+    })
+    await page.goto('/')
+    await page.evaluate(() => localStorage.removeItem('lmq.whoami'))
+    await page.goto('/')
+    expect(callCount).toBe(2)
+  })
+
+  test('does not store sensitive fields in localStorage', async ({ page }) => {
+    await page.goto('/')
+    const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('lmq.whoami')))
+    expect(stored.password_hash).toBeUndefined()
+    expect(stored.hashing_algorithm).toBeUndefined()
+  })
+})
+
 test.describe('logout', _ => {
   test('clicking sign-out redirects to /login and deletes cookie', async ({ page, context }) => {
     await page.goto('/')
