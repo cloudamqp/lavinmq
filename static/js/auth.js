@@ -34,19 +34,8 @@ function logout () {
   window.location.assign('login')
 }
 
-async function whoAmI (forceReload = false) {
-  if (!forceReload) {
-    const data = window.localStorage.getItem('lmq.whoami')
-    let whoAmI = null
-    if (data) {
-      whoAmI = JSON.parse(data)
-    }
-    // Do we have cached and valid info?
-    if (whoAmI && whoAmI.name == getUsername() && (whoAmI._ts + 3600 * 1000) > Date.now()) {
-      return whoAmI
-    }
-  }
-  return await window.fetch('api/whoami')
+async function fetchAndCacheWhoAmI () {
+  return window.fetch('api/whoami')
     .then(async resp => {
       if (resp.ok) {
         return await resp.json().then(data => {
@@ -61,6 +50,23 @@ async function whoAmI (forceReload = false) {
         return null
       }
     })
+}
+
+async function whoAmI (forceReload = false) {
+  if (!forceReload) {
+    const data = window.localStorage.getItem('lmq.whoami')
+    if (data) {
+      const cached = JSON.parse(data)
+      if (cached && cached.name == getUsername()) {
+        const expired = (cached._ts + 3600 * 1000) <= Date.now()
+        if (expired) {
+          fetchAndCacheWhoAmI()
+        }
+        return cached
+      }
+    }
+  }
+  return fetchAndCacheWhoAmI()
 }
 
 export {
