@@ -45,6 +45,9 @@ module LavinMQ::AMQP
     add_argument_validator "x-cache-size", VALIDATOR_INT_ZERO
     add_argument_validator "x-cache-ttl", VALIDATOR_INT_ZERO
     add_argument_validator "x-deduplication-header", VALIDATOR_STRING
+    add_argument_validator "x-retry-delay", VALIDATOR_INT_ONE
+    add_argument_validator "x-retry-delay-multiplier", VALIDATOR_INT_ONE
+    add_argument_validator "x-retry-max-delay", VALIDATOR_INT_ONE
 
     def self.create(vhost : VHost, name : String,
                     exclusive : Bool = false, auto_delete : Bool = false,
@@ -59,6 +62,10 @@ module LavinMQ::AMQP
     @expires : Int64?
     @delivery_limit : Int64?
     @reject_on_overflow = false
+    @retry_delay : Int64?
+    @retry_delay_multiplier : Float64 = 2.0
+    @retry_max_delay : Int64 = 60000i64
+    @retry_queue : RetryQueue?
     @exclusive_consumer = false
     @deliveries = Hash(SegmentPosition, Int32).new
     @consumers = Array(Client::Channel::Consumer).new
@@ -380,12 +387,52 @@ module LavinMQ::AMQP
           Deduplication::Deduper.new(cache, ttl, header_key)
         end
       end
+      @retry_delay = parse_header("x-retry-delay", Int).try(&.to_i64)
+      if @retry_delay
+        @effective_args << "x-retry-delay"
+        @retry_delay_multiplier = parse_header("x-retry-delay-multiplier", Int).try(&.to_f64) || 2.0
+        @effective_args << "x-retry-delay-multiplier" if @arguments["x-retry-delay-multiplier"]?
+        @retry_max_delay = parse_header("x-retry-max-delay", Int).try(&.to_i64) || 60000i64
+        @effective_args << "x-retry-max-delay" if @arguments["x-retry-max-delay"]?
+        init_retry_queue
+      end
     end
 
     private macro parse_header(header, type)
       if value = @arguments["{{ header.id }}"]?
         value.as?({{ type }}) || raise LavinMQ::Error::PreconditionFailed.new("{{ header.id }} header not a {{ type.id }}")
       end
+    end
+
+    private def init_retry_queue
+      return if @retry_queue
+      queue = RetryQueue.create(@vhost, self)
+      @retry_queue = queue
+      @vhost.queues[queue.name] = queue
+    end
+
+    private def route_to_retry_queue(sp : SegmentPosition, retry_queue : RetryQueue, base_delay : Int64) : Bool
+      delivery_count = @deliveries.fetch(sp, 1)
+      if delivery_count > 1
+        prev_delay = (base_delay * (@retry_delay_multiplier ** (delivery_count - 2))).to_i64
+        return false if prev_delay >= @retry_max_delay
+      end
+      msg = @msg_store_lock.synchronize { @msg_store[sp] }
+      delay_ms = Math.min(
+        (base_delay * (@retry_delay_multiplier ** (delivery_count - 1))).to_i64,
+        @retry_max_delay
+      )
+      props = msg.properties
+      h = props.headers || AMQP::Table.new
+      h["x-delay"] = delay_ms.to_u32
+      h["x-delivery-count"] = delivery_count
+      h["x-original-timestamp"] = msg.timestamp unless h.has_key?("x-original-timestamp")
+      props.headers = h
+      retry_msg = Message.new(RoughTime.unix_ms, msg.exchange_name, msg.routing_key,
+        props, msg.bodysize, IO::Memory.new(msg.body))
+      retry_queue.delay(retry_msg)
+      delete_message(sp)
+      true
     end
 
     def immediate_delivery?
@@ -453,6 +500,10 @@ module LavinMQ::AMQP
     def delete : Bool
       return false if @deleted
       @deleted = true
+      if retry_queue = @retry_queue
+        @retry_queue = nil
+        retry_queue.delete
+      end
       close
       @state = QueueState::Deleted
       @msg_store_lock.synchronize do
@@ -735,7 +786,7 @@ module LavinMQ::AMQP
           expire_msg(env, :expired)
           next
         end
-        if @delivery_limit && !no_ack
+        if (@delivery_limit || @retry_delay) && !no_ack
           env = with_delivery_count_header(env) || next
         end
         sp = env.segment_position
@@ -777,11 +828,11 @@ module LavinMQ::AMQP
     end
 
     private def with_delivery_count_header(env) : Envelope?
-      if @delivery_limit
+      if @delivery_limit || @retry_delay
         sp = env.segment_position
         headers = env.message.properties.headers || AMQP::Table.new
-        delivery_count = @deliveries.fetch(sp, 0)
-        headers["x-delivery-count"] = delivery_count if delivery_count > 0 # x-delivery-count not included in first delivery
+        delivery_count = @deliveries[sp]? || headers["x-delivery-count"]?.try(&.as?(Int)).try(&.to_i32) || 0
+        headers["x-delivery-count"] = delivery_count if delivery_count > 0
         @deliveries[sp] = delivery_count + 1
         env.message.properties.headers = headers
       end
@@ -801,7 +852,7 @@ module LavinMQ::AMQP
       {% unless flag?(:release) %}
         @log.debug { "Deleting: #{sp}" }
       {% end %}
-      @deliveries.delete(sp) if @delivery_limit
+      @deliveries.delete(sp) if @delivery_limit || @retry_delay
       @msg_store_lock.synchronize do
         @msg_store.delete(sp)
       end
@@ -822,10 +873,16 @@ module LavinMQ::AMQP
               return expire_msg(sp, :delivery_limit)
             end
           end
-          @msg_store_lock.synchronize do
-            @msg_store.requeue(sp)
+          if (retry_queue = @retry_queue) && (retry_delay = @retry_delay)
+            unless route_to_retry_queue(sp, retry_queue, retry_delay)
+              expire_msg(sp, :delivery_limit)
+            end
+          else
+            @msg_store_lock.synchronize do
+              @msg_store.requeue(sp)
+            end
+            drop_overflow
           end
-          drop_overflow
         end
       else
         expire_msg(sp, :rejected)
