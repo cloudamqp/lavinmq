@@ -1,4 +1,4 @@
-import { stateClasses } from "./helpers.js"
+import { stateClasses } from './helpers.js'
 
 function getUsername () {
   return window.atob(getAuth()).split(':')[0]
