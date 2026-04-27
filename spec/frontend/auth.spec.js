@@ -33,9 +33,10 @@ test.describe('login', _ => {
     await page.goto('/login')
     await page.getByLabel('Username').fill('guest')
     await page.getByLabel('Password').fill('wrongpassword')
-    const dialog = page.waitForEvent('dialog')
-    await page.getByRole('button').click()
-    const d = await dialog
+    const [d] = await Promise.all([
+      page.waitForEvent('dialog'),
+      page.getByRole('button').click()
+    ])
     expect(d.message()).toBe('Authentication failure')
     await d.dismiss()
   })
@@ -43,6 +44,7 @@ test.describe('login', _ => {
 
 test.describe('whoAmI', _ => {
   test('logs out and redirects to /login on API failure', async ({ page, context }) => {
+    await page.addInitScript(() => localStorage.removeItem('lmq.whoami'))
     await page.route(url => url.pathname === '/api/whoami', route => route.fulfill({ status: 401 }))
     await page.goto('/')
     await expect(page).toHaveURL(/\/login$/)
@@ -51,6 +53,8 @@ test.describe('whoAmI', _ => {
   })
 
   test('caches whoami response and only fetches once', async ({ page }) => {
+    await page.goto('/')
+    await page.evaluate(() => localStorage.removeItem('lmq.whoami'))
     let callCount = 0
     await page.route(url => url.pathname === '/api/whoami', async route => {
       callCount++
@@ -62,6 +66,8 @@ test.describe('whoAmI', _ => {
   })
 
   test('fetches whoami again if missing from localStorage', async ({ page }) => {
+    await page.goto('/')
+    await page.evaluate(() => localStorage.removeItem('lmq.whoami'))
     let callCount = 0
     await page.route(url => url.pathname === '/api/whoami', async route => {
       callCount++
