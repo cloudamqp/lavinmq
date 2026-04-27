@@ -7,6 +7,12 @@ LavinMQ can be configured through three methods, listed in order of precedence (
 3. **INI configuration file** — specified with `-c` / `--config`
 4. **Built-in defaults**
 
+## Value Formats
+
+- **Boolean**: `1`, `true`, `yes`, `on`, `y` (case-insensitive) are true; everything else is false.
+- **Array**: comma-separated values (whitespace is stripped).
+- **Duration** (`Time::Span`): integer number of seconds.
+
 ## INI File Format
 
 The configuration file uses INI format with sections. Specify it with:
@@ -15,20 +21,20 @@ The configuration file uses INI format with sections. Specify it with:
 lavinmq --config /etc/lavinmq/lavinmq.ini
 ```
 
-Or via the environment variable `LAVINMQ_CONFIGURATION_DIRECTORY`.
+Alternatively, set the `LAVINMQ_CONFIGURATION_DIRECTORY` environment variable (or the systemd-standard `CONFIGURATION_DIRECTORY`) to a directory; LavinMQ will load `lavinmq.ini` from that directory. Defaults to `/etc/lavinmq`.
 
 ## [main] Section
 
 | INI Key | CLI Flag | Env Var | Type | Default | Description |
 |---------|----------|---------|------|---------|-------------|
-| `data_dir` | `-D`, `--data-dir` | `LAVINMQ_DATADIR` | String | `/var/lib/lavinmq` | Data directory |
-| `log_level` | `-l`, `--log-level` | — | String | `info` | Log level (debug, info, warn, error) |
+| `data_dir` | `-D`, `--data-dir` | `LAVINMQ_DATADIR`, `STATE_DIRECTORY` | String | `/var/lib/lavinmq` | Data directory |
+| `log_level` | `-l`, `--log-level` | — | String | `info` | Log level: `trace`, `debug`, `info`, `notice`, `warn`, `error`, `fatal`, `none` |
 | `log_file` | — | — | String | (none) | Log file path |
 | `pidfile` | `--pidfile` | — | String | (empty) | PID file path |
 | `tls_cert` | `--cert` | `LAVINMQ_TLS_CERT_PATH` | String | (empty) | TLS certificate path (including chain) |
 | `tls_key` | `--key` | `LAVINMQ_TLS_KEY_PATH` | String | (empty) | TLS private key path |
 | `tls_ciphers` | `--ciphers` | `LAVINMQ_TLS_CIPHERS` | String | (empty) | Allowed TLS ciphers |
-| `tls_min_version` | `--tls-min-version` | `LAVINMQ_TLS_MIN_VERSION` | String | (empty) | Minimum TLS version (default 1.2) |
+| `tls_min_version` | `--tls-min-version` | `LAVINMQ_TLS_MIN_VERSION` | String | (empty) | Minimum TLS version. When empty, the TLS library default (1.2) is used. |
 | `tls_keylog_file` | — | — | String | (empty) | TLS key log file (for debugging) |
 | `tls_ktls` | `--tls-ktls` | — | Bool | `false` | Enable kernel TLS offloading |
 | `stats_interval` | — | — | Int | `5000` | Statistics collection interval (ms) |
@@ -36,11 +42,11 @@ Or via the environment variable `LAVINMQ_CONFIGURATION_DIRECTORY`.
 | `set_timestamp` | — | — | Bool | `false` | Set timestamp on received messages |
 | `socket_buffer_size` | — | — | Int | `16384` | Socket buffer size (bytes) |
 | `tcp_nodelay` | — | — | Bool | `false` | Disable Nagle's algorithm |
-| `tcp_keepalive` | — | — | String | `60,10,3` | TCP keepalive (idle, interval, probes) |
+| `tcp_keepalive` | — | — | String | `60:10:3` | TCP keepalive (idle:interval:probes, colon-separated) |
 | `tcp_recv_buffer_size` | — | — | Int | (system) | TCP receive buffer size |
 | `tcp_send_buffer_size` | — | — | Int | (system) | TCP send buffer size |
 | `segment_size` | — | — | Int | `8388608` | Message store segment size (bytes, 8MB) |
-| `free_disk_min` | — | — | Int | `0` | Minimum free disk space (bytes). Blocks publishing when exceeded. |
+| `free_disk_min` | — | — | Int | `0` | Minimum free disk space (bytes). Publishing is blocked when free space drops below this value. |
 | `free_disk_warn` | — | — | Int | `0` | Free disk space warning threshold (bytes) |
 | `max_deleted_definitions` | — | — | Int | `8192` | Deleted definitions before compaction |
 | `consumer_timeout` | — | — | UInt64 | (none) | Consumer idle timeout (ms) |
@@ -121,7 +127,7 @@ Or via the environment variable `LAVINMQ_CONFIGURATION_DIRECTORY`.
 | `scope_prefix` | String | (none) | Prefix to strip from scope strings |
 | `verify_aud` | Bool | `true` | Verify JWT audience claim |
 | `audience` | String | (none) | Expected JWT audience |
-| `jwks_cache_ttl` | Duration | `1h` | JWKS cache TTL |
+| `jwks_cache_ttl` | Int (seconds) | `3600` | JWKS cache TTL |
 
 ## [experimental] Section
 
@@ -132,22 +138,33 @@ Or via the environment variable `LAVINMQ_CONFIGURATION_DIRECTORY`.
 
 ## [sni:hostname] Sections
 
-Per-hostname TLS configuration. Create a section for each hostname:
+Per-hostname TLS configuration. Create a section for each hostname. Each SNI section supports the following options:
+
+- `tls_cert`, `tls_key`
+- `tls_min_version`, `tls_ciphers`
+- `tls_verify_peer`, `tls_ca_cert` (for mTLS)
+- `tls_keylog_file`
 
 ```ini
 [sni:example.com]
 tls_cert = /path/to/example.com.crt
 tls_key = /path/to/example.com.key
+tls_min_version = 1.3
+tls_verify_peer = true
+tls_ca_cert = /path/to/ca.pem
 ```
+
+Protocol-specific overrides use a prefix (`amqp_`, `mqtt_`, `http_`) followed by the TLS option name. For example, `amqp_tls_cert` overrides the certificate for AMQP connections to that hostname only.
 
 ## Global CLI-Only Flags
 
 | Flag | Description |
 |------|-------------|
-| `-b`, `--bind` | Bind address for both AMQP and HTTP |
+| `-b`, `--bind` | Bind address for AMQP, MQTT, and HTTP |
 | `-c`, `--config` | Path to config file |
+| `-d`, `--debug` | Verbose logging (sets log_level to debug) |
+| `--build-info` | Print build information and exit |
 | `--raise-gc-warn` | Raise on GC warnings |
-| `--no-data-dir-lock` | Disable data directory file lock |
 
 ## Deprecated Options
 
@@ -161,7 +178,11 @@ tls_key = /path/to/example.com.key
 | `consumer_timeout` in `[amqp]` | `consumer_timeout` in `[main]` |
 | `default_consumer_prefetch` in `[amqp]` | `default_consumer_prefetch` in `[main]` |
 | `--default-password` | `--default-password-hash` |
+| `default_password` in `[main]` | `default_password_hash` in `[main]` |
 | `--guest-only-loopback` | `--default-user-only-loopback` |
+| `guest_only_loopback` in `[main]` | `default_user_only_loopback` in `[main]` |
+| `[http]` section | `[mgmt]` section |
+| `[replication]` section | `[clustering]` section |
 
 ## Example Configuration
 

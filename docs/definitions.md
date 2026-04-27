@@ -14,7 +14,7 @@ GET /api/definitions
 lavinmqctl export_definitions
 
 # Via CLI (offline, from data directory)
-lavinmqctl export_definitions --data-dir /var/lib/lavinmq
+lavinmqctl definitions /var/lib/lavinmq
 ```
 
 Per-vhost export:
@@ -36,7 +36,7 @@ Content-Type: application/json
 lavinmqctl import_definitions definitions.json
 ```
 
-Import is additive: existing resources are preserved, new ones are created, and matching ones are updated.
+Import is additive: new resources are created and bindings/policies/parameters/users with the same name are replaced. Re-declaring an existing queue or exchange with mismatching properties (durable, auto-delete, arguments) returns a `precondition_failed` error rather than overwriting.
 
 ## JSON Format
 
@@ -56,7 +56,7 @@ Import is additive: existing resources are preserved, new ones are created, and 
   ],
   "permissions": [
     {
-      "name": "guest",
+      "user": "guest",
       "vhost": "/",
       "configure": ".*",
       "read": ".*",

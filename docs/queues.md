@@ -53,7 +53,6 @@ When a queue reaches its `x-max-length` or `x-max-length-bytes` limit, the overf
 |--------|----------|
 | `drop-head` (default) | The oldest message is removed from the head of the queue |
 | `reject-publish` | New messages are rejected (basic.nack sent to publisher) |
-| `reject-publish-dlx` | New messages are rejected and dead-lettered |
 
 Overflow behavior can be set via the `x-overflow` queue argument or the `overflow` policy.
 
@@ -90,12 +89,11 @@ A queue can be in one of the following states:
 |-------|-------------|
 | `running` | Normal operation, delivering messages to consumers |
 | `paused` | Queue stops delivering messages but continues accepting publishes. Resume via the API. |
-| `flow` | Temporarily throttled due to back-pressure |
-| `closed` | Queue is closed due to an error. Can be restarted via the API. |
+| `closed` | Queue is closed due to an error. Durable, non-exclusive queues can be restarted via the API. |
 | `deleted` | Queue has been deleted |
 
 Pause and resume are available via the management API (`PUT /api/queues/:vhost/:name/pause` and `/resume`). A closed queue can be restarted with `PUT /api/queues/:vhost/:name/restart`.
 
 ## Reserved Queue Name Prefixes
 
-Queue names starting with `amq.` are reserved for server-internal use. Client queue declarations using this prefix will be rejected.
+Queue names starting with `amq.` or `mqtt.` are reserved for server-internal use. Client queue declarations using these prefixes will be rejected, except for `amq.direct.reply-to.*` queues used for direct reply-to consumers.

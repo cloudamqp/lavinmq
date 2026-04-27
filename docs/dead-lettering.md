@@ -12,6 +12,8 @@ Set on the source queue via arguments or policies:
 | `x-dead-letter-routing-key` / `dead-letter-routing-key` | Override the routing key (uses original if not set) |
 | `x-delivery-limit` / `delivery-limit` | Max redelivery attempts before dead-lettering |
 
+The `x-dead-letter-exchange` and `x-dead-letter-routing-key` headers can also be set on individual messages to override the queue-level settings on a per-message basis.
+
 ## Dead-Letter Reasons
 
 Messages are dead-lettered for the following reasons:
@@ -28,7 +30,7 @@ Messages are dead-lettered for the following reasons:
 
 The `x-delivery-limit` argument (or `delivery-limit` policy) sets the maximum number of times a message can be redelivered. Each time a message is requeued (via reject/nack with `requeue=true`), an internal delivery counter is incremented. When the limit is reached, the message is dead-lettered instead of requeued.
 
-The delivery count is tracked in the `x-delivery-count` message header.
+On redelivery, the server adds an `x-delivery-count` header to the message indicating how many prior delivery attempts have occurred (the header is omitted on the first delivery).
 
 ## x-death Header
 
@@ -38,7 +40,7 @@ Dead-lettered messages receive an `x-death` header array. Each entry contains:
 |-------|-------------|
 | `queue` | Queue the message was dead-lettered from |
 | `reason` | Dead-letter reason (rejected, expired, maxlen, etc.) |
-| `exchange` | Exchange the message was originally published to |
+| `exchange` | Exchange the message arrived at this queue from |
 | `count` | Number of times the message was dead-lettered for this reason from this queue |
 | `time` | Timestamp of the most recent dead-lettering |
 | `routing-keys` | Original routing keys (including CC) |
@@ -66,7 +68,6 @@ A `rejected` reason in the death history breaks cycle detection — if a message
 
 - `drop-head` overflow: dropped messages are dead-lettered with reason `maxlen` or `maxlenbytes`
 - `reject-publish`: new messages are rejected (nacked to publisher), not dead-lettered
-- `reject-publish-dlx`: new messages are rejected and dead-lettered
 
 ## Routing
 

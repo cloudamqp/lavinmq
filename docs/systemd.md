@@ -6,7 +6,7 @@ LavinMQ supports SystemD socket activation and can be managed as a SystemD servi
 
 SystemD socket activation allows SystemD to listen on the configured ports and pass the sockets to LavinMQ on startup. This enables:
 
-- Zero-downtime restarts (SystemD holds the sockets while LavinMQ restarts)
+- New connections are queued by SystemD while LavinMQ restarts
 - Lazy startup (LavinMQ starts only when a connection arrives)
 - Privilege separation (SystemD binds privileged ports, LavinMQ runs unprivileged)
 
@@ -37,6 +37,7 @@ Description=LavinMQ
 After=network.target
 
 [Service]
+Type=notify
 ExecStart=/usr/bin/lavinmq --config /etc/lavinmq/lavinmq.ini
 Restart=on-failure
 User=lavinmq
@@ -59,4 +60,6 @@ The PID file is removed on graceful shutdown.
 
 ## Graceful Restart
 
-Send `SIGTERM` to gracefully shut down LavinMQ. SystemD will restart it automatically if `Restart=on-failure` is set. With socket activation, connections are preserved during the restart window.
+Send `SIGTERM` to gracefully shut down LavinMQ. SystemD will restart it automatically if `Restart=on-failure` is set. With socket activation, new connections are queued by SystemD during the restart window.
+
+LavinMQ uses `sd_notify` to signal readiness and shutdown to SystemD. `Type=notify` in the service unit lets SystemD track the lifecycle correctly.

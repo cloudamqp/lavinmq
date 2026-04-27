@@ -10,7 +10,7 @@ LavinMQ implements the AMQP 0-9-1 protocol. This page covers LavinMQ's specific 
 | AMQPS | 5671 | `amqps_port` |
 | AMQP over WebSocket | via HTTP port (15672) | `http_port` |
 
-Unix domain sockets are also supported via `amqp_unix_path`.
+Unix domain sockets are also supported via `unix_path` in the `[amqp]` config section.
 
 ## Server Defaults
 
@@ -35,8 +35,7 @@ LavinMQ advertises the following extensions beyond the base AMQP 0-9-1 spec:
 - **Per-consumer QoS** — prefetch scoped to individual consumers. See [Channels](channels.md).
 - **Direct reply-to** — RPC without temporary queues. See [Messages](messages.md).
 - **Authentication failure close** — server closes the connection with a reason on auth failure.
-- **connection.blocked** — server notifies publishers when resources are low. See [Connections](connections.md).
-- **connection.update-secret** — refresh OAuth2 tokens on live connections. See [Authentication](authentication.md).
+- **Consumer priorities** — consumers can declare priority to influence delivery order. See [Consumers](consumers.md).
 
 ## Authentication Mechanisms
 
@@ -47,9 +46,9 @@ Credentials are validated against the configured [authentication chain](authenti
 
 ## LavinMQ-Specific Behavior
 
-- **Blocked connections**: when disk space drops below `free_disk_min`, publishing is paused via `connection.blocked` until resources recover.
-- **Consumer timeout**: idle consumers holding unacknowledged messages can be disconnected. See [Consumers](consumers.md).
-- **Channel flow**: the server can pause delivery on a channel via `channel.flow`. See [Channels](channels.md).
+- **Blocked publishing**: when free disk space drops below `3 * segment_size` or below `free_disk_min`, `basic.publish` returns a `precondition_failed` channel error until resources recover.
+- **Consumer timeout**: a consumer's channel is closed if its oldest unacknowledged message exceeds the configured timeout. See [Consumers](consumers.md).
+- **Channel flow**: clients can pause their own delivery via `channel.flow`. See [Channels](channels.md).
 - **Transactions**: supported but mutually exclusive with publisher confirms on the same channel. See [Transactions](transactions.md).
 
 ## Further Reading

@@ -38,19 +38,18 @@ The `x-delayed-exchange` argument on the exchange also enables delayed mode.
 
 ## Internal Queue
 
-Each delayed exchange creates an internal queue named `amq.delayed-<exchange_name>`. This queue:
+Each delayed exchange creates an internal queue named `amq.delayed-<exchange_name>` (or `amq.delayed.<exchange_name>` for queues created before this naming convention; both forms continue to work). This queue:
 
-- Stores messages sorted by their expiration time
+- Delivers messages in expiration order (messages are stored in arrival order on disk; an in-memory index orders them by delivery time)
 - Cannot be consumed from or published to by clients
 - Is automatically deleted when the exchange is deleted
 - Inherits the durability of the exchange
 
 ## Re-delay Prevention
 
-When a delayed message expires and is routed, the `x-delay` header is removed from the message. The server also checks the `x-death` headers to prevent re-delaying a message that has already been through the delayed queue (cycle detection).
+When a delayed message expires and is routed, the `x-delay` header is removed from the message. The server also checks the most recent `x-death` entry to prevent immediate re-entry into the same delayed queue.
 
 ## Limitations
 
 - The delayed queue does not support policies (max-length, TTL, etc.)
 - Consumer operations (subscribe, ack, reject) are not supported on the internal queue
-- The internal queue's messages are sorted by expiration time, not insertion order

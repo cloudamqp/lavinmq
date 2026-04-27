@@ -31,7 +31,7 @@ Each protocol has a dedicated TLS port:
 | MQTTS | `tls_port` in `[mqtt]` | 8883 |
 | HTTPS | `tls_port` in `[mgmt]` | 15671 |
 
-TLS ports are only active when both `tls_cert` and `tls_key` are configured.
+TLS ports are active when `tls_cert` is configured. If `tls_key` is not set separately, the certificate file is expected to contain both the certificate and private key.
 
 ## mTLS (Mutual TLS)
 

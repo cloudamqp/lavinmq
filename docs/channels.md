@@ -47,9 +47,9 @@ Common channel-level errors:
 
 ## Flow Control
 
-The server can pause message delivery on a channel via `channel.flow`. When flow is disabled (`active=false`), the server stops delivering messages to consumers on that channel. When re-enabled (`active=true`), delivery resumes.
+Clients can pause message delivery on a channel by sending `channel.flow` with `active=false`. The server responds with `channel.flow-ok`. When re-enabled (`active=true`), delivery resumes.
 
-This is used for back-pressure when consumers or the server cannot keep up with the delivery rate.
+When the server runs low on disk space, `basic.publish` returns a `precondition_failed` channel error until resources recover.
 
 ## Consumer Limit
 

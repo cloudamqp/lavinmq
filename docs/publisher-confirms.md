@@ -10,10 +10,11 @@ Once enabled, confirms cannot be disabled on that channel.
 
 ## How It Works
 
-After `confirm.select`, every message published on the channel is assigned a monotonically increasing sequence number (starting from 1). After the server processes the message, it sends `basic.ack` back to the publisher with the corresponding delivery tag.
+After `confirm.select`, every message published on the channel is assigned a monotonically increasing sequence number (starting from 1). After the server processes the message, it sends `basic.ack` or `basic.nack` back to the publisher with the corresponding delivery tag.
 
 - `basic.ack` with `multiple=false` — confirms a single message
 - `basic.ack` with `multiple=true` — confirms all messages up to and including the delivery tag
+- `basic.nack` — the server failed to process the message (e.g., internal error). The publisher should handle this and potentially retry.
 
 ## Mutual Exclusivity with Transactions
 

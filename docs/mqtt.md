@@ -1,6 +1,6 @@
 # MQTT
 
-LavinMQ implements MQTT 3.1.0 and 3.1.1 natively.
+LavinMQ implements MQTT 3.1.1 natively.
 
 ## Ports
 
@@ -49,7 +49,7 @@ If a client connects with a client ID that already has an active connection, the
 
 - QoS 0 messages are not enqueued if no consumer (client) is currently connected to the session
 - QoS 1 messages are stored in the session queue and tracked with packet IDs
-- Unacknowledged messages are requeued when a client disconnects or a new client takes over
+- Unacknowledged messages are requeued when a persistent session client disconnects or a new client takes over. For clean sessions, unacknowledged messages are discarded.
 - The maximum number of in-flight (unacknowledged) messages is controlled by `max_inflight_messages` (default 65,535)
 
 ## Retained Messages
@@ -70,7 +70,7 @@ MQTT topics use `/` as a level separator. LavinMQ supports the standard MQTT wil
 
 Examples:
 - `sensor/+/temperature` matches `sensor/room1/temperature` but not `sensor/room1/sub/temperature`
-- `sensor/#` matches `sensor/room1/temperature`, `sensor`, and `sensor/room1/sub/anything`
+- `sensor/#` matches `sensor/room1/temperature` and `sensor/room1/sub/anything`
 
 ## MQTT-AMQP Bridge
 
@@ -89,7 +89,7 @@ MQTT-specific configuration options:
 | Option | Default | Description |
 |--------|---------|-------------|
 | `mqtt_port` | 1883 | MQTT listen port |
-| `mqtts_port` | -1 (disabled) | MQTT over TLS port |
+| `mqtts_port` | 8883 | MQTT over TLS port |
 | `mqtt_unix_path` | (empty) | Unix socket path |
 | `mqtt_bind` | (uses default bind) | Bind address for MQTT |
 | `max_inflight_messages` | 65535 | Max unacknowledged messages per session |
@@ -101,11 +101,13 @@ MQTT-specific configuration options:
 
 By default, MQTT permission checks are disabled. When enabled via `permission_check_enabled: true` in the `[mqtt]` config section, LavinMQ enforces the standard AMQP ACL model on MQTT operations:
 
-- **PUBLISH** requires write permission on the MQTT exchange and the routing key (topic)
-- **SUBSCRIBE** requires read permission on the MQTT exchange and the topic pattern
+- **PUBLISH** requires write permission on the MQTT exchange
+- **SUBSCRIBE** requires read permission on the MQTT exchange and write permission on the session queue (`mqtt.<client_id>`)
 
 When disabled, any authenticated MQTT client can publish and subscribe to any topic.
 
 ## Authentication
 
 MQTT clients authenticate using the CONNECT packet's username and password fields. These are validated against the same authentication chain as AMQP (local users, OAuth2). For OAuth2, the password field carries the JWT token.
+
+The username field can include a vhost using the format `vhost:username`. If no colon is present, the `default_vhost` config option is used.

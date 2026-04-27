@@ -46,7 +46,7 @@ Examples:
 
 Routes based on message header matching rather than the routing key.
 
-- Pre-declared: `amq.headers`
+- Pre-declared: `amq.headers`, `amq.match`
 - Binding arguments specify the headers to match
 - `x-match` argument controls matching behavior:
   - `all` (default) — all specified headers must match
@@ -61,8 +61,8 @@ Distributes messages across bound queues using consistent hashing. Each message 
 - The binding key must be a number representing the queue's weight
 - Higher weight means a larger share of messages
 - `x-hash-on` exchange argument selects what to hash on (default: routing key). Set it to a header name to hash on a header value instead.
-- `x-algorithm` exchange argument selects the hash algorithm: `ring` (default) or `jump`
-- The default algorithm can be set globally via the `default_consistent_hash_algorithm` config option
+- `x-algorithm` exchange argument selects the hash algorithm: `ring` or `jump`
+- The default algorithm comes from the `default_consistent_hash_algorithm` config option (default: `ring`)
 
 ### Default Exchange
 
@@ -76,17 +76,17 @@ An alternate exchange receives messages that would otherwise be unroutable (no m
 
 Set via the `x-alternate-exchange` argument (or `alternate-exchange`) when declaring the exchange, or via the `alternate-exchange` policy.
 
-If the alternate exchange also cannot route the message, the message is discarded (or returned to the publisher if the mandatory flag was set on the original exchange).
+If the alternate exchange also cannot route the message, the message is discarded (or returned to the publisher if the mandatory flag was set on the publish).
 
 ## Delayed Exchanges
 
 Any exchange can be made into a delayed exchange. See [Delayed Queues](delayed-queues.md) for details.
 
-When an exchange has delayed mode enabled (via `x-delayed-exchange` argument or `delayed-message` policy), messages with an `x-delay` header are held in an internal queue and delivered after the delay expires.
+Declare the exchange with type `x-delayed-message` and the underlying type as the `x-delayed-type` argument. Alternatively, apply the `delayed-message` policy to an existing exchange. Messages with an `x-delay` header are held in an internal queue and delivered after the delay expires.
 
-## Event Exchange
+## Log Exchange
 
-LavinMQ declares an internal `amq.topic` exchange that can emit system events (queue created, connection closed, etc.) when enabled via the `log_exchange` config option.
+When the `log_exchange` config option is enabled, LavinMQ declares an internal topic exchange named `amq.lavinmq.log` and publishes server log records to it. The routing key is the log severity (e.g., `INFO`, `WARN`, `ERROR`) and the body contains the log source and message.
 
 ## Exchange-to-Exchange Bindings
 

@@ -40,10 +40,10 @@ Supported hashing algorithms:
 LavinMQ creates a default user on first start:
 
 - Username: `guest` (configurable via `default_user`)
-- Password: `guest` (configurable via `default_password_hash`)
+- Password: `guest` (the password hash is configurable via `default_password_hash`, which expects a hashed value, not plaintext)
 - Tags: `administrator`
 
-By default, the guest user can only connect from loopback addresses (127.0.0.1, ::1). This is controlled by `default_user_only_loopback` (default: `true`).
+By default, the default user can only connect from loopback addresses (127.0.0.1, ::1). This is controlled by `default_user_only_loopback` (default: `true`).
 
 ## OAuth2 / OIDC Authentication
 
@@ -70,7 +70,7 @@ jwks_cache_ttl = 3600
 | `scope_prefix` | (none) | Prefix to strip from scope strings |
 | `verify_aud` | `true` | Verify the JWT `aud` claim |
 | `audience` | (none) | Expected JWT audience value |
-| `jwks_cache_ttl` | `1h` | How long to cache the JWKS keys |
+| `jwks_cache_ttl` | `3600` | How long to cache the JWKS keys (seconds) |
 
 ### How It Works
 
@@ -83,6 +83,3 @@ jwks_cache_ttl = 3600
 
 JWT scopes are mapped to LavinMQ permissions. The scope format depends on the identity provider configuration and the `scope_prefix` setting.
 
-## mTLS Authentication
-
-Client certificate authentication via mutual TLS. When mTLS is configured, the client's certificate CN (Common Name) can be used for authentication. See [TLS](tls.md) for TLS configuration.

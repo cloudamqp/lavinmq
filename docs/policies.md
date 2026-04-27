@@ -24,7 +24,7 @@ When multiple policies match a resource, only the highest-priority policy applie
 | `max-length-bytes` | Queues | Maximum total message bytes |
 | `message-ttl` | Queues | Default message TTL (ms) |
 | `expires` | Queues | Queue expiration after inactivity (ms) |
-| `overflow` | Queues | Overflow behavior (drop-head, reject-publish, reject-publish-dlx) |
+| `overflow` | Queues | Overflow behavior (drop-head, reject-publish) |
 | `dead-letter-exchange` | Queues | Dead letter exchange name |
 | `dead-letter-routing-key` | Queues | Dead letter routing key |
 | `delivery-limit` | Queues | Max redelivery attempts |
@@ -44,9 +44,9 @@ Policies cannot override all queue arguments. Arguments like `x-queue-type` and 
 
 Operator policies are a restricted subset of policies intended for infrastructure operators. They are applied independently from regular policies and merged with them.
 
-Operator policies use the same matching logic (pattern, apply-to, priority) but are managed separately and take precedence over regular policies for the keys they define.
+Operator policies use the same matching logic (pattern, apply-to, priority) but are managed separately. When a regular policy and an operator policy both set the same key, the lower (more restrictive) value applies.
 
-Operator policy keys are limited to the operational subset: `max-length`, `max-length-bytes`, `message-ttl`, `expires`, `overflow`, `delivery-limit`, `max-age`.
+Operator policy keys are limited to: `max-length`, `max-length-bytes`, `message-ttl`, `expires`.
 
 ## Parameters
 

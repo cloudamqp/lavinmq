@@ -7,12 +7,12 @@
 By default, `lavinmqctl` connects to `http://127.0.0.1:15672`. Override with:
 
 ```
-lavinmqctl --host http://host:port ...
+lavinmqctl --uri http://host:port ...
 ```
 
 Or set the `LAVINMQCTL_HOST` environment variable.
 
-Authentication uses `--username` and `--password` flags (default: `guest`/`guest`).
+Authentication uses `--user` and `--password` flags (default: `guest`/`guest`).
 
 ## Commands
 
@@ -42,7 +42,7 @@ Authentication uses `--username` and `--password` flags (default: `guest`/`guest
 | Command | Description |
 |---------|-------------|
 | `list_queues` | List all queues |
-| `create_queue <name>` | Create a queue (supports `--durable`, `--auto-delete`, `--expires`, `--max-length`, `--message-ttl`) |
+| `create_queue <name>` | Create a queue (supports `--durable`, `--auto-delete`, `--expires`, `--max-length`, `--message-ttl`, `--delivery-limit`, `--reject-on-overflow`, `--dead-letter-exchange`, `--dead-letter-routing-key`, `--stream-queue`) |
 | `delete_queue <queue>` | Delete a queue |
 | `purge_queue <queue>` | Purge all messages from a queue |
 | `pause_queue <queue>` | Pause all consumers on a queue |
@@ -54,6 +54,7 @@ Authentication uses `--username` and `--password` flags (default: `guest`/`guest
 | Command | Description |
 |---------|-------------|
 | `list_exchanges` | List all exchanges |
+| `create_exchange <type> <name>` | Create an exchange (supports `--auto-delete`, `--durable`, `--internal`, `--delayed`, `--alternate-exchange`, `--persist-messages`, `--persist-ms`) |
 | `delete_exchange <name>` | Delete an exchange |
 
 ### Connection Management
@@ -77,8 +78,10 @@ Authentication uses `--username` and `--password` flags (default: `guest`/`guest
 | Command | Description |
 |---------|-------------|
 | `list_shovels` | List all shovels |
+| `add_shovel <name>` | Create a shovel (supports `--src-uri`, `--dest-uri`, `--src-queue`, `--src-exchange`, `--src-exchange-key`, `--dest-exchange`, `--dest-exchange-key`, `--dest-queue`, `--src-prefetch-count`, `--ack-mode`, `--src-delete-after`, `--reconnect-delay`) |
 | `delete_shovel <name>` | Delete a shovel |
 | `list_federations` | List federation upstreams |
+| `add_federation <name>` | Create a federation upstream (supports `--uri`, `--expires`, `--message-ttl`, `--max-hops`, `--prefetch-count`, `--reconnect-delay`, `--ack-mode`, `--queue`, `--exchange`) |
 | `delete_federation <name>` | Delete a federation upstream |
 
 ### Definitions
@@ -92,16 +95,26 @@ Authentication uses `--username` and `--password` flags (default: `guest`/`guest
 
 | Command | Description |
 |---------|-------------|
+| `status` | Display server status |
+| `cluster_status` | Display cluster status |
 | `stop_app` | Stop the AMQP broker |
 | `start_app` | Start the AMQP broker |
+| `definitions` | Generate definitions JSON from a data directory (offline, does not use API) |
 
 ## Global Options
 
 | Flag | Description |
 |------|-------------|
-| `--host=URL` | Management API URL |
-| `--vhost=VHOST` | Target vhost (default: `/`) |
-| `--username=USER` | API username |
+| `-U`, `--uri=URI` | Management API URI |
+| `--hostname=HOST` | Management API hostname |
+| `-P`, `--port=PORT` | Management API port |
+| `--scheme=SCHEME` | URI scheme (http/https) |
+| `-p`, `--vhost=VHOST` | Target vhost (default: `/`) |
+| `--user=USER` | API username |
 | `--password=PASS` | API password |
-| `--quiet` | Suppress output |
+| `-s`, `--silent` | Suppress informational messages and table formatting |
+| `-q`, `--quiet` | Suppress output |
 | `--format=FORMAT` | Output format |
+| `--host=URL` | Deprecated, use `--uri` or `--hostname` |
+| `-v`, `--version` | Print version and exit |
+| `--build-info` | Print build information and exit |

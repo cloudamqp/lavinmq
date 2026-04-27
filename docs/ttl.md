@@ -8,20 +8,19 @@ Message TTL controls how long a message can remain in a queue before it is disca
 
 ### Setting Message TTL
 
-There are three ways to set message TTL, in order of precedence:
+Message TTL can be set in two places:
 
-1. **Per-message** — set the `expiration` property on the message (string value in milliseconds, e.g., `"60000"` for 60 seconds)
-2. **Per-queue** — set the `x-message-ttl` argument when declaring the queue (integer in milliseconds)
-3. **Via policy** — set the `message-ttl` policy key
+- **Per-message** — set the `expiration` property on the message (string value in milliseconds, e.g., `"60000"` for 60 seconds)
+- **Per-queue** — set the `x-message-ttl` queue argument or apply the `message-ttl` policy
 
-When both per-message and per-queue TTL are set, the lower value applies.
+When both per-message and per-queue TTL are set, the lower of the two applies.
 
 ### Enforcement
 
 LavinMQ enforces message TTL in two ways:
 
 - **Active expiration** — a background fiber checks messages at the head of the queue and removes expired ones
-- **Lazy expiration** — messages are checked on delivery and discarded if expired
+- **Lazy expiration** — messages are checked on delivery and discarded (or dead-lettered if a DLX is configured) if expired
 
 Messages are expired from the head of the queue. A message with a longer TTL behind a message with a shorter TTL will not be expired until the shorter-TTL message is processed first.
 
@@ -46,7 +45,7 @@ Queue TTL controls how long a queue can remain unused before it is automatically
 
 - A queue is considered unused when it has no consumers
 - The expiration timer starts when the last consumer unsubscribes
-- If a consumer subscribes before the timer expires, the timer is reset
+- The timer is reset when a consumer subscribes or when `basic.get` is called on the queue
 - When the queue expires, it is deleted along with all its messages
 
 ## Interaction with Dead-Lettering

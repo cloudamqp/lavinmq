@@ -6,7 +6,7 @@ Shovels move messages from a source to one or more destinations. They are useful
 
 A shovel consists of:
 
-- **Source** — an AMQP queue to consume from
+- **Source** — an AMQP queue or exchange to consume from
 - **Destination** — one or more targets to publish to (AMQP exchange or HTTP endpoint)
 
 ## Source Configuration
@@ -14,7 +14,9 @@ A shovel consists of:
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `src-uri` | (required) | AMQP URI of the source broker |
-| `src-queue` | (required) | Queue to consume from |
+| `src-queue` | (none) | Queue to consume from |
+| `src-exchange` | (none) | Exchange to bind to (creates a temporary queue) |
+| `src-exchange-key` | (none) | Routing key for the exchange binding |
 | `src-prefetch-count` | `1000` | Prefetch count |
 | `src-delete-after` | `never` | Delete shovel after transfer: `never` or `queue-length` |
 
@@ -39,7 +41,7 @@ The message body is sent as the request body.
 
 ## Multi-Destination
 
-A shovel can publish to multiple destinations simultaneously. Each consumed message is forwarded to all configured destinations.
+A shovel can have multiple destinations configured. One destination is randomly selected when the shovel starts, and all consumed messages are forwarded to that single destination until the shovel restarts (e.g., on reconnection).
 
 ## Acknowledgment Modes
 
@@ -62,7 +64,7 @@ A shovel can publish to multiple destinations simultaneously. Each consumed mess
 
 ## Reconnection
 
-Shovels automatically reconnect on failure with a default delay of 5 seconds between attempts.
+Shovels automatically reconnect on failure with a default base delay of 5 seconds. After 10 consecutive retries, the delay increases exponentially up to a maximum of 300 seconds.
 
 ## Management
 

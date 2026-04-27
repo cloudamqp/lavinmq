@@ -47,8 +47,10 @@ If the mandatory flag is not set, unroutable messages are silently discarded (or
 
 Messages can be routed to additional queues via the `CC` and `BCC` headers:
 
-- **CC** — an array of additional routing keys. The message is routed through the exchange with each CC routing key in addition to the primary routing key. The CC header is preserved in the delivered message.
+- **CC** — an array of additional routing keys. The message is re-routed through the same exchange with each CC routing key in addition to the primary routing key. The CC header is preserved in the delivered message.
 - **BCC** — same as CC, but the BCC header is stripped from the delivered message.
+
+During CC/BCC re-routing, the `CC` header is always removed from the header set used for matching, and the `BCC` header is also removed when re-routing on a BCC key. This affects headers exchanges that bind on those keys.
 
 Both headers must be arrays of strings.
 
@@ -56,11 +58,11 @@ Both headers must be arrays of strings.
 
 For request-response patterns, a consumer can subscribe to the pseudo-queue `amq.rabbitmq.reply-to`. When a publisher sets `reply_to: "amq.rabbitmq.reply-to"`, responses are routed directly to the consuming channel without declaring a temporary queue.
 
-The reply consumer and the publisher must be on the same connection. See [AMQP](amqp.md) for more details.
+The requester must hold an active direct reply-to consumer on the same channel it publishes from; otherwise publishing returns a `precondition_failed` error.
 
 ## Server-Set Timestamp
 
-If `set_timestamp` is enabled in the config, the server sets the `timestamp` property on received messages (overwriting any client-set value).
+If `set_timestamp` is enabled in the config, the server sets the `timestamp` property on received messages that do not already have one. Client-set timestamps are preserved.
 
 ## LavinMQ-Added Headers
 
@@ -72,8 +74,9 @@ LavinMQ may add the following headers to delivered messages:
 | `x-first-death-reason` | Reason for the first dead-lettering event |
 | `x-first-death-queue` | Queue the message was first dead-lettered from |
 | `x-first-death-exchange` | Exchange the message was first published to |
-| `x-delivery-count` | Number of times the message has been redelivered (when delivery limit tracking is active) |
-| `x-stream-offset` | Current stream offset position (on messages delivered from streams) |
+| `x-delivery-count` | Number of prior delivery attempts. Only set when the queue has `x-delivery-limit` configured, and only on redeliveries. |
+
+When delivered from a stream, the message also carries an `x-stream-offset` header indicating its position in the stream.
 
 ## Stream Filter Headers
 

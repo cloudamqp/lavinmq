@@ -14,18 +14,22 @@ Metrics are prefixed with `lavinmq_` and include:
 **Server-level:**
 - Connection count, channel count, queue count
 - Memory usage, disk space
-- Message rates (publish, deliver, ack, confirm, reject, redeliver)
+- Global counters: messages delivered, redelivered, acknowledged, confirmed (totals)
+- GC and process metrics
 
-**Per-queue:**
-- Message count (ready, unacked, total)
-- Message rates
+**Per-queue (on `/metrics/detailed`):**
+- Message counts (ready, unacked, total)
 - Consumer count
+- Deduplication cache size
 
-**Per-exchange:**
-- Message rates (publish in, publish out, unroutable)
+**Per-exchange (on `/metrics/detailed`):**
+- Deduplication cache size
 
-**Per-connection:**
-- Data rates, channel count
+**Per-connection (on `/metrics/detailed`):**
+- Incoming/outgoing bytes (counters)
+- Channel count
+
+The `/metrics/detailed` endpoint accepts a `family` query parameter to select which metric families to emit, and a `vhost` parameter to filter by vhost. Both endpoints accept a `prefix` parameter (defaults to `lavinmq`).
 
 ## Event Types
 
@@ -51,7 +55,7 @@ LavinMQ tracks the following internal events:
 | `ConsumerAdded` | A consumer was registered |
 | `ConsumerRemoved` | A consumer was cancelled |
 
-When `log_exchange` is enabled, these events are published to the `amq.topic` exchange with routing keys matching the event name.
+When `log_exchange` is enabled, server log entries are published to an internal topic exchange named `amq.lavinmq.log`, with the log severity (e.g., `Info`, `Warn`, `Error`) as the routing key. The events listed above are tracked internally for statistics and the management API; they are not published to `amq.lavinmq.log`.
 
 ## Statistics
 
@@ -71,11 +75,13 @@ LavinMQ collects rate statistics at a configurable interval:
 
 ## Log Streaming
 
-The management API provides live log streaming via Server-Sent Events at `GET /api/logs`.
+The management API provides live log streaming via Server-Sent Events at `GET /api/livelog`. The `GET /api/logs` endpoint downloads recent server logs as a plain text file.
 
 ## Signal Handling
 
 | Signal | Behavior |
 |--------|----------|
 | `SIGTERM` / `SIGINT` | Graceful shutdown: stop accepting connections, close existing connections, flush to disk, exit |
-| `SIGUSR1` | Print GC statistics and fiber dump to stderr |
+| `SIGUSR1` | Print GC statistics and fiber dump to stdout |
+| `SIGUSR2` | Run garbage collection |
+| `SIGHUP` | Reload server configuration |

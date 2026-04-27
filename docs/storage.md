@@ -41,7 +41,7 @@ When all messages in a segment have been acknowledged, the segment and its ack f
     <queue_sha1>/            # Per-queue directory (SHA1 of queue name)
       msgs.0000000000        # Message segment files
       acks.0000000000        # Ack tracking files
-      meta.0000000000        # Metadata files
+      meta.0000000000        # Metadata files (used by some queue types)
 ```
 
 ## Data Directory Locking
@@ -52,10 +52,10 @@ LavinMQ acquires an exclusive file lock on the data directory to prevent multipl
 
 | Config Key | Default | Description |
 |-----------|---------|-------------|
-| `free_disk_min` | `0` | Minimum free disk space (bytes). When reached, all publishing is blocked. |
-| `free_disk_warn` | `0` | Warning threshold (bytes). Emits warnings when reached. |
+| `free_disk_min` | `0` | Minimum free disk space (bytes). Publishing is blocked when free space drops below this value. |
+| `free_disk_warn` | `0` | Warning threshold (bytes). Emits warnings when free space drops below this value. |
 
-When `free_disk_min` is exceeded, LavinMQ sends `connection.blocked` to all publishing connections, pausing message flow until disk space is recovered.
+Publishing is blocked when free disk space drops below `3 * segment_size` or below `free_disk_min` (whichever is higher). With the default `free_disk_min = 0`, the `3 * segment_size` threshold (default ~24 MB) is the active trigger. When publishing is blocked, the server returns `precondition_failed` channel errors on `basic.publish`.
 
 ## Definitions Compaction
 

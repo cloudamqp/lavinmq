@@ -34,7 +34,7 @@ Priority queues support all standard queue features:
 
 - TTL (message and queue expiration)
 - Dead-lettering
-- Max length / max length bytes (overflow drops from the head of the lowest-priority sub-store)
+- Max length / max length bytes (overflow drops the oldest message from the highest-priority non-empty sub-store)
 - Durability
 - Consumer prefetch
 - Single active consumer

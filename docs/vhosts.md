@@ -26,7 +26,7 @@ A client connection is bound to a single vhost, specified during connection nego
 
 Limits are optional. When not set, there is no limit.
 
-Limits are managed via the API at `/api/vhost-limits/:vhost/:name` or through the CLI. Setting a limit to `-1` removes it.
+Limits are managed via the API at `/api/vhost-limits/:vhost/:type` or through the CLI. Setting a limit to a negative value removes it.
 
 ## Data Storage
 

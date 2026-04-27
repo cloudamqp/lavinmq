@@ -56,11 +56,12 @@ When a high-priority consumer has reached its prefetch limit, messages are deliv
 
 ## Consumer Timeout
 
-If a consumer holds unacknowledged messages for too long without any activity, LavinMQ can close the connection.
+If the oldest unacknowledged message on a consumer has been waiting longer than the configured timeout, LavinMQ closes the channel.
 
 - Set per-queue via `x-consumer-timeout` (milliseconds)
 - Set globally via `consumer_timeout` in the config
 - The timeout check runs every `consumer_timeout_loop_interval` seconds (default 60)
+- The timeout is measured from when the message was delivered, not from last channel activity. Acknowledging other messages does not reset the timer for messages still unacked.
 
 ## basic.get (Polling)
 
@@ -70,7 +71,10 @@ If a consumer holds unacknowledged messages for too long without any activity, L
 
 ## basic.recover
 
-`basic.recover` asks the server to redeliver all unacknowledged messages on the channel. Messages are requeued and may be delivered to a different consumer.
+`basic.recover` asks the server to redeliver all unacknowledged messages on the channel.
+
+- `requeue=true` — messages are requeued and may be delivered to a different consumer
+- `requeue=false` — the server attempts to redeliver messages to the original consumer. If the consumer is no longer active, messages are requeued instead.
 
 ## Consumer Cancellation Notification
 

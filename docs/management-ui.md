@@ -17,10 +17,15 @@ The management UI provides visual access to:
 - **Channels** — list active channels with prefetch and message rate info
 - **Exchanges** — declare, inspect, and delete exchanges; publish test messages
 - **Queues** — declare, inspect, purge, and delete queues; get/peek messages; pause/resume
-- **Bindings** — view and manage bindings between exchanges and queues
+- **Streams** — inspect stream queues
+- **Unacked** — view unacknowledged messages
+- **Consumers** — view active consumers across the server
+- **Nodes** — view node information and resource usage
 - **Users** — create, edit, and delete users; manage tags
 - **Vhosts** — create and delete virtual hosts
-- **Policies** — create, edit, and delete policies and operator policies
+- **Policies** — create, edit, and delete policies
+- **Operator Policies** — manage operator policies separately from regular policies
+- **Logs** — view and stream server logs
 - **Shovels** — view shovel status
 - **Federation** — view federation link status
 

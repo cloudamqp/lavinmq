@@ -20,7 +20,7 @@ Users need the `management` tag (or higher) to access the API.
 | GET | `/api/nodes` | List nodes |
 | GET | `/api/nodes/:name` | Node details |
 | GET | `/api/whoami` | Current authenticated user |
-| GET | `/api/aliveness-test/:vhost` | Health check (creates temp queue, publishes and retrieves a test message) |
+| GET | `/api/aliveness-test/:vhost` | Health check (declares an `aliveness-test` queue, publishes and retrieves a test message) |
 | GET | `/api/extensions` | List supported server extensions |
 
 ### Vhosts
@@ -31,6 +31,7 @@ Users need the `management` tag (or higher) to access the API.
 | GET | `/api/vhosts/:name` | Vhost details |
 | PUT | `/api/vhosts/:name` | Create vhost |
 | DELETE | `/api/vhosts/:name` | Delete vhost |
+| GET | `/api/vhosts/:name/permissions` | List permissions for a vhost |
 
 ### Vhost Limits
 
@@ -38,8 +39,8 @@ Users need the `management` tag (or higher) to access the API.
 |--------|------|-------------|
 | GET | `/api/vhost-limits` | List all vhost limits |
 | GET | `/api/vhost-limits/:vhost` | Limits for a vhost |
-| PUT | `/api/vhost-limits/:vhost/:name` | Set a limit |
-| DELETE | `/api/vhost-limits/:vhost/:name` | Remove a limit |
+| PUT | `/api/vhost-limits/:vhost/:type` | Set a limit (`:type` is `max-connections` or `max-queues`) |
+| DELETE | `/api/vhost-limits/:name/:type` | Remove a limit |
 
 ### Users
 
@@ -51,6 +52,8 @@ Users need the `management` tag (or higher) to access the API.
 | DELETE | `/api/users/:name` | Delete user |
 | POST | `/api/users/bulk-delete` | Delete multiple users |
 | GET | `/api/users/without-permissions` | List users with no permissions |
+| GET | `/api/users/:name/permissions` | List permissions for a user |
+| PUT | `/api/auth/hash_password` | Hash a password |
 
 ### Permissions
 
@@ -88,6 +91,7 @@ Users need the `management` tag (or higher) to access the API.
 | PUT | `/api/queues/:vhost/:name/restart` | Restart a closed queue |
 | GET | `/api/queues/:vhost/:name/unacked` | List unacknowledged messages |
 | POST | `/api/queues/:vhost/:name/stream` | Read from a stream queue (with offset and filter support) |
+| GET | `/api/queues/:vhost/:name/bindings` | List bindings for a queue |
 
 ### Bindings
 
@@ -95,21 +99,35 @@ Users need the `management` tag (or higher) to access the API.
 |--------|------|-------------|
 | GET | `/api/bindings` | List all bindings |
 | GET | `/api/bindings/:vhost` | Bindings in a vhost |
-| GET | `/api/bindings/:vhost/e/:exchange/q/:queue` | Bindings between exchange and queue |
-| POST | `/api/bindings/:vhost/e/:exchange/q/:queue` | Create binding |
-| DELETE | `/api/bindings/:vhost/e/:exchange/q/:queue/:props` | Delete binding |
+| GET | `/api/bindings/:vhost/e/:name/q/:queue` | Bindings between exchange and queue |
+| POST | `/api/bindings/:vhost/e/:name/q/:queue` | Create binding |
+| GET | `/api/bindings/:vhost/e/:name/q/:queue/:props` | Get specific binding |
+| DELETE | `/api/bindings/:vhost/e/:name/q/:queue/*props` | Delete binding |
+| GET | `/api/bindings/:vhost/e/:name/e/:destination` | Bindings between two exchanges |
+| POST | `/api/bindings/:vhost/e/:name/e/:destination` | Create exchange-to-exchange binding |
+| GET | `/api/bindings/:vhost/e/:name/e/:destination/:props` | Get specific e2e binding |
+| DELETE | `/api/bindings/:vhost/e/:name/e/:destination/*props` | Delete e2e binding |
+| GET | `/api/exchanges/:vhost/:name/bindings/source` | Bindings where exchange is source |
+| GET | `/api/exchanges/:vhost/:name/bindings/destination` | Bindings where exchange is destination |
 
 ### Connections and Channels
 
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/connections` | List connections |
+| GET | `/api/vhosts/:vhost/connections` | List connections for a vhost |
 | GET | `/api/connections/:name` | Connection details |
+| GET | `/api/connections/:name/channels` | List channels for a connection |
+| GET | `/api/connections/username/:username` | List connections by username |
 | DELETE | `/api/connections/:name` | Close connection |
+| DELETE | `/api/connections/username/:username` | Close all connections for a username |
 | GET | `/api/channels` | List channels |
+| GET | `/api/vhosts/:vhost/channels` | List channels for a vhost |
 | GET | `/api/channels/:name` | Channel details |
+| PUT | `/api/channels/:name` | Update channel settings (e.g. prefetch count) |
 | GET | `/api/consumers` | List consumers |
 | GET | `/api/consumers/:vhost` | Consumers in a vhost |
+| DELETE | `/api/consumers/:vhost/:connection/:channel/:consumer_tag` | Cancel a consumer |
 
 ### Policies and Parameters
 
@@ -126,7 +144,8 @@ Users need the `management` tag (or higher) to access the API.
 | PUT | `/api/operator-policies/:vhost/:name` | Create/update operator policy |
 | DELETE | `/api/operator-policies/:vhost/:name` | Delete operator policy |
 | GET | `/api/parameters` | List all parameters |
-| GET | `/api/parameters/:component/:vhost` | Parameters by component |
+| GET | `/api/parameters/:component` | Parameters by component (all vhosts) |
+| GET | `/api/parameters/:component/:vhost` | Parameters by component and vhost |
 | GET | `/api/parameters/:component/:vhost/:name` | Parameter details |
 | PUT | `/api/parameters/:component/:vhost/:name` | Set parameter |
 | DELETE | `/api/parameters/:component/:vhost/:name` | Delete parameter |
@@ -141,6 +160,7 @@ Users need the `management` tag (or higher) to access the API.
 |--------|------|-------------|
 | GET | `/api/shovels` | List all shovels |
 | GET | `/api/shovels/:vhost` | Shovels in a vhost |
+| GET | `/api/shovels/:vhost/:name` | Shovel details |
 | PUT | `/api/shovels/:vhost/:name/pause` | Pause a shovel |
 | PUT | `/api/shovels/:vhost/:name/resume` | Resume a shovel |
 | GET | `/api/federation-links` | List federation links |
@@ -152,15 +172,17 @@ Users need the `management` tag (or higher) to access the API.
 |--------|------|-------------|
 | GET | `/api/definitions` | Export all definitions |
 | POST | `/api/definitions` | Import definitions |
+| POST | `/api/definitions/upload` | Import definitions via form upload |
 | GET | `/api/definitions/:vhost` | Export vhost definitions |
 | POST | `/api/definitions/:vhost` | Import vhost definitions |
+| POST | `/api/definitions/:vhost/upload` | Import vhost definitions via form upload |
 
 ### Monitoring
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/logs` | Stream server logs (SSE) |
-| GET | `/api/livelog` | Live log stream |
+| GET | `/api/logs` | Download recent server logs as plain text |
+| GET | `/api/livelog` | Live log stream (Server-Sent Events) |
 
 ### Prometheus Metrics
 

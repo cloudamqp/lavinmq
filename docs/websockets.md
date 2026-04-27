@@ -6,16 +6,18 @@ LavinMQ supports both AMQP and MQTT over WebSocket connections, enabling browser
 
 | Path | Protocol |
 |------|----------|
-| `/ws` | AMQP over WebSocket (default) |
+| `/mqtt` | MQTT over WebSocket |
 | `/ws/mqtt` | MQTT over WebSocket |
-| `/mqtt` | MQTT over WebSocket (alias) |
+| any other path | AMQP over WebSocket |
 
-The protocol is also negotiated via the `Sec-WebSocket-Protocol` header:
+WebSocket upgrade requests are accepted on the management HTTP port. Protocol selection follows this order:
 
-- `amqp` — AMQP 0-9-1
-- `mqtt` — MQTT
+1. If the `Sec-WebSocket-Protocol` header is set, the protocol is selected from it:
+   - `amqp` (or any token starting with `amqp`, case-insensitive) — AMQP 0-9-1
+   - `mqtt` (or any token starting with `mqtt`, case-insensitive) — MQTT
+2. Otherwise, the path is used: `/mqtt` and `/ws/mqtt` route to MQTT; any other path routes to AMQP.
 
-If no sub-protocol is specified and the path is not explicitly MQTT, AMQP is assumed.
+Conventionally, clients use `/ws` for AMQP, but the path itself is not significant when the sub-protocol header is set.
 
 ## Port
 
@@ -38,4 +40,4 @@ From the protocol handler's perspective, the connection behaves identically to a
 
 ## Client IP
 
-The client's remote IP address is taken from the HTTP request. When behind a reverse proxy, use proxy protocol or `X-Forwarded-For` headers to preserve the original client IP.
+The client's remote IP address is taken from the HTTP request's TCP connection.

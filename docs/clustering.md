@@ -56,7 +56,7 @@ The ISR set tracks which followers are fully synchronized. A follower joins the 
 
 ## Failover
 
-If the leader fails, etcd coordinates leader election among ISR members. The follower with the most up-to-date data is elected.
+If the leader fails, etcd coordinates leader election among ISR members. The first ISR member to successfully campaign becomes the new leader.
 
 ### Leader Election Hooks
 
@@ -74,4 +74,4 @@ Followers can proxy client connections to the current leader, allowing clients t
 
 ## Security
 
-Followers authenticate to the leader using a shared password derived from the etcd cluster state.
+Followers authenticate to the leader using a shared secret stored in etcd. The secret is randomly generated on first cluster initialization and stored under `{etcd_prefix}/clustering_secret`.

@@ -41,6 +41,6 @@ lavinmqperf --uri=amqp://user:pass@host:5672 amqp throughput
 
 | Flag | Description |
 |------|-------------|
-| `--uri=URI` | AMQP/MQTT URI (default: `amqp://guest:guest@localhost`) |
+| `--uri=URI` | AMQP or MQTT URI (default: `amqp://guest:guest@localhost` for AMQP scenarios, `mqtt://localhost:1883` for MQTT scenarios) |
 | `-h`, `--help` | Show help |
 | `-v`, `--version` | Show version |

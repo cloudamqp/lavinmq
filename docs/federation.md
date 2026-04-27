@@ -40,12 +40,12 @@ Upstreams are configured as parameters (component: `federation-upstream`).
 | `uri` | (required) | AMQP URI of the upstream broker |
 | `exchange` | (same name) | Upstream exchange name (if different from downstream) |
 | `queue` | (same name) | Upstream queue name (if different from downstream) |
-| `prefetch` | `1000` | Prefetch count for the upstream consumer |
-| `reconnect-delay` | `5` | Seconds to wait before reconnecting after failure |
+| `prefetch-count` | `1000` | Prefetch count for the upstream consumer |
+| `reconnect-delay` | `1` | Seconds to wait before reconnecting after failure |
 | `ack-mode` | `on-confirm` | When to ack upstream messages: `on-confirm`, `on-publish`, `no-ack` |
 | `max-hops` | `1` | Maximum federation hops |
-| `expires` | (none) | Upstream queue expiry (ms) |
-| `message-ttl` | (none) | Message TTL on the upstream queue (ms) |
+| `expires` | (none) | Upstream queue expiry (milliseconds; forwarded as `x-expires`) |
+| `message-ttl` | (none) | Message TTL on the upstream queue (milliseconds; forwarded as `x-message-ttl`) |
 
 ## Upstream Sets
 
