@@ -165,48 +165,45 @@ Use [lavinmqperf](https://lavinmq.com/documentation/lavinmqperf) to benchmark yo
 
 ### Core Protocols
 
-- AMQP 0-9-1 protocol support
-- MQTT 3.1.0 protocol support
-- MQTT 3.1.1 protocol support
-- AMQPS (TLS)
-- AMQP over websockets
-- MQTT over websockets
+- [AMQP 0-9-1 protocol support](https://lavinmq.com/documentation/amqp-the-protocol)
+- [MQTT 3.1.0 protocol support](https://lavinmq.com/documentation/mqtt-in-lavinmq)
+- [MQTT 3.1.1 protocol support](https://lavinmq.com/documentation/mqtt-in-lavinmq)
+- [AMQPS TLS](https://lavinmq.com/documentation/amqp-the-protocol)
+- [AMQP over websockets](https://lavinmq.com/documentation/websockets)
+- [MQTT over websockets](https://lavinmq.com/documentation/websockets)
 
 ### Messaging Capabilities
 
-- Publisher confirm
-- Transactions
-- Dead-lettering
+- [Publisher confirm](https://lavinmq.com/documentation/publisher-confirms)
+- [Transactions](https://lavinmq.com/documentation/transactions)
+- [Dead-lettering](https://lavinmq.com/documentation/dead-letter-exchange)
 - TTL support on queue, message, and policy level
 - CC/BCC
-- Alternative exchange
+- [Alternative exchange](https://lavinmq.com/documentation/alternate-exchange)
 - Exchange to exchange bindings
-- Direct-reply-to RPC
-- Queue max-length
-- Priority queues
-- Delayed exchanges
-- Message deduplication
+- [Direct-reply-to RPC](https://lavinmq.com/documentation/remote-procedure-call)
+- [Queue max-length](https://lavinmq.com/documentation/queue-length-limit)
+- [Priority queues](https://lavinmq.com/documentation/message-priority)
+- [Delayed exchanges](https://lavinmq.com/documentation/delayed-message)
+- [Message deduplication](https://lavinmq.com/documentation/message-deduplication)
+- [Consistent Hashing Exchange](https://lavinmq.com/documentation/consistent-hash-exchange)
 
 ### Management
 
-- HTTP API
+- [HTTP API](https://docs.lavinmq.com/)
 - Users and ACL rules
-- VHost separation
-- Policies
-- Importing/export definitions
-- Consumer cancellation
-
-### High Availability
-
-- Replication
-- Automatic leader election in clusters via etcd
+- [VHost separation](https://lavinmq.com/documentation/amqp-vhost)
+- [Policies](https://lavinmq.com/documentation/policies)
+- [Importing/export definitions](https://lavinmq.com/documentation/import-export-definitions)
+- [Consumer cancellation](https://lavinmq.com/documentation/consumer-cancellation)
 
 ### Other Functionality
 
-- Shovels
-- Queue & Exchange federation
-- Single active consumer
-- Stream queues
+- [Shovels](https://lavinmq.com/documentation/shovel)
+- [Queue & Exchange federation](https://lavinmq.com/documentation/federation)
+- [Single active consumer](https://lavinmq.com/documentation/single-active-consumer)
+- [Stream queues](https://lavinmq.com/documentation/streams)
+- [Webhook Shovels](https://lavinmq.com/documentation/webhooks)
 
 ## Feature Highlights
 
@@ -246,6 +243,8 @@ Each consumer can start reading from anywhere in the queue using the `x-stream-o
 #### Stream Queue Filtering
 
 Stream queues support message filtering, allowing consumers to receive only messages that match specific criteria. This is useful for consuming a subset of messages without creating multiple queues. For more information on filtering, see the [documentation](https://lavinmq.com/documentation/streams#stream-filtering).
+
+See [Stream Queues](https://lavinmq.com/documentation/streams)
 
 ### MQTT Support
 
