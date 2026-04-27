@@ -38,13 +38,18 @@ async function fetchAndCacheWhoAmI () {
   return window.fetch('api/whoami')
     .then(async resp => {
       if (resp.ok) {
-        return await resp.json().then(data => {
-          data._ts = Date.now()
-          delete data.password_hash
-          delete data.hashing_algorithm
-          window.localStorage.setItem('lmq.whoami', JSON.stringify(data))
-          return data
-        })
+        let data
+        try {
+          data = await resp.json()
+        } catch {
+          window.localStorage.removeItem('lmq.whoami')
+          return null
+        }
+        data._ts = Date.now()
+        delete data.password_hash
+        delete data.hashing_algorithm
+        window.localStorage.setItem('lmq.whoami', JSON.stringify(data))
+        return data
       } else {
         window.localStorage.removeItem('lmq.whoami')
         return null
@@ -56,7 +61,12 @@ async function whoAmI (forceReload = false) {
   if (!forceReload) {
     const data = window.localStorage.getItem('lmq.whoami')
     if (data) {
-      const cached = JSON.parse(data)
+      let cached
+      try {
+        cached = JSON.parse(data)
+      } catch {
+        window.localStorage.removeItem('lmq.whoami')
+      }
       if (cached && cached.name == getUsername()) {
         const expired = (cached._ts + 3600 * 1000) <= Date.now()
         if (expired) {
