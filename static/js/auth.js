@@ -23,12 +23,15 @@ function getCookie (key) {
 async function login (username, password) {
   const auth = window.btoa(`${username}:${password}`)
   document.cookie = `m=|:${encodeURIComponent(auth)}; samesite=strict; max-age=${60 * 60 * 8}`
-  return whoAmI(true)
+  const result = await whoAmI(true)
+  if (!result) document.cookie = 'm=; max-age=0'
+  return result
 }
 
 function logout () {
   window.localStorage.removeItem('lmq.whoami')
   document.cookie = 'm=; max-age=0'
+  window.location.assign('login')
 }
 
 async function whoAmI (forceReload = false) {
@@ -54,7 +57,7 @@ async function whoAmI (forceReload = false) {
           return data
         })
       } else {
-        logout()
+        window.localStorage.removeItem('lmq.whoami')
         return null
       }
     })
