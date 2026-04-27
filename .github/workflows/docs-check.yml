@@ -1,0 +1,38 @@
+name: Docs check
+
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+
+jobs:
+  check-docs:
+    name: Check for documentation updates
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Check if docs were updated
+        id: docs
+        run: |
+          if git diff --name-only origin/${{ github.event.pull_request.base.ref }}...HEAD | grep -q '^docs/'; then
+            echo "updated=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "updated=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Add missing-docs label
+        if: steps.docs.outputs.updated == 'false'
+        run: gh pr edit "${{ github.event.pull_request.number }}" --add-label "missing-docs"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Remove missing-docs label
+        if: steps.docs.outputs.updated == 'true'
+        run: gh pr edit "${{ github.event.pull_request.number }}" --remove-label "missing-docs" || true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
