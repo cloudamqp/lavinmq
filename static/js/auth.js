@@ -23,9 +23,10 @@ function getCookie (key) {
 async function login (username, password) {
   const auth = window.btoa(`${username}:${password}`)
   document.cookie = `m=|:${encodeURIComponent(auth)}; samesite=strict; max-age=${60 * 60 * 8}`
-  const result = await whoAmI(true)
-  if (!result) document.cookie = 'm=; max-age=0'
-  return result
+  return whoAmI(true).catch(e => {
+    document.cookie = 'm=; max-age=0'
+    throw e
+  })
 }
 
 function logout () {
@@ -43,7 +44,7 @@ async function fetchAndCacheWhoAmI () {
           data = await resp.json()
         } catch {
           window.localStorage.removeItem('lmq.whoami')
-          return null
+          throw new Error('Invalid JSON response from whoami')
         }
         data._ts = Date.now()
         delete data.password_hash
@@ -52,7 +53,7 @@ async function fetchAndCacheWhoAmI () {
         return data
       } else {
         window.localStorage.removeItem('lmq.whoami')
-        return null
+        throw new Error(`whoami failed with status ${resp.status}`)
       }
     })
 }
@@ -70,7 +71,7 @@ async function whoAmI (forceReload = false) {
       if (cached && cached.name === getUsername()) {
         const expired = (cached._ts + 3600 * 1000) <= Date.now()
         if (expired) {
-          fetchAndCacheWhoAmI()
+          fetchAndCacheWhoAmI().catch(e => console.warn(`Failed to load whoAmI: ${e.message}`))
         }
         return cached
       }

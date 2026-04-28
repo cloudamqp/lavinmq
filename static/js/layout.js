@@ -1,7 +1,7 @@
 import * as Auth from './auth.js'
 import * as Helpers from './helpers.js'
 
-Auth.whoAmI().then(data => { if (!data) Auth.logout() })
+Auth.whoAmI().catch(() => Auth.logout())
 
 document.getElementById('username').textContent = Auth.getUsername()
 
